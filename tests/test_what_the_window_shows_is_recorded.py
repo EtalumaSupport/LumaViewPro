@@ -29,6 +29,47 @@ def record(caplog):
     gui_logger._shown.clear()
 
 
+def _bound_popup():
+    """A progress popup whose title and words record as Kivy's bindings would."""
+    from ui.progress_popup import CustomPopup
+
+    class _Popup:
+        # a stand-in by design: Kivy is stubbed in the test process; each
+        # property fires its binding on a change only, as a Kivy property does
+        progress = 0
+        _showing_outcome = False
+        _title = ''
+        _text = ''
+        _record_title = CustomPopup._record_title
+        _record_words = CustomPopup._record_words
+        show_outcome = getattr(CustomPopup, 'show_outcome', None)
+
+        @property
+        def title(self):
+            return self._title
+
+        @title.setter
+        def title(self, value):
+            if value != self._title:
+                self._title = value
+                self._record_title(self, value)
+
+        @property
+        def text(self):
+            return self._text
+
+        @text.setter
+        def text(self, value):
+            if value != self._text:
+                self._text = value
+                self._record_words(self, value)
+
+        def dismiss(self):
+            pass
+
+    return _Popup()
+
+
 def test_a_change_is_recorded_once(record):
     gui_logger.display('HOMING_BANNER', True)
     gui_logger.display('HOMING_BANNER', True)
@@ -114,25 +155,89 @@ def test_a_dialog_records_its_close_on_leaving_the_screen(record):
 
 
 def test_a_progress_popup_records_its_title_and_the_first_words_under_it(record):
-    from types import SimpleNamespace
-
-    from ui.progress_popup import CustomPopup
-
-    # a stand-in by design: Kivy is stubbed in the test process; a body names
-    # the popup, then writes its words, then its progress
-    popup = SimpleNamespace(title='')
-    for title, text in (
-        ('Stitch', ''),
-        ('Stitch', 'Stitching tiles...'),
-        ('Stitch', '3/10: A1.tiff'),
-    ):
-        popup.title = title
-        CustomPopup._record_title(popup, popup, title)
-        CustomPopup._record_words(popup, popup, text)
+    # a body names the popup, then writes its words, then its progress
+    popup = _bound_popup()
+    popup.title = 'Stitch'
+    popup.text = 'Stitching tiles...'
+    popup.text = '3/10: A1.tiff'
 
     assert record() == [
         'DISPLAY PROGRESS_POPUP Stitch',
         'DISPLAY PROGRESS_POPUP_WORDS Stitch | Stitching tiles...',
+    ]
+
+
+@pytest.mark.parametrize(
+    'progress, expected',
+    [
+        (
+            [],
+            [
+                'DISPLAY PROGRESS_POPUP Enhance',
+                'DISPLAY PROGRESS_POPUP_WORDS Enhance | Enhance complete.',
+            ],
+        ),
+        (
+            ['Enhancing 1/3'],
+            [
+                'DISPLAY PROGRESS_POPUP Enhance',
+                'DISPLAY PROGRESS_POPUP_WORDS Enhance | Enhancing 1/3',
+                'DISPLAY PROGRESS_POPUP_WORDS Enhance | Enhance complete.',
+            ],
+        ),
+    ],
+    ids=['outcome-first', 'progress-then-outcome'],
+)
+def test_a_builds_outcome_is_recorded_once_whatever_came_before_it(
+    record, monkeypatch, progress, expected
+):
+    """The popup's words are recorded in one place, the outcome as its own stage."""
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    import ui.post_processing as post_processing
+
+    # parametrize-justified: the two cases are different behaviours of one
+    # record -- the outcome as the first words, and after progress words
+
+    def _run_inline(call, redraw, label, **kw):
+        call()
+        redraw()
+
+    monkeypatch.setattr(post_processing, 'submit_reported', _run_inline)
+    monkeypatch.setattr(post_processing._app_ctx, 'ctx', MagicMock())
+
+    def _build(on_progress):
+        for words in progress:
+            on_progress(50, words)
+        return SimpleNamespace(message='Enhance complete.')
+
+    popup = _bound_popup()
+    popup.title = 'Enhance'
+    post_processing._run_build(_build, popup, 'ENHANCE')
+
+    assert record() == expected
+
+
+def test_a_background_builds_outcome_lands_behind_its_progress(record, monkeypatch):
+    """The proxy a build thread writes through puts the outcome up after the progress it follows."""
+    import ui.progress_popup as progress_popup
+
+    queued = []
+    monkeypatch.setattr(progress_popup.Clock, 'schedule_once', lambda fn, _dt=0: queued.append(fn))
+    popup = _bound_popup()
+    popup.title = 'Stitch'
+    proxy = progress_popup._PopupProxy(popup)
+
+    proxy.text = 'Stitching tiles...'
+    proxy.show_outcome('Stitched 9 tiles.')
+    for fn in queued:
+        fn(0)
+
+    assert record() == [
+        'DISPLAY PROGRESS_POPUP Stitch',
+        'DISPLAY PROGRESS_POPUP_WORDS Stitch | Stitching tiles...',
+        'DISPLAY PROGRESS_POPUP_WORDS Stitch | Stitched 9 tiles.',
     ]
 
 

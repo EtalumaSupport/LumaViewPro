@@ -65,13 +65,7 @@ def _run_build(build, popup, label: str, on_done=None) -> None:
             popup.dismiss()
             return
         popup.progress = 100
-        popup.text = result.message
-        # The outcome is on screen for two to five seconds; the record keeps it.
-        gui_logger.display(
-            'PROGRESS_POPUP_WORDS',
-            f'{popup.title} | {result.message}',
-            stage=f'{popup.title} | done',
-        )
+        popup.show_outcome(result.message)
         # A result that names a fallback or files left out stays up long
         # enough to be read; the build says which, the panel only holds it.
         noted = isinstance(result, BuildResult) and bool(

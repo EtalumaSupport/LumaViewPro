@@ -37,6 +37,9 @@ class _PopupProxy:
     def dismiss(self, *args, **kwargs):
         Clock.schedule_once(lambda dt: self._popup.dismiss(*args, **kwargs), 0)
 
+    def show_outcome(self, message):
+        Clock.schedule_once(lambda dt: self._popup.show_outcome(message), 0)
+
     def open(self, *args, **kwargs):
         Clock.schedule_once(lambda dt: self._popup.open(*args, **kwargs), 0)
 
@@ -112,7 +115,9 @@ class CustomPopup(Popup):
         # The popup opens before its body names it, so the DIALOG line at
         # open carries no title; its title, and the first words shown under
         # it, are recorded as they arrive. The words that follow under one
-        # title are its progress; a build's outcome is recorded by _run_build.
+        # title are its progress; the words show_outcome puts up are the
+        # build's outcome, a stage of their own.
+        self._showing_outcome = False
         self.bind(title=self._record_title, text=self._record_words)
 
     def _record_title(self, _popup, title: str) -> None:
@@ -120,7 +125,18 @@ class CustomPopup(Popup):
 
     def _record_words(self, _popup, text: str) -> None:
         if text:
-            gui_logger.display('PROGRESS_POPUP_WORDS', f'{self.title} | {text}', stage=self.title)
+            stage = f'{self.title} | done' if self._showing_outcome else self.title
+            gui_logger.display('PROGRESS_POPUP_WORDS', f'{self.title} | {text}', stage=stage)
+
+    def show_outcome(self, message: str) -> None:
+        """Show the build's words for what it made, recorded as its outcome.
+
+        Progress under one title is recorded once, so an outcome written as
+        one more text would go unrecorded after any progress words; this
+        popup records its words in one place, and this names the stage.
+        """
+        self._showing_outcome = True
+        self.text = message
 
     def cancel(self):
         """User-initiated escape from a progress popup. The background operation

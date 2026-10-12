@@ -121,4 +121,4 @@ def test_enhance_asks_and_shows_the_answer(session):
         '/data/one.tif', on_progress=ANY, on_derived_image=panel._queue_derived_image
     )
     assert panel.busy is False
-    assert popup.text == 'done'
+    popup.show_outcome.assert_called_once_with('done')
