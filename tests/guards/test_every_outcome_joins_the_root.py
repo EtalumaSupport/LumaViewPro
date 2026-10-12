@@ -36,7 +36,7 @@ from modules.exceptions import (
     Refusal,
     _Umbrella,
 )
-from tests.ast_seams import REPO_ROOT
+from tests.ast_seams import REPO_ROOT, module_name
 
 KINDS = (Refusal, Notice, Quiet, Fault)
 UMBRELLAS = (ConfigError, ProtocolError, CaptureError)
@@ -58,10 +58,7 @@ def _exception_classes():
                 for node in ast.walk(tree)
                 if isinstance(node, ast.ClassDef)
             }
-            parts = path.relative_to(REPO_ROOT).with_suffix('').parts
-            # A package is imported by its own name: as '<package>.__init__'
-            # it would load a second time and define every class twice.
-            module = '.'.join(parts[:-1] if parts[-1] == '__init__' else parts)
+            module = module_name(path.relative_to(REPO_ROOT).as_posix())
             found.extend((module, name) for name, bases in classes.items() if bases)
     return found
 
