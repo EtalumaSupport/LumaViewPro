@@ -193,7 +193,12 @@ def test_set_binning_size_driver_raise_becomes_typed_rejection(centre_posts):
     assert isinstance(excinfo.value.__cause__, RuntimeError), (
         'the driver exception must be chained onto the typed rejection'
     )
-    _assert_carries_its_words(excinfo.value, 'Binning change failed', 'SDK sulked', centre_posts)
+    # A raise reads as a refusal does; the driver's words stay on the cause,
+    # which the reporter's log line carries.
+    assert str(excinfo.value.__cause__) == 'SDK sulked'
+    _assert_carries_its_words(
+        excinfo.value, 'Binning change failed', 'did not accept', centre_posts
+    )
     assert imaging._binning_size == 2  # prior factor intact
 
 
@@ -209,9 +214,9 @@ def test_set_pixel_format_driver_raise_becomes_typed_rejection(centre_posts):
     with pytest.raises(CameraSettingRejected) as excinfo:
         imaging.set_pixel_format('Mono8')
 
-    assert isinstance(excinfo.value.__cause__, RuntimeError)
+    assert str(excinfo.value.__cause__) == 'SDK sulked'
     _assert_carries_its_words(
-        excinfo.value, 'Pixel format change failed', 'SDK sulked', centre_posts
+        excinfo.value, 'Pixel format change failed', 'did not accept', centre_posts
     )
     assert imaging.pixel_format_cached == 'Mono12'
 

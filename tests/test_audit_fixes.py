@@ -1547,41 +1547,6 @@ class TestRule14_A10_ProtocolCleanupErrorCollection:
         assert captured == [], f'clean cleanup must not notify; got {captured}'
 
 
-class TestSetBinningSizeFailureNotifies:
-    """A failed binning change must surface a user notification -- the
-    camera silently staying at the old binning is invisible otherwise."""
-
-    def test_set_binning_size_exception_notifies(self, monkeypatch, centre_posts):
-        import pytest
-
-        from modules.exceptions import CameraSettingRejected
-        from modules.notification_center import notifications
-
-        imaging, cam = _sim_backed_imaging()
-
-        def raising_set_binning_size(size):
-            raise RuntimeError('simulated SDK failure')
-
-        monkeypatch.setattr(cam, 'set_binning_size', raising_set_binning_size)
-        # A raising driver surfaces as the typed rejection (the apply
-        # contract: success returns True, rejection raises so a caller
-        # cannot silently record a rejected apply). The setter shows
-        # nothing; the rejection reaches the person through the reporter
-        # that ends its flight, in the words it carries.
-        with pytest.raises(CameraSettingRejected) as excinfo:
-            imaging.set_binning_size(2)
-        assert _posted(centre_posts, Severity.ERROR) == [], (
-            'the setter must leave the showing to the reporter'
-        )
-        notifications.report_outcome(excinfo.value, solicited=True, category='Camera')
-        captured = _posted(centre_posts, Severity.ERROR)
-        assert len(captured) == 1, captured
-        assert captured[0][1] == 'Binning change failed', (
-            f'notification title must name the failed operation; got {captured[0]}'
-        )
-        assert 'simulated SDK failure' in captured[0][2], captured[0]
-
-
 class TestSetBinningSizeAnswersByRaising:
     """ImagingAPI.set_binning_size returns only when the camera took it.
 

@@ -962,6 +962,7 @@ class ImagingAPI:
         self,
         write_fn: Callable[[], object],
         *,
+        refusal: Callable[[], CameraSettingRejected] | None,
         invalidates: tuple[str, ...] = (),
         force_invalidate: tuple[str, ...] = (),
         targets: tuple[tuple[str, float | None], ...] = (),
@@ -982,10 +983,17 @@ class ImagingAPI:
         write is "applied" when the driver did not return ``False`` -- an explicit
         ``False`` is the only rejection signal; a ``None`` return (drivers without
         a confirmation signal) and any truthy result both count as applied.
+        A write that raises is refused: the unconditional block still fires,
+        and ``refusal()`` is raised with the driver's exception as its cause,
+        so no setter lets a driver's own exception out of the API.
 
         Args:
             write_fn: Zero-arg callable performing the driver write (including
                 any lock it needs) and returning the driver's result.
+            refusal: Builds the ``CameraSettingRejected`` this write raises
+                when the driver raises, in the words of the setting's
+                refusal. Required, so a new setter states it; ``None`` only
+                for a write that sends nothing to the camera.
             invalidates: Sources to invalidate only when the write was applied.
             force_invalidate: Sources to invalidate unconditionally, regardless
                 of the result.
@@ -1016,11 +1024,17 @@ class ImagingAPI:
             The driver write's result, so the caller can do its own rejection
             handling / listener fire.
         """
-        result = write_fn()
-        for source in force_invalidate:
-            self.frame_validity.invalidate(source)
-        for source in force_clear:
-            self.frame_validity.set_target(source, None)
+        try:
+            result = write_fn()
+        except Exception as ex:
+            if refusal is None:
+                raise
+            raise refusal() from ex
+        finally:
+            for source in force_invalidate:
+                self.frame_validity.invalidate(source)
+            for source in force_clear:
+                self.frame_validity.set_target(source, None)
         applied = result is not False
         if applied:
             for source in invalidates:
@@ -1130,10 +1144,12 @@ class ImagingAPI:
         """Set the camera gain, and answer with the gain now in effect.
 
         Deliberately does NOT raise on a refusal, unlike the public
-        ``set_gain_db`` that wraps it. This body is the composition primitive
-        the auto-gain lock, the exposure ceiling, the camera restore and the
-        layer apply build on, and each of them carries on at the gain the
-        camera holds and answers for the refusal in its own outcome. Nothing
+        ``set_gain_db`` that wraps it; a driver that raises from the write
+        raises ``CameraSettingRejected`` here, chained (``_camera_write``).
+        This body is the composition primitive the auto-gain lock, the
+        exposure ceiling, the camera restore and the layer apply build on,
+        and each of them carries on at the gain the camera holds and answers
+        for the refusal in its own outcome. Nothing
         is logged or shown here: a refusal is reported once, by whoever ends
         its flight.
 
@@ -1167,6 +1183,7 @@ class ImagingAPI:
 
         ok = self._camera_write(
             _write_gain,
+            refusal=lambda: _value_rejection('gain_db', gain_db),
             force_invalidate=('gain',),
             targets=(('gain', float(gain_db)),),
             target_from_result=('gain',),
@@ -1239,6 +1256,7 @@ class ImagingAPI:
 
         ok = self._camera_write(
             _write_exposure,
+            refusal=lambda: _value_rejection('exposure_ms', exposure_ms),
             force_invalidate=('exposure',),
             targets=(('exposure', float(exposure_ms) * 1000.0),),
             target_from_result=('exposure',),
@@ -1486,9 +1504,9 @@ class ImagingAPI:
                 finite number; nothing was sent to the camera.
             CameraSettingOutOfRangeError: The gain is outside the range the
                 camera declares; nothing was sent to it.
-            CameraSettingRejected: A live driver confirmed it refused the
-                gain. It carries the words its reporter shows; nothing is
-                shown here.
+            CameraSettingRejected: A live driver refused the gain or raised
+                from the write (chained). It carries the words its reporter
+                shows; nothing is shown here.
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera, with none connected.
         """
@@ -1533,9 +1551,9 @@ class ImagingAPI:
                 finite number; nothing was sent to the camera.
             CameraSettingOutOfRangeError: The exposure is outside the range
                 the camera declares; nothing was sent to it.
-            CameraSettingRejected: A live driver confirmed it refused the
-                exposure. It carries the words its reporter shows; nothing is
-                shown here.
+            CameraSettingRejected: A live driver refused the exposure or
+                raised from the write (chained). It carries the words its
+                reporter shows; nothing is shown here.
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera, with none connected.
         """
@@ -1595,7 +1613,8 @@ class ImagingAPI:
     ) -> bool | None:
         """Enable or disable automatic gain adjustment.
 
-        Non-raising, as the value impls are; a refusal is answered, not
+        Non-raising on a refusal, as the value impls are (a raising write
+        raises ``CameraSettingRejected``); a refusal is answered, not
         reported, and records no arm: the lock would otherwise write back
         values from a loop that never ran.
 
@@ -1657,6 +1676,7 @@ class ImagingAPI:
             self._clamp_exposure_to_ceiling_before_arm(settings.get('max_exposure_ms'))
         result = self._camera_write(
             _write_auto_gain,
+            refusal=lambda: _mode_rejection('auto_gain', state, 'auto-gain'),
             force_invalidate=('gain', 'auto_gain') if arm_settle else ('gain',),
             force_clear=('gain',),
         )
@@ -1725,7 +1745,7 @@ class ImagingAPI:
             # No usable achieved value: drop the stale exposure target too
             # (the disarm dropped the gain target) so the capture proceeds
             # without an exposure/gain gate rather than rejecting forever.
-            self._camera_write(lambda: None, force_clear=('exposure',))
+            self._camera_write(lambda: None, refusal=None, force_clear=('exposure',))
             logger.warning(
                 '[AG CONVERGE] locked: state=FAILED -- the camera reported no '
                 f'usable achieved exposure/gain (exposure={exp_ms} gain={gain}); '
@@ -1913,6 +1933,7 @@ class ImagingAPI:
         # invalidate + target-clear are forced, not gated on a value delta.
         result = self._camera_write(
             lambda: self._driver.auto_exposure_t(state),
+            refusal=lambda: _mode_rejection('auto_exposure', state, 'auto-exposure'),
             force_invalidate=('exposure',),
             force_clear=('exposure',),
         )
@@ -2009,6 +2030,17 @@ class ImagingAPI:
 
         if not self._driver or not self._driver.active:
             return None
+
+        def _refused() -> CameraSettingRejected:
+            return self._camera_setting_rejection(
+                'frame_size',
+                {'width': w, 'height': h},
+                'Frame size change failed',
+                f'The camera did not accept the frame size {w}x{h}. '
+                f'It remains at the previous size -- try again, or check '
+                f'the USB connection if this repeats.',
+            )
+
         # A frame-size change reallocates buffers; the pipeline must flush, so
         # invalidate unconditionally. Cache the DELIVERED size, not the request:
         # a driver may clamp or snap the request to its legal grid
@@ -2021,17 +2053,11 @@ class ImagingAPI:
         # entry (still describing the hardware) is left in place.
         delivered = self._camera_write(
             lambda: self._driver.set_frame_size(w, h),
+            refusal=_refused,
             force_invalidate=('frame_size',),
         )
         if not delivered:
-            raise self._camera_setting_rejection(
-                'frame_size',
-                {'width': w, 'height': h},
-                'Frame size change failed',
-                f'The camera did not accept the frame size {w}x{h}. '
-                f'It remains at the previous size -- try again, or check '
-                f'the USB connection if this repeats.',
-            )
+            raise _refused()
         delivered_size = {'width': int(delivered['width']), 'height': int(delivered['height'])}
         self._commit_camera_writes({'frame_size': dict(delivered_size)})
         return delivered_size
@@ -2103,33 +2129,9 @@ class ImagingAPI:
         """
         if not self._driver or not self._driver.active:
             return False
-        try:
-            # Binning realloc only takes effect when the driver applied it,
-            # so the invalidate is gated on the driver result.
-            # The factor is committed to the cache only when the driver
-            # applied it. A rejected write must not leave the requested
-            # value where scale-bar / FOV math reads it -- the hardware
-            # is still at the previous binning.
-            ok = self._camera_write(
-                lambda: self._driver.set_binning_size(size=size),
-                invalidates=('binning',),
-                cache_update={'binning': int(size)},
-            )
-        except Exception as ex:
-            raise self._camera_setting_rejection(
-                'binning',
-                size,
-                'Binning change failed',
-                f'Could not set binning to {size}x{size}: {type(ex).__name__}: {ex}. '
-                f'Camera may still be at previous binning -- verify actual frame size.',
-            ) from ex
-        # `is False` (not falsy): an explicit False is the driver's only
-        # rejection signal; a None return (drivers without a confirmation
-        # signal) counts as applied, matching _camera_write's own applied
-        # semantics -- treating None as rejection here would raise while
-        # the cache had already committed the factor.
-        if ok is False:
-            raise self._camera_setting_rejection(
+
+        def _refused() -> CameraSettingRejected:
+            return self._camera_setting_rejection(
                 'binning',
                 size,
                 'Binning change failed',
@@ -2137,6 +2139,26 @@ class ImagingAPI:
                 f'at the previous binning -- try again, or check the USB '
                 f'connection if this repeats.',
             )
+
+        # Binning realloc only takes effect when the driver applied it,
+        # so the invalidate is gated on the driver result.
+        # The factor is committed to the cache only when the driver
+        # applied it. A rejected write must not leave the requested
+        # value where scale-bar / FOV math reads it -- the hardware
+        # is still at the previous binning.
+        ok = self._camera_write(
+            lambda: self._driver.set_binning_size(size=size),
+            refusal=_refused,
+            invalidates=('binning',),
+            cache_update={'binning': int(size)},
+        )
+        # `is False` (not falsy): an explicit False is the driver's only
+        # rejection signal; a None return (drivers without a confirmation
+        # signal) counts as applied, matching _camera_write's own applied
+        # semantics -- treating None as rejection here would raise while
+        # the cache had already committed the factor.
+        if ok is False:
+            raise _refused()
         # Both cached geometries are binning-dependent: the sensor
         # minimum halves at 2x, and the delivered frame size halves
         # with it. Left stale, the UI's frame-size clamp reads the 1x
@@ -2201,25 +2223,9 @@ class ImagingAPI:
         """
         if not self._driver or not self._driver.active:
             return False
-        try:
-            # Format change reallocates geometry only when the driver applied
-            # it, so invalidate + snapshot are gated on the driver result.
-            result = self._camera_write(
-                lambda: self._driver.set_pixel_format(pixel_format),
-                invalidates=('pixel_format',),
-                cache_update={'pixel_format': pixel_format},
-            )
-        except Exception as ex:
-            raise self._camera_setting_rejection(
-                'pixel_format',
-                pixel_format,
-                'Pixel format change failed',
-                f'Could not set pixel format to {pixel_format}: '
-                f'{type(ex).__name__}: {ex}. Camera may still be at the '
-                f'previous format.',
-            ) from ex
-        if result is False:
-            raise self._camera_setting_rejection(
+
+        def _refused() -> CameraSettingRejected:
+            return self._camera_setting_rejection(
                 'pixel_format',
                 pixel_format,
                 'Pixel format change failed',
@@ -2227,6 +2233,17 @@ class ImagingAPI:
                 f'It remains at the previous format -- try again, or check '
                 f'the USB connection if this repeats.',
             )
+
+        # Format change reallocates geometry only when the driver applied
+        # it, so invalidate + snapshot are gated on the driver result.
+        result = self._camera_write(
+            lambda: self._driver.set_pixel_format(pixel_format),
+            refusal=_refused,
+            invalidates=('pixel_format',),
+            cache_update={'pixel_format': pixel_format},
+        )
+        if result is False:
+            raise _refused()
         return True
 
     def set_conversion_gain_mode(self, mode: str) -> None:
@@ -2296,13 +2313,11 @@ class ImagingAPI:
                 title='Not Available on This Camera',
                 message=f'There is no conversion gain mode {mode!r}: the modes are High and Low.',
             )
-        try:
-            result = self._camera_write(
-                lambda: self._driver.set_conversion_gain_mode(mode),
-                invalidates=('conversion_gain_mode',),
-            )
-        except Exception as ex:
-            raise _mode_rejection('conversion_gain_mode', mode, 'conversion gain mode') from ex
+        result = self._camera_write(
+            lambda: self._driver.set_conversion_gain_mode(mode),
+            refusal=lambda: _mode_rejection('conversion_gain_mode', mode, 'conversion gain mode'),
+            invalidates=('conversion_gain_mode',),
+        )
         if result is False:
             raise _mode_rejection('conversion_gain_mode', mode, 'conversion gain mode')
         return True
@@ -2363,13 +2378,13 @@ class ImagingAPI:
                 offered=(False,),
                 consequence='Its readout stays unfiltered.',
             )
-        try:
-            result = self._camera_write(
-                lambda: self._driver.set_line_noise_reduction(enabled=enabled),
-                invalidates=('line_noise_reduction',),
-            )
-        except Exception as ex:
-            raise _mode_rejection('line_noise_reduction', enabled, 'line noise reduction') from ex
+        result = self._camera_write(
+            lambda: self._driver.set_line_noise_reduction(enabled=enabled),
+            refusal=lambda: _mode_rejection(
+                'line_noise_reduction', enabled, 'line noise reduction'
+            ),
+            invalidates=('line_noise_reduction',),
+        )
         if result is False:
             raise _mode_rejection('line_noise_reduction', enabled, 'line noise reduction')
         return True
@@ -2474,8 +2489,9 @@ class ImagingAPI:
             CameraSettingOutOfRangeError: The value is outside the range the
                 camera reports for its current pixel format; nothing was sent.
             CameraSettingRejected: The camera refused it, as a camera holding
-                its black level automatically does.
-            HardwareError: The camera's probe, range read, write or read-back
+                its black level automatically does, or raised from the write
+                (chained).
+            HardwareError: The camera's probe, range read or read-back
                 failed; the black level in effect is unknown.
         """
         applied = self._dispatch_camera(
@@ -2511,7 +2527,11 @@ class ImagingAPI:
             with self._cam_lock:
                 return self._driver.set_black_level(float(value))
 
-        result = self._camera_write(_write_black_level, invalidates=('black_level',))
+        result = self._camera_write(
+            _write_black_level,
+            refusal=lambda: _value_rejection('black_level', value),
+            invalidates=('black_level',),
+        )
         if result is False and self._removed_during_write(
             'black_level', 'black level', float(value)
         ):
@@ -4930,6 +4950,9 @@ class ImagingAPI:
         # arms, since this is the same convergence.
         return self._camera_write(
             lambda: self._driver.update_auto_gain_target_brightness(target_brightness),
+            refusal=lambda: _mode_rejection(
+                'auto_gain_target_brightness', target_brightness, 'auto-gain target brightness'
+            ),
             force_invalidate=('gain', 'auto_gain'),
         )
 
@@ -5003,6 +5026,7 @@ class ImagingAPI:
                 max_gain_db=max_gain_db,
                 ae_max_exposure_ms=ae_max_exposure_ms,
             ),
+            refusal=lambda: _mode_rejection('auto_gain', state, 'one-shot auto-gain'),
             force_invalidate=('gain', 'exposure'),
             force_clear=('gain', 'exposure'),
         )
