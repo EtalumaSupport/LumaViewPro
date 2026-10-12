@@ -249,8 +249,7 @@ def test_integration_plugin_namespace_fanout_via_simulated_camera():
     from modules.plugins import PluginRegistry, PluginSpec
 
     scope = _make_simulated_scope()
-    registry = PluginRegistry()
-    registry.live_processing.bind_scope(scope)
+    registry = PluginRegistry(scope)
 
     spec = PluginSpec(
         name='ns_fanout_demo',

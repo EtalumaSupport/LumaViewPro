@@ -3093,7 +3093,7 @@ class ScopeSession:
         if self.plugins is not None:
             raise RuntimeError('ScopeSession.load_plugins: this session already loaded its plugins')
         version, _build_timestamp = path_utils.read_version()
-        self.plugins = PluginRegistry()
+        self.plugins = PluginRegistry(self.scope)
         self.plugins.load(self, version)
 
     @api(in_process=True)

@@ -63,19 +63,14 @@ __all__ = [
 def _make_ctx() -> types.SimpleNamespace:
     """Build a fresh session-shaped ctx with a real PluginRegistry."""
     ctx = types.SimpleNamespace()
-    ctx.plugins = PluginRegistry()
     ctx.scope = MagicMock(name='scope')
+    ctx.plugins = PluginRegistry(ctx.scope)
     ctx.post_processing = MagicMock(name='post_processing')
     ctx.engineering_mode = False
     ctx.no_engineering = False
     settings = complete_settings()
     ctx.get_settings_snapshot = lambda: copy.deepcopy(settings)
     ctx.update_settings = settings_writer(settings)
-    # live_processing registry needs scope wired (PluginRegistry.load does
-    # this in production; tests use the harness without loading, so do it
-    # here). Tests that need an unbound registry can reset
-    # ctx.plugins.live_processing._scope = None.
-    ctx.plugins.live_processing.bind_scope(ctx.scope)
     return ctx
 
 

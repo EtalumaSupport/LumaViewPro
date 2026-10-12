@@ -5,7 +5,7 @@ Covers:
     - PluginSpec construction + immutability
     - UIRegistry: mount-point validation, duplicate-name rejection
     - PostProcessingRegistry: processor registration + lookup
-    - LiveProcessingRegistry: stub raises with clear message
+    - LiveProcessingRegistry: forwards to the scope's frame listeners
     - RESTRegistry: stub raises with clear message
     - PluginRegistry.all_health(): per-namespace snapshot shape
     - is_version_compatible: semver compare with pre-release suffixes
@@ -321,16 +321,6 @@ def test_live_processing_register_duplicate_name_raises(harness_ctx):
     harness_ctx.plugins.live_processing.register(spec, lambda i, t, c: None)
     with pytest.raises(PluginRegistrationError):
         harness_ctx.plugins.live_processing.register(spec, lambda i, t, c: None)
-
-
-def test_live_processing_register_without_bind_raises(harness_ctx):
-    """register() on an unbound registry raises a PluginRegistrationError
-    naming the bind_scope contract."""
-    harness_ctx.plugins.live_processing._scope = None
-    spec = _make_spec(name='unbound')
-    with pytest.raises(PluginRegistrationError) as exc:
-        harness_ctx.plugins.live_processing.register(spec, lambda i, t, c: None)
-    assert 'bind_scope' in str(exc.value)
 
 
 def test_rest_register_raises_with_design_session_message(harness_ctx):
@@ -925,7 +915,7 @@ class TestAttributeException:
         from modules.plugins import PluginRegistry
 
         module = self._make_plugin_module(tmp_path, 'fake_bench_plugin')
-        registry = PluginRegistry()
+        registry = PluginRegistry(object())  # a stand-in by design: no scope member is reached
         registry._track('fake-bench-plugin', module)
 
         try:
@@ -939,7 +929,7 @@ class TestAttributeException:
 
         from modules.plugins import PluginRegistry
 
-        registry = PluginRegistry()
+        registry = PluginRegistry(object())  # a stand-in by design: no scope member is reached
         try:
             raise RuntimeError('host code failure')
         except RuntimeError:
@@ -952,7 +942,8 @@ class TestAttributeException:
         from modules.plugins import PluginRegistry
 
         module = self._make_plugin_module(tmp_path, 'fake_unloaded_plugin')
-        registry = PluginRegistry()  # nothing tracked
+        # nothing tracked; a stand-in scope by design: no scope member is reached
+        registry = PluginRegistry(object())
         try:
             module.boom()
         except RuntimeError:

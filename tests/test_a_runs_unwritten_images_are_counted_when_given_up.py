@@ -210,7 +210,7 @@ class TestNothingBuildsFromAFolderMissingImages:
 
         processor = MagicMock()
         spec = MagicMock(auto_run_on_protocol_complete=True)
-        registry = PluginRegistry()
+        registry = PluginRegistry(object())  # a stand-in by design: no scope member is reached
         registry.post_processing.handlers = MagicMock(return_value=[(spec, processor)])
 
         registry.run_protocol_complete_processors(
