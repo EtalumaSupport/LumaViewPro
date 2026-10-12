@@ -369,11 +369,12 @@ session.set_frame_size(960, 600)             # a displayed (post-binning) size a
                                              # returns what the camera delivered (the size, floored
                                              # to even sides); CameraSettingOutOfRangeError outside
                                              # the scope's range
-session.frame_at_binning(2)                  # the frame set_binning_size(2) will ask for; applies nothing
+session.frame_at_binning(2)                  # the frame set_binning_size(2) will ask for; applies nothing;
+                                             # refused as set_binning_size refuses the same size
 session.get_binning_size()                   # the binning factor in force, e.g. 2: the one the camera took
 ```
 
-With no camera connected, `set_binning_size` and `set_frame_size` raise `HardwareCommandRefusedError` (`not_connected`, `MissingPart.CAMERA`) and store nothing. `set_image_mode` stores the mode for bring-up to apply.
+With no camera connected, `set_binning_size`, `frame_at_binning` and `set_frame_size` raise `HardwareCommandRefusedError` (`not_connected`, `MissingPart.CAMERA`) and store nothing. `set_image_mode` stores the mode for bring-up to apply.
 
 The image mode is a save policy, and every camera honours every mode. `'8bit'` reduces each frame to 8 bits. The three full-depth modes keep the payload at the depth the frame has: `'12bit_scientific'` (labelled "Scientific (full depth)") stores it right-aligned, `'12bit_scaled'` ("Scaled (full depth)") left-justifies it to fill its 16-bit container, and `'12bit_false_color_rgb'` ("RGB (full depth)") writes it as false-colour RGB. The ids keep their `12bit_` names: a camera with a 12-bit format is asked for it in a full-depth mode, and an 8-bit camera (LS560/620/720) delivers 8 bits in every mode. Bring-up runs the saved mode as saved.
 
