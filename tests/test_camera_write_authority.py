@@ -107,13 +107,21 @@ def imaging_plain():
 
 
 @pytest.fixture
+def plain_scope():
+    """A simulated scope on its stock SimulatedCamera, bound to the shipped settings."""
+    scope = build_scope(simulate=True)
+    bind_settings_like_a_session(scope)
+    return scope
+
+
+@pytest.fixture
 def imaging_capable(monkeypatch):
     """A simulated scope's imaging, on a camera with every camera setter."""
 
     def _capable_camera(name='auto', *, simulate=False, **kwargs):
         return _CamWriteCapableSim(**kwargs)
 
-    # a stand-in by design: SimulatedCamera has no conversion-gain or line-noise-reduction node (Pylon-only); the simulator gap stage 7 fills, and this subclass then goes
+    # a stand-in by design: SimulatedCamera has no conversion-gain or line-noise-reduction node (Pylon-only); the simulator's gap, and this subclass goes when it has them
     monkeypatch.setattr(_lumascope.camera_registry, 'create', _capable_camera)
     return _sim_imaging()
 
@@ -200,21 +208,21 @@ class TestGeometrySetterSequences:
         imaging_plain.set_frame_size(640, 482)
         assert imaging_plain.frame_size_cached == {'width': 624, 'height': 480}
 
-    def test_set_frame_size_rejected_write_keeps_prior_cache(self, imaging_plain, monkeypatch):
+    def test_set_frame_size_rejected_write_keeps_prior_cache(self, plain_scope):
         """A rejected frame-size write still invalidates 'frame_size' (the
         camera may have restarted its grab engine), and the cache keeps the
         geometry the camera still has."""
-        imaging_plain.set_frame_size(624, 480)
-        fv = imaging_plain.frame_validity
+        imaging = plain_scope.imaging
+        imaging.set_frame_size(624, 480)
+        fv = imaging.frame_validity
         before = fv.invalidation_counts
-        # a stand-in by design: the simulated camera takes every legal frame size; a refused one is the gap stage 7 fills
-        monkeypatch.setattr(imaging_plain._driver, 'set_frame_size', lambda w, h: False)
+        plain_scope.simulation.refuse_camera_write('frame_size', 'false')
         with pytest.raises(CameraSettingRejected) as caught:
-            imaging_plain.set_frame_size(1200, 800)
+            imaging.set_frame_size(1200, 800)
         assert caught.value.setting == 'frame_size'
         assert fv.invalidation_counts == _grown_by_one(before, 'frame_size')
         assert 'frame_size' in fv.pending_sources
-        assert imaging_plain.frame_size_cached == {'width': 624, 'height': 480}
+        assert imaging.frame_size_cached == {'width': 624, 'height': 480}
 
     def test_binning_read_failure_sentinel_not_committed(self, imaging_plain):
         imaging_plain.set_binning_size(2)
@@ -339,7 +347,7 @@ class TestSdkPerfSetterSequences:
         """A toggle the camera refused invalidates nothing. Pins today's
         applied-only invalidation; flips with ruling K12's build."""
         before = imaging_capable.frame_validity.invalidation_counts
-        # a stand-in by design: the simulator cannot yet refuse a toggle; the fault stage 7 injects
+        # a stand-in by design: SimulatedCamera has no conversion-gain or line-noise node, so refuse_camera_write cannot refuse one; the gap is the simulator's missing node
         monkeypatch.setattr(imaging_capable._driver, driver_member, lambda *a, **k: False)
         with pytest.raises(CameraSettingRejected) as caught:
             getattr(imaging_capable, member)(value)
@@ -364,7 +372,7 @@ class TestSdkPerfSetterSequences:
         def raising(*a, **k):
             raise fault
 
-        # a stand-in by design: the simulator cannot yet fail a node write; the fault stage 7 injects
+        # a stand-in by design: SimulatedCamera has no conversion-gain or line-noise node, so refuse_camera_write cannot fail one; the gap is the simulator's missing node
         monkeypatch.setattr(imaging_capable._driver, driver_member, raising)
         with pytest.raises(CameraSettingRejected) as caught:
             getattr(imaging_capable, member)(value)
@@ -418,16 +426,16 @@ class TestCameraWriteAuthority:
     not the camera took the write; a target is recorded only when it did, and
     a driver that cannot confirm (``None``) counts as having taken it."""
 
-    def test_force_invalidate_fires_even_on_rejection(self, imaging_plain, monkeypatch):
+    def test_force_invalidate_fires_even_on_rejection(self, plain_scope):
         """A refused gain still holds readiness for 'gain', and records no
         target: the prior one stands."""
-        fv = imaging_plain.frame_validity
-        imaging_plain.set_gain_db(3.0)
+        imaging = plain_scope.imaging
+        fv = imaging.frame_validity
+        imaging.set_gain_db(3.0)
         before = fv.invalidation_counts
-        # a stand-in by design: the simulated gain node takes every in-range value; a refusal is the fault stage 7 injects
-        monkeypatch.setattr(imaging_plain._driver, 'gain', lambda v: False)
+        plain_scope.simulation.refuse_camera_write('gain', 'false')
         with pytest.raises(CameraSettingRejected) as caught:
-            imaging_plain.set_gain_db(9.0)
+            imaging.set_gain_db(9.0)
         assert caught.value.setting == 'gain_db'
         assert fv.invalidation_counts == _grown_by_one(before, 'gain')
         assert fv.target('gain') == 3.0
@@ -440,16 +448,16 @@ class TestCameraWriteAuthority:
         imaging_plain.set_gain_db(5.0)
         assert imaging_plain.frame_validity.target('gain') == 5.0
 
-    def test_force_clear_fires_even_on_rejection(self, imaging_plain, monkeypatch):
+    def test_force_clear_fires_even_on_rejection(self, plain_scope):
         """A refused auto-exposure toggle still holds readiness for
         'exposure' and still clears the manual exposure target."""
-        fv = imaging_plain.frame_validity
-        imaging_plain.set_exposure_ms(2.5)
+        imaging = plain_scope.imaging
+        fv = imaging.frame_validity
+        imaging.set_exposure_ms(2.5)
         before = fv.invalidation_counts
-        # a stand-in by design: the simulated auto-exposure node always takes the toggle; a refusal is the fault stage 7 injects
-        monkeypatch.setattr(imaging_plain._driver, 'auto_exposure_t', lambda state=True: False)
+        plain_scope.simulation.refuse_camera_write('auto_exposure', 'false')
         with pytest.raises(CameraSettingRejected) as caught:
-            imaging_plain.set_auto_exposure_time(True)
+            imaging.set_auto_exposure_time(True)
         assert caught.value.setting == 'auto_exposure'
         assert fv.invalidation_counts == _grown_by_one(before, 'exposure')
         assert fv.target('exposure') is None

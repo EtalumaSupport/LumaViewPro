@@ -29,17 +29,17 @@ REQUEST_US = 20.0
 
 @pytest.fixture
 def sim_imaging():
-    """A simulated scope's imaging and its camera."""
+    """A simulated scope's imaging, its camera, and its faults."""
     scope = build_scope(simulate=True)
     bind_settings_like_a_session(scope)
-    return scope.imaging, scope.imaging._driver
+    return scope.imaging, scope.imaging._driver, scope.simulation
 
 
 def test_clamped_write_targets_the_applied_value_not_the_request(sim_imaging, monkeypatch):
     """The bench case: the driver raises the request to its floor and answers
     with the microseconds it applied; a frame carrying them passes the gate."""
-    imaging, cam = sim_imaging
-    # a stand-in by design: the simulated camera has no exposure floor to clamp to; the gap stage 7 fills
+    imaging, cam, _simulation = sim_imaging
+    # a stand-in by design: the simulated camera has no exposure floor to clamp to; the gap is the simulator's, a camera with no floor
     monkeypatch.setattr(cam, 'exposure_t', lambda exposure_ms: 50.0)
 
     imaging.set_exposure_ms(REQUEST_MS)
@@ -55,10 +55,9 @@ def test_clamped_write_targets_the_applied_value_not_the_request(sim_imaging, mo
 
 def test_refused_write_records_no_target(sim_imaging, monkeypatch):
     """A driver that refused did not move the hardware: the prior target stands."""
-    imaging, cam = sim_imaging
+    imaging, _cam, simulation = sim_imaging
     imaging.set_exposure_ms(2.5)
-    # a stand-in by design: the simulated camera refuses only above its maximum, which the API refuses first; the fault stage 7 injects
-    monkeypatch.setattr(cam, 'exposure_t', lambda exposure_ms: False)
+    simulation.refuse_camera_write('exposure', 'false')
 
     with pytest.raises(CameraSettingRejected) as caught:
         imaging.set_exposure_ms(REQUEST_MS)
@@ -72,7 +71,7 @@ def test_refused_write_records_no_target(sim_imaging, monkeypatch):
 def test_driver_reporting_no_value_falls_back_to_the_request(sim_imaging, monkeypatch):
     """None means applied-but-unknown; the request, in microseconds, is the
     best available target."""
-    imaging, cam = sim_imaging
+    imaging, cam, _simulation = sim_imaging
     # a stand-in by design: a driver with no confirmation signal; the simulator always reports what it applied
     monkeypatch.setattr(cam, 'exposure_t', lambda exposure_ms: None)
 
@@ -83,7 +82,7 @@ def test_driver_reporting_no_value_falls_back_to_the_request(sim_imaging, monkey
 
 def test_a_bare_true_is_not_mistaken_for_microseconds(sim_imaging, monkeypatch):
     """bool is an int subclass; a driver reporting True must not stamp 1.0 us."""
-    imaging, cam = sim_imaging
+    imaging, cam, _simulation = sim_imaging
     # a stand-in by design: a driver that confirms with a bare True; the simulator reports microseconds
     monkeypatch.setattr(cam, 'exposure_t', lambda exposure_ms: True)
 
