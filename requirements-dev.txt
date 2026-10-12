@@ -39,9 +39,12 @@ pyflakes==3.4.0
 # loads a derandomized profile when CI is set so CI runs are reproducible.
 hypothesis==6.165.2
 
-# The HTTP client the REST tests use: FastAPI's TestClient is built on it,
-# and the event-stream tests read a real uvicorn server through it.
+# The HTTP client the event-stream tests read a real uvicorn server through.
 httpx==0.28.1
+
+# The HTTP client FastAPI's TestClient is built on. starlette 1.x prefers it
+# and, finding only httpx, warns on every import that httpx is deprecated.
+httpx2==2.13.1
 
 # Validates each REST answer against the schema the OpenAPI declares for it
 # (tests/test_every_answer_matches_its_description.py). jsonschema checks a
