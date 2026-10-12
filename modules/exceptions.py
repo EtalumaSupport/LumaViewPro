@@ -2470,9 +2470,12 @@ class SessionClosingError(Refusal, Exception):
     Raised by the activity claim for a run, a recording, a home or a
     diagnostic while ``ScopeSession.shutdown`` runs: the close finishes the
     work already under way, then releases the hardware, so nothing new may
-    start in between. Once the close has ended, a start is refused by what
-    is then true: the scope is disconnected. Work inside an activity already under way -- a
-    run's video step under its run -- is not refused. Nothing was taken.
+    start in between. Once the close has finished, nothing takes the scope
+    again: a start whose own checks come first is refused by them, finding
+    the scope disconnected, and any other is refused here when it takes the
+    scope -- a home, or a run that passed its checks before the close
+    finished. Work inside an activity already under way -- a run's video
+    step under its run -- is not refused. Nothing was taken.
 
     Attributes:
         reason: ``'session_closing'``.

@@ -264,16 +264,46 @@ def test_a_runs_processor_skipped_by_the_unload_is_reported(monkeypatch):
     assert reported[0].plugin_name == 'stitcher' and reported[0].run == 'plate1'
 
 
-def test_after_the_close_a_start_is_refused_by_what_is_true(tmp_path):
+def test_after_the_close_nothing_new_takes_the_scope_for_good(tmp_path):
+    """The close's refusal outlasts it: a finished session never lets an
+    activity take the scope again."""
     session = _session(tmp_path)
     session.shutdown()
 
     assert session.live_work.closing is False
     assert session.live_work.closed is True
-    with pytest.raises(Exception) as refused:
+    with pytest.raises(SessionClosingError) as refused:
         session.scope.motion.home('Z')
-    assert not isinstance(refused.value, SessionClosingError)
-    assert getattr(refused.value, 'reason', None) == 'scope_disconnected'
+    assert (refused.value.reason, refused.value.activity) == ('session_closing', 'home')
+
+
+def test_a_run_that_passed_its_checks_before_the_close_finished_is_refused_when_it_takes_the_scope(
+    tmp_path,
+):
+    """prepare() found the scope connected; the close then finished, and the
+    claim taken last must refuse the run, or it holds a closed session's
+    scope for ever with no outcome (a run started at the close's instant,
+    1 in 100 under load)."""
+    session = _session(tmp_path)
+    protocol = _one_step_protocol(session)
+    runner = session.sequenced_capture_runner
+    prepare = runner.prepare
+
+    # a stand-in by design: it places the close's end in the window between
+    # a run's checks and its taking of the scope, which a race finds rarely.
+    def prepared_then_the_close_finishes(**kwargs):
+        plan = prepare(**kwargs)
+        session.shutdown()
+        return plan
+
+    runner.prepare = prepared_then_the_close_finishes
+
+    with pytest.raises(SessionClosingError) as refused:
+        session.create_protocol_runner().run_single_scan(protocol)
+
+    assert (refused.value.reason, refused.value.activity) == ('session_closing', 'protocol')
+    assert session.activity_claim.holder is None
+    assert not runner.run_live
 
 
 def test_a_close_from_run_ended_with_no_dispatcher_completes(tmp_path):

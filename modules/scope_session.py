@@ -4028,7 +4028,8 @@ class ScopeSession:
         """Finish what the session is doing, then tear down everything it constructed.
 
         First the close: from its first step nothing new takes the scope (a
-        run, a recording, a home or a diagnostic asked for meanwhile raises
+        run, a recording, a home or a diagnostic asked for meanwhile, or
+        still taking the scope once it has finished, raises
         ``SessionClosingError``); plugins unload, so a plugin's own work
         stops through its ``unregister``, and metrics stop; the live run is
         stopped (its ending ``aborted`` / ``shutdown``) and a live recording
@@ -4076,7 +4077,7 @@ class ScopeSession:
                 self._tear_down()
             finally:
                 self._close_running = False
-                self.activity_claim.end_closing()
+                self.activity_claim.end_closing(closed=self._shut_down)
 
     _CLOSE_WAIT_LOG_S = 5.0
 
