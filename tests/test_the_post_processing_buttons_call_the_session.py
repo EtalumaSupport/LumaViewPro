@@ -110,8 +110,6 @@ def test_enhance_asks_and_shows_the_answer(session):
     panel = SimpleNamespace(
         _queue_derived_image=lambda image, bits: None,
         busy=True,
-        status_text='',
-        last_output_folder='',
     )
     panel._export_done = lambda result: post_processing.QuickEnhanceControls._export_done(
         panel, result
@@ -123,5 +121,4 @@ def test_enhance_asks_and_shows_the_answer(session):
         '/data/one.tif', on_progress=ANY, on_derived_image=panel._queue_derived_image
     )
     assert panel.busy is False
-    assert panel.status_text == 'done'
     assert popup.text == 'done'

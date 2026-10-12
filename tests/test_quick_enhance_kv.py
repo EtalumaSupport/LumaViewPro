@@ -52,7 +52,9 @@ def test_quick_enhance_kv_offers_one_click_enhance_without_panel_prose():
 
     assert quick_enhance_rule.count('FileOrFolderChooseBTN:') == 1
     assert "text: 'Enhance'" in quick_enhance_rule
-    assert 'text: root.status_text' in quick_enhance_rule
+    # The build popup reports the progress and the outcome; a line under the
+    # button kept the last outcome on screen after it stopped being news.
+    assert 'Label:' not in quick_enhance_rule
     for removed in (
         "text: 'Choose Image'",
         "text: 'Choose Folder'",
@@ -62,7 +64,6 @@ def test_quick_enhance_kv_offers_one_click_enhance_without_panel_prose():
         'quick_enhance_preview_image',
     ):
         assert removed not in quick_enhance_rule
-    assert 'height: self.texture_size[1] + dp(12)' in quick_enhance_rule
 
 
 def test_every_post_processing_panel_is_scroll_wrapped():

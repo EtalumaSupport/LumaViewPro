@@ -85,8 +85,6 @@ class QuickEnhanceControls(BoxLayout):
     """GUI shell for the non-destructive Quick Enhance derived-file path."""
 
     done = BooleanProperty(False)
-    last_output_folder = StringProperty('')
-    status_text = StringProperty('')
     busy = BooleanProperty(False)
 
     def __init__(self, **kwargs):
@@ -97,7 +95,6 @@ class QuickEnhanceControls(BoxLayout):
         """Enhance the image or folder at ``path``; the API says which it is."""
         target = pathlib.Path(path)
         self.busy = True
-        self.status_text = ''
         gui_logger.display('QUICK_ENHANCE', 'busy')
         self.export(target)
 
@@ -109,13 +106,8 @@ class QuickEnhanceControls(BoxLayout):
         popup.auto_dismiss = False
 
         def _build(progress):
-            def _progress(percent: float, text: str | None) -> None:
-                progress(percent, text)
-                if text is not None:
-                    Clock.schedule_once(lambda _dt: setattr(self, 'status_text', text), 0)
-
             return _app_ctx.ctx.session.post_processing.enhance(
-                target, on_progress=_progress, on_derived_image=self._queue_derived_image
+                target, on_progress=progress, on_derived_image=self._queue_derived_image
             )
 
         _run_build(_build, popup, 'ENHANCE', on_done=self._export_done)
@@ -134,15 +126,9 @@ class QuickEnhanceControls(BoxLayout):
         Clock.schedule_once(_show, 0)
 
     def _export_done(self, result) -> None:
-        # Its progress words are the build popup's, recorded there.
+        # Its progress and outcome words are the build popup's, recorded there.
         self.busy = False
-        if result is None:
-            self.status_text = ''
-            gui_logger.display('QUICK_ENHANCE', 'idle')
-            return
-        self.last_output_folder = str(result.output_folder)
-        self.status_text = result.message
-        gui_logger.display('QUICK_ENHANCE', f'idle | {result.message}')
+        gui_logger.display('QUICK_ENHANCE', 'idle')
 
 
 class StitchControls(BoxLayout):
