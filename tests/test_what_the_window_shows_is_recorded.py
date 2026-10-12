@@ -97,3 +97,56 @@ def test_a_video_step_of_another_length_is_another_stage(record):
         'DISPLAY TITLE_EVENT Recording Video... 1s / 60s',
         'DISPLAY TITLE_EVENT None',
     ]
+
+
+def test_a_dialog_records_its_close_on_leaving_the_screen(record):
+    from types import SimpleNamespace
+
+    from ui.notification_popup import _log_dialog_closed
+
+    # a stand-in by design: Kivy calls this on each edge of the dialog's
+    # open state; the subject is what each edge records
+    popup = SimpleNamespace(title='Stitch')
+    _log_dialog_closed(popup, popup, True)
+    _log_dialog_closed(popup, popup, False)
+
+    assert record() == ['DIALOG_CLOSED | Stitch']
+
+
+def test_a_progress_popup_records_its_title_and_the_first_words_under_it(record):
+    from types import SimpleNamespace
+
+    from ui.progress_popup import CustomPopup
+
+    # a stand-in by design: Kivy is stubbed in the test process; a body names
+    # the popup, then writes its words, then its progress
+    popup = SimpleNamespace(title='')
+    for title, text in (
+        ('Stitch', ''),
+        ('Stitch', 'Stitching tiles...'),
+        ('Stitch', '3/10: A1.tiff'),
+    ):
+        popup.title = title
+        CustomPopup._record_title(popup, popup, title)
+        CustomPopup._record_words(popup, popup, text)
+
+    assert record() == [
+        'DISPLAY PROGRESS_POPUP Stitch',
+        'DISPLAY PROGRESS_POPUP_WORDS Stitch | Stitching tiles...',
+    ]
+
+
+def test_a_persons_cancel_and_close_are_their_answers(record):
+    from types import SimpleNamespace
+
+    from ui.popup_close import _close_pressed
+    from ui.progress_popup import CustomPopup
+
+    dismissed = []
+    # a stand-in by design: Kivy is stubbed in the test process; the subject is the record
+    popup = SimpleNamespace(title='Stitch', dismiss=lambda: dismissed.append(True))
+    CustomPopup.cancel(popup)
+    _close_pressed(popup)
+
+    assert record() == ['POPUP_RESPONSE CANCEL | Stitch', 'POPUP_RESPONSE CLOSE | Stitch']
+    assert dismissed == [True, True]

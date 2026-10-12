@@ -1370,11 +1370,19 @@ class LumaViewProApp(TooltipMixin, App):
         def _watch(dt):
             if self._close_thread.is_alive():
                 work = ctx.session.live_work.work
-                set_message(
+                message = (
                     'Finishing before LumaViewPro closes:\n'
                     + '\n'.join(_work_item_text(item) for item in work)
                     if work
                     else 'Closing LumaViewPro...'
+                )
+                set_message(message)
+                # The percent and count left are progress; the work still
+                # waited on is the stage.
+                gui_logger.display(
+                    'CLOSE_PROGRESS',
+                    message,
+                    stage=', '.join(item.name for item in work) or 'Closing LumaViewPro...',
                 )
                 return True
             # Returning False is what stops a Kivy interval.

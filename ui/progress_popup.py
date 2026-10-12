@@ -9,6 +9,7 @@ from kivy.uix.popup import Popup
 from kivy.lang import Builder
 
 from lvp_logger import logger
+from modules import gui_logger
 
 
 class _PopupProxy:
@@ -106,6 +107,21 @@ def show_popup(function):
 
 
 class CustomPopup(Popup):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        # The popup opens before its body names it, so the DIALOG line at
+        # open carries no title; its title, and the first words shown under
+        # it, are recorded as they arrive. The words that follow under one
+        # title are its progress; a build's outcome is recorded by _run_build.
+        self.bind(title=self._record_title, text=self._record_words)
+
+    def _record_title(self, _popup, title: str) -> None:
+        gui_logger.display('PROGRESS_POPUP', title or None)
+
+    def _record_words(self, _popup, text: str) -> None:
+        if text:
+            gui_logger.display('PROGRESS_POPUP_WORDS', f'{self.title} | {text}', stage=self.title)
+
     def cancel(self):
         """User-initiated escape from a progress popup. The background operation
         runs on a daemon thread and cannot be force-killed, but dismissing the
@@ -113,6 +129,7 @@ class CustomPopup(Popup):
         stalls. Any later result the thread posts to this popup is a harmless
         no-op once it is dismissed."""
         logger.info('[Popup    ] progress popup cancelled by user')
+        gui_logger.popup_response(self.title, 'CANCEL')
         self.dismiss()
 
 

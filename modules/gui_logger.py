@@ -113,6 +113,16 @@ def dialog(title: str, body: str) -> None:
     _log.info(f'DIALOG | {one_line(title)} | {one_line(body)}')
 
 
+def dialog_closed(title: str) -> None:
+    """Log a dialog leaving the screen, however it closed.
+
+    Pairs with ``dialog``: written from the one place every dialog opens, so
+    the app closing it, a person's answer, the title-bar X, a click outside
+    and Escape all leave the same line, once per opening.
+    """
+    _log.info(f'DIALOG_CLOSED | {one_line(title)}')
+
+
 def popup_response(title: str, response: str) -> None:
     """Log the user's response to a modal popup (OK / Cancel / Ack / dismiss).
 

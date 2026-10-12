@@ -81,7 +81,16 @@ def _install_dialog_open_logging() -> None:
         return opened
 
     Popup.open = _open_logged_and_ordered
+    # Kivy clears _is_open once the dialog has left the window, by whatever
+    # path it closed -- the app's dismiss, an answer, the X, a click outside,
+    # Escape -- and a second dismiss during the fade does not clear it twice.
+    Popup.on__is_open = _log_dialog_closed
     Popup._lvp_open_logged = True
+
+
+def _log_dialog_closed(popup, _instance, is_open: bool) -> None:
+    if not is_open:
+        gui_logger.dialog_closed(getattr(popup, 'title', '') or type(popup).__name__)
 
 
 # Set on a popup that says what just happened and asks nothing of the person.

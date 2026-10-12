@@ -56,13 +56,6 @@ def _D(helper):
 # Controls that reach no gui_logger record at all. Each needs a reason; a new
 # entry is a decision, not a formality.
 _UNLOGGED = {
-    # Found by this commit's sweep, same class as D8 and invisible to every
-    # census before it. Cancelling a stalled support-report / zip-logs /
-    # stitching run leaves no record, although each of those runs logs its
-    # START (GENERATE_SUPPORT_REPORT, ZIP_LOGS, RUN_STITCHER). A bundle can
-    # therefore show an operation beginning and never finishing with nothing
-    # saying the user stopped it. Fix is commit 4.
-    'CustomPopup.Button(cancel)': 'gap -- fill in commit 4',
     # NOT a gap: dismissing a modal is not a control action. No close or
     # dismiss button anywhere in the app is censused, and the notification
     # popup's equivalent is carried by gui_logger.popup_response instead.
@@ -113,6 +106,8 @@ _ROSTER = {
     'CellCountControls.slider_cell_count_sphericity_id': ('CELL_COUNT_SPHERICITY_RANGE',),
     'CellCountControls.slider_cell_count_threshold_id': ('CELL_COUNT_THRESHOLD',),
     'CellCountControls.text_cell_count_pixels_per_um_id': ('CELL_COUNT_PIXELS_PER_UM',),
+    # The popup's title names whose Cancel it was.
+    'CustomPopup.Button(cancel)': (_D('cancel'),),
     'CompositeGenControls.FolderChooseBTN(choose:apply_composite_gen_to_folder)': (
         'FOLDER_CHOOSE',
         'FOLDER_CHOOSE_OPEN',

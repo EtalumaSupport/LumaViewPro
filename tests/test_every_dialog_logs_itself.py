@@ -202,3 +202,10 @@ def test_an_opened_dialog_is_recorded_as_a_dialog_with_no_level(monkeypatch, cap
     assert line.startswith('DIALOG | Confirm Exit | '), line
     assert 'A recording is in progress.' in line
     assert 'NOTIFICATION' not in line and 'INFO' not in line, line
+
+
+def test_every_dialog_records_its_close(monkeypatch):
+    """The installer gives every dialog class the close record, on the edge
+    Kivy sets when the dialog has left the window, by whatever path."""
+    notification_popup, Dialog = _install_against(monkeypatch)
+    assert Dialog.on__is_open is notification_popup._log_dialog_closed
