@@ -76,6 +76,15 @@ def test_a_counted_drop_takes_that_many_replies_and_no_more(scope):
     assert scope.motion.get_actual_position('Z') == pytest.approx(0.0, abs=0.1)
 
 
+def test_an_uncounted_drop_lasts_until_cleared(scope):
+    scope.simulation.drop_replies('motor', count=None, command='ACTUAL_RZ')
+    for _ in range(3):
+        with pytest.raises(HardwareError):
+            scope.motion.get_actual_position('Z')
+    scope.simulation.clear()
+    assert scope.motion.get_actual_position('Z') == pytest.approx(0.0, abs=0.1)
+
+
 def test_a_stop_the_board_does_not_answer_raises(scope):
     scope.simulation.drop_replies('motor', command='STOP')
     with pytest.raises(MotorStopFailedError):
@@ -222,6 +231,8 @@ def test_a_firmware_home_fault_raises_from_the_firmwares_reply(firmware_scope):
 def test_a_firmware_board_takes_no_command_to_drop_and_holds_no_axis(firmware_scope):
     refused = _refused(firmware_scope.simulation.drop_replies, 'motor', command='STOP')
     assert (refused.reason, refused.argument) == ('argument_not_on_board', 'command')
+    refused = _refused(firmware_scope.simulation.drop_replies, 'motor', count=None)
+    assert (refused.reason, refused.argument) == ('argument_not_on_board', 'count')
     refused = _refused(firmware_scope.simulation.hold_axis, 'X')
     assert refused.reason == 'not_injectable_on_board'
 

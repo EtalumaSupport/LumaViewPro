@@ -148,12 +148,15 @@ class SimulationAPI:
     # --- the boards' replies and links ---
 
     @api(in_process=True)
-    def drop_replies(self, board: str, count: int = 1, command: str | None = None) -> None:
+    def drop_replies(self, board: str, count: int | None = 1, command: str | None = None) -> None:
         """The board answers nothing to its next ``count`` commands.
 
         Args:
             board: ``'motor'`` or ``'led'``.
-            count: How many replies go missing, 1 or more.
+            count: How many replies go missing, 1 or more; None for every
+                one until ``clear``, as a register the board stops reporting
+                is missing from every poll. Taken by the fast motor board
+                only: a firmware board's link drops a counted few.
             command: Only commands with this first word, such as
                 ``'ACTUAL_RZ'`` or ``'STOP'``; any command when None. Taken
                 by the fast motor board only: a firmware board's link loses
@@ -163,13 +166,16 @@ class SimulationAPI:
             ArgumentRefusedError: ``'needs_simulated_scope'``;
                 ``'fault_unknown'`` for a board this scope lacks;
                 ``'fault_bound'`` for a count below 1;
+                ``'argument_not_on_board'`` for a count of None on a
+                firmware board;
                 ``'not_injectable_on_board'`` on the fast LED board, whose
                 missing reply the API never reads, and on a Classic model's
                 boards, which have ``silence``; ``'argument_not_on_board'``
                 for a command on a firmware board.
         """
         target = self._board('drop_replies', board)
-        self._bound('count', count, 'a number of replies, 1 or more', count >= 1)
+        if count is not None:
+            self._bound('count', count, 'a number of replies, 1 or more', count >= 1)
         if isinstance(target, SimulatedMotorBoard):
             target.drop_replies(command, count)
             self._record(
@@ -187,6 +193,14 @@ class SimulationAPI:
                     argument='command',
                     value=command,
                     kind=f'{_family(target)}, whose link drops the next reply whatever its command',
+                )
+            if count is None:
+                raise ArgumentRefusedError(
+                    'argument_not_on_board',
+                    argument='count',
+                    value=count,
+                    kind=f'{_family(target)}, whose link drops a counted few replies; '
+                    'a board that answers nothing is unplug',
                 )
             target.drop_next_reply(count)
             self._record(

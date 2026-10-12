@@ -2631,7 +2631,7 @@ Which board answers a member depends on how the model is simulated. The **fast**
 
 | Member | The fault | Fast | Firmware | Classic |
 |---|---|---|---|---|
-| `drop_replies(board, count=1, command=None)` | the next `count` replies do not come | motor: by `command`'s first word, or any | either board, the next replies whatever the command (`command` refused) | refused (`silence`) |
+| `drop_replies(board, count=1, command=None)` | the next `count` replies do not come; `count=None`, every one until `clear()` | motor: by `command`'s first word, or any | either board, the next replies whatever the command (`command` and `count=None` refused) | refused (`silence`) |
 | `silence(board)`, `unsilence(board)` | no reply from now on | motor | refused (`unplug`) | TMCM-6110; FX2 (`unsilence` refused: its stream does not resume) |
 | `unplug(board)`, `replug(board)` | the cable pulled and put back | motor | either board | TMCM-6110; FX2 (`replug` refused) |
 | `reboot(board, booting_for_s=0.0)` | the firmware restarts; found again after the boot | refused | either board | refused |
