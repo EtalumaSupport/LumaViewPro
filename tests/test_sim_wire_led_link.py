@@ -86,6 +86,7 @@ def test_a_dropped_echo_leaves_the_answer_and_the_api_is_right(scope):
     illumination, board, posts, simulation = scope
     simulation.drop_replies('led')
     illumination.led_on(0, 10)
+    assert board.replies_dropped == 1, 'the drop must have taken the echo'
     assert _believed(illumination) == {'Blue': 10.0}
     # The firmware's mA_to_dac: int(60.936 * 10 + 890).
     assert _driven(illumination, board) == {'Blue': 1499}

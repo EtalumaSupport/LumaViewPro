@@ -245,6 +245,7 @@ class EmulatedBoard:
         # How many replies an armed drop has still to take, the one armed
         # included: each dropped reply re-arms it for the next write.
         self._drops_left = 0
+        self._replies_dropped = 0
         self._reply_active = False
         self._reply = bytearray()
         # Output held back by a late reply until the delay has passed.
@@ -254,6 +255,12 @@ class EmulatedBoard:
     @property
     def label(self) -> str:
         return self._image.label
+
+    @property
+    def replies_dropped(self) -> int:
+        """How many replies an armed drop has taken since the board was built."""
+        with self._cond:
+            return self._replies_dropped
 
     @property
     def plugged(self) -> bool:
@@ -445,6 +452,7 @@ class EmulatedBoard:
             kind, seconds = self._reply_fault
             self._reply_fault = None
             if kind == 'drop':
+                self._replies_dropped += 1
                 self._drops_left -= 1
                 if self._drops_left > 0:
                     self._reply_fault = ('drop', 0.0)
