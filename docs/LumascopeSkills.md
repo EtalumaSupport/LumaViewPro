@@ -2609,6 +2609,29 @@ image = scope.imaging.capture_and_wait()
 
 A scope brought up through `ScopeSession.create()` is already streaming. A bare `Lumascope` you build yourself has no settings, so a capture raises `ConfigurationDefectError` (`scope_not_composed`, a `ConfigError`) until it is composed into a session; compose it with `ScopeSession.create(scope=...)` (above).
 
+### Faults on the simulated scope
+
+`scope.simulation` presents the faults a real board or camera can, so code under test meets them through the production driver path and asserts what the API answers: the same exception, reason and outcome as on hardware. A fault is armed for the next command, not the one in flight. The members are in-process only (Python, MATLAB calling Python), and each refuses on a real scope (`ArgumentRefusedError`, `needs_simulated_scope`).
+
+Which board answers a member depends on how the model is simulated. The **fast** tier (`simulator_tier` `fast`, the default) runs simulated boards in place of the drivers; the **firmware** and **realistic** tiers run the production EL-0940 drivers over the board firmware in simulation; a **Classic** model (the LS720's TMCM-6110; the LS620 and LS560's FX2) runs its production drivers over a simulated device on every tier. A board that cannot produce a fault refuses it (`not_injectable_on_board`, naming the board), and an argument it cannot take is refused as `argument_not_on_board`. `board` is `'motor'` or `'led'` (`fault_unknown` for a board the model lacks).
+
+| Member | The fault | Fast | Firmware | Classic |
+|---|---|---|---|---|
+| `drop_replies(board, count=1, command=None)` | the next `count` replies do not come | motor: by `command`'s first word, or any | either board, the next replies whatever the command (`command` refused) | refused (`silence`) |
+| `silence(board)`, `unsilence(board)` | no reply from now on | motor | refused (`unplug`) | TMCM-6110; FX2 (`unsilence` refused: its stream does not resume) |
+| `unplug(board)`, `replug(board)` | the cable pulled and put back | motor | either board | TMCM-6110; FX2 (`replug` refused) |
+| `reboot(board, booting_for_s=0.0)` | the firmware restarts; found again after the boot | refused | either board | refused |
+| `fail_home(axis, how)` | a home that fails: `'switch_never_trips'`, `'stall'` or `'absent'` | refused | every `how` | TMCM-6110, `'switch_never_trips'` |
+| `hold_axis(axis, at_fraction=0.5)` | the next move halts part of the way and never arrives | motor | refused (the axis arrives) | refused |
+| `interlock(lid_open=None, powered=None)` | the stage interlock's inputs | refused | refused | TMCM-6110 |
+| `remove_camera()` | the camera leaves the bus, for the session | camera | camera | FX2 |
+| `refuse_camera_write(node, answer)` | the next write of `node` (`'gain'`, `'exposure'`, `'auto_exposure'`, `'frame_size'`, `'binning'`, `'pixel_format'`, `'black_level'`) answers `'false'`, `'none'`, `'true'` or `'raise'` | camera | camera | refused |
+| `stall_stream(after_s, for_s)` | no frame for `for_s` s, starting in `after_s` s | camera | camera | refused (`silence('led')`) |
+
+The fast LED board refuses every link fault: the API reads nothing from its missing reply. The fast motor board runs no firmware, so its home cannot fail; the firmware's axis reaches its target whatever is injected, so a move cannot be held there. `injected()` lists the faults injected since the last `clear()` as `InjectedFault` records (`member`, `arguments`), one-shot faults included after they are spent. `clear()` takes every fault back: drops, holds, refused writes and stalls lifted, boards plugged in and answering, hardware faults removed; a board that found its cable pulled stays disconnected until it is reconnected, as a real one does. A removed camera, an FX2 unplugged or silenced, and a reboot under way stay as they are, as on a real scope.
+
+The two stalls a launch can ask for are `create`'s `sim_camera_stall` (which calls `stall_stream`) and `sim_file_stall` (above); the GUI's `--sim-camera-stall` and `--sim-file-stall` pass them.
+
 ---
 
 ## Protocol file format
@@ -2809,6 +2832,7 @@ Reached through `session.scope`.
 - `runtime_state`
 - `scope_models`
 - `settings_template`
+- `simulation` (in-process)
 - `unconnected_parts`
 - `wellplate_loader`
 
@@ -2962,6 +2986,25 @@ Reached through `session.scope.runtime_state`.
 - `plate_transform` (in-process)
 - `resolve_current_objective`
 - `stage_to_plate`
+
+### SimulationAPI
+
+Reached through `session.scope.simulation`.
+
+- `clear` (in-process)
+- `drop_replies` (in-process)
+- `fail_home` (in-process)
+- `hold_axis` (in-process)
+- `injected` (in-process)
+- `interlock` (in-process)
+- `reboot` (in-process)
+- `refuse_camera_write` (in-process)
+- `remove_camera` (in-process)
+- `replug` (in-process)
+- `silence` (in-process)
+- `stall_stream` (in-process)
+- `unplug` (in-process)
+- `unsilence` (in-process)
 
 ### ScopeCapabilities
 
@@ -3304,6 +3347,13 @@ Reached through returned by `session.diagnostic_claim`.
 
 - `holds`
 - `release`
+
+### InjectedFault
+
+Reached through returned by `scope.simulation.injected`.
+
+- `arguments`
+- `member`
 
 ### LayerRecord
 

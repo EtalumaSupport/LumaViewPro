@@ -88,6 +88,7 @@ if TYPE_CHECKING:
     from modules.lumascope_api.motion import MotionAPI
     from modules.lumascope_api.protocols import ProtocolsAPI
     from modules.lumascope_api.runtime_state import RuntimeState
+    from modules.lumascope_api.simulation import SimulationAPI
     from modules.objectives_loader import ObjectiveLoader
     from modules.scope_init_config import ScopeInitConfig
 
@@ -354,8 +355,11 @@ class Lumascope:
         motor_board: str | None,
         sim_tier: str,
         motorconfig_defaults: dict,
-    ) -> MotorBoardProtocol:
-        """The simulated scope's motor board, on the tier asked for.
+    ) -> tuple[MotorBoardProtocol, object | None]:
+        """The simulated scope's motor board, on the tier asked for, and
+        the simulated board behind it that presents its faults: the driver
+        itself on the fast tier, the board under the production driver
+        otherwise, None for the null driver.
 
         ``axes`` and ``motor_board`` are the ones the catalogue gives the
         model: a model that names no motor board has none, so it gets the
@@ -373,7 +377,7 @@ class Lumascope:
             raise ValueError(f'sim_tier {sim_tier!r} is not one of {SIMULATOR_TIERS}')
         if motor_board is None:
             logger.info(f'[SCOPE API ] Model {model} has no motor axes: no motor board')
-            return NullMotionBoard()
+            return NullMotionBoard(), None
         if motor_board == 'TMCM-6110':
             from drivers.simulated_tmcm6110 import (
                 SCOPE_SPEEDUP,
@@ -382,21 +386,20 @@ class Lumascope:
                 sped_up_clock,
             )
 
+            simulated = SimulatedTmcm6110(
+                motorconfig_defaults=motorconfig_defaults,
+                clock=sped_up_clock(SCOPE_SPEEDUP),
+            )
             board = Tmcm6110Board(
                 motorconfig_defaults=motorconfig_defaults,
-                backend=SimulatedTmcm6110Backend(
-                    SimulatedTmcm6110(
-                        motorconfig_defaults=motorconfig_defaults,
-                        clock=sped_up_clock(SCOPE_SPEEDUP),
-                    )
-                ),
+                backend=SimulatedTmcm6110Backend(simulated),
             )
             if not board.found:
                 raise DriverNotLiveError(f'the simulated TMCM-6110 for {model} did not answer')
             logger.info(
                 f'[SCOPE API ] Using the TMCM-6110 driver on a SIMULATED board (model={model})'
             )
-            return board
+            return board, simulated
         if sim_tier == 'fast':
             board = motor_registry.create(
                 'auto',
@@ -406,7 +409,7 @@ class Lumascope:
                 motorconfig_defaults=motorconfig_defaults,
             )
             logger.info(f'[SCOPE API ] Using SIMULATED Motor Board (model={model})')
-            return board
+            return board, board
         from drivers.sim_wire.backend import MotorBoardSpec, SimWireBackend
 
         backend = SimWireBackend(MotorBoardSpec(model, axes, timing=_wire_timing(sim_tier)))
@@ -417,7 +420,7 @@ class Lumascope:
             f'[SCOPE API ] Using the motor FIRMWARE in simulation '
             f'(model={model}, axes={"".join(sorted(axes))})'
         )
-        return board
+        return board, backend.motor_board
 
     def _simulated_boards(self, model: str, axes: frozenset[str]) -> tuple[str, str | None]:
         """The LED and motor boards a simulated ``model`` has, as its catalogue row names them.
@@ -452,8 +455,10 @@ class Lumascope:
         )
 
     @staticmethod
-    def _build_simulated_led_board(model: str, sim_tier: str) -> LEDBoardProtocol:
-        """The simulated EL-0940 scope's LED board, on the tier asked for.
+    def _build_simulated_led_board(model: str, sim_tier: str) -> tuple[LEDBoardProtocol, object]:
+        """The simulated EL-0940 scope's LED board, on the tier asked for,
+        and the simulated board behind it that presents its faults: the
+        driver itself on the fast tier, the emulated board otherwise.
 
         The firmware tier builds the production driver by name against the
         emulator, so an emulator that does not come up raises instead of
@@ -464,13 +469,13 @@ class Lumascope:
         if sim_tier == 'fast':
             board = led_registry.create('auto', simulate=True)
             logger.info(f'[SCOPE API ] Using SIMULATED LED Board (model={model})')
-            return board
+            return board, board
         from drivers.sim_wire.backend import LedBoardSpec, SimWireBackend
 
         backend = SimWireBackend(None, led=LedBoardSpec(model, timing=_wire_timing(sim_tier)))
         board = led_registry.create('rp2040', backend=backend)
         logger.info(f'[SCOPE API ] Using the LED FIRMWARE in simulation (model={model})')
-        return board
+        return board, backend.led_board
 
     def __init__(
         self,
@@ -640,8 +645,13 @@ class Lumascope:
         # -- 'auto' tries real drivers in descending priority order and
         # falls back to NullMotionBoard if all fail, so no manual
         # try/except needed.
+        # The simulated boards that present faults, kept for the simulation
+        # sub-API: the drivers on the fast tier, the boards behind them
+        # otherwise.
+        simulated_motor = simulated_led = simulated_camera = None
         if simulate:
-            self._motion_driver: MotorBoardProtocol = self._build_simulated_motor_board(
+            self._motion_driver: MotorBoardProtocol
+            self._motion_driver, simulated_motor = self._build_simulated_motor_board(
                 model, sim_axes, sim_motor_board, sim_tier, motorconfig_defaults
             )
             # A simulated manual scope gets the null board, as the bench
@@ -686,8 +696,9 @@ class Lumascope:
             )
             logger.info(f'[SCOPE API ] Using the FX2 LED driver on a SIMULATED FX2 (model={model})')
             parts[LED] = PartStatus(LED, up=True)
+            simulated_led = simulated_camera = sim_fx2
         elif simulate:
-            self._led_driver = self._build_simulated_led_board(model, sim_tier)
+            self._led_driver, simulated_led = self._build_simulated_led_board(model, sim_tier)
             parts[LED] = PartStatus(LED, up=True)
         else:
             self._led_driver, fallback = led_registry.create_with_fallback(
@@ -754,8 +765,7 @@ class Lumascope:
                 )
                 if simulate:
                     self._camera_driver.load_specimen()
-                    if sim_camera_stall is not None:
-                        self._camera_driver.hold_frames(sim_camera_stall)
+                    simulated_camera = self._camera_driver
                     logger.info('[SCOPE API ] Using SIMULATED Camera')
             parts[CAMERA] = PartStatus(CAMERA, up=True)
         except Exception as _cam_exc:
@@ -804,12 +814,20 @@ class Lumascope:
         from modules.lumascope_api.diagnostics import DiagnosticsAPI
         from modules.lumascope_api.protocols import ProtocolsAPI
         from modules.lumascope_api.runtime_state import RuntimeState
+        from modules.lumascope_api.simulation import SimulationAPI
 
         self.illumination = IlluminationAPI(self, self._led_driver)
         self.imaging = ImagingAPI(self, self._camera_driver)
         self.diagnostics = DiagnosticsAPI(self)
         self.protocols = ProtocolsAPI(self)
         self.runtime_state = RuntimeState(self)
+        self._simulation = SimulationAPI(
+            self, motor=simulated_motor, led=simulated_led, camera=simulated_camera
+        )
+        # A camera that did not come up has no stream to stall; bring-up
+        # reports its failure.
+        if sim_camera_stall is not None and simulated_camera is not None:
+            self.simulation.stall_stream(sim_camera_stall.after_s, sim_camera_stall.for_s)
 
         # What came up is reported by initialize(config): it takes the
         # model's expectations, which say whether a missing motor board on an
@@ -1234,6 +1252,16 @@ class Lumascope:
     # All camera/imaging methods + state slots + change-listener registry
     # live on ImagingAPI; forwarders have been retired. Callers use
     # scope.imaging.
+
+    @api(in_process=True)
+    @property
+    def simulation(self) -> 'SimulationAPI':
+        """The faults a simulated scope presents, switched on by name.
+
+        In-process only: the faults belong to the simulator, not to a wire.
+        Every member refuses on a real scope.
+        """
+        return self._simulation
 
     @api
     @property
@@ -1696,12 +1724,14 @@ class Lumascope:
         from modules.lumascope_api.diagnostics import DiagnosticsAPI
         from modules.lumascope_api.protocols import ProtocolsAPI
         from modules.lumascope_api.runtime_state import RuntimeState
+        from modules.lumascope_api.simulation import SimulationAPI
 
         instance.illumination = IlluminationAPI(instance, instance._led_driver)
         instance.imaging = ImagingAPI(instance, None)
         instance.diagnostics = DiagnosticsAPI(instance)
         instance.protocols = ProtocolsAPI(instance)
         instance.runtime_state = RuntimeState(instance)
+        instance._simulation = SimulationAPI(instance)
 
         # No hardware when neither board came up, read from the record as
         # __init__ reads it; the diagnostic probes no camera.

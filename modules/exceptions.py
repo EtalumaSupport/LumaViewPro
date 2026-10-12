@@ -2677,6 +2677,15 @@ class ArgumentRefusedError(Refusal, ValueError):
               ``offered``, the parts the record holds.
             - ``'binning_size_invalid'`` -- a binning label that is not a
               positive square ``NxN``.
+            - ``'fault_unknown'`` -- a simulated fault's board, home fault,
+              camera node or answer that is not one of ``offered``.
+            - ``'fault_bound'`` -- a simulated fault's count, fraction or
+              time outside what it takes (``kind``, in words).
+            - ``'not_injectable_on_board'`` -- a simulated fault the board
+              that would present it cannot produce; ``argument`` names the
+              ``scope.simulation`` member, ``kind`` the board.
+            - ``'argument_not_on_board'`` -- an argument of a simulated
+              fault the board cannot take; ``kind`` names the board.
         argument: The name of the argument refused.
         value: What was given, as given.
         offered: The values the argument takes, where it takes a list;
@@ -2684,7 +2693,9 @@ class ArgumentRefusedError(Refusal, ValueError):
         limits: The lowest and highest value the argument takes, where it
             takes a range that depends on the scope; None otherwise.
         kind: The kind of value the argument takes, in words, for
-            ``'wrong_kind'``; None otherwise.
+            ``'wrong_kind'`` and ``'fault_bound'``; the simulated board,
+            in words, for ``'not_injectable_on_board'`` and
+            ``'argument_not_on_board'``; None otherwise.
 
     ``argument``, ``offered`` and ``limits`` are published, so a REST
     problem carries them beside the words; the client already holds the
@@ -2787,6 +2798,22 @@ class ArgumentRefusedError(Refusal, ValueError):
         'part_unknown': (
             'Not a Part',
             '{argument} must be one of {offered}; {value!r} is not one.',
+        ),
+        'fault_unknown': (
+            'Not a Simulated Fault',
+            '{argument} must be one of {offered}; {value!r} is not one.',
+        ),
+        'fault_bound': (
+            'Not a Simulated Fault',
+            '{argument} must be {kind}; {value!r} is not.',
+        ),
+        'not_injectable_on_board': (
+            'Fault Not Injectable',
+            'On {kind}, {argument} is not a fault that can be injected.',
+        ),
+        'argument_not_on_board': (
+            'Fault Not Injectable',
+            '{argument} {value!r} is not taken by {kind}.',
         ),
     }
 

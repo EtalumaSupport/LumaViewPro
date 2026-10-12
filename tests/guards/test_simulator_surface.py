@@ -100,11 +100,11 @@ _BOARD_PAIRS = (
 # (`set_focal_z`, `get_nominal_focal_z`, ...), the camera's `hold_frames` (a
 # stalled stream, set from the --sim-camera-stall launch argument), the
 # motor's `hold_travel` (a move held part of the way, so a test acts on a
-# move that is provably travelling), the fault doors a simulated scope's
-# faults are switched through (the motor's `unplug`, `replug`,
-# `drop_replies`, `stop_dropping`; the camera's `leave_bus`,
-# `refuse_write`, `allow_write`, `release_frames` and the two vocabularies
-# `WRITABLE_NODES` and `REFUSED_WRITE_ANSWERS`), and six firmware-update
+# move that is provably travelling), the fault doors `scope.simulation`
+# drives (the motor's `unplug`, `replug`, `drop_replies`, `stop_dropping`;
+# the camera's `leave_bus`, `refuse_write`, `allow_write`, `release_frames`
+# and the two vocabularies `WRITABLE_NODES` and `REFUSED_WRITE_ANSWERS`),
+# and six firmware-update
 # methods on the motor simulator that anticipate the firmware-updating
 # work landing on the FW branch. Those six have no caller yet; when that
 # code calls them, `test_no_production_code_calls_simulator_only_names`
@@ -131,13 +131,26 @@ _PARAM_DIVERGENCE_ALLOWLIST = {
     ('MotorBoard', 'exchange_command'),
 }
 
-# Production sites allowed to touch simulator-only surface. Both entries
-# are the construction branch that BUILDS the simulator: inside
-# `if simulate:` the driver provably is a SimulatedCamera, which is the
-# one place production code can know that. Keyed by (file, name).
+# Production sites allowed to touch simulator-only surface: the
+# construction branch that BUILDS the simulator, where inside
+# `if simulate:` the driver provably is a SimulatedCamera, and the
+# simulation sub-API, which reaches a board only after dispatching on its
+# simulated type. Keyed by (file, name).
+_SIMULATION = 'modules/lumascope_api/simulation.py'
 _SIM_ONLY_CALL_ALLOWLIST = {
     ('modules/lumascope_api/_lumascope.py', 'load_specimen'),
-    ('modules/lumascope_api/_lumascope.py', 'hold_frames'),
+    (_SIMULATION, 'unplug'),
+    (_SIMULATION, 'replug'),
+    (_SIMULATION, 'drop_replies'),
+    (_SIMULATION, 'stop_dropping'),
+    (_SIMULATION, 'hold_travel'),
+    (_SIMULATION, 'leave_bus'),
+    (_SIMULATION, 'refuse_write'),
+    (_SIMULATION, 'allow_write'),
+    (_SIMULATION, 'hold_frames'),
+    (_SIMULATION, 'release_frames'),
+    (_SIMULATION, 'WRITABLE_NODES'),
+    (_SIMULATION, 'REFUSED_WRITE_ANSWERS'),
 }
 
 

@@ -705,10 +705,11 @@ def test_an_axis_driven_into_its_switch_stops_there(sim):
 def test_a_simulated_row_naming_the_6110_gets_the_driver_on_the_simulated_board(tier):
     from modules.lumascope_api._lumascope import Lumascope
 
-    board = Lumascope._build_simulated_motor_board(
+    board, simulated = Lumascope._build_simulated_motor_board(
         'LS720', frozenset('XYZ'), 'TMCM-6110', tier, SHIPPED_MOTOR_DEFAULTS
     )
     assert isinstance(board, Tmcm6110Board)
+    assert isinstance(simulated, SimulatedTmcm6110)
     assert board.found
     board.move_abs_pos('Z', 10)
     assert board.target_pos('Z') == pytest.approx(10, abs=0.1)
