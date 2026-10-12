@@ -611,7 +611,7 @@ class Tmcm6110Board:
     # Homing
     # ------------------------------------------------------------------
 
-    def home(self) -> bool:
+    def home(self) -> None:
         """Home all three axes with LumaView Classic's sequence.
 
         Z first, to its switch and back up off it to its 0, so the
@@ -621,8 +621,7 @@ class Tmcm6110Board:
         target and actual agree, and each axis reads its index position
         in the API. Each phase polls the lid and the abort.
 
-        Returns:
-            bool: True once every axis is at its reference.
+        Returns once every axis is at its reference.
 
         Raises:
             MotionInterlockError: the stage has no power, or the lid is
@@ -631,15 +630,15 @@ class Tmcm6110Board:
             HardwareError: a phase did not complete in time, a stop ended
                 the home, or the board did not answer; naming the phase.
         """
-        return self._home(
+        self._home(
             (self._home_z, self._home_x_to_switch, self._home_y, self._home_x), ('X', 'Y', 'Z')
         )
 
-    def zhome(self) -> bool:
+    def zhome(self) -> None:
         """Home Z alone, as ``home`` homes it, with the same checks."""
-        return self._home((self._home_z,), ('Z',))
+        self._home((self._home_z,), ('Z',))
 
-    def _home(self, phases, axes: tuple[str, ...]) -> bool:
+    def _home(self, phases, axes: tuple[str, ...]) -> None:
         """Run ``phases`` in order, then set the target of each of ``axes`` to 0."""
         self._home_abort.clear()
         with self._lock:
@@ -665,7 +664,6 @@ class Tmcm6110Board:
             self._end_reference_searches(raising=False)
             raise
         self._end_reference_searches(raising=True)
-        return True
 
     def _home_send(self, command: int, type_: int, motor: int, value: int = 0) -> int:
         """One command of a home, refused once a stop has begun: the abort
@@ -803,7 +801,7 @@ class Tmcm6110Board:
         self._home_send(SAP, AP_MAX_ACCELERATION, motor, params['Max Acceleration'])
         self._home_send(SAP, AP_ACTUAL_POSITION, motor, 0)
 
-    def thome(self) -> bool:
+    def thome(self) -> None:
         raise HardwareError('the TMCM-6110 stage has no turret')
 
     def has_homed(self) -> bool:

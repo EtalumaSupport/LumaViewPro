@@ -186,7 +186,7 @@ class TestTheLinkThroughTheDriver:
     def test_the_driver_reconnects_after_a_cable_pull_to_the_same_homed_firmware(self, backend):
         board = MotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, backend=backend)
         try:
-            assert board.home()
+            assert board.home() is None
             backend.motor_board.unplug()
             # The driver meets the pulled cable on its next exchange and closes.
             assert not board.exchange_command('INFO')

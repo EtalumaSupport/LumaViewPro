@@ -3,9 +3,9 @@
 
 A GUI Home press, a script, bring-up and REST all get the same thing. No
 motor controller is a refusal ("Not Connected"): nothing was driven. A
-driver that answers False, a driver that raises and a home whose position
-could not be read are one fault, ``HomingFailedError`` ("Homing Failed"),
-naming the axes left without a position and chained from the driver's
+driver that raises and a home whose position could not be read are one
+fault, ``HomingFailedError`` ("Homing Failed"), naming the axes left
+without a position and chained from the driver's
 exception where there is one. The home itself shows nothing: whoever waits
 on it reports it, once.
 
@@ -56,22 +56,6 @@ def test_no_motor_controller_is_a_refusal_in_the_cables_words(scope, monkeypatch
 
 
 @pytest.mark.parametrize('route', ROUTES)
-def test_a_driver_that_answers_false_raises_the_homing_fault(scope, monkeypatch, route):
-    monkeypatch.setattr(scope._motion_driver, DRIVER_CALL[route], lambda: False)
-
-    with pytest.raises(HomingFailedError) as raised:
-        scope.motion.home(route)
-
-    assert raised.value.reason == 'failed'
-    assert raised.value.title == 'Homing Failed'
-    assert str(raised.value) == f'{SUBJECT[route]} failed. Position is unknown.'
-    assert raised.value.axes == _axes_of(scope, route)
-    for axis in raised.value.axes:
-        assert scope.motion.get_axis_state(axis) == AxisState.UNKNOWN
-    assert scope.posts == []
-
-
-@pytest.mark.parametrize('route', ROUTES)
 def test_a_driver_that_raises_is_chained_not_rewrapped(scope, monkeypatch, route):
     cause = HardwareError('no response from motor board')
 
@@ -108,7 +92,10 @@ def test_a_home_whose_position_is_unread_names_the_unread_axis(scope, route):
 
 @pytest.mark.parametrize('route', ROUTES)
 def test_the_done_line_is_logged_however_the_home_ends(scope, monkeypatch, caplog, route):
-    monkeypatch.setattr(scope._motion_driver, DRIVER_CALL[route], lambda: False)
+    def _raise():
+        raise HardwareError('no response from motor board')
+
+    monkeypatch.setattr(scope._motion_driver, DRIVER_CALL[route], _raise)
 
     with caplog.at_level(logging.INFO), pytest.raises(HomingFailedError):
         scope.motion.home(route)

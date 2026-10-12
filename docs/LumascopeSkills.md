@@ -1297,7 +1297,7 @@ scope.motion.home(axis='T')                      # turret only (parks Z at 0, ho
 # no motor controller, or no Z or turret to home; or 'lid_open' /
 # 'stage_unpowered': the stage's interlock refused the home before anything
 # moved; nothing moved, and every axis keeps the state it had) or
-# HomingFailedError (title 'Homing Failed'; .reason 'failed' | 'error' |
+# HomingFailedError (title 'Homing Failed'; .reason 'error' |
 # 'unread' | 'lid_open' (the lid was opened while the home moved) |
 # 'stopped' (stop_motion ended it), .axes the axes left unknown, chained
 # from the driver's error when there is one). A stop_motion that lands

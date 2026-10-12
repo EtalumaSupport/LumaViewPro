@@ -931,7 +931,7 @@ class SimulatedMotorBoard:
     # ------------------------------------------------------------------
     # Homing
     # ------------------------------------------------------------------
-    def zhome(self) -> bool:
+    def zhome(self) -> None:
         """Simulated Z homing. Mirrors `MotorBoard.zhome` contract.
 
         Raises:
@@ -942,10 +942,10 @@ class SimulatedMotorBoard:
         if resp is None:
             raise HardwareError('zhome(): no response from motor board (timeout or disconnect)')
         if 'successful' in resp.lower() or 'complete' in resp.lower():
-            return True
+            return
         raise HardwareError(f'zhome(): firmware error: {resp}')
 
-    def home(self) -> bool:
+    def home(self) -> None:
         """Simulated full home. Mirrors `MotorBoard.home` contract.
 
         Raises:
@@ -957,11 +957,11 @@ class SimulatedMotorBoard:
             raise HardwareError('home(): no response from motor board (timeout or disconnect)')
         if 'XYZ home complete' in resp:
             self.initial_homing_complete = True
-            return True
+            return
         # Match real MotorBoard partial-home semantics so tests cover both.
         if ('not present' in resp) and ('X' in resp or 'Y' in resp):
             self.initial_homing_complete = True
-            return True
+            return
         raise HardwareError(f'home(): firmware error: {resp}')
 
     def has_homed(self) -> bool:
@@ -972,7 +972,7 @@ class SimulatedMotorBoard:
         """
         return self.initial_homing_complete
 
-    def thome(self) -> bool:
+    def thome(self) -> None:
         """Simulated turret home. Mirrors `MotorBoard.thome` contract.
 
         Raises:
@@ -984,9 +984,9 @@ class SimulatedMotorBoard:
             raise HardwareError('thome(): no response from motor board (timeout or disconnect)')
         if 'T home successful' in resp:
             self.initial_t_homing_complete = True
-            return True
+            return
         if 'not present' in resp.lower():
-            return True
+            return
         raise HardwareError(f'thome(): firmware error: {resp}')
 
     def has_turret(self) -> bool:

@@ -818,11 +818,8 @@ class MotorBoard(SerialBoard):
         ustep = math.floor((usteps_per_mm * um) / 1000 + 0.5)
         return ustep
 
-    def zhome(self) -> bool:
-        """Home the objective.
-
-        Returns:
-            bool: True on successful Z homing.
+    def zhome(self) -> None:
+        """Home the objective; returns once it is homed.
 
         Raises:
             HardwareError: No response from the motor board (timeout or
@@ -835,7 +832,6 @@ class MotorBoard(SerialBoard):
         success = 'successful' in resp.lower() or 'complete' in resp.lower()
         if not success:
             raise HardwareError(f'zhome(): firmware error: {resp}')
-        return True
 
     # ----------------------------------------------------------
     # XY Stage Functions
@@ -868,19 +864,16 @@ class MotorBoard(SerialBoard):
         ustep = math.floor((usteps_per_mm * um) / 1000 + 0.5)
         return ustep
 
-    def home(self) -> bool:
+    def home(self) -> None:
         """Send HOME to firmware and home every axis the board has.
 
         The firmware's xyzhome routine homes Z, then T, then attempts X/Y.
         On a full XYZ(T) board, the response is 'XYZ home complete'. On a
         Z-only board (LS820 bench), Z (and T if present) get homed first
         and the firmware then returns 'ERROR: X not present' -- the home
-        DID succeed for the axes the board has, so this counts as
-        success. Real failures (no response, hardware error, or partial
+        DID succeed for the axes the board has, so it returns as a full
+        home does. Real failures (no response, hardware error, or partial
         home aborted by Z/T error) raise HardwareError.
-
-        Returns:
-            bool: True on full or partial success.
 
         Raises:
             HardwareError: No response from the motor board (timeout or
@@ -895,7 +888,7 @@ class MotorBoard(SerialBoard):
             self._wait_for_arrival(self.detect_present_axes(), 'home()')
             with self._state_lock:
                 self.initial_homing_complete = True
-            return True
+            return
         # Partial home: firmware homed Z (and T if present) before
         # reporting that X or Y is not physically wired on this board.
         # The reference position for the present axes is valid.
@@ -906,7 +899,7 @@ class MotorBoard(SerialBoard):
             self._confirm_homed('home()', axes=('Z', 'T'))
             with self._state_lock:
                 self.initial_homing_complete = True
-            return True
+            return
         raise HardwareError(f'home(): firmware error: {resp}')
 
     def _confirm_homed(self, what: str, axes) -> None:
@@ -1035,12 +1028,11 @@ class MotorBoard(SerialBoard):
             return self.t_deg2ustep(degrees=90 * (position - 1))
         return usteps
 
-    def thome(self) -> bool:
+    def thome(self) -> None:
         """Home the turret.
 
-        Returns:
-            bool: True on successful turret homing, or when the board
-                reports the turret is not present (Z-only boards).
+        Returns once the turret is homed, or at once when the board reports
+        no turret (Z-only boards).
 
         Raises:
             HardwareError: No response from the motor board (timeout or
@@ -1057,10 +1049,10 @@ class MotorBoard(SerialBoard):
             )
             with self._state_lock:
                 self.initial_t_homing_complete = True
-            return True
+            return
         # "T not present" is not a failure -- board just doesn't have a turret
         if 'not present' in resp.lower():
-            return True
+            return
         raise HardwareError(f'thome(): firmware error: {resp}')
 
     def has_turret(self) -> bool:

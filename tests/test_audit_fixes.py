@@ -1728,9 +1728,8 @@ def homing_boards():
 class TestHomeRaises:
     """The blocking home(axis=) member returns when the driver homed and
     raises HomingFailedError when it did not, for every axis selector,
-    posting nothing itself; MotorBoard / SimulatedMotorBoard must raise
-    HardwareError instead of returning False on no-response /
-    firmware-error paths.
+    posting nothing itself; MotorBoard / SimulatedMotorBoard raise
+    HardwareError on no-response / firmware-error paths.
 
     Pairs with the existing `--run-homing` opt-in test set; this class
     pins the mechanical contract (annotations + raised failures + typed
@@ -1756,20 +1755,11 @@ class TestHomeRaises:
             (n.category, n.title, n.message) for n in centre_posts if n.severity == Severity.ERROR
         ]
 
-    def test_zhome_propagates_driver_true(self, sim_scope, monkeypatch, centre_posts):
-        monkeypatch.setattr(sim_scope._motion_driver, 'zhome', lambda: True)
+    def test_zhome_returns_when_the_driver_homed(self, sim_scope, monkeypatch, centre_posts):
+        monkeypatch.setattr(sim_scope._motion_driver, 'zhome', lambda: None)
         sim_scope.motion.home(axis='Z')
         errors = self._errors(centre_posts)
         assert errors == [], f'success path must not notify; got {errors}'
-
-    def test_zhome_raises_and_posts_nothing_on_driver_false(
-        self, sim_scope, monkeypatch, centre_posts
-    ):
-        monkeypatch.setattr(sim_scope._motion_driver, 'zhome', lambda: False)
-        with pytest.raises(HomingFailedError):
-            sim_scope.motion.home(axis='Z')
-        errors = self._errors(centre_posts)
-        assert errors == [], f'the home raises and posts nothing; got {errors}'
 
     def test_zhome_raises_and_posts_nothing_on_driver_raise(
         self, sim_scope, monkeypatch, centre_posts
@@ -1783,20 +1773,11 @@ class TestHomeRaises:
         errors = self._errors(centre_posts)
         assert errors == [], f'the home raises and posts nothing; got {errors}'
 
-    def test_home_propagates_driver_true(self, sim_scope, monkeypatch, centre_posts):
-        monkeypatch.setattr(sim_scope._motion_driver, 'home', lambda: True)
+    def test_home_returns_when_the_driver_homed(self, sim_scope, monkeypatch, centre_posts):
+        monkeypatch.setattr(sim_scope._motion_driver, 'home', lambda: None)
         sim_scope.motion.home()
         errors = self._errors(centre_posts)
         assert errors == [], f'success path must not notify; got {errors}'
-
-    def test_home_raises_and_posts_nothing_on_driver_false(
-        self, sim_scope, monkeypatch, centre_posts
-    ):
-        monkeypatch.setattr(sim_scope._motion_driver, 'home', lambda: False)
-        with pytest.raises(HomingFailedError):
-            sim_scope.motion.home()
-        errors = self._errors(centre_posts)
-        assert errors == [], f'the home raises and posts nothing; got {errors}'
 
     def test_home_raises_and_posts_nothing_on_driver_raise(
         self, sim_scope, monkeypatch, centre_posts
@@ -1810,22 +1791,12 @@ class TestHomeRaises:
         errors = self._errors(centre_posts)
         assert errors == [], f'the home raises and posts nothing; got {errors}'
 
-    def test_thome_propagates_driver_true(self, sim_scope, monkeypatch, centre_posts):
+    def test_thome_returns_when_the_driver_homed(self, sim_scope, monkeypatch, centre_posts):
         sim_scope._motion_driver.set_timing_mode('instant')
-        monkeypatch.setattr(sim_scope._motion_driver, 'thome', lambda: True)
+        monkeypatch.setattr(sim_scope._motion_driver, 'thome', lambda: None)
         sim_scope.motion.home(axis='T')
         errors = self._errors(centre_posts)
         assert errors == [], f'success path must not notify; got {errors}'
-
-    def test_thome_raises_and_posts_nothing_on_driver_false(
-        self, sim_scope, monkeypatch, centre_posts
-    ):
-        sim_scope._motion_driver.set_timing_mode('instant')
-        monkeypatch.setattr(sim_scope._motion_driver, 'thome', lambda: False)
-        with pytest.raises(HomingFailedError, match='Turret homing'):
-            sim_scope.motion.home(axis='T')
-        errors = self._errors(centre_posts)
-        assert errors == [], f'the home raises and posts nothing; got {errors}'
 
     def test_thome_raises_and_posts_nothing_on_driver_raise(
         self, sim_scope, monkeypatch, centre_posts
@@ -1846,7 +1817,11 @@ class TestHomeRaises:
         safe-turret-move Z restore returns immediately instead of hanging
         on a cleared T event until the 120s motion timeout."""
         sim_scope._motion_driver.set_timing_mode('instant')
-        monkeypatch.setattr(sim_scope._motion_driver, 'thome', lambda: False)
+
+        def boom():
+            raise HardwareError('no response from motor board')
+
+        monkeypatch.setattr(sim_scope._motion_driver, 'thome', boom)
         with pytest.raises(HomingFailedError):
             sim_scope.motion.home(axis='T')
         assert sim_scope.motion._arrival_events['T'].is_set()
@@ -1906,14 +1881,14 @@ class TestHomeRaises:
         ],
     )
     @_firmware_only
-    def test_motorboard_homing_success_and_partial_paths_return_true(
+    def test_motorboard_homing_success_and_partial_paths_return(
         self, homing_boards, method, board_key
     ):
         """Success replies -- including the partial-home (X/Y absent) and
         no-turret cases the firmware reports on smaller boards -- return
-        True rather than raising."""
+        rather than raising."""
         board, _sim = homing_boards[board_key]
-        assert getattr(board, method)() is True
+        assert getattr(board, method)() is None
 
     def test_motorboard_homing_docstrings_document_raises(self):
         from drivers.motorboard import MotorBoard

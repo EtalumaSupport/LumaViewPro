@@ -972,10 +972,9 @@ class MotionAPI:
                 ``_refuse_absent``); or an interlock reason, the stage's
                 interlock refused the home before anything moved. Nothing
                 was driven, and every axis keeps the state it had.
-            HomingFailedError: the driver answered False or raised, or a
-                homed axis's position could not be read; ``'lid_open'``,
-                the lid was opened while the home moved; ``'stopped'``, a
-                Stop ended it.
+            HomingFailedError: the driver raised, or a homed axis's position
+                could not be read; ``'lid_open'``, the lid was opened while
+                the home moved; ``'stopped'``, a Stop ended it.
         """
         # Asked before the driver: without it, a home with no controller
         # dispatches into the driver where exchange_command tries to
@@ -1004,13 +1003,7 @@ class MotionAPI:
                 self._reference_position_logger(),
                 self._driving_home('ALL', stop_generation, states_before, turret_before),
             ):
-                result = self._driver.home()
-            if result is False:
-                for ax in present_axes:
-                    self._set_axis_state(ax, AxisState.UNKNOWN)
-                raise HomingFailedError(
-                    'ALL', self._home_ending(stop_generation, 'failed'), present_axes
-                )
+                self._driver.home()
             # The position is read BEFORE an axis says IDLE: a reader that
             # samples at frame rate would otherwise pair "known" with the
             # pre-home number for the length of the serial round-trips.
@@ -1119,8 +1112,8 @@ class MotionAPI:
                 ``'axis_absent'``, no motor controller or no turret (see
                 ``_refuse_absent``); refused before Z is parked, and nothing
                 was driven or recorded.
-            HomingFailedError: the driver answered False, the home or its
-                Z park raised, or the turret's position could not be read.
+            HomingFailedError: the home or its Z park raised, or the
+                turret's position could not be read.
         """
         # Asked before the Z park: a scope with no turret would otherwise
         # park and restore Z and record slot 1 for a turret it does not
@@ -1146,9 +1139,10 @@ class MotionAPI:
             ):
                 self._set_axis_state('T', AxisState.HOMING)
                 self._scope.imaging.frame_validity.invalidate('turret')
-                result = False
+                homed = False
                 try:
-                    result = self._driver.thome()
+                    self._driver.thome()
+                    homed = True
                 finally:
                     # Transition T out of HOMING on EVERY exit, including a
                     # raised driver call. The motion monitor polls MOVING, not
@@ -1157,9 +1151,7 @@ class MotionAPI:
                     # reader, and holds any wait_until_finished_moving begun
                     # during the home until its timeout. Failure -> UNKNOWN,
                     # success -> IDLE; both set the arrival event.
-                    self._set_axis_state('T', AxisState.IDLE if result else AxisState.UNKNOWN)
-            if result is False:
-                raise HomingFailedError('T', 'failed', ('T',))
+                    self._set_axis_state('T', AxisState.IDLE if homed else AxisState.UNKNOWN)
             read = self._refresh_position_cache()
             self._raise_unread_axes('T', ('T',), read)
             # Turret homes to slot 1 (see home() for why it is recorded). A
@@ -1631,9 +1623,9 @@ class MotionAPI:
                 ``_refuse_absent``); or an interlock reason, the stage's
                 interlock refused the home before anything moved. Nothing
                 was driven, and Z keeps the state it had.
-            HomingFailedError: the driver answered False or raised (e.g.
-                HardwareError on no-response / firmware-error), or Z's
-                position could not be read; ``'lid_open'``, the lid was
+            HomingFailedError: the driver raised (e.g. HardwareError on
+                no-response / firmware-error), or Z's position could not be
+                read; ``'lid_open'``, the lid was
                 opened while the home moved; ``'stopped'``, a Stop ended it.
         """
         # Asked before the driver, as the full home does: its
@@ -1653,10 +1645,7 @@ class MotionAPI:
                     'Z', stop_generation, {'Z': state_before}, self._last_turret_position
                 ),
             ):
-                result = self._driver.zhome()
-            if result is False:
-                self._set_axis_state('Z', AxisState.UNKNOWN)
-                raise HomingFailedError('Z', self._home_ending(stop_generation, 'failed'), ('Z',))
+                self._driver.zhome()
             read = self._refresh_position_cache()
             if 'Z' in read:
                 self._set_axis_state('Z', AxisState.IDLE)
@@ -2453,9 +2442,8 @@ class MotionAPI:
                 home (see ``_refuse_absent``); or ``'exclusive_activity_running'``,
                 a run, a diagnostic or a recording holds the scope.
             HomingFailedError: the home was driven and did not establish
-                a reference: the driver answered False or raised, or a
-                homed axis's position could not be read. The axes it
-                names are UNKNOWN.
+                a reference: the driver raised, or a homed axis's position
+                could not be read. The axes it names are UNKNOWN.
             HardwareCommandRefusedError: ``'home_in_flight'``, while a home
                 asked earlier, by any caller, has not ended.
 

@@ -41,17 +41,17 @@ def _raw(board, query, axis):
 
 @pytest.mark.slow
 def test_after_home_every_axis_is_at_its_target(board):
-    assert board.home()
+    assert board.home() is None
     for axis in 'XYZT':
         assert _raw(board, 'ACTUAL', axis) == _raw(board, 'TARGET', axis), axis
 
 
 @pytest.mark.slow
 def test_after_a_turret_home_z_is_back_at_its_target(board):
-    assert board.home()
+    assert board.home() is None
     board.move_abs_pos('Z', 3000.0)
     assert board.wait_for_position('Z', timeout=10.0)
-    assert board.thome()
+    assert board.thome() is None
     for axis in 'ZT':
         assert _raw(board, 'ACTUAL', axis) == _raw(board, 'TARGET', axis), axis
 

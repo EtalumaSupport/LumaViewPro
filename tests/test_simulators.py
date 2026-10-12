@@ -338,31 +338,31 @@ class TestSimulatedMotorBoard:
         expected_steps = board.z_um2ustep(target_um)
         assert steps == expected_steps
 
-    # --- homing return value tests ---
+    # --- homing returns tests ---
 
-    def test_zhome_returns_bool(self):
-        """zhome() should return True on success."""
+    def test_zhome_returns_once_homed(self):
+        """zhome() returns None once homed, and raises when it cannot."""
         board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         result = board.zhome()
-        assert result is True
+        assert result is None
 
-    def test_home_returns_bool(self):
-        """home() should return True on success."""
+    def test_home_returns_once_homed(self):
+        """home() returns None once homed, and raises when it cannot."""
         board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, timing='instant')
         result = board.home()
-        assert result is True
+        assert result is None
 
-    def test_thome_returns_bool(self):
-        """thome() should return True on success."""
+    def test_thome_returns_once_homed(self):
+        """thome() returns None once homed, and raises when it cannot."""
         board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, model='LS850T')
         result = board.thome()
-        assert result is True
+        assert result is None
 
     def test_thome_no_turret(self):
-        """thome() on a non-turret model should still return True."""
+        """thome() on a non-turret model returns as a homed turret does."""
         board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, model='LS850')
         result = board.thome()
-        assert result is True
+        assert result is None
 
 
 class TestATravelHold:

@@ -3264,8 +3264,8 @@ class ScopeDisconnectError(Fault, Exception):
 class HomingFailedError(Fault, Exception):
     """A home did not establish a reference position.
 
-    The driver answered that the home failed, the driver raised, or the
-    home finished and a homed axis's position could not be read. Each
+    The driver raised, or the home finished and a homed axis's position
+    could not be read. Each
     leaves the axes UNKNOWN, so no caller may take the scope as knowing
     where it is. A failure, not a refusal: the motors may have moved.
     Chained from the driver's exception when there is one. A Stop that
@@ -3274,10 +3274,10 @@ class HomingFailedError(Fault, Exception):
 
     Attributes:
         home: What was homed: ``'ALL'``, ``'Z'`` or ``'T'``.
-        reason: ``'failed'`` -- the driver answered False; ``'error'`` --
-            the home raised; ``'unread'`` -- homed, but ``axes`` could not
-            be read; ``'lid_open'`` -- the lid was opened while the home
-            was moving; ``'stopped'`` -- a Stop ended the home.
+        reason: ``'error'`` -- the home raised; ``'unread'`` -- homed,
+            but ``axes`` could not be read; ``'lid_open'`` -- the lid was
+            opened while the home was moving; ``'stopped'`` -- a Stop ended
+            the home.
         axes: The axes left without a known position; empty for a home a
             Stop ended before it was driven.
     """
@@ -3300,8 +3300,6 @@ class HomingFailedError(Fault, Exception):
                 f'Homing finished but the position of {", ".join(self.axes)} '
                 'could not be read. Position is unknown.'
             )
-        elif reason == 'failed':
-            sentence = f'{self._SUBJECTS[home]} failed. Position is unknown.'
         elif reason == 'lid_open':
             sentence = (
                 f"{self._SUBJECTS[home]} stopped: the microscope's lid was opened. "

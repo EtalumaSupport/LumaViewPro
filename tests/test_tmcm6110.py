@@ -282,7 +282,7 @@ def test_the_lid_is_read_before_every_command_of_a_home_that_starts_x_or_y(
     """A home's ROR, MVP and RFS starts on X and Y are read the same way as
     a move's MVP: in the one exchange path, under its lock."""
     _sent(homing_sim)
-    assert homing_board.home()
+    assert homing_board.home() is None
     sent = _sent(homing_sim)
     starts = _lid_gated_starts(sent)
     assert len(starts) >= 7, starts
@@ -458,7 +458,7 @@ def test_the_simulated_switches_sit_at_the_sections_measured_ends(homing_board):
     it, and a move short of the index meets the home switch a quarter
     millimetre beyond it, as on the bench LS720."""
     board = homing_board
-    assert board.home()
+    assert board.home() is None
     for axis in ('X', 'Y', 'Z'):
         index_um = board.motorconfig.index_position_um(axis)
         # Away from the index: down on X, up on Y and Z.
@@ -785,7 +785,7 @@ def test_a_home_sends_classics_sequence(homing_board, homing_sim):
     """Power and lid first, then fan, polarities, Z to its switch, X to its
     switch, Y then X to the index pulse, every target 0, every search ended."""
     _sent(homing_sim)
-    assert homing_board.home() is True
+    assert homing_board.home() is None
     sent = _sent(homing_sim)
     assert (sent[0].command, sent[0].type, sent[0].motor) == (GIO, *POWER_INPUT)
     assert (sent[1].command, sent[1].type, sent[1].motor) == (GIO, *LID_INPUT)
@@ -874,7 +874,7 @@ def test_a_home_reads_no_homing_value_the_config_does_not_check():
     sim = SimulatedTmcm6110(motorconfig_defaults=defaults, clock=_fast_clock(HOMING))
     board = Tmcm6110Board(motorconfig_defaults=defaults, backend=SimulatedTmcm6110Backend(sim))
     try:
-        assert board.home() is True
+        assert board.home() is None
     finally:
         board.disconnect()
 
@@ -885,9 +885,9 @@ def test_the_driver_keeps_no_record_of_a_home(homing_board):
     here as X and Y homed."""
     assert homing_board.detect_homed_axes() == []
     assert homing_board.has_homed() is False
-    assert homing_board.zhome() is True
+    assert homing_board.zhome() is None
     assert homing_board.has_homed() is False
-    assert homing_board.home() is True
+    assert homing_board.home() is None
     assert homing_board.has_homed() is False
     info = homing_board.fullinfo()
     assert (info['x_homed'], info['y_homed'], info['z_homed']) == (False, False, False)
@@ -897,7 +897,7 @@ def test_a_z_home_homes_z_alone(homing_board, homing_sim):
     homing_board.move_abs_pos('X', 116_690)
     _wait_arrival(homing_board, 'X')
     _sent(homing_sim)
-    assert homing_board.zhome() is True
+    assert homing_board.zhome() is None
     writes = _writes(_sent(homing_sim))
     assert {w[2] for w in writes if w[0] in (SAP, RFS, ROR, MVP) and w[:2] != (RFS, 1)} == {2}
     assert writes[-3:] == END_SEARCHES
