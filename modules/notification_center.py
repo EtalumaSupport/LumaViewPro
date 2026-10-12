@@ -568,7 +568,7 @@ class NotificationCenter:
         solicited: bool,
         category: str,
         log_only: bool = False,
-        fault_title: str = 'Operation failed',
+        untyped_title: str = 'Operation failed',
         operation_key: str = '',
     ) -> None:
         """Log an outcome once and show it at most once, as its type says.
@@ -594,8 +594,11 @@ class NotificationCenter:
         shown as a warning and a notice as a notice, each under its
         ``title``; a fault as an error, or as critical when its type says
         ``fatal``, in its own words when its type writes them for a person
-        and in a generic sentence when it does not, under its ``title`` or
-        ``fault_title``. A quiet outcome is never shown. An outcome's
+        and in a generic sentence when it does not, under its ``title``. An
+        exception from outside the root -- Python's own, a library's -- has
+        no type of ours to carry a title, so it is shown under
+        ``untyped_title``, which the catch that knows where it happened
+        names. A quiet outcome is never shown. An outcome's
         ``remedy`` travels with it whatever its kind, and a fault whose type
         says ``fatal`` is shown even during an unattended run.
 
@@ -679,7 +682,7 @@ class NotificationCenter:
             )
         else:
             body = words if outcome.for_person else _UNTYPED_FAULT_BODY
-            title = outcome.title or fault_title
+            title = outcome.title or untyped_title
             fatal = outcome.fatal
             # The fault's one line is the reporter's, written above.
             delivered = self._deliver(

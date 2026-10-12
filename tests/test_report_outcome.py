@@ -95,7 +95,7 @@ class TestAFault:
         fault = _raised(HardwareError('the camera stopped delivering frames'))
         with caplog.at_level(logging.DEBUG):
             centre.report_outcome(
-                fault, solicited=False, category='Task:grab', fault_title='Grab failed'
+                fault, solicited=False, category='Task:grab', untyped_title='Grab failed'
             )
 
         assert [(n.severity, n.title, n.message) for n in centre.shown] == [
@@ -119,7 +119,7 @@ class TestAFault:
     def test_a_capture_failure_is_shown_under_its_types_title(self, centre):
         fault = _raised(CaptureFailedError('camera inactive or not grabbing', 'no_frame_returned'))
         centre.report_outcome(
-            fault, solicited=True, category='UI:LIVE_CAPTURE', fault_title='Grab failed'
+            fault, solicited=True, category='UI:LIVE_CAPTURE', untyped_title='Grab failed'
         )
 
         assert [(n.severity, n.title, n.message) for n in centre.shown] == [

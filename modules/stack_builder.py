@@ -75,7 +75,7 @@ def build_hyperstacks_for_run(
             ex,
             solicited=False,
             category='Post-processing',
-            fault_title='Hyperstacks Not Saved',
+            untyped_title='Hyperstacks Not Saved',
             operation_key=key,
         )
         return

@@ -2372,8 +2372,8 @@ class SequencedCaptureRunner:
             # button handed the UI back at run end. The failure is reported
             # as its own type, as the hyperstack build reports its own: a
             # refusal shows as one, under its own title, only an exception
-            # whose type has no title is named "Composite Failed", and a
-            # raised one's record carries its traceback. The resolve is in a
+            # from outside the root, which has no title, is named "Composite
+            # Failed", and a raised one's record carries its traceback. The resolve is in a
             # finally: this thread is the one thing that settles the armed
             # outcome, so a raise while reporting would otherwise leave the
             # caller waiting out its whole bound.
@@ -2385,7 +2385,7 @@ class SequencedCaptureRunner:
                         failure,
                         solicited=False,
                         category='Protocol',
-                        fault_title='Composite Failed',
+                        untyped_title='Composite Failed',
                     )
                 if incomplete is not None:
                     notifications.report_outcome(incomplete, solicited=False, category='Protocol')

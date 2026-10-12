@@ -327,7 +327,7 @@ def test_raising_dialog_clears_guard_and_notifies(monkeypatch):
     error, kwargs = reported[0]
     assert error is boom
     assert kwargs['solicited'] is True
-    assert kwargs['fault_title'] == 'File Dialog Failed'
+    assert kwargs['untyped_title'] == 'File Dialog Failed'
     assert 'load_protocol' in kwargs['category']
 
 

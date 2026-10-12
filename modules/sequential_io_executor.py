@@ -1526,7 +1526,7 @@ class SequentialIOExecutor:
             solicited=isinstance(exception, Refusal) and not task.protocol,
             category=f'Task:{action_name}',
             log_only=task.silent_on_failure,
-            fault_title='Protocol operation failed'
+            untyped_title='Protocol operation failed'
             if task.protocol
             else 'Background operation failed',
         )

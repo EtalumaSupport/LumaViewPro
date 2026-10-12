@@ -483,7 +483,7 @@ def _run_native_dialog_async(button, dialog_fn, on_path, *, on_cancel):
                     error,
                     solicited=True,
                     category=f'UI:FILE_DIALOG:{context}',
-                    fault_title='File Dialog Failed',
+                    untyped_title='File Dialog Failed',
                 )
                 return
             if result:

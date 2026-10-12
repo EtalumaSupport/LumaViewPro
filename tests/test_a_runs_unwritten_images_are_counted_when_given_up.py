@@ -245,4 +245,4 @@ class TestNothingBuildsFromAFolderMissingImages:
         # The announcement is reported too; what went wrong is the rest.
         [(ex, kw)] = [(ex, kw) for ex, kw in reported if not isinstance(ex, Notice)]
         assert ex.reason == 'write_batch_abandoned'
-        assert kw['fault_title'] == 'Hyperstacks Not Saved'
+        assert kw['untyped_title'] == 'Hyperstacks Not Saved'
