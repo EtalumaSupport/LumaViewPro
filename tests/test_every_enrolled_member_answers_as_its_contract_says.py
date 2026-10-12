@@ -133,7 +133,7 @@ class Fault:
     case: str
     member: str
     model: str
-    inject: Callable[[Scope], object]
+    cause: Callable[[Scope], object]
     call: Callable[[Scope], object]
     raised: type
     reason: str | None
@@ -786,7 +786,7 @@ def test_every_injected_fault_answers_as_the_contract_says(scopes):
         # A fault row needs no protocol, and a turreted scope with its
         # slots unassigned would refuse one.
         scope = scopes(row.model, protocol=False)
-        row.inject(scope)
+        row.cause(scope)
         try:
             row.call(scope)
         except Exception as raised:  # each offender is named in the one failure
@@ -806,7 +806,7 @@ def test_every_injected_fault_answers_as_the_contract_says(scopes):
                 # The fault again, for the wire's call: undone first, as a
                 # hold or a failed home holds until it is cleared.
                 scope.session.scope.simulation.clear()
-                row.inject(scope)
+                row.cause(scope)
                 differs = _wire_matches(scope, _route(scope, route), body(scope), raised)
                 if differs:
                     wrong.append(f'{row.case}: {differs}')
