@@ -58,6 +58,11 @@ class _Microscope(ms.MicroscopeSettings):
             'frame_width_id': SimpleNamespace(text='', focus=False),
             'frame_height_id': SimpleNamespace(text='', focus=False),
         }
+        self.redrawn = 0
+
+    def _redraw_framing(self):
+        # a stand-in by design: the redraw draws the widget tree Kivy's stub cannot hold
+        self.redrawn += 1
 
 
 class _Protocols(ps.ProtocolSettings):
@@ -79,19 +84,15 @@ class _Protocols(ps.ProtocolSettings):
 
 
 def test_a_binning_the_session_refuses_is_still_recorded(session, monkeypatch, caplog):
-    """A binning this camera does not offer is refused by the Session; the
-    pick that asked for it is in the record all the same."""
-    raised = []
+    """A binning this camera does not offer is refused by the Session's
+    preview, reported once, and no apply is sent; the pick that asked for it
+    is in the record all the same."""
+    from modules.notification_center import notifications
 
-    def _on_the_lane(call, redraw, label, *, lane=None):
-        # The camera lane, run here: the Session's answer is what is asked
-        # for, and the lane is not the subject.
-        try:
-            call()
-        except Exception as error:
-            raised.append(error)
-
-    monkeypatch.setattr(ms, 'submit_reported', _on_the_lane)
+    reported = []
+    submitted = []
+    monkeypatch.setattr(notifications, 'report_outcome', lambda exc, **_kw: reported.append(exc))
+    monkeypatch.setattr(ms, 'submit_reported', lambda *args, **kwargs: submitted.append(args))
     monkeypatch.setattr(
         _app_ctx,
         'ctx',
@@ -104,11 +105,13 @@ def test_a_binning_the_session_refuses_is_still_recorded(session, monkeypatch, c
     )
     offered = session.scope.capabilities.camera_binning_sizes
     unoffered = max(offered) + 1
+    microscope = _Microscope(f'{unoffered}x{unoffered}')
 
     with caplog.at_level(logging.INFO, logger=_GUI_LOG):
-        _Microscope(f'{unoffered}x{unoffered}').select_binning_size()
+        microscope.select_binning_size()
 
-    assert [getattr(e, 'reason', e) for e in raised] == ['binning_unsupported']
+    assert [getattr(e, 'reason', e) for e in reported] == ['binning_unsupported']
+    assert submitted == [] and microscope.redrawn == 1
     assert f'SELECT BINNING {unoffered}x{unoffered}' in _recorded(caplog)
 
 

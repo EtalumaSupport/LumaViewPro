@@ -424,13 +424,9 @@ class TestSelectBinningHandler:
     @pytest.fixture(autouse=True)
     def _reported(self, monkeypatch):
         """The outcomes the real boundary hands the one reporter, in order."""
-        import ui.ui_helpers as ui_helpers
         from modules.notification_center import notifications
 
         reported = []
-        # No Kivy frame advances between tests, so a refusal another test
-        # left would read as this input's.
-        monkeypatch.setattr(ui_helpers, '_unanswered_frame', None)
         monkeypatch.setattr(
             notifications, 'report_outcome', lambda exc, **_kw: reported.append(exc)
         )
