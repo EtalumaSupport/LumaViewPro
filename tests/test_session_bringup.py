@@ -13,7 +13,6 @@ of a hand-built dict is pinned in
 """
 
 import threading
-import time
 
 import numpy as np
 import pytest
@@ -23,13 +22,6 @@ from modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
 from tests.frame_records import frame_record, plate
-
-
-def _wait_for_thread_count(target, deadline_s=2.0):
-    end = time.monotonic() + deadline_s
-    while threading.active_count() > target and time.monotonic() < end:
-        time.sleep(0.02)
-    return threading.active_count()
 
 
 @pytest.fixture
@@ -108,13 +100,13 @@ class TestSettingsHandedToAFactory:
 
 class TestARefusingFactoryLeavesNothingBehind:
     def test_thread_count_returns_to_baseline(self):
-        baseline = threading.active_count()
+        before = set(threading.enumerate())
         with pytest.raises(ArgumentRefusedError) as refused:
             ScopeSession.create(complete_settings(frame='1900 by 1900'), simulate=True)
         assert (refused.value.reason, refused.value.argument) == ('wrong_kind', 'settings.frame')
-        # Other tests' threads may finish during the wait; what matters is
-        # that the refusing factory left none of its own behind.
-        assert _wait_for_thread_count(baseline) <= baseline
+        # Only the threads this create started count: a thread another test
+        # on the same worker left running may end during this one.
+        assert [t.name for t in threading.enumerate() if t not in before] == []
 
 
 class TestDisableHomingIsNoStartupMotion:

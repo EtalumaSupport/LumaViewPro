@@ -76,12 +76,14 @@ def test_a_value_the_writer_refuses_is_refused_as_a_write_is_and_nothing_is_buil
     settings = complete_settings()
     block, _, leaf = path.rpartition('.')
     (settings[block] if block else settings)[leaf] = value
-    baseline = threading.active_count()
+    before = set(threading.enumerate())
     with pytest.raises(SettingRefusedError) as refused:
         ScopeSession.create(settings, simulate=True)
     assert refused.value.path == path
     assert refused.value.reason in ('out_of_range', 'wrong_kind')
-    assert threading.active_count() == baseline
+    # Only the threads this create started count: a thread another test on
+    # the same worker left running may end during this one.
+    assert [t.name for t in threading.enumerate() if t not in before] == []
 
 
 def test_a_container_of_the_wrong_kind_is_refused_as_the_argument():
