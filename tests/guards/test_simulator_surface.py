@@ -96,8 +96,8 @@ _BOARD_PAIRS = (
 #
 # What the current entries cover: timing-mode controls and TIMING_*
 # constants (test-harness affordances, on every simulator),
-# `load_cycle_images` plus the camera's virtual-specimen focus modeling
-# (`set_focal_z`, `set_blur_per_um`, ...), the camera's `hold_frames` (a
+# `load_specimen` plus the camera's virtual-specimen focus modeling
+# (`set_focal_z`, `get_nominal_focal_z`, ...), the camera's `hold_frames` (a
 # stalled stream, set from the --sim-camera-stall launch argument), the
 # motor's `hold_travel` (a move held part of the way, so a test acts on a
 # move that is provably travelling), and six firmware-update
@@ -132,7 +132,7 @@ _PARAM_DIVERGENCE_ALLOWLIST = {
 # `if simulate:` the driver provably is a SimulatedCamera, which is the
 # one place production code can know that. Keyed by (file, name).
 _SIM_ONLY_CALL_ALLOWLIST = {
-    ('modules/lumascope_api/_lumascope.py', 'load_cycle_images'),
+    ('modules/lumascope_api/_lumascope.py', 'load_specimen'),
     ('modules/lumascope_api/_lumascope.py', 'hold_frames'),
 }
 
@@ -190,7 +190,7 @@ def test_no_production_code_calls_simulator_only_names(label, real, sim):
 
     Tests are excluded on purpose. Driving simulator-only affordances is
     what test code is FOR -- `conftest.sim_scope` calls `set_timing_mode`
-    and `load_cycle_images`.
+    and `load_specimen`.
     """
     sim_only = _sim_only_names(real, sim)
 

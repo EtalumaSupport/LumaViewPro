@@ -86,6 +86,12 @@ def build_scope(**kwargs):
     from modules.lumascope_api import Lumascope
     from tests.settings_fixtures import complete_settings
 
+    # A simulated scope no test names a model for is the LS850T, the
+    # model every bare test scope has been built on; a scope with no
+    # session's settings would otherwise take the template's model, and
+    # the tests that home or assign a turret would lose it.
+    if kwargs.get('simulate') and not (kwargs.get('sim_model') or kwargs.get('configured_model')):
+        kwargs['sim_model'] = 'LS850T'
     scope = Lumascope(**kwargs)
     _TEARDOWNS.append(scope.disconnect)
     if kwargs.get('simulate') and scope.camera_connected:
@@ -346,6 +352,11 @@ def spec_scope(**attrs):
     try:
         # a stand-in by design: the specced double every spec_scope caller takes
         double = create_autospec(real, instance=True, spec_set=True)
+        # A session's factory prepares the settings it is handed against
+        # the scope's own template, read from the scope's root: the
+        # double answers both as the real scope does, not as a mock.
+        double.settings_template = real.settings_template
+        double.source_path = real.source_path
     finally:
         # The spec is captured by create_autospec; the live object has
         # served its purpose and must not keep simulated drivers open.

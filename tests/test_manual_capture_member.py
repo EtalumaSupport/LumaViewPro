@@ -218,6 +218,10 @@ class TestOverlays:
         settings['image_mode'] = image_mode.IMAGE_MODE_12BIT_SCIENTIFIC
         settings['BF']['sum'] = 3
         with _open_session(settings) as session:
+            # At the sample: homing leaves Z at the floor, where the
+            # simulated specimen is a defocused blur with no bright detail.
+            sample_z = session.scope._camera_driver.get_nominal_focal_z()
+            session.scope.motion.move_absolute('Z', sample_z)
             session.scope.illumination.led_on('BF', 200.0)
             paths = _capture(session, bullseye=True, crosshairs=True)
             peak = int(read_tiff_with_legacy_collapse(paths[0]).max())

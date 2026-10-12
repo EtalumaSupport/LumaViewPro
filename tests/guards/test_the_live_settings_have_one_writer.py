@@ -19,7 +19,13 @@ from __future__ import annotations
 
 import ast
 
-from tests.ast_seams import iter_package_modules, parse_module, walk_defs
+from tests.ast_seams import (
+    iter_package_modules,
+    parse_module,
+    settings_store_aliases,
+    settings_store_root,
+    walk_defs,
+)
 
 _MUTATORS = frozenset(
     {'update', 'pop', 'setdefault', 'append', 'clear', 'extend', 'insert', 'remove', 'popitem'}
@@ -34,35 +40,8 @@ _DIRECT_WRITE_PIN = {
 }
 
 
-def _settings_root(node: ast.AST, aliases: set[str]) -> bool:
-    while isinstance(node, (ast.Subscript, ast.Attribute, ast.Call)):
-        if isinstance(node, ast.Attribute) and node.attr == 'settings':
-            return True
-        node = node.func if isinstance(node, ast.Call) else node.value
-    return isinstance(node, ast.Name) and (node.id == 'settings' or node.id in aliases)
-
-
-def _aliases(fn: ast.AST) -> set[str]:
-    """Locals bound to the live settings or a block inside it, in this function."""
-    found: set[str] = set()
-    for node in ast.walk(fn):
-        if not (
-            isinstance(node, ast.Assign)
-            and len(node.targets) == 1
-            and isinstance(node.targets[0], ast.Name)
-        ):
-            continue
-        value = node.value
-        binds = isinstance(value, ast.Subscript) or (
-            isinstance(value, ast.Attribute) and value.attr == 'settings'
-        )
-        if binds and _settings_root(value, found):
-            found.add(node.targets[0].id)
-    return found
-
-
 def _direct_writes(fn: ast.AST) -> set[int]:
-    aliases = _aliases(fn)
+    aliases = settings_store_aliases(fn)
     lines: set[int] = set()
     for node in ast.walk(fn):
         targets: list[ast.AST] = []
@@ -73,13 +52,13 @@ def _direct_writes(fn: ast.AST) -> set[int]:
         elif isinstance(node, ast.Delete):
             targets = node.targets
         for target in targets:
-            if isinstance(target, ast.Subscript) and _settings_root(target.value, aliases):
+            if isinstance(target, ast.Subscript) and settings_store_root(target.value, aliases):
                 lines.add(node.lineno)
         if (
             isinstance(node, ast.Call)
             and isinstance(node.func, ast.Attribute)
             and node.func.attr in _MUTATORS
-            and _settings_root(node.func.value, aliases)
+            and settings_store_root(node.func.value, aliases)
         ):
             lines.add(node.lineno)
     return lines

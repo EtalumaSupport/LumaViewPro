@@ -15,6 +15,7 @@ test environment stands Kivy's widgets in.
 from __future__ import annotations
 
 import logging
+import os
 import pathlib
 import subprocess
 import sys
@@ -99,12 +100,15 @@ print(len(released))
 
 
 @pytest.mark.needs_display
-def test_a_state_write_is_not_a_press():
+def test_a_state_write_is_not_a_press(tmp_path):
+    # Kivy reads its config from and writes its logs and icons into KIVY_HOME,
+    # so the child gets one of its own rather than the shared ~/.kivy.
     done = subprocess.run(
         [sys.executable, '-c', _STATE_WRITE_IS_NOT_A_PRESS],
         capture_output=True,
         text=True,
         cwd=REPO,
+        env={**os.environ, 'KIVY_HOME': str(tmp_path)},
         timeout=60,
     )
     assert done.returncode == 0, done.stderr

@@ -295,10 +295,13 @@ class ActivityClaim:
         self._falsifying = 0
         # Set by the session's close for as long as it runs, under this
         # lock: every new taking is refused meanwhile, while work lent by an
-        # activity already under way is still admitted. Once the close has
-        # ended, a start is refused by what is then true -- the lanes are shut
-        # and the scope disconnected -- as it would be on any closed session.
+        # activity already under way is still admitted.
         self._closing = False
+        # Set when the close finished, and never cleared: a start that
+        # passed its own checks while the scope was still connected takes
+        # the claim last, so the claim is what refuses it once the session
+        # has let go of the scope.
+        self._closed = False
 
     @property
     def closing(self) -> bool:
@@ -306,7 +309,8 @@ class ActivityClaim:
         return self._closing
 
     def begin_closing(self) -> None:
-        """Refuse every new taking until ``end_closing``, for the session's close.
+        """Refuse every new taking for the session's close: until ``end_closing``,
+        and for good if it finished.
 
         A taking already held keeps its claim and ends through its owner;
         a borrowing lent from it is still granted, because it is that
@@ -315,10 +319,18 @@ class ActivityClaim:
         with self._lock:
             self._closing = True
 
-    def end_closing(self) -> None:
-        """The session's close has ended; ``begin_closing``'s refusal ends with it."""
+    def end_closing(self, *, closed: bool) -> None:
+        """The session's close has ended.
+
+        Args:
+            closed: True when it finished, so every new taking stays
+                refused for good; False when it raised part-way, so
+                ``begin_closing``'s refusal ends with it until the close is
+                called again.
+        """
         with self._lock:
             self._closing = False
+            self._closed = self._closed or closed
 
     @property
     def holder(self) -> ActivityHolder | None:
@@ -376,7 +388,7 @@ class ActivityClaim:
 
         Raises:
             SessionClosingError: the session's close is running
-                (``begin_closing``). Nothing was taken.
+                (``begin_closing``) or has finished. Nothing was taken.
             FalsifyingChangeInFlightError: ``owner`` is ``'recording'`` and a
                 write that would falsify it is running.
             ValueError: a run claimed without its identity, or another
@@ -384,7 +396,7 @@ class ActivityClaim:
         """
         holder = ActivityHolder(kind=owner, run=run)
         with self._lock:
-            if self._closing:
+            if self._closing or self._closed:
                 raise SessionClosingError(owner)
             if owner == 'recording' and self._falsifying:
                 raise FalsifyingChangeInFlightError()

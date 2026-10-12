@@ -549,28 +549,15 @@ class TestImageModeMirrorAgreesWithTheStore:
         )
         return (lambda: fn(fake_self)), settings, scope_display, ids, log
 
-    def test_every_mode_the_mirror_can_hold_resolves_to_itself(self):
-        from types import SimpleNamespace
-
-        import modules.image_mode as image_mode_real
-
-        for mode in image_mode_real._MODE_TABLE:
-            settings = {'image_mode': mode}
-            scope_display = SimpleNamespace(image_mode=mode)
-            assert image_mode_real.resolve_settings_image_mode(settings) == (
-                scope_display.image_mode
-            ), f'mirror and store disagree for {mode}'
-
-    def test_the_untouched_mirror_matches_an_unwritten_store(self):
-        # Before any selection the mirror carries its property default and the
-        # store has no mode at all -- the state a hand-built settings dict is
-        # also in. Both must name the same mode, or the GUI and a headless
+    def test_the_untouched_mirror_matches_a_prepared_store(self):
+        # Before any selection the mirror carries its property default and
+        # the store carries the template's mode, which every prepared dict
+        # has. Both must name the same mode, or the GUI and a headless
         # caller would start out disagreeing.
         import modules.image_mode as image_mode_real
+        from tests.settings_fixtures import complete_settings
 
-        assert image_mode_real.resolve_settings_image_mode({}) == (
-            image_mode_real.DEFAULT_IMAGE_MODE
-        )
+        assert complete_settings()['image_mode'] == image_mode_real.DEFAULT_IMAGE_MODE
 
     def test_the_redraw_leaves_the_mirror_and_the_store_in_agreement(self):
         # The redraw runs whatever the outcome: after an accepted change the
@@ -586,9 +573,9 @@ class TestImageModeMirrorAgreesWithTheStore:
 
             redraw()
 
-            assert (
-                image_mode_real.resolve_settings_image_mode(settings) == scope_display.image_mode
-            ), f'the redraw to {stored} left the mirror and the store disagreeing'
+            assert settings['image_mode'] == scope_display.image_mode, (
+                f'the redraw to {stored} left the mirror and the store disagreeing'
+            )
             assert ids['image_mode_spinner'].text == image_mode_real.IMAGE_MODE_LABELS[stored]
 
     def test_a_refused_format_puts_the_selector_back_and_declares_it(self):

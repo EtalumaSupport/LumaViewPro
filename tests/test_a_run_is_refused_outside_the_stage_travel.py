@@ -10,19 +10,16 @@ gates, refused as ``positions_outside_travel`` naming the steps and the
 axis.
 
 The offset it judges with is the scope's (``runtime_state``), the one every
-coordinate transform reads; a session's settings carrying no offset are
-refused at creation instead of running at an invented one.
+coordinate transform reads.
 """
 
 from __future__ import annotations
 
 import pytest
 
-from modules.exceptions import ConfigError, ProtocolRunRefusedError
+from modules.exceptions import ProtocolRunRefusedError
 from modules.protocol import ProtocolFormatError
-from modules.scope_session import ScopeSession
 from tests.scope_fakes import bind_settings_like_a_session
-from tests.settings_fixtures import complete_settings_without
 from tests.test_a_protocol_needs_its_objectives_on_the_turret import (
     NOT_CARRIED,
     NOT_ON_TURRET,
@@ -111,8 +108,3 @@ def test_glass_the_turret_does_not_carry_is_told_first(executor, scope, tmp_path
         [{'name': 'too_high', 'z': _past_z(scope), 'objective': NOT_ON_TURRET}]
     )
     assert _refusal(executor, protocol, tmp_path).reason == NOT_CARRIED
-
-
-def test_settings_without_a_stage_offset_cannot_make_a_session():
-    with pytest.raises(ConfigError, match='stage_offset'):
-        ScopeSession.create(complete_settings_without('stage_offset'), simulate=True)

@@ -9,7 +9,6 @@ naming a plate the catalogue does not have. It never substitutes a
 different plate.
 """
 
-import datetime
 from unittest.mock import MagicMock
 
 import pytest
@@ -95,11 +94,16 @@ class TestGetSelectedLabware:
         with pytest.raises(CatalogueNameRefusedError, match=r"labware catalogue.*'New' is not one"):
             get_selected_labware()
 
-    def test_spinner_empty_and_settings_missing_is_refused(self, monkeypatch):
+    def test_spinner_empty_and_settings_naming_no_plate_is_refused(self, monkeypatch):
         from modules.exceptions import ConfigError
         from modules.labware_loader import WellPlateLoader
 
-        _patch_ctx(monkeypatch, spinner_text='', settings={}, loader=WellPlateLoader())
+        _patch_ctx(
+            monkeypatch,
+            spinner_text='',
+            settings={'protocol': {'labware': None}},
+            loader=WellPlateLoader(),
+        )
 
         from modules.config_ui_getters import get_selected_labware
 
@@ -214,17 +218,6 @@ class TestTimingAndBinningParseNotifies:
                 {'protocol': {'period': '1', 'duration': 'not-a-number'}}
             )
         assert 'duration' in str(err.value)
-
-    def test_absent_schedule_still_defaults(self, monkeypatch):
-        # Absent is not corrupt: the shipped template carries both keys and the
-        # default merge fills them, so an absent key means a caller built a
-        # config without a schedule. That keeps working.
-        self._patch(monkeypatch)
-        from modules.config_helpers import get_protocol_time_params_from_settings
-
-        params = get_protocol_time_params_from_settings({})
-        assert params['period'] == datetime.timedelta(minutes=1)
-        assert params['duration'] == datetime.timedelta(hours=1)
 
 
 class TestGettersThatTakeTheirInputs:

@@ -435,7 +435,7 @@ class ProtocolSettings(FloatLayout):
             # LS620 -> LS850), the spinner is still parked on Center Plate:
             # restore the full plate list and the saved labware.
             ctx = _app_ctx.ctx
-            saved_labware = ctx.settings.get('protocol', {}).get('labware')
+            saved_labware = ctx.settings['protocol']['labware']
             wellplate_loader = ctx.wellplate_loader
             labware_spinner.values = wellplate_loader.get_plate_list()
             if saved_labware and saved_labware in labware_spinner.values:

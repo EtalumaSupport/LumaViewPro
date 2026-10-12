@@ -12,6 +12,7 @@ A window needs a display. Linux CI has none, so there the test is skipped;
 the suite run before every push runs on a desktop and runs it.
 """
 
+import os
 import pathlib
 import subprocess
 import sys
@@ -75,11 +76,14 @@ for typed in ('0.005', '20'):
 
 
 @pytest.mark.needs_display
-def test_run_off_a_refused_period_does_not_start_and_off_a_taken_one_does():
+def test_run_off_a_refused_period_does_not_start_and_off_a_taken_one_does(tmp_path):
+    # Kivy reads its config from and writes its logs and icons into KIVY_HOME,
+    # so the child gets one of its own rather than the shared ~/.kivy.
     result = subprocess.run(
         [sys.executable, '-c', _SCRIPT, str(REPO)],
         capture_output=True,
         text=True,
+        env={**os.environ, 'KIVY_HOME': str(tmp_path)},
         timeout=60,
     )
 

@@ -11,19 +11,20 @@ import datetime
 import pathlib
 from dataclasses import dataclass
 import threading
+import random
 import time
 from collections.abc import Callable
 from typing import ClassVar
 
+import cv2
 import numpy as np
-from scipy.ndimage import uniform_filter
 
 from lvp_logger import logger
 from drivers.camera import Camera, FrameGrid, ImageHandlerBase, link_info
 from drivers.camera_profiles import simulated_profile
 from drivers.exceptions import HardwareError
 from drivers.registry import camera_registry
-from drivers.simulated_specimen import specimen_frames
+from drivers.simulated_specimen import drift_frames, specimen_field
 
 # camera.log hookup: simulator records the same per-driver SDK-call
 # trace that real drivers (pyloncamera/idscamera/fx2driver) write, so
@@ -95,6 +96,26 @@ class _SimImageHandler(ImageHandlerBase):
             return True
 
 
+def _gaussian_blur(image: np.ndarray, sigma: float) -> np.ndarray:
+    """``image`` blurred by a Gaussian of ``sigma`` pixels.
+
+    A wide blur is made on a reduced copy and enlarged back: past a few
+    pixels of sigma the fine detail it would keep is gone anyway, and a
+    full-size kernel that wide costs tens of milliseconds a frame.
+    """
+    if sigma <= 8.0:
+        return cv2.GaussianBlur(image, (0, 0), sigma)
+    factor = sigma / 8.0
+    h, w = image.shape
+    small = cv2.resize(
+        image,
+        (max(1, round(w / factor)), max(1, round(h / factor))),
+        interpolation=cv2.INTER_AREA,
+    )
+    small = cv2.GaussianBlur(small, (0, 0), 8.0)
+    return cv2.resize(small, (w, h), interpolation=cv2.INTER_LINEAR)
+
+
 @camera_registry.register('sim', priority=100, is_simulator=True)
 class SimulatedCamera(Camera):
     _SENSOR = simulated_profile().native_resolution
@@ -110,6 +131,20 @@ class SimulatedCamera(Camera):
     # 1/exposure (1000 fps at 1 ms), which no camera delivers.
     _MAX_DELIVERY_FPS = 40.0
 
+    # Where the sample sits, nominally: the height bring-up places the stage
+    # at, as an operator focusing by eye would.
+    _NOMINAL_FOCAL_Z_UM = 5000.0
+
+    # Blur, in pixels of sigma at binning 1, per depth of field off focus.
+    # Within a fraction of a depth of field the sample stays sharp, and
+    # beyond it the blur grows in proportion, steeper for a high-NA lens.
+    _BLUR_PX_PER_DOF = 1.5
+
+    # The depth of field a camera built with no scope around it renders
+    # with: there is no objective to ask, and its focus still has to fall
+    # off on either side of the plane for a standalone test of it.
+    _UNWIRED_DOF_UM = 10.0
+
     def __init__(
         self,
         width: int = _SENSOR['width'],
@@ -117,6 +152,8 @@ class SimulatedCamera(Camera):
         grab_delay: float = 0.0,
         z_position_func: Callable[[], float | None] | None = None,
         illumination_func: Callable[[], float] | None = None,
+        depth_of_field_func: Callable[[], float | None] | None = None,
+        focal_spread_um: float = 0.0,
         timing: str = 'fast',
     ):
         # Native (unbinned) sensor size -- the fixed ceiling. _width/_height
@@ -163,28 +200,37 @@ class SimulatedCamera(Camera):
         self._held_window: tuple[float, float] | None = None
 
         # Synthetic image state -- can be set externally for test scenarios
-        # 'specimen', 'black', 'white', 'noise', 'focus_target', 'image_cycle'
+        # 'specimen', 'black', 'white', 'noise', 'focus_target'.
         # 'specimen' is the no-pattern-requested state; anything unrecognized
         # renders it too, with a warning.
         self._test_pattern = 'specimen'
 
-        # Image cycling: load real images from data/sim_images/ and cycle through
-        self._cycle_images = []  # List of numpy arrays (grayscale)
-        self._cycle_index = 0
+        # The specimen at the full sensor, built when first rendered or
+        # loaded; the frames cut from it at the current binning and size, one
+        # per drift step; and each source's last defocused frame, reused
+        # while Z, the objective and the frame are unchanged. Each cache
+        # entry is a (key, value) pair, rebuilt when its key changes.
+        self._specimen_native: np.ndarray | None = None
+        self._specimen_cut: tuple | None = None
+        self._drift_index = 0
+        self._defocused: dict[str, tuple] = {}
+        self._focus_target_cache: tuple | None = None
 
-        # Z-dependent focus simulation
-        self._z_position = 5000.0  # Current Z position (um)
-        self._focal_z = 5000.0  # Z position of perfect focus (um)
-        self._blur_per_um = 0.01  # Blur sigma increase per um of defocus
+        # Z-dependent focus. The sample's true plane is drawn once, within
+        # focal_spread_um of the nominal height: a simulated scope passes a
+        # spread, so every session needs a real autofocus; a camera built
+        # on its own is in focus at the nominal height. set_focal_z fixes it.
+        self._z_position = self._NOMINAL_FOCAL_Z_UM
+        self._focal_z = self._NOMINAL_FOCAL_Z_UM + random.uniform(-focal_spread_um, focal_spread_um)
+        logger.info(f'[SimCamera ] The simulated sample is in focus at Z {self._focal_z:.1f} um')
         self._z_position_func = z_position_func  # Optional: auto-query Z from motor
         # Optional: auto-query how much light is on the sample. Unwired, the
         # camera renders as though the field were lit, which is what a camera
         # constructed on its own with no scope around it has to assume.
         self._illumination_func = illumination_func
-
-        # Pre-generated focus target (lazily created)
-        self._focus_target_cache = None
-        self._focus_target_cache_key = None
+        # Optional: auto-query the objective's depth of field (um); None when
+        # no objective is known.
+        self._depth_of_field_func = depth_of_field_func
 
         # Apply timing preset (overrides grab_delay if preset given)
         self.set_timing_mode(timing)
@@ -210,21 +256,19 @@ class SimulatedCamera(Camera):
         self._grab_delay = preset['grab_delay']
         self._timing_mode = mode
 
-    def load_cycle_images(self, image_dir: str | None = None) -> None:
-        """Load images from a directory for cycling through in simulate mode.
+    def load_specimen(self, image_dir: str | None = None) -> None:
+        """Load the specimen this camera images, and show it.
 
-        Images are resized to match the camera resolution and converted
-        to grayscale. If no directory is provided, checks data/sim_images/.
-        If no images are found, generates 4 synthetic patterns instead.
+        The first image in ``image_dir`` (png, jpg, tiff), else in
+        data/sim_images/, as grayscale at the full sensor size; with none,
+        the generated specimen field: one sample, as a real one is, seen
+        drifting a pixel around a circle so a running stream looks alive.
 
         Args:
-            image_dir: Path to directory containing image files (png, jpg, tiff).
-                       If None, uses data/sim_images/ relative to the app root.
+            image_dir: Path to a directory holding the image. None looks in
+                data/sim_images/ relative to the app root.
         """
-        images = []
-
         if image_dir is None:
-            # Try default location
             for candidate in [
                 pathlib.Path(__file__).resolve().parent.parent / 'data' / 'sim_images',
                 pathlib.Path('.') / 'data' / 'sim_images',
@@ -233,34 +277,32 @@ class SimulatedCamera(Camera):
                     image_dir = candidate
                     break
 
-        if image_dir is not None:
-            image_dir = pathlib.Path(image_dir)
-            if image_dir.is_dir():
-                try:
-                    from PIL import Image as PILImage
+        loaded = None
+        if image_dir is not None and pathlib.Path(image_dir).is_dir():
+            files = [
+                fp
+                for ext in ('*.png', '*.jpg', '*.jpeg', '*.tif', '*.tiff')
+                for fp in sorted(pathlib.Path(image_dir).glob(ext))
+            ]
+            for fp in files:
+                image = cv2.imread(str(fp), cv2.IMREAD_GRAYSCALE)
+                if image is None:
+                    logger.warning(f'[SimCamera ] Could not load {fp}')
+                    continue
+                loaded = cv2.resize(
+                    image, (self._native_width, self._native_height), interpolation=cv2.INTER_AREA
+                )
+                logger.info(f'[SimCamera ] Loaded the specimen image: {fp.name}')
+                break
 
-                    for ext in ('*.png', '*.jpg', '*.jpeg', '*.tif', '*.tiff'):
-                        for fp in sorted(image_dir.glob(ext)):
-                            try:
-                                pil_img = PILImage.open(fp).convert('L')
-                                h = self._height
-                                w = self._width
-                                pil_img = pil_img.resize((w, h), PILImage.LANCZOS)
-                                images.append(np.array(pil_img, dtype=np.uint8))
-                                logger.info(f'[SimCamera ] Loaded cycle image: {fp.name}')
-                            except Exception as e:
-                                logger.warning(f'[SimCamera ] Could not load {fp}: {e}')
-                except ImportError:
-                    logger.warning('[SimCamera ] Pillow not available -- cannot load cycle images')
-
-        if not images:
-            images = specimen_frames(self._height, self._width)
-            logger.info(f'[SimCamera ] Generated {len(images)} synthetic cycle images')
-
-        self._cycle_images = images
-        self._cycle_index = 0
-        self._test_pattern = 'image_cycle'
-        logger.info(f'[SimCamera ] Image cycling enabled with {len(images)} images')
+        self._specimen_native = (
+            loaded
+            if loaded is not None
+            else specimen_field(self._native_height, self._native_width)
+        )
+        self._specimen_cut = None
+        self._defocused = {}
+        self._test_pattern = 'specimen'
 
     # ------------------------------------------------------------------
     # Connection
@@ -732,49 +774,53 @@ class SimulatedCamera(Camera):
         return self._z_position
 
     def set_focal_z(self, z: float) -> None:
-        """Set the Z position (um) where focus is perfect.
+        """Set the Z position (um) where the sample is in focus.
 
         Args:
             z: Focal Z position in micrometers.
         """
         self._focal_z = float(z)
+        self._defocused = {}
 
     def get_focal_z(self) -> float:
-        """Return the focal Z position.
+        """Return the Z position (um) where the sample is in focus.
 
         Returns:
             float: Focal Z position in micrometers.
         """
         return self._focal_z
 
-    def set_blur_per_um(self, value: float) -> None:
-        """Set blur rate: uniform filter size increases by this per um of defocus.
+    def get_nominal_focal_z(self) -> float:
+        """Return the Z position (um) the sample nominally sits at.
 
-        Args:
-            value: Blur sigma increase per um of defocus.
+        Where bring-up places the stage, as an operator focusing by eye
+        would: within the camera's focal spread of the true focus, which an
+        autofocus then finds.
+
+        Returns:
+            float: Nominal sample Z position in micrometers.
         """
-        self._blur_per_um = float(value)
+        return self._NOMINAL_FOCAL_Z_UM
 
     # ------------------------------------------------------------------
     # Image generation
     # ------------------------------------------------------------------
-    def _make_focus_target(self, h: int, w: int, max_val: int) -> np.ndarray:
-        """Generate a sharp focus target with multi-scale features.
+    def _make_focus_target(self, h: int, w: int) -> np.ndarray:
+        """A sharp focus target with multi-scale features, in 8-bit grey levels.
 
-        Creates a pattern with edges at multiple spatial frequencies so that
-        Vollath F4 (and other focus metrics) produce a smooth, peaked response
-        curve when the image is progressively blurred.
+        Edges at several spatial frequencies, so Vollath F4 (and other focus
+        metrics) produce a smooth, peaked response as it is defocused.
         """
-        cache_key = (h, w, max_val)
-        if self._focus_target_cache_key == cache_key and self._focus_target_cache is not None:
-            return self._focus_target_cache
+        key = (h, w)
+        if self._focus_target_cache is not None and self._focus_target_cache[0] == key:
+            return self._focus_target_cache[1]
 
         img = np.zeros((h, w), dtype=np.float32)
 
         # Grid of fine lines (high frequency -- most sensitive to defocus)
         grid_spacing = 8
-        img[::grid_spacing, :] = max_val * 0.4
-        img[:, ::grid_spacing] = max_val * 0.4
+        img[::grid_spacing, :] = 255 * 0.4
+        img[:, ::grid_spacing] = 255 * 0.4
 
         # Scattered bright spots (simulates point-like features)
         rng = np.random.RandomState(42)  # deterministic
@@ -786,75 +832,108 @@ class SimulatedCamera(Camera):
             y1 = min(h, y + 3)
             x0 = max(0, x - 2)
             x1 = min(w, x + 3)
-            img[y0:y1, x0:x1] = max_val * 0.8
+            img[y0:y1, x0:x1] = 255 * 0.8
 
         # Medium-frequency checkerboard (16px blocks)
         block = 16
         yy = np.arange(h) // block
         xx = np.arange(w) // block
         checker = (yy[:, None] + xx[None, :]) % 2
-        img += checker * max_val * 0.2
+        img += checker * 255 * 0.2
 
-        self._focus_target_cache = img
-        self._focus_target_cache_key = cache_key
-        return img
+        target = np.clip(img, 0, 255).astype(np.uint8)
+        self._focus_target_cache = (key, target)
+        return target
 
-    def _apply_defocus_blur(self, img: np.ndarray, max_val: int) -> np.ndarray:
-        """Apply blur based on distance from focal Z position."""
-        # Query Z position from motor if callback is wired
+    def _specimen_frame(self, h: int, w: int) -> tuple[np.ndarray, str]:
+        """The in-focus specimen as this frame sees it, and which drift step it is.
+
+        The frame is a region of the sensor, centred, at the current binning:
+        the specimen is reduced once when the binning changes and each drift
+        step's frame cut from it, never re-scaled per frame, so it keeps its
+        proportions.
+        """
+        key = (h, w, self._binning)
+        if self._specimen_cut is None or self._specimen_cut[0] != key:
+            if self._specimen_native is None:
+                self._specimen_native = specimen_field(self._native_height, self._native_width)
+            sensor = self._specimen_native
+            if self._binning > 1:
+                sensor = cv2.resize(
+                    sensor,
+                    (self._native_width // self._binning, self._native_height // self._binning),
+                    interpolation=cv2.INTER_AREA,
+                )
+            self._specimen_cut = (key, drift_frames(sensor, h, w))
+            self._defocused = {}
+        step = self._drift_index % len(self._specimen_cut[1])
+        self._drift_index += 1
+        return self._specimen_cut[1][step], f'specimen {step}'
+
+    def _blur_sigma_px(self) -> float:
+        """The defocus blur at the current Z and objective, as a sigma in pixels."""
         if self._z_position_func is not None:
             z = self._z_position_func()
             if z is None:
                 # No focus axis to read: a manual scope is focused by hand,
                 # so its sample is rendered in focus.
-                return img
+                return 0.0
             self._z_position = z
-
+        if self._depth_of_field_func is None:
+            dof = self._UNWIRED_DOF_UM
+        else:
+            dof = self._depth_of_field_func()
+            if dof is None:
+                # No objective is known, so there is no focus to model.
+                return 0.0
         defocus = abs(self._z_position - self._focal_z)
-        if defocus < 1.0:
-            return img
+        # A binned pixel is larger, so the same blur spans fewer of them.
+        return self._BLUR_PX_PER_DOF * defocus / dof / self._binning
 
-        # uniform_filter size must be odd integer >= 1
-        filter_size = int(defocus * self._blur_per_um * 2) * 2 + 1
-        filter_size = min(filter_size, min(img.shape) // 2)
-        if filter_size < 3:
-            return img
+    def _defocus(self, sharp: np.ndarray, source: str) -> np.ndarray:
+        """``sharp`` as the objective images it at the current Z."""
+        sigma = self._blur_sigma_px()
+        if sigma < 0.3:
+            return sharp
+        key = (sharp.shape, self._binning, round(sigma, 2))
+        cached = self._defocused.get(source)
+        if cached is not None and cached[0] == key:
+            return cached[1]
+        blurred = _gaussian_blur(sharp, sigma)
+        self._defocused[source] = (key, blurred)
+        return blurred
 
-        blurred = uniform_filter(img.astype(np.float32), size=filter_size)
-        return np.clip(blurred, 0, max_val)
+    def _render_sample(
+        self,
+        sharp: np.ndarray,
+        source: str,
+        dtype,
+        max_val: int,
+        brightness: float,
+        *,
+        specimen: bool,
+    ) -> np.ndarray:
+        """A sample frame: defocused, scaled to ``dtype`` and lit.
 
-    def _render_cycle_frame(self, h, w, dtype, max_val, brightness) -> np.ndarray:
-        """Render the current specimen frame, resized and scaled to ``dtype``.
-
-        Shared by the explicit ``image_cycle`` pattern and the
-        no-pattern-requested fallback so the two cannot drift. A second copy
-        of this is how the uint16 scaling below gets left out: without it a
-        Mono10/Mono12 frame renders nearly black, because the source tops out
-        at 255 against a max_val of 1023 or 4095.
-
-        Frames are built on demand -- both callers are reachable before
-        ``load_cycle_images()`` has run, and a camera-init failure skips that
-        call entirely.
+        The ``specimen`` is what a live view shows: floored so it stays
+        visible at the short default exposures. A test pattern is not, so
+        its signal follows exposure, gain and focus exactly. Zero is exempt
+        and stays zero: it means no light reached the sample, and a floor
+        that lifts darkness back to a visible field is what made an unlit
+        capture indistinguishable from a lit one.
         """
-        if not self._cycle_images:
-            self._cycle_images = specimen_frames(h, w)
-        src = self._cycle_images[self._cycle_index % len(self._cycle_images)]
-        self._cycle_index += 1
-        # Resize if binning changed since load -- nearest-neighbor via slicing
-        if src.shape != (h, w):
-            src_h, src_w = src.shape
-            y_idx = np.linspace(0, src_h - 1, h, dtype=int)
-            x_idx = np.linspace(0, src_w - 1, w, dtype=int)
-            src = src[np.ix_(y_idx, x_idx)]
-        # Floor so the field stays visible at the short default exposures.
-        # Zero is exempt and must stay zero: it means no light reached the
-        # sample, and a floor that lifts darkness back to a visible field
-        # is what made an unlit capture indistinguishable from a lit one.
-        if brightness > 0.0:
+        if brightness <= 0.0:
+            return np.zeros(sharp.shape, dtype=dtype)
+        if specimen:
             brightness = max(0.5, brightness)
+        img = self._defocus(sharp, source)
         if dtype == np.uint16:
-            return (src.astype(np.float32) / 255.0 * max_val * brightness).astype(dtype)
-        return (src.astype(np.float32) * brightness).clip(0, max_val).astype(dtype)
+            return (img.astype(np.float32) * (max_val / 255.0 * brightness)).astype(dtype)
+        if brightness != 1.0:
+            return cv2.convertScaleAbs(img, alpha=brightness)
+        # A frame of its own: the cached one would be shared with every
+        # frame after it, and a reader may write into what it was handed.
+        return np.array(img)
 
     def _illumination_scale(self) -> float:
         """1.0 when the sample is lit, 0.0 when nothing is.
@@ -895,31 +974,32 @@ class SimulatedCamera(Camera):
         # multiplies the signal by 10^(dB/20)
         raw = (self._exposure_us / 1_000_000.0) * 10.0 ** (self._gain / 20.0) * 10.0
         brightness = min(1.0, raw) * self._illumination_scale()
-        if self._test_pattern == 'image_cycle':
-            img = self._render_cycle_frame(h, w, dtype, max_val, brightness)
-        elif self._test_pattern == 'black':
+        if self._test_pattern == 'black':
             img = np.zeros((h, w), dtype=dtype)
         elif self._test_pattern == 'white':
             img = np.full((h, w), max_val, dtype=dtype)
         elif self._test_pattern == 'noise':
             img = np.random.randint(0, int(max_val * brightness) + 1, (h, w), dtype=dtype)
         elif self._test_pattern == 'focus_target':
-            base = self._make_focus_target(h, w, max_val)
-            img = self._apply_defocus_blur(base * brightness, max_val)
-            img = img.astype(dtype)
+            img = self._render_sample(
+                self._make_focus_target(h, w),
+                'focus_target',
+                dtype,
+                max_val,
+                brightness,
+                specimen=False,
+            )
         else:
-            # No specific pattern was asked for. Render the same specimen field
-            # the cycle uses rather than a column ramp: a ramp is not what a
-            # sample looks like, and reaching this branch used to undo the
-            # cycle for the rest of the session. Built lazily because this
-            # branch is reachable before load_cycle_images() has run -- a
+            # No specific pattern was asked for: the specimen. Built lazily,
+            # because this is reachable before load_specimen() has run -- a
             # camera-init failure skips that call entirely.
             if self._test_pattern != 'specimen':
                 logger.warning(
                     f'[SimCamera ] Unknown test pattern '
                     f'{self._test_pattern!r} -- rendering the specimen field'
                 )
-            img = self._render_cycle_frame(h, w, dtype, max_val, brightness)
+            frame, source = self._specimen_frame(h, w)
+            img = self._render_sample(frame, source, dtype, max_val, brightness, specimen=True)
 
         if self._black_level:
             # The offset lifts every pixel, and a pixel lifted past full scale
@@ -1175,8 +1255,7 @@ class SimulatedCamera(Camera):
             enabled: True to enable the pattern, False to revert to the
                 specimen field the live view normally shows.
             pattern: Pattern name (case-insensitive). Common values:
-                ``'black'``, ``'white'``, ``'noise'``, ``'focus_target'``,
-                ``'image_cycle'``.
+                ``'black'``, ``'white'``, ``'noise'``, ``'focus_target'``.
         """
         if enabled:
             self._test_pattern = pattern.lower()

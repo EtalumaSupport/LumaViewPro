@@ -440,7 +440,7 @@ class TestGetCurrentPlatePosition:
 
 class TestLogSystemMetrics:
     def test_calls_system_metrics(self):
-        settings = _make_settings()
+        settings = complete_settings(live_folder='/tmp')
         with (
             patch('modules.common_utils.system_metrics') as mock_metrics,
             patch('modules.common_utils.check_disk_space') as mock_disk,
@@ -567,7 +567,7 @@ class TestScopeSession:
         # sessions it builds, so it must release the gate itself -- without
         # this, every headless capture times out with no error naming the
         # closed gate.
-        session = ScopeSession.create(complete_settings(**_make_settings()), simulate=True)
+        session = ScopeSession.create(complete_settings(), simulate=True)
         try:
             assert session.scope._camera_driver.is_grabbing()
         finally:

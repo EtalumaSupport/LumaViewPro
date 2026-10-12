@@ -57,7 +57,7 @@ from drivers.fx2driver import (
     frame_time_s,
     parse_intel_hex,
 )
-from drivers.simulated_specimen import specimen_frames
+from drivers.simulated_specimen import drift_frames, specimen_field
 
 TIMINGS = ('instant', 'realistic')
 
@@ -399,7 +399,7 @@ class SimulatedFX2Device:
             return np.zeros((h, w), dtype=np.uint8)
         frames = self._specimen.get((w, h))
         if frames is None:
-            frames = self._specimen[(w, h)] = specimen_frames(h, w)
+            frames = self._specimen[(w, h)] = drift_frames(specimen_field(h, w), h, w)
         field = frames[self._frame_index % len(frames)]
         self._frame_index += 1
         scale = self.sensor.exposure_s() / _REFERENCE_EXPOSURE_S * self.sensor.gain()

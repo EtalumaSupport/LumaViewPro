@@ -174,7 +174,7 @@ class MicroscopeSettings(BoxLayout):
         # Setting the spinner text fires select_image_mode (on_text), which
         # caches the mode and applies the pixel format.
         self.load_image_modes()
-        mode = image_mode.resolve_settings_image_mode(settings)
+        mode = settings['image_mode']
         self.ids['image_mode_spinner'].text = image_mode.IMAGE_MODE_LABELS[mode]
 
         self.ids['live_image_output_format_spinner'].text = settings['image_output_format']['live']
@@ -367,7 +367,7 @@ class MicroscopeSettings(BoxLayout):
         """Show the JPG depth hint when a full-depth mode is paired with a JPG output."""
         settings = _app_ctx.ctx.settings
         self.jpg_depth_hint_active = image_mode.jpg_depth_warning_active(
-            image_mode.resolve_settings_image_mode(settings),
+            settings['image_mode'],
             (
                 settings['image_output_format']['live'],
                 settings['image_output_format']['sequenced'],
@@ -401,7 +401,7 @@ class MicroscopeSettings(BoxLayout):
     def _redraw_image_mode(self):
         """Show the stored image mode: the display mode, the selector, the depth hint."""
         ctx = _app_ctx.ctx
-        mode = image_mode.resolve_settings_image_mode(ctx.settings)
+        mode = ctx.settings['image_mode']
         ctx.scope_display.image_mode = mode
         label = image_mode.IMAGE_MODE_LABELS[mode]
         if self.ids['image_mode_spinner'].text != label:

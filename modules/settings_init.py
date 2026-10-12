@@ -7,7 +7,11 @@ import pathlib
 import time
 
 from modules import labware_loader
-from modules.exceptions import SettingsFileNotReplacedError, StoredSettingReplacedNotice
+from modules.exceptions import (
+    ArgumentRefusedError,
+    SettingsFileNotReplacedError,
+    StoredSettingReplacedNotice,
+)
 from modules.path_utils import read_installation_file
 
 # A setting's value: what one leaf of the settings file holds.
@@ -250,7 +254,8 @@ def _check_container_shape(current, template, path=''):
     Keys absent from the TEMPLATE are fine too: users and plugins may hold
     extra ones.
 
-    Returns the list of mismatches, deepest key path first.
+    Returns the mismatches, deepest key path first, each as (the dotted
+    path, the kind the template holds, the kind found, the value found).
     """
     problems = []
     for key, template_value in template.items():
@@ -260,7 +265,7 @@ def _check_container_shape(current, template, path=''):
         where = f'{path}.{key}' if path else key
         for kind in (dict, list):
             if isinstance(template_value, kind) and not isinstance(value, kind):
-                problems.append(f'{where}: expected {kind.__name__}, got {type(value).__name__}')
+                problems.append((where, kind.__name__, type(value).__name__, value))
                 break
         else:
             if isinstance(template_value, dict):
@@ -455,6 +460,15 @@ def _apply_load_migrations(logger, settings_dict: dict) -> None:
         logger.info('[Settings ] Renamed manual_video settings section to video')
     if normalize_loaded_settings(settings_dict):
         logger.info('[Settings ] Repaired stored values the running version cannot use')
+
+
+def _retire_shipped_values(logger, settings_dict: dict) -> None:
+    """Every stored value that is read as never set, on a FILE only.
+
+    A retirement reads a value the template once shipped as the absence of
+    a choice. It is the file's, never a handed dict's: a caller who hands
+    that value asked for it.
+    """
     forgotten = forget_shipped_focus(settings_dict)
     if forgotten:
         logger.info(
@@ -560,12 +574,17 @@ def prepare_settings(
     rejected = None
 
     if os.path.exists(current_path):
-        # Read once, before the user's file: the shape check, the fallback
-        # and the merge all need it, and its refusal is the installation's.
-        template = read_installation_file(template_path)
+        # Read first, outside the except below: a template that will not
+        # parse is the installation's fault (``InstallationFileError``) and
+        # is never reported as "current.json could not be used", which
+        # would send the user to delete the one file that was still good.
+        template = _load_template(logger, template_path)
         try:
             prepared = _load_and_validate(logger, current_path)
-            _reject_if_misshapen(prepared, template, template_path, current_path)
+            _retire_shipped_values(logger, prepared)
+            prepared = prepare_loaded(
+                logger, prepared, template, directory, source=current_path, handed=False
+            )
         except (json.JSONDecodeError, ValueError) as e:
             if not fall_back_to_template:
                 raise
@@ -579,35 +598,27 @@ def prepare_settings(
                 'starting from the shipped defaults. The file has NOT been '
                 'modified and no settings will be saved until this is resolved.'
             )
-            _validate_settings(template, template_path, logger)
-            prepared = copy.deepcopy(template)
+            prepared = prepare_loaded(
+                logger,
+                copy.deepcopy(template),
+                template,
+                directory,
+                source=template_path,
+                handed=False,
+            )
             rejected = (current_path, str(e))
-
-        _apply_load_migrations(logger, prepared)
-
-        # Merge missing keys from settings.json defaults into current.json.
-        # current.json drifts from settings.json as new features add keys.
-        # This ensures new keys are available without losing user values.
-        added = _deep_merge_defaults(prepared, template, logger=logger)
-        if added:
-            logger.info(f'[Settings ] Merged {len(added)} missing keys from settings.json: {added}')
-        # Imported here: settings_paths' own imports reach this module (lvp_logger).
-        from modules.settings_paths import replace_refused_stored_values
-
-        replaced = replace_refused_stored_values(prepared, template)
-        if replaced is not None:
-            _stored_replacements.append(replaced)
-
-        _normalize_turret_slot_keys(prepared)
-        prepared['live_folder'] = bring_up_live_folder(logger, prepared['live_folder'], directory)
-
         return prepared, rejected
 
     if os.path.exists(template_path):
-        prepared = _load_template(logger, template_path)
-        _apply_load_migrations(logger, prepared)
-        _normalize_turret_slot_keys(prepared)
-        prepared['live_folder'] = bring_up_live_folder(logger, prepared['live_folder'], directory)
+        template = _load_template(logger, template_path)
+        prepared = prepare_loaded(
+            logger,
+            copy.deepcopy(template),
+            template,
+            directory,
+            source=template_path,
+            handed=False,
+        )
         return prepared, None
 
     if not os.path.isdir(data_dir):
@@ -615,27 +626,86 @@ def prepare_settings(
     raise FileNotFoundError(f'No settings files found in {data_dir}')
 
 
-def _reject_if_misshapen(loaded, template, template_path, current_path):
-    """Refuse a config whose shape the app cannot survive.
+def prepare_loaded(
+    logger: logging.Logger,
+    loaded: dict,
+    template: dict,
+    directory: str,
+    *,
+    source: str,
+    handed: bool,
+) -> dict:
+    """The one preparation every settings dict gets: ``loaded`` made USABLE against ``template``.
 
-    Runs before the migrations and the default merge, which is the only
-    position that works: the caller's except routes the rejection to the
-    shipped template, and that except covers nothing further down. The
-    merge would not repair a mismatch anyway -- it only recurses where both
-    sides are already dicts.
+    Reading a file, or taking a dict from a caller's hand, is only the
+    first step. In order: the containers are held to the template's kinds
+    (the merge would not repair a mismatch, it only recurses where both
+    sides are dicts, so this comes first); the retired spellings and the
+    values the running version cannot use are folded forward; the turret
+    slot keys become ints on BOTH sides before the merge, because merged
+    afterwards the template's string keys would sit beside the stored int
+    keys and the normalization that followed would let the template's
+    ``None`` win over every stored assignment; the keys newer releases
+    added are merged in; the values are held to the writer's ranges; the
+    live folder is brought up. Run again on its own result it changes
+    nothing, so a dict the file's preparation already made usable goes
+    through a session's door unchanged.
 
-    A template that will not parse is NOT allowed to condemn a healthy
-    config: the caller reads it first, outside its except, so its
-    ``InstallationFileError`` is never reported as "current.json could not
-    be used", which would send the user to delete the one file that was
-    still good.
+    ``source`` is what a refusal names: the file's path, or the name of
+    the argument a caller handed the dict as. ``handed`` is where the
+    ranges row's two contracts part: a stored value the writer refuses is
+    replaced by the shipped one and queued to be told once, since nobody
+    can fix a file at load; a handed value is a write of every key at once
+    and is refused as a write is. A container of the wrong kind is the
+    file's ``SettingsFileError``, naming the file, or the argument's
+    ``ArgumentRefusedError('wrong_kind')``, naming the key.
+
+    ``template`` is ``_load_template``'s answer, never read a second way;
+    it is copied here, so the merge never aliases its blocks into the
+    store.
+
+    Returns:
+        ``loaded``, prepared in place.
+
+    Raises:
+        SettingsFileError: a file whose containers are not the template's
+            kinds.
+        ArgumentRefusedError: ``'wrong_kind'``, a handed dict's container
+            that is not the template's kind; ``argument`` is its dotted
+            path under ``source``.
+        SettingRefusedError: a handed dict's value the writer refuses, with
+            the write's own reason (``'out_of_range'``, ``'wrong_kind'``,
+            ``'not_a_number'``).
     """
+    template = copy.deepcopy(template)
+    _normalize_turret_slot_keys(template)
     problems = _check_container_shape(loaded, template)
     if problems:
+        if handed:
+            where, want, _got, value = problems[0]
+            raise ArgumentRefusedError(
+                'wrong_kind', argument=f'{source}.{where}', value=value, kind=f'a {want}'
+            )
         raise SettingsFileError(
-            f'{current_path}: structure does not match {os.path.basename(template_path)} '
-            f'-- {"; ".join(problems)}'
+            f'{source}: structure does not match settings.json -- '
+            + '; '.join(f'{where}: expected {want}, got {got}' for where, want, got, _ in problems)
         )
+    _apply_load_migrations(logger, loaded)
+    _normalize_turret_slot_keys(loaded)
+    added = _deep_merge_defaults(loaded, template, logger=logger)
+    if added:
+        logger.info(f'[Settings ] Merged {len(added)} missing keys from settings.json: {added}')
+    # Imported here: settings_paths' own imports reach this module (lvp_logger).
+    from modules.settings_paths import refuse_handed_values, replace_refused_stored_values
+
+    if handed:
+        refuse_handed_values(loaded, template)
+    else:
+        replaced = replace_refused_stored_values(loaded, template)
+        if replaced is not None:
+            _stored_replacements.append(replaced)
+    loaded['live_folder'] = bring_up_live_folder(logger, loaded['live_folder'], directory)
+    return loaded
 
 
 def load_lvp_settings(logger: logging.Logger, lvp_appdata: str) -> None:
@@ -684,16 +754,16 @@ def fall_back_to_template(logger: logging.Logger, lvp_appdata: str, reason: str)
 
     current_path = os.path.join(lvp_appdata, 'data', 'current.json')
     template_path = os.path.join(lvp_appdata, 'data', 'settings.json')
-    prepared = _load_template(logger, template_path)
+    template = _load_template(logger, template_path)
 
     logger.error(
         f'[Settings ] {current_path} could not be used ({reason}); '
         'starting from the shipped defaults. The file has NOT been '
         'modified and no settings will be saved until this is resolved.'
     )
-    _apply_load_migrations(logger, prepared)
-    _normalize_turret_slot_keys(prepared)
-    prepared['live_folder'] = bring_up_live_folder(logger, prepared['live_folder'], lvp_appdata)
+    prepared = prepare_loaded(
+        logger, copy.deepcopy(template), template, lvp_appdata, source=template_path, handed=False
+    )
 
     settings.clear()
     settings.update(prepared)
@@ -776,6 +846,10 @@ def _resolve_settings_path(directory):
     raise FileNotFoundError(f'No settings files found in {data_dir}')
 
 
+# The four readers below read the file as read, before it is prepared: the
+# logger, the profilers and the tracer are configured before the live
+# settings exist, so a key an older file lacks takes its shipped value
+# here. Every other reader indexes the prepared store.
 def load_debug_setting(directory: str) -> bool:
     global debug_setting, debug_setting_source
 

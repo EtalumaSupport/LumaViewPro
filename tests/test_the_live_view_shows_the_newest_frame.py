@@ -160,7 +160,10 @@ def test_the_listener_is_attached_only_while_someone_watches(session):
         before = live.watchers
         with client.stream('GET', '/api/v1/live') as response:
             assert response.headers['content-type'] == 'multipart/x-mixed-replace; boundary=frame'
-            _Parts(response).next()
+            # Held while the count is read: a reader let go closes the
+            # stream, and the server would count the watcher gone.
+            parts = _Parts(response)
+            parts.next()
             watching = live.watchers
         _until(lambda: live.watchers == 0, 'let go of the listener')
 

@@ -20,7 +20,7 @@ import pytest
 from modules import settings_init
 from modules.exceptions import StoredSettingReplacedNotice
 from modules.scope_session import ScopeSession
-from tests.settings_fixtures import complete_settings, complete_settings_without
+from tests.settings_fixtures import complete_settings
 
 TURRET_MODEL = 'LS850T'
 TEMPLATE = pathlib.Path(__file__).resolve().parents[1] / 'data' / 'settings.json'
@@ -46,10 +46,13 @@ def _notices(heard):
     return [n for n in heard if n.reason == StoredSettingReplacedNotice.reason]
 
 
-@pytest.mark.parametrize('stored', ['NOT_AN_OBJECTIVE', None, 7])
+@pytest.mark.parametrize('stored', ['NOT_AN_OBJECTIVE', ''])
 def test_a_scope_with_no_turret_comes_up_on_the_shipped_objective_and_keeps_the_rest(
     tmp_path, stored
 ):
+    # A name the catalogue lacks; a null or a number never reaches bring-up,
+    # since the load replaces it and a session's door refuses it as the
+    # writer would (test_a_settings_dict_handed_to_create_is_prepared_as_the_file_is).
     settings = complete_settings(live_folder=str(tmp_path), jpg_quality=77)
     settings['objective_id'] = stored
     heard = []
@@ -63,25 +66,6 @@ def test_a_scope_with_no_turret_comes_up_on_the_shipped_objective_and_keeps_the_
         session.shutdown()
     (notice,) = _notices(heard)
     assert notice.message == str(StoredSettingReplacedNotice([('objective_id', stored, shipped)]))
-
-
-def test_a_dict_with_no_objective_id_comes_up_on_the_shipped_one_and_is_told(tmp_path):
-    # A hand-built dict that never carried the key, the shape a factory
-    # refused by name: on a scope with no turret the key is the objective,
-    # so it is filled with the shipped one and told, as a null is.
-    heard = []
-    session = ScopeSession.create(
-        complete_settings_without('objective_id', live_folder=str(tmp_path)),
-        simulate=True,
-        outcome_listener=heard.append,
-    )
-    try:
-        shipped = session.scope.settings_template['objective_id']
-        assert session.settings['objective_id'] == shipped
-    finally:
-        session.shutdown()
-    (notice,) = _notices(heard)
-    assert notice.message == str(StoredSettingReplacedNotice([('objective_id', None, shipped)]))
 
 
 def test_a_turreted_scope_keeps_the_stored_id_it_never_reads(tmp_path):

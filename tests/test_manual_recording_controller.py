@@ -23,6 +23,7 @@ from modules.layer_record import LayerIdentity, LayerRecord, release_catalogue
 from modules.manual_recording import ManualRecordingController
 from modules.notification_center import Severity
 from modules.recording_frames import MANUAL_HYPERSTACK_FILENAME
+from tests.settings_fixtures import complete_settings
 from tests.video_engine_harness import FakeClock, ManualFireScheduler, NotifyRecorder
 from modules.lumascope_api import AxisPosition, AxisState
 
@@ -168,17 +169,17 @@ class _FakeScope:
 
 
 def make_settings(tmp_path, *, video_as_frames=True, max_fps=0, duration_s=60, hyperstack=False):
-    settings = {
-        'live_folder': str(tmp_path),
-        'video_as_frames': video_as_frames,
-        'video': {
+    settings = complete_settings(
+        live_folder=str(tmp_path),
+        video_as_frames=video_as_frames,
+        video={
             'max_fps': max_fps,
             'max_duration_seconds': duration_s,
             'timestamp_overlay': True,
         },
-    }
+    )
     if hyperstack:
-        settings['image_output_format'] = {'sequenced': 'OME-TIFF Hyperstack'}
+        settings['image_output_format']['sequenced'] = 'OME-TIFF Hyperstack'
     return settings
 
 
@@ -305,24 +306,6 @@ class TestRateLimit:
         controller, _, _ = make_controller(tmp_path, max_fps=0)
         controller.start()
         assert 'warning' not in recorder.severities()
-        controller.stop()
-        finish(controller)
-
-    def test_missing_video_settings_dict_tolerated(self, tmp_path):
-        # A partially-edited settings file without the video dict must
-        # start with defaults, never KeyError.
-        scope = _FakeScope()
-        settings = make_settings(tmp_path)
-        del settings['video']
-        controller = ManualRecordingController(
-            scope=scope,
-            settings=settings,
-            activity_claim=ActivityClaim(),
-            scheduler=ManualFireScheduler(),
-            clock=FakeClock(),
-        )
-        controller.start()
-        assert controller.is_recording
         controller.stop()
         finish(controller)
 

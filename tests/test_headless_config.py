@@ -68,10 +68,6 @@ class TestGetBinningFromSettings:
         assert get_binning_from_settings(template) == 1
         assert 'binning_size' not in template
 
-    def test_absent_binning_block_is_unbinned(self):
-        assert get_binning_from_settings({}) == 1
-        assert get_binning_from_settings({'binning': {}}) == 1
-
     def test_the_retired_top_level_key_is_not_consulted(self):
         # A carried-forward file could still hold it; it must not be able to
         # disagree with the label the selector writes.
@@ -83,10 +79,6 @@ class TestGetFrameDimensions:
         result = get_frame_dimensions_from_settings({'frame': {'width': 800, 'height': 600}})
         assert result == {'width': 800, 'height': 600}
 
-    def test_defaults(self):
-        result = get_frame_dimensions_from_settings({})
-        assert result == {'width': 1900, 'height': 1900}
-
 
 class TestGetProtocolTimeParams:
     def test_reads_params(self):
@@ -95,11 +87,6 @@ class TestGetProtocolTimeParams:
         assert result['period'] == datetime.timedelta(minutes=5)
         assert result['duration'] == datetime.timedelta(hours=2)
 
-    def test_defaults(self):
-        result = get_protocol_time_params_from_settings({})
-        assert result['period'] == datetime.timedelta(minutes=1)
-        assert result['duration'] == datetime.timedelta(hours=1)
-
 
 class TestGetImageCaptureConfig:
     def test_reads_config(self):
@@ -107,18 +94,13 @@ class TestGetImageCaptureConfig:
         # settings rather than defaulted, so they only need to be
         # distinguishable. 'PNG' stood in the live slot until the config
         # learned to refuse a format this build cannot write.
-        settings = {
-            'image_output_format': {'live': 'OME-TIFF', 'sequenced': 'TIFF'},
-            'image_mode': '12bit_scientific',
-        }
+        settings = complete_settings(
+            image_output_format={'live': 'OME-TIFF', 'sequenced': 'TIFF'},
+            image_mode='12bit_scientific',
+        )
         result = get_image_capture_config_from_settings(settings)
         assert result.output_format_live == 'OME-TIFF'
         assert result.capture_depth == 12
-
-    def test_defaults(self):
-        result = get_image_capture_config_from_settings({})
-        assert result.output_format_live == 'TIFF'
-        assert result.capture_depth == 8
 
 
 class TestGetSelectedLabware:
@@ -145,7 +127,7 @@ class TestGetSelectedLabware:
 
     def test_settings_naming_no_plate_are_refused(self):
         with pytest.raises(ConfigError, match='the settings name no plate'):
-            get_selected_labware_from_settings({}, _wellplate_loader())
+            get_selected_labware_from_settings({'protocol': {'labware': None}}, _wellplate_loader())
 
     def test_an_unknown_plate_is_refused_by_name(self):
         with pytest.raises(
@@ -211,44 +193,31 @@ class TestGetZstackParams:
             == 0
         )
 
-    def test_absent_position_yields_none_rather_than_a_guess(self):
-        """Only a hand-built dict can omit it -- the L2/SDK case.
-
-        None rather than 'center' so the missing key stays visible; the guard
-        lives where the value is consumed.
-        """
-        assert (
-            get_zstack_params_from_settings({'zstack': {'range': 10, 'step_size': 2}})[
-                'z_reference'
-            ]
-            is None
-        )
-
     def test_unmapped_position_label_refuses_as_config_error(self):
         """Typed, not a bare Exception -- REST middleware can only map the
         typed error onto a response."""
         with pytest.raises(ConfigError, match='Unknown Z-stack position reference'):
-            get_zstack_params_from_settings({'zstack': {'position': 'Focus at Middle'}})
+            get_zstack_params_from_settings(
+                complete_settings(zstack={'position': 'Focus at Middle'})
+            )
 
     @pytest.mark.parametrize('key', ['range', 'step_size'])
     def test_unparseable_number_refuses_as_config_error(self, key):
         """A raw ValueError from float() escaped this lane untyped, so one
         corrupt value failed differently on the GUI and REST lanes."""
         with pytest.raises(ConfigError, match=f'Z-stack {key} is not a number'):
-            get_zstack_params_from_settings({'zstack': {key: 'wide'}})
+            get_zstack_params_from_settings(complete_settings(zstack={key: 'wide'}))
 
-    def test_absent_position_refuses_loudly_where_it_is_consumed(self):
-        """The whole contract: no stored position -> a named refusal.
+    def test_a_null_reference_refuses_loudly_where_it_is_consumed(self):
+        """A config built with no reference -> a named refusal where it is used.
 
-        Without the else-branch this raised UnboundLocalError naming a local
-        variable instead of the reference that caused it.
+        The store cannot hold one (the writer refuses it, the load replaces
+        it), but a caller can build the config by hand. Without the
+        else-branch this raised UnboundLocalError naming a local variable
+        instead of the reference that caused it.
         """
-        params = get_zstack_params_from_settings({'zstack': {'range': 10, 'step_size': 2}})
         config = ZStackConfig(
-            range=params['range'],
-            step_size=params['step_size'],
-            current_z_reference=params['z_reference'],
-            current_z_value=5.0,
+            range=10.0, step_size=2.0, current_z_reference=None, current_z_value=5.0
         )
         with pytest.raises(ConfigError, match='Unknown Z-stack position reference'):
             config.step_positions()

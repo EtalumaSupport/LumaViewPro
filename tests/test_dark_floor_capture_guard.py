@@ -47,7 +47,7 @@ def dark_scope():
     scope._led_driver.set_timing_mode('fast')
     scope._motion_driver.set_timing_mode('fast')
     scope._camera_driver.set_timing_mode('fast')
-    scope._camera_driver.load_cycle_images()
+    scope._camera_driver.load_specimen()
     scope.imaging.start_streaming()
     yield scope
     scope.imaging.stop_streaming()

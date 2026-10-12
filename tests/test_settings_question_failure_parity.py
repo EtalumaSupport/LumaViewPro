@@ -732,14 +732,22 @@ class TestOnePopupOneLine:
         """A continuation line carries no level or timestamp prefix, so
         every line-oriented consumer of the log miscounts -- including
         the post-mortem this defect's own evidence came from. Fixed at
-        the record, never per caller."""
+        the record, never per caller.
+
+        Each count is of this test's own record, found by its words: the
+        loggers are process-wide, and a record another thread writes
+        while the test runs is not one of these."""
         gui = captured_logs('LVP.gui_interactions')
         notify = captured_logs('LVP.notifications')
 
+        def own(records, words):
+            return [record for record in records if words in record.getMessage()]
+
         gui_logger.notification('WARNING', 'Settings file could not be read', SEVEN_LINE_MESSAGE)
-        assert len(gui) == 1
-        assert '\n' not in gui[0].getMessage()
-        assert '\\n' in gui[0].getMessage(), 'the breaks must be escaped, not deleted'
+        written = own(gui, 'Settings file could not be read')
+        assert len(written) == 1
+        assert '\n' not in written[0].getMessage()
+        assert '\\n' in written[0].getMessage(), 'the breaks must be escaped, not deleted'
 
         gui.clear()
         notification_center.notifications.notify(
@@ -748,15 +756,19 @@ class TestOnePopupOneLine:
             'Settings file could not be read (one line pin)',
             SEVEN_LINE_MESSAGE,
         )
-        assert len(notify) == 1
-        assert '\n' not in notify[0].getMessage()
+        posted = own(notify, 'Settings file could not be read (one line pin)')
+        assert len(posted) == 1
+        assert '\n' not in posted[0].getMessage()
         # The bus writes the forensic record too; both surfaces stay flat.
-        assert gui and all('\n' not in record.getMessage() for record in gui)
+        forensic = own(gui, 'Settings file could not be read (one line pin)')
+        assert len(forensic) == 1
+        assert '\n' not in forensic[0].getMessage()
 
         gui.clear()
         gui_logger.popup_response('Objective\nconfirm', 'Use\ndefaults')
-        assert len(gui) == 1
-        assert '\n' not in gui[0].getMessage()
+        answered = own(gui, 'Objective')
+        assert len(answered) == 1
+        assert '\n' not in answered[0].getMessage()
 
     def test_one_line_is_reversible(self):
         """Escaping rather than indenting: an indented continuation is

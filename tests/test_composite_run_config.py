@@ -29,6 +29,7 @@ from modules.image_mode import (
 )
 
 import modules.config_helpers as config_helpers
+from tests.settings_fixtures import complete_settings
 
 # The plate position a composite starts from; every channel step shares
 # it, so only the name and the deferred z carry meaning here.
@@ -54,7 +55,7 @@ def _layer(acquire=None, focus=0.0):
 
 
 def _settings(acquiring=(), sequenced_format=OUTPUT_FORMAT_TIFF, focus_by_layer=None):
-    """A settings snapshot with *acquiring* layers set to capture images."""
+    """A prepared settings store with *acquiring* layers set to capture images."""
     focus_by_layer = focus_by_layer or {}
     settings = {
         layer: _layer(
@@ -83,7 +84,7 @@ def _settings(acquiring=(), sequenced_format=OUTPUT_FORMAT_TIFF, focus_by_layer=
             },
         }
     )
-    return settings
+    return complete_settings(**settings)
 
 
 def _objective_helper():

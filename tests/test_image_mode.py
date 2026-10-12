@@ -99,22 +99,24 @@ def test_migrate_legacy_settings(use_full_pixel_depth, false_color_16bit, expect
 # ---------------------------------------------------------------------------
 
 
-def test_config_helper_derives_image_mode_from_settings():
-    """The settings config getter exposes the resolved image_mode + its derived
-    capture_depth / save_encoding, including for an unmigrated legacy dict."""
+@pytest.mark.parametrize(
+    ('mode', 'depth', 'encoding'),
+    [
+        ('8bit', 8, '8bit'),
+        ('12bit_false_color_rgb', 12, 'rgb'),
+        ('12bit_scaled', 12, 'msb_aligned'),
+    ],
+)
+def test_config_helper_reads_the_stored_image_mode(mode, depth, encoding):
+    """The settings config getter exposes the stored image_mode and its derived
+    capture_depth / save_encoding; 12bit_scaled is reachable only this way."""
     from modules.config_helpers import get_image_capture_config_from_settings
+    from tests.settings_fixtures import complete_settings
 
-    cfg = get_image_capture_config_from_settings({})  # defaults: 8-bit
-    assert cfg.image_mode == '8bit'
-    assert cfg.capture_depth == 8
-    assert cfg.save_encoding == '8bit'
-
-    cfg = get_image_capture_config_from_settings(
-        {'use_full_pixel_depth': True, 'false_color_16bit': True}
-    )
-    assert cfg.image_mode == '12bit_false_color_rgb'
-    assert cfg.capture_depth == 12
-    assert cfg.save_encoding == 'rgb'
+    cfg = get_image_capture_config_from_settings(complete_settings(image_mode=mode))
+    assert cfg.image_mode == mode
+    assert cfg.capture_depth == depth
+    assert cfg.save_encoding == encoding
     # The retired keys are not re-emitted by the getter.
     assert not hasattr(cfg, 'use_full_pixel_depth')
     assert not hasattr(cfg, 'false_color_16bit')
@@ -184,34 +186,6 @@ def test_image_mode_label_round_trip():
         assert LABEL_TO_IMAGE_MODE[label] == mode
 
 
-def test_resolve_settings_image_mode_prefers_explicit_key():
-    """An explicit image_mode key wins over the legacy keys -- the only way to
-    reach 12bit_scaled, which no legacy combination maps to."""
-    from modules.image_mode import resolve_settings_image_mode
-
-    settings = {
-        'image_mode': '12bit_scaled',
-        'use_full_pixel_depth': True,
-        'false_color_16bit': True,
-    }
-    assert resolve_settings_image_mode(settings) == '12bit_scaled'
-
-
-def test_resolve_settings_image_mode_falls_back_to_legacy():
-    """No image_mode key -> derive from the legacy keys (old installs)."""
-    from modules.image_mode import resolve_settings_image_mode
-
-    assert resolve_settings_image_mode({}) == '8bit'
-    assert (
-        resolve_settings_image_mode({'use_full_pixel_depth': True, 'false_color_16bit': True})
-        == '12bit_false_color_rgb'
-    )
-    # An unrecognized image_mode value is ignored in favor of the legacy derivation.
-    assert resolve_settings_image_mode({'image_mode': 'bogus', 'use_full_pixel_depth': True}) == (
-        '12bit_scientific'
-    )
-
-
 def test_resolve_image_mode_unknown_raises_config_error():
     """An unrecognized image_mode raises the typed ConfigError (a settings/config
     fault the GUI boundary catches and notifies), not a bare ValueError that no
@@ -248,36 +222,27 @@ def test_depth_truncation_warning_active(feature_count, mode, expected):
     assert depth_truncation_warning_active(feature_count, mode) is expected
 
 
-def test_resolve_settings_image_mode_warns_on_corrupt_value():
-    """A present-but-unrecognized stored image_mode is a corrupt setting: it is
-    coerced to a safe default AND surfaced with a warning so the coercion does not
-    hide the data loss. A MISSING image_mode (a pre-consolidation install) is a
-    normal migration and coerces silently."""
+def test_migrate_settings_dict_warns_on_a_corrupt_value_beside_the_legacy_keys():
+    """A present-but-unrecognized stored image_mode beside the legacy keys is a
+    corrupt setting: the migration derives the mode from the legacy keys AND
+    surfaces a warning so the derivation does not hide the data loss. A file
+    with no image_mode at all (a pre-consolidation install) is a normal
+    migration and derives silently."""
     from unittest import mock
 
     import modules.image_mode as image_mode
 
     with mock.patch.object(image_mode, 'logger') as mock_logger:
-        result = image_mode.resolve_settings_image_mode(
-            {'image_mode': 'bogus', 'use_full_pixel_depth': True}
-        )
-        assert result == '12bit_scientific'
+        settings = {'image_mode': 'bogus', 'use_full_pixel_depth': True}
+        assert image_mode.migrate_settings_dict(settings) is True
+        assert settings['image_mode'] == '12bit_scientific'
         assert mock_logger.warning.call_count == 1
 
     with mock.patch.object(image_mode, 'logger') as mock_logger:
-        assert image_mode.resolve_settings_image_mode({}) == '8bit'
+        settings = {}
+        assert image_mode.migrate_settings_dict(settings) is True
+        assert settings['image_mode'] == '8bit'
         mock_logger.warning.assert_not_called()
-
-
-def test_config_helper_prefers_image_mode_key():
-    """The settings getter honors an explicit image_mode, making 12bit_scaled
-    reachable in production."""
-    from modules.config_helpers import get_image_capture_config_from_settings
-
-    cfg = get_image_capture_config_from_settings({'image_mode': '12bit_scaled'})
-    assert cfg.image_mode == '12bit_scaled'
-    assert cfg.capture_depth == 12
-    assert cfg.save_encoding == 'msb_aligned'
 
 
 # ---------------------------------------------------------------------------

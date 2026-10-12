@@ -2,32 +2,26 @@
 """A factory-built session is a configured session.
 
 `ScopeSession.create`, for a scope it builds, runs
-the settings-to-scope bring-up before it returns: the turret slot keys
-normalized, the slot-1 objective adopted, the labware selected, the
-scope initialized, the camera start gate released. A session that came
-back from a factory can therefore save an image, refuses settings that
-cannot configure a scope by name, and never leaves threads behind when
-it refuses.
+the settings-to-scope bring-up before it returns: the settings prepared
+as the file's are, the turret slot keys normalized, the slot-1 objective
+adopted, the labware selected, the scope initialized, the camera start
+gate released. A session that came back from a factory can therefore
+save an image, refuses a settings block of the wrong kind by name, and
+never leaves threads behind when it refuses. What the preparation makes
+of a hand-built dict is pinned in
+`tests/test_a_settings_dict_handed_to_create_is_prepared_as_the_file_is.py`.
 """
 
 import threading
-import time
 
 import numpy as np
 import pytest
 
-from modules.exceptions import ArgumentRefusedError, ConfigError
+from modules.exceptions import ArgumentRefusedError
 from modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
-from tests.settings_fixtures import complete_settings, complete_settings_without
+from tests.settings_fixtures import complete_settings
 from tests.frame_records import frame_record, plate
-
-
-def _wait_for_thread_count(target, deadline_s=2.0):
-    end = time.monotonic() + deadline_s
-    while threading.active_count() > target and time.monotonic() < end:
-        time.sleep(0.02)
-    return threading.active_count()
 
 
 @pytest.fixture
@@ -73,29 +67,7 @@ class TestAFactorySessionIsConfigured:
         assert path is not None
 
 
-class TestSettingsThatCannotConfigureAScope:
-    def test_missing_frame_refuses_by_key(self):
-        with pytest.raises(ConfigError, match='frame'):
-            ScopeSession.create(complete_settings_without('frame'), simulate=True)
-
-    def test_missing_binning_refuses_by_key(self):
-        # The other half of the frame's geometry: bring-up stores the binning
-        # the camera delivered at into this slot, so a dict without it is
-        # refused by name, not run at a binning nobody stated.
-        with pytest.raises(ConfigError, match='binning'):
-            ScopeSession.create(complete_settings_without('binning'), simulate=True)
-
-    def test_a_turret_scope_needs_no_stored_objective(self, tmp_path):
-        """On a turret scope the objective is the slot's assignment; a stored
-        id names nothing, so its absence is not a reason to refuse."""
-        session = ScopeSession.create(
-            complete_settings_without(
-                'objective_id', live_folder=str(tmp_path), microscope='LS850T'
-            ),
-            simulate=True,
-        )
-        session.shutdown()
-
+class TestSettingsHandedToAFactory:
     def test_string_turret_keys_are_normalized_and_slot_one_answers(self, tmp_path):
         """A caller dict carries JSON string keys; the file pipeline never saw
         it. The slot map must still be keyed by int, so the turret in slot 1
@@ -128,12 +100,13 @@ class TestSettingsThatCannotConfigureAScope:
 
 class TestARefusingFactoryLeavesNothingBehind:
     def test_thread_count_returns_to_baseline(self):
-        baseline = threading.active_count()
-        with pytest.raises(ConfigError):
-            ScopeSession.create(complete_settings_without('frame'), simulate=True)
-        # Other tests' threads may finish during the wait; what matters is
-        # that the refusing factory left none of its own behind.
-        assert _wait_for_thread_count(baseline) <= baseline
+        before = set(threading.enumerate())
+        with pytest.raises(ArgumentRefusedError) as refused:
+            ScopeSession.create(complete_settings(frame='1900 by 1900'), simulate=True)
+        assert (refused.value.reason, refused.value.argument) == ('wrong_kind', 'settings.frame')
+        # Only the threads this create started count: a thread another test
+        # on the same worker left running may end during this one.
+        assert [t.name for t in threading.enumerate() if t not in before] == []
 
 
 class TestDisableHomingIsNoStartupMotion:
@@ -175,8 +148,8 @@ class TestDisableHomingIsNoStartupMotion:
 
 
 class TestTheSimulatorStartsWhereItsSampleIs:
-    """Bring-up leaves a simulated stage at the plane its own camera calls
-    sharp, not at the floor where homing leaves it.
+    """Bring-up leaves a simulated stage at the height its own camera says
+    the sample sits at, not at the floor where homing leaves it.
 
     Homing to the bottom of travel is correct and shared with the real
     instrument. The difference is what happens next: a real operator
@@ -185,16 +158,41 @@ class TestTheSimulatorStartsWhereItsSampleIs:
     below zero and an autofocus sweep began on nothing.
     """
 
-    def test_bringup_leaves_z_off_the_floor_and_at_the_declared_plane(self, session):
+    def test_bringup_leaves_z_off_the_floor_and_near_the_sample(self, session):
         session.start_application_session()
 
         z = session.scope.motion.get_current_position('Z')
         assert z > 0.0, 'bring-up left the stage at the bottom of travel, where no sample is'
 
-        # Read from the camera rather than restated here: the point of the
-        # change is that one simulated scene holds one idea of where the
-        # sample is, so a literal in this test would defeat what it checks.
-        declared_plane = session.scope._camera_driver.get_focal_z()
-        assert z == pytest.approx(declared_plane, abs=1.0), (
-            f'the stage settled at {z} um but the camera calls {declared_plane} um sharp'
+        # Read from the camera rather than restated here: the point is that
+        # one simulated scene holds one idea of where the sample is, so a
+        # literal in this test would defeat what it checks. The stage lands
+        # at the sample's nominal height, as an operator focusing by eye
+        # would, and the true focus is near it, for an autofocus to find.
+        camera = session.scope._camera_driver
+        nominal = camera.get_nominal_focal_z()
+        assert z == pytest.approx(nominal, abs=1.0), (
+            f'the stage settled at {z} um but the sample nominally sits at {nominal} um'
+        )
+        assert camera.get_focal_z() == nominal, 'with no spread the sample is in focus there'
+
+    def test_a_focal_spread_puts_the_focus_within_it_of_the_stage(self, tmp_path):
+        s = ScopeSession.create(
+            complete_settings(live_folder=str(tmp_path)), simulate=True, sim_focal_spread_um=25.0
+        )
+        try:
+            camera = s.scope._camera_driver
+            assert abs(camera.get_focal_z() - camera.get_nominal_focal_z()) <= 25.0
+        finally:
+            s.shutdown()
+            s.scope.disconnect()
+
+    def test_a_focal_spread_is_refused_on_a_real_scope(self, tmp_path):
+        with pytest.raises(ArgumentRefusedError) as refused:
+            ScopeSession.create(
+                complete_settings(live_folder=str(tmp_path)), sim_focal_spread_um=25.0
+            )
+        assert (refused.value.reason, refused.value.argument) == (
+            'needs_simulated_scope',
+            'sim_focal_spread_um',
         )

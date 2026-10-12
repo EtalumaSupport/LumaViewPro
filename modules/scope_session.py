@@ -352,9 +352,9 @@ class ScopeSession:
         # session keeps its own for the plate<->stage conversions it serves.
         self.coordinate_transformer = coord_transformations.CoordinateTransformer()
         # The one store for engineering mode. Set from what the host was
-        # built in; the engineering plugin turns it on when it loads, unless
-        # no_engineering, the host's word, which that plugin honours, that it
-        # must not. Every reader --
+        # built in; the engineering plugin turns it on when it loads.
+        # no_engineering is the host's word that the engineering plugin is
+        # not loaded at all (load_plugins leaves it out). Every reader --
         # a run, a still, the metrics cadence, the GUI -- reads it here.
         self.engineering_mode = engineering_mode
         self.no_engineering = no_engineering
@@ -929,6 +929,7 @@ class ScopeSession:
         no_engineering: bool = False,
         sim_camera_stall: 'SimulatedStall | None' = None,
         sim_file_stall: 'SimulatedStall | None' = None,
+        sim_focal_spread_um: float = 0.0,
         outcome_listener: Callable[['Notification'], None] | None = None,
     ) -> 'ScopeSession':
         """Create a session, constructing defaults for any missing components.
@@ -965,8 +966,9 @@ class ScopeSession:
                 False; a separately shipped caller leaves the default.
             engineering_mode: the session's engineering mode to begin with;
                 a plugin may turn it on when the host loads plugins.
-            no_engineering: the host's word, which the engineering plugin
-                honours, that it must not turn engineering mode on.
+            no_engineering: the host's word that the engineering plugin is
+                not loaded: ``load_plugins`` leaves it out before it is
+                imported, as if it were not installed.
             sim_camera_stall: a stall for the simulated camera's stream, so a
                 simulated scope shows a stream that stops delivering; refused
                 beside ``scope`` and by the scope itself unless it is
@@ -976,6 +978,11 @@ class ScopeSession:
                 ``after_s`` seconds after bring-up the lane's worker is held
                 for ``for_s`` seconds. Refused beside ``scope`` and unless
                 ``simulate``.
+            sim_focal_spread_um: how far the simulated sample's focus may
+                lie from where bring-up places the stage, drawn once per
+                session, so every session needs a real autofocus; 0 (the
+                default) puts it in focus there. Refused as
+                ``sim_camera_stall`` is.
             outcome_listener: heard from before the scope is built, so it
                 hears what bring-up reports; the session's
                 ``add_outcome_listener`` says what it receives. A factory
@@ -993,7 +1000,12 @@ class ScopeSession:
                 ``simulate``: a real scope's file lane writes to a real drive,
                 and only the simulated camera stalls.
                 ``'needs_simulated_camera'``, ``sim_camera_stall`` for a model
-                simulated with an FX2.
+                simulated with an FX2. ``'wrong_kind'``, a block of
+                ``settings`` that is not the kind the shipped template holds
+                (``argument`` names it).
+            SettingRefusedError: a value in ``settings`` the writer refuses,
+                under the write's own reason: a dict handed to a session is
+                a write of every key at once, held to the same ranges.
         """
         from modules.lumascope_api._lumascope import _fire_pre_release_warning
         from modules.path_utils import get_source_root
@@ -1003,6 +1015,7 @@ class ScopeSession:
                 ('source_path', source_path),
                 ('sim_camera_stall', sim_camera_stall),
                 ('sim_file_stall', sim_file_stall),
+                ('sim_focal_spread_um', sim_focal_spread_um or None),
             ):
                 if value is not None:
                     raise ArgumentRefusedError(
@@ -1012,6 +1025,20 @@ class ScopeSession:
             raise ArgumentRefusedError(
                 'needs_simulated_scope', argument='sim_file_stall', value=sim_file_stall
             )
+        # The one preparation every settings dict gets: a dict a caller
+        # hands in is completed from the shipped template as the file is,
+        # so nothing below hedges for a key it lacks, and is held to the
+        # writer's ranges as a write is. The template is the one read of
+        # it, the scope's own when the scope was built elsewhere.
+        if scope is None:
+            root = get_source_root(source_path)
+            template = settings_init._load_template(logger, str(root / 'data' / 'settings.json'))
+        else:
+            root = scope.source_path
+            template = scope.settings_template
+        settings = settings_init.prepare_loaded(
+            logger, settings, template, str(root), source='settings', handed=True
+        )
         if warn_pre_release:
             _fire_pre_release_warning()
 
@@ -1040,6 +1067,7 @@ class ScopeSession:
                     fx2_debug_wire=settings['fx2_debug_wire_enabled'],
                     source_path=get_source_root(source_path),
                     sim_camera_stall=sim_camera_stall,
+                    sim_focal_spread_um=sim_focal_spread_um,
                 )
                 # The bring-up -- configure from settings, then release the
                 # camera start gate -- happens below, once the session exists,
@@ -1144,11 +1172,6 @@ class ScopeSession:
         from drivers.sim_wire.backend import DEFAULT_DIALECT, runtime_missing
         from modules.lumascope_api._constants import SIMULATOR_TIERS
 
-        if 'simulator_tier' not in settings:
-            raise ConfigError(
-                "settings have no 'simulator_tier'; a prepared settings dict carries it "
-                'from the shipped template'
-            )
         tier = settings['simulator_tier']
         if tier not in SIMULATOR_TIERS:
             raise ConfigError(f'simulator_tier {tier!r} is not one of {SIMULATOR_TIERS}')
@@ -1563,13 +1586,13 @@ class ScopeSession:
         with self.settings_lock:
             for name in common_utils.get_layers():
                 layer = self.settings[name]
-                if layer.get('acquire') not in ('image', 'video'):
+                if layer['acquire'] not in ('image', 'video'):
                     continue
                 stim = layer.get('stim_config')
                 layer_settings[name] = {
                     'Layer': name,
                     'Acquire': layer['acquire'],
-                    **{column: layer.get(key, '') for column, key in _LAYER_SETTINGS_KEYS},
+                    **{column: layer[key] for column, key in _LAYER_SETTINGS_KEYS},
                     'Stim_Enabled': (
                         stim['enabled'] if isinstance(stim, dict) and 'enabled' in stim else ''
                     ),
@@ -1805,7 +1828,7 @@ class ScopeSession:
             stim_configs=self.get_stim_configs(),
             plate_position=self.plate_position_on(protocol.labware()),
             objective_id=objective_id,
-            channel_order=self.settings.get('step_channel_order', None),
+            channel_order=self.settings['step_channel_order'],
             before_step=before_step,
             after_step=after_step,
         )
@@ -2656,9 +2679,7 @@ class ScopeSession:
 
         if self.scope.capabilities.has_xy_stage:
             return
-        # select_labware refuses a protocol block that is not a mapping.
-        block = self.settings.get('protocol')
-        stored = block.get('labware') if isinstance(block, dict) else None
+        stored = self.settings['protocol']['labware']
         if not self.select_labware(CENTER_PLATE):
             return
         logger.info(
@@ -2669,17 +2690,18 @@ class ScopeSession:
     def _replace_an_unresolvable_stored_plate(self) -> list[tuple[str, object, object]]:
         """Replace a stored plate the catalogue cannot resolve with the shipped one.
 
-        A null, a non-string, an empty name or a plate the catalogue no
-        longer has. The catalogue is first available here, at bring-up, so
-        the name is judged here rather than with the load's other stored
-        values. Refusing it instead brought the GUI up on the shipped
-        template, dropping every other stored setting for one plate name.
+        An empty name or a plate the catalogue no longer has; a null or a
+        non-string never reaches here, since the load replaces it and a
+        session's door refuses it, by the writer's rule. The catalogue is
+        first available here, at bring-up, so the name is judged here
+        rather than with the load's other stored values. Refusing it
+        instead brought the GUI up on the shipped template, dropping every
+        other stored setting for one plate name.
 
         Returns:
             ``[('protocol.labware', stored, shipped)]`` when replaced, else ``[]``.
         """
-        block = self.settings.get('protocol')
-        stored = block.get('labware') if isinstance(block, dict) else None
+        stored = self.settings['protocol']['labware']
         if self.wellplate_loader.is_known_plate(stored):
             return []
         shipped = self.scope.settings_template['protocol']['labware']
@@ -2797,10 +2819,6 @@ class ScopeSession:
                 f'[Session  ] scope reports model {detected}, not in the catalogue; '
                 f'the stored model {stored!r} stands'
             )
-        # A caller-supplied dict never went through prepare_settings, whose
-        # normalizer is the one boundary between the file's string slot keys
-        # and the runtime's ints; without it every slot reads as unassigned.
-        settings_init._normalize_turret_slot_keys(self.settings)
         self._put_a_stageless_scope_on_center_plate()
         scope_config = scope_models.get(self.settings.get('microscope'))
         # Before anything is commanded: every well position is computed on it.
@@ -3025,7 +3043,9 @@ class ScopeSession:
         The host's one call to have plugins; a session it is never made on
         has none. Each plugin's ``register`` is handed this session as its
         ctx. A plugin that does not load is reported and the rest load;
-        nothing here raises for a plugin. Call it once, after ``create``.
+        nothing here raises for a plugin. Under ``no_engineering`` the
+        engineering plugin is left out, unreported, as if not installed.
+        Call it once, after ``create``.
 
         Raises:
             RuntimeError: this session already loaded its plugins.
@@ -3301,8 +3321,8 @@ class ScopeSession:
                 or moved.
         """
         has_turret = self.scope_has_turret()
-        first_run = not self.settings.get('objective_confirmed', False)
-        slots = self.settings.get('turret_objectives') or {}
+        first_run = not self.settings['objective_confirmed']
+        slots = self.settings['turret_objectives']
         position = self.scope.motion.get_turret_slot() if has_turret else None
         # A known slot with no assignment owes the question. An unknown slot
         # alone does not: it is unknown during every turret move, and asking
@@ -3451,11 +3471,10 @@ class ScopeSession:
         labware_name = self.wellplate_loader.resolve_plate_key(labware_name)
         protocol_settings = self.settings.get('protocol')
         if not isinstance(protocol_settings, dict):
-            # Settings handed straight to a factory skip the template merge
-            # that puts this block there, so it can be missing -- and a
-            # hand-edited file can put something that is not a mapping in its
-            # place. Named here, so the refusal says what is wrong rather
-            # than failing inside the write.
+            # Every dict reaches the session through create's preparation,
+            # which holds this block to the template's kind; a dict that
+            # bypassed it is a bug, named here so the refusal says what is
+            # wrong rather than failing inside the write.
             raise ConfigError(
                 'settings have no usable protocol block; the labware selection '
                 f'has nowhere to live (found {type(protocol_settings).__name__})'
@@ -3572,7 +3591,7 @@ class ScopeSession:
         self.scope.motion.refuse_unknown_positions(
             ('X', 'Y', 'Z'), recording=True, then='try again'
         )
-        return self.plate_position_on(self.settings.get('protocol', {}).get('labware'))
+        return self.plate_position_on(self.settings['protocol']['labware'])
 
     def plate_position_on(self, labware_id: str) -> dict:
         """The stage's position in plate coordinates, on the plate ``labware_id`` names.
@@ -3983,7 +4002,7 @@ class ScopeSession:
         # file and the flag disagree on exactly the machines that care. A host
         # loads its plugins before it starts metrics.
         start_kwargs = {}
-        interval_s = self.settings.get('profiling', {}).get('metrics_interval_s')
+        interval_s = self.settings['profiling']['metrics_interval_s']
         if interval_s is not None:
             start_kwargs['system_metrics_interval_s'] = float(interval_s)
         elif self.engineering_mode:
@@ -4009,7 +4028,8 @@ class ScopeSession:
         """Finish what the session is doing, then tear down everything it constructed.
 
         First the close: from its first step nothing new takes the scope (a
-        run, a recording, a home or a diagnostic asked for meanwhile raises
+        run, a recording, a home or a diagnostic asked for meanwhile, or
+        still taking the scope once it has finished, raises
         ``SessionClosingError``); plugins unload, so a plugin's own work
         stops through its ``unregister``, and metrics stop; the live run is
         stopped (its ending ``aborted`` / ``shutdown``) and a live recording
@@ -4057,7 +4077,7 @@ class ScopeSession:
                 self._tear_down()
             finally:
                 self._close_running = False
-                self.activity_claim.end_closing()
+                self.activity_claim.end_closing(closed=self._shut_down)
 
     _CLOSE_WAIT_LOG_S = 5.0
 

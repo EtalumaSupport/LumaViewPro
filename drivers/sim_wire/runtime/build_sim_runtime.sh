@@ -2,7 +2,7 @@
 # Build the MicroPython runtimes the simulated boards run in, from pinned
 # upstream source (MIT licensed; no Etaluma firmware is involved).
 #
-#   scripts/build_sim_runtime.sh            build for this machine
+#   drivers/sim_wire/runtime/build_sim_runtime.sh   build for this machine
 #
 # One runtime per MicroPython version in drivers/sim_wire/runtime/MICROPYTHON_PIN
 # (the one place the versions live): each firmware dialect runs on the
@@ -24,7 +24,7 @@
 #   there, it lands wherever the VM is (mid-GC, mid-print), and about one
 #   Ctrl-C in fifteen killed the runtime with 'FATAL: uncaught NLR'. 1.28
 #   gets this from turning the GIL on; 1.19 from its patch.
-# - scripts/sim_runtime_<tag>_*.patch: a Ctrl-C that lands just before the
+# - patches/<tag>_*.patch: a Ctrl-C that lands just before the
 #   firmware blocks reading stdin waits for the next input byte instead of
 #   firing; the patch makes it fire, as on the board.
 # - 1.19 predates the compilers on current machines, so its warnings are not
@@ -37,7 +37,7 @@
 #   flags change, so a changed flag would otherwise link the old objects.
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 PIN_FILE="$ROOT/drivers/sim_wire/runtime/MICROPYTHON_PIN"
 
 case "$(uname -s)-$(uname -m)" in
@@ -95,7 +95,7 @@ build_one() {
 
     # The pinned source plus our patches, and nothing else.
     git -C "$src" checkout --quiet -- .
-    for patch in "$ROOT"/scripts/sim_runtime_"$tag"_*.patch; do
+    for patch in "$ROOT"/drivers/sim_wire/runtime/patches/"$tag"_*.patch; do
         [ -e "$patch" ] && git -C "$src" apply "$patch"
     done
 

@@ -183,9 +183,4 @@ ignore = [
 quote-style = "single"
 indent-style = "space"
 line-ending = "lf"
-# Non-shipping tooling keeps its own double-quote style; format enforcement
-# is skipped here while ruff check still lints it.
-exclude = [
-    "scripts/compare_tiling_stitch_sample.py",
-]
 

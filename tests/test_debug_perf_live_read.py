@@ -34,7 +34,7 @@ def test_predicate_exists_and_reads_setting_live():
     fn = _find_func('_debug_perf_enabled')
     assert fn is not None
     body = ast.get_source_segment(SRC, fn)
-    assert "ctx.settings.get('debug_mode', False)" in body
+    assert "ctx.settings['debug_mode']" in body
 
 
 def test_no_cached_debug_perf_assignment():

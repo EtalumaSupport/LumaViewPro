@@ -37,7 +37,6 @@ from tests.scope_fakes import home_sim_scope
 from tests.test_composite_run_config import _settings as _base_settings
 from tests.scope_fakes import TEST_TURRET_OBJECTIVES
 from tests.installation_fixtures import copy_installation_files
-from tests.settings_fixtures import complete_settings
 
 # Two channels is the minimum a merge can consume, and one of them is
 # transmitted: that is the pairing whose blend actually reads a threshold,
@@ -69,24 +68,17 @@ def headless_settings(
             settings[layer]['composite_brightness_threshold'] = 25
     settings['live_folder'] = str(tmp_path)
     settings['stage_offset'] = {'x': 0.0, 'y': 0.0}
-    # A prepared settings dict carries the simulated motor board's tier
-    # from the template, and the session refuses one that does not; this
-    # hand-built dict says so itself, on the fast tier like the rest of
-    # the suite.
+    # A turreted scope: the session completes this hand-built dict from
+    # the shipped template, whose model is the LS850 with no turret, so
+    # the model a two-objective run needs is said here.
+    settings['microscope'] = 'LS850T'
+    # The template ships the realistic tier; the suite runs the fast one.
     settings['simulator_tier'] = 'fast'
-    # Likewise the FX2 wire trace, which the session reads for every scope.
-    settings['fx2_debug_wire_enabled'] = False
     # The slots a brought-up scope carries. Empty is not the neutral
     # value it looks like: the scope reads these from the settings, and a
     # turret carrying nothing addresses no glass, so every protocol is
     # refused.
     settings['turret_objectives'] = dict(TEST_TURRET_OBJECTIVES)
-    # The scope reads whether to draw the scale bar at every capture, so
-    # the session refuses settings without it; the template's value.
-    settings['scale_bar'] = {'enabled': False}
-    # The session reads the auto-gain exposure ceilings at every camera
-    # apply, bring-up's among them; the template's values.
-    settings['ag_ae_max_exposure_ms'] = complete_settings()['ag_ae_max_exposure_ms']
     return settings
 
 

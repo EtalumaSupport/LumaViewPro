@@ -107,7 +107,7 @@ def runtime_path(dialect: str) -> pathlib.Path:
         )
     path = _PACKAGE / 'runtime' / platform_tag / f'micropython-{RUNTIME_TAGS[dialect]}'
     if not path.exists():
-        raise SerialException(f'{path} missing: run scripts/build_sim_runtime.sh')
+        raise SerialException(f'{path} missing: run drivers/sim_wire/runtime/build_sim_runtime.sh')
     return path
 
 

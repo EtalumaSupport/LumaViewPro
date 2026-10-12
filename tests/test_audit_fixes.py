@@ -862,7 +862,7 @@ class TestAxisState:
         from modules.lumascope_api import AxisState
         from drivers.simulated_motorboard import SimulatedMotorBoard
 
-        scope = build_scope(simulate=True)
+        scope = build_scope(simulate=True, sim_model='LS850T')
         bind_settings_like_a_session(scope)
         scope._motion_driver = SimulatedMotorBoard(
             motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, model='LS850T'
@@ -10426,11 +10426,12 @@ class TestBfAfForFluorescenceSnapshottedAtRunStart:
         import modules.app_context as app_context
         import modules.config_helpers as config_helpers
         from modules.protocol_state_machine import SequencedCaptureRunMode
+        from tests.settings_fixtures import complete_settings
 
-        settings = {
-            'protocol': {'bf_af_for_fluorescence': True},
-            'video': {'timestamp_overlay': False, 'max_fps': 5},
-        }
+        settings = complete_settings(
+            protocol={'bf_af_for_fluorescence': True},
+            video={'timestamp_overlay': False, 'max_fps': 5},
+        )
         monkeypatch.setattr(
             app_context,
             'ctx',

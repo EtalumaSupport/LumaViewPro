@@ -27,9 +27,11 @@ import pytest
 
 import modules.image_mode as image_mode
 import modules.stack_builder as stack_builder
-from modules.plugins import PluginSpec, ProcessorResult
+from modules.plugins import ENGINEERING_PLUGIN, PluginSpec, ProcessorResult
 from modules.protocol import Protocol
+from modules.scope_session import ScopeSession
 from tests.test_a_late_write_records_its_frame import REPO_ROOT, _step
+from tests.settings_fixtures import complete_settings
 from tests.test_composite_run_e2e import headless_settings, open_composite_session, single_run_dir
 
 WAIT_S = 60.0
@@ -425,3 +427,42 @@ class TestOneEngineeringMode:
 
         with pytest.raises(TypeError):
             AppContext(engineering_mode=True)
+
+
+class TestNoEngineering:
+    def test_the_engineering_plugin_is_left_out_as_if_not_installed(self, tmp_path):
+        """A host started with no_engineering never imports the engineering
+        plugin: no version check, no register, no report, nothing in health;
+        another installed plugin still loads."""
+        imported = []
+
+        class _Imported(_EntryPoint):
+            def load(self):
+                imported.append(self.name)
+                return super().load()
+
+        engineering = _plugin(ENGINEERING_PLUGIN)
+        other = _plugin('other')
+        heard = []
+        live = tmp_path / 'live'
+        live.mkdir()
+        session = ScopeSession.create(
+            complete_settings(live_folder=str(live)),
+            simulate=True,
+            no_engineering=True,
+            outcome_listener=heard.append,
+        )
+        try:
+            entry_points = [_Imported(engineering), _Imported(other)]
+            with patch('importlib.metadata.entry_points', return_value=entry_points):
+                session.load_plugins()
+            health = session.plugin_health()
+            named = [s.name for ns in health.namespaces for s in ns.loaded]
+            named += [p.name for p in session.plugins.not_loaded()]
+            assert imported == ['other']
+            assert engineering.calls == []
+            assert ENGINEERING_PLUGIN not in named
+            assert not [o for o in heard if ENGINEERING_PLUGIN in str(getattr(o, 'title', ''))]
+            assert other.calls == [('register', session)]
+        finally:
+            session.shutdown()

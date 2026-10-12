@@ -36,6 +36,7 @@ from modules.image_mode import (
 )
 from modules.protocol_state_machine import SequencedCaptureRunMode
 from tests.ast_seams import REPO_ROOT
+from tests.settings_fixtures import complete_settings
 
 _OWNED_PARAMS = (
     'image_capture_config',
@@ -81,13 +82,13 @@ def _acquisition_run_call_blocks():
 
 def test_helper_passes_settings_values_through():
     out = config_helpers.get_sequenced_run_settings(
-        {
-            'keep_led_between_steps': True,
-            'video_as_frames': True,
-            'separate_folder_per_channel': True,
-            'protocol': {'bf_af_for_fluorescence': True},
-            'video': {'timestamp_overlay': False, 'max_fps': 5},
-        },
+        complete_settings(
+            keep_led_between_steps=True,
+            video_as_frames=True,
+            separate_folder_per_channel=True,
+            protocol={'bf_af_for_fluorescence': True},
+            video={'timestamp_overlay': False, 'max_fps': 5},
+        ),
         run_mode=SequencedCaptureRunMode.FULL_PROTOCOL,
     )
     assert out == {
@@ -101,28 +102,10 @@ def test_helper_passes_settings_values_through():
     }
 
 
-def test_helper_defaults_missing_keys_to_the_shipped_defaults():
-    # Two of the seven read a NESTED path (protocol.bf_af_for_fluorescence,
-    # video.timestamp_overlay, video.max_fps) under a FLAT run-param name,
-    # and two of the defaults are not False -- the overlay ships on and the
-    # rate cap is a number, so "missing key" is not "everything off".
-    assert config_helpers.get_sequenced_run_settings(
-        {}, run_mode=SequencedCaptureRunMode.FULL_PROTOCOL
-    ) == {
-        'image_capture_config': ImageCaptureConfig.from_image_mode(IMAGE_MODE_8BIT),
-        'keep_led_between_steps': False,
-        'video_as_frames': False,
-        'separate_folder_per_channel': False,
-        'bf_af_for_fluorescence': False,
-        'timestamp_overlay': True,
-        'video_max_fps': 0,
-    }
-
-
 def test_helper_owns_exactly_the_settings_derived_run_params():
     assert set(
         config_helpers.get_sequenced_run_settings(
-            {}, run_mode=SequencedCaptureRunMode.FULL_PROTOCOL
+            complete_settings(), run_mode=SequencedCaptureRunMode.FULL_PROTOCOL
         )
     ) == set(_OWNED_PARAMS)
 
@@ -140,11 +123,11 @@ def test_autofocus_scan_forces_led_and_folder_safety(run_mode):
     per channel, whatever the user settings say. The guarantee lives in the
     helper, so it reaches both AF starters from one place instead of a
     literal at each."""
-    settings = {
-        'keep_led_between_steps': True,
-        'video_as_frames': True,
-        'separate_folder_per_channel': True,
-    }
+    settings = complete_settings(
+        keep_led_between_steps=True,
+        video_as_frames=True,
+        separate_folder_per_channel=True,
+    )
     out = config_helpers.get_sequenced_run_settings(settings, run_mode=run_mode)
     assert out['keep_led_between_steps'] is False, (
         'an autofocus scan must not hold the LED across focus moves even when '
@@ -163,11 +146,11 @@ def test_autofocus_scan_plan_carries_the_forced_values(run_mode):
     from tests.protocol_drives import bare_capture_runner, scr_run_kwargs
 
     run_settings = config_helpers.get_sequenced_run_settings(
-        {
-            'keep_led_between_steps': True,
-            'video_as_frames': True,
-            'separate_folder_per_channel': True,
-        },
+        complete_settings(
+            keep_led_between_steps=True,
+            video_as_frames=True,
+            separate_folder_per_channel=True,
+        ),
         run_mode=run_mode,
     )
     runner = bare_capture_runner()
@@ -184,10 +167,10 @@ def test_a_composite_captures_8_bit_in_a_format_its_merge_reads():
     """The composite's image rule is the helper's, like the autofocus
     overrides: its merge reads its inputs back as 8-bit, from a TIFF or an
     OME-TIFF, whatever the user's image mode and sequenced format."""
-    settings = {
-        'image_mode': IMAGE_MODE_12BIT_SCIENTIFIC,
-        'image_output_format': {'live': 'TIFF', 'sequenced': OUTPUT_FORMAT_HYPERSTACK},
-    }
+    settings = complete_settings(
+        image_mode=IMAGE_MODE_12BIT_SCIENTIFIC,
+        image_output_format={'live': 'TIFF', 'sequenced': OUTPUT_FORMAT_HYPERSTACK},
+    )
     composite = config_helpers.get_sequenced_run_settings(
         settings, run_mode=SequencedCaptureRunMode.SINGLE_COMPOSITE
     )['image_capture_config']

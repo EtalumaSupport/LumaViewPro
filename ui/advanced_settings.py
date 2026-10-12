@@ -69,29 +69,25 @@ class AdvancedSettings(Popup):
         self.xy_stage_supported = caps.has_xy_stage
         self._show_camera_modes()
 
-        video_settings = settings.get('video', {})
-        self.ids['video_max_fps_input'].text = str(video_settings.get('max_fps', 0))
+        video_settings = settings['video']
+        self.ids['video_max_fps_input'].text = str(video_settings['max_fps'])
         self.ids['video_max_duration_input'].text = str(get_manual_video_max_duration(settings))
-        self.ids['video_timestamp_overlay_id'].active = video_settings.get(
-            'timestamp_overlay', True
-        )
+        self.ids['video_timestamp_overlay_id'].active = video_settings['timestamp_overlay']
 
         self.ids['separate_folder_per_channel_id'].state = (
-            'down' if settings.get('separate_folder_per_channel') else 'normal'
+            'down' if settings['separate_folder_per_channel'] else 'normal'
         )
 
         # The runtime fps mirror (ctx.live_view_fps) and scope_display are
         # initialized at app startup; the slider just reflects the stored value.
         # fps=0 means uncapped, which maps to the slider's top position.
-        live_fps = settings.get('live_view_fps', 30)
+        live_fps = settings['live_view_fps']
         self.ids['live_view_fps_slider'].value = 65 if live_fps == 0 else live_fps
 
-        self.ids['protocol_led_on_btn'].state = (
-            'down' if settings.get('protocol_led_on') else 'normal'
-        )
+        self.ids['protocol_led_on_btn'].state = 'down' if settings['protocol_led_on'] else 'normal'
 
         self.ids['keep_led_between_steps_btn'].state = (
-            'down' if settings.get('keep_led_between_steps') else 'normal'
+            'down' if settings['keep_led_between_steps'] else 'normal'
         )
 
         # Setting the slider value drives the text via the kv binding

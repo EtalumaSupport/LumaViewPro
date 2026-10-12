@@ -691,17 +691,14 @@ class LumaViewProApp(TooltipMixin, App):
                 except Exception as e:  # grain: ignore NAKED_EXCEPT
                     logger.warning(f'[INIT      ] Z slider sync failed: {e}')
 
-                try:
-                    settings = ctx.settings
-                    for layer in common_utils.get_layers():
-                        ls = settings.get(layer, {})
-                        logger.info(
-                            f'[INIT      ] {layer:6s}: gain={ls.get("gain_db", "?"):>6}, '
-                            f'exp={ls.get("exposure_ms", "?"):>8}ms, ill={ls.get("illumination_ma", "?"):>6}mA, '
-                            f'af={ls.get("autofocus", "?")}, acquire={ls.get("acquire", "?")}'
-                        )
-                except Exception as e:  # grain: ignore NAKED_EXCEPT
-                    logger.warning(f'[INIT      ] per-channel settings log skipped: {e}')
+                settings = ctx.settings
+                for layer in common_utils.get_layers():
+                    ls = settings[layer]
+                    logger.info(
+                        f'[INIT      ] {layer:6s}: gain={ls["gain_db"]:>6}, '
+                        f'exp={ls["exposure_ms"]:>8}ms, ill={ls["illumination_ma"]:>6}mA, '
+                        f'af={ls["autofocus"]}, acquire={ls["acquire"]}'
+                    )
 
             # Hide the composite-threshold and false-colour controls on the
             # transmitted channels, which have no colour to composite.
@@ -1080,6 +1077,10 @@ class LumaViewProApp(TooltipMixin, App):
                 no_engineering=no_engineering,
                 sim_camera_stall=sim_camera_stall,
                 sim_file_stall=sim_file_stall,
+                # A simulated sample's focus lies up to 25 um from where
+                # bring-up leaves the stage, as a real sample's does, so each
+                # simulated start needs a real autofocus.
+                sim_focal_spread_um=25.0 if simulate_mode else 0.0,
                 outcome_listener=notification_popup_bridge,
             )
 
@@ -1231,7 +1232,7 @@ class LumaViewProApp(TooltipMixin, App):
         # independent of debug_mode (which otherwise silently started a
         # whole-app profiler). On exit, dumps a .profile file to logs/cprofile/
         # viewable with: pip install snakeviz && snakeviz <file>.profile
-        if settings.get('cprofile_enabled', False):
+        if settings['cprofile_enabled']:
             global profiling_helper
             profiling_helper = profiling_utils.ProfilingHelper()
             profiling_helper.enable()

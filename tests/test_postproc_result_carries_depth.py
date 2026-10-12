@@ -28,10 +28,11 @@ from modules.zprojector import ZProjector
 @pytest.fixture
 def neutral_ctx():
     """Stub app_context.ctx so the one-shot settings read in the false-color
-    gate resolves; BF/mono inputs stay grayscale regardless of the mode."""
+    gate resolves; BF/mono inputs stay grayscale regardless of the mode. The
+    mode is one the store can hold: the writer refuses any other."""
     fake_ctx = MagicMock()
     fake_ctx.settings_lock = threading.Lock()
-    fake_ctx.settings = {'image_mode': '8bit_mono'}
+    fake_ctx.settings = {'image_mode': '8bit'}
     orig = _app_ctx.ctx
     _app_ctx.ctx = fake_ctx
     try:
