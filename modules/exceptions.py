@@ -253,15 +253,23 @@ class _Umbrella(LumascopeError):  # noqa: N818 -- a mixin on the root, not an er
     to answer with, so constructing an umbrella itself is refused. Its
     children -- each a refusal, a notice, a quiet outcome or a fault -- are
     constructed as before.
+
+    Refused in ``__init__``, not ``__new__``: a ``__new__`` here would hand a
+    ``TimeoutError`` child's arguments to ``OSError``, which reads two of
+    them as an errno and its words in place of the child's message.
     """
 
-    def __new__(cls, *args, **kwargs):
-        if _Umbrella in cls.__bases__:
+    def __init__(self, *args, **kwargs):
+        self._refuse_if_bare()
+        super().__init__(*args, **kwargs)
+
+    def _refuse_if_bare(self) -> None:
+        """Refuse the umbrella itself; asked first by an umbrella whose words read a child's table."""
+        if _Umbrella in type(self).__bases__:
             raise TypeError(
-                f'{cls.__name__} names a subject and is never raised: raise the child '
+                f'{type(self).__name__} names a subject and is never raised: raise the child '
                 'that says what happened'
             )
-        return super().__new__(cls, *args, **kwargs)
 
 
 class ExposureAtMaximumNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error
@@ -3140,6 +3148,7 @@ class MoveNotCompletedError(_Umbrella, Exception):
     _SENTENCES: ClassVar[dict[str, str]]
 
     def __init__(self, axis: str, reason: str):
+        self._refuse_if_bare()
         super().__init__(
             f'The {axis} move did not complete: ' + self._SENTENCES[reason].format(axis=axis)
         )
@@ -3318,6 +3327,7 @@ class HomingFailedError(_Umbrella, Exception):
     }
 
     def __init__(self, home: str, reason: str, axes: Iterable[str]):
+        self._refuse_if_bare()
         self.home = home
         self.reason = reason
         self.axes = tuple(axes)

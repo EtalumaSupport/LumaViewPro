@@ -22,6 +22,7 @@ from __future__ import annotations
 import ast
 import builtins
 import importlib
+import inspect
 
 import pytest
 
@@ -114,6 +115,19 @@ def test_except_exception_still_catches_every_one():
     assert left == [], f'every except Exception would stop catching these: {_named(left)}'
 
 
+def test_no_exception_defines_new():
+    """A ``__new__`` anywhere in a ``TimeoutError`` child's chain hands its
+    arguments to ``OSError``, which reads two of them as an errno and its
+    words: ``str()`` became ``[Errno Z] still_moving``. So kinds, umbrellas
+    and outcomes construct in ``__init__`` only."""
+    defining = [
+        f'{cls.__module__}.{cls.__qualname__}'
+        for cls in (*EXCEPTION_CLASSES, *KINDS, _Umbrella)
+        if '__new__' in vars(cls)
+    ]
+    assert defining == [], f'construct in __init__, not __new__: {defining}'
+
+
 def test_no_umbrella_can_be_raised():
     """A raise of the subject alone has no kind, no reason and no title to answer with."""
     assert {
@@ -126,9 +140,17 @@ def test_no_umbrella_can_be_raised():
     } <= {cls.__name__ for cls in UMBRELLAS}, 'the umbrella discovery drifted'
     constructed = []
     for umbrella in UMBRELLAS:
+        # Refused before the umbrella reads its arguments, so any of the
+        # right number will do.
+        required = [
+            name
+            for name, param in inspect.signature(umbrella.__init__).parameters.items()
+            if name != 'self'
+            and param.default is param.empty
+            and param.kind not in (param.VAR_POSITIONAL, param.VAR_KEYWORD)
+        ]
         try:
-            # Refused before any __init__ runs, so the arguments are never read.
-            umbrella('a message')
+            umbrella(*('x' for _ in required))
         except TypeError as refused:
             if 'never raised' in str(refused):
                 continue
