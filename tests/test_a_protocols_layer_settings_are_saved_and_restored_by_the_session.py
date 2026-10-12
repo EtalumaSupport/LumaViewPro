@@ -137,11 +137,19 @@ class TestSaveThenRestore:
 
         assert session.settings['protocol']['filepath'] == remembered
 
-    def test_a_failed_write_raises(self, session, tmp_path):
+    def test_a_failed_write_raises(self, session, tmp_path, monkeypatch):
+        import modules.protocol as protocol_module
+
         _only_bf_acquiring(session)
 
+        # a stand-in by design: a disk that fails the write, which the
+        # simulator cannot produce; the writer opens through its module's ``open``.
+        def failing_open(*args, **kwargs):
+            raise OSError(28, 'No space left on device')
+
+        monkeypatch.setattr(protocol_module, 'open', failing_open, raising=False)
         with pytest.raises(ProtocolNotSavedError):
-            session.save_protocol(session.new_protocol(), tmp_path / 'no such folder' / 'plate')
+            session.save_protocol(session.new_protocol(), tmp_path / 'plate')
 
     def test_a_layer_this_scope_does_not_have_is_logged_and_dropped(
         self, session, tmp_path, monkeypatch

@@ -1598,9 +1598,10 @@ class ScopeSession:
         save is not the person's protocol.
 
         Returns:
-            The path written.
+            The path written; a missing folder is made.
 
         Raises:
+            LiveFolderPathRefusedError: As ``Protocol.to_file`` raises it.
             ProtocolNotSavedError: The file could not be written; a file
                 already at the path is unchanged.
         """
@@ -2976,6 +2977,8 @@ class ScopeSession:
             Where the ZIP is, and the words that say where to send it.
 
         Raises:
+            LiveFolderPathRefusedError: ``'not_a_folder'``, a file is at
+                ``output_dir`` or above it; refused before anything is made.
             SupportReportNotSavedError: no ZIP was saved; chained from the
                 failure, whose words it carries.
         """
@@ -3015,6 +3018,8 @@ class ScopeSession:
             Where the ZIP is, and the words that say where to send it.
 
         Raises:
+            LiveFolderPathRefusedError: ``'not_a_folder'``, a file is at
+                ``output_dir`` or above it; refused before anything is made.
             SupportReportNotSavedError: no ZIP was saved; chained from the
                 failure, whose words it carries.
         """

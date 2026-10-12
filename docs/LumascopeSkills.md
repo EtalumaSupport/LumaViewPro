@@ -495,13 +495,18 @@ the live folder is listed, and refused where its name is used. `name` is refused
 nothing, and with reason `not_a_folder` when it is a file.
 
 **A path that cannot be used is refused as a request.** A member that
-reads a path the caller gives refuses it before reading, with
-`LiveFolderPathRefusedError`: reason `not_found` when nothing is there,
-`not_a_file` when a folder is where a file is expected, and
+reads or writes a path the caller gives refuses it before it starts, with
+`LiveFolderPathRefusedError`: reason `not_found` when nothing is there to
+read, `not_a_file` when a folder is where a file is expected, and
 `not_a_folder` when a file is where a folder is expected
-(`load_protocol('runs')` on a folder is `not_a_file`). Over REST each is a
-422. A fault (`ProtocolNotLoadedError`) is left for a path that is usable
-and still failed: a file that is there and cannot be read.
+(`load_protocol('runs')` on a folder is `not_a_file`; `make_logs_zip`
+into a file is `not_a_folder`). A writer (`save_protocol`,
+`Protocol.to_file`, `make_logs_zip`, `make_support_report`) makes a
+missing folder where it was sent. Over REST each refusal is a 422. A fault
+(`ProtocolNotLoadedError`, `ProtocolNotSavedError`,
+`SupportReportNotSavedError`) is left for a path that is usable and still
+failed: a file that is there and cannot be read, a disk that refuses the
+write.
 
 Writing into the settings dict you passed to `create` directly skips every check above and the
 lock; it is not a supported write.

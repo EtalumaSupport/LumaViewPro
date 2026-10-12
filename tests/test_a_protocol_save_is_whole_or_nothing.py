@@ -6,7 +6,8 @@ every failure into a guessed sentence that its callers were free to ignore:
 a save that failed part-way left a stub that no longer loaded, and a run
 whose own copy of its protocol could not be written ran without it. A save
 now raises with the operating system's reason, and the file that was there
-is untouched until the new one is complete.
+is untouched until the new one is complete. A missing folder is made where
+the save was sent.
 """
 
 import pathlib
@@ -49,14 +50,13 @@ class TestAFailedSave:
             'a failed save leaves nothing beside the file'
         )
 
-    def test_a_save_into_a_missing_folder_raises(self, tmp_path):
-        target = tmp_path / 'no_such_folder' / 'plate.tsv'
 
-        with pytest.raises(ProtocolNotSavedError) as raised:
-            _protocol().to_file(file_path=target)
+def test_a_save_into_a_missing_folder_makes_it(tmp_path):
+    target = tmp_path / 'no_such_folder' / 'deeper' / 'plate.tsv'
 
-        assert isinstance(raised.value.__cause__, FileNotFoundError)
-        assert not target.parent.exists()
+    _protocol(label='made').to_file(file_path=target)
+
+    assert target.is_file()
 
 
 def test_a_save_replaces_the_previous_file(tmp_path):

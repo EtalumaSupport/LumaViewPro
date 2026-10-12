@@ -31,6 +31,7 @@ from modules.exceptions import (
 from modules.notification_center import notifications
 
 import modules.common_utils as common_utils
+import modules.path_utils as path_utils
 from modules.finite_number import is_finite_number, refuse_unless_finite_number
 from modules.layer_record import refuse_unknown_layer
 from modules.request_fields import key_path, refuse_unless_kind, required
@@ -1110,11 +1111,16 @@ class Protocol:
                 block (channel-enable state will be inferred from
                 steps on reload, matching the v5 fallback path).
 
+        A missing folder is made where ``file_path`` sends it.
+
         Raises:
+            LiveFolderPathRefusedError: ``'not_a_file'``, a folder is at
+                ``file_path``; ``'not_a_folder'``, a file is where its
+                folder would be. Nothing is written.
             ProtocolNotSavedError: the write failed (chained from its
                 ``OSError``); nothing at ``file_path`` changed.
         """
-        file_path = pathlib.Path(file_path)
+        file_path = path_utils.file_to_write(file_path)
         tmp_loc = file_path.with_name(file_path.name + '.tmp')
         if layer_settings is None:
             layer_settings = self._config.get('layer_settings')
@@ -1136,6 +1142,7 @@ class Protocol:
         )
 
         try:
+            file_path.parent.mkdir(parents=True, exist_ok=True)
             with open(tmp_loc, 'w') as fp:
                 csvwriter = csv.writer(
                     fp, delimiter='\t', lineterminator='\n'

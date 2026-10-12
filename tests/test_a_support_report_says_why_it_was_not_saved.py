@@ -34,14 +34,18 @@ def session(tmp_path):
     session.shutdown()
 
 
-def test_a_logs_zip_that_cannot_be_written_says_why(session, tmp_path):
-    # A folder cannot be made under a file: the failure is the OS's own.
-    blocker = tmp_path / 'not_a_folder'
-    blocker.write_text('')
+def test_a_logs_zip_that_cannot_be_written_says_why(session, monkeypatch, tmp_path):
+    # a stand-in by design: a disk that fails the copy, which the simulator
+    # cannot produce. A path that cannot be a folder is refused before the
+    # zip starts (test_a_path_that_cannot_be_used_is_refused_as_a_request).
+    def _fails(self, tmp):
+        raise OSError('the disk is full')
+
+    monkeypatch.setattr(TechSupportReport, '_step_logs', _fails)
     with pytest.raises(SupportReportNotSavedError) as raised:
-        session.make_logs_zip(output_dir=blocker / 'out')
+        session.make_logs_zip(output_dir=tmp_path / 'out')
     assert isinstance(raised.value.__cause__, OSError)
-    assert str(raised.value.__cause__) in str(raised.value)
+    assert 'the disk is full' in str(raised.value)
 
 
 def test_a_support_report_that_fails_says_why(session, monkeypatch, tmp_path):

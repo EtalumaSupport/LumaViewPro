@@ -72,7 +72,7 @@ from modules.lumascope_api.diagnostics import (
     NOT_CONNECTED,
     is_board_reply,
 )
-from modules.path_utils import desktop_folder, get_script_root, get_source_root
+from modules.path_utils import desktop_folder, folder_to_make, get_script_root, get_source_root
 from modules.protocol import Protocol
 from modules.protocol_execution_record import ProtocolExecutionRecord
 from modules.api_surface import api, api_fields
@@ -1662,10 +1662,13 @@ class TechSupportReport:
         """Make the full report and return the ZIP's path.
 
         Raises:
+            LiveFolderPathRefusedError: ``'not_a_folder'``, a file is at
+                ``output_dir`` or above it; refused before the report starts.
             SupportReportNotSavedError: no ZIP was saved; chained from the
                 failure, whose words it carries. A step that fails inside
                 the report is written into the report and does not raise.
         """
+        output_dir = folder_to_make(output_dir)
         cb = callback or (lambda pct, msg: None)
         try:
             return self._generate(cb, include_bandwidth_test, output_dir)
@@ -2738,9 +2741,12 @@ class TechSupportReport:
         the full report. Returns the ZIP's path.
 
         Raises:
+            LiveFolderPathRefusedError: ``'not_a_folder'``, a file is at
+                ``output_dir`` or above it; refused before the zip starts.
             SupportReportNotSavedError: no ZIP was saved; chained from the
                 failure, whose words it carries.
         """
+        output_dir = folder_to_make(output_dir)
         cb = callback or (lambda pct, msg: None)
         try:
             with tempfile.TemporaryDirectory(prefix='lvp_logs_') as tmp:

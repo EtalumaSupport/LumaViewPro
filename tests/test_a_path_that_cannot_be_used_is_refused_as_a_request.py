@@ -5,9 +5,10 @@ Every member that reads or writes a path the caller names answers the same
 refusal, ``LiveFolderPathRefusedError``, with the reason that names what is
 wrong with the path: ``not_found`` (nothing is there), ``not_a_file`` (a
 folder where a file is expected) or ``not_a_folder`` (a file where a folder
-is expected). A wire client gets the same reason as a 422. A fault
-(``ProtocolNotLoadedError``) is left for a path that is usable and still
-failed.
+is expected). A wire client gets the same reason as a 422. A writer makes
+a missing folder where it was sent. A fault (``ProtocolNotSavedError``,
+``ProtocolNotLoadedError``, ``SupportReportNotSavedError``) is left for a
+path that is usable and still failed.
 """
 
 from __future__ import annotations
@@ -28,6 +29,7 @@ def live(tmp_path):
     folder.mkdir()
     (folder / 'a_file.txt').write_text('not an image, not a folder')
     (folder / 'a_folder').mkdir()
+    (folder / 'a_folder.tsv').mkdir()
     return folder
 
 
@@ -43,9 +45,39 @@ def session(live):
 
 def _python_rows(session, live):
     """Each member and path, by the reason it is refused with."""
+    protocol = session.new_protocol()
     missing = live / 'nothing_here'
+    a_file = live / 'a_file.txt'
     a_folder = live / 'a_folder'
+    under_a_file = a_file / 'out'
     return [
+        ('to_file into a folder', 'not_a_file', lambda: protocol.to_file(a_folder)),
+        ('to_file under a file', 'not_a_folder', lambda: protocol.to_file(under_a_file / 'p.tsv')),
+        (
+            'save_protocol into a folder',
+            'not_a_file',
+            lambda: session.save_protocol(protocol, live / 'a_folder.tsv'),
+        ),
+        (
+            'save_protocol under a file',
+            'not_a_folder',
+            lambda: session.save_protocol(protocol, under_a_file / 'p.tsv'),
+        ),
+        (
+            'make_logs_zip into a file',
+            'not_a_folder',
+            lambda: session.make_logs_zip(output_dir=a_file),
+        ),
+        (
+            'make_logs_zip under a file',
+            'not_a_folder',
+            lambda: session.make_logs_zip(output_dir=under_a_file),
+        ),
+        (
+            'make_support_report into a file',
+            'not_a_folder',
+            lambda: session.make_support_report(output_dir=a_file),
+        ),
         ('load_protocol missing', 'not_found', lambda: session.load_protocol(missing / 'p.tsv')),
         ('load_protocol a folder', 'not_a_file', lambda: session.load_protocol(a_folder)),
         ('open_protocol missing', 'not_found', lambda: session.open_protocol(missing / 'p.tsv')),
@@ -94,16 +126,53 @@ _WIRE_ROWS = [
         {'name': 'nothing_here'},
         'not_found',
     ),
+    (
+        'make_logs_zip into a file',
+        '/api/v1/make_logs_zip',
+        {'output_dir': 'a_file.txt'},
+        'not_a_folder',
+    ),
+    (
+        'make_support_report into a file',
+        '/api/v1/make_support_report',
+        {'output_dir': 'a_file.txt'},
+        'not_a_folder',
+    ),
 ]
 
 
 def test_a_wire_client_is_refused_the_same_unusable_path_as_a_422(session):
     wrong = []
     with TestClient(build_app(session)) as client:
-        for case, route, body, reason in _WIRE_ROWS:
+        handle = client.post('/api/v1/new_protocol').json()['handle']
+        rows = [
+            *_WIRE_ROWS,
+            (
+                'to_file into a folder',
+                f'/api/v1/handles/Protocol/{handle}/to_file',
+                {'file_path': 'a_folder'},
+                'not_a_file',
+            ),
+            (
+                'save_protocol under a file',
+                '/api/v1/save_protocol',
+                {'protocol': handle, 'file_path': 'a_file.txt/p.tsv'},
+                'not_a_folder',
+            ),
+        ]
+        for case, route, body, reason in rows:
             answer = client.post(route, json=body)
             problem = answer.json()
             got = (answer.status_code, problem.get('reason'), problem.get('title'))
             if got != (422, reason, 'Path Not Available'):
                 wrong.append(f'{case}: answered {got}, not 422 {reason!r}')
     assert wrong == []
+
+
+def test_a_protocol_saved_into_a_missing_folder_is_written_there(session, live):
+    target = live / 'new' / 'deeper' / 'plate'
+
+    written = session.save_protocol(session.new_protocol(), target)
+
+    assert written == target.with_name('plate.tsv')
+    assert session.load_protocol(written).labware() == session.new_protocol().labware()

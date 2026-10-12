@@ -118,6 +118,48 @@ def existing_folder(path: str | os.PathLike, *, given: str | None = None) -> pat
     )
 
 
+def folder_to_make(path: str | os.PathLike) -> pathlib.Path:
+    """``path`` as a path, if it is a folder or can be made one.
+
+    Nothing is made here: the writer makes the folder where it writes, so a
+    disk that refuses it is that writer's failure to save.
+
+    Raises:
+        LiveFolderPathRefusedError: ``'not_a_folder'``, a file is at
+            ``path`` or at a folder above it.
+    """
+    path = pathlib.Path(path)
+    for level in (path, *path.parents):
+        if level.exists():
+            if not level.is_dir():
+                raise LiveFolderPathRefusedError(
+                    'not_a_folder',
+                    str(path),
+                    f'{level} is a file, so the folder {path} cannot be made. '
+                    'Give the path of a folder.',
+                )
+            break
+    return path
+
+
+def file_to_write(path: str | os.PathLike) -> pathlib.Path:
+    """``path`` as a path, if a file can be written there.
+
+    Its folder is not made here, as ``folder_to_make`` says.
+
+    Raises:
+        LiveFolderPathRefusedError: ``'not_a_file'``, a folder is at
+            ``path``; ``'not_a_folder'``, a file is where its folder would be.
+    """
+    path = pathlib.Path(path)
+    if path.is_dir():
+        raise LiveFolderPathRefusedError(
+            'not_a_file', str(path), f'{path} is a folder, not a file. Give the path of a file.'
+        )
+    folder_to_make(path.parent)
+    return path
+
+
 def resolves_inside(root: str | pathlib.Path, path: str | pathlib.Path) -> bool:
     """Whether ``path`` is ``root`` or under it, once every link and ``..`` in both is followed.
 
