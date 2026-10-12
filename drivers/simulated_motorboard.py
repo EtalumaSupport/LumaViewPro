@@ -748,7 +748,12 @@ class SimulatedMotorBoard:
             return t_accel + t_cruise + t_decel
 
     def _do_home(self, *axes):
-        if self._simulate_move_duration:
+        # A home takes its timing's time as a move does: the fast timing's
+        # brief move, the realistic timing's homing durations. Both set
+        # _simulate_move_duration; _fast_move_duration tells them apart.
+        if self._simulate_move_duration and self._fast_move_duration > 0:
+            time.sleep(self._fast_move_duration)
+        elif self._simulate_move_duration:
             key = ''.join(sorted(axes))
             duration = self.HOMING_DURATIONS.get(key, self.HOMING_DURATIONS.get('XYZ', 3.0))
             time.sleep(duration)

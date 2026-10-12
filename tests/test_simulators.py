@@ -1574,6 +1574,42 @@ class TestTimingModes:
         time.sleep(0.005)
         assert m.target_status('Z') is True
 
+    @staticmethod
+    def _waits_of_a_full_home(monkeypatch, timing):
+        """Every wait the board takes through a full home on ``timing``.
+
+        A simulated home's duration is the wait the board takes for it, so
+        the waits are read from the driver's own ``time`` name rather than
+        timed on the wall: a real-time bound would be the clock of a loaded
+        machine, and the realistic home is seconds of it.
+        """
+        import types
+
+        import drivers.simulated_motorboard as simulated_motorboard
+
+        waits = []
+        clock = types.SimpleNamespace(sleep=waits.append, monotonic=time.monotonic)
+        monkeypatch.setattr(simulated_motorboard, 'time', clock)
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, timing=timing)
+        board.home()
+        return board, waits
+
+    def test_a_home_on_the_fast_timing_waits_no_longer_than_a_fast_move(self, monkeypatch):
+        """The fast tier homes as it moves, in its own brief time, never the
+        bench's homing durations (it slept those from 2026-03-31 to 10-12)."""
+        board, waits = self._waits_of_a_full_home(monkeypatch, 'fast')
+
+        assert board.has_homed()
+        assert waits and max(waits) <= board._fast_move_duration
+
+    def test_a_home_on_the_realistic_timing_waits_the_benchs_homing_time(self, monkeypatch):
+        """The realistic timing keeps the bench's home: an XYZ home waits its
+        homing duration."""
+        board, waits = self._waits_of_a_full_home(monkeypatch, 'realistic')
+
+        assert board.has_homed()
+        assert SimulatedMotorBoard.HOMING_DURATIONS['XYZ'] in waits
+
     def test_led_instant_mode(self):
         led = SimulatedLEDBoard(timing='instant')
         assert led._delay == 0.0
