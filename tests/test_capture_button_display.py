@@ -13,7 +13,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from modules.exceptions import CaptureError, HardwareCommandRefusedError, ObjectiveUnknownError
+from modules.exceptions import (
+    CaptureFailedError,
+    HardwareCommandRefusedError,
+    ObjectiveUnknownError,
+)
 
 
 @pytest.fixture
@@ -84,7 +88,9 @@ def test_a_diagnostics_refusal_shows_its_own_title_and_words(button_ctx, centre_
 def test_a_capture_failure_shows_the_engines_cause(button_ctx, centre_posts):
     _press(
         button_ctx,
-        settles=_settled_with(CaptureError('camera inactive or not grabbing', 'no_frame_returned')),
+        settles=_settled_with(
+            CaptureFailedError('camera inactive or not grabbing', 'no_frame_returned')
+        ),
     )
 
     notice = _one_notice(centre_posts)

@@ -61,9 +61,11 @@ _BANNER_FIELDS = {
     'PID': 'pid',
     'Git': 'git',
 }
-# A banner's time is read to the second, in local wall time; the process's
-# start is psutil's, finer. A banner written in the process's first second counts.
-_START_SLACK_S = 1.0
+# A banner's time is the logger's local wall time, to the millisecond; the
+# process's start is psutil's. Under load the two have disagreed by about a
+# second, the banner earlier. The slack only has to keep a recycled PID's banner
+# from an earlier process out, so it is a minute, not the clocks' agreement.
+_START_SLACK_S = 60.0
 
 
 def _banners(path: Path) -> list[tuple[float, dict]]:
@@ -79,6 +81,7 @@ def _banners(path: Path) -> list[tuple[float, dict]]:
         if label == 'Version':
             current = {}
             started = time.mktime(time.strptime(stamp[:-4], '%m/%d/%Y %H:%M:%S'))
+            started += int(stamp[-3:]) / 1000
         if current is None:
             continue
         current[_BANNER_FIELDS[label]] = value.strip()

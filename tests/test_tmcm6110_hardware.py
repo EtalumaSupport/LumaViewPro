@@ -107,7 +107,7 @@ def board():
 @pytest.fixture(scope='module')
 def homed(board):
     started = time.monotonic()
-    assert board.home()
+    assert board.home() is None
     logger.info(f'[6110 bench] home took {time.monotonic() - started:.1f} s')
     return board
 
@@ -418,7 +418,7 @@ def test_row5_ten_homes_timed_and_the_index_repeat(board):
     try:
         for _ in range(HOMES):
             started = time.monotonic()
-            assert board.home()
+            assert board.home() is None
             seconds = round(time.monotonic() - started, 1)
             # Where the home switch sits from the index the home set as 0:
             # its spread across homes is the index's repeat.
@@ -450,7 +450,7 @@ def test_row5_ten_homes_timed_and_the_index_repeat(board):
 
 def test_row6_each_axis_driven_to_both_ends(board):
     """The plate must be off the stage: Z is driven up to its top end."""
-    assert board.home()
+    assert board.home() is None
     ends = {}
     try:
         for axis in ('Z', 'X', 'Y'):
@@ -468,7 +468,7 @@ def test_row6_each_axis_driven_to_both_ends(board):
 def test_row5_a_home_from_the_far_corner(board):
     """The longest home: X and Y at their travel limits, Z near its top.
     The plate must be off the stage."""
-    assert board.home()
+    assert board.home() is None
     for axis, fraction in (('Z', 0.95), ('X', 1.0), ('Y', 1.0)):
         # The far limit is the one away from the index position: X's
         # minimum, Y's and Z's maximum.
@@ -478,6 +478,6 @@ def test_row5_a_home_from_the_far_corner(board):
         _wait_arrived(board, axis)
     start = {axis: _registers(board, axis) for axis in MOTORS}
     started = time.monotonic()
-    assert board.home()
+    assert board.home() is None
     seconds = round(time.monotonic() - started, 1)
     _record('row5_home_from_far_corner', {'start': start, 'seconds': seconds})

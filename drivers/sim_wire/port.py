@@ -242,6 +242,9 @@ class EmulatedBoard:
         # A reply fault: armed by a test, active from the port's next write
         # until the first line after it is complete.
         self._reply_fault: tuple[str, float] | None = None
+        # How many replies an armed drop has still to take, the one armed
+        # included: each dropped reply re-arms it for the next write.
+        self._drops_left = 0
         self._reply_active = False
         self._reply = bytearray()
         # Output held back by a late reply until the delay has passed.
@@ -441,7 +444,11 @@ class EmulatedBoard:
             self._reply_active = False
             kind, seconds = self._reply_fault
             self._reply_fault = None
-            if kind == 'garble':
+            if kind == 'drop':
+                self._drops_left -= 1
+                if self._drops_left > 0:
+                    self._reply_fault = ('drop', 0.0)
+            elif kind == 'garble':
                 data = _garble(reply) + data
             elif kind == 'delay':
                 data = reply + data
@@ -519,16 +526,45 @@ class EmulatedBoard:
         with self._cond:
             self._plugged = True
 
-    def reboot(self) -> None:
+    def reboot(self, booting_for_s: float = 0.0) -> None:
         """The firmware restarts and loses everything it knew. The open port
-        raises, as USB re-enumerates, and the board is found again at once."""
+        raises, as USB re-enumerates, and the board is found again after
+        ``booting_for_s`` seconds, during which discovery finds no board and
+        an open fails as on an unplugged cable.
+
+        Raises:
+            ValueError: ``booting_for_s`` is negative.
+        """
+        if booting_for_s < 0:
+            raise ValueError(f'a boot takes no time or more, not {booting_for_s!r}')
         with self._cond:
             self._drop_port(f'{self.label}: the board rebooted; USB re-enumerated')
             self._stop()
-            self._start()
+            if booting_for_s == 0:
+                self._start()
+                return
+            self._plugged = False
+        timer = threading.Timer(booting_for_s, self._booted)
+        timer.daemon = True
+        timer.start()
 
-    def drop_next_reply(self) -> None:
-        self._arm_reply('drop')
+    def _booted(self) -> None:
+        with self._cond:
+            self._start()
+            self._plugged = True
+
+    def drop_next_reply(self, count: int = 1) -> None:
+        """Drop the next ``count`` replies, each the first line after a write.
+
+        Raises:
+            ValueError: ``count`` is not a positive number of replies, or a
+                reply fault is already armed.
+        """
+        if count < 1:
+            raise ValueError(f'a drop is of one reply or more, not {count!r}')
+        with self._cond:
+            self._arm_reply('drop')
+            self._drops_left = count
 
     def garble_next_reply(self) -> None:
         self._arm_reply('garble')
@@ -537,6 +573,16 @@ class EmulatedBoard:
         if seconds <= 0:
             raise ValueError(f'a reply is delayed by a positive time, not {seconds!r}')
         self._arm_reply('delay', seconds)
+
+    def disarm_reply(self) -> None:
+        """Take back an armed reply fault. One already taking a reply takes
+        that one and no more."""
+        with self._cond:
+            if self._reply_active:
+                self._drops_left = min(self._drops_left, 1)
+            else:
+                self._reply_fault = None
+                self._drops_left = 0
 
     def _arm_reply(self, kind: str, seconds: float = 0.0) -> None:
         with self._cond:

@@ -145,6 +145,21 @@ class SimulatedCamera(Camera):
     # off on either side of the plane for a standalone test of it.
     _UNWIRED_DOF_UM = 10.0
 
+    # The nodes a write can be refused on (refuse_write), each by the setter
+    # the API writes it through.
+    WRITABLE_NODES: ClassVar[dict[str, str]] = {
+        'gain': 'gain',
+        'exposure': 'exposure_t',
+        'auto_exposure': 'auto_exposure_t',
+        'frame_size': 'set_frame_size',
+        'binning': 'set_binning_size',
+        'pixel_format': 'set_pixel_format',
+        'black_level': 'set_black_level',
+    }
+    # What a refused write answers, by name: a real SDK's node write
+    # answers False, nothing, a bare True that confirms no value, or raises.
+    REFUSED_WRITE_ANSWERS: ClassVar[tuple[str, ...]] = ('false', 'none', 'true', 'raise')
+
     def __init__(
         self,
         width: int = _SENSOR['width'],
@@ -443,6 +458,44 @@ class SimulatedCamera(Camera):
             t.join(timeout=2.0)
         self._acquisition_thread = None
 
+    def leave_bus(self) -> None:
+        """The camera leaves the bus, as a real one is marked when its
+        device is removed; its own reconnect brings it back."""
+        self._mark_disconnected()
+
+    def refuse_write(self, node: str, answer: str) -> None:
+        """The next write of ``node`` answers ``answer`` and moves nothing.
+
+        Args:
+            node: One of ``WRITABLE_NODES``.
+            answer: One of ``REFUSED_WRITE_ANSWERS``: ``'false'``,
+                ``'none'`` or ``'true'`` is returned; ``'raise'`` raises
+                ``RuntimeError`` as a failed node write.
+
+        Raises:
+            ValueError: ``node`` or ``answer`` is not one of those.
+        """
+        if node not in self.WRITABLE_NODES:
+            raise ValueError(f'{node!r} is not one of {tuple(self.WRITABLE_NODES)}')
+        if answer not in self.REFUSED_WRITE_ANSWERS:
+            raise ValueError(f'{answer!r} is not one of {self.REFUSED_WRITE_ANSWERS}')
+        setter = self.WRITABLE_NODES[node]
+
+        # The refusal stands in for the setter on this camera, once: the
+        # first write takes it away again, so the next reaches the node.
+        def refused(*args, **kwargs):
+            vars(self).pop(setter, None)
+            logger.warning(f'[CAM Sim   ] {node} write refused ({answer}, simulated)')
+            if answer == 'raise':
+                raise RuntimeError(f'simulated {node} node write failed')
+            return {'false': False, 'none': None, 'true': True}[answer]
+
+        vars(self)[setter] = refused
+
+    def allow_write(self, node: str) -> None:
+        """Take back a ``refuse_write`` on ``node`` that no write has met yet."""
+        vars(self).pop(self.WRITABLE_NODES[node], None)
+
     def hold_frames(self, stall: SimulatedStall) -> None:
         """Stall the stream as ``stall`` says, starting its clock now.
 
@@ -456,6 +509,10 @@ class SimulatedCamera(Camera):
             f'[CAM Sim   ] frames will stop in {stall.after_s:g} s for {stall.for_s:g} s '
             '(simulated stall)'
         )
+
+    def release_frames(self) -> None:
+        """End a stall set by ``hold_frames``, or take back one not yet begun."""
+        self._held_window = None
 
     def _frame_interval_s(self) -> float:
         """The free-run frame period: the exposure, never shorter than the

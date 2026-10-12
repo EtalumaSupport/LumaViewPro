@@ -9,10 +9,12 @@ lid refused before anything moved marked its axis UNKNOWN and said the board
 did not take the command. Now a refusal before anything moved is
 ``HardwareCommandRefusedError`` naming the interlock, every axis keeping the
 state it had; a lid opened while a home moved fails the home naming the lid;
-a Stop that ends a home is named as one.
+a Stop that ends a home is named as one; a lid opened while X or Y moves
+stops the stage, and the move ends ``'stopped'``.
 
 Each test drives a real ``Lumascope(simulate=True)`` through the public
-members, with the simulated board standing in for one that has interlocks.
+members, with the simulated board standing in for one that has interlocks,
+except the lid-during-a-move test, which runs the LS720's own driver.
 """
 
 from __future__ import annotations
@@ -28,7 +30,10 @@ from modules.exceptions import (
     INTERLOCK_REASONS,
     HardwareCommandRefusedError,
     HomingFailedError,
+    HomingFaultError,
+    HomingStoppedError,
     MoveNotCompletedError,
+    MoveStoppedError,
 )
 from modules.lumascope_api import AxisState
 from modules.sequential_io_executor import IOTask
@@ -65,8 +70,8 @@ class TestTheRefusalsWords:
         assert {'not_connected', 'lid_open', 'stage_unpowered'} == HARDWARE_STATE_REASONS
 
     def test_a_home_the_lid_ended_and_one_a_stop_ended_say_so(self):
-        lid = HomingFailedError('ALL', 'lid_open', ('X', 'Y', 'Z'))
-        stopped = HomingFailedError('Z', 'stopped', ('Z',))
+        lid = HomingFaultError('ALL', 'lid_open', ('X', 'Y', 'Z'))
+        stopped = HomingStoppedError('Z', 'stopped', ('Z',))
 
         assert str(lid) == "Homing stopped: the microscope's lid was opened. Position is unknown."
         assert str(stopped) == 'Z axis homing was stopped. Position is unknown.'
@@ -206,6 +211,10 @@ class TestAHomeTheInterlockRefuses:
 
     @pytest.mark.parametrize('route, call', [('ALL', 'home'), ('Z', 'zhome')])
     def test_a_stop_that_ended_it_is_named_as_a_stop(self, scope, monkeypatch, route, call):
+        # a stand-in by design: on a board that can take a STOP mid-home; the
+        # LS850's refuses one (tests/test_a_stop_just_after_home_ends_the_home.py).
+        monkeypatch.setattr(scope._motion_driver, 'supports_stopping_a_home', lambda: True)
+
         def stopped_mid_home():
             scope.motion.stop_motion()
             raise RuntimeError('the home was aborted')
@@ -218,6 +227,39 @@ class TestAHomeTheInterlockRefuses:
         assert raised.value.reason == 'stopped'
         for axis in raised.value.axes:
             assert scope.motion.get_axis_state(axis) == AxisState.UNKNOWN
+
+
+class TestALidOpenedDuringAMove:
+    def test_stops_the_ls720s_stage_and_ends_the_move_stopped(self):
+        """The production TMCM-6110 driver over its simulated board: the lid is
+        read on every arrival poll of an X or Y move, not only at its start."""
+        ls720 = build_scope(simulate=True, sim_model='LS720', register_atexit=False)
+        try:
+            ls720.motion.home()
+            limits = ls720.motion.get_axis_limits('X')
+            start = ls720.motion.get_current_position()['X']
+            far = limits['min'] if start - limits['min'] > limits['max'] - start else limits['max']
+            driver = ls720._motion_driver
+            polled = driver.target_status
+
+            def lid_opens_at_the_first_poll(axis):
+                ls720.simulation.interlock(lid_open=True)
+                return polled(axis)
+
+            # The X move lasts about 0.5 s of wall time on the simulator; the
+            # monitor polls at 50 Hz, so its first poll comes well before arrival.
+            driver.target_status = lid_opens_at_the_first_poll
+            move = ls720.motion.start_move_absolute('X', far)
+
+            with pytest.raises(MoveStoppedError) as ended:
+                move.wait()
+
+            assert ended.value.reason == 'stopped'
+            stopped_at = ls720.motion.get_current_position()['X']
+            assert abs(stopped_at - far) > 10_000
+            assert ls720.motion.get_axis_state('X') == AxisState.IDLE
+        finally:
+            ls720.disconnect()
 
 
 class TestTheInterlocksRead:

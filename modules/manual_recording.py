@@ -48,7 +48,7 @@ from modules.config_helpers import (
     get_manual_video_max_duration,
 )
 from modules.exceptions import (
-    CaptureError,
+    CaptureFailedError,
     FrameListenerNotRegisteredError,
     HyperstackRefusedError,
     RecordingDetailsNotSavedError,
@@ -265,7 +265,7 @@ class ManualRecordingController:
             ObjectiveUnknownError: No one can say which objective is in the
                 light path, so the recording's frames would carry no scale.
                 Nothing is committed.
-            CaptureError: ``'recording_not_started'``, the camera did not
+            CaptureFailedError: ``'recording_not_started'``, the camera did not
                 accept the frame listener; the start is unwound.
         """
         # Exclusivity has to span the finish, not just the drain. The
@@ -531,7 +531,7 @@ class ManualRecordingController:
             self._unwind_failed_start(engine, writer, frames_folder)
             # Said as what the person pressed Record for: the recording, not
             # the listener it would have needed.
-            raise CaptureError(
+            raise CaptureFailedError(
                 'The recording did not start: the camera did not accept its frame '
                 'listener. Check the log for the camera driver error.',
                 'recording_not_started',

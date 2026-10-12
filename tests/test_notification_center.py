@@ -307,7 +307,7 @@ class TestEveryHostReadsAnOutcomeAlike:
         import datetime
 
         from modules.exceptions import (
-            CaptureError,
+            CaptureFailedError,
             LiveFolderPathRefusedError,
             RefusalCause,
             RunAlreadyEndedError,
@@ -320,7 +320,7 @@ class TestEveryHostReadsAnOutcomeAlike:
             SingleScanNotice(period=datetime.timedelta(0), duration=datetime.timedelta(0))
         )
         quiet = outcome_of(RunAlreadyEndedError('The run has ended.'))
-        typed = outcome_of(CaptureError('The camera returned nothing.', 'no_frame'))
+        typed = outcome_of(CaptureFailedError('The camera returned nothing.', 'no_frame_returned'))
         untyped = outcome_of(ValueError('bad shape (3,)'))
 
         assert (refusal.kind, refusal.title, refusal.reason, refusal.words) == (
@@ -340,7 +340,7 @@ class TestEveryHostReadsAnOutcomeAlike:
         assert (typed.kind, typed.title, typed.reason, typed.for_person, typed.cause) == (
             OutcomeKind.FAULT,
             'Capture Failed',
-            'no_frame',
+            'no_frame_returned',
             True,
             None,
         )

@@ -25,6 +25,7 @@ import modules.stack_builder as stack_builder
 from modules.common_utils import PostFunction
 from modules.exceptions import (
     CaptureError,
+    HyperstackRefusedError,
     Notice,
     PostProcessingFailedError,
     PostProcessingRefusedError,
@@ -238,7 +239,9 @@ def test_the_post_run_build_announces_then_answers_under_one_key(
 def test_the_post_run_builds_failure_replaces_its_announcement_in_its_own_words(
     tmp_path, monkeypatch, centre_posts
 ):
-    fault = CaptureError('Plane 3 of well A1 could not be read.', 'unreadable_input_frame')
+    fault = HyperstackRefusedError(
+        'Plane 3 of well A1 could not be read.', 'unreadable_input_frame'
+    )
 
     notices, reports = _hyperstack_build(monkeypatch, tmp_path, fault)
 

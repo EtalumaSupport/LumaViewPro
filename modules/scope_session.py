@@ -52,12 +52,12 @@ from modules.activity_claim import (
 )
 from modules.common_utils import CustomJSONizer
 from modules.exceptions import (
-    HARDWARE_STATE_REASONS,
     ArgumentRefusedError,
     CameraSettingUnsupportedError,
     ConfigError,
     DiagnosticRefusedError,
     FileWriterNotStuckError,
+    HARDWARE_STATE_REASONS,
     HardwareCommandRefusedError,
     HomingFailedError,
     LiveFolderPathRefusedError,
@@ -158,6 +158,29 @@ def _scheduler_callback_error(exc: BaseException) -> None:
     from modules.notification_center import notifications
 
     notifications.report_outcome(exc, solicited=False, category='Scheduler')
+
+
+def _apply_logging(settings: dict) -> None:
+    """Put the settings' log level on the main log, and the autofocus score log on or off.
+
+    Logging is process-wide, so the settings of the session a host builds
+    decide it, on every host: applied when the session is created, before
+    its scope is brought up, and again when either setting is written, so
+    the logger never disagrees with the store. The level goes on both
+    loggers that write the main log -- the 'LVP' parent of every module's
+    logger, and lvp_logger's own. ``debug_mode`` is the installation's
+    switch for a detailed log: on, the level is DEBUG, as lvp_logger set it
+    from the first line; off, it is ``logging.default.level``.
+    """
+    import logging
+
+    import modules.autofocus_functions as autofocus_functions
+
+    level = 'DEBUG' if settings['debug_mode'] else settings['logging']['default']['level'].upper()
+    for name in ('LVP', 'lvp_logger'):
+        logging.getLogger(name).setLevel(level)
+    logger.info(f'[Session  ] Log level {level}')
+    autofocus_functions.enable_af_score_logging(enable=bool(settings['logging']['autofocus']))
 
 
 def _tell_stored_replacements(pending: list[tuple[str, object, object]]) -> None:
@@ -950,6 +973,10 @@ class ScopeSession:
         protocol_thread (started) and scope_display_thread (constructed,
         not started).
 
+        The settings' log level and autofocus score log are applied to the
+        process's logging first, so every host logs as its settings say,
+        bring-up included.
+
         A scope the factory builds is brought up before this returns
         (``configure_scope``, then the camera start gate released) and is
         torn down by ``shutdown()``; a scope passed in is the caller's
@@ -1039,6 +1066,7 @@ class ScopeSession:
         settings = settings_init.prepare_loaded(
             logger, settings, template, str(root), source='settings', handed=True
         )
+        _apply_logging(settings)
         if warn_pre_release:
             _fire_pre_release_warning()
 
@@ -1170,11 +1198,8 @@ class ScopeSession:
         runtime that is present but broken raises further down.
         """
         from drivers.sim_wire.backend import DEFAULT_DIALECT, runtime_missing
-        from modules.lumascope_api._constants import SIMULATOR_TIERS
 
         tier = settings['simulator_tier']
-        if tier not in SIMULATOR_TIERS:
-            raise ConfigError(f'simulator_tier {tier!r} is not one of {SIMULATOR_TIERS}')
         missing = runtime_missing(DEFAULT_DIALECT) if tier != 'fast' else None
         if missing is not None:
             logger.warning(
@@ -2171,9 +2196,11 @@ class ScopeSession:
                 not a layer. Nothing changes.
             HardwareCommandRefusedError: ``'axis_absent'``, this scope has
                 no layer of the step's colour. Nothing changes.
-            ConfigError: the step's stimulation names a layer this release
-                has not, or this scope's layers could not be resolved.
-                Nothing changes.
+            ArgumentRefusedError: ``'layer_unknown'``, the step's
+                stimulation names a layer this release has not. Nothing
+                changes.
+            ConfigurationDefectError: ``'layers_unresolved'``, this scope's
+                layers could not be resolved. Nothing changes.
             AxisStateUnknownError: an axis the step moves does not know
                 its position. Nothing changes.
             HardwareCommandRefusedError: ``'not_connected'``, this scope's
@@ -2196,9 +2223,11 @@ class ScopeSession:
         if isinstance(stim_configs, dict):
             unknown = sorted(set(stim_configs) - set(common_utils.get_layers()))
             if unknown:
-                raise ConfigError(
-                    f'step {step_idx} stimulates {unknown}, not layers; '
-                    f'the layers are {common_utils.get_layers()}'
+                raise ArgumentRefusedError(
+                    'layer_unknown',
+                    argument="the step's stimulation layer",
+                    value=unknown[0],
+                    offered=tuple(common_utils.get_layers()),
                 )
         # Converted here, from the step read above, so the lane moves to the
         # step this call was made for whatever the list holds by then.
@@ -2406,6 +2435,8 @@ class ScopeSession:
         A layer's gain or exposure is stored as written, the person's
         intent; a camera that cannot reach it is driven at its own limit
         when the layer is applied (``ImagingAPI.applied_gain_db_for``).
+        The log level and the autofocus score log (``'logging.*'``) take
+        effect as they are written.
         """
         settings_paths.check_write(
             self.scope.settings_template,
@@ -2415,6 +2446,8 @@ class ScopeSession:
         )
         with self.settings_lock:
             self._store_setting(path, value)
+            if path.startswith('logging.'):
+                _apply_logging(self.settings)
 
     @api(in_process=True)
     def set_live_folder(self, folder: str) -> None:
@@ -2610,11 +2643,6 @@ class ScopeSession:
         *blocks, leaf = path.split('.')
         holder = self.settings
         for block in blocks:
-            if not isinstance(holder.get(block), dict):
-                raise ConfigError(
-                    f'these settings have no {block!r} block for {path}: they were '
-                    'not prepared from the template'
-                )
             holder = holder[block]
         holder[leaf] = value
 
@@ -3053,7 +3081,7 @@ class ScopeSession:
         if self.plugins is not None:
             raise RuntimeError('ScopeSession.load_plugins: this session already loaded its plugins')
         version, _build_timestamp = path_utils.read_version()
-        self.plugins = PluginRegistry()
+        self.plugins = PluginRegistry(self.scope)
         self.plugins.load(self, version)
 
     @api(in_process=True)
@@ -3350,10 +3378,6 @@ class ScopeSession:
         if has_turret and position is None:
             raise ObjectiveUnknownError('slot_unknown')
         choices = tuple(self.objective_helper.get_objectives_list())
-        if not choices:
-            raise ConfigError(
-                'the objective catalogue is empty; cannot ask which objective is installed'
-            )
         # Only the slot's own assignment names glass anyone has confirmed. The
         # stored objective_id does not: the question is owed on a turretless
         # scope only before anyone has confirmed one, when it is the shipped
@@ -3461,25 +3485,13 @@ class ScopeSession:
         Raises:
             CatalogueNameRefusedError: ``'labware_unknown'``, the labware
                 catalogue has no plate by that name. Nothing is written.
-            ConfigError: the settings have no protocol block to hold the
-                selection. Nothing is written.
             HardwareCommandRefusedError: A run, a diagnostic or a recording
                 holds the scope and ``labware_name`` is not the plate in place
                 (``exclusive_activity_running``): each states its positions
                 against the plate it started with. Nothing is written.
         """
         labware_name = self.wellplate_loader.resolve_plate_key(labware_name)
-        protocol_settings = self.settings.get('protocol')
-        if not isinstance(protocol_settings, dict):
-            # Every dict reaches the session through create's preparation,
-            # which holds this block to the template's kind; a dict that
-            # bypassed it is a bug, named here so the refusal says what is
-            # wrong rather than failing inside the write.
-            raise ConfigError(
-                'settings have no usable protocol block; the labware selection '
-                f'has nowhere to live (found {type(protocol_settings).__name__})'
-            )
-        if labware_name == protocol_settings.get('labware'):
+        if labware_name == self.settings['protocol']['labware']:
             # A holder is refused only a different plate: the GUI re-selects
             # the current one whenever its panels redraw, under any hold.
             return False

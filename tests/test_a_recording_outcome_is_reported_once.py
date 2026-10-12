@@ -20,7 +20,7 @@ from modules.exceptions import (
     RecordingStoppedError,
     VideoFramesDroppedError,
 )
-from modules.notification_center import _TYPED_FAULTS
+from modules.notification_center import outcome_of
 from tests.test_manual_recording_controller import feed_frames, finish, make_controller
 import tests.test_video_writer as video_writer_tests
 from tests.video_engine_harness import NotifyRecorder
@@ -90,7 +90,7 @@ def _record_reports(monkeypatch, module):
     ],
 )
 def test_each_outcome_speaks_in_its_own_words_under_its_own_title(fault, title, words):
-    assert isinstance(fault, _TYPED_FAULTS), 'shown in its words, not the generic body'
+    assert outcome_of(fault).for_person, 'shown in its words, not the generic body'
     assert fault.title == title
     assert str(fault) == words
 

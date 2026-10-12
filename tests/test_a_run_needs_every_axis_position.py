@@ -162,9 +162,7 @@ class TestARunCannotStartWithoutEveryPosition:
         assert 'the X, Y and Z positions are unknown' in excinfo.value.message
         assert 'Home the scope' in excinfo.value.message
         assert moves == [], 'a refused run must not move the stage'
-        assert [title for title, _ in _notices(centre_posts)] == [excinfo.value.title], (
-            'the refusal is shown once'
-        )
+        assert _notices(centre_posts) == [], "raised for the caller's boundary to report"
 
     def test_an_unknown_turret_slot_is_refused_naming_t(self, session_factory, tmp_path):
         session = session_factory(

@@ -87,7 +87,7 @@ def test_the_plugins_receive_what_was_written(session, monkeypatch):
     from modules.plugins import PluginRegistry
 
     seen = []
-    session.plugins = PluginRegistry()
+    session.plugins = PluginRegistry(session.scope)
     monkeypatch.setattr(
         session.plugins, 'settings_saved', lambda host, settings: seen.append((host, settings))
     )

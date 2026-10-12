@@ -25,7 +25,7 @@ import modules.lumascope_api._lumascope as lumascope_module
 from drivers.null_ledboard import NullLEDBoard
 from drivers.null_motorboard import NullMotionBoard
 from modules import layer_record
-from modules.exceptions import ConfigError, InstallationFileError
+from modules.exceptions import InstallationFileError, ScopeModelUnknownError
 from modules.lumascope_api import Lumascope
 from tests.scope_fakes import build_scope
 
@@ -108,7 +108,7 @@ def test_a_model_the_folder_does_not_list_is_refused_before_a_lane_starts(tmp_pa
     before = set(threading.enumerate())
 
     # The setting names a model the folder lacks: the settings' fault, not the file's.
-    with pytest.raises(ConfigError, match="lists no model 'LS850T'"):
+    with pytest.raises(ScopeModelUnknownError, match="'LS850T' is not a scope model"):
         Lumascope(simulate=True, sim_model='LS850T', source_path=str(root), warn_pre_release=False)
 
     assert set(threading.enumerate()) <= before

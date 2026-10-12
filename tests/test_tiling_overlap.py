@@ -186,10 +186,10 @@ class TestTileCentersWithoutScale:
         assert tiles == {'': {'x': 0.0, 'y': 0.0}}
 
     def test_real_grid_still_refuses_without_field_of_view(self):
-        from modules.exceptions import ConfigError
+        from modules.exceptions import ProtocolRunRefusedError
 
         tiling_config = TilingConfig(tiling_configs_file_loc=TILING_CONFIGS)
-        with pytest.raises(ConfigError):
+        with pytest.raises(ProtocolRunRefusedError, match='pixel size') as refused:
             tiling_config.get_tile_centers(
                 config_label='2x2',
                 focal_length=9.0,
@@ -198,3 +198,4 @@ class TestTileCentersWithoutScale:
                 binning_size=1,
                 capabilities=self._NO_OPTICS,
             )
+        assert refused.value.reason == 'tiling_scale_unknown'

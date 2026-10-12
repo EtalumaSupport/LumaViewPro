@@ -164,29 +164,14 @@ class NullMotionBoard:
     # ------------------------------------------------------------------
     # Homing (no-ops, report complete)
     # ------------------------------------------------------------------
-    def zhome(self) -> bool:
-        """Null implementation: trivially homed.
+    def zhome(self) -> None:
+        """Null implementation: trivially homed."""
 
-        Returns:
-            bool: Always True.
-        """
-        return True
+    def home(self) -> None:
+        """Null implementation: trivially homed."""
 
-    def home(self) -> bool:
-        """Null implementation: trivially homed.
-
-        Returns:
-            bool: Always True.
-        """
-        return True
-
-    def thome(self) -> bool:
-        """Null implementation: trivially homed.
-
-        Returns:
-            bool: Always True.
-        """
-        return True
+    def thome(self) -> None:
+        """Null implementation: trivially homed."""
 
     def has_turret(self) -> bool:
         """Null implementation: never has a turret.
@@ -457,6 +442,10 @@ class NullMotionBoard:
 
     def supports_motor_stop(self) -> bool:
         """No motor hardware: no command family is supported."""
+        return False
+
+    def supports_stopping_a_home(self) -> bool:
+        """No motor hardware: nothing homes, so nothing is stopped."""
         return False
 
     def supports_fan(self) -> bool:

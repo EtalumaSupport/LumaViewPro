@@ -9,18 +9,26 @@ importers ``common_utils`` reaches while it is still loading) can ask it.
 
 import math
 import numbers
+import sys
 
 from modules.exceptions import ArgumentRefusedError
 
 
 def is_finite_number(value: object) -> bool:
-    """True when ``value`` is a real number that is finite, and not a ``bool``.
+    """True when ``value`` is a real number that is finite as a float, and not a ``bool``.
 
     A comparison with NaN is False, so ``value < low`` passes it, and a
     ``bool`` is an ``int`` to Python. Numpy's numbers are real numbers;
-    ``np.bool_`` is not one.
+    ``np.bool_`` is not one. A Python ``int`` past the largest float is not
+    one either: every owner uses the number as a float, and ``math.isfinite``
+    raises ``OverflowError`` on it rather than answer. Numpy's fixed-width
+    integers always fit.
     """
-    return isinstance(value, numbers.Real) and not isinstance(value, bool) and math.isfinite(value)
+    if not isinstance(value, numbers.Real) or isinstance(value, bool):
+        return False
+    if isinstance(value, int):
+        return abs(value) <= sys.float_info.max
+    return math.isfinite(value)
 
 
 def refuse_unless_finite_number(value: object, argument: str) -> None:

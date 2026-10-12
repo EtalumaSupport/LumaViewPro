@@ -10,7 +10,7 @@ from modules.composite_builder import brightness_cutoff_from_percent, build_comp
 import modules.image_mode as image_mode
 import modules.image_utils as image_utils
 from modules.common_utils import PostFunction
-from modules.exceptions import ConfigError
+from modules.exceptions import ConfigurationDefectError
 from modules.protocol_post_processor import ProtocolPostProcessor
 from modules.protocol_post_processing_result import PostProcResult
 from modules.protocol_post_record import ProtocolPostRecord
@@ -120,10 +120,11 @@ class CompositeGeneration(ProtocolPostProcessor):
         output_file_loc_rel = kwargs.get('output_file_loc')
         output_format = kwargs.get('output_format', 'TIFF')
         if 'brightness_thresholds_percent' not in kwargs:
-            raise ConfigError(
+            raise ConfigurationDefectError(
+                'composite_thresholds_missing',
                 'composite generation requires brightness_thresholds_percent; '
                 'the caller snapshots it from settings, because this runs on a '
-                'worker thread that must not read live configuration'
+                'worker thread that must not read live configuration',
             )
         return PostProcResult.from_group_result(
             CompositeGeneration._create_composite_image(
@@ -239,10 +240,11 @@ class CompositeGeneration(ProtocolPostProcessor):
                 and layer not in brightness_thresholds_percent
             )
             if missing:
-                raise ConfigError(
+                raise ConfigurationDefectError(
+                    'composite_thresholds_missing',
                     f'composite generation needs a brightness threshold for '
                     f'{", ".join(missing)}; the caller supplies one per '
-                    f'fluorescence layer so the merge cannot silently pick its own'
+                    f'fluorescence layer so the merge cannot silently pick its own',
                 )
 
             # A percentage outside 0-100 is a corrupt value, not a preference to
@@ -262,9 +264,10 @@ class CompositeGeneration(ProtocolPostProcessor):
             )
             if out_of_range:
                 named = '; '.join(f'{layer} = {value!r}' for layer, value in out_of_range)
-                raise ConfigError(
+                raise ConfigurationDefectError(
+                    'composite_threshold_out_of_range',
                     f'composite generation needs a brightness threshold between '
-                    f'0 and 100 percent, and got {named}'
+                    f'0 and 100 percent, and got {named}',
                 )
 
         error = None

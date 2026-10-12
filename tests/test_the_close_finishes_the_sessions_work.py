@@ -244,7 +244,7 @@ def test_a_runs_processor_skipped_by_the_unload_is_reported(monkeypatch):
 
     reported = []
     monkeypatch.setattr(notifications, 'report_outcome', lambda ex, **kw: reported.append(ex))
-    registry = PluginRegistry()
+    registry = PluginRegistry(object())  # a stand-in by design: no scope member is reached
     registry._track('stitcher', MagicMock(unregister=lambda host: None))
     spec = MagicMock(auto_run_on_protocol_complete=True)
     spec.name = 'stitcher'

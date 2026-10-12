@@ -33,7 +33,8 @@ from typing import ClassVar
 
 import pytest
 
-from modules.exceptions import ArgumentRefusedError, HardwareCommandRefusedError, HomingFailedError
+from drivers.exceptions import HardwareError
+from modules.exceptions import ArgumentRefusedError, HardwareCommandRefusedError, HomingFaultError
 from modules.lumascope_api import Lumascope, AxisState
 from modules.notification_center import notifications, Severity
 from drivers.null_motorboard import NullMotionBoard
@@ -59,10 +60,10 @@ class TestNullMotionBoardCapabilities:
         result = null.detect_present_axes()
         assert isinstance(result, list)
 
-    def test_home_returns_true(self):
+    def test_home_returns_once_homed(self):
         """Null home() is a no-op success."""
         null = NullMotionBoard()
-        assert null.home() is True
+        assert null.home() is None
 
     def test_has_homed_returns_true(self):
         """Null reports homed = True so callers depending on the flag
@@ -185,19 +186,18 @@ class TestLumascopeHome:
     def test_home_on_z_only_board_marks_z_idle(self):
         """LS820 (Z-only): the driver recognizes the 'X not present'
         firmware response as a partial-home success. The API trusts
-        the driver's True return and marks present axes IDLE."""
+        a driver home that returns and marks present axes IDLE."""
         received = self._capture_errors()
         scope = build_scope(simulate=True)
 
         # Simulate LS820: only Z physically present.
         scope._motion_driver.detect_present_axes = lambda: ['Z']
 
-        # Driver returns True (the partial-home case is its responsibility).
+        # The driver returns (the partial-home case is its responsibility).
         home_calls = []
 
         def fake_home(*args, **kwargs):
             home_calls.append((args, kwargs))
-            return True
 
         scope._motion_driver.home = fake_home
 
@@ -208,21 +208,24 @@ class TestLumascopeHome:
             'home the axes the board has (#618 follow-up)'
         )
         assert received == [], (
-            f'home() on Z-only board with True driver return must not notify: {received}'
+            f'home() on Z-only board whose driver home returned must not notify: {received}'
         )
         assert scope.motion.get_axis_state('Z') == AxisState.IDLE, (
             f'Z must be marked IDLE on success, got {scope.motion.get_axis_state("Z")}'
         )
 
     def test_home_real_failure_DOES_raise(self):
-        """Negative test: when the driver's home returns False, that means a
-        REAL failure (no response, hardware error, partial home aborted
-        by Z/T error). The API must raise the Homing Failed fault."""
+        """Negative test: a driver home that raises is a REAL failure (no
+        response, hardware error, partial home aborted by Z/T error). The
+        API must raise the Homing Failed fault."""
         scope = build_scope(simulate=True)
 
-        scope._motion_driver.home = lambda *a, **k: False
+        def fails(*args, **kwargs):
+            raise HardwareError('no response from motor board')
 
-        with pytest.raises(HomingFailedError) as failed:
+        scope._motion_driver.home = fails
+
+        with pytest.raises(HomingFaultError) as failed:
             scope.motion.home()
 
         assert failed.value.title == 'Homing Failed'
@@ -337,7 +340,7 @@ class TestMotorBoardHomePartialResponse:
         try:
             assert board.initial_homing_complete is False
             result = board.home()
-            assert result is True, (
+            assert result is None, (
                 "Driver must treat 'ERROR: X not present' as partial-home "
                 'success -- firmware homed Z (and T) before reporting missing X'
             )
@@ -350,7 +353,7 @@ class TestMotorBoardHomePartialResponse:
         firmware answers 'ERROR: Y not present'."""
         board, _sim = _firmware_board('LS850', 'XZ')
         try:
-            assert board.home() is True
+            assert board.home() is None
             assert board.initial_homing_complete is True
         finally:
             board.disconnect()
@@ -359,7 +362,7 @@ class TestMotorBoardHomePartialResponse:
         """Full XYZ board: firmware returns 'XYZ home complete'."""
         board, _sim = _firmware_board('LS850T', 'XYZT')
         try:
-            assert board.home() is True
+            assert board.home() is None
             assert board.initial_homing_complete is True
         finally:
             board.disconnect()
@@ -415,7 +418,6 @@ class TestFrameValidityDuringHoming:
             captured['is_valid'] = scope.imaging.frame_validity.is_valid
             captured['z_state'] = scope.motion.get_axis_state('Z')
             captured['pending'] = dict(scope.imaging.frame_validity.pending_sources)
-            return True
 
         scope._motion_driver.zhome = fake_zhome
 
@@ -481,7 +483,6 @@ class TestFrameValidityDuringHoming:
         def fake_home(*args, **kwargs):
             captured['pending'] = dict(scope.imaging.frame_validity.pending_sources)
             captured['is_valid'] = scope.imaging.frame_validity.is_valid
-            return True
 
         scope._motion_driver.home = fake_home
 

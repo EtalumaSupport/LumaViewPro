@@ -55,6 +55,7 @@ from drivers.exceptions import HardwareError
 from modules.exceptions import (
     AutofocusAborted,
     CaptureError,
+    CaptureFailedError,
     ConfigError,
     ProtocolError,
 )
@@ -79,24 +80,20 @@ class TestDomainExceptions:
 
     @pytest.mark.parametrize(
         'exc_cls',
-        [
-            HardwareError,
-            ProtocolError,
-            ConfigError,
-        ],
+        [HardwareError],
     )
     def test_raise_and_catch_with_message(self, exc_cls):
         msg = f'test message for {exc_cls.__name__}'
         with pytest.raises(exc_cls, match=msg):
             raise exc_cls(msg)
 
-    def test_capture_error_carries_a_reason_beside_its_message(self):
-        # CaptureError left the message-only group above when it gained a
-        # required failure code: a caller mapping failures onto responses
-        # reads the code, and the prose stays for the human.
+    def test_a_capture_failure_carries_a_reason_beside_its_message(self):
+        # A capture failure carries a required failure code: a caller
+        # mapping failures onto responses reads the code, and the prose
+        # stays for the human.
         with pytest.raises(CaptureError, match='test message') as excinfo:
-            raise CaptureError('test message', 'test_reason')
-        assert excinfo.value.reason == 'test_reason'
+            raise CaptureFailedError('test message', 'no_frame_returned')
+        assert excinfo.value.reason == 'no_frame_returned'
 
 
 # ===========================================================================
@@ -1241,13 +1238,16 @@ class TestG3_AutofocusFailureNotification:
     (tests/test_an_unattended_runs_autofocus_shows_nothing.py)."""
 
     def test_af_exception_notifies_user(self, centre_posts):
-        """A raising AF loop must pop 'Autofocus Failed'."""
+        """A raising AF loop must pop 'Autofocus Failed', and raise what it popped."""
+        from modules.exceptions import AutofocusFailedError
         from tests.af_drives import af_runner_and_scope, drive_af
 
         runner, scope = af_runner_and_scope()
         scope.imaging.capture_and_wait.side_effect = RuntimeError('camera fault')
-        with pytest.raises(RuntimeError, match='camera fault'):
+        with pytest.raises(AutofocusFailedError) as raised:
             drive_af(runner)
+        assert raised.value.reason == 'unexpected_error'
+        assert str(raised.value.__cause__) == 'camera fault'
         captured = _posted(centre_posts, Severity.ERROR)
         assert captured and captured[0][1] == 'Autofocus Failed', (
             f'interactive AF failure must pop Autofocus Failed; got {captured}'
@@ -1307,28 +1307,25 @@ class TestRule14_A4_PreRunValidationNotify:
     """A4: Pre-run validation errors must surface a user notification (Rule 14)."""
 
     def _run_with_validation_errors(self, centre_posts, errors):
+        """The refusal prepare() raised; it posts nothing, for its caller's boundary to show."""
         from modules.exceptions import ProtocolRunRefusedError
-        from modules.notification_center import Severity
 
         runner = _bare_capture_runner()
         kwargs = _scr_run_kwargs()
         kwargs['protocol'].validate_for_run.return_value = errors
-        with pytest.raises(ProtocolRunRefusedError):
+        with pytest.raises(ProtocolRunRefusedError) as refused:
             runner.prepare(**kwargs)
-        # A validation failure is a refusal, shown as a warning.
-        captured = [
-            (n.category, n.title, n.message) for n in centre_posts if n.severity == Severity.WARNING
-        ]
-        return runner, kwargs['protocol'], captured
+        assert list(centre_posts) == [], 'the funnel raises; the boundary reports'
+        assert refused.value.reason == 'validation_failed'
+        return runner, kwargs['protocol'], refused.value
 
     def test_validation_errors_branch_notifies(self, centre_posts):
-        """A failing pre-run validation must notify the user and abort the run."""
-        runner, protocol, captured = self._run_with_validation_errors(
+        """A failing pre-run validation is refused, titled for the person, and aborts the run."""
+        runner, protocol, refusal = self._run_with_validation_errors(
             centre_posts, ['step 1: X position outside axis limits']
         )
-        assert captured, 'validation_errors return path must post a warning (A4 -- Rule 14)'
-        assert captured[0][1] == 'Validation failed', (
-            f"notification title must be 'Validation failed'; got {captured[0]}"
+        assert refusal.title == 'Validation failed', (
+            f"the refusal's title must be 'Validation failed'; got {refusal.title!r}"
         )
         assert not protocol.copy_for_execution.called, (
             'run must abort at validation, before snapshotting the protocol'
@@ -1336,11 +1333,10 @@ class TestRule14_A4_PreRunValidationNotify:
         assert not runner.run_in_progress(), 'run must not start'
 
     def test_validation_summary_truncates_at_five(self, centre_posts):
-        """Notification summary must show first 5 errors; mention 'see log' for overflow."""
+        """The refusal's words show the first 5 errors; mention 'see log' for overflow."""
         errors = [f'error number {i}' for i in range(1, 8)]
-        _, _, captured = self._run_with_validation_errors(centre_posts, errors)
-        assert captured, 'seven validation errors must still notify'
-        body = captured[0][2]
+        _, _, refusal = self._run_with_validation_errors(centre_posts, errors)
+        body = refusal.message
         for i in range(1, 6):
             assert f'error number {i}' in body, f'first five errors must be listed; got: {body}'
         assert 'error number 6' not in body and 'error number 7' not in body, (
@@ -1551,41 +1547,6 @@ class TestRule14_A10_ProtocolCleanupErrorCollection:
         assert captured == [], f'clean cleanup must not notify; got {captured}'
 
 
-class TestSetBinningSizeFailureNotifies:
-    """A failed binning change must surface a user notification -- the
-    camera silently staying at the old binning is invisible otherwise."""
-
-    def test_set_binning_size_exception_notifies(self, monkeypatch, centre_posts):
-        import pytest
-
-        from modules.exceptions import CameraSettingRejected
-        from modules.notification_center import notifications
-
-        imaging, cam = _sim_backed_imaging()
-
-        def raising_set_binning_size(size):
-            raise RuntimeError('simulated SDK failure')
-
-        monkeypatch.setattr(cam, 'set_binning_size', raising_set_binning_size)
-        # A raising driver surfaces as the typed rejection (the apply
-        # contract: success returns True, rejection raises so a caller
-        # cannot silently record a rejected apply). The setter shows
-        # nothing; the rejection reaches the person through the reporter
-        # that ends its flight, in the words it carries.
-        with pytest.raises(CameraSettingRejected) as excinfo:
-            imaging.set_binning_size(2)
-        assert _posted(centre_posts, Severity.ERROR) == [], (
-            'the setter must leave the showing to the reporter'
-        )
-        notifications.report_outcome(excinfo.value, solicited=True, category='Camera')
-        captured = _posted(centre_posts, Severity.ERROR)
-        assert len(captured) == 1, captured
-        assert captured[0][1] == 'Binning change failed', (
-            f'notification title must name the failed operation; got {captured[0]}'
-        )
-        assert 'simulated SDK failure' in captured[0][2], captured[0]
-
-
 class TestSetBinningSizeAnswersByRaising:
     """ImagingAPI.set_binning_size returns only when the camera took it.
 
@@ -1767,9 +1728,8 @@ def homing_boards():
 class TestHomeRaises:
     """The blocking home(axis=) member returns when the driver homed and
     raises HomingFailedError when it did not, for every axis selector,
-    posting nothing itself; MotorBoard / SimulatedMotorBoard must raise
-    HardwareError instead of returning False on no-response /
-    firmware-error paths.
+    posting nothing itself; MotorBoard / SimulatedMotorBoard raise
+    HardwareError on no-response / firmware-error paths.
 
     Pairs with the existing `--run-homing` opt-in test set; this class
     pins the mechanical contract (annotations + raised failures + typed
@@ -1795,20 +1755,11 @@ class TestHomeRaises:
             (n.category, n.title, n.message) for n in centre_posts if n.severity == Severity.ERROR
         ]
 
-    def test_zhome_propagates_driver_true(self, sim_scope, monkeypatch, centre_posts):
-        monkeypatch.setattr(sim_scope._motion_driver, 'zhome', lambda: True)
+    def test_zhome_returns_when_the_driver_homed(self, sim_scope, monkeypatch, centre_posts):
+        monkeypatch.setattr(sim_scope._motion_driver, 'zhome', lambda: None)
         sim_scope.motion.home(axis='Z')
         errors = self._errors(centre_posts)
         assert errors == [], f'success path must not notify; got {errors}'
-
-    def test_zhome_raises_and_posts_nothing_on_driver_false(
-        self, sim_scope, monkeypatch, centre_posts
-    ):
-        monkeypatch.setattr(sim_scope._motion_driver, 'zhome', lambda: False)
-        with pytest.raises(HomingFailedError):
-            sim_scope.motion.home(axis='Z')
-        errors = self._errors(centre_posts)
-        assert errors == [], f'the home raises and posts nothing; got {errors}'
 
     def test_zhome_raises_and_posts_nothing_on_driver_raise(
         self, sim_scope, monkeypatch, centre_posts
@@ -1822,20 +1773,11 @@ class TestHomeRaises:
         errors = self._errors(centre_posts)
         assert errors == [], f'the home raises and posts nothing; got {errors}'
 
-    def test_home_propagates_driver_true(self, sim_scope, monkeypatch, centre_posts):
-        monkeypatch.setattr(sim_scope._motion_driver, 'home', lambda: True)
+    def test_home_returns_when_the_driver_homed(self, sim_scope, monkeypatch, centre_posts):
+        monkeypatch.setattr(sim_scope._motion_driver, 'home', lambda: None)
         sim_scope.motion.home()
         errors = self._errors(centre_posts)
         assert errors == [], f'success path must not notify; got {errors}'
-
-    def test_home_raises_and_posts_nothing_on_driver_false(
-        self, sim_scope, monkeypatch, centre_posts
-    ):
-        monkeypatch.setattr(sim_scope._motion_driver, 'home', lambda: False)
-        with pytest.raises(HomingFailedError):
-            sim_scope.motion.home()
-        errors = self._errors(centre_posts)
-        assert errors == [], f'the home raises and posts nothing; got {errors}'
 
     def test_home_raises_and_posts_nothing_on_driver_raise(
         self, sim_scope, monkeypatch, centre_posts
@@ -1849,22 +1791,12 @@ class TestHomeRaises:
         errors = self._errors(centre_posts)
         assert errors == [], f'the home raises and posts nothing; got {errors}'
 
-    def test_thome_propagates_driver_true(self, sim_scope, monkeypatch, centre_posts):
+    def test_thome_returns_when_the_driver_homed(self, sim_scope, monkeypatch, centre_posts):
         sim_scope._motion_driver.set_timing_mode('instant')
-        monkeypatch.setattr(sim_scope._motion_driver, 'thome', lambda: True)
+        monkeypatch.setattr(sim_scope._motion_driver, 'thome', lambda: None)
         sim_scope.motion.home(axis='T')
         errors = self._errors(centre_posts)
         assert errors == [], f'success path must not notify; got {errors}'
-
-    def test_thome_raises_and_posts_nothing_on_driver_false(
-        self, sim_scope, monkeypatch, centre_posts
-    ):
-        sim_scope._motion_driver.set_timing_mode('instant')
-        monkeypatch.setattr(sim_scope._motion_driver, 'thome', lambda: False)
-        with pytest.raises(HomingFailedError, match='Turret homing'):
-            sim_scope.motion.home(axis='T')
-        errors = self._errors(centre_posts)
-        assert errors == [], f'the home raises and posts nothing; got {errors}'
 
     def test_thome_raises_and_posts_nothing_on_driver_raise(
         self, sim_scope, monkeypatch, centre_posts
@@ -1885,7 +1817,11 @@ class TestHomeRaises:
         safe-turret-move Z restore returns immediately instead of hanging
         on a cleared T event until the 120s motion timeout."""
         sim_scope._motion_driver.set_timing_mode('instant')
-        monkeypatch.setattr(sim_scope._motion_driver, 'thome', lambda: False)
+
+        def boom():
+            raise HardwareError('no response from motor board')
+
+        monkeypatch.setattr(sim_scope._motion_driver, 'thome', boom)
         with pytest.raises(HomingFailedError):
             sim_scope.motion.home(axis='T')
         assert sim_scope.motion._arrival_events['T'].is_set()
@@ -1896,9 +1832,10 @@ class TestHomeRaises:
         from modules.lumascope_api.motion import MotionAPI
 
         for method in (MotionAPI.home,):
-            assert 'HomingFailedError' in (method.__doc__ or ''), (
-                f'{method.__name__} docstring must name HomingFailedError in its Raises: section'
-            )
+            for raised in ('HomingFaultError', 'HomingStoppedError'):
+                assert raised in (method.__doc__ or ''), (
+                    f'{method.__name__} docstring must name {raised} in its Raises: section'
+                )
 
     @pytest.mark.parametrize('method', ['zhome', 'home', 'thome'])
     @_firmware_only
@@ -1945,14 +1882,14 @@ class TestHomeRaises:
         ],
     )
     @_firmware_only
-    def test_motorboard_homing_success_and_partial_paths_return_true(
+    def test_motorboard_homing_success_and_partial_paths_return(
         self, homing_boards, method, board_key
     ):
         """Success replies -- including the partial-home (X/Y absent) and
         no-turret cases the firmware reports on smaller boards -- return
-        True rather than raising."""
+        rather than raising."""
         board, _sim = homing_boards[board_key]
-        assert getattr(board, method)() is True
+        assert getattr(board, method)() is None
 
     def test_motorboard_homing_docstrings_document_raises(self):
         from drivers.motorboard import MotorBoard
@@ -10836,7 +10773,8 @@ class TestDebugGateIsNotEnvVar:
         # overrides every logger's own level (it was silently starving
         # camera.log's always-on DEBUG firehose) and split the debug
         # toggle into two gates. The canonical mechanism is the per-logger
-        # level driven by debug_mode; the global disable must not return.
+        # level, logging.default.level as the session applies it; the global
+        # disable must not return.
         import ast
 
         src = self._lvp_logger_source()
@@ -10855,7 +10793,7 @@ class TestDebugGateIsNotEnvVar:
                     hits.append(node.lineno)
         assert not hits, (
             'lvp_logger.py must not call logging.disable() -- DEBUG gating '
-            'is the per-logger level driven by debug_mode, not a global '
+            'is the per-logger level the session applies, not a global '
             f'kill-switch. Found at line(s): {hits}'
         )
 

@@ -35,7 +35,11 @@ from typing import TYPE_CHECKING
 
 import modules.coord_transformations as coord_transformations
 from lvp_logger import logger
-from modules.exceptions import ArgumentRefusedError, ConfigError, ObjectiveUnknownError
+from modules.exceptions import (
+    ArgumentRefusedError,
+    ConfigurationDefectError,
+    ObjectiveUnknownError,
+)
 from modules.api_surface import api
 
 if TYPE_CHECKING:
@@ -108,9 +112,10 @@ class RuntimeState:
                 (``Lumascope.initialize`` has not run).
         """
         if self._turreted is None:
-            raise ConfigError(
+            raise ConfigurationDefectError(
+                'scope_not_initialized',
                 'whether this scope has a turret is not known: the scope has not been '
-                'configured -- run initialize() (a ScopeSession does this at bring-up)'
+                'configured -- run initialize() (a ScopeSession does this at bring-up)',
             )
         return self._turreted
 

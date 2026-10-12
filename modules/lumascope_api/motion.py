@@ -46,9 +46,14 @@ from modules.exceptions import (
     AxisStateUnknownError,
     HardwareCommandRefusedError,
     HomingFailedError,
+    HomingFaultError,
+    HomingStoppedError,
+    LaneCallStillRunningError,
     MissingPart,
     MotorStopFailedError,
-    MoveNotCompletedError,
+    MoveFaultError,
+    MoveStoppedError,
+    MoveWaitExpiredError,
     PositionOutOfRangeError,
 )
 from modules.notification_center import notifications
@@ -146,10 +151,10 @@ class _Move:
         self.armed = False
         self.done = threading.Event()
         self.outcome: str | None = None
-        self.fault: MoveNotCompletedError | None = None
+        self.fault: MoveFaultError | None = None
         self.target: float | None = None
 
-    def settle(self, outcome: str, fault: MoveNotCompletedError | None = None) -> None:
+    def settle(self, outcome: str, fault: MoveFaultError | None = None) -> None:
         """Fix the outcome, unless the move is already settled."""
         if self.done.is_set():
             return
@@ -189,10 +194,9 @@ class MoveInFlight:
         Raises:
             MoveNotCompletedError: The axis did not arrive. ``'stalled'``,
                 ``'board_lost'``, ``'position_unread'`` or
-                ``'status_unread'``, the motion monitor gave it up;
-                ``'faulted'``, something else set it UNKNOWN; ``'timed_out'``,
-                the motion bound ran out (each of these leaves the axis
-                UNKNOWN); ``'stopped'``, a stop the board took while it
+                ``'status_unread'``, the motion monitor gave it up, or the
+                motion bound ran out (``'stalled'``); ``'faulted'``, something
+                else set it UNKNOWN (each of these leaves the axis UNKNOWN); ``'stopped'``, a stop the board took while it
                 moved halted it, ``stop_motion``'s or the stage's own in
                 refusing a move; ``'superseded'``, another move or a home
                 took the axis before it arrived.
@@ -338,6 +342,11 @@ class MotionAPI:
         # it saw before driving to tell a stop from an arrival.
         self._stop_generation = 0
         self._stop_lock = threading.Lock()
+        # How many homes drive now on a board that cannot take a STOP until
+        # the home ends: stop_motion is refused while any does, not queued
+        # behind it. A count, as a scope built without a Session can run two
+        # homes at once. Written and read under _stop_lock.
+        self._unstoppable_homes_driving = 0
 
     def _init_axes(self, present_axes: list[str], homed_axes: list[str]) -> None:
         """Populate per-axis state dicts from the detected axes.
@@ -471,12 +480,12 @@ class MotionAPI:
         a raise from the driver lands here, which makes it terminal.
 
         Raises:
-            MoveNotCompletedError: the fault the move ended with --
+            MoveFaultError: the fault the move ended with --
                 ``'driver_failed'``, chained from the driver's error, unless
                 the monitor gave the axis up first (a lost board), whose
                 object it then is. The one object its caller reports.
         """
-        failed = MoveNotCompletedError(axis, 'driver_failed')
+        failed = MoveFaultError(axis, 'driver_failed')
         failed.__cause__ = cause
         self._set_axis_state(axis, AxisState.UNKNOWN, fault=failed)
         raise move.fault or failed
@@ -503,7 +512,7 @@ class MotionAPI:
         Raises:
             HardwareCommandRefusedError: the interlock's reason, chained
                 from the driver's error.
-            MoveNotCompletedError: ``'driver_failed'``, when the driver says
+            MoveFaultError: ``'driver_failed'``, when the driver says
                 the refused command had moved.
         """
         self._note_interlock_stop(cause)
@@ -553,33 +562,56 @@ class MotionAPI:
         with self._axis_state_lock:
             return {axis: self._axis_state.get(axis) for axis in axes}
 
-    def _end_home_stopped_before_driven(
+    @contextlib.contextmanager
+    def _driving_home(
         self,
         home: str,
         stop_generation: int,
         states_before: Mapping[str, str],
         turret_before: int | None,
-    ) -> None:
-        """End a home whose Stop landed before the driver was asked to home.
+    ) -> Iterator[None]:
+        """The span in which a home drives, entered immediately before it does.
 
-        The driver forgets a stop that came before its home began, so a
-        Stop pressed just after Home would otherwise be lost and the whole
-        home run. Asked immediately before the driver's home, after the
-        API's own reads; nothing of the home has moved the axes it homes,
-        so each gets back the state it had and the turret its slot, as a
-        home the interlock refuses before it moves.
+        A home whose Stop landed before it drives ends here. The driver
+        forgets a stop that came before its home began, so a Stop pressed
+        just after Home would otherwise be lost and the whole home run.
+        Nothing of the home has moved the axes it homes, so each gets back
+        the state it had and the turret its slot, as a home the interlock
+        refuses before it moves.
+
+        On a board that cannot take a STOP mid-home, ``stop_motion`` is
+        refused for the span: a STOP sent would wait out the home and then
+        stop nothing. The stop check and the refusal's start share
+        ``_stop_lock``, so no Stop falls between them.
 
         Raises:
-            HomingFailedError: ``'stopped'``, naming no axis left unknown.
+            HomingStoppedError: ``'stopped'``, naming no axis left unknown.
         """
-        if self._stopped_since(stop_generation):
+        unstoppable = int(not self._driver.supports_stopping_a_home())
+        with self._stop_lock:
+            stopped = self._stop_generation != stop_generation
+            if not stopped:
+                self._unstoppable_homes_driving += unstoppable
+        if stopped:
             self._give_back_states(states_before)
             self._last_turret_position = turret_before
-            raise HomingFailedError(home, 'stopped', ())
+            raise HomingStoppedError(home, 'stopped', ())
+        try:
+            yield
+        finally:
+            with self._stop_lock:
+                self._unstoppable_homes_driving -= unstoppable
 
-    def _home_ending(self, stop_generation: int, reason: str) -> str:
-        """A failed home's reason: ``'stopped'`` when a Stop landed during it."""
-        return 'stopped' if self._stopped_since(stop_generation) else reason
+    def _home_ending(
+        self, home: str, stop_generation: int, axes: Iterable[str]
+    ) -> HomingFailedError:
+        """The outcome of a home that raised: a stop when a Stop landed during it, else the fault.
+
+        The caller chains it from what was raised.
+        """
+        if self._stopped_since(stop_generation):
+            return HomingStoppedError(home, 'stopped', axes)
+        return HomingFaultError(home, 'error', axes)
 
     @api
     def interlocks(self) -> frozenset[str]:
@@ -768,9 +800,8 @@ class MotionAPI:
         Raises:
             ArgumentRefusedError: ``'axis_unknown'``, a name in *axes* is
                 no axis name.
-            AxisStateUnknownError: Naming every refused axis. Reported once
-                through the one reporter before it is raised, so a caller
-                that reports it again shows nothing more.
+            AxisStateUnknownError: Naming every refused axis. Raised, not
+                reported: the gesture's boundary reports it.
         """
         wanted = set(axes)
         for axis in wanted:
@@ -784,11 +815,7 @@ class MotionAPI:
         }
         if not refused:
             return
-        error = AxisStateUnknownError(refused, then=then)
-        # Solicited: the user just asked for this, so it reaches them even
-        # while a run is in flight.
-        notifications.report_outcome(error, solicited=True, category='Motion')
-        raise error
+        raise AxisStateUnknownError(refused, then=then)
 
     # ------------------------------------------------------------------
     # Stateless method bodies.
@@ -805,17 +832,26 @@ class MotionAPI:
         It does not wait behind the lane, so a stop reaches the board while
         a move holds the lane.
 
+        A home is stopped only on a board that can take a STOP while it
+        homes (the LS720's); on any other, a Stop while the home drives is
+        refused and the home runs to its end.
+
         Raises:
             HardwareCommandRefusedError: ``'scope_disconnected'`` after
                 ``disconnect()``, as every other command is refused then;
                 ``'not_connected'`` or ``'axis_absent'`` with no motor
-                controller (see ``_refuse_absent``). Nothing was sent.
+                controller (see ``_refuse_absent``); ``'home_in_flight'``
+                while a home drives on a board that cannot stop one.
+                Nothing was sent.
             MotorStopFailedError: the board did not take the STOP, so the
                 stage may still be moving. Chained from the driver's
                 error. The stop generation has moved regardless.
         """
         self._refuse_absent('stop_motion')
-        self._stop()
+        with self._stop_lock:
+            if self._unstoppable_homes_driving:
+                raise HardwareCommandRefusedError('home_in_flight', 'stop_motion')
+            self._send_stop()
 
     def _stop(self) -> None:
         """Send the STOP: the scope's own teardown, which asks presence first."""
@@ -947,10 +983,10 @@ class MotionAPI:
                 ``_refuse_absent``); or an interlock reason, the stage's
                 interlock refused the home before anything moved. Nothing
                 was driven, and every axis keeps the state it had.
-            HomingFailedError: the driver answered False or raised, or a
-                homed axis's position could not be read; ``'lid_open'``,
-                the lid was opened while the home moved; ``'stopped'``, a
-                Stop ended it.
+            HomingFaultError: the driver raised, or a homed axis's position
+                could not be read; ``'lid_open'``, the lid was opened while
+                the home moved.
+            HomingStoppedError: ``'stopped'``, a Stop ended it.
         """
         # Asked before the driver: without it, a home with no controller
         # dispatches into the driver where exchange_command tries to
@@ -975,17 +1011,11 @@ class MotionAPI:
         if 'T' in present_axes:
             self._scope.imaging.frame_validity.invalidate('turret')
         try:
-            with self._reference_position_logger():
-                self._end_home_stopped_before_driven(
-                    'ALL', stop_generation, states_before, turret_before
-                )
-                result = self._driver.home()
-            if result is False:
-                for ax in present_axes:
-                    self._set_axis_state(ax, AxisState.UNKNOWN)
-                raise HomingFailedError(
-                    'ALL', self._home_ending(stop_generation, 'failed'), present_axes
-                )
+            with (
+                self._reference_position_logger(),
+                self._driving_home('ALL', stop_generation, states_before, turret_before),
+            ):
+                self._driver.home()
             # The position is read BEFORE an axis says IDLE: a reader that
             # samples at frame rate would otherwise pair "known" with the
             # pre-home number for the length of the serial round-trips.
@@ -1011,13 +1041,11 @@ class MotionAPI:
                 raise HardwareCommandRefusedError(e.reason, 'home') from e
             for ax in present_axes:
                 self._set_axis_state(ax, AxisState.UNKNOWN)
-            raise HomingFailedError('ALL', e.reason, present_axes) from e
+            raise HomingFaultError('ALL', e.reason, present_axes) from e
         except Exception as e:
             for ax in present_axes:
                 self._set_axis_state(ax, AxisState.UNKNOWN)
-            raise HomingFailedError(
-                'ALL', self._home_ending(stop_generation, 'error'), present_axes
-            ) from e
+            raise self._home_ending('ALL', stop_generation, present_axes) from e
         finally:
             _api_log.info('home DONE')
 
@@ -1094,8 +1122,10 @@ class MotionAPI:
                 ``'axis_absent'``, no motor controller or no turret (see
                 ``_refuse_absent``); refused before Z is parked, and nothing
                 was driven or recorded.
-            HomingFailedError: the driver answered False, the home or its
-                Z park raised, or the turret's position could not be read.
+            HomingFaultError: the home or its Z park raised, or the
+                turret's position could not be read.
+            HomingStoppedError: ``'stopped'``, a Stop landed before the
+                board began the home.
         """
         # Asked before the Z park: a scope with no turret would otherwise
         # park and restore Z and record slot 1 for a turret it does not
@@ -1112,28 +1142,28 @@ class MotionAPI:
         self._last_turret_position = None
         stop_generation = self._stop_generation
         try:
-            with self._reference_position_logger():
-                # Before Z's park: a Stop already pressed parks nothing.
-                self._end_home_stopped_before_driven(
-                    'T', stop_generation, {'T': state_before}, turret_before
-                )
-                with self._safe_turret_move():
-                    self._set_axis_state('T', AxisState.HOMING)
-                    self._scope.imaging.frame_validity.invalidate('turret')
-                    result = False
-                    try:
-                        result = self._driver.thome()
-                    finally:
-                        # Transition T out of HOMING on EVERY exit, including a
-                        # raised driver call. The motion monitor polls MOVING, not
-                        # HOMING, so nothing else ever takes T out of it: a
-                        # still-HOMING T reads as the scope moving to every
-                        # reader, and holds any wait_until_finished_moving begun
-                        # during the home until its timeout. Failure -> UNKNOWN,
-                        # success -> IDLE; both set the arrival event.
-                        self._set_axis_state('T', AxisState.IDLE if result else AxisState.UNKNOWN)
-            if result is False:
-                raise HomingFailedError('T', 'failed', ('T',))
+            with (
+                self._reference_position_logger(),
+                # Before Z's park, and around it and the restore: a Stop
+                # already pressed parks nothing, and the park is the home's.
+                self._driving_home('T', stop_generation, {'T': state_before}, turret_before),
+                self._safe_turret_move(),
+            ):
+                self._set_axis_state('T', AxisState.HOMING)
+                self._scope.imaging.frame_validity.invalidate('turret')
+                homed = False
+                try:
+                    self._driver.thome()
+                    homed = True
+                finally:
+                    # Transition T out of HOMING on EVERY exit, including a
+                    # raised driver call. The motion monitor polls MOVING, not
+                    # HOMING, so nothing else ever takes T out of it: a
+                    # still-HOMING T reads as the scope moving to every
+                    # reader, and holds any wait_until_finished_moving begun
+                    # during the home until its timeout. Failure -> UNKNOWN,
+                    # success -> IDLE; both set the arrival event.
+                    self._set_axis_state('T', AxisState.IDLE if homed else AxisState.UNKNOWN)
             read = self._refresh_position_cache()
             self._raise_unread_axes('T', ('T',), read)
             # Turret homes to slot 1 (see home() for why it is recorded). A
@@ -1144,7 +1174,7 @@ class MotionAPI:
             raise
         except Exception as e:
             self._set_axis_state('T', AxisState.UNKNOWN)
-            raise HomingFailedError('T', 'error', ('T',)) from e
+            raise self._home_ending('T', stop_generation, ('T',)) from e
         finally:
             _api_log.info('T home DONE')
 
@@ -1208,7 +1238,7 @@ class MotionAPI:
         # T's own wait judges only T; a stop after T arrived, before the
         # restore, ended the change all the same.
         if self._stopped_since(stop_generation):
-            raise MoveNotCompletedError('T', 'stopped')
+            raise MoveStoppedError('T', 'stopped')
         self._last_turret_position = int(position)
         self._preferred_turret_slot = int(position)
 
@@ -1349,7 +1379,10 @@ class MotionAPI:
 
         Returns:
             bool: True when the motor board reports the axis at its target,
-            False when it reports the axis short of it.
+            False when it reports the axis short of it. An interlock found
+            open while the axis moved (the LS720's lid) stops the stage:
+            answered False, and that stop is a Stop, so every move in
+            flight ends ``'stopped'``.
 
         Raises:
             ArgumentRefusedError: ``'axis_unknown'``, ``axis`` is no axis
@@ -1363,7 +1396,12 @@ class MotionAPI:
         """
         refuse_unknown_axis(axis)
         self._refuse_absent('get_target_status', axis)
-        return self._driver.target_status(axis)
+        try:
+            return self._driver.target_status(axis)
+        except MotionInterlockError as e:
+            self._note_interlock_stop(e)
+            _api_log.warning(f'{axis} moving with {e.reason}: the stage stopped every axis')
+            return False
 
     @api
     def get_limit_switch_status(self, axis: str) -> tuple[int, int]:
@@ -1605,10 +1643,11 @@ class MotionAPI:
                 ``_refuse_absent``); or an interlock reason, the stage's
                 interlock refused the home before anything moved. Nothing
                 was driven, and Z keeps the state it had.
-            HomingFailedError: the driver answered False or raised (e.g.
-                HardwareError on no-response / firmware-error), or Z's
-                position could not be read; ``'lid_open'``, the lid was
-                opened while the home moved; ``'stopped'``, a Stop ended it.
+            HomingFaultError: the driver raised (e.g. HardwareError on
+                no-response / firmware-error), or Z's position could not be
+                read; ``'lid_open'``, the lid was opened while the home
+                moved.
+            HomingStoppedError: ``'stopped'``, a Stop ended it.
         """
         # Asked before the driver, as the full home does: its
         # exchange_command would burn its auto-reconnect timeout and the
@@ -1621,14 +1660,13 @@ class MotionAPI:
         stop_generation = self._stop_generation
         self._scope.imaging.frame_validity.invalidate('z_move')
         try:
-            with self._reference_position_logger():
-                self._end_home_stopped_before_driven(
+            with (
+                self._reference_position_logger(),
+                self._driving_home(
                     'Z', stop_generation, {'Z': state_before}, self._last_turret_position
-                )
-                result = self._driver.zhome()
-            if result is False:
-                self._set_axis_state('Z', AxisState.UNKNOWN)
-                raise HomingFailedError('Z', self._home_ending(stop_generation, 'failed'), ('Z',))
+                ),
+            ):
+                self._driver.zhome()
             read = self._refresh_position_cache()
             if 'Z' in read:
                 self._set_axis_state('Z', AxisState.IDLE)
@@ -1641,10 +1679,10 @@ class MotionAPI:
                 self._give_back_states({'Z': state_before})
                 raise HardwareCommandRefusedError(e.reason, 'home') from e
             self._set_axis_state('Z', AxisState.UNKNOWN)
-            raise HomingFailedError('Z', e.reason, ('Z',)) from e
+            raise HomingFaultError('Z', e.reason, ('Z',)) from e
         except Exception as e:
             self._set_axis_state('Z', AxisState.UNKNOWN)
-            raise HomingFailedError('Z', self._home_ending(stop_generation, 'error'), ('Z',)) from e
+            raise self._home_ending('Z', stop_generation, ('Z',)) from e
         finally:
             _api_log.info('Z home DONE')
 
@@ -1740,12 +1778,12 @@ class MotionAPI:
         home on a scope with no turret) is never counted unread.
 
         Raises:
-            HomingFailedError: ``'unread'``, naming the unread axes.
+            HomingFaultError: ``'unread'``, naming the unread axes.
         """
         present = self._scope.capabilities.axes
         unread = [ax for ax in homed if ax in present and ax not in read]
         if unread:
-            raise HomingFailedError(home, 'unread', unread)
+            raise HomingFaultError(home, 'unread', unread)
 
     def _refresh_position_cache(self) -> set[str]:
         """Read every axis's position from the hardware into the cache.
@@ -1964,7 +2002,7 @@ class MotionAPI:
             HardwareCommandRefusedError: ``'position_unread'``, a Z move
                 with overshoot whose position the board did not report;
                 nothing was driven.
-            MoveNotCompletedError: ``'driver_failed'``, the board did not
+            MoveFaultError: ``'driver_failed'``, the board did not
                 take the command.
         """
         self._refuse_absent('move_absolute', axis)
@@ -2066,8 +2104,8 @@ class MotionAPI:
                 own object when it gave the axis up, so the person is shown
                 it once: ``'stalled'``, ``'board_lost'``,
                 ``'position_unread'`` or ``'status_unread'``; ``'faulted'``
-                when something else set it UNKNOWN); ``'timed_out'``, it had
-                not ended when the wait's bound ran out -- the axis is then
+                when something else set it UNKNOWN); ``'stalled'`` too when it
+                had not ended as the wait's bound ran out -- the axis is then
                 written UNKNOWN, in the same hold as the check that the axis
                 is still this move's; ``'stopped'``, a STOP the board took
                 while it moved; ``'superseded'``, another move or a home
@@ -2080,11 +2118,12 @@ class MotionAPI:
                 axis,
                 AxisState.UNKNOWN,
                 verdict_for=move,
-                fault=MoveNotCompletedError(axis, 'timed_out'),
+                fault=MoveFaultError(axis, 'stalled'),
             )
         if move.outcome == 'arrived':
             return
-        raise move.fault or MoveNotCompletedError(axis, move.outcome)
+        # Only a fault carries its object; the other endings are stops.
+        raise move.fault or MoveStoppedError(axis, move.outcome)
 
     def _wait_for_move(self, move: _Move, timeout_s: float) -> bool:
         """Wait for ``move`` to be settled; True when it was within ``timeout_s``."""
@@ -2137,7 +2176,7 @@ class MotionAPI:
             HardwareCommandRefusedError: ``'position_unread'``, the board
                 did not report the target to add to (or, for Z with
                 overshoot, the position); nothing was driven.
-            MoveNotCompletedError: ``'driver_failed'``, the board did not
+            MoveFaultError: ``'driver_failed'``, the board did not
                 take the command.
 
         There is deliberately no ``force`` hatch here. Every caller is a
@@ -2424,10 +2463,12 @@ class MotionAPI:
                 ``'axis_absent'``, no motor controller, or no Z or turret to
                 home (see ``_refuse_absent``); or ``'exclusive_activity_running'``,
                 a run, a diagnostic or a recording holds the scope.
-            HomingFailedError: the home was driven and did not establish
-                a reference: the driver answered False or raised, or a
-                homed axis's position could not be read. The axes it
-                names are UNKNOWN.
+            HomingFaultError: the home was driven and did not establish
+                a reference: the driver raised, or a homed axis's position
+                could not be read. The axes it names are UNKNOWN.
+            HomingStoppedError: a Stop ended the home. The axes it names
+                are UNKNOWN; none, when the Stop landed before the home was
+                driven.
             HardwareCommandRefusedError: ``'home_in_flight'``, while a home
                 asked earlier, by any caller, has not ended.
 
@@ -2448,7 +2489,7 @@ class MotionAPI:
                     + settle_windows * self._MOTION_SETTLE_TIMEOUT_S,
                     falsifies_recording=self._home_moves_turret(impl),
                 )
-        except concurrent.futures.TimeoutError:
+        except LaneCallStillRunningError:
             # The home is still queued or running, and its body releases the
             # claim when it ends; until then it is in flight.
             raise
@@ -2599,12 +2640,13 @@ class MotionAPI:
             timeout_s: Maximum seconds to wait for all of them (default 120s).
 
         Raises:
-            MoveNotCompletedError: An axis it waited for ended UNKNOWN (the
+            MoveFaultError: An axis it waited for ended UNKNOWN (the
                 monitor's own object when it gave the axis up: ``'stalled'``,
                 ``'board_lost'``, ``'position_unread'`` or ``'status_unread'``;
-                else ``'faulted'``), or was still moving
-                when ``timeout_s`` ran out (``'still_moving'``; its state is
-                left to its own move).
+                else ``'faulted'``).
+            MoveWaitExpiredError: ``'still_moving'``, a ``TimeoutError``: an
+                axis was still moving when ``timeout_s`` ran out; its state
+                is left to its own move.
             ArgumentRefusedError: ``'not_a_number'``, ``timeout_s`` is not a
                 finite number; a NaN deadline would end the wait at once.
         """
@@ -2618,14 +2660,14 @@ class MotionAPI:
         deadline = time.monotonic() + timeout_s
         for ax in moving:
             if not self._wait_for_axis_to_stop(ax, max(0.0, deadline - time.monotonic())):
-                raise MoveNotCompletedError(ax, 'still_moving')
+                raise MoveWaitExpiredError(ax, 'still_moving')
         for ax in moving:
             with self._axis_state_lock:
                 unknown = self._axis_state.get(ax) == AxisState.UNKNOWN
                 move = self._current_move.get(ax)
             fault = move.fault if move is not None else None
             if unknown:
-                raise fault if fault is not None else MoveNotCompletedError(ax, 'faulted')
+                raise fault if fault is not None else MoveFaultError(ax, 'faulted')
 
     def _set_axis_state(
         self,
@@ -2635,7 +2677,7 @@ class MotionAPI:
         verdict_for: _Move | None = None,
         armed_only: bool = False,
         move: _Move | None = None,
-        fault: MoveNotCompletedError | None = None,
+        fault: MoveFaultError | None = None,
         stop_generation: int | None = None,
     ) -> bool:
         """Set the state of an axis: the one writer of it.
@@ -2690,7 +2732,7 @@ class MotionAPI:
                     )
                     current.settle('stopped' if stopped else 'arrived')
                 elif state == AxisState.UNKNOWN:
-                    current.settle('faulted', fault or MoveNotCompletedError(axis, 'faulted'))
+                    current.settle('faulted', fault or MoveFaultError(axis, 'faulted'))
                 else:
                     # A STOP the board took before this write halted the
                     # move, though the monitor has not yet seen it at rest.
@@ -2841,7 +2883,7 @@ class MotionAPI:
         Raises:
             HardwareCommandRefusedError: the stage's interlock refused the
                 drive before anything moved; see ``_refuse_for_interlock``.
-            MoveNotCompletedError: the drive raised; see ``_fail_drive``.
+            MoveFaultError: the drive raised; see ``_fail_drive``.
         """
         state_before = self._axis_states((axis,))[axis]
         move = self._begin_move(axis, stop_generation)
@@ -2893,7 +2935,7 @@ class MotionAPI:
         Returns:
             bool: Whether the axis was given up.
         """
-        fault = MoveNotCompletedError(axis, reason)
+        fault = MoveFaultError(axis, reason)
         with self._axis_state_lock:
             if verdict_for is not None and (
                 self._axis_state.get(axis) != AxisState.MOVING

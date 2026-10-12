@@ -18,7 +18,11 @@ import typing
 
 import modules.binning as binning
 import modules.common_utils as common_utils
-from modules.exceptions import ConfigError, SettingRefusedError, StoredSettingReplacedNotice
+from modules.exceptions import (
+    ArgumentRefusedError,
+    SettingRefusedError,
+    StoredSettingReplacedNotice,
+)
 from modules.image_mode import (
     VALID_LIVE_OUTPUT_FORMATS,
     VALID_SEQUENCED_OUTPUT_FORMATS,
@@ -137,7 +141,7 @@ def _binning_label(path: str, value: str) -> None:
     # whole file for the shipped template.
     try:
         binning.binning_size_str_to_int(text=value)
-    except ConfigError as e:
+    except ArgumentRefusedError as e:
         raise SettingRefusedError('out_of_range', path, str(e)) from e
 
 

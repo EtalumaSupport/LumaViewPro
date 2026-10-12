@@ -66,10 +66,12 @@ from dataclasses import dataclass
 from typing import Any
 from collections.abc import Callable
 
+from lib.lumascope_error import Fault
+
 logger = logging.getLogger('LVP.drivers.registry')
 
 
-class DriverNotLiveError(RuntimeError):
+class DriverNotLiveError(Fault, RuntimeError):
     """A driver selected by name constructed, but its hardware is not live."""
 
 

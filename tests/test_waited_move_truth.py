@@ -18,7 +18,7 @@ import threading
 
 import pytest
 
-from modules.exceptions import MoveNotCompletedError
+from modules.exceptions import MoveFaultError, MoveNotCompletedError
 from modules.lumascope_api.motion import AxisState
 from modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
@@ -80,7 +80,7 @@ def test_a_board_lost_during_the_wait_raises_board_lost(session, monkeypatch):
     assert motion.get_axis_state('Z') == AxisState.UNKNOWN
 
 
-def test_a_waited_move_whose_axis_never_arrives_raises_timed_out(session, monkeypatch):
+def test_a_waited_move_whose_axis_never_arrives_raises_stalled(session, monkeypatch):
     motion = session.scope.motion
     # Nothing confirms arrival once the monitor is stopped, so the wait's
     # bound is what ends it.
@@ -93,7 +93,7 @@ def test_a_waited_move_whose_axis_never_arrives_raises_timed_out(session, monkey
         motion.move_relative('Z', 20.0)
 
     assert exc.value.axis == 'Z'
-    assert exc.value.reason == 'timed_out'
+    assert exc.value.reason == 'stalled'
     assert motion.get_axis_state('Z') == AxisState.UNKNOWN
 
 
@@ -129,7 +129,7 @@ def test_the_executor_shows_the_failure_in_its_own_words(centre_posts):
     from modules.sequential_io_executor import IOTask, SequentialIOExecutor
 
     def _move():
-        raise MoveNotCompletedError('T', 'faulted')
+        raise MoveFaultError('T', 'faulted')
 
     executor = SequentialIOExecutor(name='TEST')
     task = IOTask(_move)
@@ -139,7 +139,7 @@ def test_the_executor_shows_the_failure_in_its_own_words(centre_posts):
     result, exception = task.run()
     executor._on_task_done(task, result, exception)
 
-    assert [n.message for n in centre_posts] == [str(MoveNotCompletedError('T', 'faulted'))]
+    assert [n.message for n in centre_posts] == [str(MoveFaultError('T', 'faulted'))]
 
 
 def test_another_axis_timing_out_does_not_fail_an_arrived_move(session, monkeypatch):

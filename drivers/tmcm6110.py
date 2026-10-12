@@ -21,8 +21,9 @@ The lid. The LS720's deck lid is an input on the board, not an interlock the
 board enforces. As LumaView Classic did, every command that starts X or Y
 motion reads it first, in the one path every datagram takes and under the
 same lock as the command, a home's starts included; open, all three axes
-are stopped and the command is refused with ``MotionInterlockError``. Z
-moves with the lid open, and stopping is never gated.
+are stopped and the command is refused with ``MotionInterlockError``. An X
+or Y move already under way is checked on every arrival poll, and stopped
+the same way. Z moves with the lid open, and stopping is never gated.
 
 The datagram codec is here once, both directions: the simulated board
 (``drivers/simulated_tmcm6110.py``) decodes what this driver encodes.
@@ -583,10 +584,14 @@ class Tmcm6110Board:
 
         Raises:
             HardwareError: the board did not answer.
+            MotionInterlockError: X or Y is moving with the lid open; all
+                three axes were stopped (``moved=True``).
         """
         motor = self._motor(axis)
         with self._lock:
             if self._exchange(GAP, AP_ACTUAL_VELOCITY, motor) != 0:
+                if motor in LID_GATED_MOTORS and self._lid_open():
+                    self._refuse_for_lid(moved=True)
                 return False
             actual = self._exchange(GAP, AP_ACTUAL_POSITION, motor)
             return actual == self._exchange(GAP, AP_TARGET_POSITION, motor)
@@ -611,7 +616,7 @@ class Tmcm6110Board:
     # Homing
     # ------------------------------------------------------------------
 
-    def home(self) -> bool:
+    def home(self) -> None:
         """Home all three axes with LumaView Classic's sequence.
 
         Z first, to its switch and back up off it to its 0, so the
@@ -621,8 +626,7 @@ class Tmcm6110Board:
         target and actual agree, and each axis reads its index position
         in the API. Each phase polls the lid and the abort.
 
-        Returns:
-            bool: True once every axis is at its reference.
+        Returns once every axis is at its reference.
 
         Raises:
             MotionInterlockError: the stage has no power, or the lid is
@@ -631,15 +635,15 @@ class Tmcm6110Board:
             HardwareError: a phase did not complete in time, a stop ended
                 the home, or the board did not answer; naming the phase.
         """
-        return self._home(
+        self._home(
             (self._home_z, self._home_x_to_switch, self._home_y, self._home_x), ('X', 'Y', 'Z')
         )
 
-    def zhome(self) -> bool:
+    def zhome(self) -> None:
         """Home Z alone, as ``home`` homes it, with the same checks."""
-        return self._home((self._home_z,), ('Z',))
+        self._home((self._home_z,), ('Z',))
 
-    def _home(self, phases, axes: tuple[str, ...]) -> bool:
+    def _home(self, phases, axes: tuple[str, ...]) -> None:
         """Run ``phases`` in order, then set the target of each of ``axes`` to 0."""
         self._home_abort.clear()
         with self._lock:
@@ -665,7 +669,6 @@ class Tmcm6110Board:
             self._end_reference_searches(raising=False)
             raise
         self._end_reference_searches(raising=True)
-        return True
 
     def _home_send(self, command: int, type_: int, motor: int, value: int = 0) -> int:
         """One command of a home, refused once a stop has begun: the abort
@@ -803,7 +806,7 @@ class Tmcm6110Board:
         self._home_send(SAP, AP_MAX_ACCELERATION, motor, params['Max Acceleration'])
         self._home_send(SAP, AP_ACTUAL_POSITION, motor, 0)
 
-    def thome(self) -> bool:
+    def thome(self) -> None:
         raise HardwareError('the TMCM-6110 stage has no turret')
 
     def has_homed(self) -> bool:
@@ -962,6 +965,11 @@ class Tmcm6110Board:
     # ------------------------------------------------------------------
 
     def supports_motor_stop(self) -> bool:
+        return True
+
+    def supports_stopping_a_home(self) -> bool:
+        """The host runs the home a command at a time, each reading the
+        abort ``motor_stop`` sets."""
         return True
 
     def supports_fan(self) -> bool:

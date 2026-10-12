@@ -151,6 +151,34 @@ def test_a_job_that_fails_reads_200_with_its_problem(client, session, monkeypatc
     )
 
 
+def test_an_answer_the_wire_cannot_carry_is_a_failed_job_and_the_listing_still_reads(
+    client, session, monkeypatch
+):
+    # JSON has no NaN. Found only when the answer was rendered, a NaN held
+    # by a job failed every read of it and of the whole job listing; refused
+    # where the call ends, the job holds the problem.
+    release = threading.Event()
+
+    # a stand-in by design: no simulated member answers NaN; the camera's
+    # cached gain did, from a fault the simulator cannot produce.
+    def answers_nan():
+        assert release.wait(10)
+        return float('nan')
+
+    monkeypatch.setattr(session.scope.imaging, 'get_gain_db', answers_nan)
+    accepted = client.post('/api/v1/scope/imaging/get_gain_db', headers={'Prefer': 'wait=0'})
+    release.set()
+
+    ended = client.get(accepted.headers['Location'], headers={'Prefer': 'wait=10'})
+
+    assert ended.status_code == 200
+    job = ended.json()
+    assert job['status'] == 'failed'
+    assert (job['error']['status'], job['error']['kind']) == (500, 'fault')
+    assert 'nan is not a finite number' in job['error']['detail']
+    assert client.get('/api/v1/jobs').status_code == 200
+
+
 def test_a_members_progress_is_its_jobs_progress(client, session, live, monkeypatch):
     # Held until it is a job: a zip that finished inside the zero wait would
     # be answered 200, with no job to read.

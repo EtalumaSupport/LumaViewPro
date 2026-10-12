@@ -154,12 +154,15 @@ def custom_except_hook(exc_type, exc_value, exc_traceback):
 # ensures logger is specific to the file importing lvp_logger
 logger = logging.getLogger(__name__)
 
-# Single source of truth for the verbosity floor: debug_mode picks DEBUG vs
-# INFO, and that one level is the ONLY thing gating DEBUG output. The level is
-# applied to both logger trees that write to the main log -- the 'LVP' parent
-# (all LVP.* child loggers, incl. the preview [PERF] line) and lvp_logger's own
-# logger. Loggers that want a fixed floor regardless of debug_mode set their own
-# level (e.g. LVP.camera stays DEBUG -- the always-on camera.log firehose).
+# The verbosity floor until a session is created: DEBUG when debug_mode is on
+# (the installation's switch for a detailed log, so startup is in it too),
+# INFO otherwise. After that the session applies the same rule -- DEBUG under
+# debug_mode, else logging.default.level -- to both logger trees that write to
+# the main log, the 'LVP' parent (all LVP.* child loggers, incl. the preview
+# [PERF] line) and lvp_logger's own logger, on every host
+# (scope_session._apply_logging). Loggers that want a fixed floor
+# set their own level (e.g. LVP.camera stays DEBUG -- the always-on camera.log
+# firehose).
 # Note: do NOT reintroduce a global logging.disable() here -- it overrides every
 # logger's own level (it was silently starving camera.log of DEBUG) and split
 # the toggle into two gates. The per-logger level is the canonical mechanism.
@@ -531,13 +534,16 @@ kivy_logger.propagate = True
 # LVP.* records reach the bundle by propagating through _lvp_parent to root
 # (the single handler owner); no per-logger bundle handler is attached here.
 
+
 # Single logging config: the root logger writes to the shared bundle (and, when
 # a console stream exists, to it too), so any entry point that logs on the root
 # logger -- a standalone CLI script's logging.info(), or a third-party library
 # -- is captured by default without rolling its own logging setup. Root sits at
 # DEBUG so a script's own DEBUG-level per-run file handler still receives
-# records; the bundle handler filters to the main-log floor so a root / library
-# DEBUG firehose does not flood the bundle. The console handler echoes to the
+# records; the bundle handler passes LVP's own records at whatever level the
+# LVP loggers let through (logging.default.level, set by the session) and
+# everything else from INFO up, so a root / library DEBUG firehose does not
+# flood the bundle. The console handler echoes to the
 # terminal only in debug: every logger now propagates to root, so a non-debug
 # console would surface all LVP + framework output as terminal noise (the
 # reason the old non-debug path stripped root's stream handlers). It writes to
@@ -546,14 +552,21 @@ kivy_logger.propagate = True
 # Kivy loaded wrote into it and logged its own output until the recursion limit.
 # It is also gated on that stream -- a packaged windowed build has none, and a
 # StreamHandler over a missing stream raises on emit.
-file_handler.setLevel(_log_level)
+class _MainLogFloor(logging.Filter):
+    """LVP's records at the level its loggers allow; anyone else's from INFO up."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return record.levelno >= logging.INFO or record.name.split('.')[0] in ('LVP', __name__)
+
+
+file_handler.addFilter(_MainLogFloor())
 _root_logger = logging.getLogger()
 _root_logger.setLevel(logging.DEBUG)
 _root_logger.addHandler(file_handler)
 _root_logger.addHandler(error_file_handler)
 if debug and sys.__stderr__ is not None:
     _root_console = logging.StreamHandler(sys.__stderr__)
-    _root_console.setLevel(_log_level)
+    _root_console.addFilter(_MainLogFloor())
     _root_console.setFormatter(CustomFormatter())
     _root_logger.addHandler(_root_console)
 
@@ -748,8 +761,9 @@ def log_environment_banner(
     _git_hash = git_revision()
     logger.info(f'[LVP Main  ] Git:       {_git_hash or "unknown (use CommitGUID or Built)"}')
 
-    # debug_mode gates all DEBUG-level output (including the preview [PERF]
-    # lines). State the resolved value AND which file it came from so a
+    # debug_mode puts the main log at DEBUG, the live view's [PERF] lines
+    # included.
+    # State the resolved value AND which file it came from so a
     # support bundle alone answers "was debug on, and where is it set?" --
     # the live value is read from current.json once that exists, so editing
     # settings.json has no effect on an established install.

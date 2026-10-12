@@ -1,13 +1,12 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""An API funnel reports its refusal once; a second report of it shows nothing.
+"""An API funnel raises its refusal and posts nothing; reported twice, it shows once.
 
-A refusal is reported by the funnel that raises it -- logged once, shown at
-most once -- and then raised, so the caller who waits gets it. That caller
-may be a GUI boundary that hands everything it catches to the same
-reporter. The show-once mark travels on the exception object, so that
-second report is a no-op; a funnel that posts a warning of its own instead
-of going through the reporter leaves no mark, and the boundary shows the
-refusal twice.
+A refusal is raised by the funnel, so the caller who waits gets it, and
+reported by the boundary that caller sits behind -- logged once, shown at
+most once. The show-once mark travels on the exception object, so a second
+report of it (a lane's epilogue, a catcher further up) is a no-op; a
+funnel that posted a warning of its own would leave no mark, and the
+boundary would show the refusal twice.
 
 Also here: the Session wires the run's return to IDLE to its run-state
 listeners.
@@ -25,7 +24,7 @@ from tests.test_a_zstack_with_no_range_is_refused import (  # noqa: F401
 )
 
 
-def _report_again(error):
+def _report(error):
     from modules import notification_center
 
     notification_center.notifications.report_outcome(error, solicited=True, category='UI:TEST')
@@ -42,7 +41,9 @@ def test_the_zstack_builders_refusal_is_shown_once_however_often_it_is_reported(
             objective_helper=sim_scope.objective_helper,
             wellplate_loader=sim_scope.wellplate_loader,
         )
-    _report_again(refusal.value)
+    assert list(centre_posts) == [], 'the funnel raises; the boundary reports'
+    _report(refusal.value)
+    _report(refusal.value)
 
     assert [(n.title, n.severity) for n in centre_posts] == [
         ('Z-Stack Not Configured', Severity.WARNING)
@@ -52,7 +53,9 @@ def test_the_zstack_builders_refusal_is_shown_once_however_often_it_is_reported(
 def test_the_motion_refusal_is_shown_once_however_often_it_is_reported(sim_scope, centre_posts):
     with pytest.raises(AxisStateUnknownError) as refusal:
         sim_scope.motion.refuse_unknown_positions(('Z',), recording=True, then='save the focus')
-    _report_again(refusal.value)
+    assert list(centre_posts) == [], 'the funnel raises; the boundary reports'
+    _report(refusal.value)
+    _report(refusal.value)
 
     assert [(n.title, n.severity) for n in centre_posts] == [('Scope Not Homed', Severity.WARNING)]
 

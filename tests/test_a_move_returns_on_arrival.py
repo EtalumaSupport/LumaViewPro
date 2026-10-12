@@ -28,6 +28,7 @@ import time
 import pytest
 
 from modules.exceptions import HardwareCommandRefusedError, MoveNotCompletedError
+from modules.notification_center import OutcomeKind, outcome_of
 from modules.lumascope_api.motion import AxisState, MotionAPI
 from modules.scope_session import ScopeSession
 from modules.sequential_io_executor import IOTask
@@ -174,12 +175,20 @@ class TestWaitingForMotionTheCallerDidNotStart:
         assert exc.value.reason == 'faulted'
 
     def test_a_wait_that_runs_out_raises_and_leaves_the_axis_to_its_move(self, session):
+        """The caller's own wait ran out: a TimeoutError, quiet, its words and
+        reason intact; it was a fault, though nothing failed."""
         motion = session.scope.motion
         motion._set_axis_state('Z', AxisState.HOMING)
         try:
-            with pytest.raises(MoveNotCompletedError) as exc:
+            with pytest.raises(TimeoutError) as exc:
                 motion.wait_until_finished_moving(timeout_s=0.2)
+            assert isinstance(exc.value, MoveNotCompletedError)
             assert exc.value.reason == 'still_moving'
+            assert str(exc.value) == (
+                'The Z move did not complete: the Z axis was still moving when the '
+                'wait ran out of time.'
+            )
+            assert outcome_of(exc.value).kind == OutcomeKind.QUIET
             assert motion.get_axis_state('Z') == AxisState.HOMING
         finally:
             motion._set_axis_state('Z', AxisState.IDLE)

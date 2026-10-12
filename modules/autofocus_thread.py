@@ -264,7 +264,7 @@ class AutofocusThread:
                     result = self._afe.run(**kwargs, abort_event=self._aborted)
                 future.set_result(result)
             except AutofocusAborted as ex:
-                logger.info(f'autofocus run aborted: {ex}')
+                # Reported by the runner, where its flight stops.
                 future.set_exception(ex)
             except Exception as ex:
                 logger.exception(f'autofocus run raised: {type(ex).__name__}: {ex}')

@@ -26,7 +26,7 @@ def _set_acquire(session, **acquire_by_layer):
 
 
 class TestTheSessionBuilds:
-    def test_no_acquiring_layer_is_refused_once_and_builds_nothing(self, session, centre_posts):
+    def test_no_acquiring_layer_is_refused_and_builds_nothing(self, session, centre_posts):
         _set_acquire(session)
         captured = _capture_notifications(centre_posts)
 
@@ -34,7 +34,7 @@ class TestTheSessionBuilds:
             session.new_protocol()
 
         assert excinfo.value.reason == 'no_acquiring_layer'
-        assert len(captured) == 1
+        assert list(captured) == []
 
     def test_an_acquiring_layer_gives_a_step_per_well(self, session):
         _set_acquire(session, BF='image')

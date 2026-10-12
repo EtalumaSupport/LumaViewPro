@@ -12,9 +12,9 @@ one member that answers state and position together, the order a home
 uses, and what a failed read leaves behind.
 
 Every test composes a REAL ``Lumascope(simulate=True)`` and injects the
-failure through the simulator's own path (``_fail_on`` makes
-``exchange_command`` return None, which is what a dead board does), so
-the driver's real error handling runs.
+failure through ``scope.simulation.drop_replies`` (the board answers
+nothing to the named command, which is what a dead board does), so the
+driver's real error handling runs.
 """
 
 import pytest
@@ -46,7 +46,7 @@ class TestTheSnapshot:
 
     def test_an_unknown_axis_answers_no_position_while_the_cache_holds_one(self, scope):
         _home_and_park_x(scope)
-        scope._motion_driver._fail_on.add('HOME')
+        scope.simulation.drop_replies('motor', count=None, command='HOME')
         with pytest.raises(HomingFailedError):
             scope.motion.home()
         x = scope.motion.axis_positions()['X']
@@ -98,7 +98,7 @@ class TestAFailedReadLeavesTheAxisUnknown:
     @pytest.mark.slow
     def test_after_a_full_home(self, scope):
         _home_and_park_x(scope)
-        scope._motion_driver._fail_on.add('TARGET_RX')
+        scope.simulation.drop_replies('motor', count=None, command='TARGET_RX')
 
         with pytest.raises(HomingFailedError, match='could not be read'):
             scope.motion.home()
@@ -113,7 +113,7 @@ class TestAFailedReadLeavesTheAxisUnknown:
     @pytest.mark.slow
     def test_after_a_z_home(self, scope):
         scope.motion.home()
-        scope._motion_driver._fail_on.add('TARGET_RZ')
+        scope.simulation.drop_replies('motor', count=None, command='TARGET_RZ')
 
         with pytest.raises(HomingFailedError):
             scope.motion.home(axis='Z')
@@ -124,7 +124,7 @@ class TestAFailedReadLeavesTheAxisUnknown:
     @pytest.mark.slow
     def test_after_a_turret_home_no_slot_is_recorded(self, scope):
         scope.motion.home()
-        scope._motion_driver._fail_on.add('TARGET_RT')
+        scope.simulation.drop_replies('motor', count=None, command='TARGET_RT')
 
         with pytest.raises(HomingFailedError):
             scope.motion.home(axis='T')

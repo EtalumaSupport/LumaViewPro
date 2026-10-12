@@ -55,8 +55,8 @@ def _refused(proto, build):
     ):
         build()
     pd.testing.assert_frame_equal(proto.steps(), before)
-    report.assert_called_once()
-    assert report.call_args.args[0] is refusal.value
+    # Raised, not reported: the boundary the caller sits behind reports it.
+    report.assert_not_called()
     return refusal.value
 
 

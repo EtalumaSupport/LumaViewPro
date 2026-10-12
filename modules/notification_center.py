@@ -29,25 +29,13 @@ from concurrent.futures import CancelledError
 from dataclasses import dataclass, field
 from enum import IntEnum, StrEnum
 
-from drivers.exceptions import HardwareError
 from lib import profile_trace
 from modules.exceptions import (
-    BringUpError,
-    CameraSettingRejected,
-    CaptureError,
-    ConfigError,
-    HomingFailedError,
-    MotorStopFailedError,
-    MoveNotCompletedError,
     Notice,
-    PluginError,
-    ProtocolError,
     Quiet,
     Refusal,
     RefusalCause,
     Remedy,
-    ScopeDisconnectError,
-    SupportReportNotSavedError,
 )
 from modules.api_surface import api_fields
 
@@ -57,24 +45,6 @@ logger = logging.getLogger('LVP.notifications')
 # one is shown. A shown refusal's or notice's one line is its display line,
 # on the notifications logger, so an outcome is never read as two events.
 _outcome_logger = logging.getLogger('LVP.outcomes')
-
-# Faults whose message is written for the person. Any other exception's
-# str() is a developer's words -- a Python class name, a repr -- so the
-# person reads a generic sentence and the log carries the rest.
-_TYPED_FAULTS = (
-    BringUpError,
-    CameraSettingRejected,
-    CaptureError,
-    ProtocolError,
-    ConfigError,
-    HardwareError,
-    HomingFailedError,
-    MotorStopFailedError,
-    MoveNotCompletedError,
-    PluginError,
-    ScopeDisconnectError,
-    SupportReportNotSavedError,
-)
 
 _UNTYPED_FAULT_BODY = 'The operation did not complete. Check the main log for details.'
 
@@ -159,9 +129,10 @@ class Outcome:
         reason: Its machine-readable code; empty when its type declares none.
         remedy: The one action that answers it, when it has one.
         fatal: A fault that ends what was running.
-        cause: Whether the same request could succeed later, as a refusal's
-            or a quiet outcome's type declares (``RefusalCause``); None for a
-            fault, a notice, and a by-contract cancel, which declares none.
+        cause: Whether the same request could succeed later, as a refusal's,
+            a quiet outcome's or a raised notice's type declares
+            (``RefusalCause``); None for a fault, a notice that is only
+            reported, and a by-contract cancel, which declares none.
     """
 
     kind: OutcomeKind
@@ -191,11 +162,14 @@ def outcome_of(exception: BaseException) -> Outcome:
         kind=kind,
         title=getattr(exception, 'title', None) or None,
         words=words,
-        for_person=not fault or (isinstance(exception, _TYPED_FAULTS) and bool(words)),
+        # A fault's words are a developer's -- a Python class name, a repr --
+        # unless its type says it writes them for the person; otherwise the
+        # person reads a generic sentence and the log carries the rest.
+        for_person=not fault or (getattr(exception, 'words_for_person', False) and bool(words)),
         reason=getattr(exception, 'reason', None) or '',
         remedy=getattr(exception, 'remedy', None),
         fatal=fault and bool(getattr(exception, 'fatal', False)),
-        cause=_cause_of(exception) if kind in (OutcomeKind.REFUSAL, OutcomeKind.QUIET) else None,
+        cause=_cause_of(exception) if not fault else None,
     )
 
 
@@ -600,8 +574,8 @@ class NotificationCenter:
         """Log an outcome once and show it at most once, as its type says.
 
         The one place an outcome becomes a log record and a notification: an
-        exception that ended its flight, or a notice, which is reported and
-        never raised. What it is -- a refusal (``Refusal``), a notice
+        exception that ended its flight, or a notice, most of which are
+        reported and never raised. What it is -- a refusal (``Refusal``), a notice
         (``Notice``), a quiet outcome (``Quiet``, or a by-contract cancel) or
         a fault (anything else) -- and the words, title and level all come
         from the exception's type; the caller says only whether a person just

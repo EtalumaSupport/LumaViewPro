@@ -1,6 +1,6 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
-from modules.exceptions import ConfigError
+from modules.exceptions import ArgumentRefusedError
 
 
 def binning_size_str_to_int(text: str) -> int:
@@ -18,26 +18,31 @@ def binning_size_str_to_int(text: str) -> int:
     negative native ROI, and ``'2x4'`` is not a single factor at all.
 
     Raises:
-        ConfigError: on anything that is not a positive square label, and
-            NOTHING ELSE. Callers boundary on ConfigError alone, so a
-            leaked ValueError or AttributeError -- from a bare ``int()`` on
-            a placeholder, or a ``.split`` on a non-string ``"size": 4`` --
-            would walk straight past them into the host's re-raise.
+        ArgumentRefusedError: ``'binning_size_invalid'``, on anything that is
+            not a positive square label, and NOTHING ELSE. Callers boundary
+            on that refusal alone, so a leaked ValueError or AttributeError
+            -- from a bare ``int()`` on a placeholder, or a ``.split`` on a
+            non-string ``"size": 4`` -- would walk straight past them into
+            the host's re-raise.
     """
+
+    def refused() -> ArgumentRefusedError:
+        return ArgumentRefusedError('binning_size_invalid', argument='the binning size', value=text)
+
     if not isinstance(text, str):
-        raise ConfigError(f'binning size must be an NxN label, got {type(text).__name__}: {text!r}')
+        raise refused()
     halves = text.split('x')
     if len(halves) != 2:
-        raise ConfigError(f'binning size is not an NxN label: {text!r}')
+        raise refused()
     try:
         width = int(halves[0])
         height = int(halves[1])
     except ValueError:
-        raise ConfigError(f'binning size is not an NxN label: {text!r}') from None
+        raise refused() from None
     if width != height:
-        raise ConfigError(f'binning size is not square: {text!r}')
+        raise refused()
     if width < 1:
-        raise ConfigError(f'binning size must be at least 1x1: {text!r}')
+        raise refused()
     return width
 
 

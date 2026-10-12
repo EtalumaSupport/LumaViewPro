@@ -55,8 +55,8 @@ def _refused(proto, capabilities, tiling):
     ):
         _tile(proto, capabilities, tiling)
     pd.testing.assert_frame_equal(proto.steps(), before)
-    report.assert_called_once()
-    assert report.call_args.args[0] is refusal.value
+    # Raised, not reported: the boundary the caller sits behind reports it.
+    report.assert_not_called()
     return refusal.value
 
 
@@ -100,7 +100,7 @@ def test_a_new_protocol_in_a_grid_the_installation_does_not_offer_is_refused(til
     finally:
         scope.disconnect()
     assert refusal.value.reason == 'tiling_unknown'
-    report.assert_called_once()
+    report.assert_not_called()
 
 
 def test_a_step_with_an_unknown_objective_is_refused_not_tiled_at_nan(scale_capabilities):

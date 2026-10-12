@@ -18,7 +18,8 @@ The setup now runs inside the bracket, so nothing raise-capable remains
 between claiming the run and the block that guarantees the claim is
 released. Three consequences are asserted here rather than discovered:
 the flag clears, the original exception reaches the caller unmasked by
-anything in the finally, and the unwind does to the stage and the camera
+anything in the finally (chained as the cause of the one failure the run
+reports and raises), and the unwind does to the stage and the camera
 exactly what the state reached so far justifies -- no more.
 """
 
@@ -29,7 +30,13 @@ import pytest
 
 
 from modules.lumascope_api.illumination import LedTransition
-from tests.af_drives import AF_CENTER_Z, af_lease, af_runner_and_scope, drive_af
+from tests.af_drives import (
+    AF_CENTER_Z,
+    af_lease,
+    af_runner_and_scope,
+    drive_af,
+    raises_the_failure_from,
+)
 
 
 class SetupError(Exception):
@@ -101,7 +108,7 @@ class TestSetupFailureReleasesTheRunner:
         runner, scope = af_runner_and_scope()
         _break(runner, scope, seam, monkeypatch)
 
-        with pytest.raises(SetupError):
+        with raises_the_failure_from(SetupError):
             drive_af(runner)
 
         assert runner._af_in_progress.is_set() is False, (
@@ -121,7 +128,7 @@ class TestSetupFailureReleasesTheRunner:
         runner, scope = af_runner_and_scope()
         _break(runner, scope, seam, monkeypatch)
 
-        with pytest.raises(SetupError):
+        with raises_the_failure_from(SetupError):
             drive_af(runner)
 
         # Heal every seam, then run for real.
@@ -154,7 +161,7 @@ class TestTheUnwindDoesOnlyWhatTheStateJustifies:
         runner, scope = af_runner_and_scope()
         _break(runner, scope, seam, monkeypatch)
 
-        with pytest.raises(SetupError):
+        with raises_the_failure_from(SetupError):
             drive_af(runner)
 
         assert _z_moves(scope) == [], (
@@ -169,7 +176,7 @@ class TestTheUnwindDoesOnlyWhatTheStateJustifies:
         runner, scope = af_runner_and_scope()
         _break(runner, scope, seam, monkeypatch)
 
-        with pytest.raises(SetupError):
+        with raises_the_failure_from(SetupError):
             drive_af(runner)
 
         assert _z_moves(scope) == [AF_CENTER_Z], (
@@ -192,7 +199,7 @@ class TestTheCameraArmIsPutBackWhenItWasTakenAndNotOtherwise:
         runner, scope = af_runner_and_scope()
         scope.imaging.lock_auto_gain.side_effect = _raise
 
-        with pytest.raises(SetupError):
+        with raises_the_failure_from(SetupError):
             drive_af(runner)
 
         assert scope.imaging.restore_camera_state.called, (
@@ -204,7 +211,7 @@ class TestTheCameraArmIsPutBackWhenItWasTakenAndNotOtherwise:
         runner, scope = af_runner_and_scope()
         _break(runner, scope, 'objective', monkeypatch)
 
-        with pytest.raises(SetupError):
+        with raises_the_failure_from(SetupError):
             drive_af(runner)
 
         assert not scope.imaging.restore_camera_state.called, (
@@ -423,7 +430,7 @@ class TestTheRunsOwnOutcomeSurvivesACleanupFailure:
         monkeypatch.setattr(runner, '_iterate', lambda: (_ for _ in ()).throw(RunError('boom')))
         scope.imaging.restore_camera_state.side_effect = SetupError('camera went away')
 
-        with pytest.raises(RunError):
+        with raises_the_failure_from(RunError):
             drive_af(runner)
 
     def test_an_abort_is_still_reported_as_an_abort(self, monkeypatch):

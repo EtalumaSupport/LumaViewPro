@@ -70,6 +70,7 @@ def test_a_hand_dict_comes_up_with_every_template_key_and_is_told_nothing(tmp_pa
         ('motion.acceleration_max_pct', ACCELERATION_PCT_MAX + 400),
         ('motion.acceleration_max_pct', '50'),
         ('motion.acceleration_max_pct', None),
+        ('zstack.range', 10**400),
     ],
 )
 def test_a_value_the_writer_refuses_is_refused_as_a_write_is_and_nothing_is_built(path, value):

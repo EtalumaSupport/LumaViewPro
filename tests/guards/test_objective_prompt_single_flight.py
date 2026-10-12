@@ -25,7 +25,7 @@ import pytest
 import modules.app_context as _app_ctx
 import modules.settings_init as settings_init
 import ui.notification_popup as notification_popup
-from modules.exceptions import ConfigError
+from drivers.exceptions import HardwareError
 from modules.scope_session import ObjectiveQuestion, ScopeSession
 from tests.ast_seams import (
     REPO_ROOT,
@@ -235,14 +235,23 @@ class TestSingleFlight:
         stand.prompt_if_objective_unknown()
         assert len(popups) == 2
 
-    def test_an_empty_catalogue_does_not_latch(self, monkeypatch, popups, session, centre_posts):
-        """An empty catalogue is refused by the Session BEFORE the popup
-        exists -- one reported outcome, no modal -- and must not leave the
-        flag set with no popup to clear it."""
+    def test_a_question_that_fails_does_not_latch(self, monkeypatch, popups, session, centre_posts):
+        """A question the Session fails BEFORE the popup exists -- one
+        reported outcome, no modal -- must not leave the flag set with no
+        popup to clear it."""
+        from modules.exceptions import ConfigurationDefectError
+
         _install_ctx(monkeypatch, session)
         stand = _Stand()
         catalogue = session.objective_helper.get_objectives_list
-        monkeypatch.setattr(session.objective_helper, 'get_objectives_list', lambda: [])
+
+        def fails():
+            raise ConfigurationDefectError(
+                'scope_not_initialized', 'the scope was never initialized'
+            )
+
+        # A stand-in by design: a fault the simulator cannot yet produce.
+        monkeypatch.setattr(session.objective_helper, 'get_objectives_list', fails)
 
         stand.prompt_if_objective_unknown()
         assert popups == []
@@ -335,7 +344,7 @@ class TestTheFlagCannotStrand:
         stand = _Stand()
 
         def _boom(objective_id, turret_position=None):
-            raise ConfigError('turret write failed')
+            raise HardwareError('turret write failed')
 
         monkeypatch.setattr(session, 'confirm_objective', _boom)
 

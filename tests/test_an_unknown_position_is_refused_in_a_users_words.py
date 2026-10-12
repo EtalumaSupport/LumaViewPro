@@ -71,7 +71,8 @@ def _warnings(centre_posts):
     return [(n.title, n.message) for n in centre_posts if n.severity == Severity.WARNING]
 
 
-def test_a_gesture_is_refused_once_for_every_unknown_axis(unhomed_scope, centre_posts):
+def test_a_gesture_is_refused_naming_every_unknown_axis(unhomed_scope, centre_posts):
+    """Raised naming every axis, and posting nothing: the gesture's boundary reports."""
     with pytest.raises(AxisStateUnknownError) as excinfo:
         unhomed_scope.motion.refuse_unknown_positions(
             ('X', 'Y', 'Z'), recording=False, then='go to the step'
@@ -82,6 +83,21 @@ def test_a_gesture_is_refused_once_for_every_unknown_axis(unhomed_scope, centre_
         'Y': AxisState.UNKNOWN,
         'Z': AxisState.UNKNOWN,
     }
+    assert _warnings(centre_posts) == []
+
+
+def test_a_person_is_shown_the_refusal_once_in_words_they_act_on(unhomed_scope, centre_posts):
+    """Through the GUI's boundary, as a person's gesture meets it."""
+    from ui.ui_helpers import run_reported
+
+    run_reported(
+        lambda: unhomed_scope.motion.refuse_unknown_positions(
+            ('X', 'Y', 'Z'), recording=False, then='go to the step'
+        ),
+        None,
+        'GO_TO_STEP',
+    )
+
     assert _warnings(centre_posts) == [
         (
             'Scope Not Homed',
@@ -126,7 +142,7 @@ def test_a_homing_axis_may_be_moved_but_not_recorded(unhomed_scope, centre_posts
     assert str(excinfo.value) == (
         'Z is still homing. Wait for the home to finish, then save the focus.'
     )
-    assert len(_warnings(centre_posts)) == 1
+    assert _warnings(centre_posts) == []
 
 
 # ---------------------------------------------------------------------------

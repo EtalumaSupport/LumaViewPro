@@ -24,7 +24,7 @@ Usage
 import pathlib
 
 from modules.activity_claim import HeldClaim
-from modules.exceptions import CaptureError
+from modules.exceptions import CompositeFailedError, CompositeWaitExpiredError
 from modules.layer_record import refuse_unknown_layer
 from modules.protocol import Protocol
 from modules.run_events import RunEvents
@@ -560,9 +560,12 @@ class ProtocolRunner:
                 capture an image, so nothing could be merged; or the
                 runner refused the run itself (already running, files
                 still writing, hardware not connected).
-            CaptureError: The run finished but produced no composite. The
+            CompositeFailedError: The run finished but produced no composite. The
                 error names the machine-readable reason, so a caller can
-                tell an aborted run from a failed merge from a timeout.
+                tell an aborted run from a failed merge.
+            CompositeWaitExpiredError: ``'merge_timeout'``, a
+                ``TimeoutError``: ``merge_timeout_s`` ran out before the run
+                or its merge reported; either may still be going.
         """
         outcome = self.start_composite(
             sequence_name=sequence_name,
@@ -571,7 +574,7 @@ class ProtocolRunner:
         )
         settled = outcome.wait(timeout_s=merge_timeout_s)
         if settled is None:
-            raise CaptureError(
+            raise CompositeWaitExpiredError(
                 f'the composite did not report an outcome within '
                 f'{merge_timeout_s:.0f}s; the run or its merge is wedged',
                 'merge_timeout',
@@ -582,7 +585,7 @@ class ProtocolRunner:
             # empty in each case, so the caller never has to guess which
             # vocabulary it is reading.
             code = settled.merge_reason or settled.reason
-            raise CaptureError(f'no composite was produced ({code})', code)
+            raise CompositeFailedError(f'no composite was produced ({code})', code)
         return settled
 
     def _run(

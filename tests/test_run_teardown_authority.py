@@ -111,10 +111,9 @@ class TestTeardownAuthority:
 
         notified = _notified_since(centre_posts, start)
         assert exc.value.reason == 'run_not_live'
-        # Notify-once, like every other refusal: the engine has already told
-        # the user, so a caller reconciles its own state without re-notifying.
-        assert len(notified) == 1, f'expected one notification, got {notified}'
-        assert notified[0].category == 'Protocol'
+        # Raised, like every other refusal: the boundary the Stop came
+        # through tells the person; the engine posts nothing.
+        assert notified == [], f'expected no notification, got {notified}'
         # The live run is named, so a caller can say WHOSE run it is.
         assert exc.value.holder == 'protocol'
         assert exc.value.holder_trigger == OWNER

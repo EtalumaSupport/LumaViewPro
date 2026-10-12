@@ -19,7 +19,8 @@ import time
 import pytest
 
 import modules.protocol_image_writer as piw
-from modules.exceptions import RunFilesNotWrittenError, RunWriteRefusedError
+from modules.exceptions import RefusalCause, RunFilesNotWrittenError, RunWriteRefusedError
+from modules.notification_center import OutcomeKind, outcome_of
 from modules.protocol_image_writer import WRITER_WEDGED, RunWriteBatch
 from modules.sequential_io_executor import SequentialIOExecutor
 
@@ -130,6 +131,9 @@ class TestCompletion:
 
         assert refused.value.reason == 'run_ended'
         assert str(refused.value).startswith('The autofocus data was not saved')
+        # Nothing broke: the run's writes had ended, and a later run takes them.
+        outcome = outcome_of(refused.value)
+        assert (outcome.kind, outcome.cause) == (OutcomeKind.REFUSAL, RefusalCause.STATE)
 
 
 class TestPacing:

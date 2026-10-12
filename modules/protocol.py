@@ -113,16 +113,15 @@ def _read_only(value):
 
 
 def _refuse_build(*, reason: str, title: str, message: str) -> NoReturn:
-    """Report once, and raise, a refused protocol build (a tile grid, a z-stack).
+    """Raise a refused protocol build (a tile grid, a z-stack).
 
     Refused where the protocol is built, so the GUI, a script and REST are all
-    told the same thing. Callers pass the reason as a literal, which is how the
-    refusal census reads it.
+    told the same thing. Raised, not reported: the boundary the caller sits
+    behind reports it, so a REST caller is answered and not also shown it.
+    Callers pass the reason as a literal, which is how the refusal census
+    reads it.
     """
-    refusal = ProtocolRunRefusedError(reason=reason, title=title, message=message)
-    # Solicited: the refusal answers the build the caller just asked for.
-    notifications.report_outcome(refusal, solicited=True, category='Protocol')
-    raise refusal
+    raise ProtocolRunRefusedError(reason=reason, title=title, message=message)
 
 
 def _refuse_unless_tiling_offered(tiling_config: TilingConfig, tiling: str) -> None:
@@ -1568,7 +1567,7 @@ class Protocol:
         write to an index in range lands on a new row instead of that step.
 
         Raises:
-            ProtocolError: a non-empty frame is missing current columns.
+            ProtocolFormatError: a non-empty frame is missing current columns.
             ProtocolFormatError: a cell of a runnable protocol is not of its
                 column's type; the words name the step and the column.
         """
@@ -1577,7 +1576,10 @@ class Protocol:
         else:
             missing = [c for c in self.CURRENT_COLUMNS if c not in df.columns]
             if missing:
-                raise ProtocolError(f'Protocol steps are missing required columns: {missing}')
+                named = ', '.join(repr(column) for column in missing)
+                raise ProtocolFormatError(
+                    f"The protocol's steps lack the columns {named}, which every step needs."
+                )
             if self._runnable:
                 df = self._typed_steps(df)
             df = df.assign(

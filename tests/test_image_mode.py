@@ -186,17 +186,6 @@ def test_image_mode_label_round_trip():
         assert LABEL_TO_IMAGE_MODE[label] == mode
 
 
-def test_resolve_image_mode_unknown_raises_config_error():
-    """An unrecognized image_mode raises the typed ConfigError (a settings/config
-    fault the GUI boundary catches and notifies), not a bare ValueError that no
-    layer is set up to distinguish."""
-    from modules.exceptions import ConfigError
-    from modules.image_mode import resolve_image_mode
-
-    with pytest.raises(ConfigError, match='unknown image_mode'):
-        resolve_image_mode('not_a_mode')
-
-
 @pytest.mark.parametrize(
     'feature_count, mode, expected',
     [

@@ -41,7 +41,7 @@ def test_disconnected_is_refused_without_touching_driver(scope, monkeypatch):
 
 
 def test_hardware_error_reaches_the_caller_without_a_traceback(scope, caplog):
-    scope._motion_driver._fail_on.add('STATUS_RZ')
+    scope.simulation.drop_replies('motor', count=None, command='STATUS_RZ')
 
     with caplog.at_level(logging.DEBUG), pytest.raises(HardwareError):
         scope.motion.get_target_status('Z')

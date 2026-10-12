@@ -59,6 +59,8 @@ def _refused(call, argument):
         (np.int64(2), True),
         (math.nan, False),
         (math.inf, False),
+        # An integer no float can hold: every range compares it as a float.
+        (10**400, False),
         (True, False),
         (np.bool_(True), False),
         ('3', False),

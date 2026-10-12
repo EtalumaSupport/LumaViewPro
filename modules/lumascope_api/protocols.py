@@ -1169,20 +1169,15 @@ class ProtocolsAPI:
         return ', '.join(sorted(map(str, objective_ids)))
 
     def _refuse(self, reason: str, title: str, message: str) -> typing.NoReturn:
-        """Report once, and raise, the typed refusal.
+        """Raise the typed refusal.
 
         The single funnel this surface's refusals route through, so one
-        refusal is always one report -- a WARNING line naming the reason and
-        one warning -- and one typed exception. Each caller passes its reason
+        refusal is always one typed exception. Raised, not reported: the
+        boundary the caller sits behind reports it, so a REST caller is
+        answered and not also shown it. Each caller passes its reason
         as a LITERAL rather than through a variable: the refusal vocabulary
         is censused by reading that argument out of the source, and a name
         in its place makes the refusal invisible to the census, which is how
         a reason ships with no coverage.
         """
-        from modules.notification_center import notifications
-
-        refusal = ProtocolRunRefusedError(reason=reason, title=title, message=message)
-        # Solicited: a refusal answers something the caller just asked
-        # for, so it must reach the user even while a run is in flight.
-        notifications.report_outcome(refusal, solicited=True, category='Protocol')
-        raise refusal
+        raise ProtocolRunRefusedError(reason=reason, title=title, message=message)

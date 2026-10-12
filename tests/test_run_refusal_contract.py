@@ -557,14 +557,14 @@ class TestTheCompositeChannelFloor:
         [lambda: _build_real_protocol([]), lambda: _make_single_step_protocol('Blue')],
         ids=['no_channel', 'one_channel'],
     )
-    def test_fewer_than_two_channels_is_refused_once(
+    def test_fewer_than_two_channels_is_refused_and_posts_nothing(
         self, executor, tmp_path, protocol_factory, centre_posts
     ):
         captured = _capture_notifications(centre_posts)
         with pytest.raises(ProtocolRunRefusedError) as excinfo:
             self._prepare_composite(executor, protocol_factory(), tmp_path)
         assert excinfo.value.reason == 'composite_needs_two_channels'
-        assert len(captured) == 1 and captured[0].severity.name.lower() == 'warning', captured
+        assert list(captured) == [], captured
         assert not executor.run_in_progress()
 
 
@@ -613,18 +613,18 @@ class TestStartCannotSilentlyHalfStart:
 
 
 # ---------------------------------------------------------------------------
-# 4. Notify-once funnel: each refusal reason notifies exactly once and
-#    the raised error carries the matching reason.
+# 4. The refusal funnel: each refusal reason is raised carrying its reason
+#    and posts nothing; the boundary the caller sits behind reports it.
 # ---------------------------------------------------------------------------
 
-_FUNNEL_LOOP = 'test_each_refusal_reason_notifies_once_with_matching_reason'
+_FUNNEL_LOOP = 'test_each_refusal_reason_is_raised_with_its_reason_and_posts_nothing'
 
 # A check that crashed is a fault, not a refusal, so it declares no cause;
 # its two reasons ride the same census and coverage map.
 _RUN_CHECK_FAILED_REASONS = frozenset({'validation_crashed', 'hardware_state_unknown'})
 
 # Every refusal reason the runner can raise, mapped to the test that pins
-# its notify-once contract. test_every_runner_refusal_reason_is_covered
+# its raise. test_every_runner_refusal_reason_is_covered
 # diffs this map against the runner's source, so a reason added to the
 # runner reds the suite until it gets a scenario or a dedicated test AND
 # a row here; a reason retired from the runner reds until its row is
@@ -656,17 +656,21 @@ RUNNER_REFUSAL_COVERAGE = {
         'tests/test_a_tile_grid_is_the_protocols_to_refuse.py::'
         'test_a_grid_the_installation_does_not_offer_is_refused'
     ),
+    'tiling_scale_unknown': (
+        'tests/test_tiling_overlap.py::TestTileCentersWithoutScale::'
+        'test_real_grid_still_refuses_without_field_of_view'
+    ),
     'objective_not_given': (
         'tests/test_a_protocols_configuration_is_refused_at_the_door.py::'
-        'test_steps_with_no_objective_are_refused_and_reported_once'
+        'test_steps_with_no_objective_are_refused_and_post_nothing'
     ),
     'focus_not_given': (
         'tests/test_a_protocols_configuration_is_refused_at_the_door.py::'
-        'test_a_layer_with_no_focus_and_no_current_z_is_refused_and_reported_once'
+        'test_a_layer_with_no_focus_and_no_current_z_is_refused_and_posts_nothing'
     ),
     'overlap_out_of_range': (
         'tests/test_a_protocols_configuration_is_refused_at_the_door.py::'
-        'test_an_overlap_outside_0_to_50_is_refused_and_reported_once'
+        'test_an_overlap_outside_0_to_50_is_refused_and_posts_nothing'
     ),
     'tiles_outside_travel': (
         'tests/test_a_build_outside_the_travel_is_refused.py::'
@@ -683,7 +687,7 @@ RUNNER_REFUSAL_COVERAGE = {
     'validation_failed': _FUNNEL_LOOP,
     # A check that crashed is a fault (RunCheckFailedError), not a refusal:
     # it is not reported where it is raised, so it cannot ride the
-    # notify-once loop; the named tests pin the raise, the chained crash
+    # refusal loop; the named tests pin the raise, the chained crash
     # and the error its caller shows.
     'validation_crashed': (
         'tests/test_audit_fixes.py::TestRunPreValidationFiresNotificationOnException'
@@ -738,12 +742,12 @@ RUNNER_REFUSAL_COVERAGE = {
     ),
     'sequence_name_invalid': (
         'tests/test_a_run_name_is_a_name.py::'
-        'test_a_name_that_is_a_path_is_refused_once_and_nothing_is_written'
+        'test_a_name_that_is_a_path_is_refused_and_nothing_is_written_or_posted'
     ),
 }
 
 
-class TestRefusalNotifyOnceFunnel:
+class TestTheRefusalFunnel:
     def _scenarios(self, executor, scope):
         """(reason, setup_fn(mp) -> protocol) for each reachable gate."""
 
@@ -842,7 +846,7 @@ class TestRefusalNotifyOnceFunnel:
             ('lid_open', lid_open),
         ]
 
-    def test_each_refusal_reason_notifies_once_with_matching_reason(
+    def test_each_refusal_reason_is_raised_with_its_reason_and_posts_nothing(
         self, executor, scope, tmp_path, monkeypatch, centre_posts
     ):
         scenarios = self._scenarios(executor, scope)
@@ -863,11 +867,9 @@ class TestRefusalNotifyOnceFunnel:
                 assert excinfo.value.reason == reason, (
                     f'expected refusal reason {reason!r}, got {excinfo.value.reason!r}'
                 )
-                assert len(captured) == 1, (
-                    f'refusal {reason!r} must notify exactly once; got {captured}'
-                )
-                assert captured[0].severity.name.lower() == 'warning', (
-                    f'refusal {reason!r} is a refusal, shown as a warning; got {captured}'
+                assert list(captured) == [], (
+                    f"refusal {reason!r} is raised for the caller's boundary to report; "
+                    f'got {captured}'
                 )
                 assert not executor.run_in_progress(), (
                     f'refusal {reason!r} must leave the runner idle'
@@ -880,7 +882,7 @@ class TestRefusalNotifyOnceFunnel:
 
         The session's activity claim is checked at the commitment point,
         after prepare() has already succeeded, so a live video recording
-        refuses the run through the same notify-once funnel. The refusal
+        refuses the run through the same refusal funnel. The refusal
         must not disturb the recording's claim, and the runner must stay
         fully usable once the recording releases it.
         """
@@ -901,7 +903,7 @@ class TestRefusalNotifyOnceFunnel:
             'the recording-holder branch must name the recording, not the '
             f'generic other-activity copy; got {excinfo.value.message!r}'
         )
-        assert len(captured) == 1, f'the refusal must notify exactly once; got {captured}'
+        assert list(captured) == [], f'the refusal is raised, not posted; got {captured}'
         assert not executor.run_in_progress(), 'a start()-tier refusal must leave the runner idle'
         # Not wedged: with the claim released, the next run completes.
         _run_to_completion(executor, _make_single_step_protocol(), tmp_path)
@@ -923,7 +925,7 @@ class TestRefusalNotifyOnceFunnel:
             diagnostic.release()
         assert excinfo.value.reason == 'exclusive_activity_running'
         assert 'diagnostic' in excinfo.value.message, excinfo.value.message
-        assert len(captured) == 1, f'the refusal must notify exactly once; got {captured}'
+        assert list(captured) == [], f'the refusal is raised, not posted; got {captured}'
 
 
 # ---------------------------------------------------------------------------
@@ -1020,7 +1022,7 @@ def test_every_runner_refusal_reason_is_covered():
     nobody listed escaped the census in silence. A reason the census
     cannot read as a literal fails it, unless it is a funnel handing on
     its own parameter, whose callers' literals are collected instead.
-    This is what makes the notify-once suite's enumeration unmissable
+    This is what makes the refusal suite's enumeration unmissable
     instead of remembered: exclusive_activity_running shipped with zero
     coverage because nothing coupled the scenario list to the refusal
     vocabulary.
@@ -1085,7 +1087,7 @@ def test_every_runner_refusal_reason_is_covered():
     uncovered = declared - set(RUNNER_REFUSAL_COVERAGE)
     assert not uncovered, (
         f'refusal reasons raised by the runner with no coverage row: {sorted(uncovered)}. '
-        'Pin the notify-once contract for each (scenario or dedicated test), '
+        'Pin the raise of each (scenario or dedicated test), '
         'then add its row to RUNNER_REFUSAL_COVERAGE.'
     )
     stale = set(RUNNER_REFUSAL_COVERAGE) - declared

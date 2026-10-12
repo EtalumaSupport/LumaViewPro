@@ -822,3 +822,4 @@ def test_allocator_refuses_visibly_when_exhausted(tmp_path, monkeypatch):
         path_utils.allocate_directory(base)
 
     assert 'Video_x' in str(excinfo.value)
+    assert excinfo.value.reason == 'names_exhausted'

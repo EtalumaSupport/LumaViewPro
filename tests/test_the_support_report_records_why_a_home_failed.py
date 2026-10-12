@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import pytest
 
+from drivers.exceptions import HardwareError
 from modules.scope_session import ScopeSession
 from modules.tech_support_report import TechSupportReport
 from tests.scope_fakes import home_sim_scope
@@ -30,12 +31,15 @@ def session(tmp_path):
 
 @pytest.mark.slow
 def test_a_failed_z_home_is_recorded_in_its_own_words(session, monkeypatch):
-    monkeypatch.setattr(session.scope._motion_driver, 'zhome', lambda: False)
+    def fails():
+        raise HardwareError('no response from motor board')
+
+    monkeypatch.setattr(session.scope._motion_driver, 'zhome', fails)
 
     result = TechSupportReport(scope=session.scope).diag.run_homing_test()
 
     assert result['passed'] is False
     assert result['axes']['Z']['status'] == 'FAIL'
     assert result['axes']['Z']['home_response'] == (
-        'Error: Z axis homing failed. Position is unknown.'
+        'Error: Z axis homing encountered an error. Position is unknown.'
     )

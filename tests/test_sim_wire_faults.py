@@ -200,12 +200,12 @@ class TestTheFirmwareMeetsTheFault:
         # instant time, about a second of real work unloaded, and a bare
         # exchange's default deadline lost that race under a loaded suite.
         board, sim = scope
-        assert board.zhome() is True
+        assert board.zhome() is None
         sim.inject('Z', tmc5072.SWITCH_NEVER_TRIPS)
         with pytest.raises(HardwareError, match='firmware error: ERROR: Z home timeout'):
             board.zhome()
         sim.clear('Z', tmc5072.SWITCH_NEVER_TRIPS)
-        assert board.zhome() is True
+        assert board.zhome() is None
 
     @pytest.mark.parametrize('scope', [(d, False) for d in DIALECTS], indirect=True)
     def test_a_stalled_x_is_the_firmwares_xy_home_timeout(self, scope):

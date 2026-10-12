@@ -55,6 +55,7 @@ import datetime
 import enum
 import importlib
 import inspect
+import math
 import pathlib
 import pkgutil
 import typing
@@ -62,6 +63,7 @@ import warnings
 from collections.abc import Callable, Iterable, Mapping
 from concurrent.futures import Future
 
+from lib.lumascope_error import Fault
 from modules.api_surface import API, fields_of, is_record, mark_of
 
 # The forms a value takes on the wire.
@@ -109,7 +111,7 @@ _TRANSPARENT = {'ClassVar', 'Optional', 'Union'}
 _HOST_FILLED = {'Callable', 'ProgressCallback', 'RunEvents'}
 
 
-class NoWireFormError(TypeError):
+class NoWireFormError(Fault, TypeError):
     """A value whose type has no wire form reached ``encode``."""
 
 
@@ -404,7 +406,10 @@ def encode(
     form of a live object and of a call still running.
 
     Raises:
-        NoWireFormError: *value*, or something in it, has no wire form.
+        NoWireFormError: *value*, or something in it, has no wire form --
+            a NaN or an infinity among them: JSON has none, and the answer
+            is refused here, where the call ends, rather than when it is
+            rendered, after a job may already hold it.
     """
 
     def form(v: object) -> object:
@@ -414,6 +419,8 @@ def encode(
             return v.value
         if isinstance(v, enum.Enum):
             return v.name
+        if isinstance(v, float) and not math.isfinite(v):
+            raise NoWireFormError(f'{v!r} is not a finite number, and JSON carries no other')
         if v is None or isinstance(v, (bool, int, float, str)):
             return v
         if isinstance(v, datetime.timedelta):

@@ -20,7 +20,7 @@ import shutil
 import pytest
 
 from modules import settings_init
-from modules.exceptions import ConfigError, StoredSettingReplacedNotice
+from modules.exceptions import ConfigurationDefectError, StoredSettingReplacedNotice
 from modules.lumascope_api._lumascope import Lumascope
 from modules.scope_session import ScopeSession
 from tests.scope_fakes import build_scope
@@ -97,11 +97,13 @@ def test_a_bring_up_that_raises_still_tells_what_its_load_replaced_and_the_fallb
     real_initialize = Lumascope.initialize
 
     def refuse(self, config):
-        raise ConfigError('a stored value bring-up cannot use')
+        raise ConfigurationDefectError(
+            'settings_not_prepared', 'a stored value bring-up cannot use'
+        )
 
     monkeypatch.setattr(Lumascope, 'initialize', refuse)
     heard = []
-    with pytest.raises(ConfigError):
+    with pytest.raises(ConfigurationDefectError):
         ScopeSession.create(settings, simulate=True, outcome_listener=heard.append)
     (notice,) = _notices(heard)
     assert 'protocol.labware' in notice.message

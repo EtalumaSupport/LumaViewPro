@@ -27,7 +27,7 @@ from drivers.sim_wire.backend import LED_DEVICE, SimWireBackend
 from drivers.tmcm6110 import Tmcm6110Board
 from drivers.simulated_ledboard import SimulatedLEDBoard
 from drivers.simulated_motorboard import SimulatedMotorBoard
-from modules.exceptions import ConfigError, SettingRefusedError
+from modules.exceptions import ScopeModelUnknownError, SettingRefusedError
 from modules.layer_record import load_scope_models, model_axes
 from modules.lumascope_api import Lumascope
 from modules.scope_session import ScopeSession
@@ -86,7 +86,7 @@ def test_a_tier_that_is_not_one_of_the_three_is_refused():
 
 
 def test_a_model_the_catalogue_lacks_is_refused_not_answered_axis_less():
-    with pytest.raises(ConfigError, match="no model 'LS999'"):
+    with pytest.raises(ScopeModelUnknownError, match="'LS999' is not a scope model"):
         model_axes(MODELS, 'LS999')
 
 

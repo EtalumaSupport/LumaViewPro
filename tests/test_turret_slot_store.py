@@ -209,9 +209,12 @@ class TestNothingElseMovesTheTurret:
 
 class TestTheRecordIsLostWhenTheTurretIs:
     def test_a_stop_during_a_turret_home_leaves_no_slot(self, session, monkeypatch):
-        """The firmware's homing loop answers STOP; a home it cut short did
+        """On a board that can take a STOP mid-home, a home it cut short did
         not reach slot 1."""
         motion = session.scope.motion
+        # a stand-in by design: no shipped board both stops a home and has a
+        # turret; the EL-0940's firmware will once its driver can send one.
+        monkeypatch.setattr(motion._driver, 'supports_stopping_a_home', lambda: True)
         real_thome = motion._driver.thome
 
         def _thome_interrupted():
@@ -227,6 +230,8 @@ class TestTheRecordIsLostWhenTheTurretIs:
 
     def test_a_stop_during_the_full_home_leaves_no_slot(self, session, monkeypatch):
         motion = session.scope.motion
+        # a stand-in by design, as above.
+        monkeypatch.setattr(motion._driver, 'supports_stopping_a_home', lambda: True)
         motion.move_turret(2)
         real_home = motion._driver.home
 

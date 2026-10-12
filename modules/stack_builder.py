@@ -11,7 +11,11 @@ import modules.image_mode as image_mode
 import modules.common_utils as common_utils
 import modules.recording_frames as recording_frames
 from modules.common_utils import PostFunction
-from modules.exceptions import CaptureError, HyperstacksSavedNotice, HyperstacksSavingNotice
+from modules.exceptions import (
+    HyperstackRefusedError,
+    HyperstacksSavedNotice,
+    HyperstacksSavingNotice,
+)
 from modules.notification_center import notifications
 from modules.protocol_post_processor import ProtocolPostProcessor
 from modules.protocol_post_processing_result import PostProcResult
@@ -318,7 +322,7 @@ class StackBuilder(ProtocolPostProcessor):
         try:
             return image_utils.read_tiff_depth_and_timestamp(path)
         except Exception as ex:
-            raise CaptureError(
+            raise HyperstackRefusedError(
                 f'failed to read hyperstack input frame {path}: {type(ex).__name__}: {ex}',
                 'unreadable_input_frame',
             ) from ex
@@ -336,7 +340,7 @@ class StackBuilder(ProtocolPostProcessor):
         try:
             return image_utils.load_pixels(path, collapse_legacy_false_color=False)
         except Exception as ex:
-            raise CaptureError(
+            raise HyperstackRefusedError(
                 f'failed to read hyperstack input frame {path}: {type(ex).__name__}: {ex}',
                 'unreadable_input_frame',
             ) from ex
@@ -494,7 +498,7 @@ class StackBuilder(ProtocolPostProcessor):
                     # the stack dtype would truncate (uint16 into uint8) or
                     # reinterpret (float into an integer) -- wrong data under
                     # a success status.
-                    raise CaptureError(
+                    raise HyperstackRefusedError(
                         f'hyperstack input frame {row["Filepath"]} is {image.dtype} but '
                         f'this stack is {stack_dtype}: mixed pixel types cannot share one '
                         f'hyperstack. Re-capture the well at one bit depth or build each '

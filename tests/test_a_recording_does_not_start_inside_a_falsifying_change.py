@@ -21,8 +21,9 @@ import threading
 import pytest
 
 from modules import settings_init
-from modules.activity_claim import ActivityClaim
-from modules.exceptions import ObjectiveUnknownError, RecordingRefusedError
+from modules.activity_claim import ActivityClaim, FalsifyingChangeInFlightError
+from modules.exceptions import ObjectiveUnknownError, RecordingRefusedError, RefusalCause
+from modules.notification_center import OutcomeKind, outcome_of
 from modules.recording_frames import resolve_recording_pixel_size
 from modules.scope_session import ScopeSession
 from modules.sequential_io_executor import IOTask, SequentialIOExecutor
@@ -137,6 +138,22 @@ class TestTheRecordingStart:
         finally:
             change.release.set()
             fut.result(timeout=_WAIT_S)
+
+    def test_the_claim_refuses_it_for_the_change_s_state(self, claim):
+        """Nothing broke: the change ends, and the same start may then succeed."""
+        assert claim.enter_falsifying_change(None) is None
+        try:
+            with pytest.raises(FalsifyingChangeInFlightError) as refused:
+                claim.try_claim('recording')
+        finally:
+            claim.leave_falsifying_change()
+
+        outcome = outcome_of(refused.value)
+        assert (outcome.kind, outcome.cause, outcome.reason) == (
+            OutcomeKind.REFUSAL,
+            RefusalCause.STATE,
+            'falsifying_change_in_flight',
+        )
 
     def test_the_change_it_was_refused_for_runs_to_its_end(self, claim, io_lane, tmp_path):
         fut, change = _run_inline_in_an_unmarked_task(io_lane)

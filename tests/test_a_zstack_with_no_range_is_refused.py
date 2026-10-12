@@ -132,45 +132,46 @@ class TestTheBuilderRefuses:
 
 
 class TestTheRefusalReachesTheUser:
-    """The builder raises AND tells, because nothing downstream will.
+    """The builder raises; the boundary its caller sits behind tells.
 
-    The runner's refusal funnel logs and notifies before it raises, so its
-    callers re-notify nothing. The builder runs before any run exists, so
-    no funnel sees this one: if it only raised, a GUI caller would have to
-    tell the user itself, and the telling would drift per caller -- which
-    is the Rule 2 failure the whole refusal work is undoing.
+    The builder decides nothing about who is told: a REST caller is
+    answered and shown nothing, and a person's press is shown the refusal
+    once by the GUI's boundary, the one place every GUI caller's report
+    goes through, so the telling cannot drift per caller.
     """
 
-    def test_it_posts_exactly_one_notification(self, sim_scope, centre_posts):
-        with pytest.raises(ProtocolRunRefusedError):
-            Protocol.from_config(
-                input_config=_standalone_config({'range': 0.0, 'step_size': 5.0}),
-                tiling_configs_file_loc=_TILING,
-                capabilities=sim_scope.capabilities,
-                objective_helper=sim_scope.objective_helper,
-                wellplate_loader=sim_scope.wellplate_loader,
-            )
+    def _build(self, sim_scope):
+        Protocol.from_config(
+            input_config=_standalone_config({'range': 0.0, 'step_size': 5.0}),
+            tiling_configs_file_loc=_TILING,
+            capabilities=sim_scope.capabilities,
+            objective_helper=sim_scope.objective_helper,
+            wellplate_loader=sim_scope.wellplate_loader,
+        )
 
-        posted = [n for n in centre_posts if n.severity == Severity.WARNING]
-        assert len(posted) == 1, f'the refusal must reach the user exactly once: {posted}'
+    def test_the_builder_raises_and_posts_nothing(self, sim_scope, centre_posts):
+        with pytest.raises(ProtocolRunRefusedError) as refused:
+            self._build(sim_scope)
 
-    def test_the_notification_survives_a_run_in_flight(self, sim_scope, centre_posts):
+        assert refused.value.reason == 'zstack_not_configured'
+        assert list(centre_posts) == []
+
+    def test_a_press_is_told_once_even_with_a_run_in_flight(
+        self, sim_scope, centre_posts, unattended_run
+    ):
         """Solicited is the difference between told and silently dropped.
 
         An unsolicited notification is suppressed while a run is running,
         which is exactly when a user is most likely to be clicking.
         """
-        with pytest.raises(ProtocolRunRefusedError):
-            Protocol.from_config(
-                input_config=_standalone_config({'range': 0.0, 'step_size': 5.0}),
-                tiling_configs_file_loc=_TILING,
-                capabilities=sim_scope.capabilities,
-                objective_helper=sim_scope.objective_helper,
-                wellplate_loader=sim_scope.wellplate_loader,
-            )
+        from ui.ui_helpers import run_reported
+
+        run_reported(lambda: self._build(sim_scope), None, 'APPLY_ZSTACK')
 
         posted = [n for n in centre_posts if n.severity == Severity.WARNING]
-        assert posted[0].solicited is True, 'a refusal answers something the caller just asked for'
+        assert [(n.reason, n.shown, n.solicited) for n in posted] == [
+            ('zstack_not_configured', True, True)
+        ], 'a refusal answers something the caller just asked for'
 
 
 class TestTheHeadlessCallerGetsIt:

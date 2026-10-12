@@ -12,6 +12,8 @@ Timing modes:
 Failure injection (for testing error recovery):
   fail_after=N      -- disconnect after N commands (simulates USB cable pull)
   fail_on={'ZHOME'} -- return None for specific commands (simulates timeout)
+  unplug() / replug()            -- the cable pulled and put back
+  drop_replies(command, count)   -- no reply to a command, by its first word
 """
 
 import math
@@ -132,8 +134,16 @@ class SimulatedMotorBoard:
 
         # Failure injection
         self._fail_after = fail_after  # disconnect after N commands
-        self._fail_on = fail_on or set()  # return None for these commands
+        # Commands answered with nothing, by first word, until lifted; None
+        # in the set is every command.
+        self._fail_on = fail_on or set()
+        # Commands answered with nothing a number of times, by first word
+        # (None: any command), each count spent by the commands it drops.
+        self._counted_drops: dict[str | None, int] = {}
         self._cmd_count = 0
+        # Whether the cable is in. Unplugged, every command goes unanswered
+        # and the board is not connected until it is plugged back in.
+        self._plugged = True
 
         # Hardware config: the same shipped defaults the real MotorBoard takes
         self.motorconfig = MotorConfig(motorconfig_defaults)
@@ -233,15 +243,13 @@ class SimulatedMotorBoard:
             The hold: wait on its ``reached``, act, then ``release()`` it or
             end it with a STOP or a new target.
 
+        Held on every timing: on 'instant' and 'fast' the held move halts at
+        once rather than after its share of the travel time.
+
         Raises:
-            ValueError: the board is not in 'realistic' timing, the only one
-                in which a move travels; ``at_fraction`` is not strictly
-                between 0 and 1; or ``axis`` already has a hold.
+            ValueError: ``at_fraction`` is not strictly between 0 and 1, or
+                ``axis`` already has a hold.
         """
-        if self._timing_mode != 'realistic':
-            raise ValueError(
-                f"a move travels only in 'realistic' timing; this board is in {self._timing_mode!r}"
-            )
         if not 0.0 < at_fraction < 1.0:
             raise ValueError(
                 f'a hold is part of the way along, 0 < at_fraction < 1; got {at_fraction}'
@@ -259,6 +267,10 @@ class SimulatedMotorBoard:
                 return
             del self._holds[hold.axis]
             if not hold.reached.is_set():
+                return
+            if not self._simulate_move_duration:
+                # A move with no duration finishes the moment it is let go.
+                self._actual[hold.axis] = self._target[hold.axis]
                 return
             # The move resumes from the hold on its own timeline, shifted by
             # how long it stood: the rest takes what the rest would have.
@@ -288,8 +300,10 @@ class SimulatedMotorBoard:
     # Connection
     # ------------------------------------------------------------------
     def connect(self) -> None:
-        """Mark the simulated board as connected (idempotent)."""
+        """Mark the simulated board as connected (idempotent); no-op while unplugged."""
         with self.thread_lock:
+            if not self._plugged:
+                return
             self.driver = True
             self._connect_fails = 0
             logger.info('[XYZ Sim   ] SimulatedMotorBoard.connect()')
@@ -344,6 +358,10 @@ class SimulatedMotorBoard:
         """Sim firmware supports every command family."""
         return True
 
+    def supports_stopping_a_home(self) -> bool:
+        """As ``MotorBoard``: a home holds the exchange the STOP needs."""
+        return False
+
     def supports_fan(self) -> bool:
         """Sim firmware supports every command family."""
         return True
@@ -354,6 +372,61 @@ class SimulatedMotorBoard:
 
     def _close_driver(self):
         self.driver = None
+
+    # ------------------------------------------------------------------
+    # Failure injection
+    # ------------------------------------------------------------------
+    def unplug(self) -> None:
+        """Pull the cable: the next command finds the port dead, as a real
+        one is found only by a write, and the board then answers nothing and
+        is not connected until ``replug``."""
+        with self.thread_lock:
+            self._plugged = False
+            logger.warning('[XYZ Sim   ] INJECTED FAILURE: unplugged')
+
+    def replug(self) -> None:
+        """Put the cable back: the board is found and connects at the next command."""
+        with self.thread_lock:
+            self._plugged = True
+            self.found = True
+
+    def drop_replies(self, command: str | None = None, count: int | None = None) -> None:
+        """Answer nothing to ``command`` -- matched by its first word, any
+        command when None -- the next ``count`` times it is sent, or from
+        now on when ``count`` is None, until ``stop_dropping``.
+
+        Raises:
+            ValueError: ``count`` is not a positive number of commands.
+        """
+        if count is not None and count < 1:
+            raise ValueError(f'a drop is of one command or more, not {count!r}')
+        with self.thread_lock:
+            if count is None:
+                self._fail_on.add(command)
+            else:
+                self._counted_drops[command] = self._counted_drops.get(command, 0) + count
+
+    def stop_dropping(self, command: str | None = None) -> None:
+        """Answer ``command`` again (None: lift the drops of any command),
+        counted or not."""
+        with self.thread_lock:
+            self._fail_on.discard(command)
+            self._counted_drops.pop(command, None)
+
+    def _drops(self, cmd_word: str) -> bool:
+        """Whether the command with first word ``cmd_word`` goes unanswered,
+        spending a counted drop if one takes it. Called under the lock."""
+        if cmd_word in self._fail_on or None in self._fail_on:
+            return True
+        for key in (cmd_word, None):
+            left = self._counted_drops.get(key)
+            if left:
+                if left == 1:
+                    del self._counted_drops[key]
+                else:
+                    self._counted_drops[key] = left - 1
+                return True
+        return False
 
     # ------------------------------------------------------------------
     # Serial simulation
@@ -371,7 +444,9 @@ class SimulatedMotorBoard:
         else:
             time.sleep(self._cmd_delay)
 
-    def exchange_command(self, command, response_numlines=1, timeout=None):
+    def exchange_command(
+        self, command: str, response_numlines: int = 1, timeout: float | None = None
+    ) -> str | list[str] | None:
         """Exchange a single command with the simulated firmware.
 
         Honors failure injection (``fail_after`` / ``fail_on``) so callers
@@ -389,6 +464,11 @@ class SimulatedMotorBoard:
         """
         with self.thread_lock:
             t_start = time.monotonic()
+            if not self._plugged:
+                # The write finds the port dead, and the driver closes it.
+                self.driver = None
+                self.found = False
+                return None
             if self.driver is None:
                 try:
                     self.connect()
@@ -413,7 +493,7 @@ class SimulatedMotorBoard:
 
             # Failure injection: fail on specific commands
             cmd_word = command.strip().split()[0] if command else ''
-            if cmd_word in self._fail_on:
+            if self._drops(cmd_word):
                 logger.warning(f'[XYZ Sim   ] INJECTED FAILURE: timeout on {cmd_word}')
                 _serial_log.warning(
                     f'[XYZ Sim] {command} -> INJECTED TIMEOUT '
@@ -506,7 +586,16 @@ class SimulatedMotorBoard:
             self._move_start_time[axis] = time.monotonic()
             self._target[axis] = value
 
-            if self._simulate_move_duration:
+            if axis in self._holds:
+                # A held move halts on its first read, whatever the timing;
+                # on the timings with no travel there is no share to wait for.
+                self._move_end_time[axis] = (
+                    time.monotonic()
+                    + self._calc_move_duration(axis, self._move_start_pos[axis], value)
+                    if self._simulate_move_duration and self._fast_move_duration == 0
+                    else time.monotonic()
+                )
+            elif self._simulate_move_duration:
                 if self._fast_move_duration > 0:
                     # Fast mode: position updates instantly but target_status
                     # returns False for a brief period so the motion monitor
@@ -601,17 +690,16 @@ class SimulatedMotorBoard:
         """Update actual position based on elapsed time.
 
         In realistic mode, interpolates position along the move trajectory.
-        In fast mode, snaps to target after the brief delay.
+        In fast mode, snaps to target after the brief delay. A held move
+        halts where its hold says, on every timing.
         """
-        if not self._simulate_move_duration:
-            return
         now = time.monotonic()
         end = self._move_end_time.get(axis, 0.0)
         hold = self._holds.get(axis)
-        if hold is not None and hold._bound and self._fast_move_duration == 0:
+        if hold is not None and hold._bound:
             start_t = self._move_start_time[axis]
             halts_at = start_t + hold.at_fraction * (end - start_t)
-            if end > start_t and now >= halts_at:
+            if now >= halts_at:
                 start = self._move_start_pos[axis]
                 self._actual[axis] = int(start + hold.at_fraction * (self._target[axis] - start))
                 hold.reached.set()
@@ -843,7 +931,7 @@ class SimulatedMotorBoard:
     # ------------------------------------------------------------------
     # Homing
     # ------------------------------------------------------------------
-    def zhome(self) -> bool:
+    def zhome(self) -> None:
         """Simulated Z homing. Mirrors `MotorBoard.zhome` contract.
 
         Raises:
@@ -854,10 +942,10 @@ class SimulatedMotorBoard:
         if resp is None:
             raise HardwareError('zhome(): no response from motor board (timeout or disconnect)')
         if 'successful' in resp.lower() or 'complete' in resp.lower():
-            return True
+            return
         raise HardwareError(f'zhome(): firmware error: {resp}')
 
-    def home(self) -> bool:
+    def home(self) -> None:
         """Simulated full home. Mirrors `MotorBoard.home` contract.
 
         Raises:
@@ -869,11 +957,11 @@ class SimulatedMotorBoard:
             raise HardwareError('home(): no response from motor board (timeout or disconnect)')
         if 'XYZ home complete' in resp:
             self.initial_homing_complete = True
-            return True
+            return
         # Match real MotorBoard partial-home semantics so tests cover both.
         if ('not present' in resp) and ('X' in resp or 'Y' in resp):
             self.initial_homing_complete = True
-            return True
+            return
         raise HardwareError(f'home(): firmware error: {resp}')
 
     def has_homed(self) -> bool:
@@ -884,7 +972,7 @@ class SimulatedMotorBoard:
         """
         return self.initial_homing_complete
 
-    def thome(self) -> bool:
+    def thome(self) -> None:
         """Simulated turret home. Mirrors `MotorBoard.thome` contract.
 
         Raises:
@@ -896,9 +984,9 @@ class SimulatedMotorBoard:
             raise HardwareError('thome(): no response from motor board (timeout or disconnect)')
         if 'T home successful' in resp:
             self.initial_t_homing_complete = True
-            return True
+            return
         if 'not present' in resp.lower():
-            return True
+            return
         raise HardwareError(f'thome(): firmware error: {resp}')
 
     def has_turret(self) -> bool:

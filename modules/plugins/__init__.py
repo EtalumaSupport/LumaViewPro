@@ -39,6 +39,8 @@ from modules.exceptions import (
     PluginFailedError,
     PluginNotLoadedError,
     PluginProcessorSkippedError,
+    Refusal,
+    RefusalCause,
 )
 from modules.notification_center import notifications
 from modules.api_surface import api_fields
@@ -89,14 +91,27 @@ UI_MOUNT_POINTS = frozenset(
 # ---------------------------------------------------------------------------
 
 
-class PluginRegistrationError(Exception):
-    """Raised when a plugin cannot be registered.
+class PluginRegistrationError(Refusal, Exception):
+    """A plugin asked a namespace for something this LumaViewPro does not give.
 
-    Causes: name collision within a namespace, unknown mount point,
-    version mismatch, malformed spec. The plugin is NOT loaded and the
-    app continues. The loader catches the raise from the plugin's
-    register(ctx) and reports it as that plugin's load failure.
+    The plugin is NOT loaded and the app continues. The loader catches the
+    raise from the plugin's register(ctx) and reports it as that plugin's
+    load failure. The same registration fails again unchanged, so its cause
+    is the request.
+
+    Attributes:
+        reason: ``'name_taken'`` -- the namespace already holds a plugin of
+            that name; ``'unknown_mount_point'`` -- no UI mount point has
+            that name; ``'rest_namespace_reserved'`` -- the REST namespace
+            takes no routers yet.
     """
+
+    cause = RefusalCause.REQUEST
+    title = 'Plugin Not Registered'
+
+    def __init__(self, reason: str, message: str):
+        super().__init__(message)
+        self.reason = reason
 
 
 # ---------------------------------------------------------------------------
@@ -258,7 +273,7 @@ class _BaseNamespace:
     def _assert_unique(self, spec: PluginSpec) -> None:
         if spec.name in self._loaded:
             raise PluginRegistrationError(
-                f"Plugin '{spec.name}' already registered in '{self.NAMESPACE}'"
+                'name_taken', f"Plugin '{spec.name}' already registered in '{self.NAMESPACE}'"
             )
 
 
@@ -278,7 +293,8 @@ class UIRegistry(_BaseNamespace):
     def register(self, spec: PluginSpec, mount_point: str, builder: Callable[[], Any]) -> None:
         if mount_point not in UI_MOUNT_POINTS:
             raise PluginRegistrationError(
-                f"Unknown UI mount point '{mount_point}'. Known: {sorted(UI_MOUNT_POINTS)}"
+                'unknown_mount_point',
+                f"Unknown UI mount point '{mount_point}'. Known: {sorted(UI_MOUNT_POINTS)}",
             )
         with self._lock:
             self._assert_unique(spec)
@@ -348,9 +364,8 @@ class LiveProcessingRegistry(_BaseNamespace):
     unregister-by-plugin-name can resolve to the original handler that
     ImagingAPI was given.
 
-    The registry's load() wires the session's Lumascope via bind_scope()
-    before plugin discovery. Register() on an unbound registry raises so
-    the failure is loud.
+    Built with the session's Lumascope, so no plugin can register before
+    there is a scope to forward to.
 
     Plugin authors call:
         ctx.plugins.live_processing.register(spec, handler)
@@ -364,25 +379,14 @@ class LiveProcessingRegistry(_BaseNamespace):
 
     NAMESPACE = 'live_processing'
 
-    def __init__(self) -> None:
+    def __init__(self, scope: Any) -> None:
         super().__init__()
-        # Set by bind_scope() before any register() can succeed. Kept
-        # as a plain attribute (not state-on-fan-out) because the
-        # listener registry of record lives on ImagingAPI; this is
-        # just a lookup channel for unregister-by-name.
-        self._scope: Any = None
-
-    def bind_scope(self, scope: Any) -> None:
-        """Wire the live Lumascope. Called by PluginRegistry.load()."""
+        # A plain attribute (not state-on-fan-out) because the listener
+        # registry of record lives on ImagingAPI; this is just a lookup
+        # channel for unregister-by-name.
         self._scope = scope
 
     def register(self, spec: PluginSpec, frame_handler: Callable) -> None:
-        if self._scope is None:
-            raise PluginRegistrationError(
-                'ctx.plugins.live_processing not yet bound to a scope. '
-                'bind_scope(scope) must be called before plugin '
-                'discovery; PluginRegistry.load() does it.'
-            )
         with self._lock:
             self._assert_unique(spec)
             # Forward to the canonical listener list on ImagingAPI before
@@ -399,7 +403,7 @@ class LiveProcessingRegistry(_BaseNamespace):
         """Remove the listener registered by plugin `name`. No-op if not registered."""
         with self._lock:
             entry = self._handlers.pop(name, None)
-        if entry is None or self._scope is None:
+        if entry is None:
             return
         _spec, handler = entry
         self._scope.imaging.remove_frame_listener(handler)
@@ -475,12 +479,13 @@ class RESTRegistry(_BaseNamespace):
                 self._stubbed_routers[spec.name] = router
             return
         raise PluginRegistrationError(
+            'rest_namespace_reserved',
             'ctx.plugins.rest is reserved but not yet implemented. '
             'REST URL convention is locked at the REST design session '
             '(tracked at docs/TODO.md). Plan to register here when '
             'REST_API_PLAN.md Phase 1 ships. '
             'Prototype against the future shape via '
-            'ctx.plugins.rest.enable_stub_mode() (non-production).'
+            'ctx.plugins.rest.enable_stub_mode() (non-production).',
         )
 
 
@@ -499,10 +504,10 @@ class PluginRegistry:
           (``ScopeSession.unload_plugins``) or the session shuts down.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, scope: Any) -> None:
         self.ui = UIRegistry()
         self.post_processing = PostProcessingRegistry()
-        self.live_processing = LiveProcessingRegistry()
+        self.live_processing = LiveProcessingRegistry(scope)
         self.rest = RESTRegistry()
         self._loaded_plugins: list[tuple[str, Any]] = []  # (name, module)
         self._loaded_lock = threading.Lock()
@@ -712,7 +717,6 @@ class PluginRegistry:
         """
         from modules.plugins.builtin import BUILTIN_PLUGINS
 
-        self.live_processing.bind_scope(host.scope)
         self._settings_baseline = copy.deepcopy(host.get_settings_snapshot())
         discovered = list(importlib.metadata.entry_points(group=ENTRY_POINT_GROUP))
         count = 0

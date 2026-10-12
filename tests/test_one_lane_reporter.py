@@ -15,14 +15,17 @@ import logging
 import threading
 import time
 from concurrent.futures import CancelledError
-from concurrent.futures import TimeoutError as FutureTimeoutError
 
 import pytest
 
 import modules.sequential_io_executor as sio
 from modules.activity_claim import ActivityClaim
-from modules.exceptions import HardwareCommandRefusedError, RunAlreadyEndedError
-from modules.notification_center import Severity, notifications
+from modules.exceptions import (
+    HardwareCommandRefusedError,
+    LaneCallStillRunningError,
+    RunAlreadyEndedError,
+)
+from modules.notification_center import OutcomeKind, Severity, notifications, outcome_of
 from modules.sequential_io_executor import IOTask, SequentialIOExecutor
 
 _WAIT_S = 2.0
@@ -126,6 +129,21 @@ class TestWhoReports:
 
 
 class TestATimedOutCall:
+    def test_the_api_s_bound_is_a_fault_naming_the_call_not_a_timeout(self, lane):
+        """The API's own bound ran out on a call that may still finish: a
+        fault, never a TimeoutError a caller would read as its own wait."""
+        release = threading.Event()
+
+        with pytest.raises(LaneCallStillRunningError) as raised:
+            lane.call(IOTask(action=lambda: release.wait(_WAIT_S)), 'move', timeout_s=0.05)
+        release.set()
+        _drain(lane)
+
+        assert not isinstance(raised.value, TimeoutError)
+        assert (raised.value.reason, raised.value.member) == ('still_running', 'move')
+        assert 'may still finish' in str(raised.value)
+        assert outcome_of(raised.value).kind == OutcomeKind.FAULT
+
     def test_a_fault_after_the_waiter_left_is_logged_not_shown(self, lane, centre_posts, caplog):
         release = threading.Event()
 
@@ -134,7 +152,7 @@ class TestATimedOutCall:
             raise RuntimeError('late fault')
 
         with caplog.at_level(logging.DEBUG):
-            with pytest.raises(FutureTimeoutError):
+            with pytest.raises(LaneCallStillRunningError):
                 lane.call(IOTask(action=_slow_then_fail), 'move', timeout_s=0.05)
             release.set()
             _drain(lane)

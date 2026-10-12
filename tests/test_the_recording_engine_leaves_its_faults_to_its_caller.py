@@ -22,7 +22,7 @@ import modules.protocol_recording as protocol_recording
 import tests.test_video_writer as video_writer_tests
 from modules.activity_claim import ActivityClaim
 from modules.exceptions import RecordingDetailsNotSavedError, VideoWriterFailedError
-from modules.notification_center import _TYPED_FAULTS
+from modules.notification_center import outcome_of
 from modules.video_recording import VideoRecordingEngine
 from tests.test_manual_recording_controller import feed_frames, finish, make_controller
 from tests.test_video_recording_contract import make_config
@@ -98,7 +98,7 @@ def test_the_writers_death_says_the_run_stopped_only_on_a_run():
         'Frames already written are on disk; check the log for the cause.'
     )
     assert manual.reason == step.reason == 'video_writer_died'
-    assert isinstance(manual, _TYPED_FAULTS)
+    assert outcome_of(manual).for_person
 
 
 def test_the_lost_details_file_keeps_its_words():
@@ -110,7 +110,7 @@ def test_the_lost_details_file_keeps_its_words():
         'could not be written. Videos built from this recording may be '
         'grayscale and use a default frame rate; check disk space and the log.'
     )
-    assert isinstance(fault, _TYPED_FAULTS)
+    assert outcome_of(fault).for_person
 
 
 # ---------------------------------------------------------------------------

@@ -252,11 +252,12 @@ class SimulatedTmcm6110:
         with self._lock:
             self.axes[axis].ignores_stop = ignores
 
-    def break_right_switch(self, axis: str) -> None:
+    def break_right_switch(self, axis: str, broken: bool = True) -> None:
         """Make ``axis``'s right switch never close, as a broken or
-        unplugged switch would: the axis drives on past it."""
+        unplugged switch would: the axis drives on past it. ``broken=False``
+        mends it."""
         with self._lock:
-            self.axes[axis].right_switch_dead = True
+            self.axes[axis].right_switch_dead = broken
 
     def position(self, axis: str) -> int:
         """The actual-position register of ``axis``, after the time passed."""

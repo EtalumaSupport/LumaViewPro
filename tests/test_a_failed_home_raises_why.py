@@ -3,9 +3,9 @@
 
 A GUI Home press, a script, bring-up and REST all get the same thing. No
 motor controller is a refusal ("Not Connected"): nothing was driven. A
-driver that answers False, a driver that raises and a home whose position
-could not be read are one fault, ``HomingFailedError`` ("Homing Failed"),
-naming the axes left without a position and chained from the driver's
+driver that raises and a home whose position could not be read are one
+fault, ``HomingFaultError`` ("Homing Failed"), naming the axes left
+without a position and chained from the driver's
 exception where there is one. The home itself shows nothing: whoever waits
 on it reports it, once.
 
@@ -16,11 +16,17 @@ Every test drives a real ``Lumascope(simulate=True)`` through the public
 from __future__ import annotations
 
 import logging
+import threading
 
 import pytest
 
 from drivers.exceptions import HardwareError
-from modules.exceptions import HardwareCommandRefusedError, HomingFailedError
+from modules.exceptions import (
+    HardwareCommandRefusedError,
+    HomingFailedError,
+    HomingFaultError,
+    LaneCallStillRunningError,
+)
 from modules.lumascope_api import AxisState
 from tests.scope_fakes import build_scope
 
@@ -56,22 +62,6 @@ def test_no_motor_controller_is_a_refusal_in_the_cables_words(scope, monkeypatch
 
 
 @pytest.mark.parametrize('route', ROUTES)
-def test_a_driver_that_answers_false_raises_the_homing_fault(scope, monkeypatch, route):
-    monkeypatch.setattr(scope._motion_driver, DRIVER_CALL[route], lambda: False)
-
-    with pytest.raises(HomingFailedError) as raised:
-        scope.motion.home(route)
-
-    assert raised.value.reason == 'failed'
-    assert raised.value.title == 'Homing Failed'
-    assert str(raised.value) == f'{SUBJECT[route]} failed. Position is unknown.'
-    assert raised.value.axes == _axes_of(scope, route)
-    for axis in raised.value.axes:
-        assert scope.motion.get_axis_state(axis) == AxisState.UNKNOWN
-    assert scope.posts == []
-
-
-@pytest.mark.parametrize('route', ROUTES)
 def test_a_driver_that_raises_is_chained_not_rewrapped(scope, monkeypatch, route):
     cause = HardwareError('no response from motor board')
 
@@ -80,7 +70,7 @@ def test_a_driver_that_raises_is_chained_not_rewrapped(scope, monkeypatch, route
 
     monkeypatch.setattr(scope._motion_driver, DRIVER_CALL[route], _raise)
 
-    with pytest.raises(HomingFailedError) as raised:
+    with pytest.raises(HomingFaultError) as raised:
         scope.motion.home(route)
 
     assert raised.value.reason == 'error'
@@ -94,9 +84,9 @@ def test_a_driver_that_raises_is_chained_not_rewrapped(scope, monkeypatch, route
 @pytest.mark.parametrize('route', ROUTES)
 def test_a_home_whose_position_is_unread_names_the_unread_axis(scope, route):
     unread = 'Z' if route in ('ALL', 'Z') else 'T'
-    scope._motion_driver._fail_on.add(f'TARGET_R{unread}')
+    scope.simulation.drop_replies('motor', count=None, command=f'TARGET_R{unread}')
 
-    with pytest.raises(HomingFailedError) as raised:
+    with pytest.raises(HomingFaultError) as raised:
         scope.motion.home(route)
 
     assert raised.value.reason == 'unread'
@@ -108,7 +98,10 @@ def test_a_home_whose_position_is_unread_names_the_unread_axis(scope, route):
 
 @pytest.mark.parametrize('route', ROUTES)
 def test_the_done_line_is_logged_however_the_home_ends(scope, monkeypatch, caplog, route):
-    monkeypatch.setattr(scope._motion_driver, DRIVER_CALL[route], lambda: False)
+    def _raise():
+        raise HardwareError('no response from motor board')
+
+    monkeypatch.setattr(scope._motion_driver, DRIVER_CALL[route], _raise)
 
     with caplog.at_level(logging.INFO), pytest.raises(HomingFailedError):
         scope.motion.home(route)
@@ -136,3 +129,29 @@ def test_a_turret_home_on_a_scope_with_no_turret_is_refused_and_homes_nothing():
 
     assert caught.value.reason == 'axis_absent'
     assert scope.motion.get_turret_slot() is None
+
+
+def test_a_home_past_the_api_s_bound_is_a_fault_that_says_it_may_still_finish(scope, monkeypatch):
+    """The API's own bound on the home ran out with the home still running:
+    a fault naming the home, never a TimeoutError a caller reads as its own
+    wait; the home goes on, and ends as homes do."""
+    release = threading.Event()
+    zhome = scope._motion_driver.zhome
+
+    def held():
+        release.wait(30)
+        zhome()
+
+    monkeypatch.setattr(scope._motion_driver, 'zhome', held)
+    monkeypatch.setattr(scope.motion, '_MOTION_WAIT_BASE_S', 0.0)
+    monkeypatch.setattr(scope.motion, '_MOTION_SETTLE_TIMEOUT_S', 0.0)
+
+    with pytest.raises(LaneCallStillRunningError) as raised:
+        scope.motion.home('Z')
+    monkeypatch.undo()
+    release.set()
+    scope.motion.wait_until_finished_moving(timeout_s=30)
+
+    assert not isinstance(raised.value, TimeoutError)
+    assert (raised.value.reason, raised.value.member) == ('still_running', 'home')
+    assert scope.motion.axes_without_position() == {}

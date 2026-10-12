@@ -77,8 +77,7 @@ class TestTheRegistrantHearsTheRefusal:
     ):
         from modules.plugins import PluginRegistry, PluginSpec
 
-        registry = PluginRegistry()
-        registry.live_processing.bind_scope(sim_scope)
+        registry = PluginRegistry(sim_scope)
         spec = PluginSpec(
             name='refused_plugin',
             version='1.0.0',

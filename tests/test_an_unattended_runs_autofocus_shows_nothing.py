@@ -12,8 +12,8 @@ diagnostic runs under its own claim:
 - the sweep fails while the run is live: logged, the run captures at its
   fallback Z, nothing shown;
 - the run is stopped while the sweep is live: cleanup closes the scope and
-  then aborts the sweep, and an aborted sweep raises only AutofocusAborted,
-  which notifies nothing.
+  then aborts the sweep, and an aborted sweep raises only a quiet
+  AutofocusAborted, which notifies nothing.
 
 Real simulated scope, real executors, a real AutofocusRunner on a real
 AutofocusThread, listening on the real notification centre the runners
@@ -31,7 +31,7 @@ import time
 import pytest
 
 from modules.exceptions import AutofocusAborted
-from modules.notification_center import Severity, notifications
+from modules.notification_center import OutcomeKind, Severity, notifications, outcome_of
 from modules.protocol_state_machine import SequencedCaptureRunMode
 from tests.test_run_outcome_reports_autofocus_data import COMPLETION_TIMEOUT, _AfRig
 
@@ -160,6 +160,8 @@ def test_a_sweep_the_stop_aborts_shows_nothing(tmp_path, shown, run_mode, trigge
     assert isinstance(sweep.exception(), AutofocusAborted), (
         f'precondition: cleanup aborted the live sweep; it ended with {sweep.exception()!r}'
     )
+    # Stopped, not failed: recorded, and the run's own end is the report.
+    assert outcome_of(sweep.exception()).kind == OutcomeKind.QUIET
     assert _autofocus_titles(shown) == [], (
         f'a stopped unattended ({trigger!r}) run showed its aborted sweep: '
         f'{_autofocus_titles(shown)}'

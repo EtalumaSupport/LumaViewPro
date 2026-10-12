@@ -5,7 +5,8 @@ The run saves its protocol inside its folder under that name. ``prepare``
 took it unchecked, so a name holding a separator or a drive -- from a
 script, the SDK or a REST caller -- wrote the protocol file wherever the
 name pointed, outside the run folder and the live folder. Such a name is
-refused before anything is committed, told once, for every caller.
+refused before anything is committed, for every caller, and raised for
+the boundary the caller sits behind to report.
 """
 
 from __future__ import annotations
@@ -47,7 +48,7 @@ def _warnings(centre_posts, since):
     'name',
     ['a/b', 'a\\b', 'C:x', 'C:\\x', '..', '/abs/evil', '../../../outside/evil'],
 )
-def test_a_name_that_is_a_path_is_refused_once_and_nothing_is_written(
+def test_a_name_that_is_a_path_is_refused_and_nothing_is_written_or_posted(
     executor, tmp_path, centre_posts, name
 ):
     parent_dir = tmp_path / 'live' / 'ProtocolData'
@@ -58,7 +59,7 @@ def test_a_name_that_is_a_path_is_refused_once_and_nothing_is_written(
 
     assert refusal.value.reason == 'sequence_name_invalid'
     assert repr(name) in refusal.value.message
-    assert len(_warnings(centre_posts, since)) == 1
+    assert _warnings(centre_posts, since) == []
     assert sorted(p.name for p in tmp_path.rglob('*')) == []
 
 

@@ -426,13 +426,13 @@ else:
 
 from modules import gui_logger
 from modules.app_config import (
-    load_autofocus_log_enable,
-    load_log_level,
-)
-from modules.app_config import (
     load_mode as _load_mode,
 )
-from modules.exceptions import ConfigError
+from modules.exceptions import (
+    CatalogueNameRefusedError,
+    ObjectiveUnknownError,
+    ScopeModelUnknownError,
+)
 from modules.settings_init import fall_back_to_template
 
 # Kivy Factory imports: the classes below are referenced from ui/lumaviewpro.kv
@@ -736,8 +736,6 @@ class LumaViewProApp(TooltipMixin, App):
         # MetricsLogger owns the executor watchdog, system metrics, and camera-temp
         # logging so adding a new periodic metric only requires editing one module.
 
-        load_log_level(source_path)
-        load_autofocus_log_enable(source_path)
         logger.info('[LVP Main  ] LumaViewProApp.on_start()')
 
         def after_the_startup_motion() -> None:
@@ -1007,7 +1005,7 @@ class LumaViewProApp(TooltipMixin, App):
 
         # Load engineering mode early so _init_ui() methods see the correct value.
         # ENGINEERING_MODE is build-only; intentionally a local, not a global.
-        ENGINEERING_MODE = _load_mode(source_path)
+        ENGINEERING_MODE = _load_mode(settings)
 
         stage = Stage()
 
@@ -1084,20 +1082,26 @@ class LumaViewProApp(TooltipMixin, App):
                 outcome_listener=notification_popup_bridge,
             )
 
-        # A stored value the settings store cannot configure a scope
-        # from -- a key the shipped template lacks, a shipped objective the
-        # installation's catalogue does not hold -- reaches here as
-        # ConfigError, and there is nothing above build() to catch it, so
-        # without this the app does not launch at all. Come
-        # up on the shipped template instead, the same recovery
-        # settings_init already runs for an unreadable current.json.
-        # The user's file is NOT repaired: a value we cannot interpret
-        # is not a value we may overwrite. The fallback writes the one log
-        # line for the rejection, carrying its cause; a raise out of here
-        # is the process's crash, recorded once by the crash hook.
+        # A stored value the scope refuses to be configured from -- a model
+        # the installation's catalogue does not list, an objective it does
+        # not hold -- reaches here as that refusal, and there is nothing
+        # above build() to catch it, so without this the app does not
+        # launch at all. Come up on the shipped template instead, the same
+        # recovery settings_init already runs for an unreadable
+        # current.json. Only these: a program or installation defect is
+        # not repaired by the template, which would hide it behind a
+        # provisional session. The user's file is NOT repaired: a value we
+        # cannot interpret is not a value we may overwrite. The fallback
+        # writes the one log line for the rejection, carrying its cause; a
+        # raise out of here is the process's crash, recorded once by the
+        # crash hook.
         try:
             scope_session = _compose(settings)
-        except ConfigError as unusable:
+        except (
+            ScopeModelUnknownError,
+            CatalogueNameRefusedError,
+            ObjectiveUnknownError,
+        ) as unusable:
             # Republishes the store IN PLACE and marks the session
             # provisional, so `settings` below is the template and every
             # save raises until the user resolves it. Reassigning the name

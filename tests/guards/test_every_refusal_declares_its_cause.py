@@ -54,7 +54,7 @@ def _types_mixing_in(mixin):
     found = {}
     for name in names:
         rel = classes[name][0]
-        module = importlib.import_module(rel.removesuffix('.py').replace('/', '.'))
+        module = importlib.import_module(ast_seams.module_name(rel))
         found[name] = getattr(module, name)
     return found
 

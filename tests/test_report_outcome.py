@@ -16,9 +16,9 @@ from datetime import timedelta
 
 import pytest
 
+from drivers.exceptions import HardwareError
 from modules.exceptions import (
-    CaptureError,
-    ConfigError,
+    CaptureFailedError,
     HardwareCommandRefusedError,
     ObjectiveUnknownError,
     RunAlreadyEndedError,
@@ -91,7 +91,8 @@ class TestANotice:
 
 class TestAFault:
     def test_typed_is_shown_in_its_own_words_and_logged_with_its_traceback(self, centre, caplog):
-        fault = _raised(ConfigError('the camera stopped delivering frames'))
+        # A fault written for the person whose type has no title of its own.
+        fault = _raised(HardwareError('the camera stopped delivering frames'))
         with caplog.at_level(logging.DEBUG):
             centre.report_outcome(
                 fault, solicited=False, category='Task:grab', fault_title='Grab failed'
@@ -107,16 +108,16 @@ class TestAFault:
     def test_its_one_line_names_its_reason_code(self, centre, caplog):
         # Two faults can share a type; a support bundle tells them apart by
         # the reason the one line carries.
-        fault = _raised(CaptureError('camera inactive or not grabbing', 'no_frame_returned'))
+        fault = _raised(CaptureFailedError('camera inactive or not grabbing', 'no_frame_returned'))
         with caplog.at_level(logging.DEBUG):
             centre.report_outcome(fault, solicited=True, category='UI:LIVE_CAPTURE')
 
         assert _records(caplog) == [(OUTCOMES, logging.ERROR, True)]
         (line,) = [r.getMessage() for r in caplog.records if r.name == OUTCOMES]
-        assert 'CaptureError (no_frame_returned)' in line, line
+        assert 'CaptureFailedError (no_frame_returned)' in line, line
 
     def test_a_capture_failure_is_shown_under_its_types_title(self, centre):
-        fault = _raised(CaptureError('camera inactive or not grabbing', 'no_frame_returned'))
+        fault = _raised(CaptureFailedError('camera inactive or not grabbing', 'no_frame_returned'))
         centre.report_outcome(
             fault, solicited=True, category='UI:LIVE_CAPTURE', fault_title='Grab failed'
         )

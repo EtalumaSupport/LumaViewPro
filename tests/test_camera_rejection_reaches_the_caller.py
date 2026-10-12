@@ -253,3 +253,47 @@ class TestTheImplsStayNonRaising:
         lock = imaging._lock_auto_gain_impl()
 
         assert lock is not None
+
+
+class TestARaisingWriteIsARejection:
+    """A driver that raises from a node write is refused like one that
+    answers ``False``: every public setter raises ``CameraSettingRejected``
+    with the driver's exception as its cause, never the driver's own, and the
+    write still marks readiness stale. ``_camera_write`` is the one place it
+    is done, so no setter can let a driver's exception out of the API."""
+
+    def test_every_setter_raises_a_chained_rejection(self, sim_scope):
+        imaging = sim_scope.imaging
+        setters = {
+            'gain': lambda: imaging.set_gain_db(9.0),
+            'exposure': lambda: imaging.set_exposure_ms(20.0),
+            'auto_exposure': lambda: imaging.set_auto_exposure_time(True),
+            'frame_size': lambda: imaging.set_frame_size(1024, 1024),
+            'binning': lambda: imaging.set_binning_size(2),
+            'pixel_format': lambda: imaging.set_pixel_format('Mono12'),
+            'black_level': lambda: imaging.set_black_level(10.0),
+        }
+        escaped = {}
+        for node, setter in setters.items():
+            sim_scope.simulation.refuse_camera_write(node, 'raise')
+            try:
+                setter()
+            except CameraSettingRejected as rejected:
+                if not isinstance(rejected.__cause__, RuntimeError):
+                    escaped[node] = f'unchained: cause {rejected.__cause__!r}'
+            except Exception as other:  # the defect under test: anything else escaped
+                escaped[node] = repr(other)
+            else:
+                escaped[node] = 'no raise'
+            sim_scope.simulation.clear()
+        assert not escaped, f'a raising write did not reach the caller as a rejection: {escaped}'
+
+    def test_a_raising_gain_write_still_marks_readiness_stale(self, sim_scope):
+        validity = sim_scope.imaging.frame_validity
+        before = validity.invalidation_counts.get('gain', 0)
+        sim_scope.simulation.refuse_camera_write('gain', 'raise')
+
+        with pytest.raises(CameraSettingRejected):
+            sim_scope.imaging.set_gain_db(9.0)
+
+        assert validity.invalidation_counts.get('gain', 0) == before + 1

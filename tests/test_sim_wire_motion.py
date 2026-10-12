@@ -38,7 +38,7 @@ def board(request):
 class TestHomingInInstantMode:
     def test_a_full_board_homes_every_axis_and_lands_at_the_firmwares_home(self, board):
         started = time.monotonic()
-        assert board.home() is True
+        assert board.home() is None
         assert time.monotonic() - started < 2.0
         assert board.has_homed() and board.has_thomed()
         # The firmware's own 'Initial Position after home' from the unit config.
@@ -54,7 +54,7 @@ class TestHomingInInstantMode:
     @pytest.mark.parametrize('board', [('LS820', 'Z', 'instant')], indirect=True)
     def test_a_z_only_board_homes_z_and_reports_the_missing_stage(self, board):
         assert board.detect_present_axes() == ['Z']
-        assert board.home() is True  # the driver counts the firmware's partial home as success
+        assert board.home() is None  # the driver counts the firmware's partial home as success
         assert board.has_homed()
         # The firmware zeroes Z at its reference and stops there when it finds
         # no stage to home; the park position is only reached after X and Y.
@@ -63,13 +63,13 @@ class TestHomingInInstantMode:
 
 class TestMovesInInstantMode:
     def test_a_move_reaches_its_target(self, board):
-        assert board.home()
+        assert board.home() is None
         board.move_abs_pos('X', 20000.0)
         assert board.wait_for_position('X', timeout=2.0)
         assert board.current_pos('X') == pytest.approx(20000.0, abs=0.1)
 
     def test_a_move_into_the_reference_switch_never_reaches_its_target(self, board):
-        assert board.home()
+        assert board.home() is None
         board.move('X', -400_000)  # microsteps, far past the flag
         assert not board.wait_for_position('X', timeout=0.3)
         left, _right = board.limit_switch_status('X')
@@ -83,7 +83,7 @@ class TestRealisticMode:
     def test_a_20_mm_move_takes_the_ramps_time(self, board):
         # 20 mm on the shipped INI at 16 MHz: 0.13 s up, 0.40 s at speed,
         # 0.13 s down, plus the driver's 10 ms poll.
-        assert board.home()
+        assert board.home() is None
         start = board.current_pos('X')
         started = time.monotonic()
         board.move_abs_pos('X', start + 20000.0)
@@ -96,7 +96,7 @@ class TestRealisticMode:
 @pytest.mark.slow
 @pytest.mark.parametrize('board', [('LS850T', 'XYZT', 'realistic', '3.0')], indirect=True)
 def test_a_stop_mid_move_leaves_the_stage_short_of_its_target(board):
-    assert board.home()
+    assert board.home() is None
     start = board.current_pos('X')
     target = start + 60000.0
     board.move_abs_pos('X', target)

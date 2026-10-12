@@ -43,6 +43,17 @@ def iter_package_modules(packages):
             )
 
 
+def module_name(rel_path: str) -> str:
+    """The name a production file is imported by, from its repo-relative path.
+
+    A package is imported by its own name: as ``<package>.__init__`` it
+    would load a second time and define every class in it twice, which a
+    guard reading classes by name then sees as two classes.
+    """
+    parts = Path(rel_path).with_suffix('').parts
+    return '.'.join(parts[:-1] if parts[-1] == '__init__' else parts)
+
+
 def production_modules():
     """Yield ``(rel_path, ast.Module)`` for every production module.
 

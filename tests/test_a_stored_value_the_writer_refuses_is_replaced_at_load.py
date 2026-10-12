@@ -46,6 +46,8 @@ def _prepare(tmp_path, edit):
         ('protocol', 'period', 0.001),
         # A leaf with no range is held to its kind too, an infinity not a number.
         ('zstack', 'step_size', math.inf),
+        # Valid JSON no float can hold: replaced, not a crash before the fallback.
+        ('zstack', 'range', 10**400),
         ('scale_bar', 'enabled', 'yes'),
     ],
 )

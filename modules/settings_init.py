@@ -6,6 +6,7 @@ import logging
 import pathlib
 import time
 
+from lib.lumascope_error import Fault
 from modules import labware_loader
 from modules.exceptions import (
     ArgumentRefusedError,
@@ -43,7 +44,7 @@ _REQUIRED_SETTINGS_KEYS = frozenset(
 )
 
 
-class SettingsFileError(ValueError):
+class SettingsFileError(Fault, ValueError):
     """A settings file exists but could not be turned into a settings dict.
 
     Subclasses ValueError deliberately: `load_lvp_settings` routes a bad

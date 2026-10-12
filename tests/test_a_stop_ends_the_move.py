@@ -12,8 +12,13 @@ import time
 
 import pytest
 
-from modules.exceptions import MotorStopFailedError, MoveNotCompletedError
+from modules.exceptions import (
+    MotorStopFailedError,
+    MoveNotCompletedError,
+    MoveStoppedError,
+)
 from modules.lumascope_api.motion import AxisState
+from modules.notification_center import OutcomeKind, outcome_of
 from modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
@@ -36,11 +41,20 @@ def session(tmp_path):
 _HOLD_WAIT_S = 10.0
 
 
+def _ended(e: MoveNotCompletedError) -> str:
+    """The reason a move ended with, checked against its kind: a stop is a
+    notice, told to the person as information, and every other ending a fault."""
+    stop = e.reason in ('stopped', 'superseded')
+    assert isinstance(e, MoveStoppedError) is stop, (type(e).__name__, e.reason)
+    assert outcome_of(e).kind == (OutcomeKind.NOTICE if stop else OutcomeKind.FAULT)
+    return e.reason
+
+
 def _reason(handle):
     try:
         handle.wait()
     except MoveNotCompletedError as e:
-        return e.reason
+        return _ended(e)
     return 'arrived'
 
 
@@ -68,13 +82,12 @@ def test_a_stop_the_board_does_not_answer_fails_and_ends_the_move(session):
     """A STOP with no reply was taken for firmware without STOP: no raise,
     no generation moved, and a move it may have stopped read arrived."""
     motion = session.scope.motion
-    driver = motion._driver
     handle = motion.start_move_absolute('X', 60000.0)
-    driver._fail_on.add('STOP')
+    session.scope.simulation.drop_replies('motor', count=None, command='STOP')
 
     with pytest.raises(MotorStopFailedError):
         motion.stop_motion()
-    driver._fail_on.discard('STOP')
+    session.scope.simulation.clear()
 
     assert _reason(handle) == 'stopped'
 
@@ -198,7 +211,7 @@ def _turret_change_reason(motion):
     try:
         motion._move_turret_impl(2)
     except MoveNotCompletedError as e:
-        return e.reason
+        return _ended(e)
     return 'arrived'
 
 
