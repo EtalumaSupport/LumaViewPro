@@ -117,7 +117,6 @@ def private_fault_reaches() -> dict[str, list[str]]:
 # Pinned at the guard's first run. Lower a value in the commit that moves the
 # file's tests onto scope.simulation; never raise one.
 _PRIVATE_REACH_PIN: dict[str, int] = {
-    'tests/capability/serial_p01_cable_pull.py': 2,
     'tests/test_an_unplugged_fx2_is_removed.py': 1,
     'tests/test_audit_fixes.py': 3,
     'tests/test_lumascope_api.py': 3,

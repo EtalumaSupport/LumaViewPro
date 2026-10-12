@@ -38,14 +38,6 @@ def _boards(scope):
     return {'motor': scope._motion_driver, 'led': scope._led_driver}
 
 
-def _emulated(scope):
-    """The simulator's two boards, which stand in for the operator's cable."""
-    return (
-        scope._motion_driver._backend.motor_board,
-        scope._led_driver._backend.led_board,
-    )
-
-
 def _listed(board):
     import serial.tools.list_ports
 
@@ -90,8 +82,9 @@ def _pull(scope):
     boards = list(_boards(scope).values())
     if HARDWARE:
         return _wait_for(boards, False, 'PULL the cable now')
-    for emulated in _emulated(scope):
-        emulated.unplug()
+    # The simulator's two boards stand in for the operator's one cable.
+    for board in ('motor', 'led'):
+        scope.simulation.unplug(board)
     return True
 
 
@@ -101,8 +94,8 @@ def _replug(scope):
         back = _wait_for(boards, True, 'REPLUG the cable now')
         time.sleep(_SETTLE_S)
         return back
-    for emulated in _emulated(scope):
-        emulated.replug()
+    for board in ('motor', 'led'):
+        scope.simulation.replug(board)
     return True
 
 
