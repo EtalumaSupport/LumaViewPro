@@ -3761,10 +3761,7 @@ class ScopeSession:
                 frame the camera reports holding at it).
         """
         imaging = self.scope.imaging
-        # Asked before the offered sizes: a scope with no camera offers
-        # none, and "does not support" would name the wrong cause.
-        imaging.refuse_camera_not_connected('set_binning_size')
-        self._refuse_unoffered_binning(size)
+        self._refuse_unusable_binning(size, 'set_binning_size')
         label = binning.binning_size_int_to_str(size)
         native = self._native_frame()
         imaging.set_binning_size(size)
@@ -3828,19 +3825,28 @@ class ScopeSession:
         stored frame after the apply is the truth.
 
         Raises:
+            HardwareCommandRefusedError: ``'not_connected'``, naming the
+                camera, with none connected.
             CameraSettingUnsupportedError: This camera does not offer
-                ``size``, as ``set_binning_size`` refuses it.
+                ``size``.
+
+            Each as ``set_binning_size`` refuses it.
         """
-        self._refuse_unoffered_binning(size)
+        self._refuse_unusable_binning(size, 'frame_at_binning')
         return self._target_frame(self._native_frame(), size)
 
-    def _refuse_unoffered_binning(self, size: int) -> None:
-        """Refuse a binning factor this camera does not offer.
+    def _refuse_unusable_binning(self, size: int, member: str) -> None:
+        """Refuse a binning with no camera to take it, or one this camera does not offer.
 
         Raises:
+            HardwareCommandRefusedError: ``'not_connected'``, naming the
+                camera and ``member``, with none connected.
             CameraSettingUnsupportedError: ``size`` is not one of
                 ``capabilities.camera_binning_sizes``.
         """
+        # Asked before the offered sizes: a scope with no camera offers
+        # none, and "does not support" would name the wrong cause.
+        self.scope.imaging.refuse_camera_not_connected(member)
         offered = self.scope.capabilities.camera_binning_sizes
         if size not in offered:
             raise CameraSettingUnsupportedError(

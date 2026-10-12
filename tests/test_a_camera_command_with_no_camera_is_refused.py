@@ -195,6 +195,18 @@ def test_with_no_camera_every_diagnostic_runner_is_refused_naming_it(make_sessio
     assert _not_named_as_the_camera(DIAGNOSTIC_RUNNERS, session.scope.diagnostics) == {}
 
 
+def test_with_no_camera_a_binning_preview_is_refused_naming_it(make_session, monkeypatch):
+    # The preview asks for the camera before the offered sizes, as the apply
+    # does: a scope with no camera offers none, so "does not support" would
+    # name the wrong cause, and the frame it answered before was a guess.
+    session = _camera_less(make_session, monkeypatch, 'LS850')
+
+    assert (
+        _not_named_as_the_camera({'frame_at_binning': lambda s: s.frame_at_binning(2)}, session)
+        == {}
+    )
+
+
 @pytest.mark.parametrize('model', ('LS850', 'LS620'))
 def test_with_no_camera_every_off_is_satisfied_with_its_own_answer(
     make_session, monkeypatch, centre_posts, model
