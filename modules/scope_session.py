@@ -929,6 +929,7 @@ class ScopeSession:
         no_engineering: bool = False,
         sim_camera_stall: 'SimulatedStall | None' = None,
         sim_file_stall: 'SimulatedStall | None' = None,
+        sim_focal_spread_um: float = 0.0,
         outcome_listener: Callable[['Notification'], None] | None = None,
     ) -> 'ScopeSession':
         """Create a session, constructing defaults for any missing components.
@@ -977,6 +978,11 @@ class ScopeSession:
                 ``after_s`` seconds after bring-up the lane's worker is held
                 for ``for_s`` seconds. Refused beside ``scope`` and unless
                 ``simulate``.
+            sim_focal_spread_um: how far the simulated sample's focus may
+                lie from where bring-up places the stage, drawn once per
+                session, so every session needs a real autofocus; 0 (the
+                default) puts it in focus there. Refused as
+                ``sim_camera_stall`` is.
             outcome_listener: heard from before the scope is built, so it
                 hears what bring-up reports; the session's
                 ``add_outcome_listener`` says what it receives. A factory
@@ -1009,6 +1015,7 @@ class ScopeSession:
                 ('source_path', source_path),
                 ('sim_camera_stall', sim_camera_stall),
                 ('sim_file_stall', sim_file_stall),
+                ('sim_focal_spread_um', sim_focal_spread_um or None),
             ):
                 if value is not None:
                     raise ArgumentRefusedError(
@@ -1060,6 +1067,7 @@ class ScopeSession:
                     fx2_debug_wire=settings['fx2_debug_wire_enabled'],
                     source_path=get_source_root(source_path),
                     sim_camera_stall=sim_camera_stall,
+                    sim_focal_spread_um=sim_focal_spread_um,
                 )
                 # The bring-up -- configure from settings, then release the
                 # camera start gate -- happens below, once the session exists,

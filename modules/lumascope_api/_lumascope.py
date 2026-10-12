@@ -485,6 +485,7 @@ class Lumascope:
         *,
         source_path: 'str | os.PathLike | None' = None,
         sim_camera_stall: 'SimulatedStall | None' = None,
+        sim_focal_spread_um: float = 0.0,
     ):
         """Initialize Microscope.
 
@@ -559,16 +560,24 @@ class Lumascope:
                 grabbing, so a simulated scope shows a stalled stream without
                 hardware. Only the simulated camera has one, so it is refused
                 on real hardware and on a model simulated with an FX2.
+            sim_focal_spread_um: How far the simulated sample's focus may
+                lie from where bring-up places the stage, drawn once: with a
+                spread, every session needs a real autofocus. 0 puts the
+                sample in focus there, so a test's frames are the same every
+                run. Refused like ``sim_camera_stall``.
 
         Raises:
             ArgumentRefusedError: ``'needs_simulated_scope'`` or
-                ``'needs_simulated_camera'``, ``sim_camera_stall`` given for
-                a scope whose camera is not the simulated camera.
+                ``'needs_simulated_camera'``, ``sim_camera_stall`` or a
+                ``sim_focal_spread_um`` given for a scope whose camera is not
+                the simulated camera.
         """
-        if sim_camera_stall is not None and not simulate:
-            raise ArgumentRefusedError(
-                'needs_simulated_scope', argument='sim_camera_stall', value=sim_camera_stall
-            )
+        for argument, value, given in (
+            ('sim_camera_stall', sim_camera_stall, sim_camera_stall is not None),
+            ('sim_focal_spread_um', sim_focal_spread_um, sim_focal_spread_um != 0.0),
+        ):
+            if given and not simulate:
+                raise ArgumentRefusedError('needs_simulated_scope', argument=argument, value=value)
         if warn_pre_release:
             _fire_pre_release_warning()
         self._fx2_debug_wire = fx2_debug_wire
@@ -589,10 +598,15 @@ class Lumascope:
             model = sim_model or configured_model or default_model
             sim_axes = model_axes(self._scope_models, model)
             sim_led_board, sim_motor_board = self._simulated_boards(model, sim_axes)
-            if sim_camera_stall is not None and sim_led_board == 'FX2':
-                raise ArgumentRefusedError(
-                    'needs_simulated_camera', argument='sim_camera_stall', value=sim_camera_stall
-                )
+            if sim_led_board == 'FX2':
+                for argument, value, given in (
+                    ('sim_camera_stall', sim_camera_stall, sim_camera_stall is not None),
+                    ('sim_focal_spread_um', sim_focal_spread_um, sim_focal_spread_um != 0.0),
+                ):
+                    if given:
+                        raise ArgumentRefusedError(
+                            'needs_simulated_camera', argument=argument, value=value
+                        )
         else:
             # Whether the selected model is a manual scope, so a probe that
             # finds no motor board says so as expected rather than warning
@@ -711,6 +725,18 @@ class Lumascope:
             camera_kwargs['illumination_func'] = lambda: sum(
                 ma for _, ma in live_lit_pairs(self.illumination)
             )
+
+            # Focus falls off as the objective's depth of field says, asked
+            # the same way and under the same ordering: runtime_state is
+            # built further down, and this runs only while a frame is made.
+            def _depth_of_field() -> float | None:
+                objective_id = self.runtime_state.get_current_objective_id()
+                if objective_id is None:
+                    return None
+                return float(self.runtime_state.get_objective_info(objective_id)['DOF'])
+
+            camera_kwargs['depth_of_field_func'] = _depth_of_field
+            camera_kwargs['focal_spread_um'] = sim_focal_spread_um
         # The exception a camera raised while connecting, kept until bring-up
         # reports it so the report carries the backend's own traceback.
         self._camera_failure: BaseException | None = None
@@ -727,7 +753,7 @@ class Lumascope:
                     camera_type, simulate=simulate, **camera_kwargs
                 )
                 if simulate:
-                    self._camera_driver.load_cycle_images()
+                    self._camera_driver.load_specimen()
                     if sim_camera_stall is not None:
                         self._camera_driver.hold_frames(sim_camera_stall)
                     logger.info('[SCOPE API ] Using SIMULATED Camera')
@@ -1499,10 +1525,12 @@ class Lumascope:
         slices below zero and an autofocus sweep starts 5 mm from anything
         worth focusing on.
 
-        The height is not chosen here. The simulated camera already declares
-        the plane its specimen is sharp at, and reading it is what keeps the
-        two halves of one simulated scene agreeing about where the sample
-        sits rather than each holding a number.
+        The height is not chosen here. The simulated camera declares where
+        its sample nominally sits, and reading it is what keeps the two
+        halves of one simulated scene agreeing about where the sample is
+        rather than each holding a number. The sample's true focus is within
+        a few tens of microns of it and differs each session, as an operator
+        focusing by eye lands near a sample and an autofocus finds the rest.
 
         Placed only on a scope that has a Z axis to place, and only once Z
         has a reference position. A convenience may not be able to break
@@ -1520,8 +1548,10 @@ class Lumascope:
             )
             return
         # A camera that failed to construct leaves a driver that is not the
-        # simulator, so the focal plane is asked for rather than assumed.
-        focal_plane = getattr(self._camera_driver, 'get_focal_z', None)
+        # simulator, so the sample's height is asked for rather than assumed.
+        # The nominal height, not the true focus: an operator focusing by eye
+        # lands near the sample, and an autofocus finds the rest.
+        focal_plane = getattr(self._camera_driver, 'get_nominal_focal_z', None)
         if focal_plane is None:
             return
         # Waited, like the home before it: move_absolute returns only once Z

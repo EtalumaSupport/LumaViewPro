@@ -156,8 +156,8 @@ class TestDisableHomingIsNoStartupMotion:
 
 
 class TestTheSimulatorStartsWhereItsSampleIs:
-    """Bring-up leaves a simulated stage at the plane its own camera calls
-    sharp, not at the floor where homing leaves it.
+    """Bring-up leaves a simulated stage at the height its own camera says
+    the sample sits at, not at the floor where homing leaves it.
 
     Homing to the bottom of travel is correct and shared with the real
     instrument. The difference is what happens next: a real operator
@@ -166,16 +166,41 @@ class TestTheSimulatorStartsWhereItsSampleIs:
     below zero and an autofocus sweep began on nothing.
     """
 
-    def test_bringup_leaves_z_off_the_floor_and_at_the_declared_plane(self, session):
+    def test_bringup_leaves_z_off_the_floor_and_near_the_sample(self, session):
         session.start_application_session()
 
         z = session.scope.motion.get_current_position('Z')
         assert z > 0.0, 'bring-up left the stage at the bottom of travel, where no sample is'
 
-        # Read from the camera rather than restated here: the point of the
-        # change is that one simulated scene holds one idea of where the
-        # sample is, so a literal in this test would defeat what it checks.
-        declared_plane = session.scope._camera_driver.get_focal_z()
-        assert z == pytest.approx(declared_plane, abs=1.0), (
-            f'the stage settled at {z} um but the camera calls {declared_plane} um sharp'
+        # Read from the camera rather than restated here: the point is that
+        # one simulated scene holds one idea of where the sample is, so a
+        # literal in this test would defeat what it checks. The stage lands
+        # at the sample's nominal height, as an operator focusing by eye
+        # would, and the true focus is near it, for an autofocus to find.
+        camera = session.scope._camera_driver
+        nominal = camera.get_nominal_focal_z()
+        assert z == pytest.approx(nominal, abs=1.0), (
+            f'the stage settled at {z} um but the sample nominally sits at {nominal} um'
+        )
+        assert camera.get_focal_z() == nominal, 'with no spread the sample is in focus there'
+
+    def test_a_focal_spread_puts_the_focus_within_it_of_the_stage(self, tmp_path):
+        s = ScopeSession.create(
+            complete_settings(live_folder=str(tmp_path)), simulate=True, sim_focal_spread_um=25.0
+        )
+        try:
+            camera = s.scope._camera_driver
+            assert abs(camera.get_focal_z() - camera.get_nominal_focal_z()) <= 25.0
+        finally:
+            s.shutdown()
+            s.scope.disconnect()
+
+    def test_a_focal_spread_is_refused_on_a_real_scope(self, tmp_path):
+        with pytest.raises(ArgumentRefusedError) as refused:
+            ScopeSession.create(
+                complete_settings(live_folder=str(tmp_path)), sim_focal_spread_um=25.0
+            )
+        assert (refused.value.reason, refused.value.argument) == (
+            'needs_simulated_scope',
+            'sim_focal_spread_um',
         )

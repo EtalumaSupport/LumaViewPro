@@ -21,7 +21,7 @@ import numpy as np
 from drivers.simulated_ledboard import SimulatedLEDBoard
 from drivers.simulated_motorboard import SimulatedMotorBoard
 from drivers.simulated_camera import SimulatedCamera
-from drivers.simulated_specimen import specimen_frames
+from drivers.simulated_specimen import drift_frames, specimen_field
 from tests.camera_fakes import grab_a_frame_made_after_now
 
 # Imported for its side effect, not its name: drivers/motorboard.py installs
@@ -916,29 +916,27 @@ class TestSimulatedCamera:
 
 class TestNoPatternRequestedRendersTheSpecimen:
     """Turning a test pattern off, or never asking for one, must show the
-    specimen field -- not the static ramp the cycle was built to replace.
+    specimen field -- not a static ramp.
 
     The ramp was reachable three ways: the constructor default, the
-    disable path, and any unrecognized pattern name. Landing on it undid
-    the cycle for the rest of the session.
+    disable path, and any unrecognized pattern name.
     """
 
     def test_disabling_a_pattern_restores_the_moving_specimen(self):
-        cam = SimulatedCamera()
+        cam = SimulatedCamera(width=480, height=300)
         cam.open_and_start()
         cam.set_test_pattern(enabled=True, pattern='Black')
         cam.set_test_pattern(enabled=False)
         frames = [np.asarray(cam._generate_image(), dtype=float) for _ in range(4)]
-        spread = max(f.max() for f in frames) - min(f.min() for f in frames)
         diffs = [float(np.mean(np.abs(a - b))) for a, b in itertools.pairwise(frames)]
-        assert spread > 0
-        assert max(diffs) > 0, 'consecutive frames are identical -- this is a static image'
+        assert min(f.std() for f in frames) > 0
+        assert min(diffs) > 0, 'consecutive frames are identical -- this is a static image'
 
-    def test_a_fresh_camera_renders_the_specimen_without_load_cycle_images(self):
-        cam = SimulatedCamera()
+    def test_a_fresh_camera_renders_the_specimen_without_load_specimen(self):
+        cam = SimulatedCamera(width=480, height=300)
         frames = [np.asarray(cam._generate_image(), dtype=float) for _ in range(4)]
         diffs = [float(np.mean(np.abs(a - b))) for a, b in itertools.pairwise(frames)]
-        assert max(diffs) > 0, 'the constructor default is a static image'
+        assert min(diffs) > 0, 'the constructor default is a static image'
 
     def test_an_unknown_pattern_name_warns_and_still_renders(self):
         # The suite mocks lvp_logger, so the driver's `logger` is a MagicMock
@@ -971,14 +969,6 @@ class TestNoPatternRequestedRendersTheSpecimen:
         assert img.max() > 255, (
             f'12-bit fallback peaks at {img.max()} -- not scaled to the 4095 range'
         )
-
-    def test_disabling_a_pattern_does_not_enable_exposure_pacing(self):
-        """grab() paces frame delivery on exposure ONLY for 'image_cycle'.
-        The disable path must not borrow that behaviour by reusing the name."""
-        cam = SimulatedCamera()
-        cam.open_and_start()
-        cam.set_test_pattern(enabled=False)
-        assert cam._test_pattern != 'image_cycle'
 
     # -- Grabbing state --
 
@@ -1077,7 +1067,6 @@ class TestNoPatternRequestedRendersTheSpecimen:
         cam.open_and_start()
         cam.set_test_pattern(enabled=True, pattern='focus_target')
         cam.set_focal_z(5000.0)
-        cam.set_blur_per_um(0.01)
 
         scores = {}
         for z in [3000, 4000, 4500, 4800, 5000, 5200, 5500, 6000, 7000]:
@@ -1097,18 +1086,18 @@ class TestNoPatternRequestedRendersTheSpecimen:
         cam.open_and_start()
         cam.set_test_pattern(enabled=True, pattern='focus_target')
         cam.set_focal_z(5000.0)
-        cam.set_blur_per_um(0.01)
 
-        # Get scores at increasing distances from focus
+        # Get scores at increasing distances from focus, in depths of field
+        # (a camera built on its own renders with a 10 um depth of field)
         cam.set_z_position(5000.0)
         grab_a_frame_made_after_now(cam)
         score_at_focus = focus_vollath4_original(image=cam.array)
 
-        cam.set_z_position(5500.0)
+        cam.set_z_position(5010.0)
         grab_a_frame_made_after_now(cam)
         score_near = focus_vollath4_original(image=cam.array)
 
-        cam.set_z_position(6500.0)
+        cam.set_z_position(5040.0)
         grab_a_frame_made_after_now(cam)
         score_far = focus_vollath4_original(image=cam.array)
 
@@ -1124,17 +1113,16 @@ class TestNoPatternRequestedRendersTheSpecimen:
         cam.open_and_start()
         cam.set_test_pattern(enabled=True, pattern='focus_target')
         cam.set_focal_z(5000.0)
-        cam.set_blur_per_um(0.01)
 
-        cam.set_z_position(4000.0)
+        cam.set_z_position(4980.0)
         grab_a_frame_made_after_now(cam)
         score_below = focus_vollath4_original(image=cam.array)
 
-        cam.set_z_position(6000.0)
+        cam.set_z_position(5020.0)
         grab_a_frame_made_after_now(cam)
         score_above = focus_vollath4_original(image=cam.array)
 
-        # Within 20% of each other (both 1000um from focus)
+        # Within 20% of each other (both 20 um, two depths of field, from focus)
         ratio = score_below / score_above if score_above != 0 else float('inf')
         assert 0.8 < ratio < 1.2, f'Asymmetric: below={score_below}, above={score_above}'
 
@@ -1154,6 +1142,39 @@ class TestNoPatternRequestedRendersTheSpecimen:
         z_val[0] = 3000.0
         grab_a_frame_made_after_now(cam)
         assert cam.get_z_position() == 3000.0
+
+    def test_the_specimen_is_sharpest_at_the_focal_plane(self):
+        """The specimen a live view shows blurs with defocus, so a sweep's
+        best score is at the sample's focal plane, from either side."""
+        from modules.autofocus_functions import focus_vollath4_original
+
+        dof = 4.0
+        cam = SimulatedCamera(width=480, height=300, depth_of_field_func=lambda: dof)
+        cam.open_and_start()
+        cam.set_focal_z(5007.0)
+
+        scores = {}
+        for z in [4995.0, 4999.0, 5003.0, 5005.0, 5007.0, 5009.0, 5011.0, 5015.0, 5019.0]:
+            cam.set_z_position(z)
+            grab_a_frame_made_after_now(cam)
+            scores[z] = focus_vollath4_original(image=cam.array)
+
+        best_z = max(scores, key=scores.get)
+        assert best_z == 5007.0, f'best focus at {best_z}, not the focal plane. Scores: {scores}'
+
+    def test_a_shallower_depth_of_field_falls_off_faster(self):
+        """The same distance from focus blurs a high-NA objective more."""
+        from modules.autofocus_functions import focus_vollath4_original
+
+        def score_10_um_off(dof):
+            cam = SimulatedCamera(width=480, height=300, depth_of_field_func=lambda: dof)
+            cam.open_and_start()
+            cam.set_focal_z(5000.0)
+            cam.set_z_position(5010.0)
+            grab_a_frame_made_after_now(cam)
+            return focus_vollath4_original(image=cam.array)
+
+        assert score_10_um_off(dof=55.5) > score_10_um_off(dof=1.7)
 
     def test_no_blur_at_focal_point(self):
         """Image at focal point should be identical to unblurred target."""
@@ -1334,54 +1355,52 @@ class TestNoPatternRequestedRendersTheSpecimen:
         assert cam.is_grabbing() is False
 
 
-class TestSpecimenCycleFrames:
-    """The fallback cycle frames must drift, not strobe.
+class TestTheSpecimenField:
+    """The specimen is one field, drifting one pixel around a circle.
 
-    The cycle advances once per generated frame, so four unrelated patterns
-    flash at frame rate -- the earlier horizontal-ramp / vertical-ramp /
-    bullseye / checkerboard set did exactly that, and it was unwatchable in
-    simulate mode. These pin the properties that make the replacement calm:
-    neighbouring frames stay close, none is fully black or blown out, and the
-    wrap back to the first frame is the same size step as the others.
+    A field that changed from frame to frame changed what a focus metric
+    scored at one Z, so a sweep found its peak wherever the change put it.
     """
 
-    def test_frames_are_distinct_so_a_live_stream_is_visible(self):
-        frames = specimen_frames(600, 800)
-        assert len(frames) == 4
-        assert len({f.tobytes() for f in frames}) == 4, (
-            'identical frames make a running stream indistinguishable from a frozen one'
-        )
-
-    def test_consecutive_frames_stay_close_including_the_wrap(self):
-        frames = specimen_frames(600, 800)
-        deltas = [
-            float(np.abs(frames[i].astype(int) - frames[(i + 1) % len(frames)].astype(int)).mean())
-            for i in range(len(frames))
-        ]
-        # Calibrated against the live display, not against the old patterns:
-        # an 8 px sampling offset (~12 grey levels) was rejected as looking
-        # like the sample being jostled, and 1 px (~1.6) was accepted. The
-        # ceiling sits between 1 px and 2 px so a creeping increase trips it
-        # while the accepted setting has ~2x headroom for frame-size variation.
-        # The wrap is included deliberately: sampling around a circle is what
-        # keeps the last->first step the same size as the others.
-        assert max(deltas) < 3.0, f'frames too far apart, this reads as jostling: {deltas}'
-        assert min(deltas) > 1.0, f'frames too similar to read as motion: {deltas}'
-
     def test_never_fully_black_or_blown_out(self):
-        for frame in specimen_frames(600, 800):
-            assert frame.min() > 0, 'a crushed frame reads as a dead camera'
-            assert frame.max() < 255, 'a blown frame hides the exposure control'
+        field = specimen_field(600, 800)
+        assert field.min() > 0, 'a crushed field reads as a dead camera'
+        assert field.max() < 255, 'a blown field hides the exposure control'
 
     def test_deterministic_for_a_fixed_seed(self):
-        first = specimen_frames(600, 800)
-        second = specimen_frames(600, 800)
-        assert all(np.array_equal(a, b) for a, b in zip(first, second, strict=True))
+        assert np.array_equal(specimen_field(600, 800), specimen_field(600, 800))
 
-    def test_matches_requested_frame_size(self):
-        for frame in specimen_frames(1200, 1920):
-            assert frame.shape == (1200, 1920)
-            assert frame.dtype == np.uint8
+    def test_matches_requested_size(self):
+        field = specimen_field(1200, 1920)
+        assert field.shape == (1200, 1920)
+        assert field.dtype == np.uint8
+
+    def test_the_drift_moves_the_frame_one_pixel_a_step_including_the_wrap(self):
+        frames = drift_frames(specimen_field(600, 800), 600, 800)
+        assert len({f.tobytes() for f in frames}) == len(frames), (
+            'identical frames make a running stream indistinguishable from a frozen one'
+        )
+        field = specimen_field(600, 800)
+        # One pixel of shift on this field changes about 4 grey levels on
+        # average; a larger drift would show as more.
+        for a, b in zip(frames, frames[1:] + frames[:1], strict=True):
+            change = float(np.abs(a.astype(int) - b.astype(int)).mean())
+            assert 0 < change < 6.0, f'a drift step changed {change} grey levels'
+        assert all(f.shape == field.shape for f in frames)
+
+    def test_the_drift_does_not_move_a_focus_score(self):
+        """A sweep's scores differ by focus, not by which drift step a frame was."""
+        from modules.autofocus_functions import focus_vollath4_original
+
+        cam = SimulatedCamera(width=480, height=300, depth_of_field_func=lambda: 4.0)
+        cam.open_and_start()
+        cam.set_focal_z(5000.0)
+        cam.set_z_position(5000.0)
+        at_focus = [focus_vollath4_original(image=cam._generate_image()) for _ in range(4)]
+        cam.set_z_position(5001.0)
+        quarter_dof_off = focus_vollath4_original(image=cam._generate_image())
+        drift_spread = max(at_focus) - min(at_focus)
+        assert drift_spread < (min(at_focus) - quarter_dof_off) / 10
 
 
 class TestCameraProfiles:

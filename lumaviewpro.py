@@ -1080,6 +1080,10 @@ class LumaViewProApp(TooltipMixin, App):
                 no_engineering=no_engineering,
                 sim_camera_stall=sim_camera_stall,
                 sim_file_stall=sim_file_stall,
+                # A simulated sample's focus lies up to 25 um from where
+                # bring-up leaves the stage, as a real sample's does, so each
+                # simulated start needs a real autofocus.
+                sim_focal_spread_um=25.0 if simulate_mode else 0.0,
                 outcome_listener=notification_popup_bridge,
             )
 
