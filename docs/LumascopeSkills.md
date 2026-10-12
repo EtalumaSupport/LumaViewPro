@@ -1,14 +1,28 @@
 # LumaViewPro — API & Integration Reference
 
 **What is public.** The public surface is defined in code: a member is
-public unless its docstring marks it internal ("not part of the L2 API
-surface") or an engineering ruling places it on the bench/tech-support
-surface. This document is the reference for that surface, and the test
-suite holds the two in lockstep both ways -- every call form here must
-resolve on the live API, and every public member must appear here. A
-member absent from this document is internal or engineering surface:
-it may be renamed, moved, or removed in any release without notice,
-and code that calls it is unsupported.
+public when it carries the `@api` mark (`modules/api_surface.py`), and a
+class publishes the fields its `@api_fields` names. A member marked
+`@api(in_process=True)` is for Python callers and is kept off the wire.
+Three more marks say what a member does, for a host deciding how to carry
+it:
+
+- `reads`: it changes nothing.
+- `stop`: the member that stops what it starts, written `Class.member`
+  (`RunHandle.stop` for a run starter, `ImagingAPI.stop_streaming` for the
+  stream).
+- `engineering`: a bench or support member (fan, drive status, LED
+  engineering mode, the camera bandwidth test, the Pylon probe, the grab
+  benchmark), which a researcher's client does not need.
+
+What a member may raise is its docstring's `Raises:` section: each refusal
+and fault by class, and for a refusal the reason a caller branches on.
+
+This document is the reference for that surface, and the test suite holds
+the two in lockstep both ways -- every call form here must resolve on the
+live API, and every public member must appear here. A member absent from
+this document is not API: it may be renamed, moved, or removed in any
+release without notice, and code that calls it is unsupported.
 
 ## PRE-RELEASE API
 
