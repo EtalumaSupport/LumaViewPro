@@ -103,12 +103,13 @@ def test_enhance_picker_hands_the_path_on_after_the_protocol_guard():
     assert 'is_dir' not in body and 'is_file' not in body
 
 
-def test_a_target_that_is_not_there_is_refused_on_the_lane(tmp_path):
+def test_a_target_that_is_not_there_is_refused_on_the_lane(tmp_path, monkeypatch):
     import threading
 
     import pytest
 
-    from modules.exceptions import PostProcessingRefusedError
+    import modules.path_utils as path_utils
+    from modules.exceptions import LiveFolderPathRefusedError
     from modules.scope_session import ScopeSession
     from tests.settings_fixtures import complete_settings
 
@@ -116,20 +117,20 @@ def test_a_target_that_is_not_there_is_refused_on_the_lane(tmp_path):
         complete_settings(live_folder=str(tmp_path / 'live')), simulate=True
     )
     ran_on = []
-    real = session.post_processing._enhance
+    real = path_utils.existing_file
 
     def recording(*args, **kwargs):
         ran_on.append(threading.current_thread().name)
         return real(*args, **kwargs)
 
     try:
-        session.post_processing._enhance = recording
-        with pytest.raises(PostProcessingRefusedError) as caught:
+        monkeypatch.setattr(path_utils, 'existing_file', recording)
+        with pytest.raises(LiveFolderPathRefusedError) as caught:
             session.post_processing.enhance(tmp_path / 'gone.tif')
     finally:
         session.shutdown()
 
-    assert caught.value.reason == 'unreadable'
+    assert caught.value.reason == 'not_found'
     assert 'gone.tif' in str(caught.value)
     assert ran_on and ran_on[0] != threading.main_thread().name, (
         'refused on the lane, not the caller'

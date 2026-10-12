@@ -138,8 +138,12 @@ def test_a_runs_post_run_step_is_work_until_its_thread_ends(sim_session):
     assert sim_session.live_work.work == ()
 
 
-def test_a_build_reports_its_progress_and_the_builds_behind_it_wait(sim_session):
+def test_a_build_reports_its_progress_and_the_builds_behind_it_wait(sim_session, tmp_path):
     post = sim_session.post_processing
+    # The lane refuses a folder that is not there, so each build gets one.
+    folder_a, folder_b = tmp_path / 'folder-a', tmp_path / 'folder-b'
+    folder_a.mkdir()
+    folder_b.mkdir()
     said, go_on, finish = threading.Event(), threading.Event(), threading.Event()
     seen_by_caller = []
     answers = {}
@@ -162,13 +166,13 @@ def test_a_build_reports_its_progress_and_the_builds_behind_it_wait(sim_session)
         target=lambda: answers.__setitem__(
             'stitch',
             post._run(
-                slow_build, 'stitch', 'folder-a', on_progress=lambda p, d: seen_by_caller.append(p)
+                slow_build, 'stitch', folder_a, on_progress=lambda p, d: seen_by_caller.append(p)
             ),
         )
     )
     second = threading.Thread(
         target=lambda: answers.__setitem__(
-            'zproject', post._run(quick_build, 'zproject', 'folder-b', on_progress=None)
+            'zproject', post._run(quick_build, 'zproject', folder_b, on_progress=None)
         )
     )
     first.start()
@@ -177,7 +181,7 @@ def test_a_build_reports_its_progress_and_the_builds_behind_it_wait(sim_session)
     _until(lambda: live_work.POST_PROCESSING_QUEUED in _kinds(sim_session), 'the queued build')
 
     running = _item(sim_session, live_work.POST_PROCESSING)
-    assert running.name == 'stitch of folder-a'
+    assert running.name == f'stitch of {folder_a}'
     assert running.percent == 10
     assert _item(sim_session, live_work.POST_PROCESSING_QUEUED).left == 1
 
@@ -189,7 +193,7 @@ def test_a_build_reports_its_progress_and_the_builds_behind_it_wait(sim_session)
 
     assert seen_by_caller == [10, 60], "the caller's own progress callback is still called"
     # Each build answered its caller: one that raised on the lane has no answer.
-    assert answers == {'stitch': built('folder-a'), 'zproject': built('folder-b')}
+    assert answers == {'stitch': built(folder_a), 'zproject': built(folder_b)}
     assert sim_session.live_work.work == ()
 
 

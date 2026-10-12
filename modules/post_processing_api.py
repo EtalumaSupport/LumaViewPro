@@ -4,8 +4,11 @@
 Stitch, z-projection, composite, video, Quick Enhance and cell count: each
 member takes a folder and its build's own settings, reports progress through
 an optional callback, and returns what the build made or raises the typed
-outcome (``PostProcessingRefusedError`` when the folder cannot yield it,
-``PostProcessingFailedError`` when the build did not produce everything).
+outcome (``LiveFolderPathRefusedError`` when nothing is at the folder,
+``'not_found'``, or a file is, ``'not_a_folder'``;
+``PostProcessingRefusedError`` when the folder is there and cannot yield
+it; ``PostProcessingFailedError`` when the build did not produce
+everything).
 Every caller -- the GUI, a script, REST -- reaches the same member.
 
 The builds run on their own lane, never on the file lane a protocol run
@@ -30,7 +33,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from lvp_logger import logger
-from modules import live_work
+from modules import live_work, path_utils
 from modules.exceptions import (
     PostProcessingFailedError,
     PostProcessingOperation,
@@ -168,6 +171,11 @@ def _answering[R](record: Callable[[dict], R], build: Callable[..., dict]) -> Ca
         return record(build(*args, **kwargs))
 
     return answer
+
+
+def _existing_file_or_folder(path: pathlib.Path) -> pathlib.Path:
+    """*path*, if a file or a folder is there: what an enhance reads."""
+    return path if path.is_dir() else path_utils.existing_file(path)
 
 
 class PostProcessingAPI:
@@ -371,14 +379,18 @@ class PostProcessingAPI:
             words.
 
         Raises:
-            PostProcessingRefusedError: reason ``unreadable``, when there is
-                no file or folder at *target*.
+            LiveFolderPathRefusedError: ``'not_found'``, nothing is at
+                *target*.
+            PostProcessingRefusedError: reason ``unreadable``, *target* is
+                a file that is not an image Quick Enhance can read; reason
+                ``no_data``, a folder that holds none.
             PostProcessingFailedError: a file could not be enhanced.
         """
         return self._run(
             self._enhance,
             'enhance',
             pathlib.Path(target),
+            reads=_existing_file_or_folder,
             on_progress=on_progress,
             on_derived_image=on_derived_image,
         )
@@ -399,6 +411,7 @@ class PostProcessingAPI:
             outcome in words.
 
         Raises:
+            LiveFolderPathRefusedError: as every member here raises it.
             PostProcessingRefusedError: the method cannot be used (reason
                 ``method_invalid``), before the count is queued; or the
                 folder has nothing to count.
@@ -414,7 +427,7 @@ class PostProcessingAPI:
             on_progress=on_progress,
         )
 
-    def _run(self, action, member: str, folder, *args, **kwargs):
+    def _run(self, action, member: str, folder, *args, reads=path_utils.existing_folder, **kwargs):
         """Run *action* on the post-processing lane and return its answer.
 
         The build says on the lane when it starts and how it ends, so a
@@ -425,6 +438,9 @@ class PostProcessingAPI:
         *folder* is the build's first argument, the folder (or, for an
         enhance, the file) it reads. Its progress reaches ``work`` through
         the ``on_progress`` it is handed, the caller's own still called.
+        *reads* refuses a *folder* that is not there to read; it is asked
+        on the lane, where the build reads it, so the answer cannot go
+        stale while an earlier build runs.
         """
         caller_progress = kwargs.get('on_progress')
 
@@ -436,11 +452,11 @@ class PostProcessingAPI:
                 caller_progress(percent, detail)
 
         @functools.wraps(action)
-        def build(*a, **kw):
+        def build(path, *a, **kw):
             logger.info(f'[PostProc  ] {member} started on {folder}')
             started = time.monotonic()
             try:
-                result = action(*a, **kw)
+                result = action(reads(path), *a, **kw)
             except BaseException as outcome:
                 logger.info(
                     f'[PostProc  ] {member} ended after {time.monotonic() - started:.1f} s: '
@@ -491,20 +507,13 @@ class PostProcessingAPI:
     ) -> EnhanceResult:
         import cv2
 
+        from modules import image_utils
         from modules.quick_enhance import (
             QUICK_ENHANCE_OPERATION,
             QuickEnhancer,
             QuickEnhanceSettings,
         )
 
-        # Asked here, on the lane, where the target is read: a check before
-        # the queue could go stale while an earlier build runs.
-        if not target.is_dir() and not target.is_file():
-            raise PostProcessingRefusedError(
-                operation=QUICK_ENHANCE_OPERATION,
-                reason='unreadable',
-                message=f'There is no file or folder at {target} to enhance.',
-            )
         enhancer = QuickEnhancer()
         settings = QuickEnhanceSettings()
         if target.is_dir():
@@ -523,6 +532,14 @@ class PostProcessingAPI:
             )
             created = result['created']
         else:
+            # By the test a folder's images are chosen by, so one file and a
+            # folder of them are refused for the same thing.
+            if not image_utils.is_image(target):
+                raise PostProcessingRefusedError(
+                    operation=QUICK_ENHANCE_OPERATION,
+                    reason='unreadable',
+                    message=f'{target.name} is not an image Quick Enhance can read.',
+                )
             try:
                 created = [
                     enhancer.export_file(target, settings, display_callback=on_derived_image)

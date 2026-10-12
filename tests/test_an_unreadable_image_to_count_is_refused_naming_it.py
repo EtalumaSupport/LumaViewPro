@@ -5,7 +5,8 @@ The panel's preview caught the read's failure, logged a warning and
 returned, so choosing an unreadable file changed nothing and said nothing.
 The folder count caught the same failure in its own words. One reader in
 modules/post_processing.py now refuses the file by type, naming it, for
-both; the panel reports it through the GUI boundary.
+both; the panel reports it through the GUI boundary. A file that is not
+there is refused as any path that names nothing is (``not_found``).
 """
 
 from __future__ import annotations
@@ -17,7 +18,11 @@ import pytest
 import tifffile
 
 import ui.post_processing as panel_module
-from modules.exceptions import PostProcessingFailedError, PostProcessingRefusedError
+from modules.exceptions import (
+    LiveFolderPathRefusedError,
+    PostProcessingFailedError,
+    PostProcessingRefusedError,
+)
 from modules.post_processing import (
     PostProcessing,
     default_cell_count_method,
@@ -27,9 +32,9 @@ from modules.post_processing import (
 
 def test_a_missing_file_is_refused_naming_it(tmp_path):
     path = tmp_path / 'nowhere.tif'
-    with pytest.raises(PostProcessingRefusedError) as refused:
+    with pytest.raises(LiveFolderPathRefusedError) as refused:
         read_cell_count_image(path)
-    assert refused.value.reason == 'unreadable'
+    assert refused.value.reason == 'not_found'
     assert str(path) in str(refused.value)
 
 
@@ -59,6 +64,17 @@ def test_the_folder_count_names_an_unreadable_image_in_the_same_words(tmp_path):
     with pytest.raises(PostProcessingFailedError) as failed:
         PostProcessing().apply_cell_count_to_folder(str(tmp_path), default_cell_count_method())
     assert list(failed.value.errors) == [str(refused.value)]
+
+
+def test_a_folder_named_like_an_image_is_not_counted_and_named(tmp_path):
+    tifffile.imwrite(tmp_path / 'good.tif', np.zeros((8, 8), np.uint8))
+    (tmp_path / 'stack.tif').mkdir()
+
+    with pytest.raises(PostProcessingFailedError) as failed:
+        PostProcessing().apply_cell_count_to_folder(str(tmp_path), default_cell_count_method())
+
+    assert len(failed.value.errors) == 1
+    assert 'stack.tif is a folder, not a file' in failed.value.errors[0]
 
 
 def test_the_panel_reports_an_unreadable_preview_and_keeps_its_image(tmp_path, monkeypatch):

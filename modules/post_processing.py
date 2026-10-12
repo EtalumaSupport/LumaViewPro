@@ -16,6 +16,7 @@ import numpy as np
 import pandas as pd
 
 import modules.image_utils as image_utils
+import modules.path_utils as path_utils
 
 from lvp_logger import logger
 from modules.cell_count import CellCount
@@ -23,6 +24,7 @@ from modules.common_utils import CustomJSONizer, read_table
 from modules.finite_number import is_finite_number
 from modules.exceptions import (
     CellCountScaleDroppedNotice,
+    LiveFolderPathRefusedError,
     PostProcessingFailedError,
     PostProcessingOperation,
     PostProcessingRefusedError,
@@ -203,9 +205,12 @@ def read_cell_count_image(path: str | os.PathLike) -> tuple[np.ndarray, int]:
     can never be read out of sync.
 
     Raises:
-        PostProcessingRefusedError: reason ``unreadable``; the file is missing
-            or is not an image, and the message names it.
+        LiveFolderPathRefusedError: ``'not_found'``, nothing is at ``path``;
+            ``'not_a_file'``, a folder is.
+        PostProcessingRefusedError: reason ``unreadable``; the file is not
+            an image, and the message names it.
     """
+    path = path_utils.existing_file(path)
     try:
         return image_utils.load_pixels(path)
     except (FileNotFoundError, ValueError) as e:
@@ -467,7 +472,9 @@ class PostProcessing:
                     ),
                     name=filename,
                 )
-            except PostProcessingRefusedError as e:
+            except (PostProcessingRefusedError, LiveFolderPathRefusedError) as e:
+                # Not an image after all, a folder named like one, or gone
+                # since the folder was listed.
                 logger.warning(f'[LVP Main  ] Not counting {filename}: {e}')
                 not_counted.append(str(e))
                 continue
