@@ -57,6 +57,11 @@ MINIMUM_PLUGIN_VERSIONS = {
     'etaluma_engineering': '1.0.56',
 }
 
+# Etaluma's bench tool. Once installed it cannot be disabled any other way,
+# so a host started with no_engineering leaves it out before it is imported:
+# the machine behaves as if it were not installed.
+ENGINEERING_PLUGIN = 'etaluma_engineering'
+
 # What this LumaViewPro does that a plugin may rely on, within its major
 # version: no version can say it, since version.txt names the promoted
 # release and many trunk commits share one beta number. A commit that
@@ -695,7 +700,9 @@ class PluginRegistry:
         the built-in is the one reported as not loaded. Each plugin's
         register(host) is wrapped; a plugin that does not load, for any
         reason, is recorded and reported and the rest still load. The
-        settings subscribers will be told about are taken here.
+        settings subscribers will be told about are taken here. With the
+        host's ``no_engineering``, the engineering plugin is left out
+        before it is imported: not checked, not registered, not reported.
 
         Args:
             host: The session hosting the plugins, handed to each plugin as
@@ -711,6 +718,9 @@ class PluginRegistry:
         count = 0
         for ep in discovered:
             ep_name = getattr(ep, 'name', '<unknown>')
+            if ep_name == ENGINEERING_PLUGIN and host.no_engineering:
+                logger.info(f'[Plugins ] {ep_name} left out: the host has no_engineering')
+                continue
             try:
                 module = ep.load()
             except Exception as e:

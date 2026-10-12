@@ -303,7 +303,7 @@ session = ScopeSession.create(
     source_path='.',                        # refused beside scope=: a session's folder is its scope's
     simulate=False,                         # True builds a simulated scope instead of opening hardware
     engineering_mode=False,                 # the session's mode to begin with; a plugin may turn it on
-    no_engineering=False,                   # True: the engineering plugin leaves engineering mode off
+    no_engineering=False,                   # True: the engineering plugin is not loaded
 )
 ```
 

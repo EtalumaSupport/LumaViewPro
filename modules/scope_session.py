@@ -352,9 +352,9 @@ class ScopeSession:
         # session keeps its own for the plate<->stage conversions it serves.
         self.coordinate_transformer = coord_transformations.CoordinateTransformer()
         # The one store for engineering mode. Set from what the host was
-        # built in; the engineering plugin turns it on when it loads, unless
-        # no_engineering, the host's word, which that plugin honours, that it
-        # must not. Every reader --
+        # built in; the engineering plugin turns it on when it loads.
+        # no_engineering is the host's word that the engineering plugin is
+        # not loaded at all (load_plugins leaves it out). Every reader --
         # a run, a still, the metrics cadence, the GUI -- reads it here.
         self.engineering_mode = engineering_mode
         self.no_engineering = no_engineering
@@ -965,8 +965,9 @@ class ScopeSession:
                 False; a separately shipped caller leaves the default.
             engineering_mode: the session's engineering mode to begin with;
                 a plugin may turn it on when the host loads plugins.
-            no_engineering: the host's word, which the engineering plugin
-                honours, that it must not turn engineering mode on.
+            no_engineering: the host's word that the engineering plugin is
+                not loaded: ``load_plugins`` leaves it out before it is
+                imported, as if it were not installed.
             sim_camera_stall: a stall for the simulated camera's stream, so a
                 simulated scope shows a stream that stops delivering; refused
                 beside ``scope`` and by the scope itself unless it is
@@ -3025,7 +3026,9 @@ class ScopeSession:
         The host's one call to have plugins; a session it is never made on
         has none. Each plugin's ``register`` is handed this session as its
         ctx. A plugin that does not load is reported and the rest load;
-        nothing here raises for a plugin. Call it once, after ``create``.
+        nothing here raises for a plugin. Under ``no_engineering`` the
+        engineering plugin is left out, unreported, as if not installed.
+        Call it once, after ``create``.
 
         Raises:
             RuntimeError: this session already loaded its plugins.
