@@ -53,16 +53,22 @@ def _z_target(motion):
     return motion.get_current_position('Z') + 50.0
 
 
-def _lose_the_board_to_the_monitor(motion, monkeypatch):
-    """The monitor sees the board gone and gives a moving axis up as 'board_lost'."""
-    driver = motion._driver
-    real_connected = driver.is_connected
-    monkeypatch.setattr(
-        driver,
-        'is_connected',
-        lambda: False if threading.current_thread().name == 'motion-monitor' else real_connected(),
-    )
-    monkeypatch.setattr(motion, '_DISCONNECT_FAULT_S', 0.1)
+def _pull_the_cable_mid_move(session, axes, monkeypatch) -> threading.Thread:
+    """The cable is pulled while ``axes`` travel: each move is held part of
+    the way and the board unplugged once all have halted, so no move's own
+    command meets the dead port and the monitor finds the board gone and
+    gives each axis up as 'board_lost'. The monitor's bound on a lost board
+    is 3 s; the patch stays until it has a seam."""
+    monkeypatch.setattr(session.scope.motion, '_DISCONNECT_FAULT_S', 0.1)
+    halted = [session.scope.simulation.hold_axis(axis) for axis in axes]
+
+    def pull():
+        if all(event.wait(_TRAVEL_WAIT_S) for event in halted):
+            session.scope.simulation.unplug('motor')
+
+    puller = threading.Thread(target=pull, name='cable-pull', daemon=True)
+    puller.start()
+    return puller
 
 
 def _far_x(motion) -> float:
@@ -85,21 +91,23 @@ class TestAMoveWaits:
         self, session, monkeypatch
     ):
         motion = session.scope.motion
-        _lose_the_board_to_the_monitor(motion, monkeypatch)
+        puller = _pull_the_cable_mid_move(session, ('Z',), monkeypatch)
 
         with pytest.raises(MoveNotCompletedError) as exc:
             motion.move_absolute('Z', _z_target(motion))
+        puller.join()
 
         assert exc.value.reason == 'board_lost'
         assert motion.get_axis_state('Z') == AxisState.UNKNOWN
 
     def test_a_started_moves_wait_gives_the_same_verdict(self, session, monkeypatch):
         motion = session.scope.motion
-        _lose_the_board_to_the_monitor(motion, monkeypatch)
+        puller = _pull_the_cable_mid_move(session, ('Z',), monkeypatch)
         move = motion.start_move_absolute('Z', _z_target(motion))
 
         with pytest.raises(MoveNotCompletedError) as exc:
             move.wait()
+        puller.join()
 
         assert exc.value.axis == 'Z'
         assert exc.value.reason == 'board_lost'
@@ -224,12 +232,12 @@ class TestGoingToAStepWaitsOffTheLane:
         return _protocol(_PLATE, _step(20.0, 20.0, 5000.0, objective))
 
     def test_a_move_that_faults_on_the_way_raises_to_the_caller(self, session, monkeypatch):
-        motion = session.scope.motion
         protocol = self._protocol_far_from_home(session)
-        _lose_the_board_to_the_monitor(motion, monkeypatch)
+        puller = _pull_the_cable_mid_move(session, ('X', 'Y', 'Z'), monkeypatch)
 
         with pytest.raises(MoveNotCompletedError) as exc:
             session.go_to_step(protocol, 0)
+        puller.join()
 
         assert exc.value.reason == 'board_lost'
 
