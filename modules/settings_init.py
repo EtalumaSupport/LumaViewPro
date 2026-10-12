@@ -54,6 +54,9 @@ class SettingsFileError(Fault, ValueError):
     crash.
     """
 
+    reason = 'settings_file_unreadable'
+    title = 'Settings File Unreadable'
+
 
 # Layer sub-keys whose names changed when the storage dict became the L2 API
 # surface. Old name -> new name. `stim_config.illumination` lives one level

@@ -14,6 +14,7 @@ from modules.api_surface import ProgressCallback
 from modules.common_utils import PostFunction
 from modules.exceptions import (
     PostProcessingFailedError,
+    PostProcessingOperation,
     PostProcessingRefusedError,
 )
 from modules.objectives_loader import objective_short_name
@@ -43,11 +44,11 @@ _EXCLUDED_REMEDY = {
 # Each operation's name as a person reads it, for the titles and words of
 # its outcomes; the enum values are file-record keys, not prose.
 _OPERATION_LABELS = {
-    PostFunction.COMPOSITE: 'Composite',
-    PostFunction.STITCHED: 'Stitch',
-    PostFunction.ZPROJECT: 'Z-Projection',
-    PostFunction.VIDEO: 'Video',
-    PostFunction.HYPERSTACK: 'Hyperstack',
+    PostFunction.COMPOSITE: PostProcessingOperation.COMPOSITE,
+    PostFunction.STITCHED: PostProcessingOperation.STITCH,
+    PostFunction.ZPROJECT: PostProcessingOperation.Z_PROJECTION,
+    PostFunction.VIDEO: PostProcessingOperation.VIDEO,
+    PostFunction.HYPERSTACK: PostProcessingOperation.HYPERSTACK,
 }
 
 

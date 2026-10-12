@@ -2,11 +2,16 @@
 
 """Driver-layer exception classes (raised from drivers/, caught at module/API)."""
 
+from typing import ClassVar
+
 from lib.lumascope_error import Fault
 
 
 class HardwareError(Fault, Exception):
     """Hardware communication or configuration failure (motor, LED, camera)."""
+
+    reason = 'hardware_error'
+    title = 'Hardware Error'
 
     words_for_person = True
 
@@ -21,6 +26,9 @@ class ConfigReadError(HardwareError):
     present" need to know the difference or they silently serve another
     source's answer for a unit that has its own.
     """
+
+    reason = 'config_unread'
+    title = 'Board Config Not Read'
 
     pass
 
@@ -43,8 +51,14 @@ class MotionInterlockError(HardwareError):
             without power. The API counts a sent stop as a Stop.
     """
 
+    _TITLES: ClassVar[dict[str, str]] = {
+        'lid_open': 'Lid Open',
+        'stage_unpowered': 'No Stage Power',
+    }
+
     def __init__(self, reason: str, *, moved: bool, stopped: bool):
         super().__init__(f'motion interlock open: {reason} (moved={moved}, stopped={stopped})')
         self.reason = reason
+        self.title = self._TITLES[reason]
         self.moved = moved
         self.stopped = stopped

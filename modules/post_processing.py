@@ -24,16 +24,17 @@ from modules.finite_number import is_finite_number
 from modules.exceptions import (
     CellCountScaleDroppedNotice,
     PostProcessingFailedError,
+    PostProcessingOperation,
     PostProcessingRefusedError,
 )
 from modules.notification_center import notifications
 from modules.api_surface import ProgressCallback
 
 # The operation's name as a person reads it, in its refusals and failures.
-CELL_COUNT_OPERATION = 'Cell Count'
+CELL_COUNT_OPERATION = PostProcessingOperation.CELL_COUNT
 
 # The operation's name for reading a results file back to graph it.
-GRAPHING_OPERATION = 'Graphing'
+GRAPHING_OPERATION = PostProcessingOperation.GRAPHING
 
 # The layout time.ctime writes each image's time in, which a results file is
 # read back by. '%d' also reads ctime's space-padded day.

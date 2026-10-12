@@ -31,7 +31,11 @@ from typing import TYPE_CHECKING
 
 from lvp_logger import logger
 from modules import live_work
-from modules.exceptions import PostProcessingFailedError, PostProcessingRefusedError
+from modules.exceptions import (
+    PostProcessingFailedError,
+    PostProcessingOperation,
+    PostProcessingRefusedError,
+)
 from modules.live_work import WorkItem
 from modules.sequential_io_executor import IOTask
 from modules.api_surface import FilePath, api, api_fields
@@ -244,7 +248,7 @@ class PostProcessingAPI:
         modes = (Stitcher.QUALITY_MODE, Stitcher.FAST_PREVIEW_MODE)
         if mode not in modes:
             raise PostProcessingRefusedError(
-                operation='Stitch',
+                operation=PostProcessingOperation.STITCH,
                 reason='invalid_setting',
                 message=f'{mode!r} is not a stitching mode; use one of {", ".join(modes)}.',
             )
@@ -272,7 +276,7 @@ class PostProcessingAPI:
 
         if method not in ZProjector.methods():
             raise PostProcessingRefusedError(
-                operation='Z-Projection',
+                operation=PostProcessingOperation.Z_PROJECTION,
                 reason='invalid_setting',
                 message=(
                     f'{method!r} is not a projection method; use one of '
@@ -470,7 +474,7 @@ class PostProcessingAPI:
             rate = None
         if rate is None or not rate >= 1:
             raise PostProcessingRefusedError(
-                operation='Video',
+                operation=PostProcessingOperation.VIDEO,
                 reason='invalid_setting',
                 message=(
                     f'{frames_per_sec!r} is not a playback rate: give at least 1 frame '

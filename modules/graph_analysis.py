@@ -14,9 +14,9 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-from modules.exceptions import PostProcessingRefusedError
+from modules.exceptions import PostProcessingOperation, PostProcessingRefusedError
 
-TRENDLINE_OPERATION = 'Trendline'
+TRENDLINE_OPERATION = PostProcessingOperation.TRENDLINE
 
 # The spinner's "no trendline" choice.
 NO_TRENDLINE = 'None'

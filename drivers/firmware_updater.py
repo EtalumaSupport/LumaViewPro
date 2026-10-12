@@ -85,6 +85,9 @@ class UpdateStage(Enum):
 class UpdateError(Fault, Exception):
     """Firmware update failure with stage and recoverability info."""
 
+    reason = 'update_failed'
+    title = 'Firmware Update Failed'
+
     def __init__(self, message: str, stage: UpdateStage, recoverable: bool = True):
         super().__init__(message)
         self.stage = stage

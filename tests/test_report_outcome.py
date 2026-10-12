@@ -91,7 +91,8 @@ class TestANotice:
 
 class TestAFault:
     def test_typed_is_shown_in_its_own_words_and_logged_with_its_traceback(self, centre, caplog):
-        # A fault written for the person whose type has no title of its own.
+        # A fault written for the person: shown under its own type's title,
+        # whatever the catch names for an exception from outside the root.
         fault = _raised(HardwareError('the camera stopped delivering frames'))
         with caplog.at_level(logging.DEBUG):
             centre.report_outcome(
@@ -99,7 +100,7 @@ class TestAFault:
             )
 
         assert [(n.severity, n.title, n.message) for n in centre.shown] == [
-            (Severity.ERROR, 'Grab failed', 'the camera stopped delivering frames')
+            (Severity.ERROR, 'Hardware Error', 'the camera stopped delivering frames')
         ]
         # One line: the reporter's, naming the type, with its traceback; the
         # display post writes none of its own beside it.

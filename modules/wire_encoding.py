@@ -114,9 +114,15 @@ _HOST_FILLED = {'Callable', 'ProgressCallback', 'RunEvents'}
 class NoWireFormError(Fault, TypeError):
     """A value whose type has no wire form reached ``encode``."""
 
+    reason = 'no_wire_form'
+    title = 'No Wire Form'
+
 
 class NotHandedOutError(NoWireFormError):
     """A parameter takes only a live object no wire member hands out, so no client can name one."""
+
+    reason = 'not_handed_out'
+    title = 'Not Handed Out'
 
 
 def project_classes() -> dict[str, type]:

@@ -74,6 +74,9 @@ logger = logging.getLogger('LVP.drivers.registry')
 class DriverNotLiveError(Fault, RuntimeError):
     """A driver selected by name constructed, but its hardware is not live."""
 
+    reason = 'driver_not_live'
+    title = 'Hardware Not Live'
+
 
 def _disconnect_quietly(instance: Any) -> None:
     """Release a rejected driver's port and threads; a failure here is

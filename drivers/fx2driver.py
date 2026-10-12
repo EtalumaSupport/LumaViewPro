@@ -1388,6 +1388,9 @@ class _FX2AbsentError(Fault, RuntimeError):
     raises with its own message.
     """
 
+    reason = 'fx2_absent'
+    title = 'Camera Not Found'
+
 
 class _FX2Connection:
     """Singleton owning the FX2 USB device, through a platform transport.

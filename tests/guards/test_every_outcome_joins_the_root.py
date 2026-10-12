@@ -23,6 +23,7 @@ import ast
 import builtins
 import importlib
 import inspect
+import textwrap
 
 import pytest
 
@@ -210,3 +211,108 @@ def test_a_fault_s_words_reach_the_person_only_when_its_type_says_so():
     assert outcome_of(HardwareError('no response from motor board')).for_person is True
     # A Python error's words are a developer's: the person reads the generic sentence.
     assert outcome_of(RuntimeError('list index out of range')).for_person is False
+
+
+# ---------------------------------------------------------------------------
+# A title on the type, and a reason, on every one (W0 (d1), R1)
+# ---------------------------------------------------------------------------
+
+RAISABLE = tuple(
+    cls for cls in EXCEPTION_CLASSES if issubclass(cls, LumascopeError) and cls not in UMBRELLAS
+)
+_TABLES = ('_TITLES', 'causes', '_REASONS', '_WORDS')
+
+
+def _ours(cls):
+    """The classes in ``cls``'s chain that this codebase defines."""
+    return [k for k in cls.__mro__ if k.__module__.split('.')[0] in ('modules', 'drivers', 'rest')]
+
+
+def _init_sets_reason(cls):
+    for k in _ours(cls):
+        init = vars(k).get('__init__')
+        if init is None:
+            continue
+        tree = ast.parse(textwrap.dedent(inspect.getsource(init)))
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.Assign, ast.AnnAssign)):
+                targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+                if any(
+                    isinstance(t, ast.Attribute)
+                    and t.attr == 'reason'
+                    and ast.unparse(t.value) == 'self'
+                    for t in targets
+                ):
+                    return True
+            if (
+                isinstance(node, ast.Call)
+                and ast.unparse(node.func).endswith('__init__')
+                and (any(kw.arg == 'reason' for kw in node.keywords) or len(node.args) >= 2)
+            ):
+                return True
+    return False
+
+
+def test_every_raisable_outcome_has_a_title_on_its_type():
+    """A title is the class's, or its table's by reason: never chosen where it is raised."""
+    untitled = [
+        cls
+        for cls in RAISABLE
+        if not isinstance(getattr(cls, 'title', None), str)
+        # A _WORDS table holds each reason's title beside its words.
+        and not any(hasattr(cls, table) for table in ('_TITLES', '_WORDS'))
+    ]
+    assert untitled == [], (
+        f'state a title in the class body, or a _TITLES table keyed by reason: {_named(untitled)}'
+    )
+
+
+def test_every_raisable_outcome_declares_its_reason():
+    """A caller branches on the reason, so every class states one."""
+    reasonless = [
+        cls
+        for cls in RAISABLE
+        if not isinstance(getattr(cls, 'reason', None), str)
+        and not any(hasattr(cls, table) for table in _TABLES)
+        and not _init_sets_reason(cls)
+    ]
+    assert reasonless == [], (
+        'state a reason in the class body, a reason-keyed table, or set it in __init__: '
+        f'{_named(reasonless)}'
+    )
+
+
+def test_no_outcome_sets_a_title_per_instance():
+    """``self.title`` is assigned only from a table, so a title cannot be chosen per raise."""
+    from_a_table = ('self._TITLES[', 'ENDING_TITLES[', 'type(self)._TITLES[')
+    per_instance = []
+    for cls in (*RAISABLE, *UMBRELLAS):
+        init = vars(cls).get('__init__')
+        if init is None:
+            continue
+        tree = ast.parse(textwrap.dedent(inspect.getsource(init)))
+        for node in ast.walk(tree):
+            sets_title = isinstance(node, ast.Assign) and any(
+                isinstance(t, ast.Attribute)
+                and t.attr == 'title'
+                and ast.unparse(t.value) == 'self'
+                for t in node.targets
+            )
+            if sets_title and not ast.unparse(node.value).startswith(from_a_table):
+                per_instance.append(f'{cls.__qualname__}: {ast.unparse(node)}')
+    assert per_instance == [], f'a title set per instance, not read from a table: {per_instance}'
+
+
+def test_no_production_call_passes_a_title_to_an_outcome():
+    names = {cls.__name__ for cls in (*RAISABLE, *UMBRELLAS)}
+    passing = []
+    for layer in ('modules', 'drivers', 'rest', 'ui'):
+        for path in sorted((REPO_ROOT / layer).rglob('*.py')):
+            for node in ast.walk(ast.parse(path.read_text(encoding='utf-8'))):
+                if (
+                    isinstance(node, ast.Call)
+                    and ast.unparse(node.func).split('.')[-1] in names
+                    and any(kw.arg == 'title' for kw in node.keywords)
+                ):
+                    passing.append(f'{path.relative_to(REPO_ROOT)}:{node.lineno}')
+    assert passing == [], f'a title passed where an outcome is built: {passing}'

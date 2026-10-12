@@ -620,6 +620,8 @@ class ProtocolNotLoadedError(Fault, ProtocolError):
         file: The path that could not be read.
     """
 
+    reason = 'protocol_not_loaded'
+
     title = 'Protocol Not Loaded'
 
     def __init__(self, file, cause: OSError):
@@ -640,6 +642,8 @@ class ProtocolNotSavedError(Fault, ProtocolError):
     Attributes:
         file: The path the protocol was to be written to.
     """
+
+    reason = 'protocol_not_saved'
 
     title = 'Protocol Not Saved'
 
@@ -741,6 +745,8 @@ class InstallationFileError(Fault, Exception):
     Attributes:
         file_path: The file that could not be used.
     """
+
+    reason = 'installation_file_unusable'
 
     words_for_person = True
     title = 'Installation File Unusable'
@@ -1124,6 +1130,8 @@ class SettingsFileNotReplacedError(Fault, ConfigError):
         file: The settings file that is still in place.
     """
 
+    reason = 'settings_file_not_replaced'
+
     title = 'Settings File Not Replaced'
 
     def __init__(self, file: str, cause: OSError):
@@ -1420,6 +1428,9 @@ class RunWaitOnUiThreadError(Fault, ProtocolError):
     GUI displays a run's end from its callbacks, never by waiting on it.
     """
 
+    reason = 'wait_on_callback_thread'
+    title = 'Run Wait Not Possible'
+
     def __init__(self):
         super().__init__(
             "A run's wait was made on the thread that delivers the run's callbacks, "
@@ -1444,12 +1455,14 @@ class RunStartError(Fault, ProtocolError):
             string; those belong in the log.
     """
 
+    _TITLES: ClassVar[dict[str, str]] = ENDING_TITLES
+
     def __init__(self, reason: str, message: str):
-        if reason not in ENDING_TITLES:
+        if reason not in self._TITLES:
             raise TypeError(f'RunStartError has no reason {reason!r}')
         super().__init__(f'{reason}: {message}')
         self.reason = reason
-        self.title = ENDING_TITLES[reason]
+        self.title = self._TITLES[reason]
         self.message = message
 
 
@@ -1538,6 +1551,25 @@ class HyperstackRefusedError(Fault, CaptureError):
         self.message = message
 
 
+class PostProcessingOperation(StrEnum):
+    """Every post-processing operation, by the name a person reads.
+
+    A post-processing outcome's title is keyed by the operation and its
+    reason, so the operations are a closed set: an operation outside it fails
+    where its outcome is built.
+    """
+
+    COMPOSITE = 'Composite'
+    STITCH = 'Stitch'
+    Z_PROJECTION = 'Z-Projection'
+    VIDEO = 'Video'
+    HYPERSTACK = 'Hyperstack'
+    CELL_COUNT = 'Cell Count'
+    GRAPHING = 'Graphing'
+    TRENDLINE = 'Trendline'
+    QUICK_ENHANCE = 'Quick Enhance'
+
+
 class PostProcessingRefusedError(Refusal, CaptureError):
     """What a post-processing operation was given cannot yield the output asked of it.
 
@@ -1565,13 +1597,21 @@ class PostProcessingRefusedError(Refusal, CaptureError):
         "'ProtocolData/<timestamp>/' folder whose protocol included Z-stack steps."
     )
 
+    # Each operation's heading, and the one reason that names its own: a
+    # z-projection refused for want of Z-stack data says so.
+    _TITLES: ClassVar[dict[object, str]] = {
+        **{operation: f'{operation} Not Possible' for operation in PostProcessingOperation},
+        (PostProcessingOperation.Z_PROJECTION, 'no_data'): 'No Z-Stack Data Found',
+    }
+
     def __init__(self, *, operation: str, reason: str, message: str):
-        zstack_missing = operation == 'Z-Projection' and reason == 'no_data'
-        if zstack_missing:
+        operation = PostProcessingOperation(operation)
+        key = (operation, reason) if (operation, reason) in self._TITLES else operation
+        if key != operation:
             message = f'{message}{self._NO_ZSTACK_ADVICE}'
         super().__init__(message, reason)
         self.operation = operation
-        self.title = 'No Z-Stack Data Found' if zstack_missing else f'{operation} Not Possible'
+        self.title = self._TITLES[key]
 
 
 class PostProcessingFailedError(Fault, CaptureError):
@@ -1590,6 +1630,15 @@ class PostProcessingFailedError(Fault, CaptureError):
         errors: Every failed group's error, in order.
     """
 
+    _TITLES: ClassVar[dict[tuple[PostProcessingOperation, str], str]] = {
+        (operation, reason): f'{operation} {heading}'
+        for operation in PostProcessingOperation
+        for reason, heading in (
+            ('post_processing_failed', 'Failed'),
+            ('post_processing_incomplete', 'Incomplete'),
+        )
+    }
+
     def __init__(
         self,
         *,
@@ -1604,15 +1653,14 @@ class PostProcessingFailedError(Fault, CaptureError):
             saved = f'{len(produced_paths)} output(s) were saved to {output_root}.'
         else:
             saved = 'Nothing was saved.'
-        super().__init__(
-            f'{missing} {saved} Check the log for the cause.',
-            'post_processing_incomplete' if produced_paths else 'post_processing_failed',
-        )
+        operation = PostProcessingOperation(operation)
+        reason = 'post_processing_incomplete' if produced_paths else 'post_processing_failed'
+        super().__init__(f'{missing} {saved} Check the log for the cause.', reason)
         self.operation = operation
         self.produced_paths = produced_paths
         self.output_root = output_root
         self.errors = tuple(errors)
-        self.title = f'{operation} Incomplete' if produced_paths else f'{operation} Failed'
+        self.title = self._TITLES[(operation, reason)]
 
 
 class RecordingStoppedError(Fault, CaptureError):
@@ -1663,6 +1711,11 @@ class RecordingFinalizeError(Fault, CaptureError):
             recording; each is named in its own words.
     """
 
+    _TITLES: ClassVar[dict[str, str]] = {
+        'video_step_finalize_failed': 'Video Finalize Failed',
+        'recording_finalize_failed': 'Recording Finalize Failed',
+    }
+
     def __init__(self, *, protocol_step: bool):
         if protocol_step:
             message = (
@@ -1670,15 +1723,14 @@ class RecordingFinalizeError(Fault, CaptureError):
                 'Frames already written are on disk; check the log.'
             )
             reason = 'video_step_finalize_failed'
-            self.title = 'Video Finalize Failed'
         else:
             message = (
                 'The recording finished but its output could not be fully assembled. '
                 'Frames already written are on disk; check the log.'
             )
             reason = 'recording_finalize_failed'
-            self.title = 'Recording Finalize Failed'
         super().__init__(message, reason)
+        self.title = self._TITLES[reason]
         self.protocol_step = protocol_step
 
 
@@ -2001,9 +2053,11 @@ class RunFailedError(Fault, CaptureError):
 
     fatal = True
 
+    _TITLES: ClassVar[dict[str, str]] = ENDING_TITLES
+
     def __init__(self, *, reason: str, message: str):
         super().__init__(message, reason)
-        self.title = ENDING_TITLES[reason]
+        self.title = self._TITLES[reason]
 
 
 class RunFailedToStartError(Fault, CaptureError):
@@ -2017,9 +2071,11 @@ class RunFailedToStartError(Fault, CaptureError):
         reason: The ending's machine-readable cause.
     """
 
+    _TITLES: ClassVar[dict[str, str]] = ENDING_TITLES
+
     def __init__(self, *, reason: str, message: str):
         super().__init__(message, reason)
-        self.title = ENDING_TITLES[reason]
+        self.title = self._TITLES[reason]
 
 
 class CompositeFailedError(Fault, CaptureError):
@@ -2485,6 +2541,21 @@ class HardwareCommandRefusedError(Refusal, Exception):
         'activity_ended': RefusalCause.REQUEST,
     }
 
+    # Keyed as ``causes`` is: a refusal for who holds the scope reads as the
+    # microscope being busy; one for the hardware's state names that state.
+    _TITLES: ClassVar[dict[str, str]] = {
+        'activity_ended': 'Microscope Busy',
+        'capture_in_flight': 'Microscope Busy',
+        'exclusive_activity_running': 'Microscope Busy',
+        'home_in_flight': 'Microscope Busy',
+        'not_connected': 'Not Connected',
+        'scope_disconnected': 'Not Connected',
+        'axis_absent': 'Not on This Microscope',
+        'position_unread': 'Motor Controller Not Responding',
+        'lid_open': 'Lid Open',
+        'stage_unpowered': 'No Stage Power',
+    }
+
     def __init__(
         self,
         reason: str,
@@ -2504,7 +2575,7 @@ class HardwareCommandRefusedError(Refusal, Exception):
         self.member = member
         self.holder = holder
         self.missing = missing
-        self.title = _COMMAND_REFUSED_TITLES.get(reason, 'Microscope Busy')
+        self.title = self._TITLES[reason]
 
 
 # The refusals a stage's own interlock raises: the hardware is in a state
@@ -2515,15 +2586,6 @@ INTERLOCK_REASONS = frozenset({'lid_open', 'stage_unpowered'})
 # scope. A home refused for one of them is reported where it was asked for,
 # as a missing board is; any other refusal of a home is a caller's defect.
 HARDWARE_STATE_REASONS = frozenset({'not_connected'}) | INTERLOCK_REASONS
-
-_COMMAND_REFUSED_TITLES = {
-    'not_connected': 'Not Connected',
-    'scope_disconnected': 'Not Connected',
-    'axis_absent': 'Not on This Microscope',
-    'position_unread': 'Motor Controller Not Responding',
-    'lid_open': 'Lid Open',
-    'stage_unpowered': 'No Stage Power',
-}
 
 
 @dataclass(frozen=True)
@@ -3300,6 +3362,8 @@ class MoveFaultError(Fault, MoveNotCompletedError):
     }
 
     _TITLES: ClassVar[dict[str, str]] = {
+        'driver_failed': 'Move Did Not Complete',
+        'faulted': 'Move Did Not Complete',
         'stalled': 'Motor Axis Stalled',
         'board_lost': 'Motor Board Disconnected',
         'position_unread': 'Motor Position Unknown',
@@ -3308,7 +3372,7 @@ class MoveFaultError(Fault, MoveNotCompletedError):
 
     def __init__(self, axis: str, reason: str):
         super().__init__(axis, reason)
-        self.title = self._TITLES.get(reason, 'Move Did Not Complete')
+        self.title = self._TITLES[reason]
 
 
 class MoveStoppedError(Notice, MoveNotCompletedError):
@@ -3388,6 +3452,8 @@ class MotorStopFailedError(Fault, Exception):
     and nothing vouches that it landed. The stop generation has already
     moved, so no waited move reads itself as arrived.
     """
+
+    reason = 'motor_stop_failed'
 
     words_for_person = True
     title = 'Motor Stop Failed'
@@ -3538,6 +3604,8 @@ class AutofocusStopped(Quiet, AutofocusAborted):
         reason: ``'stopped'``.
     """
 
+    title = 'Autofocus Stopped'
+
     cause = RefusalCause.STATE
 
     def __init__(self):
@@ -3554,6 +3622,8 @@ class AutofocusRunEnded(Quiet, AutofocusAborted):
     Attributes:
         reason: ``'run_ended'``.
     """
+
+    title = 'Autofocus Not Started'
 
     cause = RefusalCause.STATE
 
@@ -3703,6 +3773,9 @@ class FrameDepthError(Fault, Exception):
         significant_bits: The declared depth it exceeded.
     """
 
+    reason = 'frame_depth_exceeded'
+    title = 'Frame Depth Exceeded'
+
     def __init__(self, value: int, significant_bits: int):
         super().__init__(
             f'frame value {value} exceeds the declared {significant_bits}-bit depth '
@@ -3728,6 +3801,8 @@ class SupportReportNotSavedError(Fault, Exception):
     Attributes:
         report: ``'support report'`` or ``'logs zip'``.
     """
+
+    reason = 'support_report_not_saved'
 
     words_for_person = True
     title = 'Support Report Not Saved'

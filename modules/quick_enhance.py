@@ -21,12 +21,16 @@ import numpy as np
 
 from lvp_logger import logger
 from modules import common_utils, image_utils
-from modules.exceptions import PostProcessingFailedError, PostProcessingRefusedError
+from modules.exceptions import (
+    PostProcessingFailedError,
+    PostProcessingOperation,
+    PostProcessingRefusedError,
+)
 
 
 PIPELINE_VERSION = '3'
 # The operation's name as a person reads it, in its refusals and failures.
-QUICK_ENHANCE_OPERATION = 'Quick Enhance'
+QUICK_ENHANCE_OPERATION = PostProcessingOperation.QUICK_ENHANCE
 QUANTITATIVE_USE_WARNING = (
     'Quick Enhance is for visual inspection and derived exports. '
     'Use raw images for quantitative analysis. '
