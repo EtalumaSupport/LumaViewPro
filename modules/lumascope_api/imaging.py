@@ -4809,8 +4809,9 @@ class ImagingAPI:
                 self-describing in api.log rather than anonymous.
 
         Raises:
-            ArgumentRefusedError: ``auto_gain_settings`` lacks a key the
-                auto-gain write reads, or one is not a number.
+            ArgumentRefusedError: ``'missing_key'``, ``auto_gain_settings``
+                lacks a key the auto-gain write reads; ``'not_a_number'``,
+                one is not a number.
         """
         if auto_gain_settings is not None:
             _refuse_unless_auto_gain_settings(auto_gain_settings, 'auto_gain_settings')

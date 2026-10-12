@@ -1234,9 +1234,8 @@ class DiagnosticsAPI:
             dict with sensor, pixel_size_um, shutter, the gain range and the
             exposure bounds. None if no camera.
 
-        Raises:
-            Whatever the driver raises reading a connected camera, so a
-            failed read is never mistaken for an absent camera.
+        Whatever the driver raises reading a connected camera is raised,
+        so a failed read is never mistaken for an absent camera.
         """
         if not self._scope._camera_driver or not self._scope._camera_driver.active:
             return None

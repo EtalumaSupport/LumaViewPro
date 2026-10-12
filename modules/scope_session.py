@@ -1501,11 +1501,19 @@ class ScopeSession:
         anything else.
 
         Raises:
-            LiveFolderPathRefusedError, ProtocolNotLoadedError,
-            ProtocolFormatError, ProtocolRunRefusedError: As
-                ``ProtocolsAPI.load_protocol`` raises them.
-            ConfigError, HardwareCommandRefusedError: As ``select_labware``
-                raises them; the scope stays on the plate it had.
+            LiveFolderPathRefusedError: ``'not_found'``, nothing is at
+                ``file_path``; ``'not_a_file'``, a folder is.
+            ProtocolNotLoadedError: As ``ProtocolsAPI.load_protocol``.
+            ProtocolFormatError: As ``ProtocolsAPI.load_protocol``.
+            ProtocolRunRefusedError: ``'objective_not_mounted'``,
+                ``'objectives_require_turret'``,
+                ``'turret_objectives_unassigned'`` or
+                ``'layer_not_on_scope'``: the file holds a step this scope
+                cannot perform, as ``ProtocolsAPI.load_protocol``.
+            ConfigError: As ``select_labware``; the scope stays on the
+                plate it had.
+            HardwareCommandRefusedError: ``'exclusive_activity_running'``,
+                as ``select_labware``; the scope stays on the plate it had.
         """
         protocol = self.scope.protocols.load_protocol(file_path=file_path)
         self.scope.protocols.set_labware(protocol, protocol.labware())
@@ -1601,7 +1609,9 @@ class ScopeSession:
             The path written; a missing folder is made.
 
         Raises:
-            LiveFolderPathRefusedError: As ``Protocol.to_file`` raises it.
+            LiveFolderPathRefusedError: ``'not_a_file'``, a folder is at
+                ``file_path``; ``'not_a_folder'``, a file is where its folder
+                would be. As ``Protocol.to_file``.
             ProtocolNotSavedError: The file could not be written; a file
                 already at the path is unchanged.
         """
@@ -1635,6 +1645,9 @@ class ScopeSession:
         acquire stops stimulating: one layer does not capture and
         stimulate at once.
 
+        Nothing is changed on any refusal. Setting a layer to acquire
+        nothing is always admitted.
+
         Raises:
             ArgumentRefusedError: ``'layer_unknown'``, ``layer`` is not a layer.
             SettingRefusedError: ``'out_of_range'``, ``mode`` is not
@@ -1642,8 +1655,6 @@ class ScopeSession:
             ConfigError: this scope's layers could not be resolved.
             HardwareCommandRefusedError: ``'axis_absent'``, ``mode`` is not
                 None and this scope does not have ``layer``.
-            Nothing is changed on any refusal. Setting a layer to acquire
-            nothing is always admitted.
         """
         refuse_unknown_layer(layer)
         settings_paths.refuse_outside_range(f'{layer}.acquire', mode)
@@ -1675,6 +1686,9 @@ class ScopeSession:
         usable, they are left as they were. Turning it off waits on the
         camera lane.
 
+        Nothing is changed on any refusal. Turning auto-gain off is
+        always admitted, unless the scope is held.
+
         Returns:
             The lock when turning off (its ``state`` is None when no arm
             stood), so a caller can read the state the camera reached;
@@ -1684,11 +1698,9 @@ class ScopeSession:
             ArgumentRefusedError: ``'layer_unknown'``, ``layer`` is not a layer.
             ConfigError: this scope's layers could not be resolved.
             HardwareCommandRefusedError: ``'axis_absent'``, ``enabled`` is
-                True and this scope does not have ``layer``.
-            Nothing is changed on any of these. Turning auto-gain off is
-            always admitted.
-            The lock's refusal, when a run, a diagnostic or a home holds the scope;
-                nothing is stored.
+                True and this scope does not have ``layer``; or the lock's
+                ``'exclusive_activity_running'``, when a run, a diagnostic
+                or a home holds the scope.
         """
         refuse_unknown_layer(layer)
         lock = None
@@ -1882,8 +1894,7 @@ class ScopeSession:
         Raises:
             ArgumentRefusedError: ``'layer_unknown'``, ``layer`` is not a layer.
             HardwareCommandRefusedError: ``'axis_absent'``, this scope has
-                no ``layer``.
-            Nothing is changed on either.
+                no ``layer``. Nothing is changed on either.
         """
         self.scope.layer_identity.refuse_unless_on_scope(layer, 'update_step', then='take a step')
         # None when unknown: the protocols API refuses that by name, notified.
@@ -2140,8 +2151,9 @@ class ScopeSession:
         Both waits run in this caller's thread, so the IO lane takes other
         work meanwhile.
 
+        It raises what ``start_go_to_step`` raises, and the following.
+
         Raises:
-            Everything ``start_go_to_step`` raises, and
             MoveNotCompletedError: an axis did not arrive at the step; see
                 ``MoveInFlight.wait``. The layer and the preview are the
                 step's.
@@ -2576,11 +2588,21 @@ class ScopeSession:
         It is not part of the L2 API surface, like the remembered path it
         writes.
 
+        A file that is refused or fails to load leaves no path remembered.
+
         Raises:
-            LiveFolderPathRefusedError, ProtocolNotLoadedError,
-            ProtocolFormatError, ProtocolRunRefusedError, ConfigError,
-            HardwareCommandRefusedError: As ``load_protocol`` and
-                ``apply_layer_settings`` raise them; no path is remembered.
+            LiveFolderPathRefusedError: ``'not_found'``, nothing is at
+                ``file_path``; ``'not_a_file'``, a folder is.
+            ProtocolNotLoadedError: As ``load_protocol``.
+            ProtocolFormatError: As ``load_protocol``.
+            ProtocolRunRefusedError: ``'objective_not_mounted'``,
+                ``'objectives_require_turret'``,
+                ``'turret_objectives_unassigned'`` or
+                ``'layer_not_on_scope'``: the file holds a step this scope
+                cannot perform, as ``load_protocol``.
+            ConfigError: As ``load_protocol`` and ``apply_layer_settings``.
+            HardwareCommandRefusedError: ``'exclusive_activity_running'``,
+                as ``load_protocol`` and ``apply_layer_settings``.
         """
         protocol = self.load_protocol(file_path)
         self.apply_layer_settings(protocol)
@@ -2610,9 +2632,11 @@ class ScopeSession:
         Raises:
             ProtocolNotLoadedError: The file is there and cannot be read; the
                 path is forgotten.
-            ProtocolFormatError, ProtocolRunRefusedError, ConfigError,
-            HardwareCommandRefusedError: As ``load_protocol`` raises them;
-                the path is kept.
+            ProtocolFormatError: As ``load_protocol``; the path is kept.
+            ProtocolRunRefusedError: As ``load_protocol``; the path is kept.
+            ConfigError: As ``load_protocol``; the path is kept.
+            HardwareCommandRefusedError: As ``load_protocol``; the path is
+                kept.
         """
         with self.settings_lock:
             file_path = self.settings['protocol']['filepath']
@@ -3827,10 +3851,9 @@ class ScopeSession:
         Raises:
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera, with none connected.
-            CameraSettingUnsupportedError: This camera does not offer
-                ``size``.
-
-            Each as ``set_binning_size`` refuses it.
+            CameraSettingUnsupportedError: ``'binning_unsupported'``, this
+                camera does not offer ``size``, as ``set_binning_size``
+                refuses it.
         """
         self._refuse_unusable_binning(size, 'frame_at_binning')
         return self._target_frame(self._native_frame(), size)

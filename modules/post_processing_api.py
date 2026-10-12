@@ -250,6 +250,18 @@ class PostProcessingAPI:
 
         Args:
             mode: ``'quality'`` or ``'fast_preview'``.
+
+        Raises:
+            LiveFolderPathRefusedError: ``'not_found'``, nothing is at
+                *folder*; ``'not_a_folder'``, a file is.
+            PostProcessingRefusedError: reason ``invalid_setting``, *mode*
+                is not a stitching mode, before the build is queued; or a
+                folder it cannot build from (``ProtocolPostProcessor``): reason
+                ``protocol_data_unreadable``, ``no_images``,
+                ``unsupported_source_format``, ``output_outside_folder``,
+                ``collision``, ``excluded_inputs`` or ``no_data``.
+            PostProcessingFailedError: some groups could not be built; the
+                files that were are named.
         """
         from modules.stitcher import Stitcher
 
@@ -279,7 +291,20 @@ class PostProcessingAPI:
         on_progress: ProgressCallback | None = None,
     ) -> BuildResult:
         """Project each Z-stack in *folder* to one image by *method*
-        (one of ``ZProjector.methods()``)."""
+        (one of ``ZProjector.methods()``).
+
+        Raises:
+            LiveFolderPathRefusedError: ``'not_found'``, nothing is at
+                *folder*; ``'not_a_folder'``, a file is.
+            PostProcessingRefusedError: reason ``invalid_setting``, *method*
+                is not a projection method, before the build is queued; or a
+                folder it cannot build from (``ProtocolPostProcessor``): reason
+                ``protocol_data_unreadable``, ``no_images``,
+                ``unsupported_source_format``, ``output_outside_folder``,
+                ``collision``, ``excluded_inputs`` or ``no_data``.
+            PostProcessingFailedError: some groups could not be built; the
+                files that were are named.
+        """
         from modules.zprojector import ZProjector
 
         if method not in ZProjector.methods():
@@ -313,6 +338,17 @@ class PostProcessingAPI:
         The output format and each channel's blend threshold are the user's
         configuration -- the same settings a run's own merge uses -- read
         when the build is asked for.
+
+        Raises:
+            LiveFolderPathRefusedError: ``'not_found'``, nothing is at
+                *folder*; ``'not_a_folder'``, a file is.
+            PostProcessingRefusedError: a
+                folder it cannot build from (``ProtocolPostProcessor``): reason
+                ``protocol_data_unreadable``, ``no_images``,
+                ``unsupported_source_format``, ``output_outside_folder``,
+                ``collision``, ``excluded_inputs`` or ``no_data``.
+            PostProcessingFailedError: some groups could not be built; the
+                files that were are named.
         """
         import modules.config_helpers as config_helpers
         from modules.composite_generation import CompositeGeneration
@@ -344,6 +380,19 @@ class PostProcessingAPI:
         Args:
             frames_per_sec: The playback rate, a number of at least 1 or its
                 text; None plays a recording at its own measured rate.
+
+        Raises:
+            LiveFolderPathRefusedError: ``'not_found'``, nothing is at
+                *folder*; ``'not_a_folder'``, a file is.
+            PostProcessingRefusedError: reason ``invalid_setting``,
+                *frames_per_sec* is not a playback rate, before the build is
+                queued; or a folder it cannot build from
+                (``ProtocolPostProcessor``): reason
+                ``protocol_data_unreadable``, ``no_images``,
+                ``unsupported_source_format``, ``output_outside_folder``,
+                ``collision``, ``excluded_inputs`` or ``no_data``.
+            PostProcessingFailedError: some groups could not be built; the
+                files that were are named.
         """
         from modules.video_builder import VideoBuilder
 
@@ -411,10 +460,11 @@ class PostProcessingAPI:
             outcome in words.
 
         Raises:
-            LiveFolderPathRefusedError: as every member here raises it.
+            LiveFolderPathRefusedError: ``'not_found'``, nothing is at
+                *folder*; ``'not_a_folder'``, a file is.
             PostProcessingRefusedError: the method cannot be used (reason
                 ``method_invalid``), before the count is queued; or the
-                folder has nothing to count.
+                folder has nothing to count (reason ``no_data``).
         """
         from modules.post_processing import PostProcessing, check_cell_count_method
 
