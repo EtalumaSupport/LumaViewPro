@@ -50,7 +50,7 @@ def test_the_hook_carries_the_judge_stage_before_the_version_stamp():
     assert _HOOK_SCRIPT.index(_JUDGE_STAGE) < _HOOK_SCRIPT.index(
         'VERSION_FILE="$REPO_ROOT/version.txt"'
     )
-    assert _HOOK_SCRIPT.index('tests/guards') < _HOOK_SCRIPT.index(_JUDGE_STAGE), (
+    assert _HOOK_SCRIPT.index('ruff format --check') < _HOOK_SCRIPT.index(_JUDGE_STAGE), (
         'the paid judge runs after the free gates'
     )
 

@@ -4,15 +4,15 @@
 A test whose subject is the whole tree or a whole live surface -- a count
 ratchet, a surface-parity check, an architecture sweep -- is a guard, and
 no run near a changed file ever selects it. A guard is declared by living
-here: the pre-commit hook written by tools/install_hooks.py exports the
-index and runs this directory, and nothing else. Three shapes would let a
+here: the push suite runs this directory, and the trunk push gate refuses a
+push without that suite green at the commit it pushes. Three shapes would let a
 guard be declared and still not gate, and this module refuses each:
 
 * a ratchet registered from a module outside the directory is announced at
   the end of a full run and gates nothing;
 * a guard that skips or xfails itself passes by not running, because pytest
-  exits 0 on an all-skipped selection and the exit code is the hook's only
-  signal;
+  exits 0 on an all-skipped selection and the exit code is the push gate's
+  only signal;
 * a module that computes the repo root from its own location keeps working
   after a move, pointed at the wrong tree -- the root has one owner,
   tests.ast_seams.REPO_ROOT.
@@ -111,36 +111,13 @@ def test_no_guard_computes_its_own_repo_root():
     )
 
 
-def test_the_hook_runs_the_guards_directory():
-    """The stage is read through the installer's symbol, not the file: the
-    installer is the one writer of the hook, and what it writes is the gate."""
-    from tools.install_hooks import _HOOK_SCRIPT
-
-    lines = [ln.strip() for ln in _HOOK_SCRIPT.splitlines() if not ln.strip().startswith('#')]
-    assert any(ln.startswith('python3 -m pytest') and GUARDS.rstrip('/') in ln for ln in lines), (
-        'The pre-commit hook must run pytest on tests/guards; nothing else runs them per commit.'
-    )
-    assert any('git checkout-index' in ln for ln in lines), (
-        'The gate judges the index (what will be committed), not the working tree.'
-    )
-    pytest_at = next(i for i, ln in enumerate(lines) if ln.startswith('python3 -m pytest'))
-    assert any(
-        ln.startswith('unset ') and 'GIT_INDEX_FILE' in ln and 'GIT_DIR' in ln
-        for ln in lines[:pytest_at]
-    ), (
-        'The guard run must drop the git environment the hook inherits; a test running git in a '
-        'temporary repository otherwise operates on the repository being committed.'
-    )
-
-
 def test_every_skipped_stage_says_so():
     """A stage that passes by not running must say it did not run.
 
-    The rule gate and the guard gate already print why they skipped; the
-    ruff gate and the version stamp were bare `if ... fi`, so a python
-    without ruff, or a branch without version.txt, committed with no line
-    at all. The banner is the only signal on that path, so its text is
-    pinned here in the same idiom as the guard-gate assertion above.
+    The rule gate already prints why it skipped; the ruff gate and the
+    version stamp were bare `if ... fi`, so a python without ruff, or a
+    branch without version.txt, committed with no line at all. The banner
+    is the only signal on that path, so its text is pinned here.
     """
     from tools.install_hooks import _HOOK_SCRIPT
 
