@@ -86,6 +86,8 @@ class VerticalControl(BoxLayout):
         box = self.ids['z_position_id']
         if box.focus:
             return
+        # The figures are a readout; whether the API knows Z is the change.
+        gui_logger.display('Z_POSITION_KNOWN', pos is not None)
         new_text = '--' if pos is None else format(max(0, pos), '.2f')
         # Cache text to prevent redundant ScrollView updates
         if box.text != new_text:
@@ -304,6 +306,15 @@ class VerticalControl(BoxLayout):
 
         objective_id = ctx.scope.runtime_state.get_current_objective_id()
         self.ids['objective_spinner2'].text = objective_id or 'Unknown'
+        shown = objective_id or 'Unknown'
+        if ctx.scope.capabilities.has_turret:
+            # The turret row is shown only on a scope that has one.
+            slots = ' '.join(
+                f'{position}={self.ids[f"turret_pos_{position}_btn"].text}'
+                for position in ctx.scope.runtime_state.get_turret_config()
+            )
+            shown += f' slot={slot} turret=[{slots}]'
+        gui_logger.display('OBJECTIVE', shown)
         ctx.motion_settings.ids['microscope_settings_id'].refresh_fov_labels()
         if objective_id is None and prompt:
             # Scheduled, never opened from here: the startup home's display

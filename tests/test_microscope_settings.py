@@ -779,11 +779,14 @@ class TestTheImageModeSelectorRendersTheApi:
         import modules.image_mode as image_mode_real
 
         settings = {'image_mode': mode, 'image_output_format': {'live': live, 'sequenced': 'TIFF'}}
+        from modules import gui_logger
+
         fn = _compile_ms_method(
             '_refresh_jpg_depth_hint',
             {
                 '_app_ctx': SimpleNamespace(ctx=SimpleNamespace(settings=settings)),
                 'image_mode': image_mode_real,
+                'gui_logger': gui_logger,
             },
         )
         panel = SimpleNamespace(jpg_depth_hint_active=None)

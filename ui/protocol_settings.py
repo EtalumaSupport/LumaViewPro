@@ -200,6 +200,11 @@ class ProtocolSettings(FloatLayout):
         self.generate_step_name_input()
         self._update_step_focus_readout(num_steps=num_steps)
         self._update_protocol_size_advisory()
+        # A run moves the pointer as it goes, so each step it reaches is a line.
+        name_box = self.ids['step_name_input']
+        gui_logger.display(
+            'STEP_POINTER', f'{new_step_num}/{new_total} {name_box.text or name_box.hint_text}'
+        )
 
     def _update_step_focus_readout(self, num_steps: int):
         """Show the selected step's Z in the step editor."""
@@ -235,6 +240,7 @@ class ProtocolSettings(FloatLayout):
         advisory = ctx.session.protocol_size_advisory(self._protocol)
         self.protocol_size_advisory_active = advisory is not None
         label.text = advisory.message if advisory is not None else ''
+        gui_logger.display('PROTOCOL_SIZE_ADVISORY', label.text or None)
 
     @property
     def tiling_config(self):
@@ -256,6 +262,12 @@ class ProtocolSettings(FloatLayout):
                 return
             Clock.schedule_once(self._init_ui, 0.1)
             return
+
+        # Four writers name the panel's protocol (startup, load, new, save);
+        # every one reaches the box, so its text change is the record.
+        self.ids['protocol_filename'].bind(
+            text=lambda _box, name: gui_logger.display('PROTOCOL_FILE', name or None)
+        )
 
         tiling_config = self.tiling_config
         self.ids['tiling_size_spinner'].values = tiling_config.available_configs()

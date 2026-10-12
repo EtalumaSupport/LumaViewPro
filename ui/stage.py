@@ -496,6 +496,7 @@ class Stage(Widget):
             x_current = np.clip(scope.motion.get_current_position('X'), 0, x_max)
             y_current = np.clip(scope.motion.get_current_position('Y'), 0, y_max)
             position_available = True
+        gui_logger.display('STAGE_POSITION_SHOWN', position_available)
 
         if not position_available:
             # This draw hides the crosshair, so what was last drawn is no
@@ -588,6 +589,9 @@ class Stage(Widget):
                 sy=y_target,
             )
             target_well = labware.get_well_index(target_plate_x, target_plate_y)
+            gui_logger.display(
+                'TARGET_WELL', labware.get_well_label(target_plate_x, target_plate_y) or None
+            )
             if target_well is not None:
                 # Draw selected well (updates when target changes)
                 target_i, target_j = target_well

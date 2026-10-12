@@ -39,6 +39,7 @@ from __future__ import annotations
 
 from lvp_logger import logger
 import modules.common_utils as common_utils
+from modules import gui_logger
 from modules.kivy_utils import schedule_ui
 
 
@@ -130,6 +131,7 @@ class UIListenerBridge:
         # None with no LED board installed: nothing is lit.
         state = self._scope.illumination.get_led_state(channel=color)
         target = 'down' if state is not None and state['enabled'] else 'normal'
+        gui_logger.display(f'LED_BUTTON_{color}', 'lit' if target == 'down' else 'off')
         if layer_obj.ids['enable_led_btn'].state != target:
             layer_obj.ids['enable_led_btn'].state = target
 

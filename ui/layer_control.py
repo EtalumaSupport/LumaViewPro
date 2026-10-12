@@ -143,6 +143,7 @@ class LayerControl(BoxLayout):
         self.sum_depth_hint_active = image_mode.depth_truncation_warning_active(
             sum_count, scope_display.image_mode
         )
+        gui_logger.display(f'SUM_DEPTH_HINT_{self.layer}', self.sum_depth_hint_active)
 
     def _validate_and_apply_text_input(
         self,
@@ -726,9 +727,9 @@ class LayerControl(BoxLayout):
     def set_step_state(self, step: dict):
         """Display a protocol step in this layer's widgets. Writes NO settings.
 
-        A protocol run displays every step here without changing the user's
-        live-view settings; manual step navigation writes the settings
-        itself before applying them. What keeps this a pure display write
+        A person going to a step sees it here; the navigation writes the
+        settings itself before applying them. A run's steps do not come here:
+        a run moves only the step pointer. What keeps this a pure display write
         is the kv wiring: of the widgets set here only the illumination /
         gain / exposure sliders bind ``on_value``, and each of those
         handlers returns while ``_initializing`` is set; the other sliders
@@ -744,6 +745,7 @@ class LayerControl(BoxLayout):
                 'Gain', 'Exposure', 'Sum', 'Auto_Focus', 'Auto_Gain',
                 'False_Color', 'Acquire', 'Video Config', 'Stim_Config'.
         """
+        gui_logger.display(f'LAYER_PANEL_{self.layer}', 'step')
         self._initializing = True
         try:
             if 'Auto_Focus' in step:
@@ -886,6 +888,7 @@ class LayerControl(BoxLayout):
         with ctx.settings_lock:
             layer_settings = copy.deepcopy(ctx.settings[self.layer])
 
+        gui_logger.display(f'LAYER_PANEL_{self.layer}', 'settings')
         self._initializing = True
         try:
             if self.layer in common_utils.get_fluorescence_layers():

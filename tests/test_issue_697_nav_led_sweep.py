@@ -174,8 +174,11 @@ def _reconcile_harness(guard_set):
 
     namespace = {
         'logger': MagicMock(),
+        'gui_logger': MagicMock(),
         '_app_ctx': SimpleNamespace(ctx=ctx),
-        'common_utils': SimpleNamespace(get_layers=lambda: list(layers)),
+        'common_utils': SimpleNamespace(
+            get_layers=lambda: list(layers), get_opened_layer=lambda _drawers: 'Red'
+        ),
     }
     exec(_load_do_accordion_collapse(), namespace)
     do_collapse = namespace['_do_accordion_collapse']

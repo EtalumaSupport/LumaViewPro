@@ -92,6 +92,7 @@ class QuickEnhanceControls(BoxLayout):
         target = pathlib.Path(path)
         self.busy = True
         self.status_text = ''
+        gui_logger.display('QUICK_ENHANCE', 'busy')
         self.export(target)
 
     @show_popup
@@ -127,12 +128,15 @@ class QuickEnhanceControls(BoxLayout):
         Clock.schedule_once(_show, 0)
 
     def _export_done(self, result) -> None:
+        # Its progress words are the build popup's, recorded there.
         self.busy = False
         if result is None:
             self.status_text = ''
+            gui_logger.display('QUICK_ENHANCE', 'idle')
             return
         self.last_output_folder = str(result.output_folder)
         self.status_text = result.message
+        gui_logger.display('QUICK_ENHANCE', f'idle | {result.message}')
 
 
 class StitchControls(BoxLayout):

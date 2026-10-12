@@ -631,6 +631,7 @@ def live_histo_off():
     if ctx.live_histo_setting and ctx.scope_display.use_live_image_histogram_equalization:
         ctx.scope_display.use_live_image_histogram_equalization = False
         logger.info('[LVP Main  ] Live Histogram Equalization] False')
+        gui_logger.display('LIVE_EQUALIZATION', 'off while the scope is held')
 
 
 def live_histo_reverse():
@@ -638,6 +639,7 @@ def live_histo_reverse():
     if ctx.live_histo_setting and not ctx.scope_display.use_live_image_histogram_equalization:
         ctx.scope_display.use_live_image_histogram_equalization = True
         logger.info('[LVP Main  ] Live Histogram Equalization] True')
+        gui_logger.display('LIVE_EQUALIZATION', 'on')
 
 
 _DRAIN_TITLE = 'Writing protocol scan files to disk...'

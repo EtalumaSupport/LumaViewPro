@@ -338,6 +338,7 @@ class MicroscopeSettings(BoxLayout):
         self.binning_depth_hint_active = image_mode.depth_truncation_warning_active(
             binning_size, scope_display.image_mode
         )
+        gui_logger.display('BINNING_DEPTH_HINT', self.binning_depth_hint_active)
 
     # Drives the JPG depth hint row: the API's predicate, rendered.
     jpg_depth_hint_active = BooleanProperty(False)
@@ -352,6 +353,7 @@ class MicroscopeSettings(BoxLayout):
                 settings['image_output_format']['sequenced'],
             ),
         )
+        gui_logger.display('JPG_DEPTH_HINT', self.jpg_depth_hint_active)
 
     def select_image_mode(self):
         ctx = _app_ctx.ctx
@@ -626,6 +628,13 @@ class MicroscopeSettings(BoxLayout):
         ctx.motion_settings.ids['post_processing_id'].ids[
             'stitch_controls_id'
         ].set_button_enabled_state(state=caps.has_xy_stage)
+        gui_logger.display(
+            'SCOPE_FEATURES',
+            f'model={microscope_settings.current_scope_model} '
+            f'next_start={microscope_settings.next_start_model or None} '
+            f'turret={caps.has_turret} xy_stage={caps.has_xy_stage} focus={caps.has_focus} '
+            f'layers={",".join(layer.key_name for layer in identity.layers)}',
+        )
 
         if not caps.has_xy_stage:
             # Stage-less scopes (Lumi, LS820) keep a single-plate

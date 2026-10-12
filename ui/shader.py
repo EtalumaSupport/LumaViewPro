@@ -11,6 +11,7 @@ from kivy.uix.scatter import Scatter
 
 import modules.app_context as _app_ctx
 import modules.config_ui_getters as config_ui_getters
+from modules import gui_logger
 from ui.ui_helpers import fixed_number, run_unasked
 
 logger = logging.getLogger('LVP.ui.shader')
@@ -393,12 +394,18 @@ void main (void) {
 
         if false_color == 'Red':
             c['white_point'] = (self.white, 0.0, 0.0, 1.0)
+            tint = 'red'
         elif false_color == 'Green':
             c['white_point'] = (0.0, self.white, 0.0, 1.0)
+            tint = 'green'
         elif false_color in ('Blue', 'Lumi'):
             c['white_point'] = (0.0, 0.0, self.white, 1.0)
+            tint = 'blue'
         else:
             c['white_point'] = (self.white,) * 4
+            tint = 'none'
+        # Every writer of the view's colour comes through here.
+        gui_logger.display('VIEW_FALSE_COLOR', tint)
 
     def on_fs(self, instance, value):
         self.canvas.shader.fs = value

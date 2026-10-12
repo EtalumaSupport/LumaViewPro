@@ -526,6 +526,14 @@ class ImageSettings(BoxLayout):
         finally:
             for layer_obj in layer_objs:
                 layer_obj._initializing = False
+        shown = layer_objs[0]
+        ctx = _app_ctx.ctx
+        gui_logger.display(
+            'CAMERA_CONTROLS',
+            f'camera={shown.camera_connected} led_board={shown.led_controller_support} '
+            f'autogain={shown.camera_autogain_support} '
+            f'gain_max={ctx.max_gain} exposure_max={ctx.max_exposure}',
+        )
         self.reconcile_layers_to_camera_caps()
 
     def reconcile_layers_to_camera_caps(self):
@@ -667,6 +675,10 @@ class ImageSettings(BoxLayout):
 
     def _do_accordion_collapse(self):
         logger.info('[LVP Main  ] ImageSettings.accordion_collapse()')
+        # Every drawer change reaches here -- a person's open, the app's
+        # expand, Kivy's own -- so what is open is recorded before any of the
+        # returns below skip the reconcile.
+        gui_logger.display('OPEN_LAYER', common_utils.get_opened_layer(self))
 
         ctx = _app_ctx.ctx
 

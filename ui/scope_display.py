@@ -336,6 +336,7 @@ class ScopeDisplay(Image):
         ctx = _app_ctx.ctx
         if not ctx.session.engineering_mode:
             return
+        gui_logger.display('FRAME_VALID_DOT', 'valid' if is_valid else 'settling')
 
         center_x, center_y, img_w, img_h = self._get_displayed_image_bounds()
         if img_w < 1 or img_h < 1:
@@ -696,6 +697,7 @@ class ScopeDisplay(Image):
         # there is no popup). Fires once per connected->absent transition, not
         # per frame, because the caller gates on camera_disconnected_display_set.
         logger.info('Camera display: showing no-camera indicator to user (camera_connected=False)')
+        gui_logger.display('LIVE_VIEW', 'no camera')
         self.source = './data/icons/camera_to_USB.png'
         self.camera_disconnected_display_set = True
         # Drop the bullseye RGB scratch buffer so a reconnect at a
@@ -708,6 +710,7 @@ class ScopeDisplay(Image):
 
     def source_clear(self):
         logger.info('Camera display: camera available, live view restored')
+        gui_logger.display('LIVE_VIEW', 'live')
         self.source = ''
         self.camera_disconnected_display_set = False
         return
