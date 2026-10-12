@@ -370,11 +370,14 @@ class _FakeBuffer:
     def IsIncomplete(self):
         return not self._complete
 
-    def SizeFilled(self):
-        return 1
-
+    # The ids_peak Buffer's own members, and no others: a fake that answered a
+    # name the SDK lacks (SizeFilled) hid that the incomplete-buffer warning
+    # never read the fill.
     def Size(self):
         return 2
+
+    def ExpectedDataSize(self):
+        return 4
 
     def DeliveredDataSize(self):
         # The bytes this buffer carried on the link; the store counts them.
@@ -1756,6 +1759,19 @@ class TestPipelineLifecycle:
         h.stop()
         assert stored == []  # nothing stored for an incomplete buffer
         assert ds.requeued.count(bad) == 1  # re-queued once, by the poll loop
+
+    def test_an_incomplete_buffer_is_logged_with_what_it_delivered_against_what_it_expected(
+        self, monkeypatch
+    ):
+        from unittest.mock import MagicMock
+
+        import drivers.idscamera as idscamera
+
+        cam_log = MagicMock()
+        monkeypatch.setattr(idscamera, '_cam_log', cam_log)
+        _ids_handler(_FakeDataStream([]))._log_incomplete(_FakeBuffer('bad', complete=False))
+        (line,), _ = cam_log.warning.call_args
+        assert 'delivered=3 expected=4 capacity=2' in line
 
     def test_newest_wins_requeues_every_buffer_exactly_once(self):
         bufs = [_FakeBuffer(f'b{i}') for i in range(3)]

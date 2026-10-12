@@ -3742,14 +3742,16 @@ class ImageHandler(ImageHandlerBase):
         # Log every incomplete buffer with fill info. Partial-fill extent is the
         # only signal we get for USB packet loss / bandwidth saturation;
         # throttling loses the cause distribution.
+        # The SDK's own names (ids_peak Buffer): DeliveredDataSize short of
+        # ExpectedDataSize is the loss.
         try:
-            bsize = buffer.SizeFilled() if hasattr(buffer, 'SizeFilled') else None
-            bcap = buffer.Size() if hasattr(buffer, 'Size') else None
+            fill = (
+                f'delivered={buffer.DeliveredDataSize()} expected={buffer.ExpectedDataSize()} '
+                f'capacity={buffer.Size()}'
+            )
         except Exception as _bintrospect:
-            bsize, bcap = None, f'<introspect failed: {_bintrospect!r}>'
-        _cam_log.warning(
-            f'[CAM Class ] IDS buffer.IsIncomplete()=True filled={bsize} capacity={bcap}'
-        )
+            fill = f'<introspect failed: {_bintrospect!r}>'
+        _cam_log.warning(f'[CAM Class ] IDS buffer.IsIncomplete()=True {fill}')
 
     def frame_generation(self) -> int:
         """Current frame-store counter. Snapshot it before a still capture, then
