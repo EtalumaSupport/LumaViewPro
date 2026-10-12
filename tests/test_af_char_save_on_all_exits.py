@@ -31,7 +31,7 @@ import pytest
 
 from modules.autofocus_runner import AutofocusRunner
 from modules.exceptions import AutofocusAborted
-from tests.af_drives import af_runner_and_scope, drive_af
+from tests.af_drives import af_runner_and_scope, drive_af, raises_the_failure_from
 
 
 class TestSaveQueuedOnEveryExitPath:
@@ -63,7 +63,7 @@ class TestSaveQueuedOnEveryExitPath:
         runner, scope = af_runner_and_scope()
         scope.imaging.capture_and_wait.side_effect = RuntimeError('camera fault')
         write_batch = MagicMock()
-        with pytest.raises(RuntimeError, match='camera fault'):
+        with raises_the_failure_from(RuntimeError):
             drive_af(
                 runner, save_results_to_file=True, results_dir=tmp_path, write_batch=write_batch
             )

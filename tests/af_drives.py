@@ -12,6 +12,7 @@ modules.autofocus_functions.focus_function to control the curve shape
 
 from __future__ import annotations
 
+import contextlib
 import threading
 import time
 from unittest.mock import MagicMock
@@ -32,6 +33,25 @@ def park_z(scope, z: float) -> None:
     scope.motion.move_absolute('Z', z)
     while scope.motion.is_moving():
         time.sleep(0.01)
+
+
+@contextlib.contextmanager
+def raises_the_failure_from(original: type[BaseException]):
+    """The run raises the one failure it reported, with *original* chained as its cause.
+
+    An unexpected error inside a sweep is reported as an
+    ``AutofocusFailedError('unexpected_error')`` and that same object is
+    raised, so the caller holds what the report named; the error that
+    stopped the sweep travels with it, unmasked.
+    """
+    import pytest
+
+    from modules.exceptions import AutofocusFailedError
+
+    with pytest.raises(AutofocusFailedError) as raised:
+        yield raised
+    assert raised.value.reason == 'unexpected_error'
+    assert isinstance(raised.value.__cause__, original), repr(raised.value.__cause__)
 
 
 def af_runner_and_scope():

@@ -410,7 +410,11 @@ class AutofocusRunner:
                 logger.warning(f'[AF] {failed} -- after its run ended, so not reported')
             else:
                 notifications.report_outcome(failed, solicited=False, category='Autofocus')
-            raise
+            # The object reported is the object raised, so whoever reads the
+            # future holds what the one report named.
+            if failed is ex:
+                raise
+            raise failed from ex
 
         finally:
             # The restore chain is best-effort; the release below is not.

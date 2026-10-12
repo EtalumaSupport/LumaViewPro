@@ -1241,13 +1241,16 @@ class TestG3_AutofocusFailureNotification:
     (tests/test_an_unattended_runs_autofocus_shows_nothing.py)."""
 
     def test_af_exception_notifies_user(self, centre_posts):
-        """A raising AF loop must pop 'Autofocus Failed'."""
+        """A raising AF loop must pop 'Autofocus Failed', and raise what it popped."""
+        from modules.exceptions import AutofocusFailedError
         from tests.af_drives import af_runner_and_scope, drive_af
 
         runner, scope = af_runner_and_scope()
         scope.imaging.capture_and_wait.side_effect = RuntimeError('camera fault')
-        with pytest.raises(RuntimeError, match='camera fault'):
+        with pytest.raises(AutofocusFailedError) as raised:
             drive_af(runner)
+        assert raised.value.reason == 'unexpected_error'
+        assert str(raised.value.__cause__) == 'camera fault'
         captured = _posted(centre_posts, Severity.ERROR)
         assert captured and captured[0][1] == 'Autofocus Failed', (
             f'interactive AF failure must pop Autofocus Failed; got {captured}'

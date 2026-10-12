@@ -131,15 +131,35 @@ def test_a_final_approach_past_the_travel_minimum_is_refused(monkeypatch, report
 
 
 def test_a_refusal_is_reported_once_as_itself(monkeypatch, reported):
-    """The runner reports the refusal and then raises it: today's funnel,
-    which ruling R2 of 2026-10-09 (a funnel raises only; the caller reports)
-    flips with its build. Until then this pins what the code does."""
+    """The runner reports the refusal and raises the same object.
+
+    The autofocus worker is the boundary of its own flight: inside a run
+    its future is read only by a log line, so no caller above it reports.
+    """
     monkeypatch.setattr('modules.autofocus_functions.focus_function', lambda image: 1.0)
     runner, scope = af_runner_and_scope()
     # The first window (centre +- AF_range) reaches below this minimum.
     scope.motion.get_axis_limits.return_value = {'min': AF_CENTER_Z - 5.0, 'max': 14000.0}
 
-    with pytest.raises(AutofocusFailedError):
+    with pytest.raises(AutofocusFailedError) as raised:
         drive_af(runner)
 
-    assert [o.reason for o in reported] == ['out_of_travel']
+    assert raised.value.reason == 'out_of_travel'
+    assert reported == [raised.value]
+
+
+def test_an_unexpected_failure_is_raised_as_the_failure_it_reported(monkeypatch, reported):
+    """One failure is one object: the one reported, raised, its cause chained."""
+
+    def broken(image):
+        raise RuntimeError('focus measure broke')
+
+    monkeypatch.setattr('modules.autofocus_functions.focus_function', broken)
+    runner, _scope = af_runner_and_scope()
+
+    with pytest.raises(AutofocusFailedError) as raised:
+        drive_af(runner)
+
+    assert raised.value.reason == 'unexpected_error'
+    assert isinstance(raised.value.__cause__, RuntimeError)
+    assert reported == [raised.value]
