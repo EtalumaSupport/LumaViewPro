@@ -200,25 +200,27 @@ def walk_scripted(source: str) -> None:
 _shown: dict[str, str] = {}
 
 
-def display(name: str, value: object) -> None:
+def display(name: str, value: object, *, stage: str | None = None) -> None:
     """Log a change in what the window shows, as it changes.
 
     A press is recorded where the person made it; what the window then shows
     -- the controls greyed, the homing banner, the title's event text -- is
     decided by the app and was in no record, so whether it appeared could only
-    be asked of whoever was watching. Recorded only when the value differs from
-    the last one recorded for ``name``, so a writer that runs on every edge
-    adds a line only when the screen changed.
+    be asked of whoever was watching. Recorded only when it differs from the
+    last one recorded for ``name``, so a writer that runs on every edge adds a
+    line only when the screen changed.
 
-    A count inside the value (a recording's elapsed seconds, a drain's files
-    left) is progress, not a change of what is shown: it is compared with its
-    digits blanked, so the record names each stage once.
+    ``value`` is what the window shows, compared whole: a step number or a
+    well is what is shown, and each change of it is a line. A caller showing
+    progress -- a recording's elapsed seconds, a drain's files left -- names
+    the stage that progress belongs to in ``stage``, which is compared in
+    place of ``value``, so the record names each stage once.
     """
     shown = one_line(value)
-    stage = ''.join('#' if c.isdigit() else c for c in shown)
-    if _shown.get(name) == stage:
+    compared = shown if stage is None else stage
+    if _shown.get(name) == compared:
         return
-    _shown[name] = stage
+    _shown[name] = compared
     _log.info(f'DISPLAY {name} {shown}')
 
 

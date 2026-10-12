@@ -151,7 +151,9 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
             # Padded so a new digit does not jump the title; the title's own
             # font still draws each digit a little differently wide.
             elapsed = fixed_number(controller.elapsed_s, whole_digits=4, decimals=1)
-            set_title_event_text(f'Recording Manual Video: {elapsed}s')
+            set_title_event_text(
+                f'Recording Manual Video: {elapsed}s', stage='Recording Manual Video'
+            )
             return
         # Selection closed (Stop, duration cap, or budget full); the
         # recording announced that edge itself, so this tick only keeps the
@@ -160,7 +162,8 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
         if controller.is_draining:
             set_title_event_text(
                 f'Writing Manual Video: '
-                f'{fixed_number(controller.pending_writes, whole_digits=5, decimals=0)} frames remaining'
+                f'{fixed_number(controller.pending_writes, whole_digits=5, decimals=0)} frames remaining',
+                stage='Writing Manual Video',
             )
 
     def _on_recording_complete(self):

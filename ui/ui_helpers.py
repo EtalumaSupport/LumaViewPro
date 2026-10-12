@@ -573,13 +573,15 @@ def get_title_event_text():
     return _title_event_text
 
 
-def set_title_event_text(text):
+def set_title_event_text(text, *, stage=None):
     """Set the suffix shown after the product name in the window title.
-    Pass None or '' to clear. Safe to call from any thread (single attribute
-    write on a module-level CPython str/None -- atomic under GIL)."""
+    Pass None or '' to clear. ``stage`` names what a counting text is doing,
+    so the GUI record logs it once per stage (``gui_logger.display``). Safe
+    to call from any thread (single attribute write on a module-level
+    CPython str/None -- atomic under GIL)."""
     global _title_event_text
     _title_event_text = text or None
-    gui_logger.display('TITLE_EVENT', _title_event_text)
+    gui_logger.display('TITLE_EVENT', _title_event_text, stage=stage)
 
 
 # The suffix the last video progress wrote, so its 'ended' clears only its
@@ -600,11 +602,14 @@ def show_video_progress(progress) -> None:
         _video_progress_text = None
         return
     if progress.phase == 'recording':
+        # The step's length is which video this is; its elapsed seconds are progress.
         text = f'Recording Video... {int(progress.elapsed_s)}s / {int(progress.total_s)}s'
+        stage = f'Recording Video... / {int(progress.total_s)}s'
     else:
         text = f'Writing Video... {int(progress.percent)}%'
+        stage = 'Writing Video...'
     _video_progress_text = text
-    set_title_event_text(text)
+    set_title_event_text(text, stage=stage)
 
 
 def reset_title():
