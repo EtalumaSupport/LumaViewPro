@@ -50,13 +50,6 @@ def _device(session) -> SimulatedFX2Device:
     return session.scope._led_driver._fx2._transport.device
 
 
-def _fresh_frame(scope) -> np.ndarray:
-    # A lit or darkened LED shows from the next frame the sensor starts, so
-    # the frame in flight at the change is passed over.
-    scope.imaging.get_image(force_new_capture=True)
-    return scope.imaging.get_image(force_new_capture=True)
-
-
 def test_the_scope_runs_the_fx2_drivers_on_the_device_it_uploaded(session):
     scope = session.scope
     assert isinstance(scope._camera_driver, FX2Camera)
@@ -80,8 +73,10 @@ def test_the_camera_is_the_fx2s_mt9p031(session):
 
 def test_a_frame_is_black_with_nothing_lit_and_shows_the_field_with_bf_lit(session):
     scope = session.scope
+    # The capture a caller makes after an LED change: frame validity drains
+    # the frames already in the pipeline, however many there are.
     scope.illumination.leds_off()
-    dark = _fresh_frame(scope)
+    dark = scope.imaging.capture_and_wait(accept_dark=True, timeout_s=2.0)
     # The saved 1900 x 1900 frame, refitted to 1700 on the LS560 (its lens).
     side = {'LS620': 1900, 'LS560': 1700}[scope.capabilities.model]
     assert dark is not None and dark.shape == (side, side)
@@ -93,7 +88,7 @@ def test_a_frame_is_black_with_nothing_lit_and_shows_the_field_with_bf_lit(sessi
     scope.imaging.set_exposure_ms(FX2Camera.DEFAULT_EXPOSURE_MS)
     scope.illumination.led_on('BF', 100)
     try:
-        lit = _fresh_frame(scope)
+        lit = scope.imaging.capture_and_wait(timeout_s=2.0)
     finally:
         scope.illumination.leds_off()
     assert lit.mean() > 20
@@ -109,8 +104,18 @@ def test_a_delivered_frame_carries_the_specimen_the_way_up_it_was_rendered(sessi
     def numbered_rows(w, h):
         return np.repeat((np.arange(h) % 251).astype(np.uint8)[:, None], w, axis=1)
 
+    # Frames rendered before the swap are black (nothing is lit, and a valid
+    # frame says so), and more than one can still be in the pipeline when the
+    # grab loop runs behind: the first frame that is not black is the first
+    # rendered after it.
+    scope.illumination.leds_off()
+    assert scope.imaging.capture_and_wait(accept_dark=True, timeout_s=2.0).max() == 0
     monkeypatch.setattr(device, '_pixels', numbered_rows)
-    frame = _fresh_frame(scope)
+    for _ in range(10):
+        frame = scope.imaging.get_image(force_new_capture=True)
+        if frame.max() > 0:
+            break
+    assert frame.max() > 0, 'no frame rendered after the swap arrived in 10 frames'
     steps = np.diff(frame[:, 0].astype(np.int16)) % 251
     assert (steps == 1).all(), steps[:8]
 
@@ -119,9 +124,9 @@ def test_a_stored_frame_counts_the_bytes_it_took_on_the_link(session):
     # The link carries the whole layout -- the rows the parser skips included --
     # and the delimiter before it; the stored array is only the window.
     camera = session.scope._camera_driver
-    _fresh_frame(session.scope)
+    session.scope.imaging.get_image(force_new_capture=True)
     frames_0, bytes_0 = camera.delivered_counts
-    _fresh_frame(session.scope)
+    session.scope.imaging.get_image(force_new_capture=True)
     frames_1, bytes_1 = camera.delivered_counts
     assert frames_1 > frames_0
     wire = (
