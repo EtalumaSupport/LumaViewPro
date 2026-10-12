@@ -7917,16 +7917,11 @@ class TestModSliderAwareScrollView:
             'Factory so lumaviewpro.kv can resolve the class name.'
         )
 
-    def test_kv_uses_subclass_at_known_sites(self):
+    def test_kv_has_no_bare_scroll_view(self):
+        # Which panels scroll, each through ModSliderAwareScrollView, is
+        # pinned per drawer by tests/test_every_settings_drawer_scrolls.py.
         kv = self._kv()
-        subclass_count = kv.count('\tModSliderAwareScrollView:')
         bare_count = kv.count('\tScrollView:')
-        assert subclass_count == 3, (
-            'lumaviewpro.kv must use ModSliderAwareScrollView at the '
-            '3 known scrollable panel sites (motion settings, '
-            'microscope settings, protocol settings) -- each contains '
-            f'ModSlider descendants. Found {subclass_count}.'
-        )
         assert bare_count == 0, (
             'lumaviewpro.kv must not contain bare ScrollView at the '
             'top-of-line position -- a new ScrollView that wraps '
