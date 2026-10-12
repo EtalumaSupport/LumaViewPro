@@ -24,6 +24,7 @@ import numpy as np
 import modules.common_utils as common_utils
 from modules.finite_number import refuse_unless_finite_number
 import modules.image_utils as image_utils
+from drivers import camera_profiles
 from drivers.exceptions import HardwareError
 from lib import profile_trace
 from lvp_logger import logger
@@ -38,6 +39,7 @@ from modules.exceptions import (
     FrameHandlerRemovedError,
     FrameListenerNotRegisteredError,
     HardwareCommandRefusedError,
+    InstallationFileError,
     MissingPart,
 )
 from modules.frame_validity import FrameValidity
@@ -747,34 +749,31 @@ class ImagingAPI:
         return self._driver.frames_delivered if self._driver else 0
 
     def _load_camera_timing(self) -> None:
-        """Load per-camera timing config if available.
+        """Take frame validity's drains from the camera's measured timing record, if it has one.
 
-        Looks for data/camera_timing/<model>.json and overrides
-        FrameValidity.SKIP_FRAMES with measured values.
+        The record is the one its profile names (``timing_model``); a camera
+        with none drains at frame validity's shipped counts.
+
+        Raises:
+            InstallationFileError: the profile names a record that is missing
+                or unreadable, so the camera would drain at counts nobody
+                measured for it.
         """
         if not self._driver or not self._driver.active:
             return
+        profile = self._driver.profile
         try:
-            import json
-            import os
-            import pathlib
-
-            model = self._scope.capabilities.camera_model
-            if not model:
-                return
-            safe_name = model.replace(' ', '_')
-            timing_dir = (
-                pathlib.Path(os.path.dirname(__file__)).parent.parent / 'data' / 'camera_timing'
-            )
-            timing_path = timing_dir / f'{safe_name}.json'
-            if not timing_path.exists():
-                return
-            with open(timing_path) as f:
-                config = json.load(f)
-            self.frame_validity.load_camera_timing(config)
-            logger.info(f'[SCOPE API ] Loaded camera timing config from {timing_path}')
-        except Exception as e:
-            logger.warning(f'[SCOPE API ] Failed to load camera timing config: {e}')
+            config = camera_profiles.timing_record(profile)
+        except (OSError, ValueError) as e:
+            raise InstallationFileError(
+                camera_profiles.timing_record_path(profile), f'could not be read ({e})'
+            ) from e
+        if config is None:
+            return
+        self.frame_validity.load_camera_timing(config)
+        logger.info(
+            f'[SCOPE API ] Loaded camera timing config from {camera_profiles.timing_record_path(profile)}'
+        )
 
     def _populate_camera_cache(self) -> None:
         """Populate camera cache from hardware. Called at init and on reconnect.

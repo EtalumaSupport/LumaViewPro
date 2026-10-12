@@ -121,6 +121,10 @@ class CameraProfile:
     has_auto_exposure: bool = False
     driver: str = ''  # 'pylon', 'ids', 'simulated'
     notes: str = ''
+    # The model whose measured timing record (data/camera_timing/<model>.json)
+    # this camera's frame-validity drains are read from; empty: none measured,
+    # and the drains are frame validity's shipped counts.
+    timing_model: str = ''
 
     # --- Exposure ceiling (microseconds) ---
     # Single source of truth for the maximum exposure cap. Default it
@@ -139,6 +143,7 @@ class CameraProfile:
 # Basler dart -- daA3840-45um
 _daA3840_45um = CameraProfile(
     model_name='daA3840-45um',
+    timing_model='daA3840-45um',
     sensor='Sony IMX334LLR-C',
     pixel_size_um=2.0,
     shutter='rolling',
@@ -193,6 +198,7 @@ _dmA3536_9gm = CameraProfile(
 # Basler ace 2 -- a2A3536-31umBAS
 _a2A3536_31umBAS = CameraProfile(
     model_name='a2A3536-31umBAS',
+    timing_model='a2A3536-31umBAS',
     sensor='Sony IMX676-AAMR1-C',
     pixel_size_um=2.0,
     shutter='rolling',
@@ -335,22 +341,37 @@ def simulated_profile() -> CameraProfile:
     return copy.deepcopy(_simulated)
 
 
-def simulated_exposure_delay_frames() -> int:
-    """How many frames the simulated camera delivers at the old exposure after a change.
-
-    The dart's measured count, read from its timing record, the one store of
-    it: a sensor finishes the frames it started, so they come out at the
-    exposure they were started with. A missing or unreadable record is a
-    broken installation and raises.
-    """
-    path = (
+def timing_record_path(profile: CameraProfile) -> pathlib.Path:
+    """Where ``profile``'s measured timing record ships."""
+    return (
         pathlib.Path(__file__).resolve().parent.parent
         / 'data'
         / 'camera_timing'
-        / f'{_daA3840_45um.model_name}.json'
+        / f'{profile.timing_model}.json'
     )
-    with open(path) as f:
-        return int(json.load(f)['skip_frames']['exposure'])
+
+
+def timing_record(profile: CameraProfile) -> dict | None:
+    """``profile``'s measured timing record, or None when it names none.
+
+    A record the profile names is shipped with the installation, so a
+    missing or unreadable one raises (``OSError``, ``ValueError``): the
+    camera would otherwise drain at counts nobody measured for it.
+    """
+    if not profile.timing_model:
+        return None
+    with open(timing_record_path(profile)) as f:
+        return json.load(f)
+
+
+def simulated_exposure_delay_frames() -> int:
+    """How many frames the simulated camera delivers at the old exposure after a change.
+
+    The dart's measured count, from its timing record, the one store of it:
+    a sensor finishes the frames it started, so they come out at the
+    exposure they were started with.
+    """
+    return int(timing_record(_simulated)['skip_frames']['exposure'])
 
 
 def ids_default_profile(model_name: str) -> CameraProfile:

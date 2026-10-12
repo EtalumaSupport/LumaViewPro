@@ -427,27 +427,23 @@ class TestLoadCameraTiming:
 
 
 class TestLoadCameraTimingLumascope:
-    """A scope takes its camera's measured counts from
-    data/camera_timing/<model>.json when it is constructed."""
+    """A scope takes its camera's measured counts from the timing record its
+    camera's profile names, when it is constructed."""
 
     def test_a_scope_waits_the_counts_its_cameras_timing_file_measured(self, tmp_path, monkeypatch):
-        """The simulated camera's timing file sets the counts its scope's
-        invalidations wait; sources the file leaves out keep the shipped ones."""
-        from drivers.simulated_camera import SimulatedCamera
-        from modules.lumascope_api import imaging as imaging_module
+        """The record sets the counts its scope's invalidations wait; sources
+        the record leaves out keep the shipped ones."""
+        import drivers.simulated_camera as simulated_camera
+        from drivers import camera_profiles
 
-        timing_dir = tmp_path / 'data' / 'camera_timing'
-        timing_dir.mkdir(parents=True)
-        (timing_dir / f'{SimulatedCamera.MODEL_NAME}.json').write_text(
-            json.dumps({'skip_frames': {'led': 7, 'gain': 4}})
-        )
-        # The loader reads the data folder two levels above its own module
-        # (ImagingAPI._load_camera_timing); pointing that module's __file__
-        # into tmp_path is the one seam that hands it a test's file without
-        # writing into the installation's data folder.
-        monkeypatch.setattr(
-            imaging_module, '__file__', str(tmp_path / 'modules' / 'lumascope_api' / 'imaging.py')
-        )
+        record = tmp_path / 'measured.json'
+        record.write_text(json.dumps({'skip_frames': {'led': 7, 'gain': 4}}))
+        # The record's location is the installation's; pointing it at a test's
+        # file is the one seam that does not write into the data folder.
+        monkeypatch.setattr(camera_profiles, 'timing_record_path', lambda profile: record)
+        # A stand-in by design: the simulated camera reads the same record for
+        # its frame pipeline's exposure count, which this one leaves out.
+        monkeypatch.setattr(simulated_camera, 'simulated_exposure_delay_frames', lambda: 2)
 
         scope = build_scope(simulate=True)
         fv = scope.imaging.frame_validity
