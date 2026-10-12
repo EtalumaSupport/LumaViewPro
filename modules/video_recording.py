@@ -290,7 +290,6 @@ class VideoRecordingEngine:
             if self._recording or not self._drained.is_set():
                 raise RecordingRefusedError(
                     reason='recording_active',
-                    title='Recording Active',
                     message='A recording is already in progress. Stop it, then record again.',
                 )
             try:
@@ -298,7 +297,6 @@ class VideoRecordingEngine:
             except FalsifyingChangeInFlightError:
                 raise RecordingRefusedError(
                     reason='falsifying_change_in_flight',
-                    title='Microscope Changing',
                     message=(
                         'The microscope is changing the objective or the camera frame. '
                         'Start the recording when it finishes.'
@@ -311,7 +309,6 @@ class VideoRecordingEngine:
                 holder = self._claim.holder
                 raise RecordingRefusedError(
                     reason='exclusive_activity_running',
-                    title='Another Activity Running',
                     message=(
                         f'{the_holder_named(holder)} is using the microscope. '
                         'Let it finish, then start the recording.'

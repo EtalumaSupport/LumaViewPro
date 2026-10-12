@@ -1462,8 +1462,9 @@ class RecordingRefusedError(Refusal, CaptureError):
 
     Attributes:
         reason: Machine-readable refusal code for callers that map
-            refusals to responses (REST status codes, UI branches).
-        title: Short user-facing refusal title.
+            refusals to responses (REST status codes, UI branches), one of
+            ``_TITLES``' keys.
+        title: Short user-facing refusal title, the reason's.
         message: One-sentence user-facing refusal body; the same text as
             the exception's message.
         holder: The exclusive-activity claim owner at refusal time, or
@@ -1474,16 +1475,28 @@ class RecordingRefusedError(Refusal, CaptureError):
 
     cause = RefusalCause.STATE
 
+    _TITLES: ClassVar[dict[str, str]] = {
+        'recording_active': 'Recording Active',
+        'exclusive_activity_running': 'Another Activity Running',
+        'camera_inactive': 'Camera Not Active',
+        'camera_exposure_unknown': 'Camera Exposure Unavailable',
+        'capture_location_unusable': 'Cannot Save Recording',
+        'insufficient_disk': 'Insufficient Disk Space',
+        'falsifying_change_in_flight': 'Microscope Changing',
+    }
+
     def __init__(
         self,
         reason: str,
-        title: str,
         message: str,
+        *,
         holder: 'str | None' = None,
         holder_trigger: 'str | None' = None,
     ):
+        if reason not in self._TITLES:
+            raise TypeError(f'RecordingRefusedError has no reason {reason!r}')
         super().__init__(message, reason)
-        self.title = title
+        self.title = self._TITLES[reason]
         self.message = message
         self.holder = holder
         self.holder_trigger = holder_trigger
@@ -2657,8 +2670,9 @@ class DiagnosticRefusedError(Refusal, Exception):
 
     Attributes:
         reason: Machine-readable refusal code for callers that map refusals
-            to responses (REST status codes, SDK branches).
-        title: Short user-facing refusal title.
+            to responses (REST status codes, SDK branches), one of
+            ``_TITLES``' keys.
+        title: Short user-facing refusal title, the reason's.
         message: One-sentence user-facing refusal body.
         holder: The activity kind holding the claim at refusal time.
         holder_trigger: The holding run's run_trigger_source when the
@@ -2667,17 +2681,23 @@ class DiagnosticRefusedError(Refusal, Exception):
 
     cause = RefusalCause.STATE
 
+    _TITLES: ClassVar[dict[str, str]] = {
+        'exclusive_activity_running': 'Another Activity Running',
+    }
+
     def __init__(
         self,
         reason: str,
-        title: str,
         message: str,
+        *,
         holder: 'str | None' = None,
         holder_trigger: 'str | None' = None,
     ):
+        if reason not in self._TITLES:
+            raise TypeError(f'DiagnosticRefusedError has no reason {reason!r}')
         super().__init__(f'{reason}: {message}')
         self.reason = reason
-        self.title = title
+        self.title = self._TITLES[reason]
         self.message = message
         self.holder = holder
         self.holder_trigger = holder_trigger

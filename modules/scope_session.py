@@ -581,7 +581,6 @@ class ScopeSession:
             named = the_holder_named(holder)
             raise DiagnosticRefusedError(
                 reason='exclusive_activity_running',
-                title='Another Activity Running',
                 message=f'{named} is using the microscope. Let it finish, then start the diagnostic.',
                 holder=kind,
                 holder_trigger=(holder.run_trigger_source if holder is not None else None),

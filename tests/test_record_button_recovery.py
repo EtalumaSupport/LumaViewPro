@@ -142,7 +142,6 @@ class TestRecordButtonRecovery:
 
         refusal = RecordingRefusedError(
             reason='recording_active',
-            title='Recording Active',
             message='A recording is still finishing.',
         )
         controller = _Controller(error=refusal)

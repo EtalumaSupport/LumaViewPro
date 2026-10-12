@@ -282,7 +282,6 @@ class ManualRecordingController:
         if self.is_busy:
             raise RecordingRefusedError(
                 reason='recording_active',
-                title='Recording Active',
                 message=(
                     'A recording is still finishing. Wait for it to complete, then record again.'
                 ),
@@ -302,7 +301,6 @@ class ManualRecordingController:
         if not scope.imaging.active_cached:
             raise RecordingRefusedError(
                 reason='camera_inactive',
-                title='Camera Not Active',
                 message='The camera is not streaming, so there is nothing to record. '
                 'Check the camera connection and try again.',
             )
@@ -315,7 +313,6 @@ class ManualRecordingController:
         if exposure is None or exposure <= 0:
             raise RecordingRefusedError(
                 reason='camera_exposure_unknown',
-                title='Camera Exposure Unavailable',
                 message='The camera has not reported its exposure time, so the '
                 'recording cannot be started. Reconnect the camera and try again.',
             )
@@ -345,7 +342,6 @@ class ManualRecordingController:
         except path_utils.CaptureLocationError as exc:
             raise RecordingRefusedError(
                 reason='capture_location_unusable',
-                title='Cannot Save Recording',
                 message=str(exc),
             ) from exc
 
@@ -358,7 +354,6 @@ class ManualRecordingController:
         if not ok:
             raise RecordingRefusedError(
                 reason='insufficient_disk',
-                title='Insufficient Disk Space',
                 message=f'Only {free_mb / 1024:.1f} GB free at the save location; '
                 f'at least {MIN_REQUIRED_DISK_MB / 1024:.0f} GB is required to '
                 'start a recording. Free up space and try again.',
@@ -382,7 +377,6 @@ class ManualRecordingController:
             except OSError as exc:
                 raise RecordingRefusedError(
                     reason='capture_location_unusable',
-                    title='Cannot Save Recording',
                     message=(
                         f'{save_folder.parent.parent} is not an accessible save '
                         'location. Check that it exists and any external drive '
@@ -392,7 +386,6 @@ class ManualRecordingController:
             except path_utils.CaptureLocationError as exc:
                 raise RecordingRefusedError(
                     reason='capture_location_unusable',
-                    title='Cannot Save Recording',
                     message=str(exc),
                 ) from exc
 
