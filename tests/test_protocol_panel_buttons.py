@@ -407,24 +407,53 @@ def test_a_scan_between_iterations_redraws_rather_than_drawing_idle(app_ctx, eng
     )
 
 
-def test_each_panel_press_is_recorded_as_what_it_did(app_ctx, engine, monkeypatch):
-    """A Stop press is recorded as a Stop: the interaction log is what a
-    support bundle reads to learn what the person did."""
+# Each panel run button: its press handler, and what a start and a stop record.
+_PRESSES = (
+    ('run_scan_from_ui', 'SCAN', 'ABORT_SCAN'),
+    ('run_protocol_from_ui', 'RUN', 'ABORT_PROTOCOL'),
+    ('run_autofocus_scan_from_ui', 'AF_SCAN', 'ABORT_AF_SCAN'),
+)
+
+
+def test_each_panel_press_is_recorded_once_as_what_it_did(app_ctx, engine, monkeypatch):
+    """The interaction log is what a support bundle reads to learn what the
+    person did: a Stop press is recorded as a Stop and nothing else, a start
+    as a start, and a press the panel dropped as not started."""
     recorded = []
     monkeypatch.setattr(
-        ps.gui_logger, 'protocol_action', lambda action, *a: recorded.append(action)
+        ps.gui_logger,
+        'protocol_action',
+        lambda action, detail='': recorded.append(f'{action} {detail}'.strip()),
     )
-    panel = _Panel()
-    handle = _handle(engine)
-    engine.start.return_value = handle
+    wrong = {}
+    for press, start, stop in _PRESSES:
+        panel = _Panel()
+        handle = _handle(engine)
+        engine.start.return_value = handle
 
-    panel.run_autofocus_scan_from_ui()
-    assert recorded == ['AF_SCAN'], 'a start is not a stop'
+        recorded.clear()
+        getattr(panel, press)()
+        started = list(recorded)
 
-    recorded.clear()
-    _live(engine, handle)
-    panel.run_autofocus_scan_from_ui()
-    assert recorded == ['AF_SCAN', 'ABORT_AF_SCAN']
+        recorded.clear()
+        _live(engine, handle)
+        getattr(panel, press)()
+        stopped = list(recorded)
+
+        # a stand-in by design: the frame test that makes a real refused edit
+        # is tests/test_a_click_off_a_refused_edit_does_not_act.py; here the
+        # subject is what the panel records for the press it drops.
+        monkeypatch.setattr(ps, 'refused_in_this_input', lambda: True)
+        recorded.clear()
+        getattr(_Panel(), press)()
+        dropped = list(recorded)
+        monkeypatch.setattr(ps, 'refused_in_this_input', lambda: False)
+
+        got = (started, stopped, dropped)
+        want = ([start], [stop], [f'{start} not started: the press left a refused edit'])
+        if got != want:
+            wrong[press] = got
+    assert wrong == {}
 
 
 def test_a_press_during_a_finished_runs_drain_is_the_engines_to_refuse(

@@ -1068,7 +1068,8 @@ class ProtocolSettings(FloatLayout):
     def _press_panel_run(
         self,
         trigger: str,
-        log_stop: typing.Callable[[], None] | None,
+        log_start: typing.Callable[[str], None],
+        log_stop: typing.Callable[[], None],
         build_start: typing.Callable[[], typing.Callable[[], None]],
     ) -> None:
         """Start this button's run, or stop the one it started.
@@ -1077,20 +1078,22 @@ class ProtocolSettings(FloatLayout):
         this button started still live -- never the toggle's, which Kivy
         has already flipped. The button changes nothing ahead of the
         engine's answer; draw_protocol_buttons shows it. Every refusal is
-        the engine's to raise and the boundary's to show, once.
+        the engine's to raise and the boundary's to show, once. The press
+        is recorded once, as what it did, after that answer.
         """
         run = self._runs_started_here.get(trigger)
         if run is not None and run.is_live:
-            if log_stop is not None:
-                log_stop()
+            log_stop()
             self._submit_panel_request(trigger, run.stop, stop=True)
             return
         # The click that left a refused edit: starting would run the value
         # the person just tried to change. The toggle Kivy flipped is put back.
         if refused_in_this_input():
+            log_start('not started: the press left a refused edit')
             self.draw_protocol_buttons()
             return
 
+        log_start('')
         self._submit_panel_request(trigger, build_start())
 
     def _submit_panel_request(
@@ -1122,9 +1125,9 @@ class ProtocolSettings(FloatLayout):
         logger.info(f'[Protocol  ] BF AF for fluorescence: {enabled}')
 
     def run_autofocus_scan_from_ui(self):
-        gui_logger.protocol_action('AF_SCAN')
         self._press_panel_run(
             'autofocus_scan',
+            lambda detail: gui_logger.protocol_action('AF_SCAN', detail),
             lambda: gui_logger.protocol_action('ABORT_AF_SCAN'),
             self._autofocus_scan_start,
         )
@@ -1164,10 +1167,9 @@ class ProtocolSettings(FloatLayout):
         return _start
 
     def run_scan_from_ui(self):
-        gui_logger.protocol_action('SCAN')
-        logger.info('[LVP Main  ] ProtocolSettings.run_scan_from_ui()')
         self._press_panel_run(
             'scan',
+            lambda detail: gui_logger.protocol_action('SCAN', detail),
             lambda: gui_logger.protocol_action('ABORT_SCAN'),
             self._scan_start,
         )
@@ -1183,10 +1185,9 @@ class ProtocolSettings(FloatLayout):
         )
 
     def run_protocol_from_ui(self):
-        gui_logger.protocol_action('RUN')
-        logger.info('[LVP Main  ] ProtocolSettings.run_protocol_from_ui()')
         self._press_panel_run(
             'protocol',
+            lambda detail: gui_logger.protocol_action('RUN', detail),
             lambda: gui_logger.protocol_action('ABORT_PROTOCOL'),
             self._protocol_start,
         )
