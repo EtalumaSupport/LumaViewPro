@@ -133,9 +133,9 @@ class ServerRefusedError(Refusal, Exception):
     for the scope's state says 409.
 
     Attributes:
-        status: The HTTP status.
+        status: The HTTP status, the reason's.
         reason: The machine-readable code.
-        title: The heading.
+        title: The heading, the reason's.
         headers: Headers the answer carries, such as ``Retry-After``.
         extra: Further members of the problem, such as ``errors``.
     """
@@ -152,57 +152,75 @@ class ServerRefusedError(Refusal, Exception):
         'job_running': RefusalCause.STATE,
     }
 
+    _STATUSES: ClassVar[dict[str, int]] = {
+        'not_found': 404,
+        'invalid_request': 422,
+        'method_not_allowed': 405,
+        'unsupported_media_type': 415,
+        'handle_shared': 409,
+        'overloaded': 503,
+        'server_closing': 503,
+        'no_frame_yet': 503,
+        'job_running': 409,
+    }
+
+    _TITLES: ClassVar[dict[str, str]] = {
+        'not_found': 'Not Found',
+        'invalid_request': 'Invalid Request',
+        'method_not_allowed': 'Method Not Allowed',
+        'unsupported_media_type': 'Unsupported Media Type',
+        'handle_shared': 'Handle Shared',
+        'overloaded': 'Overloaded',
+        'server_closing': 'Server Closing',
+        'no_frame_yet': 'No Frame Yet',
+        'job_running': 'Job Running',
+    }
+
     def __init__(
         self,
-        status: int,
         reason: str,
-        title: str,
         detail: str,
         *,
         headers: dict[str, str] | None = None,
         extra: dict[str, object] | None = None,
     ) -> None:
         super().__init__(detail)
-        self.status = status
         self.reason = self._declared(reason)
-        self.title = title
+        self.status = self._STATUSES[reason]
+        self.title = self._TITLES[reason]
         self.headers = headers or {}
         self.extra = extra or {}
 
 
 def not_found(detail: str) -> ServerRefusedError:
     """A route, a handle or a job that is not there."""
-    return ServerRefusedError(404, 'not_found', 'Not Found', detail)
+    return ServerRefusedError('not_found', detail)
 
 
 def invalid_request(detail: str, **extra: object) -> ServerRefusedError:
     """A request whose arguments do not fit the member."""
-    return ServerRefusedError(422, 'invalid_request', 'Invalid Request', detail, extra=extra)
+    return ServerRefusedError('invalid_request', detail, extra=extra)
 
 
 def method_not_allowed(detail: str) -> ServerRefusedError:
     """A route asked with a method it does not answer."""
-    return ServerRefusedError(405, 'method_not_allowed', 'Method Not Allowed', detail)
+    return ServerRefusedError('method_not_allowed', detail)
 
 
 def unsupported_media_type(detail: str) -> ServerRefusedError:
     """A body that is not JSON."""
-    return ServerRefusedError(415, 'unsupported_media_type', 'Unsupported Media Type', detail)
+    return ServerRefusedError('unsupported_media_type', detail)
 
 
 def overloaded(detail: str, retry_after_s: int) -> ServerRefusedError:
     """More is held than the server keeps; asking again later may succeed."""
-    return ServerRefusedError(
-        503, 'overloaded', 'Overloaded', detail, headers={'Retry-After': str(retry_after_s)}
-    )
+    return ServerRefusedError('overloaded', detail, headers={'Retry-After': str(retry_after_s)})
 
 
 def server_closing() -> ServerRefusedError:
     """A member asked while the server closes: it will not be answered again."""
     return ServerRefusedError(
-        503,
         'server_closing',
-        'Server Closing',
         'The server is closing: it finishes what is under way, then exits.',
     )
 
@@ -210,9 +228,7 @@ def server_closing() -> ServerRefusedError:
 def no_frame_yet(retry_after_s: int) -> ServerRefusedError:
     """A live view with no frame to show: the camera sent none in time; asking again later may succeed."""
     return ServerRefusedError(
-        503,
         'no_frame_yet',
-        'No Frame Yet',
         'The camera has sent no frame to show yet; it may not be streaming.',
         headers={'Retry-After': str(retry_after_s)},
     )

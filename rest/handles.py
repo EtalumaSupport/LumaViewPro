@@ -95,9 +95,7 @@ class HandleRegistry:
         obj = self.get(handle, cls)
         if self._kept(obj):
             raise problems.ServerRefusedError(
-                409,
                 'handle_shared',
-                'Handle Shared',
                 f'{cls.__name__} handle {handle} is shared by every client and is kept.',
             )
         with self._lock:

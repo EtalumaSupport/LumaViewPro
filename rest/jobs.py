@@ -310,9 +310,7 @@ class JobRegistry:
         job = self.get(job_id)
         if not job.finished:
             raise problems.ServerRefusedError(
-                409,
                 'job_running',
-                'Job Running',
                 f'Job {job_id} has not ended: it is forgotten once it has.',
             )
         with self._lock:

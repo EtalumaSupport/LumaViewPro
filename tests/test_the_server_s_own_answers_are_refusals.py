@@ -36,6 +36,27 @@ def test_each_answer_is_a_refusal_with_its_cause_and_keeps_its_status(refusal, s
     assert problems.refused_by_server(refusal, 'id').status == status
 
 
+def test_each_reason_s_status_and_title_are_the_type_s():
+    """A raise names the reason; its status and heading are the class's, one per reason."""
+    expected = {
+        'not_found': (404, 'Not Found'),
+        'invalid_request': (422, 'Invalid Request'),
+        'method_not_allowed': (405, 'Method Not Allowed'),
+        'unsupported_media_type': (415, 'Unsupported Media Type'),
+        'handle_shared': (409, 'Handle Shared'),
+        'overloaded': (503, 'Overloaded'),
+        'server_closing': (503, 'Server Closing'),
+        'no_frame_yet': (503, 'No Frame Yet'),
+        'job_running': (409, 'Job Running'),
+    }
+    assert set(expected) == set(problems.ServerRefusedError.causes)
+    answered = {}
+    for reason in expected:
+        refusal = problems.ServerRefusedError(reason, 'detail')
+        answered[reason] = (problems.refused_by_server(refusal, 'id').status, refusal.title)
+    assert answered == expected
+
+
 def test_a_reason_with_no_declared_cause_fails_where_it_is_raised():
     with pytest.raises(TypeError, match='no_such_reason'):
-        problems.ServerRefusedError(409, 'no_such_reason', 'Title', 'detail')
+        problems.ServerRefusedError('no_such_reason', 'detail')
