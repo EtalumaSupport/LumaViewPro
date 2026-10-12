@@ -2420,6 +2420,20 @@ class MotionAPI:
         not have is refused (``_refuse_absent``) and drives nothing.
 
         Raises:
+            ArgumentRefusedError: ``'axis_unknown'``,
+                ``'turret_moves_by_slot'`` or ``'frame_unknown'``, at the door
+                (``_start``); ``'plate_frame_axis'`` or ``'not_a_number'``,
+                as ``_move_absolute_impl``. Nothing was driven.
+            HardwareCommandRefusedError: ``'not_connected'``,
+                ``'axis_absent'`` or ``'position_unread'``, as
+                ``_move_absolute_impl``; or ``'lid_open'``, an X or Y move
+                with the stage's lid open. Nothing was driven.
+            PositionOutOfRangeError: ``'position_out_of_range'``, the
+                target is outside the axis's configured travel and
+                ``ignore_limits`` is False.
+            AxisStateUnknownError: The axis position is unknown.
+            MoveFaultError: ``'driver_failed'``, the board did not take the
+                command.
             MoveNotCompletedError: The axis did not arrive; see
                 ``MoveInFlight.wait``.
         """
@@ -2476,8 +2490,9 @@ class MotionAPI:
                 ``'Z'``, ``'T'`` or ``'ALL'``; nothing was asked of the scope.
             HardwareCommandRefusedError: ``'not_connected'`` or
                 ``'axis_absent'``, no motor controller, or no Z or turret to
-                home (see ``_refuse_absent``); or ``'exclusive_activity_running'``,
-                a run, a diagnostic or a recording holds the scope.
+                home (see ``_refuse_absent``); ``'exclusive_activity_running'``,
+                a run, a diagnostic or a recording holds the scope; or
+                ``'lid_open'``, the stage's lid is open, and nothing moves.
             HomingFaultError: the home was driven and did not establish
                 a reference: the driver raised, or a homed axis's position
                 could not be read. The axes it names are UNKNOWN.

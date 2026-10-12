@@ -4812,6 +4812,11 @@ class ImagingAPI:
             ArgumentRefusedError: ``'missing_key'``, ``auto_gain_settings``
                 lacks a key the auto-gain write reads; ``'not_a_number'``,
                 one is not a number.
+            HardwareCommandRefusedError: ``'not_connected'``, naming the
+                camera, with none connected; nothing was written.
+            CameraSettingRejected: The camera refused the gain, the
+                exposure or the auto-gain change, as
+                ``_apply_layer_camera_settings_impl`` says.
         """
         if auto_gain_settings is not None:
             _refuse_unless_auto_gain_settings(auto_gain_settings, 'auto_gain_settings')
