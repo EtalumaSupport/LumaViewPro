@@ -466,7 +466,6 @@ kv = Builder.load_string(
                         step: 1
                         cursor_size: '20dp','20dp'
                         cursor_image: './data/icons/slider_cursor.png'
-                        track_width: dp(5)
                         value_track: True
                         value_track_width: dp(5)
                         on_release: root.acceleration_pct_slider()
@@ -653,7 +652,6 @@ kv = Builder.load_string(
                         step: 5
                         cursor_size: '20dp','20dp'
                         cursor_image: './data/icons/slider_cursor.png'
-                        track_width: dp(5)
                         value_track: True
                         value_track_width: dp(5)
                         on_release: root.live_view_fps_slider()
