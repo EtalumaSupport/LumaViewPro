@@ -41,12 +41,6 @@ _ENTRY = re.compile(r'^ {4}(\w+):(.*(?:\n {8,}.*)*)', re.M)
 # (reason ``no_data``); either names it.
 _QUOTED_REASON = re.compile(r"``'[a-z][a-z0-9_]*'``|reason\s+``[a-z][a-z0-9_]*``")
 
-# Built-ins the sections name, each raised by its member's body today. Typed
-# after W0 (NEXT_PRIMARY); a pair leaves this set when its raise is typed.
-_BUILT_INS_PINNED = {
-    ('HeldClaim.release', 'RuntimeError'),
-}
-
 # Refusal entries that do not yet say which reason; finished after W0
 # (NEXT_PRIMARY). A pair leaves this set when its entry names its reason.
 _REASON_UNNAMED_PINNED = frozenset(
@@ -156,12 +150,8 @@ def test_every_class_named_is_under_the_root():
         for name, _ in _ENTRY.findall(section)
         if name not in _ROOT
     }
-    assert outside - _BUILT_INS_PINNED == set(), (
-        'name the LumascopeError the member raises, or type its raise: '
-        f'{sorted(outside - _BUILT_INS_PINNED)}'
-    )
-    assert _BUILT_INS_PINNED - outside == set(), (
-        f'typed, so take them out of the pin: {sorted(_BUILT_INS_PINNED - outside)}'
+    assert outside == set(), (
+        f'name the LumascopeError the member raises, or type its raise: {sorted(outside)}'
     )
 
 

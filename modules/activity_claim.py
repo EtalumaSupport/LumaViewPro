@@ -162,9 +162,12 @@ class HeldClaim:
         """
         return self._claim._is_held_by(self)
 
-    @api
     def release(self) -> None:
         """Release the claim this taking holds.
+
+        Not published: whoever took the claim releases it on its own exit
+        path (a diagnostic's block, a run's cleanup), so a caller handed the
+        taking never owns its release.
 
         Raises:
             RuntimeError: this taking no longer holds the claim -- a

@@ -3434,7 +3434,6 @@ Reached through the event `scope.imaging.add_frame_listener` delivers.
 Reached through returned by `session.diagnostic_claim`.
 
 - `holds`
-- `release`
 
 ### InjectedFault
 
