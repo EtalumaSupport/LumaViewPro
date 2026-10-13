@@ -188,6 +188,7 @@ def test_sparse_stills_still_refuse_beside_a_building_video_group(tmp_path):
     for extra in ('Name', 'Label', 'Objective', 'Tile', 'Tile Group ID', 'Timestamp'):
         df[extra] = ''
     df['Custom Step'] = False
+    df['Channel Group ID'] = 0
     df['Raw'] = True
     for column in PostFunction.list_values():
         df[column] = False

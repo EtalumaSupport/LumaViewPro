@@ -51,6 +51,7 @@ WRITERS = frozenset(
         'modify_step_z_height',
         'modify_time_params',
         'optimize_step_ordering',
+        'set_turret_slot',
     }
 )
 
@@ -69,6 +70,7 @@ NOT_WRITERS = frozenset(
         'labware',
         'layer_acquires',
         'layer_settings',
+        'new_channel_group_id',
         'num_steps',
         'period',
         'sanitize_step_name',

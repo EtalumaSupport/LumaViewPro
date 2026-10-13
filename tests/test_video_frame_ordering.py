@@ -133,6 +133,7 @@ def _protocol_df(rows):
             'Z-Slice': [''] * n,
             'Tile': [''] * n,
             'Custom Step': [False] * n,
+            'Channel Group ID': [0] * n,
             'Timestamp': [''] * n,
             'Raw': [True] * n,
         }

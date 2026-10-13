@@ -94,7 +94,16 @@ class TestGroupAlgorithmsCarryDepth:
             for iy, y in enumerate((0.0, 1.0)):
                 p = tmp_path / f'tile_{ix}_{iy}.tiff'
                 _write_mono_tiff(p, value=200, shape=(4, 4))
-                rows.append({'Filepath': p.name, 'Color': 'BF', 'X': x, 'Y': y, 'Objective': '20x'})
+                rows.append(
+                    {
+                        'Filepath': p.name,
+                        'Color': 'BF',
+                        'X': x,
+                        'Y': y,
+                        'Objective': '20x',
+                        'Channel Group ID': 0,
+                    }
+                )
         df = pd.DataFrame(rows)
         stitcher = Stitcher.__new__(Stitcher)
         result = stitcher._group_algorithm(

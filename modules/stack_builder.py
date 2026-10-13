@@ -399,9 +399,10 @@ class StackBuilder(ProtocolPostProcessor):
             # acquisitions in one group (a run folder from before steps
             # recorded their Add); naming them says which.
             named = '; '.join(', '.join(str(p) for p in rows['Filepath']) for rows in doubled)
+            where = f' for well {df["Well"].iloc[0]}' if df['Well'].iloc[0] else ''
             error = (
-                f'Cannot build a hyperstack: more than one image was captured for one '
-                f'plane ({named}). Steps Added together make one hyperstack.'
+                f'Cannot build a hyperstack{where}: more than one image was captured for '
+                f'one plane ({named}). Steps Added together make one hyperstack.'
             )
             return {'status': False, 'error': error, 'metadata': {}}
         if len(df) != expected_planes or captured_cells != expected_planes:

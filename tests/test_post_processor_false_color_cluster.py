@@ -84,6 +84,7 @@ class TestStitcherGroupAlgorithmCarriesColor:
                         'Z-Slice': 0,
                         'Objective': '20x',
                         'Scan Count': 0,
+                        'Channel Group ID': 0,
                     }
                 )
         df = pd.DataFrame(rows)
