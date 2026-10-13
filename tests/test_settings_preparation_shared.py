@@ -16,6 +16,7 @@ import shutil
 import pytest
 
 import modules.settings_init as settings_init
+from modules.exceptions import InstallationFileError
 from tests.installation_fixtures import copy_installation_files
 
 logger = logging.getLogger('test_settings_preparation')
@@ -112,6 +113,21 @@ def test_an_unusable_current_json_surfaces_to_a_headless_caller(tmp_path):
 
     with pytest.raises(settings_init.SettingsFileError):
         settings_init.prepare_settings(logger, str(tmp_path), fall_back_to_template=False)
+
+
+def test_a_template_lacking_a_needed_key_is_the_installations_refusal_naming_it(tmp_path):
+    """A short template is the installation's fault, never the user's file set aside."""
+    data_dir = _data_dir(tmp_path)
+    template = json.loads((data_dir / 'settings.json').read_text())
+    del template['frame']
+    (data_dir / 'settings.json').write_text(json.dumps(template))
+    shutil.copy(SHIPPED_TEMPLATE, data_dir / 'current.json')
+
+    with pytest.raises(InstallationFileError) as refused:
+        settings_init.prepare_settings(logger, str(tmp_path), fall_back_to_template=True)
+
+    assert refused.value.file_path == data_dir / 'settings.json'
+    assert "['frame']" in str(refused.value)
 
 
 def test_the_gui_comes_up_on_the_template_and_reports_what_it_set_aside(tmp_path):

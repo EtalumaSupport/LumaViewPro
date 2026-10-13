@@ -10,6 +10,7 @@ from lib.lumascope_error import Fault
 from modules import labware_loader
 from modules.exceptions import (
     ArgumentRefusedError,
+    InstallationFileError,
     SettingsFileNotReplacedError,
     StoredSettingReplacedNotice,
 )
@@ -178,16 +179,21 @@ def read_settings_json(path: str, logger: logging.Logger | None = None) -> dict:
     return parsed
 
 
+def _missing_required_keys(settings: dict) -> list[str]:
+    """The keys the app cannot start without that *settings* lacks, sorted."""
+    return sorted(_REQUIRED_SETTINGS_KEYS - settings.keys())
+
+
 def _validate_settings(settings: dict, filepath: str, logger) -> None:
     """Check that loaded settings contain all required keys and types.
 
     Raises on missing critical keys. Warns on missing optional keys or
     type mismatches -- allows the app to start with partial config.
     """
-    missing = _REQUIRED_SETTINGS_KEYS - settings.keys()
+    missing = _missing_required_keys(settings)
     if missing:
         raise ValueError(
-            f'[Settings ] {filepath} missing required keys: {sorted(missing)}. '
+            f'[Settings ] {filepath} missing required keys: {missing}. '
             'App cannot start without these keys.'
         )
 
@@ -527,6 +533,9 @@ def _load_template(logger, template_path: str) -> dict:
     needed it.
     """
     template = read_installation_file(template_path)
+    missing = _missing_required_keys(template)
+    if missing:
+        raise InstallationFileError(template_path, f'lacks the keys the app needs: {missing}')
     _validate_settings(template, template_path, logger)
     return template
 
