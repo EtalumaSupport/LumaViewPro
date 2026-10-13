@@ -483,7 +483,7 @@ class Inbound:
         name: The type's name, by its last part (``str``, ``FilePath``,
             ``Remedy``).
         cls: The project class, for an enum, a record or a handle.
-        items: An array's or object's value alternatives, scalars only; empty
+        items: An array's or object's value alternatives, scalars or records; empty
             when the annotation does not say.
         fields: A record's published fields, each with its alternatives.
     """
@@ -619,7 +619,7 @@ def inbound(
 
     Raises:
         NoWireFormError: the type has no inbound form -- a job, a thread, a
-            path or record inside an array -- or is a union a sent value
+            path inside an array -- or is a union a sent value
             could be read as either side of (a name or a path), so which one
             the client meant is not knowable.
         NotHandedOutError: every alternative but None is a live object no
@@ -671,7 +671,7 @@ def inbound(
 def _items(
     node: ast.AST, text: str, classes: dict[str, type], aliases: dict[str, str]
 ) -> tuple[Inbound, ...]:
-    """An array's or object's value alternatives, which are scalars or nothing said."""
+    """An array's or object's value alternatives: scalars, records, or nothing said."""
     if not isinstance(node, ast.Subscript):
         return ()
     parts = node.slice.elts if isinstance(node.slice, ast.Tuple) else [node.slice]
@@ -682,8 +682,10 @@ def _items(
         # type would misdescribe.
         raise NoWireFormError(f'{text}: a tuple of fixed shape is not sent')
     items = inbound(ast.unparse(parts[-1]), classes, aliases)
-    if any(i.form != SCALAR for i in items):
-        raise NoWireFormError(f'{text}: an array or object of anything but scalars is not sent')
+    if any(i.form not in (SCALAR, RECORD) for i in items):
+        raise NoWireFormError(
+            f'{text}: an array or object of anything but scalars or records is not sent'
+        )
     return items
 
 
@@ -893,9 +895,20 @@ def decode(
     """
     converted = [a for a in alternatives if a.form in _CONVERTED]
     if value is None or not converted:
+        # An array's or object's items are decoded as their own values: a
+        # record inside one is built as a record alone is.
         array = next((a for a in alternatives if a.form == ARRAY), None)
-        if isinstance(value, list) and array is not None and array.name in _ARRAY_TYPES:
-            return _ARRAY_TYPES[array.name](value)
+        if isinstance(value, list) and array is not None:
+            items = [
+                decode(x, array.items, resolve_path=resolve_path, handle=handle) for x in value
+            ]
+            return _ARRAY_TYPES[array.name](items) if array.name in _ARRAY_TYPES else items
+        mapping = next((a for a in alternatives if a.form == OBJECT), None)
+        if isinstance(value, dict) and mapping is not None:
+            return {
+                k: decode(x, mapping.items, resolve_path=resolve_path, handle=handle)
+                for k, x in value.items()
+            }
         return value
     (a,) = converted
     if a.form == PATH:

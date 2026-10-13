@@ -4,7 +4,8 @@
 ``wire_encoding.inbound`` reads a parameter's annotation into the forms a
 client may send, and ``decode`` turns the sent value back: seconds into a
 ``timedelta``, an enum's form into its member, an object into a record, a
-handle's id into its object, a live-folder name into a path. A type a
+handle's id into its object, a live-folder name into a path, each item
+of an array or object as it would be alone. A type a
 client could not send unambiguously -- a job, a path inside an array, a
 union a value could be read as either side of -- is refused when the host
 is built, so no call ever guesses. The callbacks the host fills are not
@@ -70,6 +71,17 @@ def test_a_record_is_built_from_its_published_fields(classes, aliases):
     sent = {'member': 'recover_file_writer', 'confirm_text': 'Go', 'cancel_text': 'Stay'}
 
     assert _decode(sent, 'modules.exceptions.Remedy', classes, aliases) == Remedy(**sent)
+
+
+def test_a_record_inside_an_array_or_object_is_built_as_a_record_alone_is(classes, aliases):
+    sent = {'member': 'recover_file_writer', 'confirm_text': 'Go', 'cancel_text': 'Stay'}
+
+    assert _decode([sent], 'tuple[modules.exceptions.Remedy, ...]', classes, aliases) == (
+        Remedy(**sent),
+    )
+    assert _decode({'a': sent}, 'dict[str, modules.exceptions.Remedy]', classes, aliases) == {
+        'a': Remedy(**sent)
+    }
 
 
 def test_an_alias_is_read_through_to_its_value(classes, aliases):
