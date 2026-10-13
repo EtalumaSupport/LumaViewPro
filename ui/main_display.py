@@ -212,8 +212,11 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
         scope = _app_ctx.ctx.scope
         # The viewer's own size: the status line below it takes a line of the window.
         w, h = self.ids['viewer_id'].size
-        scale_hor = float(scope.imaging.get_width()) / float(w)
-        scale_ver = float(scope.imaging.get_height()) / float(h)
+        # The cached size the camera delivers, not a live read: a live read
+        # waits on the camera, which a grab stop can hold for seconds.
+        frame = scope.imaging.frame_size_cached
+        scale_hor = float(frame['width']) / float(w)
+        scale_ver = float(frame['height']) / float(h)
         scale = max(scale_hor, scale_ver)
         self.ids['viewer_id'].scale = scale
         self.ids['viewer_id'].pos = (

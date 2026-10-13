@@ -1123,13 +1123,22 @@ class PylonCamera(Camera):
                 pylon.RegistrationMode_ReplaceAll,
                 pylon.Cleanup_Delete,
             )
-            # Register a minimal removal handler that only sets an internal flag
+            # The removal handler is how an unplugged camera is noticed while
+            # it is idle: is_connected() reads the flag it sets and asks the
+            # SDK nothing. A camera connected without it would read as
+            # connected after it is unplugged, so the connect is refused.
             try:
                 camera.RegisterConfiguration(
                     _CameraRemovalHandler(self), pylon.RegistrationMode_Append, pylon.Cleanup_Delete
                 )
             except Exception as e:
-                logger.debug(f'[CAM Class ] Camera removal handler registration not supported: {e}')
+                _cam_log.error(
+                    f'[CAM Class ] Pylon camera connect refused: the camera-removal '
+                    f'handler could not be registered, so an unplugged camera '
+                    f'would still read as connected: {e}'
+                )
+                self.active = None
+                return False
 
             self.cam_image_handler = ImageHandler(self)
             # Fresh handler starts with an empty dispatch list; re-push any
@@ -3280,29 +3289,20 @@ class PylonCamera(Camera):
             return -1
 
     def is_connected(self) -> bool:
-        """Return True if connected; uses removal flag + SDK device-removed query."""
+        """Return True if connected, from the removal flag and the open camera.
+
+        Asks the SDK nothing. A grab stop holds the camera's SDK lock for as
+        long as the camera takes to stop, which has been 11 s, and this is
+        asked from the UI thread and per displayed frame; any SDK call here
+        would wait that out. A removal is marked by the removal handler
+        connect() requires, and by a write or a grab that fails on a gone
+        camera.
+        """
         if self._device_removed:
             self._mark_disconnected()
             return False
         if self.active is None:
             self._mark_disconnected()
-            return False
-        # Cheap SDK-side query covers cases where _CameraRemovalHandler missed the event.
-        try:
-            if self.active.IsCameraDeviceRemoved():
-                self._mark_disconnected()
-                return False
-        except Exception as e:
-            # A query that raises cannot confirm liveness, so report
-            # disconnected rather than stale-alive -- but do NOT latch
-            # removal: a failed read is not proof the device is gone,
-            # and the next poll re-queries. The definitive signals (the
-            # removal callback, a clean True from this query) still
-            # latch via their own paths.
-            _cam_log.warning(
-                f'[CAM Class ] IsCameraDeviceRemoved query raised; '
-                f'reporting disconnected without latching removal: {e}'
-            )
             return False
         return True
 

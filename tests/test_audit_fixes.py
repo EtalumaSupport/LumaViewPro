@@ -5646,59 +5646,6 @@ class TestPylonMissedFrameDeltaLog:
         assert row[columns.index('missed_frame_count')] == 12
 
 
-class TestPylonIsConnectedCallsSdkQuery:
-    """is_connected docstring promised "if available, the SDK's
-    device-removed query" but the implementation only checked the
-    internal _device_removed flag and self.active. The SDK's
-    InstantCamera.IsCameraDeviceRemoved() exposes its own removal
-    state -- if the _CameraRemovalHandler missed an event (e.g., the
-    handler was registered late, or the SDK delivered the removal on
-    a path that didn't fire the handler), the SDK still knows.
-
-    Defense in depth: query the SDK as a third check after our two
-    flags. Cheap (no transport enumeration). On query failure, log
-    debug and trust the prior checks.
-
-    Audit finding B12.
-    """
-
-    def _pyloncamera_source(self):
-        from pathlib import Path
-
-        return (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
-
-    def test_is_connected_calls_is_camera_device_removed(self):
-        """The SDK-side query is the third check (after the
-        _device_removed flag + active-is-None): it covers removals the
-        _CameraRemovalHandler callback missed. A removed-per-SDK camera
-        must read as disconnected AND get marked."""
-        cam = _bare_pylon_camera()
-        cam._device_removed = False
-        cam.active.IsCameraDeviceRemoved.return_value = True
-        assert cam.is_connected() is False
-        cam._mark_disconnected.assert_called_once()
-
-        cam = _bare_pylon_camera()
-        cam._device_removed = False
-        cam.active.IsCameraDeviceRemoved.return_value = False
-        assert cam.is_connected() is True
-        cam._mark_disconnected.assert_not_called()
-
-    def test_is_connected_returns_false_when_removal_query_raises(self):
-        """A removal query that RAISES must read as disconnected, not
-        stale-alive: a query failure means the camera's liveness cannot
-        be confirmed, and reporting True hands consumers (camera_connected,
-        health aggregation) a lie. It must also NOT latch teardown -- a
-        failed query is not proof of physical removal, and the next poll
-        re-queries; the definitive signals (removal callback, a clean
-        IsCameraDeviceRemoved()==True) still latch via their own paths."""
-        cam = _bare_pylon_camera()
-        cam._device_removed = False
-        cam.active.IsCameraDeviceRemoved.side_effect = RuntimeError('transport error')
-        assert cam.is_connected() is False
-        cam._mark_disconnected.assert_not_called()
-
-
 class TestPylonBslPrefixedNodeFallbacks:
     """Basler doc establishes Bsl-prefixed canonical names for several
     GenICam parameters on ace 2 / boost / dart M/R cameras:
