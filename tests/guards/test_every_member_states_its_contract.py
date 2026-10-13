@@ -45,8 +45,6 @@ _QUOTED_REASON = re.compile(r"``'[a-z][a-z0-9_]*'``|reason\s+``[a-z][a-z0-9_]*``
 # after W0 (NEXT_PRIMARY); a pair leaves this set when its raise is typed.
 _BUILT_INS_PINNED = {
     ('HeldClaim.release', 'RuntimeError'),
-    ('ProtocolsAPI.tiling_config', 'RuntimeError'),
-    ('ProtocolsAPI.tiling_config', 'ValueError'),
     ('ScopeSession.diagnostic_claim', 'RuntimeError'),
     ('ScopeSession.load_plugins', 'RuntimeError'),
     ('ScopeSession.start_application_session', 'RuntimeError'),

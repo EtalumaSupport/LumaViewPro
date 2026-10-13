@@ -68,11 +68,11 @@ def _make_serial_board():
 def _make_tiling_configs(tmp_path):
     """Create minimal tiling configs file for Protocol.
 
-    Must satisfy modules.tiling_config.TilingConfig._validate_tiling: a
-    dict with a 'data' key (which itself must be a dict).
+    A file every reader of tiling.json can use: one grid, and a default
+    naming it.
     """
     configs_file = tmp_path / 'tiling_configs.json'
-    configs_file.write_text('{"metadata": {}, "data": {}}')
+    configs_file.write_text('{"metadata": {"default": "1x1"}, "data": {"1x1": {"m": 1, "n": 1}}}')
     return configs_file
 
 

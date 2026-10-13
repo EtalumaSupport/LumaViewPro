@@ -107,8 +107,9 @@ class ProtocolsAPI:
         each call, so there is no copy to fall out of step with it.
 
         Raises:
-            RuntimeError: tiling.json is missing or is not valid JSON.
-            ValueError: tiling.json does not have the expected structure.
+            InstallationFileError: tiling.json is missing, unreadable or not
+                JSON, or is not a ``data`` object of grids with whole-number
+                ``m`` and ``n`` and a ``metadata.default`` naming one of them.
         """
         from modules.tiling_config import TilingConfig
 

@@ -1,7 +1,6 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
 import itertools
-import json
 import pathlib
 import re
 from typing import TYPE_CHECKING, ClassVar
@@ -9,8 +8,9 @@ from typing import TYPE_CHECKING, ClassVar
 from lvp_logger import logger
 
 import modules.common_utils as common_utils
-from modules.exceptions import ProtocolRunRefusedError
+from modules.exceptions import InstallationFileError, ProtocolRunRefusedError
 from modules.api_surface import api, api_fields
+from modules.path_utils import read_installation_file
 
 if TYPE_CHECKING:
     from modules.scope_capabilities import ScopeCapabilities
@@ -47,59 +47,52 @@ class TilingConfig:
     Attributes:
         available: Each grid's label, as ``create_protocol`` and
             ``Protocol.apply_tiling`` accept it.
-        default: The grid to preselect; None when the file names none.
+        default: The grid to preselect, one of ``available``.
     """
 
     available: tuple[str, ...]
-    default: str | None
+    default: str
 
     DEFAULT_FILL_FACTORS: ClassVar[dict] = {
         'position': 1.0  # No overlap needed for position-based tiling
     }
 
     def __init__(self, tiling_configs_file_loc: pathlib.Path):
-        try:
-            with open(tiling_configs_file_loc) as fp:
-                self._available_configs = json.load(fp)
-        except FileNotFoundError as e:
-            logger.error(f'[Tiling    ] tiling.json not found at {tiling_configs_file_loc}')
-            raise RuntimeError(
-                f'Required file tiling.json not found at {tiling_configs_file_loc}. '
-                'Please reinstall or restore from backup.'
-            ) from e
-        except json.JSONDecodeError as e:
-            logger.error(f'[Tiling    ] tiling.json is corrupt: {e}')
-            raise RuntimeError(
-                f'tiling.json is corrupt ({e}). Please restore from backup or reinstall.'
-            ) from e
+        """Read the installation's tiling.json.
 
-        self._validate_tiling(tiling_configs_file_loc)
+        Raises:
+            InstallationFileError: the file is missing, unreadable or not a
+                JSON object, or is not the shape every reader of it needs: a
+                ``data`` object of grids, each with a whole-number ``m`` and
+                ``n``, and a ``metadata.default`` naming one of them. A grid
+                left out of a broken file would be a grid the person cannot
+                choose and a run could not lay out, so the file is refused
+                whole, where it is read.
+        """
+        self._available_configs = read_installation_file(tiling_configs_file_loc)
+        self._refuse_unless_whole(pathlib.Path(tiling_configs_file_loc))
         self.available = tuple(self._available_configs['data'].keys())
-        self.default = self._available_configs.get('metadata', {}).get('default')
+        self.default = self._available_configs['metadata']['default']
 
-    def _validate_tiling(self, filepath):
-        """Check tiling.json has required structure."""
+    def _refuse_unless_whole(self, path: pathlib.Path) -> None:
+        """Refuse a tiling.json that is not the shape its readers need."""
         cfg = self._available_configs
-        if not isinstance(cfg, dict):
-            raise ValueError(f'tiling.json at {filepath}: expected dict, got {type(cfg).__name__}')
-        if 'metadata' not in cfg:
-            logger.warning(f"[Tiling    ] missing 'metadata' key in {filepath}")
-        if 'data' not in cfg:
-            raise ValueError(f"tiling.json at {filepath}: missing required 'data' key")
-        if not isinstance(cfg['data'], dict):
-            raise ValueError(f"tiling.json at {filepath}: 'data' must be a dict")
-        for label, entry in cfg['data'].items():
-            if not isinstance(entry, dict):
-                logger.warning(f"[Tiling    ] '{label}' should be dict in {filepath}")
-                continue
-            for field in ('m', 'n'):
-                if field not in entry:
-                    logger.warning(f"[Tiling    ] '{label}' missing '{field}' in {filepath}")
-                elif not isinstance(entry[field], int):
-                    logger.warning(
-                        f"[Tiling    ] '{label}'.'{field}' should be int, "
-                        f'got {type(entry[field]).__name__} in {filepath}'
-                    )
+        grids = cfg.get('data')
+        if not isinstance(grids, dict):
+            raise InstallationFileError(path, "has no 'data' object of tiling grids")
+        for label, grid in grids.items():
+            if not (
+                isinstance(grid, dict) and all(type(grid.get(field)) is int for field in ('m', 'n'))
+            ):
+                raise InstallationFileError(
+                    path, f"has a grid {label!r} without a whole-number 'm' and 'n'"
+                )
+        metadata = cfg.get('metadata')
+        default = metadata.get('default') if isinstance(metadata, dict) else None
+        if default not in grids:
+            raise InstallationFileError(
+                path, f"names no default grid among its own ('metadata.default' is {default!r})"
+            )
 
     @api(in_process=True, reads=True)
     def available_configs(self) -> list[str]:
@@ -163,9 +156,7 @@ class TilingConfig:
 
     @api(in_process=True, reads=True)
     def default_config(self) -> str:
-        """``default``; KeyError when the file names none."""
-        if self.default is None:
-            raise KeyError('default')
+        """``default``."""
         return self.default
 
     @staticmethod
