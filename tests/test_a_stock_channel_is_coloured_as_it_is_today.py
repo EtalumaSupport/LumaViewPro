@@ -149,3 +149,102 @@ def test_a_video_shows_the_channels_colour(tmp_path):
         ):
             wrong.append(channel)
     assert wrong == []
+
+
+def test_a_16_bit_imagej_tiff_carries_the_channels_lut(tmp_path):
+    """A 16-bit frame is stored grey, and FIJI is told its colour by the LUT."""
+    mono16 = _MONO.astype(np.uint16) * 16
+    ramp = np.arange(256)
+    wrong = []
+    for channel, colour in _COLOUR.items():
+        path = tmp_path / f'{channel}.tiff'
+        image_utils.write_tiff(
+            data=mono16.copy(),
+            file_loc=path,
+            metadata={**_METADATA, 'channel': channel},
+            ome=False,
+            color=channel,
+            significant_bits=12,
+            save_encoding='right_aligned',
+        )
+        with tifffile.TiffFile(path) as written:
+            page = written.pages[0]
+            pixels, photometric = page.asarray(), int(page.photometric)
+            imagej = written.imagej_metadata
+        # One LUT is read back as the (3, 256) array itself, not a list of one.
+        lut = np.asarray(imagej['LUTs']).reshape(3, 256)
+        want = np.stack([ramp * (1 if colour is None else c) for c in (colour or (1, 1, 1))])
+        if not np.array_equal(pixels, mono16) or photometric != 1:
+            wrong.append(f'{channel}: pixels or photometric {photometric}')
+        if not np.array_equal(lut, want):
+            wrong.append(f'{channel}: lut')
+        if (imagej.get('mode') == 'color') != (colour is not None):
+            wrong.append(f'{channel}: mode {imagej.get("mode")}')
+    assert wrong == []
+
+
+def test_a_16_bit_false_colour_tiff_bakes_the_channels_colour(tmp_path):
+    """Saved with the RGB encoding, a fluorescence frame is widened onto its
+    plane after its payload fills the container; a transmitted one stays grey."""
+    mono16 = _MONO.astype(np.uint16) * 16
+    filled = mono16 << 4
+    wrong = []
+    for channel, colour in _COLOUR.items():
+        path = tmp_path / f'{channel}.tiff'
+        image_utils.write_tiff(
+            data=mono16.copy(),
+            file_loc=path,
+            metadata={**_METADATA, 'channel': channel},
+            ome=False,
+            color=channel,
+            significant_bits=12,
+            save_encoding='rgb',
+        )
+        pixels = tifffile.imread(path)
+        want = filled if colour is None else np.stack([filled * c for c in colour], axis=-1)
+        if not np.array_equal(pixels, want):
+            wrong.append(channel)
+    assert wrong == []
+
+
+def test_a_hyperstack_names_each_channels_colour_in_its_ome_metadata(tmp_path):
+    """OME Channel.Color is the signed RGBA of the channel's colour, white for grey."""
+    reference = tmp_path / 'reference.tiff'
+    image_utils.write_tiff(
+        data=_MONO.copy(),
+        file_loc=reference,
+        metadata={**_METADATA, 'channel': 'BF'},
+        ome=True,
+        color='BF',
+        significant_bits=8,
+        save_encoding='right_aligned',
+    )
+
+    def rgba(colour):
+        r, g, b = (255 * c for c in (colour or (1, 1, 1)))
+        unsigned = (r << 24) | (g << 16) | (b << 8) | 0xFF
+        return unsigned - (1 << 32) if unsigned >= (1 << 31) else unsigned
+
+    metadata = image_utils.build_hyperstack_output_metadata(
+        reference,
+        channel_names=list(_COLOUR),
+        plane_positions={
+            'PositionX': [0.0] * len(_COLOUR),
+            'PositionY': [0.0] * len(_COLOUR),
+            'PositionZ': [0.0] * len(_COLOUR),
+            'DeltaT': None,
+        },
+        significant_bits=8,
+        pixel_size_um=0.5,
+    )
+    assert metadata['Channel']['Color'] == [rgba(c) for c in _COLOUR.values()]
+
+
+def test_a_stock_false_colour_image_reads_back_as_its_mono():
+    """The composite and stack inputs collapse a baked image to one plane."""
+    wrong = [
+        channel
+        for channel, colour in _COLOUR.items()
+        if not np.array_equal(image_utils.rgb_image_to_gray(_rgb(_MONO, colour)), _MONO)
+    ]
+    assert wrong == []
