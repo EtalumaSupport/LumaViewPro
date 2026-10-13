@@ -1071,6 +1071,7 @@ def on_run_state():              # called on EVERY run-state transition: an acti
                                  # a run's files all landing;
                                  # re-read the derivations (level semantics, no payload)
 session.add_run_state_listener(on_run_state)
+session.remove_run_state_listener(on_run_state)   # stop being told
 ```
 
 ### Outcomes
@@ -1976,7 +1977,7 @@ Each event declares its record, published in the reference below: its fields nam
 
 The four `scope.*` listeners each have a matching `remove_*_listener(callback)`. The frame listener additionally takes a `name=` kwarg and carries the don't-mutate + 24 ms budget contract documented above; the other three are lightweight state-change notifications.
 
-The last two rows are not registered on the scope. **Run state** is registered on the **session**: it takes no payload and is level-synced -- registering calls it once immediately, so a subscriber never misses a transition that happened before it subscribed, and it has no remover. **Outcomes** are registered on the session, or given to the factory to hear bring-up, and have a matching `session.remove_outcome_listener(callback)`.
+The last two rows are not registered on the scope. **Run state** is registered on the **session**: it takes no payload and is level-synced -- registering calls it once immediately, so a subscriber never misses a transition that happened before it subscribed, and `session.remove_run_state_listener(callback)` removes it (a callback never added is a no-op). **Outcomes** are registered on the session, or given to the factory to hear bring-up, and have a matching `session.remove_outcome_listener(callback)`.
 
 ### Camera info
 
@@ -2879,6 +2880,7 @@ Reached through `ScopeSession.create(settings, ...)`; every L2 caller starts her
 - `recording_active`
 - `recover_file_writer`
 - `remove_outcome_listener` (in-process)
+- `remove_run_state_listener` (in-process)
 - `rename_step`
 - `retire_rejected_settings`
 - `run_in_progress`

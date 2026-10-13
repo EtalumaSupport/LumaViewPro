@@ -884,6 +884,12 @@ class ScopeSession:
         self._run_state_listeners.append(listener)
         listener()
 
+    @api(in_process=True)
+    def remove_run_state_listener(self, listener: Callable[[], None]) -> None:
+        """Stop telling ``listener`` of run-state transitions; a listener never added is a no-op."""
+        with contextlib.suppress(ValueError):
+            self._run_state_listeners.remove(listener)
+
     def _run_went_idle(self) -> None:
         """The engine's run has ended: release any claim waiting on it, then tell the listeners."""
         with self._release_at_run_idle_lock:
