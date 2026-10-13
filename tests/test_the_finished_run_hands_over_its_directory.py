@@ -61,9 +61,12 @@ def _end_the_run(kwargs, events, run_dir):
     from modules.protocol_cleanup import send_run_ended
     from modules.sequenced_capture_runner import SequencedCaptureRunner
 
+    from modules.run_outcome import EndingLatch
+
     runner = SimpleNamespace(
         _disable_saving_artifacts=True,
         _protocol_execution_record=None,
+        _ending=EndingLatch(),
         _events=events,
         _protocol=None,
         _run_dir=run_dir,
