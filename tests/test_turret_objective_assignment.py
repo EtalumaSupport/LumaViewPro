@@ -149,12 +149,15 @@ class TestBothHostsAgreeOnTheSlotKeyType:
         monkeypatch.setattr(si, 'rejected_current_json', None)
 
         session = ScopeSession.create(
-            ScopeSession.load_user_settings(str(tmp_path)), source_path=str(tmp_path), simulate=True
+            ScopeSession.load_user_settings(str(tmp_path)),
+            source_path=str(tmp_path),
+            simulate=True,
+            settings_file=str(data / 'current.json'),
         )
         # Last-wins already resolves slot 2 to '20x Oly', so assigning that
         # value would pass even with the save path gutted. This one changes it.
         session.assign_turret_objective(2, '4x Oly')
-        session.save_settings('./data/current.json')
+        session.shutdown()
 
         saved = _json.loads(
             (data / 'current.json').read_text(), object_pairs_hook=lambda pairs: pairs

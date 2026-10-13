@@ -5,20 +5,20 @@ An unreadable current.json used to be raised with the user inside
 ``build()`` -- before Kivy attaches the root widget, so the dialog was
 created, opened, logged, and then painted UNDER the app root with every
 touch routed to the root. Never rendered, never answerable. The user
-therefore never resolved the provisional state, so ``save_settings``
-refused for the rest of the session -- silently, returning ``None`` --
-and the whole session's changes were lost at exit with nothing said.
+therefore never resolved the provisional state, so nothing was saved
+for the rest of the session -- silently -- and the whole session's
+changes were lost at exit with nothing said.
 
 Two arms fix that, and each covers the other:
 
 * the question is asked from ``on_start`` and Clock-deferred inside the
   helper, so it is posed at the one moment an answer can be given, and
   its failure-to-present stays fatal at the new call site;
-* the two refusals in ``save_settings`` RAISE
-  ``SettingsSaveRefusedError`` with a machine-readable reason, so a
-  session that somehow still never sees the dialog fails loudly on every
-  save instead of losing the user's work quietly -- and a REST caller
-  gets the FAIL rather than a success on a write that never happened.
+* a provisional session keeps its writes in memory and says so once
+  (``SettingsNotSavedNotice``, pinned in
+  ``tests/test_every_accepted_settings_write_is_saved.py``), so a session
+  that somehow still never sees the dialog says it is not saving
+  instead of losing the user's work quietly.
 
 Around them sit the observability facts this defect's own evidence chain
 needed: a popup opened before the mainloop is marked and logged at
@@ -57,7 +57,7 @@ import modules.notification_center as notification_center
 import modules.settings_init as settings_init
 import ui.notification_popup as notification_popup
 from modules import gui_logger
-from modules.exceptions import SettingsFileNotReplacedError, SettingsSaveRefusedError
+from modules.exceptions import SettingsFileNotReplacedError
 from modules.notification_center import Severity
 from modules.scope_session import ScopeSession
 from tests.ast_seams import REPO_ROOT, direct_call_names, parse_module
@@ -284,52 +284,6 @@ def session(tmp_path, monkeypatch):
     )
 
 
-def _current_json(tmp_path) -> str:
-    """The ONE place this file reads the user's configuration off disk.
-
-    pin-justified: every refusal test makes the same claim -- "the user's
-    only copy was left exactly as it was" -- which is a fact about a file
-    on disk, so there is no AST seam to assert instead. (The ratchet
-    already records that rationale for tests/test_session_save_settings.py,
-    whose assertions these mirror.) Funnelled through one helper so the
-    whole file carries a single read site rather than a pair per test.
-    """
-    return (tmp_path / 'data' / 'current.json').read_text()
-
-
-@pytest.fixture
-def untouched(session, tmp_path):
-    """Snapshot current.json; the returned check asserts it never moved.
-
-    Depends on ``session`` so the snapshot is taken after that fixture
-    has laid the file down, whatever order a test names them in.
-    """
-    before = _current_json(tmp_path)
-
-    def _check():
-        assert _current_json(tmp_path) == before, (
-            "the refused save must leave the user's only copy exactly as it was"
-        )
-
-    return _check
-
-
-def _set_connected(session, monkeypatch, connected):
-    # The real scope with its connection flags forced, so the save still
-    # reads the live runtime state it records the turret slot from.
-    for flag in ('camera_connected', 'motor_connected', 'led_connected'):
-        monkeypatch.setattr(type(session.scope), flag, property(lambda self: connected))
-
-
-def _with_hardware(session, monkeypatch):
-    _set_connected(session, monkeypatch, True)
-
-
-def _without_hardware(session, monkeypatch):
-    # Nothing found at bring-up: the gate's question, not what is connected now.
-    monkeypatch.setattr(type(session.scope), 'no_hardware', property(lambda self: True))
-
-
 def _make_provisional(monkeypatch, tmp_path):
     monkeypatch.setattr(
         settings_init,
@@ -526,7 +480,7 @@ class TestTheQuestionIsAskable:
 # ---------------------------------------------------------------------------
 
 
-class TestTheSaveRefusalIsAudible:
+class TestTheProvisionalStateIsTheSessions:
     def test_session_exposes_the_provisional_query_and_remedy(self, session, monkeypatch, tmp_path):
         """The GUI must not reach around the Session into settings_init:
         an L2 caller needs the same query and the same remedy."""
@@ -548,102 +502,14 @@ class TestTheSaveRefusalIsAudible:
         )
         assert calls == [True]
 
-    def test_a_provisional_save_raises(self, session, monkeypatch, tmp_path, untouched):
-        """Returning None here is how a whole session's changes were lost
-        with nothing said -- and how a REST PUT reported success on a
-        write that never happened."""
-        _with_hardware(session, monkeypatch)
-        _make_provisional(monkeypatch, tmp_path)
-
-        session.settings['live_folder'] = '/data/template_values'
-        with pytest.raises(SettingsSaveRefusedError) as excinfo:
-            session.save_settings()
-
-        assert excinfo.value.reason == 'settings_provisional'
-        assert excinfo.value.file.endswith('current.json')
-        untouched()
-
-    def test_force_does_not_override_the_provisional_refusal(
-        self, session, monkeypatch, tmp_path, untouched
-    ):
-        """force overrides "the sliders are at defaults", not "this file
-        is the user's only copy and we could not read it"."""
-        _with_hardware(session, monkeypatch)
-        _make_provisional(monkeypatch, tmp_path)
-
-        with pytest.raises(SettingsSaveRefusedError) as excinfo:
-            session.save_settings(force=True)
-
-        assert excinfo.value.reason == 'settings_provisional'
-        untouched()
-
-    def test_a_provisional_save_to_another_destination_still_writes(
-        self, session, monkeypatch, tmp_path
-    ):
-        """The refusal is conjoined with the destination. A caller
-        exporting a configuration elsewhere is not writing the user's
-        live file and must not be blocked."""
-        _with_hardware(session, monkeypatch)
-        _make_provisional(monkeypatch, tmp_path)
-        elsewhere = tmp_path / 'exported.json'
-
-        session.settings['live_folder'] = '/data/exported'
-        session.save_settings(str(elsewhere))
-
-        with open(elsewhere) as f:
-            assert json.load(f)['live_folder'] == '/data/exported'
-
-    def test_a_hardware_less_save_raises(self, session, monkeypatch, tmp_path, untouched):
-        """The more common silent no-op for an API caller: with nothing
-        attached the per-channel values in memory are slider defaults."""
-        _without_hardware(session, monkeypatch)
-
-        session.settings['live_folder'] = '/data/should_not_persist'
-        with pytest.raises(SettingsSaveRefusedError) as excinfo:
-            session.save_settings()
-
-        assert excinfo.value.reason == 'no_hardware'
-        untouched()
-
-        # force is the deliberate-write escape hatch, and still works.
-        session.save_settings(force=True)
-        with open(tmp_path / 'data' / 'current.json') as f:
-            assert json.load(f)['live_folder'] == '/data/should_not_persist'
-
-    def test_shutdown_survives_a_refused_save(self, session, monkeypatch, tmp_path):
-        """Two halves, because the app's close cannot be driven headlessly: it
+    def test_the_apps_close_leaves_saving_and_teardown_to_the_session(self):
+        """Structural, because the app's close cannot be driven headlessly: it
         tears down executors, threads, notification listeners and real
-        hardware. The BEHAVIOUR half proves the refusal is an exception
-        that would abort an unguarded caller; the STRUCTURAL half proves
-        the close's save catches exactly that type, and that both ways the
-        app closes -- the window's close and on_stop -- save before they
-        reach the session's teardown, which is the session's alone."""
-        _without_hardware(session, monkeypatch)
-        _make_provisional(monkeypatch, tmp_path)
-
-        # Provisional is checked first, so it is what shutdown meets on a
-        # hardware-less session over an unreadable file -- the bench case.
-        with pytest.raises(SettingsSaveRefusedError) as excinfo:
-            session.save_settings('./data/current.json')
-        assert excinfo.value.reason == 'settings_provisional'
-
+        hardware. Both ways the app closes -- the window's close and on_stop
+        -- run the host's part before they reach the session's close, and
+        the host's part neither saves the settings nor tears anything down:
+        the session's close saves once and tears down, alone."""
         methods = _app_methods()
-        prepare = methods['_prepare_the_close']
-        guards = [
-            node
-            for node in ast.walk(prepare)
-            if isinstance(node, ast.Try)
-            and any(
-                h.type is not None and ast.unparse(h.type) == 'SettingsSaveRefusedError'
-                for h in node.handlers
-            )
-        ]
-        assert len(guards) == 1, 'the close must catch the refusal around its save'
-        assert 'save_settings' in [
-            n.func.attr
-            for n in ast.walk(guards[0])
-            if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
-        ]
 
         def _chain(node):
             out = []
@@ -668,18 +534,19 @@ class TestTheSaveRefusalIsAudible:
             for node in _calls(teardown)
         ), 'the close must still tear the session (and its hardware) down'
 
-        # Each way the app closes saves first, then reaches the teardown:
-        # on_stop calls it; the window's close starts the thread that runs it.
+        # Each way the app closes runs the host's part first, then reaches the
+        # session's close: on_stop calls it; the window's close starts the
+        # thread that runs it.
         for name in ('on_stop', '_close_the_session'):
             method = methods[name]
-            saved = [n.lineno for n in _calls(method) if n.func.attr == '_prepare_the_close']
+            prepared = [n.lineno for n in _calls(method) if n.func.attr == '_prepare_the_close']
             torn = [
                 n.lineno
                 for n in ast.walk(method)
                 if isinstance(n, ast.Attribute) and n.attr == '_shut_the_session_down'
             ]
-            assert saved and torn, f'{name} must save, then reach the teardown'
-            assert min(saved) < min(torn), f'{name} must save BEFORE the teardown'
+            assert prepared and torn, f"{name} must prepare, then reach the session's close"
+            assert min(prepared) < min(torn), f"{name} must prepare BEFORE the session's close"
 
         # The teardown is the session's, whole: no part of the app's close
         # stops a thread, lane or hardware itself.
@@ -694,32 +561,11 @@ class TestTheSaveRefusalIsAudible:
             ]
             assert stray == [], f'{name} performs teardown steps itself: {stray}'
 
-    def test_the_periodic_flush_survives_a_refused_save(self, monkeypatch):
-        """A 300 s timer must not turn an expected condition into a
-        traceback every five minutes -- and must not, in buying that
-        quiet, swallow a real write failure."""
-
-        def _refused(file):
-            raise SettingsSaveRefusedError(reason='no_hardware', file=file)
-
-        ctx = SimpleNamespace(session=SimpleNamespace(save_settings=_refused))
-        log = MagicMock()
-
-        flush = _app_method('_flush_current_json', ctx=ctx, logger=log)
-        flush(object(), 0.0)
-
-        assert not log.exception.called, 'an expected refusal must not log a traceback'
-        assert log.debug.called
-        assert 'no_hardware' in log.debug.call_args[0][0]
-
-        def _broken(file):
-            raise OSError('disk full')
-
-        ctx.session.save_settings = _broken
-        log.reset_mock()
-        flush(object(), 0.0)
-
-        assert log.exception.called, 'a real write failure must still surface'
+        # The settings are the session's to save, at every accepted write
+        # and at its close; the host's close saves nothing itself.
+        for name in ('on_stop', '_close_the_session', '_prepare_the_close'):
+            saves = [ast.unparse(n.func) for n in _calls(methods[name]) if 'save' in n.func.attr]
+            assert saves == [], f'{name} saves the settings itself: {saves}'
 
 
 # ---------------------------------------------------------------------------

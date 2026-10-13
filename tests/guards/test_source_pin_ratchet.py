@@ -144,7 +144,6 @@ _FRAGILE_PIN = {
     'tests/test_led_ack_and_tsr_filename.py': 1,
     'tests/test_logger_bundle_single_owner.py': 1,
     'tests/test_manual_recording_controller.py': 1,
-    'tests/test_periodic_current_json_flush.py': 1,
     'tests/test_popup_close_button.py': 2,
     'tests/test_protocol_modules.py': 1,
     'tests/test_quick_enhance.py': 2,

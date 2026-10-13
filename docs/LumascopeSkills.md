@@ -413,9 +413,8 @@ session.set_scale_bar(True)                   # whether captures draw the scale 
 session.set_acceleration_limit(80)            # 1-100, else AccelerationLimitRefusedError (a ValueError); the motors take it, then it is stored; with no motor controller HardwareCommandRefusedError ('not_connected' / 'axis_absent'); nothing stored on a raise
 session.save_bookmark(('X', 'Y'))             # the live position as the bookmark: X/Y plate mm, Z um
 session.save_all_bookmarks()                  # the live Z as the Z bookmark and every layer's focus
-session.save_settings(force=True)             # persist to data/current.json (raises if refused)
-session.settings_are_provisional()            # True while current.json is unread and undecided
-session.retire_rejected_settings()            # resolve it: retire the unreadable file, saves work again; the retired file's Path
+session.settings_are_provisional()            # True while current.json is unread and undecided: nothing is saved
+session.retire_rejected_settings()            # resolve it: retire the unreadable file, the session saves again; the retired file's Path
 ```
 
 The settings dict IS the configuration surface: its storage keys are the
@@ -547,23 +546,17 @@ refuses is reported as `SettingsFileNotWrittenError`, naming the file and
 the operating system's reason; the file is unchanged, and the next write
 and the close save again.
 
-`save_settings()` writes the dict to `data/current.json`. **A refused
-write raises `SettingsSaveRefusedError`** (from `modules.exceptions`),
-carrying a machine-readable `reason` and the refused `file` — a caller
-can always tell a refusal from a success. Two reasons exist.
-`'no_hardware'`: no hardware was connected during the session, so the
-GUI's sliders sit at their defaults and persisting those over a user's
-real per-channel values loses them; an API caller has no sliders behind
-it, so a deliberate persist passes `force=True`, which overrides this
-refusal. `'settings_provisional'`: the app came up on the shipped
-template because `current.json` could not be read; that file is the
-user's only copy and is left untouched until they decide, so `force`
-does **not** override — check `session.settings_are_provisional()` and,
-once the user (or the controlling client) has chosen to start over,
-resolve with `session.retire_rejected_settings()`. The provisional
-refusal protects `current.json` specifically; a save aimed at another
-destination still writes. Its `str()` is the sentence written for a
-person, and `title` its heading.
+**Provisional settings.** When `current.json` cannot be read, the GUI
+comes up on the shipped template and asks the user what to do; that
+file is the user's only copy of their configuration, so it is left
+untouched until they decide, and the session saves nothing meanwhile.
+Check `session.settings_are_provisional()` and, once the user (or the
+controlling client) has chosen to start over, resolve with
+`session.retire_rejected_settings()`: the unreadable file is renamed
+aside, never deleted, and the session saves again at its next accepted
+write and at its close. `ScopeSession.load_user_settings` raises
+`SettingsFileError` for such a file instead, since a script has nobody
+to ask.
 
 ### Periodic metrics logging (optional)
 
@@ -1256,9 +1249,9 @@ still a `RuntimeError`, and loads nothing). A script or a test that never calls 
 is installed on the machine. Each plugin's `register` is handed the session
 as its `ctx`; a plugin that does not load is reported and the rest load. An
 installed plugin claiming a built-in's name keeps it, and the built-in is
-the one reported as not loaded. A subscriber's `on_settings_changed` is
-handed the session and is told at each `save_settings` what changed since
-it last heard, the first time since the plugins loaded.
+the one reported as not loaded. No plugin is told of a settings change
+(level 9): a spec that names `subscribes_to` keys is reported as not
+loaded, naming the level its `on_settings_changed` hook needs.
 
 A post-processing plugin that opts in (`auto_run_on_protocol_complete`) is
 handed the folder of every Full Protocol run, whoever started it, once the
@@ -1270,7 +1263,7 @@ file member raises. A run whose images are not all written hands its folder
 to no processor.
 
 `unload_plugins()` is for a host whose close must stop plugin work before
-anything else, as the GUI's does before it stops runs and saves settings;
+anything else, as the GUI's does before it stops runs;
 `shutdown()` calls it first for every other host, and a second call does
 nothing.
 
@@ -1296,6 +1289,7 @@ still states the major version.
 | level 6 | `imaging.set_binning_size`, `set_pixel_format`, `set_conversion_gain_mode` and `set_line_noise_reduction`, and the Session's `set_image_mode`, `set_high_conversion_gain` and `set_line_noise_reduction`, return `None`: every failure raises, a camera gone before the body with `not_connected`; a toggle's mode on a camera without it raises `CameraSettingUnsupportedError`, its off is satisfied. |
 | level 7 | `lvp_logger.git_revision()` takes no argument: the commit the running code was built from, read where the code lives (links resolved), so a launch from a folder of links into a clone names the clone's commit; from a GitHub ZIP's or an installer's `.git_archival.txt` first; a frozen build asks git nothing, so an installer built by a build script below v4 answers `None`. |
 | level 8 | Every `Refusal` and `Quiet` type states its cause (`RefusalCause`, `modules.exceptions`), as `cause` or, where its reasons differ, as `causes` keyed by reason: a plugin's own refusal type that states neither is refused at import, and one built with a reason its `causes` lacks raises `TypeError`. `RunAlreadyEndedError` carries `reason` `'run_already_ended'` and a title. |
+| level 9 | The session saves every accepted settings write itself (`ScopeSession.create(settings_file=...)`), and `save_settings`, `SettingsSaveRefusedError` and `on_settings_changed` are gone; `PluginSpec.subscribes_to` is accepted empty, and a spec naming keys is not loaded, its reason naming level 8 as the last that told a plugin of a settings change. |
 
 ### Configuration queries
 
@@ -2895,7 +2889,6 @@ Reached through `ScopeSession.create(settings, ...)`; every L2 caller starts her
 - `save_focus`
 - `save_layer_focus`
 - `save_protocol`
-- `save_settings` (in-process)
 - `saved_focus`
 - `scope`
 - `select_labware`

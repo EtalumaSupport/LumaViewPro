@@ -132,8 +132,8 @@ def read_settings_json(path: str, logger: logging.Logger | None = None) -> dict:
     generator falls back to other directories, the GUI asks the user), so
     this classifies and they choose.
 
-    No `encoding=` argument, deliberately. Every reader and the writer in
-    `microscope_settings.save_settings` use the platform default, which is
+    No `encoding=` argument, deliberately. Every reader and the writer,
+    `settings_saver.write_whole`, use the platform default, which is
     cp1252 on Windows. Reading as UTF-8 here would make a config that
     Windows wrote with any non-ASCII byte -- a live_folder under an
     accented user directory is the everyday case -- suddenly unparseable,
@@ -779,9 +779,9 @@ def fall_back_to_template(logger: logging.Logger, lvp_appdata: str, reason: str)
     store exists to prevent.
 
     Setting ``rejected_current_json`` is the half that keeps the promise:
-    it makes the session provisional, so every save raises loudly instead
-    of writing template values over the only copy of the user's
-    configuration. The file itself is not touched.
+    it makes the session provisional, so the session saves nothing and
+    says so, instead of writing template values over the only copy of the
+    user's configuration. The file itself is not touched.
     """
     global rejected_current_json
 
@@ -839,7 +839,8 @@ def settings_are_provisional() -> bool:
     """True while the app is running on defaults nobody has agreed to keep.
 
     Writing current.json in this state would replace a user's whole
-    configuration with the template, so the writer refuses while it holds.
+    configuration with the template, so the session saves nothing while it
+    holds.
     """
     return rejected_current_json is not None
 
@@ -851,27 +852,6 @@ def current_json_path(directory: str | os.PathLike) -> str:
     host that names it to ``ScopeSession.create(settings_file=...)``.
     """
     return os.path.join(directory, 'data', 'current.json')
-
-
-def targets_current_json(file: object) -> bool:
-    """Is this save aimed at the live user configuration?
-
-    Matched on the resolved basename rather than the literal argument: the
-    writer normalises its path afterwards (appends .json, absolutizes
-    against the source root), and a caller outside this repo may hand it an
-    absolute path to the same file. Comparing the string it was given would
-    let those through.
-
-    Lives here rather than beside the writer because which file holds the
-    user's configuration is a fact about settings, not about the GUI -- any
-    future writer needs the same answer.
-    """
-    if not isinstance(file, (str, os.PathLike)):
-        return False
-    name = os.fspath(file)
-    if name[-5:].lower() != '.json':
-        name += '.json'
-    return os.path.basename(name).lower() == 'current.json'
 
 
 def _resolve_settings_path(directory):

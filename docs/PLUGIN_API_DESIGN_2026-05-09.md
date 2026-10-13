@@ -435,7 +435,7 @@ GUI / Engineering plugin / REST  ->  Session  ->  Lumascope API  ->
 | 5 | Where do operation flags live? | Per sub-API by ownership: `motion.is_homing`, `motion.is_turreting`, `motion.is_moving`; `imaging.is_capturing`, `imaging.is_focusing`. Deferred to Phase 6 of migration. |
 | 6 | Image save helpers | Move out of Lumascope entirely to `modules/image_save.py` as plain functions. Static duplicates retire. See §2.7. |
 | 7 | Plugin types hardcoded vs extensible? | Hardcoded for 4.x. Four namespaces (ui, post_processing, live_processing, rest) cover known extension axes. `live_processing` name locked but ships empty until Wave 7 Phase 4 per pass-3 D1. Adding a new category is a deliberate platform change. Rule 33 decision-record comment in `ctx/plugins/__init__.py`. |
-| 8 | Plugin lifecycle hooks | `register(ctx)`, `unregister(ctx)`, `on_settings_changed(ctx, settings)`, optional `on_event(event_type, payload)`. See §4.3. |
+| 8 | Plugin lifecycle hooks | `register(ctx)`, `unregister(ctx)`, `on_settings_changed(ctx, settings)` (retired at plugin API level 9; see §4.3), optional `on_event(event_type, payload)`. See §4.3. |
 | 9 | Plugin capability declaration | Yes, plugins declare `capabilities: tuple[str, ...]` in their `PluginSpec`. Used (not informational-only) by tech-support report + diagnostic probe per pass-1 M-3 / pass-3 DJ3. See §4.4. |
 | 10 | REST URL mapping | **DEFERRED 2026-05-11** (pass-2 C-6) to dedicated REST design session. See §5 + §10 ScopeSession disposition row. |
 | 11 | ScopeCapabilities fragmentation | **Pass-1 amended**: split into TWO unified surfaces. `scope.capabilities` = immutable scope identity (axes, led_colors, camera_model, etc.). `scope.runtime_state` = runtime-mutable values (firmware_versions, firmware_features). Both unified-per-surface; sub-APIs read from both, do not each own their own. See §2.5. |
@@ -501,6 +501,15 @@ declare subscription keys in `PluginSpec.subscribes_to` (e.g.
 subscription keys, the hook fires on every settings change and plugins
 get spammed; with subscription keys, hook firing is targeted. Empty
 `subscribes_to` = hook never fires (default).
+
+**Retired at plugin API level 9 (2026-10-13)**: the hook fired from
+`ScopeSession.save_settings`, which a caller had to call; the session
+now saves every accepted write itself (`ScopeSession.create(settings_file=...)`)
+and `save_settings` is gone, so `on_settings_changed` and its settings
+diff went with it. It had no subscriber. `PluginSpec.subscribes_to` is
+accepted empty, so specs written to this design still load; a spec that
+names keys is not loaded, and its reason names level 8 as the last level
+that told a plugin of a settings change.
 
 Host loading flow (replaces today's ad-hoc try/except in
 `lumaviewpro.py:716-741`):

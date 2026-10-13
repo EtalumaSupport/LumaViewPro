@@ -203,8 +203,11 @@ def probe_dir(name):
     return live_dir(name)
 
 
-def make_session(name='probe', *, home=False, **overrides):
+def make_session(name='probe', *, home=False, settings_file=None, **overrides):
     """A headless simulated session, built the way an L2 caller builds one.
+
+    `settings_file` is the file the session saves its settings to (None
+    saves nothing), as `ScopeSession.create` takes it.
 
     `home` runs `ScopeSession.start_application_session()`, the one bring-up
     seam, and waits for the queued home to drain. Without it every protocol
@@ -218,7 +221,9 @@ def make_session(name='probe', *, home=False, **overrides):
     _refuse_hardware()
     live = live_dir(name)
     session = ScopeSession.create(
-        complete_settings(live_folder=str(live), **overrides), simulate=True
+        complete_settings(live_folder=str(live), **overrides),
+        simulate=True,
+        settings_file=settings_file,
     )
     if home:
         session.start_application_session()

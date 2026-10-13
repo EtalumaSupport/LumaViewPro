@@ -17,7 +17,6 @@ from modules.exceptions import (
     RecordingRefusedError,
     Refusal,
     RunCheckFailedError,
-    SettingsSaveRefusedError,
 )
 from modules.notification_center import Severity, notifications
 
@@ -79,16 +78,6 @@ def test_a_refusals_words_are_its_sentence():
     for refusal in (run, recording):
         assert isinstance(refusal, Refusal)
         assert str(refusal) == refusal.message, 'str() must be the sentence, not reason: message'
-
-
-@pytest.mark.parametrize('reason', ['settings_provisional', 'no_hardware'])
-def test_a_refused_settings_save_says_why_in_a_sentence(reason):
-    refusal = SettingsSaveRefusedError(reason=reason, file='./data/current.json')
-
-    assert isinstance(refusal, Refusal)
-    assert refusal.title == 'Settings Not Saved'
-    assert str(refusal).startswith('The settings were not saved to ./data/current.json:')
-    assert reason not in str(refusal), 'the code is for machines; the sentence is for people'
 
 
 def test_a_crashed_check_is_one_error_with_both_tracebacks(centre_posts, caplog):

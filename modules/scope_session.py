@@ -21,7 +21,6 @@ import contextlib
 import copy
 import dataclasses
 import datetime
-import json
 import os
 import pathlib
 import stat
@@ -72,7 +71,6 @@ from modules.exceptions import (
     SettingRefusedError,
     SettingsFileNotWrittenError,
     SettingsNotSavedNotice,
-    SettingsSaveRefusedError,
 )
 from modules.kivy_utils import UiDispatcher
 from modules.live_work import LiveWork, WorkItem
@@ -3265,8 +3263,8 @@ class ScopeSession:
         """Is the app running on defaults nobody has agreed to keep?
 
         True while the user's current.json could not be used and no one
-        has decided its fate. While it holds, every save aimed at
-        current.json raises SettingsSaveRefusedError -- resolve with
+        has decided its fate. While it holds, accepted writes are kept in
+        memory and not saved (``SettingsNotSavedNotice``) -- resolve with
         retire_rejected_settings() after the user has chosen to start
         over.
         """
@@ -3278,86 +3276,12 @@ class ScopeSession:
 
         Moves the unusable current.json aside (renamed, never deleted --
         it is the user's only copy) so a fresh one can take its place,
-        and clears the provisional state so saves work again. Call only
+        and clears the provisional state, so the session saves again: at
+        its next accepted write, and at its close. Call only
         after a human has chosen to start over. Returns the retired
         path, or None when nothing was provisional.
         """
         return settings_init.retire_rejected_current_json()
-
-    @api(in_process=True)
-    def save_settings(self, file: str = './data/current.json', *, force: bool = False) -> None:
-        """Write the settings dict to disk as JSON.
-
-        Refused (raising) when writing would destroy real data: when no
-        hardware was connected this session the sliders sit at their
-        defaults (0.01 ms exposure and the like), and writing those over
-        a user's real per-channel values silently loses them -- a caller
-        that means the save regardless passes force=True, since an API
-        write has no slider behind it to misread.
-
-        Raises:
-            SettingsSaveRefusedError: reason='settings_provisional' when
-                the app is running on the shipped template because
-                current.json could not be used AND the save targets
-                current.json (force does not override; a save aimed at
-                any other destination still writes). reason='no_hardware'
-                when no hardware was connected this session and force is
-                not set.
-            ConfigError: the scope has not been configured
-                (``configure_scope`` has not run), so whether it has a
-                turret -- and so which slot to record -- is not known.
-        """
-        logger.info('[Session  ] save_settings()')
-
-        # Outside the force gate on purpose: force means "save even though no
-        # hardware was connected", not "save over a file we were told to leave
-        # alone". The settings in memory right now are the shipped template,
-        # loaded because the user's own file could not be used; writing them
-        # to current.json would replace their entire configuration with
-        # defaults. Resolved by retire_rejected_settings() once the user
-        # has actually chosen to start over.
-        if settings_init.settings_are_provisional() and settings_init.targets_current_json(file):
-            logger.warning(
-                '[Session  ] save_settings: refused -- running on default '
-                'settings because current.json could not be used. Not '
-                'overwriting it until the user decides.'
-            )
-            raise SettingsSaveRefusedError(reason='settings_provisional', file=file)
-
-        if not force:
-            scope = self.scope
-            # Found at bring-up, not connected now: the sliders hold the
-            # user's real values once hardware configured them, and a scope
-            # unplugged since -- an FX2 scope has no board left to answer --
-            # still has a session worth saving.
-            had_hardware = bool(scope) and not scope.no_hardware
-            if not had_hardware:
-                logger.info(
-                    '[Session  ] save_settings: refused -- no hardware was '
-                    'connected this session (would overwrite real per-channel '
-                    'values with slider defaults). Pass force=True to override.'
-                )
-                raise SettingsSaveRefusedError(reason='no_hardware', file=file)
-
-        if isinstance(file, str) and (file[-5:].lower() != '.json'):
-            file = file + '.json'
-
-        t0 = time.monotonic()
-        settings_snapshot = self.get_settings_snapshot()
-        # On a turreted scope nothing writes objective_id: the objective is
-        # the slot's assignment, so the file keeps whatever it held -- never
-        # null, which a launch as a turretless model would refuse.
-        # Resolve relative paths against source_path instead of relying on CWD
-        if not os.path.isabs(file):
-            file = os.path.join(self.source_path, file)
-        with open(file, 'w') as write_file:
-            json.dump(settings_snapshot, write_file, indent=4)
-        dt = time.monotonic() - t0
-        if dt > 0.1:
-            logger.warning(f'[Session  ] save_settings took {dt * 1000:.0f}ms')
-
-        if self.plugins is not None:
-            self.plugins.settings_saved(self, settings_snapshot)
 
     @api(reads=True)
     def capture_settings_snapshot(self) -> dict:
@@ -3443,8 +3367,8 @@ class ScopeSession:
         Three conditions withhold an owed question, each leaving one log
         line per call so a bundle can say why nothing was asked: with no
         hardware there is nothing in the light path and no capture to
-        stamp; while settings are provisional every write is refused, so
-        an answer given now would be lost -- the host re-asks when they
+        stamp; while settings are provisional nothing is saved, so an
+        answer given now would be lost -- the host re-asks when they
         resolve; while an activity holds the scope the answer is refused
         too (``confirm_objective``), so asking would only ask again after
         each refusal -- the host re-asks when the hold ends. No line is

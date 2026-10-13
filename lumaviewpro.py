@@ -490,12 +490,6 @@ from ui.vertical_control import VerticalControl
 from ui.zstack import ZStack
 
 
-# current.json is written at a clean close (_prepare_the_close). A hard kill
-# or crash would otherwise leave no runtime-state snapshot in a tech-support
-# bundle, so it is also flushed on this interval while the app runs.
-_CURRENT_JSON_FLUSH_INTERVAL_S = 300
-
-
 def _work_item_text(item) -> str:
     """One piece of the session's live work, as the close's popups show it."""
     if item.percent is not None:
@@ -617,11 +611,6 @@ class LumaViewProApp(TooltipMixin, App):
         # (e.g., labware selection, stage offset changes)
         Clock.schedule_interval(ctx.stage.draw_labware, 1.0)
         Clock.schedule_interval(ctx.motion_settings.update_xy_stage_control_gui, 1.0)
-
-        # Periodic current.json snapshot so a hard kill / crash still leaves a
-        # recent runtime-state file for tech-support bundles (it is otherwise
-        # only written at clean shutdown).
-        Clock.schedule_interval(self._flush_current_json, _CURRENT_JSON_FLUSH_INTERVAL_S)
 
         # Stage B1: publish Kivy-side layer state to scope_display_thread at
         # 30Hz. The thread cannot read Kivy widget attrs from a non-UI
@@ -910,8 +899,8 @@ class LumaViewProApp(TooltipMixin, App):
         def _after_revert():
             # The retire is a file rename that can fail under a Windows
             # AV/indexer lock. The session still says provisional then, so
-            # the question is put back -- every save raises loudly until it
-            # is resolved. Otherwise settings can be kept again, so the
+            # the question is put back -- nothing is saved until it is
+            # resolved. Otherwise settings can be kept again, so the
             # objective question suppressed while they were provisional is
             # asked now.
             if ctx.session.settings_are_provisional():
@@ -1393,36 +1382,14 @@ class LumaViewProApp(TooltipMixin, App):
 
         Clock.schedule_interval(_watch, 0.2)
 
-    def _flush_current_json(self, dt: float) -> None:
-        """Periodic current.json snapshot (Clock interval callback).
-
-        Mirrors the on_stop save so a hard kill / crash still leaves recent
-        runtime state on disk. The hardware-presence gate inside
-        save_settings prevents overwriting real per-channel values with
-        slider defaults when no hardware was connected this session.
-        """
-        from modules.exceptions import SettingsSaveRefusedError
-
-        try:
-            ctx.session.save_settings('./data/current.json')
-        except SettingsSaveRefusedError as e:
-            # Expected while no hardware is connected or settings are
-            # provisional; save_settings logged the refusal at its own
-            # site, and a 5-minute timer must not turn an expected
-            # condition into a recurring traceback.
-            logger.debug(f'[LVP Main  ] periodic flush declined: {e.reason}')
-        except Exception:
-            logger.exception('[LVP Main  ] periodic current.json flush failed')
-
     def stop(self, *largs) -> None:
         """End the event loop; ``run()`` then dispatches ``on_stop``, once.
 
         Kivy's own ``stop()`` dispatches ``on_stop`` itself, and ``run()``
         dispatches it again when the loop it ended returns, so every exit
         made from inside the loop (Confirm Exit, the drain close, quit and
-        repair) would cancel, save and tear down twice, the second save
-        after the scope is disconnected. A window close already ends the
-        loop this way.
+        repair) would cancel and tear down twice. A window close already
+        ends the loop this way.
         """
         stopTouchApp()
 
@@ -1444,20 +1411,6 @@ class LumaViewProApp(TooltipMixin, App):
         # tear-down. A plugin's own failure is logged inside, and the rest
         # still unload. The session's close finds them unloaded.
         ctx.session.unload_plugins()
-
-        # The hardware-presence gate lives inside the session's save_settings,
-        # so every caller (engineering plugin, REST, scheduled save) gets the
-        # same guard. Pass force=True only to override. A refusal must not
-        # abort shutdown -- the session's close is hardware teardown.
-        # INFO, not WARNING: the errors log ships in every support bundle
-        # and a hardware-less clean exit is not an error. The save comes
-        # BEFORE the close: it needs the hardware the close releases.
-        from modules.exceptions import SettingsSaveRefusedError
-
-        try:
-            ctx.session.save_settings('./data/current.json')
-        except SettingsSaveRefusedError as e:
-            logger.info(f'[LVP Main  ] settings not saved at exit: {e.reason}')
 
     def _shut_the_session_down(self) -> None:
         """The session's close: it stops a live run and recording, finishes the rest, then tears down."""

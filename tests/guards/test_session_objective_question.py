@@ -502,11 +502,15 @@ class TestT10TurretPosition:
     objective to one slot, and the startup move to slot 1 overwrote it on
     every launch."""
 
-    def test_a_stored_position_is_dropped_and_a_save_writes_none(self, sessions, tmp_path):
-        session = sessions(**_turret_settings(turret_position=3))
-        assert 'turret_position' not in session.settings
+    def test_a_stored_position_is_dropped_and_a_save_writes_none(self, tmp_path):
         saved = tmp_path / 'current.json'
-        session.save_settings(str(saved))
+        session = ScopeSession.create(
+            complete_settings(**_turret_settings(turret_position=3)),
+            simulate=True,
+            settings_file=str(saved),
+        )
+        assert 'turret_position' not in session.settings
+        session.shutdown()
         assert 'turret_position' not in json.loads(saved.read_text())
 
 

@@ -96,7 +96,6 @@ _REASON_UNNAMED_PINNED = frozenset(
         ('ScopeSession.save_all_bookmarks', 'ProtocolRunRefusedError'),
         ('ScopeSession.save_focus', 'ProtocolRunRefusedError'),
         ('ScopeSession.save_layer_focus', 'ProtocolRunRefusedError'),
-        ('ScopeSession.save_settings', 'SettingsSaveRefusedError'),
         ('ScopeSession.select_labware', 'HardwareCommandRefusedError'),
         ('ScopeSession.select_objective', 'HardwareCommandRefusedError'),
         ('ScopeSession.set_binning_size', 'CameraSettingUnsupportedError'),

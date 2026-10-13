@@ -46,7 +46,7 @@ class _EntryPoint:
         return self._module
 
 
-def _plugin(name, *, processor=None, auto_run=False, subscribes_to=(), on_register=None):
+def _plugin(name, *, processor=None, auto_run=False, on_register=None):
     """A plugin module that records what the host calls it with."""
     module = types.ModuleType(f'fake_plugin_{name}')
     module.spec = PluginSpec(
@@ -54,7 +54,6 @@ def _plugin(name, *, processor=None, auto_run=False, subscribes_to=(), on_regist
         version='0.1.0',
         requires_lvp_version='>=4.0.0',
         description=name,
-        subscribes_to=subscribes_to,
         auto_run_on_protocol_complete=auto_run,
     )
     module.calls = []
@@ -69,12 +68,8 @@ def _plugin(name, *, processor=None, auto_run=False, subscribes_to=(), on_regist
     def unregister(ctx):
         module.calls.append(('unregister', ctx))
 
-    def on_settings_changed(ctx, settings):
-        module.calls.append(('settings', ctx, settings))
-
     module.register = register
     module.unregister = unregister
-    module.on_settings_changed = on_settings_changed
     return module
 
 
@@ -345,27 +340,6 @@ class TestTheSessionIsThePluginsHost:
         with open_composite_session(headless_settings(tmp_path)) as (session, _runner):
             _load(session, plugin)
             assert plugin.calls == [('register', session)]
-
-    def test_a_setting_changed_before_the_first_save_is_told_at_it(self, tmp_path):
-        plugin = _plugin('listener', subscribes_to=('image_output_format.sequenced',))
-        with open_composite_session(headless_settings(tmp_path)) as (session, _runner):
-            _load(session, plugin)
-            session.update_settings('image_output_format.sequenced', 'OME-TIFF')
-            session.save_settings(str(tmp_path / 'current.json'))
-
-        told = [call for call in plugin.calls if call[0] == 'settings']
-        assert len(told) == 1
-        _kind, ctx, settings = told[0]
-        assert ctx is session
-        assert settings['image_output_format']['sequenced'] == 'OME-TIFF'
-
-    def test_a_save_that_changes_nothing_subscribed_tells_nothing(self, tmp_path):
-        plugin = _plugin('listener', subscribes_to=('image_output_format.sequenced',))
-        with open_composite_session(headless_settings(tmp_path)) as (session, _runner):
-            _load(session, plugin)
-            session.save_settings(str(tmp_path / 'current.json'))
-
-        assert [call for call in plugin.calls if call[0] == 'settings'] == []
 
     def test_health_is_the_registrys_once_plugins_load(self, tmp_path):
         with open_composite_session(headless_settings(tmp_path)) as (session, _runner):

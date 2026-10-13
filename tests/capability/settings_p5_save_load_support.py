@@ -3,8 +3,8 @@
 GUI entry points:
   load settings (startup)  ui/microscope_settings.py:209 load_settings()
                            (called from the app bring-up, not a widget)
-  save settings            ScopeSession.save_settings, driven by the app's
-                           exit path (no widget in this slice)
+  save settings            the session's own save of every accepted write
+                           (ScopeSession.create(settings_file=...)); no widget
   support report           ui/lumaviewpro.kv:2624 -> ui/microscope_settings.py:1287
   zip logs                 ui/lumaviewpro.kv:2631 -> ui/microscope_settings.py:1363
 """
@@ -12,34 +12,23 @@ GUI entry points:
 import json
 import shutil
 import sys
+import time
 
 import harness as _common
 
-s, live = _common.make_session()
+out = _common.SCRATCH / 'saved_settings.json'
+if out.exists():
+    out.unlink()
+s, live = _common.make_session(settings_file=str(out))
 try:
-    # --- save settings to an explicit file --------------------------------
-    out = _common.SCRATCH / 'saved_settings.json'
-    # The documented no_hardware refusal fires only when NOTHING is
-    # connected (`camera_connected or motor_connected or led_connected`).
-    # A simulated session has all three, so writing without force is the
-    # contract here, not a missing guard -- the probe used to assert the
-    # refusal and was reading its own precondition wrong.
-    scope = s.scope
-    connected = bool(scope.camera_connected or scope.motor_connected or scope.led_connected)
-    try:
-        s.save_settings(file=str(out))
-        _common.ok(
-            'save_settings writes when hardware was connected', connected, f'connected={connected}'
-        )
-    except Exception as e:
-        _common.ok(
-            'save_settings refuses only when nothing was connected',
-            not connected,
-            f'connected={connected}: {type(e).__name__}: {e}',
-        )
-    s.save_settings(file=str(out), force=True)
-    _common.ok('save_settings(force=True) wrote the file', out.exists())
+    # --- an accepted write is saved, a window after it --------------------
+    s.update_settings('video.max_fps', 17)
+    deadline = time.monotonic() + 5.0
+    while time.monotonic() < deadline and not out.exists():
+        time.sleep(0.1)
+    _common.ok('the session saved the write within the window', out.exists())
     saved = json.loads(out.read_text())
+    _common.ok('the saved file carries the write', saved['video']['max_fps'] == 17)
     _common.ok(
         'saved file carries the live values',
         saved['live_folder'] == str(live),

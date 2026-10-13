@@ -144,32 +144,6 @@ class TestRetiring:
         assert settings_init.retire_rejected_current_json() is None
 
 
-class TestTheSaveGuard:
-    """The destination test, which is what keeps the guard honest."""
-
-    @pytest.mark.parametrize(
-        'path',
-        [
-            './data/current.json',
-            'data/current.json',
-            '/an/absolute/path/to/current.json',
-            './data/current',  # save_settings appends .json
-            'CURRENT.JSON',
-        ],
-    )
-    def test_recognises_the_live_configuration(self, path):
-        assert settings_init.targets_current_json(path)
-
-    @pytest.mark.parametrize(
-        'path',
-        ['./data/settings.json', '/tmp/somewhere/else.json', 'protocol.json'],
-    )
-    def test_leaves_other_destinations_alone(self, path):
-        # A caller writing somewhere else is not writing the user's live
-        # configuration and must not be blocked.
-        assert not settings_init.targets_current_json(path)
-
-
 class TestShapeValidation:
     """settings.json is the schema, because it cannot drift from itself.
 

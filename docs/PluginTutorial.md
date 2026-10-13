@@ -90,7 +90,6 @@ spec = PluginSpec(
     requires_lvp_version=">=4.0.0",
     description="Lists TIFFs in a capture folder and writes a summary.",
     capabilities=("modules.image_save",),
-    subscribes_to=(),
     author="Your Name",
     url="https://example.com/hello_postproc",
 )
@@ -155,7 +154,7 @@ def unregister(ctx: Any) -> None:
 | `requires_lvp_version` | yes | PEP-440-ish requirement (`>=4.0.0`, `==4.0.0`, `~=4.0.0`). Host strips pre-release suffixes (`-beta8`) before comparing. |
 | `description` | yes | One sentence shown in the plugin list and the tech-support report. |
 | `capabilities` | no | Tuple of dotted paths the plugin uses (`scope.imaging`, `modules.image_save`). Recorded in tech-support reports; not sandbox-enforced in 4.x. |
-| `subscribes_to` | no | Tuple of settings-tree keys (`video.max_fps`). If non-empty, the host will call your `on_settings_changed(ctx, settings)` when one of those keys changes. Empty tuple = hook never fires. |
+| `subscribes_to` | no | Retired at plugin API level 9: leave it out. An empty tuple is accepted; a spec naming keys is not loaded, since no plugin is told of a settings change. |
 | `author` | no | Free-form. |
 | `url` | no | Free-form. |
 
@@ -327,14 +326,13 @@ put the scope back.
 Reverse order matters when plugin B was registered after plugin A
 and depends on resources A exposes -- B comes down first.
 
-### Settings change (optional)
+### Settings change
 
-If your spec sets `subscribes_to=("some.setting.key", ...)`, the
-session calls your module-level `on_settings_changed(ctx, settings)`
-when the settings are saved and one of those keys has changed since
-your plugin last heard, the first time since it loaded. Empty tuple
-(the default) means the hook never fires; you don't need to define the
-function.
+No plugin is told of a settings change (plugin API level 9): the session
+saves every accepted write itself, and `on_settings_changed` is not
+called. A plugin that needs a setting reads it when it needs it
+(`ctx.get_setting('video.max_fps')`). A spec that still names
+`subscribes_to` keys is not loaded, and its reason says so.
 
 ### After a protocol (optional)
 
@@ -390,7 +388,7 @@ pre-release suffixes (`-beta8`, `-rc1`) before comparing, so
 Your `register(ctx)` raised. The host already called your
 `unregister(ctx)` for cleanup, so partial state should be released.
 Read the log for the full traceback; common causes are typos in the
-spec (e.g. `subscribes_to=("key",)` vs `subscribes_to="key"`), or
+spec (e.g. `capabilities=("modules.image_save",)` vs `capabilities="modules.image_save"`), or
 your processor closing over a missing module-level binding.
 
 ### `TypeError` when host invokes your processor

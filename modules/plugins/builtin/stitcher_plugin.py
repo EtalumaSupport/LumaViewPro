@@ -58,7 +58,6 @@ spec = PluginSpec(
         'X/Y positions.'
     ),
     capabilities=('modules.stitcher', 'modules.image_save'),
-    subscribes_to=(),
     author='Etaluma',
     url='',
 )

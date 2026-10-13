@@ -1044,52 +1044,6 @@ class CatalogueNameRefusedError(Refusal, ConfigError):
         self.offered = offered
 
 
-class SettingsSaveRefusedError(Refusal, ConfigError):
-    """A settings save was refused: writing now would destroy real data.
-
-    Raised by ``ScopeSession.save_settings`` instead of silently skipping
-    the write -- a caller that cannot tell a refusal from a success reports
-    success on a write that never happened, which is how a whole session's
-    changes get lost with nothing said.
-
-    A refusal like any other: its message is the sentence a person reads
-    and ``title`` its heading, so whichever caller ends up telling someone
-    tells them the same thing.
-
-    Attributes:
-        reason: Machine-readable refusal code for callers that map refusals
-            to responses. ``'settings_provisional'`` -- the app is running
-            on the shipped template because the user's file could not be
-            read, and that file stays untouched until they decide
-            (``force`` does not override). ``'no_hardware'`` -- no hardware
-            was connected this session, so the in-memory per-channel values
-            are slider defaults, not measurements (``force=True``
-            overrides).
-        file: The destination whose write was refused.
-    """
-
-    cause = RefusalCause.STATE
-    title = 'Settings Not Saved'
-
-    _SENTENCES: ClassVar[dict[str, str]] = {
-        'settings_provisional': (
-            'The settings were not saved to {file}: LumaViewPro is running on its '
-            'default settings because that file could not be read, and it is left '
-            'as it is until you decide what to do with it.'
-        ),
-        'no_hardware': (
-            'The settings were not saved to {file}: no microscope was connected '
-            'this session, so the per-channel values are defaults, not values '
-            'measured on this scope.'
-        ),
-    }
-
-    def __init__(self, reason: str, file: str):
-        super().__init__(self._SENTENCES[reason].format(file=file))
-        self.reason = reason
-        self.file = file
-
-
 @api_fields('path', 'member')
 class SettingRefusedError(Refusal, ConfigError):
     """A settings write was refused; nothing was written.

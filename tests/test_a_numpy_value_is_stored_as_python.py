@@ -80,18 +80,19 @@ class TestTheSettings:
         handed['BF']['gain'] = np.float32(2.0)
         handed['video']['max_fps'] = np.int64(10)
 
-        session = ScopeSession.create(handed, simulate=True)
+        session = ScopeSession.create(
+            handed, simulate=True, settings_file=str(tmp_path / 'saved.json')
+        )
         try:
             assert session.settings is handed
             assert type(handed['BF']['gain']) is float
             assert type(handed['video']['max_fps']) is int
-
-            # Written by plain json, with no encoder behind it.
-            session.save_settings(str(tmp_path / 'saved.json'), force=True)
-            saved = json.loads((tmp_path / 'saved.json').read_text())
-            assert saved['video']['max_fps'] == 10
         finally:
             session.shutdown()
+
+        # Written by plain json, with no encoder behind it.
+        saved = json.loads((tmp_path / 'saved.json').read_text())
+        assert saved['video']['max_fps'] == 10
 
 
 class TestAProtocolsConfigCells:

@@ -17,7 +17,6 @@ Plugin authors implement:
     spec = PluginSpec(...)
     def register(ctx): ...
     def unregister(ctx): ...                    # optional
-    def on_settings_changed(ctx, settings): ... # optional, fires per spec.subscribes_to
 
 ``ctx`` is the ScopeSession hosting the plugin. A host asks its session
 for plugins (``session.load_plugins()``); the session discovers them via
@@ -26,14 +25,13 @@ entry_points group 'lvp.plugins'.
 
 from __future__ import annotations
 
-import copy
 import importlib.metadata
 import logging
 import re
 import threading
 from dataclasses import dataclass, field
 from typing import Any
-from collections.abc import Callable, Iterable
+from collections.abc import Callable
 
 from modules.exceptions import (
     PluginFailedError,
@@ -72,7 +70,7 @@ ENGINEERING_PLUGIN = 'etaluma_engineering'
 # reads it at its own entry through session.plugin_api_level and refuses
 # below what it needs; a host older than the level has no such member,
 # which the plugin reads as 0.
-PLUGIN_API_LEVEL = 8
+PLUGIN_API_LEVEL = 9
 
 # Mount points are locked to the set the host knows how to attach.
 # Additional names are added when a real consumer needs them, paired
@@ -128,9 +126,12 @@ class PluginSpec:
     sandbox in 4.x; used by the tech-support report and diagnostic
     probes to record which plugins were loaded when data was collected.
 
-    subscribes_to lists settings-tree keys (dot-path notation, e.g.
-    'video.max_fps'). The host fires on_settings_changed only
-    when one of those keys changes. Empty tuple = hook never fires.
+    subscribes_to is retired: through plugin API level 8 it named the
+    settings keys whose save fired the plugin's on_settings_changed. The
+    session now saves every accepted write itself and tells no plugin, so
+    a spec that still names keys is refused at load, naming the level its
+    hook needs; the empty default is accepted, as specs copied from the
+    tutorial pass it.
 
     auto_run_on_protocol_complete (post_processing namespace only):
     when True, the session invokes the registered processor
@@ -181,7 +182,7 @@ class PluginRuntimeError:
     """A runtime error caught from a plugin handler.
 
     Distinct from a load failure: the plugin loaded fine, but failed
-    while servicing a callback (e.g. on_settings_changed). Reported by
+    while servicing a callback (e.g. auto_run_on_protocol_complete). Reported by
     PluginRegistry.record_runtime_error and kept in
     NamespaceHealth.last_runtime_errors so diagnostic probes can
     attribute fault to the right plugin.
@@ -519,10 +520,6 @@ class PluginRegistry:
         # Recorded by this discovery and not yet reported, each with the
         # plugin's own exception: load() reports them together when it ends.
         self._unreported: list[tuple[PluginNotLoaded, BaseException | None]] = []
-        # The settings as subscribers last heard them: taken at load, so a
-        # change made before the first save is told at that save. Written
-        # by load() and settings_saved(), on the host's thread.
-        self._settings_baseline: dict | None = None
 
     def _track(self, name: str, module: Any) -> None:
         with self._loaded_lock:
@@ -667,57 +664,6 @@ class PluginRegistry:
             self.rest.health(),
         )
 
-    def notify_settings_changed(
-        self,
-        ctx: Any,
-        settings: dict,
-        changed_keys: Iterable[str],
-    ) -> None:
-        """Fire on_settings_changed on every loaded plugin whose
-        subscribes_to prefix-matches any of the changed keys.
-
-        Args:
-            ctx: The session, passed to each plugin's on_settings_changed.
-            settings: Full settings dict at the moment of notification
-                (post-save snapshot).
-            changed_keys: Iterable of dot-path keys that changed in this
-                cycle. Empty -> no-op.
-
-        Plugins implement on_settings_changed(ctx, settings) at module
-        level (per design doc Sec 4.3). The dispatcher iterates loaded
-        plugins regardless of namespace; the per-namespace registries
-        retain runtime-error attribution via record_runtime_error.
-
-        Match semantics are prefix: subscribes_to=('video',)
-        fires for any changed key under that subtree
-        (video.max_fps, video.max_duration_seconds, ...).
-        subscribes_to=('video.max_fps',) fires only when that
-        exact dot-path key changes.
-
-        Exceptions from a plugin handler are recorded and reported but
-        never propagate -- one plugin's failure does not block others.
-        Runs on the calling thread; plugin handlers must be quick
-        enough not to stall the settings-save path.
-        """
-        changed = set(changed_keys)
-        if not changed:
-            return
-        with self._loaded_lock:
-            plugins_snapshot = list(self._loaded_plugins)
-        for name, module in plugins_snapshot:
-            spec = _extract_spec(module)
-            if spec is None or not spec.subscribes_to:
-                continue
-            if not _any_prefix_match(spec.subscribes_to, changed):
-                continue
-            handler = getattr(module, 'on_settings_changed', None)
-            if not callable(handler):
-                continue
-            try:
-                handler(ctx, settings)
-            except Exception as exc:
-                self.record_runtime_error(name, 'on_settings_changed', exc)
-
     def load(self, host: Any, host_version: str) -> None:
         """Discover the installed plugins, then the built-ins, and register each.
 
@@ -726,8 +672,7 @@ class PluginRegistry:
         the built-in is the one reported as not loaded. Each plugin's
         register(host) is wrapped; a plugin that does not load, for any
         reason, is recorded and the rest still load; every one recorded is
-        reported together, once, when discovery ends. The
-        settings subscribers will be told about are taken here. With the
+        reported together, once, when discovery ends. With the
         host's ``no_engineering``, the engineering plugin is left out
         before it is imported: not checked, not registered, not reported.
 
@@ -739,7 +684,6 @@ class PluginRegistry:
         """
         from modules.plugins.builtin import BUILTIN_PLUGINS
 
-        self._settings_baseline = copy.deepcopy(host.get_settings_snapshot())
         discovered = list(importlib.metadata.entry_points(group=ENTRY_POINT_GROUP))
         count = 0
         # Reported in a finally: a discovery that stops partway still tells
@@ -791,6 +735,16 @@ class PluginRegistry:
                     f'version {spec.version} is older than the {minimum} this LumaViewPro needs',
                 )
                 return 0
+
+        if spec.subscribes_to:
+            self.record_load_failure(
+                spec.name,
+                spec.version,
+                'it subscribes to settings changes (subscribes_to), which plugin API '
+                f'level 9 removed; it needs a LumaViewPro at level 8, and this is level '
+                f'{PLUGIN_API_LEVEL}',
+            )
+            return 0
 
         if not is_version_compatible(spec.requires_lvp_version, host_version):
             self.record_load_failure(
@@ -844,19 +798,6 @@ class PluginRegistry:
                 logger.info(f'[Plugins ] {name}: unregister complete')
             except Exception:
                 logger.warning(f'[Plugins ] {name}: unregister failed', exc_info=True)
-
-    def settings_saved(self, host: Any, settings: dict) -> None:
-        """Tell the subscribers what changed since they last heard; *settings* was just saved.
-
-        Diffs against the settings taken at load or at the last save, so a
-        change made before the first save is told at it. Each subscriber's
-        failure is recorded and reported by notify_settings_changed and
-        never reaches the save.
-        """
-        changed_keys = _diff_settings_keys(self._settings_baseline, settings)
-        self._settings_baseline = copy.deepcopy(settings)
-        if changed_keys:
-            self.notify_settings_changed(host, settings, changed_keys)
 
     def run_protocol_complete_processors(
         self,
@@ -933,70 +874,6 @@ class PluginRegistry:
             if plugin_name in ns._loaded:
                 return ns
         return None
-
-
-def _any_prefix_match(
-    subscribes_to: tuple[str, ...],
-    changed_keys: set[str],
-) -> bool:
-    """True if any subscription key prefix-matches any changed key.
-
-    Prefix means: subscribes_to='a' matches changed 'a' or 'a.b' or
-    'a.b.c' (any descendant under the subtree). 'ab' does NOT match
-    'abc' -- the prefix is a full dot-path component.
-    """
-    for prefix in subscribes_to:
-        prefix_dot = prefix + '.'
-        for key in changed_keys:
-            if key == prefix or key.startswith(prefix_dot):
-                return True
-    return False
-
-
-def _diff_settings_keys(
-    old: dict | None,
-    new: dict,
-    prefix: str = '',
-) -> set[str]:
-    """Return dot-path keys that differ between old and new.
-
-    Treats None old as "no prior snapshot" -- caller should usually
-    skip dispatch in that case (initial-save). Recursively descends
-    into nested dicts so changes deep inside the settings tree surface
-    as their full dot-path (e.g. 'BF.gain' for settings['BF']['gain']).
-
-    Type changes (dict -> scalar or vice versa) count as a change
-    of the parent key, not the inner leaves -- a plugin subscribed
-    to the parent prefix gets notified.
-    """
-    if old is None:
-        return _flatten_dict_keys(new, prefix)
-    changed: set[str] = set()
-    all_keys = set(old.keys()) | set(new.keys())
-    for k in all_keys:
-        full = f'{prefix}.{k}' if prefix else k
-        if k not in old or k not in new:
-            changed.add(full)
-            continue
-        old_v = old[k]
-        new_v = new[k]
-        if isinstance(old_v, dict) and isinstance(new_v, dict):
-            changed.update(_diff_settings_keys(old_v, new_v, full))
-        elif old_v != new_v:
-            changed.add(full)
-    return changed
-
-
-def _flatten_dict_keys(d: dict, prefix: str = '') -> set[str]:
-    """Return every leaf-path key in a nested dict as dot-paths."""
-    out: set[str] = set()
-    for k, v in d.items():
-        full = f'{prefix}.{k}' if prefix else k
-        if isinstance(v, dict):
-            out.update(_flatten_dict_keys(v, full))
-        else:
-            out.add(full)
-    return out
 
 
 # ---------------------------------------------------------------------------

@@ -130,6 +130,18 @@ def test_a_plugin_for_another_version_is_reported(harness_ctx, centre_posts, out
     assert 'too_new' in [s.name for s in harness_ctx.plugins.not_loaded()]
 
 
+def test_a_plugin_that_subscribes_to_settings_is_reported_with_the_level_it_needs(
+    harness_ctx, centre_posts, outcome_records
+):
+    mod = _module('listener', register=lambda ctx: None, subscribes_to=('video.max_fps',))
+    _load(harness_ctx, _EntryPoint('listener', mod))
+
+    _assert_one_report(centre_posts, outcome_records, PluginNotLoadedError, 'listener')
+    assert 'subscribes_to' in centre_posts[0].message
+    assert 'level 8' in centre_posts[0].message
+    assert 'listener' in [s.name for s in harness_ctx.plugins.not_loaded()]
+
+
 def test_a_plugin_with_no_register_is_reported(harness_ctx, centre_posts, outcome_records):
     _load(harness_ctx, _EntryPoint('no_register', _module('no_register')))
 
@@ -211,32 +223,10 @@ def test_a_ui_crash_or_a_failed_mount_is_reported(harness_ctx, centre_posts, out
     assert [(e.plugin_name, e.hook, e.exc_type) for e in errors] == [('crashy', hook, 'ValueError')]
 
 
-def test_a_settings_handler_that_raises_is_reported(harness_ctx, centre_posts, outcome_records):
-    mod = _loaded_post_processor(harness_ctx, 'listener', lambda *a: None, subscribes_to=('a',))
-    boom = RuntimeError('settings handler bug')
-
-    def on_settings_changed(ctx, settings):
-        raise boom
-
-    mod.on_settings_changed = on_settings_changed
-
-    harness_ctx.plugins.notify_settings_changed(harness_ctx, {'a': 1}, ['a'])
-
-    _assert_one_report(centre_posts, outcome_records, PluginFailedError, 'listener', cause=boom)
-    errors = harness_ctx.plugins.post_processing.health().last_runtime_errors
-    assert [e.hook for e in errors] == ['on_settings_changed']
-
-
 def test_a_plugin_in_no_namespace_is_still_reported(harness_ctx, centre_posts, outcome_records):
-    mod = _module('homeless', subscribes_to=('a',))
+    harness_ctx.plugins._track('homeless', _module('homeless'))
 
-    def on_settings_changed(ctx, settings):
-        raise RuntimeError('no namespace')
-
-    mod.on_settings_changed = on_settings_changed
-    harness_ctx.plugins._track('homeless', mod)
-
-    harness_ctx.plugins.notify_settings_changed(harness_ctx, {'a': 1}, ['a'])
+    harness_ctx.plugins.record_runtime_error('homeless', 'unregister', RuntimeError('no namespace'))
 
     assert [n.title for n in centre_posts] == ['Plugin Error']
     assert '"homeless"' in centre_posts[0].message

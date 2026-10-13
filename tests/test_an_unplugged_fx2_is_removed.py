@@ -116,13 +116,19 @@ def test_a_gain_written_before_the_teardown_ends_is_not_recorded(session):
     assert scope.imaging.gain_db_cached == before
 
 
-def test_the_settings_are_saved_after_the_scope_is_unplugged(session, tmp_path):
-    scope = session.scope
-    session.scope.simulation.unplug('led')
-    assert _wait_until(lambda: not scope.camera_connected, 6.0)
-
+def test_the_settings_are_saved_after_the_scope_is_unplugged(tmp_path):
+    # Found at bring-up, not connected now: the session's values came from
+    # the scope, so its close still saves them.
+    settings = complete_settings()
+    settings['microscope'] = 'LS620'
+    settings['simulator_tier'] = 'fast'
     out = tmp_path / 'current.json'
-    session.save_settings(file=str(out))
+    session = ScopeSession.create(settings, simulate=True, settings_file=str(out))
+    session.scope.imaging.start_streaming()
+    session.scope.simulation.unplug('led')
+    assert _wait_until(lambda: not session.scope.camera_connected, 6.0)
+
+    session.shutdown()
 
     assert out.exists()
 

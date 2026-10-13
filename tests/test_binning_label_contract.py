@@ -206,6 +206,6 @@ class TestTheHostBoundsTheFailure:
             for call in ast.walk(handler)
             if isinstance(call, ast.Call)
             and isinstance(call.func, ast.Attribute)
-            and call.func.attr in ('save_settings', 'write', 'dump', 'save')
+            and call.func.attr in ('write', 'dump', 'save')
         ]
         assert writers == [], f'the recovery path persists something: {writers}'

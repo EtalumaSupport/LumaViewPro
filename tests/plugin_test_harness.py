@@ -3,7 +3,7 @@
 
 Pytest fixtures that give a plugin author "a configured ctx" without
 spinning up Kivy / LumaViewPro / hardware. Use these to assert that
-your plugin's register/unregister/on_settings_changed hooks behave
+your plugin's register/unregister hooks behave
 correctly in isolation.
 
 Usage in your plugin's test file:
