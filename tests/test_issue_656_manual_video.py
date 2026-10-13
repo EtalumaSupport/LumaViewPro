@@ -419,3 +419,33 @@ def test_create_video_missing_timestamp_no_crash(tmp_path):
     )
     assert result['status'] is True
     assert _find_video(folder, 'out').is_file()
+
+
+def test_a_video_of_composites_builds_from_their_rgb(tmp_path):
+    """A protocol's composites are grouped under the Color 'Composite', which
+    is no layer: the video is built from their own RGB, not refused for want
+    of a layer colour."""
+    folder = tmp_path / 'composites'
+    folder.mkdir()
+    for i in range(2):
+        tf.imwrite(str(folder / f'frame_{i:04}.tiff'), np.full((64, 64, 3), 90, dtype=np.uint8))
+    df = pd.DataFrame(
+        {
+            'Filepath': [f'frame_{i:04}.tiff' for i in range(2)],
+            'Scan Count': range(2),
+            'Timestamp': '',
+            'Color': 'Composite',
+        }
+    )
+    result = VideoBuilder(has_turret=False)._create_video(
+        path=folder,
+        df=df,
+        frames_per_sec=5,
+        enable_timestamp_overlay=False,
+        output_file_loc=pathlib.Path('out.mp4'),
+        on_progress=None,
+        total_groups=1,
+        current_group=1,
+    )
+    assert result['status'] is True
+    assert _find_video(folder, 'out').is_file()
