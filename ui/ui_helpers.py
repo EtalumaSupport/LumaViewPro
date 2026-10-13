@@ -735,14 +735,22 @@ class LoggedAccordionItem(AccordionItem):
 
     Every item sets both names in the kv; the GUI-logging census refuses an
     item that does not (tests/gui_logging_census.py).
+
+    ``person_opened``, when the panel owning the item sets it, is called
+    after the record, for a person's open only: a layer drawer asks the
+    Session to show its layer there, and the app's own expands, which draw
+    what the Session already shows, ask nothing.
     """
 
     log_group = StringProperty('')
     log_item = StringProperty('')
+    person_opened: typing.Callable[[], None] | None = None
 
     def on_touch_down(self, touch):
         if self.collapse and not self.disabled and self.collide_point(*touch.pos):
             gui_logger.select(self.log_group, self.log_item)
+            if self.person_opened is not None:
+                self.person_opened()
         return super().on_touch_down(touch)
 
 

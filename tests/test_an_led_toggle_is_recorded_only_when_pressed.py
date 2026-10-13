@@ -1,10 +1,10 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """``TOGGLE LED_<layer>`` is recorded when a person presses the button, and only then.
 
-``update_led_state`` is both what the Enable LED button runs and the LED leg of
-every ``apply_settings`` -- a slider drag, a typed commit, a drawer opening,
-start-up. While the record sat in it, each of those wrote a toggle nobody made.
-The record belongs to the press; the leg records nothing.
+The LED leg once ran both from the Enable LED button and from every
+``apply_settings`` -- a slider drag, a typed commit, a drawer opening,
+start-up -- and while the record sat in it, each of those wrote a toggle
+nobody made. The record belongs to the press; an apply records nothing.
 
 The last test pins the fact that lets the app write the button's ``state``
 without a guard: a ``state`` write is not a press, so it never reaches the
@@ -34,9 +34,7 @@ def layer(monkeypatch):
     import ui.layer_control as layer_control
 
     context = SimpleNamespace(
-        scope=SimpleNamespace(illumination=MagicMock()),
-        io_executor=object(),
-        settings={'Green': {'illumination_ma': 120.0}},
+        session=SimpleNamespace(light_shown_channel=MagicMock(), show_channel=MagicMock()),
         ui_listener_bridge=SimpleNamespace(reconcile_led_buttons=MagicMock()),
     )
     monkeypatch.setattr(_app_ctx, 'ctx', context)
@@ -45,27 +43,21 @@ def layer(monkeypatch):
         layer='Green',
         _initializing=False,
         ids={'enable_led_btn': SimpleNamespace(state='down')},
-        apply_settings=MagicMock(),
+        show_as_shown=MagicMock(),
     )
-    widget.update_led_state = layer_control.LayerControl.update_led_state.__get__(widget)
-    return SimpleNamespace(
-        widget=widget, illumination=context.scope.illumination, cls=layer_control.LayerControl
-    )
+    return SimpleNamespace(widget=widget, session=context.session, cls=layer_control.LayerControl)
 
 
 def _toggles(caplog):
     return [r.getMessage() for r in caplog.records if r.getMessage().startswith('TOGGLE LED_')]
 
 
-@pytest.mark.parametrize('state', ['down', 'normal'])
-def test_the_apply_leg_records_no_toggle(layer, caplog, state):
-    layer.widget.ids['enable_led_btn'].state = state
+def test_an_apply_records_no_toggle(layer, caplog):
     with caplog.at_level(logging.INFO, logger='LVP.gui_interactions'):
-        layer.widget.update_led_state(apply_settings=False)
+        layer.cls.apply_settings(layer.widget)
 
     assert _toggles(caplog) == []
-    member = layer.illumination.led_on if state == 'down' else layer.illumination.led_off
-    member.assert_called_once()
+    layer.session.show_channel.assert_called_once_with('Green')
 
 
 @pytest.mark.parametrize('state, word', [('down', 'ON'), ('normal', 'OFF')])
@@ -76,9 +68,7 @@ def test_a_press_records_one_toggle_and_drives_the_led(layer, caplog, state, wor
         press()
 
     assert _toggles(caplog) == [f'TOGGLE LED_Green {word}']
-    member = layer.illumination.led_on if state == 'down' else layer.illumination.led_off
-    member.assert_called_once()
-    layer.widget.apply_settings.assert_called_once_with(update_led=False)
+    layer.session.light_shown_channel.assert_called_once_with(state == 'down')
 
 
 _STATE_WRITE_IS_NOT_A_PRESS = r"""

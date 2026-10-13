@@ -275,13 +275,12 @@ def _first_open_scan_loops():
 
 
 def test_the_open_layer_scan_has_one_implementation():
-    """Only the canonical scan finds the first open drawer. The two loops in
-    the image-settings panel iterate EVERY drawer to act on each -- one sets
-    collapse on all, one reconciles LEDs -- and are not scans."""
+    """Only the canonical scan finds the first open drawer. The loop that
+    draws the shown channel iterates EVERY drawer to set its collapse, and
+    is not a scan."""
     allowed = {
         ('modules/common_utils.py', 'get_opened_layer'),
-        ('ui/image_settings.py', 'set_expanded_layer'),
-        ('ui/image_settings.py', '_do_accordion_collapse'),
+        ('ui/image_settings.py', 'draw_shown_channel'),
     }
     extra = sorted(_first_open_scan_loops() - allowed)
     assert extra == [], f'inline open-layer scans re-implement get_opened_layer: {extra}'

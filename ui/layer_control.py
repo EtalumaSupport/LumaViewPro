@@ -1,6 +1,5 @@
 # Copyright Etaluma, Inc.
 import copy
-import functools
 import logging
 
 import numpy as np
@@ -14,7 +13,6 @@ import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
 import modules.image_mode as image_mode
 from modules import gui_logger
-from modules.lumascope_api.illumination import LedState
 from modules.config_ui_getters import firmware_stim_supported
 from ui.ui_helpers import run_reported, submit_reported, typed_number
 
@@ -661,55 +659,21 @@ class LayerControl(BoxLayout):
         )
 
     def led_toggle(self):
-        """The Enable LED button's press: record it, then drive the LED.
+        """The Enable LED button's press: record it, then light or darken the shown channel.
 
-        The record is here and not in update_led_state, because every
-        apply_settings also runs that, and an apply is not a press. Writing
-        the button's state is not a press either: it never dispatches
-        on_release. Its one writer is the listener bridge, drawing the LED.
+        The button sits in the shown channel's drawer, so it is that
+        channel's. Writing the button's state is not a press: it never
+        dispatches on_release. Its one writer is the listener bridge, drawing
+        the LED, so a refused press goes back.
         """
-        gui_logger.toggle(f'LED_{self.layer}', self.ids['enable_led_btn'].state == 'down')
-        self.update_led_state()
-
-    def update_led_state(self, apply_settings=True):
-        ctx = _app_ctx.ctx
-        # No autofocus guard here: while autofocus or a run holds the scope,
-        # the API refuses a live UI LED write (exclusive_activity_running) and
-        # submit_reported reports it, so a UI apply during a scan (e.g. the
-        # exposure field losing focus when the AF button is clicked) cannot
-        # turn off the channel AF is using. An early-return here would only
-        # duplicate that refusal.
-        if self._initializing:
-            return
-        settings = ctx.settings
-        enabled = self.ids['enable_led_btn'].state == 'down'
-        illumination = settings[self.layer]['illumination_ma']
-
-        if apply_settings:
-            self.apply_settings(update_led=False)
-
-        # The colour string goes to the seam unmapped: the illumination API
-        # owns colour-to-channel resolution, so turning OFF a colour this scope
-        # cannot drive is a no-op there, and turning one ON fails with the
-        # colour named instead of a sentinel channel.
-        illumination_api = ctx.scope.illumination
-        layer = self.layer
-        if enabled:
-            logger.info(f'[LVP Main  ] update_led_state: led_on({layer}, {illumination})')
-            call = functools.partial(illumination_api.led_on, layer, illumination)
-        else:
-            call = functools.partial(illumination_api.led_off, layer)
-        # The toggle shows what the API reports lit once the command has
-        # landed, so a refused one goes back.
+        lit = self.ids['enable_led_btn'].state == 'down'
+        gui_logger.toggle(f'LED_{self.layer}', lit)
+        session = _app_ctx.ctx.session
         submit_reported(
-            call,
-            ctx.ui_listener_bridge.reconcile_led_buttons,
-            f'LED_{layer}',
-            lane=ctx.io_executor,
+            lambda: session.light_shown_channel(lit),
+            _app_ctx.ctx.ui_listener_bridge.reconcile_led_buttons,
+            f'LED_{self.layer}',
         )
-
-    # update_led_toggle_ui() removed -- LED observer handles UI sync.
-    # See Phase 1 commit 96defe3.
 
     def set_step_state(self, step: dict):
         """Display a protocol step in this layer's widgets. Writes NO settings.
@@ -949,119 +913,54 @@ class LayerControl(BoxLayout):
             ctx.settings[self.layer]['auto_gain']
         ).applied
 
-    def apply_settings(self, update_led=True):
+    def apply_settings(self):
+        """Show this layer at its stored settings, then display it.
 
-        # Skip apply_settings if layer is still initializing
+        The Session's show_channel puts the layer's LED (lit if the shown
+        channel was) and its camera settings on the hardware, and refuses
+        what it cannot do, such as while a run holds the scope; its answer
+        reaches the drawers through the shown-channel listener.
+        """
         if getattr(self, '_initializing', False):
             return
 
         logger.debug(f'[LVP Main  ] {self.layer}_LayerControl.apply_settings()')
 
-        ctx = _app_ctx.ctx
+        session = _app_ctx.ctx.session
+        layer = self.layer
+        submit_reported(
+            lambda: session.show_channel(layer),
+            None,
+            f'SHOW_CHANNEL_{layer}',
+        )
+        self.show_as_shown()
 
-        camera_executor = ctx.camera_executor
+    def show_as_shown(self):
+        """Display this layer as the shown channel: its histogram, its
+        auto-gain box and its false-colour shader. Display only."""
+        ctx = _app_ctx.ctx
         from ui.image_settings import set_histogram_layer
 
-        def update_shader(dt=None):
-            thread = getattr(ctx, 'scope_display_thread', None)
-            if (
-                thread is not None
-                and not thread.is_paused
-                and ctx.scope_display.use_bullseye is False
-            ):
-                self.update_shader(dt=0)
-
-        def disable_leds_for_other_layers():
-            # Reached only past the run lockout's return above: a run's LEDs
-            # are the run's.
-            if self.ids['enable_led_btn'].state == 'down':
-                # Turn off any OTHER layer's LED so only this layer's channel
-                # stays lit (one LED on at a time at the hardware level).
-                # Switch the others off individually rather than blanking all
-                # LEDs and re-lighting this one: the nuclear leds_off clears
-                # the LED-state cache, which forces this channel to re-fire
-                # and blink off then on on every slider move. led_off self-
-                # skips a channel that is already off, so this loop touches
-                # the bus only for a layer that is actually on -- no cycle on
-                # a plain slider move, and this layer's own LED is never
-                # disturbed (its current is owned by update_led_state).
-                illumination_api = ctx.scope.illumination
-                # None with no LED board installed: nothing is lit.
-                lit = {
-                    r.name
-                    for r in illumination_api.get_led_states() or ()
-                    if r.state is LedState.LIT
-                }
-                for layer in common_utils.get_layers():
-                    if layer == self.layer:
-                        continue
-                    if layer in lit:
-                        submit_reported(
-                            lambda lit=layer: illumination_api.led_off(lit),
-                            None,
-                            f'LED_{layer}_OFF',
-                            lane=ctx.io_executor,
-                        )
-                # The other layers' buttons follow the LEDs: each off fires
-                # the LED listener, and the listener bridge draws the button.
-
-        if ctx.session.run_lockout:
-            # Protocol actively running -- capture() handles camera settings
-            # per-step. Don't apply here to avoid duplicate commands (#587/#588).
-            logger.debug(
-                f'[APPLY_SETTINGS DIAG] {self.layer} -- early return '
-                f'(protocol running). Camera settings NOT applied.'
-            )
-            Clock.schedule_once(update_shader, 0)
-            return
-        # All other cases: apply camera settings normally.
-
-        # global gain_vals
-
-        # update illumination to currently selected settings
-        # -----------------------------------------------------
         set_histogram_layer(active_layer=self.layer)
-
-        # Queue IO task and update UI after completing IO
-        if update_led:
-            self.update_led_state(apply_settings=False)
-
-        disable_leds_for_other_layers()
 
         # Effective enable = the API's answer for the saved preference
         # (effective_auto_gain): on a camera without hardware AG/AE the
         # control is hidden, so a stored True must read as off here -- else
         # the gain/exposure sliders below stay disabled with no UI to clear
         # them. Non-destructive: the stored preference is left intact.
-        auto_gain_enabled = self.effective_auto_gain()
-        # Sync the toggle CheckBox to the settings value before applying
-        # to the camera. The .kv has no Kivy binding from settings to
-        # auto_gain.active, so when the JSON loads at startup with
-        # auto_gain=True the CheckBox stays at its default False;
-        # apply_settings would then send AG=True to the camera while the
-        # toggle continues to read OFF in the UI. Programmatic
-        # .active = bool fires no on_release (CheckBox only binds
-        # on_release in the .kv), so this does not re-enter. The
-        # gain/exposure widgets' enabled state follows this box through
-        # the kv rule (`disabled: app.run_lockout or auto_gain.active`):
-        # an imperative .disabled write here was erased whenever the run
-        # lockout cleared, because that rule re-fires on the edge.
-        self.ids['auto_gain'].active = auto_gain_enabled
-        # With no camera connected its controls are disabled and there is
-        # nothing to apply; bring-up has already said it is missing.
-        if ctx.scope.camera_connected:
-            session = ctx.session
-            layer = self.layer
-            submit_reported(
-                lambda: session.apply_layer_camera(layer),
-                None,
-                f'CAMERA_SETTINGS_{layer}',
-                lane=camera_executor,
-            )
+        # The .kv has no Kivy binding from settings to auto_gain.active, so
+        # the box is synced here. Programmatic .active = bool fires no
+        # on_release (CheckBox only binds on_release in the .kv), so this
+        # does not re-enter. The gain/exposure widgets' enabled state follows
+        # this box through the kv rule (`disabled: app.run_lockout or
+        # auto_gain.active`): an imperative .disabled write here was erased
+        # whenever the run lockout cleared, because that rule re-fires on the
+        # edge.
+        self.ids['auto_gain'].active = self.effective_auto_gain()
 
-        # update false color to currently selected settings and shader
-        # -----------------------------------------------------
-        update_shader()
+        thread = getattr(ctx, 'scope_display_thread', None)
+        if thread is not None and not thread.is_paused and ctx.scope_display.use_bullseye is False:
+            self.update_shader(dt=0)
 
     def update_shader(self, dt):
         ctx = _app_ctx.ctx

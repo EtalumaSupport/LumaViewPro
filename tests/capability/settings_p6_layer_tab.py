@@ -1,13 +1,12 @@
 """Probe 6 -- the layer tab (accordion drawer) switch, headless.
 
-GUI entry point: ui/lumaviewpro.kv:323,331,339,347 (on_collapse) and
-ui/lumaviewpro.kv:365 (panel toggle) -> ui/image_settings.py:159
-set_expanded_layer / :688 _do_accordion_collapse.
+GUI entry point: a person opening a layer drawer (ui/ui_helpers.py
+LoggedAccordionItem.person_opened -> ui/image_settings.py
+_show_channel_for_person), which asks session.show_channel.
 
-The user-visible capability is "make channel X the active one": the other
-channels' LEDs go off, and X's stored gain/exposure/illumination are
-applied to the camera.  That reconcile loop lives in the GUI
-(image_settings.py:737-752); this probe does the same thing through the API.
+The user-visible capability is "make channel X the shown one": the other
+channels' LEDs go off, X lit if the shown channel was, and X's stored
+gain/exposure applied to the camera. This probe does it through the API.
 """
 
 import sys
@@ -25,16 +24,9 @@ try:
     cfg = cfgs[target]
     print(f'{target} config:', {k: cfg[k] for k in list(cfg)[:6]})
 
-    # The GUI's reconcile, expressed through the API
-    for reading in ill.get_led_states():
-        if reading.name != target and reading.state is LedState.LIT:
-            ill.led_off(reading.address)
-    im.apply_layer_camera_settings(
-        gain_db=float(cfg['gain_db']),
-        exposure_ms=float(cfg['exposure_ms']),
-        layer=target,
-    )
-    ill.led_on(target, float(cfg['illumination_ma']))
+    # The drawer's ask, through the API: the shown channel lit, then moved
+    s.light_shown_channel(True)
+    s.show_channel(target)
     lit = [r.name for r in ill.get_led_states() if r.state is LedState.LIT]
     _common.ok('exactly the target layer is lit', lit == [target], f'lit={lit}')
     _common.ok(
@@ -47,7 +39,7 @@ try:
         abs(im.get_exposure_ms() - float(cfg['exposure_ms'])) < 0.51,
         f'exp={im.get_exposure_ms()} wanted={cfg["exposure_ms"]}',
     )
-    ill.led_off(target)
+    s.light_shown_channel(False)
 
     # Is there a single API call for "make this layer active"?
     names = [

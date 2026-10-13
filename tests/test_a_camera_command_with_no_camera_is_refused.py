@@ -21,7 +21,6 @@ moves, and the GUI sends no camera apply from a layer.
 from __future__ import annotations
 
 import logging
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -301,29 +300,15 @@ def test_with_no_camera_a_session_camera_toggle_is_refused_naming_it(
     _assert_names_the_camera(_refused(lambda: getattr(session, member)(False)))
 
 
-def test_with_no_camera_a_layer_apply_from_the_gui_sends_no_camera_command(monkeypatch):
-    import ui.layer_control as layer_control
+def test_with_no_camera_showing_a_channel_is_refused_naming_it(make_session, monkeypatch):
+    """The GUI's drawer and settings apply ask show_channel, which shows the
+    LEDs and then refuses the camera's half, naming the camera."""
+    session = _camera_less(make_session, monkeypatch, 'LS850')
+    before = _camera_store(session)
 
-    submits = []
-    monkeypatch.setattr(
-        layer_control,
-        'submit_reported',
-        lambda call, redraw, label, **kwargs: submits.append(label),
-    )
-    context = MagicMock()
-    context.settings = {'Green': {'exposure_ms': 2.0, 'gain_db': 1.0}, 'protocol_led_on': True}
-    context.session.run_lockout = False
-    context.scope.camera_connected = False
-    monkeypatch.setattr(_app_ctx, 'ctx', context)
-    widget = MagicMock()
-    widget.layer = 'Green'
-    widget._initializing = False
-    widget.effective_auto_gain.return_value = False
+    _assert_names_the_camera(_refused(lambda: session.show_channel('Green')))
 
-    layer_control.LayerControl.apply_settings(widget, update_led=False)
-
-    assert 'CAMERA_SETTINGS_Green' not in submits
-    context.session.apply_layer_camera.assert_not_called()
+    assert _camera_store(session) == before
 
 
 @pytest.mark.parametrize('model', ('LS850', 'LS620'))

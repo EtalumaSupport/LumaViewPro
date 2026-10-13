@@ -1,5 +1,5 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""Regression tests for the AG/Exp toggle <-> settings sync in apply_settings.
+"""Regression tests for the AG/Exp toggle <-> settings sync when a layer is shown.
 
 Bug
 ---
@@ -13,10 +13,12 @@ camera is actually running AG -- the symptom reported on GitHub issue #655
 ("Green AG/Exp was active with the toggle OFF. Clicking it on and off made
 it work.").
 
-Fix (apply_settings sync)
--------------------------
-At the start of the auto_gain block in apply_settings, sync the CheckBox
-.active to settings before the IOTask is queued. Programmatic
+Fix (the shown layer's sync)
+----------------------------
+Each time a layer is displayed as the shown channel (show_as_shown, from
+its settings apply and from the drawer drawing the Session's shown channel),
+sync the CheckBox .active to the API's answer for the stored preference
+(effective_auto_gain). Programmatic
 .active = bool fires no on_release in Kivy (CheckBox in the .kv only
 binds on_release, not on_active), so this does not re-enter the
 update_auto_gain callback path. The gain/exposure widgets' enabled
@@ -28,18 +30,16 @@ clears and overwrites whatever Python last wrote.
 
 Test approach
 -------------
-Source-level structural locks via AST extraction. Mirror the
-TestPylonDeviceNotFoundClassification pattern in test_audit_fixes.py.
-Behavioral test of the sync would require a full Kivy CheckBox + slider
-mock harness (LayerControl(BoxLayout) is MagicMock'd in the test env),
-which is heavier than the bug warrants; the source-level lock catches a
-future cleanup that drops the sync.
+The sync runs the real show_as_shown over a stand-in widget, since
+LayerControl(BoxLayout) is MagicMock'd in the test env; the kv rule is
+read from source.
 """
 
 from __future__ import annotations
 
 import ast
 import pathlib
+from types import SimpleNamespace
 
 import pytest
 
@@ -103,34 +103,33 @@ def _method_body(class_name: str, method_name: str) -> str:
     raise AssertionError(f'{class_name}.{method_name} not found in {LAYER_CONTROL_SRC}')
 
 
-class TestApplySettingsSyncsAutoGainCheckbox:
-    """apply_settings must sync the auto_gain CheckBox active flag to
-    settings[layer]['auto_gain'] before queuing the camera-settings IOTask;
-    the gain/exposure widgets' disabled state follows the box in the kv.
+class TestTheShownLayerSyncsItsAutoGainCheckbox:
+    """Showing a layer syncs its auto_gain CheckBox to the API's answer for
+    the stored preference; the gain/exposure widgets' disabled state
+    follows the box in the kv.
 
-    Without this sync, a settings-vs-UI divergence persists across the
-    apply_settings call: the camera AG state ends up matching settings
-    (correct) but the toggle UI continues to show the stale .kv default
-    of False. The user has to click the toggle on-then-off to force the
-    toggle's path to re-write settings and re-fire
-    apply_settings, at which point the toggle visibly reflects state.
-
-    The sync is gated by ``if not protocol_running_global.is_set()`` --
-    same guard as the rest of the auto_gain block. A run never applies
-    the layer's settings; the UI-vs-settings sync is irrelevant there.
+    Without this sync, a settings-vs-UI divergence persists: the camera AG
+    state matches settings (correct) but the toggle continues to show the
+    stale .kv default of False (#655).
     """
 
-    def test_apply_settings_syncs_checkbox_active(self):
-        """The auto_gain block must contain the CheckBox.active <- settings
-        sync. Structural check; a future cleanup that drops the sync
-        line would reintroduce the #655 toggle/camera divergence."""
-        body = _method_body('LayerControl', 'apply_settings')
-        assert "self.ids['auto_gain'].active = auto_gain_enabled" in body, (
-            'LayerControl.apply_settings must sync the auto_gain CheckBox '
-            ".active flag to settings[layer]['auto_gain'] inside the "
-            'non-protocol auto_gain block. See class docstring for the '
-            '#655 divergence this protects against.'
+    def test_showing_a_layer_syncs_checkbox_active(self, monkeypatch):
+        import modules.app_context as _app_ctx
+        import ui.image_settings as image_settings
+        import ui.layer_control as layer_control
+
+        monkeypatch.setattr(image_settings, 'set_histogram_layer', lambda active_layer: None)
+        # a stand-in by design: Kivy is stubbed in the test process; the subject is the sync
+        monkeypatch.setattr(_app_ctx, 'ctx', SimpleNamespace(scope_display_thread=None))
+        widget = SimpleNamespace(
+            layer='Green',
+            ids={'auto_gain': SimpleNamespace(active=False)},
+            effective_auto_gain=lambda: True,
         )
+
+        layer_control.LayerControl.show_as_shown(widget)
+
+        assert widget.ids['auto_gain'].active is True
 
     @pytest.mark.parametrize('widget_id', ['gain_slider', 'gain_text', 'exp_slider', 'exp_text'])
     def test_gain_exposure_widgets_follow_the_auto_gain_box_in_kv(self, widget_id):
@@ -152,42 +151,6 @@ class TestApplySettingsSyncsAutoGainCheckbox:
                 f'{pattern!r} in ui/layer_control.py: the kv rule owns the '
                 "gain/exposure widgets' disabled state"
             )
-
-    def test_apply_settings_sync_precedes_iotask_queue(self):
-        """The CheckBox + slider sync must precede the apply_layer_camera
-        IOTask queue so the UI reflects the new state by the time the
-        camera command lands. The opposite order would leave a brief
-        window where the camera state has changed but the UI lags."""
-        body = _method_body('LayerControl', 'apply_settings')
-        sync_idx = body.find("self.ids['auto_gain'].active = auto_gain_enabled")
-        queue_idx = body.find('apply_layer_camera')
-        assert sync_idx >= 0, (
-            'sync line missing (precondition test_apply_settings_syncs_checkbox_active)'
-        )
-        assert queue_idx >= 0, 'apply_layer_camera call missing (precondition)'
-        assert sync_idx < queue_idx, (
-            'CheckBox sync must precede the apply_layer_camera '
-            'IOTask queue. Reverse ordering leaves a window where the '
-            "camera state has changed but the UI hasn't caught up."
-        )
-
-    def test_apply_settings_syncs_only_after_its_run_lockout_return(self):
-        """The sync runs only when no run holds the scope: ``apply_settings``
-        returns at its ``run_lockout`` check before it reaches the sync.
-        A run never applies the layer's settings, so syncing the toggle
-        UI from settings during one would be incorrect."""
-        body = _method_body('LayerControl', 'apply_settings')
-        guard_idx = body.find('if ctx.session.run_lockout:')
-        sync_idx = body.find("self.ids['auto_gain'].active = auto_gain_enabled")
-        assert guard_idx >= 0, 'run_lockout return not found (precondition)'
-        assert sync_idx >= 0, 'sync line not found (precondition)'
-        returned = body.find('return', guard_idx)
-        assert 0 <= returned < sync_idx, (
-            'apply_settings must return under `if ctx.session.run_lockout:` '
-            'before the auto_gain CheckBox sync. Syncing during a '
-            "protocol-driven layer change would fight protocol_step_runner's "
-            'AG management.'
-        )
 
 
 class TestSetStepStateWidgetWiring:

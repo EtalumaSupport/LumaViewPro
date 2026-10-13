@@ -4,23 +4,11 @@
 Original report: "When you change a slider, the toggle turns off then back on
 very quickly. Sometimes it leaves the LED off."
 
-Two root causes were identified and fixed in the same commit:
-
-Fix A -- `disable_leds_for_other_layers` overreach:
-  disable_leds_for_other_layers() once fired a nuclear leds_off_async()
-  + led_on_async() on every apply_settings to ensure only one LED is
-  physically on when switching channels. That blanked every LED and
-  re-lit the current one -- correct for layer switches but wrong for
-  slider-only moves on the active layer, which fire apply_settings many
-  times per drag. The nuclear leds_off also cleared the LED-state cache,
-  so the following led_on could not self-skip: visible LED flicker
-  (off->on) on every slider move.
-
-  Fix: switch off only the OTHER layers' LEDs, one channel at a time.
-  led_off self-skips a channel already off, so a plain slider move with
-  nothing else lit touches the bus zero times. This layer's own LED is
-  owned by update_led_state and is never disturbed here, so it can no
-  longer blink. One LED on at a time (the #614 guarantee) is preserved.
+Two root causes were identified. The first, a nuclear leds_off on every
+apply, is gone with the apply's LED half: a settings change shows the layer
+through the Session's show_channel, whose diff against the LED store sends
+nothing to a channel already right (tests/test_led_authority_skeleton.py).
+The second:
 
 Fix B -- Widget handler recursion via programmatic widget writes:
   ill_text() -> sets slider.value -> on_value fires -> ill_slider() -> which
@@ -71,50 +59,6 @@ def _find_method(tree: ast.Module, class_name: str, method_name: str) -> ast.Fun
 
 def _source_of(node: ast.AST) -> str:
     return ast.unparse(node)
-
-
-class TestFixA_DisableLedsForOtherLayersGuard:
-    """#617 Fix A: disable_leds_for_other_layers must switch off only the
-    OTHER layers' LEDs (one channel at a time), never blank every LED and
-    re-light this one. The nuclear leds_off cleared the LED-state cache, so
-    the following led_on could not self-skip and blinked the channel off->on
-    on every slider move."""
-
-    def _body(self):
-        source = LAYER_CONTROL.read_text()
-        idx = source.find('def disable_leds_for_other_layers')
-        assert idx != -1
-        return source[idx : idx + 2500]
-
-    def test_disable_leds_offs_other_layers_individually(self):
-        """Other layers are switched off one channel at a time
-        (led_off), preserving the #614 one-LED-at-a-time guarantee."""
-        body = self._body()
-        assert '.led_off(' in body, (
-            'disable_leds_for_other_layers must turn off other layers '
-            'individually with led_off (#614 one LED at a time)'
-        )
-
-    def test_disable_leds_does_not_nuke_all_leds(self):
-        """The cache-clearing nuclear leds_off must NOT be used here -- it was
-        the off->on blink source on every slider move (#617)."""
-        body = self._body()
-        assert '.leds_off(' not in body, (
-            'nuclear leds_off() clears the LED-state cache and blinks '
-            'an already-correct channel off->on; off the other layers '
-            'individually instead (#617)'
-        )
-
-    def test_disable_leds_does_not_relight_self(self):
-        """This layer's LED current is owned by update_led_state; disable_leds
-        must NOT re-light it. Re-lighting was only needed to undo the nuclear
-        leds_off, which also turned this layer off."""
-        body = self._body()
-        assert '.led_on(' not in body, (
-            'disable_leds_for_other_layers must not re-light this layer '
-            '(update_led_state owns this layer current); re-lighting here '
-            'was only there to undo the nuclear leds_off (#617)'
-        )
 
 
 class TestFixB1_SliderHandlerEarlyReturn:

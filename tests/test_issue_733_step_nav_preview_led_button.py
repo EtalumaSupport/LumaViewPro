@@ -179,13 +179,6 @@ class TestStepNavPreviewRespectsLedEnable:
         assert move.call_count == 1
         assert move.call_args.kwargs['axes'] == stepnav_env.ctx.scope.capabilities.axes
 
-    def test_apply_settings_cannot_rederive_led_from_widget(self, stepnav_env):
-        """apply_settings must receive update_led=False once the Session has
-        gone, so the widget can never act as an LED command channel."""
-        _run_manual_nav(stepnav_env)
-        assert stepnav_env.layer_obj.apply_settings.call_count == 1
-        assert stepnav_env.layer_obj.apply_settings.call_args.kwargs['update_led'] is False
-
 
 def test_a_step_click_on_a_scope_with_no_motor_board_warns_nothing(stepnav_env, caplog):
     """A manual scope (no motor board) is a shipped model, not a fault: its

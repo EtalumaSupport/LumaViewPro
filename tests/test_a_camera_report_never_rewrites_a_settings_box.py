@@ -39,11 +39,12 @@ def _bridge_with_an_open_blue_layer():
     )
     ctx = SimpleNamespace(
         ready=True,
-        session=SimpleNamespace(is_protocol_running=False),
+        session=SimpleNamespace(
+            is_protocol_running=False, add_shown_channel_listener=lambda listener: None
+        ),
         settings={'Blue': {'exposure_ms': 1000.0, 'gain_db': 6.0}},
         image_settings=SimpleNamespace(
             layer_lookup=lambda layer: blue,
-            accordion_item_lookup=lambda layer: SimpleNamespace(collapse=layer != 'Blue'),
         ),
         lumaview=SimpleNamespace(scope=SimpleNamespace(imaging=imaging)),
     )

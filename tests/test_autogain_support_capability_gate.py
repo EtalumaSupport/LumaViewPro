@@ -227,10 +227,10 @@ class TestUiWiring:
             "decision is the API's."
         )
 
-    def test_apply_settings_uses_effective_auto_gain(self):
-        method = _method_node(LAYER_CONTROL_PATH, 'apply_settings')
+    def test_the_shown_layer_uses_effective_auto_gain(self):
+        method = _method_node(LAYER_CONTROL_PATH, 'show_as_shown')
         assert _calls_named(method, 'effective_auto_gain'), (
-            'apply_settings must derive the slider-disable / camera enable from '
+            'show_as_shown must derive the box (and so the slider-disable) from '
             'effective_auto_gain(), not the raw stored auto_gain.'
         )
 

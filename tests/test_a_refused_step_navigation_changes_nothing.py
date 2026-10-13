@@ -234,7 +234,7 @@ class TestAnAdmissibleNavigationStillWorks:
     def test_the_layer_is_applied_once_the_session_has_gone(self, nav_env):
         _navigate(ON_TURRET, step_idx=1)
 
-        assert nav_env.layer_obj.apply_settings.call_args_list == [call(update_led=False)]
+        assert nav_env.layer_obj.apply_settings.call_args_list == [call()]
 
 
 class TestARunNavigationOnlyDisplays:

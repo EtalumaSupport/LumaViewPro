@@ -1114,31 +1114,6 @@ class TestAFPrecisionModeRestoresOn:
             )
 
 
-class TestIssue605_AccordionLEDProtocol:
-    """#605: Stepping through Protocol with 'Protocol LEDs On' doesn't stay on.
-
-    Root cause: accordion_collapse() unconditionally called scope_leds_off().
-    Fix: skip leds_off when protocol_led_on setting is active.
-    """
-
-    def test_accordion_collapse_skips_led_cleanup_during_protocol(self):
-        """accordion_collapse must skip its LED cleanup while a protocol is
-        running, so a step's LED (turned on for 'Protocol LEDs On') is not
-        killed by the accordion-collapse event that fires when the step's
-        channel is expanded (#605). The cleanup is gated on
-        protocol_running.is_set()."""
-        import pathlib
-
-        source = pathlib.Path('ui/image_settings.py').read_text()
-        idx = source.find('def _do_accordion_collapse')
-        assert idx != -1
-        body = source[idx : idx + 2500]
-        assert 'session.run_lockout' in body, (
-            'accordion_collapse must skip LED cleanup while a run owns the '
-            'LEDs so the step LED stays on (#605)'
-        )
-
-
 # ===========================================================================
 # Audit Fix Regression Tests -- Session 8 (B6, B5, D2, G3, F7, G4)
 # ===========================================================================
@@ -2168,53 +2143,6 @@ class TestRule1_UiNoDriverReachThrough:
                 f'{path} must not read scope._led_driver.driver directly '
                 '(Rule 1). Use scope.led_connected instead.'
             )
-
-
-class TestIssue637_DrawerCloseSaturation:
-    """#637: Closing the right-side LED settings drawer caused the image to
-    saturate. Reproduction:
-      1. Maximized image, PC LED ON, bullseye/crosshairs ON
-      2. Hit right arrow to close drawer
-      3. Image went all red (saturated)
-      4. Reopen drawer, PC still selected, image returned to normal after
-         cycling LED off/on
-
-    Root cause: Kivy's Accordion auto-expands a different item when the
-    active one collapses (default behavior -- at least one item must stay
-    expanded). When the user closed the drawer, Kivy auto-expanded another
-    layer's accordion item (e.g. DF) behind the scenes. ImageSettings's
-    on-collapse handler fired and called apply_settings() on that newly-
-    expanded layer, applying its camera exposure (e.g. DF 30 ms vs PC 5 ms)
-    while the user's actual LED was still on. 6x longer exposure with the
-    same LED on saturated the image.
-
-    Fix: drawer open/close must not send anything to camera/LEDs. Skip
-    _do_accordion_collapse's apply_settings loop when the drawer toggle
-    button is in 'normal' state (drawer closed).
-    """
-
-    def test_do_accordion_collapse_skips_when_drawer_closed(self):
-        """_do_accordion_collapse must check toggle_imagesettings state
-        before applying any layer settings."""
-        import pathlib
-
-        source = pathlib.Path('ui/image_settings.py').read_text()
-        idx = source.find('def _do_accordion_collapse')
-        assert idx >= 0, '_do_accordion_collapse not found in ui/image_settings.py'
-        # Slice to just this method's body -- find the next `def ` at the
-        # same indent level. _do_accordion_collapse lives in a class so
-        # subsequent methods use 4-space indent: '\n    def '.
-        next_def = source.find('\n    def ', idx + 1)
-        body = source[idx:next_def] if next_def > 0 else source[idx:]
-        assert 'toggle_imagesettings' in body, (
-            '_do_accordion_collapse must check toggle_imagesettings state '
-            '(issue #637) - without this guard, drawer close triggers '
-            'apply_settings on a Kivy auto-expanded layer, saturating image.'
-        )
-        assert "'normal'" in body or '"normal"' in body, (
-            '_do_accordion_collapse must compare toggle_imagesettings.state '
-            "to 'normal' (drawer-closed sentinel) per issue #637 fix."
-        )
 
 
 class TestIssue710_LumiLS820PlateViewRestored:

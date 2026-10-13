@@ -83,14 +83,11 @@ def go_to_step(
         protocol_settings.curr_step = step_idx
         protocol_settings.generate_step_name_input()
         protocol_settings.update_step_ui()
-        # The layer's settings now hold the step; the camera and the
-        # histogram take them. update_led=False: the Session's LED preview
-        # was the one LED command, and the apply must not re-derive LED
-        # intent from the enable button, which REFLECTS driver state through
-        # the listener bridge; read as a command it re-lights a channel the
-        # user toggled off. The apply keeps its autofocus-owns-the-camera
-        # suppression: manual navigation does not coordinate with a live AF.
-        ctx.image_settings.layer_lookup(layer=step['Color']).apply_settings(update_led=False)
+        # The layer's settings now hold the step; showing the layer puts
+        # them on the camera. Its LEDs are already the step's preview, which
+        # the show leaves as they are; a repeat of the step shows its layer
+        # lit or dark as the person left the shown channel.
+        ctx.image_settings.layer_lookup(layer=step['Color']).apply_settings()
         go_to_step_update_ui(step)
 
     # The axes redrawn once the task has ended, whatever its outcome: every
@@ -108,8 +105,9 @@ def go_to_step_update_ui(step):
 
     Delegates per-layer widget updates to LayerControl.set_step_state(),
     which encapsulates widget knowledge. This function handles only the
-    cross-layer concerns: opening the settings panel and expanding the
-    accordion. The LED button is the listener bridge's, which draws the LED.
+    cross-layer concerns: opening the settings panel. The drawer is the
+    listener bridge's, which draws the shown channel, and so is the LED
+    button, which draws the LED.
     """
     ctx = _app_ctx.ctx
 
@@ -125,13 +123,6 @@ def go_to_step_update_ui(step):
     if imagesettings_toggle.state != 'down':
         imagesettings_toggle.state = 'down'
         ctx.image_settings.place_settings()
-
-    # Expand the accordion to the step's channel. Direct
-    # `collapse = False` on a single item doesn't propagate to siblings
-    # in Kivy's Accordion -- only user clicks auto-collapse others -- so
-    # manual nav from Green -> Red would leave Green visually expanded
-    # without this call.
-    ctx.image_settings.set_expanded_layer(layer=color)
 
     # Delegate all per-layer widget updates to LayerControl
     layer_obj.set_step_state(step)

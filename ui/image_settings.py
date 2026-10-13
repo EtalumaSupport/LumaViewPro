@@ -1,4 +1,5 @@
 # Copyright Etaluma, Inc.
+import functools
 import logging
 
 from kivy.clock import Clock
@@ -9,7 +10,6 @@ from kivy.uix.scrollview import ScrollView
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
 from modules import gui_logger
-from modules.lumascope_api.illumination import LedState
 from modules.config_ui_getters import (
     camera_autogain_supported,
     get_layer_exposure_slider_max,
@@ -36,9 +36,6 @@ class AccordionItemXyStageControl(LoggedAccordionItem):
 class AccordionItemImageSettingsBase(LoggedAccordionItem):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-
-    def accordion_collapse(self):
-        _app_ctx.ctx.image_settings.accordion_collapse()
 
 
 class AccordionItemImageSettingsLumiControl(AccordionItemImageSettingsBase):
@@ -89,13 +86,6 @@ class ImageSettings(BoxLayout):
     settings_width = dp(300)
     tab_width = dp(30)
 
-    # Ownership boundary for the accordion LED/camera reconcile: the
-    # reconcile belongs to genuine USER drawer clicks. A PROGRAMMATIC
-    # expansion (manual step navigation) owns its entire LED + camera
-    # outcome through the LED authority, so while this is True the
-    # reconcile defers to that owner.
-    _suppress_reconcile_for_programmatic_expand = False
-
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         logger.debug('[LVP Main  ] ImageSettings.__init__()')
@@ -121,11 +111,6 @@ class ImageSettings(BoxLayout):
         self._accordion_item_pc_control = None
         self._accordion_item_pc_control_visible = True
         self._init_ui_retries = 0
-        # Debounce accordion_collapse -- Kivy fires multiple collapse events
-        # when switching tabs (one per item). Trigger collapses them into one.
-        self._accordion_collapse_trigger = Clock.create_trigger(
-            lambda dt: self._do_accordion_collapse(), 0
-        )
         Clock.schedule_once(self._init_ui, 0)
 
     def layer_lookup(self, layer: str):
@@ -156,60 +141,49 @@ class ImageSettings(BoxLayout):
         else:
             return self.ids[f'{layer}_accordion']
 
-    def set_expanded_layer(self, layer: str, *largs) -> None:
+    def draw_shown_channel(self, *largs) -> None:
+        """Open the drawer of the Session's shown channel and close the others.
+
+        The drawers display the shown channel, in a run too: this is their
+        one writer, called at start-up and by the listener bridge on each
+        change, and after a person's open in case the Session refused it.
+        Cleans up ScrollView viewport textures on collapse to prevent memory
+        accumulation.
         """
-        Expand the specified layer accordion and collapse all others.
-        Cleans up ScrollView viewport textures on collapse to prevent memory accumulation.
-        Accordion toggling is always disabled during protocol execution to prevent memory leaks.
+        layer = _app_ctx.ctx.session.shown_channel.layer
+        for a_layer in common_utils.get_layers():
+            accordion_item_obj = self.accordion_item_lookup(layer=a_layer)
+            if layer == a_layer:
+                accordion_item_obj.collapse = False
+                continue
+            if not accordion_item_obj.collapse:
+                layer_control = self.layer_lookup(layer=a_layer)
+                for child in layer_control.walk():
+                    if isinstance(child, ScrollView):
+                        # Schedule cleanup after collapse animation completes
+                        from ui.ui_helpers import cleanup_scrollview_viewport
+
+                        Clock.schedule_once(
+                            lambda dt, sv=child: cleanup_scrollview_viewport(sv), 0.2
+                        )
+            accordion_item_obj.collapse = True
+        gui_logger.display('OPEN_LAYER', layer)
+        self.layer_lookup(layer=layer).show_as_shown()
+
+    def _show_channel_for_person(self, layer: str) -> None:
+        """A person opened ``layer``'s drawer: the Session shows that layer.
+
+        The drawer opens at once; the Session's answer redraws it, so a
+        refused show puts the drawer back on the channel the Session shows.
         """
+        session = _app_ctx.ctx.session
+        from ui.ui_helpers import submit_reported
 
-        # Skip accordion toggling during protocol execution to prevent memory leaks
-        if _app_ctx.ctx.session.run_lockout:
-            return
-
-        # No gui_logger record: this is the app's expand, not a person's.
-        # A person's is recorded by LoggedAccordionItem.on_touch_down.
-
-        # Ordering invariant: the guard is set BEFORE the mutation loop
-        # (the collapse events it fires prime the reconcile trigger) and
-        # its CLEAR is scheduled in the finally AFTER the mutations --
-        # Kivy runs same-frame timeout-0 events in scheduling order, so a
-        # clear scheduled before priming would fire first and re-expose
-        # the reconcile race. try/finally: an exception mid-loop must not
-        # wedge the guard (that would permanently disable the user-click
-        # drawer reconcile). The next-tick clear also absorbs a user click
-        # landing on this same frame -- that click's reconcile is skipped
-        # once; the next real click re-fires.
-        self._suppress_reconcile_for_programmatic_expand = True
-        try:
-            for a_layer in common_utils.get_layers():
-                accordion_item_obj = self.accordion_item_lookup(layer=a_layer)
-
-                # Check if we need to collapse this accordion
-                target_collapsed = layer != a_layer
-
-                if layer == a_layer:
-                    accordion_item_obj.collapse = False
-                else:
-                    # Before collapsing, clean up ScrollView to prevent memory leak
-                    if not accordion_item_obj.collapse and target_collapsed:
-                        layer_control = self.layer_lookup(layer=a_layer)
-                        # Find and clean up ScrollView in this layer control
-                        for child in layer_control.walk():
-                            if isinstance(child, ScrollView):
-                                # Schedule cleanup after collapse animation completes
-                                from ui.ui_helpers import cleanup_scrollview_viewport
-
-                                Clock.schedule_once(
-                                    lambda dt, sv=child: cleanup_scrollview_viewport(sv), 0.2
-                                )
-
-                    accordion_item_obj.collapse = True
-        finally:
-            Clock.schedule_once(
-                lambda dt: setattr(self, '_suppress_reconcile_for_programmatic_expand', False),
-                0,
-            )
+        submit_reported(
+            lambda: session.show_channel(layer),
+            self.draw_shown_channel,
+            f'SHOW_CHANNEL_{layer}',
+        )
 
     def set_lumi_layer_control_visibility(self, visible: bool) -> None:
         if visible:
@@ -374,9 +348,10 @@ class ImageSettings(BoxLayout):
             Clock.schedule_once(self._init_ui, 0.1)
             return
         self.assign_led_button_down_images()
-        # Skip accordion_collapse during app initialization to prevent premature apply_settings
-        if not ctx.initializing:
-            self.accordion_collapse()
+        for layer in common_utils.get_layers():
+            self.accordion_item_lookup(layer=layer).person_opened = functools.partial(
+                self._show_channel_for_person, layer
+            )
         self.sync_camera_capability_ranges()
         self.enable_image_stats_if_needed()
 
@@ -550,10 +525,10 @@ class ImageSettings(BoxLayout):
 
         The divergence itself is the trigger. Firing for every layer would
         drive each one's LED state through apply_settings, changing what
-        startup does to the illuminators. Only the open layer is applied: the
+        startup does to the illuminators. Only the shown layer is applied: the
         camera holds one layer, and applying each capped layer in turn left it
-        on the last of them, not the one on screen; a closed layer reaches the
-        camera, capped, when it is next applied.
+        on the last of them, not the one shown; another layer reaches the
+        camera, capped, when it is next shown.
 
         Runs BEFORE anything renders the store, on every path that reaches it,
         so the slider's pinned position and the box's stored value are in
@@ -567,30 +542,15 @@ class ImageSettings(BoxLayout):
         ctx = _app_ctx.ctx
         settings = ctx.settings
         imaging = ctx.lumaview.scope.imaging
-        opened = common_utils.get_opened_layer(self)
+        shown = ctx.session.shown_channel.layer
         for layer in common_utils.get_layers():
             gain = imaging.applied_gain_db_for(settings[layer]['gain_db'])
             exposure = imaging.applied_exposure_ms_for(settings[layer]['exposure_ms'])
             if gain.capped or exposure.capped:
                 layer_obj = self.layer_lookup(layer=layer)
                 layer_obj.render_layer_values_from_settings()
-                if layer == opened:
+                if layer == shown:
                     layer_obj.apply_settings()
-
-    def open_or_default_layer(self):
-        """The layer whose accordion is expanded, or 'BF' when none is open.
-
-        Lets the reconnect path re-apply the VISIBLE layer's controls against
-        the new camera (so e.g. its gain/exposure sliders reflect it), instead
-        of only ever refreshing a hardcoded channel. Delegates the open-layer
-        scan to common_utils.get_opened_layer (which guards the accordion
-        lookup); BF is the default channel shown when every accordion is
-        collapsed.
-        """
-        layer = common_utils.get_opened_layer(self)
-        if layer is not None:
-            return layer
-        return 'BF'
 
     def assign_led_button_down_images(self):
         led_button_down_background_map = {
@@ -662,88 +622,6 @@ class ImageSettings(BoxLayout):
             layer_obj.ids['false_color'].color = (0.0,) * 4
 
             layer_obj.ids['ill_slider'].step = 1
-
-    def accordion_collapse(self):
-        """Called by Kivy on every accordion item collapse/expand.
-
-        Kivy fires this multiple times when switching tabs (once per item).
-        Debounced via Clock.create_trigger so the actual work runs once per frame.
-        """
-        self._accordion_collapse_trigger()
-
-    def _do_accordion_collapse(self):
-        logger.info('[LVP Main  ] ImageSettings.accordion_collapse()')
-        # Every drawer change reaches here -- a person's open, the app's
-        # expand, Kivy's own -- so what is open is recorded before any of the
-        # returns below skip the reconcile.
-        gui_logger.display('OPEN_LAYER', common_utils.get_opened_layer(self))
-
-        ctx = _app_ctx.ctx
-
-        # Skip during app initialization - will be called explicitly after init completes
-        if ctx.initializing:
-            return
-
-        # Programmatic expansion (manual step navigation) owns its LED +
-        # camera outcome through the authority; the reconcile below is for
-        # genuine user drawer clicks. Checked at FIRE time so a trigger
-        # primed before the guard was set still no-ops.
-        if self._suppress_reconcile_for_programmatic_expand:
-            return
-
-        # Skip during protocol run: user clicking a different panel
-        # shouldn't override the layer the protocol is actively driving,
-        # and the "Protocol LEDs On" feature relies on step_navigation
-        # having just turned the step's LED on -- killing it here would
-        # negate that. The original guard checked protocol_led_on alone,
-        # but that setting persists across protocol runs; combined with
-        # the prior shape it incorrectly skipped LED cleanup during pure
-        # Live-mode accordion switches whenever the user had previously
-        # enabled Protocol LEDs On. Live-mode users then saw a
-        # previously-enabled channel's LED stay lit until they enabled
-        # the new channel (issue #659). Gating on the run lockout
-        # collapses both checks and matches the original intent.
-        # set_expanded_layer() already bails for programmatic paths; this
-        # covers the user-click path so a mid-capture click doesn't kill
-        # the running-step LED or apply a different layer's settings.
-        if ctx.session.run_lockout:
-            return
-
-        # Issue #637: opening/closing the drawer must not send anything to
-        # the camera or LEDs. Kivy's accordion auto-expands a different
-        # item when the active one collapses (default Accordion behavior),
-        # so a drawer-close event would otherwise trigger apply_settings
-        # for whichever item Kivy auto-expanded -- applying that layer's
-        # exposure/gain to the camera while the user's LED was still on a
-        # different channel. Saturated-image symptom in #637.
-        if self.ids['toggle_imagesettings'].state == 'normal':
-            return
-
-        # Reconcile each layer's LED to the open drawer: off the collapsed
-        # layers, apply the open one. Switching the others off individually
-        # (not a nuclear leds_off) avoids clearing the LED-state cache, which
-        # would force the open layer's own channel -- e.g. one a step just lit
-        # -- to re-fire and blink off then on. led_off self-skips a channel
-        # already off, and offing the collapsed layers here still clears a
-        # previously-lit channel when the drawer switches to a layer whose LED
-        # is off (which the open layer's apply_settings alone would not do).
-        from ui.ui_helpers import submit_reported
-
-        illumination = ctx.scope.illumination
-        # None with no LED board installed: nothing is lit.
-        lit = {r.name for r in illumination.get_led_states() or () if r.state is LedState.LIT}
-        for layer in common_utils.get_layers():
-            layer_accordion = self.accordion_item_lookup(layer=layer)
-            if layer_accordion.collapse:
-                if layer in lit:
-                    submit_reported(
-                        lambda lit=layer: illumination.led_off(lit),
-                        None,
-                        f'LED_{layer}_OFF',
-                        lane=ctx.io_executor,
-                    )
-            else:
-                self.layer_lookup(layer=layer).apply_settings()
 
     def check_settings(self, *args):
         logger.info('[LVP Main  ] ImageSettings.check_settings()')

@@ -703,10 +703,11 @@ class LumaViewProApp(TooltipMixin, App):
             # On startup stay where homing left the stage -- do NOT drive to
             # protocol step 1. A loaded protocol's steps stay available (the
             # steps table is rendered by load_protocol) and the user navigates
-            # to them explicitly. Apply the default BF layer's saved settings,
-            # identical to the no-protocol path, so there is no stage motion
-            # either way.
-            ctx.image_settings.accordion_collapse()
+            # to them explicitly. Show the Session's shown channel (BF in a
+            # fresh session) at its saved settings, identical to the
+            # no-protocol path, so there is no stage motion either way.
+            shown = ctx.session.shown_channel.layer
+            ctx.image_settings.layer_lookup(layer=shown).apply_settings()
 
         if sim_walk is not None:
             from ui.sim_walk import SimWalk
@@ -732,7 +733,7 @@ class LumaViewProApp(TooltipMixin, App):
             # this thread, and still does, in the same order, with the scope
             # free: several of these do nothing while the scope is held.
             move_home_cb('ALL')
-            ctx.image_settings.set_expanded_layer('BF')
+            ctx.image_settings.draw_shown_channel()
             complete_initialization(None)
             ctx.motion_settings.ids['verticalcontrol_id'].show_turret_state(prompt=False)
 
@@ -744,7 +745,7 @@ class LumaViewProApp(TooltipMixin, App):
             self._prompt_objective_if_needed()
 
             # Objective and LEDs are set by scope.initialize() during load_settings();
-            # BF apply_settings fires from complete_initialization() -> accordion_collapse().
+            # The shown channel's settings are applied by complete_initialization().
 
             # Once-per-startup environment + dependency fingerprint. Pairs
             # with the per-tick [PDH METRICS] / [BUFFER METRICS] surface so

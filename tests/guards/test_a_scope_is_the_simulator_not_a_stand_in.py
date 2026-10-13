@@ -167,7 +167,7 @@ def _entries_with_a_site() -> set[str]:
 
 # Seeded at LVP dev/4.0.0 b17419cc (2026-10-09) with 237 entries. Only shrinks: a
 # commit that takes a stand-in to the simulator deletes its entry and lowers this.
-ALLOWED_ENTRIES = 222
+ALLOWED_ENTRIES = 220
 ALLOWED = frozenset(
     {
         'tests/af_drives.py::af_runner_and_scope',
@@ -209,7 +209,6 @@ ALLOWED = frozenset(
         'tests/test_a_step_list_edit_outruns_the_move.py::env',
         'tests/test_a_video_step_announces_its_finish.py::_scope',
         'tests/test_a_zstack_with_no_range_is_refused.py::TestTheHeadlessCallerGetsIt.test_run_zstack_refuses_instead_of_capturing_one_plane',
-        'tests/test_an_led_toggle_is_recorded_only_when_pressed.py::layer',
         'tests/test_an_out_of_range_camera_setting_is_refused.py::sim_imaging',
         'tests/test_an_unknown_objective_is_shown_as_a_refusal.py::TestNewProtocol.panel',
         'tests/test_audit_fixes.py::TestAcquisitionStopModeSetter._make_scope_with_fake_camera',
@@ -291,7 +290,6 @@ ALLOWED = frozenset(
         'tests/test_issue_655_ag_ae_exposure_cap.py::test_api_set_auto_gain_forwards_cap_from_settings_dict',
         'tests/test_issue_679_exposure_cache_after_auto.py::sim_imaging',
         'tests/test_issue_690_jpg_orientation.py::test_tiff_and_jpg_save_identical_orientation',
-        'tests/test_issue_697_nav_led_sweep.py::_reconcile_harness',
         'tests/test_issue_733_step_nav_preview_led_button.py::stepnav_env',
         'tests/test_jpg_export.py::_scope_with_depth',
         'tests/test_layer_control_ag_exposure_floor.py::_leave',

@@ -55,7 +55,12 @@ def ctx(monkeypatch):
         io_executor=object(),
         camera_executor=object(),
         settings={'Green': {'illumination_ma': 120.0, 'focus': 4321.0}},
-        session=SimpleNamespace(controls_locked=False, recover_file_writer=MagicMock()),
+        session=SimpleNamespace(
+            controls_locked=False,
+            recover_file_writer=MagicMock(),
+            light_shown_channel=MagicMock(),
+            show_channel=MagicMock(),
+        ),
         ui_listener_bridge=SimpleNamespace(reconcile_led_buttons=MagicMock()),
     )
     monkeypatch.setattr(_app_ctx, 'ctx', context)
@@ -67,27 +72,25 @@ def ctx(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize('state, member', [('down', 'led_on'), ('normal', 'led_off')])
-def test_an_led_toggle_writes_through_the_illumination_api_on_the_io_lane(
-    ctx, boundary, monkeypatch, state, member
+@pytest.mark.parametrize('state, lit', [('down', True), ('normal', False)])
+def test_an_led_toggle_lights_the_shown_channel_through_the_session(
+    ctx, boundary, monkeypatch, state, lit
 ):
+    """The button is the shown channel's: its press asks the Session, on the
+    worker pool since the Session's member dispatches to the IO lane itself."""
     import ui.layer_control as layer_control
 
     monkeypatch.setattr(layer_control, 'submit_reported', boundary.submit_reported)
     monkeypatch.setattr(layer_control.gui_logger, 'toggle', MagicMock())
-    widget = SimpleNamespace(
-        layer='Green',
-        _initializing=False,
-        ids={'enable_led_btn': SimpleNamespace(state=state)},
-        apply_settings=MagicMock(),
-    )
+    widget = SimpleNamespace(layer='Green', ids={'enable_led_btn': SimpleNamespace(state=state)})
 
-    layer_control.LayerControl.update_led_state(widget, apply_settings=False)
+    layer_control.LayerControl.led_toggle(widget)
 
     (submit,) = boundary.submits
-    assert submit.lane is ctx.io_executor
-    getattr(ctx.scope.illumination, member).assert_called_once()
-    assert getattr(ctx.scope.illumination, member).call_args.args[0] == 'Green'
+    assert submit.lane is None
+    ctx.session.light_shown_channel.assert_called_once_with(lit)
+    ctx.scope.illumination.led_on.assert_not_called()
+    ctx.scope.illumination.led_off.assert_not_called()
     # The toggle shows what the API reports lit once the command has landed.
     assert submit.redraw is ctx.ui_listener_bridge.reconcile_led_buttons
 
@@ -97,25 +100,23 @@ def test_an_led_toggle_writes_through_the_illumination_api_on_the_io_lane(
 # ---------------------------------------------------------------------------
 
 
-def test_the_layer_apply_writes_the_camera_on_the_camera_lane(boundary, monkeypatch):
+def test_the_layer_apply_shows_the_layer_through_the_session(ctx, boundary, monkeypatch):
+    """A settings change shows the layer: show_channel puts its LED and camera
+    settings on the hardware, so the apply sends no device command itself."""
     import ui.layer_control as layer_control
 
     monkeypatch.setattr(layer_control, 'submit_reported', boundary.submit_reported)
-    context = MagicMock()
-    context.settings = {'Green': {'exposure_ms': 2.0, 'gain_db': 1.0}, 'protocol_led_on': True}
-    context.session.run_lockout = False
-    monkeypatch.setattr(_app_ctx, 'ctx', context)
     widget = MagicMock()
     widget.layer = 'Green'
     widget._initializing = False
-    widget.effective_auto_gain.return_value = False
 
-    layer_control.LayerControl.apply_settings(widget, update_led=False)
+    layer_control.LayerControl.apply_settings(widget)
 
-    camera = [s for s in boundary.submits if s.label == 'CAMERA_SETTINGS_Green']
-    assert len(camera) == 1, [s.label for s in boundary.submits]
-    assert camera[0].lane is context.camera_executor
-    context.session.apply_layer_camera.assert_called_once_with('Green')
+    (submit,) = boundary.submits
+    assert submit.lane is None
+    ctx.session.show_channel.assert_called_once_with('Green')
+    assert ctx.scope.illumination.mock_calls == []
+    assert ctx.scope.imaging.mock_calls == []
 
 
 @pytest.mark.parametrize(

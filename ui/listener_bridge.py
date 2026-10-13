@@ -4,8 +4,10 @@
 
 Lumascope publishes position, LED and camera-setting changes to
 registered listeners (``add_position_listener``, ``add_led_listener``,
-``add_camera_listener``). This module holds the GUI's handlers for
-the first two: stage redraw on motion, LED button state on LED change.
+``add_camera_listener``), and the Session the channel it shows
+(``add_shown_channel_listener``). This module holds the GUI's handlers for
+position, LED and shown channel: stage redraw on motion, LED button state on
+LED change, the open drawer on a change of the shown channel.
 Camera-setting changes have no GUI handler: a layer's gain and exposure
 boxes show the stored setting, and what the camera applied (a quantizing
 camera answers 1000 ms with 1000.0057) is the API's to answer and the
@@ -75,6 +77,7 @@ class UIListenerBridge:
         # event for each LED color so the bridge construction stays
         # cheap.
         self._pending_led_updates: dict[str, bool] = {}
+        self._shown_channel_pending = False
 
     # ------------------ Listener implementations ------------------
 
@@ -122,6 +125,25 @@ class UIListenerBridge:
                 self._write_led_button(reading.name, lit=reading.state is LedState.LIT)
 
         schedule_ui(_update_led_ui, 0)
+
+    def _on_shown_channel_changed(self, layer, lit):
+        """Shown-channel listener -- the drawers draw the Session's shown channel.
+
+        In a run too: a run's steps move the shown channel, and the drawer
+        follows. Coalesced to one draw per Kivy frame, which re-reads the
+        store, so a run's rapid steps draw the newest.
+        """
+        if self._shown_channel_pending:
+            return
+        self._shown_channel_pending = True
+
+        def _draw(dt):
+            self._shown_channel_pending = False
+            if not self._ctx.ready:
+                return
+            self._ctx.image_settings.draw_shown_channel()
+
+        schedule_ui(_draw, 0)
 
     def _write_led_button(self, color: str, *, lit: bool) -> None:
         """Write one layer's enable toggle as the API reads its LED.
@@ -173,4 +195,5 @@ class UIListenerBridge:
         """
         self._scope.motion.add_position_listener(self._on_position_change)
         self._scope.illumination.add_led_listener(self._on_led_state_changed)
-        logger.info('[UIListenerBridge] registered position + LED listeners')
+        self._ctx.session.add_shown_channel_listener(self._on_shown_channel_changed)
+        logger.info('[UIListenerBridge] registered position, LED and shown-channel listeners')

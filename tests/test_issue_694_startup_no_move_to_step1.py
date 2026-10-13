@@ -9,9 +9,10 @@ protocol step 1 -- surprising and unwanted motion.
 
 Fix
 ---
-complete_initialization now stays where homing left the stage and applies the
-default BF layer's saved settings via accordion_collapse -- identical to the
-no-protocol path, with no stage motion either way. A loaded protocol's steps
+complete_initialization now stays where homing left the stage and shows the
+Session's shown channel (BF in a fresh session) at its saved settings, through
+that layer's apply_settings -- identical to the no-protocol path, with no
+stage motion either way. A loaded protocol's steps
 remain available (the table is rendered by load_protocol); the user navigates
 to them explicitly.
 
@@ -49,10 +50,10 @@ def test_startup_does_not_move_to_step():
     )
 
 
-def test_startup_applies_default_layer_settings():
-    """Startup still applies the default BF layer settings (no move)."""
+def test_startup_shows_the_shown_channel():
+    """Startup applies the shown channel's settings (no move)."""
     src = ast.unparse(_complete_initialization())
-    assert 'accordion_collapse' in src, (
-        'startup must apply the default BF layer settings via '
-        'accordion_collapse so the camera shows a sensible default'
+    assert 'shown_channel' in src and 'apply_settings()' in src, (
+        "startup must show the Session's shown channel through its layer's "
+        'apply_settings so the camera shows a sensible default'
     )

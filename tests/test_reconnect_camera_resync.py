@@ -23,9 +23,9 @@ The fix:
     fully reach. The blackout fix lives on the APPLY -- the API caps what it
     writes to hardware -- so the stored value is never narrowed; _init_ui
     (connect) calls that grouping. A scope swap (the auto-reconnect item)
-    re-runs it and re-applies the VISIBLE layer
-    (ImageSettings.open_or_default_layer), never a hardcoded channel -- its
-    acceptance list lives with that item.
+    re-runs it and re-applies the shown layer (the Session's shown
+    channel), never a hardcoded channel -- its acceptance list lives with
+    that item.
 
 The UI modules touch Kivy widgets and cannot be imported under the test mocks
 (see test_ids_native_roi_sync_binning), so the wiring is pinned with AST
@@ -136,24 +136,6 @@ class TestSyncGrouping:
         assert _attr_calls(method, 'sync_camera_capability_ranges'), (
             'ImageSettings._init_ui must resync via sync_camera_capability_ranges.'
         )
-
-    def test_open_or_default_layer_reuses_helper_and_defaults_to_bf(self):
-        method = _method_node(IMAGE_SETTINGS_PATH, 'open_or_default_layer')
-        # Delegates the open-layer scan to the shared guarded helper, and
-        # defaults to BF when none is open.
-        assert _attr_calls(method, 'get_opened_layer') or any(
-            isinstance(n, ast.Call)
-            and isinstance(n.func, ast.Name)
-            and n.func.id == 'get_opened_layer'
-            for n in ast.walk(method)
-        ), 'open_or_default_layer must reuse common_utils.get_opened_layer.'
-        returns_bf = any(
-            isinstance(n, ast.Return)
-            and isinstance(n.value, ast.Constant)
-            and n.value.value == 'BF'
-            for n in ast.walk(method)
-        )
-        assert returns_bf, 'open_or_default_layer must default to BF when no layer is open.'
 
 
 class TestLoadSettingsResync:
