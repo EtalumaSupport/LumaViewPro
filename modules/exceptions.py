@@ -1529,15 +1529,17 @@ class HyperstackRefusedError(Fault, CaptureError):
     """The hyperstack builder declined to build a recording's frames into one file.
 
     Raised by the manual recording's finish when the builder answers
-    status=False, and by the builder itself when a frame it was given cannot
-    be read or cannot share the stack: the frames are on disk as recorded.
+    status=False, or raises ``InputFramesUnusableError`` because a frame
+    cannot be read or cannot share the stack: the frames are on disk as
+    recorded.
     The builder's own sentence rides in ``message`` so the notification the
     user sees says why, in the builder's words, rather than telling them to
     read a log.
 
     Attributes:
         message: The builder's one-paragraph reason, user-facing.
-        reason: ``'hyperstack_refused'`` -- the builder answered status=False;
+        reason: ``'hyperstack_refused'`` -- the builder answered status=False,
+            or the frames are not all one size;
             ``'unreadable_input_frame'`` -- a frame could not be read;
             ``'mixed_pixel_types'`` -- frames of different pixel types
             cannot share one stack.
