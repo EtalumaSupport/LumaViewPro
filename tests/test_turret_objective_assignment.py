@@ -136,6 +136,17 @@ class TestPickingAnObjectiveTurnsTheTurret:
         assert excinfo.value.offered == ('10x Oly', '20x Oly', '4x Oly')
         assert turret_session.scope.motion.get_turret_slot() == 1
 
+    def test_an_empty_turret_says_it_holds_nothing(self, turret_session):
+        """Its words name what the slots hold, so a turret holding nothing says so."""
+        for slot in (1, 2, 3):
+            turret_session.clear_turret_objective(slot)
+
+        with pytest.raises(ArgumentRefusedError) as excinfo:
+            turret_session.select_objective('40x Phase')
+
+        assert excinfo.value.offered == ()
+        assert 'the turret holds nothing.' in str(excinfo.value)
+
     def test_a_confirmation_on_a_turret_scope_names_its_slot(self, turret_session):
         """The answer records glass in a slot; with no slot named it has none to record."""
         with pytest.raises(ArgumentRefusedError) as excinfo:

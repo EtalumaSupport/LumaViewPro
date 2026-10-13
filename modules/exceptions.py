@@ -992,6 +992,12 @@ class ObjectiveUnknownError(Refusal, ConfigError):
         self.slot = slot
 
 
+def _offered_words(offered: Iterable[object]) -> str:
+    # What a refusal offers, in its words. An empty offer is said, as
+    # "nothing": joined, it left a sentence with a hole where the list goes.
+    return ', '.join(str(o) for o in offered) or 'nothing'
+
+
 @api_fields('argument', 'offered')
 class CatalogueNameRefusedError(Refusal, ConfigError):
     """A labware or objective name the installation's catalogue does not hold.
@@ -1037,7 +1043,9 @@ class CatalogueNameRefusedError(Refusal, ConfigError):
         if reason not in self._WORDS:
             raise TypeError(f'CatalogueNameRefusedError has no words for the reason {reason!r}')
         self.title, words = self._WORDS[reason]
-        super().__init__(words.format(argument=argument, value=value, offered=', '.join(offered)))
+        super().__init__(
+            words.format(argument=argument, value=value, offered=_offered_words(offered))
+        )
         self.reason = reason
         self.argument = argument
         self.value = value
@@ -3130,7 +3138,7 @@ class ArgumentRefusedError(Refusal, ValueError):
             words.format(
                 argument=argument,
                 value=value,
-                offered=', '.join(str(o) for o in offered or ()),
+                offered=_offered_words(offered or ()),
                 low=low,
                 high=high,
                 kind=kind,
