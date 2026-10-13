@@ -60,8 +60,9 @@ def _panel(method):
     cls = panel_module.CellCountControls
     for name in (
         '_show_size_filters',
-        '_area_range_slider_physical_to_values',
-        '_perimeter_range_slider_physical_to_values',
+        '_size_filter_from_slider',
+        '_size_filter_to_slider',
+        '_preview_shape',
         '_preview_scale',
     ):
         setattr(panel, name, getattr(cls, name).__get__(panel))
@@ -135,9 +136,6 @@ def test_a_released_size_slider_writes_open_bounds_at_its_stops_and_records_once
     panel.ids = _Ids(vars(panel.ids))
     panel._size_bounds_from_slider = (
         panel_module.CellCountControls._size_bounds_from_slider.__get__(panel)
-    )
-    panel._area_range_slider_values_to_physical = (
-        panel_module.CellCountControls._area_range_slider_values_to_physical.__get__(panel)
     )
 
     panel.ids['slider_cell_count_area_id'].value = (10, 100)

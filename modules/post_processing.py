@@ -177,6 +177,83 @@ def cell_count_scale(method: Mapping, image_pixel_size_um: float | None) -> floa
     return None
 
 
+def area_filter_max(shape: tuple[int, ...], pixels_per_um: float | None) -> float:
+    """The largest area an image of ``shape`` can hold, in square microns at ``pixels_per_um``.
+
+    With no scale it is the pixel count: a slider's reach only, since a
+    bound on an image with no scale is refused.
+    """
+    max_area_pixels = shape[0] * shape[1]
+    if pixels_per_um is None:
+        return float(max_area_pixels)
+    return max_area_pixels / (pixels_per_um**2)
+
+
+def perimeter_filter_max(shape: tuple[int, ...], pixels_per_um: float | None) -> float:
+    """The largest perimeter an image of ``shape`` can hold, in microns at ``pixels_per_um``.
+
+    With no scale it is in pixels: a slider's reach only.
+    """
+    # Assume max perimeter will never need to be larger than 2x frame size border
+    # The 2x is to provide margin for handling various curvatures
+    max_perimeter_pixels = 2 * ((2 * shape[0]) + (2 * shape[1]))
+    if pixels_per_um is None:
+        return float(max_perimeter_pixels)
+    return max_perimeter_pixels / pixels_per_um
+
+
+def _size_slider_stops(
+    size: str, shape: tuple[int, ...], pixels_per_um: float | None
+) -> tuple[list[float], list[float]]:
+    """The slider positions and the sizes they stand for, for the ``size`` filter.
+
+    The scale is stretched at its low end, so the small sizes most methods
+    bound get most of the slider's travel; the top stop is the image's
+    largest size, kept above the stop below it.
+    """
+    if size == 'area':
+        top = max(area_filter_max(shape, pixels_per_um), 10001)
+        return [0, 30, 60, 100], [0, 1000, 10000, top]
+    top = max(perimeter_filter_max(shape, pixels_per_um), 101)
+    return [0, 50, 100], [0, 100, top]
+
+
+def size_filter_from_slider(
+    size: str,
+    slider_values: tuple[float, float],
+    shape: tuple[int, ...] | None,
+    pixels_per_um: float | None,
+) -> tuple[float, float]:
+    """The ``size`` ('area' or 'perimeter') bounds a slider's two positions stand for.
+
+    ``shape`` is the preview image's; with no preview the positions are
+    handed back as they are.
+    """
+    if shape is None:
+        return slider_values
+    positions, sizes = _size_slider_stops(size, shape, pixels_per_um)
+    low, high = np.interp(slider_values, positions, sizes)
+    return float(low), float(high)
+
+
+def size_filter_to_slider(
+    size: str,
+    bounds: tuple[float, float],
+    shape: tuple[int, ...] | None,
+    pixels_per_um: float | None,
+) -> tuple[float, float]:
+    """The slider positions that show the ``size`` ('area' or 'perimeter') ``bounds``.
+
+    ``shape`` is the preview image's; with no preview the bounds are handed
+    back as they are.
+    """
+    if shape is None:
+        return bounds
+    positions, sizes = _size_slider_stops(size, shape, pixels_per_um)
+    low, high = np.interp(bounds, sizes, positions)
+    return float(low), float(high)
+
+
 def _refuse_size_filters_without_a_scale(method: Mapping, name: str) -> None:
     """Refuse a count in pixels whose method bounds an area or a perimeter.
 

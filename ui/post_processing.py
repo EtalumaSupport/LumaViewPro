@@ -529,58 +529,18 @@ class CellCountControls(BoxLayout):
     def get_current_settings(self):
         return self._settings
 
-    def _area_range_slider_values_to_physical(self, slider_values):
-        if self._preview_source_image is None:
-            return slider_values
+    def _preview_shape(self) -> tuple[int, ...] | None:
+        return None if self._preview_source_image is None else self._preview_source_image.shape
 
-        xp = [0, 30, 60, 100]
-        max = self.calculate_area_filter_max(image=self._preview_source_image)
-        if max < 10001:
-            max = 10001
+    def _size_filter_from_slider(self, size, slider_values):
+        return post_processing.size_filter_from_slider(
+            size, slider_values, self._preview_shape(), self._preview_scale()
+        )
 
-        fp = [0, 1000, 10000, max]
-        fg = np.interp(slider_values, xp, fp)
-        return fg[0], fg[1]
-
-    def _area_range_slider_physical_to_values(self, physical_values):
-        if self._preview_source_image is None:
-            return physical_values
-
-        max = self.calculate_area_filter_max(image=self._preview_source_image)
-        if max < 10001:
-            max = 10001
-
-        xp = [0, 1000, 10000, max]
-        fp = [0, 30, 60, 100]
-        fg = np.interp(physical_values, xp, fp)
-        return fg[0], fg[1]
-
-    def _perimeter_range_slider_values_to_physical(self, slider_values):
-        if self._preview_source_image is None:
-            return slider_values
-
-        xp = [0, 50, 100]
-
-        max = self.calculate_perimeter_filter_max(image=self._preview_source_image)
-        if max < 101:
-            max = 101
-
-        fp = [0, 100, max]
-        fg = np.interp(slider_values, xp, fp)
-        return fg[0], fg[1]
-
-    def _perimeter_range_slider_physical_to_values(self, physical_values):
-        if self._preview_source_image is None:
-            return physical_values
-
-        max = self.calculate_perimeter_filter_max(image=self._preview_source_image)
-        if max < 101:
-            max = 101
-
-        xp = [0, 100, max]
-        fp = [0, 50, 100]
-        fg = np.interp(physical_values, xp, fp)
-        return fg[0], fg[1]
+    def _size_filter_to_slider(self, size, bounds):
+        return post_processing.size_filter_to_slider(
+            size, bounds, self._preview_shape(), self._preview_scale()
+        )
 
     def _set_ui_to_settings(self, settings):
         """Show the method on the panel. Writes nothing back to it."""
@@ -614,10 +574,10 @@ class CellCountControls(BoxLayout):
         """Pixels per micron the preview counts at, or None for pixels."""
         return post_processing.cell_count_scale(self._settings, self._preview_pixel_size_um)
 
-    def _size_bounds_from_slider(self, slider_id, to_physical):
-        """The bounds a range slider shows; an end at its stop is no bound."""
+    def _size_bounds_from_slider(self, slider_id, size):
+        """The ``size`` bounds a range slider shows; an end at its stop is no bound."""
         slider = self.ids[slider_id]
-        low, high = to_physical((slider.value[0], slider.value[1]))
+        low, high = self._size_filter_from_slider(size, (slider.value[0], slider.value[1]))
         return (
             None if slider.value[0] <= slider.min else low,
             None if slider.value[1] >= slider.max else high,
@@ -629,26 +589,32 @@ class CellCountControls(BoxLayout):
         No bound is the slider's stop at that end.
         """
         area_unit, perimeter_unit = _AREA_UNIT, _PERIMETER_UNIT
-        for slider_id, label_id, size, unit, to_values in (
+        for slider_id, label_id, size, unit in (
             (
                 'slider_cell_count_area_id',
                 'label_cell_count_area_id',
                 'area',
                 area_unit,
-                self._area_range_slider_physical_to_values,
             ),
             (
                 'slider_cell_count_perimeter_id',
                 'label_cell_count_perimeter_id',
                 'perimeter',
                 perimeter_unit,
-                self._perimeter_range_slider_physical_to_values,
             ),
         ):
             slider = self.ids[slider_id]
             bounds = self._settings['filters'][size]
-            low = slider.min if bounds['min'] is None else to_values((bounds['min'], 0))[0]
-            high = slider.max if bounds['max'] is None else to_values((0, bounds['max']))[1]
+            low = (
+                slider.min
+                if bounds['min'] is None
+                else self._size_filter_to_slider(size, (bounds['min'], 0))[0]
+            )
+            high = (
+                slider.max
+                if bounds['max'] is None
+                else self._size_filter_to_slider(size, (0, bounds['max']))[1]
+            )
             slider.value = (low, high)
             self.ids[label_id].text = _range_text(bounds['min'], bounds['max'], unit)
 
@@ -663,42 +629,16 @@ class CellCountControls(BoxLayout):
 
         run_reported(_load, None, 'LOAD_CELL_COUNT_INPUT_IMAGE')
 
-    def calculate_area_filter_max(self, image):
-        """The largest area the preview can hold, in microns at its scale.
-
-        With no scale it is the pixel count: the slider's reach only, since a
-        bound on an image with no scale is refused.
-        """
-        pixels_per_um = self._preview_scale()
-        max_area_pixels = image.shape[0] * image.shape[1]
-        if pixels_per_um is None:
-            return max_area_pixels
-        return max_area_pixels / (pixels_per_um**2)
-
-    def calculate_perimeter_filter_max(self, image):
-        """The largest perimeter the preview can hold, in microns at its scale.
-
-        With no scale it is in pixels: the slider's reach only.
-        """
-        pixels_per_um = self._preview_scale()
-        # Assume max perimeter will never need to be larger than 2x frame size border
-        # The 2x is to provide margin for handling various curvatures
-        max_perimeter_pixels = 2 * ((2 * image.shape[0]) + (2 * image.shape[1]))
-        if pixels_per_um is None:
-            return max_perimeter_pixels
-        return max_perimeter_pixels / pixels_per_um
-
     def update_filter_max(self, image):
-        max_area_um2 = self.calculate_area_filter_max(image=image)
-        max_perimeter_um = self.calculate_perimeter_filter_max(image=image)
+        pixels_per_um = self._preview_scale()
+        max_area_um2 = post_processing.area_filter_max(image.shape, pixels_per_um)
+        max_perimeter_um = post_processing.perimeter_filter_max(image.shape, pixels_per_um)
 
         self.ids.slider_cell_count_area_id.max = int(
-            self._area_range_slider_physical_to_values(physical_values=(0, max_area_um2))[1]
+            self._size_filter_to_slider('area', (0, max_area_um2))[1]
         )
         self.ids.slider_cell_count_perimeter_id.max = int(
-            self._perimeter_range_slider_physical_to_values(physical_values=(0, max_perimeter_um))[
-                1
-            ]
+            self._size_filter_to_slider('perimeter', (0, max_perimeter_um))[1]
         )
         self._show_size_filters()
 
@@ -768,9 +708,7 @@ class CellCountControls(BoxLayout):
             self._regenerate_image_preview()
 
     def slider_adjustment_area(self):
-        low, high = self._size_bounds_from_slider(
-            'slider_cell_count_area_id', self._area_range_slider_values_to_physical
-        )
+        low, high = self._size_bounds_from_slider('slider_cell_count_area_id', 'area')
         gui_logger.slider('CELL_COUNT_AREA_RANGE', _range_text(low, high, ''))
         self._settings['filters']['area'] = {'min': low, 'max': high}
         self.ids['label_cell_count_area_id'].text = _range_text(low, high, _AREA_UNIT)
@@ -780,15 +718,11 @@ class CellCountControls(BoxLayout):
 
     def show_area_range_dragged(self) -> None:
         """The area label follows a drag; the bound is taken on release."""
-        low, high = self._size_bounds_from_slider(
-            'slider_cell_count_area_id', self._area_range_slider_values_to_physical
-        )
+        low, high = self._size_bounds_from_slider('slider_cell_count_area_id', 'area')
         self.ids['label_cell_count_area_id'].text = _range_text(low, high, _AREA_UNIT)
 
     def slider_adjustment_perimeter(self):
-        low, high = self._size_bounds_from_slider(
-            'slider_cell_count_perimeter_id', self._perimeter_range_slider_values_to_physical
-        )
+        low, high = self._size_bounds_from_slider('slider_cell_count_perimeter_id', 'perimeter')
         gui_logger.slider('CELL_COUNT_PERIMETER_RANGE', _range_text(low, high, ''))
         self._settings['filters']['perimeter'] = {'min': low, 'max': high}
         self.ids['label_cell_count_perimeter_id'].text = _range_text(low, high, _PERIMETER_UNIT)
@@ -798,9 +732,7 @@ class CellCountControls(BoxLayout):
 
     def show_perimeter_range_dragged(self) -> None:
         """The perimeter label follows a drag; the bound is taken on release."""
-        low, high = self._size_bounds_from_slider(
-            'slider_cell_count_perimeter_id', self._perimeter_range_slider_values_to_physical
-        )
+        low, high = self._size_bounds_from_slider('slider_cell_count_perimeter_id', 'perimeter')
         self.ids['label_cell_count_perimeter_id'].text = _range_text(low, high, _PERIMETER_UNIT)
 
     def slider_adjustment_sphericity(self):
