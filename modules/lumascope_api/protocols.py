@@ -748,9 +748,8 @@ class ProtocolsAPI:
         """The travel limits of each axis this scope has a motor for, by axis.
 
         The one read the run gate and the tile and z-stack builds judge
-        positions against. Only the axes in ``capabilities.axes``: the
-        motion board answers limits for X and Y on a Z-only scope too, and a
-        build judged against them would lay out tiles no motor can reach. An
+        positions against. Only the axes in ``capabilities.axes``: an axis the
+        scope lacks has no travel, and ``get_axis_limits`` refuses it. An
         axis without software-enforced bounds (the turret's T) answers None
         and is left out.
         """
