@@ -27,9 +27,10 @@ from harness import HARDWARE, SCRATCH, check, figure, hardware_session, headless
 RUN_TIMEOUT_S = 120.0
 
 
-def _step(name, objective, index, position, layer):
+def _step(name, objective, slot, index, position, layer):
     # A step as Add Step builds one: no tile, no z-stack (-1), so the run
-    # treats each as its own step and does not hold the LED across them.
+    # treats each as its own step and does not hold the LED across them,
+    # and the turret slot it was made at.
     return {
         'Name': name,
         'X': position['x'],
@@ -57,7 +58,7 @@ def _step(name, objective, index, position, layer):
         'Auto_Named': False,
         'Label': '',
         'Channel Group ID': 0,
-        'Turret Slot': -1,
+        'Turret Slot': slot,
     }
 
 
@@ -104,8 +105,8 @@ def main():
         here = slots.get(start_slot)
         others = (
             [
-                objective
-                for objective in slots.values()
+                slot
+                for slot, objective in slots.items()
                 if _expected_pixel_size(session, objective) != _expected_pixel_size(session, here)
             ]
             if here
@@ -119,7 +120,8 @@ def main():
             'another slot holds an objective of a different scale', bool(others), str(slots)
         ):
             return
-        away = others[0]
+        away_slot = others[0]
+        away = slots[away_slot]
 
         labware = session.settings['protocol']['labware']
         position = session.get_current_plate_position()
@@ -131,8 +133,8 @@ def main():
                 'version': Protocol.CURRENT_VERSION,
                 'steps': pd.DataFrame(
                     [
-                        _step('away', away, 0, position, layer),
-                        _step('back', here, 1, position, layer),
+                        _step('away', away, away_slot, 0, position, layer),
+                        _step('back', here, start_slot, 1, position, layer),
                     ]
                 ),
                 'period': datetime.timedelta(minutes=1.0),
@@ -173,7 +175,7 @@ def main():
         check("the run's files were written", files_written.wait(15.0))
 
         figure('turret moves (asked, landed)', turned_to)
-        expected_slots = [motion.get_turret_position_for_objective_id(o) for o in (away, here)]
+        expected_slots = [away_slot, start_slot]
         check(
             "the run turned the turret to each step's slot, in order",
             [asked for asked, _ in turned_to] == expected_slots,

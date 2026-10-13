@@ -270,7 +270,7 @@ class TestOneTargetComputation:
     """
 
     _CALLERS = ('modules/protocol_step_runner.py', 'modules/scope_session.py')
-    _OWN = frozenset({'plate_to_stage', 'get_turret_position_for_objective_id'})
+    _OWN = frozenset({'plate_to_stage'})
 
     @staticmethod
     def _called_attrs(tree) -> set[str]:
@@ -284,9 +284,6 @@ class TestOneTargetComputation:
         def check(caller):
             called = self._called_attrs(parse_module(caller))
             assert 'step_targets' in called, f'{caller} does not call step_targets'
-            assert 'get_turret_position_for_objective_id' not in called, (
-                f'{caller} looks a turret slot up itself'
-            )
 
         failed = failing_cases(self._CALLERS, check)
         assert not failed, failed

@@ -104,11 +104,6 @@ def nav_env(monkeypatch):
         ),
     )
     scope.protocols = ProtocolsAPI(scope)
-    scope.motion.get_turret_position_for_objective_id = (
-        lambda objective_id, persisted_position=None: next(
-            (pos for pos, obj in carried.items() if obj == objective_id), None
-        )
-    )
 
     ctx = SimpleNamespace(
         settings={
