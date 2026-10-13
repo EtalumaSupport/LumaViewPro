@@ -89,8 +89,6 @@ _REASON_UNNAMED_PINNED = frozenset(
         ('ScopeSession.diagnostic_claim', 'DiagnosticRefusedError'),
         ('ScopeSession.new_protocol', 'ObjectiveUnknownError'),
         ('ScopeSession.objective_question', 'ObjectiveUnknownError'),
-        ('ScopeSession.open_remembered_protocol', 'HardwareCommandRefusedError'),
-        ('ScopeSession.open_remembered_protocol', 'ProtocolRunRefusedError'),
         ('ScopeSession.recover_file_writer', 'FileWriterNotStuckError'),
         ('ScopeSession.recover_file_writer', 'HardwareCommandRefusedError'),
         ('ScopeSession.save_all_bookmarks', 'ProtocolRunRefusedError'),

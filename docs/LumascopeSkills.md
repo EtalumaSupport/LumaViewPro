@@ -2867,8 +2867,6 @@ Reached through `ScopeSession.create(settings, ...)`; every L2 caller starts her
 - `motion_enabled`
 - `new_protocol`
 - `objective_question`
-- `open_protocol` (in-process)
-- `open_remembered_protocol` (in-process)
 - `plugin_api_level`
 - `plugin_health`
 - `post_processing`

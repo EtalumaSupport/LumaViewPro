@@ -2402,14 +2402,11 @@ class ScopeSession:
     def protocol_size_advisory(self, protocol: 'Protocol') -> 'ProtocolSizeAdvisory | None':
         """Ask a protocol whether it is large enough to warn the user about.
 
-        This is not part of the L2 API surface -- it exists because the two
-        settings the estimate needs (whether video is saved as frames, and the
-        global FPS cap) are resolved at the session tier rather than in the
-        GUI, not to serve a REST caller; there is no REST or headless caller
-        today, and this has exactly one caller.
-
-        Resolved the way the run path resolves them, so the advisory and the
-        run it is advising about cannot be sized differently.
+        The composer a client uses, rather than ``Protocol.size_advisory``
+        itself: the two settings the estimate needs (whether video is saved
+        as frames, and the global FPS cap) are the session's, resolved the
+        way the run path resolves them, so the advisory and the run it is
+        advising about cannot be sized differently.
         """
         import modules.config_helpers as config_helpers
         from modules.protocol_state_machine import SequencedCaptureRunMode
@@ -2619,7 +2616,6 @@ class ScopeSession:
         with self.settings_lock:
             self._store_setting('protocol.filepath', file_path)
 
-    @api(in_process=True)
     def open_protocol(self, file_path: FilePath) -> 'Protocol':
         """Load the protocol at ``file_path`` with its Layer Settings, and remember it.
 
@@ -2653,7 +2649,6 @@ class ScopeSession:
         self.set_protocol_filepath(os.fspath(file_path))
         return protocol
 
-    @api(in_process=True)
     def open_remembered_protocol(self) -> 'Protocol | None':
         """Load the protocol the last start left behind, with its Layer Settings.
 
