@@ -158,15 +158,20 @@ class Stitcher(ProtocolPostProcessor):
             output_file_loc=kwargs.get('output_file_loc'),
             stitching_mode=kwargs.get('stitching_mode', self.QUALITY_MODE),
         )
-        # A stitch joins one color across positions, so its tiles may come
-        # from several Adds; the stitched image belongs to an Add only when
-        # every tile does, and a composite of stitched images then groups by
-        # it. Otherwise -1, no single Add.
-        group_ids = df['Channel Group ID'].unique()
-        result.setdefault('metadata', {})['channel_group_id'] = (
-            int(group_ids[0]) if len(group_ids) == 1 else -1
-        )
+        result.setdefault('metadata', {})['channel_group_id'] = self._stitched_channel_group(df)
         return PostProcResult.from_group_result(result)
+
+    @staticmethod
+    def _stitched_channel_group(df: pd.DataFrame) -> int:
+        """The channel group a stitch of ``df``'s tiles belongs to: theirs when all share one, else -1.
+
+        A stitch joins one color across positions, so its tiles may come
+        from several Adds; the stitched image belongs to an Add only when
+        every tile does, and a composite of stitched images then groups by
+        it. -1 is no single Add.
+        """
+        group_ids = df['Channel Group ID'].unique()
+        return int(group_ids[0]) if len(group_ids) == 1 else -1
 
     @staticmethod
     def _add_record(

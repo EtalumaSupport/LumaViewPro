@@ -269,6 +269,15 @@ class TestTheOtherBuildsGroupByAdd:
 
         assert _group_sizes(StackBuilder, frame) == [2, 2]
 
+    def test_a_stitch_belongs_to_an_add_only_when_every_tile_does(self):
+        # Then the composite of stitched channels groups by that Add; tiles
+        # from several Adds belong to none (-1).
+        one_add = _raw_frame([('Green', 3, 0, -1, 't', x) for x in (10.0, 12.0)])
+        several = _raw_frame([('Green', g, 0, -1, '', x) for g, x in ((0, 10.0), (1, 12.0))])
+
+        assert Stitcher._stitched_channel_group(one_add) == 3
+        assert Stitcher._stitched_channel_group(several) == -1
+
     def test_a_stitch_still_joins_one_color_across_adds_at_several_positions(self):
         # Each position Added on its own: one Add per tile of the mosaic.
         frame = _raw_frame(
