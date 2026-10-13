@@ -49,7 +49,10 @@ def _session(settings, lock=None, layers=('BF', 'PC', 'DF', 'Blue', 'Green', 'Re
             model='LS850',
         ),
     )
-    session = SimpleNamespace(scope=scope, settings=settings, settings_lock=threading.Lock())
+    # A session that names no settings file: its writes wake no saver.
+    session = SimpleNamespace(
+        scope=scope, settings=settings, settings_lock=threading.Lock(), _settings_saver=None
+    )
     for name in _MEMBERS:
         setattr(session, name, getattr(ScopeSession, name).__get__(session))
     return session

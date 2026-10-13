@@ -575,6 +575,44 @@ class LayerSettingCappedNotice(Notice, Exception):  # noqa: N818 -- a notice, no
         self.capped = capped
 
 
+class SettingsNotSavedNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error
+    """The session's accepted settings writes are kept in memory, not saved.
+
+    Told once per session and reason, at the first save the session
+    withholds: the write itself was accepted and is in effect, so nothing
+    was refused, but a person who expects it at the next start must hear
+    that it will not be there.
+
+    Attributes:
+        reason: ``'settings_provisional'`` -- the app is running on the
+            shipped template because the user's file could not be read, and
+            that file is left as it is until they decide. ``'no_hardware'``
+            -- no hardware came up this session, so the per-channel values
+            are defaults, not values measured on this scope.
+        file: The file the writes would have been saved to.
+    """
+
+    title = 'Settings not saved'
+
+    _SENTENCES: ClassVar[dict[str, str]] = {
+        'settings_provisional': (
+            'Settings changes are kept for this session only, not saved to {file}: '
+            'LumaViewPro is running on its default settings because that file could '
+            'not be read, and it is left as it is until you decide what to do with it.'
+        ),
+        'no_hardware': (
+            'Settings changes are kept for this session only, not saved to {file}: no '
+            'microscope was connected this session, so the per-channel values are '
+            'defaults, not values measured on this scope.'
+        ),
+    }
+
+    def __init__(self, reason: str, file: str):
+        super().__init__(self._SENTENCES[reason].format(file=file))
+        self.reason = reason
+        self.file = file
+
+
 class ProtocolError(_Umbrella, Exception):
     """A protocol's file, steps or run: the subject, never raised itself.
 
@@ -1117,6 +1155,31 @@ class SettingsFileNotReplacedError(Fault, ConfigError):
         super().__init__(
             f'{file} could not be moved aside ({reason}). Close any program that has '
             'it open, then choose again.'
+        )
+        self.file = file
+
+
+class SettingsFileNotWrittenError(Fault, ConfigError):
+    """The session's settings could not be written to its settings file.
+
+    Reported by the session's save, chained from the ``OSError`` of the
+    write, so the words name the file and the operating system's own reason.
+    The write goes beside the file first, so the file already there is
+    unchanged; the next accepted write, and the close, save again.
+
+    Attributes:
+        file: The settings file that was to be written.
+    """
+
+    reason = 'settings_file_not_written'
+
+    title = 'Settings File Not Written'
+
+    def __init__(self, file: str, cause: OSError):
+        reason = cause.strerror or type(cause).__name__
+        super().__init__(
+            f'The settings were not saved to {file} ({reason}). The file already there is '
+            'unchanged; the next settings change saves again.'
         )
         self.file = file
 

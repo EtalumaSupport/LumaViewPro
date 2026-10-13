@@ -70,6 +70,8 @@ from modules.exceptions import (
     ScopeModelDeferredNotice,
     ScopeModelUnknownError,
     SettingRefusedError,
+    SettingsFileNotWrittenError,
+    SettingsNotSavedNotice,
     SettingsSaveRefusedError,
 )
 from modules.kivy_utils import UiDispatcher
@@ -86,6 +88,7 @@ from modules.metrics_logger import ENGINEERING_METRICS_INTERVAL_S, MetricsLogger
 from modules.plugins import PLUGIN_API_LEVEL, PluginRegistry
 from modules.python_values import python_values
 from modules.scheduler import Scheduler, ThreadingTimerScheduler
+from modules.settings_saver import SettingsSaver, write_whole
 from modules.sequential_io_executor import IOTask, refuse_blocking_on_a_worker, slow_task_budget
 from modules.api_surface import FilePath, ProgressCallback, api, api_fields
 
@@ -372,6 +375,14 @@ class ScopeSession:
         # report as it sees the GUI's.
         self._reports_in_flight = dict.fromkeys(_REPORT_NAMES, 0)
         self._reports_lock = threading.Lock()
+        # The file every accepted settings write is saved to, and the thread
+        # that saves it: both set by create when its host names a file, and
+        # None otherwise, when the session saves nothing.
+        self._settings_file: str | None = None
+        self._settings_saver: SettingsSaver | None = None
+        # The reasons a save was withheld that the session has told,
+        # so each is said once (_save_settings_file).
+        self._unsaved_told: set[str] = set()
         from modules import coord_transformations
 
         # Stateless: several instances are not several stores, so the
@@ -969,6 +980,7 @@ class ScopeSession:
         sim_file_stall: 'SimulatedStall | None' = None,
         sim_focal_spread_um: float = 0.0,
         outcome_listener: Callable[['Notification'], None] | None = None,
+        settings_file: FilePath | None = None,
     ) -> 'ScopeSession':
         """Create a session, constructing defaults for any missing components.
 
@@ -1030,6 +1042,16 @@ class ScopeSession:
                 ``add_outcome_listener`` says what it receives. A factory
                 that raises takes it back; otherwise the session's
                 ``shutdown()`` does.
+            settings_file: the file the session saves its settings to,
+                one second after the first unsaved write and once at
+                ``shutdown()``, whole or not at all; the hosts name the
+                installation's ``data/current.json``. None (the default)
+                saves nothing: a script's or a test's handed dict stays in
+                memory. Writes are kept unsaved, and the session says so
+                once (``SettingsNotSavedNotice``), while the settings are
+                provisional or when the scope found no hardware at
+                bring-up. Saving starts once the scope is up, so a factory
+                that raises writes no file.
 
         Raises:
             ArgumentRefusedError: ``'refused_beside_scope'``, ``source_path``,
@@ -1159,6 +1181,8 @@ class ScopeSession:
                 cls._bring_up(session, replaced)
             if sim_file_stall is not None:
                 session._hold_the_file_lane(sim_file_stall)
+            if settings_file is not None:
+                session._start_saving_to(settings_file)
         except BaseException:
             _tell_stored_replacements(replaced)
             # Give the listener back: a host that composes again after this
@@ -2674,13 +2698,64 @@ class ScopeSession:
         """Under ``settings_lock``: put ``value`` at ``path`` in the live settings.
 
         The Session's own members write their settings through this,
-        past ``update_settings``' refusal of the settings they own.
+        past ``update_settings``' refusal of the settings they own. Every
+        write wakes the saver, which saves a window later, outside the lock.
         """
         *blocks, leaf = path.split('.')
         holder = self.settings
         for block in blocks:
             holder = holder[block]
         holder[leaf] = value
+        if self._settings_saver is not None:
+            self._settings_saver.wake()
+
+    def _start_saving_to(self, file: FilePath) -> None:
+        """Save every accepted write to ``file`` from now on, and the settings at the close."""
+        self._settings_file = os.fspath(file)
+        self._settings_saver = SettingsSaver(self._save_settings_file)
+        self._settings_saver.start()
+
+    def _save_settings_file(self) -> None:
+        """Write the live settings to the session's file, whole, or say why not.
+
+        On the saver's thread, and once on the close's after the saver has
+        stopped, so two saves never run at once. Never under
+        ``settings_lock``: the snapshot takes it, and a save started inside
+        a write would wait on itself.
+
+        A save withheld -- the settings provisional, or no hardware this
+        session -- leaves every write in effect and in memory, and is told
+        once per reason. A write the drive refuses is reported where it
+        fails, and the file there is unchanged.
+        """
+        file = self._settings_file
+        if settings_init.settings_are_provisional():
+            withheld = 'settings_provisional'
+        elif self.scope.no_hardware:
+            withheld = 'no_hardware'
+        else:
+            withheld = None
+        from modules.notification_center import notifications
+
+        if withheld is not None:
+            if withheld not in self._unsaved_told:
+                self._unsaved_told.add(withheld)
+                notifications.report_outcome(
+                    SettingsNotSavedNotice(withheld, file), solicited=False, category='Settings'
+                )
+            return
+        snapshot = self.get_settings_snapshot()
+        t0 = time.monotonic()
+        try:
+            write_whole(file, snapshot)
+        except OSError as e:
+            fault = SettingsFileNotWrittenError(file, e)
+            fault.__cause__ = e
+            notifications.report_outcome(fault, solicited=False, category='Settings')
+            return
+        dt = time.monotonic() - t0
+        if dt > 0.1:
+            logger.warning(f'[Session  ] saving the settings to {file} took {dt * 1000:.0f}ms')
 
     @api
     def select_model(self, model: str) -> None:
@@ -4150,6 +4225,7 @@ class ScopeSession:
             self._close_running = True
             try:
                 self._finish_live_work()
+                self._save_at_close()
                 self._tear_down()
             finally:
                 self._close_running = False
@@ -4205,6 +4281,17 @@ class ScopeSession:
                 f'[Session  ] shutdown: the session finished its work after '
                 f'{time.monotonic() - started:.1f} s'
             )
+
+    def _save_at_close(self) -> None:
+        """Stop the saver, then save the settings the session ended with, once.
+
+        After the session's work, so the file holds what a run's last step
+        wrote; before the teardown, which a failed save does not stop.
+        """
+        if self._settings_saver is None:
+            return
+        self._settings_saver.stop()
+        self._save_settings_file()
 
     def _tear_down(self) -> None:
         """Release everything the session constructed, the hardware last."""

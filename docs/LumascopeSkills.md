@@ -317,6 +317,7 @@ session = ScopeSession.create(
     simulate=False,                         # True builds a simulated scope instead of opening hardware
     engineering_mode=False,                 # the session's mode to begin with; a plugin may turn it on
     no_engineering=False,                   # True: the engineering plugin is not loaded
+    settings_file=settings_init.current_json_path('.'),  # where accepted writes are saved; None saves nothing
 )
 ```
 
@@ -525,6 +526,26 @@ write.
 
 Writing into the settings dict you passed to `create` directly skips every check above and the
 lock; it is not a supported write.
+
+**Every accepted write is saved** when the session was given a file:
+`ScopeSession.create(..., settings_file=path)`. The session saves the whole
+settings dict there one second after the first write it has not saved, so
+a burst of writes is one save, and once more at `shutdown()`, after the
+session's work has finished. Each save goes to a file beside the target
+and is then moved over it, so a crash mid-save leaves the previous file
+whole. The GUI and `python -m rest` name the installation's
+`data/current.json` (`settings_init.current_json_path(root)`), never the
+shipped `settings.json` a first run reads from. A session given no file
+(the default) saves nothing, which is what a script working on its own
+dict wants. A write is accepted and in effect either way. Two conditions
+keep writes in memory without saving them, and the session reports each
+once as a `SettingsNotSavedNotice` (title `Settings not saved`) carrying
+the condition as `reason`: `'settings_provisional'`, the settings are the
+shipped template because `current.json` could not be read (see below),
+and `'no_hardware'`, no hardware came up at bring-up. A save the drive
+refuses is reported as `SettingsFileNotWrittenError`, naming the file and
+the operating system's reason; the file is unchanged, and the next write
+and the close save again.
 
 `save_settings()` writes the dict to `data/current.json`. **A refused
 write raises `SettingsSaveRefusedError`** (from `modules.exceptions`),

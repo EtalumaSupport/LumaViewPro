@@ -597,7 +597,7 @@ def prepare_settings(
         (settings dict, rejected) where rejected is None, or
         (path, reason) naming the user's file that was set aside.
     """
-    current_path = os.path.join(directory, 'data', 'current.json')
+    current_path = current_json_path(directory)
     template_path = os.path.join(directory, 'data', 'settings.json')
     data_dir = os.path.join(directory, 'data')
     rejected = None
@@ -785,7 +785,7 @@ def fall_back_to_template(logger: logging.Logger, lvp_appdata: str, reason: str)
     """
     global rejected_current_json
 
-    current_path = os.path.join(lvp_appdata, 'data', 'current.json')
+    current_path = current_json_path(lvp_appdata)
     template_path = os.path.join(lvp_appdata, 'data', 'settings.json')
     template = _load_template(logger, template_path)
 
@@ -844,6 +844,15 @@ def settings_are_provisional() -> bool:
     return rejected_current_json is not None
 
 
+def current_json_path(directory: str | os.PathLike) -> str:
+    """The live user configuration of the installation at ``directory``.
+
+    The one spelling of where it lives, for its reader here and for each
+    host that names it to ``ScopeSession.create(settings_file=...)``.
+    """
+    return os.path.join(directory, 'data', 'current.json')
+
+
 def targets_current_json(file: object) -> bool:
     """Is this save aimed at the live user configuration?
 
@@ -866,7 +875,7 @@ def targets_current_json(file: object) -> bool:
 
 
 def _resolve_settings_path(directory):
-    current_path = os.path.join(directory, 'data', 'current.json')
+    current_path = current_json_path(directory)
     settings_path = os.path.join(directory, 'data', 'settings.json')
     data_dir = os.path.join(directory, 'data')
 

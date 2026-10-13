@@ -78,6 +78,8 @@ def _leave(settings: dict, layer: str, lock: AutoGainLock) -> None:
         scope=SimpleNamespace(imaging=SimpleNamespace(lock_auto_gain=lambda: lock)),
         settings=settings,
         settings_lock=threading.Lock(),
+        # A session that names no settings file: its writes wake no saver.
+        _settings_saver=None,
     )
     session._store_setting = ScopeSession._store_setting.__get__(session)
     ScopeSession.set_layer_auto_gain(session, layer, False)
