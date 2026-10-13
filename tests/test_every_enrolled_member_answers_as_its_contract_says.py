@@ -19,9 +19,9 @@ their stops and waits, ``frame_at_binning`` and
 An answer its contract does not declare fails the walk: the section is
 where a caller learns what it may be told, so it is fixed with the code.
 
-The builds' valid calls (``stitch``, ``zproject``, ``composite``,
-``video``) wait on a run folder to build from, and the support report's is
-made elsewhere (``_VALID_PENDING``).
+The builds' valid calls build from run folders the simulator saved
+(``run_folders``); the support report's is made elsewhere
+(``_VALID_PENDING``).
 """
 
 from __future__ import annotations
@@ -31,6 +31,7 @@ import dataclasses
 import inspect
 import math
 import pathlib
+import shutil
 from collections.abc import Callable
 
 import numpy as np
@@ -67,10 +68,6 @@ from tests.settings_fixtures import complete_settings
 
 # The members whose valid call waits on a fixture this walk does not yet have.
 _VALID_PENDING = {
-    'PostProcessingAPI.stitch': 'a tiled run folder to stitch',
-    'PostProcessingAPI.zproject': 'a Z-stack run folder to project',
-    'PostProcessingAPI.composite': 'a multi-channel run folder to merge',
-    'PostProcessingAPI.video': 'a time-series run folder to build from',
     # A report runs for minutes; one is made on the simulator, and read
     # back, in tests/test_a_support_report_says_what_bring_up_found.py.
     'ScopeSession.make_support_report': 'its minutes of work',
@@ -109,6 +106,8 @@ class Scope:
     client: TestClient
     protocol: object = None
     handle: str = ''
+    # The run folders a build's valid call copies, by kind (``run_folders``).
+    runs: dict[str, pathlib.Path] = dataclasses.field(default_factory=dict)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -257,6 +256,87 @@ def scopes(tmp_path):
         _close(scope)
 
 
+def _over_a_well(session: ScopeSession) -> list[dict]:
+    """Park over a plate position clear of the lower Z limit, and return it as a run's one position."""
+    motion = session.scope.motion
+    motion.move_absolute('X', 40000.0)
+    motion.move_absolute('Y', 30000.0)
+    motion.move_absolute('Z', 1000.0)
+    motion.wait_until_finished_moving(timeout_s=60)
+    here = session.get_current_plate_position()
+    return [{'x': here['x'], 'y': here['y'], 'z': here['z'], 'name': 'A1'}]
+
+
+def _saved(live: pathlib.Path, start: Callable[[], object]) -> pathlib.Path:
+    """The folder of the run *start* launches, once it has completed and its files are written."""
+    before = set(live.rglob('protocol_record.tsv'))
+    pending = start()
+    outcome = pending.wait(timeout_s=120)
+    assert outcome.status == 'completed', outcome
+    assert pending.wait_for_files(timeout_s=60) is not None, "the run's files never finished"
+    (record,) = set(live.rglob('protocol_record.tsv')) - before
+    return record.parent
+
+
+@pytest.fixture(scope='module')
+def run_folders(tmp_path_factory):
+    """Run folders the simulator saved: a 2x2 BF and Blue scan, a three-slice BF Z-stack, a three-scan time-lapse.
+
+    Made on a session of their own, so the walk's scope keeps its settings.
+    """
+    live = tmp_path_factory.mktemp('runs')
+    session = ScopeSession.create(complete_settings(live_folder=str(live)), simulate=True)
+    try:
+        home_sim_scope(session.scope)
+        runner = session.create_protocol_runner()
+        session.set_layer_acquire('BF', 'image')
+        session.set_layer_acquire('Blue', 'image')
+
+        def scan(tiling: str) -> object:
+            config = session.get_sequenced_capture_config(tiling=tiling, use_zstacking=False)
+            config['positions'] = _over_a_well(session)
+            return session.scope.protocols.create_protocol(input_config=config)
+
+        launch = {'parent_dir': str(live), 'enable_image_saving': True}
+        tiled = _saved(
+            live,
+            lambda: runner.run_single_scan(protocol=scan('2x2'), sequence_name='tiled', **launch),
+        )
+        session.update_settings('zstack.step_size', 10.0)
+        session.update_settings('zstack.range', 20.0)
+        _over_a_well(session)
+        zstack = _saved(live, lambda: runner.run_zstack(layer='BF', sequence_name='zstack'))
+        # Minutes and hours, as the protocol settings hold them: three scans a second apart.
+        session.update_settings('protocol.period', 1 / 60)
+        session.update_settings('protocol.duration', 3 / 3600)
+        timelapse = _saved(
+            live,
+            lambda: runner.run_protocol(protocol=scan('1x1'), sequence_name='timelapse', **launch),
+        )
+        yield {'tiled': tiled, 'zstack': zstack, 'timelapse': timelapse}
+    finally:
+        session.shutdown()
+
+
+def _built_from(s: Scope, run: str, build: str) -> pathlib.Path:
+    """A copy of run folder *run* in the scope's live folder, for *build* alone.
+
+    A build writes its outputs into the folder it reads, so each takes the
+    run as it was saved. The copy's name leads with the build's: a folder
+    whose name ends in ``_video`` is read as a video recording.
+    """
+    own = s.live / f'{build}_{s.runs[run].name}'
+    shutil.copytree(s.runs[run], own)
+    return own
+
+
+def _made(result, count: int) -> str | None:
+    """What the build's answer does not show of *count* new outputs, each on disk, or None."""
+    if result.new_count == count and all(path.is_file() for path in result.artifact_paths):
+        return None
+    return f'{result}'
+
+
 _AUTO_GAIN = {'target_brightness': 0.5, 'min_gain_db': 0.0, 'max_gain_db': 20.0}
 
 
@@ -348,6 +428,33 @@ def _valid_rows() -> list[Valid]:
             'PostProcessingAPI.enhance',
             lambda s: s.session.post_processing.enhance(s.live / 'images' / 'frame.tif'),
             lambda s, result: None if result.created else f'{result}',
+        ),
+        Valid(
+            'stitch a 2x2 scan',
+            'PostProcessingAPI.stitch',
+            lambda s: pp(s).stitch(_built_from(s, 'tiled', 'stitch')),
+            # One stitched image a channel.
+            lambda s, result: _made(result, 2),
+        ),
+        Valid(
+            'composite a two-channel scan',
+            'PostProcessingAPI.composite',
+            lambda s: pp(s).composite(_built_from(s, 'tiled', 'composite')),
+            # One composite a tile.
+            lambda s, result: _made(result, 4),
+        ),
+        Valid(
+            'zproject a Z-stack',
+            'PostProcessingAPI.zproject',
+            lambda s: pp(s).zproject(_built_from(s, 'zstack', 'zproject'), method='Max'),
+            lambda s, result: _made(result, 1),
+        ),
+        Valid(
+            'video of a time-lapse',
+            'PostProcessingAPI.video',
+            lambda s: pp(s).video(_built_from(s, 'timelapse', 'video')),
+            # One video a channel.
+            lambda s, result: _made(result, 2),
         ),
         Valid(
             'count_cells',
@@ -771,8 +878,9 @@ def test_every_enrolled_member_has_its_rows():
 
 
 @pytest.mark.slow
-def test_every_enrolled_member_answers_as_its_contract_says(scopes):
+def test_every_enrolled_member_answers_as_its_contract_says(scopes, run_folders):
     scope = scopes()
+    scope.runs = run_folders
     wrong = []
     for row in _valid_rows():
         try:
