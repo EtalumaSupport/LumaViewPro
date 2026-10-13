@@ -2321,9 +2321,9 @@ class ScopeSession:
         A run never writes here: it reads its steps from the protocol, and
         the person's live-view configuration is theirs to keep across it.
         The step's config dicts are copied; the protocol owns them. The
-        layer's focus takes the step's Z, so its Goto Focus lands where the
-        step was set up. A step's stimulation spans every layer it names,
-        and each takes its own.
+        layer's saved focus is left as it is: it is where New starts the
+        next protocol, so visiting a step must not move it. A step's
+        stimulation spans every layer it names, and each takes its own.
         """
         color = step['Color']
         layer_values = {
@@ -2334,7 +2334,6 @@ class ScopeSession:
             'auto_gain': step['Auto_Gain'],
             'exposure_ms': step['Exposure'],
             'sum': step['Sum'],
-            'focus': step['Z'],
         }
         video_config = step.get('Video Config')
         if isinstance(video_config, dict):

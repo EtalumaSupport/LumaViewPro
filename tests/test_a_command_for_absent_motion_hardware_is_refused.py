@@ -374,9 +374,11 @@ def test_go_to_step_on_a_z_only_scope_moves_z(make_session):
 @pytest.mark.parametrize('model', MANUAL)
 def test_go_to_step_on_a_manual_scope_moves_nothing_and_loads_the_layer(make_session, model):
     session = make_session(model)
+    protocol = _protocol()
+    session.settings['BF']['exposure_ms'] = protocol.step(idx=0)['Exposure'] + 1.0
 
-    assert session.start_go_to_step(_protocol(), 0) == ()
-    assert session.get_setting('BF')['focus'] == 3000.0
+    assert session.start_go_to_step(protocol, 0) == ()
+    assert session.get_setting('BF')['exposure_ms'] == protocol.step(idx=0)['Exposure']
 
 
 # --- The run asks presence before it asks about the home --------------------------

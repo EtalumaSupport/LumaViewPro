@@ -328,6 +328,7 @@ class TestTheStepIntoItsLayer:
         protocol = _protocol(_PLATE, step)
         session.settings['BF']['acquire'] = None
         session.settings['BF']['stim_config'] = {'enabled': True}
+        session.settings['BF']['focus'] = 7000.0
 
         session.go_to_step(protocol, 0)
 
@@ -335,7 +336,8 @@ class TestTheStepIntoItsLayer:
         assert layer['gain_db'] == 7.0
         assert layer['exposure_ms'] == 33.0
         assert layer['illumination_ma'] == 120.0
-        assert layer['focus'] == 5000.0
+        # The saved focus is where New starts; visiting a step leaves it.
+        assert layer['focus'] == 7000.0
         assert layer['acquire'] == 'video'
         assert layer['video_config'] == step['Video Config']
         assert layer['video_config'] is not step['Video Config'], 'the protocol owns its dicts'
@@ -453,7 +455,6 @@ STEP_TO_SETTINGS = {
     'Exposure': 'exposure_ms',
     'Sum': 'sum',
     'Acquire': 'acquire',
-    'Z': 'focus',
     'Video Config': 'video_config',
 }
 
