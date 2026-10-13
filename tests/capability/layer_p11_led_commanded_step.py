@@ -20,6 +20,8 @@ import time
 
 from harness import HARDWARE, check, figure, hardware_session, report
 
+from modules.lumascope_api.illumination import LedState
+
 LAYER = sys.argv[sys.argv.index('--layer') + 1] if '--layer' in sys.argv else 'BF'
 HOLD_S = 3.0  # time to look at the optics at each step
 
@@ -80,12 +82,14 @@ def main():
             figure(f'{request} mA: commanded', commanded)
             figure(f'{request} mA: state', state)
             figure(f'{request} mA: frame mean', mean)
-            recorded = None if record is None else record.illumination_ma.get(LAYER)
+            recorded = (
+                None if record is None else record.illumination_ma.get(illumination.color2ch(LAYER))
+            )
             figure(f'{request} mA: frame record', recorded)
             check(f'{request} mA is commanded on the step', commanded == expected, commanded)
             check(
                 f'{request} mA: the state holds the commanded current, on',
-                state == {'enabled': True, 'illumination_ma': expected},
+                (state.state, state.illumination_ma) == (LedState.LIT, expected),
                 state,
             )
             if request > 0:
