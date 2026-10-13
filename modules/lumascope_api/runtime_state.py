@@ -380,8 +380,9 @@ class RuntimeState:
             say which it was.
 
         Raises:
-            Exception: Re-raises any error encountered reading target
-                position; logged before re-raise.
+            ConfigError: No session has bound this scope.
+            CatalogueNameRefusedError: ``'labware_unknown'``, the selected
+                labware is not in the catalogue.
         """
         unknown = self._scope.motion.axes_without_position()
         if 'X' in unknown or 'Y' in unknown:
@@ -391,11 +392,7 @@ class RuntimeState:
 
         # The all-axes read carries only the axes the scope has; a
         # single-axis read of an absent axis answers 0, which names a well.
-        try:
-            targets = self._scope.motion.get_target_position()
-        except Exception:
-            logger.exception('[LVP API  ] Error getting target position.')
-            raise
+        targets = self._scope.motion.get_target_position()
         if 'X' not in targets or 'Y' not in targets:
             return None
 
