@@ -251,14 +251,14 @@ def test_specific_layers_is_always_handed_a_list():
 
 
 # ---------------------------------------------------------------------------
-# The open-layer scan has one implementation, and it names its one skip
+# No code reads the open drawer to say which channel is shown
 # ---------------------------------------------------------------------------
 
 
 def _first_open_scan_loops():
     """Every loop over the layer vocabulary that reads `.collapse` off an
-    accordion lookup, deduplicated on (file, line): a nested function's loop
-    is walked under its enclosure as well."""
+    accordion lookup, deduplicated on (file, function): a nested function's
+    loop is walked under its enclosure as well."""
     seen = set()
     for rel in _production_modules():
         tree = parse_module(rel)
@@ -274,34 +274,8 @@ def _first_open_scan_loops():
     return seen
 
 
-def test_the_open_layer_scan_has_one_implementation():
-    """Only the canonical scan finds the first open drawer. The loop that
-    draws the shown channel iterates EVERY drawer to set its collapse, and
-    is not a scan."""
-    allowed = {
-        ('modules/common_utils.py', 'get_opened_layer'),
-        ('ui/image_settings.py', 'draw_shown_channel'),
-    }
-    extra = sorted(_first_open_scan_loops() - allowed)
-    assert extra == [], f'inline open-layer scans re-implement get_opened_layer: {extra}'
-
-
-def test_get_opened_layer_skips_only_an_unbuilt_drawer():
-    """A catalogue layer with no built drawer raises KeyError from the lookup
-    and is simply not open; any other failure is a bug and stays loud instead
-    of being read as 'nothing is open'."""
-    from modules.common_utils import get_opened_layer
-
-    def lookup_missing_then_open(layer):
-        if layer == 'BF':
-            raise KeyError('BF_accordion')
-        return SimpleNamespace(collapse=(layer != 'Red'))
-
-    settings = SimpleNamespace(accordion_item_lookup=lookup_missing_then_open)
-    assert get_opened_layer(settings) == 'Red'
-
-    def lookup_broken(layer):
-        raise RuntimeError('widget tree torn down')
-
-    with pytest.raises(RuntimeError):
-        get_opened_layer(SimpleNamespace(accordion_item_lookup=lookup_broken))
+def test_no_code_scans_the_drawers_for_the_shown_channel():
+    """The Session's shown channel says which channel is shown; the drawers
+    display it. The one loop over the drawers' collapse is the one that
+    draws them, and it writes them rather than reading them."""
+    assert _first_open_scan_loops() == {('ui/image_settings.py', 'draw_shown_channel')}

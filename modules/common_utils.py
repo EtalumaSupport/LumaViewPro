@@ -13,7 +13,7 @@ import platform
 import re
 import threading
 import time as _time
-from typing import TYPE_CHECKING, ClassVar, Final, Protocol
+from typing import TYPE_CHECKING, ClassVar, Final
 
 import psutil
 
@@ -508,37 +508,6 @@ def get_image_layers() -> list[str]:
 
 def get_layers_with_led() -> list[str]:
     return get_transmitted_layers() + get_fluorescence_layers()
-
-
-class LayerDrawer(Protocol):
-    """A layer's drawer, as the open-layer scan sees it."""
-
-    collapse: bool
-
-
-class LayerDrawers(Protocol):
-    """What the open-layer scan needs of the image-settings panel: a drawer
-    per layer name, raising KeyError for a layer this build gave none."""
-
-    def accordion_item_lookup(self, layer: str) -> LayerDrawer: ...
-
-
-def get_opened_layer(lumaview_imagesettings: LayerDrawers) -> str | None:
-    """The layer whose drawer is open, or None when none is.
-
-    A catalogue layer this build never gave a drawer raises KeyError from
-    the lookup and is simply not open. Anything else is a bug in the widget
-    tree and stays loud: reading it as "nothing is open" is what let a
-    torn-down widget pass for a user who had selected nothing.
-    """
-    for layer in get_layers():
-        try:
-            layer_accordion_obj = lumaview_imagesettings.accordion_item_lookup(layer=layer)
-        except KeyError:
-            continue
-        if not layer_accordion_obj.collapse:
-            return layer
-    return None
 
 
 DEFAULT_LAYER = 'BF'

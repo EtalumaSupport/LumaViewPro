@@ -2905,27 +2905,23 @@ class TestARunsEndRestoresTheLayerShader_ShaderHygiene:
 
         return (Path(__file__).resolve().parent.parent / 'ui' / 'protocol_settings.py').read_text()
 
-    def _restore_with(self, monkeypatch, opened_layer):
+    def _restore_with(self, monkeypatch, shown_layer):
         import ui.ui_helpers as ui_helpers
+        from modules.scope_session import ShownChannel
 
         ctx = MagicMock()
+        ctx.session.shown_channel = ShownChannel(shown_layer, lit=False)
         monkeypatch.setattr(ui_helpers._app_ctx, 'ctx', ctx)
         synced = MagicMock()
         monkeypatch.setattr(ui_helpers, 'sync_layer_widgets_from_settings', synced)
-        monkeypatch.setattr(ui_helpers.common_utils, 'get_opened_layer', lambda _s: opened_layer)
         ui_helpers.restore_display_after_run(MagicMock(), None, MagicMock())
         return ctx, synced
 
-    def test_the_open_drawers_shader_is_reapplied(self, monkeypatch):
+    def test_the_shown_channels_shader_is_reapplied(self, monkeypatch):
         ctx, synced = self._restore_with(monkeypatch, 'Green')
         ctx.image_settings.layer_lookup.assert_called_once_with(layer='Green')
         ctx.image_settings.layer_lookup.return_value.update_shader.assert_called_once_with(dt=0)
         ctx.viewer.update_shader.assert_not_called()
-        synced.assert_called_once_with()
-
-    def test_with_no_drawer_open_the_shader_goes_back_to_bf(self, monkeypatch):
-        ctx, synced = self._restore_with(monkeypatch, None)
-        ctx.viewer.update_shader.assert_called_once_with(false_color='BF')
         synced.assert_called_once_with()
 
     def test_the_cleanup_names_no_shader(self):

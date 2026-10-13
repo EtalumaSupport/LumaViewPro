@@ -29,6 +29,7 @@ from modules.run_outcome import PendingRunOutcome
 from modules.protocol_image_writer import RunWriteBatch
 from modules.sequenced_capture_runner import RunHandle
 from tests.pool_fakes import run_task_now
+from modules.scope_session import ShownChannel
 
 
 class _Starter(zs.ZStack):
@@ -82,7 +83,7 @@ def clicked(monkeypatch, centre_posts):
         ),
     )
     monkeypatch.setattr(zs.gui_logger, 'button', lambda *a, **kw: None)
-    monkeypatch.setattr(zs.common_utils, 'get_opened_layer', lambda _settings: 'Green')
+    session.shown_channel = ShownChannel('Green', lit=False)
     monkeypatch.setattr(zs, 'is_image_saving_enabled', lambda: False)
     linked = []
     monkeypatch.setattr(zs, 'set_last_save_folder', lambda **kw: linked.append(kw['dir']))

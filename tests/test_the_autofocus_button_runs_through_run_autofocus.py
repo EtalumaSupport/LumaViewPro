@@ -31,6 +31,7 @@ from modules.run_outcome import PendingRunOutcome
 from modules.protocol_image_writer import RunWriteBatch
 from modules.sequenced_capture_runner import RunHandle
 from tests.pool_fakes import run_task_now
+from modules.scope_session import ShownChannel
 
 
 class _Button(vc.VerticalControl):
@@ -94,7 +95,7 @@ def pressed(monkeypatch, held, centre_posts):
         ),
     )
     monkeypatch.setattr(vc.gui_logger, 'button', lambda *a, **kw: None)
-    monkeypatch.setattr(vc.common_utils, 'get_opened_layer', lambda _settings: 'Green')
+    session.shown_channel = ShownChannel('Green', lit=False)
     return SimpleNamespace(
         member=member, engine=engine, handle=handle, posts=centre_posts, pool=pool, button=_Button()
     )

@@ -612,57 +612,19 @@ class LumaViewProApp(TooltipMixin, App):
         Clock.schedule_interval(ctx.stage.draw_labware, 1.0)
         Clock.schedule_interval(ctx.motion_settings.update_xy_stage_control_gui, 1.0)
 
-        # Stage B1: publish Kivy-side layer state to scope_display_thread at
-        # 30Hz. The thread cannot read Kivy widget attrs from a non-UI
-        # thread (executors must stay GUI-agnostic). This callback reads the
-        # open layer and pushes it onto the thread; the thread reads under
-        # _config_lock at each frame start. Staleness is bounded by 33ms (one
-        # tick).
-        #
-        # The open drawer is read ONCE per tick and serves both fields below:
-        # they are the same question, and the answer must not be allowed to
-        # differ between them within a tick.
+        # Publish the shown channel to scope_display_thread at 30Hz, for
+        # the preview's false-colour tint and, in engineering mode, the
+        # image stats. The Session's shown channel follows a run's steps as
+        # they light, so the tint matches the firing LED. The thread reads it
+        # under _config_lock at each frame start; staleness is bounded by
+        # 33ms (one tick).
         def _publish_layer_config(dt):
             if ctx is None or ctx.scope_display_thread is None:
                 return
-            import modules.common_utils as _cu
-
-            opened_layer = None
-            try:
-                opened_layer = _cu.get_opened_layer(ctx.image_settings)
-            except Exception as e:
-                logger.debug(
-                    '[LVP Main  ] _publish_layer_config: '
-                    'get_opened_layer failed; using defaults this '
-                    'tick: %s: %s',
-                    type(e).__name__,
-                    e,
-                )
-            active_layer = opened_layer
-            open_layer = None
-            # During a protocol scan, override the accordion-derived
-            # active layer with the currently-executing step's color
-            # so the live preview's false-color tint matches the
-            # firing LED. Without this, every preview frame is tinted
-            # with whatever layer the user had open when they pressed
-            # Run (the source of the "every image looks Red" reports
-            # on simulator where the camera doesn't vary intensity
-            # by channel).
-            runner = getattr(ctx, 'sequenced_capture_runner', None)
-            if runner is not None:
-                try:
-                    curr_color = runner.current_step_color()
-                except Exception:
-                    curr_color = None
-                if curr_color is not None:
-                    active_layer = curr_color
-            # Engineering mode wants the drawer the user has open, which is
-            # NOT active_layer once the override above has fired.
-            if ctx.session.engineering_mode and ctx.image_settings is not None:
-                open_layer = opened_layer
+            layer = ctx.session.shown_channel.layer
             ctx.scope_display_thread.update_layer_config(
-                active_layer,
-                open_layer,
+                layer,
+                layer if ctx.session.engineering_mode else None,
             )
 
         Clock.schedule_interval(_publish_layer_config, 1.0 / 30)

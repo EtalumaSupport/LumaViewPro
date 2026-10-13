@@ -37,9 +37,7 @@ try:
             cu.StepNameComponents(custom_prefix='A1_Blue', turret_position=None)
         ),
     )
-    step(
-        'cu.get_opened_layer(<needs ctx.image_settings widget>)', lambda: cu.get_opened_layer(None)
-    )
+    step('session.shown_channel', lambda: s.shown_channel)
     # the two overlay flags
     try:
         import modules.scope_display  # noqa

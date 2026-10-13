@@ -2399,7 +2399,6 @@ class TestRunReturnValueContract:
         )
         assert executor.run_dir() is None
         assert executor.run_trigger_source() is None
-        assert executor.current_step_color() is None
 
     def test_dir_setup_failure_fails_at_start_and_recovers(
         self, executor, scope, tmp_path, monkeypatch, centre_posts

@@ -30,6 +30,7 @@ from modules.protocol import ProtocolFormatError
 from tests.ast_seams import find_def
 from tests.scope_fakes import spec_scope
 from tests.settings_fixtures import protocol_filepath_writer, settings_writer
+from modules.scope_session import ShownChannel
 
 
 def _refusal():
@@ -87,8 +88,7 @@ def ctx(monkeypatch):
         image_settings=MagicMock(),
     )
     monkeypatch.setattr(_app_ctx, 'ctx', context)
-    monkeypatch.setattr(ps.common_utils, 'get_opened_layer', lambda _settings: 'Green')
-    monkeypatch.setattr(ps, 'get_active_layer_config', lambda layer: (layer, {}))
+    session.shown_channel = ShownChannel('Green', lit=False)
     monkeypatch.setattr(ps.gui_logger, 'protocol_action', lambda *a, **kw: None)
     monkeypatch.setattr(ps.gui_logger, 'button', lambda *a, **kw: None)
     return context

@@ -260,16 +260,12 @@ def restore_display_after_run(*_ended) -> None:
 
     A run shows each step in the layer panel and in the shader's false
     colour without writing the user's settings; this puts every layer's
-    widgets back on the settings and the shader back on the open drawer's
-    layer, or BF when none is open. Takes and ignores ``run_ended``'s values.
+    widgets back on the settings and the shader back on the shown channel's
+    layer. Takes and ignores ``run_ended``'s values.
     """
     sync_layer_widgets_from_settings()
     ctx = _app_ctx.ctx
-    layer_name = common_utils.get_opened_layer(ctx.image_settings)
-    if layer_name is not None:
-        ctx.image_settings.layer_lookup(layer=layer_name).update_shader(dt=0)
-        return
-    ctx.viewer.update_shader(false_color='BF')
+    ctx.image_settings.layer_lookup(layer=ctx.session.shown_channel.layer).update_shader(dt=0)
 
 
 def set_last_save_folder(dir):

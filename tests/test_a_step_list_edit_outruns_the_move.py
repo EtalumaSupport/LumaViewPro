@@ -63,6 +63,7 @@ import ui.protocol_settings as ps
 import ui.step_navigation as nav
 import ui.ui_helpers as ui_helpers
 from modules.objectives_loader import ObjectiveLoader
+from modules.scope_session import ShownChannel
 from tests.settings_fixtures import protocol_filepath_writer, settings_writer
 from modules.exceptions import ProtocolError
 from modules.protocol import Protocol
@@ -108,11 +109,6 @@ def _protocol(num_steps):
     for i in range(num_steps):
         _insert(protocol, x=float(i), after_step=protocol.num_steps() - 1)
     return protocol
-
-
-def _drawers(opened):
-    """The layer drawers' lookup, with only ``opened`` open."""
-    return lambda layer: SimpleNamespace(collapse=layer != opened)
 
 
 class _Panel(ps.ProtocolSettings):
@@ -183,9 +179,9 @@ def env(monkeypatch):
         ),
         image_settings=SimpleNamespace(
             layer_lookup=lambda layer: MagicMock(),
-            accordion_item_lookup=_drawers(opened=None),
         ),
         session=SimpleNamespace(
+            shown_channel=ShownChannel('BF', lit=False),
             is_protocol_running=False,
             run_lockout=False,
             start_go_to_step=lambda protocol, step_idx: loaded.append(
@@ -457,10 +453,10 @@ def _add_bf_and_blue(protocol, *, before_step=None, after_step=None):
 
 
 @pytest.mark.parametrize(
-    ('opened', 'selected_color'),
-    [('BF', 'BF'), ('Blue', 'Blue'), ('Red', 'BF'), (None, 'BF')],
+    ('shown', 'selected_color'),
+    [('BF', 'BF'), ('Blue', 'Blue'), ('Red', 'BF')],
 )
-def test_add_goes_to_the_new_step_of_the_channel_being_viewed(env, opened, selected_color):
+def test_add_goes_to_the_new_step_of_the_channel_being_viewed(env, shown, selected_color):
     """Adding BF and Blue while viewing BF stays on BF; nothing on screen changes.
 
     Going to the last channel added lit Blue and moved to its focus on the
@@ -468,7 +464,7 @@ def test_add_goes_to_the_new_step_of_the_channel_being_viewed(env, opened, selec
     the first step added.
     """
     env.ctx.session.add_step = _add_bf_and_blue
-    env.ctx.image_settings.accordion_item_lookup = _drawers(opened)
+    env.ctx.session.shown_channel = ShownChannel(shown, lit=False)
     panel = env.panel(num_steps=2, curr_step=0)
 
     panel.insert_step_ex(after_current_step=True)

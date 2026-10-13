@@ -45,6 +45,7 @@ from tests.af_drives import af_runner_and_scope, drive_af
 from tests.ast_seams import parse_module
 from tests.scope_fakes import spec_scope
 from tests.protocol_drives import bare_capture_runner, scr_run_kwargs
+from modules.scope_session import ShownChannel
 
 STALE_Z = 4321.0  # a prior run's result; no drive ever produces this value
 
@@ -189,6 +190,7 @@ class _Session:
     def __init__(self):
         self.saved = []
         self.engineering_mode = False
+        self.shown_channel = ShownChannel('Green', lit=False)
 
     def save_layer_focus(self, layer, z_um):
         self.saved.append((layer, z_um))
@@ -216,8 +218,6 @@ def gui(monkeypatch):
     # value the old code committed.
     ctx.scope.motion.get_current_position.return_value = 91.25
     monkeypatch.setattr(app_context, 'ctx', ctx)
-    opened = {'layer': 'Green'}
-    monkeypatch.setattr(vc.common_utils, 'get_opened_layer', lambda _settings: opened['layer'])
     monkeypatch.setattr(vc.gui_logger, 'button', lambda *a, **kw: None)
     button = SimpleNamespace(
         _autofocus_run=None,
@@ -227,7 +227,7 @@ def gui(monkeypatch):
         button, layer, outcome
     )
     return SimpleNamespace(
-        vc=vc, ctx=ctx, layer_obj=layer_obj, opened=opened, button=button, saved=ctx.session.saved
+        vc=vc, ctx=ctx, layer_obj=layer_obj, button=button, saved=ctx.session.saved
     )
 
 
@@ -242,11 +242,11 @@ def _press(gui, monkeypatch):
 
 class TestTheButtonSavesTheFocusItsRunChose:
     def test_the_outcomes_z_is_saved_for_the_layer_the_run_started_on(self, gui, monkeypatch):
-        """The drawer changed and the stage moved before the handler ran:
-        the focus still goes to the layer the run focused, at the Z the
+        """The shown channel changed and the stage moved before the handler
+        ran: the focus still goes to the layer the run focused, at the Z the
         run chose."""
         events = _press(gui, monkeypatch)
-        gui.opened['layer'] = 'BF'
+        gui.ctx.session.shown_channel = ShownChannel('BF', lit=False)
 
         events.run_ended(_outcome(777.5), None, MagicMock())
 

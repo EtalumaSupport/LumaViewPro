@@ -305,11 +305,10 @@ class MicroscopeSettings(BoxLayout):
             _app_ctx.ctx.viewer.update_shader(false_color='BF')
             _app_ctx.ctx.scope_display.use_bullseye = True
         else:
-            layer = common_utils.get_opened_layer(_app_ctx.ctx.image_settings)
-            if layer is not None:
-                layer_obj = _app_ctx.ctx.image_settings.layer_lookup(layer=layer)
-                if layer_obj.ids['false_color'].active:
-                    _app_ctx.ctx.viewer.update_shader(false_color=layer)
+            layer = _app_ctx.ctx.session.shown_channel.layer
+            layer_obj = _app_ctx.ctx.image_settings.layer_lookup(layer=layer)
+            if layer_obj.ids['false_color'].active:
+                _app_ctx.ctx.viewer.update_shader(false_color=layer)
 
             _app_ctx.ctx.scope_display.use_bullseye = False
 

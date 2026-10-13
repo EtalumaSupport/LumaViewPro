@@ -6,7 +6,6 @@ from kivy.properties import BooleanProperty
 from kivy.uix.boxlayout import BoxLayout
 
 import modules.app_context as _app_ctx
-import modules.common_utils as common_utils
 from modules import gui_logger
 from modules.debounce import debounce
 from typing import TYPE_CHECKING
@@ -349,7 +348,7 @@ class VerticalControl(BoxLayout):
             return
 
         member = ctx.session.create_protocol_runner()
-        layer = common_utils.get_opened_layer(ctx.image_settings)
+        layer = ctx.session.shown_channel.layer
         engineering_mode = ctx.session.engineering_mode
         events = RunEvents(
             frame_captured=show_captured_frame,

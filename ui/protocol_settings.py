@@ -11,7 +11,6 @@ from kivy.uix.floatlayout import FloatLayout
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
 from modules.config_ui_getters import (
-    get_active_layer_config,
     get_zstack_params,
     is_image_saving_enabled,
 )
@@ -951,18 +950,16 @@ class ProtocolSettings(FloatLayout):
 
         gui_logger.protocol_action('MODIFY_STEP', f'curr_step={self.curr_step}')
         ctx = _app_ctx.ctx
-        opened_layer = common_utils.get_opened_layer(ctx.image_settings)
+        shown_layer = ctx.session.shown_channel.layer
         name_field = self.ids['step_name_input'].text
-        # The open drawer is judged inside the reporter, so Modify with no
-        # drawer open is told so rather than raised into Kivy.
         run_reported(
-            lambda: self.modify_step_ex(get_active_layer_config(opened_layer)[0], name_field),
+            lambda: self.modify_step_ex(shown_layer, name_field),
             self._draw_protocol_steps,
             'MODIFY_STEP',
         )
 
     def modify_step_ex(self, active_layer: str, name_field: str) -> None:
-        """Change the current step to the open layer, renamed as the name field says."""
+        """Change the current step to the shown layer, renamed as the name field says."""
         # A non-blank name field is a user rename; blank keeps the step's
         # existing label and auto/user flag. The rendered Name re-derives
         # from the updated columns inside modify_step, so an auto-named
@@ -1014,9 +1011,9 @@ class ProtocolSettings(FloatLayout):
         # The added steps sit together, in the order the names came back.
         first_added = self.curr_step + 1 if after_current_step else max(self.curr_step, 0)
         added = range(first_added, first_added + len(names))
-        viewed = common_utils.get_opened_layer(_app_ctx.ctx.image_settings)
+        shown = _app_ctx.ctx.session.shown_channel.layer
         self.curr_step = next(
-            (idx for idx in added if self._protocol.step(idx)['Color'] == viewed),
+            (idx for idx in added if self._protocol.step(idx)['Color'] == shown),
             first_added,
         )
 
