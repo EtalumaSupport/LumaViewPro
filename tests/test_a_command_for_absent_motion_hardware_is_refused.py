@@ -21,6 +21,7 @@ To Step drive only the axes the scope has, through one conversion.
 from __future__ import annotations
 
 import pytest
+from fastapi.testclient import TestClient
 
 from modules.exceptions import (
     ArgumentRefusedError,
@@ -30,6 +31,7 @@ from modules.exceptions import (
 )
 from modules.lumascope_api._constants import AxisState
 from modules.scope_session import ScopeSession
+from rest.app import build_app
 from tests.scope_fakes import TEST_TURRET_OBJECTIVES, home_sim_scope
 from tests.settings_fixtures import complete_settings
 from tests.test_a_run_needs_every_axis_position import _settings
@@ -107,6 +109,7 @@ _MANUAL_REFUSES = {
     'stop_motion': lambda m: m.stop_motion(),
     'precision': lambda m: m.set_precision_mode('Z', True),
     'acceleration': lambda m: m.set_acceleration_limit(val_pct=50),
+    'limits': lambda m: m.get_axis_limits('Z'),
 }
 
 # The commands a Z-only scope refuses, each with the part it names.
@@ -116,6 +119,7 @@ _Z_ONLY_REFUSES = {
     'precision_x': (lambda m: m.set_precision_mode('X', True), MissingPart.X),
     'move_turret': (lambda m: m.move_turret(2), MissingPart.TURRET),
     'home_t': (lambda m: m.home('T'), MissingPart.TURRET),
+    'limits_x': (lambda m: m.get_axis_limits('X'), MissingPart.X),
 }
 
 
@@ -170,6 +174,21 @@ def test_a_scope_with_no_turret_names_the_turret(make_session, monkeypatch):
     assert str(refusal) == 'This microscope has no turret.'
     assert sent == []
     assert scope.motion.get_turret_slot() is None
+
+
+def test_the_travel_of_an_axis_the_tmcm_stage_lacks_is_refused_over_the_wire(make_session):
+    """The TMCM-6110 stage has no turret: its travel was a 500 fault from the driver, and is
+    now the request's refusal, as every other command for the turret is."""
+    session = make_session('LS720', homed=False)
+    with pytest.raises(HardwareCommandRefusedError) as python:
+        session.scope.motion.get_axis_limits('T')
+    assert (python.value.reason, python.value.missing) == ('axis_absent', MissingPart.TURRET)
+
+    with TestClient(build_app(session)) as client:
+        answer = client.post('/api/v1/scope/motion/get_axis_limits', json={'axis': 'T'})
+
+    assert answer.status_code == 422
+    assert (answer.json()['reason'], answer.json()['detail']) == ('axis_absent', str(python.value))
 
 
 # parametrize-justified: each model brings up its own scope and motion boards

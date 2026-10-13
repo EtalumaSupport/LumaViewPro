@@ -1503,10 +1503,12 @@ working copy.
 
 **Axes: ask which axes the scope has before asking their limits.**
 `scope.capabilities.axes` names the axes this scope has a motor for.
-`get_axis_limits(axis)` answers the motion board's travel for an axis,
-and the board answers X and Y on a Z-only scope too, so read limits only
-for the axes `capabilities.axes` names. The turret's `'T'` answers None:
-it moves by slot, not by distance.
+`get_axis_limits(axis)` answers the motion board's travel for an axis
+the scope has; an axis it does not have is refused as every command for
+it is (`HardwareCommandRefusedError` reason `axis_absent`, or
+`not_connected` when the motor controller is out of reach), so read
+limits only for the axes `capabilities.axes` names. The turret's `'T'`
+answers None: it moves by slot, not by distance.
 
 **Z overshoot:** firmware moves below target then approaches from below, eliminating leadscrew backlash for consistent focus. The leg below is part of the move: Z reads `'moving'` from the first target write, `wait_until_finished_moving()` waits through the leg and the approach, and a frame grabbed during either is not valid.
 

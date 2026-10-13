@@ -1641,8 +1641,13 @@ class MotionAPI:
         Raises:
             ArgumentRefusedError: ``'axis_unknown'``, ``axis`` is no axis
                 name.
+            HardwareCommandRefusedError: ``'not_connected'`` or
+                ``'axis_absent'``, no motor controller or no such axis (see
+                ``_refuse_absent``); an axis the scope does not have has no
+                travel to answer with.
         """
         refuse_unknown_axis(axis)
+        self._refuse_absent('get_axis_limits', axis)
         return self._driver.get_axis_limits(axis=axis)
 
     @slow_task_budget(_HOMING_SLOW_TASK_S)
