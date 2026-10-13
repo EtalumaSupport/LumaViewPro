@@ -168,15 +168,16 @@ class TestDeliveryTarget:
 
 
 class TestDepthContract:
-    """The driver no longer pins depth to 8; the container is the inherited
-    16-bit width and the payload depth is derived from the active format."""
+    """The container is the inherited 16-bit width, and the payload depth is
+    what the driver delivers for the active format: the 8-bit-mode Mono10
+    wire arrives as 8 bits, so its depth is 8, as its frames' stamp says."""
 
     def test_native_bit_depth_is_container_width_16(self):
         assert IDSCamera.native_bit_depth == 16
 
     @pytest.mark.parametrize(
         'wire,expected',
-        [('Mono12g24IDS', 12), ('Mono10g40IDS', 10), ('Mono8', 8)],
+        [('Mono12g24IDS', 12), ('Mono10g40IDS', 8), ('Mono8', 8)],
     )
     def test_significant_bits_property_tracks_format(self, wire, expected):
         cam = bare_ids_camera()

@@ -2521,6 +2521,15 @@ class IDSCamera(Camera):
                 f'set_pixel_format({resolved}) failed: {type(e).__name__}: {e}'
             ) from e
 
+    def significant_bits_for_format(self, pixel_format: str | None) -> int:
+        """The depth this driver delivers for ``pixel_format``, by its unpack.
+
+        Not the name's bit count: the 8-bit image mode's Mono10 wire is
+        delivered as 8 bits, so a depth read from the format name would
+        say 10 for frames whose own stamp says 8.
+        """
+        return _ids_delivery_significant_bits(pixel_format or '')
+
     def get_pixel_format(self):
         # Served from the cache populated on first read and on every
         # set_pixel_format(); PixelFormat only changes through that setter.
