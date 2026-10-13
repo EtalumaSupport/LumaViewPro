@@ -94,18 +94,24 @@ class SimulatedMotorBoard:
         'move_delay': 0.0,
         'simulate_move_duration': False,  # Truly instant -- for unit tests only
         'fast_move_duration': 0.0,
+        'fan_spin_up_s': 0.0,
+        'fan_spin_down_s': 0.0,
     }
     TIMING_FAST: ClassVar[dict] = {
         'cmd_delay': 0.001,  # 1ms minimum -- nothing returns instantly
         'move_delay': 0.0,
         'simulate_move_duration': True,  # Simulates brief move duration
         'fast_move_duration': 0.003,  # 3ms per move in fast mode
+        'fan_spin_up_s': 0.003,
+        'fan_spin_down_s': 0.003,
     }
     TIMING_REALISTIC: ClassVar[dict] = {
         'cmd_delay': 0.003,  # ~3ms serial round-trip
         'move_delay': 0.0,  # homing uses HOMING_DURATIONS instead
         'simulate_move_duration': True,
         'fast_move_duration': 0.0,  # Use ramp-calculated duration
+        'fan_spin_up_s': 2.0,  # the real board's fan, as MotorBoard states it
+        'fan_spin_down_s': 3.0,
     }
 
     def __init__(
@@ -231,7 +237,19 @@ class SimulatedMotorBoard:
         self._move_delay = preset['move_delay']
         self._simulate_move_duration = preset['simulate_move_duration']
         self._fast_move_duration = preset.get('fast_move_duration', 0.0)
+        self._fan_spin_up_s = preset['fan_spin_up_s']
+        self._fan_spin_down_s = preset['fan_spin_down_s']
         self._timing_mode = mode
+
+    @property
+    def fan_spin_up_s(self) -> float:
+        """How long the fan takes to reach speed from a stop, on this timing."""
+        return self._fan_spin_up_s
+
+    @property
+    def fan_spin_down_s(self) -> float:
+        """How long the fan takes to stop from speed, on this timing."""
+        return self._fan_spin_down_s
 
     def hold_travel(self, axis: str, at_fraction: float = 0.5) -> TravelHold:
         """Hold ``axis``'s next move part of the way along; see ``TravelHold``.

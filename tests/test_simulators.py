@@ -24,10 +24,10 @@ from drivers.simulated_camera import SimulatedCamera
 from drivers.simulated_specimen import drift_frames, specimen_field
 from tests.camera_fakes import grab_a_frame_made_after_now
 
-# Imported for its side effect, not its name: drivers/motorboard.py installs
-# the AMAX/DMAX probe-warning filter at import time, and
+# Imported for its side effect too: drivers/motorboard.py installs the
+# AMAX/DMAX probe-warning filter at import time, and
 # test_amax_dmax_probe_warning_suppressed measures that filter.
-from drivers.motorboard import MotorBoard  # noqa: F401
+from drivers.motorboard import MotorBoard
 from tests.scope_fakes import build_scope
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 
@@ -1609,6 +1609,22 @@ class TestTimingModes:
 
         assert board.has_homed()
         assert SimulatedMotorBoard.HOMING_DURATIONS['XYZ'] in waits
+
+    def test_the_fast_timing_fan_spins_no_longer_than_a_fast_move(self):
+        """A support report's fan test waits the board's spin times; on the
+        fast tier they are its own brief time, not the real fan's 5 s."""
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, timing='fast')
+
+        assert board.fan_spin_up_s <= board._fast_move_duration
+        assert board.fan_spin_down_s <= board._fast_move_duration
+
+    def test_the_realistic_timing_fan_spins_as_the_real_boards(self):
+        board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, timing='realistic')
+
+        assert (board.fan_spin_up_s, board.fan_spin_down_s) == (
+            MotorBoard.fan_spin_up_s,
+            MotorBoard.fan_spin_down_s,
+        )
 
     def test_led_instant_mode(self):
         led = SimulatedLEDBoard(timing='instant')

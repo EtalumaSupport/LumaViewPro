@@ -2083,6 +2083,9 @@ probe = scope.diagnostics.run_pylon_diagnostic_probe(
 # DiagnosticsAPI pre-Phase-5; documented here for completeness).
 status = scope.diagnostics.read_motor_drv_status('Z')       # int register or None
 rpm = scope.diagnostics.read_motor_fan_rpm()              # RPM or None
+spin = scope.diagnostics.motor_fan_spin_times()            # {'spin_up_s', 'spin_down_s'}, or None when
+# no motor board drives a fan: how long after set_motor_fan_duty a read_motor_fan_rpm
+# sees the new speed
 scope.diagnostics.set_motor_fan_duty(50)                   # None once written; HardwareCommandRefusedError
 # 'axis_absent' (MissingPart.FAN_CONTROL) for a motor controller without fan
 # control, MissingPart.MOTORS on a manual scope; ArgumentRefusedError for a duty
@@ -3023,6 +3026,7 @@ Reached through `session.scope.diagnostics`.
 - `get_led_info`
 - `get_motor_info`
 - `get_system_info`
+- `motor_fan_spin_times`
 - `read_led_currents_ma`
 - `read_motor_drv_status`
 - `read_motor_fan_rpm`

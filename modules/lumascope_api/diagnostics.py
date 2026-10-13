@@ -1018,9 +1018,27 @@ class DiagnosticsAPI:
             return None
         return drv.read_fanspeed()
 
+    @api(reads=True, engineering=True)
+    def motor_fan_spin_times(self) -> dict[str, float] | None:
+        """How long the motor-board fan takes to reach a new duty, in seconds.
+
+        ``{'spin_up_s': ..., 'spin_down_s': ...}``: up to speed from a stop,
+        and down to a stop from speed, as the board's driver states them. A
+        ``read_motor_fan_rpm`` sooner after ``set_motor_fan_duty`` reads the
+        old speed. None when no motor board's driver drives a fan; whether
+        the board's firmware takes a fan write is ``set_motor_fan_duty``'s
+        refusal, asked on the board.
+        """
+        drv = getattr(self._scope, '_motion_driver', None)
+        if drv is None or not hasattr(drv, 'set_fan_duty'):
+            return None
+        return {'spin_up_s': drv.fan_spin_up_s, 'spin_down_s': drv.fan_spin_down_s}
+
     @api(engineering=True)
     def set_motor_fan_duty(self, duty_pct: int) -> None:
-        """Set motor-board fan PWM duty cycle (0..100), and wait for it.
+        """Set motor-board fan PWM duty cycle (0..100), and wait for the board to take it.
+
+        The fan reaches the new duty later: ``motor_fan_spin_times``.
 
         Raises:
             HardwareCommandRefusedError: ``'not_connected'`` (the motor

@@ -1711,6 +1711,12 @@ class MotorBoard(SerialBoard):
             logger.warning(f'[XYZ Class ] FANSPEED unparseable: {raw!r}')
             return None
 
+    # How long the fan takes to reach a new duty, in seconds: up to speed
+    # from a stop, and down to a stop from speed. A tachometer read sooner
+    # sees the old speed.
+    fan_spin_up_s: ClassVar[float] = 2.0
+    fan_spin_down_s: ClassVar[float] = 3.0
+
     def set_fan_duty(self, duty_pct: int) -> None:
         """Set fan PWM duty cycle (0..100).
 

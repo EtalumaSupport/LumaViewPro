@@ -109,8 +109,11 @@ _REASON_UNNAMED_PINNED = frozenset(
     }
 )
 
-# The members with no Raises section at W0's end; it only falls.
-_WITHOUT_A_SECTION_CEILING = 164
+# The members with no Raises section at W0's end; it only falls. 165 since
+# DiagnosticsAPI.motor_fan_spin_times, a sentinel read that raises nothing
+# and so has no section to state (Eric, 2026-10-12); the count does not yet
+# tell a member that raises nothing from one that has not said.
+_WITHOUT_A_SECTION_CEILING = 165
 
 
 def _sections():

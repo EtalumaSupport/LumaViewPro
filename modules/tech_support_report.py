@@ -1457,12 +1457,13 @@ class FirmwareDiagnostics:
             'tests': [],
             'note': 'Informational only -- many units lack tachometer hardware',
         }
+        spin = fan.motor_fan_spin_times()
 
         # Test 1: Set fan to ~50% duty, read RPM
         failed = self._what_the_hardware_said(lambda: fan.set_motor_fan_duty(50))
         if failed is not None:
             return {**results, 'supported': False, 'error': failed}
-        time.sleep(2.0)
+        time.sleep(spin['spin_up_s'])
         rpm_50 = fan.read_motor_fan_rpm()
 
         has_tach = rpm_50 is not None and rpm_50 > 100
@@ -1478,7 +1479,7 @@ class FirmwareDiagnostics:
         failed = self._what_the_hardware_said(lambda: fan.set_motor_fan_duty(0))
         if failed is not None:
             return {**results, 'supported': False, 'error': failed}
-        time.sleep(3.0)
+        time.sleep(spin['spin_down_s'])
         rpm_off = fan.read_motor_fan_rpm()
 
         results['tests'].append(
