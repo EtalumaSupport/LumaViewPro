@@ -6,7 +6,7 @@ submit_reported -> run.stop(), where run is the handle the button's own
 start returned.
 """
 
-from harness import check, run
+from harness import REPO, check, run
 from modules.protocol_runner import ProtocolRunner
 from modules.run_events import RunEvents
 from modules.exceptions import ProtocolRunRefusedError, RunAlreadyEndedError
@@ -83,7 +83,7 @@ def body(s):
     import subprocess
 
     hits = subprocess.run(
-        ['grep', '-rln', 'AF_SAFETY_TIMEOUT_S', '/Users/ericweiner/Projects/LumaViewPro/modules'],
+        ['grep', '-rln', 'AF_SAFETY_TIMEOUT_S', str(REPO / 'modules')],
         capture_output=True,
         text=True,
     ).stdout.split()
