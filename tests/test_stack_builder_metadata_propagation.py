@@ -848,7 +848,8 @@ def test_mixed_dtype_inputs_refused_naming_the_file(tmp_path):
     The cube build silently CAST the mismatched plane into the stack dtype,
     producing wrong data with a success status. The one mixture a stack
     promotes is uint8 beside uint16 (a sum beside an unsummed channel);
-    anything else -- here a float32 frame beside a uint8 one -- is refused."""
+    anything else -- here a float32 frame beside a uint8 one -- is refused,
+    and leaves no file behind (#722)."""
     from modules.exceptions import CaptureError
 
     plate_pos = {'x': 1.0, 'y': 2.0}
@@ -881,6 +882,9 @@ def test_mixed_dtype_inputs_refused_naming_the_file(tmp_path):
             save_encoding='right_aligned',
         )
     assert refused.value.reason == 'mixed_pixel_types'
+    # Refused part-way through the write: nothing is left at the output name.
+    assert not (tmp_path / 'out.ome.tiff').exists()
+    assert not (tmp_path / 'out.ome.tiff.tmp').exists()
 
 
 def test_hyperstack_output_uses_strips(tmp_path):
@@ -914,18 +918,3 @@ def test_hyperstack_output_uses_strips(tmp_path):
 
     with tf.TiffFile(str(tmp_path / output_file_loc)) as tif:
         assert not tif.pages[0].is_tiled, 'hyperstack output must use strips'
-
-
-def test_load_plane_raises_typed_error_naming_the_file(tmp_path):
-    """A malformed hyperstack input frame fails with a typed CaptureError that
-    names the offending file, not a raw tifffile/OS exception. A hyperstack plane
-    cannot be skipped the way a video frame can (it would misalign the TZCYX grid),
-    so the read fails the whole build loudly and legibly -- the notify boundary
-    then shows a clear message instead of a raw decoder error."""
-    from modules.exceptions import CaptureError
-
-    bad = tmp_path / 'corrupt_plane.tiff'
-    bad.write_bytes(b'this is not a valid tiff')
-
-    with pytest.raises(CaptureError, match=r'corrupt_plane\.tiff'):
-        StackBuilder._load_plane(bad)

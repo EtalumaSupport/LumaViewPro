@@ -12,7 +12,7 @@ import modules.common_utils as common_utils
 import modules.recording_frames as recording_frames
 from modules.common_utils import PostFunction
 from modules.exceptions import (
-    HyperstackRefusedError,
+    InputFramesUnusableError,
     HyperstacksSavedNotice,
     HyperstacksSavingNotice,
 )
@@ -309,46 +309,6 @@ class StackBuilder(ProtocolPostProcessor):
         }
 
     @staticmethod
-    def _read_plane_header(path: pathlib.Path):
-        """Header-only read of one input frame's depth and capture time.
-
-        The output's depth claim and per-plane timing must resolve from
-        EVERY input before the streaming write begins (the OME metadata
-        lands ahead of the pixel planes), and reading the IFD alone keeps
-        this pre-scan from decoding every frame's pixels twice. Fails with
-        the same typed, file-naming error as _load_plane.
-
-        Returns:
-            (significant_bits, timestamp) -- timestamp is None when the
-            frame carries no readable capture time.
-        """
-        try:
-            return image_utils.read_tiff_depth_and_timestamp(path)
-        except Exception as ex:
-            raise HyperstackRefusedError(
-                f'failed to read hyperstack input frame {path}: {type(ex).__name__}: {ex}',
-                'unreadable_input_frame',
-            ) from ex
-
-    @staticmethod
-    def _load_plane(path: pathlib.Path) -> tuple[np.ndarray, int]:
-        """Read one input frame's pixels and depth, failing loud and naming the file.
-
-        A hyperstack plane cannot be skipped the way a video frame can -- a
-        missing plane would misalign the fixed TZCYX grid -- so a malformed
-        input fails the whole build with a clear, typed error that names the
-        offending file, rather than a raw tifffile/OS exception surfacing from
-        deep inside the read.
-        """
-        try:
-            return image_utils.load_pixels(path, collapse_legacy_false_color=False)
-        except Exception as ex:
-            raise HyperstackRefusedError(
-                f'failed to read hyperstack input frame {path}: {type(ex).__name__}: {ex}',
-                'unreadable_input_frame',
-            ) from ex
-
-    @staticmethod
     def _create_stack(
         path: pathlib.Path,
         df: pd.DataFrame,
@@ -407,12 +367,15 @@ class StackBuilder(ProtocolPostProcessor):
             return {'status': False, 'error': error, 'metadata': {}}
         if len(df) != expected_planes or captured_cells != expected_planes:
             if 'Well' in df.columns:
+                # A custom step has no well, and is named by nothing here.
+                well = df['Well'].iloc[0]
+                where = f' for well {well}' if well else ''
                 error = (
-                    f'Cannot build a hyperstack for well {df["Well"].iloc[0]}: its '
+                    f'Cannot build a hyperstack{where}: its '
                     f'channels were not all captured at the same z-slices and scan '
                     f'counts ({len(df)} images for a {num_t} x {num_z} x {num_c} '
-                    f'grid). Use the same z-stack settings on every channel in the '
-                    f'well, or build each channel separately.'
+                    f'grid). Use the same z-stack settings on every channel, '
+                    f'or build each channel separately.'
                 )
             else:
                 error = (
@@ -430,7 +393,9 @@ class StackBuilder(ProtocolPostProcessor):
 
         row0 = df.iloc[0]
         sample_image_file_loc = path / row0['Filepath']
-        sample_image, _ = StackBuilder._load_plane(sample_image_file_loc)
+        sample_image, _ = image_utils.load_pixels(
+            sample_image_file_loc, collapse_legacy_false_color=False
+        )
         h, w = sample_image.shape[0], sample_image.shape[1]
         # A stack whose planes mix uint8 and uint16 (an unsummed channel
         # beside a summed one on an 8-bit camera) is built at uint16, and the
@@ -451,7 +416,7 @@ class StackBuilder(ProtocolPostProcessor):
         # The output's depth claim and per-plane timing resolve from every
         # input's header before the write starts -- neither can be collected
         # during the plane stream because the OME metadata is written first.
-        headers = [StackBuilder._read_plane_header(path / fp) for fp in df['Filepath']]
+        headers = [image_utils.read_tiff_depth_and_timestamp(path / fp) for fp in df['Filepath']]
         input_depths = [depth for depth, _ in headers]
         output_depth = image_utils.resolve_output_depth(input_depths)
         timestamps = [ts for _, ts in headers]
@@ -491,7 +456,9 @@ class StackBuilder(ProtocolPostProcessor):
             # dense 0..N-1 range.
             for _, row in df.iterrows():
                 t, z, c = row['Scan Count'], row['Z-Slice'], row['Color Index']
-                image, _ = StackBuilder._load_plane(path / row['Filepath'])
+                image, _ = image_utils.load_pixels(
+                    path / row['Filepath'], collapse_legacy_false_color=False
+                )
 
                 if image_utils.is_color_image(image):
                     image = image_utils.rgb_image_to_gray(image=image)
@@ -515,7 +482,7 @@ class StackBuilder(ProtocolPostProcessor):
                     # the stack dtype would truncate (uint16 into uint8) or
                     # reinterpret (float into an integer) -- wrong data under
                     # a success status.
-                    raise HyperstackRefusedError(
+                    raise InputFramesUnusableError(
                         f'hyperstack input frame {row["Filepath"]} is {image.dtype} but '
                         f'this stack is {stack_dtype}: mixed pixel types cannot share one '
                         f'hyperstack. Re-capture the well at one bit depth or build each '

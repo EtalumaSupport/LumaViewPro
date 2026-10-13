@@ -344,11 +344,13 @@ class TestLoadPixelsBoundary:
         assert int(image_utils.convert_to_8bit(image, sig).max()) == 255
 
     def test_missing_file_raises(self, tmp_path):
-        """A path that does not exist raises rather than returning a bare array."""
+        """A path that does not exist is refused as unreadable, naming it, rather than a bare array."""
         from modules import image_utils
+        from modules.exceptions import InputFramesUnusableError
 
-        with pytest.raises(FileNotFoundError):
+        with pytest.raises(InputFramesUnusableError, match='does_not_exist') as refused:
             image_utils.load_pixels(tmp_path / 'does_not_exist.tif')
+        assert refused.value.reason == 'unreadable'
 
     def _write_single_channel_rgb(self, tmp_path):
         import tifffile as tf

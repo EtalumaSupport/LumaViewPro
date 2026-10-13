@@ -51,6 +51,7 @@ from modules.exceptions import (
     CaptureFailedError,
     FrameListenerNotRegisteredError,
     HyperstackRefusedError,
+    InputFramesUnusableError,
     RecordingDetailsNotSavedError,
     RecordingFinalizeError,
     RecordingPositionNotRecordedNotice,
@@ -919,14 +920,21 @@ class ManualRecordingController:
         plan = self._plan
         df = pd.DataFrame(self._hyperstack_rows)
         output = plan.save_folder / MANUAL_HYPERSTACK_FILENAME
-        result = StackBuilder(
-            has_turret=self._scope.capabilities.has_turret
-        ).create_single_recording_stack(
-            df=df,
-            path=plan.save_folder,
-            output_file_loc=output,
-            save_encoding=plan.save_encoding,
-        )
+        try:
+            result = StackBuilder(
+                has_turret=self._scope.capabilities.has_turret
+            ).create_single_recording_stack(
+                df=df,
+                path=plan.save_folder,
+                output_file_loc=output,
+                save_encoding=plan.save_encoding,
+            )
+        except InputFramesUnusableError as unusable:
+            # Frames the stack cannot use are a hyperstack the recording did
+            # not get, told under that heading in the builder's words.
+            raise HyperstackRefusedError(
+                str(unusable), _HYPERSTACK_REASON_OF[unusable.reason]
+            ) from unusable
         # The builder reports refusal in its return value rather than by
         # raising. Raise it as the typed refusal so the finish handler tells
         # the user the builder's reason; announcing a hyperstack the builder
@@ -934,6 +942,16 @@ class ManualRecordingController:
         if not result['status']:
             raise HyperstackRefusedError(result['error'])
         logger.info(f'[ManualRecord] Hyperstack created at {output}')
+
+
+# Each reason a recording's frames cannot be used, as the hyperstack refusal's.
+_HYPERSTACK_REASON_OF = {
+    'unreadable': 'unreadable_input_frame',
+    'mixed_pixel_types': 'mixed_pixel_types',
+    'geometry': 'hyperstack_refused',
+}
+if set(_HYPERSTACK_REASON_OF) != set(InputFramesUnusableError._TITLES):
+    raise ImportError('every InputFramesUnusableError reason needs a hyperstack refusal reason')
 
 
 def _say_what_the_frames_cannot_record(scope, to_plate) -> None:

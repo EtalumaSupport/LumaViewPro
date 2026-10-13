@@ -5,10 +5,11 @@ import datetime
 import enum
 import functools
 import json
+import os
 import pathlib
 import re
 import struct
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from typing import TYPE_CHECKING
 import xml.etree.ElementTree as ET
 
@@ -17,7 +18,7 @@ import numpy as np
 import tifffile as tf
 
 from modules.common_utils import ColorChannel
-from modules.exceptions import FrameDepthError
+from modules.exceptions import FrameDepthError, InputFramesUnusableError
 import modules.common_utils as common_utils
 import modules.image_mode as image_mode
 import modules.image_utils as image_utils
@@ -412,31 +413,39 @@ def read_tiff_significant_bits(path: pathlib.Path) -> int:
         return _significant_bits_from_open(tif)
 
 
+def _unreadable(path: pathlib.Path, detail: str = '') -> InputFramesUnusableError:
+    """The one refusal for a pixel file that is missing or will not decode, naming it."""
+    return InputFramesUnusableError(
+        f'Could not read image {path}{": " + detail if detail else ""}.', 'unreadable'
+    )
+
+
 @contextlib.contextmanager
 def _open_saved_tiff(path: pathlib.Path):
-    """Open a saved TIFF whose first page can be decoded, or raise ValueError.
+    """Open a saved TIFF whose first page can be decoded, or raise InputFramesUnusableError.
 
     A file read while it is still being written, or a damaged one, fails inside
     tifffile with whatever its parser hit first: a short header raises
     struct.error, a header with no page yet IndexError, and a page whose header
     tifffile has reserved but not yet filled in has no pixel type at all. The
-    readers promise ValueError for an undecodable file, which is what their
-    callers catch to skip it, so every such state is raised as that, naming the
-    file, with tifffile's own error chained.
+    readers promise ``InputFramesUnusableError('unreadable')`` for an
+    undecodable file -- a ValueError, which is what their callers catch to
+    skip it -- so every such state is raised as that, naming the file, with
+    tifffile's own error chained.
     """
     try:
         tif = tf.TiffFile(str(path))
     except struct.error as ex:
-        raise ValueError(f'Could not decode image: {path}') from ex
+        raise _unreadable(path) from ex
     except ValueError as ex:
-        raise ValueError(f'Could not decode image: {path}: {ex}') from ex
+        raise _unreadable(path, str(ex)) from ex
     with tif:
         try:
             page = tif.pages[0]
         except IndexError as ex:
-            raise ValueError(f'Could not decode image: {path}: it has no page') from ex
+            raise _unreadable(path, 'it has no page') from ex
         if page.dtype is None:
-            raise ValueError(f'Could not decode image: {path}: its first page has no pixel type')
+            raise _unreadable(path, 'its first page has no pixel type')
         yield tif
 
 
@@ -496,8 +505,8 @@ def load_pixels(
         payload depth to hand to convert_to_8bit and the display path.
 
     Raises:
-        FileNotFoundError: the path does not exist.
-        ValueError: the file cannot be decoded as an image.
+        InputFramesUnusableError: ``'unreadable'``, the path does not exist
+            or the file cannot be decoded as an image (a ValueError).
     """
     image, sig, _ = _load_pixels_and_timestamp(
         path,
@@ -553,7 +562,7 @@ def _load_pixels_and_timestamp(
     """
     path = pathlib.Path(path)
     if not path.exists():
-        raise FileNotFoundError(f'No such pixel file: {path}')
+        raise _unreadable(path, 'no such file')
 
     if is_tiff(path):
         # One open serves every read: the pixel array, the significant-bit depth,
@@ -565,10 +574,11 @@ def _load_pixels_and_timestamp(
         with _open_saved_tiff(path) as tif:
             try:
                 image = tif.asarray()
-            except RuntimeError as ex:
-                # The compression codecs (deflate, LZW) raise their own
-                # RuntimeError subclasses on pixel data cut short.
-                raise ValueError(f'Could not decode image: {path}: {ex}') from ex
+            except (RuntimeError, ValueError) as ex:
+                # Pixel data cut short: the deflate codec raises its own
+                # RuntimeError subclass, and tifffile a TiffFileError (a
+                # ValueError) for an LZW strip that cannot be reshaped.
+                raise _unreadable(path, str(ex)) from ex
             sig = _significant_bits_from_open(tif)
             if read_timestamp:
                 try:
@@ -593,7 +603,7 @@ def _load_pixels_and_timestamp(
     # channel order is moot.
     image = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
     if image is None:
-        raise ValueError(f'Could not decode image: {path}')
+        raise _unreadable(path)
     sig = image.dtype.itemsize * 8
     logger.debug(
         f'[ImageLoad cv2] {path.name} dtype={image.dtype} shape={image.shape} '
@@ -624,12 +634,12 @@ def read_image_geometry(path: pathlib.Path) -> tuple[tuple[int, ...], np.dtype]:
         (shape, dtype) of the stored array.
 
     Raises:
-        FileNotFoundError: the path does not exist.
-        ValueError: the file cannot be decoded as an image.
+        InputFramesUnusableError: ``'unreadable'``, the path does not exist
+            or the file cannot be decoded as an image (a ValueError).
     """
     path = pathlib.Path(path)
     if not path.exists():
-        raise FileNotFoundError(f'No such pixel file: {path}')
+        raise _unreadable(path, 'no such file')
     if is_tiff(path):
         with _open_saved_tiff(path) as tif:
             page = tif.pages[0]
@@ -1211,7 +1221,9 @@ def build_postproc_output_metadata(
     return metadata
 
 
-def require_uniform_geometry(labeled_arrays, operation: str) -> None:
+def require_uniform_geometry(
+    labeled_arrays: Iterable[tuple[str, np.ndarray]], operation: str
+) -> None:
     """Reject combine inputs that were not stitched to one shared geometry.
 
     Combining images across a tile-group -- compositing channels, projecting a
@@ -1226,15 +1238,17 @@ def require_uniform_geometry(labeled_arrays, operation: str) -> None:
         operation: Verb phrase for the message, e.g. 'composite this well'.
 
     Raises:
-        ValueError: if the inputs do not all share one (H, W).
+        InputFramesUnusableError: ``'geometry'``, the inputs do not all
+            share one (H, W).
     """
     shapes = [(label, tuple(array.shape[:2])) for label, array in labeled_arrays]
     if len({hw for _, hw in shapes}) > 1:
         detail = ', '.join(f'{label} {h}x{w}' for label, (h, w) in shapes)
-        raise ValueError(
+        raise InputFramesUnusableError(
             f'Cannot {operation}: inputs were not stitched to one geometry '
             f'({detail}). Every layer / slice of a tile-group must be stitched '
-            f'to the same canvas before it can be combined.'
+            f'to the same canvas before it can be combined.',
+            'geometry',
         )
 
 
@@ -2024,21 +2038,31 @@ def write_hyperstack_tiff(
     )
     caller_extratags = list(write_options.pop('extratags', []) or [])
     caller_extratags.append(sidecar_extratag)
-    with tf.TiffWriter(
-        str(file_loc),
-        ome=True,
-        bigtiff=use_bigtiff,
-    ) as tif:
-        tif.write(
-            planes,
-            shape=shape,
-            dtype=np.dtype(dtype),
-            resolution=hyperstack_resolution,
-            metadata=hyperstack_metadata,
-            software=f'LumaViewPro {version}',
-            extratags=caller_extratags,
-            **write_options,
-        )
+    # Written beside the target and moved onto it once whole: the planes
+    # stream from the caller, which can refuse one mid-write, and a writer
+    # opened on the target itself left a stub there under the real name. A
+    # '.tmp' name is one no image search picks up.
+    file_loc = pathlib.Path(file_loc)
+    tmp_loc = file_loc.with_name(file_loc.name + '.tmp')
+    try:
+        with tf.TiffWriter(
+            str(tmp_loc),
+            ome=True,
+            bigtiff=use_bigtiff,
+        ) as tif:
+            tif.write(
+                planes,
+                shape=shape,
+                dtype=np.dtype(dtype),
+                resolution=hyperstack_resolution,
+                metadata=hyperstack_metadata,
+                software=f'LumaViewPro {version}',
+                extratags=caller_extratags,
+                **write_options,
+            )
+        os.replace(tmp_loc, file_loc)
+    finally:
+        tmp_loc.unlink(missing_ok=True)
 
 
 def _msb_align_to_container(data: np.ndarray, significant_bits: int) -> tuple[np.ndarray, int]:

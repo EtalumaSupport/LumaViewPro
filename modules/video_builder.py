@@ -297,6 +297,24 @@ class VideoBuilder(ProtocolPostProcessor):
 
         video.close()
 
+        if i - video.dropped_frames <= 0:
+            # Not one frame reached the video: there is no video to record,
+            # and a success here put a file that does not exist in the record,
+            # which every later build then skipped as already made. Only a
+            # writer handed a frame opened a file, at a name its collision
+            # check chose; one handed none still names the request, which can
+            # be an earlier build's video.
+            if i > 0:
+                pathlib.Path(video.output_path).unlink(missing_ok=True)
+            return {
+                'status': False,
+                'error': (
+                    f'Cannot build a video: none of its {total_frames} frames could be '
+                    f'read or encoded ({df.iloc[0]["Filepath"]} first).'
+                ),
+                'metadata': {},
+            }
+
         total_dropped = skipped + video.dropped_frames
         if total_dropped > 0:
             # The count rides the group's metadata to the build, which says

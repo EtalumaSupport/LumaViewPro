@@ -1555,6 +1555,38 @@ class HyperstackRefusedError(Fault, CaptureError):
         self.message = message
 
 
+class InputFramesUnusableError(Refusal, CaptureError, ValueError):
+    """Frames handed to an image operation cannot be used, naming each frame.
+
+    Raised by the image reader for a frame that is missing or will not
+    decode, by the canvas check for frames of different sizes, and by the
+    hyperstack builder for frames whose pixel types cannot share one stack.
+    A post-processing build answers it as the one group's failure and goes
+    on with the others, so a damaged frame costs its group, not the run's
+    other outputs. A ``ValueError``, so a caller that skips a frame it
+    cannot read keeps doing so.
+
+    Attributes:
+        reason: ``'unreadable'`` -- a frame is missing or will not decode;
+            ``'geometry'`` -- the frames are not all one size;
+            ``'mixed_pixel_types'`` -- the frames' pixel types cannot share
+            one output.
+    """
+
+    cause = RefusalCause.REQUEST
+    _TITLES: ClassVar[dict[str, str]] = {
+        'unreadable': 'Image Not Readable',
+        'geometry': 'Images Not One Size',
+        'mixed_pixel_types': 'Images Not One Pixel Type',
+    }
+
+    def __init__(self, message: str, reason: str):
+        if reason not in self._TITLES:
+            raise TypeError(f'InputFramesUnusableError has no reason {reason!r}')
+        super().__init__(message, reason)
+        self.title = self._TITLES[reason]
+
+
 class PostProcessingOperation(StrEnum):
     """Every post-processing operation, by the name a person reads.
 

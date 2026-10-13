@@ -14,12 +14,14 @@ from modules.api_surface import ProgressCallback
 from modules.common_utils import PostFunction
 from modules.exceptions import (
     ExcludedInput,
+    InputFramesUnusableError,
     PostProcessingFailedError,
     PostProcessingOperation,
     PostProcessingRefusedError,
 )
 from modules.objectives_loader import objective_short_name
 from modules.protocol_post_processing_helper import ProtocolPostProcessingHelper
+from modules.protocol_post_processing_result import PostProcResult
 from modules.protocol_post_record import ProtocolPostRecord
 
 from lvp_logger import logger
@@ -497,14 +499,20 @@ class ProtocolPostProcessor(abc.ABC):
 
             group_t0 = time.perf_counter()
             logger.info(f'[PostProcPerf] {self._name} group start: {group_label}')
-            alg_results = self._group_algorithm(
-                path=root_path,
-                df=group,
-                on_progress=on_progress,
-                total_groups=group_count,
-                current_group=current_group,
-                **kwargs,
-            )
+            try:
+                alg_results = self._group_algorithm(
+                    path=root_path,
+                    df=group,
+                    on_progress=on_progress,
+                    total_groups=group_count,
+                    current_group=current_group,
+                    **kwargs,
+                )
+            except InputFramesUnusableError as unusable:
+                # Frames this group cannot use -- one that will not decode,
+                # sizes or pixel types that cannot share one output -- cost
+                # this group, not the groups after it: answered as its failure.
+                alg_results = PostProcResult.failed(str(unusable))
             group_ms = (time.perf_counter() - group_t0) * 1000.0
 
             if not alg_results.status:
