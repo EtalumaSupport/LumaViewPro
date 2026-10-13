@@ -52,6 +52,7 @@ from modules.exceptions import (
     PostProcessingRefusedError,
 )
 from modules.post_processing import default_cell_count_method
+from modules.protocol import StepNotFoundError
 from modules.scope_session import ScopeSession
 from rest.app import build_app
 from rest.problems import answered_by_member
@@ -94,6 +95,8 @@ ENROLLED = (
     'MotionAPI.wait_until_finished_moving',
     'ScopeSession.frame_at_binning',
     'ImagingAPI.apply_layer_camera_settings',
+    'ProtocolsAPI.step_targets',
+    'ProtocolsAPI.tiling_config',
 )
 
 
@@ -376,6 +379,27 @@ def _valid_rows() -> list[Valid]:
             lambda s: s.session.scope.motion.home(),
             lambda s, _: None if s.session.scope.motion.has_homed() else 'not homed',
         ),
+        Valid(
+            'step_targets of the first step',
+            'ProtocolsAPI.step_targets',
+            lambda s: s.session.scope.protocols.step_targets(s.protocol, 0),
+            lambda s, targets: (
+                None
+                if targets.z == s.protocol.step(idx=0)['Z'] and targets.turret_slot is None
+                else f'{targets}'
+            ),
+            (
+                '/api/v1/scope/protocols/step_targets',
+                lambda s: {'protocol': s.handle, 'step_idx': 0},
+            ),
+        ),
+        Valid(
+            'tiling_config',
+            'ProtocolsAPI.tiling_config',
+            lambda s: s.session.scope.protocols.tiling_config(),
+            lambda s, grids: None if grids.default in grids.available else f'{grids}',
+            ('/api/v1/scope/protocols/tiling_config', lambda s: {}),
+        ),
     ]
 
 
@@ -386,6 +410,17 @@ def pp(s: Scope):
 def _bad_rows() -> list[Bad]:
     method = default_cell_count_method()
     rows = [
+        Bad(
+            'step_targets of a step the protocol lacks',
+            'ProtocolsAPI.step_targets',
+            lambda s: s.session.scope.protocols.step_targets(s.protocol, 99),
+            StepNotFoundError,
+            'no_such_step',
+            (
+                '/api/v1/scope/protocols/step_targets',
+                lambda s: {'protocol': s.handle, 'step_idx': 99},
+            ),
+        ),
         Bad(
             'frame_at_binning 0',
             'ScopeSession.frame_at_binning',
