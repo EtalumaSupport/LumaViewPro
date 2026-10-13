@@ -1136,7 +1136,7 @@ class Lumascope:
         Composition wiring, not part of the L2 API surface: a session binds
         every scope it composes, once, before bring-up, after its lanes have
         refused a second session over the same scope. ``reader`` answers a
-        copy of the setting at a dotted path (``ScopeSession.get_setting``).
+        copy of the setting at a dotted path, as the session stores it.
         """
         self._settings_reader = reader
 

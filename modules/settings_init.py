@@ -394,6 +394,11 @@ def normalize_loaded_settings(settings_dict: dict) -> bool:
     if settings_dict.pop('turret_position', None) is not None:
         changed = True
 
+    # Unconfirmed, as stored before the confirmation recorded its topology.
+    if settings_dict.get('objective_confirmed') is False:
+        settings_dict['objective_confirmed'] = None
+        changed = True
+
     # A top-level binning factor that nothing writes and no shipped template
     # carries. It was read as the headless binning and always answered 1;
     # binning lives at settings['binning']['size'] as the selector's label.

@@ -11,7 +11,8 @@ last-wins on the next load.
 Picking an objective on a turret scope turns the turret to the one slot
 holding it, and writes no slot: the pick used to assign the slot in the
 light path, so one objective could end up on two slots. A scope with no
-turret refuses every slot write.
+turret refuses every slot write, and on a turret scope every read of the
+objective answers the slot's.
 """
 
 import json
@@ -174,6 +175,16 @@ class TestAScopeWithNoTurretRefusesEverySlotWrite:
 
         assert wrong == {}, f'refused for something other than the absent turret: {wrong}'
         assert turretless_session.settings['turret_objectives'] == before
+
+
+class TestATurretScopeReportsTheSlotsObjective:
+    """D1: every read of the objective on a turret scope answers the slot's."""
+
+    def test_the_setting_and_the_snapshot_answer_the_slot_in_the_light_path(self, turret_session):
+        turret_session.scope.motion.move_turret(3)
+
+        assert turret_session.get_setting('objective_id') == '4x Oly'
+        assert turret_session.get_settings_snapshot()['objective_id'] == '4x Oly'
 
 
 _REQUIRED_KEYS = {

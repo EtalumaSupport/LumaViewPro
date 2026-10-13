@@ -190,6 +190,25 @@ def _acquire(path: str, value: str | None) -> None:
         )
 
 
+# Which light path the objective was confirmed on: a turret's slots, or the
+# one objective a turretless scope selects. A confirmation is for its own
+# light path, so a scope brought up with the other owes the question again.
+OBJECTIVE_TOPOLOGIES: typing.Final[tuple[str, str]] = ('turret', 'turretless')
+
+
+def _objective_confirmed(path: str, value: object) -> None:
+    # None is never confirmed. True is a confirmation stored before the
+    # topology was recorded, which no load can date: whether the scope has a
+    # turret is known only at bring-up, which rewrites it to the one it has.
+    if value is None or value is True or value in OBJECTIVE_TOPOLOGIES:
+        return
+    raise SettingRefusedError(
+        'out_of_range',
+        path,
+        f'it must be None or one of {", ".join(OBJECTIVE_TOPOLOGIES)}, not {value!r}',
+    )
+
+
 def _log_level(path: str, value: str) -> None:
     # A level's name in any case: the reader upper-cases it (Eric, 2026-10-09).
     levels = logging.getLevelNamesMapping()
@@ -270,6 +289,7 @@ _RANGES: typing.Final[dict[str, typing.Callable[[str, typing.Any], None]]] = {
     'simulator_tier': _simulator_tier,
     'zstack.position': _zstack_position,
     'image_mode': _image_mode,
+    'objective_confirmed': _objective_confirmed,
     'logging.default.level': _log_level,
     'motion.acceleration_max_pct': _acceleration,
     'protocol.period': _schedule,

@@ -134,6 +134,90 @@ class TestTheQuestionUsesIt:
         )
 
 
+def _brought_up(tmp_path, model: str, **stored) -> ScopeSession:
+    """A session on ``model`` from a file holding ``stored``, its turret homed to slot 1."""
+    from tests.scope_fakes import TEST_TURRET_OBJECTIVES, home_sim_scope
+
+    session = ScopeSession.create(
+        complete_settings(
+            live_folder=str(tmp_path),
+            microscope=model,
+            turret_objectives=dict(TEST_TURRET_OBJECTIVES),
+            **stored,
+        ),
+        simulate=True,
+    )
+    if session.scope_has_turret():
+        home_sim_scope(session.scope)
+        session.scope.motion.move_turret(1)
+    return session
+
+
+class TestAChangeOfTopologyAsksAgain:
+    """The confirmation records whether the scope it was given on had a turret.
+
+    A scope brought up from the same file with the other answer owes the
+    question again: the confirmed objective was confirmed for the other
+    light path. Keyed on ``scope_has_turret()``, so a model chosen in the
+    GUI and a board that reports another model at bring-up are one case.
+    """
+
+    @pytest.mark.parametrize(
+        'confirmed_on, brought_up_on',
+        [('LS850', 'LS850T'), ('LS850T', 'LS850')],
+    )  # parametrize-justified: each direction needs its own two bring-ups
+    def test_a_confirmation_given_on_the_other_topology_owes_the_question(
+        self, tmp_path, confirmed_on, brought_up_on
+    ):
+        first = _brought_up(tmp_path, confirmed_on, objective_confirmed=None)
+        try:
+            first.confirm_objective(
+                '10x Oly', turret_position=1 if first.scope_has_turret() else None
+            )
+            stored = first.get_setting('objective_confirmed')
+            assert first.objective_question() is None
+        finally:
+            first.shutdown()
+
+        second = _brought_up(tmp_path, brought_up_on, objective_confirmed=stored)
+        try:
+            assert second.objective_question() is not None, (
+                f'confirmed on {confirmed_on}, brought up on {brought_up_on}: not asked'
+            )
+        finally:
+            second.shutdown()
+
+    def test_a_turretless_question_proposes_the_objective_the_turret_period_left(self, tmp_path):
+        session = _brought_up(
+            tmp_path, 'LS850', objective_confirmed='turret', objective_id='40x Phase'
+        )
+        try:
+            assert session.objective_question().proposed == '40x Phase'
+        finally:
+            session.shutdown()
+
+    @pytest.mark.parametrize('model, recorded', [('LS850', 'turretless'), ('LS850T', 'turret')])
+    # parametrize-justified: each topology is its own bring-up
+    def test_a_confirmation_from_before_the_record_takes_the_bring_ups_topology(
+        self, tmp_path, model, recorded
+    ):
+        """A stored ``true`` predates the record; the upgrade asks nothing."""
+        session = _brought_up(tmp_path, model, objective_confirmed=True)
+        try:
+            assert session.get_setting('objective_confirmed') == recorded
+            assert session.objective_question() is None
+        finally:
+            session.shutdown()
+
+    def test_an_unconfirmed_file_from_before_the_record_is_still_unconfirmed(self, tmp_path):
+        session = _brought_up(tmp_path, 'LS850', objective_confirmed=False)
+        try:
+            assert session.get_setting('objective_confirmed') is None
+            assert session.objective_question() is not None
+        finally:
+            session.shutdown()
+
+
 class TestTheDeclarationIsNoLongerReadDirectly:
     def test_neither_site_calls_model_has_turret_itself(self):
         """Two readers, one helper: a third spelling is how they diverge."""

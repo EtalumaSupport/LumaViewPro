@@ -179,7 +179,7 @@ def session():
     built = ScopeSession.create(
         complete_settings(
             microscope='LS850T',
-            objective_confirmed=False,
+            objective_confirmed=None,
             turret_position=1,
             turret_objectives={'1': None, '2': None, '3': None, '4': None},
             objective_id='20x Oly',
@@ -228,7 +228,7 @@ class TestSingleFlight:
 
         stand.prompt_if_objective_unknown()
         confirm(popups[0], '10x Oly')
-        assert session.settings['objective_confirmed'] is True
+        assert session.settings['objective_confirmed'] == 'turret'
         assert session.settings['turret_objectives'][1] == '10x Oly'
 
         session.clear_turret_objective(1)
@@ -302,7 +302,7 @@ class TestNoHardwareSuppression:
         assert popups == []
         # Unanswered, not answered-by-default: the next session with
         # hardware attached has to ask.
-        assert session.settings['objective_confirmed'] is False
+        assert session.settings['objective_confirmed'] is None
 
     def test_hardware_present_still_prompts(self, monkeypatch, popups, session):
         _install_ctx(monkeypatch, session, no_hardware=False)
@@ -384,7 +384,7 @@ class TestProvisionalSettings:
         stand.prompt_if_objective_unknown()
 
         assert popups == []
-        assert session.settings['objective_confirmed'] is False
+        assert session.settings['objective_confirmed'] is None
 
     def test_resolution_releases_the_prompt(self, monkeypatch, popups, tmp_path, session):
         rejected = tmp_path / 'current.json'
@@ -430,7 +430,7 @@ class TestProvisionalSettings:
         session.shutdown()
 
         with open(data / 'current.json') as f:
-            assert json.load(f)['objective_confirmed'] is True
+            assert json.load(f)['objective_confirmed'] == 'turretless'
 
 
 # ---------------------------------------------------------------------------
@@ -617,7 +617,7 @@ class TestTheFoldedRequestIsStillAnswered:
 
         assert ran == ['startup']
         assert session.settings['turret_objectives'][1] == '10x Oly'
-        assert session.settings['objective_confirmed'] is True
+        assert session.settings['objective_confirmed'] == 'turret'
 
     def test_folding_re_arms_like_any_other_answer(self, monkeypatch, popups, session):
         """The fold must not leave the flag set: the next unknowable

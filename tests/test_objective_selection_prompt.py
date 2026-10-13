@@ -426,13 +426,13 @@ class TestResetLeavesTheSlotCleared:
 
 
 def test_template_ships_the_unconfirmed_flag():
-    # The template default MUST be false: the flag existing with true
-    # (or missing, treated as confirmed) would silently skip the one
-    # prompt that makes a person confirm the shipped 20x default.
+    # The template default MUST be unconfirmed: a shipped confirmation (or
+    # a missing flag read as one) would silently skip the one prompt that
+    # makes a person confirm the shipped 20x default.
     # pin-justified: reads the shipped settings TEMPLATE (a JSON data
     # contract); no AST seam exists for a data file.
     template = json.loads((REPO_ROOT / 'data' / 'settings.json').read_text())
-    assert template.get('objective_confirmed') is False
+    assert template['objective_confirmed'] is None
 
 
 def test_an_empty_slot_renders_its_position_bracketed_from_the_start():

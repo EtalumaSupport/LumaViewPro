@@ -456,7 +456,7 @@ class ScopeSession:
         # their one store, so it holds no copy to keep in step. After the
         # claim: the lanes refuse a second session over this scope there,
         # before it could point the scope at its own settings.
-        scope.bind_settings(self.get_setting)
+        scope.bind_settings(self._read_stored_setting)
         # Service the scope NOW, before any collaborator is composed: the
         # temperature log reads the camera under the key, and the protocol
         # constructors resolve their data files from the source path.
@@ -2432,7 +2432,19 @@ class ScopeSession:
         A worker thread takes one of these at task entry and reads from it
         for the rest of the task, rather than reading a dict another
         thread may be part-way through rewriting.
+
+        ``objective_id`` is the active objective, as ``get_setting`` answers
+        it: on a turret scope, the slot's in the light path, or None while
+        that is unknown.
         """
+        objective_id = self.scope.runtime_state.get_current_objective_id()
+        snapshot = self._copy_of_the_store()
+        snapshot['objective_id'] = objective_id
+        return snapshot
+
+    def _copy_of_the_store(self) -> dict:
+        # The store as it is, for the file: on a turret scope its objective_id
+        # is the pick a turretless scope proposes, never the slot's answer.
         with self.settings_lock:
             return copy.deepcopy(self.settings)
 
@@ -2444,10 +2456,22 @@ class ScopeSession:
         write; a copy, so changing it changes no setting (``update_settings``
         and the Session's members do).
 
+        ``'objective_id'`` is the active objective: on a turret scope, the
+        slot's in the light path, or None while that is unknown. The stored
+        id is a turretless scope's selection, which a turret scope does not
+        read.
+
         Raises:
             ArgumentRefusedError: ``'not_a_setting'``, the settings have no
                 value at ``path``.
         """
+        if path == 'objective_id':
+            return self.scope.runtime_state.get_current_objective_id()
+        return self._read_stored_setting(path)
+
+    def _read_stored_setting(self, path: str) -> 'SettingValue':
+        # The store's own value: the scope's reader, from which the active
+        # objective is derived, so it cannot be the derived answer.
         with self.settings_lock:
             value = self.settings
             for segment in path.split('.'):
@@ -2751,7 +2775,7 @@ class ScopeSession:
                     SettingsNotSavedNotice(withheld, file), solicited=False, category='Settings'
                 )
             return
-        snapshot = self.get_settings_snapshot()
+        snapshot = self._copy_of_the_store()
         t0 = time.monotonic()
         try:
             write_whole(file, snapshot)
@@ -2977,6 +3001,7 @@ class ScopeSession:
             turreted=self.scope_has_turret(),
         )
         self.scope.initialize(config)
+        self._date_an_undated_objective_confirmation()
         self._store_delivered_geometry()
         # The camera streams from here on, in every host that configures a
         # scope, so the imaging API starts watching the stream here: a stall
@@ -3296,10 +3321,9 @@ class ScopeSession:
     def capture_settings_snapshot(self) -> dict:
         """A settings snapshot for composing a capture or a run.
 
-        ``get_settings_snapshot`` with ``objective_id`` set to the active
-        objective (``runtime_state.resolve_current_objective``), which on a turreted scope
-        the stored settings do not carry. Not for saving: a turreted scope
-        persists no objective_id of its own.
+        ``get_settings_snapshot``, refused while the active objective
+        (``runtime_state.resolve_current_objective``) is unknown: a capture
+        stamps its scale, so it is never composed without one.
 
         Raises:
             ObjectiveUnknownError: The active objective is unknown:
@@ -3366,15 +3390,16 @@ class ScopeSession:
 
         A read, for any host: the GUI renders the answer as a popup, a
         REST caller reads it as state. Two ways the session cannot know
-        what is in the light path: no person has ever confirmed the
-        objective on this install (the settings template ships a default
-        that would otherwise set image scale silently forever), or, on a
-        DECLARED turret model, the slot in the light path has no
-        assignment. The declared model, not the live capability: a dead
-        motorboard reports no axes, and that is exactly when a stale
-        objective must not pass unasked. The slot is the live one
-        (``motion.get_turret_slot``), so an answer names the glass that is
-        actually in the light path.
+        what is in the light path: no person has confirmed the objective
+        for this scope's light path (never on this install -- the settings
+        template ships a default that would otherwise set image scale
+        silently forever -- or only on a scope that differed in having a
+        turret), or, on a DECLARED turret model, the slot in the light
+        path has no assignment. The declared model, not the live
+        capability: a dead motorboard reports no axes, and that is exactly
+        when a stale objective must not pass unasked. The slot is the live
+        one (``motion.get_turret_slot``), so an answer names the glass that
+        is actually in the light path.
 
         Three conditions withhold an owed question, each leaving one log
         line per call so a bundle can say why nothing was asked: with no
@@ -3390,13 +3415,14 @@ class ScopeSession:
         Raises:
             ConfigError: the catalogue is empty, or the model catalogue
                 cannot be read.
-            ObjectiveUnknownError: ``'slot_unknown'``, the objective has never
-                been confirmed on this install and the turret model's slot is unknown --
-                there is no slot to answer for until the turret is homed
-                or moved.
+            ObjectiveUnknownError: ``'slot_unknown'``, the objective is not
+                confirmed for this light path and the turret model's slot is
+                unknown -- there is no slot to answer for until the turret is
+                homed or moved.
         """
         has_turret = self.scope_has_turret()
-        first_run = not self.settings['objective_confirmed']
+        confirmed = self.settings['objective_confirmed']
+        first_run = confirmed != self._objective_topology()
         slots = self.settings['turret_objectives']
         position = self.scope.motion.get_turret_slot() if has_turret else None
         # A known slot with no assignment owes the question. An unknown slot
@@ -3425,11 +3451,15 @@ class ScopeSession:
         if has_turret and position is None:
             raise ObjectiveUnknownError('slot_unknown')
         choices = tuple(self.objective_helper.get_objectives_list())
-        # Only the slot's own assignment names glass anyone has confirmed. The
-        # stored objective_id does not: the question is owed on a turretless
-        # scope only before anyone has confirmed one, when it is the shipped
-        # template's value. Everything else gets the catalogue's default.
-        proposed = slots.get(position) if has_turret else None
+        # The slot's own assignment names glass someone confirmed. On a
+        # turretless scope the stored objective_id does once a confirmation
+        # exists: owed then, the confirmation was a turret's, and the stored id
+        # is the pick the scope last had before it. Never confirmed, it is the
+        # shipped template's value. Everything else gets the catalogue's default.
+        if has_turret:
+            proposed = slots.get(position)
+        else:
+            proposed = self.settings['objective_id'] if confirmed is not None else None
         if proposed not in choices:
             from modules.objectives_loader import DEFAULT_PROPOSED_OBJECTIVE_ID
 
@@ -3444,8 +3474,9 @@ class ScopeSession:
         which it requires: the answer records the glass in a slot and never
         turns the turret. With no turret, selects it (``select_objective``),
         and ``turret_position`` is refused. Records that a person has
-        confirmed the objective on this install. Returns whether the active
-        objective changed.
+        confirmed the objective for this light path, turret or turretless,
+        so a scope brought up with the other asks again. Returns whether the
+        active objective changed.
 
         Raises:
             ArgumentRefusedError: ``'turret_position_required'``, no
@@ -3474,7 +3505,7 @@ class ScopeSession:
                 self._refuse_without_a_turret('confirm_objective')
             changed = self.select_objective(objective_id)
         with self.settings_lock:
-            self._store_setting('objective_confirmed', True)
+            self._store_setting('objective_confirmed', self._objective_topology())
         logger.info(
             f'[Session  ] objective confirmed: {objective_id!r}'
             + (f' at turret position {turret_position}' if turret_position is not None else '')
@@ -3548,6 +3579,22 @@ class ScopeSession:
                 offered=tuple(held for _, held in sorted(slots.items()) if held is not None),
             )
         return holding[0]
+
+    def _objective_topology(self) -> str:
+        # Which light path a confirmation given now is for.
+        turret, turretless = settings_paths.OBJECTIVE_TOPOLOGIES
+        return turret if self.scope.runtime_state.is_turreted() else turretless
+
+    def _date_an_undated_objective_confirmation(self) -> None:
+        # A confirmation stored before it recorded its light path is taken as
+        # this scope's: the upgrade asks nothing, and a later change between
+        # turret and turretless asks. Only bring-up knows which this scope is.
+        if self.settings['objective_confirmed'] is not True:
+            return
+        topology = self._objective_topology()
+        with self.settings_lock:
+            self._store_setting('objective_confirmed', topology)
+        logger.info(f'[Session  ] objective confirmation recorded as given on a {topology} scope')
 
     def _refuse_without_a_turret(self, member: str) -> None:
         # The scope fact is said first, before the slot or the catalogue is

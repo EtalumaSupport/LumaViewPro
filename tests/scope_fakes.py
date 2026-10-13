@@ -430,7 +430,7 @@ def bind_settings_like_a_session(scope, **overrides) -> dict:
     settings = complete_settings(**overrides)
     _BOUND_SETTINGS[scope] = settings
     holder = types.SimpleNamespace(settings=settings, settings_lock=threading.Lock())
-    scope.bind_settings(functools.partial(ScopeSession.get_setting, holder))
+    scope.bind_settings(functools.partial(ScopeSession._read_stored_setting, holder))
     return settings
 
 

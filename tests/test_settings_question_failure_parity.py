@@ -749,7 +749,7 @@ class TestTheDoubleDeferralFrame:
         session = ScopeSession.create(
             complete_settings(
                 microscope='LS850T',
-                objective_confirmed=False,
+                objective_confirmed=None,
                 turret_position=1,
                 turret_objectives={'1': None, '2': None, '3': None, '4': None},
                 objective_id='20x Oly',
@@ -804,6 +804,6 @@ class TestTheDoubleDeferralFrame:
         assert objectives == [], (
             'the objective prompt must stay suppressed while settings are provisional'
         )
-        assert settings['objective_confirmed'] is False, (
+        assert settings['objective_confirmed'] is None, (
             'unanswered, not answered-by-default -- the next usable session must ask'
         )

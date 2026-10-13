@@ -201,11 +201,11 @@ def test_none_is_refused_when_the_active_objective_is_already_unknown(tmp_path):
     s = _session(tmp_path, 'LS850')
     try:
         s.settings['objective_id'] = None
-        s.settings['objective_confirmed'] = False
+        s.settings['objective_confirmed'] = None
         for call in (lambda: s.select_objective(None), lambda: s.confirm_objective(None)):
             with pytest.raises(ArgumentTypeRefusedError) as refused:
                 call()
             assert refused.value.argument == 'objective_id'
-        assert s.settings['objective_confirmed'] is False
+        assert s.settings['objective_confirmed'] is None
     finally:
         s.shutdown()

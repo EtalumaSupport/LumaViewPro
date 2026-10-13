@@ -36,6 +36,7 @@ _OUT_OF_RANGE = {
     'simulator_tier': 'warp',
     'zstack.position': 'Current Position at Middle',
     'image_mode': '16bit',
+    'objective_confirmed': 'sideways',
     'logging.default.level': 'loud',
     'motion.acceleration_max_pct': 500,
     'protocol.period': 0.001,

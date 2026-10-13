@@ -74,7 +74,7 @@ def not_provisional(monkeypatch):
 def _turret_settings(**overrides):
     base = {
         'microscope': TURRET_MODEL,
-        'objective_confirmed': False,
+        'objective_confirmed': None,
         'turret_position': 1,
         'turret_objectives': {'1': '4x Oly', '2': None, '3': None, '4': None},
         'objective_id': '20x Oly',
@@ -346,20 +346,20 @@ class TestT9ConfirmObjective:
         assert session.scope.runtime_state.get_current_objective_id() == '10x Oly'
         assert session.settings['objective_id'] == '20x Oly'
         assert session.settings['turret_objectives'][2] == '10x Oly'
-        assert session.settings['objective_confirmed'] is True
+        assert session.settings['objective_confirmed'] == 'turret'
 
     def test_confirming_the_held_objective_reports_no_change(self, sessions):
         session = _at_slot(sessions(**_turret_settings(turret_position=2)), 2)
         assert session.confirm_objective('10x Oly', turret_position=2) is True
         assert session.confirm_objective('10x Oly', turret_position=2) is False
-        assert session.settings['objective_confirmed'] is True
+        assert session.settings['objective_confirmed'] == 'turret'
 
     def test_a_confirm_binds_the_slot_it_names(self, sessions):
         session = _at_slot(sessions(**_turret_settings(turret_position=2)), 2)
         session.confirm_objective('4x Oly', turret_position=2)
         assert session.scope.runtime_state.get_current_objective_id() == '4x Oly'
         assert session.settings['turret_objectives'][2] == '4x Oly'
-        assert session.settings['objective_confirmed'] is True
+        assert session.settings['objective_confirmed'] == 'turret'
 
     @pytest.mark.parametrize('bad', ['banana', '4', ''])
     def test_a_non_catalogue_id_raises_before_any_write(self, sessions, bad):
@@ -385,7 +385,7 @@ class TestT9ConfirmObjective:
         before = dict(session.settings['turret_objectives'])
         session.confirm_objective('4x Oly')
         assert dict(session.settings['turret_objectives']) == before
-        assert session.settings['objective_confirmed'] is True
+        assert session.settings['objective_confirmed'] == 'turretless'
 
     def test_after_a_confirm_the_question_is_answered(self, sessions):
         session = _at_slot(sessions(**_turret_settings(turret_position=2)), 2)
@@ -615,9 +615,16 @@ _ALLOWED_WRITERS = {
     # scope is initialized: there is no runtime state yet to write beside
     # the store, and initialize reads the stored id.
     ('modules/scope_session.py', 'ScopeSession._replace_an_unknown_stored_objective'),
-    # This writes a snapshot copy, not the store; the census matches the
+    # These two write a snapshot copy, not the store; the census matches the
     # subscript shape and cannot tell a copy from the live dict.
     ('modules/scope_session.py', 'ScopeSession.capture_settings_snapshot'),
+    ('modules/scope_session.py', 'ScopeSession.get_settings_snapshot'),
+    # A confirmation stored before it recorded its light path, dated at
+    # bring-up, the one place the light path is known.
+    ('modules/scope_session.py', 'ScopeSession._date_an_undated_objective_confirmation'),
+    # A stored unconfirmed flag from before the light path was recorded,
+    # folded to the unconfirmed value at load.
+    ('modules/settings_init.py', 'normalize_loaded_settings'),
     ('modules/settings_init.py', '_normalize_turret_slot_keys'),
 }
 
