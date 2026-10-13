@@ -26,10 +26,12 @@ from __future__ import annotations
 import asyncio
 import collections
 import dataclasses
+import functools
 import inspect
 import json
 import threading
-from collections.abc import AsyncIterator, Callable
+import types
+from collections.abc import AsyncIterator, Callable, Mapping
 
 import pydantic
 
@@ -158,14 +160,11 @@ class EventStream:
     def send(self, name: str, record: object, **added: object) -> None:
         """Send *record* as event *name*, with *added* beside its fields.
 
-        A field holding a live object is left out: a run executes a copy of
+        A field that can hold a live object is left out, whatever it holds
+        this time, as ``published`` describes it: a run executes a copy of
         its protocol, which no client holds, and ``run`` names the run.
         """
-        fields = {
-            f: getattr(record, f)
-            for f in _fields(type(record))
-            if type(getattr(record, f)) not in self._handed_out
-        }
+        fields = {f: getattr(record, f) for f in _sent_fields(type(record), self._handed_out)}
         data = json.dumps({**self._encode(fields), **added}, allow_nan=False)
         with self._lock:
             if self._loop is None:
@@ -279,6 +278,25 @@ def _fields(record: type) -> tuple[str, ...]:
     return tuple(f.name for f in dataclasses.fields(record))
 
 
+# Kept per record class: reading the declared types costs about 1.4 ms, on
+# the sending thread of every event, and a class's fields never change.
+@functools.cache
+def _sent_fields(
+    record: type, handed_out: frozenset[type]
+) -> Mapping[str, tuple[wire_encoding.Outbound, ...]]:
+    """Each field of *record* an event carries, with its wire alternatives: each whose declared type cannot hold a live object."""
+    classes = wire_encoding.project_classes()
+    aliases = wire_encoding.project_aliases()
+    found = {}
+    for f in _fields(record):
+        alternatives = wire_encoding.outbound(
+            wire_encoding._field_text(record, f), classes, aliases
+        )
+        if not any(a.form == wire_encoding.HANDLE and a.cls in handed_out for a in alternatives):
+            found[f] = alternatives
+    return types.MappingProxyType(found)
+
+
 def _event_name(member_name: str) -> str:
     return member_name.removeprefix('add_').removesuffix('_listener')
 
@@ -327,14 +345,10 @@ def published(
     }
     run_events = _run_events()
     for name, record in sorted(records(session).items()):
-        fields = {}
-        for f in _fields(record):
-            alternatives = wire_encoding.outbound(
-                wire_encoding._field_text(record, f), classes, aliases
-            )
-            if any(a.form == wire_encoding.HANDLE and a.cls in handed_out for a in alternatives):
-                continue
-            fields[f] = (routes.answer_type(alternatives), ...)
+        fields = {
+            f: (routes.answer_type(alternatives), ...)
+            for f, alternatives in _sent_fields(record, handed_out).items()
+        }
         if name in run_events:
             fields['run'] = (routes.Handle | None, ...)
         found[name] = _event_model(name, **fields)

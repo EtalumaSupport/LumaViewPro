@@ -4,7 +4,9 @@
 ``GET /api/v1/events`` (``rest.events``): the first event is ``status``;
 each listener member's event follows as its declared record; a run's events
 each name the run by its handle, its first ones included, which can come
-before the call that started it returns; an outcome is on the stream only
+before the call that started it returns; a field that can hold a live
+object is left out whatever it holds, as the stream's description says;
+an outcome is on the stream only
 when nobody asked for it, once per ``outcome_id``; a reconnect with
 ``Last-Event-ID`` is sent what it missed, or ``reset`` and ``status`` once
 that is no longer held; a quiet stream carries a comment; a stream that
@@ -17,6 +19,7 @@ lets a client stop reading one.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import dataclasses
 import json
@@ -27,7 +30,10 @@ import pytest
 import uvicorn
 
 import rest.events
+from modules import wire_encoding
+from modules.api_surface import api_fields
 from modules.notification_center import notifications
+from modules.protocol import Protocol
 from modules.scope_session import ScopeSession
 from rest.app import build_app
 from tests.scope_fakes import home_sim_scope
@@ -183,6 +189,47 @@ def test_every_event_of_a_run_names_the_run_its_call_handed_out(client, session,
     assert 'protocol' not in run_events[-1]['data']
     # A path crosses as its name in the live folder.
     assert run_events[-1]['data']['run_dir']['name'].startswith('ProtocolData/')
+
+
+@api_fields('outcome', 'protocol')
+@dataclasses.dataclass(frozen=True)
+class _EndedWithoutProtocol:
+    outcome: str
+    protocol: Protocol | None
+
+
+def test_a_field_that_can_hold_a_live_object_is_left_out_while_it_holds_none(session, live):
+    # No event's record declares an optional live object yet, so the record
+    # is the test's own, sent on a stream the way the server builds one; the
+    # server does not hand its stream out, so this reads the stream itself.
+    classes, aliases = wire_encoding.project_classes(), wire_encoding.project_aliases()
+    stream = rest.events.EventStream(
+        session,
+        lambda value: wire_encoding.encode(
+            value,
+            live_folder=live,
+            handle=lambda obj: pytest.fail('nothing to hand out'),
+            job=lambda future: pytest.fail('no job'),
+        ),
+        wire_encoding.handed_out(ScopeSession, classes, aliases),
+    )
+
+    async def the_run_ended_event() -> str:
+        stream.open(asyncio.get_running_loop())
+        try:
+            reading = stream.read(None)
+            await anext(reading)
+            stream.send('run_ended', _EndedWithoutProtocol('completed', None))
+            async for frame in reading:
+                if frame.startswith('id: ') and '\nevent: run_ended\n' in frame:
+                    return frame
+            raise AssertionError('the stream ended')
+        finally:
+            stream.close()
+
+    frame = asyncio.run(the_run_ended_event())
+
+    assert json.loads(frame.split('data: ', 1)[1]) == {'outcome': 'completed'}
 
 
 def test_an_outcome_nobody_asked_for_is_sent_once_and_an_answered_one_never(client):
