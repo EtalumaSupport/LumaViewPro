@@ -35,7 +35,7 @@ from modules.lumascope_api.imaging import (
 )
 from modules.scope_session import ScopeSession
 
-_MEMBERS = ('set_layer_auto_gain', '_layers_on_scope')
+_MEMBERS = ('set_layer_auto_gain', '_layers_on_scope', '_store_setting')
 
 
 def _session(settings, lock=None, layers=('BF', 'PC', 'DF', 'Blue', 'Green', 'Red')):

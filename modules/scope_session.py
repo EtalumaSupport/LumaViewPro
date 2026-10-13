@@ -1559,7 +1559,7 @@ class ScopeSession:
                     f'({self.scope.layer_identity.model}) has no {name} layer; '
                     'it is set to acquire nothing.'
                 )
-                self.settings[name]['acquire'] = None
+                self._store_setting(f'{name}.acquire', None)
 
     @api
     def apply_layer_settings(self, protocol: 'Protocol') -> None:
@@ -1583,10 +1583,9 @@ class ScopeSession:
         present = self._layers_on_scope()
         with self.settings_lock:
             for name in layers:
-                self.settings[name]['acquire'] = None
-                stim = self.settings[name].get('stim_config')
-                if stim is not None:
-                    stim['enabled'] = False
+                self._store_setting(f'{name}.acquire', None)
+                if self.settings[name].get('stim_config') is not None:
+                    self._store_setting(f'{name}.stim_config.enabled', False)
             for name, row in rows.items():
                 if name not in layers:
                     logger.warning(
@@ -1601,14 +1600,13 @@ class ScopeSession:
                         'that layer is dropped on load.'
                     )
                     continue
-                layer = self.settings[name]
-                layer['acquire'] = row['Acquire']
+                self._store_setting(f'{name}.acquire', row['Acquire'])
                 for column, key in _LAYER_SETTINGS_KEYS:
                     if row[column] is not None:
-                        layer[key] = row[column]
-                stim = layer.get('stim_config')
+                        self._store_setting(f'{name}.{key}', row[column])
+                stim = self.settings[name].get('stim_config')
                 if row['Stim_Enabled'] is not None and isinstance(stim, dict):
-                    stim['enabled'] = row['Stim_Enabled']
+                    self._store_setting(f'{name}.stim_config.enabled', row['Stim_Enabled'])
 
     @api
     def save_protocol(self, protocol: 'Protocol', file_path: FilePath) -> pathlib.Path:
@@ -1682,10 +1680,9 @@ class ScopeSession:
 
     def _write_layer_acquire(self, layer: str, mode: 'str | None') -> None:
         """Under ``settings_lock``: ``layer`` acquires ``mode``, and stops stimulating if it does."""
-        self.settings[layer]['acquire'] = mode
-        stim = self.settings[layer].get('stim_config')
-        if mode is not None and stim is not None:
-            stim['enabled'] = False
+        self._store_setting(f'{layer}.acquire', mode)
+        if mode is not None and self.settings[layer].get('stim_config') is not None:
+            self._store_setting(f'{layer}.stim_config.enabled', False)
 
     @api
     def set_layer_auto_gain(self, layer: str, enabled: bool) -> 'AutoGainLock | None':
@@ -1726,13 +1723,12 @@ class ScopeSession:
         else:
             lock = self.scope.imaging.lock_auto_gain()
         with self.settings_lock:
-            stored = self.settings[layer]
             if lock is not None and lock.state is not None:
                 if common_utils.is_valid_gain_db(lock.gain_db):
-                    stored['gain_db'] = round(lock.gain_db, 1)
+                    self._store_setting(f'{layer}.gain_db', round(lock.gain_db, 1))
                 if common_utils.is_valid_exposure_ms(lock.exposure_ms):
-                    stored['exposure_ms'] = round(lock.stored_exposure_ms, 2)
-            stored['auto_gain'] = enabled
+                    self._store_setting(f'{layer}.exposure_ms', round(lock.stored_exposure_ms, 2))
+            self._store_setting(f'{layer}.auto_gain', enabled)
         return lock
 
     @api
@@ -2340,11 +2336,12 @@ class ScopeSession:
             layer_values['video_config'] = copy.deepcopy(video_config)
         stim_configs = step.get('Stim_Config')
         with self.settings_lock:
-            self.settings[color].update(layer_values)
+            for key, value in layer_values.items():
+                self._store_setting(f'{color}.{key}', value)
             self._write_layer_acquire(color, step['Acquire'])
             if isinstance(stim_configs, dict):
                 for stim_layer, stim_config in stim_configs.items():
-                    self.settings[stim_layer]['stim_config'] = copy.deepcopy(stim_config)
+                    self._store_setting(f'{stim_layer}.stim_config', copy.deepcopy(stim_config))
 
     def _step_led_ctx(self, step) -> LedTransitionCtx:
         """The step's LED preview: its channel when the preview is on, all dark when off.
@@ -3456,7 +3453,7 @@ class ScopeSession:
                 self.select_objective(objective_id)
             changed = self.scope.runtime_state.get_current_objective_id() != before
         with self.settings_lock:
-            self.settings['objective_confirmed'] = True
+            self._store_setting('objective_confirmed', True)
         logger.info(
             f'[Session  ] objective confirmed: {objective_id!r}'
             + (f' at turret position {turret_position}' if turret_position is not None else '')
@@ -3561,7 +3558,10 @@ class ScopeSession:
             return
         self._refuse_configuration_change_while_held('assign_turret_objective')
         with self.settings_lock:
-            self.settings['turret_objectives'][position] = objective_id
+            # The slots are keyed by integer, which a dotted path cannot
+            # name, so the slot map is stored whole.
+            slots = {**self.settings['turret_objectives'], position: objective_id}
+            self._store_setting('turret_objectives', slots)
 
     @api
     def clear_turret_objective(self, position: int) -> None:
@@ -3582,7 +3582,8 @@ class ScopeSession:
         if self.settings['turret_objectives'].get(position) is not None:
             self._refuse_configuration_change_while_held('clear_turret_objective')
         with self.settings_lock:
-            self.settings['turret_objectives'][position] = None
+            slots = {**self.settings['turret_objectives'], position: None}
+            self._store_setting('turret_objectives', slots)
         logger.info(
             f'[Session  ] Turret position {position} cleared; the active objective is now '
             f'{self.scope.runtime_state.get_current_objective_id()!r}'
@@ -3772,7 +3773,7 @@ class ScopeSession:
         if target is not None:
             imaging.set_pixel_format(target)
         with self.settings_lock:
-            self.settings['image_mode'] = mode
+            self._store_setting('image_mode', mode)
 
     @api
     def set_binning_size(self, size: int) -> 'dict | None':
@@ -3805,10 +3806,10 @@ class ScopeSession:
         native = self._native_frame()
         imaging.set_binning_size(size)
         with self.settings_lock:
-            self.settings['binning']['size'] = label
+            self._store_setting('binning.size', label)
             held = imaging.frame_size_cached
-            self.settings['frame']['width'] = int(held['width'])
-            self.settings['frame']['height'] = int(held['height'])
+            self._store_setting('frame.width', int(held['width']))
+            self._store_setting('frame.height', int(held['height']))
         return self._apply_frame(native, self._target_frame(native, size))
 
     @api
@@ -3976,9 +3977,9 @@ class ScopeSession:
             stored = {'width': frame['width'], 'height': frame['height']}
             if stored == delivered and stored_label == label:
                 return
-            self.settings['binning']['size'] = label
-            frame['width'] = int(delivered['width'])
-            frame['height'] = int(delivered['height'])
+            self._store_setting('binning.size', label)
+            self._store_setting('frame.width', int(delivered['width']))
+            self._store_setting('frame.height', int(delivered['height']))
         logger.info(
             f'[Session  ] stored {stored_label} {stored["width"]}x{stored["height"]}; the camera '
             f'delivers {label} {delivered["width"]}x{delivered["height"]} -- the delivered '
@@ -3995,11 +3996,10 @@ class ScopeSession:
             if delivered is None:
                 return None
         with self.settings_lock:
-            frame = self.settings['frame']
-            frame['native_width'] = int(native['width'])
-            frame['native_height'] = int(native['height'])
-            frame['width'] = int(delivered['width'])
-            frame['height'] = int(delivered['height'])
+            self._store_setting('frame.native_width', int(native['width']))
+            self._store_setting('frame.native_height', int(native['height']))
+            self._store_setting('frame.width', int(delivered['width']))
+            self._store_setting('frame.height', int(delivered['height']))
         return dict(delivered)
 
     # --- Hardware commands: NOT forwarded ---

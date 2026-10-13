@@ -79,6 +79,7 @@ def _leave(settings: dict, layer: str, lock: AutoGainLock) -> None:
         settings=settings,
         settings_lock=threading.Lock(),
     )
+    session._store_setting = ScopeSession._store_setting.__get__(session)
     ScopeSession.set_layer_auto_gain(session, layer, False)
 
 

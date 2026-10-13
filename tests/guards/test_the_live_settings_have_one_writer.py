@@ -103,3 +103,19 @@ def test_nothing_above_the_session_writes_the_live_settings():
         f'direct writes into the live settings; call update_settings(path, value) instead: {over}'
     )
     assert not stale, f'lower the pin to the tree (pinned, found): {stale}'
+
+
+def test_inside_the_session_only_its_writer_writes_the_live_settings():
+    """Every Session write of the live settings goes through ``_store_setting``.
+
+    One writer is the one place a write can be marked for saving; a Session
+    member that subscripts ``self.settings`` itself is a write that place
+    never sees.
+    """
+    tree = parse_module('modules/scope_session.py')
+    found = {
+        qualname: sorted(lines)
+        for qualname, fn in walk_defs(tree.body)
+        if not qualname.endswith('._store_setting') and (lines := _direct_writes(fn))
+    }
+    assert not found, f'write through _store_setting instead (member: lines): {found}'

@@ -32,15 +32,20 @@ class TestTurretSlotKeyMatchesTheFile:
         assert loaded.get(2) == '20x w/collar'
         assert json.dumps(loaded).count('"2"') == 2, 'the int key round-trips as a duplicate'
 
-    def test_assign_and_clear_write_the_runtime_key_type(self):
-        from modules.scope_session import ScopeSession
-
-        for name in ('assign_turret_objective', 'clear_turret_objective'):
-            src = inspect.getsource(getattr(ScopeSession, name))
-            assert "self.settings['turret_objectives'][position]" in src, (
-                f'{name} must key the slot by the int the pipeline guarantees; '
-                f'a str() key writes a second entry beside the real one'
-            )
+    def test_assign_and_clear_write_the_runtime_key_type(self, sim_turreted_session):
+        """A slot written and cleared stays keyed by its int, with no str twin."""
+        session = sim_turreted_session
+        before = dict(session.settings['turret_objectives'])
+        try:
+            session.assign_turret_objective(4, '4x Oly')
+            assert session.settings['turret_objectives'][4] == '4x Oly'
+            session.clear_turret_objective(4)
+            slots = session.settings['turret_objectives']
+            assert slots[4] is None
+            assert {type(k) for k in slots} == {int}, slots
+        finally:
+            if before[4] is not None:
+                session.assign_turret_objective(4, before[4])
 
     def test_a_populated_slot_map_survives_a_json_round_trip(self):
         """A dict whose keys all agree carries every slot across a save/load
