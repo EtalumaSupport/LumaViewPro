@@ -106,6 +106,24 @@ class TestGoingToAStep:
         session.go_to_step(protocol, bf_idx)
         assert _camera(session) == (_BF['exposure_ms'], _BF['gain_db'])
 
+    def test_a_manual_step_after_an_auto_gain_step_holds_its_own_gain(self, session):
+        """Going back to a manual step from an auto-gain one puts the manual
+        step's gain on the camera, and the capture gate expects it (#840).
+
+        The camera's loop owns the gain while it runs and takes back a write
+        made under it, which the simulated camera models; the gain is written
+        once the loop is off. Written before the loop was turned off, the
+        camera stayed at the loop's value and the gate expected nothing.
+        """
+        session.settings['Blue']['auto_gain'] = True
+        protocol, bf_idx, blue_idx = _two_step_protocol(session)
+
+        session.go_to_step(protocol, blue_idx)
+        session.go_to_step(protocol, bf_idx)
+
+        assert _camera(session) == (_BF['exposure_ms'], _BF['gain_db'])
+        assert session.scope.imaging.frame_validity.target('gain') == _BF['gain_db']
+
     def test_a_camera_refusal_is_raised_once_the_stage_has_arrived(self, session, monkeypatch):
         protocol, _bf_idx, blue_idx = _two_step_protocol(session)
         refused = CameraSettingRejected('gain_db', 10.0, message='x')

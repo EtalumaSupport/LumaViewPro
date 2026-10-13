@@ -1173,6 +1173,12 @@ class SimulatedCamera(Camera):
         the simulator and not only on a bench. The simulated gain does not
         move on a refusal.
 
+        While continuous auto-gain runs, the write is accepted and answered
+        but the gain stays where the loop holds it: a Basler body takes a
+        Gain write under GainAuto=Continuous, reads it back, and its loop
+        takes the node back at its next update, so a value meant for the
+        sensor must be written once the loop is off.
+
         Args:
             value: Gain in dB.
 
@@ -1186,7 +1192,8 @@ class SimulatedCamera(Camera):
             logger.warning(f'[CAM Sim   ] Gain {value} dB outside [{low}, {high}] dB')
             return False
         with self._lock:
-            self._gain = float(value)
+            if not self._auto_gain_enabled:
+                self._gain = float(value)
             if _cam_log is not None:
                 _cam_log.info(f'sim Gain.SetValue({float(value):.3f})')
             logger.debug(f'[CAM Sim   ] Gain set to {value}')

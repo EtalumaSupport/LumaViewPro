@@ -4679,10 +4679,11 @@ class ImagingAPI:
         either the caller deliberately trimmed them (autofocus keeps the
         values its run explicitly targeted) or they were never readable at
         save time -- save_camera_state already WARNed about the latter.
-        The auto-gain loop goes back to the snapshot's state after the
-        setters: re-armed when an arm was recorded, disarmed when none was
-        and one stands now (a run aborted between a step's arm and its
-        disarm), untouched when the field is absent. A re-arm clamps the
+        The auto-gain loop goes back to the snapshot's state: re-armed after
+        the setters when an arm was recorded; disarmed before them when none
+        was and one stands now (a run aborted between a step's arm and its
+        disarm), since a value written under the camera's loop is taken back
+        by it; untouched when the field is absent. A re-arm clamps the
         exposure to the class ceiling like any arm.
 
         Args:
@@ -4748,17 +4749,17 @@ class ImagingAPI:
             f'{_describe_geometry(snapshot)}'
         )
         self._restore_camera_geometry(snapshot)
+        arm_result = None
+        if arm_action == 'disarmed':
+            arm_result = self._set_auto_gain_impl(False, dict(standing.settings))
         if gain_known and self._set_gain_db_impl(gain_db) is False:
             self._report_refused_write(_value_rejection('gain_db', gain_db))
         if exposure_known and self._set_exposure_ms_impl(exposure_ms) is False:
             self._report_refused_write(_value_rejection('exposure_ms', exposure_ms))
-        arm_result = None
         if arm_action == 're-armed':
             arm_result = self._set_auto_gain_impl(
                 True, dict(arm.settings), resume_after_capture=arm.resume_after_capture
             )
-        elif arm_action == 'disarmed':
-            arm_result = self._set_auto_gain_impl(False, dict(standing.settings))
         if arm_result is False:
             self._report_refused_write(
                 _mode_rejection('auto_gain', arm_action == 're-armed', 'auto-gain')
@@ -4852,7 +4853,9 @@ class ImagingAPI:
         """Apply per-layer camera settings in a single batched call.
 
         Sets gain, exposure, and auto-gain state. Replaces 3 separate
-        IOTask queues with a single call for atomicity. Arming may clamp
+        IOTask queues with a single call for atomicity. Turning auto-gain
+        off goes first and arming it goes last, so gain and exposure are
+        written with the camera's loop off. Arming may clamp
         the exposure just handed in down to the layer class's auto-exposure
         ceiling (the loop cannot bring an exposure above its bound back
         inside it); the log line below reports the request, the arm's own
@@ -4899,13 +4902,25 @@ class ImagingAPI:
         gain = self.applied_gain_db_for(gain_db)
         exposure = self.applied_exposure_ms_for(exposure_ms)
         auto = self.applied_auto_gain_for(auto_gain)
-        gain_result = self._set_gain_db_impl(gain.applied)
-        exposure_result = self._set_exposure_ms_impl(exposure.applied)
-        auto_gain_result = None
-        if auto_gain_settings is not None:
-            auto_gain_result = self._set_auto_gain_impl(
+
+        def _write_mode():
+            return self._set_auto_gain_impl(
                 auto.applied, settings=auto_gain_settings, resume_after_capture=resume_after_capture
             )
+
+        # The camera's loop owns gain and exposure while it runs: a value
+        # written under it is answered as applied and then taken back by the
+        # loop's next update, and turning the loop off afterwards freezes the
+        # loop's value. So a manual layer's values are written once the loop
+        # is off, and an auto layer's seed values before it is armed (the
+        # arm's ceiling clamp reads the exposure just written).
+        auto_gain_result = None
+        if auto_gain_settings is not None and not auto.applied:
+            auto_gain_result = _write_mode()
+        gain_result = self._set_gain_db_impl(gain.applied)
+        exposure_result = self._set_exposure_ms_impl(exposure.applied)
+        if auto_gain_settings is not None and auto.applied:
+            auto_gain_result = _write_mode()
         # Both numbers when the camera held one down, so a bundle shows the
         # intent that was stored next to the value the sensor took; one
         # number would read as the user having chosen the lower one.

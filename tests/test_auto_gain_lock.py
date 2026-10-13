@@ -465,6 +465,23 @@ def test_run_restore_re_arms_the_live_view_arm():
     assert imaging.exposure_ms_cached == 12.0
 
 
+def test_a_restore_that_disarms_puts_back_the_snapshots_gain():
+    """A restore taken with no arm standing, over an arm that stands now,
+    turns the loop off and then writes the snapshot's gain, so the camera
+    and the capture gate both hold it (#840). The loop owns the gain while it
+    runs and takes back a write made under it."""
+    imaging, cam = _build(ae_lands_on_ms=8.0)
+    imaging._set_gain_db_impl(3.0)
+    snapshot = imaging.save_camera_state('protocol')
+    _arm(imaging, AG_SETTINGS_TRANSMITTED, resume_after_capture=False)
+
+    imaging.restore_camera_state(snapshot)
+
+    assert cam._auto_gain_enabled is False
+    assert cam.get_gain() == 3.0
+    assert imaging.frame_validity.target('gain') == 3.0
+
+
 def test_restore_re_arm_clamps_a_trimmed_snapshot():
     """The autofocus trim restores no exposure, so the re-arm sees whatever
     the sweep left in the cache; above the class ceiling it is clamped like
