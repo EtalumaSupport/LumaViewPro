@@ -1836,13 +1836,20 @@ class TestDiskSpaceCheck:
     """
 
     @patch('modules.protocol_run_loop.check_disk_space_ok')
-    def test_low_disk_aborts_image_protocol(self, mock_check, executor, scope, tmp_path):
-        """With very low disk space, image capture should abort without hanging."""
+    def test_low_disk_aborts_image_protocol(
+        self, mock_check, executor, scope, tmp_path, centre_posts
+    ):
+        """With very low disk space, image capture should abort without hanging,
+        ending failed at the disk floor and shown once under its title."""
         mock_check.return_value = (False, 500.0)  # 500 MB free, threshold exceeded
 
         protocol = _make_single_step_protocol(color='BF')
-        completed, _ = _run_and_wait(executor, protocol, tmp_path)
+        completed, ended = _run_and_wait(executor, protocol, tmp_path)
         assert completed, 'Protocol did not abort within timeout when disk space is low'
+        outcome = ended['outcome']
+        assert (outcome.status, outcome.reason) == ('failed', 'disk_space_critical'), outcome
+        fatal = [(n.category, n.title) for n in centre_posts if n.shown and n.fatal]
+        assert fatal == [('Protocol', 'Disk Space Critical')], fatal
 
     @patch('modules.protocol_run_loop.check_disk_space_ok')
     def test_large_protocol_needs_more_than_2gb(self, mock_check, executor, scope, tmp_path):
@@ -2225,6 +2232,22 @@ class TestMotionTimeoutEndsRunInsteadOfWedging:
         assert executor._state == ProtocolState.IDLE, (
             f'Expected IDLE after cleanup, got {executor._state}'
         )
+
+    def test_a_plain_motion_timeout_is_shown_once_under_its_title(
+        self, executor, scope, tmp_path, monkeypatch, centre_posts
+    ):
+        """The timeout with a STOP that worked: one fatal popup, the ending's title."""
+        from modules.run_outcome import ENDING_TITLES
+
+        executor.MOTION_TIMEOUT_SECONDS = 0.3
+        monkeypatch.setattr(scope.motion, 'is_moving', lambda *a, **kw: True)
+
+        completed, ended = _run_and_wait(executor, _make_single_step_protocol(color='BF'), tmp_path)
+
+        assert completed
+        assert ended['outcome'].reason == 'motion_timeout', ended['outcome']
+        fatal = [n.title for n in centre_posts if n.shown and n.fatal]
+        assert fatal == [ENDING_TITLES['motion_timeout']], fatal
 
     def test_motion_timeout_stops_the_motor(self, executor, scope, tmp_path, monkeypatch):
         """A motion timeout must halt the in-flight move, not just error out.
