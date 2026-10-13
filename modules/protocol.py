@@ -471,6 +471,8 @@ class ProtocolScheduleRefusedError(ProtocolFormatError):
     """
 
     reason = 'schedule_not_runnable'
+    # A schedule the scope cannot run is a protocol refused, and says so.
+    title = ProtocolFormatError.title
 
     _RULES: ClassVar[dict] = {
         'period': 'a period is 0 (one scan) or at least 1 second',

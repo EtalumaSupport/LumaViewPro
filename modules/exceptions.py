@@ -1163,12 +1163,11 @@ class CaptureError(_Umbrella, Exception):
     which raises carry a usable code and which carry a placeholder.
 
     ``title`` is the heading the reporter shows above the message, which is
-    written for the person. It is the type's, so every raise site reads the
-    same; a subclass with its own heading sets its own.
+    written for the person. It is each child's, read from its own table; the
+    subject has none, as it has no kind.
     """
 
     words_for_person = True
-    title = 'Capture Failed'
 
     def __init__(self, message: str, reason: str):
         super().__init__(message)

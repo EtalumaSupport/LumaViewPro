@@ -308,21 +308,51 @@ def test_every_raisable_outcome_declares_its_reason():
     )
 
 
+def _owner(cls, attr):
+    """The class along ``cls``'s MRO whose own body declares ``attr``, or None."""
+    return next((k for k in cls.__mro__ if attr in vars(k)), None)
+
+
+def test_every_title_and_reason_is_the_class_s_own():
+    """A title or reason a class only inherits passes the two guards above on
+    its parent's value, so a class that lost its own declaration answered with
+    its parent's heading and code and every guard stayed green. Each is declared
+    in the class's own body, set per instance (no class declares it), or read
+    from the class's own reason-keyed table; a class that shares its parent's
+    says so in one line (``title = Parent.title``)."""
+    inherited = [
+        f'{cls.__qualname__}.{attr} <- {_owner(cls, attr).__qualname__}'
+        for cls in RAISABLE
+        for attr in ('reason', 'title')
+        if _owner(cls, attr) not in (None, cls)
+        and not any(table in vars(cls) for table in ('_TITLES', '_WORDS'))
+    ]
+    assert inherited == [], f'declare it in the class, or read it from its own table: {inherited}'
+
+
 def test_no_outcome_sets_a_title_per_instance():
     """``self.title`` is assigned only from a table, so a title cannot be chosen per raise."""
-    from_a_table = ('self._TITLES[', 'ENDING_TITLES[', 'type(self)._TITLES[')
+    from_a_table = ('self._TITLES[', 'self._WORDS[', 'ENDING_TITLES[', 'type(self)._TITLES[')
     per_instance = []
+
+    def names_self_title(target):
+        if isinstance(target, ast.Tuple):
+            return any(names_self_title(element) for element in target.elts)
+        return (
+            isinstance(target, ast.Attribute)
+            and target.attr == 'title'
+            and ast.unparse(target.value) == 'self'
+        )
+
     for cls in (*RAISABLE, *UMBRELLAS):
         init = vars(cls).get('__init__')
         if init is None:
             continue
         tree = ast.parse(textwrap.dedent(inspect.getsource(init)))
         for node in ast.walk(tree):
+            # A tuple target too: ``self.title, message = self._WORDS[reason]``.
             sets_title = isinstance(node, ast.Assign) and any(
-                isinstance(t, ast.Attribute)
-                and t.attr == 'title'
-                and ast.unparse(t.value) == 'self'
-                for t in node.targets
+                names_self_title(t) for t in node.targets
             )
             if sets_title and not ast.unparse(node.value).startswith(from_a_table):
                 per_instance.append(f'{cls.__qualname__}: {ast.unparse(node)}')
@@ -344,14 +374,21 @@ def test_no_production_call_passes_a_title_to_an_outcome():
     assert passing == [], f'a title passed where an outcome is built: {passing}'
 
 
-def test_a_refusal_s_titles_and_causes_name_the_same_reasons():
-    """Two reason-keyed tables on one class name one vocabulary: a reason with
-    a cause and no title fails where it is raised, a refusal turned crash."""
-    apart = [
-        f'{cls.__qualname__}: {sorted(set(vars(cls)["causes"]) ^ set(vars(cls)["_TITLES"]))}'
-        for cls in RAISABLE
-        if 'causes' in vars(cls)
-        and '_TITLES' in vars(cls)
-        and set(vars(cls)['causes']) != set(vars(cls)['_TITLES'])
-    ]
-    assert apart == [], f'causes and _TITLES name different reasons: {apart}'
+_REASON_TABLES = ('causes', '_TITLES', '_WORDS', '_STATUSES', '_SENTENCES')
+
+
+def test_every_reason_keyed_table_on_a_class_names_one_vocabulary():
+    """Two reason-keyed tables on one class name one vocabulary: a reason one
+    table has and another lacks fails where it is raised, a refusal turned crash
+    (a reason with a cause and no status is a KeyError at the raise)."""
+    apart = []
+    for cls in RAISABLE:
+        tables = {name: set(vars(cls)[name]) for name in _REASON_TABLES if name in vars(cls)}
+        keys = list(tables.values())
+        if any(table != keys[0] for table in keys[1:]):
+            union = set().union(*keys)
+            missing = {
+                name: sorted(union - table) for name, table in tables.items() if union - table
+            }
+            apart.append(f'{cls.__qualname__}: {missing}')
+    assert apart == [], f'each table lacks the reasons named: {apart}'
