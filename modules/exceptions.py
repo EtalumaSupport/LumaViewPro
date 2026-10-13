@@ -2938,6 +2938,15 @@ class ArgumentRefusedError(Refusal, ValueError):
             - ``'slot_not_holding_objective'`` -- a turret slot given for
               steps naming an objective the slot does not hold now
               (``offered``: the slots that hold it).
+            - ``'objective_in_several_slots'`` -- an objective to turn
+              the turret to that two or more slots hold (``offered``: the
+              slots), so no one slot is meant.
+            - ``'objective_not_on_turret'`` -- an objective to turn the
+              turret to that no slot holds (``offered``: the objectives
+              the slots hold, in slot order).
+            - ``'turret_position_required'`` -- an objective confirmed on
+              a turret scope with no slot named; the confirmation records
+              the glass in a slot.
         argument: The name of the argument refused.
         value: What was given, as given.
         offered: The values the argument takes, where it takes a list;
@@ -3074,6 +3083,20 @@ class ArgumentRefusedError(Refusal, ValueError):
         'slot_not_holding_objective': (
             'Slot Does Not Hold That Objective',
             '{argument} must be a slot holding the objective, one of {offered}; {value!r} is not.',
+        ),
+        'objective_in_several_slots': (
+            'Objective in Several Slots',
+            '{value!r} is in turret slots {offered}; turn the turret to the slot to use.',
+        ),
+        'objective_not_on_turret': (
+            'Objective Not on the Turret',
+            '{value!r} is in no turret slot; the turret holds {offered}. Assign it to the '
+            'slot it is installed in.',
+        ),
+        'turret_position_required': (
+            'Turret Slot Not Named',
+            '{argument} is needed on a scope with a turret: the confirmation records the '
+            'objective in a slot.',
         ),
     }
 

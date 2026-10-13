@@ -45,6 +45,7 @@ from modules.exceptions import (
     unknown_positions_sentence,
 )
 from modules.lumascope_api.imaging import camera_range_words
+from modules.lumascope_api.runtime_state import slots_holding
 from modules.api_surface import api, api_fields
 
 if TYPE_CHECKING:
@@ -1210,11 +1211,6 @@ class ProtocolsAPI:
             return -1
         return self._scope.motion.get_turret_slot()
 
-    @staticmethod
-    def _holding(objective_id: object, turret_config: dict) -> tuple[int, ...]:
-        """The slots holding ``objective_id``, ascending."""
-        return tuple(sorted(slot for slot, held in turret_config.items() if held == objective_id))
-
     @classmethod
     def _slot_meant(cls, objective_id: object, slot: int, turret_config: dict) -> int | None:
         """The slot a step means, or None when the step cannot say.
@@ -1227,7 +1223,7 @@ class ProtocolsAPI:
         """
         if slot != -1:
             return slot if turret_config.get(slot) == objective_id else None
-        holding = cls._holding(objective_id, turret_config)
+        holding = slots_holding(objective_id, turret_config)
         return holding[0] if len(holding) == 1 else None
 
     def _fill_turret_slots(self, protocol: Protocol) -> None:
@@ -1302,7 +1298,7 @@ class ProtocolsAPI:
         ):
             if self._slot_meant(objective_id, slot, turret_config) is not None:
                 continue
-            if not self._holding(objective_id, turret_config):
+            if not slots_holding(objective_id, turret_config):
                 continue
             unchosen, reassigned = asked.setdefault(objective_id, ([], []))
             unchosen.append(idx)
@@ -1313,7 +1309,7 @@ class ProtocolsAPI:
                 objective_id=objective_id,
                 steps=tuple(unchosen),
                 reassigned=tuple(reassigned),
-                choices=self._holding(objective_id, turret_config),
+                choices=slots_holding(objective_id, turret_config),
             )
             for objective_id, (unchosen, reassigned) in asked.items()
         ]
@@ -1333,7 +1329,7 @@ class ProtocolsAPI:
                 does not hold ``objective_id`` now (``offered``: the slots
                 that do). Nothing is changed.
         """
-        holding = self._holding(objective_id, self._scope.runtime_state.get_turret_config())
+        holding = slots_holding(objective_id, self._scope.runtime_state.get_turret_config())
         if slot not in holding:
             raise ArgumentRefusedError(
                 'slot_not_holding_objective', argument='slot', value=slot, offered=holding

@@ -424,8 +424,9 @@ class TestProvisionalSettings:
             settings_file=str(data / 'current.json'),
         )
 
-        # The answer, as the objective question's popup gives it.
-        session.confirm_objective(session.settings['objective_id'], turret_position=1)
+        # The answer, as the objective question's popup gives it on the
+        # shipped template's turretless model: no slot.
+        session.confirm_objective(session.settings['objective_id'])
         session.shutdown()
 
         with open(data / 'current.json') as f:

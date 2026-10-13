@@ -173,22 +173,24 @@ class TestAFailedMoveShowsNoSlot:
 
 
 class TestAPickReachesTheSessionOnce:
-    def test_a_pick_assigns_the_slot_in_the_light_path(self, stand, session):
+    def test_a_pick_turns_the_turret_to_the_slot_holding_it(self, stand, session, centre_posts):
+        """The pick is a turret move, so it runs on the IO lane, not inline,
+        where a blocking move raises; it writes no slot."""
+        home_sim_scope(session.scope)
+        session.scope.motion.move_turret(3)
+        stand.pick_objective('4x Oly')
+        assert centre_posts == []
+        assert _down(stand) == [2]
+        assert stand.ids['objective_spinner2'].text == '4x Oly'
+        assert session.settings['turret_objectives'] == {int(k): v for k, v in ASSIGNED.items()}
+
+    def test_a_pick_of_glass_no_slot_holds_is_refused_and_shown(self, stand, session, centre_posts):
         home_sim_scope(session.scope)
         session.scope.motion.move_turret(3)
         stand.pick_objective('20x Oly')
-        assert session.settings['turret_objectives'][3] == '20x Oly'
-        # No other slot was written.
-        assert session.settings['turret_objectives'][1] == '10x Oly'
-        assert stand.ids['objective_spinner2'].text == '20x Oly'
-        assert _down(stand) == [3]
-
-    def test_a_pick_at_an_unknown_slot_is_refused_and_shown(self, stand, session, centre_posts):
-        stand.pick_objective('20x Oly')
-        assert [n.title for n in centre_posts] == ['Objective Unknown']
-        assert 'home the turret' in centre_posts[0].message
+        assert [n.title for n in centre_posts] == ['Objective Not on the Turret']
         assert stand.popups == []
-        assert stand.ids['objective_spinner2'].text == 'Unknown'
+        assert _down(stand) == [3]
         assert session.settings['turret_objectives'][3] is None
 
 

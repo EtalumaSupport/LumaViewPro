@@ -13,7 +13,9 @@ is stored. A null objective is the scope's "nothing selected"
 and a turret slot is refused by one check wherever it is taken. A null asked
 of a member that names an objective to act on, or a slot that is no whole
 number, is the ``@api`` door's
-(``tests/test_an_argument_of_another_type_is_refused_at_the_door.py``).
+(``tests/test_an_argument_of_another_type_is_refused_at_the_door.py``). The
+slot members are asked on a turret scope: with no turret they refuse the
+absent turret first (``tests/test_turret_objective_assignment.py``).
 """
 
 import pytest
@@ -36,6 +38,17 @@ def session(tmp_path_factory):
     s = _session(tmp_path_factory.mktemp('c6'), 'LS850')
     yield s
     s.shutdown()
+
+
+@pytest.fixture(scope='module')
+def turret_session(tmp_path_factory):
+    s = _session(tmp_path_factory.mktemp('c6t'), 'LS850T')
+    yield s
+    s.shutdown()
+
+
+# The members that write a turret slot, asked of the turret scope.
+_SLOT_WRITERS = {'confirm_objective at a slot', 'assign_turret_objective'}
 
 
 def _selection(session):
@@ -80,7 +93,8 @@ def test_a_plate_the_catalogue_lacks_is_refused_offering_its_plates(session, mem
 
 @pytest.mark.parametrize('name', ['zzz-no-such-objective', '10x', '10xOly'])
 @pytest.mark.parametrize('member', OBJECTIVE_MEMBERS)
-def test_an_objective_the_catalogue_lacks_is_refused_offering_its_keys(session, member, name):
+def test_an_objective_the_catalogue_lacks_is_refused_offering_its_keys(request, member, name):
+    session = request.getfixturevalue('turret_session' if member in _SLOT_WRITERS else 'session')
     before = _selection(session)
     with pytest.raises(CatalogueNameRefusedError) as refused:
         OBJECTIVE_MEMBERS[member](session, name)
@@ -110,14 +124,14 @@ SLOT_MEMBERS = {
 
 @pytest.mark.parametrize('slot', [0, 5, -1])
 @pytest.mark.parametrize('member', SLOT_MEMBERS)
-def test_a_slot_that_is_not_one_is_refused_as_the_turrets_range(session, member, slot):
-    before = _selection(session)
+def test_a_slot_that_is_not_one_is_refused_as_the_turrets_range(turret_session, member, slot):
+    before = _selection(turret_session)
     with pytest.raises(PositionOutOfRangeError) as refused:
-        SLOT_MEMBERS[member](session, slot)
+        SLOT_MEMBERS[member](turret_session, slot)
     assert refused.value.reason == 'position_out_of_range'
     assert refused.value.bound == 'turret slots'
     assert (refused.value.low, refused.value.high) == (1, 4)
-    assert _selection(session) == before
+    assert _selection(turret_session) == before
 
 
 def test_a_retired_plate_name_resolves_and_is_stored_under_its_key(session):
@@ -163,8 +177,8 @@ def test_a_wire_client_is_refused_as_the_request_naming_what_the_catalogue_offer
     assert problem['offered']
 
 
-def test_a_wire_slot_out_of_range_is_the_requests(session):
-    with TestClient(build_app(session)) as client:
+def test_a_wire_slot_out_of_range_is_the_requests(turret_session):
+    with TestClient(build_app(turret_session)) as client:
         answer = client.post(
             '/api/v1/assign_turret_objective', json={'position': 5, 'objective_id': '10x Oly'}
         )

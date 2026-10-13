@@ -200,7 +200,7 @@ scope.no_hardware                         # True if all-null (no real hardware f
 
 ### Objective management
 
-The objective sets the pixel size stamped into every capture, so the Session owns it: whether it is unknowable, how it is confirmed, and the plain writers. On a scope with a turret, the active objective is the one assigned to the slot in the light path, derived on every read: a turret move changes it, and no copy of it is stored beside the slot map. With no turret, it is the selected objective, and `select_objective` moves the settings store and the scope's runtime state together. Every writer refuses an id that is not exactly a catalogue key with `CatalogueNameRefusedError` (reason `objective_not_in_catalogue`), and None as an argument of another type (`ArgumentTypeRefusedError`), before any write; a stored None read back is `ObjectiveUnknownError` (`none_selected`). The resolved optics (`[Optics   ] objective=... -> N um/px`) are recorded in the log once each time the active objective changes -- after a selection, an assignment or a turret move -- the next time it is read, so before any capture stamps it.
+The objective sets the pixel size stamped into every capture, so the Session owns it: whether it is unknowable, how it is confirmed, and the plain writers. On a scope with a turret, the active objective is the one assigned to the slot in the light path, derived on every read: a turret move changes it, and no copy of it is stored beside the slot map. Which glass is in which slot is written only by `assign_turret_objective` and `clear_turret_objective`; on a scope with no turret every slot writer, and `confirm_objective` given a `turret_position`, is refused with `HardwareCommandRefusedError` (`axis_absent`) before the slot or the name is judged. With no turret, the active objective is the selected one, and `select_objective` moves the settings store and the scope's runtime state together. Every writer refuses an id that is not exactly a catalogue key with `CatalogueNameRefusedError` (reason `objective_not_in_catalogue`), and None as an argument of another type (`ArgumentTypeRefusedError`), before any write; a stored None read back is `ObjectiveUnknownError` (`none_selected`). The resolved optics (`[Optics   ] objective=... -> N um/px`) are recorded in the log once each time the active objective changes -- after a selection, an assignment or a turret move -- the next time it is read, so before any capture stamps it.
 
 When no one can say which objective is in the light path, it is unknown, never a stored guess: on a turreted scope, before the turret has been homed or moved since bring-up, when its slot has no assignment, or when the assignment is not in the catalogue; with no turret, before anything was selected. `scope.runtime_state.resolve_current_objective()` then raises `ObjectiveUnknownError` (a `ConfigError`; `.reason` is `'slot_unknown'`, `'slot_unassigned'`, `'not_in_catalogue'`, `'none_selected'` or `'turret_undecided'` -- the scope has not yet recorded whether it has a turret, and `.slot` is the slot in the light path or `None`).
 
@@ -224,14 +224,19 @@ if question is not None:
     session.confirm_objective(question.proposed, turret_position=question.turret_position)
 
 session.select_objective('10x Oly')                # True when the objective changed; False for the one held.
-                                                   # On a turret scope it assigns the slot in the light path;
-                                                   # ObjectiveUnknownError while that slot is unknown
+                                                   # On a turret scope it turns the turret to the one slot holding it
+                                                   # (move_turret, Z parked and restored) and writes no slot;
+                                                   # ArgumentRefusedError 'objective_in_several_slots' (offered: the slots)
+                                                   # or 'objective_not_on_turret' (offered: what the slots hold);
+                                                   # the move's own refusals (an unhomed turret: AxisStateUnknownError)
 session.select_labware('384 well microplate')      # True when the plate changed; a retired spelling is accepted and stored under its catalogue key; both stores are written either way
 session.assign_turret_objective(2, '10x Oly')      # slot 1-4 (PositionOutOfRangeError otherwise)
 session.clear_turret_objective(2)
 session.clear_current_turret_objective()          # clear the slot in the light path;
                                                    # ObjectiveUnknownError while that slot is unknown
 ```
+
+On a turret scope `confirm_objective` requires `turret_position` (`ArgumentRefusedError`, `turret_position_required`): it records the glass in that slot and never turns the turret.
 
 `objective_question()` is a read: it returns a question when no one has confirmed the objective on this install, or when the slot in the light path on a declared turret model has no assignment. The question names the live slot (`scope.motion.get_turret_slot()`) and proposes only that slot's assignment; an unknown slot alone -- as during every turret move -- owes no question, but on an install whose objective has never been confirmed an unknown slot raises `ObjectiveUnknownError` (`.reason` `'slot_unknown'`) rather than ask about a slot the turret may not be in. It may log one withheld-question line per call while a question is owed and suppressed (no hardware; provisional settings) -- a caller that polls it will see that line per poll. A configured session may still have a question to ask: the factories do not ask it. A turret move onto an unassigned slot does not ask either, so a headless caller asks `objective_question()` after the move.
 

@@ -61,6 +61,7 @@ from modules.exceptions import (
     HardwareCommandRefusedError,
     HomingFailedError,
     LiveFolderPathRefusedError,
+    MissingPart,
     ObjectiveUnknownError,
     ProtocolNotLoadedError,
     Remedy,
@@ -78,6 +79,7 @@ from modules.lumascope_api import AxisPosition
 from modules.lumascope_api._constants import refuse_unless_turret_slot
 from modules.lumascope_api.bring_up import PartStatus
 from modules.lumascope_api.illumination import LedLease, LedTransition, LedTransitionCtx
+from modules.lumascope_api.runtime_state import slots_holding
 from modules.manual_capture import ManualCaptureController
 from modules.notification_center import Notification
 from modules.manual_recording import ManualRecordingController
@@ -1838,7 +1840,10 @@ class ScopeSession:
                 and notified once; ``zstack_not_configured``, a z-stack with
                 no extent.
             ObjectiveUnknownError: the objective in the light path is
-                unknown, so the config cannot be assembled.
+                unknown, so the config cannot be assembled:
+                ``'slot_unknown'``, ``'slot_unassigned'`` or
+                ``'not_in_catalogue'`` on a turret scope; ``'none_selected'``
+                with no turret.
             ProtocolScheduleRefusedError: ``period`` or ``duration`` is one no
                 protocol can run.
             AxisStateUnknownError: an acquiring layer has no saved focus, so
@@ -3297,7 +3302,10 @@ class ScopeSession:
         persists no objective_id of its own.
 
         Raises:
-            ObjectiveUnknownError: The active objective is unknown.
+            ObjectiveUnknownError: The active objective is unknown:
+                ``'slot_unknown'``, ``'slot_unassigned'`` or
+                ``'not_in_catalogue'`` on a turret scope; ``'none_selected'``
+                with no turret.
         """
         objective_id, _ = self.scope.runtime_state.resolve_current_objective()
         snapshot = self.get_settings_snapshot()
@@ -3382,8 +3390,8 @@ class ScopeSession:
         Raises:
             ConfigError: the catalogue is empty, or the model catalogue
                 cannot be read.
-            ObjectiveUnknownError: the objective has never been confirmed
-                on this install and the turret model's slot is unknown --
+            ObjectiveUnknownError: ``'slot_unknown'``, the objective has never
+                been confirmed on this install and the turret model's slot is unknown --
                 there is no slot to answer for until the turret is homed
                 or moved.
         """
@@ -3432,29 +3440,39 @@ class ScopeSession:
     def confirm_objective(self, objective_id: str, turret_position: 'int | None' = None) -> bool:
         """Answer the objective question: this objective is in the light path.
 
-        With ``turret_position`` given, assigns the objective to that slot;
-        otherwise selects it (``select_objective``). Records that a person
-        has confirmed the objective on this install. Returns whether the
-        active objective changed.
+        On a turret scope, assigns the objective to slot ``turret_position``,
+        which it requires: the answer records the glass in a slot and never
+        turns the turret. With no turret, selects it (``select_objective``),
+        and ``turret_position`` is refused. Records that a person has
+        confirmed the objective on this install. Returns whether the active
+        objective changed.
 
         Raises:
+            ArgumentRefusedError: ``'turret_position_required'``, no
+                ``turret_position`` on a turret scope. Nothing is written.
+            HardwareCommandRefusedError: ``'axis_absent'``, a
+                ``turret_position`` on a scope with no turret. Nothing is
+                written.
             CatalogueNameRefusedError: ``'objective_not_in_catalogue'``,
                 ``objective_id`` is not exactly a catalogue key. Nothing is
                 written.
-            ObjectiveUnknownError: ``objective_id`` is None
-                (``'none_selected'``), or no ``turret_position`` was given on
-                a turreted scope whose slot is unknown (``'slot_unknown'``).
+            ObjectiveUnknownError: ``'none_selected'``, ``objective_id`` is
+                None.
             PositionOutOfRangeError: ``turret_position`` is not a slot
                 number 1-4.
         """
-        if turret_position is None:
-            changed = self.select_objective(objective_id)
-        else:
+        if self.scope.runtime_state.is_turreted():
+            if turret_position is None:
+                raise ArgumentRefusedError(
+                    'turret_position_required', argument='turret_position', value=None
+                )
             before = self.scope.runtime_state.get_current_objective_id()
             self.assign_turret_objective(turret_position, objective_id)
-            if not self.scope.runtime_state.is_turreted():
-                self.select_objective(objective_id)
             changed = self.scope.runtime_state.get_current_objective_id() != before
+        else:
+            if turret_position is not None:
+                self._refuse_without_a_turret('confirm_objective')
+            changed = self.select_objective(objective_id)
         with self.settings_lock:
             self._store_setting('objective_confirmed', True)
         logger.info(
@@ -3469,23 +3487,34 @@ class ScopeSession:
 
         The one writer of the active objective for every host. With no
         turret, the selected objective is the ``objective_id`` setting, which
-        the scope reads. On a turreted scope the active
-        objective IS the slot's assignment, so picking one assigns it to the
-        slot in the light path -- the person is saying what is installed
-        there. The resolved optics are recorded by the scope's runtime state
-        the next time the objective is read, before any capture stamps it.
-        Picking the objective already active is a no-op.
+        the scope reads. On a turret scope the active objective is the
+        assignment of the slot in the light path, so picking one turns the
+        turret to the one slot holding it (``move_turret``, Z parked and
+        restored) and waits for it; which glass is in which slot is
+        ``assign_turret_objective``'s, and a pick writes no slot. The resolved
+        optics are recorded by the scope's runtime state the next time the
+        objective is read, before any capture stamps it. Picking the
+        objective already active is a no-op.
 
         Raises:
             CatalogueNameRefusedError: ``'objective_not_in_catalogue'``,
                 ``objective_id`` is not exactly a catalogue key. The refusal
-                lands before any write.
-            ObjectiveUnknownError: ``objective_id`` is None
-                (``'none_selected'``), or on a turreted scope the slot in the
-                light path is unknown, so there is no slot to assign.
+                lands before any write or move.
+            ObjectiveUnknownError: ``'none_selected'``, ``objective_id`` is
+                None.
+            ArgumentRefusedError: On a turret scope,
+                ``'objective_in_several_slots'``, two or more slots hold
+                ``objective_id`` (``offered``: the slots), or
+                ``'objective_not_on_turret'``, none does (``offered``: what
+                the slots hold). Nothing is moved.
             HardwareCommandRefusedError: A run, a diagnostic or a recording
-                holds the scope
-                (``exclusive_activity_running``). Nothing is written.
+                holds the scope (``exclusive_activity_running``), nothing
+                written or moved; or the turret move's own refusal,
+                ``'not_connected'`` or ``'axis_absent'``, nothing moved.
+            AxisStateUnknownError: The turret has not been homed.
+            MoveNotCompletedError: The Z park, the turret move or the Z
+                restore did not arrive, or was stopped; the slot is unknown
+                afterwards.
         """
         # Refuses an id that is not a catalogue key, before any write and
         # before the no-op compare: an unknown active objective is None, so
@@ -3495,14 +3524,38 @@ class ScopeSession:
             return False
         self._refuse_configuration_change_while_held('select_objective')
         if self.scope.runtime_state.is_turreted():
-            slot = self.scope.motion.get_turret_slot()
-            if slot is None:
-                raise ObjectiveUnknownError('slot_unknown')
-            self.assign_turret_objective(slot, objective_id)
+            self.scope.motion.move_turret(self._the_slot_holding(objective_id), restore_z=True)
         else:
             with self.settings_lock:
                 self._store_setting('objective_id', objective_id)
         return True
+
+    def _the_slot_holding(self, objective_id: str) -> int:
+        slots = self.scope.runtime_state.get_turret_config()
+        holding = slots_holding(objective_id, slots)
+        if len(holding) > 1:
+            raise ArgumentRefusedError(
+                'objective_in_several_slots',
+                argument='objective_id',
+                value=objective_id,
+                offered=holding,
+            )
+        if not holding:
+            raise ArgumentRefusedError(
+                'objective_not_on_turret',
+                argument='objective_id',
+                value=objective_id,
+                offered=tuple(held for _, held in sorted(slots.items()) if held is not None),
+            )
+        return holding[0]
+
+    def _refuse_without_a_turret(self, member: str) -> None:
+        # The scope fact is said first, before the slot or the catalogue is
+        # judged: a slot write on a turretless scope lay in the settings until
+        # a change of model made it a turret's assignment.
+        if not self.scope.runtime_state.is_turreted():
+            turret = MissingPart.axis('T')
+            raise HardwareCommandRefusedError(turret.reason, member, missing=turret)
 
     # ------------------------------------------------------------------
     # The labware
@@ -3547,14 +3600,16 @@ class ScopeSession:
         Binding the objective the slot already holds is a no-op.
 
         Raises:
+            HardwareCommandRefusedError: ``'axis_absent'``, the scope has no
+                turret, said before ``position`` or ``objective_id`` is
+                judged; or a run, a diagnostic or a recording holds the
+                scope (``exclusive_activity_running``). Nothing is written.
             PositionOutOfRangeError: ``position`` is not a slot number 1-4.
             ObjectiveUnknownError: ``'none_selected'``, ``objective_id`` is None.
             CatalogueNameRefusedError: ``'objective_not_in_catalogue'``,
                 ``objective_id`` is not exactly a catalogue key.
-            HardwareCommandRefusedError: A run, a diagnostic or a recording
-                holds the scope
-                (``exclusive_activity_running``). Nothing is written.
         """
+        self._refuse_without_a_turret('assign_turret_objective')
         refuse_unless_turret_slot(position)
         self.objective_helper.get_objective_info(objective_id=objective_id)
         if self.settings['turret_objectives'].get(position) == objective_id:
@@ -3575,12 +3630,14 @@ class ScopeSession:
         capture refused for that afterwards if the clear is in the record.
 
         Raises:
+            HardwareCommandRefusedError: ``'axis_absent'``, the scope has no
+                turret, said before ``position`` is judged; or a run, a
+                diagnostic or a recording holds the scope and the slot has an
+                assignment (``exclusive_activity_running``). Nothing is
+                written.
             PositionOutOfRangeError: ``position`` is not a slot number 1-4.
-            HardwareCommandRefusedError: A run, a diagnostic or a recording
-                holds the scope and the slot
-                has an assignment (``exclusive_activity_running``). Nothing
-                is written.
         """
+        self._refuse_without_a_turret('clear_turret_objective')
         refuse_unless_turret_slot(position)
         if self.settings['turret_objectives'].get(position) is not None:
             self._refuse_configuration_change_while_held('clear_turret_objective')
@@ -3596,19 +3653,20 @@ class ScopeSession:
     def clear_current_turret_objective(self) -> None:
         """Leave the turret slot in the light path unassigned.
 
-        The counterpart of ``select_objective`` on a turreted scope: that
-        says which objective is installed in the current slot, this says
-        none is known to be. The slot is the API's, never the caller's
-        guess of it.
+        The counterpart of ``assign_turret_objective`` for the slot in the
+        light path: that says which objective is installed in a slot, this
+        says none is known to be in the current one. The slot is the API's,
+        never the caller's guess of it.
 
         Raises:
-            ObjectiveUnknownError: The slot in the light path is unknown,
-                so there is no slot to clear (``slot_unknown``).
-            HardwareCommandRefusedError: A run, a diagnostic or a recording
-                holds the scope and the slot
-                has an assignment (``exclusive_activity_running``). Nothing
-                is written.
+            HardwareCommandRefusedError: ``'axis_absent'``, the scope has no
+                turret; or a run, a diagnostic or a recording holds the
+                scope and the slot has an assignment
+                (``exclusive_activity_running``). Nothing is written.
+            ObjectiveUnknownError: ``'slot_unknown'``, the slot in the light
+                path is unknown, so there is no slot to clear.
         """
+        self._refuse_without_a_turret('clear_current_turret_objective')
         slot = self.scope.motion.get_turret_slot()
         if slot is None:
             raise ObjectiveUnknownError('slot_unknown')

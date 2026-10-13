@@ -407,13 +407,21 @@ class TestT10SelectObjective:
         assert session.select_objective(held) is False
         assert not any('[Optics' in line for line in _lines()), _lines()
 
-    def test_a_new_id_assigns_the_slot_and_records_the_optics(self, sessions):
-        session = _at_slot(sessions(**_turret_settings()), 1)
+    def test_a_new_id_turns_to_its_slot_and_records_the_optics(self, sessions):
+        session = _at_slot(
+            sessions(
+                **_turret_settings(
+                    turret_objectives={'1': '4x Oly', '2': '10x Oly', '3': None, '4': None}
+                )
+            ),
+            1,
+        )
         # Slot 1's objective read (and so recorded) before the act.
         assert session.scope.runtime_state.get_current_objective_id() == '4x Oly'
         _clear_log()
         assert session.select_objective('10x Oly') is True
-        assert session.settings['turret_objectives'][1] == '10x Oly'
+        assert session.scope.motion.get_turret_slot() == 2
+        assert session.settings['turret_objectives'][1] == '4x Oly'
         assert session.scope.runtime_state.get_current_objective_id() == '10x Oly'
         optics = [line for line in _lines() if line.startswith('[Optics')]
         assert len(optics) == 1, _lines()
@@ -453,13 +461,21 @@ class TestT10SelectObjective:
         assert held in session.objective_helper.get_objectives_list()
         assert session.select_objective(held) is False
 
-    def test_a_pick_while_the_slot_is_unknown_is_refused(self, sessions):
-        # Bring-up alone leaves the slot unknown: there is no slot to assign.
-        from modules.exceptions import ObjectiveUnknownError
+    def test_a_pick_before_the_turret_is_homed_is_refused_by_the_move(self, sessions):
+        # Bring-up alone leaves the turret unhomed: the move refuses, and no
+        # slot is written.
+        from modules.exceptions import AxisStateUnknownError
 
-        session = sessions(**_turret_settings())
-        with pytest.raises(ObjectiveUnknownError):
+        session = sessions(
+            **_turret_settings(
+                turret_objectives={'1': '4x Oly', '2': '10x Oly', '3': None, '4': None}
+            )
+        )
+        before = dict(session.settings['turret_objectives'])
+        with pytest.raises(AxisStateUnknownError) as refused:
             session.select_objective('10x Oly')
+        assert refused.value.reason == 'position_unknown'
+        assert session.settings['turret_objectives'] == before
 
 
 class TestT10TurretWriters:

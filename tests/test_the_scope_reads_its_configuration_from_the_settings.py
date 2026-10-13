@@ -42,12 +42,18 @@ class TestAWriteIsWhatTheScopeActsOn:
         session.update_settings('stage_offset.x', 11000.0)
         assert session.scope.runtime_state.get_stage_offset()['x'] == 11000.0
 
-    def test_the_turret_map(self, session):
-        objective = session.objective_helper.get_objectives_list()[0]
-        session.assign_turret_objective(2, objective)
-        assert session.scope.runtime_state.get_turret_config()[2] == objective
-        session.clear_turret_objective(2)
-        assert session.scope.runtime_state.get_turret_config()[2] is None
+    def test_the_turret_map(self, tmp_path):
+        session = ScopeSession.create(
+            complete_settings(live_folder=str(tmp_path), microscope='LS850T'), simulate=True
+        )
+        try:
+            objective = session.objective_helper.get_objectives_list()[0]
+            session.assign_turret_objective(2, objective)
+            assert session.scope.runtime_state.get_turret_config()[2] == objective
+            session.clear_turret_objective(2)
+            assert session.scope.runtime_state.get_turret_config()[2] is None
+        finally:
+            session.shutdown()
 
     def test_the_objective_with_no_turret(self, session):
         assert not session.scope.runtime_state.is_turreted()

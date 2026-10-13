@@ -257,16 +257,18 @@ class VerticalControl(BoxLayout):
     def pick_objective(self, objective_id):
         """A person picked an objective from the spinner; the Session decides.
 
-        On a turreted scope the pick says what is installed in the slot in
-        the light path, so the Session assigns it there; with no turret it
-        selects it. A refusal -- the slot is unknown, a run holds the scope
-        -- is shown, and either way the display shows the API's answer, so
-        a refused pick never stays on screen as if it had been taken.
+        On a turret scope the Session turns the turret to the slot holding
+        it, a move, so the pick runs on the IO lane like a turret button;
+        with no turret it selects it. A refusal -- no slot or two slots hold
+        it, a run holds the scope -- is shown, and either way the display
+        shows the API's answer, so a refused pick never stays on screen as
+        if it had been taken.
         """
-        run_reported(
+        submit_reported(
             lambda: _app_ctx.ctx.session.select_objective(objective_id),
-            redraw=lambda: self.show_turret_state(prompt=False),
-            label='OBJECTIVE',
+            lambda: self.show_turret_state(prompt=False),
+            'OBJECTIVE',
+            lane=_app_ctx.ctx.io_executor,
         )
 
     def show_turret_state(self, prompt=True):

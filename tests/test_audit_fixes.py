@@ -1138,45 +1138,6 @@ class TestIssue605_AccordionLEDProtocol:
         )
 
 
-class TestIssue606_TurretObjectiveValidation:
-    """#606: Objective changeable without turret position assignment.
-
-    Root cause: no validation in select_objective() or _is_protocol_valid().
-    Fix: warn on select, block protocol run.
-    """
-
-    def test_select_objective_assigns_the_slot_in_the_light_path(self):
-        """On a turreted scope, selecting an objective assigns it to the slot.
-
-        The active objective is the slot's assignment, so a selection the
-        turret does not hold is no longer constructible: picking one says
-        what is installed in the light path. No dialog either -- the
-        selection is the assignment, not a step before it.
-
-        The behaviour is pinned in
-        tests/guards/test_session_objective_question.py (TestT10SelectObjective);
-        the half of #606 that prevents harm is the protocol-run block, pinned
-        by the sibling test below.
-        """
-        import ast
-        import inspect
-        import textwrap
-
-        from modules.scope_session import ScopeSession
-
-        # Round-tripped through the AST so the assertion sees CODE, not
-        # prose: a raw source match here failed on a comment that happened
-        # to contain the word it was looking for. The writer lives on the
-        # Session; the GUI handler only renders its result.
-        src = ast.unparse(
-            ast.parse(textwrap.dedent(inspect.getsource(ScopeSession.select_objective)))
-        )
-        assert 'self.assign_turret_objective(slot, objective_id)' in src, (
-            'select_objective must assign the objective to the slot in the light path'
-        )
-        assert 'notifications.warning' not in src, 'a selection is not refused by a dialog'
-
-
 # ===========================================================================
 # Audit Fix Regression Tests -- Session 8 (B6, B5, D2, G3, F7, G4)
 # ===========================================================================

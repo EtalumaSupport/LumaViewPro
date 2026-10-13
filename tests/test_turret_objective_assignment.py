@@ -1,7 +1,5 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""Assigning an objective to a turret position, and staying quiet about it.
-
-Two defects lived in this flow.
+"""Assigning an objective to a turret position, and picking one.
 
 The slot key: `turret_objectives` is loaded from JSON, so its keys are
 strings, while the Set/Reset handlers picked the slot with `range(1, 5)` and
@@ -10,16 +8,21 @@ so held an int (the writers now live on the Session, keyed the same way). Writin
 stale answer, and the saved file carried a duplicate key that resolved
 last-wins on the next load.
 
-The dialog: selecting an objective the turret does not hold raised a popup
-saying the selection could not be made, immediately before making it. That
-is the first half of assigning the objective, so the interruption landed in
-the middle of the workflow that resolves it.
+Picking an objective on a turret scope turns the turret to the one slot
+holding it, and writes no slot: the pick used to assign the slot in the
+light path, so one objective could end up on two slots. A scope with no
+turret refuses every slot write.
 """
 
-import ast
-import inspect
 import json
+
+import pytest
+
+from modules.exceptions import ArgumentRefusedError, HardwareCommandRefusedError
+from modules.scope_session import ScopeSession
 from tests.installation_fixtures import copy_installation_files
+from tests.scope_fakes import TEST_TURRET_OBJECTIVES, home_sim_scope
+from tests.settings_fixtures import complete_settings
 
 
 class TestTurretSlotKeyMatchesTheFile:
@@ -57,25 +60,120 @@ class TestTurretSlotKeyMatchesTheFile:
         assert len(reloaded) == 4
 
 
-class TestSelectingAnObjectiveIsQuiet:
-    def test_objective_selection_raises_no_notification(self):
-        # On a turreted scope a selection assigns the slot in the light path,
-        # so there is no unassigned selection to interrupt. The refusals that
-        # matter live at protocol create / modify / add / run.
-        import textwrap
+@pytest.fixture
+def turret_session(tmp_path):
+    """A homed LS850T session whose slots are the test objectives, the turret on slot 1."""
+    session = ScopeSession.create(
+        complete_settings(
+            microscope='LS850T',
+            turret_objectives=dict(TEST_TURRET_OBJECTIVES),
+            live_folder=str(tmp_path),
+        ),
+        simulate=True,
+    )
+    home_sim_scope(session.scope)
+    session.scope.motion.move_turret(1)
+    yield session
+    session.shutdown()
 
-        from modules.scope_session import ScopeSession
 
-        src = ast.unparse(
-            ast.parse(textwrap.dedent(inspect.getsource(ScopeSession.select_objective)))
+@pytest.fixture
+def turretless_session(tmp_path):
+    session = ScopeSession.create(
+        complete_settings(microscope='LS850', live_folder=str(tmp_path)), simulate=True
+    )
+    yield session
+    session.shutdown()
+
+
+class TestPickingAnObjectiveTurnsTheTurret:
+    """``select_objective(X)`` on a turret scope moves to the one slot holding X.
+
+    It records nothing: which glass is in which slot is the assignment's
+    (``assign_turret_objective``), so a pick can never put one objective
+    on two slots.
+    """
+
+    def test_the_pick_moves_to_the_slot_holding_it_and_writes_no_slot(self, turret_session):
+        before = dict(turret_session.settings['turret_objectives'])
+
+        assert turret_session.select_objective('20x Oly') is True
+
+        assert turret_session.scope.motion.get_turret_slot() == 2
+        assert turret_session.settings['turret_objectives'] == before
+        assert turret_session.scope.runtime_state.get_current_objective_id() == '20x Oly'
+
+    def test_an_objective_two_slots_hold_is_refused_naming_them(self, tmp_path):
+        session = ScopeSession.create(
+            complete_settings(
+                microscope='LS850T',
+                turret_objectives={1: '4x Oly', 2: '10x Oly', 3: '10x Oly', 4: None},
+                live_folder=str(tmp_path),
+            ),
+            simulate=True,
         )
-        assert 'notifications.' not in src, (
-            'selecting an objective must not raise a notification: on a turreted '
-            'scope it is the assignment itself'
-        )
-        assert 'self.assign_turret_objective(slot, objective_id)' in src, (
-            'a selection on a turreted scope must assign the slot in the light path'
-        )
+        try:
+            home_sim_scope(session.scope)
+            session.scope.motion.move_turret(1)
+
+            with pytest.raises(ArgumentRefusedError) as excinfo:
+                session.select_objective('10x Oly')
+
+            assert excinfo.value.reason == 'objective_in_several_slots'
+            assert excinfo.value.offered == (2, 3)
+            assert session.scope.motion.get_turret_slot() == 1
+        finally:
+            session.shutdown()
+
+    def test_an_objective_no_slot_holds_is_refused_naming_what_the_turret_carries(
+        self, turret_session
+    ):
+        with pytest.raises(ArgumentRefusedError) as excinfo:
+            turret_session.select_objective('40x Phase')
+
+        assert excinfo.value.reason == 'objective_not_on_turret'
+        assert excinfo.value.offered == ('10x Oly', '20x Oly', '4x Oly')
+        assert turret_session.scope.motion.get_turret_slot() == 1
+
+    def test_a_confirmation_on_a_turret_scope_names_its_slot(self, turret_session):
+        """The answer records glass in a slot; with no slot named it has none to record."""
+        with pytest.raises(ArgumentRefusedError) as excinfo:
+            turret_session.confirm_objective('20x Oly')
+
+        assert excinfo.value.reason == 'turret_position_required'
+        assert turret_session.settings['turret_objectives'][1] == '10x Oly'
+
+
+class TestAScopeWithNoTurretRefusesEverySlotWrite:
+    """Row 34: a slot write on a turretless scope is refused before its catalogue check.
+
+    Accepted, it lay in the settings until a model change to a turret scope
+    made it that turret's assignment.
+    """
+
+    def test_each_slot_writer_is_refused_for_the_absent_turret(self, turretless_session):
+        # Not a catalogue key: the absent turret is the first thing said.
+        writes = {
+            'assign_turret_objective': lambda s: s.assign_turret_objective(1, 'no such glass'),
+            'clear_turret_objective': lambda s: s.clear_turret_objective(1),
+            'clear_current_turret_objective': lambda s: s.clear_current_turret_objective(),
+            'confirm_objective': lambda s: s.confirm_objective('no such glass', turret_position=1),
+        }
+        before = dict(turretless_session.settings['turret_objectives'])
+        wrong = {}
+        for member, write in writes.items():
+            try:
+                write(turretless_session)
+            except HardwareCommandRefusedError as e:
+                if e.reason != 'axis_absent':
+                    wrong[member] = e.reason
+            except Exception as e:  # each member's answer is collected, so all four are named
+                wrong[member] = repr(e)
+            else:
+                wrong[member] = 'accepted'
+
+        assert wrong == {}, f'refused for something other than the absent turret: {wrong}'
+        assert turretless_session.settings['turret_objectives'] == before
 
 
 _REQUIRED_KEYS = {

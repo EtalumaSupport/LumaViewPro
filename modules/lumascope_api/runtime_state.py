@@ -51,6 +51,11 @@ if TYPE_CHECKING:
 _PLATE_AXES = ('X', 'Y')
 
 
+def slots_holding(objective_id: object, turret_config: dict) -> tuple[int, ...]:
+    """The turret slots ``turret_config`` assigns ``objective_id``, ascending."""
+    return tuple(sorted(slot for slot, held in turret_config.items() if held == objective_id))
+
+
 class RuntimeState:
     """Mutable runtime state on a Lumascope, and the answers for the user
     configuration the scope acts on (labware / objective / turret / stage),
@@ -131,10 +136,12 @@ class RuntimeState:
             tuple[str, dict]: The objective id and its catalogue entry.
 
         Raises:
-            ObjectiveUnknownError: On a turreted scope, the slot is unknown,
-                it has no assignment, or its assignment is not in the
-                catalogue; with no turret, nothing was selected; on any
-                scope, bring-up has not said whether it has a turret.
+            ObjectiveUnknownError: On a turreted scope, the slot is unknown
+                (``'slot_unknown'``), it has no assignment
+                (``'slot_unassigned'``), or its assignment is not in the
+                catalogue (``'not_in_catalogue'``); with no turret, nothing was
+                selected (``'none_selected'``); on any scope, bring-up has not
+                said whether it has a turret (``'turret_undecided'``).
         """
         objective_id, info, unknown = self._derive_current_objective()
         if unknown is not None:
