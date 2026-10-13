@@ -41,14 +41,16 @@ This module also holds the run's ENDING: the status a run finished in,
 and the reason, title and message for it, recorded by whatever ended the
 run at the site that knows why. The ending is first-wins -- a run dies
 once, and the first thing that killed it is the cause; everything after
-it is consequence. Cleanup reads the record once, after the lanes it
+it is consequence. Cleanup closes the record once, after the lanes it
 waits on have drained, so a fault that lands during the drain is still
-the ending rather than a word chosen before the last fact arrived.
+the ending rather than a word chosen before the last fact arrived, and a
+fault that lands after it is not told as the run's ending.
 """
 
 from __future__ import annotations
 
 import dataclasses
+import enum
 import pathlib
 import threading
 import uuid
@@ -127,6 +129,19 @@ class RunEnding:
 FILES_LOST_ENDINGS = frozenset({'disk_space_critical', 'file_writer_stalled', 'video_writer_died'})
 
 
+class FatalTold(enum.Enum):
+    """What the fatal funnel does with a fault, as the run's latch answers it."""
+
+    # The first fatal fact of a run still running: shown.
+    SHOW = 'show'
+    # Another fatal fact behind the one shown: logged once.
+    LOG = 'log'
+    # A fact already told, met again (a floor met by each queued write).
+    TOLD = 'told'
+    # The run settled before this fact: its files report tells it.
+    SETTLED = 'settled'
+
+
 class EndingLatch:
     """One run's ending, recorded once by whoever got there first.
 
@@ -136,6 +151,15 @@ class EndingLatch:
     the consequence and lose the cause, so the first record sticks and
     every later one is dropped.
 
+    Cleanup closes the latch when it reads it: from then the ending is
+    final, and a fault met later -- a still-image write meeting the disk
+    floor after the run let go of the scope -- is not the run's ending.
+
+    It also records which fatal faults the person has been told of, under
+    the same lock as the ending, so two faults racing each other are told
+    once each: the first shown, a different one logged, the same one
+    again neither.
+
     Held per run, never per runner: a drained writer from a previous run
     that fires late lands on a latch nothing reads any more.
     """
@@ -143,6 +167,9 @@ class EndingLatch:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._ending: RunEnding | None = None
+        self._closed = False
+        self._told: set[str] = set()
+        self._shown: str | None = None
 
     def set_if_unset(self, ending: RunEnding) -> bool:
         """Record the ending; True when this caller's ending is the one kept."""
@@ -156,6 +183,47 @@ class EndingLatch:
         """The recorded ending, or None when nothing has ended the run yet."""
         with self._lock:
             return self._ending
+
+    def close(self, ending: RunEnding) -> RunEnding:
+        """Keep ``ending`` if nothing has ended the run, close the latch, return the ending kept.
+
+        Cleanup's one read: the ending it returns is the run's, and nothing
+        recorded after it is. Asking again returns the same ending.
+        """
+        with self._lock:
+            if self._ending is None:
+                self._ending = ending
+            self._closed = True
+            return self._ending
+
+    def record_fatal(self, ending: RunEnding) -> FatalTold:
+        """Record a fatal fault, and say what the person is told of it.
+
+        Kept as the run's ending when nothing has ended the run. Shown when
+        it is the run's first fatal fault, whether it ended the run or came
+        after a Stop or a shutdown; logged when another fatal fault was
+        shown first; neither when this fault was told already or the run
+        had settled.
+        """
+        with self._lock:
+            if self._closed:
+                return FatalTold.SETTLED
+            if ending.reason in self._told:
+                return FatalTold.TOLD
+            if self._ending is None:
+                self._ending = ending
+            first = not self._told
+            self._told.add(ending.reason)
+            if first:
+                self._shown = ending.reason
+                return FatalTold.SHOW
+            return FatalTold.LOG
+
+    @property
+    def shown_fatal(self) -> str | None:
+        """The reason of the fatal fault the person was shown, or None."""
+        with self._lock:
+            return self._shown
 
 
 @api_fields('scan', 'step_index', 'step_name', 'cause')

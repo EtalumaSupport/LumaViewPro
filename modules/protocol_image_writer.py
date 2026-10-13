@@ -39,7 +39,7 @@ from modules.protocol import Protocol
 from modules.protocol_recording import ProtocolVideoStep
 from modules.recording_frames import FrameFact, frame_fact
 from modules.run_events import RunEvents, deliver_here
-from modules.run_outcome import CaptureTally, EndingLatch, FailedCapture, RunEnding
+from modules.run_outcome import CaptureTally, EndingLatch, FailedCapture, FatalTold, RunEnding
 from modules.sequential_io_executor import IOTask
 
 if TYPE_CHECKING:
@@ -663,31 +663,59 @@ class ProtocolImageWriter:
         2. fatal flag -- read by cleanup (terminal-dark assertion) and by
            the step-boundary gate; set before the LEDs go dark so a step
            racing this call cannot observe dark-but-not-fatal.
-        3. the ending record -- a lock and a frozen construction, no I/O.
+        3. the record -- a lock and a frozen construction, no I/O.
            Recorded before anything that can block or raise, so the cause
            survives a force_off that wedges on a dead driver; first-wins,
-           so the fault that started the cascade is the one reported.
+           so the fault that started the cascade is the one reported. The
+           latch says what the person is told of it (``record_fatal``).
         4. force_off -- darkens the sample NOW, on this thread, via the
            direct driver path (no executor hop), because the fault that
            brought us here may be wedging the teardown that normally turns
            the LEDs off; a live sample must not stay illuminated while a
            dead disk times out. Worst case ~5 s behind an in-flight
-           confirmed LED write on the driver lock.
-        5. the fatal popup -- last, after the hardware is safe.
+           confirmed LED write on the driver lock. Not once the run has
+           settled: it has let go of the scope, and a channel lit now is
+           someone else's.
+        5. the report -- last, after the hardware is safe: shown for the
+           run's first fatal fault, after a Stop or a shutdown too; logged
+           for another behind it; nothing for a fault already told, or met
+           after the run settled, whose lost images the files report tells.
         Safe to re-enter: every step is idempotent, so a second fault
         surfacing while this runs (e.g. the failure-record write itself
         wedging) changes nothing.
         """
         self._abort_fn()
         self._fatal_abort_event.set()
-        self._ending.set_if_unset(RunEnding('failed', reason, message))
+        told = self._ending.record_fatal(RunEnding('failed', reason, message))
+        if told is FatalTold.SETTLED:
+            return
         self._scope.illumination.force_off()
+        self._tell_failed(told, reason, domain, message)
+
+    def _end_run_failed(self, reason: str, domain: str, message: str) -> None:
+        """Record a run the instrument could not complete, and tell it, leaving its LEDs be.
+
+        A policy ceiling on a scope that still answers -- the scan failed
+        too many times in a row -- is no fault that wedges the hardware: the
+        run ends 'failed' in the configured LED end state, not forced dark.
+        Told as the funnel tells a fault, by the run's latch, so it is shown
+        once, and logged when a fault was shown first.
+        """
+        told = self._ending.record_fatal(RunEnding('failed', reason, message))
+        self._tell_failed(told, reason, domain, message)
+
+    @staticmethod
+    def _tell_failed(told: FatalTold, reason: str, domain: str, message: str) -> None:
+        """Report a run's failure as its latch answered: shown, logged, or not again."""
+        if told in (FatalTold.SETTLED, FatalTold.TOLD):
+            return
         from modules.notification_center import notifications
 
         notifications.report_outcome(
             RunFailedError(reason=reason, message=message),
             solicited=False,
             category=domain,
+            log_only=told is FatalTold.LOG,
         )
 
     @property

@@ -419,9 +419,12 @@ class TestRunCleanup:
         assert fired == [], "cleanup must leave both events to the run's end"
 
         # The runner's close, on a runner that saves no record.
+        from modules.run_outcome import EndingLatch
+
         runner = SimpleNamespace(
             _disable_saving_artifacts=True,
             _protocol_execution_record=None,
+            _ending=EndingLatch(),
             _events=events,
             _protocol=None,
             _run_dir=None,

@@ -481,11 +481,16 @@ class TestTheRunLoopsOwnEndings:
 
         loop.run_loop(runner._last_run())
 
-        ending = runner._ending.get()
-        assert (ending.status, ending.reason) == ('failed', 'run_loop_crashed')
-        assert 'the loop died here' in ending.message
-        assert runner._cleanup.call_args.args[0] is ending, (
-            'cleanup was handed a different ending than the one recorded'
+        # Through the funnel, as every run-killing fault: it records the
+        # ending and shows it (the writer is this harness's mock).
+        ((reason, domain, message),) = [
+            c.args for c in runner._image_writer._abort_run_fatal.call_args_list
+        ]
+        assert (reason, domain) == ('run_loop_crashed', 'Protocol')
+        assert 'the loop died here' in message
+        ending = runner._cleanup.call_args.args[0]
+        assert (ending.reason, ending.message) == (reason, message), (
+            'cleanup was handed a different ending than the one the funnel recorded'
         )
 
     def test_the_disk_floor_aborts_outside_the_handler_that_swallows_probes(self, monkeypatch):

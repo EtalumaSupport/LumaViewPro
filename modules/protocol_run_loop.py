@@ -20,7 +20,6 @@ from modules.protocol_state_machine import ProtocolState
 from modules.exceptions import (
     INTERLOCK_REASONS,
     HardwareCommandRefusedError,
-    RunFailedError,
     describe_unknown_positions,
 )
 from modules.run_events import deliver
@@ -73,7 +72,9 @@ class ProtocolRunLoop:
                 exc_info=True,
             )
             ending = RunEnding('failed', 'run_loop_crashed', str(ex))
-            self._p._ending.set_if_unset(ending)
+            # Through the funnel, as every run-killing fault: a crashed run
+            # is shown, and a fault already shown stays the one shown.
+            self._p.abort_run_fatal(ending.reason, ending.message)
         finally:
             self._p._cleanup(
                 ending
@@ -431,8 +432,6 @@ class ProtocolRunLoop:
 
                 consecutive_scan_failures += 1
                 if consecutive_scan_failures >= MAX_CONSECUTIVE_SCAN_FAILURES:
-                    from modules.notification_center import notifications
-
                     message = (
                         f'The scan failed {consecutive_scan_failures} times '
                         'in a row. Check the USB cable and power connections '
@@ -440,12 +439,7 @@ class ProtocolRunLoop:
                         'restart LumaViewPro and the protocol.'
                     )
                     ending = RunEnding('failed', 'consecutive_scan_failures', message)
-                    notifications.report_outcome(
-                        RunFailedError(reason=ending.reason, message=ending.message),
-                        solicited=False,
-                        category='Protocol',
-                    )
-                    p._ending.set_if_unset(ending)
+                    p.end_run_failed(ending.reason, ending.message)
                     return ending
 
                 # The failed scan may have died with a channel lit (an

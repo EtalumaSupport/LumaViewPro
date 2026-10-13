@@ -103,15 +103,19 @@ class TestRunLoopInnerClassifiesByConnection:
             f'period up to the ceiling; got {runner._protocol.step.call_count} attempts'
         )
         assert runner._scan_count == 0, 'failed scans must not count as completed'
-        assert len(captured) == 1, (
-            f'transients are silent until the consecutive-failure ceiling; got {captured}'
-        )
+        # Told by the run's latch, as a fault is, through the writer this
+        # harness holds as a mock: the observable is the one call, carrying
+        # the cause. The post it makes is pinned where the writer is real
+        # (tests/test_a_run_tells_each_fatal_fact_once.py).
+        assert captured == [], f'transients are silent; the ceiling tells once: {captured}'
+        ((reason, domain, message),) = [
+            c.args for c in runner._image_writer._end_run_failed.call_args_list
+        ]
+        assert (reason, domain) == ('consecutive_scan_failures', 'Protocol')
+        assert '3 times' in message and 'in a row' in message, message
         assert runner._image_writer._abort_run_fatal.call_args_list == [], (
             'the strike ceiling stops a run the instrument could not complete; '
             'it must not force-darken the sample the way a fault does'
-        )
-        assert '3 times' in captured[0][2] and 'in a row' in captured[0][2], (
-            f'the ceiling popup must name the repeated failure; got {captured[0]}'
         )
 
 

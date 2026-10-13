@@ -1878,6 +1878,15 @@ class SequencedCaptureRunner:
         """
         self._image_writer._abort_run_fatal(reason, 'Protocol', message)
 
+    def end_run_failed(self, reason: str, message: str) -> None:
+        """Record and tell a run the instrument could not complete, its LEDs left be.
+
+        The run loop's one non-fault failure, the strike ceiling: told as a
+        fault is, without the abort and the darkening a fault takes. The
+        loop returns the ending itself.
+        """
+        self._image_writer._end_run_failed(reason, 'Protocol', message)
+
     def end_scan(self) -> None:
         """A scan's end: SCANNING back to RUNNING, if the run is still scanning.
 
@@ -2531,14 +2540,22 @@ class SequencedCaptureRunner:
             self._run_mode is SequencedCaptureRunMode.SINGLE_COMPOSITE
             and ending.status in ('completed', 'incomplete')
         )
-        already_told = ending.reason in FILES_LOST_ENDINGS
+        # Whether the person was shown a fault that lost files: the one the
+        # funnel showed, which ended the run or came after a Stop. Read
+        # here, when the latch is closed and no fault is shown any more.
+        already_told = self._ending.shown_fatal in FILES_LOST_ENDINGS
 
         def _complete_record() -> None:
             try:
                 record.complete()
             except RecordIncompleteError as short:
+                # The record rows missing after lost images are the same
+                # cause: logged only, when the person was told of the images.
+                told_of_images = already_told or (
+                    write_batch.not_written and not merge_reports_files
+                )
                 notifications.report_outcome(
-                    short, solicited=False, category='Protocol', log_only=already_told
+                    short, solicited=False, category='Protocol', log_only=told_of_images
                 )
 
         def _files_written(outcome: str) -> None:
@@ -2628,14 +2645,17 @@ class SequencedCaptureRunner:
             # One read, here, after the last lane cleanup waits on has
             # drained -- so a fault that lands during that drain is still
             # the ending, not a word chosen before the last fact arrived.
-            # Read once and passed down: cleanup's decisions must not flip
-            # mid-cleanup if a new run's _reset_vars replaces these objects
-            # after the run flag clears. The latch outranks the caller's
-            # word because the latch is what the site that ended the run
-            # wrote, while the word is what the loop knew on its way out.
-            latched = self._ending.get()
+            # The read closes the latch: the ending is final, and a fault
+            # met after it (a write meeting the disk floor after the run let
+            # go of the scope) is not told as the run's ending. Read once
+            # and passed down: cleanup's decisions must not flip mid-cleanup
+            # if a new run's _reset_vars replaces these objects after the
+            # run flag clears. The latch outranks the caller's word because
+            # the latch is what the site that ended the run wrote, while the
+            # word is what the loop knew on its way out.
+            closed = self._ending.close(ending)
             forced_dark = self._fatal_abort_event.is_set()
-            ending = self._account_for_captures(latched or ending)
+            ending = self._account_for_captures(closed)
             self._write_focus(ending, run)
             run_ending = ending
             led_end_state_applied = run_cleanup(
@@ -2692,7 +2712,9 @@ class SequencedCaptureRunner:
             # outcome, and a next run's prepare(), read this batch, and must
             # find it closed and still draining rather than open and not yet
             # asked.
-            run_ending = run_ending or self._ending.get() or ending
+            # A cleanup that raised before its read closes the latch here,
+            # so the files and the outcome below read the one ending.
+            run_ending = run_ending or self._ending.close(ending)
             # The run's events, protocol and directory by value: run_ended is
             # sent after the release, when a successor's start() may have
             # replaced the runner's fields, and a subscriber would otherwise
@@ -2713,7 +2735,7 @@ class SequencedCaptureRunner:
             # Non-raising by construction, because the claim release below
             # has to run whatever happens here; a raise would leak the claim
             # and refuse every future run.
-            self._settle_run_outcome(ending)
+            self._settle_run_outcome(run_ending)
             # run_cleanup ends both lanes' run modes; a cleanup that raised
             # before it did would leave their workers serving a queue no run
             # fills, starving every later move and camera task. Ended here,
