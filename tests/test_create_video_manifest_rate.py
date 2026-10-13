@@ -81,6 +81,21 @@ def test_engine_manifest_wins_over_legacy(tmp_path):
     assert _built_rate(tmp_path, None) == pytest.approx(9.5)
 
 
+def test_a_manifest_names_its_channel_and_whether_it_was_false_coloured(tmp_path):
+    """A recording records its channel and the false-colour flag; the video
+    is coloured by the channel only when the flag was on."""
+    builder = VideoBuilder(has_turret=False)
+    read = []
+    for false_color in (True, False):
+        folder = tmp_path / str(false_color)
+        folder.mkdir()
+        (folder / 'recording_manifest.json').write_text(
+            json.dumps({'channel': 'Red', 'false_color': false_color, 'measured_fps': 2.0})
+        )
+        read.append(builder._read_recording_manifest(folder)['channel_color'])
+    assert read == ['Red', None]
+
+
 def test_channel_color_read_from_either_manifest_generation(tmp_path):
     builder = VideoBuilder(has_turret=False)
     (tmp_path / 'recording_manifest.json').write_text(

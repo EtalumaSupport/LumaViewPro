@@ -394,11 +394,13 @@ class ManualRecordingController:
         resolved_layer = resolve_channel_identity(scope.illumination, layer)
 
         manifest_extra = {
-            # RENDERING, not identity: the video builder reads this back to
-            # decide whether to false-color a rebuild, so a mono recording
-            # must leave it null or the rebuild colorizes frames the user
-            # deliberately saved gray.
-            'channel_color': resolved_layer if false_color_on else None,
+            # The channel the frames are of, and, as a separate RENDERING
+            # fact, whether they were shown in false colour: the video
+            # builder colours a rebuild only when it was on, so frames the
+            # user deliberately saved gray stay gray, in the colour of the
+            # day.
+            'channel': resolved_layer,
+            'false_color': false_color_on,
             'camera': {
                 'model': camera.camera_model,
                 'serial': camera.camera_serial_number,

@@ -508,7 +508,10 @@ class VideoBuilder(ProtocolPostProcessor):
         schemas nest differently). Fields are None when the folder
         predates both manifests, the file is unreadable, or the field is
         absent -- channel None encodes grayscale; rate None means no
-        measured rate is known.
+        measured rate is known. ``channel_color`` is the channel to colour
+        the video by, None when it was recorded with false color off: a
+        manifest records the channel and a ``false_color`` flag, and one
+        written before the flag records the channel only when it was on.
 
         Returns:
             ``{'channel_color': str | None, 'measured_fps': float | None}``
@@ -521,8 +524,12 @@ class VideoBuilder(ProtocolPostProcessor):
             manifest = None
         if manifest is not None:
             fps = manifest.get('measured_fps')
+            if 'false_color' in manifest:
+                channel_color = manifest['channel'] if manifest['false_color'] else None
+            else:
+                channel_color = manifest.get('channel_color')
             return {
-                'channel_color': manifest.get('channel_color'),
+                'channel_color': channel_color,
                 'measured_fps': float(fps) if fps else None,
             }
 

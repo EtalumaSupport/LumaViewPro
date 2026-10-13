@@ -295,7 +295,10 @@ class ProtocolVideoStep:
             timestamp_overlay=self._timestamp_overlay,
             manifest_extra={
                 'step_name': self._name,
-                'channel_color': step['Color'] if false_color_on else None,
+                # The channel, and whether it was shown in false colour, as
+                # the manual leg records them.
+                'channel': step['Color'],
+                'false_color': false_color_on,
                 'camera': {
                     'model': camera.camera_model,
                     'serial': camera.camera_serial_number,

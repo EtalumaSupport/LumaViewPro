@@ -329,7 +329,7 @@ class TestFramesLeg:
         manifest = json.loads((folders[0] / 'recording_manifest.json').read_text())
         assert manifest['frames_written'] == 5
         assert manifest['write_failures'] == 0
-        assert manifest['channel_color'] == 'Blue'
+        assert (manifest['channel'], manifest['false_color']) == ('Blue', True)
         assert manifest['camera']['model'] == 'testcam-9000'
         assert manifest['camera']['serial'] == 'TC9K-001'
         assert manifest['camera']['timestamp_tick_hz'] == TICK_HZ
@@ -847,10 +847,10 @@ class TestChannelIdentity:
         folder = next((tmp_path / 'Manual').glob('Video_*'))
         assert (folder / MANUAL_HYPERSTACK_FILENAME).exists()
 
-    def test_toggle_off_keeps_manifest_channel_color_null(self, tmp_path):
-        # REGRESSION PIN. channel_color is a RENDERING field: video_builder
-        # reads it back to decide whether to colorize a rebuild. Writing
-        # identity here would false-color a recording saved mono.
+    def test_toggle_off_records_the_channel_shown_grey(self, tmp_path):
+        # REGRESSION PIN. false_color is a RENDERING field: video_builder
+        # reads it back to decide whether to colorize a rebuild, so a
+        # recording saved mono records that it was, beside its channel.
         controller, scope, clock = make_controller(tmp_path, lit='Blue')
         controller.start(layer='Blue', false_color_on=False)
         feed_frames(scope, clock, 2, fps=10.0)
@@ -859,9 +859,10 @@ class TestChannelIdentity:
 
         folder = next((tmp_path / 'Manual').glob('Video_*'))
         manifest = json.loads((folder / 'recording_manifest.json').read_text())
-        assert manifest['channel_color'] is None
+        assert (manifest['channel'], manifest['false_color']) == ('Blue', False)
+        assert 'channel_color' not in manifest
 
-    def test_toggle_on_still_carries_channel_color(self, tmp_path):
+    def test_toggle_on_records_the_channel_in_false_colour(self, tmp_path):
         # The other half of the pin: rendering on still records the color.
         controller, scope, clock = make_controller(tmp_path, lit='Blue')
         controller.start(layer='Blue', false_color_on=True)
@@ -871,7 +872,7 @@ class TestChannelIdentity:
 
         folder = next((tmp_path / 'Manual').glob('Video_*'))
         manifest = json.loads((folder / 'recording_manifest.json').read_text())
-        assert manifest['channel_color'] == 'Blue'
+        assert (manifest['channel'], manifest['false_color']) == ('Blue', True)
 
 
 class TestCloseWithProgress:
