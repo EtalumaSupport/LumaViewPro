@@ -1936,7 +1936,7 @@ class RunImagesNotSavedError(Fault, CaptureError):
         super().__init__(
             f'{not_written} of the images this run captured '
             f'{"is" if not_written == 1 else "are"} not on disk ({causes[reason]}); '
-            f'{written} were saved. Check the log for each one.',
+            f'{written} were saved.',
             reason,
         )
         self.written = written
@@ -1989,26 +1989,6 @@ class RecordIncompleteError(Fault, CaptureError):
         )
         self.missing = missing
         self.attempted = attempted
-
-
-class DiskSpaceCriticalError(Fault, CaptureError):
-    """An image was not saved because the save drive is nearly full.
-
-    Raised by the save that refused it, after the run has been stopped and
-    the person told; it is what counts that image as not written.
-
-    Attributes:
-        free_mb: Space left on the drive, in MB.
-    """
-
-    title = ENDING_TITLES['disk_space_critical']
-
-    def __init__(self, free_mb: float):
-        super().__init__(
-            f'Only {free_mb:.0f} MB free on the save drive; the image was not saved.',
-            'disk_space_critical',
-        )
-        self.free_mb = free_mb
 
 
 class RunIncompleteError(Fault, CaptureError):

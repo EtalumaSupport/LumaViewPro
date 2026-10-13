@@ -9,6 +9,7 @@ during the protocol-decomposition refactor.
 
 from __future__ import annotations
 
+import dataclasses
 import datetime
 import functools
 import logging
@@ -26,7 +27,6 @@ from lvp_logger import protocol_logger as logger
 from modules.activity_claim import BorrowedClaim
 from modules.exceptions import (
     CameraSettingRejected,
-    DiskSpaceCriticalError,
     ObjectiveUnknownError,
     RunFailedError,
     RunFilesNotWrittenError,
@@ -87,6 +87,20 @@ SLOW_WRITE_BLOCKED_WARN_S = 30.0
 # writer is stuck, not slow. The write was not taken; the caller owns the loud
 # abort.
 WRITER_WEDGED = object()
+
+
+@dataclasses.dataclass(frozen=True)
+class NotWritten:
+    """A write's answer when it saved no image: why, as the batch counts it.
+
+    An outcome of the write, not an error: the save drive was below its
+    floor, and the fault was told where it was met.
+
+    Attributes:
+        lost: The batch's lost reason, ``'disk_full'``.
+    """
+
+    lost: str
 
 
 class _Write:
@@ -420,13 +434,11 @@ class RunWriteBatch:
                 return None
             try:
                 result = action(*args, **kwargs)
-            except DiskSpaceCriticalError:
-                self._settle(write, lost='disk_full')
-                raise
             except BaseException:
                 self._settle(write, lost='save_failed')
                 raise
-            self._settle(write)
+            # A write that saved nothing says why, as its answer.
+            self._settle(write, lost=result.lost if isinstance(result, NotWritten) else None)
             return result
 
         return _run
@@ -1513,8 +1525,11 @@ class ProtocolImageWriter:
         capture_time: datetime.datetime | None = None,
         enable_image_saving: bool = True,
         separate_folder_per_channel: bool = False,
-    ) -> None:
+    ) -> NotWritten | None:
         """Write a captured still image to disk and record it in the run log.
+
+        Returns ``NotWritten('disk_full')`` when the save drive is below its
+        floor and nothing was written; None otherwise.
 
         Runs on the file-IO thread. Encoding, depth, and JPEG quality come
         from the writer's held run config -- the one carrier for the run's
@@ -1557,9 +1572,10 @@ class ProtocolImageWriter:
                     'FileIO',
                     f'Only {free_mb:.0f} MB free. Aborting protocol to prevent data loss.',
                 )
-                # Raised, not returned: a return reads as a write that
-                # landed, and this image is not on disk.
-                raise DiskSpaceCriticalError(free_mb)
+                # Answered, not raised: the floor is told by the funnel, or
+                # by the files report once the run has settled, and the batch
+                # counts this image as not on disk from the answer.
+                return NotWritten('disk_full')
 
         if enable_image_saving:
             if captured_image is None:

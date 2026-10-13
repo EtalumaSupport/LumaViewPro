@@ -2986,24 +2986,24 @@ class TestPIW2_DisksUsageDeduped:
             'modules.protocol_image_writer.save_image',
             lambda scope, **kwargs: saves.append(kwargs) or (tmp_path / 'out.tiff'),
         )
-        from modules.exceptions import DiskSpaceCriticalError
+        from modules.protocol_image_writer import NotWritten
 
-        # Raised, so the run's file count reads the image as not written.
-        with pytest.raises(DiskSpaceCriticalError):
-            writer.write_capture(
-                enable_image_saving=True,
-                captured_image=CapturedFrame(
-                    image=np.zeros((4, 4), dtype=np.uint8),
-                    significant_bits=8,
-                    objective_id='4x Oly',
-                    record=frame_record(),
-                    position=unpositioned(),
-                ),
-                step=_protocol_step(),
-                name='stepA_BF',
-                save_folder=str(tmp_path),
-                output_format='TIFF',
-            )
+        # Answered as not written, so the run's file count reads it so.
+        answered = writer.write_capture(
+            enable_image_saving=True,
+            captured_image=CapturedFrame(
+                image=np.zeros((4, 4), dtype=np.uint8),
+                significant_bits=8,
+                objective_id='4x Oly',
+                record=frame_record(),
+                position=unpositioned(),
+            ),
+            step=_protocol_step(),
+            name='stepA_BF',
+            save_folder=str(tmp_path),
+            output_format='TIFF',
+        )
+        assert answered == NotWritten('disk_full')
         assert aborts == [1], 'low disk must abort the protocol'
         assert not saves, 'no write may happen after a failed disk check'
         assert _posted(centre_posts, Severity.CRITICAL), (
