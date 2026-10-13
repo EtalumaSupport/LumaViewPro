@@ -64,7 +64,7 @@ class TestSpectralTrio:
     def test_fluorescence_capture_carries_the_trio(self, metadata_scope):
         metadata = _metadata(metadata_scope, 'Green')
         assert metadata['channel'] == 'Green'
-        assert metadata['channel_display'] == 'Green'
+        assert metadata['channel_display'] == '488 nm'
         assert metadata['excitation_nm'] == 488.0
         assert metadata['filterset'] == 'FS-STOCK'
 
@@ -93,7 +93,7 @@ class TestSpectralTrio:
         metadata_scope.layer_identity = _IDENTITY_NO_FILTERSET
         metadata = _metadata(metadata_scope, 'Green')
         assert 'filterset' not in metadata
-        assert metadata['channel_display'] == 'Green'
+        assert metadata['channel_display'] == '488 nm'
 
     def test_led_channel_never_reaches_metadata(self, metadata_scope):
         metadata = _metadata(metadata_scope, 'Green')
@@ -158,7 +158,7 @@ class TestWrittenFileRoundTrip:
         back = image_utils.read_postproc_input_metadata(path)
         assert back is not None
         assert back['channel'] == 'Green'
-        assert back['channel_display'] == 'Green'
+        assert back['channel_display'] == '488 nm'
         assert back['excitation_nm'] == 488.0
         assert back['filterset'] == 'FS-STOCK'
 
@@ -217,7 +217,7 @@ class TestDerivedOutputs:
             save_encoding='right_aligned',
         )
         out = image_utils.build_postproc_output_metadata(Path(path), 'Green', significant_bits=12)
-        assert out['channel_display'] == 'Green'
+        assert out['channel_display'] == '488 nm'
         assert out['excitation_nm'] == 488.0
         assert out['filterset'] == 'FS-STOCK'
 

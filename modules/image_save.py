@@ -426,7 +426,9 @@ def generate_image_metadata(
         'microscope_model': microscope_model,
         'software': f'LumaViewPro {version}',
         'channel': channel,
-        **({'channel_display': record.display_name} if record is not None else {}),
+        # What the channel is called wherever it is shown: a fluorescence
+        # layer's excitation, any other layer's name on this unit.
+        **({'channel_display': record.label} if record is not None else {}),
         **(
             {'excitation_nm': record.excitation_nm}
             if record is not None and record.excitation_nm is not None
