@@ -5,7 +5,7 @@ The GUI's Capture button used to decide the channel, folder, name,
 summing, format, depth and overlay copy itself, reaching past the API to
 do it, so a script or REST caller had no way to make the same file.
 `session.manual_capture.capture` makes every one of those decisions from
-the session's settings; the caller names only the open drawer, its
+the session's settings and its shown channel; the caller names only its
 false-colour state and the overlays it wants.
 
 Run against the simulator with the lanes the factory builds and starts, so
@@ -25,10 +25,8 @@ import pytest
 
 import modules.image_mode as image_mode
 from modules.exceptions import (
-    ArgumentRefusedError,
     CaptureError,
     HardwareCommandRefusedError,
-    MissingPart,
 )
 from modules.image_utils import read_postproc_input_metadata, read_tiff_with_legacy_collapse
 from modules.lumascope_api.imaging import capture_failure_cause
@@ -85,7 +83,6 @@ def over_the_first_well(session) -> str:
 
 
 def _capture(session, **kwargs):
-    kwargs.setdefault('layer', None)
     kwargs.setdefault('false_color_on', False)
     return session.manual_capture.capture(**kwargs).result(timeout=RESULT_TIMEOUT_S)
 
@@ -115,7 +112,7 @@ def _wait_until_queued(session, depth):
 
 
 class TestWhereTheFileLands:
-    def test_no_drawer_and_no_led_is_brightfield_in_manual(self, still_session):
+    def test_a_fresh_session_shows_brightfield_and_names_it_in_manual(self, still_session):
         session, tmp_path = still_session
         well = over_the_first_well(session)
 
@@ -152,19 +149,21 @@ class TestWhereTheFileLands:
         assert paths[0].is_file()
         assert shown == ['Position Not Recorded']
 
-    def test_the_open_drawer_names_the_channel_when_nothing_is_lit(self, still_session):
+    def test_the_shown_channel_names_the_still_when_nothing_is_lit(self, still_session):
         session, _ = still_session
+        session.show_channel('Blue')
 
-        (path,) = _capture(session, layer='Blue')
+        (path,) = _capture(session)
 
         assert '_Blue_' in path.name
         assert read_postproc_input_metadata(path)['channel'] == 'Blue'
 
-    def test_a_lit_led_outranks_the_open_drawer(self, still_session):
+    def test_a_lit_led_outranks_the_shown_channel(self, still_session):
         session, _ = still_session
+        session.show_channel('Blue')
         session.scope.illumination.led_on('Green', 50.0)
 
-        (path,) = _capture(session, layer='Blue')
+        (path,) = _capture(session)
 
         assert '_Green_' in path.name
         assert read_postproc_input_metadata(path)['channel'] == 'Green'
@@ -183,7 +182,8 @@ class TestWhereTheFileLands:
         settings = _settings(tmp_path)
         settings['separate_folder_per_channel'] = True
         with _open_session(settings) as session:
-            (path,) = _capture(session, layer='Red')
+            session.show_channel('Red')
+            (path,) = _capture(session)
 
         assert path.parent == tmp_path / 'Manual' / 'Red'
 
@@ -233,36 +233,13 @@ class TestOverlays:
 
 
 class TestRefusalsAndFailures:
-    def test_a_layer_that_is_not_a_channel_is_refused_before_anything_happens(self, tmp_path):
-        settings = _settings(tmp_path)
-        settings['separate_folder_per_channel'] = True
-        with _open_session(settings) as session:
-            with pytest.raises(ArgumentRefusedError) as refused:
-                session.manual_capture.capture(layer='Foo', false_color_on=False)
-            assert (refused.value.reason, refused.value.argument) == ('layer_unknown', 'layer')
-            assert not session.manual_capture.in_flight
-
-        assert not (tmp_path / 'Manual').exists()
-
-    def test_a_layer_this_scope_lacks_names_no_still(self, tmp_path):
-        """A still named for Lumi on a scope with no Lumi would be a file labelled with what nobody imaged."""
-        settings = _settings(tmp_path)
-        with _open_session(settings) as session:
-            assert session.scope.layer_identity.find('Lumi') is None
-            with pytest.raises(HardwareCommandRefusedError) as refused:
-                session.manual_capture.capture(layer='Lumi', false_color_on=False)
-            assert refused.value.missing == MissingPart.layer('Lumi')
-            assert not session.manual_capture.in_flight
-
-        assert not list(tmp_path.rglob('*.tif*'))
-
     def test_a_second_still_while_one_is_in_flight_is_refused(self, still_session):
         session, _ = still_session
         blocker = _LaneBlocker(session)
         try:
-            first = session.manual_capture.capture(layer=None, false_color_on=False)
+            first = session.manual_capture.capture(false_color_on=False)
             with pytest.raises(HardwareCommandRefusedError) as refused:
-                session.manual_capture.capture(layer=None, false_color_on=False)
+                session.manual_capture.capture(false_color_on=False)
             assert refused.value.reason == 'capture_in_flight'
         finally:
             blocker.release()
@@ -285,14 +262,14 @@ class TestRefusalsAndFailures:
                 return original(request)
 
             session.manual_capture._capture_and_save = observed
-            first = session.manual_capture.capture(layer=None, false_color_on=False)
+            first = session.manual_capture.capture(false_color_on=False)
             assert body_running.wait(5.0), 'the still never started on the lane'
             with pytest.raises(concurrent.futures.TimeoutError):
                 first.result(timeout=0.1)
 
             assert session.manual_capture.in_flight
             with pytest.raises(HardwareCommandRefusedError) as refused:
-                session.manual_capture.capture(layer=None, false_color_on=False)
+                session.manual_capture.capture(false_color_on=False)
             assert refused.value.reason == 'capture_in_flight'
             first.result(timeout=RESULT_TIMEOUT_S)
             assert not session.manual_capture.in_flight
@@ -303,7 +280,7 @@ class TestRefusalsAndFailures:
         assert held is not None
         try:
             with pytest.raises(HardwareCommandRefusedError) as refused:
-                session.manual_capture.capture(layer=None, false_color_on=False)
+                session.manual_capture.capture(false_color_on=False)
         finally:
             held.release()
         assert refused.value.reason == 'exclusive_activity_running'
@@ -315,7 +292,7 @@ class TestRefusalsAndFailures:
         session, _ = still_session
         blocker = _LaneBlocker(session)
         try:
-            future = session.manual_capture.capture(layer=None, false_color_on=False)
+            future = session.manual_capture.capture(false_color_on=False)
             _wait_until_queued(session, 1)
             session.camera_executor.clear_pending()
         finally:
@@ -328,7 +305,7 @@ class TestRefusalsAndFailures:
         session, tmp_path = still_session
         session.scope._camera_driver.stop_grabbing()
 
-        future = session.manual_capture.capture(layer=None, false_color_on=False)
+        future = session.manual_capture.capture(false_color_on=False)
 
         with pytest.raises(CaptureError) as failed:
             future.result(timeout=RESULT_TIMEOUT_S)
@@ -346,7 +323,7 @@ class TestTheRecordIsTheCapturesMoment:
         session.scope.imaging.set_gain_db(1.0)
         blocker = _LaneBlocker(session)
         try:
-            future = session.manual_capture.capture(layer=None, false_color_on=False)
+            future = session.manual_capture.capture(false_color_on=False)
             # The still is queued behind the blocker before the write is sent.
             _wait_until_queued(session, 1)
             writer = threading.Thread(target=session.scope.imaging.set_gain_db, args=(20.0,))

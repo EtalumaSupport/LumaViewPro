@@ -56,7 +56,7 @@ def test_a_run_a_recording_a_home_and_a_diagnostic_are_each_refused(sim_session,
         ),
         'protocol',
     )
-    _refused(lambda: sim_session.manual_recording.start(layer='BF'), 'recording')
+    _refused(lambda: sim_session.manual_recording.start(), 'recording')
     _refused(lambda: sim_session.scope.motion.home('Z'), 'home')
 
     def a_diagnostic():

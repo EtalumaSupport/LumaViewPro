@@ -9,8 +9,8 @@ channel than the open drawer, the file was named for the drawer while the light
 was the truth -- the rule the manual recording already follows.
 
 These tests pin the rule and the seam: the channel is resolved once, by the one
-function both manual outputs share (a lit LED wins, else the open layer, else
-brightfield); every widget read happens on the button, before the capture guard
+function both manual outputs share (a lit LED wins, else the Session's shown
+channel); every widget read happens on the button, before the capture guard
 is armed; and the open-layer scan has one implementation.
 """
 
@@ -21,7 +21,7 @@ from types import SimpleNamespace
 import pytest
 import tifffile as tf
 
-from tests.ast_seams import REPO_ROOT, find_def, parse_module
+from tests.ast_seams import REPO_ROOT, parse_module
 from tests.scope_fakes import bind_settings_like_a_session
 
 
@@ -47,8 +47,8 @@ def _read_channel_name(path) -> str:
         return description['Channel']['Name'][0]
 
 
-def _run_manual_capture(tmp_path, scope, *, layer, false_color_on, separate_folders):
-    """Drive the one manual-capture path with the values the button snapshots.
+def _run_manual_capture(tmp_path, scope, *, shown_layer, false_color_on, separate_folders):
+    """Drive the one manual-capture path with the shown layer the Session hands it.
 
     The save underneath is real: the defect lived in what reached the disk,
     so a test that patches the save cannot see it. Returns the files on disk
@@ -67,9 +67,12 @@ def _run_manual_capture(tmp_path, scope, *, layer, false_color_on, separate_fold
     for name in ('BF', 'PC', 'DF', 'Blue', 'Green', 'Red', 'Lumi'):
         settings[name].update({'exposure_ms': 10, 'sum': 1, 'illumination_ma': 0})
     capture = ManualCaptureController(
-        scope=scope, settings_snapshot=lambda: settings, engineering_mode=lambda: False
+        scope=scope,
+        settings_snapshot=lambda: settings,
+        shown_layer=lambda: shown_layer,
+        engineering_mode=lambda: False,
     )
-    reported = capture.capture(layer=layer, false_color_on=false_color_on).result(timeout=30)
+    reported = capture.capture(false_color_on=false_color_on).result(timeout=30)
 
     return sorted((tmp_path / 'Manual').rglob('*.tiff')), reported
 
@@ -79,14 +82,14 @@ def _run_manual_capture(tmp_path, scope, *, layer, false_color_on, separate_fold
 # ---------------------------------------------------------------------------
 
 
-def test_a_lit_led_outranks_the_open_drawer(identity_scope, tmp_path):
-    """Green drawer open with false colour on, Red LED lit: the file is named,
-    labelled and rendered as Red. The light is the truth; the drawer's toggle
-    only says the frame is rendered in colour."""
+def test_a_lit_led_outranks_the_shown_channel(identity_scope, tmp_path):
+    """Green shown with false colour on, Red LED lit: the file is named,
+    labelled and rendered as Red. The light is the truth; the shown layer's
+    toggle only says the frame is rendered in colour."""
     identity_scope.illumination.led_on(channel='Red', illumination_ma=100)
 
     written, _ = _run_manual_capture(
-        tmp_path, identity_scope, layer='Green', false_color_on=True, separate_folders=False
+        tmp_path, identity_scope, shown_layer='Green', false_color_on=True, separate_folders=False
     )
 
     assert len(written) == 1
@@ -131,19 +134,17 @@ def _dark(address, name):
 
 
 def test_resolver_clauses():
-    """A lit, named LED wins over the open layer; nothing lit falls to the open
-    layer, then brightfield; two lit, the first in address order wins; a lit
-    address the identity names no layer for names no channel; no board (None)
-    is nothing lit."""
+    """A lit, named LED wins over the shown layer; nothing lit falls to the
+    shown layer; two lit, the first in address order wins; a lit address the
+    identity names no layer for names no channel; no board (None) is nothing
+    lit."""
     from modules.common_utils import resolve_channel_identity
 
     lit_red = _illumination(_dark(1, 'Green'), _lit(2, 'Red'), _dark(3, 'BF'))
     assert resolve_channel_identity(lit_red, 'Green') == 'Red'
-    assert resolve_channel_identity(lit_red, None) == 'Red'
     none_lit = _illumination(_dark(2, 'Red'), _dark(3, 'BF'))
     assert resolve_channel_identity(none_lit, 'Green') == 'Green'
-    assert resolve_channel_identity(none_lit, None) == 'BF'
-    assert resolve_channel_identity(_illumination(), None) == 'BF'
+    assert resolve_channel_identity(_illumination(), 'Blue') == 'Blue'
     two_lit = _illumination(_lit(0, 'Blue'), _lit(2, 'Red'))
     assert resolve_channel_identity(two_lit, 'Green') == 'Blue'
     unnamed_lit = _illumination(_lit(6, None), _dark(2, 'Red'))
@@ -195,17 +196,13 @@ def test_both_manual_outputs_share_the_resolver():
 # ---------------------------------------------------------------------------
 
 
-def test_capture_task_reads_no_widget_and_the_button_snapshots_the_open_layer():
-    """The capture lives below the GUI and reads nothing of it; the button
-    reads the widgets on the main thread and hands the member what it saw."""
+def test_capture_task_reads_no_widget():
+    """The capture lives below the GUI and reads nothing of it: the channel
+    is the Session's shown channel, and the caller hands it only the
+    false-colour toggle it read on the main thread."""
     body = ast.unparse(parse_module('modules/manual_capture.py'))
     for forbidden in ('_app_ctx', 'accordion_item_lookup', '.collapse', 'ids[', 'scope_display'):
         assert forbidden not in body, f'the capture reads GUI state ({forbidden!r})'
-
-    button = ast.unparse(
-        find_def('ui/composite_capture.py', 'live_capture', class_name='CompositeCapture')
-    )
-    assert 'get_opened_layer' in button, 'the button does not snapshot the open layer'
 
 
 # ---------------------------------------------------------------------------

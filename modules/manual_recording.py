@@ -128,6 +128,8 @@ class ManualRecordingController:
             exposure, stage position).
         settings: The live settings dict; read ONLY at ``start`` -- the
             recording runs from its immutable snapshot.
+        shown_layer: Reads the layer of the session's shown channel, once,
+            at ``start``: it names the channel when no LED is lit.
         activity_claim: The session's compare-and-claim handle; passed
             through to the engine so a recording and a protocol run are
             mutually exclusive.
@@ -144,12 +146,14 @@ class ManualRecordingController:
         *,
         scope: Any,
         settings: dict,
+        shown_layer: Callable[[], str],
         activity_claim: Any,
         scheduler: Scheduler,
         clock: Callable[[], float] = time.time,
     ):
         self._scope = scope
         self._settings = settings
+        self._shown_layer = shown_layer
         self._claim = activity_claim
         self._scheduler = scheduler
         self._clock = clock
@@ -232,7 +236,6 @@ class ManualRecordingController:
     def start(
         self,
         *,
-        layer: str | None = None,
         false_color_on: bool = False,
         on_complete: Callable[[], None] | None = None,
     ) -> None:
@@ -242,22 +245,18 @@ class ManualRecordingController:
         it is displayed) are independent. Identity is recorded on every
         frame; only rendering is conditional. Collapsing the two is what
         made a brightfield hyperstack impossible to build, since the
-        toggle being off left the channel unnamed.
+        toggle being off left the channel unnamed. The channel is the lit
+        LED's, else the shown channel's layer (``session.show_channel``),
+        read once here.
 
         Args:
-            layer: The layer whose accordion is open, or None. Used only
-                when no LED is lit -- see resolve_channel_identity.
-            false_color_on: Whether that layer's false-color toggle is on.
+            false_color_on: Whether the shown layer is displayed in false colour.
                 Controls rendering alone; grayscale when False.
             on_complete: Invoked (on the finish thread) after the drain
                 and all post-drain work; the caller dispatches its own
                 UI cleanup from it.
 
         Raises:
-            ArgumentRefusedError: ``'layer_unknown'``, ``layer`` is not a
-                layer. Nothing is committed.
-            HardwareCommandRefusedError: ``'axis_absent'``, this scope has
-                no ``layer``. Nothing is committed.
             RecordingRefusedError: The start cannot proceed -- a previous
                 recording is still recording, draining or finishing,
                 another exclusive activity is running, a turret or frame
@@ -291,14 +290,6 @@ class ManualRecordingController:
 
         settings = self._settings
         scope = self._scope
-
-        # Every frame's identity names this layer, so a recording named for
-        # what is no layer, or a layer this scope lacks, is a file labelled
-        # with what nobody imaged.
-        if layer is not None:
-            scope.layer_identity.refuse_unless_on_scope(
-                layer, 'manual_recording.start', then='be recorded'
-            )
 
         if not scope.imaging.active_cached:
             raise RecordingRefusedError(
@@ -391,7 +382,7 @@ class ManualRecordingController:
                     message=str(exc),
                 ) from exc
 
-        resolved_layer = resolve_channel_identity(scope.illumination, layer)
+        resolved_layer = resolve_channel_identity(scope.illumination, self._shown_layer())
 
         manifest_extra = {
             # The channel the frames are of, and, as a separate RENDERING

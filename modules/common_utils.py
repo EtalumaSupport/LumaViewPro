@@ -544,16 +544,16 @@ def get_opened_layer(lumaview_imagesettings: LayerDrawers) -> str | None:
 DEFAULT_LAYER = 'BF'
 
 
-def resolve_channel_identity(illumination: 'IlluminationAPI', open_layer: str | None) -> str:
-    """The channel a manual output imaged: lit LED, else open layer, else BF.
+def resolve_channel_identity(illumination: 'IlluminationAPI', shown_layer: str) -> str:
+    """The channel a manual output imaged: the lit LED, else the shown layer.
 
     A lit LED is direct evidence of what is illuminating the sample, so it
-    outranks the open accordion -- a channel can be lit while a different
-    layer's drawer is open, and the light is the truth. The open layer is
-    the tiebreak for luminescence, which images with no LED lit at all and
-    would otherwise be unnameable. With more than one LED lit, the first in
-    address order wins; a lit address the identity names no layer for names
-    no channel.
+    outranks the shown channel -- a caller can light an LED through the
+    illumination API without showing its layer, and the light is the
+    truth. The shown layer is the tiebreak for luminescence, which images
+    with no LED lit at all and would otherwise be unnameable. With more
+    than one LED lit, the first in address order wins; a lit address the
+    identity names no layer for names no channel.
 
     get_led_states() answers None when no LED board is installed: nothing
     is lit, so a board-less scope falls through to the layer.
@@ -566,7 +566,7 @@ def resolve_channel_identity(illumination: 'IlluminationAPI', open_layer: str | 
     for reading in illumination.get_led_states() or ():
         if reading.state is LedState.LIT and reading.name is not None:
             return reading.name
-    return open_layer or DEFAULT_LAYER
+    return shown_layer
 
 
 def read_table(text: str, *, sep: str) -> tuple[list[str], list[list[str]]]:

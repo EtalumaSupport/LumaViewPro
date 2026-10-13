@@ -18,6 +18,7 @@ from modules.exceptions import (
     HardwareCommandRefusedError,
     ObjectiveUnknownError,
 )
+from modules.scope_session import ShownChannel
 
 
 @pytest.fixture
@@ -28,6 +29,10 @@ def button_ctx(monkeypatch):
     ctx = MagicMock()
     ctx.scope_display.use_bullseye = True
     ctx.scope_display.use_crosshairs = False
+    ctx.session.shown_channel = ShownChannel('BF', lit=False)
+    ctx.image_settings.layer_lookup.return_value.ids = {
+        'false_color': types.SimpleNamespace(active=False)
+    }
     original = _app_ctx.ctx
     _app_ctx.ctx = ctx
     # Headless: a settled still is read as soon as it is scheduled.
@@ -56,8 +61,7 @@ def _press(button_ctx, *, raises=None, settles=None):
         capture.side_effect = raises
     else:
         capture.return_value = settles
-    with patch('ui.composite_capture.common_utils.get_opened_layer', return_value=None):
-        CompositeCapture.live_capture(object())
+    CompositeCapture.live_capture(object())
 
 
 def _one_notice(centre_posts):
@@ -116,12 +120,10 @@ def test_anything_else_is_not_shown_raw(button_ctx, centre_posts):
 def test_the_button_hands_the_member_what_the_user_sees(button_ctx):
     from ui.composite_capture import CompositeCapture
 
-    with patch('ui.composite_capture.common_utils.get_opened_layer', return_value=None):
-        CompositeCapture.live_capture(object())
+    CompositeCapture.live_capture(object())
 
     kwargs = button_ctx.session.manual_capture.capture.call_args.kwargs
     assert kwargs == {
-        'layer': None,
         'false_color_on': False,
         'bullseye': True,
         'crosshairs': False,

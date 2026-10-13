@@ -28,8 +28,8 @@ try:
         lambda: sorted(s.get_layer_configs(['Blue'])['Blue'].keys()),
     )
     step(
-        'cu.resolve_channel_identity(illum, None)',
-        lambda: cu.resolve_channel_identity(scope.illumination, None),
+        'cu.resolve_channel_identity(illum, BF)',
+        lambda: cu.resolve_channel_identity(scope.illumination, 'BF'),
     )
     step(
         'cu.build_step_name(...)',

@@ -57,7 +57,7 @@ def test_a_live_recording_is_stopped_and_its_file_finished(sim_session, tmp_path
     recording = sim_session.manual_recording
     write = recording._write_mp4_frame
     recording._write_mp4_frame = lambda *a, **k: (time.sleep(0.05), write(*a, **k))[1]
-    recording.start(layer='BF')
+    recording.start()
     time.sleep(2.0)
     assert sim_session.manual_recording.pending_writes > 0, 'no backlog for the close to finish'
 
@@ -225,7 +225,7 @@ def test_discard_ends_the_wait_on_a_recordings_frames(sim_session, tmp_path):
     recording = sim_session.manual_recording
     write = recording._write_mp4_frame
     recording._write_mp4_frame = lambda *a, **k: (time.sleep(0.2), write(*a, **k))[1]
-    recording.start(layer='BF')
+    recording.start()
     time.sleep(2.0)
     closed = threading.Event()
     closer = threading.Thread(target=lambda: (sim_session.shutdown(), closed.set()))

@@ -253,7 +253,7 @@ class FrameFact(NamedTuple):
 def frame_fact(
     scope: 'Lumascope',
     *,
-    channel_tiebreak: str | None,
+    channel_tiebreak: str,
     to_plate: Callable[[float, float], tuple[float, float]] | None,
 ) -> FrameFact:
     """The fact for the frame arriving now; called on the camera callback.
@@ -269,8 +269,8 @@ def frame_fact(
     Args:
         scope: The scope the recording runs against.
         channel_tiebreak: The channel to record when no LED is lit -- the
-            one the recording started on, or the still's open drawer (None
-            when none is open) -- so luminescence frames are named.
+            one the recording started on, or the still's shown layer -- so
+            luminescence frames are named.
         to_plate: The plate transform bound when the recording started
             (``runtime_state.plate_transform()``), or None when the scope
             had no labware or offset then; X and Y are then unknown.

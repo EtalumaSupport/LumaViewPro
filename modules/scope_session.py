@@ -493,6 +493,7 @@ class ScopeSession:
         self.manual_recording = ManualRecordingController(
             scope=scope,
             settings=settings,
+            shown_layer=lambda: self._shown_channel.layer,
             activity_claim=self.activity_claim,
             scheduler=self._scheduler,
         )
@@ -502,6 +503,7 @@ class ScopeSession:
         self.manual_capture = ManualCaptureController(
             scope=scope,
             settings_snapshot=self.get_settings_snapshot,
+            shown_layer=lambda: self._shown_channel.layer,
             engineering_mode=lambda: self.engineering_mode,
         )
 

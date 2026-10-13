@@ -26,7 +26,7 @@ def body(session):
             sizes = []
             for _ in range(N):
                 t = time.perf_counter()
-                fut = session.manual_capture.capture(layer='BF', false_color_on=False)
+                fut = session.manual_capture.capture(false_color_on=False)
                 paths = fut.result(timeout=60)
                 samples.append(time.perf_counter() - t)
                 sizes.append(paths[0].stat().st_size)

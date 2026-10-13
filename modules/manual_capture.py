@@ -1,9 +1,9 @@
 # Copyright Etaluma, Inc.
 """Capture a still and save it: the one path for the GUI, scripts and REST.
 
-The caller says only what it alone knows -- which drawer is open, whether
-that layer is shown in false colour, which overlays it wants -- and every
-other decision (channel, folder, name, summing, format, depth, encoding,
+The caller says only what it alone knows -- whether the shown layer is
+displayed in false colour, which overlays it wants -- and every other
+decision (channel, folder, name, summing, format, depth, encoding,
 retry budget, overlay copy) is made here from the session's settings and the
 API. Two callers making the same call get the same file.
 """
@@ -47,6 +47,9 @@ class ManualCaptureController:
         scope: The Lumascope instance.
         settings_snapshot: Returns a private copy of the session's settings;
             one is taken per capture, when the capture is asked for.
+        shown_layer: Reads the layer of the session's shown channel, once
+            per capture, when the capture is asked for: it names the
+            channel when no LED is lit.
         engineering_mode: Reads the session's engineering mode, once per
             capture, when the capture is asked for: a plugin may turn it on
             after the controller is built.
@@ -57,10 +60,12 @@ class ManualCaptureController:
         *,
         scope: Any,
         settings_snapshot: Callable[[], dict],
+        shown_layer: Callable[[], str],
         engineering_mode: Callable[[], bool],
     ):
         self._scope = scope
         self._settings_snapshot = settings_snapshot
+        self._shown_layer = shown_layer
         self._engineering_mode = engineering_mode
         # Held from the call until the camera-lane body has finished, so a
         # caller that stops waiting cannot let a second still overtake a slow
@@ -77,7 +82,6 @@ class ManualCaptureController:
     def capture(
         self,
         *,
-        layer: str | None,
         false_color_on: bool,
         bullseye: bool = False,
         crosshairs: bool = False,
@@ -85,16 +89,17 @@ class ManualCaptureController:
         """Capture one still and save it; returns at once.
 
         Args:
-            layer: The layer whose drawer is open, or None. Names the channel
-                only when no LED is lit (``resolve_channel_identity``).
-            false_color_on: Whether that layer is shown in false colour --
-                how the file is rendered, never what it says was imaged.
+            false_color_on: Whether the shown layer is displayed in false
+                colour -- how the file is rendered, never what it says was
+                imaged.
             bullseye: Also save a copy with the bullseye colour map.
             crosshairs: Also save a copy with the centre crosshairs. With
                 either overlay, one extra file is written, from the same
                 frame, beside the unmarked one.
 
-        In the session's engineering mode the name carries the turret slot.
+        The still is named for the lit LED's channel, else the shown
+        channel's layer (``session.show_channel``). In the session's
+        engineering mode the name carries the turret slot.
 
         Returns:
             A Future of the paths written, the unmarked file first. The
@@ -116,12 +121,6 @@ class ManualCaptureController:
             bounds its own wait.
 
         Raises:
-            ArgumentRefusedError: ``'layer_unknown'``, ``layer`` is not a
-                layer. Refused before anything is named, created or
-                captured.
-            HardwareCommandRefusedError: ``'axis_absent'``, this scope has
-                no ``layer``: a still named for it would be a file
-                labelled with a layer nobody imaged. Refused likewise.
             HardwareCommandRefusedError: reason ``'capture_in_flight'``,
                 while an earlier still has not finished;
                 ``'exclusive_activity_running'``, while a run, a
@@ -129,15 +128,13 @@ class ManualCaptureController:
                 its taking; ``'scope_disconnected'``, when the camera lane
                 is closed.
         """
-        if layer is not None:
-            self._scope.layer_identity.refuse_unless_on_scope(layer, _MEMBER, then='be captured')
         if not self._in_flight.acquire(blocking=False):
             raise HardwareCommandRefusedError('capture_in_flight', _MEMBER)
         try:
             request = _StillRequest(
                 scope=self._scope,
                 settings=self._settings_snapshot(),
-                layer=layer,
+                shown_layer=self._shown_layer(),
                 false_color_on=false_color_on,
                 bullseye=bullseye,
                 crosshairs=crosshairs,
@@ -186,9 +183,9 @@ class ManualCaptureController:
         settings = request.settings
         capture_config = config_helpers.get_image_capture_config_from_settings(settings)
 
-        # What was imaged: the lit channel, else the open drawer, else
-        # brightfield -- the rule a manual recording uses too.
-        channel = common_utils.resolve_channel_identity(scope.illumination, request.layer)
+        # What was imaged: the lit channel, else the shown channel -- the
+        # rule a manual recording uses too.
+        channel = common_utils.resolve_channel_identity(scope.illumination, request.shown_layer)
 
         # The live folder is asked of the location owner, and only the levels
         # inside it are created here.
@@ -243,7 +240,7 @@ class ManualCaptureController:
         # answers no position, and the file then states none for it.
         fact = frame_fact(
             scope,
-            channel_tiebreak=request.layer,
+            channel_tiebreak=request.shown_layer,
             to_plate=scope.runtime_state.plate_transform(),
         )
 
@@ -360,7 +357,7 @@ class _StillRequest:
         *,
         scope: Any,
         settings: dict,
-        layer: str | None,
+        shown_layer: str,
         false_color_on: bool,
         bullseye: bool,
         crosshairs: bool,
@@ -368,7 +365,7 @@ class _StillRequest:
     ):
         self.scope = scope
         self.settings = settings
-        self.layer = layer
+        self.shown_layer = shown_layer
         self.false_color_on = false_color_on
         self.bullseye = bullseye
         self.crosshairs = crosshairs

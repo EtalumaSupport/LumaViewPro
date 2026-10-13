@@ -42,7 +42,11 @@ def test_manual_recording_ends_within_the_stall_bound(sim_scope, tmp_path, monke
     )
     scheduler = ThreadingTimerScheduler(name_prefix='TestFeedLoss')
     controller = ManualRecordingController(
-        scope=sim_scope, settings=settings, activity_claim=ActivityClaim(), scheduler=scheduler
+        scope=sim_scope,
+        settings=settings,
+        shown_layer=lambda: 'BF',
+        activity_claim=ActivityClaim(),
+        scheduler=scheduler,
     )
     controller.start()
     # The feed dies only once the recording has a frame on disk to keep.

@@ -340,9 +340,7 @@ class TestTheSession:
 
     def test_a_still_taken_inside_a_diagnostic_is_its_own(self, sim_session):
         with sim_session.diagnostic_claim():
-            paths = sim_session.manual_capture.capture(layer=None, false_color_on=False).result(
-                timeout=30.0
-            )
+            paths = sim_session.manual_capture.capture(false_color_on=False).result(timeout=30.0)
         assert paths
 
     def test_the_file_writer_is_not_recovered_under_a_hold(self, sim_session):

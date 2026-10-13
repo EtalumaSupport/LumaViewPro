@@ -634,10 +634,11 @@ image = session.scope.imaging.capture_and_wait(timeout_s=2.0)
 ### Capture
 
 `session.manual_capture.capture()` captures one still and saves it, the same
-file the GUI's Capture button makes. The caller names only the layer whose
-drawer is open (or None), whether it is shown in false colour, and the
-overlays it wants; the channel (the lit LED, else that layer, else BF), the
-folder (`live_folder/Manual`, per channel when `separate_folder_per_channel`),
+file the GUI's Capture button makes. The caller names only whether the
+shown layer is displayed in false colour and the overlays it wants; the
+channel (the lit LED, else the shown channel's layer, `session.shown_channel`;
+see "The shown channel"), the folder (`live_folder/Manual`, per channel when
+`separate_folder_per_channel`),
 the name, summing, format and encoding come from the session's settings. It
 returns at once with a `concurrent.futures.Future` of the paths written, the
 unmarked file first; an overlay adds a second file from the same frame.
@@ -647,14 +648,13 @@ when the scope did not know it (an axis that has lost its reference, or a
 scope with no X and Y).
 
 ```python
+session.show_channel('Blue')
 paths = session.manual_capture.capture(
-    layer='Blue', false_color_on=True, bullseye=False, crosshairs=False,
+    false_color_on=True, bullseye=False, crosshairs=False,
 ).result(timeout=30)
 ```
 
-It raises `ArgumentRefusedError` (`layer_unknown`) for a name that is no layer,
-`HardwareCommandRefusedError` (`axis_absent`) for a layer this scope lacks, and
-`HardwareCommandRefusedError` with reason `'capture_in_flight'` while an
+It raises `HardwareCommandRefusedError` with reason `'capture_in_flight'` while an
 earlier still is running, `'exclusive_activity_running'` while a run, a
 diagnostic or a home holds the scope, and `'scope_disconnected'` when the camera is
 closed. When it returns, the still is on the camera lane. The Future raises
@@ -965,7 +965,7 @@ Rate and duration come from the run's settings snapshot at start: `video.max_fps
 
 Recording starts are guarded like protocol starts: `RecordingRefusedError` (`modules.exceptions`) mirrors the `ProtocolRunRefusedError` shape -- its `str()` is the sentence written for a person -- with machine-readable `reason` codes `recording_active` (another recording is live, or still finishing), `exclusive_activity_running` (a protocol run or other exclusive activity holds the session's activity claim), `camera_inactive`, `camera_exposure_unknown`, `insufficient_disk`, `capture_location_unusable` and `falsifying_change_in_flight` (a change that would falsify the recording, such as a frame-size write, is still in flight). Nothing is started when it raises.
 
-**A manual recording from a script.** `session.manual_recording.start(layer=None, false_color_on=False, on_complete=None)` opens a recording of the live feed and returns once it is recording. The rate, the frames-or-MP4 choice and the duration cap (`video.max_duration_seconds`) come from the settings at that moment, and it is saved under `Manual/` in the live folder (`save_folder` names it). It raises `RecordingRefusedError` (the codes above), `ObjectiveUnknownError`, `CaptureFailedError` (a `CaptureError`; `recording_not_started`, the camera refused the frame listener), `ArgumentRefusedError` (`layer_unknown`) for a `layer` that is no layer, or `HardwareCommandRefusedError` (`axis_absent`) for one this scope lacks, since every frame would be labelled with it; nothing is started when it raises. `stop()` closes the recording and returns; frames still queued keep writing on their own. `is_recording` is True until the stop; `is_busy` until the frames, the MP4 close and any hyperstack build are done; `end_reason` says why the last recording ended (`'user_stop'`, `'duration_elapsed'`, `'camera_stalled'`, ...). `on_complete` is called on the finish thread once everything is written.
+**A manual recording from a script.** `session.manual_recording.start(false_color_on=False, on_complete=None)` opens a recording of the live feed and returns once it is recording. The rate, the frames-or-MP4 choice and the duration cap (`video.max_duration_seconds`) come from the settings at that moment, and it is saved under `Manual/` in the live folder (`save_folder` names it). It raises `RecordingRefusedError` (the codes above), `ObjectiveUnknownError`, `CaptureFailedError` (a `CaptureError`; `recording_not_started`, the camera refused the frame listener); nothing is started when it raises. Its frames are named for the lit LED's channel, else the shown channel's layer, read once at the start. `stop()` closes the recording and returns; frames still queued keep writing on their own. `is_recording` is True until the stop; `is_busy` until the frames, the MP4 close and any hyperstack build are done; `end_reason` says why the last recording ended (`'user_stop'`, `'duration_elapsed'`, `'camera_stalled'`, ...). `on_complete` is called on the finish thread once everything is written.
 
 While a manual recording holds the scope -- live or still draining its frames -- it refuses, for every caller, what would falsify its file: the Session's `set_frame_size`, `set_binning_size` and `set_image_mode` (before either store is written), `motion.move_turret`, the Session's objective writers (`select_objective`, `assign_turret_objective`, `clear_turret_objective`, `clear_current_turret_objective`) and `select_labware`. Each raises `HardwareCommandRefusedError` with `reason='exclusive_activity_running'` and `holder='recording'`. A home of any axis is refused the same way, since a home holds the whole scope. X/Y/Z moves, LED, gain and exposure stay open to an API caller; a recording's feed-death bound follows an exposure raised mid-recording. The LumaViewPro GUI locks its whole control surface during a live recording, Record/Stop excepted.
 

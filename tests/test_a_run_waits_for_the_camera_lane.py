@@ -107,7 +107,7 @@ def _first_step_observer(session):
 class TestAStillInFlightFinishesFirst:
     def test_the_still_saves_and_the_run_starts_after_it(self, lane_session):
         session, runner, tmp_path = lane_session
-        still = session.manual_capture.capture(layer='BF', false_color_on=False)
+        still = session.manual_capture.capture(false_color_on=False)
         assert session.manual_capture.in_flight, 'the still never reached the lane'
         seen, events = _first_step_observer(session)
 
@@ -132,7 +132,7 @@ class TestAStillInFlightFinishesFirst:
         session, runner, tmp_path = lane_session
         late = _LateWorker(session)
         try:
-            still = session.manual_capture.capture(layer='BF', false_color_on=False)
+            still = session.manual_capture.capture(false_color_on=False)
             outcome = runner.start_composite(sequence_name='after_late', parent_dir=str(tmp_path))
         finally:
             late.release()
@@ -150,7 +150,7 @@ class TestAStillQueuedBehindCameraWork:
         session, runner, tmp_path = lane_session
         hold = _LaneHold(session)
         try:
-            still = session.manual_capture.capture(layer='BF', false_color_on=False)
+            still = session.manual_capture.capture(false_color_on=False)
             assert session.camera_executor.queue_size() == 1, (
                 'the still was not on the lane when capture() returned'
             )

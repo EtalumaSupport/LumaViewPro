@@ -386,9 +386,7 @@ class TestOneEngineeringMode:
             _load(session, _plugin('engineering', on_register=turn_on))
             runner.run_composite(sequence_name='eng', parent_dir=str(tmp_path / 'runs'))
             token = f'Turret{int(session.scope.motion.get_current_position("T"))}'
-            still = session.manual_capture.capture(layer='BF', false_color_on=False).result(
-                timeout=WAIT_S
-            )
+            still = session.manual_capture.capture(false_color_on=False).result(timeout=WAIT_S)
 
         frames = sorted(p.name for p in single_run_dir(tmp_path / 'runs').glob('*.tiff'))
         assert frames, 'the run wrote no frames'

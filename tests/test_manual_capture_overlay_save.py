@@ -90,6 +90,7 @@ def _run_capture(ctx, sum_count=1):
     capture = ManualCaptureController(
         scope=ctx.scope,
         settings_snapshot=lambda: settings,
+        shown_layer=lambda: LAYER,
         engineering_mode=lambda: ctx.engineering_mode,
     )
 
@@ -98,7 +99,6 @@ def _run_capture(ctx, sum_count=1):
 
     with patch('modules.manual_capture.save_image', side_effect=_saved) as save_one:
         capture.capture(
-            layer=LAYER,
             false_color_on=False,
             bullseye=ctx.use_bullseye,
             crosshairs=ctx.use_crosshairs,

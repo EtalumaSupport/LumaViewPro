@@ -12,7 +12,6 @@ from kivy.properties import BooleanProperty
 from kivy.uix.floatlayout import FloatLayout
 
 import modules.app_context as _app_ctx
-import modules.common_utils as common_utils
 from modules import gui_logger
 from typing import TYPE_CHECKING
 
@@ -58,17 +57,12 @@ class CompositeCapture(FloatLayout):
         """
         gui_logger.button('LIVE_CAPTURE')
         ctx = _app_ctx.ctx
-        layer = common_utils.get_opened_layer(ctx.image_settings)
-        false_color_on = (
-            ctx.image_settings.layer_lookup(layer=layer).ids['false_color'].active
-            if layer is not None
-            else False
-        )
+        layer = ctx.session.shown_channel.layer
+        false_color_on = ctx.image_settings.layer_lookup(layer=layer).ids['false_color'].active
         bullseye = ctx.scope_display.use_bullseye
         crosshairs = ctx.scope_display.use_crosshairs
         run_reported(
             lambda: ctx.session.manual_capture.capture(
-                layer=layer,
                 false_color_on=false_color_on,
                 bullseye=bullseye,
                 crosshairs=crosshairs,

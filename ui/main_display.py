@@ -11,7 +11,6 @@ from kivy.metrics import dp
 from kivy.properties import NumericProperty
 
 import modules.app_context as _app_ctx
-import modules.common_utils as common_utils
 from modules import gui_logger
 from ui.ui_helpers import run_reported, set_last_save_folder, submit_reported
 from ui.composite_capture import CompositeCapture
@@ -76,20 +75,14 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
             run_reported(controller.stop, self.draw_record_button, 'RECORD')
             return
 
-        # The open layer names the channel; its toggle governs display
-        # only. Reading one without the other is what left a brightfield
-        # recording with no channel name at all. Both are read here, on the
-        # GUI thread, since .ids access is not thread-safe.
-        layer = common_utils.get_opened_layer(ctx.image_settings)
-        false_color_on = (
-            ctx.image_settings.layer_lookup(layer=layer).ids['false_color'].active
-            if layer is not None
-            else False
-        )
+        # The shown layer's false-colour toggle governs display only; the
+        # recording names its channel itself. Read here, on the GUI thread,
+        # since .ids access is not thread-safe.
+        layer = ctx.session.shown_channel.layer
+        false_color_on = ctx.image_settings.layer_lookup(layer=layer).ids['false_color'].active
 
         def _start():
             controller.start(
-                layer=layer,
                 false_color_on=false_color_on,
                 on_complete=self._on_recording_complete,
             )

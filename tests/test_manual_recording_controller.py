@@ -185,12 +185,13 @@ def make_settings(tmp_path, *, video_as_frames=True, max_fps=0, duration_s=60, h
     return settings
 
 
-def make_controller(tmp_path, *, scope=None, clock=None, lit=None, **settings_kwargs):
+def make_controller(tmp_path, *, scope=None, clock=None, lit=None, shown='BF', **settings_kwargs):
     scope = scope or _FakeScope(lit=lit)
     clock = clock or FakeClock()
     controller = ManualRecordingController(
         scope=scope,
         settings=make_settings(tmp_path, **settings_kwargs),
+        shown_layer=lambda: shown,
         activity_claim=ActivityClaim(),
         scheduler=ManualFireScheduler(),
         clock=clock,
@@ -315,7 +316,7 @@ class TestRateLimit:
 class TestFramesLeg:
     def test_end_to_end_frames_and_manifest(self, tmp_path):
         controller, scope, clock = make_controller(tmp_path, lit='Blue')
-        controller.start(layer='Blue', false_color_on=True)
+        controller.start(false_color_on=True)
         feed_frames(scope, clock, 5, fps=10.0)
         controller.stop()
         finish(controller)
@@ -346,13 +347,13 @@ class TestFramesLeg:
         # recording so a rebuild interleaved them into one scrambled video.
         controller, scope, clock = make_controller(tmp_path, lit='Blue')
 
-        controller.start(layer='Blue', false_color_on=True)
+        controller.start(false_color_on=True)
         feed_frames(scope, clock, 3, fps=10.0)
         controller.stop()
         finish(controller)
 
         # Same wall-clock second: the derived name collides.
-        controller.start(layer='Blue', false_color_on=True)
+        controller.start(false_color_on=True)
         feed_frames(scope, clock, 4, fps=10.0)
         controller.stop()
         finish(controller)
@@ -532,7 +533,7 @@ class TestFailedStartUnwind:
         _fail_the_finish_thread(monkeypatch)
 
         with pytest.raises(RuntimeError):
-            controller.start(layer='Blue', false_color_on=True)
+            controller.start(false_color_on=True)
 
         # The file existed: close() alone would flush and close it, and
         # leave it on disk for the next recording to rename around.
@@ -615,7 +616,7 @@ class TestExclusivitySpansTheFinish:
         entered, release = _block_the_finish(monkeypatch)
         controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit='Blue')
         try:
-            controller.start(layer='Blue', false_color_on=True)
+            controller.start(false_color_on=True)
             feed_frames(scope, clock, 3, fps=10.0)
             controller.stop()
             assert entered.wait(timeout=10)
@@ -644,7 +645,7 @@ class TestExclusivitySpansTheFinish:
             tmp_path, hyperstack=True, lit='Blue', max_fps=20
         )
         try:
-            controller.start(layer='Blue', false_color_on=True)
+            controller.start(false_color_on=True)
             feed_frames(scope, clock, 3, fps=10.0)
             controller.stop()
             assert entered.wait(timeout=10)
@@ -779,19 +780,19 @@ class TestChannelIdentity:
         # and the hyperstack never builds.
         captured = _capture_hyperstack_df(monkeypatch)
         controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit='BF')
-        controller.start(layer='BF', false_color_on=False)
+        controller.start(false_color_on=False)
         feed_frames(scope, clock, 3, fps=10.0)
         controller.stop()
         finish(controller)
 
         assert list(captured['df']['Color']) == ['BF', 'BF', 'BF']
 
-    def test_lit_channel_wins_over_the_open_accordion(self, tmp_path, monkeypatch):
-        # A channel can be lit with a different accordion open -- the LED
+    def test_lit_channel_wins_over_the_shown_channel(self, tmp_path, monkeypatch):
+        # A channel can be lit while a different one is shown -- the LED
         # is the evidence of what was imaged, so it wins.
         captured = _capture_hyperstack_df(monkeypatch)
         controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit='Blue')
-        controller.start(layer='BF', false_color_on=False)
+        controller.start(false_color_on=False)
         feed_frames(scope, clock, 2, fps=10.0)
         controller.stop()
         finish(controller)
@@ -799,18 +800,20 @@ class TestChannelIdentity:
         assert list(captured['df']['Color']) == ['Blue', 'Blue']
 
     def test_luminescence_records_with_zero_lit_channels(self, tmp_path, monkeypatch):
-        # Lumi is legitimately unlit; the open layer names it.
+        # Lumi is legitimately unlit; the shown channel names it.
         captured = _capture_hyperstack_df(monkeypatch)
-        controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit=None)
-        controller.start(layer='Lumi', false_color_on=False)
+        controller, scope, clock = make_controller(
+            tmp_path, hyperstack=True, lit=None, shown='Lumi'
+        )
+        controller.start(false_color_on=False)
         feed_frames(scope, clock, 2, fps=10.0)
         controller.stop()
         finish(controller)
 
         assert list(captured['df']['Color']) == ['Lumi', 'Lumi']
 
-    def test_startup_state_defaults_to_brightfield(self, tmp_path, monkeypatch):
-        # Nothing lit and no layer selected is LumaViewPro's startup state.
+    def test_startup_state_records_brightfield(self, tmp_path, monkeypatch):
+        # Nothing lit and Brightfield shown is a session's startup state.
         # It records as BF -- it is not refused and never writes a null.
         captured = _capture_hyperstack_df(monkeypatch)
         controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit=None)
@@ -821,12 +824,14 @@ class TestChannelIdentity:
 
         assert list(captured['df']['Color']) == ['BF', 'BF']
 
-    def test_no_led_board_falls_back_to_the_open_layer(self, tmp_path, monkeypatch):
-        # get_led_states() is None with no board, so the open layer stands.
+    def test_no_led_board_falls_back_to_the_shown_channel(self, tmp_path, monkeypatch):
+        # get_led_states() is None with no board, so the shown channel stands.
         captured = _capture_hyperstack_df(monkeypatch)
         scope = _FakeScope(board=False)
-        controller, scope, clock = make_controller(tmp_path, scope=scope, hyperstack=True)
-        controller.start(layer='Green', false_color_on=True)
+        controller, scope, clock = make_controller(
+            tmp_path, scope=scope, hyperstack=True, shown='Green'
+        )
+        controller.start(false_color_on=True)
         feed_frames(scope, clock, 2, fps=10.0)
         controller.stop()
         finish(controller)
@@ -839,7 +844,7 @@ class TestChannelIdentity:
         # and every other test here substitutes the builder. Nothing else
         # exercises _create_stack on manual-shaped rows.
         controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit='BF')
-        controller.start(layer='BF', false_color_on=False)
+        controller.start(false_color_on=False)
         feed_frames(scope, clock, 3, fps=10.0)
         controller.stop()
         finish(controller)
@@ -852,7 +857,7 @@ class TestChannelIdentity:
         # reads it back to decide whether to colorize a rebuild, so a
         # recording saved mono records that it was, beside its channel.
         controller, scope, clock = make_controller(tmp_path, lit='Blue')
-        controller.start(layer='Blue', false_color_on=False)
+        controller.start(false_color_on=False)
         feed_frames(scope, clock, 2, fps=10.0)
         controller.stop()
         finish(controller)
@@ -865,7 +870,7 @@ class TestChannelIdentity:
     def test_toggle_on_records_the_channel_in_false_colour(self, tmp_path):
         # The other half of the pin: rendering on still records the color.
         controller, scope, clock = make_controller(tmp_path, lit='Blue')
-        controller.start(layer='Blue', false_color_on=True)
+        controller.start(false_color_on=True)
         feed_frames(scope, clock, 2, fps=10.0)
         controller.stop()
         finish(controller)
@@ -1091,7 +1096,7 @@ class TestTheRecordedPosition:
     def test_a_known_position_is_recorded_in_plate_millimetres(self, tmp_path, monkeypatch):
         captured = _capture_hyperstack_df(monkeypatch)
         controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit='BF')
-        controller.start(layer='BF', false_color_on=False)
+        controller.start(false_color_on=False)
         feed_frames(scope, clock, 2, fps=10.0)
         controller.stop()
         finish(controller)
@@ -1112,7 +1117,7 @@ class TestTheRecordedPosition:
         )
         controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit='BF')
         scope.motion.unknown = {'X': 'unknown'}
-        controller.start(layer='BF', false_color_on=False)
+        controller.start(false_color_on=False)
         feed_frames(scope, clock, 2, fps=10.0)
         controller.stop()
         finish(controller)
@@ -1129,7 +1134,7 @@ class TestTheRecordedPosition:
         captured = _capture_hyperstack_df(monkeypatch)
         controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit='BF')
         scope.motion.unknown = {'X': 'unknown'}
-        controller.start(layer='BF', false_color_on=False)
+        controller.start(false_color_on=False)
         feed_frames(scope, clock, 1, fps=10.0)
         scope.motion.unknown = {}
         feed_frames(scope, clock, 1, fps=10.0)
@@ -1143,7 +1148,7 @@ class TestTheRecordedPosition:
     def test_each_row_is_its_own_frames_position_and_channel(self, tmp_path, monkeypatch):
         captured = _capture_hyperstack_df(monkeypatch)
         controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit='Blue')
-        controller.start(layer='Blue', false_color_on=False)
+        controller.start(false_color_on=False)
         feed_frames(scope, clock, 1, fps=10.0)
         scope.motion.positions['X'] = 3000.0
         scope.illumination._lit = 'Green'
@@ -1163,7 +1168,7 @@ class TestTheRecordedPosition:
         )
         controller, scope, clock = make_controller(tmp_path, lit='BF')
         scope.motion.unknown = {'Z': 'homing'}
-        controller.start(layer='BF', false_color_on=False)
+        controller.start(false_color_on=False)
         feed_frames(scope, clock, 1, fps=10.0)
         controller.stop()
         finish(controller)
@@ -1179,7 +1184,7 @@ class TestTheRecordedPosition:
         )
         controller, scope, clock = make_controller(tmp_path, lit='BF')
         scope.runtime_state.plate_transform = lambda: None
-        controller.start(layer='BF', false_color_on=False)
+        controller.start(false_color_on=False)
         feed_frames(scope, clock, 1, fps=10.0)
         controller.stop()
         finish(controller)
@@ -1191,7 +1196,7 @@ class TestTheRecordedPosition:
         controller, scope, clock = make_controller(tmp_path, lit='BF', video_as_frames=False)
         scope.motion.unknown = {'X': 'unknown'}
         scope.runtime_state.plate_transform = lambda: None
-        controller.start(layer='BF', false_color_on=False)
+        controller.start(false_color_on=False)
         feed_frames(scope, clock, 1, fps=10.0)
         controller.stop()
         finish(controller)
@@ -1201,7 +1206,7 @@ class TestTheRecordedPosition:
         captured = _capture_hyperstack_df(monkeypatch)
         controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit='BF')
         scope.motion.unknown = {'T': 'unknown'}
-        controller.start(layer='BF', false_color_on=False)
+        controller.start(false_color_on=False)
         feed_frames(scope, clock, 2, fps=10.0)
         controller.stop()
         finish(controller)
@@ -1230,7 +1235,7 @@ class TestEachFrameRecordsItsOwnMoment:
 
     def test_a_stage_move_between_frames_is_in_each_frames_file(self, tmp_path):
         controller, scope, clock = make_controller(tmp_path, lit='BF')
-        controller.start(layer='BF', false_color_on=False)
+        controller.start(false_color_on=False)
         feed_frames(scope, clock, 1, fps=10.0)
         scope.motion.positions['X'] = 3000.0
         feed_frames(scope, clock, 1, fps=10.0)
@@ -1243,7 +1248,7 @@ class TestEachFrameRecordsItsOwnMoment:
 
     def test_an_axis_unknown_at_one_frame_is_unknown_on_that_frame_only(self, tmp_path):
         controller, scope, clock = make_controller(tmp_path, lit='BF')
-        controller.start(layer='BF', false_color_on=False)
+        controller.start(false_color_on=False)
         feed_frames(scope, clock, 1, fps=10.0)
         scope.motion.unknown = {'X': 'unknown'}
         feed_frames(scope, clock, 1, fps=10.0)
@@ -1260,7 +1265,7 @@ class TestEachFrameRecordsItsOwnMoment:
 
     def test_a_moving_stage_is_marked_on_that_frame(self, tmp_path):
         controller, scope, clock = make_controller(tmp_path, lit='BF')
-        controller.start(layer='BF', false_color_on=False)
+        controller.start(false_color_on=False)
         feed_frames(scope, clock, 1, fps=10.0)
         scope.motion.states = {'Z': AxisState.MOVING}
         feed_frames(scope, clock, 1, fps=10.0)
@@ -1274,7 +1279,7 @@ class TestEachFrameRecordsItsOwnMoment:
 
     def test_the_channel_that_lit_each_frame_is_recorded(self, tmp_path):
         controller, scope, clock = make_controller(tmp_path, lit='Blue')
-        controller.start(layer='Blue', false_color_on=True)
+        controller.start(false_color_on=True)
         feed_frames(scope, clock, 1, fps=10.0)
         scope.illumination._lit = 'Green'
         feed_frames(scope, clock, 1, fps=10.0)
@@ -1288,7 +1293,7 @@ class TestEachFrameRecordsItsOwnMoment:
     def test_without_labware_frames_record_no_plate_position_but_keep_z(self, tmp_path):
         controller, scope, clock = make_controller(tmp_path, lit='BF')
         scope.runtime_state.plate_transform = lambda: None
-        controller.start(layer='BF', false_color_on=False)
+        controller.start(false_color_on=False)
         feed_frames(scope, clock, 1, fps=10.0)
         controller.stop()
         finish(controller)
@@ -1310,7 +1315,7 @@ class TestARecordingThatCannotBeOneHyperstackSaysWhy:
         self, tmp_path, centre_posts
     ):
         controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit='Blue')
-        controller.start(layer='Blue', false_color_on=False)
+        controller.start(false_color_on=False)
         feed_frames(scope, clock, 2, fps=10.0)
         scope.illumination._lit = 'Green'
         feed_frames(scope, clock, 2, fps=10.0)

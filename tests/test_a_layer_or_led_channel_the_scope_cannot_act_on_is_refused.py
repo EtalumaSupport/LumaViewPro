@@ -67,9 +67,8 @@ NAME_MEMBERS = {
     'save_layer_focus': lambda s, v: s.save_layer_focus(v, 0.0),
     'apply_layer_camera': lambda s, v: s.apply_layer_camera(v),
     'get_layer_configs': lambda s, v: s.get_layer_configs([v]),
-    'capture': lambda s, v: s.manual_capture.capture(layer=v, false_color_on=False),
+    'show_channel': lambda s, v: s.show_channel(v),
     'update_step': lambda s, v: s.update_step(s.create_empty_protocol(), 0, layer=v),
-    'recording': lambda s, v: s.manual_recording.start(layer=v),
 }
 
 # A layer this model lacks, on the members that act on a layer, is absent hardware.
@@ -78,9 +77,8 @@ ABSENT_MEMBERS = (
     'set_layer_auto_gain',
     'save_layer_focus',
     'apply_layer_camera',
-    'capture',
+    'show_channel',
     'update_step',
-    'recording',
 )
 
 

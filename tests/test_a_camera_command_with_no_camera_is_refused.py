@@ -343,7 +343,7 @@ def test_with_no_camera_a_run_an_autofocus_and_a_recording_are_refused_at_the_st
     with pytest.raises(ProtocolRunRefusedError):
         runner.run_autofocus(layer='BF')
     with pytest.raises(RecordingRefusedError):
-        session.manual_recording.start(layer='BF')
+        session.manual_recording.start()
 
 
 # --- After disconnect() ----------------------------------------------------------

@@ -316,6 +316,7 @@ class TestTheManualRecordingReadsItsClaimsUnderTheClaim:
         controller = ManualRecordingController(
             scope=scope,
             settings=make_settings(tmp_path),
+            shown_layer=lambda: 'BF',
             activity_claim=claim,
             scheduler=ManualFireScheduler(),
             clock=FakeClock(),
