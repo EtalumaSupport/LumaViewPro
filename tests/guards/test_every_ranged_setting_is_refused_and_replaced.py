@@ -47,6 +47,7 @@ _OUT_OF_RANGE = {
     'video.max_duration_seconds': 0,
     'jpg_quality': settings_paths.JPG_QUALITY_RANGE[1] + 1,
     'live_view_fps': -3,
+    'profiling.metrics_interval_s': 0,
     'ag_ae_max_exposure_ms.transmitted': 0.0,
     'ag_ae_max_exposure_ms.fluorescence': -5.0,
     'ag_ae_max_exposure_ms.luminescence': -1,

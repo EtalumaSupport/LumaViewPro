@@ -211,7 +211,6 @@
     "fx2_debug_wire_enabled": false,
     "profiling": {
         "enabled": false,
-        "stim_profiling": false,
         "handle_trace_enabled": false,
         "handle_trace_obj_sample_every": 1000,
         "open_files_enabled": false,
@@ -244,16 +243,6 @@
     "stimulation_enabled": false,
     "lvp_lock_port": 43101,
     "camera_type": "auto",
-    "autofocus": {
-        "one_af_per_well": false,
-        "reduce_af_range": false,
-        "af_range_reduction_pct": 50,
-        "suppress_background_during_protocol": false
-    },
-    "stage": {
-        "plate_bottom_z_estimate": null,
-        "focus_safety_margin_um": 500
-    },
     "rest_api": {
         "enabled": false,
         "host": "127.0.0.1",

@@ -156,6 +156,26 @@ def test_a_stored_bf_focus_for_fluorescence_is_dropped():
     assert 'bf_af_for_fluorescence' not in stored['protocol']
 
 
+def test_the_settings_nothing_reads_are_dropped_from_a_stored_file():
+    # Seven shipped keys had no reader; a file that still carries them loads
+    # without them, and the autofocus and stage blocks they filled go whole.
+    with open(SHIPPED_TEMPLATE) as f:
+        stored = json.load(f)
+    stored['profiling']['stim_profiling'] = False
+    stored['autofocus'] = {
+        'one_af_per_well': True,
+        'reduce_af_range': False,
+        'af_range_reduction_pct': -999,
+        'suppress_background_during_protocol': False,
+    }
+    stored['stage'] = {'plate_bottom_z_estimate': None, 'focus_safety_margin_um': 500}
+
+    assert settings_init.normalize_loaded_settings(stored) is True
+    assert 'stim_profiling' not in stored['profiling']
+    assert 'autofocus' not in stored
+    assert 'stage' not in stored
+
+
 def test_a_plate_the_catalogue_never_had_is_left_as_written():
     # Preparation folds spellings; it does not judge. Whether the plate
     # exists is answered where the plate is selected, against the catalogue.

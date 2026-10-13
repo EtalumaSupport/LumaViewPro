@@ -377,6 +377,17 @@ def normalize_loaded_settings(settings_dict: dict) -> bool:
     if isinstance(protocol, dict) and protocol.pop('bf_af_for_fluorescence', None) is not None:
         changed = True
 
+    # Seven shipped settings that nothing read: stimulation profiling, whose
+    # producer is gone, and the autofocus and stage blocks, which named
+    # features not built. A stored copy was readable, unwritable and never
+    # range-checked, so it goes with the template's.
+    profiling = settings_dict.get('profiling')
+    if isinstance(profiling, dict) and profiling.pop('stim_profiling', None) is not None:
+        changed = True
+    for block in ('autofocus', 'stage'):
+        if settings_dict.pop(block, None) is not None:
+            changed = True
+
     # The slot a person last turned the turret to, once preferred when two
     # slots carry one objective. Each protocol step now records its own
     # slot, and nothing reads this one.

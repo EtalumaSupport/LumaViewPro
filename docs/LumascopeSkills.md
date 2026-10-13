@@ -557,7 +557,8 @@ a safety bound armed on a UI loop stops when the UI freezes). The
 scheduler existing does not start metrics: they run only after
 `start_metrics()`, so every session, factory-built or not, keeps metrics
 off unless the host opts in. `settings['profiling']['metrics_interval_s']`
-overrides the default hourly cadence. Every host's metrics log the
+overrides the default hourly cadence: seconds above zero, or null for the
+default; any other value is refused (`SettingRefusedError`). Every host's metrics log the
 session's executor queues and futures; a host with a live display passes
 it as `start_metrics(display=...)` (a `DisplayRates`: the GUI passes its
 own), and its drawn rate and frame intervals are logged beside the

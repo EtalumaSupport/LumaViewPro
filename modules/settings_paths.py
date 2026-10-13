@@ -219,6 +219,17 @@ def _positive(path: str, value: float) -> None:
     _refuse_below(path, value, 0, inclusive=False)
 
 
+def _metrics_interval(path: str, value: object) -> None:
+    # Shipped null, the default cadence; a value set is seconds between samples.
+    if value is None:
+        return
+    if _kind(value) != 'number':
+        raise SettingRefusedError(
+            'wrong_kind', path, f'it holds a number of seconds or null, not {value!r}'
+        )
+    _positive(path, value)
+
+
 def _video_step_duration(path: str, value: float) -> None:
     if not 0 < value <= VIDEO_STEP_DURATION_S_MAX:
         raise SettingRefusedError(
@@ -270,6 +281,7 @@ _RANGES: typing.Final[dict[str, typing.Callable[[str, typing.Any], None]]] = {
     'video.max_duration_seconds': _video_max_duration,
     'jpg_quality': _jpg_quality,
     'live_view_fps': _non_negative,
+    'profiling.metrics_interval_s': _metrics_interval,
     'ag_ae_max_exposure_ms.transmitted': _positive,
     'ag_ae_max_exposure_ms.fluorescence': _positive,
     'ag_ae_max_exposure_ms.luminescence': _positive,

@@ -69,9 +69,16 @@ MIGRATED_PER_LAYER = {'ill_ma', 'exp_ms'}
 # load); they must never come back in settings.json:
 # - protocol.bf_af_for_fluorescence: reusing brightfield's autofocus for
 #   the fluorescence steps, removed.
+# - profiling.stim_profiling: shipped with no reader, removed.
 RETIRED_PER_LAYER = {
     'protocol': {'bf_af_for_fluorescence'},
+    'profiling': {'stim_profiling'},
 }
+
+# Top-level blocks the loader drops whole, under the same terms:
+# - autofocus, stage: six shipped keys with no reader; the autofocus
+#   optimisation work adds each back with its reader.
+RETIRED_TOP_LEVEL = {'autofocus', 'stage'}
 
 requires_current_json = pytest.mark.skipif(
     not CURRENT_PATH.exists(),
@@ -142,12 +149,23 @@ def test_settings_defaults_carry_no_runtime_only_keys():
         f'retired per-layer keys reappeared in settings.json: {retired_back} -- '
         'the loader drops these; shipping a default would resurrect them'
     )
+    retired_top = RETIRED_TOP_LEVEL & set(settings)
+    assert not retired_top, (
+        f'retired blocks reappeared in settings.json: {sorted(retired_top)} -- '
+        'the loader drops these; shipping a default would resurrect them'
+    )
 
 
 @requires_current_json
 def test_top_level_key_parity():
     settings, current = _load_settings(), _load_current()
-    current_only = set(current) - set(settings) - RUNTIME_ONLY_TOP_LEVEL - MIGRATED_TOP_LEVEL
+    current_only = (
+        set(current)
+        - set(settings)
+        - RUNTIME_ONLY_TOP_LEVEL
+        - MIGRATED_TOP_LEVEL
+        - RETIRED_TOP_LEVEL
+    )
     assert not current_only, (
         f'current.json has top-level keys with no settings.json default and '
         f'no runtime-only exemption: {sorted(current_only)} -- add a default '
