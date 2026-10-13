@@ -44,6 +44,7 @@ import pytest
 
 
 from modules.activity_claim import ActivityClaim
+from modules.exceptions import HardwareCommandRefusedError
 from modules.image_mode import ImageCaptureConfig
 from tests.af_drives import park_z
 from tests.scope_fakes import build_scope, home_sim_scope, swap_lanes
@@ -522,8 +523,8 @@ def test_s10_run_end_return_to_original_relights_prerun_channel(scope, runner, t
 
 def test_s8_live_write_refused_while_run_holds_lease(scope):
     """While a 'protocol' lease is held, an out-of-turn live write (no lease)
-    is refused: no driver command, the run's channel unchanged (pins the lease
-    enforcement, ffd5a83c). The refused write emits nothing to the listener."""
+    is refused (exclusive_activity_running): no driver command, the run's
+    channel unchanged. The refused write emits nothing to the listener."""
     ill = scope.illumination
     sub = LedSubstream()
     ill.add_led_listener(sub)
@@ -537,8 +538,11 @@ def test_s8_live_write_refused_while_run_holds_lease(scope):
     # only thing that can refuse them. The off is NOT a no-op skip: Green is lit,
     # so if the lease did not refuse it Green would go dark and the assertions
     # below would fail -- the refusal is what keeps Green lit.
-    ill.led_on(channel=ill.color2ch('Red'), illumination_ma=350.0)  # refused by lease
-    ill.led_off(channel=ill.color2ch('Green'))  # refused by lease
+    with pytest.raises(HardwareCommandRefusedError) as refused_on:
+        ill.led_on(channel=ill.color2ch('Red'), illumination_ma=350.0)
+    with pytest.raises(HardwareCommandRefusedError) as refused_off:
+        ill.led_off(channel=ill.color2ch('Green'))
+    assert refused_on.value.reason == refused_off.value.reason == 'exclusive_activity_running'
 
     assert ill.get_led_state('Green')['enabled'], 'protocol channel was disturbed by a live write'
     assert not ill.get_led_state('Red')['enabled'], 'live write lit a channel despite the lease'

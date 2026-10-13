@@ -672,11 +672,12 @@ class LayerControl(BoxLayout):
 
     def update_led_state(self, apply_settings=True):
         ctx = _app_ctx.ctx
-        # No autofocus guard here: while AF holds the LED ownership lease,
-        # led_on/led_off refuse any unleased UI write, so a live UI apply during
-        # a scan (e.g. the exposure field losing focus when the AF button is
-        # clicked) cannot turn off the channel AF is using. The lease is the
-        # structural guard; an early-return here would only duplicate it.
+        # No autofocus guard here: while autofocus or a run holds the scope,
+        # the API refuses a live UI LED write (exclusive_activity_running) and
+        # submit_reported reports it, so a UI apply during a scan (e.g. the
+        # exposure field losing focus when the AF button is clicked) cannot
+        # turn off the channel AF is using. An early-return here would only
+        # duplicate that refusal.
         if self._initializing:
             return
         settings = ctx.settings

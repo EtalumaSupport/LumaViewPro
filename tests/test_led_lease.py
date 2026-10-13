@@ -18,6 +18,7 @@ import logging
 
 import pytest
 
+from modules.exceptions import HardwareCommandRefusedError
 from tests.protocol_drives import held_run_claim
 from tests.scope_fakes import build_scope
 
@@ -149,19 +150,23 @@ def test_context_manager_acquires_and_releases(scope):
     assert scope.illumination.led_lease_purpose is None
 
 
-def test_lease_violation_detects_external_writer(scope):
+def test_a_write_by_anyone_but_the_holder_is_refused_naming_the_holder(scope):
     # A lease from an earlier, finished operation: the "another writer" whose
-    # object is not the active holder.
+    # object is not the active holder. Unleased, it writes like anyone.
     stale = scope.illumination.acquire_led_lease('autofocus', claim=held_run_claim())
     stale.release()
-    assert scope.illumination._lease_violation(stale) is None  # unleased
-    assert scope.illumination._lease_violation(None) is None  # unleased
+    scope.illumination._led_on_impl(channel=0, illumination_ma=100, _lease=stale)
+    assert _lit(scope, 0)
     lease = scope.illumination.acquire_led_lease('protocol', claim=held_run_claim())
-    assert scope.illumination._lease_violation(lease) is None  # the holder
-    assert scope.illumination._lease_violation(stale) == 'protocol'
-    assert scope.illumination._lease_violation(None) == 'protocol'  # bare UI click
-    # The holder's purpose NAME is not a credential: only the object is.
-    assert scope.illumination._lease_violation('protocol') == 'protocol'
+    for writer in (stale, None):  # None: a bare UI click
+        with pytest.raises(HardwareCommandRefusedError) as refused:
+            scope.illumination._led_on_impl(channel=1, illumination_ma=100, _lease=writer)
+        assert refused.value.reason == 'exclusive_activity_running'
+        # The activity that took the lease's claim, as the IO lane names it.
+        assert refused.value.holder == 'protocol'
+        assert not _lit(scope, 1)
+    scope.illumination._led_on_impl(channel=1, illumination_ma=100, _lease=lease)
+    assert _lit(scope, 1)
 
 
 def test_external_led_off_during_lease_is_refused(scope):
@@ -169,14 +174,18 @@ def test_external_led_off_during_lease_is_refused(scope):
     # run holds. The protocol lit the channel; a bare UI off is refused.
     lease = scope.illumination.acquire_led_lease('protocol', claim=held_run_claim())
     scope.illumination._led_on_impl(channel=0, illumination_ma=100, _lease=lease)
-    scope.illumination.led_off(channel=0)  # live UI off
+    with pytest.raises(HardwareCommandRefusedError) as refused:
+        scope.illumination.led_off(channel=0)  # live UI off
+    assert refused.value.reason == 'exclusive_activity_running'
     assert _lit(scope, 0)
 
 
 def test_owner_write_during_own_lease_is_allowed(scope):
     lease = scope.illumination.acquire_led_lease('protocol', claim=held_run_claim())
     # Naming the holder's purpose is not holding the lease: refused.
-    scope.illumination._led_on_impl(channel=0, illumination_ma=100, _lease='protocol')
+    with pytest.raises(HardwareCommandRefusedError) as refused:
+        scope.illumination._led_on_impl(channel=0, illumination_ma=100, _lease='protocol')
+    assert refused.value.reason == 'exclusive_activity_running'
     assert not _lit(scope, 0), 'a write naming the holder was permitted without its lease'
     # Writing as the lease object itself is permitted.
     scope.illumination._led_on_impl(channel=0, illumination_ma=100, _lease=lease)

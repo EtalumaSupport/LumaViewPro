@@ -21,6 +21,7 @@ import threading
 
 import pytest
 
+from modules.exceptions import HardwareCommandRefusedError
 from tests.protocol_drives import held_run_claim
 from modules.lumascope_api.illumination import (
     LedEndPolicy,
@@ -546,8 +547,7 @@ def test_apply_transition_manual_preview_lights_holds_and_switches(scope):
 
 def test_apply_transition_refused_while_leased(scope):
     """A live-UI write must not cut into a run. While a lease is held, the
-    unleased apply_transition emits nothing rather than a partial diff the
-    per-channel lease check would reject anyway."""
+    unleased apply_transition is refused whole and emits nothing."""
     ill = scope.illumination
     lease = ill.acquire_led_lease('protocol', claim=held_run_claim())
     lease.apply(LedTransition.STEP_LIGHT, _ctx(scope, 'Green', GREEN_MA))
@@ -555,7 +555,9 @@ def test_apply_transition_refused_while_leased(scope):
     sub = LedSubstream()
     ill.add_led_listener(sub)
     # An unleased manual-nav preview arrives mid-run: refused, no LED touched.
-    ill.apply_transition(LedTransition.MANUAL_STEP, _ctx(scope, 'Red', RED_MA, preview_on=True))
+    with pytest.raises(HardwareCommandRefusedError) as refused:
+        ill.apply_transition(LedTransition.MANUAL_STEP, _ctx(scope, 'Red', RED_MA, preview_on=True))
+    assert refused.value.reason == 'exclusive_activity_running'
     assert sub.events == [], sub.render()
     assert ill.get_led_state('Green')['enabled'], 'run channel disturbed by a refused UI write'
     assert not ill.get_led_state('Red')['enabled']

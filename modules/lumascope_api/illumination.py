@@ -659,7 +659,7 @@ class IlluminationAPI:
         block: bool = False,
         *,
         _lease: LedLease | None = None,
-    ) -> float | None:
+    ) -> float:
         """Turn on an LED channel at the specified current.
 
         The board lights at the nearest current its step can deliver, and a
@@ -677,8 +677,7 @@ class IlluminationAPI:
                 the active holder.
 
         Returns:
-            The commanded current in mA; None when another lease holds the
-            LEDs, so nothing was commanded.
+            The commanded current in mA.
 
         Raises:
             ArgumentRefusedError: ``'not_a_number'``, ``illumination_ma`` is
@@ -686,7 +685,9 @@ class IlluminationAPI:
                 outside 0 to the attached board's maximum (``limits``).
             HardwareCommandRefusedError: ``'not_connected'`` with no LED
                 controller connected; ``'axis_absent'`` for an LED this
-                model does not have. Nothing was sent.
+                model does not have; ``'exclusive_activity_running'`` while
+                a lease other than ``_lease`` holds the LEDs. Nothing was
+                sent.
 
         The channel is judged at the door (``led_on``); the internal callers
         pass the board's own channels.
@@ -744,10 +745,7 @@ class IlluminationAPI:
         # is refused so a live UI change cannot disturb a protocol's or
         # autofocus's channels. Emergency / shutdown paths use force_off /
         # leds_off, which bypass this on purpose.
-        violator = self._lease_violation(_lease)
-        if violator is not None:
-            _api_log.warning('LED on refused: the %r lease holds the LEDs', violator)
-            return None
+        self._refuse_unless_lease_holds(_lease, 'led_on')
 
         with self._led_lock:
             self._driver.led_on(channel, commanded_ma, block=block)
@@ -789,7 +787,9 @@ class IlluminationAPI:
 
         Raises:
             HardwareCommandRefusedError: ``'not_connected'``, a channel
-                believed lit and no LED controller connected to darken it.
+                believed lit and no LED controller connected to darken it;
+                ``'exclusive_activity_running'``, a channel believed lit
+                while a lease other than ``_lease`` holds the LEDs.
         """
         channel = self._off_channel(channel)
         if channel is None:
@@ -808,10 +808,7 @@ class IlluminationAPI:
         # Refused for the same reason as led_on (see above): an off from the
         # live UI while a run holds the channel is the shape behind the
         # autofocus-LED-killed reports, so it is rejected here.
-        violator = self._lease_violation(_lease)
-        if violator is not None:
-            _api_log.warning('LED off refused: the %r lease holds the LEDs', violator)
-            return
+        self._refuse_unless_lease_holds(_lease, 'led_off')
 
         with self._led_lock:
             self._driver.led_off(channel)
@@ -911,7 +908,7 @@ class IlluminationAPI:
         channel: int | str,
         illumination_ma: float,
         block: bool = False,
-    ) -> float | None:
+    ) -> float:
         """Turn on an LED channel at the specified current, and wait for it.
 
         Returns the current commanded on the board's step. See
@@ -919,8 +916,12 @@ class IlluminationAPI:
         it raises; this adds only the dispatch described on ``_dispatch_led``.
 
         Raises:
-            ArgumentRefusedError: ``channel`` names no channel (see
+            ArgumentRefusedError: ``'layer_unknown'`` or
+                ``'led_channel_unknown'``, ``channel`` names no channel (see
                 ``_refuse_not_a_channel``); nothing was sent.
+            HardwareCommandRefusedError: ``'exclusive_activity_running'``,
+                another activity holds the scope or the LEDs; nothing was
+                sent.
         """
         self._refuse_not_a_channel(channel)
         return self._dispatch_led(
@@ -936,8 +937,12 @@ class IlluminationAPI:
         See ``_led_off_impl`` for the argument contract.
 
         Raises:
-            ArgumentRefusedError: ``channel`` names no channel (see
+            ArgumentRefusedError: ``'layer_unknown'`` or
+                ``'led_channel_unknown'``, ``channel`` names no channel (see
                 ``_refuse_not_a_channel``); nothing was sent.
+            HardwareCommandRefusedError: ``'exclusive_activity_running'``,
+                another activity holds the scope or the LEDs; nothing was
+                sent.
         """
         self._refuse_not_a_channel(channel)
         return self._dispatch_led(self._led_off_impl, 'led_off', args=(channel,))
@@ -1121,11 +1126,15 @@ class IlluminationAPI:
         """Restore LEDs to a previously saved state, as one task on the IO lane, and wait.
 
         Turns off lit channels the snapshot does not have on, then
-        re-enables the channels that were on in it. Refused channel by
-        channel while a lease holds the LEDs, like any unleased write.
+        re-enables the channels that were on in it.
 
         Args:
             snapshot: Return value from ``save_led_state``.
+
+        Raises:
+            HardwareCommandRefusedError: ``'exclusive_activity_running'``,
+                another activity holds the scope or the LEDs, raised at the
+                first channel it would change.
         """
         return self._dispatch_led(
             self._restore_led_state_impl, 'restore_led_state', args=(snapshot,)
@@ -1376,18 +1385,24 @@ class IlluminationAPI:
                 [held.purpose for held in stranded],
             )
 
-    def _lease_violation(self, lease: LedLease | None) -> str | None:
-        """The active lease's purpose if a write by *lease* may NOT happen now, else None.
+    def _refuse_unless_lease_holds(self, lease: LedLease | None, member: str) -> None:
+        """Refuse an LED write by *lease* unless it may happen now.
 
-        One lock acquisition for the LED-write paths to surface out-of-turn
-        writes. Returns None when the write is permitted: no lease held, or
-        *lease* is the active holder itself -- the object, not its purpose.
+        A write is permitted when no lease is held, or when *lease* is the
+        active holder itself -- the object, not its purpose.
+
+        Raises:
+            HardwareCommandRefusedError: ``'exclusive_activity_running'``,
+                naming the activity that took the root lease's claim, the
+                holder the IO lane names.
         """
         with self._led_lease_lock:
-            if not self._led_lease_stack:
-                return None
-            active = self._led_lease_stack[-1]
-            return None if lease is active else active.purpose
+            if not self._led_lease_stack or lease is self._led_lease_stack[-1]:
+                return
+            holder = self._led_lease_stack[0]._claim.claim.holder
+        raise HardwareCommandRefusedError(
+            'exclusive_activity_running', member, holder.kind if holder is not None else None
+        )
 
     @property
     def led_lease_purpose(self) -> str | None:
@@ -1442,18 +1457,15 @@ class IlluminationAPI:
         hold no lease -- LED control is open season while nothing is leased, but
         the decision still routes through target_leds and the emit through the
         one diff, so a no-op transition (a same-color re-navigation) blinks
-        nothing. Refuses while a lease is held: a run owns the LEDs, and a stray
-        UI write must not cut in mid-run rather than emit a partial diff the
-        per-channel lease check would reject anyway.
+        nothing. Refused whole while a lease is held: a run owns the LEDs, and
+        a stray UI write must not cut in mid-run, so nothing of the diff is
+        emitted.
+
+        Raises:
+            HardwareCommandRefusedError: ``'exclusive_activity_running'``,
+                a lease holds the LEDs; nothing was sent.
         """
-        violator = self._lease_violation(None)
-        if violator is not None:
-            _api_log.warning(
-                'LED transition %s ignored: LEDs leased by %r, not the unleased UI',
-                transition.name,
-                violator,
-            )
-            return
+        self._refuse_unless_lease_holds(None, 'apply_transition')
         self._emit_led_diff(
             LedLease.target_leds(transition, ctx),
             lease=None,

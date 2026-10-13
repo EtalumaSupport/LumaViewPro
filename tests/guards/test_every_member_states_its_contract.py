@@ -46,8 +46,6 @@ _QUOTED_REASON = re.compile(r"``'[a-z][a-z0-9_]*'``|reason\s+``[a-z][a-z0-9_]*``
 _REASON_UNNAMED_PINNED = frozenset(
     {
         ('DiagnosticsAPI.exit_led_engineering_mode', 'HardwareCommandRefusedError'),
-        ('IlluminationAPI.led_off', 'ArgumentRefusedError'),
-        ('IlluminationAPI.led_on', 'ArgumentRefusedError'),
         ('ImagingAPI.set_auto_exposure_time', 'CameraSettingUnsupportedError'),
         ('ImagingAPI.set_auto_gain', 'ArgumentRefusedError'),
         ('ImagingAPI.set_auto_gain', 'CameraSettingUnsupportedError'),
@@ -93,9 +91,10 @@ _REASON_UNNAMED_PINNED = frozenset(
 # and so has no section to state (Eric, 2026-10-12); 166 since
 # ScopeSession.remove_run_state_listener, a remove that raises nothing
 # (Eric, 2026-10-13); 167 since ProtocolsAPI.tiling_config, a read of the
-# scope's copy that bring-up refuses for it (Eric, 2026-10-13); the count
+# scope's copy that bring-up refuses for it (Eric, 2026-10-13); 166 since
+# IlluminationAPI.restore_led_state states the lease's refusal; the count
 # does not yet tell a member that raises nothing from one that has not said.
-_WITHOUT_A_SECTION_CEILING = 167
+_WITHOUT_A_SECTION_CEILING = 166
 
 
 def _sections():
