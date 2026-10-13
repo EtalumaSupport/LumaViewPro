@@ -21,12 +21,14 @@ from modules.layer_record import (
     LayerIdentity,
     LayerRecord,
     load_layer_catalogue,
+    parse_display_color,
     resolve_layer_identity,
 )
 from modules.exceptions import InstallationFileError
-from modules.path_utils import read_installation_file
+from modules.path_utils import read_installation_file, resolve_data_file
 
-CATALOGUE = ['BF', 'PC', 'DF', 'Blue', 'Green', 'Red', 'Lumi']
+# The shipped catalogue's records, as scopes.json states them.
+CATALOGUE = read_installation_file(resolve_data_file('scopes.json'))['LayerOrder']
 
 
 def row(key, display=None, channel=None, nm=None, **extra):
@@ -55,6 +57,13 @@ LS850T_ROWS = [
     row('Green', 'Green', 1, 488),
     row('Red', 'Red', 2, 589),
     row('Lumi', 'Lumi', None),
+]
+
+LS620_ROWS = [
+    row('BF', 'BF-Phase', 3),
+    row('Blue', 'Blue', 0, 405),
+    row('Green', 'Green', 1, 488),
+    row('Red', 'Red', 2, 589),
 ]
 
 LS560_ROWS = [
@@ -127,6 +136,58 @@ class TestCatalogue:
         assert common_utils.get_bright_background_layers() == ['BF', 'PC']
         assert common_utils.get_image_layers() == ['Blue', 'Green', 'Red', 'Lumi']
         assert common_utils.get_layers_with_led() == ['BF', 'PC', 'DF', 'Blue', 'Green', 'Red']
+
+
+def _refuses(colour):
+    try:
+        parse_display_color(colour)
+    except ValueError:
+        return True
+    return False
+
+
+class TestCatalogueRecords:
+    """Each catalogue record is whole, or the file is refused naming it."""
+
+    @staticmethod
+    def _refused(tmp_path, catalogue):
+        path = tmp_path / 'scopes_fixture.json'
+        path.write_text(json.dumps({'LayerOrder': catalogue, 'Models': {}}), encoding='utf-8')
+        with pytest.raises(InstallationFileError) as refused:
+            load_layer_catalogue(read_installation_file(path), path)
+        assert refused.value.file_path == path
+        return str(refused.value)
+
+    def test_a_record_missing_its_modality_is_refused(self, tmp_path):
+        bf = {k: v for k, v in CATALOGUE[0].items() if k != 'modality'}
+        assert "missing ['modality']" in self._refused(tmp_path, [bf])
+
+    def test_a_record_of_the_wrong_kind_is_refused_naming_the_field(self, tmp_path):
+        cases = {
+            'modality': {'modality': 'phase'},
+            'background': {'background': 'grey'},
+            'manual_max_exposure_ms': {'manual_max_exposure_ms': 0},
+            'display_color': {'display_color': [1, 0, 1]},
+            'step_order': {'step_order': 1.5},
+        }
+        wrong = {
+            field: self._refused(tmp_path, [{**CATALOGUE[0], **change}])
+            for field, change in cases.items()
+        }
+        assert [field for field, why in wrong.items() if field not in why] == []
+
+    def test_a_colour_is_its_red_green_and_blue_weights(self):
+        assert parse_display_color('#ff8000') == (1.0, 128 / 255, 0.0)
+        refused = [c for c in ('#FF8000', 'ff8000', '#ff800', [1, 0, 1]) if _refuses(c)]
+        assert refused == ['#FF8000', 'ff8000', '#ff800', [1, 0, 1]]
+
+    def test_a_repeated_key_or_step_order_is_refused(self, tmp_path):
+        assert 'key' in self._refused(tmp_path, [CATALOGUE[0], CATALOGUE[0]])
+        moved = {**CATALOGUE[1], 'step_order': CATALOGUE[0]['step_order']}
+        assert 'step_order' in self._refused(tmp_path, [CATALOGUE[0], moved])
+
+    def test_a_name_is_no_longer_a_record(self, tmp_path):
+        assert 'not an object' in self._refused(tmp_path, ['BF', 'PC'])
 
 
 class TestPrecedence:
@@ -223,6 +284,13 @@ class TestRowParsing:
         assert [r.key_name for r in identity.layers] == ['BF']
         assert 'Skylight' in errors_logged()
 
+    def test_a_key_that_is_not_a_name_is_skipped_loudly(self, tmp_path):
+        rows = [row('BF', 'BF', 3), row(['Green'], 'Green', 1, 488)]
+        path = write_scopes(tmp_path, {'M': {'Layers': rows}})
+        identity = resolve(path, motor_model='M')
+        assert [r.key_name for r in identity.layers] == ['BF']
+        assert "['Green']" in errors_logged()
+
     def test_missing_field_is_skipped_loudly(self, tmp_path):
         rows = [row('BF', 'BF', 3), {'key_name': 'Green', 'display_name': 'Green'}]
         path = write_scopes(tmp_path, {'M': {'Layers': rows}})
@@ -252,6 +320,28 @@ class TestRowParsing:
         assert lumi.led_channel == ()
         assert lumi.excitation_nm is None
 
+    def test_a_fluorescence_row_with_no_excitation_is_skipped_loudly(self, tmp_path):
+        rows = [row('BF', 'BF', 3), row('Green', 'Green', 1, None)]
+        path = write_scopes(tmp_path, {'M': {'Layers': rows}})
+        identity = resolve(path, motor_model='M')
+        assert [r.key_name for r in identity.layers] == ['BF']
+        assert 'no excitation_nm' in errors_logged()
+
+    def test_a_fluorescence_layer_is_labelled_by_its_excitation(self, tmp_path):
+        path = write_scopes(tmp_path, {'LS620': {'Layers': LS620_ROWS}})
+        identity = resolve(path, motor_model='LS620')
+        assert [r.label for r in identity.layers] == ['BF-Phase', '405 nm', '488 nm', '589 nm']
+
+    def test_a_record_carries_its_catalogue_fields(self, tmp_path):
+        path = write_scopes(tmp_path, {'LS850T': {'Layers': LS850T_ROWS}})
+        identity = resolve(path, motor_model='LS850T')
+        assert [
+            (r.key_name, r.modality, r.background, r.display_color) for r in identity.layers
+        ] == [
+            (layer['key'], layer['modality'], layer['background'], layer['display_color'])
+            for layer in CATALOGUE
+        ]
+
     def test_single_channel_and_excitation_normalise(self, tmp_path):
         path = write_scopes(tmp_path, {'M': {'Layers': [row('Green', 'Green', 1, 488)]}})
         green = resolve(path, motor_model='M').find('Green')
@@ -263,7 +353,15 @@ class TestRowParsing:
 class TestSnapshotSemantics:
     def test_records_are_immutable(self):
         record = LayerRecord(
-            id=0, key_name='BF', display_name='BF', led_channel=(3,), excitation_nm=None
+            id=0,
+            key_name='BF',
+            display_name='BF',
+            led_channel=(3,),
+            excitation_nm=None,
+            modality='transmitted',
+            background='bright',
+            display_color='#ffffff',
+            label='BF',
         )
         with pytest.raises(AttributeError):
             record.display_name = 'PC-BF'

@@ -941,37 +941,32 @@ def layer_max_illumination_ma_for_ui(capabilities: 'ScopeCapabilities', layer: s
     return cap
 
 
-# Manual exposure ceilings for the transmitted layers, in ms. Their light is
-# bright enough that the useful manual range sits far under the sensor's
-# maximum, so the slider stops here rather than at the camera's cap.
+# The manual exposure ceilings are each layer's catalogue record's
+# (`manual_max_exposure_ms` in scopes.json). Transmitted light is bright
+# enough that the useful manual range sits far under the sensor's maximum,
+# BF's lowest of all. Fluorescence exposures past a second stop being a
+# usable manual range: the Pylon sensors reach ten seconds, which would put
+# every useful slider position in the first tenth of the track. Luminescence
+# has no ceiling -- integrating as long as the sensor allows is that
+# channel's purpose, so its slider goes to the camera's own cap (Eric,
+# 2026-09-12).
 #
 # Deliberately NOT settings['ag_ae_max_exposure_ms']: that bounds what the AUTO
 # loop may drive to and is set per install, so reusing it would let auto-exposure
-# tuning silently resize the manual slider. It is also keyed by channel class,
-# where the manual ceiling differs between BF and the other transmitted layers.
-BF_MAX_MANUAL_EXPOSURE_MS = 50.0
-TRANSMITTED_MAX_MANUAL_EXPOSURE_MS = 200.0
-
-# Fluorescence exposures past a second stop being a usable manual range: the
-# Pylon sensors reach ten seconds, which puts every useful slider position in
-# the first tenth of the track. Luminescence is deliberately absent from this
-# policy -- integrating as long as the sensor allows is that channel's purpose,
-# so its slider goes to the camera's own cap (Eric, 2026-09-12).
-FLUORESCENCE_MAX_MANUAL_EXPOSURE_MS = 1000.0
+# tuning silently resize the manual slider.
 
 
 def layer_max_exposure_ms_for_ui(camera_max_ms: float, layer: str) -> float:
     """The exposure-slider upper bound for one layer: the camera's own cap,
-    narrowed to the manual policy for its channel class.
+    narrowed to the layer's manual ceiling where it has one.
 
-    Luminescence takes the cap unnarrowed; every other class has a manual
-    ceiling that is usually far below what the sensor can do.
+    Raises:
+        ArgumentRefusedError: ``layer`` is not a layer of this release.
     """
-    if layer in common_utils.get_transmitted_layers():
-        ceiling = BF_MAX_MANUAL_EXPOSURE_MS if layer == 'BF' else TRANSMITTED_MAX_MANUAL_EXPOSURE_MS
-    elif layer in common_utils.get_fluorescence_layers():
-        ceiling = FLUORESCENCE_MAX_MANUAL_EXPOSURE_MS
-    else:
+    from modules.layer_record import release_layer
+
+    ceiling = release_layer(layer).manual_max_exposure_ms
+    if ceiling is None:
         return camera_max_ms
     return min(ceiling, camera_max_ms)
 

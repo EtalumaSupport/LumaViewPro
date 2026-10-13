@@ -10,7 +10,7 @@ name in any other production call is a second reader; this walk refuses it
 at commit.
 
 Two owners stay outside the scope by design: the release layer vocabulary
-(``layer_record.release_catalogue``), which the settings bring-up needs
+(``layer_record.release_layers``), which the settings bring-up needs
 before any scope exists, and the firmware bench tool, which drives a motor
 board with no scope at all.
 """
@@ -31,7 +31,7 @@ _OWNERS = {
     },
     ('modules/labware_loader.py', 'LabwareLoader.__init__'): {'labware.json'},
     ('modules/objectives_loader.py', 'ObjectiveLoader.__init__'): {'objectives.json'},
-    ('modules/layer_record.py', 'release_catalogue'): {'scopes.json'},
+    ('modules/layer_record.py', 'release_layers'): {'scopes.json'},
     ('modules/layer_record.py', 'load_scope_models'): {'scopes.json'},
     ('tools/firmware_tools.py', '_connect_motor_board'): {'motorconfig_defaults.json'},
 }

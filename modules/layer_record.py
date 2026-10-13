@@ -23,8 +23,9 @@ here would take down a scope whose camera and stage are fine.
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 
 from lvp_logger import logger
 from modules.exceptions import (
@@ -39,7 +40,64 @@ from modules.path_utils import read_installation_file, resolve_data_file
 from modules.api_surface import api, api_fields
 
 
-@api_fields('display_name', 'excitation_nm', 'id', 'key_name', 'led_channel')
+# The values a catalogue record's `modality` and `background` take. The
+# modality is the kind of light a layer images; the background is what its
+# field of view looks like, which is not the modality's: darkfield is
+# transmitted light on a dark field.
+MODALITIES = ('transmitted', 'fluorescence', 'luminescence')
+BACKGROUNDS = ('bright', 'dark')
+
+# The one encoding of a stored colour: catalogue, board block and the user's
+# override all write '#rrggbb', lower case, so one colour is one string.
+_DISPLAY_COLOR = re.compile(r'#[0-9a-f]{6}')
+
+
+def parse_display_color(text: object) -> tuple[float, float, float]:
+    """The red, green and blue weights, each 0 to 1, of a ``'#rrggbb'`` colour.
+
+    Lower-case hex digits only: an upper-case colour is refused, so a
+    colour has one stored form.
+
+    Raises:
+        ValueError: ``text`` is not a ``'#rrggbb'`` string.
+    """
+    if not isinstance(text, str) or not _DISPLAY_COLOR.fullmatch(text):
+        raise ValueError(f"{text!r} is not a '#rrggbb' colour")
+    return tuple(int(text[i : i + 2], 16) / 255 for i in (1, 3, 5))
+
+
+@dataclass(frozen=True)
+class CatalogueLayer:
+    """What a layer of one key is in this release, on every unit that has it.
+
+    `modality` is one of ``MODALITIES``; `background` one of ``BACKGROUNDS``,
+    what the scale bar and annotation text are drawn against.
+    `manual_max_exposure_ms` is the exposure slider's ceiling, None where the
+    layer has none (luminescence integrates as long as the sensor allows).
+    `display_color` is the release's colour for the layer, ``'#rrggbb'``.
+    `step_order` is where the layer's steps are inserted in a new protocol,
+    which is not its display order.
+    """
+
+    key: str
+    modality: str
+    background: str
+    manual_max_exposure_ms: float | None
+    display_color: str
+    step_order: int
+
+
+@api_fields(
+    'background',
+    'display_color',
+    'display_name',
+    'excitation_nm',
+    'id',
+    'key_name',
+    'label',
+    'led_channel',
+    'modality',
+)
 @dataclass(frozen=True)
 class LayerRecord:
     """Identity of one layer on one unit.
@@ -65,6 +123,13 @@ class LayerRecord:
     sees on screen, and an ambiguous "wavelength" on a layer called
     Green invites silently wrong metadata. None is the truth for
     broadband transmitted light and for LED-less layers.
+
+    `modality`, `background` and `display_color` are the layer's catalogue
+    record's (`CatalogueLayer`).
+
+    `label` is what the layer is called wherever it is shown or written:
+    a fluorescence layer's excitation (``'405 nm'``), any other layer's
+    `display_name`.
     """
 
     id: int
@@ -72,6 +137,10 @@ class LayerRecord:
     display_name: str
     led_channel: tuple[int, ...]
     excitation_nm: float | None
+    modality: str
+    background: str
+    display_color: str
+    label: str
 
 
 @api_fields('filterset', 'layers', 'model', 'source')
@@ -144,9 +213,9 @@ UNRESOLVED = LayerIdentity(layers=(), filterset='', source='unresolved', model=N
 
 # The release catalogue is loaded once per process: it ships with the
 # release (the file is version-paired), so nothing invalidates it at
-# runtime. Tests hand the resolver a vocabulary explicitly and may
+# runtime. Tests hand the resolver a catalogue explicitly and may
 # replace this cache to exercise a different one.
-_CATALOGUE_CACHE: tuple[str, ...] | None = None
+_CATALOGUE_CACHE: tuple[CatalogueLayer, ...] | None = None
 
 
 def refuse_unknown_layer(layer: object, argument: str = 'layer') -> None:
@@ -177,20 +246,41 @@ def release_catalogue() -> tuple[str, ...]:
     """The release's layer vocabulary (stable key names, display order).
 
     The single source every vocabulary consumer derives from -- layer
-    lists, protocol validation, metadata channel acceptance. Read from
-    the installation's own folder, not a scope's: the settings bring-up
-    needs it before any scope exists.
+    lists, protocol validation, metadata channel acceptance.
+
+    Raises:
+        InstallationFileError: as ``release_layers``.
+    """
+    return tuple(layer.key for layer in release_layers())
+
+
+def release_layers() -> tuple[CatalogueLayer, ...]:
+    """The release catalogue's records, in display order.
+
+    Read from the installation's own folder, not a scope's: the settings
+    bring-up needs it before any scope exists.
 
     Raises:
         InstallationFileError: the installation's ``scopes.json`` is
-            unusable or states no layer order. Nothing is cached, so the
-            next call reads the file again.
+            unusable, states no layer order, or has a record that is not
+            whole. Nothing is cached, so the next call reads the file again.
     """
     global _CATALOGUE_CACHE
     if _CATALOGUE_CACHE is None:
         path = resolve_data_file('scopes.json')
         _CATALOGUE_CACHE = load_layer_catalogue(read_installation_file(path), path)
     return _CATALOGUE_CACHE
+
+
+def release_layer(key: object) -> CatalogueLayer:
+    """The release catalogue's record for ``key``.
+
+    Raises:
+        ArgumentRefusedError: as ``refuse_unknown_layer``.
+        InstallationFileError: as ``release_layers``.
+    """
+    refuse_unknown_layer(key)
+    return next(layer for layer in release_layers() if layer.key == key)
 
 
 # Row fields the resolver requires. Extra keys are tolerated so a config
@@ -291,8 +381,8 @@ def entry_expects_motion(entry: dict | None) -> bool:
     return entry is None or bool(entry_axes(entry))
 
 
-def load_layer_catalogue(scopes_data: dict, path: str | os.PathLike) -> tuple[str, ...]:
-    """The release's layer vocabulary, in display order, or a refusal naming ``path``.
+def load_layer_catalogue(scopes_data: dict, path: str | os.PathLike) -> tuple[CatalogueLayer, ...]:
+    """The release's layer records, in display order, or a refusal naming ``path``.
 
     The catalogue is the single authored order: a layer's id IS its
     position here, and every identity row (model or per-unit block) must
@@ -300,19 +390,78 @@ def load_layer_catalogue(scopes_data: dict, path: str | os.PathLike) -> tuple[st
     per-model row lists instead would make id assignment depend on which
     model happens to be listed first, so the order is stated once. An
     empty vocabulary would let the settings check pass with no layers to
-    check, so a missing one refuses.
+    check, so a missing one refuses. Every fact about a layer that is
+    the same on every unit is a field of its record, and a record missing
+    one has no answer for it, so it refuses too.
 
     Raises:
         InstallationFileError: ``LayerOrder`` is missing, empty, or not a
-            list of names.
+            list of records; or a record has a field missing or of the
+            wrong kind, or repeats another's key or step order.
     """
     raw = scopes_data.get('LayerOrder')
-    if not isinstance(raw, list) or not raw or not all(isinstance(k, str) for k in raw):
+    if not isinstance(raw, list) or not raw:
         raise InstallationFileError(path, f'has no usable LayerOrder (found {raw!r})')
-    return tuple(raw)
+    layers = tuple(_catalogue_layer(entry, path) for entry in raw)
+    for field in ('key', 'step_order'):
+        values = [getattr(layer, field) for layer in layers]
+        repeated = sorted({v for v in values if values.count(v) > 1}, key=str)
+        if repeated:
+            raise InstallationFileError(
+                path, f'has LayerOrder records repeating {field} {repeated}'
+            )
+    return layers
 
 
-def _parse_rows(rows: object, catalogue: tuple[str, ...], origin: str) -> tuple[LayerRecord, ...]:
+# The fields every catalogue record states.
+_CATALOGUE_FIELDS = tuple(field.name for field in fields(CatalogueLayer))
+
+
+def _catalogue_layer(entry: object, path: str | os.PathLike) -> CatalogueLayer:
+    """One ``LayerOrder`` record, or the refusal naming ``path`` and the field."""
+
+    def refuse(why: str) -> InstallationFileError:
+        return InstallationFileError(path, f'has a LayerOrder record {entry!r} {why}')
+
+    if not isinstance(entry, dict):
+        raise refuse('that is not an object')
+    missing = [f for f in _CATALOGUE_FIELDS if f not in entry]
+    if missing:
+        raise refuse(f'missing {missing}')
+    key = entry['key']
+    if not isinstance(key, str) or not key:
+        raise refuse('whose key is not a name')
+    if entry['modality'] not in MODALITIES:
+        raise refuse(f'whose modality is not one of {MODALITIES}')
+    if entry['background'] not in BACKGROUNDS:
+        raise refuse(f'whose background is not one of {BACKGROUNDS}')
+    ceiling = entry['manual_max_exposure_ms']
+    if ceiling is not None and not (_is_number(ceiling) and ceiling > 0):
+        raise refuse('whose manual_max_exposure_ms is not a positive number or null')
+    try:
+        parse_display_color(entry['display_color'])
+    except ValueError as e:
+        raise refuse(f'whose display_color {e}') from e
+    step_order = entry['step_order']
+    if not isinstance(step_order, int) or isinstance(step_order, bool):
+        raise refuse('whose step_order is not an integer')
+    return CatalogueLayer(
+        key=key,
+        modality=entry['modality'],
+        background=entry['background'],
+        manual_max_exposure_ms=None if ceiling is None else float(ceiling),
+        display_color=entry['display_color'],
+        step_order=step_order,
+    )
+
+
+def _is_number(value: object) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _parse_rows(
+    rows: object, catalogue: tuple[CatalogueLayer, ...], origin: str
+) -> tuple[LayerRecord, ...]:
     """Parse identity rows, skipping each unusable row loudly.
 
     A bad row costs that row, never the scope: the surviving layers keep
@@ -323,8 +472,12 @@ def _parse_rows(rows: object, catalogue: tuple[str, ...], origin: str) -> tuple[
     (the same forward-looking posture that lets an old release ignore a
     newer block), a key name outside the catalogue (an OEM/custom layer
     this release has no seat for), and a multi-address `led_channel`
-    (representable, but drive semantics for it are not built yet).
+    (representable, but drive semantics for it are not built yet), and a
+    fluorescence row with no excitation (its label is its excitation).
+
+    Each record takes its key's catalogue fields from ``catalogue``.
     """
+    by_key = {layer.key: (position, layer) for position, layer in enumerate(catalogue)}
     if not isinstance(rows, list):
         logger.error(f'[LAYER_RECORD] {origin}: Layers is not a list: {rows!r}')
         return ()
@@ -338,12 +491,13 @@ def _parse_rows(rows: object, catalogue: tuple[str, ...], origin: str) -> tuple[
             logger.error(f'[LAYER_RECORD] {origin}: row {row!r} missing {missing}; skipped')
             continue
         key_name = row['key_name']
-        if key_name not in catalogue:
+        if not isinstance(key_name, str) or key_name not in by_key:
             logger.error(
                 f'[LAYER_RECORD] {origin}: layer {key_name!r} is not in this '
-                f'release catalogue {catalogue}; skipped'
+                f'release catalogue {tuple(by_key)}; skipped'
             )
             continue
+        position, release = by_key[key_name]
         raw_channel = row['led_channel']
         if raw_channel is None:
             channel: tuple[int, ...] = ()
@@ -384,13 +538,27 @@ def _parse_rows(rows: object, catalogue: tuple[str, ...], origin: str) -> tuple[
                 f'display_name {display!r}; skipped'
             )
             continue
+        if release.modality == 'fluorescence':
+            if excitation is None:
+                logger.error(
+                    f'[LAYER_RECORD] {origin}: fluorescence layer {key_name!r} '
+                    f'has no excitation_nm; skipped'
+                )
+                continue
+            label = f'{excitation:g} nm'
+        else:
+            label = display
         records.append(
             LayerRecord(
-                id=catalogue.index(key_name),
+                id=position,
                 key_name=key_name,
                 display_name=display,
                 led_channel=channel,
                 excitation_nm=excitation,
+                modality=release.modality,
+                background=release.background,
+                display_color=release.display_color,
+                label=label,
             )
         )
     return tuple(sorted(records, key=lambda r: r.id))
@@ -403,7 +571,7 @@ def resolve_layer_identity(
     motor_model: str | None,
     configured_model: str | None,
     models: Mapping,
-    catalogue: tuple[str, ...],
+    catalogue: tuple[CatalogueLayer, ...],
     override_model: str | None = None,
 ) -> LayerIdentity:
     """Resolve the unit's layer identity from the first authoritative source.
@@ -426,7 +594,7 @@ def resolve_layer_identity(
     stays visible.
 
     Reads nothing: ``models`` is the scope's model catalogue and
-    ``catalogue`` the release's layer vocabulary, each read once by its
+    ``catalogue`` the release's layer records, each read once by its
     owner, so rows are resolved against the one vocabulary every layer
     list in the process uses.
     """

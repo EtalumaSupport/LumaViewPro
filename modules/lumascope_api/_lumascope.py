@@ -912,7 +912,7 @@ class Lumascope:
 
     def _resolve_layer_identity(self, override_model: str | None = None):
         """Run the identity resolver against the current drivers and config."""
-        from modules.layer_record import release_catalogue, resolve_layer_identity
+        from modules.layer_record import release_layers, resolve_layer_identity
 
         motorconfig = getattr(self._motion_driver, 'motorconfig', None)
         board_block = motorconfig.led_block() if motorconfig is not None else None
@@ -928,7 +928,7 @@ class Lumascope:
             motor_model=motor_model,
             configured_model=self._configured_model,
             models=self._scope_models,
-            catalogue=release_catalogue(),
+            catalogue=release_layers(),
             override_model=override_model,
         )
 

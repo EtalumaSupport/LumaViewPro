@@ -874,7 +874,7 @@ class TestScopeCapabilities:
         """An FX2-style 4-channel LED driver propagates through."""
         from modules.layer_record import (
             load_scope_models,
-            release_catalogue,
+            release_layers,
             resolve_layer_identity,
         )
         from modules.scope_capabilities import ScopeCapabilities
@@ -893,7 +893,7 @@ class TestScopeCapabilities:
                 motor_model=None,
                 configured_model='LS620',
                 models=load_scope_models(),
-                catalogue=release_catalogue(),
+                catalogue=release_layers(),
             ),
             scope_models=load_scope_models(),
         )

@@ -22,25 +22,15 @@ from pathlib import Path
 import pytest
 
 from modules import image_save, image_utils
-from modules.layer_record import UNRESOLVED, LayerIdentity, LayerRecord
+from modules.layer_record import UNRESOLVED
 from tests.frame_records import frame_record
-from tests.scope_fakes import bind_settings_like_a_session
+from tests.scope_fakes import bind_settings_like_a_session, identity_with_layers
 
 PLATE = '24 well microplate'
 
-_BF = LayerRecord(
-    id=0, key_name='BF', display_name='Brightfield', led_channel=(3,), excitation_nm=None
-)
-_GREEN = LayerRecord(
-    id=4, key_name='Green', display_name='Green', led_channel=(1,), excitation_nm=488.0
-)
-
-_IDENTITY = LayerIdentity(
-    layers=(_BF, _GREEN), filterset='FS-STOCK', source='motorconfig', model=None
-)
-_IDENTITY_NO_FILTERSET = LayerIdentity(
-    layers=(_BF, _GREEN), filterset='', source='scopes', model=None
-)
+_IDENTITY = identity_with_layers(['BF', 'Green'], filterset='FS-STOCK')
+_IDENTITY_NO_FILTERSET = identity_with_layers(['BF', 'Green'])
+_GREEN = _IDENTITY.find('Green')
 
 
 @pytest.fixture

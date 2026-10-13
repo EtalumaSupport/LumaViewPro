@@ -21,18 +21,29 @@ import pytest
 import modules.common_utils as common_utils
 import modules.layer_record as layer_record
 from modules.image_save import generate_image_metadata
+from modules.path_utils import read_installation_file, resolve_data_file
 from modules.protocol import Protocol
 from tests.frame_records import frame_record, plate
 from tests.scope_fakes import bind_settings_like_a_session
 
-EIGHT_KEYS = ['BF', 'PC', 'DF', 'Blue', 'Green', 'Red', 'Lumi', 'NIR']
+# The shipped catalogue's records and one more.
+EIGHT_LAYERS = read_installation_file(resolve_data_file('scopes.json'))['LayerOrder'] + [
+    {
+        'key': 'NIR',
+        'modality': 'fluorescence',
+        'background': 'dark',
+        'manual_max_exposure_ms': 1000,
+        'display_color': '#ff00ff',
+        'step_order': 7,
+    }
+]
 
 
 @pytest.fixture
 def eighth_layer_release(tmp_path, monkeypatch):
     """A release whose catalogue and LS850T model carry an eighth layer."""
     data = {
-        'LayerOrder': EIGHT_KEYS,
+        'LayerOrder': EIGHT_LAYERS,
         'Models': {
             'LS850T': {
                 'Layers': [

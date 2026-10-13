@@ -499,3 +499,27 @@ def scope_delivering_nothing():
     return types.SimpleNamespace(
         imaging=types.SimpleNamespace(get_delivered_rate=lambda: NOT_DELIVERING)
     )
+
+
+def identity_with_layers(keys, *, model=None, filterset=''):
+    """A unit carrying the layers ``keys``, resolved by the real resolver.
+
+    Each layer's row is the one the shipped catalogue's models state for it
+    (the first model listing the key), and the rows are resolved as a unit's
+    own block is, against the shipped release catalogue: every record
+    carries the fields the production resolver fills.
+    """
+    from modules import layer_record
+
+    shipped = {}
+    for entry in layer_record.load_scope_models().values():
+        for row in entry.get('Layers', []):
+            shipped.setdefault(row['key_name'], row)
+    return layer_record.resolve_layer_identity(
+        board_block={'Layers': [shipped[key] for key in keys], 'Filterset': filterset},
+        board_config_read_ok=True,
+        motor_model=model,
+        configured_model=None,
+        models={},
+        catalogue=layer_record.release_layers(),
+    )

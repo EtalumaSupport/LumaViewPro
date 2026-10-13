@@ -27,13 +27,13 @@ from modules.exceptions import (
     ArgumentTypeRefusedError,
     HardwareCommandRefusedError,
 )
-from modules.layer_record import LayerIdentity, LayerRecord
 from modules.lumascope_api.imaging import (
     AutoGainConvergence,
     AutoGainLock,
     stored_exposure_after_lock,
 )
 from modules.scope_session import ScopeSession
+from tests.scope_fakes import identity_with_layers
 
 _MEMBERS = ('set_layer_auto_gain', '_layers_on_scope', '_store_setting')
 
@@ -42,12 +42,7 @@ def _session(settings, lock=None, layers=('BF', 'PC', 'DF', 'Blue', 'Green', 'Re
     imaging = SimpleNamespace(lock_auto_gain=MagicMock(return_value=lock))
     scope = SimpleNamespace(
         imaging=imaging,
-        layer_identity=LayerIdentity(
-            layers=tuple(LayerRecord(i, name, name, (), None) for i, name in enumerate(layers)),
-            filterset='',
-            source='scopes',
-            model='LS850',
-        ),
+        layer_identity=identity_with_layers(layers, model='LS850'),
     )
     # A session that names no settings file: its writes wake no saver.
     session = SimpleNamespace(

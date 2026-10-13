@@ -166,7 +166,11 @@ identity.model                           # the model it resolved as: the board's
 identity.filterset                       # the unit's filterset identity string
 for layer in identity.layers:
     layer.key_name                       # stable name: settings keys, protocol Color, filenames
-    layer.display_name                   # what the operator sees (e.g. 'BF-Phase' on FX2)
+    layer.display_name                   # the unit's name for the layer (e.g. 'BF-Phase' on FX2)
+    layer.label                          # what to show: a fluorescence layer's excitation ('405 nm'), else display_name
+    layer.modality                       # 'transmitted' | 'fluorescence' | 'luminescence'
+    layer.background                     # 'bright' | 'dark': what an overlay is drawn against
+    layer.display_color                  # the release's colour for the layer, '#rrggbb'
     layer.led_channel                    # tuple of board addresses; () = drives no LED
     layer.excitation_nm                  # excitation wavelength; None for broadband/LED-less
 
@@ -3513,11 +3517,15 @@ Reached through returned by `scope.simulation.injected`.
 
 Reached through returned by `scope.layer_identity.find` and `layers`.
 
+- `background`
+- `display_color`
 - `display_name`
 - `excitation_nm`
 - `id`
 - `key_name`
+- `label`
 - `led_channel`
+- `modality`
 
 ### LedReading
 

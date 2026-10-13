@@ -483,26 +483,33 @@ def get_layers() -> list[str]:
     return list(release_catalogue())
 
 
+def _layers_of_modality(modality: str) -> list[str]:
+    from modules.layer_record import release_layers
+
+    return [layer.key for layer in release_layers() if layer.modality == modality]
+
+
 def get_transmitted_layers() -> list[str]:
-    return [k for k in get_layers() if k in ('BF', 'PC', 'DF')]
+    return _layers_of_modality('transmitted')
 
 
 def get_fluorescence_layers() -> list[str]:
-    return [k for k in get_layers() if k in ('Blue', 'Green', 'Red')]
+    return _layers_of_modality('fluorescence')
 
 
 def get_bright_background_layers() -> list[str]:
     """Layers whose field of view is bright, so overlays drawn on them
-    (scale bar, annotation text) must be dark to stay visible. Brightfield
-    and phase contrast have a bright background; darkfield does not -- it
-    shows bright subjects on a dark field -- so it is excluded here even
-    though it is a transmitted-light mode.
+    (scale bar, annotation text) must be dark to stay visible. The
+    catalogue record's background, not its modality: darkfield is
+    transmitted light that shows bright subjects on a dark field.
     """
-    return [k for k in get_layers() if k in ('BF', 'PC')]
+    from modules.layer_record import release_layers
+
+    return [layer.key for layer in release_layers() if layer.background == 'bright']
 
 
 def get_luminescence_layers() -> list[str]:
-    return [k for k in get_layers() if k == 'Lumi']
+    return _layers_of_modality('luminescence')
 
 
 def get_image_layers() -> list[str]:

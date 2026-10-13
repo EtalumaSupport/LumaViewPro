@@ -19,11 +19,12 @@ import pytest
 from modules.activity_claim import ActivityClaim
 import modules.manual_recording as manual_recording_module
 from modules.exceptions import RecordingRefusedError
-from modules.layer_record import LayerIdentity, LayerRecord, release_catalogue
+from modules.layer_record import release_catalogue
 from modules.lumascope_api.illumination import LedReading, LedState
 from modules.manual_recording import ManualRecordingController
 from modules.notification_center import Severity
 from modules.recording_frames import MANUAL_HYPERSTACK_FILENAME
+from tests.scope_fakes import identity_with_layers
 from tests.settings_fixtures import complete_settings
 from tests.video_engine_harness import FakeClock, ManualFireScheduler, NotifyRecorder
 from modules.lumascope_api import AxisPosition, AxisState
@@ -156,14 +157,7 @@ class _FakeScope:
         self.runtime_state = _FakeRuntimeState()
         # Every layer of the release: the recording's start asks the scope
         # has the layer it is named for, and these tests name each.
-        self.layer_identity = LayerIdentity(
-            layers=tuple(
-                LayerRecord(i, name, name, (), None) for i, name in enumerate(release_catalogue())
-            ),
-            filterset='',
-            source='scopes',
-            model='LS850',
-        )
+        self.layer_identity = identity_with_layers(release_catalogue(), model='LS850')
         # A scope that reports no optics: the recording start resolves its
         # scale off these and writes none, the honest-degradation path.
         self.capabilities = SimpleNamespace(

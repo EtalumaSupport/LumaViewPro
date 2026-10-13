@@ -13,7 +13,7 @@ import pytest
 
 from modules.scope_init_config import ScopeInitConfig
 from modules.lumascope_api._constants import ACCELERATION_PCT_MAX
-from tests.scope_fakes import build_scope
+from tests.scope_fakes import build_scope, identity_with_layers
 
 
 # ---------- ScopeInitConfig.from_settings ----------
@@ -69,35 +69,13 @@ _LS850T_CONFIG = {
 }
 
 
-def identity_from_rows(rows):
-    """Build a resolved-identity snapshot from (key_name, led_channel) pairs.
-
-    The truth-table fixtures used to carry scopes.json category booleans;
-    expects_led now derives from the scope's resolved layer identity, so
-    the fixtures carry the same models as identity rows instead. The
-    assertion values are unchanged.
-    """
-    from modules.layer_record import LayerIdentity, LayerRecord
-
-    records = tuple(
-        LayerRecord(
-            id=i,
-            key_name=key,
-            display_name=key,
-            led_channel=(channel,) if channel is not None else (),
-            excitation_nm=None,
-        )
-        for i, (key, channel) in enumerate(rows)
-    )
-    return LayerIdentity(layers=records, filterset='', source='scopes', model=None)
-
-
-_LS620_IDENTITY = identity_from_rows([('BF', 3), ('Blue', 0), ('Green', 1), ('Red', 2)])
-_LS820_IDENTITY = identity_from_rows(
-    [('BF', 3), ('PC', 4), ('DF', 5), ('Blue', 0), ('Green', 1), ('Red', 2)]
-)
+# The truth-table fixtures used to carry scopes.json category booleans;
+# expects_led derives from the scope's resolved layer identity, so the
+# fixtures carry the same models' layers instead.
+_LS620_IDENTITY = identity_with_layers(['BF', 'Blue', 'Green', 'Red'])
+_LS820_IDENTITY = identity_with_layers(['BF', 'PC', 'DF', 'Blue', 'Green', 'Red'])
 _LS850T_IDENTITY = _LS820_IDENTITY
-_NO_LED_IDENTITY = identity_from_rows([('Lumi', None)])
+_NO_LED_IDENTITY = identity_with_layers(['Lumi'])
 
 
 class TestFromSettings:
