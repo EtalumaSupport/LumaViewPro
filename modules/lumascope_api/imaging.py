@@ -3267,7 +3267,12 @@ class ImagingAPI:
         # arriving after entry extend the work but not the budget. The sum
         # term mirrors the public dispatcher's liveness wait -- a long
         # summed capture legitimately grinds for its whole sum window, and
-        # a re-grab repeats that window. Each frame is costed at the larger
+        # a re-grab repeats that window. The timeout term is the grab's own
+        # retry window for a lit frame, which the dispatcher's wait carries
+        # too: without it, a change landing while the grab waits out dark
+        # frames charges that whole wait to a budget that never held it, and
+        # a capture that would have saved its dark frame is refused as
+        # invalidation churn instead. Each frame is costed at the larger
         # of the exposure and the conservative frame-period floor: a camera
         # cannot deliver frames faster than its readout, whatever the
         # exposure says.
@@ -3277,6 +3282,7 @@ class ImagingAPI:
             self._CAPTURE_DEADLINE_FLOOR_S
             + n_entry * frame_cost_s * self._CAPTURE_DEADLINE_MARGIN
             + sum_count * (frame_cost_s + sum_delay_s)
+            + timeout_s
         )
         # Pause-and-resume accounting: an interval is charged to the budget
         # only when no commanded motion was still settling at the check.

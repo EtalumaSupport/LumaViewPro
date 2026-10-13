@@ -177,6 +177,40 @@ class TestDrainDeadline:
             'expiry must land near the budget, not an open-ended hold'
         )
 
+    def test_a_change_during_the_dark_wait_still_saves_the_dark_frame(
+        self, live_scope, monkeypatch
+    ):
+        """A capture under a lit LED whose frames stay dark waits its retry
+        window for a lit one, then saves the dark frame flagged. A turret
+        move landing during that wait re-runs the grab; the budget holds
+        the grab's own wait, so the re-run ends as the motionless capture
+        does -- saved, flagged dark -- not refused as invalidation churn
+        (#852). The floor is shortened on this instance so the window it
+        must hold is under a second."""
+        monkeypatch.setattr(live_scope.imaging, '_CAPTURE_DEADLINE_FLOOR_S', 0.2)
+        live_scope.illumination.led_on('BF', 67)
+        # Settled before the capture under test, as a lit scope is: frames
+        # still owed to the LED would size its budget past the dark wait.
+        assert live_scope.imaging.capture_and_wait(timeout_s=1.0) is not None
+        landed = _during_the_first_grab(
+            live_scope,
+            monkeypatch,
+            lambda: live_scope.imaging.frame_validity.invalidate('turret'),
+            frame=_DARK,
+        )
+
+        out = live_scope.imaging.capture_and_wait(timeout_s=0.5)
+
+        assert landed.is_set(), 'the mid-window write never landed'
+        info = live_scope.imaging.last_capture_info
+        assert info['n_entry'] == 0, 'precondition: nothing owed at entry'
+        assert info['rechecks'] >= 1, 'the dirtied window must be re-run'
+        assert 'deadline_expired' not in info, (
+            f'the grab waited out its own retry window and was blamed on motion: {info}'
+        )
+        assert out is not None
+        assert info.get('dark_saved') is True
+
     def test_healthy_capture_records_telemetry(self, live_scope):
         """The per-capture evidence a support bundle reads: present on
         every completed capture."""
