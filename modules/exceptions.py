@@ -154,6 +154,7 @@ class RemedyUnknownError(Refusal, ValueError):
         member: The name that was asked for.
     """
 
+    reason = 'remedy_unknown'
     cause = RefusalCause.REQUEST
     title = 'Unknown Remedy'
 
@@ -162,7 +163,6 @@ class RemedyUnknownError(Refusal, ValueError):
             f"'{member}' is not an action the microscope offers as a remedy. "
             f'The remedies are: {", ".join(sorted(offered))}.'
         )
-        self.reason = 'remedy_unknown'
         self.member = member
 
 
@@ -2282,6 +2282,7 @@ class FileWriterNotStuckError(Refusal, Exception):
         pending: The writes still outstanding when asked.
     """
 
+    reason = 'file_writer_not_stuck'
     cause = RefusalCause.STATE
     title = 'File Writer Not Stuck'
 
@@ -2294,7 +2295,6 @@ class FileWriterNotStuckError(Refusal, Exception):
             f'The file writer is not stuck: {state}. Recovery would discard images, '
             'so it is offered only when a write stops making progress.'
         )
-        self.reason = 'file_writer_not_stuck'
         self.pending = pending
 
 
@@ -2801,6 +2801,7 @@ class DiagnosticRefusedError(Refusal, Exception):
             holder is a run; None otherwise.
     """
 
+    reason = 'exclusive_activity_running'
     cause = RefusalCause.STATE
 
     _TITLES: ClassVar[dict[str, str]] = {

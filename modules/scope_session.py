@@ -1071,9 +1071,10 @@ class ScopeSession:
                 simulated with an FX2. ``'wrong_kind'``, a block of
                 ``settings`` that is not the kind the shipped template holds
                 (``argument`` names it).
-            SettingRefusedError: a value in ``settings`` the writer refuses,
-                under the write's own reason: a dict handed to a session is
-                a write of every key at once, held to the same ranges.
+            SettingRefusedError: ``'wrong_kind'`` or ``'out_of_range'``, a
+                value in ``settings`` the writer refuses: a dict handed to a
+                session is a write of every key at once, held to the same
+                ranges.
         """
         from modules.lumascope_api._lumascope import _fire_pre_release_warning
         from modules.path_utils import get_source_root
@@ -2471,9 +2472,11 @@ class ScopeSession:
         settings has a path.
 
         Raises:
-            SettingRefusedError: ``path`` is owned by a Session member
-                (named), is set only by the installation, is not a setting,
-                or names a block; or ``value`` is not the setting's kind or
+            SettingRefusedError: ``'has_member'``, ``path`` is owned by a
+                Session member (named); ``'installation_only'``, it is set
+                only by the installation; ``'not_a_setting'``, it is not a
+                setting; ``'block'``, it names a block; ``'wrong_kind'``,
+                ``value`` is not the setting's kind; ``'out_of_range'``, it
                 is outside its range (a ``protocol.period`` or
                 ``protocol.duration`` no protocol can run, and a layer's
                 illumination above the attached LED board's maximum, among
@@ -3718,8 +3721,8 @@ class ScopeSession:
         Raises:
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera, with none connected. Nothing is stored.
-            CameraSettingUnsupportedError: On, for a camera without the mode.
-                Nothing is stored.
+            CameraSettingUnsupportedError: ``'conversion_gain_mode_unsupported'``,
+                on, for a camera without the mode. Nothing is stored.
             CameraSettingRejected: The camera refused it. Nothing is stored.
         """
         self.scope.imaging.set_conversion_gain_mode('High' if enabled else 'Low')
@@ -3736,8 +3739,8 @@ class ScopeSession:
         Raises:
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera, with none connected. Nothing is stored.
-            CameraSettingUnsupportedError: On, for a camera without the
-                filter. Nothing is stored.
+            CameraSettingUnsupportedError: ``'line_noise_reduction_unsupported'``,
+                on, for a camera without the filter. Nothing is stored.
             CameraSettingRejected: The camera refused it. Nothing is stored.
         """
         self.scope.imaging.set_line_noise_reduction(enabled)
@@ -3794,8 +3797,8 @@ class ScopeSession:
         Raises:
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera, with none connected. Nothing is stored.
-            CameraSettingUnsupportedError: This camera does not offer
-                ``size``. Nothing reaches the camera.
+            CameraSettingUnsupportedError: ``'binning_unsupported'``, this
+                camera does not offer ``size``. Nothing reaches the camera.
             CameraSettingRejected: The camera refused the binning (nothing is
                 stored) or the frame after it (the binning is stored, with the
                 frame the camera reports holding at it).
@@ -3829,9 +3832,10 @@ class ScopeSession:
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera, with none connected; ``'scope_disconnected'`` after
                 ``disconnect()``. Nothing is stored.
-            CameraSettingOutOfRangeError: The size, floored to even sides, is
-                below the camera's minimum frame or above the scope's maximum
-                at the stored binning. Nothing is stored.
+            CameraSettingOutOfRangeError: ``'frame_width_out_of_range'`` or
+                ``'frame_height_out_of_range'``, the size, floored to even
+                sides, is below the camera's minimum frame or above the
+                scope's maximum at the stored binning. Nothing is stored.
             CameraSettingRejected: The camera refused the frame. Nothing is
                 stored.
         """
