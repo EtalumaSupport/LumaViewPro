@@ -54,6 +54,7 @@ from modules.common_utils import CustomJSONizer
 from modules.exceptions import (
     AlreadyStartedError,
     ArgumentRefusedError,
+    ClaimStillLentError,
     CameraSettingUnsupportedError,
     ConfigError,
     DiagnosticRefusedError,
@@ -569,9 +570,11 @@ class ScopeSession:
         Raises:
             DiagnosticRefusedError: A run, a recording, a home or
                 another diagnostic holds the scope. Nothing was taken.
-            RuntimeError: At the block's end, a run under this claim was
-                still live after the wait; the claim is released when the
-                run ends.
+            ClaimStillLentError: ``'claim_still_lent'``, at the end of a
+                block that ended cleanly, a run under this claim was still
+                live after the wait; the claim is released when the run ends.
+                When the block raised, its own exception is raised and this is
+                reported once instead. Still a ``RuntimeError``.
         """
         held = self.activity_claim.try_claim('diagnostic')
         if held is None:
@@ -586,9 +589,15 @@ class ScopeSession:
                 holder=kind,
                 holder_trigger=(holder.run_trigger_source if holder is not None else None),
             )
+        # Set by the block's own raise, never read from sys.exc_info(): a
+        # clean block opened inside a caller's except would read as raised.
+        block_raised = False
         try:
             with acting(held):
                 yield held
+        except BaseException:
+            block_raised = True
+            raise
         finally:
             if not self.sequenced_capture_runner.wait_for_run_idle(DIAGNOSTIC_EXIT_RUN_IDLE_WAIT_S):
                 with self._release_at_run_idle_lock:
@@ -597,11 +606,16 @@ class ScopeSession:
                 # its idle already told: then nobody else will release it.
                 if not self.sequenced_capture_runner.run_in_progress():
                     self._run_went_idle()
-                raise RuntimeError(
-                    'diagnostic_claim: a run under this claim is still live after '
-                    f'{DIAGNOSTIC_EXIT_RUN_IDLE_WAIT_S:.0f} s; the claim is released when it ends'
-                )
-            held.release()
+                kept = ClaimStillLentError(DIAGNOSTIC_EXIT_RUN_IDLE_WAIT_S)
+                if not block_raised:
+                    raise kept
+                # A raise here would replace the block's own exception, the
+                # one its caller is owed; the kept claim is told once instead.
+                from modules.notification_center import notifications
+
+                notifications.report_outcome(kept, solicited=False, category='Diagnostic')
+            else:
+                held.release()
 
     @api
     @property

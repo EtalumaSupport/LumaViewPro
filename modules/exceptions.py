@@ -3873,3 +3873,29 @@ class BlockingCallRefusedError(Refusal, RuntimeError):
             'may queue behind; use the non-blocking form'
         )
         self.member = member
+
+
+class ClaimStillLentError(Fault, RuntimeError):
+    """A diagnostic's block ended with a run it lent its claim to still live.
+
+    The diagnostic's end waited for the run and the run outlived the wait,
+    so the claim stays with the run and is released when the run ends: the
+    scope is not free yet. Raised at the block's end when the block ended
+    cleanly; reported once when the block raised, so the block's own
+    exception is the one its caller receives. Still a ``RuntimeError``, as
+    it was documented.
+
+    Attributes:
+        timeout_s: How long the end waited for the run.
+    """
+
+    words_for_person = True
+    title = 'Run Still Holds the Microscope'
+    reason = 'claim_still_lent'
+
+    def __init__(self, timeout_s: float):
+        super().__init__(
+            f'A run the diagnostic started was still running {timeout_s:g} s after the '
+            'diagnostic ended. The microscope is released when that run ends.'
+        )
+        self.timeout_s = timeout_s

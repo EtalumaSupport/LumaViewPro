@@ -13,7 +13,11 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from modules.exceptions import DiagnosticRefusedError, HardwareCommandRefusedError
+from modules.exceptions import (
+    ClaimStillLentError,
+    DiagnosticRefusedError,
+    HardwareCommandRefusedError,
+)
 from tests.scope_fakes import real_executor_bundle, spec_scope
 from tests.protocol_drives import run_identity
 
@@ -197,6 +201,14 @@ class TestALentClaim:
         later.release()
 
 
+def _end_the_run(runner, monkeypatch):
+    """The run's cleanup: the runner back to IDLE, the session told, the kept claim released."""
+    from modules.protocol_state_machine import ProtocolState
+
+    monkeypatch.setattr(runner, '_state', ProtocolState.IDLE)
+    runner._on_run_idle()
+
+
 class TestTheDiagnosticEndsOnlyWhenItsRunDoes:
     def test_a_run_still_live_past_the_wait_keeps_the_claim_until_it_ends(self, monkeypatch):
         from modules.protocol_state_machine import ProtocolState
@@ -205,11 +217,10 @@ class TestTheDiagnosticEndsOnlyWhenItsRunDoes:
         runner = session.sequenced_capture_runner
         monkeypatch.setattr(runner, '_state', ProtocolState.RUNNING)
         monkeypatch.setattr(runner, 'wait_for_run_idle', lambda timeout_s: False)
-        with (
-            pytest.raises(RuntimeError, match='released when it ends'),
-            session.diagnostic_claim(),
-        ):
+        with pytest.raises(ClaimStillLentError) as kept, session.diagnostic_claim():
             pass
+        assert kept.value.reason == 'claim_still_lent'
+        assert isinstance(kept.value, RuntimeError), 'still what it was documented as'
         assert session.exclusive_activity == 'diagnostic', (
             'the claim was released underneath a run still acting under it'
         )
@@ -220,6 +231,44 @@ class TestTheDiagnosticEndsOnlyWhenItsRunDoes:
         runner._on_run_idle()
 
         assert session.exclusive_activity is None, 'the claim was left with nobody to release it'
+
+    def test_a_block_that_raised_keeps_its_own_exception_and_the_kept_claim_is_told_once(
+        self, monkeypatch, centre_posts
+    ):
+        """A raise at the block's end would replace the block's own exception,
+        the one its caller is owed: in exactly the case the wait is for, a
+        caller that raised between starting a run and waiting on it."""
+        from modules.protocol_state_machine import ProtocolState
+
+        session = _make_session()
+        runner = session.sequenced_capture_runner
+        monkeypatch.setattr(runner, '_state', ProtocolState.RUNNING)
+        monkeypatch.setattr(runner, 'wait_for_run_idle', lambda timeout_s: False)
+
+        with pytest.raises(ValueError, match='the sweep failed'), session.diagnostic_claim():
+            raise ValueError('the sweep failed')
+
+        told = [n for n in centre_posts if n.reason == 'claim_still_lent']
+        assert [n.title for n in told] == [ClaimStillLentError.title]
+        assert session.exclusive_activity == 'diagnostic'
+        _end_the_run(runner, monkeypatch)
+
+    def test_a_clean_block_inside_a_callers_except_still_raises_the_kept_claim(self, monkeypatch):
+        """Whether the block raised is the block's own fact, not the thread's
+        exception state: a caller handling an exception is not a block that raised."""
+        from modules.protocol_state_machine import ProtocolState
+
+        session = _make_session()
+        runner = session.sequenced_capture_runner
+        monkeypatch.setattr(runner, '_state', ProtocolState.RUNNING)
+        monkeypatch.setattr(runner, 'wait_for_run_idle', lambda timeout_s: False)
+
+        try:
+            raise KeyError('handled by the caller')
+        except KeyError:
+            with pytest.raises(ClaimStillLentError), session.diagnostic_claim():
+                pass
+        _end_the_run(runner, monkeypatch)
 
     def test_it_waits_for_the_run_before_it_releases(self, monkeypatch):
         session = _make_session()

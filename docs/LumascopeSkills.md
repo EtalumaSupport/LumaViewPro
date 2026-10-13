@@ -1158,8 +1158,11 @@ A diagnostic that needs autofocus runs the public one under its own claim,
 That run acts inside the diagnostic: it is not refused by it and cannot end
 it, and its non-fatal outcomes are muted (`shown` False) -- the diagnostic
 gets the run's outcome from its handle and decides what to show. When the block ends with such a run still live, the release waits for
-the run first; if it is still live after the wait, the claim stays held and
-the block's end raises `RuntimeError`.
+the run first; if it is still live after the wait, the claim stays held,
+released when the run ends. A block that ended cleanly then raises
+`ClaimStillLentError` (`claim_still_lent`, a fault; still a `RuntimeError`);
+a block that raised keeps its own exception, and the kept claim is reported
+once to the outcome listeners instead.
 
 ### Support report
 

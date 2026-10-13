@@ -45,7 +45,6 @@ _QUOTED_REASON = re.compile(r"``'[a-z][a-z0-9_]*'``|reason\s+``[a-z][a-z0-9_]*``
 # after W0 (NEXT_PRIMARY); a pair leaves this set when its raise is typed.
 _BUILT_INS_PINNED = {
     ('HeldClaim.release', 'RuntimeError'),
-    ('ScopeSession.diagnostic_claim', 'RuntimeError'),
 }
 
 # Refusal entries that do not yet say which reason; finished after W0
