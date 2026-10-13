@@ -287,9 +287,13 @@ class Lumascope:
             resolve_data_file('motorconfig_defaults.json', source_path=source_path)
         )
         # What every setting is: the shipped template, which the Session's
-        # settings writer checks a path and a value's kind against.
-        self._settings_template = read_installation_file(
-            resolve_data_file('settings.json', source_path=source_path)
+        # settings writer checks a path and a value's kind against. Read
+        # through the template's one reader, so this copy is the one every
+        # host prepares settings against.
+        from modules.settings_init import load_template
+
+        self._settings_template = load_template(
+            logger, str(resolve_data_file('settings.json', source_path=source_path))
         )
         # The grids ProtocolsAPI.tiling_config answers. A tiling.json edited
         # while the program runs is seen at the next start, as every

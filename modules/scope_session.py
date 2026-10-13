@@ -1103,7 +1103,7 @@ class ScopeSession:
         # it, the scope's own when the scope was built elsewhere.
         if scope is None:
             root = get_source_root(source_path)
-            template = settings_init._load_template(logger, str(root / 'data' / 'settings.json'))
+            template = settings_init.load_template(logger, str(root / 'data' / 'settings.json'))
         else:
             root = scope.source_path
             template = scope.settings_template

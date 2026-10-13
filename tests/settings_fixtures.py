@@ -9,7 +9,7 @@ fast simulator tier the suite runs on. Its live folder is a fresh
 temporary one unless the test names its own: the template's is relative
 to the installation, and the door would create it under the checkout.
 
-The template is read through ``settings_init._load_template``, the one
+The template is read through ``settings_init.load_template``, the one
 read of it, so what the application sees of the template the fixtures
 see too.
 """
@@ -32,7 +32,7 @@ LIVE_FOLDER_ROOT: pathlib.Path | None = None
 
 def shipped_template() -> dict:
     """The shipped template as the application reads it."""
-    return settings_init._load_template(_LOGGER, str(_TEMPLATE))
+    return settings_init.load_template(_LOGGER, str(_TEMPLATE))
 
 
 def _fresh_live_folder() -> str:

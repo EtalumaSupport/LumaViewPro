@@ -524,7 +524,7 @@ def _load_and_validate(logger, filepath: str) -> dict:
     return loaded
 
 
-def _load_template(logger, template_path: str) -> dict:
+def load_template(logger: logging.Logger, template_path: str) -> dict:
     """The shipped template, checked for the keys the app needs.
 
     Read as a file the installation ships, not as the user's: a template
@@ -621,7 +621,7 @@ def prepare_settings(
         # parse is the installation's fault (``InstallationFileError``) and
         # is never reported as "current.json could not be used", which
         # would send the user to delete the one file that was still good.
-        template = _load_template(logger, template_path)
+        template = load_template(logger, template_path)
         try:
             prepared = _load_and_validate(logger, current_path)
             _retire_shipped_values(logger, prepared)
@@ -653,7 +653,7 @@ def prepare_settings(
         return prepared, rejected
 
     if os.path.exists(template_path):
-        template = _load_template(logger, template_path)
+        template = load_template(logger, template_path)
         prepared = prepare_loaded(
             logger,
             copy.deepcopy(template),
@@ -706,7 +706,7 @@ def prepare_loaded(
     file's ``SettingsFileError``, naming the file, or the argument's
     ``ArgumentRefusedError('wrong_kind')``, naming the key.
 
-    ``template`` is ``_load_template``'s answer, never read a second way;
+    ``template`` is ``load_template``'s answer, never read a second way;
     it is copied here, so the merge never aliases its blocks into the
     store.
 
@@ -801,7 +801,7 @@ def fall_back_to_template(logger: logging.Logger, lvp_appdata: str, reason: str)
 
     current_path = current_json_path(lvp_appdata)
     template_path = os.path.join(lvp_appdata, 'data', 'settings.json')
-    template = _load_template(logger, template_path)
+    template = load_template(logger, template_path)
 
     logger.error(
         f'[Settings ] {current_path} could not be used ({reason}); '

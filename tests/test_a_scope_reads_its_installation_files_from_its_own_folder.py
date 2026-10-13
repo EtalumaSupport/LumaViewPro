@@ -63,6 +63,12 @@ def _no_motor_defaults(data):
     (data / 'motorconfig_defaults.json').unlink()
 
 
+def _template_without_frame(data):
+    template = json.loads((data / 'settings.json').read_text(encoding='utf-8'))
+    del template['frame']
+    (data / 'settings.json').write_text(json.dumps(template), encoding='utf-8')
+
+
 def _stub_real_boards(monkeypatch):
     # No real port is opened in the suite: both boards are answered null.
     monkeypatch.setattr(
@@ -119,8 +125,9 @@ def test_a_model_the_folder_does_not_list_is_refused_before_a_lane_starts(tmp_pa
     [
         (_no_models, 'scopes.json', 'no usable Models section'),
         (_no_motor_defaults, 'motorconfig_defaults.json', 'is missing'),
+        (_template_without_frame, 'settings.json', 'lacks the keys the app needs'),
     ],
-    ids=['scopes-json-without-models', 'motor-defaults-missing'],
+    ids=['scopes-json-without-models', 'motor-defaults-missing', 'template-without-frame'],
 )
 class TestABadFileInTheScopesFolder:
     def test_stops_a_simulated_scope_before_a_lane_starts(self, tmp_path, mutate, name, says):
