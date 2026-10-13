@@ -128,6 +128,20 @@ def test_pause_and_resume_does_not_restart_thread():
     t.stop()
 
 
+def test_a_second_start_keeps_a_frozen_picture_frozen():
+    """A start on a running thread leaves its pause alone: the pause is the
+    user's frozen picture, and only the Freeze button lifts it."""
+    t, widget = _make_thread()
+    t.start(widget, fps=30)
+    try:
+        t.pause()
+        t.start(widget, fps=10)
+        assert t.is_paused
+        assert t.fps == 10
+    finally:
+        t.stop()
+
+
 def test_set_fps_changes_cadence():
     t, widget = _make_thread()
     t.start(widget, fps=10)

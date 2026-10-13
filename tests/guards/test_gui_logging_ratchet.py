@@ -165,10 +165,7 @@ _ROSTER = {
     'MainDisplay.capture_btn': ('LIVE_CAPTURE',),
     'MainDisplay.composite_btn': ('COMPOSITE_CAPTURE',),
     'MainDisplay.fit_btn': ('FIT_IMAGE',),
-    'MainDisplay.live_btn': (
-        'CAM_PLAY',
-        'CAM_TOGGLE',
-    ),
+    'MainDisplay.live_btn': ('CAM_PLAY',),
     'MainDisplay.live_folder_btn': (
         'FOLDER_CHOOSE',
         'FOLDER_CHOOSE_OPEN',

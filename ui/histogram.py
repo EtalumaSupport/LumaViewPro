@@ -52,13 +52,11 @@ class Histogram(Widget):
     def histogram(self, *args):
         ctx = _app_ctx.ctx
 
-        # Skip when live preview is paused. cam_toggle in main_display
-        # sets scope_display.play=False and pauses the display thread,
-        # but the 0.5 s histogram Clock keeps ticking; without this
-        # guard each tick fetches a frame from the camera buffer, builds
-        # a 128-bin mesh, and uploads to the GPU for nothing.
-        scope_display = getattr(ctx, 'scope_display', None)
-        if scope_display is not None and not scope_display.play:
+        # Skip while the live picture is frozen. The 0.5 s histogram Clock
+        # keeps ticking through a freeze; without this guard each tick
+        # fetches a frame from the camera buffer, builds a 128-bin mesh,
+        # and uploads to the GPU for nothing.
+        if ctx.scope_display_thread.is_paused:
             return
 
         # Skip during protocol acquisition. The histogram contends with

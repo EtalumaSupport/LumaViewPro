@@ -92,25 +92,6 @@ def test_an_led_toggle_writes_through_the_illumination_api_on_the_io_lane(
     assert submit.redraw is ctx.ui_listener_bridge.reconcile_led_buttons
 
 
-def test_a_camera_pause_darkens_the_leds_on_the_io_lane_and_resume_restores_them(
-    ctx, boundary, monkeypatch
-):
-    import ui.main_display as main_display
-
-    monkeypatch.setattr(main_display, 'submit_reported', boundary.submit_reported)
-    ctx.scope.illumination.save_led_state.return_value = 'snapshot'
-    display = SimpleNamespace(scope=ctx.scope, _pause_led_snapshot=None)
-    viewer = SimpleNamespace(play=True, pause=MagicMock(), resume=MagicMock())
-
-    main_display.MainDisplay._toggle_play(display, viewer)
-    main_display.MainDisplay._toggle_play(display, viewer)
-
-    assert [s.label for s in boundary.submits] == ['CAM_PAUSE_LEDS', 'CAM_RESUME_LEDS']
-    assert all(s.lane is ctx.io_executor for s in boundary.submits)
-    ctx.scope.illumination.leds_off.assert_called_once_with()
-    ctx.scope.illumination.restore_led_state.assert_called_once_with('snapshot')
-
-
 # ---------------------------------------------------------------------------
 # Camera
 # ---------------------------------------------------------------------------

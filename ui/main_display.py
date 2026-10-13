@@ -33,46 +33,32 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
         # Manual recording lives in the session's ManualRecordingController;
         # this widget keeps only button wiring, the status poll, and titles.
         self._recording_poll = None
-        self._pause_led_snapshot = None  # save/restore via API
 
     def cam_toggle(self):
+        """Freeze the live picture, or unfreeze it.
+
+        A freeze is the display's alone: the LEDs, captures, recordings and
+        runs carry on as they were, and no camera is needed. The display
+        thread's pause is the one store; the button is drawn from it.
+        """
         logger.info('[LVP Main  ] MainDisplay.cam_toggle()')
-        scope_display = self.ids['viewer_id'].ids['scope_display_id']
-        if not self.scope.imaging.active_cached:
-            gui_logger.button('CAM_TOGGLE', 'no-op (camera inactive)')
-            return
-        gui_logger.toggle('CAM_PLAY', not scope_display.play)
-        run_reported(lambda: self._toggle_play(scope_display), None, 'CAM_PLAY')
-
-    def _toggle_play(self, scope_display):
-        io_executor = _app_ctx.ctx.io_executor
-        illumination = self.scope.illumination
-        if scope_display.play:
-            scope_display.play = False
-            # pause() instead of stop()+start() so the
-            # display thread stays alive across pause-resume; no
-            # Thread spawn/join overhead; generation does NOT bump
-            # so the texture stays on the last rendered frame.
-            scope_display.pause()
-            # None with no LED board: nothing to restore on resume, and the
-            # off is satisfied with nothing lit.
-            self._pause_led_snapshot = illumination.save_led_state('camera_pause')
-            # LED observer handles UI button sync
-            submit_reported(illumination.leds_off, None, 'CAM_PAUSE_LEDS', lane=io_executor)
+        thread = _app_ctx.ctx.scope_display_thread
+        gui_logger.toggle('CAM_PLAY', thread.is_paused)
+        if thread.is_paused:
+            thread.resume()
         else:
-            if self._pause_led_snapshot:
-                snapshot = self._pause_led_snapshot
-                self._pause_led_snapshot = None
-                # LED observer handles UI button sync
-                submit_reported(
-                    lambda: illumination.restore_led_state(snapshot),
-                    None,
-                    'CAM_RESUME_LEDS',
-                    lane=io_executor,
-                )
+            thread.pause()
+        self.draw_live_button()
 
-            scope_display.play = True
-            scope_display.resume()
+    def draw_live_button(self):
+        """Show the live picture's pause as the display thread holds it.
+
+        The only code that sets the Freeze toggle's state: Kivy flips a
+        ToggleButton on touch-down, and a touch ending off the button flips
+        it with no handler run, so the state is redrawn from the store.
+        """
+        paused = _app_ctx.ctx.scope_display_thread.is_paused
+        self.ids['live_btn'].state = 'down' if paused else 'normal'
 
     def record_button(self):
         """Start a manual recording, or stop the one that is recording.

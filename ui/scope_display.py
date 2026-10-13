@@ -36,7 +36,7 @@ from kivy.clock import Clock
 from kivy.graphics import InstructionGroup, Color, Line, Ellipse
 from kivy.graphics.texture import Texture
 from kivy.metrics import dp
-from kivy.properties import BooleanProperty, StringProperty
+from kivy.properties import StringProperty
 from kivy.uix.image import Image
 from kivy.uix.widget import Widget
 from kivy.input import MotionEvent
@@ -94,7 +94,6 @@ FRAME_SPIKE_LOG_MIN_GAP_S = 2.0
 
 
 class ScopeDisplay(Image):
-    play = BooleanProperty(True)
     # The active capture/save image mode, owned here as the runtime SSOT so UI
     # panels in other widget trees can observe mode changes (e.g. depth-loss
     # hints near the summing/binning controls) by binding to this property.
@@ -103,7 +102,6 @@ class ScopeDisplay(Image):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         logger.debug('[LVP Main  ] ScopeDisplay.__init__()')
-        self.play = True
         # paused / _display_running / _display_generation / _min_frame_interval /
         # _protocol_hold_until / _cycle_start_time all retired from this widget.
         # Lifecycle + pacing state now owned by ScopeDisplayThread
@@ -380,22 +378,6 @@ class ScopeDisplay(Image):
         if thread is not None:
             thread.stop()
         logger.info('[LVP Main  ] ScopeDisplay.stop()')
-
-    def pause(self):
-        """Pause rendering without tearing down the thread. The
-        last-rendered frame stays on screen. Use resume() to continue.
-        cam_toggle button (ui/main_display.py) uses pause/resume so
-        the thread stays alive and the texture freezes."""
-        ctx = _app_ctx.ctx
-        thread = getattr(ctx, 'scope_display_thread', None) if ctx else None
-        if thread is not None:
-            thread.pause()
-
-    def resume(self):
-        ctx = _app_ctx.ctx
-        thread = getattr(ctx, 'scope_display_thread', None) if ctx else None
-        if thread is not None:
-            thread.resume()
 
     def touch(self, target: Widget, event: MotionEvent):
         if event.is_touch and (event.device == 'mouse') and (event.button == 'right'):

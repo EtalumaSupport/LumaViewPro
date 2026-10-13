@@ -225,9 +225,6 @@ class MotionSettings(BoxLayout):
         else:
             self.x = 0
 
-        # if scope_display.play == True:
-        #     scope_display.start()
-
     def update_xy_stage_control_gui(self, *args, full_redraw: bool = False):
         self._accordion_item_xystagecontrol.update_gui(full_redraw=full_redraw)
 

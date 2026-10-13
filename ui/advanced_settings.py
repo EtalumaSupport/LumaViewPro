@@ -219,10 +219,9 @@ class AdvancedSettings(Popup):
             f'[LVP Main  ] Live view FPS set to {"Max (uncapped)" if fps_val == 0 else fps_val}'
         )
 
-        scope_display = ctx.scope_display
-        if scope_display is not None:
-            scope_display.stop()
-            scope_display.start(fps=fps_val)
+        # The rate changes on the running thread: a restart would build a
+        # fresh thread and drop a frozen picture's pause.
+        ctx.scope_display_thread.set_fps(fps_val)
 
     def update_protocol_led_on(self):
         enabled = self.ids['protocol_led_on_btn'].state == 'down'

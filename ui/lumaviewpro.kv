@@ -281,7 +281,7 @@
 
         ToggleButton:
             id: live_btn
-            disabled: app.controls_locked
+			# A freeze is the display's alone, so it stays live during a run.
 			tooltip_text: 'Freeze live image'
             border: 0, 0, 0, 0
             background_normal: './data/icons/pause.png' # Press to Pause Live Stream
@@ -289,7 +289,7 @@
             size_hint: None, None
             size: '40dp', '40dp'
             state: 'normal'
-            on_release: root.cam_toggle()
+            on_press: root.cam_toggle()
 
         Button:
             id: capture_btn

@@ -633,9 +633,6 @@ class ImageSettings(BoxLayout):
         else:
             self.x = lumaview.width - self.settings_width
 
-        # if scope_display.play == True:
-        #     scope_display.start()
-
     def update_transmitted(self):
         for layer in common_utils.get_transmitted_layers():
             layer_obj = self.layer_lookup(layer=layer)

@@ -140,8 +140,10 @@ class TestKvBindingTopology:
         # so it follows the starter idiom (clickable during its own run, the
         # second click aborting) and is pinned with the other stop toggles in
         # test_issue_166_kv_lock_bindings.py. Re-adding it here would assert
-        # the binding that strands its abort.
-        for btn in ('live_folder_btn', 'live_btn', 'capture_btn'):
+        # the binding that strands its abort. live_btn is absent too: a
+        # freeze is the display's alone, and it stays live during a run
+        # (pinned in test_the_freeze_has_one_store.py).
+        for btn in ('live_folder_btn', 'capture_btn'):
             idx = KV_SRC.find(f'id: {btn}')
             assert idx > 0, btn
             snippet = KV_SRC[idx : idx + 120]

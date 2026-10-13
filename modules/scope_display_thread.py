@@ -115,11 +115,9 @@ class ScopeDisplayThread:
         """Render through *renderer* at up to *fps* (0 uncapped)."""
         self._renderer = renderer
         if self._thread is not None and self._thread.is_alive():
-            logger.debug(
-                'scope_display_thread already running; set_fps + resume instead of re-start'
-            )
+            # A pause is the user's frozen picture; a second start keeps it.
+            logger.debug('scope_display_thread already running; set_fps instead of re-start')
             self.set_fps(fps)
-            self.resume()
             return
         self.set_fps(fps)
         self._stop_event.clear()
