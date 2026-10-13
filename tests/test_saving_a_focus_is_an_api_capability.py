@@ -52,8 +52,12 @@ def session(tmp_path):
 
 
 def _protocol_bf_bf_blue(session):
-    """Three steps, all at the layer focus: BF, BF, Blue."""
+    """Three steps, all at the layer focus: BF, BF, Blue.
+
+    Add takes the live Z, so the stage is put at the layer focus first.
+    """
     protocol = session.create_empty_protocol()
+    _go_to_z(session, LAYER_FOCUS)
     for x_um in (10000, 20000):
         session.scope.motion.move_absolute('X', x_um)
         session.set_layer_acquire('Blue', None)

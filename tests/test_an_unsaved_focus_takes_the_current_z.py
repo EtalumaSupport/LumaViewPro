@@ -5,7 +5,9 @@ The shipped template gave every layer a focus of 4950.0, which the default
 merge copied into each user's live settings, so a channel nobody focused
 looked saved and every step built for it went to that height: Add, New and
 a composite capture alike (bench, LS850T, 2026-10-02: BF saved at 5998.6,
-Blue never saved, Blue's steps at 4950). A saved focus still wins (#681).
+Blue never saved, Blue's steps at 4950). New images a saved channel at its
+saved focus; Add images every channel at the current Z
+(`tests/test_adding_a_step_is_an_api_capability.py`).
 """
 
 from __future__ import annotations
@@ -14,7 +16,6 @@ import json
 import pathlib
 from types import SimpleNamespace
 
-import pandas as pd
 import pytest
 
 from modules import settings_init
@@ -119,27 +120,6 @@ def test_a_build_with_an_unsaved_channel_and_no_current_z_is_refused(scale_capab
     with pytest.raises(ProtocolRunRefusedError, match='No focus is saved for Blue') as refused:
         _from_config(_input_config(), scale_capabilities)
     assert refused.value.reason == 'focus_not_given'
-
-
-def test_add_images_an_unsaved_channel_at_the_current_z():
-    from modules.protocol import Protocol
-
-    protocol = Protocol(
-        tiling_configs_file_loc=TILING_CONFIGS,
-        config={'steps': pd.DataFrame(), 'custom_step_count': 0},
-    )
-    for layer, focus in (('BF', 5998.6), ('Blue', None)):
-        protocol.insert_step(
-            step_name=None,
-            layer=layer,
-            layer_config=_layer(focus),
-            plate_position={'x': 1.0, 'y': 2.0, 'z': 6100.0},
-            objective_id='4x Oly',
-            stim_configs={},
-            after_step=protocol.num_steps() - 1,
-        )
-
-    assert list(protocol.steps()['Z']) == [5998.6, 6100.0]
 
 
 def test_the_saved_focus_of_a_channel_never_saved_is_refused():

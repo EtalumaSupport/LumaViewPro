@@ -60,8 +60,8 @@ def _bf_steps_at(session, xs_um):
     for layer in config_helpers.get_layer_configs(session.settings):
         session.settings[layer]['acquire'] = None
     session.settings['BF']['acquire'] = 'image'
-    session.settings['BF']['focus'] = 5000.0
     session.scope.motion.move_absolute('Y', 40000)
+    session.scope.motion.move_absolute('Z', 5000.0)
     protocol = session.create_empty_protocol()
     for x_um in xs_um:
         session.scope.motion.move_absolute('X', x_um)
@@ -165,7 +165,7 @@ def _bf_steps_at_center(session):
     for layer in config_helpers.get_layer_configs(session.settings):
         session.settings[layer]['acquire'] = None
     session.settings['BF']['acquire'] = 'image'
-    session.settings['BF']['focus'] = 5000.0
+    session.scope.motion.move_absolute('Z', 5000.0)
     protocol = session.create_empty_protocol()
     session.add_step(protocol, after_step=-1)
     return protocol

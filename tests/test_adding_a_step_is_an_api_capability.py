@@ -205,6 +205,27 @@ class TestAScriptAddsAStepThroughTheSession:
         assert step['Color'] == 'BF'
         assert step['Objective'] == session.scope.runtime_state.resolve_current_objective()[0]
 
+    def test_every_channel_takes_the_current_z_and_keeps_its_saved_focus(self, session):
+        # The viewed channel's focus is the better guess for every channel,
+        # and each saved focus stays where New starts the next protocol.
+        saved = {'BF': 7000.0, 'Blue': 8000.0, 'Green': 9000.0}
+        for layer in config_helpers.get_layer_configs(session.settings):
+            session.settings[layer]['acquire'] = None
+        for layer, focus in saved.items():
+            session.settings[layer]['acquire'] = 'image'
+            session.save_layer_focus(layer, focus)
+        session.scope.motion.move_absolute('Z', 5000.0)
+        protocol = session.scope.protocols.create_protocol(
+            empty_config=session.get_sequenced_capture_config()
+        )
+
+        session.add_step(protocol, before_step=0)
+
+        steps = protocol.steps()
+        assert sorted(steps['Color']) == sorted(saved)
+        assert steps['Z'].tolist() == pytest.approx([5000.0] * len(saved))
+        assert {layer: session.saved_focus(layer) for layer in saved} == saved
+
     def test_the_session_forwards_the_refusal(self, session, centre_posts):
         for layer in config_helpers.get_layer_configs(session.settings):
             session.settings[layer]['acquire'] = None
