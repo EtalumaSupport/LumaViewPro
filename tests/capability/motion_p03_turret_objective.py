@@ -1,8 +1,8 @@
 """P03 -- turret / objective selection, headless.
 
 GUI capabilities covered: pick an objective from the spinner
-(vertical_control.py:284 select_objective -- on a turret scope it assigns
-the slot in the light path), rotate the turret to a slot
+(vertical_control.py pick_objective -> select_objective -- on a turret
+scope it turns the turret to the one slot holding the objective), rotate the turret to a slot
 (vertical_control.py:746 turret_select, via the four turret buttons),
 assign/clear an objective to a turret slot (vertical_control.py:627/647),
 home the turret (vertical_control.py:598).
@@ -39,16 +39,21 @@ def main():
         check('turret position known after home', m.position_is_known('T'))
         m.move_turret(1, restore_z=True)
 
-        # --- objective selection (the spinner): assigns the slot in the light path ---
+        # --- objective selection (the spinner): turns to the slot holding it ---
         objectives = s.objective_helper.get_objectives_list()
         first, other = objectives[0], objectives[1]
-        s.select_objective(first)
+        s.assign_turret_objective(1, first)
+        s.assign_turret_objective(4, other)
+        slots_before = dict(s.settings['turret_objectives'])
         changed = s.select_objective(other)
         now_id, info = s.scope.runtime_state.resolve_current_objective()
         check(
-            'select_objective changes the live objective by assigning the slot',
-            changed and now_id == other and s.settings['turret_objectives'][1] == other,
-            f'{first} -> {now_id}',
+            'select_objective turns the turret to the slot holding it and writes no slot',
+            changed
+            and now_id == other
+            and m.get_turret_slot() == 4
+            and s.settings['turret_objectives'] == slots_before,
+            f'{first} -> {now_id} at slot {m.get_turret_slot()}',
         )
         check(
             'objective info carries the jog steps the GUI jog reads',
