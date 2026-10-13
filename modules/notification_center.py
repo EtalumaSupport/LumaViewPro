@@ -24,7 +24,7 @@ import itertools
 import logging
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from concurrent.futures import CancelledError
 from dataclasses import dataclass, field
 from enum import IntEnum, StrEnum
@@ -560,6 +560,21 @@ class NotificationCenter:
                         f'{gui_logger.one_line(title)!r}; the others were still told'
                     )
         return shown
+
+    def tell_listeners(
+        self, listeners: Iterable[Callable[..., object]], *args: object, category: str
+    ) -> None:
+        """Call each listener with ``args``; report a listener's raise and tell the rest.
+
+        The one fan-out of a change to its listeners. No caller waits on a
+        listener, so a listener's fault ends its flight here, reported once
+        (``report_outcome``), and the listeners after it are still told.
+        """
+        for listener in listeners:
+            try:
+                listener(*args)
+            except Exception as ex:
+                self.report_outcome(ex, solicited=False, category=category)
 
     def report_outcome(
         self,

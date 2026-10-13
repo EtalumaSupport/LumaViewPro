@@ -1593,14 +1593,15 @@ class IlluminationAPI:
 
     def _fire_led_listeners(self, reading: LedReading) -> None:
         """Notify all LED listeners of a state change, as *reading* has it."""
+        from modules.notification_center import notifications
+
         with self._led_listeners_lock:
             listeners = list(self._led_listeners)
-        for fn in listeners:
-            try:
-                fn(reading.address, reading.name, reading.state, reading.illumination_ma)
-            except Exception as ex:
-                # No caller waits on a listener, so its fault stops here; the
-                # other listeners are still told.
-                from modules.notification_center import notifications
-
-                notifications.report_outcome(ex, solicited=False, category='Illumination')
+        notifications.tell_listeners(
+            listeners,
+            reading.address,
+            reading.name,
+            reading.state,
+            reading.illumination_ma,
+            category='Illumination',
+        )

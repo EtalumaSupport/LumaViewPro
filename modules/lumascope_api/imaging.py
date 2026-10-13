@@ -926,13 +926,7 @@ class ImagingAPI:
         """Notify all camera listeners of a setting change."""
         with self._camera_listeners_lock:
             listeners = list(self._camera_listeners)
-        for fn in listeners:
-            try:
-                fn(param, value)
-            except Exception as ex:
-                # No caller waits on a listener, so its fault stops here; the
-                # other listeners are still told.
-                notifications.report_outcome(ex, solicited=False, category='Camera')
+        notifications.tell_listeners(listeners, param, value, category='Camera')
 
     def _get_latest_chunks(self) -> dict | None:
         """Per-frame chunk metadata for the most recent successful grab.

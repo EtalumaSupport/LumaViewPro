@@ -910,11 +910,7 @@ class ScopeSession:
         from modules.notification_center import notifications
 
         self._last_step_gone_to = None
-        for listener in list(self._run_state_listeners):
-            try:
-                listener()
-            except Exception as ex:
-                notifications.report_outcome(ex, solicited=False, category='Run State')
+        notifications.tell_listeners(list(self._run_state_listeners), category='Run State')
 
     @api(in_process=True, event=Notification)
     def add_outcome_listener(self, listener: Callable[['Notification'], None]) -> None:

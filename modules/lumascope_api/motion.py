@@ -1524,13 +1524,7 @@ class MotionAPI:
         at = self.axis_positions()[axis]
         with self._position_listeners_lock:
             listeners = list(self._position_listeners)
-        for fn in listeners:
-            try:
-                fn(axis, at)
-            except Exception as ex:
-                # No caller waits on a listener, so its fault stops here; the
-                # other listeners are still told.
-                notifications.report_outcome(ex, solicited=False, category='Motion')
+        notifications.tell_listeners(listeners, axis, at, category='Motion')
 
     def is_any_axis_moving(self) -> bool:
         """Check if any axis is currently MOVING or HOMING.
