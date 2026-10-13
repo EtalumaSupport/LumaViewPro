@@ -727,19 +727,7 @@ class IlluminationAPI:
         The channel is judged at the door (``led_on``); the internal callers
         pass the board's own channels.
         """
-        channel = self._on_channel(channel, 'led_on')
-        # Judged here, on every path that lights an LED, not at the door:
-        # restore_led_state hands this a caller's snapshot of currents.
-        refuse_unless_finite_number(illumination_ma, 'illumination_ma')
-        led_max_ma = self._scope.capabilities.led_max_ma
-        if illumination_ma < 0 or illumination_ma > led_max_ma:
-            raise ArgumentRefusedError(
-                'illumination_out_of_range',
-                argument='illumination_ma',
-                value=illumination_ma,
-                limits=(0, led_max_ma),
-            )
-        commanded_ma = self._driver.commanded_ma(illumination_ma)
+        channel, commanded_ma = self._judge_light(channel, illumination_ma)
 
         # Skip redundant command if the address is already lit at the same
         # current; an unknown address carries no current, so it is written.
@@ -799,6 +787,30 @@ class IlluminationAPI:
             reading = self._reading(channel)
         self._fire_led_listeners(reading)
         return commanded_ma
+
+    def _judge_light(self, channel: int | str, illumination_ma: float) -> tuple[int, float]:
+        """The address a light writes and the current it commands, or the refusal.
+
+        Judged on every path that lights an LED, not at the door: a
+        snapshot or a diff's target hands this a caller's currents.
+
+        Raises:
+            ArgumentRefusedError: ``'not_a_number'`` or
+                ``'illumination_out_of_range'``, as ``_led_on_impl`` says.
+            HardwareCommandRefusedError: ``'not_connected'`` or
+                ``'axis_absent'``, as ``_led_on_impl`` says.
+        """
+        channel = self._on_channel(channel, 'led_on')
+        refuse_unless_finite_number(illumination_ma, 'illumination_ma')
+        led_max_ma = self._scope.capabilities.led_max_ma
+        if illumination_ma < 0 or illumination_ma > led_max_ma:
+            raise ArgumentRefusedError(
+                'illumination_out_of_range',
+                argument='illumination_ma',
+                value=illumination_ma,
+                limits=(0, led_max_ma),
+            )
+        return channel, self._driver.commanded_ma(illumination_ma)
 
     def _led_off_impl(self, channel, *, _lease: LedLease | None = None) -> None:
         """Turn off an LED channel.
@@ -1453,7 +1465,20 @@ class IlluminationAPI:
         returning -- set for a transition whose LED must be on before the
         camera grabs; the off does not block (clearing a channel never gates a
         grab). ``restore_led_state`` drives this diff over a saved snapshot.
+
+        Raises:
+            HardwareCommandRefusedError: ``'exclusive_activity_running'``,
+                ``'not_connected'`` or ``'axis_absent'``, before anything
+                is written.
+            ArgumentRefusedError: ``'not_a_number'`` or
+                ``'illumination_out_of_range'`` for a target light, before
+                anything is written.
         """
+        # The whole target is judged before anything is turned off, so a
+        # refused light leaves every LED as it was.
+        self._refuse_unless_lease_holds(lease, 'led_on')
+        for ch, illumination_ma in target:
+            self._judge_light(ch, illumination_ma)
         target_channels = {ch for ch, _ in target}
         # Snapshot under the lock, then release before emitting: the off/on
         # primitives re-acquire _led_state_lock (not reentrant) and _led_off_impl

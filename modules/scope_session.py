@@ -78,7 +78,7 @@ from modules.live_work import LiveWork, WorkItem
 from modules.lumascope_api import AxisPosition
 from modules.lumascope_api._constants import refuse_unless_turret_slot
 from modules.lumascope_api.bring_up import PartStatus
-from modules.lumascope_api.illumination import LedLease, LedState, LedTransition, LedTransitionCtx
+from modules.lumascope_api.illumination import LedState, LedTransition, LedTransitionCtx
 from modules.lumascope_api.runtime_state import slots_holding
 from modules.manual_capture import ManualCaptureController
 from modules.notification_center import Notification
@@ -277,6 +277,21 @@ class Status:
     camera_streaming: bool
 
 
+@api_fields('layer', 'lit')
+@dataclasses.dataclass(frozen=True)
+class ShownChannel:
+    """The channel the scope shows: the layer whose camera settings are on
+    the camera, and whether its LED is lit with every other one dark.
+
+    Attributes:
+        layer: The layer's key name.
+        lit: Whether its LED is lit.
+    """
+
+    layer: str
+    lit: bool
+
+
 @api_fields('name', 'kind', 'size', 'modified')
 @dataclasses.dataclass(frozen=True)
 class LiveFolderEntry:
@@ -428,6 +443,11 @@ class ScopeSession:
         # or re-read the level-derivation properties below -- never
         # acquire engine locks or trust edge context.
         self._run_state_listeners: list = []
+        # The channel the scope shows, the one store of it: show_channel,
+        # light_shown_channel, go_to_step and a run's steps write it. The
+        # GUI opens on BF with every LED dark, and so does the store.
+        self._shown_channel = ShownChannel(common_utils.DEFAULT_LAYER, lit=False)
+        self._shown_channel_listeners: list = []
         # The step the last go_to_step previewed, as (protocol, index): a
         # repeat of it is a re-click, whose preview would put out a channel
         # the person lit in between. Forgotten at every run transition, so
@@ -507,6 +527,7 @@ class ScopeSession:
             activity_claim=self.activity_claim,
             on_run_idle=self._run_went_idle,
             on_protocol_files_written=self._run_protocol_complete_processors,
+            on_step_lit=self._step_lit_by_run,
         )
         self._protocol_runner = None
 
@@ -893,11 +914,17 @@ class ScopeSession:
             self._run_state_listeners.remove(listener)
 
     def _run_went_idle(self) -> None:
-        """The engine's run has ended: release any claim waiting on it, then tell the listeners."""
+        """The engine's run has ended: release any claim waiting on it, then tell the listeners.
+
+        The shown channel's lit is the run's end state: the run's own end
+        policy left its layer lit or dark.
+        """
         with self._release_at_run_idle_lock:
             waiting, self._release_at_run_idle = self._release_at_run_idle, []
         for held in waiting:
             held.release()
+        layer = self._shown_channel.layer
+        self._set_shown_channel(ShownChannel(layer, lit=self._layer_lit(layer)))
         self.notify_run_state()
 
     def notify_run_state(self) -> None:
@@ -2312,13 +2339,12 @@ class ScopeSession:
         # camera the step would be moved to and stored with nothing to see.
         self.scope.imaging.refuse_camera_not_connected('go_to_step')
         last = self._last_step_gone_to
-        preview = None
-        if last is None or last[0] is not protocol or last[1] != step_idx:
-            preview = self._step_led_ctx(step)
+        shows = last is None or last[0] is not protocol or last[1] != step_idx
+        lit = self.settings['protocol_led_on']
+        if shows and lit and self._led_address(step['Color']) is not None:
             # A preview that would light needs the LED controller, asked
             # before anything moves; a dark one needs no board.
-            if LedLease.target_leds(LedTransition.MANUAL_STEP, preview):
-                self.scope.illumination.refuse_controller_not_connected('go_to_step')
+            self.scope.illumination.refuse_controller_not_connected('go_to_step')
         # The turret included: a failed turret home leaves T unknown
         # while the stage axes still know theirs.
         motion.refuse_unknown_positions(
@@ -2334,11 +2360,14 @@ class ScopeSession:
         )
         self._load_step_into_layer(step)
         self._last_step_gone_to = (protocol, step_idx)
-        if preview is None:
+        if not shows:
             return moves
         # After the step's moves are started, in the same task: a toggle the
         # person makes while the stage travels lands after the step's preview.
-        self.scope.illumination.apply_transition(LedTransition.MANUAL_STEP, preview)
+        # The step's values are now its layer's, so the layer lights at the
+        # step's current.
+        self._show_leds(step['Color'], lit)
+        self._set_shown_channel(ShownChannel(step['Color'], lit))
         return moves
 
     def _load_step_into_layer(self, step) -> None:
@@ -2373,32 +2402,148 @@ class ScopeSession:
                 for stim_layer, stim_config in stim_configs.items():
                     self._store_setting(f'{stim_layer}.stim_config', copy.deepcopy(stim_config))
 
-    def _step_led_ctx(self, step) -> LedTransitionCtx:
-        """The step's LED preview: its channel when the preview is on, all dark when off.
+    def _led_address(self, layer: str) -> int | None:
+        """The LED address ``layer`` lights on this unit, else None.
 
-        The MANUAL_STEP transition diffs this against the LEDs' cached
-        state, so it clears a lit channel of another colour without
-        blinking a same-colour one. Outside a run nothing holds the LED
-        lease, so the transition goes through the lease-free
-        ``apply_transition``.
+        None for a layer this unit's identity gives no LED; when the layer
+        is one that drives an LED elsewhere, that is logged, since its
+        preview would otherwise just not light with nothing naming why.
         """
-        color = step['Color']
-        channel = self.scope.illumination.color2ch(color)
+        address = self.scope.illumination.color2ch(layer)
         if (
-            channel is None
+            address is None
             and self.scope.led_connected
-            and color in common_utils.get_layers_with_led()
+            and layer in common_utils.get_layers_with_led()
         ):
-            # A step of a layer this unit's identity lacks would otherwise
-            # just not light, with nothing anywhere naming why.
             logger.warning(
-                f"[Session  ] This scope has no '{color}' LED channel; preview will not light."
+                f"[Session  ] This scope has no '{layer}' LED channel; preview will not light."
             )
-        return LedTransitionCtx(
-            channel=channel,
-            illumination_ma=step['Illumination'],
-            preview_on=self.settings['protocol_led_on'],
+        return address
+
+    def _show_leds(self, layer: str, lit: bool) -> None:
+        """``layer``'s LED lit at its stored current when ``lit``, every other LED dark.
+
+        The one light-one-darken-rest outside a run, through the lease-free
+        transition: it diffs against the LED store, so a channel already
+        right does not blink, and refuses before anything is turned off.
+        """
+        with self.settings_lock:
+            illumination_ma = self.settings[layer]['illumination_ma']
+        self.scope.illumination.apply_transition(
+            LedTransition.MANUAL_STEP,
+            LedTransitionCtx(
+                channel=self._led_address(layer),
+                illumination_ma=illumination_ma,
+                preview_on=lit,
+            ),
         )
+
+    def _layer_lit(self, layer: str) -> bool:
+        """Whether ``layer``'s LED reads lit in the LED store."""
+        address = self.scope.illumination.color2ch(layer)
+        if address is None or not self.scope.led_connected:
+            return False
+        return self.scope.illumination.get_led_state(address).state is LedState.LIT
+
+    def _set_shown_channel(self, shown: ShownChannel) -> None:
+        """Store ``shown`` and tell the listeners when it changed."""
+        if shown == self._shown_channel:
+            return
+        self._shown_channel = shown
+        from modules.notification_center import notifications
+
+        notifications.tell_listeners(
+            list(self._shown_channel_listeners), shown.layer, shown.lit, category='Illumination'
+        )
+
+    def _step_lit_by_run(self, layer: str) -> None:
+        """A run's step has lit ``layer``: it is the shown channel, lit."""
+        self._set_shown_channel(ShownChannel(layer, lit=True))
+
+    @api(reads=True)
+    @property
+    def shown_channel(self) -> ShownChannel:
+        """The channel the scope shows: its layer, and whether its LED is lit."""
+        return self._shown_channel
+
+    @api
+    def show_channel(self, layer: str) -> ShownChannel:
+        """Show ``layer``: every other LED dark, ``layer`` lit at its stored
+        current if the shown channel was lit, then its camera settings.
+
+        The one way the shown channel changes outside a run; a run's steps
+        and ``go_to_step`` move it too. Each refusal is decided before any
+        LED is turned off, so a refused call leaves the LEDs as they were.
+        A layer this unit gives no LED is shown with every LED dark.
+
+        Returns:
+            The shown channel now.
+
+        Raises:
+            ArgumentRefusedError: ``'layer_unknown'``, ``layer`` is not a
+                layer; ``'illumination_out_of_range'``, its stored current
+                is outside the attached board's range.
+            HardwareCommandRefusedError: ``'axis_absent'``, this scope has
+                no ``layer``; ``'not_connected'``, naming the LED
+                controller the light needs or the camera; or
+                ``'exclusive_activity_running'``, a run, a diagnostic or a
+                home holds the scope.
+            ConfigurationDefectError: ``'layers_unresolved'``, this scope's
+                layers could not be resolved.
+            CameraSettingRejected: the camera refused a setting of the
+                layer; its LEDs are already shown.
+        """
+        self.scope.layer_identity.refuse_unless_on_scope(layer, 'show_channel', then='be shown')
+        lit = self._shown_channel.lit
+        self._show_leds(layer, lit)
+        self._set_shown_channel(ShownChannel(layer, lit))
+        self.apply_layer_camera(layer)
+        return self._shown_channel
+
+    @api
+    def light_shown_channel(self, lit: bool) -> ShownChannel:
+        """Light the shown channel's LED at its stored current, or darken it.
+
+        Every other LED is dark either way. A layer this unit gives no LED
+        has nothing to light, and stays dark.
+
+        Returns:
+            The shown channel now.
+
+        Raises:
+            ArgumentRefusedError: ``'illumination_out_of_range'``, the
+                layer's stored current is outside the attached board's
+                range.
+            HardwareCommandRefusedError: ``'axis_absent'``, this scope has
+                no shown layer; ``'not_connected'``, naming the LED
+                controller the light needs; or
+                ``'exclusive_activity_running'``, a run, a diagnostic or a
+                home holds the scope.
+            ConfigurationDefectError: ``'layers_unresolved'``, this scope's
+                layers could not be resolved.
+        """
+        layer = self._shown_channel.layer
+        self.scope.layer_identity.refuse_unless_on_scope(
+            layer, 'light_shown_channel', then='be lit'
+        )
+        self._show_leds(layer, lit)
+        self._set_shown_channel(ShownChannel(layer, lit))
+        return self._shown_channel
+
+    @api(in_process=True, event=ShownChannel)
+    def add_shown_channel_listener(self, listener: Callable[[str, bool], None]) -> None:
+        """Tell ``listener`` ``(layer, lit)`` each time the shown channel changes.
+
+        It is called on the thread that changed it, so a GUI listener
+        schedules its drawing.
+        """
+        self._shown_channel_listeners.append(listener)
+
+    @api(in_process=True)
+    def remove_shown_channel_listener(self, listener: Callable[[str, bool], None]) -> None:
+        """Stop telling ``listener``; a listener never added is a no-op."""
+        with contextlib.suppress(ValueError):
+            self._shown_channel_listeners.remove(listener)
 
     @api(reads=True)
     def protocol_size_advisory(self, protocol: 'Protocol') -> 'ProtocolSizeAdvisory | None':

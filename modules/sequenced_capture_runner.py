@@ -459,7 +459,11 @@ class SequencedCaptureRunner:
         on_run_idle: typing.Callable[[], None] | None = None,
         on_protocol_files_written: typing.Callable[[pathlib.Path, str, str, str], None]
         | None = None,
+        on_step_lit: typing.Callable[[str], None] | None = None,
     ):
+        # Told the layer each step has lit, once its light is on: the
+        # session's shown channel follows the run.
+        self._on_step_lit = on_step_lit
         # Handed (run_dir, files outcome, trigger source, protocol name) once per Full
         # Protocol, after its images are written and its hyperstack build has
         # ended: the session's hand-off to the post-processing plugins. Runs

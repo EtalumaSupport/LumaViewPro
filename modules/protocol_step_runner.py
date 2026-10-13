@@ -764,4 +764,6 @@ class ProtocolStepRunner:
                 illumination_ma=step['Illumination'],
             ),
         )
+        if p._on_step_lit is not None:
+            p._on_step_lit(step['Color'])
         time.sleep(0.005)

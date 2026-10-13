@@ -1634,6 +1634,16 @@ A layer name the unit's identity gives no LED (`'Lumi'`, or `'Red'` on an LS560)
 
 With no LED board installed -- none came up, or after `session.shutdown()` -- the three answer `None`: there is no board whose state to describe, which is not the same answer as every channel off. Shutdown darkens the board and leaves nothing believed lit. A frame captured then records no LED lit.
 
+### The shown channel — which layer is on the camera and lit
+
+The session holds the channel the scope shows: `session.shown_channel` is a `ShownChannel(layer, lit)`. `session.show_channel(layer)` makes `layer` the shown channel -- every other LED dark, `layer` lit at its stored current only if the shown channel was lit, then its camera settings applied. `session.light_shown_channel(lit)` lights or darkens it. Both refuse before turning anything off, so a refused call leaves the LEDs as they were. `go_to_step` and a run's steps move it too, and `add_shown_channel_listener` (the REST `shown_channel` event) hears each change as `(layer, lit)`.
+
+```python
+session.show_channel('Blue')          # ShownChannel(layer='Blue', lit=False): Blue's camera settings, every LED dark
+session.light_shown_channel(True)     # Blue lit at its stored illumination_ma
+session.show_channel('Green')         # Green lit, Blue dark: the light follows the shown channel
+```
+
 ### Exclusivity — a run holds the LEDs
 
 LED writes carry no owner name: no string grants the right to drive an LED.
@@ -2829,6 +2839,7 @@ Reached through `ScopeSession.create(settings, ...)`; every L2 caller starts her
 
 - `add_outcome_listener` (in-process)
 - `add_run_state_listener` (in-process)
+- `add_shown_channel_listener` (in-process)
 - `add_step`
 - `apply_focus_to_layer_steps`
 - `apply_layer_camera`
@@ -2867,6 +2878,7 @@ Reached through `ScopeSession.create(settings, ...)`; every L2 caller starts her
 - `go_to_step`
 - `held_by_other`
 - `is_protocol_running`
+- `light_shown_channel`
 - `live_folder_listing`
 - `live_folder_path` (in-process)
 - `live_work`
@@ -2893,6 +2905,7 @@ Reached through `ScopeSession.create(settings, ...)`; every L2 caller starts her
 - `recover_file_writer`
 - `remove_outcome_listener` (in-process)
 - `remove_run_state_listener` (in-process)
+- `remove_shown_channel_listener` (in-process)
 - `rename_step`
 - `retire_rejected_settings`
 - `run_in_progress`
@@ -2922,6 +2935,8 @@ Reached through `ScopeSession.create(settings, ...)`; every L2 caller starts her
 - `set_scale_bar`
 - `set_ui_dispatcher` (in-process)
 - `settings_are_provisional`
+- `show_channel`
+- `shown_channel`
 - `shutdown` (in-process)
 - `source_path`
 - `start_application_session` (in-process)
@@ -3707,6 +3722,13 @@ Reached through `BringUpRecord.settings_set_aside`.
 
 - `path`
 - `reason`
+
+### ShownChannel
+
+Reached through `session.shown_channel`, returned by `session.show_channel` and `light_shown_channel`, and the event `session.add_shown_channel_listener` delivers.
+
+- `layer`
+- `lit`
 
 ### Status
 
