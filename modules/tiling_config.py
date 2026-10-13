@@ -89,7 +89,7 @@ class TilingConfig:
                 )
         metadata = cfg.get('metadata')
         default = metadata.get('default') if isinstance(metadata, dict) else None
-        if default not in grids:
+        if not isinstance(default, str) or default not in grids:
             raise InstallationFileError(
                 path, f"names no default grid among its own ('metadata.default' is {default!r})"
             )

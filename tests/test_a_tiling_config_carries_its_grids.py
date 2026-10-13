@@ -53,6 +53,10 @@ _BROKEN = {
         "grid '1x1' without a whole-number",
     ),
     'no default': ({'data': _GRIDS}, 'names no default grid'),
+    'a default that is no name': (
+        {'metadata': {'default': ['1x1']}, 'data': _GRIDS},
+        'names no default grid',
+    ),
     'a default it does not offer': (
         {'metadata': {'default': '9x9'}, 'data': _GRIDS},
         'names no default grid',
