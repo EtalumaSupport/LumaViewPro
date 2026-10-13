@@ -20,6 +20,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from modules.lumascope_api.illumination import LedState
+
 # Heavy deps (lvp_logger, kivy, pypylon, ids_peak, ...) are mocked by
 # tests/conftest.py at module-import time.
 
@@ -379,10 +381,8 @@ class TestSingleScanBasicImage:
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
         # A scan ends with every LED off
-        for color in scope._led_driver.led_ma:
-            assert not scope.illumination.get_led_state(color)['enabled'], (
-                f'LED {color} still on after protocol'
-            )
+        not_dark = [r for r in scope.illumination.get_led_states() if r.state is not LedState.DARK]
+        assert not_dark == [], f'LEDs not dark after protocol: {not_dark}'
 
     def test_auto_gain_disabled_in_step(self, executor, scope, tmp_path):
         """When auto_gain=False, protocol should complete normally."""
@@ -770,8 +770,8 @@ class TestLedStateAtEnd:
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
         # Verify all LEDs are off via simulator public API
-        for color in scope._led_driver.led_ma:
-            assert not scope.illumination.get_led_state(color)['enabled'], f'LED {color} still on'
+        not_dark = [r for r in scope.illumination.get_led_states() if r.state is not LedState.DARK]
+        assert not_dark == [], f'LEDs not dark: {not_dark}'
 
     def test_return_to_original_leds(self, executor, scope, tmp_path):
         # Turn on BF LED before the run so the executor captures it as the
@@ -2111,10 +2111,8 @@ class TestCleanupCorrectness:
         executor._reset(run)
         done.wait(timeout=COMPLETION_TIMEOUT)
 
-        for color in scope._led_driver.led_ma:
-            assert not scope.illumination.get_led_state(color)['enabled'], (
-                f'LED {color} still on after abort'
-            )
+        not_dark = [r for r in scope.illumination.get_led_states() if r.state is not LedState.DARK]
+        assert not_dark == [], f'LEDs not dark after abort: {not_dark}'
 
     def test_back_to_back_runs_no_state_bleed(self, executor, scope, tmp_path):
         """Gain/exposure from run A don't leak into run B's restored values."""
@@ -2152,11 +2150,13 @@ class TestProtocolLedNoFlash:
         # different color when the user pressed Scan).
         stray = scope.illumination.color2ch('Red')
         scope.illumination.led_on(channel=stray, illumination_ma=80)
-        assert scope.illumination.get_led_state('Red')['enabled']
+        assert scope.illumination.get_led_state('Red').state is LedState.LIT
 
         events = []
         scope.illumination.add_led_listener(
-            lambda channel, enabled, illumination_ma: events.append((channel, enabled))
+            lambda address, name, state, illumination_ma: events.append(
+                (name, state is LedState.LIT)
+            )
         )
 
         protocol = _make_single_step_protocol(color='Green', illumination=60.0)
@@ -2181,10 +2181,12 @@ class TestProtocolLedNoFlash:
         scope.illumination.led_on(
             channel=scope.illumination.color2ch(color), illumination_ma=illumination_ma
         )
-        assert scope.illumination.get_led_state(color)['enabled']
+        assert scope.illumination.get_led_state(color).state is LedState.LIT
 
         events = []
-        scope.illumination.add_led_listener(lambda c, enabled, m: events.append((c, enabled)))
+        scope.illumination.add_led_listener(
+            lambda address, name, state, m: events.append((name, state is LedState.LIT))
+        )
 
         protocol = _make_single_step_protocol(color=color, illumination=illumination_ma)
         completed, _ = _run_and_wait(executor, protocol, tmp_path)

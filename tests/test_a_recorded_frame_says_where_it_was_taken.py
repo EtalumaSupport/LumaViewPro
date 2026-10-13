@@ -19,6 +19,7 @@ import tifffile as tf
 
 from modules.image_save import write_video_frame
 from modules.lumascope_api import AxisPosition, AxisState
+from modules.lumascope_api.illumination import LedReading, LedState
 from modules.lumascope_api.runtime_state import RuntimeState
 from modules.recording_frames import FrameFact, frame_fact, tiff_frame_metadata
 from modules.video_recording import RecordingConfig, VideoRecordingEngine
@@ -31,10 +32,12 @@ def _fake_scope(positions, lit=None):
     return SimpleNamespace(
         motion=SimpleNamespace(axis_positions=lambda: positions),
         illumination=SimpleNamespace(
-            get_led_states=lambda: {
-                color: {'enabled': color == lit, 'illumination_ma': None}
-                for color in ('Blue', 'Green', 'Red', 'BF')
-            }
+            get_led_states=lambda: tuple(
+                LedReading(address, name, LedState.LIT, 100.0)
+                if name == lit
+                else LedReading(address, name, LedState.DARK, None)
+                for address, name in enumerate(('Blue', 'Green', 'Red', 'BF'))
+            )
         ),
     )
 

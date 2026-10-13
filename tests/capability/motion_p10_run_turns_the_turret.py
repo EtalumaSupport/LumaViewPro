@@ -24,6 +24,8 @@ import pandas as pd
 
 from harness import HARDWARE, SCRATCH, check, figure, hardware_session, headless_session, report
 
+from modules.lumascope_api.illumination import LedState
+
 RUN_TIMEOUT_S = 120.0
 
 
@@ -153,7 +155,9 @@ def main():
 
         def _observed_move_turret(position, restore_z=True):
             lit_at_turn.append(
-                sorted(c for c, st in illumination.get_led_states().items() if st['enabled'])
+                sorted(
+                    str(r.name) for r in illumination.get_led_states() if r.state is LedState.LIT
+                )
             )
             real_move_turret(position=position, restore_z=restore_z)
             turned_to.append((position, motion.get_turret_slot()))

@@ -52,9 +52,11 @@ def _light_pre_run_channel(session):
 
 
 def _lit_channels(session):
-    """Colour -> mA for every channel the simulated board has driven on."""
+    """Layer -> mA for every address the simulated board has driven on,
+    named through the unit's layer identity."""
     driver = session.scope._led_driver
-    return {driver.ch2color(ch): ma for ch, ma in driver._channel_states.items() if ma and ma > 0}
+    layer_of = session.scope.illumination.ch2color
+    return {layer_of(ch): ma for ch, ma in driver._channel_states.items() if ma and ma > 0}
 
 
 def _record_led_commands(monkeypatch, session):
@@ -67,13 +69,14 @@ def _record_led_commands(monkeypatch, session):
     implementation detail this file must not depend on.
     """
     driver = session.scope._led_driver
+    layer_of = session.scope.illumination.ch2color
     events = []
 
     def _wrap_on(name):
         original = getattr(driver, name)
 
         def recorded(channel, mA, *args, **kwargs):
-            events.append(('on', driver.ch2color(channel), float(mA)))
+            events.append(('on', layer_of(channel), float(mA)))
             return original(channel, mA, *args, **kwargs)
 
         monkeypatch.setattr(driver, name, recorded)
@@ -82,7 +85,7 @@ def _record_led_commands(monkeypatch, session):
         original = getattr(driver, name)
 
         def recorded(channel, *args, **kwargs):
-            events.append(('off', driver.ch2color(channel), 0.0))
+            events.append(('off', layer_of(channel), 0.0))
             return original(channel, *args, **kwargs)
 
         monkeypatch.setattr(driver, name, recorded)

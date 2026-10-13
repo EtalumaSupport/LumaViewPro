@@ -22,6 +22,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from modules.lumascope_api.illumination import LedState
+
 import modules.sequenced_capture_runner as scr
 from modules.exceptions import HardwareCommandRefusedError
 from modules.run_outcome import RunEnding
@@ -175,7 +177,7 @@ def test_the_safety_darken_does_not_wait_for_a_busy_io_lane(sim_session, monkeyp
     scope = sim_session.scope
     layer = 'Blue'
     scope.illumination.led_on(layer, 10.0)
-    assert scope.illumination.get_led_state(layer)['enabled'], 'precondition: lit'
+    assert scope.illumination.get_led_state(layer).state is LedState.LIT, 'precondition: lit'
     lease = scope.illumination.acquire_led_lease('protocol', claim=held_run_claim())
     assert lease is not None
     monkeypatch.setattr(scr, 'run_cleanup', MagicMock(side_effect=RuntimeError('cleanup died')))
@@ -218,7 +220,7 @@ def test_the_safety_darken_does_not_wait_for_a_busy_io_lane(sim_session, monkeyp
     threading.Thread(target=_cleanup, daemon=True).start()
     try:
         assert finished.wait(5.0), 'cleanup waited on the busy IO lane'
-        assert not scope.illumination.get_led_state(layer)['enabled'], (
+        assert scope.illumination.get_led_state(layer).state is LedState.DARK, (
             'the undecided end-state must be dark before the busy lane frees'
         )
         assert forced == [1], 'the undecided end-state must be darkened by the safety off'

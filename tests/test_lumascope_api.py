@@ -26,7 +26,6 @@ Issue #616 / #618 follow-up -- the rename of `xyhome` to `home`:
 """
 
 import threading
-from typing import ClassVar
 
 # Heavy deps are mocked by tests/conftest.py at module-import time.
 
@@ -459,8 +458,8 @@ class TestLEDChannelDiscovery:
     the FX2 driver for Lumaview Classic, which has 4 channels not 6.
 
     These tests verify:
-    1. Each LED implementation's available_channels()/available_colors()
-       are derived from its single source of truth (_COLOR_TO_CH).
+    1. Each LED implementation's available_channels() answers the
+       board's addresses (the EL-0940 board and its stand-ins: 0-7).
     2. The API uses the driver's value at validation time, not a class
        constant -- so swapping a 4-channel driver in works without
        touching the API.
@@ -468,25 +467,21 @@ class TestLEDChannelDiscovery:
        hardcoded "0-5" string.
     """
 
-    def test_ledboard_available_channels_from_color_map(self):
+    def test_ledboard_available_channels_are_its_eight_addresses(self):
         from drivers.ledboard import LEDBoard
 
         instance = LEDBoard.__new__(LEDBoard)
-        assert instance.available_channels() == tuple(LEDBoard._COLOR_TO_CH.values())
-        assert instance.available_colors() == tuple(LEDBoard._COLOR_TO_CH.keys())
-        assert len(instance.available_channels()) == 6
+        assert instance.available_channels() == (0, 1, 2, 3, 4, 5, 6, 7)
 
-    def test_simulated_ledboard_available_channels_from_color_map(self):
+    def test_simulated_ledboard_available_channels_are_its_eight_addresses(self):
         sim = SimulatedLEDBoard()
-        assert sim.available_channels() == tuple(SimulatedLEDBoard._COLOR_TO_CH.values())
-        assert len(sim.available_channels()) == 6
+        assert sim.available_channels() == (0, 1, 2, 3, 4, 5, 6, 7)
 
-    def test_null_ledboard_returns_six_channels_for_compat(self):
-        """NullLEDBoard returns 6 channels (same as RP2040) so callers on
+    def test_null_ledboard_returns_the_boards_eight_addresses_for_compat(self):
+        """NullLEDBoard returns the EL-0940 board's 8 addresses so callers on
         a no-LED-hardware system get silent no-ops, not ValueErrors."""
         null = NullLEDBoard()
-        assert len(null.available_channels()) == 6
-        assert null.available_channels() == (0, 1, 2, 3, 4, 5)
+        assert null.available_channels() == (0, 1, 2, 3, 4, 5, 6, 7)
 
     def test_api_validation_uses_driver_channel_set_not_hardcoded(self):
         """The API must read the valid channel set from the driver. This
@@ -496,8 +491,8 @@ class TestLEDChannelDiscovery:
         scope = build_scope(simulate=True)
 
         class FourChannelLED(SimulatedLEDBoard):
-            _COLOR_TO_CH: ClassVar[dict] = {'Blue': 0, 'Green': 1, 'Red': 2, 'BF': 3}
-            _CH_TO_COLOR: ClassVar[dict] = {v: k for k, v in _COLOR_TO_CH.items()}
+            def available_channels(self):
+                return (0, 1, 2, 3)
 
         scope._led_driver = FourChannelLED()
 
@@ -514,8 +509,8 @@ class TestLEDChannelDiscovery:
         scope = build_scope(simulate=True)
 
         class TwoChannelLED(SimulatedLEDBoard):
-            _COLOR_TO_CH: ClassVar[dict] = {'BF': 0, 'Blue': 1}
-            _CH_TO_COLOR: ClassVar[dict] = {v: k for k, v in _COLOR_TO_CH.items()}
+            def available_channels(self):
+                return (0, 1)
 
         scope._led_driver = TwoChannelLED()
 
@@ -796,14 +791,14 @@ class TestScopeCapabilities:
         assert isinstance(scope.capabilities, ScopeCapabilities)
 
     def test_ls850t_default_sim_capabilities(self):
-        """Default sim is LS850T: X/Y/Z/T (turret present), 6-channel LED."""
+        """Default sim is LS850T: X/Y/Z/T (turret present), 8-address LED board."""
         scope = build_scope(simulate=True)
         caps = scope.capabilities
         assert caps.axes == ('X', 'Y', 'Z', 'T')
         assert caps.has_focus is True
         assert caps.has_xy_stage is True
         assert caps.has_turret is True
-        assert len(caps.led_channels) == 6
+        assert caps.led_channels == (0, 1, 2, 3, 4, 5, 6, 7)
         assert caps.led_max_ma == scope._led_driver.max_ma()
 
     def test_ls850t_capabilities_has_turret(self):
@@ -885,8 +880,8 @@ class TestScopeCapabilities:
         from modules.scope_capabilities import ScopeCapabilities
 
         class FourChannelLED(SimulatedLEDBoard):
-            _COLOR_TO_CH: ClassVar[dict] = {'Blue': 0, 'Green': 1, 'Red': 2, 'BF': 3}
-            _CH_TO_COLOR: ClassVar[dict] = {v: k for k, v in _COLOR_TO_CH.items()}
+            def available_channels(self):
+                return (0, 1, 2, 3)
 
         caps = ScopeCapabilities.from_drivers(
             motion=NullMotionBoard(),

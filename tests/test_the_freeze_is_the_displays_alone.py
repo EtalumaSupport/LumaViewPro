@@ -35,6 +35,7 @@ _real_base_module('kivy.uix.floatlayout', FloatLayout=_StubWidget)
 
 import modules.app_context as _app_ctx
 import ui.main_display as main_display
+from modules.lumascope_api.illumination import LedState
 from modules.scope_display_thread import ScopeDisplayThread
 from ui.advanced_settings import AdvancedSettings
 from ui.scope_display import ScopeDisplay
@@ -83,15 +84,13 @@ def test_a_press_freezes_the_picture_and_leaves_the_lit_led_lit(thread, sim_scop
     _press(display)
     assert thread.is_paused
     assert display.ids['live_btn'].state == 'down'
-    assert sim_scope.illumination.get_led_state('Blue') == {
-        'enabled': True,
-        'illumination_ma': 50.0,
-    }
+    blue = sim_scope.illumination.get_led_state('Blue')
+    assert (blue.state, blue.illumination_ma) == (LedState.LIT, 50.0)
 
     _press(display)
     assert not thread.is_paused
     assert display.ids['live_btn'].state == 'normal'
-    assert sim_scope.illumination.get_led_state('Blue')['enabled'] is True
+    assert sim_scope.illumination.get_led_state('Blue').state is LedState.LIT
 
 
 def test_a_press_with_the_camera_gone_freezes_the_picture(thread):

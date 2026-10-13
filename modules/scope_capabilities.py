@@ -176,6 +176,7 @@ def _resolve_lens_focal_length_mm(motorconfig, optics: dict) -> float | None:
     'has_xy_stage',
     'is_color_native',
     'led_channels',
+    'led_colors',
     'led_max_ma',
     'lens_focal_length_mm',
     'model',
@@ -228,7 +229,7 @@ class ScopeCapabilities:
     # ---- LED ----
     led_channels: tuple[int, ...] | None
     """LED channel indices the installed board addresses -- from
-    `led.available_channels()`. RP2040 = (0,1,2,3,4,5), FX2/LVC =
+    `led.available_channels()`. RP2040 = (0, ..., 7), FX2/LVC =
     (0,1,2,3). None when the scope came up without its LED board."""
 
     led_colors: tuple[str, ...]

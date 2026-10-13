@@ -112,26 +112,44 @@ def test_a_lit_led_outranks_the_open_drawer(identity_scope, tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def _illumination(states):
-    return SimpleNamespace(get_led_states=lambda: states)
+def _illumination(*readings):
+    # a stand-in by design: the subject is the resolver, and these readings
+    # are its interchangeable input, built to each clause
+    return SimpleNamespace(get_led_states=lambda: readings)
 
 
-def _state(enabled):
-    return {'enabled': enabled, 'illumination_ma': 100 if enabled else None, 'owner': ''}
+def _lit(address, name):
+    from modules.lumascope_api.illumination import LedReading, LedState
+
+    return LedReading(address, name, LedState.LIT, 100.0)
+
+
+def _dark(address, name):
+    from modules.lumascope_api.illumination import LedReading, LedState
+
+    return LedReading(address, name, LedState.DARK, None)
 
 
 def test_resolver_clauses():
+    """A lit, named LED wins over the open layer; nothing lit falls to the open
+    layer, then brightfield; two lit, the first in address order wins; a lit
+    address the identity names no layer for names no channel; no board (None)
+    is nothing lit."""
     from modules.common_utils import resolve_channel_identity
 
-    lit_red = {'BF': _state(False), 'Red': _state(True), 'Green': _state(False)}
-    assert resolve_channel_identity(_illumination(lit_red), 'Green') == 'Red'
-    assert resolve_channel_identity(_illumination(lit_red), None) == 'Red'
-    none_lit = {'BF': _state(False), 'Red': _state(False)}
-    assert resolve_channel_identity(_illumination(none_lit), 'Green') == 'Green'
-    assert resolve_channel_identity(_illumination(none_lit), None) == 'BF'
-    assert resolve_channel_identity(_illumination({}), None) == 'BF'
-    two_lit = {'Blue': _state(True), 'Red': _state(True)}
-    assert resolve_channel_identity(_illumination(two_lit), 'Green') == 'Blue'
+    lit_red = _illumination(_dark(1, 'Green'), _lit(2, 'Red'), _dark(3, 'BF'))
+    assert resolve_channel_identity(lit_red, 'Green') == 'Red'
+    assert resolve_channel_identity(lit_red, None) == 'Red'
+    none_lit = _illumination(_dark(2, 'Red'), _dark(3, 'BF'))
+    assert resolve_channel_identity(none_lit, 'Green') == 'Green'
+    assert resolve_channel_identity(none_lit, None) == 'BF'
+    assert resolve_channel_identity(_illumination(), None) == 'BF'
+    two_lit = _illumination(_lit(0, 'Blue'), _lit(2, 'Red'))
+    assert resolve_channel_identity(two_lit, 'Green') == 'Blue'
+    unnamed_lit = _illumination(_lit(6, None), _dark(2, 'Red'))
+    assert resolve_channel_identity(unnamed_lit, 'Green') == 'Green'
+    no_board = SimpleNamespace(get_led_states=lambda: None)
+    assert resolve_channel_identity(no_board, 'Green') == 'Green'
 
 
 def test_both_manual_outputs_share_the_resolver():

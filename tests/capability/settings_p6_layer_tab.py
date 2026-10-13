@@ -14,6 +14,8 @@ import sys
 
 import harness as _common
 
+from modules.lumascope_api.illumination import LedState
+
 s, live = _common.make_session()
 try:
     ill, im = s.scope.illumination, s.scope.imaging
@@ -24,20 +26,16 @@ try:
     print(f'{target} config:', {k: cfg[k] for k in list(cfg)[:6]})
 
     # The GUI's reconcile, expressed through the API
-    for layer in cfgs:
-        if layer == target:
-            continue
-        st = ill.get_led_state(channel=layer)
-        if st.get('enabled'):
-            ill.led_off(layer)
+    for reading in ill.get_led_states():
+        if reading.name != target and reading.state is LedState.LIT:
+            ill.led_off(reading.address)
     im.apply_layer_camera_settings(
         gain_db=float(cfg['gain_db']),
         exposure_ms=float(cfg['exposure_ms']),
         layer=target,
     )
     ill.led_on(target, float(cfg['illumination_ma']))
-    states = ill.get_led_states()
-    lit = [k for k, v in states.items() if v.get('enabled')]
+    lit = [r.name for r in ill.get_led_states() if r.state is LedState.LIT]
     _common.ok('exactly the target layer is lit', lit == [target], f'lit={lit}')
     _common.ok(
         'camera took the layer gain',

@@ -2,28 +2,30 @@
 
 import harness
 
+from modules.lumascope_api.illumination import LedState
+
 s, live = harness.make_session('p1')
 ill = s.scope.illumination
 try:
-    print('available:', sorted(ill.get_led_states().keys()))
+    print('available:', [(r.address, r.name) for r in ill.get_led_states()])
     # on at 123 mA
     ill.led_on('Blue', 123.0, block=True)
     st = ill.get_led_state('Blue')
     print('after led_on(Blue,123):', st)
-    assert st['enabled'] and st['illumination_ma'] == 123.0, st
+    assert st.state is LedState.LIT and st.illumination_ma == 123.0, st
     # change current while on
     ill.led_on('Blue', 45.0, block=True)
     print('after led_on(Blue,45):', ill.get_led_state('Blue'))
-    assert ill.get_led_state('Blue')['illumination_ma'] == 45.0
+    assert ill.get_led_state('Blue').illumination_ma == 45.0
     # off
     ill.led_off('Blue')
     print(
         'after led_off(Blue):',
         ill.get_led_state('Blue'),
-        'enabled=',
-        ill.get_led_state('Blue')['enabled'],
+        'state=',
+        ill.get_led_state('Blue').state,
     )
-    assert not ill.get_led_state('Blue')['enabled']
+    assert ill.get_led_state('Blue').state is LedState.DARK
     # out-of-range refusal?
     try:
         ill.led_on('Blue', 99999.0, block=True)

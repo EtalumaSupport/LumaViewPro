@@ -22,6 +22,8 @@ from unittest.mock import patch
 
 import pytest
 
+from modules.lumascope_api.illumination import LedState
+
 import modules.sequenced_capture_runner as runner_module
 from modules.exceptions import HardwareCommandRefusedError
 from modules.sequential_io_executor import IOTask
@@ -175,7 +177,9 @@ class TestAHeldLane:
         scope.illumination.led_on('BF', 20.0)
         gain_before = scope.imaging.get_gain_db()
         leds_before = scope.illumination.get_led_states()
-        assert leds_before['BF']['enabled'], 'the fixture could not light a channel'
+        assert scope.illumination.get_led_state('BF').state is LedState.LIT, (
+            'the fixture could not light a channel'
+        )
         hold = _LaneHold(session)
         try:
             outcome = runner.start_composite(sequence_name='stopped', parent_dir=str(tmp_path))

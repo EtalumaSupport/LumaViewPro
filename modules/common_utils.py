@@ -556,7 +556,8 @@ def resolve_channel_identity(illumination: 'IlluminationAPI', open_layer: str | 
     layer's drawer is open, and the light is the truth. The open layer is
     the tiebreak for luminescence, which images with no LED lit at all and
     would otherwise be unnameable. With more than one LED lit, the first in
-    the driver's channel order wins.
+    address order wins; a lit address the identity names no layer for names
+    no channel.
 
     get_led_states() answers None when no LED board is installed: nothing
     is lit, so a board-less scope falls through to the layer.
@@ -564,11 +565,11 @@ def resolve_channel_identity(illumination: 'IlluminationAPI', open_layer: str | 
     Shared by the manual still capture and the manual recording so the two
     outputs can never disagree about what one frame is.
     """
-    states = illumination.get_led_states()
-    if states is not None:
-        for color, state in states.items():
-            if state['enabled']:
-                return color
+    from modules.lumascope_api.illumination import LedState
+
+    for reading in illumination.get_led_states() or ():
+        if reading.state is LedState.LIT and reading.name is not None:
+            return reading.name
     return open_layer or DEFAULT_LAYER
 
 

@@ -154,19 +154,11 @@ class LEDBoardProtocol(Protocol):
     # scope.illumination.<query>; the driver no longer exposes
     # state via the protocol surface.
 
-    # --- Channel mapping ---
-    # None = a colour/channel this scope cannot drive. An in-band default
-    # (any real channel number) is indistinguishable from data and lights
-    # the wrong LED; None forces the caller to decide at the seam.
-    def color2ch(self, color: str) -> int | None: ...
-    def ch2color(self, channel: int) -> str | None: ...
-
-    # --- Channel discovery (B3) ---
-    # available_channels()/available_colors() let the API ask the driver
-    # what it supports instead of hardcoding range(6) at the call sites.
-    # FX2 / Lumaview Classic returns 4 channels; RP2040 returns 6.
+    # --- Channel discovery ---
+    # The LED addresses the board drives: FX2 / Lumaview Classic 4, the
+    # EL-0940 board 8. A driver names no address; which layer an address
+    # lights is the unit's layer identity's (IlluminationAPI.ch2color).
     def available_channels(self) -> tuple[int, ...]: ...
-    def available_colors(self) -> tuple[str, ...]: ...
 
     # --- Bounds ---
     # The largest per-channel current this board can be asked for, in mA.

@@ -24,7 +24,7 @@ import pathlib
 import threading
 from unittest.mock import MagicMock
 
-from modules.lumascope_api.illumination import LedEndPolicy, LedTransition
+from modules.lumascope_api.illumination import LedEndPolicy, LedReading, LedState, LedTransition
 from modules.exceptions import RecordIncompleteError
 from modules.notification_center import Severity
 from modules.protocol_execution_record import ProtocolExecutionRecord
@@ -156,7 +156,6 @@ def _run_cleanup_capture_led_ctx(*, forced_dark, leds_state_at_end):
     applied = []
     state = [ProtocolState.RUNNING]
     scope = MagicMock()
-    scope.illumination.color2ch.return_value = 1
     af_thread = MagicMock()
     af_thread.current_future = None
     ending = RunEnding('aborted', 'stopped', 'Stopped')
@@ -168,7 +167,7 @@ def _run_cleanup_capture_led_ctx(*, forced_dark, leds_state_at_end):
         scan_in_progress=threading.Event(),
         forced_dark=forced_dark,
         leds_state_at_end=leds_state_at_end,
-        original_led_states={'Blue': {'enabled': True, 'illumination_ma': 42.0}},
+        original_led_states=(LedReading(2, 'Blue', LedState.LIT, 42.0),),
         saved_camera_state=None,
         return_to_position=None,
         scope=scope,
@@ -197,7 +196,7 @@ def test_fatal_cleanup_asserts_dark_regardless_of_end_policy():
 def test_nonfatal_cleanup_keeps_the_configured_end_policy():
     ctx = _run_cleanup_capture_led_ctx(forced_dark=False, leds_state_at_end='return_to_original')
     assert ctx.end_policy is LedEndPolicy.RETURN_TO_ORIGINAL
-    assert ctx.snapshot_lit != frozenset(), 'user Stop keeps the configured restore'
+    assert ctx.snapshot_lit == frozenset({(2, 42.0)}), 'user Stop keeps the configured restore'
 
 
 # ---------------------------------------------------------------------------

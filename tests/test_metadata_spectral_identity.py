@@ -56,7 +56,7 @@ def metadata_scope(sim_scope):
 
 
 def _metadata(scope, channel, lit=None):
-    """The metadata for a frame taken with ``lit`` (layer -> mA) lighting it."""
+    """The metadata for a frame taken with ``lit`` (LED address -> mA) lighting it."""
     return image_save.generate_image_metadata(
         scope,
         channel,
@@ -118,7 +118,7 @@ class TestIlluminationAbsentWhenUnknown:
         assert 'illumination_ma' not in metadata
 
     def test_lit_channel_records_real_current(self, metadata_scope):
-        metadata = _metadata(metadata_scope, 'Green', lit={'Green': 123.0})
+        metadata = _metadata(metadata_scope, 'Green', lit={_GREEN.led_channel[0]: 123.0})
         assert metadata['illumination_ma'] == pytest.approx(123.0)
 
     def test_tiff_write_tolerates_absent_illumination(self, metadata_scope):
@@ -203,7 +203,7 @@ class TestWrittenFileRoundTrip:
         assert 'illumination_ma' not in back
 
     def test_lit_capture_round_trips_illumination(self, metadata_scope, tmp_path):
-        metadata = _metadata(metadata_scope, 'Green', lit={'Green': 55.0})
+        metadata = _metadata(metadata_scope, 'Green', lit={_GREEN.led_channel[0]: 55.0})
         path = self._write_tile(tmp_path, metadata, ome=False)
         back = image_utils.read_postproc_input_metadata(path)
         assert back is not None

@@ -629,13 +629,11 @@ def frame_time_s(column_size: int, row_size: int, shutter_width: int) -> float:
 # design (see project memory `project_lvc_product_line.md`): the ASCII
 # byte format must never leak above the driver layer.
 
-_COLOR_TO_CH = {'Blue': 0, 'Green': 1, 'Red': 2, 'BF': 3}
-_CH_TO_COLOR = {v: k for k, v in _COLOR_TO_CH.items()}
 _CH_TO_I2C = {
-    0: 0x43,  # Blue  -> 'C'
-    1: 0x42,  # Green -> 'B'
-    2: 0x41,  # Red   -> 'A'
-    3: 0x44,  # BF    -> 'D'
+    0: 0x43,  # 'C', the Classic's Blue
+    1: 0x42,  # 'B', Green
+    2: 0x41,  # 'A', Red
+    3: 0x44,  # 'D', BF
 }
 
 
@@ -2699,12 +2697,10 @@ class FX2LEDController:
     same as "normal".
     """
 
-    # Channel count is fixed at 4 by the hardware. Per project memory,
-    # per-model LED presence (e.g. LS560 having only BF + Green) is
-    # handled via scopes.json Layers filtering, NOT by hiding channels
-    # here. The driver reports what the FX2 protocol supports.
-    _COLOR_TO_CH = _COLOR_TO_CH  # module-level dict
-    _CH_TO_COLOR = _CH_TO_COLOR
+    # Channel count is fixed at 4 by the hardware. Which layer each
+    # address lights, and per-model LED presence (e.g. LS560 having only
+    # BF + Green), is the unit's layer identity's (scopes.json Layers),
+    # NOT hidden here. The driver reports what the FX2 protocol supports.
 
     # Full-scale drive current of the Classic LED peripheral, shared by
     # all four channels; the brightness byte is linear in current up to
@@ -2871,23 +2867,14 @@ class FX2LEDController:
 
     # -- Channel discovery (B3) --------------------------------------------
 
-    def available_channels(self) -> tuple:
-        return tuple(self._COLOR_TO_CH.values())  # (0, 1, 2, 3)
+    def available_channels(self) -> tuple[int, ...]:
+        return tuple(_CH_TO_I2C)  # (0, 1, 2, 3)
 
     def max_ma(self) -> int:
         return self._MAX_MA
 
     def commanded_ma(self, mA: float) -> float:
         return self._ma_to_brightness(mA) * self._MAX_MA / 255.0
-
-    def available_colors(self) -> tuple:
-        return tuple(self._COLOR_TO_CH.keys())  # ('Blue', 'Green', 'Red', 'BF')
-
-    def color2ch(self, color: str) -> int | None:
-        return self._COLOR_TO_CH.get(color)
-
-    def ch2color(self, channel: int) -> str | None:
-        return self._CH_TO_COLOR.get(channel)
 
     # -- Core LED control --------------------------------------------------
 

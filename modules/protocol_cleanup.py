@@ -19,6 +19,7 @@ from lvp_logger import logger
 
 from modules.exceptions import RunCleanupFailedError, SlowFileWritesNotice
 from modules.lumascope_api.illumination import (
+    LedReading,
     LedTransition,
     LedTransitionCtx,
     resolve_end_state,
@@ -106,7 +107,7 @@ def run_cleanup(
     forced_dark: bool,
     # Saved original states
     leds_state_at_end: str,
-    original_led_states: dict,
+    original_led_states: tuple[LedReading, ...] | None,
     saved_camera_state: dict,
     return_to_position: dict | None,
     # Dependencies
@@ -244,7 +245,6 @@ def run_cleanup(
             end_policy, snapshot_lit = resolve_end_state(
                 'off' if forced_dark else leds_state_at_end,
                 original_led_states,
-                scope.illumination.state_color2ch,
             )
             if end_policy is None:
                 logger.error(f'Unsupported LEDs state at end value: {leds_state_at_end}')

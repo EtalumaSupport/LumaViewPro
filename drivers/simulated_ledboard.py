@@ -37,15 +37,8 @@ class SimulatedLEDBoard:
         'delay': 0.012
     }  # ~12ms per exchange (1ms flush + 10ms write + 1ms read)
 
-    _COLOR_TO_CH: ClassVar[dict] = {
-        'Blue': 0,
-        'Green': 1,
-        'Red': 2,
-        'BF': 3,
-        'PC': 4,
-        'DF': 5,
-    }
-    _CH_TO_COLOR: ClassVar[dict] = {v: k for k, v in _COLOR_TO_CH.items()}
+    # The EL-0940 firmware's LED addresses, as LEDBoard drives them.
+    _ADDRESSES: ClassVar[tuple[int, ...]] = tuple(range(8))
 
     # Emulates the EL-0940 firmware, so its ceiling is that firmware's.
     _MAX_MA = FIRMWARE_LED_CH_MAX_MA
@@ -87,16 +80,8 @@ class SimulatedLEDBoard:
 
         # Apply timing preset (overrides delay if preset given)
         self.set_timing_mode(timing)
-        self.led_ma = {
-            'BF': -1,
-            'PC': -1,
-            'DF': -1,
-            'Red': -1,
-            'Blue': -1,
-            'Green': -1,
-        }
         self._enabled = True
-        self._channel_states = dict.fromkeys(range(6), 0)  # channel -> mA
+        self._channel_states = dict.fromkeys(self._ADDRESSES, 0)  # channel -> mA
 
     def set_timing_mode(self, mode: str) -> None:
         """Switch timing mode: 'instant', 'fast', or 'realistic'.
@@ -277,44 +262,9 @@ class SimulatedLEDBoard:
     # ------------------------------------------------------------------
     # Channel helpers
     # ------------------------------------------------------------------
-    def color2ch(self, color: str) -> int | None:
-        """Convert color name to numerical channel.
-
-        Args:
-            color: Color name (e.g. 'BF', 'Red', 'Blue').
-
-        Returns:
-            Channel number (0-5), or None for a colour this scope cannot
-            drive.
-        """
-        return self._COLOR_TO_CH.get(color)
-
-    def ch2color(self, channel: int) -> str | None:
-        """Convert numerical channel to color name.
-
-        Args:
-            channel: Channel number (0-5).
-
-        Returns:
-            Color name, or None for a channel this scope does not have.
-        """
-        return self._CH_TO_COLOR.get(channel)
-
-    def available_channels(self) -> tuple:
-        """Return all known LED channel numbers.
-
-        Returns:
-            tuple: Channel numbers (ints) supported by this board.
-        """
-        return tuple(self._COLOR_TO_CH.values())
-
-    def available_colors(self) -> tuple:
-        """Return all known LED color names.
-
-        Returns:
-            tuple: Color name strings supported by this board.
-        """
-        return tuple(self._COLOR_TO_CH.keys())
+    def available_channels(self) -> tuple[int, ...]:
+        """The LED addresses this board drives, as ``LEDBoard`` does."""
+        return self._ADDRESSES
 
     # ------------------------------------------------------------------
     # LED control
@@ -327,8 +277,6 @@ class SimulatedLEDBoard:
     def leds_disable(self) -> None:
         """Disable all LED channels (master disable) and clear cached state."""
         self._enabled = False
-        for color in self.led_ma:
-            self.led_ma[color] = -1
         for ch in self._channel_states:
             self._channel_states[ch] = 0
         self.exchange_command('LEDS_ENF')
@@ -399,7 +347,7 @@ class SimulatedLEDBoard:
         """Turn on the LED on a channel at a given current.
 
         Args:
-            channel: Channel number (0-5).
+            channel: LED address (0-7).
             mA: Drive current in milliamps.
             block: Accepted for API parity; ignored by the simulator.
         """
@@ -407,8 +355,6 @@ class SimulatedLEDBoard:
             # As the real board does: 0 is sent as the board's off.
             self.led_off(channel)
             return
-        color = self.ch2color(channel)
-        self.led_ma[color] = mA
         self._channel_states[channel] = mA
         self.exchange_command(f'LED{int(channel)}_{int(mA)}')
 
@@ -416,10 +362,8 @@ class SimulatedLEDBoard:
         """Turn off the LED on a channel.
 
         Args:
-            channel: Channel number (0-5).
+            channel: LED address (0-7).
         """
-        color = self.ch2color(channel)
-        self.led_ma[color] = -1
         self._channel_states[channel] = 0
         self.exchange_command(f'LED{int(channel)}_OFF')
 
@@ -427,11 +371,9 @@ class SimulatedLEDBoard:
         """Fast write-only version of led_on for time-critical toggling.
 
         Args:
-            channel: Channel number (0-5).
+            channel: LED address (0-7).
             mA: Drive current in milliamps.
         """
-        color = self.ch2color(channel)
-        self.led_ma[color] = mA
         self._channel_states[channel] = mA
         self._write_command_fast(f'LED{int(channel)}_{int(mA)}')
 
@@ -439,25 +381,19 @@ class SimulatedLEDBoard:
         """Fast write-only version of led_off for time-critical toggling.
 
         Args:
-            channel: Channel number (0-5).
+            channel: LED address (0-7).
         """
-        color = self.ch2color(channel)
-        self.led_ma[color] = -1
         self._channel_states[channel] = 0
         self._write_command_fast(f'LED{int(channel)}_OFF')
 
     def leds_off(self) -> None:
         """Turn off every LED channel. Clears the cached per-channel state."""
-        for color in self.led_ma:
-            self.led_ma[color] = -1
         for ch in self._channel_states:
             self._channel_states[ch] = 0
         self.exchange_command('LEDS_OFF')
 
     def leds_off_fast(self) -> None:
         """Fast write-only version of leds_off."""
-        for color in self.led_ma:
-            self.led_ma[color] = -1
         for ch in self._channel_states:
             self._channel_states[ch] = 0
         self._write_command_fast('LEDS_OFF')
@@ -497,7 +433,7 @@ class SimulatedLEDBoard:
             list: One line per channel plus a final ``'SELFTEST Complete'``.
         """
         lines = []
-        for ch in range(6):
+        for ch in self._ADDRESSES:
             lines.append(f'LED{ch}: 0.1mA OK  1mA OK  10mA OK  100mA OK  500mA OK')
         lines.append('SELFTEST Complete')
         return lines
@@ -521,7 +457,7 @@ class SimulatedLEDBoard:
         """Simulated ADC feedback -- returns the set current for the channel.
 
         Args:
-            channel: Channel number (0-5).
+            channel: LED address (0-7).
 
         Returns:
             float | None: Set current in mA, 0.0 for unknown channels,

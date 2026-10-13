@@ -16,6 +16,8 @@ import logging
 
 import pytest
 
+from modules.lumascope_api.illumination import LedReading, LedState
+
 from modules.exceptions import Notice, ProtocolRunRefusedError
 from modules.notification_center import NotificationCenter, OutcomeKind, notifications
 from modules.scope_session import ScopeSession, _scheduler_callback_error
@@ -220,7 +222,9 @@ class TestABrokenListenerIsLoud:
             ),
             (
                 lambda s, cb: s.scope.illumination.add_led_listener(cb),
-                lambda s: s.scope.illumination._fire_led_listeners('Red', True, 10.0),
+                lambda s: s.scope.illumination._fire_led_listeners(
+                    LedReading(2, 'Red', LedState.LIT, 10.0)
+                ),
             ),
             (
                 lambda s, cb: s.scope.imaging.add_camera_listener(cb),

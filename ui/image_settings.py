@@ -9,6 +9,7 @@ from kivy.uix.scrollview import ScrollView
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
 from modules import gui_logger
+from modules.lumascope_api.illumination import LedState
 from modules.config_ui_getters import (
     camera_autogain_supported,
     get_layer_exposure_slider_max,
@@ -729,12 +730,12 @@ class ImageSettings(BoxLayout):
         from ui.ui_helpers import submit_reported
 
         illumination = ctx.scope.illumination
+        # None with no LED board installed: nothing is lit.
+        lit = {r.name for r in illumination.get_led_states() or () if r.state is LedState.LIT}
         for layer in common_utils.get_layers():
             layer_accordion = self.accordion_item_lookup(layer=layer)
             if layer_accordion.collapse:
-                # None with no LED board installed: nothing is lit.
-                state = illumination.get_led_state(channel=layer)
-                if state is not None and state['enabled']:
+                if layer in lit:
                     submit_reported(
                         lambda lit=layer: illumination.led_off(lit),
                         None,

@@ -446,10 +446,13 @@ def generate_image_metadata(
         # An LED that was off for the grab, or on an absent board, has no
         # drive current -- a normal state for dark and luminescence
         # captures, so the key is simply absent (no warning, unlike the
-        # exposure/gain omissions, which indicate a failed read).
+        # exposure/gain omissions, which indicate a failed read). The
+        # frame records currents by address; the channel's record names its address.
         **(
             {'illumination_ma': round(_ma, common_utils.max_decimal_precision('illumination'))}
-            if (_ma := frame_record.illumination_ma.get(channel)) is not None
+            if record is not None
+            and record.led_channel
+            and (_ma := frame_record.illumination_ma.get(record.led_channel[0])) is not None
             else {}
         ),
         'frames_summed': frame_record.frames_summed,

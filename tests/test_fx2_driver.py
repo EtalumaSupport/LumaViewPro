@@ -7,7 +7,7 @@ being monkeypatched to return a ``MagicMock``. Tests cover:
 - Registry wiring (camera + LED registry entries)
 - Shared-connection invariant (FX2Camera and FX2LEDController share one handle)
 - LED ASCII byte mapping (project-memory directive: integer->ASCII stays in driver)
-- ``available_channels`` / ``available_colors`` values
+- ``available_channels`` values
 - Pure math: gain dB<->register round-trip, digital clamp audit fix, exposure math
 - Frame delimiter parser (synthetic bytes)
 - Camera ABC conformance (all abstract methods satisfied)
@@ -193,26 +193,10 @@ class TestLEDChannelMapping:
     def test_ch3_bf_maps_to_ascii_D(self):
         assert fx2driver._CH_TO_I2C[3] == 0x44  # 'D'
 
-    def test_color_to_ch_blue_is_zero(self):
-        assert fx2driver._COLOR_TO_CH['Blue'] == 0
-
-    def test_color_to_ch_all_four(self):
-        assert fx2driver._COLOR_TO_CH == {
-            'Blue': 0,
-            'Green': 1,
-            'Red': 2,
-            'BF': 3,
-        }
-
-    def test_ch_to_color_roundtrip(self):
-        for color, ch in fx2driver._COLOR_TO_CH.items():
-            assert fx2driver._CH_TO_COLOR[ch] == color
-
     def test_no_fifth_channel(self):
         """The FX2 peripheral controller only supports 4 channels.
-        The driver must not expose 5 or 6 like the RP2040 LEDBoard does.
+        The driver must not expose more like the EL-0940 LEDBoard does.
         """
-        assert len(fx2driver._COLOR_TO_CH) == 4
         assert len(fx2driver._CH_TO_I2C) == 4
 
 
@@ -385,10 +369,7 @@ class TestFX2LEDProtocolConformance:
             'leds_off_fast',
             'leds_enable',
             'leds_disable',
-            'color2ch',
-            'ch2color',
             'available_channels',
-            'available_colors',
             'read_led_current',
             'exchange_command',
         ]
@@ -448,7 +429,7 @@ class TestFX2LEDThinTranslator:
 
 
 # ---------------------------------------------------------------------------
-# available_channels / available_colors (B3 integration)
+# available_channels (B3 integration)
 # ---------------------------------------------------------------------------
 
 
@@ -460,10 +441,6 @@ class TestFX2LEDChannelDiscovery:
     def test_returns_four_integer_channels(self, fake_fx2_conn):
         led = fx2driver.FX2LEDController()
         assert led.available_channels() == (0, 1, 2, 3)
-
-    def test_returns_four_color_names(self, fake_fx2_conn):
-        led = fx2driver.FX2LEDController()
-        assert led.available_colors() == ('Blue', 'Green', 'Red', 'BF')
 
 
 # ---------------------------------------------------------------------------
@@ -692,7 +669,7 @@ class TestScopesJsonClassicModels:
         transmitted layer is displayed 'BF-Phase' for exactly that reason).
         Observed on hardware 2026-04-16: clicking a PhaseContrast layer
         raised `LED channel must be one of (0, 1, 2, 3), got -1` because
-        FX2LEDController's _COLOR_TO_CH has no 'PC' entry.
+        FX2LEDController's colour table then had no 'PC' entry.
         """
         rows = {r['key_name']: r for r in scopes['LS620']['Layers']}
         assert set(rows) == {'BF', 'Blue', 'Green', 'Red'}

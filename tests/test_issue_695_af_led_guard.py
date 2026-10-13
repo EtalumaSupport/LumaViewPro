@@ -29,6 +29,8 @@ from __future__ import annotations
 
 import pytest
 
+from modules.lumascope_api.illumination import LedState
+
 from modules.exceptions import HardwareCommandRefusedError
 from tests.protocol_drives import held_run_claim
 from tests.scope_fakes import build_scope
@@ -42,8 +44,7 @@ def scope():
 
 
 def _lit(scope, ch):
-    color = scope.illumination.ch2color(ch)
-    return scope.illumination.get_led_state(color)['enabled']
+    return scope.illumination.get_led_state(ch).state is LedState.LIT
 
 
 def test_live_ui_off_cannot_dark_an_af_owned_channel(scope):

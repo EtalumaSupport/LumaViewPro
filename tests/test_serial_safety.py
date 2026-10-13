@@ -127,8 +127,6 @@ class TestLEDBoardLocking:
         board.timeout = 0.1
         board.write_timeout = 0.1
         board.driver = _make_mock_serial()
-        board.led_ma = {'BF': -1, 'PC': -1, 'DF': -1, 'Red': -1, 'Blue': -1, 'Green': -1}
-        board._state_lock = threading.Lock()
         board.firmware_version = None
         board._last_error_log_time = 0.0
         board._error_log_interval = 2.0
@@ -395,8 +393,6 @@ class TestLEDBoardCommands:
         board.timeout = 0.1
         board.write_timeout = 0.1
         board.driver = _make_mock_serial()
-        board.led_ma = {'BF': -1, 'PC': -1, 'DF': -1, 'Red': -1, 'Blue': -1, 'Green': -1}
-        board._state_lock = threading.Lock()
         return board
 
     def test_led_on_sends_correct_command(self):
@@ -470,50 +466,6 @@ class TestLEDBoardCommands:
 # Wave 7 Phase 3d.5. LED state is API-primary (Rule 2 SoT on
 # IlluminationAPI). Equivalent API-side coverage lives in
 # tests/test_lumascope_api.py and tests/test_state_observer.py.
-
-
-# ---------------------------------------------------------------------------
-# LEDBoard Color/Channel Conversion
-# ---------------------------------------------------------------------------
-
-
-class TestLEDBoardConversion:
-    """Verify color-to-channel and channel-to-color mappings."""
-
-    def test_color2ch_all(self):
-        board = LEDBoard.__new__(LEDBoard)
-        assert board.color2ch('Blue') == 0
-        assert board.color2ch('Green') == 1
-        assert board.color2ch('Red') == 2
-        assert board.color2ch('BF') == 3
-        assert board.color2ch('PC') == 4
-        assert board.color2ch('DF') == 5
-
-    def test_ch2color_all(self):
-        board = LEDBoard.__new__(LEDBoard)
-        assert board.ch2color(0) == 'Blue'
-        assert board.ch2color(1) == 'Green'
-        assert board.ch2color(2) == 'Red'
-        assert board.ch2color(3) == 'BF'
-        assert board.ch2color(4) == 'PC'
-        assert board.ch2color(5) == 'DF'
-
-    def test_color2ch_unknown_is_none(self):
-        # An undrivable colour must be unrepresentable as a real channel:
-        # the old in-band default (3 = BF) silently lit brightfield.
-        board = LEDBoard.__new__(LEDBoard)
-        assert board.color2ch('Unknown') is None
-
-    def test_ch2color_unknown_is_none(self):
-        board = LEDBoard.__new__(LEDBoard)
-        assert board.ch2color(99) is None
-
-    def test_roundtrip_all_channels(self):
-        """color2ch -> ch2color should roundtrip for all valid channels."""
-        board = LEDBoard.__new__(LEDBoard)
-        for color in ('Blue', 'Green', 'Red', 'BF', 'PC', 'DF'):
-            ch = board.color2ch(color)
-            assert board.ch2color(ch) == color
 
 
 # ---------------------------------------------------------------------------
@@ -990,8 +942,6 @@ class TestLEDFirmwareVersion:
         board.timeout = 0.1
         board.write_timeout = 0.1
         board.driver = _make_mock_serial()
-        board.led_ma = {'BF': -1, 'PC': -1, 'DF': -1, 'Red': -1, 'Blue': -1, 'Green': -1}
-        board._state_lock = threading.Lock()
         board.firmware_version = None
         board.firmware_date = None
         board.firmware_responding = False
@@ -1222,8 +1172,6 @@ class TestLEDNoneHandling:
         board.timeout = 0.1
         board.write_timeout = 0.1
         board.driver = _make_mock_serial()
-        board.led_ma = {'BF': -1, 'PC': -1, 'DF': -1, 'Red': -1, 'Blue': -1, 'Green': -1}
-        board._state_lock = threading.Lock()
         board.firmware_version = None
         board._last_error_log_time = 0.0
         board._error_log_interval = 2.0
@@ -1248,9 +1196,10 @@ class TestLEDNoneHandling:
                 return b'LED 3 set to 100 mA. LED3_100\r\n'
 
         board.driver.readline = mock_readline
-        # Should not crash -- first response is empty string (not None), second succeeds
+        # Should not crash -- first response is empty string (not None), and
+        # the block polls on until the board's echo names the command.
         board.led_on(channel=3, mA=100, block=True)
-        assert board.led_ma['BF'] == 100
+        assert call_count[0] == 4
 
     def test_led_on_block_none_response_no_crash(self):
         """led_on(block=True) must not crash when exchange_command returns None."""
@@ -1317,8 +1266,8 @@ class TestLEDNoneHandling:
 # ==========================================================================
 
 
-class TestLEDBoardStateLock:
-    """Verify LEDBoard _state_lock protects led_ma from concurrent access."""
+class TestLEDBoardConcurrency:
+    """Concurrent LED writes share the board's one serial lock without error."""
 
     def _make_board(self):
         board = LEDBoard.__new__(LEDBoard)
@@ -1333,70 +1282,10 @@ class TestLEDBoardStateLock:
         board.timeout = 0.1
         board.write_timeout = 0.1
         board.driver = _make_mock_serial()
-        board.led_ma = {'BF': -1, 'PC': -1, 'DF': -1, 'Red': -1, 'Blue': -1, 'Green': -1}
-        board._state_lock = threading.Lock()
         return board
 
-    def test_led_on_uses_state_lock(self):
-        """led_on() should acquire _state_lock when updating led_ma (after serial succeeds)."""
-        board = self._make_board()
-        acquired = []
-        original_lock = board._state_lock
-
-        class TrackingLock:
-            def __enter__(self):
-                acquired.append('enter')
-                return original_lock.__enter__()
-
-            def __exit__(self, *args):
-                acquired.append('exit')
-                return original_lock.__exit__(*args)
-
-        board._state_lock = TrackingLock()
-        board.led_on(channel=0, mA=100)
-        assert 'enter' in acquired, '_state_lock was not acquired during led_on()'
-        assert board.led_ma['Blue'] == 100
-
-    def test_led_on_no_state_update_on_failure(self):
-        """led_on() should NOT update state cache if serial returns None."""
-        board = self._make_board()
-        board.driver.write.side_effect = serial.SerialTimeoutException('write timeout')
-        board.led_on(channel=0, mA=100)
-        assert board.led_ma['Blue'] == -1, 'State cache should not update on serial failure'
-
-    def test_led_off_uses_state_lock(self):
-        """led_off() should acquire _state_lock when updating led_ma (after serial succeeds)."""
-        board = self._make_board()
-        board.led_ma['Blue'] = 200
-        acquired = []
-        original_lock = board._state_lock
-
-        class TrackingLock:
-            def __enter__(self):
-                acquired.append('enter')
-                return original_lock.__enter__()
-
-            def __exit__(self, *args):
-                return original_lock.__exit__(*args)
-
-        board._state_lock = TrackingLock()
-        board.led_off(channel=0)
-        assert 'enter' in acquired
-        assert board.led_ma['Blue'] == -1
-
-    def test_led_off_no_state_update_on_failure(self):
-        """led_off() should NOT update state cache if serial returns None."""
-        board = self._make_board()
-        board.led_ma['Blue'] = 200
-        board.driver.write.side_effect = serial.SerialTimeoutException('write timeout')
-        board.led_off(channel=0)
-        assert board.led_ma['Blue'] == 200, 'State cache should not update on serial failure'
-
-    # test_get_led_states_returns_consistent_snapshot retired in Wave 7
-    # Phase 3d.5 -- get_led_states is no longer on the driver protocol.
-
     def test_concurrent_led_on_off(self):
-        """Concurrent led_on and led_off should not corrupt led_ma."""
+        """Concurrent led_on and led_off raise nothing."""
         board = self._make_board()
         errors = []
 
@@ -1420,48 +1309,6 @@ class TestLEDBoardStateLock:
         for t in threads:
             t.join(timeout=5)
         assert not errors, f'Concurrent access raised errors: {errors}'
-        # Final state should be either 100 or -1, never anything else
-        assert board.led_ma['Blue'] in (100, -1)
-
-    def test_leds_off_clears_all(self):
-        """leds_off() should atomically clear all channels under _state_lock."""
-        board = self._make_board()
-        board.led_ma['Blue'] = 100
-        board.led_ma['Red'] = 200
-        board.led_ma['Green'] = 300
-        board.leds_off()
-        for color, val in board.led_ma.items():
-            assert val == -1, f'{color} was not cleared by leds_off()'
-
-    def test_leds_off_fast_clears_all(self):
-        """leds_off_fast() should atomically clear all channels."""
-        board = self._make_board()
-        board.led_ma['Blue'] = 100
-        board.led_ma['Red'] = 200
-        # Mock _write_command_fast
-        board._write_command_fast = MagicMock()
-        board.leds_off_fast()
-        for _color, val in board.led_ma.items():
-            assert val == -1
-
-    def test_led_on_fast_uses_state_lock(self):
-        """led_on_fast() should protect led_ma with _state_lock."""
-        board = self._make_board()
-        board._write_command_fast = MagicMock()
-        board.led_on_fast(channel=2, mA=500)
-        assert board.led_ma['Red'] == 500
-
-    def test_led_off_fast_uses_state_lock(self):
-        """led_off_fast() should protect led_ma with _state_lock."""
-        board = self._make_board()
-        board.led_ma['Red'] = 500
-        board._write_command_fast = MagicMock()
-        board.led_off_fast(channel=2)
-        assert board.led_ma['Red'] == -1
-
-    # test_get_led_ma_thread_safe + test_is_led_on_thread_safe retired
-    # in Wave 7 Phase 3d.5 -- get_led_ma / is_led_on are no longer on
-    # the driver protocol.
 
 
 class TestSerialDesyncRecovery:
@@ -1485,8 +1332,6 @@ class TestSerialDesyncRecovery:
         board.timeout = 0.1
         board.write_timeout = 0.1
         board.driver = _make_mock_serial()
-        board.led_ma = {'BF': -1, 'PC': -1, 'DF': -1, 'Red': -1, 'Blue': -1, 'Green': -1}
-        board._state_lock = threading.Lock()
         board._last_error_log_time = 0.0
         board._error_log_interval = 2.0
         return board
@@ -1518,25 +1363,26 @@ class TestSerialDesyncRecovery:
         board.driver.read.assert_not_called()
         assert response == 'OK'
 
-    def test_rapid_led_on_off_state_consistent(self):
-        """Rapid led_on/leds_off cycling (25x) should keep state consistent.
+    def test_rapid_led_on_off_every_write_confirms(self):
+        """Rapid led_on/leds_off cycling (25x) confirms every write.
 
         This reproduces the characterization test pattern that caused LED
-        dropout: 25 iterations of leds_off -> led_on -> leds_off.
+        dropout: 25 iterations of leds_off -> led_on -> leds_off. A write the
+        board answered leaves ``last_command_error`` None.
         """
         board = self._make_board()
         board.driver.in_waiting = 0
 
         for i in range(25):
             board.leds_off()
-            assert board.led_ma['BF'] == -1, f'Iteration {i}: BF should be off after leds_off'
+            assert board.last_command_error is None, f'Iteration {i}: leds_off unconfirmed'
             board.led_on(channel=3, mA=20)
-            assert board.led_ma['BF'] == 20, f'Iteration {i}: BF should be 20 after led_on'
+            assert board.last_command_error is None, f'Iteration {i}: led_on unconfirmed'
             board.leds_off()
-            assert board.led_ma['BF'] == -1, f'Iteration {i}: BF should be off after final leds_off'
+            assert board.last_command_error is None, f'Iteration {i}: final leds_off unconfirmed'
 
     def test_rapid_led_cycling_with_timeouts(self):
-        """LED state stays correct even when some commands timeout.
+        """Most LED writes still confirm when some commands time out.
 
         Simulates intermittent serial timeouts during rapid cycling.
         With the flush fix, stale responses are cleared before each command.
@@ -1569,7 +1415,7 @@ class TestSerialDesyncRecovery:
         for _ in range(25):
             board.leds_off()
             board.led_on(channel=3, mA=20)
-            if board.led_ma['BF'] == 20:
+            if board.last_command_error is None:
                 successes += 1
             board.leds_off()
 
@@ -1578,8 +1424,8 @@ class TestSerialDesyncRecovery:
         # The floor of 15 is calibrated to the fault injection above (every
         # 7th readline fails -> ~3-4 expected failures of 25); it does NOT
         # bless command failures in production, where they log errors and set
-        # last_command_error. The fault-free contract (correct state on every
-        # cycle) is asserted by test_rapid_led_on_off_state_consistent.
+        # last_command_error. The fault-free contract (every write confirmed)
+        # is asserted by test_rapid_led_on_off_every_write_confirms.
         assert successes > 15, f'Only {successes}/25 cycles succeeded -- desync cascade?'
 
 
@@ -1633,8 +1479,6 @@ class TestSilentBoardHandling:
         board.stopbits = serial.STOPBITS_ONE
         board.timeout = 0.01  # Keep test fast; we don't care about real timing
         board.write_timeout = 0.01
-        board.led_ma = {'BF': -1, 'PC': -1, 'DF': -1, 'Red': -1, 'Blue': -1, 'Green': -1}
-        board._state_lock = threading.Lock()
         board.firmware_version = None
         board.firmware_date = None
         board.firmware_responding = False
@@ -1849,8 +1693,6 @@ class TestExchangeCommandStopOnEmpty:
         board.stopbits = serial.STOPBITS_ONE
         board.timeout = 0.1
         board.write_timeout = 0.1
-        board.led_ma = {}
-        board._state_lock = threading.Lock()
         board.firmware_version = None
         board._last_error_log_time = 0.0
         board._error_log_interval = 2.0

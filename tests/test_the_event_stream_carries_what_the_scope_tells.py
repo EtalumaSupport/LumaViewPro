@@ -142,7 +142,7 @@ def test_a_listener_members_event_is_its_record(client):
         )
         led = stream.until('led')[-1]
 
-    assert led['data'] == {'channel': 'Blue', 'on': True, 'illumination_ma': 10.0}
+    assert led['data'] == {'address': 0, 'name': 'Blue', 'state': 'lit', 'illumination_ma': 10.0}
     assert int(led['id']) > 0
 
 
@@ -264,7 +264,7 @@ def test_a_reconnect_is_sent_what_it_missed_and_no_status(client):
 
     assert resent[0]['event'] != 'status'
     assert int(resent[0]['id']) == int(last) + 1
-    assert resent[-1]['data']['on'] is False
+    assert resent[-1]['data']['state'] == 'dark'
 
 
 def test_a_reconnect_past_what_is_held_is_sent_reset_then_status(session, monkeypatch):
@@ -312,8 +312,8 @@ def test_a_stream_that_has_closed_hears_nothing_more(session):
         client.post('/api/v1/scope/illumination/led_off', json={'channel': 'Blue'})
         second = stream.until('led')[-1]
 
-    assert first['data']['on'] is True
-    assert second['data']['on'] is False
+    assert first['data']['state'] == 'lit'
+    assert second['data']['state'] == 'dark'
 
 
 def test_closing_is_the_last_event_of_every_stream_and_of_one_begun_after(session):

@@ -9,7 +9,9 @@ capture guard, keyed on `illumination > 0` alone, would reject a genuinely
 dark luminescence frame as a failed capture once the LED correctly stays
 dark.
 
-Coverage: the driver contract (color2ch -> None, all four boards), the
+Coverage (the driver contract retired with the drivers' colour tables:
+a driver names no address, and the API's identity `color2ch` is the one
+place a colour becomes a channel): the
 named-colour / idempotent-off seam behavior through the real illumination
 API, the dark-floor drivability predicate driven through the real
 ProtocolImageWriter.capture(), the consecutive-failure abort wording, the
@@ -22,7 +24,6 @@ from __future__ import annotations
 
 import pathlib
 import sys
-from typing import ClassVar
 
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
@@ -34,37 +35,9 @@ from modules import common_utils
 from tests.scope_fakes import build_scope
 
 
-def _driver_classes():
-    from drivers.fx2driver import FX2LEDController
-    from drivers.ledboard import LEDBoard
-    from drivers.null_ledboard import NullLEDBoard
-    from drivers.simulated_ledboard import SimulatedLEDBoard
-
-    return [LEDBoard, NullLEDBoard, SimulatedLEDBoard, FX2LEDController]
-
-
-class TestColor2chContract:
-    """None is the only representation of 'this scope cannot drive it'."""
-
-    def test_color2ch_unknown_is_none_all_drivers(self):
-        for cls in _driver_classes():
-            board = cls.__new__(cls)
-            assert board.color2ch('NoSuchColour') is None, cls.__name__
-            assert board.ch2color(99) is None, cls.__name__
-
-    def test_known_colours_still_map(self):
-        for cls in _driver_classes():
-            board = cls.__new__(cls)
-            assert board.color2ch('BF') == 3, cls.__name__
-            assert board.ch2color(0) == 'Blue', cls.__name__
-
-
 class _FourColourRecordingBoard:
     """LED-board double shaped like the FX2 (no PC/DF/Lumi channels),
     recording every command that reaches the driver."""
-
-    _COLOR_TO_CH: ClassVar[dict] = {'Blue': 0, 'Green': 1, 'Red': 2, 'BF': 3}
-    _CH_TO_COLOR: ClassVar[dict] = {v: k for k, v in _COLOR_TO_CH.items()}
 
     def __init__(self):
         self.commands = []
@@ -75,17 +48,8 @@ class _FourColourRecordingBoard:
         # that omits it is treated as absent rather than failing loudly.
         return True
 
-    def color2ch(self, color):
-        return self._COLOR_TO_CH.get(color)
-
-    def ch2color(self, channel):
-        return self._CH_TO_COLOR.get(channel)
-
     def available_channels(self):
         return (0, 1, 2, 3)
-
-    def available_colors(self):
-        return tuple(self._COLOR_TO_CH)
 
     def led_on(self, channel, illumination_ma, **kwargs):
         self.commands.append(('on', channel, illumination_ma))

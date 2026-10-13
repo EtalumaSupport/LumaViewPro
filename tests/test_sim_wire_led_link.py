@@ -23,6 +23,7 @@ import time
 import pytest
 
 import drivers.sim_wire.backend as sim_backend
+from modules.lumascope_api.illumination import LedState
 from modules.notification_center import Severity
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
@@ -65,19 +66,19 @@ def _warnings(posts) -> list:
 
 
 def _believed(illumination) -> dict:
-    """Colour -> mA, for each channel the API believes is lit."""
+    """Address -> mA, for each address the API believes is lit."""
     return {
-        color: state['illumination_ma']
-        for color, state in illumination.get_led_states().items()
-        if state['enabled']
+        r.address: r.illumination_ma
+        for r in illumination.get_led_states()
+        if r.state is LedState.LIT
     }
 
 
-def _driven(illumination, board) -> dict:
-    """Colour -> DAC code, for each channel the DAC drives."""
+def _driven(board) -> dict:
+    """Address -> DAC code, for each address the DAC drives."""
     return {
-        illumination.state_ch2color(channel): code
-        for channel, (enabled, powered, code) in enumerate(board.state('DAC')[:6])
+        address: code
+        for address, (enabled, powered, code) in enumerate(board.state('DAC'))
         if enabled and powered and code
     }
 
@@ -87,9 +88,9 @@ def test_a_dropped_echo_leaves_the_answer_and_the_api_is_right(scope):
     simulation.drop_replies('led')
     illumination.led_on(0, 10)
     assert board.replies_dropped == 1, 'the drop must have taken the echo'
-    assert _believed(illumination) == {'Blue': 10.0}
+    assert _believed(illumination) == {0: 10.0}
     # The firmware's mA_to_dac: int(60.936 * 10 + 890).
-    assert _driven(illumination, board) == {'Blue': 1499}
+    assert _driven(board) == {0: 1499}
     assert _warnings(posts) == []
 
 
@@ -111,7 +112,7 @@ def test_a_write_the_board_never_got_is_reported(scope):
     simulation.unplug('led')
     illumination.led_on(1, 10)
     assert _warnings(posts) == [_UNCONFIRMED]
-    assert _driven(illumination, board) == {}
+    assert _driven(board) == {}
 
 
 @pytest.mark.xfail(
@@ -151,7 +152,7 @@ def test_after_a_reboot_the_api_does_not_believe_a_channel_lit(scope):
     illumination.led_on(1, 10)  # the write that finds the link gone
     # The firmware's boot clears the DAC.
     deadline = time.monotonic() + 10
-    while _driven(illumination, board):
+    while _driven(board):
         assert time.monotonic() < deadline, 'the rebooted board never cleared its DAC'
         time.sleep(0.05)
     assert _believed(illumination) == {}

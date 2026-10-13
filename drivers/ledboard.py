@@ -4,9 +4,7 @@
 import logging
 import math
 import re
-import threading
 import time
-from typing import ClassVar
 from lvp_logger import logger
 from drivers.exceptions import BoardNoReplyError, BoardReportedError, LedFirmwareWedgedError
 from drivers.serialboard import SerialBoard
@@ -47,16 +45,6 @@ class LEDBoard(SerialBoard):
     # ----------------------------------------------------------
     def __init__(self, backend: SerialBackend = PYSERIAL, **kwargs):
         super().__init__(vid=0x0424, pid=0x704C, label='[LED Class ]', backend=backend)
-
-        self._state_lock = threading.Lock()
-        self.led_ma = {
-            'BF': -1,
-            'PC': -1,
-            'DF': -1,
-            'Red': -1,
-            'Blue': -1,
-            'Green': -1,
-        }
 
         # Set by _safety_leds_off() at connect time. None when the board
         # confirmed LEDS_OFF; the reason when it did not answer, or
@@ -114,72 +102,22 @@ class LEDBoard(SerialBoard):
             logger.error(f'[LED Class ] Safety LEDS_OFF failed: {e}')
             self.last_safety_off_error = f'{type(e).__name__}: {e}'
 
-    def _on_disconnect(self):
-        """Clear LED state cache on disconnect (called under self._lock)."""
-        with self._state_lock:
-            for color in self.led_ma:
-                self.led_ma[color] = -1
-        logger.info('[LED Class ] LED state cache cleared on disconnect')
+    def available_channels(self) -> tuple[int, ...]:
+        """The LED addresses this board drives, 0 to ``_MAX_CHANNEL``.
 
-    _COLOR_TO_CH: ClassVar[dict] = {
-        'Blue': 0,
-        'Green': 1,
-        'Red': 2,
-        'BF': 3,
-        'PC': 4,
-        'DF': 5,
-    }
-
-    _CH_TO_COLOR: ClassVar[dict] = {v: k for k, v in _COLOR_TO_CH.items()}
-
-    def color2ch(self, color: str) -> int | None:
-        """Convert color name to numerical channel.
-
-        Args:
-            color: Color name (e.g. 'BF', 'Red', 'Blue').
-
-        Returns:
-            Channel number (0-5), or None for a colour this scope cannot
-            drive -- an in-band default channel here would light the wrong
-            LED for the caller.
+        Addresses only: which layer an address lights is the unit's layer
+        identity's to say, never the board's.
         """
-        return self._COLOR_TO_CH.get(color)
-
-    def ch2color(self, channel: int) -> str | None:
-        """Convert numerical channel to color name.
-
-        Args:
-            channel: Channel number (0-5).
-
-        Returns:
-            Color name, or None for a channel this scope does not have.
-        """
-        return self._CH_TO_COLOR.get(channel)
-
-    def available_channels(self) -> tuple:
-        """Return all known LED channel numbers.
-
-        Returns:
-            tuple: Channel numbers (ints) supported by this board.
-        """
-        return tuple(self._COLOR_TO_CH.values())
-
-    def available_colors(self) -> tuple:
-        """Return all known LED color names.
-
-        Returns:
-            tuple: Color name strings supported by this board.
-        """
-        return tuple(self._COLOR_TO_CH.keys())
+        return tuple(range(self._MAX_CHANNEL + 1))
 
     # interperet commands
     # ------------------------------------------
     # board status: 'STATUS' case insensitive
-    # LED enable:   'LED' channel '_ENT' where channel is numbers 0 through 5, or S (plural/all)
-    # LED disable:  'LED' channel '_ENF' where channel is numbers 0 through 5, or S (plural/all)
-    # LED on:       'LED' channel '_MA' where channel is numbers 0 through 5, or S (plural/all)
+    # LED enable:   'LED' channel '_ENT' where channel is numbers 0 through 7, or S (plural/all)
+    # LED disable:  'LED' channel '_ENF' where channel is numbers 0 through 7, or S (plural/all)
+    # LED on:       'LED' channel '_MA' where channel is numbers 0 through 7, or S (plural/all)
     #                and MA is numerical representation of mA
-    # LED off:      'LED' channel '_OFF' where channel is numbers 0 through 5, or S (plural/all)
+    # LED off:      'LED' channel '_OFF' where channel is numbers 0 through 7, or S (plural/all)
 
     # v3.0 STUB: LED command builders for JSON Lines protocol
     # When v3.0 is active, commands will use structured JSON format:
@@ -208,11 +146,9 @@ class LEDBoard(SerialBoard):
             self.last_command_error = None
 
     def leds_disable(self) -> None:
-        """Disable all LED channels (master disable) and clear the cache.
+        """Disable all LED channels (master disable).
 
-        Sends ``LEDS_ENF``. On success, clears the cached per-channel mA
-        state so subsequent reads reflect the disabled condition. On no-
-        response sets self.last_command_error so the API layer can
+        Sends ``LEDS_ENF``. On no-response sets self.last_command_error so the API layer can
         notify the user (sample safety -- a stuck-enabled board can
         still emit light).
         """
@@ -220,9 +156,6 @@ class LEDBoard(SerialBoard):
         response = self.exchange_command(command)
 
         if response:
-            with self._state_lock:
-                for color in self.led_ma:
-                    self.led_ma[color] = -1
             self.last_command_error = None
         else:
             logger.error('[LED Class ] leds_disable() got no response')
@@ -326,17 +259,13 @@ class LEDBoard(SerialBoard):
         )
         return False
 
-    # State-query methods (get_led_ma / is_led_on / get_led_state /
-    # get_led_states) have been retired. LED state is API-primary
-    # (single SoT on IlluminationAPI). The `self.led_ma` dict +
-    # `_update_state_cache` writes remain as driver-internal state
-    # with no external readers; eligible for follow-up dead-code
-    # removal.
+    # The driver holds no LED state: which address is lit is
+    # IlluminationAPI's store.
 
     # Safety limits -- defense-in-depth validation at driver level.
     # The API layer (lumascope_api.py) also validates, but the driver
     # must enforce independently in case of direct calls.
-    _MAX_CHANNEL = 5
+    _MAX_CHANNEL = 7
     _MAX_MA = FIRMWARE_LED_CH_MAX_MA
 
     def max_ma(self) -> int:
@@ -345,8 +274,8 @@ class LEDBoard(SerialBoard):
     def commanded_ma(self, mA: float) -> float:
         return firmware_commanded_ma(mA)
 
-    def _validate_and_build_led_cmd(self, channel, mA):
-        """Validate channel/mA and return (color, command) string.
+    def _validate_and_build_led_cmd(self, channel, mA) -> str:
+        """Validate channel/mA and return the command string.
 
         Shared by led_on() and led_on_fast() to eliminate duplicate validation.
         """
@@ -354,20 +283,13 @@ class LEDBoard(SerialBoard):
             raise ValueError(f'LED channel {channel} out of range [0-{self._MAX_CHANNEL}]')
         if not (0 <= int(mA) <= self._MAX_MA):
             raise ValueError(f'LED current {mA} mA out of safe range [0-{self._MAX_MA}]')
-        color = self.ch2color(channel=channel)
-        command = 'LED' + str(int(channel)) + '_' + str(int(mA))
-        return color, command
-
-    def _update_state_cache(self, color: str, mA):
-        """Update the cached LED state under lock."""
-        with self._state_lock:
-            self.led_ma[color] = mA
+        return 'LED' + str(int(channel)) + '_' + str(int(mA))
 
     def led_on(self, channel: int, mA: int, block: bool = False, timeout_s: float = 5.0) -> None:
         """Turn on the LED on a channel at a given current.
 
         Args:
-            channel: Channel number (0-5).
+            channel: LED address (0-7).
             mA: Drive current in milliamps (0-1000).
             block: When True, poll until the firmware echoes the command
                 or until ``timeout_s`` elapses.
@@ -376,7 +298,7 @@ class LEDBoard(SerialBoard):
         Raises:
             ValueError: ``channel`` or ``mA`` is outside the safe range.
         """
-        color, command = self._validate_and_build_led_cmd(channel, mA)
+        command = self._validate_and_build_led_cmd(channel, mA)
         if mA == 0:
             # The field firmware drives ``LEDn_0`` at its DAC offset, not off;
             # only the board's off command darkens the channel.
@@ -385,7 +307,6 @@ class LEDBoard(SerialBoard):
         response = self.exchange_command(command)
 
         if response:
-            self._update_state_cache(color, mA)
             self.last_command_error = None
         else:
             logger.error(f'[LED Class ] led_on(ch={channel}, mA={mA}) got no response')
@@ -433,22 +354,17 @@ class LEDBoard(SerialBoard):
                     break
                 time.sleep(0.01)
                 response = self.exchange_command(command)
-                if response:
-                    self._update_state_cache(color, mA)
 
     def led_off(self, channel: int) -> None:
         """Turn off the LED on a channel.
 
         Args:
-            channel: Channel number (0-5).
+            channel: LED address (0-7).
         """
-        color = self.ch2color(channel=channel)
-
         command = 'LED' + str(int(channel)) + '_OFF'
         response = self.exchange_command(command)
 
         if response:
-            self._update_state_cache(color, -1)
             self.last_command_error = None
         else:
             logger.error(f'[LED Class ] led_off(ch={channel}) got no response')
@@ -460,36 +376,30 @@ class LEDBoard(SerialBoard):
     def led_on_fast(self, channel: int, mA: int) -> None:
         """Fast write-only version of led_on for time-critical toggling.
 
-        Updates the cached state and dispatches the command without waiting
-        for a response.
+        Dispatches the command without waiting for a response.
 
         Args:
-            channel: Channel number (0-5).
+            channel: LED address (0-7).
             mA: Drive current in milliamps (0-1000).
 
         Raises:
             ValueError: ``channel`` or ``mA`` is outside the safe range.
         """
-        color, command = self._validate_and_build_led_cmd(channel, mA)
-        self._update_state_cache(color, mA)
-        self._write_command_fast(command)
+        self._write_command_fast(self._validate_and_build_led_cmd(channel, mA))
 
     def led_off_fast(self, channel: int) -> None:
         """Fast write-only version of led_off for time-critical toggling.
 
         Args:
-            channel: Channel number (0-5).
+            channel: LED address (0-7).
         """
-        color = self.ch2color(channel=channel)
-        self._update_state_cache(color, -1)
         command = 'LED' + str(int(channel)) + '_OFF'
         self._write_command_fast(command)
 
     def leds_off(self) -> None:
         """Turn off every LED channel.
 
-        On success, clears the cached per-channel mA state and resets
-        self.last_command_error to None. On no-response, sets
+        On success, resets self.last_command_error to None. On no-response, sets
         self.last_command_error so the API-layer wrap can fire a
         sample-safety notification.
         """
@@ -497,9 +407,6 @@ class LEDBoard(SerialBoard):
         response = self.exchange_command(command)
 
         if response:
-            with self._state_lock:
-                for color in self.led_ma:
-                    self.led_ma[color] = -1
             self.last_command_error = None
         else:
             logger.error('[LED Class ] leds_off() got no response')
@@ -511,12 +418,8 @@ class LEDBoard(SerialBoard):
     def leds_off_fast(self) -> None:
         """Fast write-only version of leds_off.
 
-        Clears the cached state and dispatches LEDS_OFF without waiting
-        for a response.
+        Dispatches LEDS_OFF without waiting for a response.
         """
-        with self._state_lock:
-            for color in self.led_ma:
-                self.led_ma[color] = -1
         command = 'LEDS_OFF'
         self._write_command_fast(command)
 
@@ -727,7 +630,7 @@ class LEDBoard(SerialBoard):
         Requires v2.0+ firmware in engineering mode.
 
         Args:
-            channel: Channel number (0-5).
+            channel: LED address (0-7).
 
         Returns:
             float | None: Measured current in mA, or None on error or

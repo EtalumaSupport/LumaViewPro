@@ -3538,7 +3538,6 @@ class ImagingAPI:
             )
             gain_db = None
 
-        illumination = self._scope.illumination
         ticks = chunks.get('Timestamp')
         frame_id = chunks.get('FrameID')
         camera = self._scope.capabilities
@@ -3549,7 +3548,7 @@ class ImagingAPI:
             exposure_ms=exposure_ms,
             gain_db=gain_db,
             black_level=self._black_level_for_record(),
-            illumination_ma={illumination.state_ch2color(ch): ma for ch, ma in lit},
+            illumination_ma=dict(lit),
             frames_summed=frames_summed,
             frame_significant_bits=frame_significant_bits,
             camera_timestamp_ticks=int(ticks) if ticks is not None else None,

@@ -125,10 +125,7 @@ class _StubRuntimeState:
 
 class _StubIllumination:
     def get_led_states(self):
-        return {}
-
-    def state_color2ch(self, color):
-        return None
+        return ()
 
 
 def _build(ae_lands_on_ms: float) -> tuple[ImagingAPI, _ChunkAeSim]:

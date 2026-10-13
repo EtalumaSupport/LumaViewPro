@@ -14,6 +14,7 @@ import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
 import modules.image_mode as image_mode
 from modules import gui_logger
+from modules.lumascope_api.illumination import LedState
 from modules.config_ui_getters import firmware_stim_supported
 from ui.ui_helpers import run_reported, submit_reported, typed_number
 
@@ -985,12 +986,16 @@ class LayerControl(BoxLayout):
                 # a plain slider move, and this layer's own LED is never
                 # disturbed (its current is owned by update_led_state).
                 illumination_api = ctx.scope.illumination
+                # None with no LED board installed: nothing is lit.
+                lit = {
+                    r.name
+                    for r in illumination_api.get_led_states() or ()
+                    if r.state is LedState.LIT
+                }
                 for layer in common_utils.get_layers():
                     if layer == self.layer:
                         continue
-                    # None with no LED board installed: nothing is lit.
-                    state = illumination_api.get_led_state(channel=layer)
-                    if state is not None and state['enabled']:
+                    if layer in lit:
                         submit_reported(
                             lambda lit=layer: illumination_api.led_off(lit),
                             None,

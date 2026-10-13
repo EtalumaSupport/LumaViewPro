@@ -30,6 +30,7 @@ from drivers.simulated_motorboard import SimulatedMotorBoard
 from modules.exceptions import ScopeModelUnknownError, SettingRefusedError
 from modules.layer_record import load_scope_models, model_axes
 from modules.lumascope_api import Lumascope
+from modules.lumascope_api.illumination import LedState
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 from tests.scope_fakes import build_scope
@@ -204,9 +205,11 @@ class TestTheSessionReadsTheTier:
             led = session.scope._led_driver
             assert isinstance(led, LEDBoard)
             session.scope.illumination.led_on(3, 100)
-            # The driver records a current only once the firmware answered.
-            assert led.led_ma[led.ch2color(3)] == 100
+            # The firmware answered the write: the driver holds no command
+            # error, and the API's store reads the address lit at 100 mA.
             assert led.last_command_error is None
+            reading = session.scope.illumination.get_led_state(3)
+            assert (reading.state, reading.illumination_ma) == (LedState.LIT, 100)
         finally:
             session.shutdown()
 

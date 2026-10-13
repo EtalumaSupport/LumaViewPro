@@ -15,6 +15,8 @@ the LED blink".
 
 import pytest
 
+from modules.lumascope_api.illumination import LedState
+
 from tests.protocol_drives import held_run_claim
 from modules.lumascope_api.illumination import LedTransition, LedTransitionCtx
 from tests.scope_fakes import build_scope
@@ -27,10 +29,6 @@ def scope():
     yield s
 
 
-def _color(scope, ch):
-    return scope.illumination.ch2color(ch)
-
-
 def test_restore_does_not_blink_channel_already_at_target(scope):
     """restore_led_state leaves a channel already at its snapshot target lit,
     without an off->on blink -- the autofocus scan-end case."""
@@ -38,11 +36,11 @@ def test_restore_does_not_blink_channel_already_at_target(scope):
     snapshot = scope.illumination.save_led_state('autofocus')
 
     events = []
-    scope.illumination.add_led_listener(lambda c, e, m: events.append((c, e)))
+    scope.illumination.add_led_listener(lambda a, n, st, m: events.append((a, st)))
     scope.illumination.restore_led_state(snapshot)
 
     assert events == [], f'restore blinked a channel already at target: {events}'
-    assert scope.illumination.get_led_state(_color(scope, 0))['enabled']
+    assert scope.illumination.get_led_state(0).state is LedState.LIT
 
 
 def test_restore_still_relights_a_channel_that_was_turned_off(scope):
@@ -52,10 +50,10 @@ def test_restore_still_relights_a_channel_that_was_turned_off(scope):
     scope.illumination._led_on_impl(channel=0, illumination_ma=100, _lease=lease)
     snapshot = scope.illumination.save_led_state('autofocus')
     lease.release()  # turns off the channels this lease lit
-    assert not scope.illumination.get_led_state(_color(scope, 0))['enabled']
+    assert scope.illumination.get_led_state(0).state is LedState.DARK
 
     scope.illumination.restore_led_state(snapshot)
-    assert scope.illumination.get_led_state(_color(scope, 0))['enabled']
+    assert scope.illumination.get_led_state(0).state is LedState.LIT
 
 
 @pytest.fixture
@@ -79,11 +77,11 @@ def test_manual_preview_skips_already_lit_channel(scope_io):
     scope_io.illumination.led_on(channel=3, illumination_ma=200)
 
     events = []
-    scope_io.illumination.add_led_listener(lambda c, e, m: events.append((c, e)))
+    scope_io.illumination.add_led_listener(lambda a, n, st, m: events.append((a, st)))
     _preview(scope_io, 3, 200)
 
     assert events == [], f'already-lit channel was re-commanded (flicker): {events}'
-    assert scope_io.illumination.get_led_state(_color(scope_io, 3))['enabled']
+    assert scope_io.illumination.get_led_state(3).state is LedState.LIT
 
 
 def test_manual_preview_turns_off_other_channels(scope_io):
@@ -92,5 +90,5 @@ def test_manual_preview_turns_off_other_channels(scope_io):
     scope_io.illumination.led_on(channel=0, illumination_ma=100)
     _preview(scope_io, 3, 200)
 
-    assert not scope_io.illumination.get_led_state(_color(scope_io, 0))['enabled']
-    assert scope_io.illumination.get_led_state(_color(scope_io, 3))['enabled']
+    assert scope_io.illumination.get_led_state(0).state is LedState.DARK
+    assert scope_io.illumination.get_led_state(3).state is LedState.LIT

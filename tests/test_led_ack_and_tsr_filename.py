@@ -35,11 +35,6 @@ class TestLedOnBlockAckShape:
         from drivers.ledboard import LEDBoard
 
         led = LEDBoard.__new__(LEDBoard)  # bypass __init__ (needs serial)
-        led._validate_and_build_led_cmd = lambda ch, illumination_ma: (
-            'BF',
-            f'LED{ch}_{int(illumination_ma)}',
-        )
-        led._update_state_cache = lambda color, mA: None
         responses = list(response_sequence)
         led.exchange_command = MagicMock(
             side_effect=lambda cmd: responses.pop(0) if responses else None
@@ -120,11 +115,6 @@ class TestLedDriverRejectsNonAckResponses:
         from drivers.ledboard import LEDBoard
 
         led = LEDBoard.__new__(LEDBoard)
-        led._validate_and_build_led_cmd = lambda ch, illumination_ma: (
-            'BF',
-            f'LED{ch}_{int(illumination_ma)}',
-        )
-        led._update_state_cache = lambda color, mA: None
         responses = list(response_sequence)
         led.exchange_command = MagicMock(
             side_effect=lambda cmd: responses.pop(0) if responses else None

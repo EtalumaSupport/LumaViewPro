@@ -19,6 +19,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from modules.lumascope_api.illumination import LedState
+
 from tests.af_drives import park_z
 from tests.protocol_drives import held_run_claim
 from tests.scope_fakes import build_scope, home_sim_scope
@@ -181,10 +183,12 @@ def test_refused_af_acquire_aborts_the_af_run(scope, monkeypatch, centre_posts):
     # AF channel was never lit.
     assert holder.held
     assert ill.led_lease_purpose == 'protocol'
-    assert ill.get_led_state('Blue')['enabled'], (
+    assert ill.get_led_state('Blue').state is LedState.LIT, (
         "the holder's lit channel must survive the refused AF"
     )
-    assert not ill.get_led_state('Green')['enabled'], 'the refused AF must not light its channel'
+    assert ill.get_led_state('Green').state is LedState.DARK, (
+        'the refused AF must not light its channel'
+    )
     holder.release(leave_on=False)
 
 

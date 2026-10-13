@@ -18,6 +18,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from modules.api_surface import API, fields_of, is_record, mark_of
+from modules.lumascope_api.illumination import LedReading, LedState
 from modules.scope_session import ScopeSession
 from rest.app import SERVER_SEGMENTS, build_app
 from tests.settings_fixtures import complete_settings
@@ -118,13 +119,34 @@ def test_a_sub_objects_method_is_called_with_its_arguments_by_name(client, sessi
     )
     assert on.status_code == 200
     assert on.json() == 10.0
-    assert session.scope.illumination.get_led_state('Red') == {
-        'enabled': True,
-        'illumination_ma': 10.0,
-    }
+    assert session.scope.illumination.get_led_state('Red') == LedReading(
+        2, 'Red', LedState.LIT, 10.0
+    )
 
     state = client.post('/api/v1/scope/illumination/get_led_state', json={'channel': 'Red'})
-    assert state.json() == {'enabled': True, 'illumination_ma': 10.0}
+    assert state.json() == {'address': 2, 'name': 'Red', 'state': 'lit', 'illumination_ma': 10.0}
+
+
+def test_a_snapshot_read_over_the_wire_is_taken_back_by_restore(client, session):
+    # The snapshot holds its readings as records inside an array; the
+    # wire answers it as JSON and restore_led_state decodes it back.
+    session.scope.illumination.led_on('Red', 10.0, block=True)
+    snapshot = client.post('/api/v1/scope/illumination/save_led_state', json={'tag': 'before'})
+    assert snapshot.status_code == 200
+    assert snapshot.json()['tag'] == 'before'
+    assert {'address': 2, 'name': 'Red', 'state': 'lit', 'illumination_ma': 10.0} in (
+        snapshot.json()['readings']
+    )
+    session.scope.illumination.leds_off()
+
+    restored = client.post(
+        '/api/v1/scope/illumination/restore_led_state', json={'snapshot': snapshot.json()}
+    )
+
+    assert restored.status_code == 200
+    assert session.scope.illumination.get_led_state('Red') == LedReading(
+        2, 'Red', LedState.LIT, 10.0
+    )
 
 
 @pytest.mark.parametrize('body', [None, {}])
@@ -134,7 +156,7 @@ def test_a_method_with_no_arguments_takes_an_empty_body_or_an_empty_object(clien
     answer = client.post('/api/v1/scope/illumination/leds_off', json=body)
 
     assert answer.status_code == 200
-    assert session.scope.illumination.get_led_state('Red')['enabled'] is False
+    assert session.scope.illumination.get_led_state('Red').state is LedState.DARK
 
 
 @pytest.mark.parametrize(
@@ -158,7 +180,7 @@ def test_a_body_that_does_not_fit_is_422_and_reaches_nothing(client, session, bo
     answer = client.post('/api/v1/scope/illumination/led_on', json=body)
 
     assert answer.status_code == 422
-    assert session.scope.illumination.get_led_state('Red')['enabled'] is False
+    assert session.scope.illumination.get_led_state('Red').state is LedState.DARK
 
 
 @pytest.mark.parametrize('number', ['NaN', 'Infinity', '1e400'])
@@ -171,7 +193,7 @@ def test_a_number_that_is_not_finite_is_422_and_reaches_nothing(client, session,
     )
 
     assert answer.status_code == 422
-    assert session.scope.illumination.get_led_state('Red')['enabled'] is False
+    assert session.scope.illumination.get_led_state('Red').state is LedState.DARK
 
 
 def test_a_member_route_takes_no_query_string(client):

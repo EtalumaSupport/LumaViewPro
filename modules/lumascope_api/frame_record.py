@@ -30,8 +30,8 @@ class FrameRecord:
         gain_db: Gain the frame was taken at.
         black_level: The camera's black level parameter the frame was taken
             at, in the camera's own units (``ImagingAPI.get_black_level``).
-        illumination_ma: Drive current of each channel lit for the grab,
-            by layer name. A channel that was off is absent.
+        illumination_ma: Drive current of each LED address lit for the
+            grab, by address. An address that was off is absent.
         frames_summed: Number of frames summed into the image.
         frame_significant_bits: The depth each summed frame was delivered at
             (the driver's per-frame stamp). With ``frames_summed`` it is what
@@ -50,7 +50,7 @@ class FrameRecord:
     exposure_ms: float | None
     gain_db: float | None
     black_level: float | None
-    illumination_ma: Mapping[str, float]
+    illumination_ma: Mapping[int, float]
     frames_summed: int
     frame_significant_bits: int
     camera_timestamp_ticks: int | None

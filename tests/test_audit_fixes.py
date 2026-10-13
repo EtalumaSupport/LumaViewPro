@@ -59,6 +59,7 @@ from modules.exceptions import (
     ConfigError,
     ProtocolError,
 )
+from modules.lumascope_api.illumination import LedReading, LedState
 from modules.lumascope_api.imaging import ImagingAPI
 from modules.lumascope_api.runtime_state import RuntimeState
 
@@ -1041,7 +1042,7 @@ class TestIssue602_AFExecutorLED:
                     led_illumination=100.0,
                     led_lease=run_lease,
                 )
-            assert not scope.illumination.get_led_state('BF')['enabled'], (
+            assert scope.illumination.get_led_state('BF').state is LedState.DARK, (
                 'aborted AF must leave its channel dark (#602)'
             )
 
@@ -1169,28 +1170,6 @@ class TestB5_GetCurrentPositionUsesAxesPresent:
         assert set(result.keys()) == set(scope.capabilities.axes), (
             'get_current_position(None) should use scope.capabilities.axes, not a hardcoded axis list'
         )
-
-
-class TestD2_LEDBoardStateCacheHelper:
-    """D2: LED state cache updates should use _update_state_cache() helper."""
-
-    def test_update_state_cache_exists(self):
-        """LEDBoard should have _update_state_cache method."""
-        from drivers.ledboard import LEDBoard
-
-        assert hasattr(LEDBoard, '_update_state_cache'), (
-            'LEDBoard must have _update_state_cache helper (D2)'
-        )
-
-    def test_led_on_fast_updates_cache(self):
-        """led_on_fast should update state cache via _update_state_cache."""
-        from drivers.simulated_ledboard import SimulatedLEDBoard
-
-        led = SimulatedLEDBoard()
-        led.led_on_fast(0, 100)
-        # SimulatedLEDBoard tracks its own state; verify the color cache
-        color = led.ch2color(0)
-        assert led.led_ma[color] == 100
 
 
 class TestG3_AutofocusFailureNotification:
@@ -3445,13 +3424,11 @@ def _sim_backed_imaging():
     scope.runtime_state = RuntimeState(scope)
     scope.runtime_state.set_turreted(False)  # the stub has no turret
     # The capture path derives the dark-floor expectation from commanded
-    # LED state; these stubs command nothing, so an empty state map reads
-    # as dark-by-design (the same result the retired explicit False gave).
+    # LED state; these stubs command nothing, so no readings read as
+    # dark-by-design (the same result the retired explicit False gave).
     from types import SimpleNamespace
 
-    scope.illumination = SimpleNamespace(
-        get_led_states=lambda: {}, color2ch=lambda c: None, state_color2ch=lambda c: None
-    )
+    scope.illumination = SimpleNamespace(get_led_states=lambda: (), color2ch=lambda c: None)
     give_camera_capabilities(scope, cam)
     scope.capabilities = dataclasses.replace(
         scope.capabilities, pixel_size_um=None, lens_focal_length_mm=None
@@ -8492,10 +8469,9 @@ class TestSessionLedOnArgNameIsMa:
         # L2 caller does, and a revived `illumination=` keyword fails this
         # with TypeError the same way a signature check would -- while also
         # proving the value reaches the LED state.
-        color = sim_scope.illumination.ch2color(0)
         for method_name in ('led_on',):
             getattr(sim_scope.illumination, method_name)(channel=0, illumination_ma=42.0)
-            assert sim_scope.illumination.get_led_state(color)['illumination_ma'] == 42.0, (
+            assert sim_scope.illumination.get_led_state(0).illumination_ma == 42.0, (
                 f'illumination.{method_name} must accept mA by keyword and apply it'
             )
             sim_scope.illumination.leds_off()
@@ -8996,18 +8972,13 @@ class TestLedSentinelReturnsAreNone:
             scope.disconnect()
 
     def test_get_led_ma_returns_none_when_channel_off(self, sim_scope):
-        """After led_off, the channel entry is popped from _led_state;
-        get_led_ma returns None (was -1.0)."""
-        # No prior led_on -- Blue starts in the never-set state.
-        assert sim_scope.illumination.get_led_state('Blue')['illumination_ma'] is None
-        # Force a known sequence: on, then off.
-        sim_scope.illumination._led_state['Blue'] = {
-            'enabled': True,
-            'illumination_ma': 50.0,
-        }
-        assert sim_scope.illumination.get_led_state('Blue')['illumination_ma'] == 50.0
-        sim_scope.illumination._led_state.pop('Blue', None)
-        assert sim_scope.illumination.get_led_state('Blue')['illumination_ma'] is None
+        """A dark channel's reading carries illumination_ma None (was -1.0),
+        before it is ever lit and after it is turned off."""
+        assert sim_scope.illumination.get_led_state('Blue').illumination_ma is None
+        sim_scope.illumination.led_on('Blue', 50.0)
+        assert sim_scope.illumination.get_led_state('Blue').illumination_ma == 50.0
+        sim_scope.illumination.led_off('Blue')
+        assert sim_scope.illumination.get_led_state('Blue').illumination_ma is None
 
 
 class TestGetterSetterSymmetry:
@@ -9225,7 +9196,7 @@ class TestLumascopeSkillsApiPluginDocBatch:
         doc = self._doc()
         for sig in (
             'on_position(axis',
-            'on_led(channel',
+            'on_led(address',
             'on_camera(param',
             'on_frame(image',
         ):
@@ -9238,10 +9209,10 @@ class TestLumascopeSkillsApiPluginDocBatch:
 
 
 class TestGetLedStateShape:
-    """get_led_state / get_led_states return shape carries enabled and
-    illumination_ma (matches internal _led_state) and uses None (not -1) for the
-    illumination_ma sentinel when the channel is off / no LED board
-    (matches the Sentinel-return contract preface in LumascopeSkills).
+    """get_led_state / get_led_states answer LedReading records (address,
+    name, state, illumination_ma) and use None (not -1) for the
+    illumination_ma of an address that is not lit (matches the
+    Sentinel-return contract preface in LumascopeSkills).
     Closes API audit F2 / F3 / F12 cluster.
     """
 
@@ -9255,19 +9226,18 @@ class TestGetLedStateShape:
     def test_get_led_state_off_returns_none_sentinel(self):
         scope = self._scope()
         state = scope.illumination.get_led_state('Blue')
-        assert state == {
-            'enabled': False,
-            'illumination_ma': None,
-        }
+        assert state == LedReading(0, 'Blue', LedState.DARK, None)
 
     def test_get_led_states_off_channels_use_none(self):
         scope = self._scope()
-        states = scope.illumination.get_led_states()
-        assert states, 'get_led_states must return per-channel entries'
-        for color, entry in states.items():
-            assert entry['enabled'] is False
-            assert entry['illumination_ma'] is None, (
-                f'{color} off-state must use None sentinel, not -1.'
+        readings = scope.illumination.get_led_states()
+        assert [r.address for r in readings] == list(range(8)), (
+            'get_led_states must return one reading per board address'
+        )
+        for reading in readings:
+            assert reading.state is LedState.DARK
+            assert reading.illumination_ma is None, (
+                f'address {reading.address} off-state must use None sentinel, not -1.'
             )
 
     def test_doc_example_matches_shape(self):
@@ -9276,13 +9246,11 @@ class TestGetLedStateShape:
         # pin-justified: the published doc example text is the L2 contract
         # surface; this guards doc-vs-API sync.
         doc = pathlib.Path('docs/LumascopeSkills.md').read_text()
-        assert "{'enabled': True, 'illumination_ma': 200} when on" in doc, (
-            'LumascopeSkills get_led_state example must show the on-state '
-            "return shape {'enabled', 'illumination_ma'}."
-        )
-        assert "{'enabled': False, 'illumination_ma': None} when off" in doc, (
-            'LumascopeSkills get_led_state example must show the off-state '
-            'return shape with the None sentinel.'
+        assert (
+            "LedReading(address=0, name='Blue', state=LedState.LIT, illumination_ma=200.0)" in doc
+        ), 'LumascopeSkills get_led_state example must show the LedReading return shape.'
+        assert "{'enabled': True, 'illumination_ma'" not in doc, (
+            'The retired dict return shape must be gone from LumascopeSkills.'
         )
         # Old "current mA, or -1 if off" wording must be retired.
         assert 'current mA, or -1 if off' not in doc, (
@@ -9307,15 +9275,13 @@ class TestProtocolCleanupLedRestoreKey:
         from modules.protocol_cleanup import run_cleanup
 
         scope = MagicMock()
-        scope.illumination.color2ch.side_effect = lambda c: {'Red': 0, 'Green': 1}.get(c)
-        scope.illumination.state_color2ch.side_effect = lambda c: {'Red': 0, 'Green': 1}.get(c)
         apply_calls = []
         kwargs = _run_cleanup_kwargs(
             leds_state_at_end='return_to_original',
-            original_led_states={
-                'Red': {'enabled': True, 'illumination_ma': 250.0},
-                'Green': {'enabled': False, 'illumination_ma': 80.0},
-            },
+            original_led_states=(
+                LedReading(2, 'Red', LedState.LIT, 250.0),
+                LedReading(1, 'Green', LedState.DARK, None),
+            ),
             scope=scope,
             apply_led_transition_fn=lambda transition, ctx: apply_calls.append((transition, ctx)),
         )
@@ -9323,9 +9289,9 @@ class TestProtocolCleanupLedRestoreKey:
         assert len(apply_calls) == 1
         transition, ctx = apply_calls[0]
         assert transition is LedTransition.RUN_END
-        # Red was lit at 250 mA pre-run; Green was off and excluded. The mA
-        # value must survive the snapshot-shape read intact.
-        assert ctx.snapshot_lit == frozenset({(0, 250.0)})
+        # Red (address 2) was lit at 250 mA pre-run; Green was dark and
+        # excluded. The mA value must survive the snapshot read intact.
+        assert ctx.snapshot_lit == frozenset({(2, 250.0)})
         captured = _posted(centre_posts, Severity.WARNING, Severity.ERROR, Severity.CRITICAL)
         assert captured == [], (
             f'the snapshot-shape read must not raise into the summary; got {captured}'

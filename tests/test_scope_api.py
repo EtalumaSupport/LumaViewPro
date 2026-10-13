@@ -19,6 +19,7 @@ from tests.settings_fixtures import complete_settings
 # Heavy deps are mocked by tests/conftest.py at module-import time.
 
 import modules.config_helpers as config_helpers
+from modules.lumascope_api.illumination import LedState
 from modules.scope_session import ScopeSession
 from modules.sequential_io_executor import SequentialIOExecutor
 from tests.scope_fakes import (
@@ -482,8 +483,7 @@ class TestLumascopeLedAPI:
         scope, io_ex, _ = _make_real_scope_with_recording_executors()
         scope.illumination.led_on(channel=1, illumination_ma=75)
         assert len(io_ex.submitted) == 1
-        color = scope.illumination.ch2color(1)
-        assert scope.illumination.get_led_state(color)['illumination_ma'] == 75.0
+        assert scope.illumination.get_led_state(1).illumination_ma == 75.0
 
     def test_led_on_without_a_board_is_refused(self):
         # Refused on the lane, AND nothing is recorded as lit: a Null board
@@ -507,8 +507,7 @@ class TestLumascopeLedAPI:
         scope.illumination.led_on(channel=1, illumination_ma=75)
         scope.illumination.led_off(1)
         assert len(io_ex.submitted) == 2
-        color = scope.illumination.ch2color(1)
-        assert scope.illumination.get_led_state(color)['enabled'] is False
+        assert scope.illumination.get_led_state(1).state is LedState.DARK
 
     @pytest.mark.parametrize(
         'turn_off',
@@ -534,10 +533,9 @@ class TestLumascopeLedAPI:
         scope = build_scope(simulate=True)
         try:
             scope.illumination.led_on(channel=0, illumination_ma=30)
-            color = scope.illumination.ch2color(0)
-            assert scope.illumination.get_led_state(color)['illumination_ma'] == 30.0
+            assert scope.illumination.get_led_state(0).illumination_ma == 30.0
             scope.illumination.leds_off()
-            assert scope.illumination.get_led_state(color)['illumination_ma'] in (None, 0.0)
+            assert scope.illumination.get_led_state(0).state is LedState.DARK
         finally:
             scope.disconnect()
 

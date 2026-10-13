@@ -1,7 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """IlluminationAPI -- sub-API for LED / illuminator control.
 
-IlluminationAPI owns _led_state (single SoT), _lit_by,
+IlluminationAPI owns _led_state (single SoT, by LED address), _lit_by,
 _led_listeners, and the three locks that serialize their access plus
 LED-driver I/O.
 
@@ -14,7 +14,6 @@ from __future__ import annotations
 import enum
 import logging as _logging
 import threading
-import typing
 from dataclasses import dataclass
 from collections.abc import Callable
 from typing import TYPE_CHECKING
@@ -344,82 +343,57 @@ class LedLease:
 
 
 def _lit_channel_pairs(
-    led_states: dict, color2ch, *, drop_nonpositive: bool
+    readings: tuple[LedReading, ...] | None, *, drop_nonpositive: bool
 ) -> frozenset[tuple[int, float]]:
-    """Build the lit (channel, illumination_ma) set from a color -> state mapping.
+    """Build the lit (address, illumination_ma) set from LED readings.
 
-    The single definition of "which channels count as lit" shared by the pre-run
-    snapshot and the run-end restore, so the two cannot drift: if the lit
-    criterion were tightened in one loop but not the other, the run-end restore
-    could re-light a channel the snapshot treated as dark (or omit one it treated
-    as lit). An enabled channel whose color maps to a real LED channel
-    contributes its (channel, illumination_ma) pair.
+    The single definition of "which addresses count as lit" shared by the
+    pre-run snapshot and the run-end restore, so the two cannot drift: if the
+    lit criterion were tightened in one loop but not the other, the run-end
+    restore could re-light an address the snapshot treated as dark (or omit one
+    it treated as lit). A lit reading contributes its (address,
+    illumination_ma) pair, whether or not the identity names it.
 
     Args:
-        led_states: color -> {'enabled': bool, 'illumination_ma': float | None}.
-        color2ch: Callable mapping a color name to a channel number (or None).
-        drop_nonpositive: When True, a channel must also carry a strictly
-            positive current to count as lit, and a missing/None current reads as
-            zero (so an enabled zero-current channel is treated as dark). When
-            False, every enabled mapped channel is taken with its stored current
-            verbatim.
+        readings: The readings, as ``get_led_states`` answers them; None (no
+            LED board installed) is nothing lit.
+        drop_nonpositive: When True, an address must also carry a strictly
+            positive current to count as lit (an address lit at 0 mA is
+            treated as dark). When False, every lit address is taken with
+            its current.
 
     Returns:
-        The (channel, illumination_ma) set of channels that should be lit.
+        The (address, illumination_ma) set of addresses that should be lit.
     """
-    pairs = []
-    for color, state in (led_states or {}).items():
-        if not state.get('enabled'):
-            continue
-        ch = color2ch(color)
-        if ch is None:
-            continue
-        if drop_nonpositive:
-            illumination_ma = state.get('illumination_ma') or 0
-            if illumination_ma <= 0:
-                continue
-        else:
-            illumination_ma = state['illumination_ma']
-        pairs.append((ch, illumination_ma))
-    return frozenset(pairs)
+    return frozenset(
+        (r.address, r.illumination_ma)
+        for r in readings or ()
+        if r.state is LedState.LIT and (r.illumination_ma > 0 or not drop_nonpositive)
+    )
 
 
 def live_lit_pairs(illumination: IlluminationAPI) -> frozenset[tuple[int, float]]:
-    """The (channel, illumination_ma) set of channels commanded lit RIGHT NOW.
+    """The (address, illumination_ma) set of addresses commanded lit RIGHT NOW.
 
-    The live-state counterpart of snapshot_lit_pairs: reads the
-    illumination API's own state and channel mapping so no caller
-    composes the color-to-channel direction by hand. Handing the inverse
-    mapping in produces an always-empty set with no error -- the channel
-    lookup misses silently on every color name -- which is why this
-    composition lives here once instead of at each consumer.
+    The live-state counterpart of snapshot_lit_pairs, read from the
+    illumination API's own store.
     """
-    return snapshot_lit_pairs(illumination.get_led_states(), illumination.state_color2ch)
+    return snapshot_lit_pairs(illumination.get_led_states())
 
 
-def snapshot_lit_pairs(
-    led_states: dict, color2ch: typing.Callable[[str], int | None]
-) -> frozenset[tuple[int, float]]:
-    """Convert a saved LED-state mapping to the authority's lit (channel, illumination_ma) set.
+def snapshot_lit_pairs(readings: tuple[LedReading, ...] | None) -> frozenset[tuple[int, float]]:
+    """Convert saved LED readings to the authority's lit (address, illumination_ma) set.
 
-    Mirrors the filter restore_led_state uses for its restore target: a channel
-    counts as lit only if it is enabled with a positive current. Used to feed a
-    save_led_state snapshot into apply() as snapshot_lit.
-
-    Args:
-        led_states: color -> {'enabled': bool, 'illumination_ma': float | None}.
-        color2ch: Callable mapping a color name to a channel number (or None).
-
-    Returns:
-        The (channel, illumination_ma) set of channels that should be lit.
+    Mirrors the filter restore_led_state uses for its restore target: an
+    address counts as lit only if it is lit at a positive current. Used to
+    feed a save_led_state snapshot into apply() as snapshot_lit.
     """
-    return _lit_channel_pairs(led_states, color2ch, drop_nonpositive=True)
+    return _lit_channel_pairs(readings, drop_nonpositive=True)
 
 
 def resolve_end_state(
     leds_state_at_end: str,
-    original_led_states: dict,
-    color2ch: typing.Callable[[str], int | None],
+    original_led_states: tuple[LedReading, ...] | None,
 ) -> tuple[LedEndPolicy | None, frozenset[tuple[int, float]]]:
     """Map a run's end-state policy and pre-run snapshot to the LED authority's
     (end_policy, snapshot_lit).
@@ -432,10 +406,7 @@ def resolve_end_state(
 
     Args:
         leds_state_at_end: The run's end policy -- 'off' or 'return_to_original'.
-        original_led_states: The pre-run snapshot, color -> {'enabled': bool,
-            'illumination_ma': float}.
-        color2ch: Callable mapping a color name to a channel number (or None
-            when no LED board maps it).
+        original_led_states: The pre-run readings (``get_led_states``).
 
     Returns:
         (end_policy, snapshot_lit). end_policy is None for an unrecognized
@@ -446,19 +417,81 @@ def resolve_end_state(
         return LedEndPolicy.OFF, frozenset()
     if leds_state_at_end == 'return_to_original':
         return LedEndPolicy.RETURN_TO_ORIGINAL, _lit_channel_pairs(
-            original_led_states, color2ch, drop_nonpositive=False
+            original_led_states, drop_nonpositive=False
         )
     return None, frozenset()
 
 
-@api_fields('channel', 'on', 'illumination_ma')
-@dataclass(frozen=True)
-class LedChanged:
-    """An LED event: the channel, whether it is lit, and its current in mA."""
+class LedState(enum.StrEnum):
+    """What an LED address is doing, as far as the API can vouch for it."""
 
-    channel: str
-    on: bool
-    illumination_ma: float
+    LIT = 'lit'
+    DARK = 'dark'
+    UNKNOWN = 'unknown'
+
+
+@api_fields('address', 'name', 'state', 'illumination_ma')
+@dataclass(frozen=True)
+class LedReading:
+    """One LED address: the layer it lights, what it is doing, and its current.
+
+    The answer of every LED read and the ``led`` event.
+
+    Attributes:
+        address: The LED board address.
+        name: The layer the unit's identity names for the address, read at
+            the moment of the reading; None when the identity names none,
+            which never hides the address.
+        state: Lit, dark, or unknown.
+        illumination_ma: The commanded current in mA when lit; None
+            otherwise.
+    """
+
+    address: int
+    name: str | None
+    state: LedState
+    illumination_ma: float | None
+
+    def __post_init__(self) -> None:
+        if (self.illumination_ma is not None) != (self.state is LedState.LIT):
+            raise ValueError(
+                f'a {self.state} LED reading with illumination_ma={self.illumination_ma!r}: '
+                'only a lit address carries a current'
+            )
+
+
+@api_fields('tag', 'readings')
+@dataclass(frozen=True)
+class LedSnapshot:
+    """Every LED address as it read at one moment, for ``restore_led_state``.
+
+    Attributes:
+        tag: A label for logs.
+        readings: One reading per address of the board.
+    """
+
+    tag: str
+    readings: tuple[LedReading, ...]
+
+
+@dataclass(frozen=True)
+class _Held:
+    """What the store holds for an address it does not hold dark.
+
+    Lit at a current, or unknown. Dark is the address's absence from the
+    store, so the store cannot hold an address both dark and lit.
+    """
+
+    state: LedState
+    illumination_ma: float | None = None
+
+    def __post_init__(self) -> None:
+        if self.state is LedState.DARK:
+            raise ValueError('a dark LED address is absent from the store, never held')
+        if (self.illumination_ma is not None) != (self.state is LedState.LIT):
+            raise ValueError(
+                f'a held {self.state} LED address with illumination_ma={self.illumination_ma!r}'
+            )
 
 
 class IlluminationAPI:
@@ -585,10 +618,10 @@ class IlluminationAPI:
         """
         return not isinstance(self._driver, NullLEDBoard)
 
-    def _believed_lit(self, color: str) -> bool:
-        """Whether the state store holds ``color`` lit -- the cache, not the board."""
+    def _believed_lit(self, address: int) -> bool:
+        """Whether the store holds ``address`` other than dark -- the store, not the board."""
         with self._led_state_lock:
-            return color in self._led_state
+            return address in self._led_state
 
     def __init__(self, scope: Lumascope, driver: LEDBoardProtocol) -> None:
         self._scope = scope
@@ -599,8 +632,8 @@ class IlluminationAPI:
         del driver  # intentionally unused, kept for backward call sites
 
         # LED change listeners -- push-based UI update mechanism. Each
-        # listener is called with (channel, enabled, illumination_ma) whenever
-        # any LED channel changes state. Fires from the thread that
+        # listener is called with a reading's fields (address, name, state,
+        # illumination_ma) whenever any LED address changes state. Fires from the thread that
         # caused the change, so listeners MUST schedule UI work via
         # Clock.schedule_once.
         self._led_listeners_lock = threading.Lock()
@@ -615,15 +648,17 @@ class IlluminationAPI:
         # returns sentinels). This dict is the primary store, analogous
         # to _pos_cache for motor position. Updated inside led_on /
         # led_off / leds_off; read by all state-query methods.
-        # Each entry: color -> {'enabled': True, 'illumination_ma': float}
-        self._led_state: dict[str, dict] = {}
+        # Keyed by LED address, never by a name: an address the identity
+        # cannot name is still held, so it can still be seen and darkened.
+        # An address absent from the store is dark.
+        self._led_state: dict[int, _Held] = {}
 
-        # Which lease lit each lit channel (None for a write made while
+        # Which lease lit each lit address (None for a write made while
         # nothing was leased), so a lease's release turns off what it lit
-        # and leaves a channel another lease or the live UI lit alone.
+        # and leaves an address another lease or the live UI lit alone.
         # Guarded with _led_state by one lock.
         self._led_state_lock = threading.Lock()
-        self._lit_by: dict[str, LedLease | None] = {}
+        self._lit_by: dict[int, LedLease | None] = {}
 
         # Per-device LED I/O serialization, so LED stim pulses can
         # interleave with camera grabs and motor moves on their own
@@ -669,7 +704,7 @@ class IlluminationAPI:
         as the board's off.
 
         Args:
-            channel: Channel number (0-5) or color name string.
+            channel: An LED address or a layer name.
             illumination_ma: Illumination current in milliamps.
             block: If True, wait for confirmation from the LED board.
             _lease: The lease making this write, from its own diff; None for
@@ -706,40 +741,37 @@ class IlluminationAPI:
             )
         commanded_ma = self._driver.commanded_ma(illumination_ma)
 
-        # Skip redundant command if channel is already on at the same current
-        color_name = self._driver.ch2color(channel)
-        if color_name:
-            with self._led_state_lock:
-                cached_entry = self._led_state.get(color_name)
-            current_ma = None if cached_entry is None else cached_entry['illumination_ma']
-            # _led_state cache-equality trace for the slider > ~150 mA
-            # silent-fail bench investigation. Gated by the scope's
-            # fx2_debug_wire, the same flag the FX2 LED driver traces with.
-            if self._scope._fx2_debug_wire:
-                is_enabled = cached_entry is not None
-                try:
-                    delta = (
-                        None
-                        if current_ma is None
-                        else abs(float(illumination_ma) - float(current_ma))
-                    )
-                except Exception:
-                    delta = 'ERR'
-                _api_log.info(
-                    '[FX2 LED diag] led_on cache-check color=%s '
-                    'new_mA=%r (type=%s) cached_mA=%r (type=%s) '
-                    'delta=%r enabled=%s cache_entry=%r',
-                    color_name,
-                    illumination_ma,
-                    type(illumination_ma).__name__,
-                    current_ma,
-                    type(current_ma).__name__,
-                    delta,
-                    is_enabled,
-                    cached_entry,
+        # Skip redundant command if the address is already lit at the same
+        # current; an unknown address carries no current, so it is written.
+        with self._led_state_lock:
+            cached_entry = self._led_state.get(channel)
+        current_ma = None if cached_entry is None else cached_entry.illumination_ma
+        # _led_state cache-equality trace for the slider > ~150 mA
+        # silent-fail bench investigation. Gated by the scope's
+        # fx2_debug_wire, the same flag the FX2 LED driver traces with.
+        if self._scope._fx2_debug_wire:
+            is_enabled = cached_entry is not None
+            try:
+                delta = (
+                    None if current_ma is None else abs(float(illumination_ma) - float(current_ma))
                 )
-            if current_ma is not None and abs(commanded_ma - float(current_ma)) < 0.01:
-                return commanded_ma
+            except Exception:
+                delta = 'ERR'
+            _api_log.info(
+                '[FX2 LED diag] led_on cache-check ch=%s '
+                'new_mA=%r (type=%s) cached_mA=%r (type=%s) '
+                'delta=%r enabled=%s cache_entry=%r',
+                channel,
+                illumination_ma,
+                type(illumination_ma).__name__,
+                current_ma,
+                type(current_ma).__name__,
+                delta,
+                is_enabled,
+                cached_entry,
+            )
+        if current_ma is not None and abs(commanded_ma - float(current_ma)) < 0.01:
+            return commanded_ma
 
         # While a run holds the LEDs, a write by anyone but the active lease
         # is refused so a live UI change cannot disturb a protocol's or
@@ -759,23 +791,20 @@ class IlluminationAPI:
             f'{f" lease={_lease.purpose!r}" if _lease is not None else ""}'
         )
 
-        # Update the API-level state cache and which lease lit the channel.
+        # Update the API-level state store and which lease lit the address.
         # Unconditional -- a write with no lease (a UI click) is recorded too.
-        if color_name:
-            with self._led_state_lock:
-                self._led_state[color_name] = {
-                    'enabled': True,
-                    'illumination_ma': commanded_ma,
-                }
-                self._lit_by[color_name] = _lease
-            self._fire_led_listeners(color_name, True, commanded_ma)
+        with self._led_state_lock:
+            self._led_state[channel] = _Held(LedState.LIT, commanded_ma)
+            self._lit_by[channel] = _lease
+            reading = self._reading(channel)
+        self._fire_led_listeners(reading)
         return commanded_ma
 
     def _led_off_impl(self, channel, *, _lease: LedLease | None = None) -> None:
         """Turn off an LED channel.
 
         Args:
-            channel: Channel number (0-5) or color name string.
+            channel: An LED address or a layer name.
             _lease: The lease making this write, from its own diff; None for
                 a caller holding no lease. Refused while a different lease is
                 the active holder.
@@ -795,13 +824,12 @@ class IlluminationAPI:
         if channel is None:
             return
 
-        # Skip if channel is already off. Reads from the API-level
-        # _led_state cache, which is correct for both LEDBoard and FX2.
+        # Skip if the address is already dark. Reads from the API-level
+        # _led_state store, which is correct for both LEDBoard and FX2.
         # Prior behavior delegated to the driver's get_led_state, which
         # for FX2 always returned False -- making led_off a complete
         # no-op.
-        color_name = self._driver.ch2color(channel)
-        if color_name and not self._believed_lit(color_name):
+        if not self._believed_lit(channel):
             return
         self.refuse_controller_not_connected('led_off')
 
@@ -818,12 +846,12 @@ class IlluminationAPI:
             f'led_off ch={channel}{f" lease={_lease.purpose!r}" if _lease is not None else ""}'
         )
 
-        # Clear from the API-level state cache
-        if color_name:
-            with self._led_state_lock:
-                self._led_state.pop(color_name, None)
-                self._lit_by.pop(color_name, None)
-            self._fire_led_listeners(color_name, False, 0.0)
+        # Clear from the API-level state store
+        with self._led_state_lock:
+            self._led_state.pop(channel, None)
+            self._lit_by.pop(channel, None)
+            reading = self._reading(channel)
+        self._fire_led_listeners(reading)
 
     def _leds_off_impl(self) -> None:
         """Turn off all LEDs (nuclear -- ignores any held lease).
@@ -863,17 +891,18 @@ class IlluminationAPI:
         return True
 
     def _write_leds_off(self) -> None:
-        """Write the board's all-off and record every channel dark."""
+        """Write the board's all-off and record every address dark."""
         with self._led_lock:
             self._driver.leds_off()
         self._notify_if_led_command_failed()
         with self._led_state_lock:
             self._lit_by.clear()
             self._led_state.clear()
+            readings = self._readings()
         self._scope.imaging.frame_validity.invalidate('led')
         _api_log.info('leds_off')
-        for color in self._driver.available_colors():
-            self._fire_led_listeners(color, False, 0.0)
+        for reading in readings:
+            self._fire_led_listeners(reading)
 
     # --- Public dispatch ---
     # These four are what every caller reaches: an SDK script, a REST
@@ -1045,65 +1074,85 @@ class IlluminationAPI:
             )
 
     # --- State ---
-    @api(reads=True)
-    def get_led_state(self, channel: str) -> dict | None:
-        """Get the on/off state and illumination for an LED channel.
+    def _identity_name(self, address: int) -> str | None:
+        """The layer the unit's identity names for *address*, else None."""
+        for record in self._scope.layer_identity.layers:
+            if address in record.led_channel:
+                return record.key_name
+        return None
 
-        Reads from the API-level _led_state cache.
+    def _reading(self, address: int) -> LedReading:
+        """*address* as the store holds it, named through the identity now.
+
+        The caller holds ``_led_state_lock``.
+        """
+        held = self._led_state.get(address)
+        if held is None:
+            return LedReading(address, self._identity_name(address), LedState.DARK, None)
+        return LedReading(address, self._identity_name(address), held.state, held.illumination_ma)
+
+    def _readings(self) -> tuple[LedReading, ...]:
+        """Every address of the board and every address the store holds, by address.
+
+        The caller holds ``_led_state_lock``.
+        """
+        addresses = sorted(set(self._driver.available_channels()) | set(self._led_state))
+        return tuple(self._reading(address) for address in addresses)
+
+    @api(reads=True)
+    def get_led_state(self, channel: int | str) -> LedReading | None:
+        """Read one LED address: lit with its current, dark, or unknown.
+
+        Reads from the API-level store, not the board.
 
         Args:
-            channel: Channel name (e.g. "Blue", "Green", "Red", "BF").
+            channel: A layer name, read through the unit's identity, or an
+                address on the attached board's table.
 
         Returns:
-            {'enabled': bool, 'illumination_ma': float | None};
-            illumination_ma is None when off. None when no LED board is
-            installed (none came up, or after ``disconnect()``).
+            The address's reading, named through the unit's identity; None
+            when no LED board is installed (none came up, or after
+            ``disconnect()``).
 
         Raises:
-            ArgumentRefusedError: ``'layer_unknown'``, ``channel`` is not a layer.
+            ArgumentRefusedError: ``'layer_unknown'`` or
+                ``'led_channel_unknown'``, ``channel`` names no channel.
+            HardwareCommandRefusedError: ``'axis_absent'``, the unit's
+                identity gives the layer no LED.
         """
-        refuse_unknown_layer(channel, argument='channel')
+        self._refuse_not_a_channel(channel)
         if not self._has_board():
             return None
+        address = channel
+        if isinstance(channel, str):
+            address = self.color2ch(color=channel)
+            if address is None:
+                part = MissingPart.led(channel)
+                raise HardwareCommandRefusedError(part.reason, 'get_led_state', missing=part)
         with self._led_state_lock:
-            entry = self._led_state.get(channel)
-            if entry is None:
-                return {'enabled': False, 'illumination_ma': None}
-            return {'enabled': True, 'illumination_ma': entry['illumination_ma']}
+            return self._reading(address)
 
     @api(reads=True)
-    def get_led_states(self) -> dict | None:
-        """Get state and illumination for all LED channels.
+    def get_led_states(self) -> tuple[LedReading, ...] | None:
+        """Read every LED address of the attached board.
 
-        Returns states for ALL channels the driver supports (not just
-        currently-on channels).
+        Every address is reported, whether or not the unit's identity
+        names it, so a lit address is never hidden by its missing name.
 
         Returns:
-            Mapping of color -> {'enabled': bool, 'illumination_ma': float | None}
-            for every channel the driver supports. illumination_ma is None
-            when the channel is off. None when no LED board is installed
-            (none came up, or after ``disconnect()``).
+            One reading per address, in address order, each named through
+            the unit's identity. None when no LED board is installed (none
+            came up, or after ``disconnect()``).
         """
         if not self._has_board():
             return None
-        all_colors = self._driver.available_colors()
         with self._led_state_lock:
-            return {
-                color: (
-                    {
-                        'enabled': True,
-                        'illumination_ma': self._led_state[color]['illumination_ma'],
-                    }
-                    if color in self._led_state
-                    else {'enabled': False, 'illumination_ma': None}
-                )
-                for color in all_colors
-            }
+            return self._readings()
 
     # --- Save / restore ---
     @api(reads=True)
-    def save_led_state(self, tag: str) -> dict | None:
-        """Snapshot the current LED state for later restoration.
+    def save_led_state(self, tag: str) -> LedSnapshot | None:
+        """Snapshot every LED address for later restoration.
 
         Args:
             tag: Descriptive name for the snapshot (for logging).
@@ -1112,21 +1161,20 @@ class IlluminationAPI:
             Snapshot suitable for passing to ``restore_led_state``; None
             when no LED board is installed, so there is no state to keep.
         """
-        states = self.get_led_states()
-        if states is None:
+        readings = self.get_led_states()
+        if readings is None:
             return None
-        snapshot = {'tag': tag, 'states': states}
         _api_log.info(
-            f'save_led_state tag={tag}: {[c for c, s in states.items() if s.get("enabled")]}'
+            f'save_led_state tag={tag}: {[r.address for r in readings if r.state is LedState.LIT]}'
         )
-        return snapshot
+        return LedSnapshot(tag, readings)
 
     @api
-    def restore_led_state(self, snapshot: dict) -> None:
+    def restore_led_state(self, snapshot: LedSnapshot) -> None:
         """Restore LEDs to a previously saved state, as one task on the IO lane, and wait.
 
-        Turns off lit channels the snapshot does not have on, then
-        re-enables the channels that were on in it.
+        Turns off the addresses the snapshot does not have lit, then lights
+        the addresses it has lit at a positive current.
 
         Args:
             snapshot: Return value from ``save_led_state``.
@@ -1140,37 +1188,9 @@ class IlluminationAPI:
             self._restore_led_state_impl, 'restore_led_state', args=(snapshot,)
         )
 
-    def _restore_led_state_impl(self, snapshot: dict) -> None:
-        if not snapshot:
-            return
-        tag = snapshot.get('tag', '?')
-        saved_states = snapshot.get('states', {})
-        _api_log.info(f'restore_led_state tag={tag}')
-
-        # Channels that should be ON after restore, with their target mA.
-        target_on = {
-            color: state.get('illumination_ma', 0)
-            for color, state in saved_states.items()
-            if state.get('enabled', False) and (state.get('illumination_ma') or 0) > 0
-        }
-
-        # Turn off only channels that should NOT be on after restore, so a
-        # channel already lit at its target is left untouched (no off-then-on
-        # blink).
-        with self._led_state_lock:
-            lit_colors = list(self._led_state)
-        for color in lit_colors:
-            if color not in target_on:
-                ch = self._driver.color2ch(color)
-                if ch is not None:
-                    self._led_off_impl(channel=ch)
-
-        # Re-assert the target channels; led_on self-skips channels already at
-        # their target mA, so this does not blink an already-correct channel.
-        for color, illumination_ma in target_on.items():
-            ch = self._driver.color2ch(color)
-            if ch is not None:
-                self._led_on_impl(channel=ch, illumination_ma=illumination_ma)
+    def _restore_led_state_impl(self, snapshot: LedSnapshot) -> None:
+        _api_log.info(f'restore_led_state tag={snapshot.tag}')
+        self._emit_led_diff(snapshot_lit_pairs(snapshot.readings), lease=None, block=False)
 
     def _leds_off_lit_by(self, lease: LedLease) -> None:
         """Turn off only the LED channels *lease* lit.
@@ -1184,36 +1204,37 @@ class IlluminationAPI:
                 the channel stays believed lit.
         """
         with self._led_state_lock:
-            channels_to_off = [color for color, by in self._lit_by.items() if by is lease]
+            channels_to_off = [address for address, by in self._lit_by.items() if by is lease]
         if not channels_to_off:
             return
         self.refuse_controller_not_connected('LedLease.release')
         with self._led_state_lock:
-            for color in channels_to_off:
-                self._lit_by.pop(color, None)
-                self._led_state.pop(color, None)
-        for color in channels_to_off:
-            ch = self._driver.color2ch(color)
-            if ch is not None:
-                with self._led_lock:
-                    self._driver.led_off(ch)
-                self._scope.imaging.frame_validity.invalidate('led')
-                _api_log.info(f'led_off ch={ch} (release of the {lease.purpose!r} lease)')
-                self._fire_led_listeners(color, False, 0.0)
+            for address in channels_to_off:
+                self._lit_by.pop(address, None)
+                self._led_state.pop(address, None)
+        for ch in channels_to_off:
+            with self._led_lock:
+                self._driver.led_off(ch)
+            self._scope.imaging.frame_validity.invalidate('led')
+            _api_log.info(f'led_off ch={ch} (release of the {lease.purpose!r} lease)')
+            with self._led_state_lock:
+                reading = self._reading(ch)
+            self._fire_led_listeners(reading)
 
     def _forget_led_state(self) -> None:
         """Hold nothing lit: ``disconnect()`` darkened the board and removed it.
 
         The emergency off ``disconnect()`` writes leaves the state store as
         it was, so the store is cleared here once the board is gone, and
-        the listeners are told each channel that was lit went dark.
+        the listeners are told each address that was held went dark.
         """
         with self._led_state_lock:
-            lit = list(self._led_state)
+            held = list(self._led_state)
             self._led_state.clear()
             self._lit_by.clear()
-        for color in lit:
-            self._fire_led_listeners(color, False, 0.0)
+            readings = [self._reading(address) for address in held]
+        for reading in readings:
+            self._fire_led_listeners(reading)
 
     # --- Ownership lease ---
     def _holder_is_stranded(self, lease: LedLease) -> str | None:
@@ -1431,19 +1452,16 @@ class IlluminationAPI:
         ``block`` waits for the board to confirm each illuminate before
         returning -- set for a transition whose LED must be on before the
         camera grabs; the off does not block (clearing a channel never gates a
-        grab). ``restore_led_state`` is the same off-non-target-then-reassert
-        diff over a saved snapshot; keep its blink-avoidance consistent with
-        this primitive.
+        grab). ``restore_led_state`` drives this diff over a saved snapshot.
         """
         target_channels = {ch for ch, _ in target}
         # Snapshot under the lock, then release before emitting: the off/on
         # primitives re-acquire _led_state_lock (not reentrant) and _led_off_impl
-        # pops from _led_state as it clears each channel.
+        # pops from _led_state as it clears each address.
         with self._led_state_lock:
-            lit_colors = list(self._led_state)
-        for color in lit_colors:
-            ch = self._driver.color2ch(color)
-            if ch is not None and ch not in target_channels:
+            held = list(self._led_state)
+        for ch in held:
+            if ch not in target_channels:
                 self._led_off_impl(channel=ch, _lease=lease)
         for ch, illumination_ma in target:
             self._led_on_impl(
@@ -1499,15 +1517,12 @@ class IlluminationAPI:
     # --- Enable / disable ---
     # --- Wait ---
     # --- Channel mapping ---
-    # Two mappings, deliberately separate. IDENTITY (color2ch/ch2color)
-    # answers from the unit's resolved layer records: what a layer IS on
-    # this unit. STATE (state_color2ch/state_ch2color) answers from the
-    # driver's own table: what the board can physically address. Cache
-    # bookkeeping, restore snapshots, and extinguish sweeps ride the
-    # STATE mapping so a channel that is physically lit is always
-    # recordable and extinguishable even when the current identity
-    # cannot name it (a mid-session identity change must never strand a
-    # lit LED or drop it from a restore set).
+    # One mapping, the unit's resolved layer identity: what a layer IS on
+    # this unit. The state store, restore snapshots and extinguish sweeps
+    # are keyed by address, so a physically lit address is always
+    # recordable and extinguishable even when the identity cannot name it
+    # (a mid-session identity change must never strand a lit LED or drop
+    # it from a restore set).
     @api(reads=True)
     def ch2color(self, channel: int) -> str | None:
         """The stable layer name whose record drives *channel*, else None.
@@ -1520,10 +1535,7 @@ class IlluminationAPI:
                 not on the attached board's table.
         """
         self._refuse_not_a_board_channel(channel)
-        for record in self._scope.layer_identity.layers:
-            if channel in record.led_channel:
-                return record.key_name
-        return None
+        return self._identity_name(channel)
 
     @api(reads=True)
     def color2ch(self, color: str) -> int | None:
@@ -1543,46 +1555,30 @@ class IlluminationAPI:
             return None
         return record.led_channel[0]
 
-    def state_ch2color(self, channel: int) -> str | None:
-        """The DRIVER's name for *channel* -- state bookkeeping only,
-        not part of the L2 API surface. Identity questions use
-        `ch2color`; this exists so state records and extinguish paths
-        follow the board's own table. None when no LED board is installed.
-        """
-        if not self._has_board():
-            return None
-        return self._driver.ch2color(channel)
-
-    def state_color2ch(self, color: str) -> int | None:
-        """The DRIVER's channel for *color* -- state bookkeeping only,
-        not part of the L2 API surface. Restore snapshots are keyed by
-        the names the state store recorded at light time; replaying them
-        through the driver's table guarantees a lit channel can always
-        be re-addressed, whatever the current identity says. None when no
-        LED board is installed.
-        """
-        if not self._has_board():
-            return None
-        return self._driver.color2ch(color)
-
     # --- Listeners ---
-    @api(in_process=True, event=LedChanged)
-    def add_led_listener(self, listener: Callable[[str, bool, float], None]) -> None:
+    @api(in_process=True, event=LedReading)
+    def add_led_listener(
+        self, listener: Callable[[int, str | None, LedState, float | None], None]
+    ) -> None:
         """Register a callback for LED state changes.
 
-        The listener is called with ``(channel, enabled, illumination_ma)`` whenever
-        any LED channel changes state.  It fires from the thread that caused
-        the change, so listeners **must** schedule UI work via
-        ``Clock.schedule_once``.
+        The listener is called with the changed address's reading,
+        ``(address, name, state, illumination_ma)`` as ``LedReading``
+        holds them, whenever any LED address changes state. It fires from
+        the thread that caused the change, so listeners **must** schedule
+        UI work via ``Clock.schedule_once``.
 
         Args:
-            listener: ``callable(channel: str, enabled: bool, illumination_ma: float)``
+            listener: ``callable(address: int, name: str | None, state:
+                LedState, illumination_ma: float | None)``
         """
         with self._led_listeners_lock:
             self._led_listeners.append(listener)
 
     @api(in_process=True)
-    def remove_led_listener(self, listener: Callable[[str, bool, float], None]) -> None:
+    def remove_led_listener(
+        self, listener: Callable[[int, str | None, LedState, float | None], None]
+    ) -> None:
         """Unregister an LED listener.
 
         Args:
@@ -1595,13 +1591,13 @@ class IlluminationAPI:
             except ValueError:
                 pass
 
-    def _fire_led_listeners(self, channel: str, enabled: bool, illumination_ma: float) -> None:
-        """Notify all LED listeners of a state change on *channel*."""
+    def _fire_led_listeners(self, reading: LedReading) -> None:
+        """Notify all LED listeners of a state change, as *reading* has it."""
         with self._led_listeners_lock:
             listeners = list(self._led_listeners)
         for fn in listeners:
             try:
-                fn(channel, enabled, illumination_ma)
+                fn(reading.address, reading.name, reading.state, reading.illumination_ma)
             except Exception as ex:
                 # No caller waits on a listener, so its fault stops here; the
                 # other listeners are still told.

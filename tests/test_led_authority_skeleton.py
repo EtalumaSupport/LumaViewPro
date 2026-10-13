@@ -21,10 +21,13 @@ import threading
 
 import pytest
 
+from modules.lumascope_api.illumination import LedState
+
 from modules.exceptions import HardwareCommandRefusedError
 from tests.protocol_drives import held_run_claim
 from modules.lumascope_api.illumination import (
     LedEndPolicy,
+    LedReading,
     LedTransition,
     LedTransitionCtx,
 )
@@ -34,7 +37,8 @@ from tests.scope_fakes import build_scope
 class LedSubstream:
     """Thread-safe recorder of the LED-only command substream.
 
-    Records (color, enabled, mA) for every driver command, in order.
+    Records (layer name, lit, mA) for every LED reading the listener is told,
+    in order; an address the identity names no layer for is recorded as None.
     Mirrors the recorder in test_led_lifecycle_sequence.py.
     """
 
@@ -42,9 +46,9 @@ class LedSubstream:
         self._events: list[tuple] = []
         self._lock = threading.Lock()
 
-    def __call__(self, color, enabled, illumination_ma) -> None:
+    def __call__(self, address, name, state, illumination_ma) -> None:
         with self._lock:
-            self._events.append((color, bool(enabled), illumination_ma))
+            self._events.append((name, state is LedState.LIT, illumination_ma))
 
     @property
     def events(self) -> list[tuple]:
@@ -96,7 +100,7 @@ class LedSubstream:
         return True
 
     def render(self) -> str:
-        lines = [f'  {"ON " if e else "OFF"} {c:<6} mA={m}' for c, e, m in self.events]
+        lines = [f'  {"ON " if e else "OFF"} {c!s:<6} mA={m}' for c, e, m in self.events]
         return '\n'.join(lines) if lines else '  (no LED events)'
 
 
@@ -279,38 +283,45 @@ def test_target_run_end_policy():
     )
 
 
+def _lit(address: int, name: str | None, illumination_ma: float) -> LedReading:
+    return LedReading(address, name, LedState.LIT, illumination_ma)
+
+
+def _dark(address: int, name: str | None) -> LedReading:
+    return LedReading(address, name, LedState.DARK, None)
+
+
+UNNAMED_CH = 7
+
+
 def test_resolve_end_state_shared_builder():
     from modules.lumascope_api.illumination import resolve_end_state
 
-    color2ch = {'BF': 0, 'Green': GREEN_CH, 'Blue': BLUE_CH}.get
-
     # OFF policy: no snapshot walk, empty target.
-    assert resolve_end_state(
-        'off', {'Green': {'enabled': True, 'illumination_ma': GREEN_MA}}, color2ch
-    ) == (
+    assert resolve_end_state('off', (_lit(GREEN_CH, 'Green', GREEN_MA),)) == (
         LedEndPolicy.OFF,
         frozenset(),
     )
-    # Restore policy: only enabled, mapped channels make the snapshot.
+    # Restore policy: every lit address makes the snapshot, named or not; a
+    # dark one does not.
     policy, snapshot = resolve_end_state(
         'return_to_original',
-        {
-            'Green': {'enabled': True, 'illumination_ma': GREEN_MA},
-            'Blue': {'enabled': False, 'illumination_ma': BLUE_MA},
-            'Unmapped': {'enabled': True, 'illumination_ma': 99.0},
-        },
-        color2ch,
+        (
+            _lit(GREEN_CH, 'Green', GREEN_MA),
+            _dark(BLUE_CH, 'Blue'),
+            _lit(UNNAMED_CH, None, 99.0),
+        ),
     )
     assert policy is LedEndPolicy.RETURN_TO_ORIGINAL
-    assert snapshot == frozenset({(GREEN_CH, GREEN_MA)})
+    assert snapshot == frozenset({(GREEN_CH, GREEN_MA), (UNNAMED_CH, 99.0)})
     # Unrecognized policy: None, so the caller can surface the misconfiguration.
-    assert resolve_end_state('bogus', {}, color2ch) == (None, frozenset())
+    assert resolve_end_state('bogus', ()) == (None, frozenset())
 
 
 def test_lit_pairs_shared_helper_snapshot_and_restore_agree():
-    # The snapshot (pre-run) and the run-end restore must define "which channels
+    # The snapshot (pre-run) and the run-end restore must define "which addresses
     # count as lit" from one place, so a tightened criterion cannot leave the
-    # restore re-lighting a channel the snapshot treated as dark. Both route
+    # restore re-lighting an address the snapshot treated as dark. Both route
     # through _lit_channel_pairs; only the drop-nonpositive filter differs.
     from modules.lumascope_api.illumination import (
         _lit_channel_pairs,
@@ -318,43 +329,38 @@ def test_lit_pairs_shared_helper_snapshot_and_restore_agree():
         snapshot_lit_pairs,
     )
 
-    color2ch = {'BF': 0, 'Green': GREEN_CH, 'Blue': BLUE_CH}.get
+    # Representative mix: a lit address, a zero-current lit address, a dark
+    # address, and a lit address the identity names no layer for.
+    readings = (
+        _lit(GREEN_CH, 'Green', GREEN_MA),
+        _lit(BLUE_CH, 'Blue', 0.0),
+        _dark(RED_CH, 'Red'),
+        _lit(UNNAMED_CH, None, 99.0),
+    )
 
-    # Representative mix: an enabled lit channel, an enabled zero-current
-    # channel, a disabled channel, and an enabled channel with no LED mapping.
-    states = {
-        'Green': {'enabled': True, 'illumination_ma': GREEN_MA},
-        'Blue': {'enabled': True, 'illumination_ma': 0.0},
-        'Red': {'enabled': False, 'illumination_ma': 80.0},
-        'Unmapped': {'enabled': True, 'illumination_ma': 99.0},
-    }
+    # drop_nonpositive=True (the snapshot path): the zero-current Blue address
+    # is treated as dark and dropped; a dark address never counts; an unnamed
+    # lit address counts by its address.
+    snap = snapshot_lit_pairs(readings)
+    assert snap == frozenset({(GREEN_CH, GREEN_MA), (UNNAMED_CH, 99.0)})
+    assert snap == _lit_channel_pairs(readings, drop_nonpositive=True)
 
-    # drop_nonpositive=True (the snapshot path): the zero-current Blue channel is
-    # treated as dark and dropped; disabled and unmapped never count.
-    snap = snapshot_lit_pairs(states, color2ch)
-    assert snap == frozenset({(GREEN_CH, GREEN_MA)})
-    assert snap == _lit_channel_pairs(states, color2ch, drop_nonpositive=True)
-
-    # drop_nonpositive=False (the restore path): every enabled mapped channel is
-    # taken verbatim, so the zero-current Blue channel is restored as-is.
-    policy, restore = resolve_end_state('return_to_original', states, color2ch)
+    # drop_nonpositive=False (the restore path): every lit address is taken
+    # verbatim, so the zero-current Blue address is restored as-is.
+    policy, restore = resolve_end_state('return_to_original', readings)
     assert policy is LedEndPolicy.RETURN_TO_ORIGINAL
-    assert restore == frozenset({(GREEN_CH, GREEN_MA), (BLUE_CH, 0.0)})
-    assert restore == _lit_channel_pairs(states, color2ch, drop_nonpositive=False)
+    assert restore == frozenset({(GREEN_CH, GREEN_MA), (BLUE_CH, 0.0), (UNNAMED_CH, 99.0)})
+    assert restore == _lit_channel_pairs(readings, drop_nonpositive=False)
 
-    # When every enabled channel carries a positive current both sites agree
+    # When every lit address carries a positive current both sites agree
     # exactly -- the common case where snapshot and restore must not disagree.
-    lit_only = {
-        'Green': {'enabled': True, 'illumination_ma': GREEN_MA},
-        'Blue': {'enabled': True, 'illumination_ma': BLUE_MA},
-    }
+    lit_only = (_lit(GREEN_CH, 'Green', GREEN_MA), _lit(BLUE_CH, 'Blue', BLUE_MA))
     both = frozenset({(GREEN_CH, GREEN_MA), (BLUE_CH, BLUE_MA)})
-    assert snapshot_lit_pairs(lit_only, color2ch) == both
-    assert resolve_end_state('return_to_original', lit_only, color2ch)[1] == both
+    assert snapshot_lit_pairs(lit_only) == both
+    assert resolve_end_state('return_to_original', lit_only)[1] == both
 
-    # A missing illumination_ma reads as dark under the snapshot filter (None ->
-    # 0 -> dropped) without raising.
-    assert snapshot_lit_pairs({'Green': {'enabled': True}}, color2ch) == frozenset()
+    # No LED board (None readings) is nothing lit.
+    assert snapshot_lit_pairs(None) == frozenset()
 
 
 def test_target_manual_step_preview_gate():
@@ -387,7 +393,7 @@ def test_apply_step_light_lights_exclusively_and_holds_idempotently(scope):
     lease = ill.acquire_led_lease('protocol', claim=held_run_claim())
 
     lease.apply(LedTransition.STEP_LIGHT, _ctx(scope, 'Green', GREEN_MA))
-    assert ill.get_led_state('Green')['enabled']
+    assert ill.get_led_state('Green').state is LedState.LIT
     assert sub.on_events() == [('Green', GREEN_MA)], sub.render()
 
     # Re-apply the identical target: idempotent, no off-then-on blink.
@@ -418,7 +424,7 @@ def test_apply_step_boundary_hold_vs_off(scope):
         _ctx(scope, 'Green', GREEN_MA, same_zstack_group=True),
     )
     assert sub.lit_transitions('Green') == [True], sub.render()
-    assert ill.get_led_state('Green')['enabled']
+    assert ill.get_led_state('Green').state is LedState.LIT
 
     # Plain boundary, opt-in off: extinguish.
     lease.apply(
@@ -426,7 +432,7 @@ def test_apply_step_boundary_hold_vs_off(scope):
         _ctx(scope, 'Green', GREEN_MA, same_color=True, keep_led_across_moves=False),
     )
     assert sub.lit_transitions('Green') == [True, False], sub.render()
-    assert not ill.get_led_state('Green')['enabled']
+    assert ill.get_led_state('Green').state is LedState.DARK
 
     lease.release(leave_on=False)
 
@@ -479,7 +485,7 @@ def test_apply_on_released_lease_is_a_noop(scope):
     ill.add_led_listener(sub)
     lease.apply(LedTransition.STEP_LIGHT, _ctx(scope, 'Red', RED_MA))
     assert sub.events == [], sub.render()
-    assert not ill.get_led_state('Red')['enabled']
+    assert ill.get_led_state('Red').state is LedState.DARK
 
 
 def test_apply_reclaims_top_from_orphaned_child(scope):
@@ -511,8 +517,8 @@ def test_apply_reclaims_top_from_orphaned_child(scope):
     protocol.apply(LedTransition.RUN_END, LedTransitionCtx(end_policy=LedEndPolicy.OFF))
     assert ill.led_lease_purpose == 'protocol'
     assert sub.final_lit() == set(), sub.render()
-    assert not ill.get_led_state('Red')['enabled']
-    assert not ill.get_led_state('Green')['enabled']
+    assert ill.get_led_state('Red').state is LedState.DARK
+    assert ill.get_led_state('Green').state is LedState.DARK
 
     protocol.release(leave_on=False)
 
@@ -532,7 +538,7 @@ def test_apply_transition_manual_preview_lights_holds_and_switches(scope):
     ill.add_led_listener(sub)
 
     ill.apply_transition(LedTransition.MANUAL_STEP, _ctx(scope, 'Green', GREEN_MA, preview_on=True))
-    assert ill.get_led_state('Green')['enabled']
+    assert ill.get_led_state('Green').state is LedState.LIT
     assert sub.on_events() == [('Green', GREEN_MA)], sub.render()
 
     # Re-navigate to the same color: idempotent hold, no off-then-on blink.
@@ -559,8 +565,10 @@ def test_apply_transition_refused_while_leased(scope):
         ill.apply_transition(LedTransition.MANUAL_STEP, _ctx(scope, 'Red', RED_MA, preview_on=True))
     assert refused.value.reason == 'exclusive_activity_running'
     assert sub.events == [], sub.render()
-    assert ill.get_led_state('Green')['enabled'], 'run channel disturbed by a refused UI write'
-    assert not ill.get_led_state('Red')['enabled']
+    assert ill.get_led_state('Green').state is LedState.LIT, (
+        'run channel disturbed by a refused UI write'
+    )
+    assert ill.get_led_state('Red').state is LedState.DARK
 
     lease.release(leave_on=False)
 

@@ -32,6 +32,7 @@ from tests.protocol_drives import run_identity
 
 from modules.activity_claim import ActivityClaim
 from modules.image_mode import ImageCaptureConfig
+from modules.lumascope_api.illumination import LedState
 from tests.af_drives import park_z
 from tests.scope_fakes import build_scope, home_sim_scope, swap_lanes
 from modules.sequential_io_executor import SequentialIOExecutor
@@ -458,8 +459,8 @@ class TestIntegrationMultiChannel:
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
 
-        for color in ('BF', 'PC', 'DF', 'Red', 'Green', 'Blue'):
-            assert not scope.illumination.get_led_state(color)['enabled'], f'LED {color} still on'
+        lit = [r for r in scope.illumination.get_led_states() if r.state is not LedState.DARK]
+        assert lit == [], f'LEDs still on: {lit}'
 
 
 class TestIntegrationZStack:
@@ -710,9 +711,9 @@ class TestHeadlessSession:
         try:
             scope = session.scope
             scope.illumination.led_on(channel=0, illumination_ma=100)
-            assert scope.illumination.get_led_state('Blue')['illumination_ma'] == 100
+            assert scope.illumination.get_led_state('Blue').illumination_ma == 100
             scope.illumination.led_off(channel=0)
-            assert scope.illumination.get_led_state('Blue')['illumination_ma'] is None
+            assert scope.illumination.get_led_state('Blue').state is LedState.DARK
         finally:
             session.shutdown()
 
@@ -1154,7 +1155,7 @@ class TestAbortedAutofocusRestoresLeds:
         # AF setup lit the BF channel before the abort was observed; the
         # aborted exit must have turned it off.
         state = scope.illumination.get_led_state('BF')
-        assert not state['enabled'], (
+        assert state.state is LedState.DARK, (
             'Aborted AF left its LED lit: keep_led_on must skip the LED '
             'restore only when AF completes successfully.'
         )

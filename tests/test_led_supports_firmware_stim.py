@@ -179,10 +179,9 @@ class TestScopeCapabilitiesPlumbing:
         from modules.layer_record import UNRESOLVED
         from modules.scope_capabilities import ScopeCapabilities
 
-        old_led = MagicMock(spec=['available_channels', 'available_colors'])
+        old_led = MagicMock(spec=['available_channels'])
         # spec= restricts attrs: supports_firmware_stim raises AttributeError
         old_led.available_channels = MagicMock(return_value=())
-        old_led.available_colors = MagicMock(return_value=())
 
         caps = ScopeCapabilities.from_drivers(
             motion=NullMotionBoard(),

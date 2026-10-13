@@ -30,7 +30,12 @@ from modules.exceptions import (
     MissingPart,
     ProtocolRunRefusedError,
 )
-from modules.lumascope_api.illumination import LedTransition, LedTransitionCtx
+from modules.lumascope_api.illumination import (
+    LedReading,
+    LedState,
+    LedTransition,
+    LedTransitionCtx,
+)
 from tests.test_a_command_for_absent_motion_hardware_is_refused import (
     EVERY_MODEL,
     _protocol,
@@ -83,13 +88,14 @@ def test_with_its_board_an_led_lights_and_goes_dark_as_before(make_session, capl
     illumination = make_session(model).scope.illumination
 
     commanded = illumination.led_on('BF', 10.0)
-    assert illumination.get_led_state('BF') == {'enabled': True, 'illumination_ma': commanded}
+    lit = illumination.get_led_state('BF')
+    assert (lit.name, lit.state, lit.illumination_ma) == ('BF', LedState.LIT, commanded)
     illumination.led_off('BF')
-    assert illumination.get_led_state('BF')['enabled'] is False
+    assert illumination.get_led_state('BF').state is LedState.DARK
     illumination.led_on('BF', 10.0)
     illumination.leds_off()
 
-    assert illumination.get_led_states()['BF']['enabled'] is False
+    assert {r.name: r for r in illumination.get_led_states()}['BF'].state is LedState.DARK
     assert _led_lines(caplog) == []
 
 
@@ -106,7 +112,15 @@ def test_an_led_the_model_lacks_is_refused_by_name_and_lights_nothing(
 
     assert (refusal.reason, refusal.missing) == ('axis_absent', part)
     assert sent == []
-    assert scope.illumination.get_led_state('Red')['enabled'] is False
+    assert scope.illumination.get_led_state(2) == LedReading(2, None, LedState.DARK, None)
+
+
+def test_a_read_of_an_led_the_model_lacks_is_refused_by_name(make_session):
+    scope = make_session('LS560').scope
+
+    refusal = _refused(lambda: scope.illumination.get_led_state('Red'))
+
+    assert (refusal.reason, refusal.missing) == ('axis_absent', MissingPart.led('Red'))
 
 
 @pytest.mark.parametrize(('model', 'led'), [('LS560', 'Red'), ('LS560', 2), ('Lumi', 'Lumi')])
@@ -163,7 +177,7 @@ def test_the_reads_answer_none_and_nothing_is_believed_lit_after_disconnect(make
     session = make_session('LS850')
     illumination = session.scope.illumination
     heard = []
-    illumination.add_led_listener(lambda color, enabled, ma: heard.append((color, enabled)))
+    illumination.add_led_listener(lambda address, name, state, ma: heard.append((name, state)))
     illumination.led_on('BF', 10.0)
 
     session.shutdown()
@@ -171,8 +185,7 @@ def test_the_reads_answer_none_and_nothing_is_believed_lit_after_disconnect(make
     assert illumination.get_led_state('BF') is None
     assert illumination.get_led_states() is None
     assert illumination.save_led_state('after') is None
-    assert illumination.state_ch2color(3) is None
-    assert ('BF', False) in heard
+    assert ('BF', LedState.DARK) in heard
     assert common_utils.resolve_channel_identity(illumination, 'Green') == 'Green'
 
 

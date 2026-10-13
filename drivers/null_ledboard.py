@@ -16,7 +16,6 @@ The Lumascope API assigns ``self.led = NullLEDBoard()`` instead of
 from __future__ import annotations
 
 import logging
-import threading
 from typing import ClassVar
 
 from drivers.registry import led_registry
@@ -32,45 +31,25 @@ class NullLEDBoard:
     directly (``driver``, ``found``, ``port``, etc.).
     """
 
-    _COLOR_TO_CH: ClassVar[dict] = {
-        'Blue': 0,
-        'Green': 1,
-        'Red': 2,
-        'BF': 3,
-        'PC': 4,
-        'DF': 5,
-    }
-    _CH_TO_COLOR: ClassVar[dict] = {v: k for k, v in _COLOR_TO_CH.items()}
+    # The addresses a real EL-0940 LED board drives (LEDBoard).
+    _ADDRESSES: ClassVar[tuple[int, ...]] = tuple(range(8))
 
     def __init__(self):
         self.driver = True  # truthy sentinel -- satisfies `not self.led.driver`
         self.found = False
         self.port = None
         self.is_v2 = False
-        self._state_lock = threading.Lock()
-        self.led_ma = dict.fromkeys(self._COLOR_TO_CH, -1)
 
         logger.debug('[NULL LED  ] NullLEDBoard initialized (no LED hardware)')
 
-    def available_channels(self) -> tuple:
-        """Return the supported LED channel numbers.
+    def available_channels(self) -> tuple[int, ...]:
+        """Return the supported LED addresses.
 
-        Returns the same 6-channel range as a real RP2040 LED board so
-        callers using the NullLEDBoard fallback see consistent ranges
-        and silently no-op rather than raise ValueError on channel 0-5.
-
-        Returns:
-            tuple: Channel numbers (ints) supported by this board.
+        The same addresses as a real RP2040 LED board so callers using
+        the NullLEDBoard fallback see consistent ranges and silently
+        no-op rather than raise ValueError on an address 0-7.
         """
-        return tuple(self._COLOR_TO_CH.values())
-
-    def available_colors(self) -> tuple:
-        """Return the supported LED color names.
-
-        Returns:
-            tuple: Color name strings supported by this board.
-        """
-        return tuple(self._COLOR_TO_CH.keys())
+        return self._ADDRESSES
 
     # ------------------------------------------------------------------
     # Core LED methods (no-ops)
@@ -136,32 +115,6 @@ class NullLEDBoard:
     def wait_until_on(self, timeout_s=5.0) -> None:
         """Null implementation: no-op."""
         pass
-
-    # ------------------------------------------------------------------
-    # Channel mapping
-    # ------------------------------------------------------------------
-    def color2ch(self, color) -> int | None:
-        """Convert color name to numerical channel.
-
-        Args:
-            color: Color name (e.g. 'BF', 'Red', 'Blue').
-
-        Returns:
-            Channel number (0-5), or None for a colour this scope cannot
-            drive.
-        """
-        return self._COLOR_TO_CH.get(color)
-
-    def ch2color(self, channel) -> str | None:
-        """Convert numerical channel to color name.
-
-        Args:
-            channel: Channel number (0-5).
-
-        Returns:
-            Color name, or None for a channel this scope does not have.
-        """
-        return self._CH_TO_COLOR.get(channel)
 
     # ------------------------------------------------------------------
     # ADC / calibration (no-ops)

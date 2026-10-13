@@ -50,13 +50,14 @@ class _ObjectiveCatalogueOnly:
         )
 
 
-def _record():
+def _record(illumination_ma=None):
+    """A frame's record; ``illumination_ma`` maps LED address to mA."""
     return FrameRecord(
         captured_at=datetime.datetime(2026, 9, 29, 12, 0, 0, 123456),
         exposure_ms=12.5,
         gain_db=3.0,
         black_level=4.0,
-        illumination_ma={'BF': 40.0},
+        illumination_ma={3: 40.0} if illumination_ma is None else illumination_ma,
         frames_summed=2,
         frame_significant_bits=12,
         camera_timestamp_ticks=1000,
@@ -69,6 +70,9 @@ def _record():
 
 def test_the_builder_records_its_frame_with_the_live_scope_unreachable(sim_scope, monkeypatch):
     objective_id = '10x Oly'
+    # The frame's current is keyed by the address that lit it; the builder
+    # names it through the unit's layer identity, which is not live state.
+    bf_address = sim_scope.layer_identity.find('BF').led_channel[0]
     runtime_state = sim_scope.runtime_state
     monkeypatch.setattr(sim_scope, 'runtime_state', _ObjectiveCatalogueOnly(runtime_state))
     for part in ('imaging', 'illumination', 'motion', '_camera_driver'):
@@ -81,7 +85,7 @@ def test_the_builder_records_its_frame_with_the_live_scope_unreachable(sim_scope
         plate_y_mm=8.0,
         stage_z_um=4321.0,
         objective_id=objective_id,
-        frame_record=_record(),
+        frame_record=_record({bf_address: 40.0}),
         labware=WellPlateLoader().get_plate('6 well microplate'),
         well_label='A1',
     )
@@ -107,7 +111,7 @@ def test_the_builder_does_not_consult_the_clock():
 
 
 def test_a_frame_whose_led_was_off_records_no_current(sim_scope):
-    record = FrameRecord(**{**_record().__dict__, 'illumination_ma': {}})
+    record = _record({})
 
     metadata = image_save.generate_image_metadata(
         sim_scope,
@@ -128,4 +132,4 @@ def test_a_frame_whose_led_was_off_records_no_current(sim_scope):
 def test_a_record_cannot_be_changed_after_the_capture():
     record = _record()
     with pytest.raises(TypeError):
-        record.illumination_ma['BF'] = 0.0
+        record.illumination_ma[3] = 0.0

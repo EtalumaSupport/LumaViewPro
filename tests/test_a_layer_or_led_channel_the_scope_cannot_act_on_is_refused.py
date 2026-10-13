@@ -25,6 +25,7 @@ from modules.exceptions import (
     MissingPart,
     RefusalCause,
 )
+from modules.lumascope_api.illumination import LedState
 from tests.test_a_command_for_absent_motion_hardware_is_refused import _session
 from tests.case_walk import failing_cases
 
@@ -47,8 +48,12 @@ def _refused(call, reason):
 
 
 def _lit(session):
-    states = {layer: session.scope.illumination.get_led_state(layer) for layer in CATALOGUE}
-    return sorted(layer for layer, state in states.items() if state and state['enabled'])
+    """Every board address lit, named or not."""
+    return [
+        reading.address
+        for reading in session.scope.illumination.get_led_states()
+        if reading.state is LedState.LIT
+    ]
 
 
 NAME_MEMBERS = {
@@ -94,7 +99,7 @@ def test_a_number_off_the_boards_table_lights_nothing(session, channel):
         lambda: session.scope.illumination.led_on(channel, 10.0), 'led_channel_unknown'
     )
 
-    assert refusal.offered == (0, 1, 2, 3, 4, 5)
+    assert refusal.offered == (0, 1, 2, 3, 4, 5, 6, 7)
     assert _lit(session) == []
     _refused(lambda: session.scope.illumination.ch2color(channel), 'led_channel_unknown')
 
@@ -108,9 +113,13 @@ def test_a_layer_the_model_lacks_is_absent_hardware(session, member):
 
 
 def test_a_layer_the_model_lacks_is_a_name_and_keeps_its_answers(session):
+    """A layer with no LED maps to no address, its LED read is absent
+    hardware, and turning it off has nothing to darken."""
     illumination = session.scope.illumination
     assert illumination.color2ch('Lumi') is None
-    assert illumination.get_led_state('Lumi') == {'enabled': False, 'illumination_ma': None}
+    with pytest.raises(HardwareCommandRefusedError) as refused:
+        illumination.get_led_state('Lumi')
+    assert refused.value.missing == MissingPart.led('Lumi')
     illumination.led_off('Lumi')
 
 

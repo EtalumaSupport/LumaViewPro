@@ -78,7 +78,7 @@ from modules.live_work import LiveWork, WorkItem
 from modules.lumascope_api import AxisPosition
 from modules.lumascope_api._constants import refuse_unless_turret_slot
 from modules.lumascope_api.bring_up import PartStatus
-from modules.lumascope_api.illumination import LedLease, LedTransition, LedTransitionCtx
+from modules.lumascope_api.illumination import LedLease, LedState, LedTransition, LedTransitionCtx
 from modules.lumascope_api.runtime_state import slots_holding
 from modules.manual_capture import ManualCaptureController
 from modules.notification_center import Notification
@@ -4364,8 +4364,11 @@ class ScopeSession:
                         # cleanup, which turns the LEDs off itself -- this
                         # expiry does not mean LEDs were left on. The cached
                         # channel state answers that question directly.
-                        states = self.scope.illumination.get_led_states()
-                        lit = sorted(c for c, s in states.items() if s.get('enabled'))
+                        lit = [
+                            r.name or f'address {r.address}'
+                            for r in self.scope.illumination.get_led_states() or ()
+                            if r.state is LedState.LIT
+                        ]
                         state_text = (
                             'channels still ON: ' + ', '.join(lit) if lit else 'all channels OFF'
                         )

@@ -20,6 +20,7 @@ from modules.activity_claim import ActivityClaim
 import modules.manual_recording as manual_recording_module
 from modules.exceptions import RecordingRefusedError
 from modules.layer_record import LayerIdentity, LayerRecord, release_catalogue
+from modules.lumascope_api.illumination import LedReading, LedState
 from modules.manual_recording import ManualRecordingController
 from modules.notification_center import Severity
 from modules.recording_frames import MANUAL_HYPERSTACK_FILENAME
@@ -105,13 +106,20 @@ class _FakeIllumination:
         self._board = board
         self._lit = lit
 
+    # One reading per board address, address order, each named by the
+    # layer the unit's identity gives it; the two trailing addresses are
+    # named by no layer, as on an EL-0940 board.
+    _NAMES = ('Blue', 'Green', 'Red', 'BF', 'PC', 'DF', None, None)
+
     def get_led_states(self):
         if not self._board:
             return None
-        return {
-            color: {'enabled': color == self._lit, 'illumination_ma': None, 'owner': ''}
-            for color in ('Blue', 'Green', 'Red', 'BF', 'PC', 'DF')
-        }
+        return tuple(
+            LedReading(address, name, LedState.LIT, 100.0)
+            if name is not None and name == self._lit
+            else LedReading(address, name, LedState.DARK, None)
+            for address, name in enumerate(self._NAMES)
+        )
 
 
 class _FakeRuntimeState:

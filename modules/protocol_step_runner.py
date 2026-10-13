@@ -426,7 +426,6 @@ class ProtocolStepRunner:
                     resolved_policy, snapshot_lit = resolve_end_state(
                         p._run_mode.leds_state_at_end,
                         getattr(p, '_original_led_states', None),
-                        p._scope.illumination.state_color2ch,
                     )
                     if resolved_policy is not None:
                         end_policy = resolved_policy

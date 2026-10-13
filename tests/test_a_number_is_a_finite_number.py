@@ -22,6 +22,7 @@ from modules.finite_number import is_finite_number
 from modules.coord_transformations import CoordinateTransformer
 from modules.exceptions import ArgumentRefusedError, RefusalCause
 from modules.labware_loader import WellPlateLoader
+from modules.lumascope_api.illumination import LedState
 from modules.lumascope_api.motion import AxisState
 from modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
@@ -94,7 +95,7 @@ def test_a_stored_camera_value_is_refused_not_applied_at_the_maximum(session, va
 def test_an_led_current_is_refused_and_nothing_lit(session, value):
     illumination = session.scope.illumination
     _refused(lambda: illumination.led_on('BF', value), 'illumination_ma')
-    assert not illumination.get_led_state('BF')['enabled']
+    assert illumination.get_led_state('BF').state is LedState.DARK
 
 
 @pytest.mark.parametrize('value', NOT_FINITE)

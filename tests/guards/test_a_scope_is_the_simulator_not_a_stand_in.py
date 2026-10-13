@@ -167,7 +167,7 @@ def _entries_with_a_site() -> set[str]:
 
 # Seeded at LVP dev/4.0.0 b17419cc (2026-10-09) with 237 entries. Only shrinks: a
 # commit that takes a stand-in to the simulator deletes its entry and lowers this.
-ALLOWED_ENTRIES = 228
+ALLOWED_ENTRIES = 222
 ALLOWED = frozenset(
     {
         'tests/af_drives.py::af_runner_and_scope',
@@ -277,7 +277,6 @@ ALLOWED = frozenset(
         'tests/test_firmware_updater.py::TestSendFwupdateCommand.test_raises_on_exchange_exception',
         'tests/test_firmware_updater.py::TestUpdateFirmwareSameVersion.test_same_version_returns_success',
         'tests/test_frame_carries_depth.py::TestGetImageFromBufferUsesFrameDepth.test_downconvert_uses_frame_depth_not_live_driver',
-        'tests/test_frame_metadata_from_chunk.py::_imaging',
         'tests/test_frame_validity.py::TestCaptureTimeChunkVerification._make_imaging',
         'tests/test_fresh_process_reads_homed_state.py::TestAxisStateSeeding.test_homed_hardware_seeds_idle_so_the_gate_permits_motion',
         'tests/test_fresh_process_reads_homed_state.py::TestAxisStateSeeding.test_partially_homed_hardware_seeds_each_axis_on_its_own_answer',
@@ -310,7 +309,7 @@ ALLOWED = frozenset(
         'tests/test_led_cap_published_by_driver.py::_caps_with',
         'tests/test_led_supports_firmware_stim.py::TestSupportsFirmwareStimProbe._make_led',
         'tests/test_led_supports_firmware_stim.py::TestSupportsFirmwareStimProbe.test_driver_none_returns_false_without_probing',
-        'tests/test_lumascope_api.py::TestLEDChannelDiscovery.test_ledboard_available_channels_from_color_map',
+        'tests/test_lumascope_api.py::TestLEDChannelDiscovery.test_ledboard_available_channels_are_its_eight_addresses',
         'tests/test_lumascope_api.py::TestMotorBoardGetMicroscopeModelDisconnect.test_returns_none_when_model_key_missing',
         'tests/test_lumascope_api.py::TestProtocolConformance.test_ledboard_satisfies_protocol',
         'tests/test_lumascope_api.py::TestProtocolConformance.test_motorboard_satisfies_protocol',
@@ -347,13 +346,8 @@ ALLOWED = frozenset(
         'tests/test_serial_logging_coverage.py::test_stim_probe_logs_to_serial_log',
         'tests/test_serial_safety.py::TestExchangeCommandStopOnEmpty._make_led_board',
         'tests/test_serial_safety.py::TestLEDBoardCommands._make_board',
-        'tests/test_serial_safety.py::TestLEDBoardConversion.test_ch2color_all',
-        'tests/test_serial_safety.py::TestLEDBoardConversion.test_ch2color_unknown_is_none',
-        'tests/test_serial_safety.py::TestLEDBoardConversion.test_color2ch_all',
-        'tests/test_serial_safety.py::TestLEDBoardConversion.test_color2ch_unknown_is_none',
-        'tests/test_serial_safety.py::TestLEDBoardConversion.test_roundtrip_all_channels',
+        'tests/test_serial_safety.py::TestLEDBoardConcurrency._make_board',
         'tests/test_serial_safety.py::TestLEDBoardLocking._make_board',
-        'tests/test_serial_safety.py::TestLEDBoardStateLock._make_board',
         'tests/test_serial_safety.py::TestLEDFirmwareVersion._make_board',
         'tests/test_serial_safety.py::TestLEDNoneHandling._make_board',
         'tests/test_serial_safety.py::TestMotorBoardCommands._make_board',

@@ -61,15 +61,6 @@ class TestSimulatedLEDBoard:
         assert resp is not None
         assert board.is_connected()
 
-    def test_color_channel_conversion(self):
-        board = SimulatedLEDBoard()
-        assert board.color2ch('Blue') == 0
-        assert board.color2ch('Green') == 1
-        assert board.color2ch('Red') == 2
-        assert board.color2ch('BF') == 3
-        assert board.ch2color(0) == 'Blue'
-        assert board.ch2color(3) == 'BF'
-
     def test_thread_safety(self):
         """Concurrent LED on/off should not corrupt state."""
         board = SimulatedLEDBoard()
@@ -83,18 +74,19 @@ class TestSimulatedLEDBoard:
             except Exception as e:
                 errors.append(e)
 
-        threads = [threading.Thread(target=toggle, args=(ch, 50)) for ch in range(6)]
+        threads = [
+            threading.Thread(target=toggle, args=(ch, 50)) for ch in board.available_channels()
+        ]
         for t in threads:
             t.start()
         for t in threads:
             t.join(timeout=10)
 
         assert not errors, f'Thread safety errors: {errors}'
-        # All LEDs should be off after all toggles complete; check the
-        # driver-internal cache (now Phase-3d.5 dead state) directly
-        # since the protocol-level reader was retired.
-        for color, illumination_ma in board.led_ma.items():
-            assert illumination_ma == -1, f'{color} not reset after concurrent toggle'
+        # All LEDs should be off after all toggles complete, as the
+        # simulated board's own current read reports them.
+        lit = {ch: board.read_led_current(ch) for ch in board.available_channels()}
+        assert set(lit.values()) == {0.0}, f'not reset after concurrent toggle: {lit}'
 
 
 # ---------------------------------------------------------------------------

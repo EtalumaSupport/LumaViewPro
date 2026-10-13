@@ -31,6 +31,8 @@ from unittest.mock import MagicMock, call
 
 import pytest
 
+from modules.lumascope_api.illumination import LedReading, LedState
+
 from tests.test_issue_733_step_nav_preview_led_button import (  # noqa: F401 -- stepnav_env is a fixture
     _make_step,
     stepnav_env,
@@ -164,7 +166,10 @@ def _reconcile_harness(guard_set):
     )
     # 'Green' collapsed with its LED enabled (the channel the reconcile
     # would kill); 'Red' open (the layer it would apply).
-    ctx.scope.illumination.get_led_state.return_value = {'enabled': True}
+    ctx.scope.illumination.get_led_states.return_value = (
+        LedReading(1, 'Green', LedState.LIT, 100.0),
+        LedReading(2, 'Red', LedState.DARK, None),
+    )
     layers = {
         'Green': (_FakeAccordionItem(collapse=True), MagicMock()),
         'Red': (_FakeAccordionItem(collapse=False), MagicMock()),
@@ -175,6 +180,7 @@ def _reconcile_harness(guard_set):
     namespace = {
         'logger': MagicMock(),
         'gui_logger': MagicMock(),
+        'LedState': LedState,
         '_app_ctx': SimpleNamespace(ctx=ctx),
         'common_utils': SimpleNamespace(
             get_layers=lambda: list(layers), get_opened_layer=lambda _drawers: 'Red'

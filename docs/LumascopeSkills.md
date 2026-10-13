@@ -1296,6 +1296,7 @@ still states the major version.
 | level 7 | `lvp_logger.git_revision()` takes no argument: the commit the running code was built from, read where the code lives (links resolved), so a launch from a folder of links into a clone names the clone's commit; from a GitHub ZIP's or an installer's `.git_archival.txt` first; a frozen build asks git nothing, so an installer built by a build script below v4 answers `None`. |
 | level 8 | Every `Refusal` and `Quiet` type states its cause (`RefusalCause`, `modules.exceptions`), as `cause` or, where its reasons differ, as `causes` keyed by reason: a plugin's own refusal type that states neither is refused at import, and one built with a reason its `causes` lacks raises `TypeError`. `RunAlreadyEndedError` carries `reason` `'run_already_ended'` and a title. |
 | level 9 | The session saves every accepted settings write itself (`ScopeSession.create(settings_file=...)`), and `save_settings`, `SettingsSaveRefusedError` and `on_settings_changed` are gone; `PluginSpec.subscribes_to` is accepted empty, and a spec naming keys is not loaded, its reason naming level 8 as the last that told a plugin of a settings change. |
+| level 10 | LED state is by address: `get_led_state` (a layer name or an address) answers an `LedReading` (`address`, `name`, `state`, `illumination_ma`), `get_led_states` a tuple of them for every address of the board, `save_led_state` an `LedSnapshot`; the LED listener is called with `(address, name, state, illumination_ma)`; `get_led_state` of a layer the identity gives no LED raises `axis_absent`; the drivers' `ch2color`, `color2ch`, `available_colors` and `led_ma` are gone, and the EL-0940 board addresses 0-7; an LED write the active lease does not permit raises `exclusive_activity_running`, and `led_on` always returns the commanded current. |
 
 ### Configuration queries
 
@@ -1618,13 +1619,18 @@ scope.illumination.ch2color(0)                         # 'Blue'
 
 ### State queries — read from the API, never the driver
 
-`scope.illumination` (`IlluminationAPI`) holds the authoritative LED state; its `get_led_state()` / `get_led_states()` read from that store. **Never call the driver's state methods directly** — for FX2 scopes the driver is a pure command translator and its state queries return sentinels.
+`scope.illumination` (`IlluminationAPI`) holds the authoritative LED state, by LED address; its `get_led_state()` / `get_led_states()` read from that store. A driver holds no LED state and names no address: which layer an address lights is the unit's layer identity's (`ch2color` / `color2ch`), read at the moment of the reading.
+
+Each read answers an `LedReading`: the `address`, the layer `name` the identity gives it (`None` when it names none -- the address is still reported, never hidden), its `state` (`LedState.LIT`, `DARK` or `UNKNOWN`; `'lit'`, `'dark'`, `'unknown'` on the wire) and its `illumination_ma` (the commanded current when lit, else `None`).
 
 ```python
-scope.illumination.get_led_state('Blue')               # {'enabled': True, 'illumination_ma': 200} when on; {'enabled': False, 'illumination_ma': None} when off
-scope.illumination.get_led_states()                    # all channels, same per-channel shape as get_led_state
-scope.illumination.save_led_state('mine')              # a snapshot for restore_led_state
+scope.illumination.get_led_state('Blue')               # LedReading(address=0, name='Blue', state=LedState.LIT, illumination_ma=200.0)
+scope.illumination.get_led_state(0)                    # the same address, by number
+scope.illumination.get_led_states()                    # one LedReading per address of the board (0-7 on the EL-0940 board, 0-3 on FX2)
+scope.illumination.save_led_state('mine')              # an LedSnapshot(tag, readings) for restore_led_state
 ```
+
+A layer name the unit's identity gives no LED (`'Lumi'`, or `'Red'` on an LS560) is refused `axis_absent`, as `led_on` refuses it.
 
 With no LED board installed -- none came up, or after `session.shutdown()` -- the three answer `None`: there is no board whose state to describe, which is not the same answer as every channel off. Shutdown darkens the board and leaves nothing believed lit. A frame captured then records no LED lit.
 
@@ -1652,15 +1658,15 @@ scope.illumination.led_on('BF', 100)
 scope.illumination.restore_led_state(snapshot)                   # Red back on at 150 mA, BF off
 ```
 
-`save_led_state(tag)` returns a snapshot dict (the tag is for logs); `restore_led_state(snapshot)` turns off lit channels the snapshot does not have on and re-lights the ones it does. While a run holds the LEDs, the restore is refused like any other write.
+`save_led_state(tag)` returns an `LedSnapshot` (the tag is for logs; a REST client gets it as JSON and can send it back); `restore_led_state(snapshot)` turns off the addresses the snapshot does not have lit and re-lights the ones it does. While a run holds the LEDs, the restore is refused like any other write.
 
 ### Listeners — push-based notifications
 
 Prefer listeners over polling. Listeners fire on every LED state change (enable, disable, illumination change) with no serial I/O cost:
 
 ```python
-def on_led(channel: str, enabled: bool, illumination_ma: float):
-    print(f"{channel} {'ON' if enabled else 'OFF'} {illumination_ma}mA")
+def on_led(address: int, name: str | None, state: LedState, illumination_ma: float | None):
+    print(f"{name or address} {state} {illumination_ma}mA")
 
 scope.illumination.add_led_listener(on_led)
 # ... later ...
@@ -1972,7 +1978,7 @@ The six listener families each pass a different callback signature -- register a
 | Listener | Register via | Callback signature | Event record |
 |---|---|---|---|
 | Motion / position | `scope.motion.add_position_listener` | `on_position(axis: str, at: AxisPosition)` | `PositionChanged(axis, at)` |
-| LED / illumination | `scope.illumination.add_led_listener` | `on_led(channel: str, enabled: bool, illumination_ma: float)` | `LedChanged(channel, on, illumination_ma)` |
+| LED / illumination | `scope.illumination.add_led_listener` | `on_led(address: int, name: str \| None, state: LedState, illumination_ma: float \| None)` | `LedReading(address, name, state, illumination_ma)` |
 | Camera params | `scope.imaging.add_camera_listener` | `on_camera(param: str, value: float)` | `CameraChanged(setting, value)` |
 | Live frame | `scope.imaging.add_frame_listener` | `on_frame(image, timestamp, chunks)` | `FrameDelivered(image, timestamp, chunks)` |
 | Run state | `session.add_run_state_listener` | `on_run_state()` -- no payload; re-read the session derivations (see Run state and locks above) | `LiveWork`, read as the event is sent |
@@ -2145,7 +2151,8 @@ caps.has_turret                 # True if the turret axis is present
 caps.model                      # e.g. 'LS850T'; the layer identity's model, '' if none
 
 # LED
-caps.led_channels               # e.g. (0, 1, 2, 3) for FX2 scopes; (0..5) for RP2040; None when the scope came up without its LED board
+caps.led_channels               # e.g. (0, 1, 2, 3) for FX2 scopes; (0..7) for RP2040; None when the scope came up without its LED board
+caps.led_colors                 # the model's layers that drive an LED, from its layer identity
 caps.led_max_ma                 # per-channel current cap; None when the scope came up without its LED board
 caps.has_firmware_stim          # firmware-timed stim support on the LED board
 
@@ -2461,7 +2468,7 @@ Every answer that is not a result is an RFC 9457 problem, `application/problem+j
 | Event | Data |
 |---|---|
 | `position` | `PositionChanged`: an axis's state and position, as `axis_positions` answers |
-| `led` | `LedChanged` |
+| `led` | `LedReading` |
 | `camera` | `CameraChanged`: gain or exposure |
 | `run_state` | `LiveWork`, as `live_work` reads when the event is sent |
 | `outcome` | `Notification`: an outcome nobody asked for, once per `outcome_id` (one a request was refused with is its answer's problem) |
@@ -3148,6 +3155,7 @@ Reached through `session.scope.capabilities`.
 - `has_xy_stage`
 - `is_color_native`
 - `led_channels`
+- `led_colors`
 - `led_max_ma`
 - `lens_focal_length_mm`
 - `model`
@@ -3496,13 +3504,21 @@ Reached through returned by `scope.layer_identity.find` and `layers`.
 - `key_name`
 - `led_channel`
 
-### LedChanged
+### LedReading
 
-Reached through the event `scope.illumination.add_led_listener` delivers.
+Reached through returned by `scope.illumination.get_led_state` and `get_led_states`, and the event `scope.illumination.add_led_listener` delivers.
 
-- `channel`
+- `address`
 - `illumination_ma`
-- `on`
+- `name`
+- `state`
+
+### LedSnapshot
+
+Reached through returned by `scope.illumination.save_led_state`; passed to `restore_led_state`.
+
+- `readings`
+- `tag`
 
 ### LiveFolderEntry
 

@@ -18,6 +18,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from modules.lumascope_api.illumination import LedReading, LedState
+
 from tests.protocol_drives import lent_run_claim
 from tests.frame_records import plate
 from modules.protocol_image_writer import RunWriteBatch
@@ -339,7 +341,7 @@ class TestRunCleanup:
             'scan_in_progress': threading.Event(),
             'forced_dark': False,
             'leds_state_at_end': 'off',
-            'original_led_states': {},
+            'original_led_states': (),
             'saved_camera_state': None,
             'return_to_position': None,
             'scope': MagicMock(),
@@ -702,15 +704,10 @@ class TestFinalStepKeepsLedWhenCleanupRestoresIt:
             if transition is LedTransition.STEP_BOUNDARY:
                 captured['ctx'] = ctx
 
-        # Identity and driver resolvers agree on a real channel number, as
-        # they do on real hardware: the hold decision compares the step's
-        # channel against the run-end snapshot, and a bare MagicMock would
-        # hand each resolver a different sentinel object.
-        def resolver(c):
-            return {'BF': 3}.get(c)
-
-        runner._scope.illumination.color2ch.side_effect = resolver
-        runner._scope.illumination.state_color2ch.side_effect = resolver
+        # The identity resolves the step's layer to the address the
+        # run-end snapshot holds: the hold decision compares the two, and a
+        # bare MagicMock would hand back a sentinel object instead.
+        runner._scope.illumination.color2ch.side_effect = {'BF': 3}.get
 
         runner._step_executor.apply_led_transition = _spy
         runner._step_executor.scan_iterate()
@@ -720,7 +717,7 @@ class TestFinalStepKeepsLedWhenCleanupRestoresIt:
 
     @staticmethod
     def _lit_before_run():
-        return {'BF': {'enabled': True, 'illumination_ma': 100.0}}
+        return (LedReading(3, 'BF', LedState.LIT, 100.0),)
 
     def test_final_scan_restore_keeps_lit_channel(self):
         assert self._boundary_target_for(

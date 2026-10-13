@@ -19,6 +19,7 @@ import pytest
 from modules import sequential_io_executor
 from modules.activity_claim import acting
 from modules.exceptions import HardwareCommandRefusedError
+from modules.lumascope_api.illumination import LedReading, LedSnapshot, LedState
 from tests.protocol_drives import run_identity
 
 
@@ -53,7 +54,7 @@ _GATED = [
     (
         'restore_led_state',
         lambda sc: sc.illumination.restore_led_state(
-            {'tag': 't', 'states': {'Blue': {'enabled': True, 'illumination_ma': 10}}}
+            LedSnapshot('t', (LedReading(0, 'Blue', LedState.LIT, 10.0),))
         ),
         '_led_driver',
         'led_on',

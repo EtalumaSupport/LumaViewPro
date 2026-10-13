@@ -131,7 +131,7 @@ def test_a_signal_closes_the_session_with_its_clients_connected(session, monkeyp
     assert (refused.status_code, refused.json()['reason']) == (503, 'server_closing')
     assert jobs.status_code == 200
     # The close's own report reached the stream before closing: the LED it turned off.
-    assert {'channel': 'Blue', 'on': False, 'illumination_ma': 0.0} in [
+    assert {'address': 0, 'name': 'Blue', 'state': 'dark', 'illumination_ma': None} in [
         e['data'] for e in told if e['event'] == 'led'
     ]
     assert after == []

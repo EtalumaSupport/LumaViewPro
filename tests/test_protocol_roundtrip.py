@@ -26,6 +26,8 @@ import time
 import pandas as pd
 import pytest
 
+from modules.lumascope_api.illumination import LedState
+
 from modules.activity_claim import ActivityClaim
 from modules.exceptions import ProtocolRunRefusedError
 from modules.image_mode import ImageCaptureConfig
@@ -2143,32 +2145,29 @@ class TestLumascapeAPILed:
 
     def test_led_on_off(self, scope):
         scope.illumination.led_on(channel=0, illumination_ma=100)
-        assert scope.illumination.get_led_state('Blue')['enabled']
+        assert scope.illumination.get_led_state('Blue').state is LedState.LIT
         scope.illumination.led_off(channel=0)
-        assert not scope.illumination.get_led_state('Blue')['enabled']
+        assert scope.illumination.get_led_state('Blue').state is LedState.DARK
 
     def test_led_on_by_color_name(self, scope):
         scope.illumination.led_on(channel='Green', illumination_ma=200)
         state = scope.illumination.get_led_state('Green')
-        assert state['enabled']
-        assert state['illumination_ma'] == 200
+        assert (state.state, state.illumination_ma) == (LedState.LIT, 200)
 
     def test_leds_off(self, scope):
         scope.illumination.led_on(channel='BF', illumination_ma=50)
         scope.illumination.led_on(channel='Red', illumination_ma=100)
         scope.illumination.leds_off()
-        states = scope.illumination.get_led_states()
-        for color, state in states.items():
-            assert not state['enabled'], f'LED {color} still on after leds_off'
+        not_dark = [r for r in scope.illumination.get_led_states() if r.state is not LedState.DARK]
+        assert not_dark == [], f'LEDs not dark after leds_off: {not_dark}'
 
     def test_led_states_snapshot(self, scope):
         scope.illumination.led_on(channel='Green', illumination_ma=200)
         scope.illumination.led_on(channel='Red', illumination_ma=150)
-        states = scope.illumination.get_led_states()
-        assert states['Green']['enabled']
-        assert states['Green']['illumination_ma'] == 200
-        assert states['Red']['enabled']
-        assert not states['BF']['enabled']
+        states = {r.name: r for r in scope.illumination.get_led_states()}
+        assert (states['Green'].state, states['Green'].illumination_ma) == (LedState.LIT, 200)
+        assert states['Red'].state is LedState.LIT
+        assert states['BF'].state is LedState.DARK
 
 
 class TestLumascapeAPIMotor:

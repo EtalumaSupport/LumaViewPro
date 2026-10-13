@@ -11,7 +11,7 @@ This test builds that missing guard. It runs real protocol / autofocus /
 manual-nav paths on a real ``Lumascope(simulate=True)`` with real
 ``SequentialIOExecutor`` workers and asserts the **LED-only command substream**
 recorded by a driver listener. The substream is the sequence of
-``(color, enabled, mA)`` events that actually reached the LED driver, in
+``(layer, lit, mA)`` readings the LED listener was told, in
 order. Because a no-op (a channel already at target) emits no driver command,
 the listener is a direct measure of "did the LED blink / hold / switch".
 
@@ -41,6 +41,8 @@ import time
 from unittest.mock import MagicMock
 
 import pytest
+
+from modules.lumascope_api.illumination import LedState
 
 
 from modules.activity_claim import ActivityClaim
@@ -138,7 +140,8 @@ def _build_protocol(step_specs):
 class LedSubstream:
     """Thread-safe recorder of the LED-only command substream.
 
-    Records (color, enabled, mA) for every driver command, in order.
+    Records (layer name, lit, mA) for every LED reading the listener is told,
+    in order; an address the identity names no layer for is recorded as None.
     The listener fires from whichever worker thread issued the command, so the
     append is locked.
     """
@@ -147,9 +150,9 @@ class LedSubstream:
         self._events: list[tuple] = []
         self._lock = threading.Lock()
 
-    def __call__(self, color, enabled, illumination_ma):
+    def __call__(self, address, name, state, illumination_ma):
         with self._lock:
-            self._events.append((color, bool(enabled), illumination_ma))
+            self._events.append((name, state is LedState.LIT, illumination_ma))
 
     @property
     def events(self) -> list[tuple]:
@@ -222,7 +225,7 @@ class LedSubstream:
         lines = []
         for c, e, m in self.events:
             verb = 'ON ' if e else 'OFF'
-            lines.append(f'  {verb} {c:<6} mA={m}')
+            lines.append(f'  {verb} {c!s:<6} mA={m}')
         return '\n'.join(lines) if lines else '  (no LED events)'
 
 
@@ -544,8 +547,12 @@ def test_s8_live_write_refused_while_run_holds_lease(scope):
         ill.led_off(channel=ill.color2ch('Green'))
     assert refused_on.value.reason == refused_off.value.reason == 'exclusive_activity_running'
 
-    assert ill.get_led_state('Green')['enabled'], 'protocol channel was disturbed by a live write'
-    assert not ill.get_led_state('Red')['enabled'], 'live write lit a channel despite the lease'
+    assert ill.get_led_state('Green').state is LedState.LIT, (
+        'protocol channel was disturbed by a live write'
+    )
+    assert ill.get_led_state('Red').state is LedState.DARK, (
+        'live write lit a channel despite the lease'
+    )
     # Exactly one command reached the driver (the protocol's Green on): the two
     # refused writes emitted nothing -- no Red blink, no Green off.
     assert sub.on_events() == [('Green', 250.0)], sub.render()
@@ -589,7 +596,7 @@ def test_s9_manual_nav_preview_lights_holds_and_switches(scope_io):
 
     # Preview to a Green step.
     _preview('Green', 250.0)
-    assert ill.get_led_state('Green')['enabled']
+    assert ill.get_led_state('Green').state is LedState.LIT
     assert sub.lit_transitions('Green') == [True], sub.render()
 
     # Re-navigate to the same color: idempotent hold, no blink.

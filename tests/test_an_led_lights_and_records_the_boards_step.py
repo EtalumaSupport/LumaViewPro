@@ -17,6 +17,7 @@ import time
 import pytest
 
 import drivers.sim_wire.backend as sim_backend
+from modules.lumascope_api.illumination import LedState
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 
@@ -47,7 +48,7 @@ def test_an_fx2_request_below_one_step_lights_at_one_step(fx2, caplog):
     assert any('(requested 1.0)' in r.getMessage() for r in caplog.records)
     assert peripheral.commands[-1] == ('D', 1)
     assert commanded == pytest.approx(_FX2_STEP_MA)
-    assert illumination.get_led_state('BF')['illumination_ma'] == pytest.approx(_FX2_STEP_MA)
+    assert illumination.get_led_state('BF').illumination_ma == pytest.approx(_FX2_STEP_MA)
 
 
 def test_an_fx2_request_repeated_is_written_once(fx2):
@@ -65,7 +66,8 @@ def test_an_fx2_frame_records_the_commanded_current(fx2_session, fx2):
     imaging = fx2_session.scope.imaging
     assert imaging.capture_and_wait(accept_dark=True, timeout_s=2.0) is not None
     record = imaging.last_capture_info['frame_record']
-    assert record.illumination_ma['BF'] == pytest.approx(2 * _FX2_STEP_MA)
+    bf_address = fx2_session.scope.layer_identity.find('BF').led_channel[0]
+    assert record.illumination_ma[bf_address] == pytest.approx(2 * _FX2_STEP_MA)
 
 
 def test_the_simulated_serial_board_steps_as_the_board_does():
@@ -123,7 +125,7 @@ def test_a_serial_request_below_1_ma_lights_at_1_ma(serial):
     commanded = illumination.led_on(0, 0.5)
     # The field firmware's mA_to_dac: int(60.936 * 1 + 890).
     assert _dac(board, 0) == 950
-    assert illumination.get_led_state('Blue')['illumination_ma'] == 1.0
+    assert illumination.get_led_state('Blue').illumination_ma == 1.0
     assert commanded == 1.0
 
 
@@ -143,5 +145,6 @@ def test_a_serial_request_of_0_ma_is_dark_and_stays_on_at_0(serial):
     illumination.led_on(0, 10)
     commanded = illumination.led_on(0, 0)
     assert _dac(board, 0) == 0
-    assert illumination.get_led_state('Blue') == {'enabled': True, 'illumination_ma': 0.0}
+    blue = illumination.get_led_state('Blue')
+    assert (blue.state, blue.illumination_ma) == (LedState.LIT, 0.0)
     assert commanded == 0.0

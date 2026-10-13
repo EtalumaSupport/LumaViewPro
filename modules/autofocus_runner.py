@@ -548,10 +548,7 @@ class AutofocusRunner:
                             else None
                         )
                         snapshot_lit = (
-                            snapshot_lit_pairs(
-                                self._saved_led_state.get('states', {}),
-                                illumination.state_color2ch,
-                            )
+                            snapshot_lit_pairs(self._saved_led_state.readings)
                             if self._saved_led_state
                             else frozenset()
                         )

@@ -26,6 +26,7 @@ import pandas as pd
 import pytest
 
 from modules.exceptions import ArgumentRefusedError, AxisStateUnknownError, ProtocolRunRefusedError
+from modules.lumascope_api.illumination import LedState
 from modules.protocol import Protocol, StepNotFoundError
 from modules.scope_session import ScopeSession
 from tests.ast_seams import REPO_ROOT, parse_module, production_modules, walk_defs
@@ -383,12 +384,12 @@ class TestTheStepIntoItsLayer:
 
 class TestTheLedPreview:
     @staticmethod
-    def _lit(built: ScopeSession) -> set[str]:
-        illumination = built.scope.illumination
+    def _lit(built: ScopeSession) -> set[str | None]:
+        """The name of every lit LED address (None for one the identity does not name)."""
         return {
-            layer
-            for layer in ('BF', 'Blue', 'Green', 'Red')
-            if illumination.get_led_state(channel=layer)['enabled']
+            reading.name
+            for reading in built.scope.illumination.get_led_states()
+            if reading.state is LedState.LIT
         }
 
     def test_going_to_a_step_lights_its_channel_when_the_preview_is_on(self, session):
@@ -499,7 +500,9 @@ class TestEveryStepValueReachesTheLayer:
 
         no_motor_session.go_to_step(protocol, 0)
 
-        assert no_motor_session.scope.illumination.get_led_state(channel='BF')['enabled']
+        assert no_motor_session.scope.illumination.get_led_state(channel='BF').state is (
+            LedState.LIT
+        )
 
 
 class TestTheSlotLookupCannotDisagreeWithTheRule:

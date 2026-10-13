@@ -41,6 +41,7 @@ from lvp_logger import logger
 import modules.common_utils as common_utils
 from modules import gui_logger
 from modules.kivy_utils import schedule_ui
+from modules.lumascope_api.illumination import LedState
 
 
 class UIListenerBridge:
@@ -101,36 +102,39 @@ class UIListenerBridge:
             # question where it ends, never on each event of the move.
             schedule_ui(lambda dt: z_ctrl.show_turret_state(prompt=False), 0)
 
-    def _on_led_state_changed(self, channel, enabled, illumination_ma):
-        """LED listener -- coalesces rapid stim pulses to one UI update per channel per Kivy frame.
+    def _on_led_state_changed(self, address, name, state, illumination_ma):
+        """LED listener -- coalesces rapid stim pulses to one UI update per address per Kivy frame.
 
         Replaces all manual ``update_led_toggle_ui()`` calls.
         """
-        if channel in self._pending_led_updates:
+        if address in self._pending_led_updates:
             return  # Already scheduled, will pick up latest state
-        self._pending_led_updates[channel] = True
+        self._pending_led_updates[address] = True
 
-        def _update_led_ui(dt, c=channel):
-            self._pending_led_updates.pop(c, None)
-            self._write_led_button_from_driver(color=c)
+        def _update_led_ui(dt, a=address):
+            self._pending_led_updates.pop(a, None)
+            if not self._ctx.ready:
+                return
+            # Re-read: the event's fields may be stale by now. None with
+            # no LED board installed, after disconnect.
+            reading = self._scope.illumination.get_led_state(channel=a)
+            if reading is not None and reading.name is not None:
+                self._write_led_button(reading.name, lit=reading.state is LedState.LIT)
 
         schedule_ui(_update_led_ui, 0)
 
-    def _write_led_button_from_driver(self, color: str) -> None:
-        """Write one channel's enable toggle from CURRENT driver truth.
+    def _write_led_button(self, color: str, *, lit: bool) -> None:
+        """Write one layer's enable toggle as the API reads its LED.
 
-        Reads the driver state (not event args, which may be stale) and
-        writes 'down'/'normal'. A state write is not a press -- the button
-        drives an LED only from on_release -- so reflecting driver truth
-        cannot itself drive an LED.
+        Writes 'down'/'normal'. A state write is not a press -- the button
+        drives an LED only from on_release -- so reflecting the API's
+        reading cannot itself drive an LED.
         """
         ctx = self._ctx
         if not ctx.ready:
             return
         layer_obj = ctx.image_settings.layer_lookup(layer=color)
-        # None with no LED board installed: nothing is lit.
-        state = self._scope.illumination.get_led_state(channel=color)
-        target = 'down' if state is not None and state['enabled'] else 'normal'
+        target = 'down' if lit else 'normal'
         gui_logger.display(f'LED_BUTTON_{color}', 'lit' if target == 'down' else 'off')
         if layer_obj.ids['enable_led_btn'].state != target:
             layer_obj.ids['enable_led_btn'].state = target
@@ -147,8 +151,14 @@ class UIListenerBridge:
         """
 
         def _reconcile(dt):
+            # None with no LED board installed: nothing is lit.
+            lit = {
+                r.name
+                for r in self._scope.illumination.get_led_states() or ()
+                if r.state is LedState.LIT
+            }
             for color in common_utils.get_layers_with_led():
-                self._write_led_button_from_driver(color=color)
+                self._write_led_button(color, lit=color in lit)
 
         schedule_ui(_reconcile, 0)
 
