@@ -101,9 +101,10 @@ _REASON_UNNAMED_PINNED = frozenset(
 # DiagnosticsAPI.motor_fan_spin_times, a sentinel read that raises nothing
 # and so has no section to state (Eric, 2026-10-12); 166 since
 # ScopeSession.remove_run_state_listener, a remove that raises nothing
-# (Eric, 2026-10-13); the count does not yet tell a member that raises
-# nothing from one that has not said.
-_WITHOUT_A_SECTION_CEILING = 166
+# (Eric, 2026-10-13); 167 since ProtocolsAPI.tiling_config, a read of the
+# scope's copy that bring-up refuses for it (Eric, 2026-10-13); the count
+# does not yet tell a member that raises nothing from one that has not said.
+_WITHOUT_A_SECTION_CEILING = 167
 
 
 def _sections():

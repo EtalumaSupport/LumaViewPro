@@ -18,6 +18,7 @@ INSTALLATION_FILES = (
     'scopes.json',
     'motorconfig_defaults.json',
     'settings.json',
+    'tiling.json',
 )
 
 

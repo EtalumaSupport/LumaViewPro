@@ -10,8 +10,13 @@ construction, and the in-process methods answer from them.
 
 import json
 
+import pytest
+
 from modules.exceptions import InstallationFileError
+from modules.scope_session import ScopeSession
 from modules.tiling_config import TilingConfig
+from tests.installation_fixtures import copy_installation_files
+from tests.settings_fixtures import complete_settings
 
 
 def _write(tmp_path, document):
@@ -82,23 +87,34 @@ def test_a_tiling_file_no_reader_can_use_is_refused_as_the_installation_s(tmp_pa
     assert wrong == {}
 
 
-def test_a_missing_tiling_file_answers_a_wire_client_as_the_installation_s(tmp_path, monkeypatch):
-    from fastapi.testclient import TestClient
+def _installation(tmp_path):
+    data = tmp_path / 'data'
+    data.mkdir()
+    copy_installation_files(data)
+    return data
 
-    from modules.scope_session import ScopeSession
-    from rest.app import build_app
-    from tests.settings_fixtures import complete_settings
 
-    session = ScopeSession.create(complete_settings(), simulate=True)
+def test_a_tiling_file_no_reader_can_use_refuses_the_bring_up_naming_it(tmp_path):
+    data = _installation(tmp_path)
+    (data / 'tiling.json').write_text('{"data": ', encoding='utf-8')
+
+    with pytest.raises(InstallationFileError) as refused:
+        ScopeSession.create(complete_settings(), source_path=str(tmp_path), simulate=True)
+
+    assert 'tiling.json' in str(refused.value)
+
+
+def test_the_grids_a_session_offers_are_the_ones_its_scope_read_at_bring_up(tmp_path):
+    """Read once with the other catalogues: an edit while the program runs
+    is seen at the next start, so every caller in one session agrees."""
+    data = _installation(tmp_path)
+    session = ScopeSession.create(complete_settings(), source_path=str(tmp_path), simulate=True)
     try:
-        # a stand-in by design: the shipped tiling.json is whole; this one is gone
-        monkeypatch.setattr(
-            session.scope.protocols, 'tiling_configs_path', lambda: tmp_path / 'tiling.json'
-        )
-        with TestClient(build_app(session)) as client:
-            answer = client.post('/api/v1/scope/protocols/tiling_config')
+        offered = session.scope.protocols.tiling_config().available
+        _write(data, {'data': {'13x17': {'m': 13, 'n': 17}}, 'metadata': {'default': '13x17'}})
+
+        assert session.scope.protocols.tiling_config().available == offered
     finally:
         session.shutdown()
 
-    assert (answer.status_code, answer.json()['reason']) == (500, 'installation_file_unusable')
-    assert 'tiling.json' in answer.json()['detail']
+    assert '13x17' not in offered

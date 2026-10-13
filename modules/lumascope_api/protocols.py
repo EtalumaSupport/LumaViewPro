@@ -125,22 +125,17 @@ class ProtocolsAPI:
 
     @api(reads=True)
     def tiling_config(self) -> TilingConfig:
-        """The tiling grids this installation offers, from the scope's data folder.
+        """The tiling grids this installation offers: the scope's copy, read at bring-up.
 
         What a caller needs to choose a grid: ``available`` lists the
         labels ``create_protocol`` and ``Protocol.apply_tiling`` accept,
         and ``default`` is the one to preselect; ``Protocol.tiling()``
-        names the grid a protocol's steps already carry. Read from the file on
-        each call, so there is no copy to fall out of step with it.
-
-        Raises:
-            InstallationFileError: tiling.json is missing, unreadable or not
-                JSON, or is not a ``data`` object of grids with whole-number
-                ``m`` and ``n`` and a ``metadata.default`` naming one of them.
+        names the grid a protocol's steps already carry. Read once with the
+        installation's other catalogues, so a tiling.json edited while the
+        program runs is seen at the next start; a file no reader can use
+        refuses the bring-up (``InstallationFileError``, naming it).
         """
-        from modules.tiling_config import TilingConfig
-
-        return TilingConfig(tiling_configs_file_loc=self.tiling_configs_path())
+        return self._scope._tiling_config
 
     def load_protocol(self, file_path: str | pathlib.Path) -> Protocol:
         """Load a Protocol from disk.

@@ -258,8 +258,8 @@ class Lumascope:
     def _read_catalogues(self, source_path: 'str | os.PathLike') -> dict:
         """Read the installation's files once, from ``source_path``; return the motor defaults.
 
-        The scope is the one owner of the labware, objective and model
-        catalogues. Its runtime state, protocol construction, the session,
+        The scope is the one owner of the labware, objective, model and
+        tiling catalogues. Its runtime state, protocol construction, the session,
         the run and the GUI all read these objects, so no two parts of one
         session can disagree about which plates, objectives or models
         exist. All are read-only after construction, so every thread may
@@ -290,6 +290,14 @@ class Lumascope:
         # settings writer checks a path and a value's kind against.
         self._settings_template = read_installation_file(
             resolve_data_file('settings.json', source_path=source_path)
+        )
+        # The grids ProtocolsAPI.tiling_config answers. A tiling.json edited
+        # while the program runs is seen at the next start, as every
+        # catalogue is: one session never offers two sets of grids.
+        from modules.tiling_config import TilingConfig
+
+        self._tiling_config = TilingConfig(
+            tiling_configs_file_loc=resolve_data_file('tiling.json', source_path=source_path)
         )
         return motorconfig_defaults
 
