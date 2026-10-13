@@ -89,6 +89,7 @@ def _make_single_step_protocol():
         'Stim_Config': {},
         'Step Index': 0,
         'Label': 'A1_test',
+        'Channel Group ID': 0,
         'Auto_Named': False,
     }
     config = {

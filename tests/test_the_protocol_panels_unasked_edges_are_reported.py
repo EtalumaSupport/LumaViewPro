@@ -76,6 +76,7 @@ def _protocol(num_steps):
     )
     for i in range(num_steps):
         protocol.insert_step(
+            channel_group_id=protocol.new_channel_group_id(),
             step_name=None,
             layer='BF',
             layer_config=LAYER_CONFIG,

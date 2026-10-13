@@ -66,6 +66,7 @@ def _step(x: float, y: float, z: float, objective: str) -> dict:
         'Step Index': 0,
         'Auto_Named': False,
         'Label': '',
+        'Channel Group ID': 0,
     }
 
 

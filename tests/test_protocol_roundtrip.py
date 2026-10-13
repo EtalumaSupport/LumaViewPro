@@ -161,6 +161,7 @@ def _make_step(
         'Step Index': 0,
         'Auto_Named': auto_named,
         'Label': label,
+        'Channel Group ID': 0,
     }
 
 
@@ -1857,6 +1858,7 @@ class TestProtocolInsertStep:
     def test_insert_first_step(self):
         proto = _build_protocol([_make_step(name='existing')])
         proto.insert_step(
+            channel_group_id=proto.new_channel_group_id(),
             step_name='new_step',
             layer='Green',
             layer_config=_layer_config(illumination=200.0),
@@ -1876,6 +1878,7 @@ class TestProtocolInsertStep:
     def test_insert_after_last_step(self):
         proto = _build_protocol([_make_step(name='first')])
         proto.insert_step(
+            channel_group_id=proto.new_channel_group_id(),
             step_name='appended',
             layer='Red',
             layer_config=_layer_config(illumination=150.0),
@@ -1899,6 +1902,7 @@ class TestProtocolInsertStep:
             ]
         )
         proto.insert_step(
+            channel_group_id=proto.new_channel_group_id(),
             step_name='middle',
             layer='BF',
             layer_config=_layer_config(),
@@ -1918,6 +1922,7 @@ class TestProtocolInsertStep:
         proto = _build_protocol([_make_step()])
         vc = {'duration': 5.0, 'fps': 30}
         proto.insert_step(
+            channel_group_id=proto.new_channel_group_id(),
             step_name='video_step',
             layer='Red',
             layer_config=_layer_config(acquire='video', video_config=vc),
@@ -1936,6 +1941,7 @@ class TestProtocolInsertStep:
         proto = _build_protocol([_make_step()])
         sc = _stim_config_enabled(channels=['Green'])
         proto.insert_step(
+            channel_group_id=proto.new_channel_group_id(),
             step_name='stim_step',
             layer='Red',
             layer_config=_layer_config(acquire='video'),
@@ -1953,6 +1959,7 @@ class TestProtocolInsertStep:
         """Insert a step, save, reload, and run -- full pipeline."""
         proto = _build_protocol([_make_step(name='original', color='BF')])
         proto.insert_step(
+            channel_group_id=proto.new_channel_group_id(),
             step_name='added_green',
             layer='Green',
             layer_config=_layer_config(illumination=200.0),

@@ -175,6 +175,7 @@ def _add_layer_config():
 
 def _insert_generated_step(protocol):
     protocol.insert_step(
+        channel_group_id=protocol.new_channel_group_id(),
         step_name=None,
         layer='BF',
         layer_config=_add_layer_config(),

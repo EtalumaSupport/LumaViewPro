@@ -49,6 +49,7 @@ class VideoBuilder(ProtocolPostProcessor):
                 'Z-Slice',
                 'Tile',
                 'Custom Step',
+                'Channel Group ID',
                 'Raw',
                 'Recording Scan',
                 *PostFunction.list_values(),
@@ -147,6 +148,7 @@ class VideoBuilder(ProtocolPostProcessor):
             tile_group_id=row0['Tile Group ID'],
             tile=row0['Tile'],
             custom_step=row0['Custom Step'],
+            channel_group_id=row0['Channel Group ID'],
             **kwargs,
         )
 
@@ -218,6 +220,21 @@ class VideoBuilder(ProtocolPostProcessor):
             df = df.sort_values(by=['Frame Num'], ascending=True)
 
         else:
+            doubled = df[df['Scan Count'].duplicated(keep=False)]
+            if not doubled.empty:
+                # A timelapse takes one still per scan; two in one scan are
+                # two acquisitions in one group (a run folder from before
+                # steps recorded their Add), and interleaving them would make
+                # a video of neither.
+                named = ', '.join(str(p) for p in doubled['Filepath'])
+                return {
+                    'status': False,
+                    'error': (
+                        f'Cannot build a video: more than one image was captured in one '
+                        f'scan ({named}). Steps Added together make one video.'
+                    ),
+                    'metadata': {},
+                }
             df = df.sort_values(by=['Scan Count'], ascending=True)
 
         # Layer color drives VideoWriter's internal false-color application.

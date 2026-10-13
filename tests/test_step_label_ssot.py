@@ -28,7 +28,7 @@ from unittest.mock import MagicMock
 import pandas as pd
 import pytest
 
-from modules.common_utils import build_step_name, recover_step_label, step_components
+from modules.common_utils import PostFunction, build_step_name, recover_step_label, step_components
 from modules.exceptions import ProtocolError
 from modules.protocol import Protocol, ProtocolFormatError
 from modules.protocol_post_record import ProtocolPostRecord
@@ -121,7 +121,7 @@ _V7_TSV = (
 )
 
 
-def test_v7_load_recovers_labels_and_saves_as_v8(tmp_path):
+def test_v7_load_recovers_labels_and_saves_at_the_current_version(tmp_path):
     src = tmp_path / 'proto_v7.tsv'
     src.write_text(_V7_TSV)
     proto = Protocol.from_file(file_path=src, tiling_configs_file_loc=TILING_CONFIGS)
@@ -145,7 +145,7 @@ def test_v7_load_recovers_labels_and_saves_as_v8(tmp_path):
     dst = tmp_path / 'proto_v8.tsv'
     assert proto.to_file(file_path=dst) is None
     lines = dst.read_text().splitlines()
-    assert lines[1] == 'Version\t8', lines[1]
+    assert lines[1] == f'Version\t{Protocol.CURRENT_VERSION}', lines[1]
 
     proto2 = Protocol.from_file(file_path=dst, tiling_configs_file_loc=TILING_CONFIGS)
     assert list(proto2.steps()['Name']) == list(steps['Name'])
@@ -322,7 +322,7 @@ def test_post_record_v1_upgrades_in_place_and_appends_aligned(tmp_path):
 
     # The on-disk file was rewritten as v2 with the Label column, rows intact.
     lines = record_path.read_text().splitlines()
-    assert lines[1] == 'Version\t2', lines[1]
+    assert lines[1] == f'Version\t{ProtocolPostRecord.CURRENT_VERSION}', lines[1]
     header_idx = lines.index('Images') + 1
     columns = lines[header_idx].split('\t')
     assert columns == list(ProtocolPostRecord.COLUMNS)
@@ -350,7 +350,8 @@ def test_post_record_v1_upgrades_in_place_and_appends_aligned(tmp_path):
         tile_group_id=-1,
         tile='',
         custom_step=True,
-        **dict.fromkeys(ProtocolPostRecord.COLUMNS[15:], False) | {'Stitched': True},
+        channel_group_id=-1,
+        **dict.fromkeys(PostFunction.list_values(), False) | {'Stitched': True},
     )
     record.complete()
 
@@ -535,7 +536,10 @@ def test_numeric_looking_label_survives_post_record_reload(tmp_path):
         'LumaViewPro Protocol Post-Processing Record\n'
         'Version\t2\n'
         '\n'
-        'Images\n' + '\t'.join(ProtocolPostRecord.COLUMNS) + '\n'
+        # The v2 columns: v3 added Channel Group ID.
+        'Images\n'
+        + '\t'.join(c for c in ProtocolPostRecord.COLUMNS if c != 'Channel Group ID')
+        + '\n'
     )
     rows = (
         'img1.tiff\t2026-06-01 10:00:00\t0600_BF\t0600\t0\t1.0\t2.0\t3.0\t-1\t\tBF\t4x\t-1\t\t'
@@ -627,6 +631,7 @@ def test_insert_step_refuses_name_that_sanitizes_to_empty():
     }
     with pytest.raises(ProtocolError):
         proto.insert_step(
+            channel_group_id=proto.new_channel_group_id(),
             step_name='###',
             layer='BF',
             layer_config=layer_config,
@@ -663,7 +668,7 @@ def test_header_only_v1_post_record_loads_and_upgrades(tmp_path):
     assert len(record.records()) == 0
 
     lines = record_path.read_text().splitlines()
-    assert lines[1] == 'Version\t2', lines[1]
+    assert lines[1] == f'Version\t{ProtocolPostRecord.CURRENT_VERSION}', lines[1]
     header_idx = lines.index('Images') + 1
     columns = lines[header_idx].split('\t')
     assert columns == list(ProtocolPostRecord.COLUMNS)
@@ -687,7 +692,8 @@ def test_header_only_v1_post_record_loads_and_upgrades(tmp_path):
         tile_group_id=-1,
         tile='',
         custom_step=False,
-        **dict.fromkeys(ProtocolPostRecord.COLUMNS[15:], False) | {'Stitched': True},
+        channel_group_id=-1,
+        **dict.fromkeys(PostFunction.list_values(), False) | {'Stitched': True},
     )
     record.complete()
 
@@ -771,7 +777,7 @@ def test_unreadable_post_record_moved_aside_and_fresh_record_started(tmp_path, m
     # A fresh current-version record replaced it at the default location.
     fresh_lines = corrupt_path.read_text().splitlines()
     assert fresh_lines[0] == ProtocolPostRecord.FILE_HEADER
-    assert fresh_lines[1] == 'Version\t2'
+    assert fresh_lines[1] == f'Version\t{ProtocolPostRecord.CURRENT_VERSION}'
     header_idx = fresh_lines.index('Images') + 1
     assert fresh_lines[header_idx].split('\t') == list(ProtocolPostRecord.COLUMNS)
 

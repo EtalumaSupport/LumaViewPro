@@ -200,6 +200,7 @@ class ProtocolPostProcessingHelper:
                     'Tile': step['Tile'],
                     'Tile Group ID': step['Tile Group ID'],
                     'Z-Stack Group ID': step['Z-Stack Group ID'],
+                    'Channel Group ID': step['Channel Group ID'],
                     'Custom Step': step['Custom Step'],
                     'Timestamp': file_data['Timestamp'],
                 }

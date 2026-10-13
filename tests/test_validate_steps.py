@@ -71,6 +71,7 @@ def _valid_step(**overrides) -> dict:
         'Stim_Config': {},
         'Auto_Named': True,
         'Label': '',
+        'Channel Group ID': 0,
     }
     step.update(overrides)
     return step

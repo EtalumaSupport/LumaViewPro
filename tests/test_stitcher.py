@@ -199,7 +199,7 @@ class TestStitchLoudDegradeOnMissingPixelSize:
         import modules.stitcher as stitcher_mod
 
         st = stitcher_mod.Stitcher.__new__(stitcher_mod.Stitcher)
-        df = pd.DataFrame({'Filepath': ['tile.tiff'], 'Well': ['A1']})
+        df = pd.DataFrame({'Filepath': ['tile.tiff'], 'Well': ['A1'], 'Channel Group ID': [0]})
         with (
             mock.patch.object(
                 stitcher_mod.image_utils, 'read_postproc_input_metadata', return_value=None

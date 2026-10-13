@@ -180,6 +180,7 @@ def _make_single_step_protocol(
         'Stim_Config': stim_config,
         'Step Index': 0,
         'Label': '',
+        'Channel Group ID': 0,
         'Auto_Named': True,
     }
     return _build_real_protocol([step])
@@ -248,6 +249,7 @@ def _make_multi_step_protocol(steps_config):
                 # or camera settings must still derive distinct capture
                 # filenames or validate_for_run refuses the run.
                 'Label': name,
+                'Channel Group ID': 0,
                 'Auto_Named': False,
             }
         )

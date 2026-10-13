@@ -50,6 +50,7 @@ def _step():
         'Step Index': 0,
         'Auto_Named': True,
         'Label': '',
+        'Channel Group ID': 0,
     }
 
 

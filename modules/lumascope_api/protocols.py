@@ -278,8 +278,9 @@ class ProtocolsAPI:
         ``channel_order`` names the layers whose steps come first, in that
         order; layers it does not name follow in the order given. Each
         layer's step is placed after the previous layer's, so the protocol
-        reads in that order -- the composite path associates channels by
-        their step order.
+        reads in that order. The steps of one add share one channel group
+        id, and that, not their order, is what makes them one composite:
+        two adds at one position are two composites.
 
         ``objective_id`` is the active objective, or None when no one can say
         which objective is in the light path.
@@ -309,6 +310,7 @@ class ProtocolsAPI:
             after_step = protocol.num_steps() - 1
 
         names: list[str] = []
+        channel_group_id = protocol.new_channel_group_id()
         for layer in ordered:
             layer_config = layer_configs[layer]
             if not Protocol.layer_acquires(layer_config):
@@ -320,6 +322,7 @@ class ProtocolsAPI:
                 stim_configs=stim_configs,
                 plate_position=plate_position,
                 objective_id=objective_id,
+                channel_group_id=channel_group_id,
                 before_step=before_step,
                 after_step=after_step,
             )
@@ -332,6 +335,30 @@ class ProtocolsAPI:
             before_step, after_step = None, inserted_at
         self._report_invalid_steps(protocol, solicited=True)
         return names
+
+    def _refuse_channel_already_in_add(self, protocol: Protocol, step_idx: int, layer: str) -> None:
+        """Refuse giving step ``step_idx`` a channel another step of its add takes.
+
+        An add's steps are one composite with one image per channel, so a
+        second step of one channel would leave the composite two images for
+        one plane, refused only after the run has captured both. A step
+        recorded before adds were (group -1) has no add to check.
+        """
+        group = protocol.step(idx=step_idx)['Channel Group ID']
+        if group == -1:
+            return
+        steps = protocol.steps().reset_index(drop=True)
+        same_add = steps[(steps['Channel Group ID'] == group) & (steps.index != step_idx)]
+        if layer in set(same_add['Color']):
+            self._refuse(
+                reason='channel_already_in_add',
+                message=(
+                    f'Another step added with this one already takes {layer}, and steps '
+                    f'added together are one composite with one image per channel. '
+                    f'Open the drawer of the channel this step takes, or add {layer} '
+                    'as a new step.'
+                ),
+            )
 
     def update_step(
         self,
@@ -363,8 +390,10 @@ class ProtocolsAPI:
             ProtocolRunRefusedError: an axis does not know its position, the
                 turret's current slot has no objective, the active objective
                 is unknown, or the layer the step takes is not set to
-                acquire (reason ``no_acquiring_layer``, as an add). Logged
-                and notified once; the step is unchanged.
+                acquire (reason ``no_acquiring_layer``, as an add), or
+                another step of the same add already takes that channel
+                (reason ``channel_already_in_add``). Logged and notified
+                once; the step is unchanged.
             ProtocolError: ``step_idx`` is not a step of ``protocol``
                 (raised by the protocol).
         """
@@ -384,6 +413,8 @@ class ProtocolsAPI:
                     f'Set {layer} to Image or Video first.'
                 ),
             )
+
+        self._refuse_channel_already_in_add(protocol, step_idx, layer)
 
         protocol.modify_step(
             step_idx=step_idx,

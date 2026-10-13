@@ -78,6 +78,7 @@ def _step(name, index, *, x, gain, sum_count=1, autofocus=False):
         'Step Index': index,
         'Auto_Named': False,
         'Label': '',
+        'Channel Group ID': 0,
     }
 
 

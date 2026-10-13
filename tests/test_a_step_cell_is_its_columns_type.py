@@ -252,6 +252,7 @@ def test_a_runs_copy_reads_its_cells_as_its_source_does():
 
     with pytest.raises(ProtocolFormatError, match='Auto_Focus'):
         copy.insert_step(
+            channel_group_id=copy.new_channel_group_id(),
             step_name='added',
             layer='BF',
             layer_config={

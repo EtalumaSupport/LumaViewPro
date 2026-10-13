@@ -63,6 +63,7 @@ def _step(name, objective, index):
         'Step Index': index,
         'Auto_Named': False,
         'Label': '',
+        'Channel Group ID': 0,
     }
 
 

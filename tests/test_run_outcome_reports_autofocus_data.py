@@ -80,6 +80,7 @@ def _make_af_step_protocol():
         'Stim_Config': {},
         'Step Index': 0,
         'Label': 'AF_test',
+        'Channel Group ID': 0,
         'Auto_Named': False,
     }
     config = {

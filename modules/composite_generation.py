@@ -49,6 +49,7 @@ class CompositeGeneration(ProtocolPostProcessor):
                 'Z-Slice',
                 'Tile',
                 'Custom Step',
+                'Channel Group ID',
                 'Raw',
                 *PostFunction.list_values(),
             ],
@@ -162,7 +163,37 @@ class CompositeGeneration(ProtocolPostProcessor):
             tile_group_id=row0['Tile Group ID'],
             tile=row0['Tile'],
             custom_step=row0['Custom Step'],
+            channel_group_id=row0['Channel Group ID'],
             **kwargs,
+        )
+
+    @staticmethod
+    def _more_than_one_image_per_plane(df: pd.DataFrame, transmitted_layers) -> str | None:
+        """Why this group cannot be one composite, or None when it can.
+
+        A composite has one transmitted plane and one plane per other
+        channel. A group holding two images for one plane -- two of one
+        color, or two different transmitted layers -- has no one answer for
+        that plane, and keeping one of them would discard an acquired image
+        behind a composite that looks complete. The data that reaches here
+        doubled is a run folder from before steps recorded their Add.
+        """
+        transmitted = df[df['Color'].isin(transmitted_layers)]
+        others = df[~df['Color'].isin(transmitted_layers)]
+        doubled = []
+        if len(transmitted) > 1:
+            doubled.append(transmitted)
+        doubled += [rows for _, rows in others.groupby('Color') if len(rows) > 1]
+        if not doubled:
+            return None
+        named = '; '.join(
+            f'{", ".join(rows["Color"].unique())}: {", ".join(str(p) for p in rows["Filepath"])}'
+            for rows in doubled
+        )
+        return (
+            'Not composited: this group holds more than one image for one plane of the '
+            f'composite ({named}). A composite takes one transmitted image and one '
+            'image per other channel; steps Added together make one composite.'
         )
 
     @staticmethod
@@ -194,6 +225,16 @@ class CompositeGeneration(ProtocolPostProcessor):
             *common_utils.get_luminescence_layers(),
         ]
         img = None
+
+        refusal = CompositeGeneration._more_than_one_image_per_plane(df, allowed_BF_layers)
+        if refusal is not None:
+            return {
+                'status': False,
+                'error': refusal,
+                'image': None,
+                'significant_bits': None,
+                'metadata': {'color': 'Composite'},
+            }
 
         for layer in allowed_BF_layers:
             if (df['Color'] == layer).any():

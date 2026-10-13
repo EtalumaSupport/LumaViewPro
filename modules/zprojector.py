@@ -44,6 +44,7 @@ class ZProjector(ProtocolPostProcessor):
                 'Y',
                 'Tile',
                 'Custom Step',
+                'Channel Group ID',
                 'Raw',
                 *PostFunction.list_values(),
             ],
@@ -134,6 +135,7 @@ class ZProjector(ProtocolPostProcessor):
             tile_group_id=row0['Tile Group ID'],
             tile=row0['Tile'],
             custom_step=row0['Custom Step'],
+            channel_group_id=row0['Channel Group ID'],
             **kwargs,
         )
 

@@ -223,6 +223,7 @@ class TestHeadlessProtocolExecution:
                 'Stim_Config': {},
                 'Step Index': 0,
                 'Label': 'A1_BF',
+                'Channel Group ID': 0,
                 'Auto_Named': False,
             }
         ]

@@ -111,8 +111,8 @@ class StackBuilder(ProtocolPostProcessor):
                 'X',
                 'Y',
                 'Tile',
-                'Tile Group ID',
                 'Custom Step',
+                'Channel Group ID',
                 'Raw',
                 'Recording Scan',
                 *PostFunction.list_values(),
@@ -209,9 +209,12 @@ class StackBuilder(ProtocolPostProcessor):
             well=row0['Well'],
             color='Stack',
             objective=row0['Objective'],
-            tile_group_id=row0['Tile Group ID'],
+            # A stack is grouped by its Add, not its tile group: Apply Tiling
+            # gives every channel of a position its own tile group.
+            tile_group_id=-1,
             tile=row0['Tile'],
             custom_step=row0['Custom Step'],
+            channel_group_id=row0['Channel Group ID'],
             **kwargs,
         )
 
@@ -388,6 +391,19 @@ class StackBuilder(ProtocolPostProcessor):
         # while it recorded, which each frame's row records truthfully.
         expected_planes = num_t * num_z * num_c
         captured_cells = df.groupby(['Scan Count', 'Z-Slice', 'Color']).ngroups
+        doubled = [
+            rows for _, rows in df.groupby(['Scan Count', 'Z-Slice', 'Color']) if len(rows) > 1
+        ]
+        if doubled:
+            # Two images for one plane is not a gap to align but two
+            # acquisitions in one group (a run folder from before steps
+            # recorded their Add); naming them says which.
+            named = '; '.join(', '.join(str(p) for p in rows['Filepath']) for rows in doubled)
+            error = (
+                f'Cannot build a hyperstack: more than one image was captured for one '
+                f'plane ({named}). Steps Added together make one hyperstack.'
+            )
+            return {'status': False, 'error': error, 'metadata': {}}
         if len(df) != expected_planes or captured_cells != expected_planes:
             if 'Well' in df.columns:
                 error = (

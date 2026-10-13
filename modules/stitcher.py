@@ -151,15 +151,22 @@ class Stitcher(ProtocolPostProcessor):
             if col in df.columns
         ]
 
-        return PostProcResult.from_group_result(
-            channel_aware_stitcher(
-                path=path,
-                df=df[stitch_columns],
-                pixel_size_um=pixel_size_um,
-                output_file_loc=kwargs.get('output_file_loc'),
-                stitching_mode=kwargs.get('stitching_mode', self.QUALITY_MODE),
-            )
+        result = channel_aware_stitcher(
+            path=path,
+            df=df[stitch_columns],
+            pixel_size_um=pixel_size_um,
+            output_file_loc=kwargs.get('output_file_loc'),
+            stitching_mode=kwargs.get('stitching_mode', self.QUALITY_MODE),
         )
+        # A stitch joins one color across positions, so its tiles may come
+        # from several Adds; the stitched image belongs to an Add only when
+        # every tile does, and a composite of stitched images then groups by
+        # it. Otherwise -1, no single Add.
+        group_ids = df['Channel Group ID'].unique()
+        result.setdefault('metadata', {})['channel_group_id'] = (
+            int(group_ids[0]) if len(group_ids) == 1 else -1
+        )
+        return PostProcResult.from_group_result(result)
 
     @staticmethod
     def _add_record(
@@ -187,6 +194,7 @@ class Stitcher(ProtocolPostProcessor):
             tile_group_id=row0['Tile Group ID'],
             tile='',
             custom_step=row0['Custom Step'],
+            channel_group_id=alg_metadata['channel_group_id'],
             **kwargs,
         )
 

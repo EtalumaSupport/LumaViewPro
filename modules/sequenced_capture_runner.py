@@ -23,6 +23,7 @@ from modules.protocol_run_loop import ProtocolRunLoop
 
 from modules.lumascope_api import AxisState, Lumascope
 
+import modules.common_utils as common_utils
 import modules.image_mode as image_mode
 from modules import kivy_utils
 
@@ -1170,6 +1171,19 @@ class SequencedCaptureRunner:
                         f'A composite combines at least {COMPOSITE_MIN_CHANNELS} channels, '
                         f'but {set_to_capture} set to capture an image. Turn on another '
                         'channel and try again.'
+                    ),
+                )
+            # A composite has one transmitted plane; capturing two would end
+            # in a composite refused after both were taken.
+            transmitted = sorted(
+                set(protocol.steps()['Color']) & set(common_utils.get_transmitted_layers())
+            )
+            if len(transmitted) > 1:
+                self._refuse(
+                    reason='composite_two_transmitted_layers',
+                    message=(
+                        f'A composite takes one transmitted channel, but {" and ".join(transmitted)} '
+                        'are both set to capture. Turn one of them off and try again.'
                     ),
                 )
 

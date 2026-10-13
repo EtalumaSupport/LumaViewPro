@@ -997,6 +997,8 @@ Each image is measured at the scale it states: a LumaViewPro capture carries its
 
 `modules.post_processing.read_cell_count_results(path)` reads a `results.csv` back as a pandas table, its `time` column a datetime column (the count's own time format). It reads any CSV in UTF-8 (the count writes its file in UTF-8 on every host): every cell is the text written, a column whose every cell is a number is a column of numbers (whole numbers when every cell is one), and any other column is text, so a cell such as `NA` is never read as a missing number; `results_axes(table)` returns the columns a graph can take as X (numbers and times) and as Y (numbers). A file that cannot be graphed (not UTF-8, a NUL, a quote that does not close, a row of the wrong length, a repeated column name, a time the count did not write, no column of numbers) is refused: `PostProcessingRefusedError` with `operation='Graphing'`, `reason='results_unreadable'`, its message naming the file. `modules.graph_analysis.trendline_kinds(x, y)` names the trendlines two columns take (a time X takes `'Linear'`, `'Quadratic'`, `'Exponential'`; two number columns also take `'Power'` and `'Logarithmic'`), and `fit_trendline(kind, x, y)` returns the curve (`.x` ascending, `.y`). It refuses a fit the values cannot give, such as a missing value, a 0 under a log, or too few distinct X values for the kind (`PostProcessingRefusedError`, `operation='Trendline'`, `reason='fit_impossible'`, naming the values and how many).
 
+Which images make one output: a composite, a z-projection, a video and a hyperstack each build from one channel group, the steps' `Channel Group ID`. Every step of one `add_step` call shares one group, and a generated protocol (`new_protocol`, `create_protocol`) gives every channel, tile and z-slice of one position one group; so two adds at one stage position give two composites, never one made from both. A stitch is not grouped by it: it joins one color's tiles across positions, added together or not. A still-image group that holds two images for one plane -- two of one color, or two different transmitted channels in a composite, or two stills of one scan in a timelapse -- is not built: the build's `PostProcessingFailedError` names the images, and the other groups are built. That is what a run folder from before steps carried their group yields when one position was added to more than once, since its steps all read `-1`. A composite run (`run_composite`) with two transmitted channels set to capture is refused at its start (`ProtocolRunRefusedError`, `composite_two_transmitted_layers`), before any capture; `update_step` refuses giving a step a channel another step of its add takes (`channel_already_in_add`).
+
 The builds run on the session's own post-processing lane, one at a time in the order asked. A protocol run writes its images on a different lane, so a long build never delays a run's writes. The tiling config and the turret are the session's own: a caller passes neither.
 
 ### Run state and locks
@@ -2716,7 +2718,7 @@ Tab-separated file defining multi-step acquisition sequences.
 
 ```
 LumaViewPro Protocol
-Version	5
+Version	9
 Period	1.0
 Duration	0.002778
 Labware	96 well microplate
@@ -2743,10 +2745,20 @@ A1_Green	60000	40000	5000	False	Green	...
 | Exposure | float | Exposure time in ms |
 | Sum | int | Frame averaging count (≥1) |
 | Objective | string | Must match `data/objectives.json` |
-| Well | string | Well label (e.g. `A1`) |
+| Well | string | Well label (e.g. `A1`); empty for an added step |
+| Tile | string | Tile label within a tiled position; empty when untiled |
+| Z-Slice | int | Slice index within a z-stack; -1 when not stacked |
+| Custom Step | bool | Added at a manual position rather than generated from the plate |
+| Tile Group ID | int | The tiled group a step's tile belongs to; -1 when untiled |
+| Z-Stack Group ID | int | The z-stack a step's slice belongs to; -1 when not stacked |
 | Acquire | string | `image` or `video` |
+| Video Config | JSON | A video step's duration and rate |
+| Stim_Config | JSON | Per-channel stimulation settings |
+| Auto_Named | bool | Whether Name is still the generated one |
+| Label | string | The step's base text: a typed name, or `custom<NNNN>` for an added step; empty means the Well |
+| Channel Group ID | int | The add a step came from (one value per `add_step` call; one per position in a generated protocol); post-processing builds one output per group. -1: recorded before the column (version 8 and older) |
 
-Consult the protocol reader in `modules/protocol.py` for the canonical field list — additions happen over time.
+A file of version 2 to 8 loads, its missing columns filled (`Channel Group ID` -1); saving it writes version 9. A file newer than the reader is refused (`ProtocolFormatError`). `Protocol.COLUMNS[Protocol.CURRENT_VERSION]` is the canonical column list.
 
 ---
 

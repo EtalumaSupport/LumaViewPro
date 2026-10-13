@@ -173,6 +173,7 @@ def _make_single_step_protocol(color='BF'):
         'Stim_Config': {},
         'Step Index': 0,
         'Label': 'A1_test',
+        'Channel Group ID': 0,
         'Auto_Named': False,
     }
     return _build_real_protocol([step])
@@ -567,6 +568,19 @@ class TestTheCompositeChannelFloor:
         assert list(captured) == [], captured
         assert not executor.run_in_progress()
 
+    def test_two_transmitted_channels_are_refused_before_any_capture(
+        self, executor, tmp_path, centre_posts
+    ):
+        # A composite takes one transmitted plane; with BF and PC both set
+        # to capture, the run would take both and its composite be refused.
+        steps = [_make_single_step_protocol(c).step(idx=0).to_dict() for c in ('BF', 'PC', 'Red')]
+        captured = _capture_notifications(centre_posts)
+        with pytest.raises(ProtocolRunRefusedError) as excinfo:
+            self._prepare_composite(executor, _build_real_protocol(steps), tmp_path)
+        assert excinfo.value.reason == 'composite_two_transmitted_layers'
+        assert list(captured) == [], captured
+        assert not executor.run_in_progress()
+
 
 # ---------------------------------------------------------------------------
 # 3. start() cannot silently half-start.
@@ -727,6 +741,15 @@ RUNNER_REFUSAL_COVERAGE = {
     # click or a script call that would add nothing is refused where the
     # layer set is known, and the GUI's Add Step handler no longer decides.
     'no_acquiring_layer': ('tests/test_adding_a_step_is_an_api_capability.py::TestTheApiRefuses'),
+    # Raised by an update, not a run: the add the step belongs to already
+    # takes the channel; its owner's test drives the update.
+    'channel_already_in_add': (
+        'tests/test_an_add_is_one_channel_group.py::TestAnUpdateCannotDoubleAChannelInItsAdd'
+    ),
+    # Raised at prepare() only for a composite run, like the channel floor.
+    'composite_two_transmitted_layers': (
+        'tests/test_run_refusal_contract.py::TestTheCompositeChannelFloor'
+    ),
     'turret_objective_unset': (
         'tests/test_adding_a_step_is_an_api_capability.py::TestTheApiRefuses'
     ),

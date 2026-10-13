@@ -599,6 +599,7 @@ _STEP_CELLS = {
     'Stim_Config': _dict_cell,
     'Auto_Named': _bool_cell,
     'Label': _str_cell,
+    'Channel Group ID': _int_cell,
 }
 
 
@@ -873,7 +874,14 @@ class Protocol:
     # ('Treatment_10x' -> 'Treatment') and dropped renames of well-anchored
     # steps entirely.
     COLUMNS[8] = COLUMNS[7] + ['Label']
-    CURRENT_VERSION: ClassVar[int] = 8
+    # v9 adds Channel Group ID: which Add (or, for a generated protocol,
+    # which position) a step's channel belongs to. Every Added step at one
+    # position is otherwise identical in every column a builder groups on,
+    # so separate Adds merged into one composite and all but one image per
+    # channel were dropped. -1 is a step recorded before the column, whose
+    # Add is not known.
+    COLUMNS[9] = COLUMNS[8] + ['Channel Group ID']
+    CURRENT_VERSION: ClassVar[int] = 9
     CURRENT_COLUMNS = COLUMNS[CURRENT_VERSION]
 
     # Header columns for the v6 'Layer Settings' block. Order is the
@@ -1264,6 +1272,7 @@ class Protocol:
                 ('Stim_Config', object),
                 ('Auto_Named', bool),
                 ('Label', str),
+                ('Channel Group ID', int),
             ]
         )
         df = pd.DataFrame(np.empty(0, dtype=dtypes))
@@ -1966,6 +1975,13 @@ class Protocol:
             self._config['steps'].at[step_idx, column] = _read_only(value)
         self._regenerate_step_name(step_idx=step_idx)
 
+    def new_channel_group_id(self) -> int:
+        """A channel group id no step of this protocol carries yet."""
+        steps = self._config['steps']
+        if steps.empty:
+            return 0
+        return max(int(steps['Channel Group ID'].max()), -1) + 1
+
     def insert_step(
         self,
         step_name: str | None,
@@ -1974,9 +1990,18 @@ class Protocol:
         plate_position: dict,
         objective_id: str,
         stim_configs: dict,
+        channel_group_id: int,
         before_step: int | None = None,
         after_step: int | None = None,
     ) -> str:
+        """Insert one channel's step; ``channel_group_id`` names the Add it belongs to.
+
+        An Add makes one step per channel, all at one position and so
+        identical in every other column a builder groups on: the group id is
+        what keeps two Adds at one position two composites. The caller mints
+        it once per Add (``new_channel_group_id``) and passes it to every
+        step of that Add.
+        """
 
         def _validate_inputs():
             if (before_step is None) and (after_step is None):
@@ -2037,6 +2062,7 @@ class Protocol:
             video_config=layer_config['video_config'],
             stim_config=copy.deepcopy(stim_configs),
             auto_named=auto_named,
+            channel_group_id=channel_group_id,
         )
 
         if before_step is not None:
@@ -2251,6 +2277,7 @@ class Protocol:
                     video_config=orig_step_df['Video Config'],
                     stim_config=orig_step_df['Stim_Config'],
                     auto_named=orig_step_df['Auto_Named'],
+                    channel_group_id=orig_step_df['Channel Group ID'],
                 )
 
                 new_steps.append(new_step_dict)
@@ -2363,6 +2390,7 @@ class Protocol:
                     video_config=orig_step_df['Video Config'],
                     stim_config=orig_step_df['Stim_Config'],
                     auto_named=orig_step_df['Auto_Named'],
+                    channel_group_id=orig_step_df['Channel Group ID'],
                 )
 
                 group_steps.append((zstack_position, new_step_dict))
@@ -2517,6 +2545,10 @@ class Protocol:
 
         tile_group_id = 0
         zstack_group_id = 0
+        # Every channel at one position is one group: tiles and z-slices of
+        # that position share it, and the builders separate those by Tile and
+        # Z-Slice.
+        channel_group_id = 0
         # custom_step_count = 0
         steps = []
 
@@ -2640,6 +2672,7 @@ class Protocol:
                             video_config=video_config,
                             stim_config=stim_config,
                             auto_named=True,
+                            channel_group_id=channel_group_id,
                         )
                         steps.append(step_dict)
 
@@ -2648,6 +2681,8 @@ class Protocol:
 
             if tile_label != '':
                 tile_group_id += 1
+
+            channel_group_id += 1
 
         steps_df = cls._create_empty_steps_df()
         steps_df = cls._add_steps_to_steps_df(steps_df=steps_df, new_steps=steps)
@@ -2742,6 +2777,7 @@ class Protocol:
         video_config,
         stim_config,
         auto_named,
+        channel_group_id,
     ):
         """Build a step dict; the derived Name is rendered here, never passed.
 
@@ -2774,6 +2810,7 @@ class Protocol:
             'Stim_Config': copy.deepcopy(stim_config),
             'Auto_Named': auto_named,
             'Label': label,
+            'Channel Group ID': channel_group_id,
         }
         step['Name'] = common_utils.build_step_name(common_utils.step_components(step))
         return step
@@ -2905,10 +2942,11 @@ class Protocol:
         if config['version'] == cls.CURRENT_VERSION:
             allowed = True
 
-        elif (config['version'] in (2, 3, 4, 5, 6, 7)) and (cls.CURRENT_VERSION == 8):
+        elif (config['version'] in (2, 3, 4, 5, 6, 7, 8)) and (cls.CURRENT_VERSION == 9):
             # v6 introduced the Layer Settings header block; v7 added the
-            # Auto_Named column; v8 adds the Label column. Older versions
-            # load with the missing columns recovered or defaulted below.
+            # Auto_Named column; v8 the Label column; v9 the Channel Group
+            # ID column. Older versions load with the missing columns
+            # recovered or defaulted below.
             allowed = True
 
         if not allowed:
@@ -3273,6 +3311,13 @@ class Protocol:
                 protocol_df['Auto_Named'] = _typed_column(
                     (is_auto for _, is_auto in recovered), bool
                 )
+
+        if 'Channel Group ID' not in protocol_df.columns:
+            # Filled by the column's absence, not the file's version: a file
+            # from before the column never recorded which Add a step came
+            # from, and the boundaries cannot be recovered from the other
+            # columns (two Adds at one position share every one of them).
+            protocol_df['Channel Group ID'] = _typed_column((-1 for _ in protocol_df.index), int)
 
         # The rename entry points store labels sanitized, but a file edited
         # outside the app may carry characters the writer strips at save

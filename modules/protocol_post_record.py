@@ -23,6 +23,7 @@ _RECORD_CELLS = {
     'Z': _float_cell,
     'Tile Group ID': _int_cell,
     'Custom Step': _bool_cell,
+    'Channel Group ID': _int_cell,
     **dict.fromkeys(PostFunction.list_values(), _bool_cell),
 }
 
@@ -46,7 +47,10 @@ class ProtocolPostRecord:
     # 'custom<NNNN>' prefix) travels with every record so output filenames
     # derive from the persisted field instead of re-parsing the rendered
     # Name, which truncated user labels containing token-shaped segments.
-    CURRENT_VERSION = 2
+    # v3 adds Channel Group ID: the Add an output's source steps came from,
+    # so a composite built from stitched or projected outputs groups by Add
+    # as one built from raw images does. -1: no single Add.
+    CURRENT_VERSION = 3
     DEFAULT_FILENAME = 'protocol_post_record.tsv'
 
     def __del__(self):
@@ -78,6 +82,7 @@ class ProtocolPostRecord:
         'Tile Group ID',
         'Tile',
         'Custom Step',
+        'Channel Group ID',
         *PostFunction.list_values(),
     )
 
@@ -142,6 +147,7 @@ class ProtocolPostRecord:
                 ('Tile Group ID', int),
                 ('Tile', str),
                 ('Custom Step', bool),
+                ('Channel Group ID', int),
                 *post_function_tuples,
             ]
         )
@@ -201,6 +207,7 @@ class ProtocolPostRecord:
         tile_group_id: int | str,
         tile: str,
         custom_step: bool,
+        channel_group_id: int,
         **kwargs: dict,
     ) -> dict:
         abs_path = root_path / file_path
@@ -221,6 +228,7 @@ class ProtocolPostRecord:
             'Tile Group ID': tile_group_id,
             'Tile': tile,
             'Custom Step': custom_step,
+            'Channel Group ID': channel_group_id,
             'Raw': False,
             'File Exists': abs_path.exists(),
             **kwargs,
@@ -244,8 +252,9 @@ class ProtocolPostRecord:
         tile_group_id: int | str,
         tile: str,
         custom_step: bool,
+        channel_group_id: int,
         **kwargs: dict,
-    ):
+    ) -> None:
 
         if self.file_exists_in_records(filepath=file_path):
             logger.info(f'[{self._name} ] File {file_path} already exists in records. Skipping.')
@@ -267,6 +276,7 @@ class ProtocolPostRecord:
             tile_group_id=tile_group_id,
             tile=tile,
             custom_step=custom_step,
+            channel_group_id=channel_group_id,
             **kwargs,
         )
 
@@ -288,6 +298,7 @@ class ProtocolPostRecord:
             tile_group_id=tile_group_id,
             tile=tile,
             custom_step=custom_step,
+            channel_group_id=channel_group_id,
             **kwargs,
         )
 
@@ -308,8 +319,9 @@ class ProtocolPostRecord:
         tile_group_id: int | str,
         tile: str,
         custom_step: bool,
+        channel_group_id: int,
         **kwargs: dict,
-    ):
+    ) -> None:
 
         self._outfile_csv.writerow(
             [
@@ -328,6 +340,7 @@ class ProtocolPostRecord:
                 tile_group_id,
                 tile,
                 custom_step,
+                channel_group_id,
                 *kwargs.values(),
             ]
         )
@@ -346,7 +359,7 @@ class ProtocolPostRecord:
                 raise Exception('Version key not found')
 
             file_version = int(version[1])
-            if file_version not in (1, 2):
+            if file_version not in (1, 2, 3):
                 raise Exception('Unsupported protocol post-processing record version')
 
             # Search for "Images" to indicate start of images data
@@ -407,6 +420,10 @@ class ProtocolPostRecord:
                 # keeps their machine names from being misread as labels.
                 df['Label'] = [recover_step_label(row)[0] for _, row in df.iterrows()]
 
+            if 'Channel Group ID' not in df.columns:
+                # Pre-v3 records never carried the Add an output came from.
+                df['Channel Group ID'] = pd.Series([-1] * len(df), index=df.index, dtype=int)
+
             record = ProtocolPostRecord(
                 file_loc=file_path,
                 records=df,
@@ -450,6 +467,7 @@ class ProtocolPostRecord:
                     tile_group_id=row['Tile Group ID'],
                     tile=row['Tile'],
                     custom_step=row['Custom Step'],
+                    channel_group_id=row['Channel Group ID'],
                     **{column: row[column] for column in post_function_columns},
                 )
             self._close_outfile()

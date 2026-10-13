@@ -99,6 +99,7 @@ def _step_dict(name, x, y, z, color, idx):
         'Stim_Config': {},
         'Step Index': idx,
         'Label': '',
+        'Channel Group ID': 0,
         'Auto_Named': True,
     }
 
@@ -145,6 +146,7 @@ def _add_3rd_location_via_insert_step(protocol):
     """
     for color in CHANNEL_ORDER:
         protocol.insert_step(
+            channel_group_id=protocol.new_channel_group_id(),
             step_name=f'added_{color}',
             layer=color,
             layer_config={

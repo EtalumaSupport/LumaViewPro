@@ -167,6 +167,7 @@ def _make_protocol(steps_config):
                 # gain / position must still derive distinct capture
                 # filenames or validate_for_run refuses the run.
                 'Label': name,
+                'Channel Group ID': 0,
                 'Auto_Named': False,
             }
         )

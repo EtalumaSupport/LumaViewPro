@@ -63,6 +63,7 @@ def _stack_df(rows):
             'Tile': [''] * n,
             'Tile Group ID': [''] * n,
             'Custom Step': [False] * n,
+            'Channel Group ID': [0] * n,
             'Timestamp': [''] * n,
             'Raw': [True] * n,
         }

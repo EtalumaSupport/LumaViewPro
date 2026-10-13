@@ -86,6 +86,7 @@ LAYER_CONFIG = {
 
 def _insert(protocol, *, x, before_step=None, after_step=None):
     return protocol.insert_step(
+        channel_group_id=protocol.new_channel_group_id(),
         step_name=None,
         layer='BF',
         layer_config=LAYER_CONFIG,
@@ -436,6 +437,7 @@ def _add_bf_and_blue(protocol, *, before_step=None, after_step=None):
     for layer in ('BF', 'Blue'):
         names.append(
             protocol.insert_step(
+                channel_group_id=protocol.new_channel_group_id(),
                 step_name=None,
                 layer=layer,
                 layer_config=LAYER_CONFIG,

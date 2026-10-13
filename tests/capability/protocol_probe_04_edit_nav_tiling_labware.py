@@ -32,6 +32,7 @@ try:
     lc = config_helpers.get_layer_configs(settings, specific_layers=['BF'])['BF']
     lc['acquire'] = 'image'
     idx = p.insert_step(
+        channel_group_id=p.new_channel_group_id(),
         step_name=None,
         layer='BF',
         layer_config=lc,

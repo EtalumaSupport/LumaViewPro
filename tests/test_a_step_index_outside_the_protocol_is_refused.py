@@ -71,6 +71,7 @@ WRITERS = {
 
 def _insert(protocol, **place):
     return protocol.insert_step(
+        channel_group_id=protocol.new_channel_group_id(),
         step_name='added',
         layer='BF',
         layer_config=LAYER_CONFIG,
