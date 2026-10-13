@@ -1598,7 +1598,16 @@ def get_used_color_planes(image) -> list:
     return used_color_planes
 
 
-def rgb_image_to_gray(image):
+def rgb_image_to_gray(image: np.ndarray, color: Color | None = None) -> np.ndarray:
+    """The mono an image holds: a mono image as it is; an image baked in
+    ``color`` inverted by it; any other colour image by its one populated
+    plane, else by luminance.
+
+    A baked plane is the mono times its weight, so the colour's dominant
+    plane divided by its weight is the mono: a magenta image reads back at
+    full intensity, where luminance reads it about 58% dim. A primary or
+    grey bake reads the same either way.
+    """
 
     def _is_grayscale(image):
         shape = image.shape
@@ -1611,6 +1620,14 @@ def rgb_image_to_gray(image):
 
     if _is_grayscale(image=image):
         return image
+
+    if color is not None:
+        dominant = int(np.argmax(color))
+        plane = image[:, :, dominant]
+        if color[dominant] == 1:
+            return plane
+        top = np.iinfo(image.dtype).max
+        return np.clip(np.rint(plane / color[dominant]), 0, top).astype(image.dtype)
 
     if _values_in_one_plane(image=image):
         return np.amax(image, axis=2)

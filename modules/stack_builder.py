@@ -463,7 +463,17 @@ class StackBuilder(ProtocolPostProcessor):
                 )
 
                 if image_utils.is_color_image(image):
-                    image = image_utils.rgb_image_to_gray(image=image)
+                    # A layer's plane was baked in its colour; a composite's
+                    # is a colour image, read by luminance.
+                    name = row['Color']
+                    image = image_utils.rgb_image_to_gray(
+                        image=image,
+                        color=(
+                            layer_record.release_color(name)
+                            if name in common_utils.get_layers()
+                            else None
+                        ),
+                    )
 
                 # Each plane must share the hyperstack's canvas; a per-plane
                 # stitch divergence otherwise surfaces as a cryptic tifffile

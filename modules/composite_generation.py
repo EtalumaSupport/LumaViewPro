@@ -9,6 +9,7 @@ from modules.finite_number import is_finite_number
 from modules.composite_builder import brightness_cutoff_from_percent, build_composite
 import modules.image_mode as image_mode
 import modules.image_utils as image_utils
+import modules.layer_record as layer_record
 from modules.layer_record import GREY
 from modules.common_utils import PostFunction
 from modules.exceptions import ConfigurationDefectError
@@ -336,7 +337,9 @@ class CompositeGeneration(ProtocolPostProcessor):
                 # detects the single-populated-plane case and uses
                 # max-axis extraction instead, preserving the full
                 # value. Mono 2D inputs (the common path) pass through.
-                transmitted_image = image_utils.rgb_image_to_gray(BF_image)
+                transmitted_image = image_utils.rgb_image_to_gray(
+                    BF_image, layer_record.release_color(BF_channel)
+                )
             else:
                 logger.info('CompositeGeneration] Generating fluorescent channel composite')
 
@@ -360,7 +363,7 @@ class CompositeGeneration(ProtocolPostProcessor):
                 # and preserve via max-axis; pass through mono 2D
                 # inputs unchanged. RGB2GRAY luminance was destroying
                 # 41-89% of single-plane signal pre-fix.
-                img_gray = image_utils.rgb_image_to_gray(f_image)
+                img_gray = image_utils.rgb_image_to_gray(f_image, layer_record.release_color(layer))
 
                 channel_images[layer] = img_gray
 
