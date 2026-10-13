@@ -4,19 +4,18 @@
 
 from typing import ClassVar
 
-from lib.lumascope_error import Fault
+from lib.lumascope_error import Fault, _Umbrella
 
 
-class HardwareError(Fault, Exception):
-    """Hardware communication or configuration failure (motor, LED, camera)."""
+class HardwareError(_Umbrella, Exception):
+    """A fault in the hardware (motor, LED, camera): the subject, never raised itself.
 
-    reason = 'hardware_error'
-    title = 'Hardware Error'
+    ``except HardwareError`` catches every one; the child raised says which
+    fault it was, with its own reason and title.
+    """
 
-    words_for_person = True
 
-
-class ConfigReadError(HardwareError):
+class ConfigReadError(Fault, HardwareError):
     """The board's per-unit config could not be READ (no answer, or an
     unparseable payload), or a value in it is not one the field can hold
     (an optics value that is not a number).
@@ -34,7 +33,7 @@ class ConfigReadError(HardwareError):
     words_for_person = True
 
 
-class MotionInterlockError(HardwareError):
+class MotionInterlockError(Fault, HardwareError):
     """The board refused a motion command because a hardware interlock is open.
 
     Raised by a driver whose board guards motion with its own inputs (a
@@ -69,7 +68,7 @@ class MotionInterlockError(HardwareError):
         self.stopped = stopped
 
 
-class BoardNoReplyError(HardwareError):
+class BoardNoReplyError(Fault, HardwareError):
     """A controller board did not answer a command within its timeout.
 
     The board may be busy, unpowered or unplugged; the same command may be
@@ -83,7 +82,7 @@ class BoardNoReplyError(HardwareError):
     words_for_person = False
 
 
-class BoardReplyUnreadableError(HardwareError):
+class BoardReplyUnreadableError(Fault, HardwareError):
     """A controller board answered, and the answer could not be read.
 
     A reply that is not the number or record asked for, or that answers
@@ -96,7 +95,7 @@ class BoardReplyUnreadableError(HardwareError):
     words_for_person = False
 
 
-class BoardReportedError(HardwareError):
+class BoardReportedError(Fault, HardwareError):
     """A controller board answered that it could not do what it was asked.
 
     The firmware's own error, a refused status, or a handshake it did not
@@ -109,7 +108,7 @@ class BoardReportedError(HardwareError):
     words_for_person = False
 
 
-class MotionNotCompletedError(HardwareError):
+class MotionNotCompletedError(Fault, HardwareError):
     """A driven motion did not reach its end.
 
     An axis that did not home, arrive or settle in the time it is given, or
@@ -123,7 +122,7 @@ class MotionNotCompletedError(HardwareError):
     words_for_person = False
 
 
-class BoardPortFailedError(HardwareError):
+class BoardPortFailedError(Fault, HardwareError):
     """The serial port to a controller board failed, or is not open.
 
     A cable or power state: nothing reached the board.
@@ -135,7 +134,7 @@ class BoardPortFailedError(HardwareError):
     words_for_person = False
 
 
-class LedFirmwareWedgedError(HardwareError):
+class LedFirmwareWedgedError(Fault, HardwareError):
     """The LED controller's firmware is stuck and did not recover on a soft reset.
 
     Only a power cycle brings it back, and its words say so.
@@ -147,7 +146,7 @@ class LedFirmwareWedgedError(HardwareError):
     words_for_person = True
 
 
-class CameraReadFailedError(HardwareError):
+class CameraReadFailedError(Fault, HardwareError):
     """The camera did not answer a read of one of its values, or a probe of one.
 
     The words carry the SDK's own text, so the person reads the title.
@@ -159,7 +158,7 @@ class CameraReadFailedError(HardwareError):
     words_for_person = False
 
 
-class CameraWriteFailedError(HardwareError):
+class CameraWriteFailedError(Fault, HardwareError):
     """The camera refused or did not take a write of one of its settings.
 
     The words carry the SDK's own text, so the person reads the title.
@@ -171,7 +170,7 @@ class CameraWriteFailedError(HardwareError):
     words_for_person = False
 
 
-class PartAbsentError(HardwareError):
+class PartAbsentError(Fault, HardwareError):
     """A driver was asked for a part it does not have: an axis, a turret, a
     board, an active camera or an SDK node.
 

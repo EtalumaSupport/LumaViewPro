@@ -138,6 +138,7 @@ def test_no_umbrella_can_be_raised():
         'AutofocusAborted',
         'MoveNotCompletedError',
         'HomingFailedError',
+        'HardwareError',
     } <= {cls.__name__ for cls in UMBRELLAS}, 'the umbrella discovery drifted'
     constructed = []
     for umbrella in UMBRELLAS:
@@ -157,6 +158,27 @@ def test_no_umbrella_can_be_raised():
                 continue
         constructed.append(umbrella.__name__)
     assert constructed == [], f'these umbrellas can be raised themselves: {constructed}'
+
+
+def _constructions(names):
+    """``path:line`` of every call in production code to a class in ``names``, by its name."""
+    paths = [REPO_ROOT / 'lumaviewpro.py']
+    for layer in ('modules', 'drivers', 'rest', 'ui', 'lib', 'tools'):
+        paths.extend(sorted((REPO_ROOT / layer).rglob('*.py')))
+    found = []
+    for path in paths:
+        for node in ast.walk(ast.parse(path.read_text(encoding='utf-8'))):
+            if isinstance(node, ast.Call) and ast.unparse(node.func).split('.')[-1] in names:
+                found.append(f'{path.relative_to(REPO_ROOT)}:{node.lineno}')
+    return found
+
+
+def test_no_production_code_builds_an_umbrella():
+    """An umbrella refuses construction only on the path that runs it: a
+    raise of ``HardwareError`` in a driver's failure branch would reach its
+    caller as a ``TypeError``, past every ``except HardwareError`` -- the
+    capability probe at bring-up among them. So the build fails on the line."""
+    assert _constructions({cls.__name__ for cls in UMBRELLAS}) == []
 
 
 def test_an_umbrella_s_children_are_still_caught_by_it():
