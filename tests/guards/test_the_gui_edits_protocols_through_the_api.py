@@ -164,7 +164,14 @@ def test_every_public_protocol_member_is_classified():
 
 
 def test_the_gui_makes_no_new_protocol_edit():
-    assert _gui_protocol_edit_counts() == _PIN
+    counts = _gui_protocol_edit_counts()
+    _ratchets.observe(
+        'GUI: protocol edits made outside the API',
+        sum(counts.values()),
+        sum(_PIN.values()),
+        'equal',
+    )
+    assert counts == _PIN
 
 
 def test_the_census_sees_each_shape_of_edit():
@@ -186,11 +193,3 @@ def test_the_census_sees_each_shape_of_edit():
         'modify_autofocus_all_steps': 1,
         _STEPS_WRITE: 2,
     }
-
-
-_ratchets.register(
-    'GUI: protocol edits made outside the API',
-    lambda: sum(_gui_protocol_edit_counts().values()),
-    sum(_PIN.values()),
-    'equal',
-)

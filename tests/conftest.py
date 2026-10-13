@@ -799,12 +799,32 @@ def pytest_unconfigure(config):
     print(f'\n[--driver-log] driver log written to {config._driver_log_path}')
 
 
+def pytest_sessionfinish(session, exitstatus):
+    """A worker ships its ratchet observations to the controller (tests/ratchets.py)."""
+    workeroutput = getattr(session.config, 'workeroutput', None)
+    if workeroutput is not None:
+        from tests import ratchets
+
+        workeroutput['ratchets'] = ratchets.ship()
+
+
+@pytest.hookimpl(optionalhook=True)
+def pytest_testnodedown(node, error):
+    """The controller takes each worker's ratchet observations as the worker leaves.
+
+    An xdist hook: optional, so a run without xdist loads this conftest.
+    """
+    from tests import ratchets
+
+    ratchets.take(getattr(node, 'workeroutput', {}).get('ratchets', ()))
+
+
 def pytest_terminal_summary(terminalreporter, exitstatus, config):
-    """Announce every registered ratchet's current count beside its pin.
+    """Announce every ratchet count a test observed, beside its pin.
 
     The ratchet tests fail on a wrong count; this prints the numbers
     whether or not they failed, so every pytest log carries the progress
-    of each migration. Registry: tests/ratchets.py.
+    of each migration. Observations: tests/ratchets.py.
     """
     from tests import ratchets
 

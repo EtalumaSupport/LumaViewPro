@@ -35,6 +35,7 @@ import typing
 import pytest
 
 from modules import wire_encoding
+from tests import ratchets as _ratchets
 from rest import routes as rest_routes
 
 # Keyless objects, arrays of nothing said and values of no type, over every
@@ -202,7 +203,7 @@ def test_the_servers_own_routes_declare_their_models(built):
 def test_the_untyped_places_in_answers_and_events_do_not_grow(built):
     described, _routes, events, _records = built
     untyped = _untyped(described, events)
-    _counted.append(len(untyped))
+    _ratchets.observe('rest: untyped places in answers and events', len(untyped), UNTYPED_PIN)
     assert len(untyped) <= UNTYPED_PIN, (
         f'{len(untyped)} untyped places in answers and events, over the pin of '
         f'{UNTYPED_PIN}: type the new one (a record, a typed array or mapping), or '
@@ -324,20 +325,3 @@ def test_every_enum_on_the_wire_crosses_in_its_declared_form(built, tmp_path):
             )
     assert enums, 'no enum reached: the walk is broken'
     assert not drifted, '\n'.join(drifted)
-
-
-# Announced at the end of every run (tests/ratchets.py).
-from tests import ratchets as _ratchets
-
-
-# The count the ratchet test measured; the summary prints it when the test ran.
-_counted: list[int] = []
-
-
-def _measure() -> int:
-    if not _counted:
-        raise RuntimeError('the ratchet test did not run')
-    return _counted[-1]
-
-
-_ratchets.register('rest: untyped places in answers and events', _measure, UNTYPED_PIN)

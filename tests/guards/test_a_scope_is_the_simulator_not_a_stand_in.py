@@ -165,10 +165,6 @@ def _entries_with_a_site() -> set[str]:
     return {entry for entry, _line, _what, marked in _found_in_tests() if not marked}
 
 
-def _by_design() -> list[str]:
-    return [f'{entry}:{line} {what}' for entry, line, what, marked in _found_in_tests() if marked]
-
-
 # Seeded at LVP dev/4.0.0 b17419cc (2026-10-09) with 237 entries. Only shrinks: a
 # commit that takes a stand-in to the simulator deletes its entry and lowers this.
 ALLOWED_ENTRIES = 229
@@ -408,9 +404,15 @@ ALLOWED = frozenset(
 
 
 def test_every_scope_shaped_stand_in_is_allowlisted_or_by_design():
+    found = list(_found_in_tests())
+    ratchets.observe(
+        'tests: stand-ins by design',
+        sum(1 for _entry, _line, _what, marked in found if marked),
+        rule='announce',
+    )
     unlisted = sorted(
         f'{entry}:{line} {what}'
-        for entry, line, what, marked in _found_in_tests()
+        for entry, line, what, marked in found
         if not marked and entry not in ALLOWED
     )
     assert unlisted == [], (
@@ -426,6 +428,9 @@ def test_every_allowlist_entry_still_names_a_site():
 
 
 def test_the_allowlist_only_shrinks():
+    ratchets.observe(
+        'tests: scope-shaped stand-in sites allowlisted', len(ALLOWED), ALLOWED_ENTRIES, 'equal'
+    )
     assert len(ALLOWED) == ALLOWED_ENTRIES, (
         f'{len(ALLOWED)} entries against the pinned {ALLOWED_ENTRIES}: a commit that removes '
         'entries lowers the pin with them; a new test uses the simulator or marks its '
@@ -481,13 +486,3 @@ def test_what_is_not_a_stand_in_for_a_scope_passes():
         'motion = sim_scope.motion',
     ]
     assert [_forms(source) for source in allowed] == [[]] * len(allowed)
-
-
-# Announced at the end of every run (tests/ratchets.py).
-ratchets.register(
-    'tests: scope-shaped stand-in sites allowlisted',
-    lambda: len(ALLOWED),
-    ALLOWED_ENTRIES,
-    rule='equal',
-)
-ratchets.register('tests: stand-ins by design', lambda: len(_by_design()), 0, rule='announce')

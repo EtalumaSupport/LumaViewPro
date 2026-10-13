@@ -20,6 +20,7 @@ from drivers.motorboard import MotorBoard
 from drivers.simulated_camera import SimulatedCamera
 from drivers.simulated_ledboard import SimulatedLEDBoard
 from drivers.simulated_motorboard import SimulatedMotorBoard
+from tests import ratchets as _ratchets
 from tests.ast_seams import iter_package_modules
 
 
@@ -288,21 +289,11 @@ def test_simulator_only_surface_does_not_grow(label, real, sim):
     """
     sim_only = _sim_only_names(real, sim)
     budget = _SIM_ONLY_NAME_BUDGET[label]
+    _ratchets.observe(f'simulators: sim-only public names on {label}', len(sim_only), budget)
     assert len(sim_only) <= budget, (
         f'{sim.__name__} now has {len(sim_only)} public names absent from '
         f'{label}, over the recorded {budget}: {sorted(sim_only)}\n\n'
         f'If the addition is deliberate, raise _SIM_ONLY_NAME_BUDGET '
         f"['{label}'] in this commit and say why in the message. If it is "
         f'not, the name probably belongs on {label} too.'
-    )
-
-
-# Announced at the end of every run (tests/ratchets.py).
-from tests import ratchets as _ratchets
-
-for _label, _real, _sim in _BOARD_PAIRS:
-    _ratchets.register(
-        f'simulators: sim-only public names on {_label}',
-        (lambda real=_real, sim=_sim: len(_sim_only_names(real, sim))),
-        _SIM_ONLY_NAME_BUDGET[_label],
     )

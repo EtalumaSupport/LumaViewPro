@@ -20,6 +20,7 @@ from typing import ClassVar
 
 import numpy as np
 
+from tests import ratchets as _ratchets
 from tests.ast_seams import REPO_ROOT
 
 
@@ -907,8 +908,13 @@ _TWIN_REMEDY = (
 )
 
 
-def _ratchet_report(pin, actual, what, remedy=_GUI_REMEDY):
-    """The differences between a pin and the tree, each with its remedy."""
+def _ratchet_report(name, pin, actual, what, remedy=_GUI_REMEDY):
+    """The differences between a pin and the tree, each with its remedy.
+
+    The totals are observed first (tests/ratchets.py), so the run's summary
+    carries the ratchet whether or not the differences fail the test.
+    """
+    _ratchets.observe(name, sum(actual.values()), sum(pin.values()), 'equal')
     lines = []
     for key in sorted(set(pin) | set(actual), key=str):
         before, now = pin.get(key, 0), actual.get(key, 0)
@@ -925,6 +931,7 @@ class TestGuiIsDisplayOnly:
 
     def test_ui_answerer_calls_match_the_pin(self):
         report = _ratchet_report(
+            'GUI: questions the GUI answers below the API',
             _UI_ANSWERER_CALL_PIN,
             _ui_answerer_call_counts(),
             'answerer calls',
@@ -934,24 +941,35 @@ class TestGuiIsDisplayOnly:
 
     def test_ui_private_reaches_match_the_pin(self):
         report = _ratchet_report(
-            _UI_PRIVATE_REACH_PIN, _ui_private_reach_counts(), 'private reaches'
+            'GUI: private API reaches from ui/',
+            _UI_PRIVATE_REACH_PIN,
+            _ui_private_reach_counts(),
+            'private reaches',
         )
         assert report == [], '\n'.join(report)
 
     def test_ui_except_handlers_match_the_pin(self):
         report = _ratchet_report(
-            _UI_EXCEPT_PIN, _ui_except_counts(), 'except handlers', _EXCEPT_REMEDY
+            'GUI: except handlers in ui/',
+            _UI_EXCEPT_PIN,
+            _ui_except_counts(),
+            'except handlers',
+            _EXCEPT_REMEDY,
         )
         assert report == [], '\n'.join(report)
 
     def test_gui_orchestration_calls_match_the_pin(self):
         report = _ratchet_report(
-            _GUI_ORCHESTRATION_PIN, _gui_orchestration_counts(), 'orchestration calls'
+            'GUI: orchestration calls from the GUI',
+            _GUI_ORCHESTRATION_PIN,
+            _gui_orchestration_counts(),
+            'orchestration calls',
         )
         assert report == [], '\n'.join(report)
 
     def test_modules_context_reads_match_the_pin(self):
         report = _ratchet_report(
+            'GUI: _app_ctx.ctx reads in modules/',
             _MODULES_CONTEXT_READ_PIN,
             _modules_context_read_counts(),
             '_app_ctx.ctx reads',
@@ -961,12 +979,17 @@ class TestGuiIsDisplayOnly:
 
     def test_modules_widget_reads_match_the_pin(self):
         report = _ratchet_report(
-            _MODULES_WIDGET_READ_PIN, _modules_widget_read_counts(), '.ids[ reads', _MODULES_REMEDY
+            'GUI: widget .ids[ reads in modules/',
+            _MODULES_WIDGET_READ_PIN,
+            _modules_widget_read_counts(),
+            '.ids[ reads',
+            _MODULES_REMEDY,
         )
         assert report == [], '\n'.join(report)
 
     def test_lower_layer_ui_imports_match_the_pin(self):
         report = _ratchet_report(
+            'GUI: ui imports from modules/ and drivers/',
             _LOWER_LAYER_UI_IMPORT_PIN,
             _lower_layer_ui_import_counts(),
             'ui imports',
@@ -976,7 +999,11 @@ class TestGuiIsDisplayOnly:
 
     def test_twin_answerers_match_the_pin(self):
         report = _ratchet_report(
-            _TWIN_ANSWERER_PIN, _twin_answerer_names(), 'GUI+Session answerers', _TWIN_REMEDY
+            'GUI: questions with a GUI answerer and an L2 answerer',
+            _TWIN_ANSWERER_PIN,
+            _twin_answerer_names(),
+            'GUI+Session answerers',
+            _TWIN_REMEDY,
         )
         assert report == [], '\n'.join(report)
 
@@ -1031,56 +1058,3 @@ class TestThePrivateReachCensusCountsReachesNotSpellings:
         """
         source = 'def f(self):\n    return self._live_capture_impl\n'
         assert _private_reaches_in_source(source, self._LABEL) == {}
-
-
-# Announced at the end of every run (tests/ratchets.py).
-from tests import ratchets as _ratchets
-
-_ratchets.register(
-    'GUI: questions the GUI answers below the API',
-    lambda: sum(_ui_answerer_call_counts().values()),
-    sum(_UI_ANSWERER_CALL_PIN.values()),
-    'equal',
-)
-_ratchets.register(
-    'GUI: private API reaches from ui/',
-    lambda: sum(_ui_private_reach_counts().values()),
-    sum(_UI_PRIVATE_REACH_PIN.values()),
-    'equal',
-)
-_ratchets.register(
-    'GUI: except handlers in ui/',
-    lambda: sum(_ui_except_counts().values()),
-    sum(_UI_EXCEPT_PIN.values()),
-    'equal',
-)
-_ratchets.register(
-    'GUI: orchestration calls from the GUI',
-    lambda: sum(_gui_orchestration_counts().values()),
-    sum(_GUI_ORCHESTRATION_PIN.values()),
-    'equal',
-)
-_ratchets.register(
-    'GUI: _app_ctx.ctx reads in modules/',
-    lambda: sum(_modules_context_read_counts().values()),
-    sum(_MODULES_CONTEXT_READ_PIN.values()),
-    'equal',
-)
-_ratchets.register(
-    'GUI: widget .ids[ reads in modules/',
-    lambda: sum(_modules_widget_read_counts().values()),
-    sum(_MODULES_WIDGET_READ_PIN.values()),
-    'equal',
-)
-_ratchets.register(
-    'GUI: ui imports from modules/ and drivers/',
-    lambda: sum(_lower_layer_ui_import_counts().values()),
-    sum(_LOWER_LAYER_UI_IMPORT_PIN.values()),
-    'equal',
-)
-_ratchets.register(
-    'GUI: questions with a GUI answerer and an L2 answerer',
-    lambda: sum(_twin_answerer_names().values()),
-    sum(_TWIN_ANSWERER_PIN.values()),
-    'equal',
-)

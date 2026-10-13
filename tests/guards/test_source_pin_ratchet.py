@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import ast
 
+from tests import ratchets as _ratchets
 from tests.ast_seams import REPO_ROOT, iter_package_modules
 
 _JUSTIFICATION = 'pin-justified'
@@ -181,10 +182,27 @@ def _ratchet_report(pin, actual):
     return lines
 
 
+# Every bucket but the pinned `body-pin`, announced for its history.
+_ANNOUNCED_BUCKETS = (
+    'body-pin-justified',
+    'single-computed',
+    'hygiene-scan',
+    'data-doc-read',
+    'kv-pin',
+)
+
+
 def test_fragile_source_pins_match_the_pin():
     """New tests assert seams or behaviour, not source text; every drop is
     recorded where it happened."""
-    report = _ratchet_report(_FRAGILE_PIN, _fragile_pin_counts())
+    counts = _fragile_pin_counts()
+    _ratchets.observe(
+        'tests: fragile source pins (unjustified literal-.py reads)',
+        sum(counts.values()),
+        sum(_FRAGILE_PIN.values()),
+        'equal',
+    )
+    report = _ratchet_report(_FRAGILE_PIN, counts)
     assert report == [], '\n'.join(report)
 
 
@@ -196,6 +214,8 @@ def test_classification_covers_every_site():
     than no classification, because the migration is scoped from it.
     """
     sites = classify_read_text_sites()
+    for bucket in _ANNOUNCED_BUCKETS:
+        _ratchets.observe(f'tests: read_text sites, {bucket}', len(sites[bucket]), rule='announce')
     total = sum(len(v) for v in sites.values())
     assert total > 0, 'the scan found nothing, so it is no longer scanning'
     for category, entries in sites.items():
@@ -219,21 +239,3 @@ def test_justification_is_read_from_the_site():
     lines = src.splitlines()
     assert _is_justified(lines, 3)
     assert not _is_justified(lines, 9)
-
-
-# Announced at the end of every run (tests/ratchets.py).
-from tests import ratchets as _ratchets
-
-_ratchets.register(
-    'tests: fragile source pins (unjustified literal-.py reads)',
-    lambda: sum(_fragile_pin_counts().values()),
-    sum(_FRAGILE_PIN.values()),
-    'equal',
-)
-for _bucket in ('body-pin-justified', 'single-computed', 'hygiene-scan', 'data-doc-read', 'kv-pin'):
-    _ratchets.register(
-        f'tests: read_text sites, {_bucket}',
-        (lambda b=_bucket: len(classify_read_text_sites()[b])),
-        0,
-        'announce',
-    )
