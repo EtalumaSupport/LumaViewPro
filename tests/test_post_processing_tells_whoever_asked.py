@@ -28,6 +28,7 @@ from modules.exceptions import (
     HyperstackRefusedError,
     Notice,
     PostProcessingFailedError,
+    PostProcessingOperation,
     PostProcessingRefusedError,
 )
 from modules.notification_center import NotificationCenter, Severity, notifications
@@ -179,6 +180,19 @@ def test_a_z_projection_with_no_z_stack_says_where_one_lives():
 
     assert refusal.title == 'No Z-Stack Data Found'
     assert 'Pick a folder that contains a Z-stack run' in str(refusal)
+
+
+def test_a_heading_for_another_reason_says_only_what_its_own_row_names(monkeypatch):
+    """The Z-stack advice is its row's, not every pair row's: a stitch given a
+    heading of its own does not tell the person to look for a Z-stack."""
+    # a stand-in by design: the table has one pair row today; a second is the case
+    words = dict(PostProcessingRefusedError._WORDS)
+    words[(PostProcessingOperation.STITCH, 'no_data')] = ('No Tiles Found', '')
+    monkeypatch.setattr(PostProcessingRefusedError, '_WORDS', words)
+
+    refusal = PostProcessingRefusedError(operation='Stitch', reason='no_data', message='No images.')
+
+    assert (refusal.title, str(refusal)) == ('No Tiles Found', 'No images.')
 
 
 # ---------------------------------------------------------------------------

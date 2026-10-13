@@ -1576,21 +1576,24 @@ class PostProcessingRefusedError(Refusal, CaptureError):
         "'ProtocolData/<timestamp>/' folder whose protocol included Z-stack steps."
     )
 
-    # Each operation's heading, and the one reason that names its own: a
-    # z-projection refused for want of Z-stack data says so.
-    _TITLES: ClassVar[dict[object, str]] = {
-        **{operation: f'{operation} Not Possible' for operation in PostProcessingOperation},
-        (PostProcessingOperation.Z_PROJECTION, 'no_data'): 'No Z-Stack Data Found',
+    # Each operation's heading and the advice its words end with, and the one
+    # reason that names its own: a z-projection refused for want of Z-stack
+    # data says so, and where such a folder lives. A row carries its own
+    # advice, so a heading added for another reason says only what it names.
+    _WORDS: ClassVar[dict[object, tuple[str, str]]] = {
+        **{operation: (f'{operation} Not Possible', '') for operation in PostProcessingOperation},
+        (PostProcessingOperation.Z_PROJECTION, 'no_data'): (
+            'No Z-Stack Data Found',
+            _NO_ZSTACK_ADVICE,
+        ),
     }
 
     def __init__(self, *, operation: str, reason: str, message: str):
         operation = PostProcessingOperation(operation)
-        key = (operation, reason) if (operation, reason) in self._TITLES else operation
-        if key != operation:
-            message = f'{message}{self._NO_ZSTACK_ADVICE}'
-        super().__init__(message, reason)
+        key = (operation, reason) if (operation, reason) in self._WORDS else operation
+        self.title, advice = self._WORDS[key]
+        super().__init__(f'{message}{advice}', reason)
         self.operation = operation
-        self.title = self._TITLES[key]
 
 
 @api_fields('kind', 'count')
