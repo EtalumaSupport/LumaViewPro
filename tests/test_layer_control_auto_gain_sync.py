@@ -171,22 +171,22 @@ class TestApplySettingsSyncsAutoGainCheckbox:
             "camera state has changed but the UI hasn't caught up."
         )
 
-    def test_apply_settings_sync_inside_non_protocol_guard(self):
-        """The sync code must be inside the ``if not protocol_running_global.is_set():``
-        block (same guard as the rest of the auto_gain handling).
+    def test_apply_settings_syncs_only_after_its_run_lockout_return(self):
+        """The sync runs only when no run holds the scope: ``apply_settings``
+        returns at its ``run_lockout`` check before it reaches the sync.
         A run never applies the layer's settings, so syncing the toggle
         UI from settings during one would be incorrect."""
         body = _method_body('LayerControl', 'apply_settings')
-        # Find the guard line and the sync line; assert sync comes after the guard.
-        guard_idx = body.find('if not ctx.session.run_lockout:')
+        guard_idx = body.find('if ctx.session.run_lockout:')
         sync_idx = body.find("self.ids['auto_gain'].active = auto_gain_enabled")
-        assert guard_idx >= 0, 'protocol_running guard not found (precondition)'
+        assert guard_idx >= 0, 'run_lockout return not found (precondition)'
         assert sync_idx >= 0, 'sync line not found (precondition)'
-        assert guard_idx < sync_idx, (
-            'auto_gain CheckBox sync must be INSIDE the '
-            '`if not ctx.session.run_lockout:` block, not '
-            'outside it. Syncing during a protocol-driven layer change '
-            "would fight protocol_step_runner's AG management."
+        returned = body.find('return', guard_idx)
+        assert 0 <= returned < sync_idx, (
+            'apply_settings must return under `if ctx.session.run_lockout:` '
+            'before the auto_gain CheckBox sync. Syncing during a '
+            "protocol-driven layer change would fight protocol_step_runner's "
+            'AG management.'
         )
 
 

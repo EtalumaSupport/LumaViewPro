@@ -297,8 +297,6 @@ class LayerControl(BoxLayout):
 
     def ill_slider(self):
         settings = _app_ctx.ctx.settings
-        if _app_ctx.ctx.session.run_lockout:
-            return
         # Early return on programmatic updates (#617): when another code
         # path sets ill_slider.value directly (load_settings, ill_text,
         # set_step_state), on_value fires and re-enters
@@ -417,8 +415,6 @@ class LayerControl(BoxLayout):
         )
 
     def gain_slider(self):
-        if _app_ctx.ctx.session.run_lockout:
-            return
         # See ill_slider -- programmatic updates must not re-enter (#617).
         if self._initializing:
             return
@@ -456,8 +452,6 @@ class LayerControl(BoxLayout):
         )
 
     def exp_slider(self):
-        if _app_ctx.ctx.session.run_lockout:
-            return
         # See ill_slider -- programmatic updates must not re-enter (#617).
         if self._initializing:
             return
@@ -1023,42 +1017,41 @@ class LayerControl(BoxLayout):
         set_histogram_layer(active_layer=self.layer)
 
         # Queue IO task and update UI after completing IO
-        if update_led and not ctx.session.run_lockout:
+        if update_led:
             self.update_led_state(apply_settings=False)
 
         disable_leds_for_other_layers()
 
-        if not ctx.session.run_lockout:
-            # Effective enable = the API's answer for the saved preference
-            # (effective_auto_gain): on a camera without hardware AG/AE the
-            # control is hidden, so a stored True must read as off here -- else
-            # the gain/exposure sliders below stay disabled with no UI to clear
-            # them. Non-destructive: the stored preference is left intact.
-            auto_gain_enabled = self.effective_auto_gain()
-            # Sync the toggle CheckBox to the settings value before applying
-            # to the camera. The .kv has no Kivy binding from settings to
-            # auto_gain.active, so when the JSON loads at startup with
-            # auto_gain=True the CheckBox stays at its default False;
-            # apply_settings would then send AG=True to the camera while the
-            # toggle continues to read OFF in the UI. Programmatic
-            # .active = bool fires no on_release (CheckBox only binds
-            # on_release in the .kv), so this does not re-enter. The
-            # gain/exposure widgets' enabled state follows this box through
-            # the kv rule (`disabled: app.run_lockout or auto_gain.active`):
-            # an imperative .disabled write here was erased whenever the run
-            # lockout cleared, because that rule re-fires on the edge.
-            self.ids['auto_gain'].active = auto_gain_enabled
-            # With no camera connected its controls are disabled and there is
-            # nothing to apply; bring-up has already said it is missing.
-            if ctx.scope.camera_connected:
-                session = ctx.session
-                layer = self.layer
-                submit_reported(
-                    lambda: session.apply_layer_camera(layer),
-                    None,
-                    f'CAMERA_SETTINGS_{layer}',
-                    lane=camera_executor,
-                )
+        # Effective enable = the API's answer for the saved preference
+        # (effective_auto_gain): on a camera without hardware AG/AE the
+        # control is hidden, so a stored True must read as off here -- else
+        # the gain/exposure sliders below stay disabled with no UI to clear
+        # them. Non-destructive: the stored preference is left intact.
+        auto_gain_enabled = self.effective_auto_gain()
+        # Sync the toggle CheckBox to the settings value before applying
+        # to the camera. The .kv has no Kivy binding from settings to
+        # auto_gain.active, so when the JSON loads at startup with
+        # auto_gain=True the CheckBox stays at its default False;
+        # apply_settings would then send AG=True to the camera while the
+        # toggle continues to read OFF in the UI. Programmatic
+        # .active = bool fires no on_release (CheckBox only binds
+        # on_release in the .kv), so this does not re-enter. The
+        # gain/exposure widgets' enabled state follows this box through
+        # the kv rule (`disabled: app.run_lockout or auto_gain.active`):
+        # an imperative .disabled write here was erased whenever the run
+        # lockout cleared, because that rule re-fires on the edge.
+        self.ids['auto_gain'].active = auto_gain_enabled
+        # With no camera connected its controls are disabled and there is
+        # nothing to apply; bring-up has already said it is missing.
+        if ctx.scope.camera_connected:
+            session = ctx.session
+            layer = self.layer
+            submit_reported(
+                lambda: session.apply_layer_camera(layer),
+                None,
+                f'CAMERA_SETTINGS_{layer}',
+                lane=camera_executor,
+            )
 
         # update false color to currently selected settings and shader
         # -----------------------------------------------------
