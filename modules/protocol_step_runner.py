@@ -238,26 +238,6 @@ class ProtocolStepRunner:
         if p._aborted.is_set() or not p._scan_in_progress.is_set():
             return
 
-        # BF AF for fluorescence -- read from the runner snapshot so
-        # mid-run UI toggles cannot produce inconsistent AF behavior
-        # across steps within one scan. The value rides the run plan,
-        # resolved by the caller that owns the settings.
-        bf_af_for_fluor = getattr(p, '_bf_af_for_fluorescence', False)
-        if (
-            bf_af_for_fluor
-            and step['Color'] != 'BF'
-            and p._autofocus_runner.best_focus_position() is not None
-        ):
-            if p._write_focus_to is not None:
-                new_z_pos = p._autofocus_runner.best_focus_position()
-                p._protocol.modify_step_z_height(step_idx=p._curr_step, z=new_z_pos)
-            logger.info(
-                f'[Capture   ] Skipping AF on {step["Color"]} -- using BF result Z={p._autofocus_runner.best_focus_position()}'
-            )
-            step = dict(step)
-            step['Auto_Focus'] = False
-            wants_af = False
-
         if wants_af and p._af_future is None:
             if p._aborted.is_set() or not p._scan_in_progress.is_set():
                 return

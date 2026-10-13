@@ -290,11 +290,6 @@ class ProtocolSettings(FloatLayout):
         # plate, and the scope's visibility restore shows it in the spinner.
         self.update_step_ui()
 
-        # DISABLED: BF AF for fluorescence -- not yet tested, hidden for 4.0.0.
-        # Force off regardless of saved settings to prevent untested code path.
-        _app_ctx.ctx.update_settings('protocol.bf_af_for_fluorescence', False)
-        self.ids['bf_af_for_fluorescence_btn'].state = 'normal'
-
     # Update Protocol Period
     def update_period(self):
         logger.info('[LVP Main  ] ProtocolSettings.update_period()')
@@ -1111,14 +1106,6 @@ class ProtocolSettings(FloatLayout):
 
     def debug_func(self):
         pass
-
-    def update_bf_af_for_fluorescence(self):
-        """Toggle: use BF autofocus result for all fluorescence channels."""
-        ctx = _app_ctx.ctx
-        enabled = self.ids['bf_af_for_fluorescence_btn'].state == 'down'
-        gui_logger.toggle('BF_AF_FOR_FLUORESCENCE', enabled)
-        ctx.update_settings('protocol.bf_af_for_fluorescence', enabled)
-        logger.info(f'[Protocol  ] BF AF for fluorescence: {enabled}')
 
     def run_autofocus_scan_from_ui(self):
         self._press_panel_run(

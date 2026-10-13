@@ -416,7 +416,6 @@ class RunPlan:
     # frozen here so a mid-run toggle cannot make some steps of one scan
     # behave differently from others. The engine never reads settings for
     # these itself: a headless run gets exactly what its caller resolved.
-    bf_af_for_fluorescence: bool
     timestamp_overlay: bool
     video_max_fps: int
     # Whether the run names its files with the turret position. Stated by
@@ -1049,7 +1048,6 @@ class SequencedCaptureRunner:
         write_focus_to: Protocol | None = None,
         video_as_frames: bool = False,
         keep_led_between_steps: bool = False,
-        bf_af_for_fluorescence: bool = False,
         timestamp_overlay: bool = True,
         video_max_fps: int = 0,
         composite_thresholds_percent: dict | None = None,
@@ -1422,7 +1420,6 @@ class SequencedCaptureRunner:
             keep_led_between_steps=keep_led_between_steps,
             return_to_position=return_to_position,
             stage_offset=stage_offset,
-            bf_af_for_fluorescence=bf_af_for_fluorescence,
             timestamp_overlay=timestamp_overlay,
             video_max_fps=video_max_fps,
             ag_ae_max_exposure_ms=ag_ae_max_exposure_ms,
@@ -1587,7 +1584,6 @@ class SequencedCaptureRunner:
             self._write_focus_to = plan.write_focus_to
             self._keep_led_between_steps = plan.keep_led_between_steps
             self._video_as_frames = plan.video_as_frames
-            self._bf_af_for_fluorescence = plan.bf_af_for_fluorescence
             self._timestamp_overlay = plan.timestamp_overlay
             self._video_max_fps = plan.video_max_fps
             self._ag_ae_max_exposure_ms = plan.ag_ae_max_exposure_ms

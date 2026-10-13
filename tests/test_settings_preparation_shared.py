@@ -146,6 +146,16 @@ def test_normalization_reports_whether_it_changed_anything():
     assert renamed_plate['protocol']['labware'] == '384 well microplate'
 
 
+def test_a_stored_bf_focus_for_fluorescence_is_dropped():
+    # The setting was removed; a file that still carries it loads without it.
+    with open(SHIPPED_TEMPLATE) as f:
+        stored = json.load(f)
+    stored['protocol']['bf_af_for_fluorescence'] = True
+
+    assert settings_init.normalize_loaded_settings(stored) is True
+    assert 'bf_af_for_fluorescence' not in stored['protocol']
+
+
 def test_a_plate_the_catalogue_never_had_is_left_as_written():
     # Preparation folds spellings; it does not judge. Whether the plate
     # exists is answered where the plate is selected, against the catalogue.

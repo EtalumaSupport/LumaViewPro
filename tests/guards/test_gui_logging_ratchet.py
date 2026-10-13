@@ -211,7 +211,6 @@ _ROSTER = {
     'ProtocolSettings.RoundedButton(save_protocol)': ('SAVE',),
     'ProtocolSettings.acquire_zstack_id': ('ACQUIRE_ZSTACK',),
     'ProtocolSettings.add_step_btn': ('INSERT_STEP',),
-    'ProtocolSettings.bf_af_for_fluorescence_btn': ('BF_AF_FOR_FLUORESCENCE',),
     'ProtocolSettings.capture_dur': ('PROTOCOL_DURATION',),
     'ProtocolSettings.capture_period': ('PROTOCOL_PERIOD',),
     'ProtocolSettings.capture_root': ('CAPTURE_ROOT',),

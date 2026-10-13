@@ -369,6 +369,13 @@ def normalize_loaded_settings(settings_dict: dict) -> bool:
     if settings_dict.pop('disable_protocol_accordions', None) is not None:
         changed = True
 
+    # Reusing brightfield's autofocus result for the fluorescence steps was
+    # removed, never shown: it skipped their autofocus without moving to
+    # that focus, and carried one well's result to the next.
+    protocol = settings_dict.get('protocol')
+    if isinstance(protocol, dict) and protocol.pop('bf_af_for_fluorescence', None) is not None:
+        changed = True
+
     # A top-level binning factor that nothing writes and no shipped template
     # carries. It was read as the headless binning and always answered 1;
     # binning lives at settings['binning']['size'] as the selector's label.

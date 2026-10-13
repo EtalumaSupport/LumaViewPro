@@ -63,6 +63,16 @@ RUNTIME_ONLY_PER_LAYER = {
 #   callers write.
 MIGRATED_PER_LAYER = {'ill_ma', 'exp_ms'}
 
+# Nested keys the loader drops, keyed by the entry they lived under, as
+# RUNTIME_ONLY_PER_LAYER is. A current.json of any age may still hold them
+# until its next clean shutdown (normalize_loaded_settings pops them at
+# load); they must never come back in settings.json:
+# - protocol.bf_af_for_fluorescence: reusing brightfield's autofocus for
+#   the fluorescence steps, removed.
+RETIRED_PER_LAYER = {
+    'protocol': {'bf_af_for_fluorescence'},
+}
+
 requires_current_json = pytest.mark.skipif(
     not CURRENT_PATH.exists(),
     reason='data/current.json is runtime-written and gitignored; parity '
@@ -122,6 +132,16 @@ def test_settings_defaults_carry_no_runtime_only_keys():
         'remove them from the defaults file or retire their '
         'RUNTIME_ONLY_PER_LAYER exemption'
     )
+    retired_back = [
+        f'{key}.{sub}'
+        for key, subkeys in RETIRED_PER_LAYER.items()
+        if isinstance(settings.get(key), dict)
+        for sub in subkeys & set(settings[key])
+    ]
+    assert not retired_back, (
+        f'retired per-layer keys reappeared in settings.json: {retired_back} -- '
+        'the loader drops these; shipping a default would resurrect them'
+    )
 
 
 @requires_current_json
@@ -146,7 +166,11 @@ def test_per_layer_key_parity():
             if isinstance(s_val, dict) != isinstance(c_val, dict):
                 drift.append(f'{key}: dict in one file, {type(c_val).__name__} in the other')
             continue
-        allowed = RUNTIME_ONLY_PER_LAYER.get(key, set()) | MIGRATED_PER_LAYER
+        allowed = (
+            RUNTIME_ONLY_PER_LAYER.get(key, set())
+            | RETIRED_PER_LAYER.get(key, set())
+            | MIGRATED_PER_LAYER
+        )
         current_only = set(c_val) - set(s_val) - allowed
         if current_only:
             drift.append(f'{key}: current-only sub-keys {sorted(current_only)}')

@@ -182,7 +182,6 @@ def get_sequenced_run_settings(settings: dict, *, run_mode: SequencedCaptureRunM
         'separate_folder_per_channel': (
             False if autofocus_scan else settings['separate_folder_per_channel']
         ),
-        'bf_af_for_fluorescence': settings['protocol']['bf_af_for_fluorescence'],
         'timestamp_overlay': settings['video']['timestamp_overlay'],
         'video_max_fps': settings['video']['max_fps'],
     }

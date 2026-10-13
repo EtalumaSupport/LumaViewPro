@@ -43,7 +43,6 @@ _OWNED_PARAMS = (
     'keep_led_between_steps',
     'video_as_frames',
     'separate_folder_per_channel',
-    'bf_af_for_fluorescence',
     'timestamp_overlay',
     'video_max_fps',
 )
@@ -86,7 +85,6 @@ def test_helper_passes_settings_values_through():
             keep_led_between_steps=True,
             video_as_frames=True,
             separate_folder_per_channel=True,
-            protocol={'bf_af_for_fluorescence': True},
             video={'timestamp_overlay': False, 'max_fps': 5},
         ),
         run_mode=SequencedCaptureRunMode.FULL_PROTOCOL,
@@ -96,7 +94,6 @@ def test_helper_passes_settings_values_through():
         'keep_led_between_steps': True,
         'video_as_frames': True,
         'separate_folder_per_channel': True,
-        'bf_af_for_fluorescence': True,
         'timestamp_overlay': False,
         'video_max_fps': 5,
     }

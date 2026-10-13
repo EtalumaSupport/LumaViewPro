@@ -19,23 +19,16 @@ consumers read it across that gap:
   ``settings[layer]['focus']``, which persists to ``current.json``. The
   bench trace on #816 shows the stored value equal to the in-transit
   coordinate to the last digit.
-* ``modules/protocol_step_runner.py`` gates "skip this channel's
+* ``modules/protocol_step_runner.py`` gated "skip this channel's
   autofocus and use the brightfield result" on the value being non-None,
   so a PRIOR RUN's value opened the gate and was written into the step Z.
+  That reuse has since been removed (#324).
 
 The run now clears the result before producing one, and reports what it
 found in its outcome (``af_focus_z_um``). ``run_autofocus`` writes no focus
 itself; the Autofocus button saves the outcome's Z, on ``run_ended``, as the
 focus of the layer it started the run on, through
 ``ScopeSession.save_layer_focus``.
-
-Known open, deliberately
-------------------------
-Scoping the result to the RUN does not scope it to the POSITION. Within
-one run with ``bf_af_for_fluorescence`` on, well A1's brightfield result
-still suppresses well B1's autofocus. That is a larger change than the
-one this file covers; ``test_cross_position_reuse_is_still_open``
-locks it as known-open so closing it cannot pass unnoticed.
 """
 
 from __future__ import annotations
@@ -117,50 +110,6 @@ class TestRunStartScopesTheResultToTheRun:
         assert result_at_completion is None, (
             'a run that fails at start must reach its run_ended '
             f'with the autofocus result already cleared; got {result_at_completion}'
-        )
-
-    def test_a_prior_runs_result_cannot_open_the_bf_reuse_gate(self):
-        """Narrowed: the brightfield-reuse gate in the step runner
-        is `best_focus_position() is not None`. After a new run starts,
-        a prior run's value can no longer satisfy it.
-
-        The gate expression itself is evaluated here rather than
-        restated, so a change to what the gate reads fails this test.
-        """
-        runner, af_runner = _runner_holding_a_stale_result()
-        assert af_runner.best_focus_position() is not None, (
-            'precondition: before the fix the stale value opens the gate'
-        )
-
-        runner.start(runner.prepare(**scr_run_kwargs()))
-
-        assert af_runner.best_focus_position() is None, (
-            "a fluorescence step must not adopt a prior RUN's brightfield result"
-        )
-
-    def test_cross_position_reuse_is_still_open(self):
-        """The other half: scoping to the RUN is not scoping to the
-        POSITION, and K16 is NOT closed.
-
-        The gate reads the result with no check of which position
-        measured it, so within one run well A1's brightfield focus still
-        suppresses well B1's autofocus. Locked as known-open: when the
-        result learns to carry its position, this test goes red and
-        whoever closes K16 updates it deliberately.
-        """
-        tree = parse_module('modules/protocol_step_runner.py')
-        reads = [
-            node
-            for node in ast.walk(tree)
-            if isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Attribute)
-            and node.func.attr == 'best_focus_position'
-        ]
-        assert reads, 'the brightfield-reuse gate no longer reads best_focus_position at all'
-        assert all(not call.args and not call.keywords for call in reads), (
-            'best_focus_position() now takes an argument -- K16 (the result '
-            'carrying the position it was measured at) looks closed. Re-read '
-            'the gate at protocol_step_runner.py and update this lock.'
         )
 
 
