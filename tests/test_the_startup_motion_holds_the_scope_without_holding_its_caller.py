@@ -18,7 +18,7 @@ import threading
 
 import pytest
 
-from modules.exceptions import HardwareCommandRefusedError
+from modules.exceptions import BlockingCallRefusedError, HardwareCommandRefusedError
 from modules.scope_session import ScopeSession
 from modules.sequential_io_executor import IOTask
 from tests.settings_fixtures import complete_settings
@@ -93,4 +93,6 @@ def test_a_blocking_startup_asked_from_a_lane_task_is_refused(session):
     scope = session.scope
     scope.io_lane().put(IOTask(action=asked_on_the_lane))
     refusal = outcome.result(timeout=ASKED_S)
-    assert isinstance(refusal, RuntimeError), refusal
+    assert isinstance(refusal, BlockingCallRefusedError), refusal
+    assert (refusal.reason, refusal.member) == ('blocking_on_worker', 'start_application_session')
+    assert isinstance(refusal, RuntimeError), 'still what it was documented as'

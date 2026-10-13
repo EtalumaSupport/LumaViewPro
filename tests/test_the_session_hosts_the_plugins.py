@@ -466,3 +466,24 @@ class TestNoEngineering:
             assert other.calls == [('register', session)]
         finally:
             session.shutdown()
+
+
+def test_a_session_loads_its_plugins_once(tmp_path):
+    """A second load would register every plugin again; it is refused, for good."""
+    from modules.exceptions import AlreadyStartedError, RefusalCause
+
+    plugin = _plugin('once')
+    session = ScopeSession.create(complete_settings(), simulate=True, no_engineering=True)
+    try:
+        _load(session, plugin)
+        with pytest.raises(AlreadyStartedError) as refused:
+            _load(session, plugin)
+        session.unload_plugins()
+        with pytest.raises(AlreadyStartedError):
+            _load(session, plugin)
+    finally:
+        session.shutdown()
+
+    assert (refused.value.reason, refused.value.cause) == ('plugins_loaded', RefusalCause.REQUEST)
+    assert isinstance(refused.value, RuntimeError), 'still what it was documented as'
+    assert [call[0] for call in plugin.calls].count('register') == 1

@@ -27,6 +27,7 @@ import pytest
 
 from modules.exceptions import (
     INTERLOCK_REASONS,
+    AlreadyStartedError,
     HardwareCommandRefusedError,
     LiveFolderPathRefusedError,
     MissingPart,
@@ -67,6 +68,7 @@ def _mixed(types):
 # How to build each mixed type with a given reason. A new mixed type fails
 # test_the_factories_cover_every_mixed_type until it has a row here.
 _FACTORIES = {
+    'AlreadyStartedError': lambda reason: AlreadyStartedError(reason, 'm'),
     'LiveFolderPathRefusedError': lambda reason: LiveFolderPathRefusedError(reason, 'n', 'm'),
     'ProtocolRunRefusedError': lambda reason: ProtocolRunRefusedError(reason, 'm'),
     'HardwareCommandRefusedError': lambda reason: HardwareCommandRefusedError(reason, 'member'),

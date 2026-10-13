@@ -3823,3 +3823,53 @@ class SupportReportNotSavedError(Fault, Exception):
             f'The {report} was not saved: {words}\n\nContact {SUPPORT_ADDRESS} directly.'
         )
         self.report = report
+
+
+class AlreadyStartedError(Refusal, RuntimeError):
+    """A start a session makes once was asked of a session that has made it.
+
+    A host's lifecycle call, refused before anything is started twice: a
+    second plugin load would register every plugin again, and a second
+    metrics start would orphan the first schedule as untracked,
+    forever-ticking events. Still a ``RuntimeError``, as it was documented.
+
+    Attributes:
+        reason: ``'plugins_loaded'`` -- this session already loaded its
+            plugins; it never loads them again. ``'metrics_running'`` --
+            metrics are already running; ``stop_metrics`` lets them start
+            again.
+    """
+
+    title = 'Already Started'
+    causes: ClassVar[dict[str, RefusalCause]] = {
+        'plugins_loaded': RefusalCause.REQUEST,
+        'metrics_running': RefusalCause.STATE,
+    }
+
+    def __init__(self, reason: str, message: str):
+        super().__init__(message)
+        self.reason = self._declared(reason)
+
+
+class BlockingCallRefusedError(Refusal, RuntimeError):
+    """A blocking call was made from an executor's worker, which it could end up waiting on.
+
+    The call waits on work that may queue behind the worker it was made
+    from, so it is refused before any wait is made; its non-blocking form
+    is the one a worker uses. Still a ``RuntimeError``, as it was
+    documented.
+
+    Attributes:
+        member: The member that was called.
+    """
+
+    cause = RefusalCause.REQUEST
+    reason = 'blocking_on_worker'
+    title = 'Blocking Call Refused'
+
+    def __init__(self, member: str, worker: str):
+        super().__init__(
+            f'{member}: a blocking call from the {worker} worker, which its own work '
+            'may queue behind; use the non-blocking form'
+        )
+        self.member = member

@@ -28,6 +28,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 import tests.ast_seams as ast_seams
+from modules.exceptions import AlreadyStartedError, RefusalCause
 from modules.scope_session import ScopeSession
 from tests.scope_fakes import real_executor_bundle, spec_scope
 
@@ -82,8 +83,15 @@ class TestStartStop:
         # the refusal makes that state unreachable.
         session = _make_session()
         session.start_metrics()
-        with pytest.raises(RuntimeError):
+        with pytest.raises(AlreadyStartedError) as refused:
             session.start_metrics()
+        assert refused.value.reason == 'metrics_running'
+        # Refused for the scope's state: a stop lets it start again.
+        assert refused.value.cause is RefusalCause.STATE
+        assert isinstance(refused.value, RuntimeError), 'still what it was documented as'
+        session.metrics_logger.start.assert_called_once()
+        session.stop_metrics()
+        session.start_metrics()
 
     def test_stop_metrics_stops_and_is_idempotent(self):
         session = _make_session()

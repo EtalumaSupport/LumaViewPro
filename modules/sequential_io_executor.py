@@ -18,7 +18,12 @@ from lib import profile_trace
 from modules.kivy_utils import schedule_ui
 from modules.notification_center import notifications
 from modules.activity_claim import ActivityClaim, Taking, acting, current_taking
-from modules.exceptions import HardwareCommandRefusedError, LaneCallStillRunningError, Refusal
+from modules.exceptions import (
+    BlockingCallRefusedError,
+    HardwareCommandRefusedError,
+    LaneCallStillRunningError,
+    Refusal,
+)
 import threading
 import time
 
@@ -165,13 +170,15 @@ _executor_worker = threading.local()
 
 
 def refuse_blocking_on_a_worker(member: str) -> None:
-    """Raise if this thread is an executor's worker, before any wait is made."""
+    """Refuse a blocking call from an executor's worker, before any wait is made.
+
+    Raises:
+        BlockingCallRefusedError: ``'blocking_on_worker'``, this thread is
+            an executor's worker.
+    """
     worker = getattr(_executor_worker, 'executor', None)
     if worker is not None:
-        raise RuntimeError(
-            f'{member}: a blocking call from the {worker.executor_name} worker, which '
-            'its own work may queue behind; use the non-blocking form'
-        )
+        raise BlockingCallRefusedError(member, worker.executor_name)
 
 
 # Set while the GUI's inline boundary runs a call on its own thread. That

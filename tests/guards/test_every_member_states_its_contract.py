@@ -46,9 +46,6 @@ _QUOTED_REASON = re.compile(r"``'[a-z][a-z0-9_]*'``|reason\s+``[a-z][a-z0-9_]*``
 _BUILT_INS_PINNED = {
     ('HeldClaim.release', 'RuntimeError'),
     ('ScopeSession.diagnostic_claim', 'RuntimeError'),
-    ('ScopeSession.load_plugins', 'RuntimeError'),
-    ('ScopeSession.start_application_session', 'RuntimeError'),
-    ('ScopeSession.start_metrics', 'RuntimeError'),
 }
 
 # Refusal entries that do not yet say which reason; finished after W0

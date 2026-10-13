@@ -52,6 +52,7 @@ from modules.activity_claim import (
 )
 from modules.common_utils import CustomJSONizer
 from modules.exceptions import (
+    AlreadyStartedError,
     ArgumentRefusedError,
     CameraSettingUnsupportedError,
     ConfigError,
@@ -3101,10 +3102,13 @@ class ScopeSession:
         Call it once, after ``create``.
 
         Raises:
-            RuntimeError: this session already loaded its plugins.
+            AlreadyStartedError: ``'plugins_loaded'``, this session already
+                loaded its plugins. Still a ``RuntimeError``.
         """
         if self.plugins is not None:
-            raise RuntimeError('ScopeSession.load_plugins: this session already loaded its plugins')
+            raise AlreadyStartedError(
+                'plugins_loaded', 'This session already loaded its plugins; it loads them once.'
+            )
         version, _build_timestamp = path_utils.read_version()
         self.plugins = PluginRegistry(self.scope)
         self.plugins.load(self, version)
@@ -4042,16 +4046,16 @@ class ScopeSession:
                 camera's. A host with no display passes none.
 
         Raises:
-            RuntimeError: Metrics are already running. A second
-                ``MetricsLogger.start`` silently overwrites its
-                schedule handles and orphans the first set as
-                untracked, forever-ticking events -- so a double start
-                refuses loudly instead.
+            AlreadyStartedError: ``'metrics_running'``, metrics are already
+                running; ``stop_metrics`` lets them start again. A second
+                ``MetricsLogger.start`` would silently overwrite its
+                schedule handles and orphan the first set as untracked,
+                forever-ticking events. Still a ``RuntimeError``.
         """
         if self._metrics_started:
-            raise RuntimeError(
-                'ScopeSession.start_metrics: metrics are already running; '
-                'a second start would orphan the existing schedule handles'
+            raise AlreadyStartedError(
+                'metrics_running',
+                'Metrics are already running; stop them before starting them again.',
             )
         # Cadence resolution, in precedence order: an explicit setting wins
         # everywhere (a bench operator asking for a specific interval must be
@@ -4382,9 +4386,11 @@ class ScopeSession:
         standard startup orchestration without copy-pasting from the App.
 
         Raises:
-            RuntimeError: called from an executor's worker. The motion runs
-                on the diagnostics worker and waits on the io lane, so a
-                worker waiting for it can be waiting on itself.
+            BlockingCallRefusedError: ``'blocking_on_worker'``, called from
+                an executor's worker. The motion runs on the diagnostics
+                worker and waits on the io lane, so a worker waiting for it
+                can be waiting on itself; ``begin_application_session`` is the
+                form a worker uses. Still a ``RuntimeError``.
             HardwareCommandRefusedError: as ``begin_application_session``.
         """
         refuse_blocking_on_a_worker('start_application_session')
