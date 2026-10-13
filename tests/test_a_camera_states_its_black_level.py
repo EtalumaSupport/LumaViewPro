@@ -14,7 +14,7 @@ import numpy as np
 import pytest
 from pypylon import genicam
 
-from drivers.exceptions import HardwareError
+from drivers.exceptions import CameraReadFailedError, HardwareError
 from modules.exceptions import (
     CameraSettingOutOfRangeError,
     CameraSettingRejected,
@@ -94,7 +94,7 @@ def test_a_failed_range_read_raises(sim_scope):
         patch.object(
             sim_scope._camera_driver,
             'get_black_level_range',
-            side_effect=HardwareError('BlackLevel range read failed'),
+            side_effect=CameraReadFailedError('BlackLevel range read failed'),
         ),
         pytest.raises(HardwareError, match='BlackLevel range read failed'),
     ):
@@ -111,7 +111,7 @@ def test_a_failed_read_fails_the_capture_and_records_no_frame(sim_scope):
     driver = sim_scope._camera_driver
     with (
         patch.object(
-            driver, 'get_black_level', side_effect=HardwareError('BlackLevel read failed')
+            driver, 'get_black_level', side_effect=CameraReadFailedError('BlackLevel read failed')
         ),
         pytest.raises(HardwareError, match='BlackLevel read failed'),
     ):

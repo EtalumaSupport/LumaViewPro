@@ -51,7 +51,7 @@ def _posted(centre_posts, *severities):
 # ===========================================================================
 # 1. Domain exceptions -- no mocks needed, pure Python module
 # ===========================================================================
-from drivers.exceptions import HardwareError
+from drivers.exceptions import BoardNoReplyError, BoardReportedError, HardwareError
 from modules.exceptions import (
     AutofocusAborted,
     CaptureError,
@@ -80,7 +80,7 @@ class TestDomainExceptions:
 
     @pytest.mark.parametrize(
         'exc_cls',
-        [HardwareError],
+        [BoardNoReplyError],
     )
     def test_raise_and_catch_with_message(self, exc_cls):
         msg = f'test message for {exc_cls.__name__}'
@@ -1732,7 +1732,7 @@ class TestHomeRaises:
         self, sim_scope, monkeypatch, centre_posts
     ):
         def boom():
-            raise HardwareError('no response from motor board')
+            raise BoardNoReplyError('no response from motor board')
 
         monkeypatch.setattr(sim_scope._motion_driver, 'zhome', boom)
         with pytest.raises(HomingFailedError):
@@ -1750,7 +1750,7 @@ class TestHomeRaises:
         self, sim_scope, monkeypatch, centre_posts
     ):
         def boom():
-            raise HardwareError('firmware error')
+            raise BoardReportedError('firmware error')
 
         monkeypatch.setattr(sim_scope._motion_driver, 'home', boom)
         with pytest.raises(HomingFailedError):
@@ -1771,7 +1771,7 @@ class TestHomeRaises:
         sim_scope._motion_driver.set_timing_mode('instant')
 
         def boom():
-            raise HardwareError('no response from motor board')
+            raise BoardNoReplyError('no response from motor board')
 
         monkeypatch.setattr(sim_scope._motion_driver, 'thome', boom)
         with pytest.raises(HomingFailedError, match='Turret homing'):
@@ -1786,7 +1786,7 @@ class TestHomeRaises:
         sim_scope._motion_driver.set_timing_mode('instant')
 
         def boom():
-            raise HardwareError('no response from motor board')
+            raise BoardNoReplyError('no response from motor board')
 
         monkeypatch.setattr(sim_scope._motion_driver, 'thome', boom)
         with pytest.raises(HomingFailedError):

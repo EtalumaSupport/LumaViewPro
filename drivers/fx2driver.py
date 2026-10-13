@@ -99,7 +99,7 @@ except ImportError:
     # dependency, and dozens of call sites use _cam_log unguarded.
     _cam_log = logger
 from drivers.camera import Camera, FrameGrid, ImageHandlerBase, link_info, no_hardware_auto_mode
-from drivers.exceptions import HardwareError
+from drivers.exceptions import CameraReadFailedError
 from drivers.registry import camera_registry, led_registry
 
 # Wire-level logging for the FX2 (LumaviewClassic LS560/620/720) USB
@@ -2617,7 +2617,7 @@ class FX2Camera(Camera):
         try:
             speed = self._fx2.link_speed_mbps()
         except Exception as e:
-            raise HardwareError(f'Link speed read failed: {type(e).__name__}: {e}') from e
+            raise CameraReadFailedError(f'Link speed read failed: {type(e).__name__}: {e}') from e
         return link_info(transport='USB2', link_speed=speed, link_speed_unit='Mbps')
 
     def auto_gain(

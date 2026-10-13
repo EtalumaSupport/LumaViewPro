@@ -12,7 +12,7 @@ import types
 from collections.abc import Mapping
 from typing import ClassVar
 
-from drivers.exceptions import HardwareError
+from drivers.exceptions import ConfigReadError
 from lvp_logger import logger
 
 
@@ -290,7 +290,7 @@ class MotorConfig:
         try:
             return float(self._config['Optics']['LensFocalLength'])
         except (KeyError, TypeError, ValueError) as ex:
-            raise HardwareError(
+            raise ConfigReadError(
                 f'motorconfig declares no numeric Optics.LensFocalLength: {ex}'
             ) from ex
 
@@ -305,4 +305,4 @@ class MotorConfig:
         try:
             return float(self._config['Optics']['PixelSize'])
         except (KeyError, TypeError, ValueError) as ex:
-            raise HardwareError(f'motorconfig declares no numeric Optics.PixelSize: {ex}') from ex
+            raise ConfigReadError(f'motorconfig declares no numeric Optics.PixelSize: {ex}') from ex

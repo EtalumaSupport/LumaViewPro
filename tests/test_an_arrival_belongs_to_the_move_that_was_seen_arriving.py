@@ -24,7 +24,7 @@ import time
 import pytest
 
 import modules.lumascope_api.motion as motion_module
-from drivers.exceptions import HardwareError
+from drivers.exceptions import BoardNoReplyError
 from modules.exceptions import MoveNotCompletedError
 from modules.lumascope_api.motion import AxisState
 from modules.scope_session import ScopeSession
@@ -341,7 +341,7 @@ def test_a_driver_raise_leaves_the_axis_unknown_never_moving(session, monkeypatc
     driver = motion._driver
 
     def no_reply(axis, pos, **kw):
-        raise HardwareError('move(Z): no response to the target write')
+        raise BoardNoReplyError('move(Z): no response to the target write')
 
     monkeypatch.setattr(driver, 'move_abs_pos', no_reply)
     with pytest.raises(MoveNotCompletedError) as exc:

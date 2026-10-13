@@ -41,7 +41,16 @@ from typing import NamedTuple, NoReturn
 
 import serial
 
-from drivers.exceptions import HardwareError, MotionInterlockError
+from drivers.exceptions import (
+    BoardNoReplyError,
+    BoardPortFailedError,
+    BoardReplyUnreadableError,
+    BoardReportedError,
+    HardwareError,
+    MotionInterlockError,
+    MotionNotCompletedError,
+    PartAbsentError,
+)
 from drivers.motorconfig import read_only_axes_config
 from drivers.registry import motor_registry
 from drivers.serial_backend import PYSERIAL, SerialBackend
@@ -372,7 +381,7 @@ class Tmcm6110Board:
             if self._serial is None:
                 self._serial = self._open_identified()
                 if self._serial is None:
-                    raise HardwareError(f'{what}: the TMCM-6110 is not connected')
+                    raise BoardPortFailedError(f'{what}: the TMCM-6110 is not connected')
             if starts_lid_gated_motion(command, type_, motor) and self._lid_open():
                 self._refuse_for_lid(moved=False)
             try:
@@ -380,24 +389,26 @@ class Tmcm6110Board:
                 self._serial.write(encode_command(command, type_, motor, value))
                 raw = self._serial.read(DATAGRAM_BYTES)
             except serial.SerialTimeoutException as e:
-                raise HardwareError(
+                raise BoardPortFailedError(
                     f'{what}: the TMCM-6110 did not take the write within {REPLY_TIMEOUT_S} s'
                 ) from e
             except Exception as e:
                 self._drop_port()
-                raise HardwareError(f'{what}: the TMCM-6110 port failed: {e}') from e
+                raise BoardPortFailedError(f'{what}: the TMCM-6110 port failed: {e}') from e
             if len(raw) < DATAGRAM_BYTES:
-                raise HardwareError(
+                raise BoardNoReplyError(
                     f'{what}: no reply from the TMCM-6110 within {REPLY_TIMEOUT_S} s'
                 )
             try:
                 reply = decode_reply(raw)
             except ValueError as e:
-                raise HardwareError(f'{what}: {e}') from e
+                raise BoardReplyUnreadableError(f'{what}: {e}') from e
             if reply.command != command:
-                raise HardwareError(f'{what}: the reply answers command {reply.command}')
+                raise BoardReplyUnreadableError(
+                    f'{what}: the reply answers command {reply.command}'
+                )
             if reply.status != STATUS_OK:
-                raise HardwareError(
+                raise BoardReportedError(
                     f'{what}: the TMCM-6110 refused it with status {reply.status} '
                     f'({STATUS_WORDS.get(reply.status, "unknown status")})'
                 )
@@ -463,7 +474,9 @@ class Tmcm6110Board:
                 actual = self._exchange(GAP, AP_ACTUAL_POSITION, MOTORS[axis])
                 self._exchange(SAP, AP_TARGET_POSITION, MOTORS[axis], actual)
             if moving:
-                raise HardwareError(f'{", ".join(moving)} still moving {STOP_SETTLE_S} s after MST')
+                raise MotionNotCompletedError(
+                    f'{", ".join(moving)} still moving {STOP_SETTLE_S} s after MST'
+                )
 
     def _refuse_for_lid(self, *, moved: bool) -> NoReturn:
         """The lid is open: stop all three axes and refuse.
@@ -499,7 +512,7 @@ class Tmcm6110Board:
 
     def _motor(self, axis: str) -> int:
         if axis not in MOTORS:
-            raise HardwareError(f'Unsupported axis ({axis})')
+            raise PartAbsentError(f'Unsupported axis ({axis})')
         return MOTORS[axis]
 
     def _index_usteps(self, axis: str) -> int:
@@ -676,7 +689,7 @@ class Tmcm6110Board:
         starts an axis after a stop."""
         with self._lock:
             if self._home_abort.is_set():
-                raise HardwareError('the home was stopped')
+                raise MotionNotCompletedError('the home was stopped')
             return self._exchange(command, type_, motor, value)
 
     def _await(self, phase: str, done) -> None:
@@ -692,13 +705,15 @@ class Tmcm6110Board:
             time.sleep(HOME_POLL_S)
             with self._lock:
                 if self._home_abort.is_set():
-                    raise HardwareError(f'the home was stopped during {phase}')
+                    raise MotionNotCompletedError(f'the home was stopped during {phase}')
                 if self._lid_open():
                     self._refuse_for_lid(moved=True)
                 if done():
                     return
             if time.monotonic() >= deadline:
-                raise HardwareError(f'homing {phase} did not complete in {HOME_PHASE_TIMEOUT_S} s')
+                raise MotionNotCompletedError(
+                    f'homing {phase} did not complete in {HOME_PHASE_TIMEOUT_S} s'
+                )
 
     def _end_reference_searches(self, *, raising: bool) -> None:
         """``RFS 1`` to all three axes, on every exit from a home, as Classic's
@@ -807,7 +822,7 @@ class Tmcm6110Board:
         self._home_send(SAP, AP_ACTUAL_POSITION, motor, 0)
 
     def thome(self) -> None:
-        raise HardwareError('the TMCM-6110 stage has no turret')
+        raise PartAbsentError('the TMCM-6110 stage has no turret')
 
     def has_homed(self) -> bool:
         """False: the board keeps no record of a home, as ``detect_homed_axes``
@@ -957,7 +972,7 @@ class Tmcm6110Board:
 
     def get_axis_limits(self, axis: str) -> Mapping[str, float] | None:
         if axis not in self.axes_config:
-            raise HardwareError(f'Unsupported axis ({axis})')
+            raise PartAbsentError(f'Unsupported axis ({axis})')
         return self.axes_config[axis]['limits']
 
     # ------------------------------------------------------------------

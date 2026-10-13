@@ -21,7 +21,7 @@ import threading
 
 import pytest
 
-from drivers.exceptions import HardwareError
+from drivers.exceptions import BoardNoReplyError
 from modules.exceptions import MoveNotCompletedError
 from modules.lumascope_api.motion import AxisState
 from modules.notification_center import Severity, notifications
@@ -97,7 +97,7 @@ def test_a_driver_failure_is_one_popup_chained_to_the_drivers_error(
     session, centre_posts, monkeypatch, kind
 ):
     motion = session.scope.motion
-    cause = HardwareError('no response from motor board')
+    cause = BoardNoReplyError('no response from motor board')
     driver_call, move = _DRIVER_MOVES[kind]
 
     def _dead(*args, **kwargs):

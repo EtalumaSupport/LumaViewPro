@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import pytest
 
-from drivers.exceptions import HardwareError
+from drivers.exceptions import BoardNoReplyError
 from modules.exceptions import MotorStopFailedError, ScopeDisconnectError
 from modules.lumascope_api.motion import AxisState
 from tests.scope_fakes import build_scope
@@ -26,7 +26,7 @@ def scope():
 
 
 def _stop_fails(scope, monkeypatch):
-    cause = HardwareError('no response from motor board')
+    cause = BoardNoReplyError('no response from motor board')
 
     def _dead():
         raise cause

@@ -20,7 +20,7 @@ import threading
 
 import pytest
 
-from drivers.exceptions import HardwareError
+from drivers.exceptions import BoardNoReplyError
 from modules.exceptions import (
     HardwareCommandRefusedError,
     HomingFailedError,
@@ -63,7 +63,7 @@ def test_no_motor_controller_is_a_refusal_in_the_cables_words(scope, monkeypatch
 
 @pytest.mark.parametrize('route', ROUTES)
 def test_a_driver_that_raises_is_chained_not_rewrapped(scope, monkeypatch, route):
-    cause = HardwareError('no response from motor board')
+    cause = BoardNoReplyError('no response from motor board')
 
     def _raise():
         raise cause
@@ -99,7 +99,7 @@ def test_a_home_whose_position_is_unread_names_the_unread_axis(scope, route):
 @pytest.mark.parametrize('route', ROUTES)
 def test_the_done_line_is_logged_however_the_home_ends(scope, monkeypatch, caplog, route):
     def _raise():
-        raise HardwareError('no response from motor board')
+        raise BoardNoReplyError('no response from motor board')
 
     monkeypatch.setattr(scope._motion_driver, DRIVER_CALL[route], _raise)
 

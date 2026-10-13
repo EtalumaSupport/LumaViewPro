@@ -18,7 +18,7 @@ import threading
 
 import pytest
 
-from drivers.exceptions import HardwareError
+from drivers.exceptions import BoardNoReplyError
 from modules.exceptions import HardwareCommandRefusedError, HomingFailedError
 from tests.scope_fakes import build_scope, record_turret_answer
 from tests.settings_fixtures import complete_settings
@@ -111,7 +111,7 @@ class TestTheClaimEndsWithItsHome:
         real = scope._motion_driver.home
 
         def fails():
-            raise HardwareError('no response from motor board')
+            raise BoardNoReplyError('no response from motor board')
 
         monkeypatch.setattr(scope._motion_driver, 'home', fails)
         with pytest.raises(HomingFailedError):

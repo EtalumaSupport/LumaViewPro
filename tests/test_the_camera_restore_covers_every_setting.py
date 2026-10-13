@@ -18,7 +18,7 @@ from unittest.mock import patch
 
 import pytest
 
-from drivers.exceptions import HardwareError
+from drivers.exceptions import CameraReadFailedError, HardwareError
 
 
 def _changed(imaging):
@@ -99,7 +99,7 @@ def test_a_failed_black_level_read_raises_at_the_save(sim_scope):
         patch.object(
             sim_scope._camera_driver,
             'get_black_level',
-            side_effect=HardwareError('BlackLevel read failed'),
+            side_effect=CameraReadFailedError('BlackLevel read failed'),
         ),
         pytest.raises(HardwareError, match='BlackLevel'),
     ):

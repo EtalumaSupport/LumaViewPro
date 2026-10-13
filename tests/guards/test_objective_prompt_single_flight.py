@@ -25,7 +25,7 @@ import pytest
 import modules.app_context as _app_ctx
 import modules.settings_init as settings_init
 import ui.notification_popup as notification_popup
-from drivers.exceptions import HardwareError
+from drivers.exceptions import BoardNoReplyError
 from modules.scope_session import ObjectiveQuestion, ScopeSession
 from tests.ast_seams import (
     REPO_ROOT,
@@ -344,14 +344,14 @@ class TestTheFlagCannotStrand:
         stand = _Stand()
 
         def _boom(objective_id, turret_position=None):
-            raise HardwareError('turret write failed')
+            raise BoardNoReplyError('turret write failed')
 
         monkeypatch.setattr(session, 'confirm_objective', _boom)
 
         stand.prompt_if_objective_unknown()
         confirm(popups[0], '10x Oly')
-        assert [(n.severity, n.message) for n in centre_posts] == [
-            (Severity.ERROR, 'turret write failed')
+        assert [(n.severity, n.title) for n in centre_posts] == [
+            (Severity.ERROR, BoardNoReplyError.title)
         ]
 
         stand.prompt_if_objective_unknown()

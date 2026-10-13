@@ -16,7 +16,7 @@ from datetime import timedelta
 
 import pytest
 
-from drivers.exceptions import HardwareError
+from drivers.exceptions import CameraReadFailedError, LedFirmwareWedgedError
 from modules.exceptions import (
     CaptureFailedError,
     HardwareCommandRefusedError,
@@ -93,18 +93,34 @@ class TestAFault:
     def test_typed_is_shown_in_its_own_words_and_logged_with_its_traceback(self, centre, caplog):
         # A fault written for the person: shown under its own type's title,
         # whatever the catch names for an exception from outside the root.
-        fault = _raised(HardwareError('the camera stopped delivering frames'))
+        words = 'LED firmware wedged in engineering mode. Power-cycle the unit.'
+        fault = _raised(LedFirmwareWedgedError(words))
         with caplog.at_level(logging.DEBUG):
             centre.report_outcome(
                 fault, solicited=False, category='Task:grab', untyped_title='Grab failed'
             )
 
         assert [(n.severity, n.title, n.message) for n in centre.shown] == [
-            (Severity.ERROR, 'Hardware Error', 'the camera stopped delivering frames')
+            (Severity.ERROR, 'LED Controller Stuck', words)
         ]
         # One line: the reporter's, naming the type, with its traceback; the
         # display post writes none of its own beside it.
         assert _records(caplog) == [(OUTCOMES, logging.ERROR, True)]
+
+    def test_typed_in_a_developer_s_words_is_shown_under_its_title_in_the_generic_sentence(
+        self, centre
+    ):
+        # A driver fault carries the SDK's text; the person reads which fault
+        # it was, and the log keeps the words.
+        fault = _raised(CameraReadFailedError('BlackLevel read failed: RuntimeException: x'))
+        centre.report_outcome(fault, solicited=False, category='Camera', untyped_title='Failed')
+
+        assert [(n.title, n.message) for n in centre.shown] == [
+            (
+                'Camera Read Failed',
+                'The operation did not complete. Check the main log for details.',
+            )
+        ]
 
     def test_its_one_line_names_its_reason_code(self, centre, caplog):
         # Two faults can share a type; a support bundle tells them apart by

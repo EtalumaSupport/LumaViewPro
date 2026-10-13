@@ -36,7 +36,7 @@ import time
 from typing import TYPE_CHECKING, ClassVar, NoReturn
 from collections.abc import Callable, Iterable, Iterator, Mapping
 
-from drivers.exceptions import HardwareError, MotionInterlockError
+from drivers.exceptions import HardwareError, MotionInterlockError, MotionNotCompletedError
 from drivers.null_motorboard import NullMotionBoard
 from lib import profile_trace
 from lvp_logger import logger
@@ -2856,7 +2856,7 @@ class MotionAPI:
             deadline = time.monotonic() + OVERSHOOT_LEG_TIMEOUT_S
             while not self._driver.target_status(axis):
                 if time.monotonic() > deadline:
-                    raise HardwareError(
+                    raise MotionNotCompletedError(
                         f'move {axis} to {position}: the overshoot leg did not reach '
                         f'its point within {OVERSHOOT_LEG_TIMEOUT_S:.0f} s'
                     )

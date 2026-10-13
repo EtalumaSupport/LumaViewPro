@@ -14,7 +14,7 @@ import pathlib
 
 import pytest
 
-from drivers.exceptions import HardwareError
+from drivers.exceptions import CameraWriteFailedError, HardwareError
 from modules import image_save, image_utils
 from modules.exceptions import CaptureError, ImageSaveError
 from modules.lumascope_api.runtime_state import RuntimeState
@@ -97,7 +97,7 @@ class _FailingCamera:
 
     def __init__(self, method):
         def fail(**kwargs):
-            raise HardwareError(f'{method} failed: RuntimeException: node write timed out')
+            raise CameraWriteFailedError(f'{method} failed: RuntimeException: node write timed out')
 
         setattr(self, method, fail)
 

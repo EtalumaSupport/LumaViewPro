@@ -26,7 +26,7 @@ from modules.finite_number import refuse_unless_finite_number
 from modules.request_fields import key_path, refuse_unless_kind, required
 import modules.image_utils as image_utils
 from drivers import camera_profiles
-from drivers.exceptions import HardwareError
+from drivers.exceptions import CameraReadFailedError, HardwareError
 from lib import profile_trace
 from lvp_logger import logger
 from modules.exceptions import (
@@ -4621,7 +4621,7 @@ class ImagingAPI:
         if caps.camera_supports_black_level:
             black_level = self.get_black_level()
             if black_level is None:
-                raise HardwareError("The camera's black level could not be read")
+                raise CameraReadFailedError("The camera's black level could not be read")
             now['black_level'] = black_level
         return now
 
@@ -4634,7 +4634,7 @@ class ImagingAPI:
         noun, reader, is_valid, coerce = _LIVE_SETTING_READS[key]
         value = self._live_validated_read(key, reader, is_valid, coerce)
         if value is None:
-            raise HardwareError(f"The camera's {noun} could not be read")
+            raise CameraReadFailedError(f"The camera's {noun} could not be read")
         return value
 
     def restore_camera_state(self, snapshot: dict) -> None:

@@ -8,7 +8,7 @@ import threading
 import time
 from typing import ClassVar
 from lvp_logger import logger
-from drivers.exceptions import HardwareError
+from drivers.exceptions import BoardNoReplyError, BoardReportedError, LedFirmwareWedgedError
 from drivers.serialboard import SerialBoard
 from drivers.serial_backend import PYSERIAL, SerialBackend
 from drivers.registry import led_registry
@@ -541,11 +541,11 @@ class LEDBoard(SerialBoard):
             'FACTORY', timeout=timeout, end_markers=['Y/N', 'y/n', 'FACTORY']
         )
         if resp is None:
-            raise HardwareError(
+            raise BoardNoReplyError(
                 'enter_engineering_mode(): no response from LED board (timeout or disconnect)'
             )
         if 'Y/N' not in resp.upper():
-            raise HardwareError(
+            raise BoardReportedError(
                 f'enter_engineering_mode(): no Y/N prompt seen -- '
                 f'firmware may be too old to support engineering mode. '
                 f'Response: {resp!r}'
@@ -566,7 +566,7 @@ class LEDBoard(SerialBoard):
             # board is brought back here: out of factory() if it is still
             # waiting there, back to safe mode if it declined.
             self.exit_engineering_mode()
-            raise HardwareError(
+            raise BoardReportedError(
                 f'enter_engineering_mode(): the LED board did not enter engineering '
                 f'mode after Y. Response: {confirm!r}'
             )
@@ -658,7 +658,7 @@ class LEDBoard(SerialBoard):
             f'{info_resp2!r} after Ctrl-D recovery; LED firmware '
             f'unrecoverable from eng-mode wedge'
         )
-        raise HardwareError(
+        raise LedFirmwareWedgedError(
             'LED firmware wedged in engineering mode and did not '
             'recover after a Ctrl-D soft reset. Power-cycle the unit.'
         )

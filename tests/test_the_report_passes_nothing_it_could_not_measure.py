@@ -17,7 +17,7 @@ be built is named, with its cause, in every hardware file.
 import pytest
 
 from drivers import fx2driver
-from drivers.exceptions import HardwareError
+from drivers.exceptions import BoardNoReplyError, BoardReportedError, LedFirmwareWedgedError
 from drivers.simulated_fx2 import SimulatedFX2
 from modules.lumascope_api import Lumascope
 from modules.lumascope_api.diagnostics import (
@@ -205,7 +205,7 @@ def test_the_command_line_says_why_and_does_not_send_the_user_to_the_cable(monke
 
 def test_a_board_that_does_not_enter_engineering_mode_is_not_measured(session, monkeypatch):
     def no_prompt(timeout_s=5):
-        raise HardwareError('enter_engineering_mode(): no Y/N prompt seen')
+        raise BoardReportedError('enter_engineering_mode(): no Y/N prompt seen')
 
     monkeypatch.setattr(session.scope.diagnostics, 'enter_led_engineering_mode', no_prompt)
     diag = FirmwareDiagnostics(scope=session.scope)
@@ -260,7 +260,9 @@ def test_an_exit_that_fails_after_a_good_read_keeps_the_read(session, monkeypatc
     monkeypatch.setattr(
         session.scope.diagnostics,
         'exit_led_engineering_mode',
-        _raising(HardwareError('Q failed and the soft reset did not bring the firmware back')),
+        _raising(
+            LedFirmwareWedgedError('Q failed and the soft reset did not bring the firmware back')
+        ),
     )
     diag = FirmwareDiagnostics(scope=session.scope)
 
@@ -303,7 +305,7 @@ def test_a_controller_without_fan_control_reads_unsupported_in_its_words(session
 
 
 def test_with_every_led_and_fan_call_raising_the_steps_still_write(session, monkeypatch, tmp_path):
-    fault = HardwareError('the board did not answer')
+    fault = BoardNoReplyError('the board did not answer')
     for member in ('enter_led_engineering_mode', 'exit_led_engineering_mode', 'set_motor_fan_duty'):
         monkeypatch.setattr(session.scope.diagnostics, member, _raising(fault))
     report = TechSupportReport(scope=session.scope)

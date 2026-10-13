@@ -12,7 +12,14 @@ from lvp_logger import logger
 from drivers.serialboard import SerialBoard
 from drivers.serial_backend import PYSERIAL, SerialBackend
 from drivers.registry import motor_registry
-from drivers.exceptions import ConfigReadError, HardwareError
+from drivers.exceptions import (
+    BoardNoReplyError,
+    BoardReplyUnreadableError,
+    BoardReportedError,
+    ConfigReadError,
+    MotionNotCompletedError,
+    PartAbsentError,
+)
 from drivers.motorconfig import MotorConfig, read_only_axes_config
 
 
@@ -500,7 +507,7 @@ class MotorBoard(SerialBoard):
         try:
             return int(response)
         except (TypeError, ValueError) as e:
-            raise HardwareError(
+            raise BoardReplyUnreadableError(
                 f'{register}{axis}: the board did not report a position (reply {response!r})'
             ) from e
 
@@ -739,7 +746,7 @@ class MotorBoard(SerialBoard):
             f'[XYZ Class ] MotorBoard.spi_write({axis}, 0x{addr:02x}, {payload}): {command} -> {resp}'
         )
         if resp is None:
-            raise HardwareError(
+            raise BoardNoReplyError(
                 f'spi_write({axis}, 0x{addr:02x}): no response from motor board '
                 '(timeout or disconnect)'
             )
@@ -828,10 +835,10 @@ class MotorBoard(SerialBoard):
         resp = self.exchange_command('ZHOME', timeout=_ZHOME_REPLY_TIMEOUT_S)
         logger.info(f'[XYZ Class ] MotorBoard.zhome() -> {resp}')
         if resp is None:
-            raise HardwareError('zhome(): no response from motor board (timeout or disconnect)')
+            raise BoardNoReplyError('zhome(): no response from motor board (timeout or disconnect)')
         success = 'successful' in resp.lower() or 'complete' in resp.lower()
         if not success:
-            raise HardwareError(f'zhome(): firmware error: {resp}')
+            raise BoardReportedError(f'zhome(): firmware error: {resp}')
 
     # ----------------------------------------------------------
     # XY Stage Functions
@@ -882,7 +889,7 @@ class MotorBoard(SerialBoard):
         resp = self.exchange_command('HOME', timeout=_HOME_REPLY_TIMEOUT_S)
         logger.info(f'[XYZ Class ] MotorBoard.home() -> {resp}', extra={'force_error': True})
         if resp is None:
-            raise HardwareError('home(): no response from motor board (timeout or disconnect)')
+            raise BoardNoReplyError('home(): no response from motor board (timeout or disconnect)')
         if 'XYZ home complete' in resp:
             self._confirm_homed('home()', axes=None)
             self._wait_for_arrival(self.detect_present_axes(), 'home()')
@@ -900,7 +907,7 @@ class MotorBoard(SerialBoard):
             with self._state_lock:
                 self.initial_homing_complete = True
             return
-        raise HardwareError(f'home(): firmware error: {resp}')
+        raise BoardReportedError(f'home(): firmware error: {resp}')
 
     def _confirm_homed(self, what: str, axes) -> None:
         """Believe a home's success only if the board's own flags agree.
@@ -924,21 +931,21 @@ class MotorBoard(SerialBoard):
         """
         info = self.exchange_command('FULLINFO')
         if info is None:
-            raise HardwareError(f'{what}: no reply to FULLINFO; the home cannot be confirmed')
+            raise BoardNoReplyError(f'{what}: no reply to FULLINFO; the home cannot be confirmed')
         if 'UNKNOWN_CMD' in info or 'unknown command' in info.lower():
             # Firmware older than FULLINFO cannot be asked; its reply stands.
             logger.info(f'[XYZ Class ] {what}: FULLINFO not supported; home not confirmed')
             return
         record = _parse_fullinfo(info)
         if record['model'] == 'unknown':
-            raise HardwareError(
+            raise BoardReplyUnreadableError(
                 f'{what}: unreadable FULLINFO {info!r}; the home cannot be confirmed'
             )
         present = record['present_axes']
         covered = present if axes is None else [axis for axis in axes if axis in present]
         missed = [axis for axis in covered if axis not in record['homed_axes']]
         if missed:
-            raise HardwareError(f'{what}: {", ".join(missed)} did not home')
+            raise MotionNotCompletedError(f'{what}: {", ".join(missed)} did not home')
 
     def _wait_for_arrival(self, axes, what: str) -> None:
         """Return once every axis has reached its target.
@@ -954,7 +961,7 @@ class MotorBoard(SerialBoard):
         deadline = time.monotonic() + _HOME_ARRIVAL_TIMEOUT_S
         for axis in axes:
             if not self.wait_for_position(axis, timeout=max(0.0, deadline - time.monotonic())):
-                raise HardwareError(
+                raise MotionNotCompletedError(
                     f'{what}: {axis} did not reach its target within '
                     f'{_HOME_ARRIVAL_TIMEOUT_S:.0f} s of the reply'
                 )
@@ -1041,7 +1048,7 @@ class MotorBoard(SerialBoard):
         resp = self.exchange_command('THOME', timeout=_THOME_REPLY_TIMEOUT_S)
         logger.info(f'[XYZ Class ] MotorBoard.thome() -> {resp}', extra={'force_error': True})
         if resp is None:
-            raise HardwareError('thome(): no response from motor board (timeout or disconnect)')
+            raise BoardNoReplyError('thome(): no response from motor board (timeout or disconnect)')
         if 'T home successful' in resp:
             self._confirm_homed('thome()', axes=('Z', 'T'))
             self._wait_for_arrival(
@@ -1053,7 +1060,7 @@ class MotorBoard(SerialBoard):
         # "T not present" is not a failure -- board just doesn't have a turret
         if 'not present' in resp.lower():
             return
-        raise HardwareError(f'thome(): firmware error: {resp}')
+        raise BoardReportedError(f'thome(): firmware error: {resp}')
 
     def has_turret(self) -> bool:
         """Whether the connected board has a turret installed.
@@ -1115,7 +1122,7 @@ class MotorBoard(SerialBoard):
             # that did, so every layer above recorded an arrival that
             # never occurred -- the axis stayed at its last known state
             # while the stage was somewhere else entirely.
-            raise HardwareError(
+            raise BoardNoReplyError(
                 f'move({axis}, {steps}): no response to the target write '
                 f'(timeout or disconnect); the move did not happen'
             )
@@ -1183,7 +1190,7 @@ class MotorBoard(SerialBoard):
                 did not answer the target write.
         """
         if axis not in self.axes_config:
-            raise HardwareError(f'Unsupported axis ({axis})')
+            raise PartAbsentError(f'Unsupported axis ({axis})')
         self.move(axis, self.axes_config[axis]['move_func'](pos))
 
     # ----------------------------------------------------------
@@ -1306,7 +1313,7 @@ class MotorBoard(SerialBoard):
         # legacy firmware; _record_support logs that case at INFO.
         resp = self.exchange_command('STOP', expect_unsupported=True)
         if resp is None:
-            raise HardwareError(
+            raise BoardNoReplyError(
                 'STOP: no reply from the motor board; the stage may still be moving'
             )
         return self._record_support('STOP', '_supports_stop_cached', resp)
@@ -1331,7 +1338,7 @@ class MotorBoard(SerialBoard):
             payload = 'STATUS_R' + axis
             response = self.exchange_command(payload)
             if response is None:
-                raise HardwareError(
+                raise BoardNoReplyError(
                     f'target_status({axis}): no response from motor board '
                     '(STATUS_R returned None -- timeout or disconnect)'
                 )
@@ -1623,7 +1630,7 @@ class MotorBoard(SerialBoard):
         AXES_CONFIG = self.axes_config
         if axis not in AXES_CONFIG:
             logger.error(f'[XYZ Class ] MotorBoard.get_axis_limits(): Unsupported axis ({axis})')
-            raise HardwareError(f'Unsupported axis ({axis})')
+            raise PartAbsentError(f'Unsupported axis ({axis})')
 
         axis_config = AXES_CONFIG[axis]
         if 'limits' not in axis_config:
@@ -1719,6 +1726,6 @@ class MotorBoard(SerialBoard):
         """
         resp = self.exchange_command(f'FAN:{duty_pct}')
         if resp is None:
-            raise HardwareError(f'FAN:{duty_pct}: no response from motor board')
+            raise BoardNoReplyError(f'FAN:{duty_pct}: no response from motor board')
         if resp.startswith('ERROR'):
-            raise HardwareError(f'FAN:{duty_pct}: the motor board answered {resp!r}')
+            raise BoardReportedError(f'FAN:{duty_pct}: the motor board answered {resp!r}')

@@ -32,7 +32,7 @@ from typing import ClassVar
 
 import pytest
 
-from drivers.exceptions import HardwareError
+from drivers.exceptions import BoardNoReplyError
 from modules.exceptions import ArgumentRefusedError, HardwareCommandRefusedError, HomingFaultError
 from modules.lumascope_api import Lumascope, AxisState
 from modules.notification_center import notifications, Severity
@@ -220,7 +220,7 @@ class TestLumascopeHome:
         scope = build_scope(simulate=True)
 
         def fails(*args, **kwargs):
-            raise HardwareError('no response from motor board')
+            raise BoardNoReplyError('no response from motor board')
 
         scope._motion_driver.home = fails
 

@@ -22,7 +22,12 @@ import time
 from typing import ClassVar
 from collections.abc import Iterable, Mapping
 from lvp_logger import logger
-from drivers.exceptions import HardwareError
+from drivers.exceptions import (
+    BoardNoReplyError,
+    BoardReplyUnreadableError,
+    BoardReportedError,
+    PartAbsentError,
+)
 from drivers.motorconfig import MotorConfig, read_only_axes_config
 from drivers.registry import motor_registry
 
@@ -341,7 +346,7 @@ class SimulatedMotorBoard:
                 production MotorBoard raises.
         """
         if self.exchange_command('STOP') is None:
-            raise HardwareError(
+            raise BoardNoReplyError(
                 'STOP: no reply from the motor board; the stage may still be moving'
             )
         return True
@@ -927,10 +932,10 @@ class SimulatedMotorBoard:
         resp = self.exchange_command('ZHOME')
         logger.info(f'[XYZ Sim   ] SimulatedMotorBoard.zhome() -> {resp}')
         if resp is None:
-            raise HardwareError('zhome(): no response from motor board (timeout or disconnect)')
+            raise BoardNoReplyError('zhome(): no response from motor board (timeout or disconnect)')
         if 'successful' in resp.lower() or 'complete' in resp.lower():
             return
-        raise HardwareError(f'zhome(): firmware error: {resp}')
+        raise BoardReportedError(f'zhome(): firmware error: {resp}')
 
     def home(self) -> None:
         """Simulated full home. Mirrors `MotorBoard.home` contract.
@@ -941,7 +946,7 @@ class SimulatedMotorBoard:
         resp = self.exchange_command('HOME')
         logger.info(f'[XYZ Sim   ] SimulatedMotorBoard.home() -> {resp}')
         if resp is None:
-            raise HardwareError('home(): no response from motor board (timeout or disconnect)')
+            raise BoardNoReplyError('home(): no response from motor board (timeout or disconnect)')
         if 'XYZ home complete' in resp:
             self.initial_homing_complete = True
             return
@@ -949,7 +954,7 @@ class SimulatedMotorBoard:
         if ('not present' in resp) and ('X' in resp or 'Y' in resp):
             self.initial_homing_complete = True
             return
-        raise HardwareError(f'home(): firmware error: {resp}')
+        raise BoardReportedError(f'home(): firmware error: {resp}')
 
     def has_homed(self) -> bool:
         """Whether the simulated board has completed its initial XYZ home.
@@ -968,13 +973,13 @@ class SimulatedMotorBoard:
         resp = self.exchange_command('THOME')
         logger.info(f'[XYZ Sim   ] SimulatedMotorBoard.thome() -> {resp}')
         if resp is None:
-            raise HardwareError('thome(): no response from motor board (timeout or disconnect)')
+            raise BoardNoReplyError('thome(): no response from motor board (timeout or disconnect)')
         if 'T home successful' in resp:
             self.initial_t_homing_complete = True
             return
         if 'not present' in resp.lower():
             return
-        raise HardwareError(f'thome(): firmware error: {resp}')
+        raise BoardReportedError(f'thome(): firmware error: {resp}')
 
     def has_turret(self) -> bool:
         """Whether the simulated board has a turret installed.
@@ -1016,7 +1021,7 @@ class SimulatedMotorBoard:
         if steps < 0:
             steps += 0x100000000
         if self.exchange_command(f'TARGET_W{axis}{steps}') is None:
-            raise HardwareError(
+            raise BoardNoReplyError(
                 f'move({axis}, {steps}): no response to the target write '
                 f'(timeout or disconnect); the move did not happen'
             )
@@ -1075,7 +1080,7 @@ class SimulatedMotorBoard:
                 did not answer the target write.
         """
         if axis not in self.axes_config:
-            raise HardwareError(f'Unsupported axis ({axis})')
+            raise PartAbsentError(f'Unsupported axis ({axis})')
         self.move(axis, self.axes_config[axis]['move_func'](pos))
 
     # ------------------------------------------------------------------
@@ -1111,7 +1116,7 @@ class SimulatedMotorBoard:
         """
         response = self.exchange_command(f'STATUS_R{axis}')
         if response is None:
-            raise HardwareError(
+            raise BoardNoReplyError(
                 f'STATUS_R{axis}: no response from motor board (timeout or disconnect)'
             )
         return int(response)
@@ -1294,7 +1299,7 @@ class SimulatedMotorBoard:
                 real board's driver raises.
         """
         if axis not in self.axes_config:
-            raise HardwareError(f'Unsupported axis ({axis})')
+            raise PartAbsentError(f'Unsupported axis ({axis})')
         if 'limits' not in self.axes_config[axis]:
             return None
         return self.axes_config[axis]['limits']
@@ -1375,7 +1380,7 @@ class SimulatedMotorBoard:
         try:
             return int(response)
         except (TypeError, ValueError) as e:
-            raise HardwareError(
+            raise BoardReplyUnreadableError(
                 f'{register}{axis}: the board did not report a position (reply {response!r})'
             ) from e
 

@@ -199,7 +199,7 @@ def test_no_kind_is_itself_an_exception():
 
 def test_a_fault_s_words_reach_the_person_only_when_its_type_says_so():
     """Whose words a fault's are is its class's, not a list kept beside the reporter."""
-    from drivers.exceptions import HardwareError
+    from drivers.exceptions import CameraReadFailedError, LedFirmwareWedgedError
     from modules.notification_center import outcome_of
 
     # Written for the person, and now shown as written: the file and what is
@@ -208,7 +208,11 @@ def test_a_fault_s_words_reach_the_person_only_when_its_type_says_so():
     assert installation.kind == 'fault'
     assert installation.for_person is True
 
-    assert outcome_of(HardwareError('no response from motor board')).for_person is True
+    wedged = LedFirmwareWedgedError('LED firmware wedged. Power-cycle the unit.')
+    assert outcome_of(wedged).for_person is True
+    # A driver fault carrying the SDK's text: the person reads its title.
+    read = CameraReadFailedError('BlackLevel read failed: RuntimeException: node not readable')
+    assert outcome_of(read).for_person is False
     # A Python error's words are a developer's: the person reads the generic sentence.
     assert outcome_of(RuntimeError('list index out of range')).for_person is False
 

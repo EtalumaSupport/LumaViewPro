@@ -17,7 +17,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from pypylon import genicam
 
-from drivers.exceptions import HardwareError
+from drivers.exceptions import CameraReadFailedError, HardwareError
 from drivers.fx2driver import FX2Camera
 from tests.camera_fakes import bare_ids_camera, bare_pylon_camera
 from tests.scope_fakes import spec_scope
@@ -126,7 +126,7 @@ def test_the_ids_snapshot_raises_a_failed_temperature_read():
     cam._read_stream_stats = lambda: {}
 
     def _fail():
-        raise HardwareError('temperature read failed')
+        raise CameraReadFailedError('temperature read failed')
 
     cam.get_all_temperatures = _fail
     with pytest.raises(HardwareError, match='temperature read failed'):
@@ -155,7 +155,7 @@ def test_a_failed_read_reaches_the_api_caller(sim_scope):
         patch.object(
             sim_scope._camera_driver,
             'get_all_temperatures',
-            side_effect=HardwareError('temperature read failed'),
+            side_effect=CameraReadFailedError('temperature read failed'),
         ),
         pytest.raises(HardwareError, match='temperature read failed'),
     ):
@@ -173,7 +173,7 @@ def test_the_diagnostic_snapshot_records_the_failure_in_its_field(sim_scope):
     with patch.object(
         sim_scope._camera_driver,
         'get_all_temperatures',
-        side_effect=HardwareError('temperature read failed'),
+        side_effect=CameraReadFailedError('temperature read failed'),
     ):
         info = sim_scope.diagnostics.get_camera_diagnostic_info()
 
@@ -187,7 +187,7 @@ def test_a_failed_read_on_a_tick_reaches_the_scheduler(sim_scope):
         patch.object(
             sim_scope._camera_driver,
             'get_all_temperatures',
-            side_effect=HardwareError('temperature read failed'),
+            side_effect=CameraReadFailedError('temperature read failed'),
         ),
         pytest.raises(HardwareError, match='temperature read failed'),
     ):
@@ -199,11 +199,12 @@ def test_a_failed_startup_sample_is_reported_and_the_schedule_starts(sim_scope, 
     with patch.object(
         sim_scope._camera_driver,
         'get_all_temperatures',
-        side_effect=HardwareError('temperature read failed'),
+        side_effect=CameraReadFailedError('temperature read failed'),
     ):
         sim_scope.imaging.start_camera_temp_logging(schedule, MagicMock(), interval_s=60.0)
 
-    reported = [n for n in centre_posts if 'temperature read failed' in n.message]
+    # The driver's words are the log's; the person reads which fault it was.
+    reported = [n for n in centre_posts if n.title == CameraReadFailedError.title]
     assert len(reported) == 1
     assert reported[0].category == 'Camera'
     schedule.assert_called_once()

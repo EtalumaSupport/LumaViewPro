@@ -19,7 +19,12 @@ from drivers.camera import (
     declared_unit,
     link_info,
 )
-from drivers.exceptions import HardwareError
+from drivers.exceptions import (
+    CameraReadFailedError,
+    CameraWriteFailedError,
+    HardwareError,
+    PartAbsentError,
+)
 from drivers.registry import camera_registry
 from lib.log_helpers import log_to
 from lvp_logger import logger
@@ -1404,7 +1409,7 @@ class PylonCamera(Camera):
         ``Camera.get_all_temperatures``.
         """
         if not self.active:
-            raise HardwareError('Camera temperature read: no camera is active')
+            raise PartAbsentError('Camera temperature read: no camera is active')
 
         try:
             nodemap = self.active.GetNodeMap()
@@ -1431,7 +1436,7 @@ class PylonCamera(Camera):
             # The camera has the nodes, so it has a sensor: an empty answer
             # would read as "no sensor" to every caller.
             if not temps:
-                raise HardwareError('no listed temperature sensor was readable')
+                raise CameraReadFailedError('no listed temperature sensor was readable')
             return temps
         except Exception as e:
             # Intentionally NO disconnect teardown here: this getter used to
@@ -1442,7 +1447,9 @@ class PylonCamera(Camera):
             # DEVICE_NOT_FOUND / consecutive-failure paths, which still fire
             # on a real unplug; a read failure here only means this VALUE is
             # unavailable right now.
-            raise HardwareError(f'Camera temperature read failed: {type(e).__name__}: {e}') from e
+            raise CameraReadFailedError(
+                f'Camera temperature read failed: {type(e).__name__}: {e}'
+            ) from e
 
     def supports_temperature(self) -> bool:
         """True if the camera exposes the temperature selector and reading nodes."""
@@ -1452,7 +1459,7 @@ class PylonCamera(Camera):
             return self._has_temperature_nodes(self.active.GetNodeMap())
         except Exception as e:
             # No disconnect teardown, as in the read above.
-            raise HardwareError(f'Temperature probe failed: {type(e).__name__}: {e}') from e
+            raise CameraReadFailedError(f'Temperature probe failed: {type(e).__name__}: {e}') from e
 
     def _has_temperature_nodes(self, nodemap) -> bool:
         return self._has_node(nodemap, 'DeviceTemperatureSelector') and self._has_node(
@@ -1893,7 +1900,7 @@ class PylonCamera(Camera):
                 f'[CAM Class ] Camera communication error in set_device_link_throughput_limit: {e}'
             )
             self._mark_disconnected()
-            raise HardwareError(
+            raise CameraWriteFailedError(
                 f'set_device_link_throughput_limit({mode}, {value_bps}) failed: {e}'
             ) from e
         except Exception as e:
@@ -2042,7 +2049,7 @@ class PylonCamera(Camera):
                     f'{node_name!r} not present (likely GigE camera; '
                     f'this knob is USB3-only)'
                 )
-                raise HardwareError(
+                raise PartAbsentError(
                     f'{method_label}: StreamGrabber node {node_name!r} not present on this camera'
                 )
             if _cam_log is not None:
@@ -2056,7 +2063,7 @@ class PylonCamera(Camera):
                 _cam_log.error(f'pylon {method_label}({value}) FAILED: {e}')
             _cam_log.error(f'[CAM Class ] Camera communication error in {method_label}: {e}')
             self._mark_disconnected()
-            raise HardwareError(f'{method_label}({value}) failed: {e}') from e
+            raise CameraWriteFailedError(f'{method_label}({value}) failed: {e}') from e
         except Exception as e:
             _cam_log.exception(f'[CAM Class ] Unexpected error in {method_label}: {e}')
             return False
@@ -2103,7 +2110,7 @@ class PylonCamera(Camera):
                 f'[CAM Class ] Camera communication error in set_acquisition_stop_mode: {e}'
             )
             self._mark_disconnected()
-            raise HardwareError(f'set_acquisition_stop_mode({mode!r}) failed: {e}') from e
+            raise CameraWriteFailedError(f'set_acquisition_stop_mode({mode!r}) failed: {e}') from e
         except Exception as e:
             _cam_log.exception(f'[CAM Class ] Unexpected error in set_acquisition_stop_mode: {e}')
             return False
@@ -2144,7 +2151,7 @@ class PylonCamera(Camera):
                 f'[CAM Class ] Camera communication error in set_bandwidth_reserve_mode: {e}'
             )
             self._mark_disconnected()
-            raise HardwareError(f'set_bandwidth_reserve_mode({mode!r}) failed: {e}') from e
+            raise CameraWriteFailedError(f'set_bandwidth_reserve_mode({mode!r}) failed: {e}') from e
         except Exception as e:
             _cam_log.exception(f'[CAM Class ] Unexpected error in set_bandwidth_reserve_mode: {e}')
             return False
@@ -2179,7 +2186,7 @@ class PylonCamera(Camera):
                 _cam_log.error(f'pylon set_gev_packet_size({size_bytes}) FAILED: {e}')
             _cam_log.error(f'[CAM Class ] Camera communication error in set_gev_packet_size: {e}')
             self._mark_disconnected()
-            raise HardwareError(f'set_gev_packet_size({size_bytes}) failed: {e}') from e
+            raise CameraWriteFailedError(f'set_gev_packet_size({size_bytes}) failed: {e}') from e
         except Exception as e:
             _cam_log.exception(f'[CAM Class ] Unexpected error in set_gev_packet_size: {e}')
             return False
@@ -2215,7 +2222,9 @@ class PylonCamera(Camera):
                 f'[CAM Class ] Camera communication error in set_gev_inter_packet_delay: {e}'
             )
             self._mark_disconnected()
-            raise HardwareError(f'set_gev_inter_packet_delay({delay_ticks}) failed: {e}') from e
+            raise CameraWriteFailedError(
+                f'set_gev_inter_packet_delay({delay_ticks}) failed: {e}'
+            ) from e
         except Exception as e:
             _cam_log.exception(f'[CAM Class ] Unexpected error in set_gev_inter_packet_delay: {e}')
             return False
@@ -2280,14 +2289,14 @@ class PylonCamera(Camera):
                 f'set_pixel_format({pixel_format}): {e}'
             )
             self._mark_disconnected()
-            raise HardwareError(
+            raise CameraWriteFailedError(
                 f'set_pixel_format({pixel_format}) failed: {type(e).__name__}: {e}'
             ) from e
         except Exception as e:
             if _cam_log is not None:
                 _cam_log.error(f'pylon PixelFormat.SetValue({pixel_format!r}) FAILED: {e}')
             _cam_log.exception(f'[CAM Class ] Unexpected error in set_pixel_format: {e}')
-            raise HardwareError(
+            raise CameraWriteFailedError(
                 f'set_pixel_format({pixel_format}) failed: {type(e).__name__}: {e}'
             ) from e
 
@@ -2389,16 +2398,20 @@ class PylonCamera(Camera):
             # USB roundtrip timed out. Transient -- do NOT mark disconnected,
             # single timeouts can recover. Caller can choose to retry.
             _cam_log.warning(f'[CAM Class ] set_binning_size({size}) timed out: {e}')
-            raise HardwareError(f'set_binning_size({size}) timed out: {e}') from e
+            raise CameraWriteFailedError(f'set_binning_size({size}) timed out: {e}') from e
         except genicam.RuntimeException as e:
             _cam_log.error(
                 f'[CAM Class ] Camera communication error during set_binning_size({size}): {e}'
             )
             self._mark_disconnected()
-            raise HardwareError(f'set_binning_size({size}) failed: {type(e).__name__}: {e}') from e
+            raise CameraWriteFailedError(
+                f'set_binning_size({size}) failed: {type(e).__name__}: {e}'
+            ) from e
         except Exception as e:
             _cam_log.exception(f'[CAM Class ] Unexpected error in set_binning_size: {e}')
-            raise HardwareError(f'set_binning_size({size}) failed: {type(e).__name__}: {e}') from e
+            raise CameraWriteFailedError(
+                f'set_binning_size({size}) failed: {type(e).__name__}: {e}'
+            ) from e
 
     def get_binning_size(self) -> int:
         """Return current binning factor; 1 on inactive, -1 on read failure.
@@ -2480,12 +2493,12 @@ class PylonCamera(Camera):
                 f'set_conversion_gain_mode({mode}): {e}'
             )
             self._mark_disconnected()
-            raise HardwareError(
+            raise CameraWriteFailedError(
                 f'set_conversion_gain_mode({mode}) failed: {type(e).__name__}: {e}'
             ) from e
         except Exception as e:
             _cam_log.exception(f'[CAM Class ] Unexpected error in set_conversion_gain_mode: {e}')
-            raise HardwareError(
+            raise CameraWriteFailedError(
                 f'set_conversion_gain_mode({mode}) failed: {type(e).__name__}: {e}'
             ) from e
 
@@ -2534,12 +2547,12 @@ class PylonCamera(Camera):
                 f'set_line_noise_reduction({enabled}): {e}'
             )
             self._mark_disconnected()
-            raise HardwareError(
+            raise CameraWriteFailedError(
                 f'set_line_noise_reduction({enabled}) failed: {type(e).__name__}: {e}'
             ) from e
         except Exception as e:
             _cam_log.exception(f'[CAM Class ] Unexpected error in set_line_noise_reduction: {e}')
-            raise HardwareError(
+            raise CameraWriteFailedError(
                 f'set_line_noise_reduction({enabled}) failed: {type(e).__name__}: {e}'
             ) from e
 
@@ -2590,7 +2603,7 @@ class PylonCamera(Camera):
             return self._has_node(self.active.GetNodeMap(), 'BlackLevel')
         except Exception as e:
             # No disconnect teardown, as in the probes above.
-            raise HardwareError(f'BlackLevel probe failed: {type(e).__name__}: {e}') from e
+            raise CameraReadFailedError(f'BlackLevel probe failed: {type(e).__name__}: {e}') from e
 
     def get_black_level(self) -> float | None:
         """Read BlackLevel live. See ``Camera.get_black_level``.
@@ -2605,7 +2618,7 @@ class PylonCamera(Camera):
                 return None
             return float(self.active.BlackLevel.GetValue())
         except Exception as e:
-            raise HardwareError(f'BlackLevel read failed: {type(e).__name__}: {e}') from e
+            raise CameraReadFailedError(f'BlackLevel read failed: {type(e).__name__}: {e}') from e
 
     def get_black_level_range(self) -> tuple[float, float] | None:
         """BlackLevel's minimum and maximum, live. See ``Camera.get_black_level_range``."""
@@ -2617,7 +2630,9 @@ class PylonCamera(Camera):
             node = self.active.BlackLevel
             return float(node.GetMin()), float(node.GetMax())
         except Exception as e:
-            raise HardwareError(f'BlackLevel range read failed: {type(e).__name__}: {e}') from e
+            raise CameraReadFailedError(
+                f'BlackLevel range read failed: {type(e).__name__}: {e}'
+            ) from e
 
     def set_black_level(self, value: float) -> float | bool | None:
         """Set BlackLevel, with BlackLevelSelector 'All' where the body has
@@ -2640,7 +2655,9 @@ class PylonCamera(Camera):
             self._mark_disconnected()
             return False
         except Exception as e:
-            raise HardwareError(f'BlackLevel {value} write failed: {type(e).__name__}: {e}') from e
+            raise CameraWriteFailedError(
+                f'BlackLevel {value} write failed: {type(e).__name__}: {e}'
+            ) from e
 
     def get_resulting_frame_rate(self) -> float | None:
         """Read the resulting frame rate live. See ``Camera.get_resulting_frame_rate``.
@@ -2659,7 +2676,9 @@ class PylonCamera(Camera):
                     return float(getattr(self.active, name).GetValue())
             return None
         except Exception as e:
-            raise HardwareError(f'Resulting frame rate read failed: {type(e).__name__}: {e}') from e
+            raise CameraReadFailedError(
+                f'Resulting frame rate read failed: {type(e).__name__}: {e}'
+            ) from e
 
     def get_link_info(self) -> dict | None:
         """The device class, DeviceLinkSpeed and, on GigE, the stream packet
@@ -2686,7 +2705,7 @@ class PylonCamera(Camera):
                 inter_packet_delay=_read('GevSCPD'),
             )
         except Exception as e:
-            raise HardwareError(f'Link info read failed: {type(e).__name__}: {e}') from e
+            raise CameraReadFailedError(f'Link info read failed: {type(e).__name__}: {e}') from e
 
     def init_auto_gain_focus(
         self,

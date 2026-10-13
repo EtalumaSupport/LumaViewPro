@@ -28,7 +28,7 @@ from unittest.mock import patch
 import lvp_logger
 import pytest
 import modules.config_helpers as config_helpers
-from drivers.exceptions import HardwareError
+from drivers.exceptions import CameraReadFailedError, HardwareError
 from modules.exceptions import ExposureAtMinimumNotice
 from drivers.simulated_camera import SimulatedCamera, _SimImageHandler
 from modules.lumascope_api import Lumascope
@@ -271,7 +271,9 @@ def test_a_failed_black_level_read_fails_the_capture_and_the_arm_resumes():
     imaging, cam = _build(ae_lands_on_ms=62.0)
     _arm(imaging, AG_SETTINGS_TRANSMITTED, resume_after_capture=True)
     with (
-        patch.object(cam, 'get_black_level', side_effect=HardwareError('BlackLevel read failed')),
+        patch.object(
+            cam, 'get_black_level', side_effect=CameraReadFailedError('BlackLevel read failed')
+        ),
         pytest.raises(HardwareError, match='BlackLevel read failed'),
     ):
         imaging._capture_and_wait_impl(timeout_s=1.0)

@@ -33,7 +33,7 @@ from drivers.camera import (
     link_info,
     no_hardware_auto_mode,
 )
-from drivers.exceptions import HardwareError
+from drivers.exceptions import CameraReadFailedError, CameraWriteFailedError, PartAbsentError
 from drivers.registry import camera_registry
 
 # IDS Library.Close() shuts down the entire SDK (not per-device).
@@ -2517,7 +2517,7 @@ class IDSCamera(Camera):
             # set_binning_size (same update_camera_config machinery) handles it
             # this way; matching keeps the geometry setters consistent.
             _cam_log.error(f'[CAM Class ] set_pixel_format({resolved}) failed: {e}')
-            raise HardwareError(
+            raise CameraWriteFailedError(
                 f'set_pixel_format({resolved}) failed: {type(e).__name__}: {e}'
             ) from e
 
@@ -2688,7 +2688,7 @@ class IDSCamera(Camera):
         node. See ``Camera.get_all_temperatures``.
         """
         if not self.active or self.remote_nodemap is None:
-            raise HardwareError('Camera temperature read: no camera is active')
+            raise PartAbsentError('Camera temperature read: no camera is active')
         try:
             if not self.remote_nodemap.HasNode('DeviceTemperature'):
                 return {}
@@ -2715,7 +2715,9 @@ class IDSCamera(Camera):
             if not temps:
                 temps['Device'] = float(temp.Value())
         except Exception as e:
-            raise HardwareError(f'Camera temperature read failed: {type(e).__name__}: {e}') from e
+            raise CameraReadFailedError(
+                f'Camera temperature read failed: {type(e).__name__}: {e}'
+            ) from e
         return temps
 
     def supports_temperature(self) -> bool:
@@ -2725,7 +2727,7 @@ class IDSCamera(Camera):
         try:
             return bool(self.remote_nodemap.HasNode('DeviceTemperature'))
         except Exception as e:
-            raise HardwareError(f'Temperature probe failed: {type(e).__name__}: {e}') from e
+            raise CameraReadFailedError(f'Temperature probe failed: {type(e).__name__}: {e}') from e
 
     def set_device_link_throughput_limit(
         self,
@@ -2930,7 +2932,9 @@ class IDSCamera(Camera):
             return True
         except Exception as e:
             _cam_log.error(f'[CAM Class ] set_binning_size failed: {e}')
-            raise HardwareError(f'set_binning_size({size}) failed: {type(e).__name__}: {e}') from e
+            raise CameraWriteFailedError(
+                f'set_binning_size({size}) failed: {type(e).__name__}: {e}'
+            ) from e
 
     def get_binning_size(self) -> int:
         # READ-FAILURE sentinel is -1, not 1: 1 is a legal binning factor (1x =
@@ -3074,7 +3078,7 @@ class IDSCamera(Camera):
         try:
             return bool(self.remote_nodemap.HasNode('BlackLevel'))
         except Exception as e:
-            raise HardwareError(f'BlackLevel probe failed: {type(e).__name__}: {e}') from e
+            raise CameraReadFailedError(f'BlackLevel probe failed: {type(e).__name__}: {e}') from e
 
     def get_black_level(self) -> float | None:
         """Read BlackLevel live. See ``Camera.get_black_level``."""
@@ -3085,7 +3089,7 @@ class IDSCamera(Camera):
                 return None
             return float(self.remote_nodemap.FindNode('BlackLevel').Value())
         except Exception as e:
-            raise HardwareError(f'BlackLevel read failed: {type(e).__name__}: {e}') from e
+            raise CameraReadFailedError(f'BlackLevel read failed: {type(e).__name__}: {e}') from e
 
     def get_black_level_range(self) -> tuple[float, float] | None:
         """BlackLevel's minimum and maximum, live. See ``Camera.get_black_level_range``."""
@@ -3097,7 +3101,9 @@ class IDSCamera(Camera):
             node = self.remote_nodemap.FindNode('BlackLevel')
             return float(node.Minimum()), float(node.Maximum())
         except Exception as e:
-            raise HardwareError(f'BlackLevel range read failed: {type(e).__name__}: {e}') from e
+            raise CameraReadFailedError(
+                f'BlackLevel range read failed: {type(e).__name__}: {e}'
+            ) from e
 
     def get_resulting_frame_rate(self) -> float | None:
         """AcquisitionFrameRate's maximum, live: the rate the current exposure
@@ -3110,7 +3116,7 @@ class IDSCamera(Camera):
                 return None
             return float(self.remote_nodemap.FindNode('AcquisitionFrameRate').Maximum())
         except Exception as e:
-            raise HardwareError(
+            raise CameraReadFailedError(
                 f'AcquisitionFrameRate maximum read failed: {type(e).__name__}: {e}'
             ) from e
 
@@ -3140,7 +3146,7 @@ class IDSCamera(Camera):
                 inter_packet_delay=_read('GevSCPD'),
             )
         except Exception as e:
-            raise HardwareError(f'Link info read failed: {type(e).__name__}: {e}') from e
+            raise CameraReadFailedError(f'Link info read failed: {type(e).__name__}: {e}') from e
 
     def set_black_level(self, value: float) -> float | bool | None:
         """Set BlackLevel. Returns as ``gain`` does.
@@ -3165,7 +3171,9 @@ class IDSCamera(Camera):
             node.SetValue(float(value))
             return float(node.Value())
         except Exception as e:
-            raise HardwareError(f'BlackLevel {value} write failed: {type(e).__name__}: {e}') from e
+            raise CameraWriteFailedError(
+                f'BlackLevel {value} write failed: {type(e).__name__}: {e}'
+            ) from e
 
     def auto_gain(
         self,

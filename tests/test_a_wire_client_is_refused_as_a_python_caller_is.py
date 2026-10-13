@@ -121,6 +121,36 @@ def test_a_fault_is_500_titled_by_its_class_in_its_own_words(client, session, mo
     assert (body['kind'], body['reason']) == ('fault', None)
 
 
+def test_a_hardware_fault_answers_500_naming_which_fault_it_was(client, session, monkeypatch):
+    """Each fault a driver raises answers its own reason and title, never one shared by all."""
+    import drivers.exceptions as driver_exceptions
+    from drivers.exceptions import HardwareError, MotionInterlockError
+
+    faults = [
+        cls
+        for cls in vars(driver_exceptions).values()
+        if isinstance(cls, type)
+        and issubclass(cls, HardwareError)
+        # Built with its interlock's reason; the API answers it as a refusal.
+        and cls not in (HardwareError, MotionInterlockError)
+    ]
+    assert len(faults) >= 10, 'the discovery drifted'
+    wrong = {}
+    for cls in faults:
+
+        def fails(cls=cls):
+            raise cls('the driver said so')
+
+        monkeypatch.setattr(session.scope.illumination, 'leds_off', fails)
+        body = client.post('/api/v1/scope/illumination/leds_off').json()
+        got = (body['status'], body['kind'], body['reason'], body['type'], body['title'])
+        want = (500, 'fault', cls.reason, f'urn:lumascope:problem:{cls.reason}', cls.title)
+        if got != want:
+            wrong[cls.__name__] = got
+    assert wrong == {}
+    assert len({cls.reason for cls in faults}) == len(faults), 'two faults share a reason'
+
+
 def test_a_move_another_request_stopped_answers_409_as_a_notice(client, session):
     home_sim_scope(session.scope)
     held = session.scope.simulation.hold_axis('X')

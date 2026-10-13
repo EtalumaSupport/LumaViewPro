@@ -2262,10 +2262,10 @@ class TestMotionTimeoutEndsRunInsteadOfWedging:
         """A STOP that fails on a motion timeout does not cost the run its
         ERROR ending: the run still ends, with one fatal popup that carries
         the power-cycle advice, and nothing else says it again."""
-        from drivers.exceptions import HardwareError
+        from drivers.exceptions import BoardNoReplyError
 
         def _dead_stop():
-            raise HardwareError('no response from motor board')
+            raise BoardNoReplyError('no response from motor board')
 
         executor.MOTION_TIMEOUT_SECONDS = 0.3
         monkeypatch.setattr(scope.motion, 'is_moving', lambda *a, **kw: True)
