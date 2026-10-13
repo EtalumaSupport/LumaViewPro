@@ -1721,7 +1721,7 @@ image = scope.imaging.get_image(force_to_8bit=False)   # keep native 12/16-bit
 # Shape is (H, W) 2D mono for mono-native cameras and (H, W, 3) RGB
 # for color-native cameras (see scope.capabilities.is_color_native).
 # Layer false-color is NOT applied here -- apply at the display /
-# encode boundary via image_utils.mono_to_rgb_falsecolor(img, layer).
+# encode boundary via image_utils.mono_to_rgb_falsecolor(img, color).
 # Dtype is uint8 with force_to_8bit=True (default) or for 8-bit
 # cameras; uint16 with force_to_8bit=False for 12/16-bit cameras
 # (see scope.capabilities.buffer_bit_depth).
@@ -2284,9 +2284,13 @@ from modules import image_utils
 # need a 3-channel array for display, video encode, or a downstream
 # tool that expects RGB. Mono pipeline saves do NOT call this -- the
 # layer is recorded as TIFF metadata instead.
-rgb = image_utils.mono_to_rgb_falsecolor(mono_frame, layer='Blue')
-# layer in {'Blue', 'Green', 'Red', 'BF', 'Lumi', ...}
-# Returns 3-channel ndarray, same dtype as input.
+from modules import layer_record
+rgb = image_utils.mono_to_rgb_falsecolor(mono_frame, layer_record.release_color('Blue'))
+# color is the (red, green, blue) weights, each 0 to 1, the frame is
+# multiplied by; image_utils.GREY (white) tiles it grey. A layer's colour
+# is its record's display_color ('#rrggbb'); layer_record.parse_display_color
+# turns one into weights. Returns 3-channel ndarray, same dtype as input.
+# (Changed in 4.0: this took a layer name.)
 
 # Read a TIFF and collapse legacy 3-channel false-color-replica files
 # to mono on the fly. Use this when reading any TIFF that may have
@@ -2813,17 +2817,23 @@ A file of version 2 to 8 loads, its missing columns filled (`Channel Group ID` a
 
 ## Color channel reference
 
-```python
-from modules.common_utils import ColorChannel
+The release's layers are the records of `layer_record.release_layers()`, in display order, each with its `modality` and `display_color`; the stock seven:
 
-ColorChannel.Blue   # 0  — blue-EMISSION fluorescence   (stock excitation 405 nm)
-ColorChannel.Green  # 1  — green-EMISSION fluorescence  (stock excitation 488 nm)
-ColorChannel.Red    # 2  — red-EMISSION fluorescence    (stock excitation 589 nm)
-ColorChannel.BF     # 3  — brightfield (white LED)
-ColorChannel.PC     # 4  — phase contrast (on scopes with separate PC hardware)
-ColorChannel.DF     # 5  — darkfield
-ColorChannel.Lumi   # 6  — luminescence (all LEDs off, sensitive mode)
+```python
+from modules import layer_record
+
+[layer.key for layer in layer_record.release_layers()]
+# ['BF', 'PC', 'DF', 'Blue', 'Green', 'Red', 'Lumi']
+# BF  -- brightfield (white LED)            transmitted
+# PC  -- phase contrast                     transmitted
+# DF  -- darkfield                          transmitted, dark background
+# Blue  -- blue-EMISSION fluorescence       (stock excitation 405 nm)
+# Green -- green-EMISSION fluorescence      (stock excitation 488 nm)
+# Red   -- red-EMISSION fluorescence        (stock excitation 589 nm)
+# Lumi  -- luminescence (all LEDs off, sensitive mode)
 ```
+
+(`common_utils.ColorChannel` is gone in 4.0: a layer is a catalogue record, not an enum member.)
 
 **A channel name is the colour you SEE, not the colour that excites it.** `Blue` is a blue-emitting dye excited by 405 nm violet light, `Green` a green-emitting dye excited by 488 nm, `Red` a red-emitting dye excited by 589 nm. The layer's `excitation_nm` field carries the excitation wavelength, and the UI marks it `Ex` for the same reason: a bare "Green 488 nm" invites reading 488 as the emission, which writes silently wrong metadata into your own data.
 

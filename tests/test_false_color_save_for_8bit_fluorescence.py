@@ -29,6 +29,7 @@ import pytest
 import tifffile as tf
 
 from modules.image_utils import write_tiff
+from modules.layer_record import release_color
 
 
 def _grayscale_image(dtype):
@@ -78,7 +79,7 @@ class TestWriteTiffFalseColorAppliesForUint8:
             file_loc=tmp_tiff,
             metadata=_minimal_metadata(tmp_tiff),
             ome=False,
-            color='Red',
+            color=release_color('Red'),
             significant_bits=8,
             save_encoding='8bit',
         )
@@ -97,7 +98,7 @@ class TestWriteTiffFalseColorAppliesForUint8:
             file_loc=tmp_tiff,
             metadata=_minimal_metadata(tmp_tiff),
             ome=False,
-            color='BF',
+            color=release_color('BF'),
             significant_bits=8,
             save_encoding='rgb',
         )

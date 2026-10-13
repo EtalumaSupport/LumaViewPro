@@ -451,12 +451,12 @@ def test_video_frame_render_colour_cannot_reach_an_identity_field():
         if isinstance(stmt, ast.Assign)
         and any(isinstance(t, ast.Name) and t.id == 'render_color' for t in stmt.targets)
     )
-    assert isinstance(collapse.value, ast.IfExp), (
-        'render_color must still be the toggle-conditional collapse'
+    call = collapse.value
+    assert (
+        isinstance(call, ast.Call)
+        and isinstance(call.func, ast.Attribute)
+        and call.func.attr == 'shown_color'
+    ), 'render_color must still be the toggle-conditional collapse (layer_record.shown_color)'
+    assert [a.id for a in call.args if isinstance(a, ast.Name)] == ['channel', 'false_color_on'], (
+        'render_color is the acquiring channel shown under false_color_on'
     )
-    assert isinstance(collapse.value.test, ast.Name), 'expected a bare flag test'
-    assert collapse.value.test.id == 'false_color_on', (
-        f'render_color must be derived from false_color_on, not {ast.dump(collapse.value.test)}'
-    )
-    assert isinstance(collapse.value.body, ast.Name), 'expected the channel name'
-    assert collapse.value.body.id == 'channel', 'the false-color arm renders the acquiring channel'

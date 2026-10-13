@@ -2,6 +2,7 @@
 
 import ast
 from pathlib import Path
+from modules.layer_record import release_color
 
 
 REPO = Path(__file__).resolve().parents[1]
@@ -43,7 +44,7 @@ def _write_source(path):
             'significant_bits': 8,
         },
         ome=False,
-        color='BF',
+        color=release_color('BF'),
         significant_bits=8,
         save_encoding='right_aligned',
     )

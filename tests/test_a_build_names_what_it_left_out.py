@@ -24,6 +24,7 @@ from modules.exceptions import (
     PostProcessingFailedError,
     PostProcessingRefusedError,
 )
+from modules.layer_record import release_color
 
 _COLUMNS = [
     'Name', 'X', 'Y', 'Z', 'Auto_Focus', 'Color', 'False_Color', 'Illumination',
@@ -103,7 +104,7 @@ def run_folder(tmp_path):
                 'significant_bits': 8,
             },
             ome=False,
-            color=color,
+            color=release_color(color),
             significant_bits=8,
             save_encoding='right_aligned',
         )

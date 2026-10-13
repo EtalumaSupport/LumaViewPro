@@ -24,6 +24,7 @@ from modules import recording_frames
 from modules.common_utils import PostFunction
 from modules.stack_builder import StackBuilder
 from modules.recording_frames import FrameFact
+from modules.layer_record import release_color
 
 _FACT = FrameFact(plate_x_mm=None, plate_y_mm=None, z_um=None, moving=False, channel='BF')
 
@@ -193,7 +194,7 @@ class TestVideoWellStackBuild:
                 file_loc=loc,
                 metadata=metadata,
                 ome=False,
-                color='BF',
+                color=release_color('BF'),
                 significant_bits=8,
                 save_encoding='8bit',
                 video_frame=True,

@@ -22,6 +22,7 @@ from modules import image_utils, recording_frames
 from modules.stack_builder import StackBuilder
 from tests.test_hyperstack_video_grouping import _frame_path, _stack_df
 from modules.recording_frames import FrameFact
+from modules.layer_record import release_color
 
 _FACT = FrameFact(plate_x_mm=None, plate_y_mm=None, z_um=None, moving=False, channel='BF')
 
@@ -46,7 +47,7 @@ def _write_timestamped_frames(tmp_path, df, base_s=1_755_000_000.0, spacing_s=0.
             file_loc=loc,
             metadata=metadata,
             ome=False,
-            color=row['Color'],
+            color=release_color(row['Color']),
             significant_bits=8,
             save_encoding='8bit',
             video_frame=True,

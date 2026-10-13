@@ -8,6 +8,7 @@ import pandas as pd
 import modules.common_utils as common_utils
 import modules.derived_output_encoding as derived_output_encoding
 import modules.image_utils as image_utils
+import modules.layer_record as layer_record
 
 from modules.common_utils import PostFunction
 from modules.protocol_post_processor import ProtocolPostProcessor
@@ -264,7 +265,7 @@ class ZProjector(ProtocolPostProcessor):
             file_loc=output_file_loc_abs,
             metadata=metadata,
             ome=False,
-            color=first_slice_row['Color'],
+            color=layer_record.output_color(first_slice_row['Color']),
             significant_bits=metadata['significant_bits'],
             save_encoding=derived_output_encoding.resolve_output_save_encoding(result['image']),
         )

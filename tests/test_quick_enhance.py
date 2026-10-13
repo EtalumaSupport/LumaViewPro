@@ -12,6 +12,7 @@ import tifffile as tf
 from modules import image_utils
 from modules.exceptions import PostProcessingFailedError, PostProcessingRefusedError
 from modules.quick_enhance import QUANTITATIVE_USE_WARNING, QuickEnhanceSettings, QuickEnhancer
+from modules.layer_record import GREY, release_color
 
 
 def _metadata(significant_bits: int, channel: str = 'Green') -> dict:
@@ -35,7 +36,8 @@ def _write_source(path, data: np.ndarray, significant_bits: int, channel: str = 
         file_loc=path,
         metadata=_metadata(significant_bits, channel),
         ome=False,
-        color=channel,
+        # A composite source is RGB, and carries its own colour.
+        color=GREY if data.ndim == 3 else release_color(channel),
         significant_bits=significant_bits,
         save_encoding='right_aligned',
     )

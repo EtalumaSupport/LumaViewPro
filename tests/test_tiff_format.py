@@ -21,6 +21,7 @@ import pytest
 import tifffile as tf
 
 from modules import image_utils
+from modules.layer_record import GREY, release_color
 
 
 # ---------------------------------------------------------------------------
@@ -124,7 +125,7 @@ class TestTiff8BitBrightfield:
             file_loc=path,
             metadata=metadata,
             ome=False,
-            color=color,
+            color=release_color(color),
             significant_bits=8,
             save_encoding='8bit',
         )
@@ -139,7 +140,7 @@ class TestTiff8BitBrightfield:
             file_loc=path,
             metadata=metadata,
             ome=False,
-            color=color,
+            color=release_color(color),
             significant_bits=8,
             save_encoding='8bit',
         )
@@ -154,7 +155,7 @@ class TestTiff8BitBrightfield:
             file_loc=path,
             metadata=metadata,
             ome=False,
-            color=color,
+            color=release_color(color),
             significant_bits=8,
             save_encoding='8bit',
         )
@@ -173,7 +174,7 @@ class TestTiff8BitFluorescence:
             file_loc=path,
             metadata=metadata,
             ome=False,
-            color=color,
+            color=release_color(color),
             significant_bits=8,
             save_encoding='8bit',
         )
@@ -188,7 +189,7 @@ class TestTiff8BitFluorescence:
             file_loc=path,
             metadata=metadata,
             ome=False,
-            color=color,
+            color=release_color(color),
             significant_bits=8,
             save_encoding='8bit',
         )
@@ -206,7 +207,7 @@ class TestTiff8BitFluorescence:
             file_loc=path,
             metadata=metadata,
             ome=False,
-            color=color,
+            color=release_color(color),
             significant_bits=8,
             save_encoding='8bit',
         )
@@ -220,7 +221,7 @@ class TestTiff8BitFluorescence:
             file_loc=path,
             metadata=metadata,
             ome=False,
-            color='Green',
+            color=release_color('Green'),
             significant_bits=8,
             save_encoding='8bit',
         )
@@ -238,7 +239,7 @@ class TestTiff8BitFluorescence:
             file_loc=path,
             metadata=metadata,
             ome=False,
-            color='Red',
+            color=release_color('Red'),
             significant_bits=8,
             save_encoding='8bit',
         )
@@ -265,7 +266,7 @@ class TestTiff16BitBrightfield:
             file_loc=path,
             metadata=metadata,
             ome=False,
-            color=color,
+            color=release_color(color),
             significant_bits=16,
             save_encoding='right_aligned',
         )
@@ -280,7 +281,7 @@ class TestTiff16BitBrightfield:
             file_loc=path,
             metadata=metadata,
             ome=False,
-            color=color,
+            color=release_color(color),
             significant_bits=16,
             save_encoding='right_aligned',
         )
@@ -295,7 +296,7 @@ class TestTiff16BitBrightfield:
             file_loc=path,
             metadata=metadata,
             ome=False,
-            color=color,
+            color=release_color(color),
             significant_bits=16,
             save_encoding='right_aligned',
         )
@@ -310,7 +311,7 @@ class TestTiff16BitBrightfield:
             file_loc=path,
             metadata=metadata,
             ome=False,
-            color=color,
+            color=release_color(color),
             significant_bits=16,
             save_encoding='right_aligned',
         )
@@ -329,7 +330,7 @@ class TestTiff16BitFluorescenceDefault:
             file_loc=path,
             metadata=metadata,
             ome=False,
-            color=color,
+            color=release_color(color),
             significant_bits=16,
             save_encoding='right_aligned',
         )
@@ -345,7 +346,7 @@ class TestTiff16BitFluorescenceDefault:
             file_loc=path,
             metadata=metadata,
             ome=False,
-            color=color,
+            color=release_color(color),
             significant_bits=16,
             save_encoding='right_aligned',
         )
@@ -362,7 +363,7 @@ class TestTiff16BitFluorescenceDefault:
             file_loc=path,
             metadata=metadata,
             ome=False,
-            color=color,
+            color=release_color(color),
             significant_bits=16,
             save_encoding='right_aligned',
         )
@@ -377,7 +378,7 @@ class TestTiff16BitFluorescenceDefault:
             file_loc=path,
             metadata=metadata,
             ome=False,
-            color=color,
+            color=release_color(color),
             significant_bits=16,
             save_encoding='right_aligned',
         )
@@ -393,7 +394,7 @@ class TestTiff16BitFluorescenceDefault:
             file_loc=path,
             metadata=metadata,
             ome=False,
-            color=color,
+            color=release_color(color),
             significant_bits=16,
             save_encoding='right_aligned',
         )
@@ -428,7 +429,7 @@ class TestTiff16BitFalseColorOn:
                 file_loc=path,
                 metadata=metadata,
                 ome=False,
-                color=color,
+                color=release_color(color),
                 significant_bits=16,
                 save_encoding='rgb',
             )
@@ -448,7 +449,7 @@ class TestTiff16BitFalseColorOn:
                 file_loc=path,
                 metadata=metadata,
                 ome=False,
-                color='BF',
+                color=release_color('BF'),
                 significant_bits=16,
                 save_encoding='rgb',
             )
@@ -472,7 +473,7 @@ class TestOmeTiff:
             file_loc=path,
             metadata=metadata,
             ome=True,
-            color=color,
+            color=release_color(color),
             significant_bits=8,
             save_encoding='8bit',
         )
@@ -486,7 +487,7 @@ class TestOmeTiff:
             file_loc=path,
             metadata=metadata,
             ome=True,
-            color='BF',
+            color=release_color('BF'),
             significant_bits=8,
             save_encoding='8bit',
         )
@@ -500,7 +501,7 @@ class TestOmeTiff:
             file_loc=path,
             metadata=metadata,
             ome=True,
-            color='BF',
+            color=release_color('BF'),
             significant_bits=16,
             save_encoding='right_aligned',
         )
@@ -514,7 +515,7 @@ class TestOmeTiff:
             file_loc=path,
             metadata=metadata,
             ome=True,
-            color='Green',
+            color=release_color('Green'),
             significant_bits=16,
             save_encoding='right_aligned',
         )
@@ -528,7 +529,7 @@ class TestOmeTiff:
             file_loc=path,
             metadata=metadata,
             ome=True,
-            color='Green',
+            color=release_color('Green'),
             significant_bits=16,
             save_encoding='right_aligned',
         )
@@ -551,7 +552,7 @@ class TestRgbImages:
             file_loc=path,
             metadata=metadata,
             ome=False,
-            color='BF',
+            color=release_color('BF'),
             significant_bits=8,
             save_encoding='8bit',
         )
@@ -565,7 +566,7 @@ class TestRgbImages:
             file_loc=path,
             metadata=metadata,
             ome=False,
-            color='BF',
+            color=release_color('BF'),
             significant_bits=8,
             save_encoding='8bit',
         )
@@ -579,7 +580,7 @@ class TestRgbImages:
             file_loc=path,
             metadata=metadata,
             ome=False,
-            color='BF',
+            color=release_color('BF'),
             significant_bits=16,
             save_encoding='right_aligned',
         )
@@ -602,7 +603,7 @@ class TestTiffMetadata:
             file_loc=path,
             metadata=metadata,
             ome=False,
-            color='BF',
+            color=release_color('BF'),
             significant_bits=8,
             save_encoding='8bit',
         )
@@ -619,7 +620,7 @@ class TestTiffMetadata:
             file_loc=path,
             metadata=metadata,
             ome=False,
-            color='BF',
+            color=release_color('BF'),
             significant_bits=8,
             save_encoding='8bit',
         )
@@ -636,7 +637,7 @@ class TestTiffMetadata:
             file_loc=path,
             metadata=metadata,
             ome=False,
-            color='BF',
+            color=release_color('BF'),
             significant_bits=16,
             save_encoding='right_aligned',
         )
@@ -651,7 +652,7 @@ class TestTiffMetadata:
             file_loc=path,
             metadata=metadata,
             ome=False,
-            color='BF',
+            color=release_color('BF'),
             significant_bits=8,
             save_encoding='8bit',
         )
@@ -673,7 +674,7 @@ class TestTimestampMetadata:
     def test_timestamp_iso_emitted_when_provided(self, img_8bit, metadata):
         metadata['timestamp_iso'] = '2026-05-09T14:23:01.123456'
         result = image_utils.generate_tiff_data(
-            data=img_8bit, metadata=metadata, image_type='imagej', color='BF'
+            data=img_8bit, metadata=metadata, image_type='imagej', color=release_color('BF')
         )
         plane = result['metadata']['Plane']
         assert plane['Timestamp'] == '2026-05-09T14:23:01.123456'
@@ -684,7 +685,7 @@ class TestTimestampMetadata:
         metadata['timestamp_camera_ticks'] = 1234567890123
         metadata['timestamp_camera_tick_hz'] = 1_000_000_000
         result = image_utils.generate_tiff_data(
-            data=img_8bit, metadata=metadata, image_type='imagej', color='BF'
+            data=img_8bit, metadata=metadata, image_type='imagej', color=release_color('BF')
         )
         plane = result['metadata']['Plane']
         assert plane['TimestampCameraTicks'] == 1234567890123
@@ -693,7 +694,7 @@ class TestTimestampMetadata:
     def test_frame_id_emitted_when_provided(self, img_8bit, metadata):
         metadata['frame_id'] = 42
         result = image_utils.generate_tiff_data(
-            data=img_8bit, metadata=metadata, image_type='imagej', color='BF'
+            data=img_8bit, metadata=metadata, image_type='imagej', color=release_color('BF')
         )
         plane = result['metadata']['Plane']
         assert plane['FrameID'] == 42
@@ -702,7 +703,7 @@ class TestTimestampMetadata:
         # Default metadata fixture has no timestamp_* keys; Plane should
         # not gain spurious fields.
         result = image_utils.generate_tiff_data(
-            data=img_8bit, metadata=metadata, image_type='imagej', color='BF'
+            data=img_8bit, metadata=metadata, image_type='imagej', color=release_color('BF')
         )
         plane = result['metadata']['Plane']
         assert 'Timestamp' not in plane
@@ -716,7 +717,7 @@ class TestTimestampMetadata:
         # e.g. IDS today). The host fields appear; the camera fields do not.
         metadata['timestamp_iso'] = '2026-05-09T14:23:01.123456'
         result = image_utils.generate_tiff_data(
-            data=img_8bit, metadata=metadata, image_type='imagej', color='BF'
+            data=img_8bit, metadata=metadata, image_type='imagej', color=release_color('BF')
         )
         plane = result['metadata']['Plane']
         assert plane['Timestamp'] == '2026-05-09T14:23:01.123456'
@@ -748,7 +749,7 @@ class TestWindowsPreviewCompat:
             file_loc=path,
             metadata=metadata,
             ome=False,
-            color=color,
+            color=release_color(color),
             significant_bits=16,
             save_encoding='right_aligned',
         )
@@ -766,7 +767,7 @@ class TestWindowsPreviewCompat:
             file_loc=path,
             metadata=metadata,
             ome=False,
-            color=color,
+            color=release_color(color),
             significant_bits=16,
             save_encoding='right_aligned',
         )
@@ -784,7 +785,7 @@ class TestWindowsPreviewCompat:
             file_loc=path,
             metadata=metadata,
             ome=True,
-            color=color,
+            color=release_color(color),
             significant_bits=16,
             save_encoding='right_aligned',
         )
@@ -799,31 +800,31 @@ class TestWindowsPreviewCompat:
 
 class TestGetTiffColormap:
     def test_green_colormap_shape(self):
-        cmap = image_utils.get_tiff_colormap(image_utils.LvpColormap.GREEN, np.uint8)
+        cmap = image_utils.get_tiff_colormap(release_color('Green'), np.uint8)
         assert cmap.shape == (3, 256)
 
     def test_green_only_green_channel(self):
-        cmap = image_utils.get_tiff_colormap(image_utils.LvpColormap.GREEN, np.uint8)
+        cmap = image_utils.get_tiff_colormap(release_color('Green'), np.uint8)
         assert cmap[0].sum() == 0  # Red = 0
         assert cmap[1].sum() > 0  # Green has values
         assert cmap[2].sum() == 0  # Blue = 0
 
     def test_gray_all_channels_equal(self):
-        cmap = image_utils.get_tiff_colormap(image_utils.LvpColormap.GRAY, np.uint8)
+        cmap = image_utils.get_tiff_colormap(GREY, np.uint8)
         np.testing.assert_array_equal(cmap[0], cmap[1])
         np.testing.assert_array_equal(cmap[1], cmap[2])
 
     def test_rejects_uint16(self):
         with pytest.raises(NotImplementedError):
-            image_utils.get_tiff_colormap(image_utils.LvpColormap.GREEN, np.uint16)
+            image_utils.get_tiff_colormap(release_color('Green'), np.uint16)
 
     @pytest.mark.parametrize(
         'colormap',
         [
-            image_utils.LvpColormap.RED,
-            image_utils.LvpColormap.GREEN,
-            image_utils.LvpColormap.BLUE,
-            image_utils.LvpColormap.GRAY,
+            release_color('Red'),
+            release_color('Green'),
+            release_color('Blue'),
+            GREY,
         ],
     )
     def test_colormap_spans_tiff_full_scale(self, colormap):
@@ -837,7 +838,7 @@ class TestGetTiffColormap:
         assert cmap.max() == 65535, f'{colormap}: ramp must reach TIFF full scale'
 
     def test_green_ramp_steps_by_257(self):
-        cmap = image_utils.get_tiff_colormap(image_utils.LvpColormap.GREEN, np.uint8)
+        cmap = image_utils.get_tiff_colormap(release_color('Green'), np.uint8)
         np.testing.assert_array_equal(cmap[1], np.arange(256, dtype=np.uint16) * 257)
 
 
@@ -859,7 +860,7 @@ class TestTiffStripsAndPaletteScale:
             file_loc=path,
             metadata=metadata,
             ome=False,
-            color='Green',
+            color=release_color('Green'),
             significant_bits=8,
             save_encoding='8bit',
         )
@@ -873,7 +874,7 @@ class TestTiffStripsAndPaletteScale:
             file_loc=path,
             metadata=metadata,
             ome=False,
-            color='Green',
+            color=release_color('Green'),
             significant_bits=8,
             save_encoding='8bit',
         )
@@ -892,7 +893,7 @@ class TestTiffStripsAndPaletteScale:
             file_loc=path,
             metadata=metadata,
             ome=False,
-            color='BF',
+            color=release_color('BF'),
             significant_bits=8,
             save_encoding='8bit',
             video_frame=True,
@@ -903,17 +904,17 @@ class TestTiffStripsAndPaletteScale:
 
 class TestGetImagejLut:
     def test_green_lut_shape(self):
-        lut = image_utils.get_imagej_lut(image_utils.LvpColormap.GREEN)
+        lut = image_utils.get_imagej_lut(release_color('Green'))
         assert lut.shape == (3, 256)
 
     def test_green_lut_correct(self):
-        lut = image_utils.get_imagej_lut(image_utils.LvpColormap.GREEN)
+        lut = image_utils.get_imagej_lut(release_color('Green'))
         assert lut[0].sum() == 0  # Red = 0
         assert lut[1].sum() > 0  # Green has values
         assert lut[2].sum() == 0  # Blue = 0
 
     def test_gray_lut_all_equal(self):
-        lut = image_utils.get_imagej_lut(image_utils.LvpColormap.GRAY)
+        lut = image_utils.get_imagej_lut(GREY)
         np.testing.assert_array_equal(lut[0], lut[1])
         np.testing.assert_array_equal(lut[1], lut[2])
 
@@ -921,7 +922,7 @@ class TestGetImagejLut:
 class TestAddFalseColor:
     def test_green_produces_3ch(self):
         data = np.ones((10, 10), dtype=np.uint16) * 1000
-        result = image_utils.add_false_color(data, 'Green')
+        result = image_utils.add_false_color(data, release_color('Green'))
         assert result.shape == (10, 10, 3)
         assert result[:, :, 1].sum() > 0
         assert result[:, :, 0].sum() == 0
@@ -929,18 +930,18 @@ class TestAddFalseColor:
 
     def test_bf_passthrough(self):
         data = np.ones((10, 10), dtype=np.uint16) * 1000
-        result = image_utils.add_false_color(data, 'BF')
+        result = image_utils.add_false_color(data, release_color('BF'))
         assert result.shape == (10, 10), 'BF should not be false-colored'
 
     def test_already_rgb_passthrough(self):
         data = np.ones((10, 10, 3), dtype=np.uint8) * 128
-        result = image_utils.add_false_color(data, 'Green')
+        result = image_utils.add_false_color(data, release_color('Green'))
         assert result.shape == (10, 10, 3)
 
     def test_red_indexed_at_0(self):
         """RGB convention: Red channel data lands at index 0."""
         data = np.ones((10, 10), dtype=np.uint16) * 1000
-        result = image_utils.add_false_color(data, 'Red')
+        result = image_utils.add_false_color(data, release_color('Red'))
         assert result.shape == (10, 10, 3)
         assert result[:, :, 0].sum() > 0, 'Red channel (index 0) should have data'
         assert result[:, :, 1].sum() == 0, 'Green channel (index 1) should be zero'
@@ -949,7 +950,7 @@ class TestAddFalseColor:
     def test_blue_indexed_at_2(self):
         """RGB convention: Blue channel data lands at index 2."""
         data = np.ones((10, 10), dtype=np.uint16) * 1000
-        result = image_utils.add_false_color(data, 'Blue')
+        result = image_utils.add_false_color(data, release_color('Blue'))
         assert result.shape == (10, 10, 3)
         assert result[:, :, 0].sum() == 0, 'Red channel (index 0) should be zero'
         assert result[:, :, 1].sum() == 0, 'Green channel (index 1) should be zero'
@@ -958,7 +959,7 @@ class TestAddFalseColor:
     def test_lumi_indexed_at_2(self):
         """RGB convention: Lumi maps to Blue (index 2)."""
         data = np.ones((10, 10), dtype=np.uint16) * 1000
-        result = image_utils.add_false_color(data, 'Lumi')
+        result = image_utils.add_false_color(data, release_color('Lumi'))
         assert result.shape == (10, 10, 3)
         assert result[:, :, 0].sum() == 0, 'Red channel (index 0) should be zero'
         assert result[:, :, 1].sum() == 0, 'Green channel (index 1) should be zero'
@@ -978,7 +979,7 @@ class TestOmeMetadataReadback:
             file_loc=path,
             metadata=metadata,
             ome=True,
-            color='Green',
+            color=release_color('Green'),
             significant_bits=16,
             save_encoding='right_aligned',
         )
@@ -1001,7 +1002,7 @@ class TestOmeMetadataReadback:
             file_loc=path,
             metadata=metadata,
             ome=True,
-            color='Green',
+            color=release_color('Green'),
             significant_bits=16,
             save_encoding='right_aligned',
         )
@@ -1029,7 +1030,7 @@ class TestStructuredReadbackOptionalGainExposure:
             file_loc=path,
             metadata=md,
             ome=False,
-            color='BF',
+            color=release_color('BF'),
             significant_bits=8,
             save_encoding='8bit',
         )
@@ -1114,7 +1115,7 @@ class TestResolutionRationalOwner:
             file_loc=path,
             metadata=meta,
             ome=True,
-            color='Green',
+            color=release_color('Green'),
             significant_bits=16,
             save_encoding='right_aligned',
         )
@@ -1145,7 +1146,7 @@ class TestFalseColorRgbDepth:
             file_loc=path,
             metadata=meta,
             ome=False,
-            color='Green',
+            color=release_color('Green'),
             significant_bits=12,
             save_encoding='rgb',
         )
@@ -1170,7 +1171,7 @@ class TestFalseColorRgbDepth:
             file_loc=path,
             metadata=meta,
             ome=False,
-            color='Green',
+            color=release_color('Green'),
             significant_bits=12,
             save_encoding='right_aligned',
         )
@@ -1203,7 +1204,7 @@ class TestReportedDepthMatchesFile:
             file_loc=path,
             metadata={**metadata, 'significant_bits': capture_depth},
             ome=False,
-            color='Green',
+            color=release_color('Green'),
             significant_bits=capture_depth,
             save_encoding=save_encoding,
         )
@@ -1238,7 +1239,7 @@ class TestPostprocMetadataRoundTrip:
             file_loc=path,
             metadata=metadata,
             ome=ome,
-            color='BF',
+            color=release_color('BF'),
             significant_bits=significant_bits,
             save_encoding=save_encoding,
         )

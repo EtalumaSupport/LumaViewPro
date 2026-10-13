@@ -13,6 +13,7 @@ import av
 import numpy as np
 
 import modules.image_utils as image_utils
+from modules.layer_record import GREY, Color
 from lvp_logger import logger
 
 
@@ -29,12 +30,12 @@ class VideoWriter:
         width: int | None = None,
         height: int | None = None,
         *,
-        color: str | None = None,
+        color: Color = GREY,
         include_timestamp_overlay: bool = False,
         vfr: bool = False,
     ):
         """Encode a video file. Accepts mono frames + applies false-color
-        internally when `color` is set; also accepts pre-colored RGB input.
+        internally when `color` is not grey; also accepts pre-colored RGB input.
 
         When both ``width`` and ``height`` are given the encoder eager-
         initializes in __init__. Otherwise it lazy-initializes from the
@@ -49,10 +50,8 @@ class VideoWriter:
                 timing.
             width: Frame width in pixels. Optional; None defers to first frame.
             height: Frame height in pixels. Optional; None defers to first frame.
-            color: Layer name ('Red', 'Green', 'Blue', 'Lumi', ...) for
-                in-writer false-color. None encodes grayscale (gray
-                pixfmt); a gray-rendering label (transmitted light --
-                no false-color map) encodes grayscale the same way.
+            color: The colour mono frames are shown in (``layer_record.Color``).
+                ``GREY`` encodes grayscale (gray pixfmt).
             include_timestamp_overlay: Overlay frame timestamps via image_utils.
             vfr: Variable-frame-rate timing: each frame's presentation
                 time comes from its real capture timestamp, so a delivery
@@ -89,26 +88,21 @@ class VideoWriter:
         self._stream = None  # PyAV video stream
         self._finished = False
 
-        # Eager-init only when caller provides dimensions AND the label
-        # actually colors: a chromatic map always emits 3-channel RGB, so
-        # is_color is known without the first frame. When color is None or
-        # a gray-rendering label (per the false-color table -- transmitted
-        # light has no map), whether the stream is color depends on the
-        # first frame's ndim (a caller may feed pre-colored RGB into such
-        # a writer), so defer encoder init to _lazy_init_from_frame --
-        # mirroring the no-dimensions path -- instead of locking in a gray
-        # encoder that would corrupt RGB input.
+        # Eager-init only when caller provides dimensions AND the colour
+        # actually colors: a colour always emits 3-channel RGB, so is_color
+        # is known without the first frame. When the colour is grey, whether
+        # the stream is color depends on the first frame's ndim (a caller may
+        # feed pre-colored RGB into such a writer), so defer encoder init to
+        # _lazy_init_from_frame -- mirroring the no-dimensions path -- instead
+        # of locking in a gray encoder that would corrupt RGB input.
         if self._shape is not None and self._colors_output():
             self._init_pyav(width, height, True)
 
     def _colors_output(self) -> bool:
-        """True when the color label applies a chromatic false-color map.
-
-        The false-color table is the authority: a transmitted-light or
-        unknown label yields gray pixels, so mono input stays mono and
-        gray pixels get a gray encode instead of a 3-channel replica.
+        """True when the colour is not grey: grey mono input stays mono and
+        gets a gray encode instead of a 3-channel replica.
         """
-        return self._color is not None and not image_utils.layer_renders_grayscale(self._color)
+        return self._color != GREY
 
     @property
     def output_path(self) -> pathlib.Path:
@@ -248,7 +242,12 @@ class VideoWriter:
         is_color_encode = (image.ndim == 3) or self._colors_output()
         self._init_pyav(w, h, is_color_encode)
 
-    def add_frame(self, image: np.ndarray, timestamp=None, significant_bits=None) -> None:
+    def add_frame(
+        self,
+        image: np.ndarray,
+        timestamp: datetime.datetime | float | None = None,
+        significant_bits: int | None = None,
+    ) -> None:
         """Add a frame to the video.
 
         Accepts mono 2D (H, W) input when `color` was set at __init__; the
@@ -310,11 +309,11 @@ class VideoWriter:
                     )
                 image = image_utils.convert_to_8bit(image, significant_bits)
 
-            # Mono + chromatic label -> apply false-color inside the writer.
-            # Mono + None or gray-rendering label -> pass through; gray encode.
+            # Mono + a colour -> apply false-color inside the writer.
+            # Mono + grey -> pass through; gray encode.
             # RGB input -> pass through (pre-colored caller).
             if image.ndim == 2 and self._colors_output():
-                image = image_utils.mono_to_rgb_falsecolor(image, layer=self._color)
+                image = image_utils.mono_to_rgb_falsecolor(image, self._color)
 
             # Timestamp last -- after false-color -- so the text stays
             # neutral white instead of being tinted by the layer color map.

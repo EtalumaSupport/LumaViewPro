@@ -31,6 +31,7 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 import tifffile as tf
+from modules.layer_record import release_color
 
 
 XFAIL_REASON = (
@@ -82,7 +83,7 @@ def test_pure_blue_16bit_falsecolor_tiff_roundtrip(tmp_path):
         file_loc=out_path,
         metadata=_metadata(out_path, channel='Blue'),
         ome=False,
-        color='Blue',
+        color=release_color('Blue'),
         significant_bits=16,
         save_encoding='rgb',
     )
@@ -239,7 +240,7 @@ def test_pure_color_16bit_falsecolor_tiff_roundtrip(tmp_path, color):
         file_loc=out_path,
         metadata=_metadata(out_path, channel=color),
         ome=False,
-        color=color,
+        color=release_color(color),
         significant_bits=16,
         save_encoding='rgb',
     )
@@ -391,7 +392,7 @@ def test_piw6_buffer_allocation_o1(tmp_path):
                 file_loc=tmp_path / f'frame_{i:04d}.tiff',
                 metadata=_metadata(tmp_path / f'frame_{i:04d}.tiff', channel='Blue'),
                 ome=False,
-                color='Blue',
+                color=release_color('Blue'),
                 false_color_buf=scratch,
                 significant_bits=16,
                 save_encoding='rgb',

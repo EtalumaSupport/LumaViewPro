@@ -28,6 +28,7 @@ import numpy as np
 import modules.common_utils as common_utils
 import modules.image_mode as image_mode
 import modules.image_utils as image_utils
+import modules.layer_record as layer_record
 from lib.handle_trace import tick as _h_tick
 from lvp_logger import logger, version
 from modules.exceptions import CaptureFailedError, ConfigurationDefectError, ImageSaveError
@@ -85,13 +86,13 @@ def write_video_frame(
             'with an unrecognized image-mode encoding',
             'unknown_save_encoding',
         )
-    # Rendering value, permanently: it collapses to 'BF' whenever false color
-    # is off, so it stops naming the channel that was imaged. Nothing derived
-    # from false_color_on may reach a field describing WHAT the frame is -- a
-    # display setting recorded as identity is a claim about the specimen that
-    # the file cannot walk back. Video frames carry no channel field today, so
-    # nothing structural stops it here; the names are what keep them apart.
-    render_color = channel if false_color_on else 'BF'
+    # Rendering value, permanently: it is grey whenever false color is off.
+    # Nothing derived from false_color_on may reach a field describing WHAT
+    # the frame is -- a display setting recorded as identity is a claim about
+    # the specimen that the file cannot walk back. Video frames carry no
+    # channel field today, so nothing structural stops it here; the names are
+    # what keep them apart.
+    render_color = layer_record.shown_color(channel, false_color_on)
     # State the payload depth so the file is labeled honestly: an 8-bit frame
     # is 8-bit; a uint16 frame carries its acquired depth (12 for Mono12) so
     # msb_aligned can left-justify and right_aligned marks the true depth; a
@@ -102,12 +103,7 @@ def write_video_frame(
         significant_bits = capture_depth
     else:
         significant_bits = 16
-    if (
-        frame.dtype == np.uint8
-        and false_color_on
-        and not image_utils.is_color_image(frame)
-        and render_color in common_utils.get_image_layers()
-    ):
+    if frame.dtype == np.uint8:
         frame = image_utils.add_false_color(array=frame, color=render_color)
     image_utils.write_tiff(
         data=frame,
@@ -692,9 +688,9 @@ def save_image(
         )
 
     # The one place the two facts meet, and they meet on the rendering side
-    # only. A channel with false color off is drawn like brightfield; it is
-    # still that channel, and the metadata below says so.
-    render_color = channel if false_color_on else 'BF'
+    # only. A channel with false color off is drawn grey; it is still that
+    # channel, and the metadata below says so.
+    render_color = layer_record.shown_color(channel, false_color_on)
 
     if output_format == 'JPG':
         # JPG is a convenience / sharing export: no metadata is embedded

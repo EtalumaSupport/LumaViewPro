@@ -2,7 +2,6 @@
 import ast
 import contextlib
 import datetime
-import enum
 import functools
 import json
 import os
@@ -17,8 +16,8 @@ import cv2
 import numpy as np
 import tifffile as tf
 
-from modules.common_utils import ColorChannel
 from modules.exceptions import FrameDepthError, InputFramesUnusableError
+from modules.layer_record import GREY, Color
 import modules.common_utils as common_utils
 import modules.image_mode as image_mode
 import modules.image_utils as image_utils
@@ -269,22 +268,15 @@ def click_offset_to_um(
     return (frame_pos - frame_extent / 2.0) * pixel_size_um
 
 
-# The one false-color table: which layer labels place the mono signal
-# into an RGB channel. A label absent from this table -- the transmitted
-# layers (BF, PC, DF) and any unknown name -- renders grayscale: there
-# is no chromatic map to apply. Consumers deciding whether a layer's
-# output is gray ask layer_renders_grayscale; re-deriving the set at a
-# consumer is how the gray-as-RGB encode divergence happened.
-FALSE_COLOR_RGB_CHANNEL = {'Red': 0, 'Green': 1, 'Blue': 2, 'Lumi': 2}
+# The caller resolves a colour (``layer_record.Color``); nothing here maps a
+# channel to one. A writer keeps a ``GREY`` frame mono rather than storing
+# three equal planes.
 
 
-def layer_renders_grayscale(layer: str | None) -> bool:
-    """True when a layer label has no false-color map, so output is gray."""
-    return layer not in FALSE_COLOR_RGB_CHANNEL
-
-
-def mono_to_rgb_falsecolor(mono: np.ndarray, layer: str) -> np.ndarray:
-    """Map a 2D mono array to a 3-channel RGB array via the layer's false color.
+def mono_to_rgb_falsecolor(
+    mono: np.ndarray, color: Color, output: np.ndarray | None = None
+) -> np.ndarray:
+    """Map a 2D mono array to a 3-channel RGB array in ``color``.
 
     The single Phase-1 boundary helper for mono -> RGB widening. Use at
     encode boundaries (live preview Kivy texture, MP4 / AVI encode) and
@@ -294,11 +286,10 @@ def mono_to_rgb_falsecolor(mono: np.ndarray, layer: str) -> np.ndarray:
 
     Args:
         mono: 2D ndarray of uint8 / uint16 dtype.
-        layer: Fluorescence channel name. ``Red``, ``Green``, ``Blue``,
-            ``Lumi`` place the mono signal in the matching RGB index.
-            Transmitted layers (``BF``, ``PC``, ``DF``) tile the mono
-            into all three channels (grayscale RGB). Unknown layers
-            tile into all three channels as a safe fallback.
+        color: Each plane is ``mono`` times its weight, rounded; ``GREY``
+            tiles the mono into all three planes.
+        output: An ``(H, W, 3)`` array of ``mono``'s dtype to write into,
+            reused across frames; another shape or dtype is not used.
 
     Returns:
         ``(H, W, 3)`` ndarray with the same dtype as ``mono``. Source
@@ -310,16 +301,20 @@ def mono_to_rgb_falsecolor(mono: np.ndarray, layer: str) -> np.ndarray:
     if mono.ndim != 2:
         raise ValueError(f'mono_to_rgb_falsecolor expects 2D input, got shape {mono.shape}')
 
-    h, w = mono.shape
-    rgb = np.zeros((h, w, 3), dtype=mono.dtype)
-
-    channel = FALSE_COLOR_RGB_CHANNEL.get(layer)
-    if channel is None:
-        rgb[:, :, 0] = mono
-        rgb[:, :, 1] = mono
-        rgb[:, :, 2] = mono
+    shape = (mono.shape[0], mono.shape[1], 3)
+    if output is not None and output.shape == shape and output.dtype == mono.dtype:
+        rgb = output
     else:
-        rgb[:, :, channel] = mono
+        rgb = np.empty(shape, dtype=mono.dtype)
+    for plane, weight in enumerate(color):
+        # A whole weight is copied rather than multiplied: the same pixels,
+        # without a float pass per plane on every live and video frame.
+        if weight == 1:
+            rgb[:, :, plane] = mono
+        elif weight == 0:
+            rgb[:, :, plane] = 0
+        else:
+            rgb[:, :, plane] = np.rint(mono * weight)
     return rgb
 
 
@@ -1295,6 +1290,7 @@ def build_hyperstack_output_metadata(
     reference_input_path: pathlib.Path,
     *,
     channel_names: list[str],
+    channel_colors: list[Color],
     plane_positions: dict,
     significant_bits: int,
     pixel_size_um: float | None,
@@ -1328,6 +1324,7 @@ def build_hyperstack_output_metadata(
             is read from here. All hyperstack input frames share these
             shared fields (same site, same objective, same scope).
         channel_names: One channel name per C-axis position.
+        channel_colors: Each channel's colour, in ``channel_names``' order.
         plane_positions: Dict with PositionX / PositionY / PositionZ
             lists, one entry per T*Z*C plane in scan order, plus a
             required DeltaT entry: the per-plane seconds from the
@@ -1352,15 +1349,8 @@ def build_hyperstack_output_metadata(
     # and rejected -- that container is mutually exclusive with OME and
     # cannot represent BigTIFF. FIJI applies Channel.Color only when
     # opened via the Bio-Formats Importer in Composite/Colorized mode;
-    # plain File>Open renders ImageJ default LUTs. Channels not mapped
-    # by LvpColormap fall back to white (-1), rendered as grayscale.
-    channel_colors: list[int] = []
-    for name in channel_names:
-        try:
-            colormap_type = color_channel_to_colormap_type(color_channel=name)
-        except Exception:
-            colormap_type = LvpColormap.GRAY
-        channel_colors.append(_lvp_colormap_to_ome_rgba(colormap_type))
+    # plain File>Open renders ImageJ default LUTs. Grey is white (-1).
+    ome_colors = [_ome_rgba(color) for color in channel_colors]
 
     # A position is written only when every plane has one, like the timing
     # below: tifffile writes a missing value as the literal PositionX="None",
@@ -1396,7 +1386,7 @@ def build_hyperstack_output_metadata(
         'axes': 'TZCYX',
         'SignificantBits': significant_bits,
         'Pixels': {},
-        'Channel': {'Name': channel_names, 'Color': channel_colors},
+        'Channel': {'Name': channel_names, 'Color': ome_colors},
         'Plane': plane,
     }
 
@@ -1562,43 +1552,19 @@ def videowriter_color(*, is_color_native: bool = False, **kwargs):
     raise NotImplementedError('Phase 2 activation pending')
 
 
-def add_false_color(array, color, output=None):
-    src_dtype = array.dtype
-    if (not image_utils.is_color_image(array)) and (
-        color in (*common_utils.get_fluorescence_layers(), *common_utils.get_luminescence_layers())
-    ):
-        if (
-            output is not None
-            and output.shape == (array.shape[0], array.shape[1], 3)
-            and output.dtype == src_dtype
-        ):
-            img = output
-            img[:] = 0
-        else:
-            img = np.zeros((array.shape[0], array.shape[1], 3), dtype=src_dtype)
-        # RGB ordering: index 0=Red, 1=Green, 2=Blue. Matches the canonical
-        # save-path convention shared with composite_builder. OpenCV consumers
-        # (cv2.VideoWriter) convert RGB->BGR at their own boundary.
-        if color in ('Blue', 'Lumi'):
-            img[:, :, 2] = array
-        elif color == 'Green':
-            img[:, :, 1] = array
-        elif color == 'Red':
-            img[:, :, 0] = array
+def add_false_color(
+    array: np.ndarray, color: Color, output: np.ndarray | None = None
+) -> np.ndarray:
+    """Bake ``color`` into a mono frame at a save boundary; a colour frame,
+    or a grey colour, is returned as it is.
 
-        # For HSL colorspace
-        # elif color == 'Lumi':
-        #     img[:,:,0] = 215 / 2 # Hue (OpenCV uses range of 0-180, so divide by 2)
-        #     img[:,:,1] = array # Luminance
-        #     img[:,:,2] = 255 # Saturation
-    else:
-        img = array
-
-    # For HSL colorspace
-    # if color == 'Lumi':
-    #     img = cv2.cvtColor(img, cv2.COLOR_HLS2BGR)
-
-    return img
+    RGB ordering: index 0=Red, 1=Green, 2=Blue. Matches the canonical
+    save-path convention shared with composite_builder. OpenCV consumers
+    (cv2.VideoWriter) convert RGB->BGR at their own boundary.
+    """
+    if image_utils.is_color_image(array) or color == GREY:
+        return array
+    return mono_to_rgb_falsecolor(array, color, output=output)
 
 
 def image_file_to_image(image_file):
@@ -1687,7 +1653,7 @@ def encode_image(image: np.ndarray, fmt: str = 'png', jpeg_quality: int = 80) ->
 
 def encode_display_jpg(
     array: np.ndarray,
-    color: str,
+    color: Color,
     significant_bits: int,
     jpeg_quality: int = 90,
     *,
@@ -1705,7 +1671,7 @@ def encode_display_jpg(
 
     Args:
         array: Source image (2D mono, 8/12/16-bit) for one channel.
-        color: Channel color label (BF, Blue, Green, Red, Lumi, ...).
+        color: The colour the channel is shown in; ``GREY`` for grey.
         significant_bits: Payload depth of ``array`` so the 8-bit downconvert
             scales against the real range -- a summed frame is not indexed as
             12-bit (out of range) and a 10-bit frame is not crushed.
@@ -1726,7 +1692,7 @@ def encode_display_jpg(
     else:
         # Bake the channel's displayed color at this encode boundary
         # (mono_to_rgb_falsecolor is the canonical mono -> RGB widening;
-        # BF / transmitted layers come back grayscale RGB).
+        # grey comes back grayscale RGB).
         rgb = mono_to_rgb_falsecolor(img8, color)
     # The RGB produced above is R=0,G=1,B=2; cv2 (encode_image) treats a
     # 3-channel array as BGR, so reverse the channel axis or the saved
@@ -1839,32 +1805,7 @@ def convert_16bit_to_8bit(image):
     return convert_to_8bit(image, 16)
 
 
-@enum.unique
-class LvpColormap(enum.Enum):
-    GRAY = 'gray'
-    RED = 'red'
-    GREEN = 'green'
-    BLUE = 'blue'
-
-
-def color_channel_to_colormap_type(color_channel: str | ColorChannel) -> LvpColormap:
-    if isinstance(color_channel, str):
-        color_channel = ColorChannel[color_channel]
-
-    lut = {
-        ColorChannel.Lumi: LvpColormap.BLUE,
-        ColorChannel.Blue: LvpColormap.BLUE,
-        ColorChannel.Green: LvpColormap.GREEN,
-        ColorChannel.Red: LvpColormap.RED,
-        ColorChannel.BF: LvpColormap.GRAY,
-        ColorChannel.PC: LvpColormap.GRAY,
-        ColorChannel.DF: LvpColormap.GRAY,
-    }
-
-    return lut[color_channel]
-
-
-def get_tiff_colormap(colormap: LvpColormap, dtype):
+def get_tiff_colormap(color: Color, dtype: np.dtype | type | str) -> np.ndarray:
     """Build a TIFF colormap array for PALETTE photometric (8-bit only).
 
     Returns a (3, 256) uint16 array suitable for tifffile's ``colormap``
@@ -1880,66 +1821,43 @@ def get_tiff_colormap(colormap: LvpColormap, dtype):
     if dtype not in ('uint8', np.uint8):
         raise NotImplementedError(f'TIFF colormap only supported for uint8, got {dtype}')
 
-    ramp = np.arange(0, 256, 1, dtype=np.uint16) * 257
-
-    if colormap == LvpColormap.GRAY:
-        return np.tile(ramp, (3, 1))
-
-    cmap_array = np.zeros((3, 256), dtype=np.uint16)
-    if colormap == LvpColormap.RED:
-        cmap_array[0] = ramp
-    elif colormap == LvpColormap.GREEN:
-        cmap_array[1] = ramp
-    elif colormap == LvpColormap.BLUE:
-        cmap_array[2] = ramp
-    else:
-        raise NotImplementedError(f'Unsupported colormap: {colormap}')
-    return cmap_array
+    ramp = np.arange(0, 256, 1, dtype=np.float64) * 257
+    return np.stack([np.rint(ramp * weight) for weight in color]).astype(np.uint16)
 
 
-def _lvp_colormap_to_ome_rgba(colormap: 'LvpColormap') -> int:
-    """Map an LVP colormap to the signed-32-bit OME Channel.Color value.
+def _color_bytes(color: Color) -> tuple[int, int, int]:
+    """The 0-255 red, green and blue of ``color``."""
+    r, g, b = (round(255 * weight) for weight in color)
+    return r, g, b
+
+
+def _ome_rgba(color: Color) -> int:
+    """The signed-32-bit OME Channel.Color value of ``color``.
 
     OME-XML encodes Channel.Color as ``(R << 24) | (G << 16) | (B << 8) | A``
     with the unsigned 32-bit result reinterpreted as Python signed int32.
     Consumed by Bio-Formats when the user opens the hyperstack with
     Color mode Composite/Colorized; the default File>Open ignores it.
     """
-    color_map = {
-        LvpColormap.RED: (255, 0, 0),
-        LvpColormap.GREEN: (0, 255, 0),
-        LvpColormap.BLUE: (0, 0, 255),
-        LvpColormap.GRAY: (255, 255, 255),
-    }
-    r, g, b = color_map.get(colormap, (255, 255, 255))
+    r, g, b = _color_bytes(color)
     unsigned = (r << 24) | (g << 16) | (b << 8) | 0xFF
     return unsigned - (1 << 32) if unsigned >= (1 << 31) else unsigned
 
 
-def get_imagej_lut(colormap: LvpColormap):
+def get_imagej_lut(color: Color) -> np.ndarray:
     """Build an ImageJ-style LUT: (3, 256) uint8 array.
 
     Stored in ImageJ metadata (not TIFF tag 320), so Windows Preview sees
     plain MINISBLACK grayscale while ImageJ auto-applies the color LUT.
     Used for 16-bit images where PALETTE photometric breaks Windows Preview.
     """
-    ramp = np.arange(256, dtype=np.uint8)
-    zeros = np.zeros(256, dtype=np.uint8)
-    if colormap == LvpColormap.GRAY:
-        return np.stack([ramp, ramp, ramp])
-    elif colormap == LvpColormap.RED:
-        return np.stack([ramp, zeros, zeros])
-    elif colormap == LvpColormap.GREEN:
-        return np.stack([zeros, ramp, zeros])
-    elif colormap == LvpColormap.BLUE:
-        return np.stack([zeros, zeros, ramp])
-    else:
-        raise NotImplementedError(f'Unsupported colormap: {colormap}')
+    ramp = np.arange(256, dtype=np.float64)
+    return np.stack([np.rint(ramp * weight) for weight in color]).astype(np.uint8)
 
 
 def maybe_apply_false_color(
     data: np.ndarray,
-    color: str,
+    color: Color,
     use_false_color_16bit: bool,
     output_buf: np.ndarray | None = None,
 ) -> np.ndarray:
@@ -1957,24 +1875,10 @@ def maybe_apply_false_color(
 
     use_false_color_16bit is the resolved decision (the caller passed write_tiff
     a save_encoding; widening is save_encoding == 'rgb'). Already-RGB inputs,
-    8-bit inputs, transmitted layers (BF/PC/DF), and unknown layer names always
-    pass through.
+    8-bit inputs and a grey colour always pass through.
     """
-    if not (
-        data.dtype == np.uint16
-        and not is_color_image(data)
-        and color in common_utils.get_image_layers()
-    ):
-        return data
-    if use_false_color_16bit:
-        try:
-            return add_false_color(data, color, output=output_buf)
-        except Exception:
-            logger.exception(
-                '[image_utils] maybe_apply_false_color: false-color application '
-                'failed for color=%s; returning input',
-                color,
-            )
+    if data.dtype == np.uint16 and use_false_color_16bit:
+        return add_false_color(data, color, output=output_buf)
     return data
 
 
@@ -2115,18 +2019,18 @@ def written_significant_bits(
 
 
 def write_tiff(
-    data,
+    data: np.ndarray,
     file_loc: pathlib.Path,
     metadata: dict,
     ome: bool,
-    color: str,
+    color: Color,
     significant_bits: int,
     save_encoding: str,
     video_frame: bool = False,
     extratags: list | None = None,
     false_color_buf: np.ndarray | None = None,
     rgb_buf: np.ndarray | None = None,
-):
+) -> None:
     # Depth travels with the pixels. A uint16 frame stored right-aligned
     # (0..4095 for a 12-bit sensor) is bit-identical to a dark 16-bit image, so
     # a write that does not state its significant-bit depth cannot label the
@@ -2247,12 +2151,10 @@ def write_tiff(
             # 16-bit fluorescence: MINISBLACK photometric -- Windows Preview
             # compatible (shows grayscale). Color via ImageJ LUT metadata
             # (imagej type) or OME Channel metadata (ome type).
-            # BF/PC/DF: always MINISBLACK, no colormap needed.
+            # Grey: always MINISBLACK, no colormap needed.
             colormap_array = None
-            if data.dtype == np.uint8 and color in common_utils.get_image_layers():
-                colormap_type = color_channel_to_colormap_type(color_channel=color)
-                if colormap_type != LvpColormap.GRAY:
-                    colormap_array = get_tiff_colormap(colormap=colormap_type, dtype=data.dtype)
+            if data.dtype == np.uint8 and color != GREY:
+                colormap_array = get_tiff_colormap(color=color, dtype=data.dtype)
 
             tif.write(
                 data,
@@ -2270,7 +2172,7 @@ def generate_tiff_data(
     data: np.ndarray,
     metadata: dict,
     image_type: str,
-    color: str,
+    color: Color,
 ) -> dict:
 
     axes = 'YX'
@@ -2278,19 +2180,14 @@ def generate_tiff_data(
     if is_color_image(data):
         photometric = tf.PHOTOMETRIC.RGB
         axes = 'YXS'  # 3rd dimension is samples (RGB channels)
-    elif color in common_utils.get_transmitted_layers():
-        photometric = tf.PHOTOMETRIC.MINISBLACK
-    elif color in common_utils.get_image_layers():
+    elif color != GREY and data.dtype == np.uint8:
         # 8-bit: PALETTE with colormap -- works in Windows Preview and ImageJ.
-        # 16-bit: MINISBLACK -- Windows Preview can't handle PALETTE with uint16.
-        #         Color is provided via ImageJ LUT metadata (ImageJ type) or
-        #         OME Channel metadata (OME type).
-        if data.dtype == np.uint8:
-            photometric = tf.PHOTOMETRIC.PALETTE
-        else:
-            photometric = tf.PHOTOMETRIC.MINISBLACK
+        photometric = tf.PHOTOMETRIC.PALETTE
     else:
-        raise ValueError(f'Unexpected color value ({color}) for tiff data generation')
+        # Grey, and 16-bit: MINISBLACK -- Windows Preview can't handle PALETTE
+        # with uint16. A 16-bit colour is provided via ImageJ LUT metadata
+        # (ImageJ type) or OME Channel metadata (OME type).
+        photometric = tf.PHOTOMETRIC.MINISBLACK
 
     # Read once, above every arm: the scale claim is one rule, and the arm that
     # returned before this read is exactly the arm that emitted a wrong claim.
@@ -2525,10 +2422,8 @@ def generate_tiff_data(
         # Windows Preview ignores ImageJ metadata -> sees MINISBLACK -> works.
         # ImageJ reads its own metadata -> auto-applies color LUT -> shows color.
         # mode='color' tells FIJI to apply the LUT (otherwise defaults to grayscale).
-        colormap_type = color_channel_to_colormap_type(color_channel=color)
-        lut = get_imagej_lut(colormap_type)
-        tiff_metadata['LUTs'] = [lut]
-        if colormap_type != LvpColormap.GRAY:
+        tiff_metadata['LUTs'] = [get_imagej_lut(color)]
+        if color != GREY:
             tiff_metadata['mode'] = 'color'
         # imagej path mirrors the default/ome maxworkers=0 below for the
         # same Windows kernel-handle-leak reason; this path triggers on

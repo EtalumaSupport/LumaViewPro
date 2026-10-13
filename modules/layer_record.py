@@ -52,7 +52,14 @@ BACKGROUNDS = ('bright', 'dark')
 _DISPLAY_COLOR = re.compile(r'#[0-9a-f]{6}')
 
 
-def parse_display_color(text: object) -> tuple[float, float, float]:
+# A colour as the red, green and blue weights, each 0 to 1, a mono image is
+# multiplied by. White is grey: it is what a transmitted channel is and what
+# any channel is shown in with false colour off.
+Color = tuple[float, float, float]
+GREY: Color = (1.0, 1.0, 1.0)
+
+
+def parse_display_color(text: object) -> Color:
     """The red, green and blue weights, each 0 to 1, of a ``'#rrggbb'`` colour.
 
     Lower-case hex digits only: an upper-case colour is refused, so a
@@ -281,6 +288,46 @@ def release_layer(key: object) -> CatalogueLayer:
     """
     refuse_unknown_layer(key)
     return next(layer for layer in release_layers() if layer.key == key)
+
+
+def release_color(key: object) -> Color:
+    """The release's colour for the layer ``key`` (``parse_display_color``).
+
+    Every unit's layer of this key has this colour today: a unit's record
+    takes its colour from the release record.
+
+    Raises:
+        ArgumentRefusedError: as ``refuse_unknown_layer``.
+    """
+    return parse_display_color(release_layer(key).display_color)
+
+
+def output_color(name: object) -> Color:
+    """The colour an image named for ``name`` is written in: a layer's
+    colour, and ``GREY`` for a composite (``PostFunction.COMPOSITE``), which
+    is RGB and carries its own -- and is grey once collapsed into a stack.
+
+    Raises:
+        ArgumentRefusedError: ``name`` is neither a layer of this release
+            nor a composite (``refuse_unknown_layer``).
+    """
+    from modules.common_utils import PostFunction
+
+    if name == PostFunction.COMPOSITE.value:
+        return GREY
+    return release_color(name)
+
+
+def shown_color(name: object, false_color_on: bool) -> Color:
+    """The colour an image named for ``name`` is shown in: its
+    ``output_color`` with false colour on, ``GREY`` with it off.
+
+    Raises:
+        ArgumentRefusedError: as ``output_color``, whether false colour is
+            on or off.
+    """
+    color = output_color(name)
+    return color if false_color_on else GREY
 
 
 # Row fields the resolver requires. Extra keys are tolerated so a config

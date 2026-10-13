@@ -23,6 +23,7 @@ from modules.scope_capabilities import (
     _resolve_pixel_size_um,
 )
 from modules.recording_frames import FrameFact
+from modules.layer_record import release_color
 
 _FACT = FrameFact(plate_x_mm=None, plate_y_mm=None, z_um=None, moving=False, channel='BF')
 
@@ -342,7 +343,7 @@ class TestReadPixelSizeUm:
             file_loc=path,
             metadata=metadata,
             ome=False,
-            color='Green',
+            color=release_color('Green'),
             significant_bits=8,
             save_encoding='8bit',
         )
@@ -380,7 +381,7 @@ class TestSaveWithoutScale:
             file_loc=path,
             metadata=metadata,
             ome=False,
-            color='Green',
+            color=release_color('Green'),
             significant_bits=8,
             save_encoding='8bit',
         )

@@ -27,6 +27,7 @@ from modules import image_utils
 from modules.exceptions import FrameDepthError
 from modules.recording_frames import FrameFact
 from tests.scope_fakes import build_scope, bind_settings_like_a_session
+from modules.layer_record import release_color
 
 _FACT = FrameFact(plate_x_mm=None, plate_y_mm=None, z_um=None, moving=False, channel='BF')
 
@@ -179,7 +180,7 @@ class TestSavePathNativeDepth:
             file_loc=path,
             metadata=_save_meta(significant_bits),
             ome=True,
-            color='Green',
+            color=release_color('Green'),
             significant_bits=significant_bits,
             save_encoding='right_aligned',
         )
@@ -238,7 +239,7 @@ class TestNonOmeNativeDepth:
             file_loc=path,
             metadata=_save_meta(significant_bits),
             ome=False,
-            color='Green',
+            color=release_color('Green'),
             significant_bits=significant_bits,
             save_encoding='right_aligned',
         )
@@ -279,7 +280,7 @@ class TestLoadPixelsBoundary:
             file_loc=path,
             metadata=_save_meta(significant_bits),
             ome=ome,
-            color='Green',
+            color=release_color('Green'),
             significant_bits=significant_bits,
             save_encoding='8bit' if arr.dtype == np.uint8 else 'right_aligned',
         )
@@ -430,7 +431,7 @@ class TestWriteTiffDepthRequired:
                 file_loc=tmp_path / 'frame.tif',
                 metadata=_save_meta(),
                 ome=True,
-                color='Green',
+                color=release_color('Green'),
             )
 
     def test_stated_depth_is_recorded(self, tmp_path):
@@ -444,7 +445,7 @@ class TestWriteTiffDepthRequired:
             file_loc=path,
             metadata=_save_meta(),
             ome=True,
-            color='Green',
+            color=release_color('Green'),
             significant_bits=12,
             save_encoding='right_aligned',
         )
@@ -528,7 +529,7 @@ class TestVideoFrameCarriesDepth:
             file_loc=path,
             metadata=metadata,
             ome=False,
-            color='BF',
+            color=release_color('BF'),
             significant_bits=significant_bits,
             save_encoding='right_aligned',
             video_frame=True,
@@ -560,7 +561,7 @@ class TestEncodeDisplayJpgDepth:
 
         frame = np.zeros((32, 32), dtype=np.uint16)
         frame[8:24, 8:24] = 60000  # near full 16-bit white
-        jpg = image_utils.encode_display_jpg(frame, 'BF', significant_bits=16)
+        jpg = image_utils.encode_display_jpg(frame, release_color('BF'), significant_bits=16)
         bgr = cv2.imdecode(np.frombuffer(jpg, np.uint8), cv2.IMREAD_COLOR)
         assert bgr[8:24, 8:24].mean() > 180  # bright, correctly scaled
 
@@ -575,7 +576,7 @@ class TestEncodeDisplayJpgDepth:
         # stated correctly.
         frame = np.full((8, 8), 60000, dtype=np.uint16)
         with pytest.raises(FrameDepthError):
-            image_utils.encode_display_jpg(frame, 'BF', significant_bits=12)
+            image_utils.encode_display_jpg(frame, release_color('BF'), significant_bits=12)
 
 
 class TestCellCountConverterRouting:

@@ -39,6 +39,7 @@ from tests.test_adding_a_step_is_an_api_capability import (  # noqa: F401 -- pyt
 from tests.test_capture_collision_policy import TILING_CONFIGS
 from tests.test_issue_524_extra_z_step_on_objective_change import _empty_protocol_for_add
 from tests.test_protocol_execution import scope  # noqa: F401 -- pytest fixture
+from modules.layer_record import release_color
 
 AT = {'x': 122.26, 'y': 81.48, 'z': 5000.0}
 OBJECTIVE = '4x Oly'
@@ -88,7 +89,7 @@ def _write_tiff(path, color):
             'significant_bits': 8,
         },
         ome=False,
-        color=color,
+        color=release_color(color),
         significant_bits=8,
         save_encoding='right_aligned',
     )

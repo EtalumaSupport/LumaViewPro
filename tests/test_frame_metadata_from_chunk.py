@@ -22,6 +22,7 @@ from modules.image_save import generate_image_metadata
 from modules.lumascope_api.imaging import ImagingAPI
 from modules import layer_record
 from tests.frame_records import frame_record, plate
+from modules.layer_record import release_color
 
 
 LIVE_EXPOSURE_MS = 33.0
@@ -138,7 +139,7 @@ def test_tiff_write_path_tolerates_omitted_gain_exposure():
     )
     metadata['significant_bits'] = 8  # write_tiff supplies this in production
     data = np.zeros((4, 4), dtype=np.uint8)
-    tiff = generate_tiff_data(data, metadata=metadata, image_type='ome', color='BF')
+    tiff = generate_tiff_data(data, metadata=metadata, image_type='ome', color=release_color('BF'))
     plane = tiff['metadata']['Plane']
     assert 'ExposureTime' not in plane
     assert 'Gain' not in plane

@@ -20,7 +20,8 @@ import cv2
 import numpy as np
 
 from lvp_logger import logger
-from modules import common_utils, image_utils
+from modules import common_utils, image_utils, layer_record
+from modules.layer_record import GREY, Color
 from modules.exceptions import (
     PostProcessingFailedError,
     PostProcessingOperation,
@@ -127,15 +128,26 @@ class QuickEnhancer:
         return None
 
     @staticmethod
-    def colorize_mono_for_visual_output(image: np.ndarray, channel: str | None) -> np.ndarray:
-        """Return RGB false color for a mono fluorescence derived image.
+    def _channel_color(channel: str | None) -> Color:
+        """The colour a derived image of ``channel`` is shown in: a release
+        layer's colour, and grey for a source that names none (a foreign
+        file, a composite, an unrecognised token)."""
+        if channel in common_utils.get_layers():
+            return layer_record.release_color(channel)
+        return GREY
 
-        Quick Enhance is a visual-export path. It retains transmitted-light
-        and unknown mono images as mono, while recognized fluorescence layers
-        receive their established display color only in the derived output.
+    @staticmethod
+    def colorize_mono_for_visual_output(image: np.ndarray, channel: str | None) -> np.ndarray:
+        """Return RGB false color for a mono derived image of a coloured channel.
+
+        Quick Enhance is a visual-export path. It retains mono images of a
+        grey channel (transmitted light, an unknown source) as mono, while
+        a coloured channel receives its display color only in the derived
+        output.
         """
-        if image.ndim == 2 and channel in common_utils.get_image_layers():
-            return image_utils.mono_to_rgb_falsecolor(image, channel)
+        color = QuickEnhancer._channel_color(channel)
+        if image.ndim == 2 and color != GREY:
+            return image_utils.mono_to_rgb_falsecolor(image, color)
         return image
 
     @staticmethod
@@ -411,7 +423,7 @@ class QuickEnhancer:
                     output_for_write,
                     cv2.COLOR_BGR2RGB,
                 )
-            render_color = channel if channel in common_utils.get_layers() else 'BF'
+            render_color = self._channel_color(channel)
             image_utils.write_tiff(
                 data=output_for_write,
                 file_loc=temp_output,

@@ -21,6 +21,7 @@ import numpy as np
 import tifffile
 
 from modules import image_utils
+from modules.layer_record import release_color
 from modules.quick_enhance import QuickEnhancer
 from modules.video_writer import VideoWriter
 
@@ -69,10 +70,10 @@ def _far(got: np.ndarray, want: np.ndarray) -> bool:
 def test_false_colour_puts_each_channel_on_its_plane_or_grey():
     wrong = []
     for channel, colour in _COLOUR.items():
-        rgb = image_utils.mono_to_rgb_falsecolor(_MONO, channel)
+        rgb = image_utils.mono_to_rgb_falsecolor(_MONO, release_color(channel))
         if not np.array_equal(rgb, _rgb(_MONO, colour)):
             wrong.append(f'mono_to_rgb_falsecolor {channel}')
-        added = image_utils.add_false_color(_MONO.copy(), channel)
+        added = image_utils.add_false_color(_MONO.copy(), release_color(channel))
         want = _MONO if colour is None else _rgb(_MONO, colour)
         if not np.array_equal(added, want):
             wrong.append(f'add_false_color {channel}')
@@ -99,7 +100,7 @@ def test_a_tiff_carries_the_channels_colour_map_or_none(tmp_path):
                 file_loc=path,
                 metadata={**_METADATA, 'channel': channel},
                 ome=ome,
-                color=channel,
+                color=release_color(channel),
                 significant_bits=8,
                 save_encoding='right_aligned',
             )
@@ -125,7 +126,7 @@ def test_a_tiff_carries_the_channels_colour_map_or_none(tmp_path):
 def test_the_display_jpeg_shows_the_channels_colour():
     wrong = []
     for channel, colour in _COLOUR.items():
-        encoded = image_utils.encode_display_jpg(_SMOOTH.copy(), channel, 8)
+        encoded = image_utils.encode_display_jpg(_SMOOTH.copy(), release_color(channel), 8)
         decoded = cv2.imdecode(np.frombuffer(encoded, np.uint8), cv2.IMREAD_COLOR)
         if _far(cv2.cvtColor(decoded, cv2.COLOR_BGR2RGB), _rgb(_SMOOTH, colour)):
             wrong.append(channel)
@@ -137,7 +138,11 @@ def test_a_video_shows_the_channels_colour(tmp_path):
     frames = [np.roll(_SMOOTH, i, axis=1).copy() for i in range(3)]
     for channel, colour in _COLOUR.items():
         writer = VideoWriter(
-            tmp_path / f'{channel}.mp4', fps=10, width=64, height=48, color=channel
+            tmp_path / f'{channel}.mp4',
+            fps=10,
+            width=64,
+            height=48,
+            color=release_color(channel),
         )
         for frame in frames:
             writer.add_frame(frame, significant_bits=8)
@@ -163,7 +168,7 @@ def test_a_16_bit_imagej_tiff_carries_the_channels_lut(tmp_path):
             file_loc=path,
             metadata={**_METADATA, 'channel': channel},
             ome=False,
-            color=channel,
+            color=release_color(channel),
             significant_bits=12,
             save_encoding='right_aligned',
         )
@@ -196,7 +201,7 @@ def test_a_16_bit_false_colour_tiff_bakes_the_channels_colour(tmp_path):
             file_loc=path,
             metadata={**_METADATA, 'channel': channel},
             ome=False,
-            color=channel,
+            color=release_color(channel),
             significant_bits=12,
             save_encoding='rgb',
         )
@@ -215,7 +220,7 @@ def test_a_hyperstack_names_each_channels_colour_in_its_ome_metadata(tmp_path):
         file_loc=reference,
         metadata={**_METADATA, 'channel': 'BF'},
         ome=True,
-        color='BF',
+        color=release_color('BF'),
         significant_bits=8,
         save_encoding='right_aligned',
     )
@@ -228,6 +233,7 @@ def test_a_hyperstack_names_each_channels_colour_in_its_ome_metadata(tmp_path):
     metadata = image_utils.build_hyperstack_output_metadata(
         reference,
         channel_names=list(_COLOUR),
+        channel_colors=[release_color(channel) for channel in _COLOUR],
         plane_positions={
             'PositionX': [0.0] * len(_COLOUR),
             'PositionY': [0.0] * len(_COLOUR),

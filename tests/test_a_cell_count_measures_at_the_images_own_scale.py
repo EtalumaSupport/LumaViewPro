@@ -26,6 +26,7 @@ from modules.post_processing import (
     default_cell_count_method,
     load_cell_count_method,
 )
+from modules.layer_record import release_color
 
 _BLOB = np.zeros((64, 64), dtype=np.uint8)
 _BLOB[20:40, 20:40] = 255  # one bright square, 20 x 20 pixels
@@ -43,7 +44,7 @@ def _capture(path, pixel_size_um):
             'datetime': '2026-10-04T00:00:00',
         },
         ome=False,
-        color='Green',
+        color=release_color('Green'),
         significant_bits=8,
         save_encoding='right_aligned',
     )

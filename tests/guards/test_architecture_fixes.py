@@ -256,13 +256,6 @@ class TestTinyFileConsolidation:
             path = os.path.join(modules_dir, filename)
             assert not os.path.exists(path), f'{filename} should be deleted'
 
-    def test_color_channel_in_common_utils(self):
-        from modules.common_utils import ColorChannel
-
-        assert ColorChannel.Blue.value == 0
-        assert ColorChannel.Lumi.value == 6
-        assert len(ColorChannel) == 7
-
     def test_post_function_in_common_utils(self):
         from modules.common_utils import PostFunction
 

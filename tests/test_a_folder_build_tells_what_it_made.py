@@ -21,6 +21,7 @@ from modules import image_utils
 from modules.exceptions import PostProcessingFailedError, PostProcessingRefusedError
 from modules.post_processing import PostProcessing, default_cell_count_method
 from modules.quick_enhance import QuickEnhancer, QuickEnhanceSettings
+from modules.layer_record import release_color
 
 OLD_RESULTS = 'file,time,num_cells\nold.tif,yesterday,7\n'
 
@@ -45,7 +46,7 @@ def _write_tiff(path):
             'significant_bits': 8,
         },
         ome=False,
-        color='Green',
+        color=release_color('Green'),
         significant_bits=8,
         save_encoding='right_aligned',
     )

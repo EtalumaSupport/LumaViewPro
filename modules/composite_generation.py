@@ -9,6 +9,7 @@ from modules.finite_number import is_finite_number
 from modules.composite_builder import brightness_cutoff_from_percent, build_composite
 import modules.image_mode as image_mode
 import modules.image_utils as image_utils
+from modules.layer_record import GREY
 from modules.common_utils import PostFunction
 from modules.exceptions import ConfigurationDefectError
 from modules.protocol_post_processor import ProtocolPostProcessor
@@ -415,7 +416,8 @@ class CompositeGeneration(ProtocolPostProcessor):
                         file_loc=output_file_loc,
                         metadata=metadata,
                         ome=ome,
-                        color='Composite',
+                        # An RGB composite: a colour image's colour is its own.
+                        color=GREY,
                         significant_bits=metadata['significant_bits'],
                         # A merged composite is a viewing product, always
                         # 8-bit RGB, so its encoding follows from that and
@@ -564,7 +566,7 @@ class CompositeGeneration(ProtocolPostProcessor):
             file_loc=output_path,
             metadata=metadata,
             ome=(format == 'ome-tiff'),
-            color='Composite',
+            color=GREY,
             significant_bits=metadata['significant_bits'],
             # 8-bit RGB by ruling, as above.
             save_encoding=image_mode.save_encoding_for_derived_output(

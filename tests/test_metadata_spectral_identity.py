@@ -22,7 +22,7 @@ from pathlib import Path
 import pytest
 
 from modules import image_save, image_utils
-from modules.layer_record import UNRESOLVED
+from modules.layer_record import UNRESOLVED, release_color
 from tests.frame_records import frame_record
 from tests.scope_fakes import bind_settings_like_a_session, identity_with_layers
 
@@ -121,7 +121,7 @@ class TestIlluminationAbsentWhenUnknown:
             data=np.zeros((8, 8), dtype=np.uint16),
             metadata=metadata,
             image_type='ome',
-            color='Green',
+            color=release_color('Green'),
         )
         plane = tiff_data['metadata']['Plane']
         assert 'Illumination' not in plane
@@ -146,7 +146,7 @@ class TestWrittenFileRoundTrip:
             metadata=metadata,
             file_loc=path,
             ome=ome,
-            color='Green',
+            color=release_color('Green'),
             significant_bits=12,
             save_encoding='right_aligned',
         )
@@ -212,7 +212,7 @@ class TestDerivedOutputs:
             metadata=metadata,
             file_loc=path,
             ome=False,
-            color='Green',
+            color=release_color('Green'),
             significant_bits=12,
             save_encoding='right_aligned',
         )
@@ -235,7 +235,7 @@ class TestDerivedOutputs:
             metadata=metadata,
             file_loc=path,
             ome=False,
-            color='Green',
+            color=release_color('Green'),
             significant_bits=12,
             save_encoding='right_aligned',
         )
@@ -262,13 +262,14 @@ class TestDerivedOutputs:
             metadata=metadata,
             file_loc=path,
             ome=False,
-            color='Green',
+            color=release_color('Green'),
             significant_bits=12,
             save_encoding='right_aligned',
         )
         out = image_utils.build_hyperstack_output_metadata(
             Path(path),
             channel_names=['Green'],
+            channel_colors=[release_color(name) for name in ['Green']],
             plane_positions={
                 'PositionX': [0.0],
                 'PositionY': [0.0],

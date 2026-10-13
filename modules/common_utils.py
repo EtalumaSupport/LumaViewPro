@@ -36,17 +36,6 @@ DEFAULT_STAGE_TRAVEL_UM = {'x': 120000.0, 'y': 80000.0}
 
 
 @enum.unique
-class ColorChannel(enum.Enum):
-    Blue = 0
-    Green = 1
-    Red = 2
-    BF = 3
-    PC = 4
-    DF = 5
-    Lumi = 6
-
-
-@enum.unique
 class PostFunction(enum.Enum):
     COMPOSITE = 'Composite'
     STITCHED = 'Stitched'

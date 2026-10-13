@@ -169,6 +169,7 @@ from modules.stitching_core import (
 from modules.stitcher import Stitcher
 import modules.common_utils as common_utils
 import modules.image_utils as image_utils
+from modules.layer_record import release_color
 
 
 class TestFeatureStitchSharedRange:
@@ -876,7 +877,7 @@ class TestGroupAlgorithmPixelSize:
                 'channel': 'BF',
             },
             ome=False,
-            color='BF',
+            color=release_color('BF'),
         )
 
     def test_pixel_size_read_from_tile_metadata_not_rederived(self, tmp_path, monkeypatch):

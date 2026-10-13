@@ -26,6 +26,7 @@ sys.path.insert(0, str(REPO))
 
 from modules import image_utils
 from tests.frame_records import frame_record, plate
+from modules.layer_record import release_color
 
 
 def _bright_mono(value: int = 200) -> np.ndarray:
@@ -51,7 +52,7 @@ def _region_means(bgr: np.ndarray):
 
 def test_green_channel_bakes_green():
     jpg = image_utils.encode_display_jpg(
-        _bright_mono(), 'Green', significant_bits=8, jpeg_quality=95
+        _bright_mono(), release_color('Green'), significant_bits=8, jpeg_quality=95
     )
     m = _region_means(_decode_bgr(jpg))
     assert m['green'] > m['blue'] + 40
@@ -60,7 +61,9 @@ def test_green_channel_bakes_green():
 
 def test_red_channel_bakes_red_not_blue():
     # The RGB->BGR swap guard: a wrong swap would surface as blue here.
-    jpg = image_utils.encode_display_jpg(_bright_mono(), 'Red', significant_bits=8, jpeg_quality=95)
+    jpg = image_utils.encode_display_jpg(
+        _bright_mono(), release_color('Red'), significant_bits=8, jpeg_quality=95
+    )
     m = _region_means(_decode_bgr(jpg))
     assert m['red'] > m['blue'] + 40
     assert m['red'] > m['green'] + 40
@@ -68,7 +71,7 @@ def test_red_channel_bakes_red_not_blue():
 
 def test_blue_channel_bakes_blue_not_red():
     jpg = image_utils.encode_display_jpg(
-        _bright_mono(), 'Blue', significant_bits=8, jpeg_quality=95
+        _bright_mono(), release_color('Blue'), significant_bits=8, jpeg_quality=95
     )
     m = _region_means(_decode_bgr(jpg))
     assert m['blue'] > m['red'] + 40
@@ -76,7 +79,9 @@ def test_blue_channel_bakes_blue_not_red():
 
 
 def test_bf_is_grayscale():
-    jpg = image_utils.encode_display_jpg(_bright_mono(), 'BF', significant_bits=8, jpeg_quality=95)
+    jpg = image_utils.encode_display_jpg(
+        _bright_mono(), release_color('BF'), significant_bits=8, jpeg_quality=95
+    )
     m = _region_means(_decode_bgr(jpg))
     # Grayscale: the three channels are approximately equal.
     assert abs(m['blue'] - m['green']) < 12
@@ -86,8 +91,12 @@ def test_bf_is_grayscale():
 def test_quality_affects_file_size():
     rng = np.random.default_rng(0)
     noisy = (rng.random((128, 128)) * 255).astype(np.uint8)
-    hi = image_utils.encode_display_jpg(noisy, 'BF', significant_bits=8, jpeg_quality=95)
-    lo = image_utils.encode_display_jpg(noisy, 'BF', significant_bits=8, jpeg_quality=10)
+    hi = image_utils.encode_display_jpg(
+        noisy, release_color('BF'), significant_bits=8, jpeg_quality=95
+    )
+    lo = image_utils.encode_display_jpg(
+        noisy, release_color('BF'), significant_bits=8, jpeg_quality=10
+    )
     assert len(lo) < len(hi)
 
 

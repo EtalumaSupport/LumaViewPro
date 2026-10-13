@@ -18,6 +18,7 @@ from modules.lumascope_api import AxisState
 from modules.notification_center import Severity
 from tests.scope_fakes import build_scope, home_sim_scope
 from tests.test_a_command_for_absent_motion_hardware_is_refused import _session
+from modules.layer_record import release_color
 
 
 @pytest.fixture
@@ -164,6 +165,7 @@ def test_a_hyperstack_states_no_position_it_does_not_have(tmp_path):
     metadata = build_hyperstack_output_metadata(
         tmp_path / 'absent.tiff',
         channel_names=['BF'],
+        channel_colors=[release_color(name) for name in ['BF']],
         plane_positions={
             'PositionX': [nan, nan],
             'PositionY': [nan, nan],

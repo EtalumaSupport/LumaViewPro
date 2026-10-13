@@ -30,6 +30,7 @@ import modules.app_context as _app_ctx
 import modules.image_utils as image_utils
 from modules.composite_generation import CompositeGeneration
 from tests.ast_seams import parse_module
+from modules.layer_record import GREY
 
 RGB_MODE = '12bit_false_color_rgb'
 
@@ -92,7 +93,7 @@ class TestTheCompositeMergeFollowsTheRuling:
         _merge(tmp_path)
 
         assert len(recorded_writes) == 1
-        assert recorded_writes[0]['color'] == 'Composite'
+        assert recorded_writes[0]['color'] == GREY
         assert recorded_writes[0]['save_encoding'] == '8bit', recorded_writes[0]['save_encoding']
 
     def test_the_merge_resolves_with_no_context_in_the_process(

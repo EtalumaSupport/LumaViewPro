@@ -31,6 +31,7 @@ from modules.video_builder import VideoBuilder
 from modules.zprojector import ZProjector
 from tests.test_capture_collision_policy import TILING_CONFIGS
 from tests.test_post_processing_stays_inside_its_folder import _COLUMNS, _step
+from modules.layer_record import release_color
 
 
 def _write_frame(path: pathlib.Path, *, x: float, well: str, seed: int, size: int = 256) -> None:
@@ -56,7 +57,7 @@ def _write_frame(path: pathlib.Path, *, x: float, well: str, seed: int, size: in
             'significant_bits': 8,
         },
         ome=False,
-        color='BF',
+        color=release_color('BF'),
         significant_bits=8,
         save_encoding='right_aligned',
     )

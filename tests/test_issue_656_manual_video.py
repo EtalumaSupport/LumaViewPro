@@ -23,6 +23,7 @@ import modules.image_utils as image_utils
 import modules.recording_frames as recording_frames
 from modules.video_builder import VideoBuilder
 from modules.recording_frames import FrameFact
+from modules.layer_record import release_color
 
 _FACT = FrameFact(plate_x_mm=None, plate_y_mm=None, z_um=None, moving=False, channel='BF')
 
@@ -85,7 +86,7 @@ def _write_manual_frame(folder, frame_num, *, include_iso=True, value=20000):
         file_loc=file_loc,
         metadata=metadata,
         ome=False,
-        color='BF',
+        color=release_color('BF'),
         video_frame=True,
         significant_bits=16,
         save_encoding='right_aligned',

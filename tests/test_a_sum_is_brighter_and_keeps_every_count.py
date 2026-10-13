@@ -33,6 +33,7 @@ from modules.stack_builder import StackBuilder
 from modules.zprojector import ZProjector
 from tests.scope_fakes import build_scope, bind_settings_like_a_session
 from tests.settings_fixtures import complete_settings
+from modules.layer_record import release_color
 
 WHITE = {'Mono8': 255, 'Mono12': 4095}
 
@@ -218,7 +219,7 @@ def _write(path: pathlib.Path, array: np.ndarray, bits: int, encoding: str, colo
             'well_label': 'A1',
         },
         ome=False,
-        color=color,
+        color=release_color(color),
         significant_bits=bits,
         save_encoding=encoding,
     )

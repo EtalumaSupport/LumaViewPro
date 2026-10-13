@@ -39,6 +39,7 @@ from __future__ import annotations
 import numpy as np
 
 from modules import image_utils
+from modules.layer_record import release_color
 
 
 def _build_metadata():
@@ -87,7 +88,7 @@ def _gen(image_type: str, dtype=np.uint8):
         data=data,
         metadata=_build_metadata(),
         image_type=image_type,
-        color='BF',
+        color=release_color('BF'),
     )
 
 
@@ -137,7 +138,9 @@ def test_ome_path_omits_plate_when_dimensions_missing():
     md = _build_metadata()
     md['plate'] = {'name': 'Slide', 'rows': None, 'columns': None}
     data = np.zeros((128, 128), dtype=np.uint8)
-    result = image_utils.generate_tiff_data(data=data, metadata=md, image_type='ome', color='BF')
+    result = image_utils.generate_tiff_data(
+        data=data, metadata=md, image_type='ome', color=release_color('BF')
+    )
     assert 'Plate' not in result['metadata'], (
         'Plate block should be omitted when rows/columns are unset; '
         'degraded labware (slide/blank) has no plate dimensions to report.'
@@ -169,7 +172,9 @@ def test_ome_path_without_instrument_dict_does_not_crash():
     del md['instrument']
     del md['plate']
     data = np.zeros((128, 128), dtype=np.uint8)
-    result = image_utils.generate_tiff_data(data=data, metadata=md, image_type='ome', color='BF')
+    result = image_utils.generate_tiff_data(
+        data=data, metadata=md, image_type='ome', color=release_color('BF')
+    )
     assert 'Instrument' not in result['metadata']
     assert 'Plate' not in result['metadata']
     # Plane data must still be intact.

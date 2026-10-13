@@ -3744,7 +3744,7 @@ class ImagingAPI:
                 `scope.capabilities.is_color_native` to disambiguate.
                 This method does NOT apply layer false-color -- apply
                 at the display / encode boundary via
-                `image_utils.mono_to_rgb_falsecolor(img, layer)`.
+                `image_utils.mono_to_rgb_falsecolor(img, color)`.
 
                 Dtype is uint8 when force_to_8bit=True, and for a single
                 frame from an 8-bit camera; uint16 when force_to_8bit=False

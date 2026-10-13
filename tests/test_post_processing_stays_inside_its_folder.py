@@ -18,6 +18,7 @@ from modules import image_utils
 from modules.exceptions import PostProcessingRefusedError
 from modules.zprojector import ZProjector
 from tests.test_capture_collision_policy import TILING_CONFIGS
+from modules.layer_record import release_color
 
 _COLUMNS = [
     'Name', 'X', 'Y', 'Z', 'Auto_Focus', 'Color', 'False_Color', 'Illumination',
@@ -55,7 +56,7 @@ def _write_tiff(path):
             'significant_bits': 8,
         },
         ome=False,
-        color='BF',
+        color=release_color('BF'),
         significant_bits=8,
         save_encoding='right_aligned',
     )

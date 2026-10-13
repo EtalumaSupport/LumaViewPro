@@ -45,6 +45,7 @@ from modules.common_utils import (
 )
 import modules.image_save as image_save
 import modules.image_utils as image_utils
+import modules.layer_record as layer_record
 from modules.exceptions import (
     CameraSettingRejected,
     FrameListenerNotRegisteredError,
@@ -321,11 +322,9 @@ class ProtocolVideoStep:
                 fps=fps,
                 width=frame_size['width'],
                 height=frame_size['height'],
-                # None (true grayscale) when false color is off -- the
-                # same contract the manual leg encodes with; the old
-                # protocol leg's 'BF' gray-colormap encode diverged from
-                # it for identical pixels.
-                color=step['Color'] if false_color_on else None,
+                # Grey (a gray encode) when false color is off -- the same
+                # contract the manual leg encodes with.
+                color=layer_record.shown_color(step['Color'], false_color_on),
                 include_timestamp_overlay=self._timestamp_overlay,
                 vfr=True,
             )

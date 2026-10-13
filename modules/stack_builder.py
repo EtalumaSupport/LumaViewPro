@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 
 import modules.image_utils as image_utils
+import modules.layer_record as layer_record
 import modules.image_mode as image_mode
 import modules.common_utils as common_utils
 import modules.recording_frames as recording_frames
@@ -264,6 +265,7 @@ class StackBuilder(ProtocolPostProcessor):
         metadata = image_utils.build_hyperstack_output_metadata(
             reference_input_path=sample_image_file_loc,
             channel_names=channel_names,
+            channel_colors=[layer_record.output_color(name) for name in channel_names],
             plane_positions={
                 'PositionX': plane_metadata['PositionX'],
                 'PositionY': plane_metadata['PositionY'],

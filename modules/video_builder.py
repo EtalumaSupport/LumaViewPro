@@ -6,6 +6,8 @@ import pathlib
 import pandas as pd
 
 import modules.image_utils as image_utils
+import modules.layer_record as layer_record
+from modules.layer_record import GREY
 import modules.common_utils as common_utils
 import modules.recording_frames as recording_frames
 from modules.common_utils import PostFunction
@@ -245,8 +247,10 @@ class VideoBuilder(ProtocolPostProcessor):
         # missing/NaN color; rejected because BF/PC/DF carry a transmitted-
         # light label that VideoWriter renders as grayscale -- a hard error
         # would break legitimate brightfield-only videos. None falls through
-        # to grayscale, the safe default.
-        layer_color = df.iloc[0]['Color'] if 'Color' in df.columns else None
+        # to grayscale, the safe default. A manual recording's channel is None
+        # when it was recorded with false color off, which is grey too.
+        layer = df.iloc[0]['Color'] if 'Color' in df.columns else None
+        layer_color = GREY if layer is None else layer_record.release_color(layer)
         output_file_loc_abs = path / output_file_loc
         output_file_loc_abs.parent.mkdir(exist_ok=True, parents=True)
         video = VideoWriter(
@@ -375,6 +379,8 @@ class VideoBuilder(ProtocolPostProcessor):
         Raises:
             ValueError: If false_color=True and color is None, or if
                 source_dir contains no .tiff / .tif files.
+            ArgumentRefusedError: ``color`` is not a layer of this release
+                (``'layer_unknown'``).
         """
         source_dir = pathlib.Path(source_dir)
         output_file = pathlib.Path(output_file)
@@ -389,7 +395,7 @@ class VideoBuilder(ProtocolPostProcessor):
         if not tiff_paths:
             raise ValueError(f'build_video: no .tiff / .tif files in {source_dir}')
 
-        writer_color = color if false_color else None
+        writer_color = layer_record.release_color(color) if false_color else GREY
         writer = VideoWriter(
             output_path=output_file,
             fps=fps,

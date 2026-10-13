@@ -18,6 +18,7 @@ import numpy as np
 import pytest
 
 from modules import image_utils
+from modules.layer_record import release_color
 
 _METADATA = {
     'pixel_size_um': 0.5,
@@ -43,7 +44,7 @@ def _saved_12bit_tiff(path):
         path,
         {**_METADATA, 'significant_bits': 12},
         ome=False,
-        color='BF',
+        color=release_color('BF'),
         significant_bits=12,
         save_encoding='right_aligned',
     )

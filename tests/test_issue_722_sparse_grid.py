@@ -28,6 +28,7 @@ import tifffile as tf
 
 from modules import image_utils
 from modules.stack_builder import StackBuilder
+from modules.layer_record import release_color
 
 
 def _write_frame(
@@ -66,7 +67,7 @@ def _write_frame(
             'well_label': 'A1',
         },
         ome=False,
-        color=color,
+        color=release_color(color),
     )
 
 

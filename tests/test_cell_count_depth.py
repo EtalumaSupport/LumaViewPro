@@ -14,6 +14,7 @@ import numpy as np
 
 from modules import image_utils
 from modules.post_processing import PostProcessing, default_cell_count_method
+from modules.layer_record import release_color
 
 
 def _meta(significant_bits):
@@ -41,7 +42,7 @@ def _write_plain_tiff(path, value, significant_bits):
         file_loc=path,
         metadata=_meta(significant_bits),
         ome=False,
-        color='Green',
+        color=release_color('Green'),
         significant_bits=significant_bits,
         save_encoding='right_aligned',
     )

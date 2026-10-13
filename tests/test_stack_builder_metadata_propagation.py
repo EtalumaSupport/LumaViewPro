@@ -33,6 +33,7 @@ import tifffile as tf
 
 from modules import image_utils
 from modules.stack_builder import StackBuilder
+from modules.layer_record import release_color
 
 
 def _write_structured_input(
@@ -83,7 +84,7 @@ def _write_structured_input(
             'well_label': 'A1',
         },
         ome=False,
-        color=channel,
+        color=release_color(channel),
     )
 
 
@@ -539,6 +540,7 @@ class TestHyperstackChannelColor:
         metadata = image_utils.build_hyperstack_output_metadata(
             reference_input_path=ref,
             channel_names=['Green', 'BF', 'Red', 'Blue'],
+            channel_colors=[release_color(name) for name in ['Green', 'BF', 'Red', 'Blue']],
             plane_positions={
                 'PositionX': [0.0, 0.0, 0.0, 0.0],
                 'PositionY': [0.0, 0.0, 0.0, 0.0],
@@ -771,6 +773,7 @@ def test_write_hyperstack_streams_a_plane_iterator(tmp_path):
     metadata = image_utils.build_hyperstack_output_metadata(
         reference_input_path=reference,
         channel_names=['Green'],
+        channel_colors=[release_color('Green')],
         plane_positions={
             'PositionX': [1.0, 1.0],
             'PositionY': [2.0, 2.0],

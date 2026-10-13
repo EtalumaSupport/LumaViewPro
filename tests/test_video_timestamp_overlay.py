@@ -21,6 +21,7 @@ import modules.protocol_recording as protocol_recording
 from modules.protocol_recording import ProtocolVideoStep
 from modules.run_events import RunEvents
 from tests.scope_fakes import answer_auto_gain_like_the_api
+from modules.layer_record import GREY, release_color
 
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -110,14 +111,13 @@ def test_protocol_video_hands_the_choice_to_the_writer(tmp_path, monkeypatch, ov
     assert captured['include_timestamp_overlay'] is overlay
 
 
-def test_grayscale_stream_encodes_as_none_not_bf(tmp_path, monkeypatch):
-    """False-color off must encode true grayscale (color=None), the same
-    contract the manual leg uses -- not the 'BF' gray-colormap the old
-    protocol leg diverged with."""
+def test_grayscale_stream_encodes_grey(tmp_path, monkeypatch):
+    """False-color off must encode true grayscale (GREY), the same
+    contract the manual leg uses."""
     captured = _video_step(monkeypatch, tmp_path, timestamp_overlay=True, false_color=False)
-    assert captured['color'] is None
+    assert captured['color'] == GREY
 
 
 def test_false_color_stream_carries_the_layer(tmp_path, monkeypatch):
     captured = _video_step(monkeypatch, tmp_path, timestamp_overlay=True, false_color=True)
-    assert captured['color'] == 'Blue'
+    assert captured['color'] == release_color('Blue')

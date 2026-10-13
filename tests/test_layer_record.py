@@ -20,11 +20,15 @@ from modules.layer_record import (
     UNRESOLVED,
     LayerIdentity,
     LayerRecord,
+    GREY,
     load_layer_catalogue,
+    output_color,
     parse_display_color,
+    release_color,
     resolve_layer_identity,
+    shown_color,
 )
-from modules.exceptions import InstallationFileError
+from modules.exceptions import ArgumentRefusedError, InstallationFileError
 from modules.path_utils import read_installation_file, resolve_data_file
 
 # The shipped catalogue's records, as scopes.json states them.
@@ -188,6 +192,31 @@ class TestCatalogueRecords:
 
     def test_a_name_is_no_longer_a_record(self, tmp_path):
         assert 'not an object' in self._refused(tmp_path, ['BF', 'PC'])
+
+
+class TestTheColourRead:
+    """A layer's colour, the colour an image named for it is written in, and
+    the colour it is shown in, each read from the release catalogue."""
+
+    def test_a_layer_reads_its_release_colour(self):
+        assert release_color('Green') == (0.0, 1.0, 0.0)
+        assert release_color('BF') == GREY
+
+    def test_a_composite_is_written_grey_and_a_layer_in_its_colour(self):
+        assert output_color('Composite') == GREY
+        assert output_color('Red') == (1.0, 0.0, 0.0)
+
+    def test_false_colour_off_shows_grey(self):
+        assert shown_color('Blue', True) == (0.0, 0.0, 1.0)
+        assert shown_color('Blue', False) == GREY
+
+    def test_a_name_that_is_no_layer_has_no_colour(self):
+        refused = []
+        for read in (release_color, output_color, lambda name: shown_color(name, False)):
+            with pytest.raises(ArgumentRefusedError) as raised:
+                read('FarRed')
+            refused.append(raised.value.reason)
+        assert refused == ['layer_unknown'] * 3
 
 
 class TestPrecedence:

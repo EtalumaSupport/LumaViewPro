@@ -28,6 +28,7 @@ import pathlib
 import numpy as np
 import pytest
 import tifffile as tf
+from modules.layer_record import release_color
 
 
 def _metadata(path, channel='Blue', significant_bits=None):
@@ -348,7 +349,7 @@ def test_save_encoding_scaled_is_msb_aligned_and_recoverable(tmp_path):
         file_loc=out_path,
         metadata=_metadata(out_path, channel='BF', significant_bits=12),
         ome=False,
-        color='BF',
+        color=release_color('BF'),
         significant_bits=12,
         save_encoding='msb_aligned',
     )
@@ -433,7 +434,7 @@ def test_save_encoding_right_aligned_is_raw(tmp_path):
         file_loc=out_path,
         metadata=_metadata(out_path, channel='BF', significant_bits=12),
         ome=False,
-        color='BF',
+        color=release_color('BF'),
         significant_bits=12,
         save_encoding='right_aligned',
     )
@@ -461,7 +462,7 @@ def test_save_encoding_rgb_widens_fluorescence(tmp_path):
         file_loc=out_path,
         metadata=_metadata(out_path, channel='Blue'),
         ome=False,
-        color='Blue',
+        color=release_color('Blue'),
         significant_bits=16,
         save_encoding='rgb',
     )
@@ -485,7 +486,7 @@ def test_save_encoding_rgb_keeps_transmitted_mono(tmp_path):
         file_loc=out_path,
         metadata=_metadata(out_path, channel='BF'),
         ome=False,
-        color='BF',
+        color=release_color('BF'),
         significant_bits=16,
         save_encoding='rgb',
     )
@@ -506,10 +507,9 @@ def test_mp4_writers_pass_layer_color():
     manual_src = (repo / 'modules' / 'manual_recording.py').read_text()
     cap_src = (repo / 'modules' / 'protocol_recording.py').read_text()
     # Both colorize from the recorded layer's false-color signal, and both
-    # encode true grayscale (None) when false color is off -- one contract,
-    # no 'BF' gray-colormap divergence between the paths.
-    assert 'color=resolved_layer if false_color_on else None' in manual_src
-    assert "color=step['Color'] if false_color_on else None" in cap_src
+    # encode grey when false color is off -- one contract, one resolver.
+    assert 'color=layer_record.shown_color(resolved_layer, false_color_on)' in manual_src
+    assert "color=layer_record.shown_color(step['Color'], false_color_on)" in cap_src
     # The inline protocol-capture bake stays gone (one colorization authority).
     assert 'add_false_color' not in cap_src
 
@@ -533,7 +533,7 @@ def test_write_tiff_video_frame_rgb_widens_uint16(tmp_path):
         file_loc=out_path,
         metadata=_metadata(out_path, channel='Green'),
         ome=False,
-        color='Green',
+        color=release_color('Green'),
         video_frame=True,
         significant_bits=16,
         save_encoding='rgb',
@@ -558,7 +558,7 @@ def test_write_tiff_video_frame_8bit_has_no_palette(tmp_path):
         file_loc=out_path,
         metadata=_metadata(out_path, channel='Green'),
         ome=False,
-        color='Green',
+        color=release_color('Green'),
         video_frame=True,
         significant_bits=8,
         save_encoding='8bit',
@@ -727,7 +727,7 @@ def test_write_tiff_requires_save_encoding(tmp_path):
             file_loc=out_path,
             metadata=_metadata(out_path, channel='BF', significant_bits=12),
             ome=False,
-            color='BF',
+            color=release_color('BF'),
             significant_bits=12,
         )
 
@@ -774,7 +774,7 @@ def test_post_processor_uint16_save_is_verbatim(tmp_path):
         file_loc=out_path,
         metadata=_metadata(out_path, channel='BF', significant_bits=12),
         ome=False,
-        color='BF',
+        color=release_color('BF'),
         significant_bits=12,
         save_encoding=encoding_for_array(data),
     )
@@ -868,7 +868,7 @@ def test_derived_fluorescence_widens_to_rgb_under_false_color_mode(tmp_path):
             file_loc=out_path,
             metadata=_metadata(out_path, channel='Blue'),
             ome=False,
-            color='Blue',
+            color=release_color('Blue'),
             significant_bits=16,
             save_encoding=encoding,
         )

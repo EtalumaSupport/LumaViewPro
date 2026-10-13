@@ -19,6 +19,7 @@ import tifffile as tf
 from PIL import Image
 
 from modules import image_utils
+from modules.layer_record import release_color
 
 _ACQUISITION_FIELDS = ('plate_pos_mm', 'z_pos_um', 'exposure_time_ms', 'gain_db', 'illumination_ma')
 
@@ -29,7 +30,7 @@ def _write(path, metadata, *, ome=False):
         file_loc=path,
         metadata=metadata,
         ome=ome,
-        color='Green',
+        color=release_color('Green'),
         significant_bits=12,
         save_encoding='right_aligned',
     )

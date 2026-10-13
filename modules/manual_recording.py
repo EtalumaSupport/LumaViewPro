@@ -35,6 +35,7 @@ import pandas as pd
 import modules.image_mode as image_mode
 import modules.image_save as image_save
 import modules.image_utils as image_utils
+import modules.layer_record as layer_record
 import modules.path_utils as path_utils
 from lvp_logger import logger, version as lvp_version
 from modules.common_utils import (
@@ -485,9 +486,9 @@ class ManualRecordingController:
                     fps=effective_fps,
                     width=claimed['frame_size']['width'],
                     height=claimed['frame_size']['height'],
-                    # Rendering: a null here keeps the encoder gray, which is
-                    # what a recording with the toggle off must produce.
-                    color=resolved_layer if false_color_on else None,
+                    # Rendering: grey keeps the encoder gray, which is what a
+                    # recording with the toggle off must produce.
+                    color=layer_record.shown_color(resolved_layer, false_color_on),
                     include_timestamp_overlay=config.timestamp_overlay,
                     vfr=True,
                 )

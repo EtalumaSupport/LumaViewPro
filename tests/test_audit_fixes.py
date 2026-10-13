@@ -2831,7 +2831,7 @@ class TestPIW6_PF3_FalseColorRgbPreallocated:
 
         src = np.full((4, 4), 100, dtype=np.uint16)
         buf = np.full((4, 4, 3), 999, dtype=np.uint16)
-        result = add_false_color(src, 'Blue', output=buf)
+        result = add_false_color(src, release_color('Blue'), output=buf)
         assert result is buf, 'PF-3: add_false_color should return the supplied buffer.'
         np.testing.assert_array_equal(result[:, :, 2], src)
         assert np.all(result[:, :, 1] == 0), 'PF-3: green channel should be zeroed.'
@@ -3348,6 +3348,7 @@ from tests.camera_fakes import (
 )
 from tests.scope_fakes import build_scope, give_camera_capabilities, give_stub_lanes, swap_lanes
 from tests.installation_fixtures import copy_installation_files
+from modules.layer_record import release_color
 
 
 def _function_source(source: str, func_name: str) -> str:

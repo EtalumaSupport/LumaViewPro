@@ -16,6 +16,7 @@ from modules.run_events import RunEvents
 import modules.video_writer as video_writer_module
 from modules.video_writer import VideoWriter
 from tests.scope_fakes import answer_auto_gain_like_the_api
+from modules.layer_record import GREY, release_color
 
 
 class _FakeStream:
@@ -162,7 +163,7 @@ class TestEagerInitColorDeferral:
                 fps=30,
                 width=32,
                 height=24,
-                color=None,
+                color=GREY,
                 include_timestamp_overlay=False,
             )
             # color=None -> encoder init deferred until the first frame's ndim.
@@ -183,7 +184,7 @@ class TestEagerInitColorDeferral:
                 fps=30,
                 width=32,
                 height=24,
-                color='Red',
+                color=release_color('Red'),
                 include_timestamp_overlay=False,
             )
             writer.close()
@@ -210,7 +211,7 @@ class TestPyavEncoderThreadCap:
                 fps=30,
                 width=32,
                 height=24,
-                color='Red',
+                color=release_color('Red'),
                 include_timestamp_overlay=False,
             )
 
@@ -227,7 +228,7 @@ class TestPyavEncoderThreadCap:
                 fps=30,
                 width=32,
                 height=24,
-                color='Red',
+                color=release_color('Red'),
                 include_timestamp_overlay=False,
             )
 
@@ -503,7 +504,7 @@ class TestSubOneFpsRate:
                 fps=0.3,  # 3 frames over 10 seconds
                 width=32,
                 height=24,
-                color='Red',
+                color=release_color('Red'),
                 include_timestamp_overlay=False,
             )
 
