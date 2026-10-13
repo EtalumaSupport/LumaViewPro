@@ -33,6 +33,7 @@ import threading
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 
 from tests.protocol_drives import lent_run_claim
 from tests.frame_records import frame_record, plate, unpositioned
@@ -40,6 +41,7 @@ from modules.protocol_image_writer import RunWriteBatch
 from drivers.camera import Camera
 from modules import layer_record
 from modules.binning import binning_size_int_to_str
+from modules.exceptions import HardwareCommandRefusedError
 from modules.image_save import generate_image_metadata
 from modules.lumascope_api import Lumascope
 from modules.lumascope_api.imaging import ImagingAPI
@@ -626,9 +628,11 @@ def test_significant_bits_holds_12_when_format_reads_fail():
         assert imaging.significant_bits == 12
 
 
-def test_depth_properties_report_16_with_no_camera():
+def test_with_no_camera_the_published_depth_is_refused_and_the_stamp_reads_16():
     imaging = _build_imaging(None)
-    assert imaging.significant_bits == 16
+    with pytest.raises(HardwareCommandRefusedError) as refused:
+        _ = imaging.significant_bits
+    assert refused.value.reason == 'not_connected'
     assert imaging.last_significant_bits == 16
 
 

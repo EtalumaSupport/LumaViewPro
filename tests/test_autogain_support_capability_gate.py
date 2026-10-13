@@ -38,6 +38,7 @@ import pathlib
 from unittest.mock import MagicMock
 
 import modules.app_context as _app_ctx
+from drivers.camera import Camera
 from modules.config_ui_getters import camera_autogain_supported
 from drivers.camera_profiles import lookup_profile
 from modules.layer_record import UNRESOLVED
@@ -131,6 +132,8 @@ class TestCapabilityMapping:
             timestamp_tick_frequency_hz=None,
             profile=lookup_profile(model_name),
             get_max_frame_size=lambda: {'width': 1024, 'height': 768},
+            # The base driver's depth rule, which a real driver inherits.
+            significant_bits_for_format=lambda name: Camera.format_significant_bits(name, 16),
         )
         return ScopeCapabilities.from_drivers(
             motion=motion, led=led, camera=camera, layer_identity=UNRESOLVED, scope_models={}

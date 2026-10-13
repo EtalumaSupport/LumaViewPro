@@ -4150,15 +4150,16 @@ class ImagingAPI:
 
         return tmp, grab_image_ts
 
+    @api
     @property
     def significant_bits(self) -> int:
         """Meaningful payload bits of frames the current camera delivers.
 
         The depth a single captured frame should be scaled / tagged by (12 for a
-        Mono12 sensor, 8 for an 8-bit one). A summed frame carries the bits
-        the sum can reach and is not described by this -- ``capture_frame_depth``
-        answers for it. Falls back to the container width when no camera is
-        attached.
+        Mono12 sensor, 8 for an 8-bit one); it follows ``set_image_mode``. A
+        summed frame carries the bits the sum can reach and is not described
+        by this -- ``capture_frame_depth`` answers for it. The deepest the
+        camera offers is ``capabilities.camera_max_significant_bits``.
 
         Derived from the CACHED pixel format (the validated last-known-good)
         via the driver's own depth rule (``significant_bits_for_format``, so
@@ -4168,10 +4169,14 @@ class ImagingAPI:
         saturation evidence check at 0.0% and files were stamped at the
         wrong depth. For the depth of a frame you are HOLDING, prefer
         ``last_significant_bits`` -- the per-frame stamp.
+
+        Raises:
+            HardwareCommandRefusedError: ``'not_connected'``, the scope has no
+                camera, so no frames have a depth.
         """
         driver = self._driver
         if driver is None:
-            return 16
+            raise _camera_not_connected('significant_bits')
         return driver.significant_bits_for_format(self._get_pixel_format())
 
     @property

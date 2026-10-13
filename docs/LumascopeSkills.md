@@ -1699,7 +1699,7 @@ image = scope.imaging.get_image(force_to_8bit=False)   # keep native 12/16-bit
 # encode boundary via image_utils.mono_to_rgb_falsecolor(img, layer).
 # Dtype is uint8 with force_to_8bit=True (default) or for 8-bit
 # cameras; uint16 with force_to_8bit=False for 12/16-bit cameras
-# (see scope.capabilities.native_bit_depth).
+# (see scope.capabilities.buffer_bit_depth).
 
 # Frame-validity capture — PREFERRED for all real captures.
 # Waits for all pending changes (LED, gain, exposure, motion) to settle,
@@ -2155,7 +2155,9 @@ caps.camera_model               # 'MT9P031-LS620', 'daA3840-45um', etc.; None if
 caps.camera_serial_number       # the camera's serial number, or None
 caps.camera_timestamp_tick_hz   # the camera's frame-timestamp clock in Hz, or None (no timestamps)
 caps.is_color_native            # True for color-native sensors; False for mono-native (default)
-caps.native_bit_depth           # 8 (e.g. IDS) or 16 (uint16 container; holds 12/16-bit native)
+caps.buffer_bit_depth           # the buffers' width: 8 for an 8-bit-only camera (the FX2), else 16 (uint16; holds 10/12/16-bit data)
+caps.camera_max_significant_bits  # the deepest data depth the camera delivers, by its driver (12 for a Mono12 camera, Basler or IDS; 8 for the FX2); None with no camera
+# scope.imaging.significant_bits  # the depth of the frames it delivers now, following set_image_mode; HardwareCommandRefusedError (not_connected) with no camera
 caps.camera_supports_auto_gain
 caps.camera_supports_auto_exposure
 caps.camera_supports_conversion_gain_mode
@@ -3038,6 +3040,7 @@ Reached through `session.scope.imaging`.
 - `set_exposure_ms`
 - `set_gain_db`
 - `set_scale_bar_color`
+- `significant_bits`
 - `start_streaming`
 - `stop_streaming`
 - `update_auto_gain_target_brightness`
@@ -3119,9 +3122,11 @@ Reached through `session.scope.simulation`.
 Reached through `session.scope.capabilities`.
 
 - `axes`
+- `buffer_bit_depth`
 - `camera_analog_gain_max_db`
 - `camera_binning_sizes`
 - `camera_max_frame_size`
+- `camera_max_significant_bits`
 - `camera_model`
 - `camera_pixel_formats`
 - `camera_reports_temperature`
@@ -3141,7 +3146,6 @@ Reached through `session.scope.capabilities`.
 - `led_max_ma`
 - `lens_focal_length_mm`
 - `model`
-- `native_bit_depth`
 - `pixel_size_um`
 
 ### LayerIdentity

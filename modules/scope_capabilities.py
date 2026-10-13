@@ -157,7 +157,9 @@ def _resolve_lens_focal_length_mm(motorconfig, optics: dict) -> float | None:
     'axes',
     'camera_analog_gain_max_db',
     'camera_binning_sizes',
+    'buffer_bit_depth',
     'camera_max_frame_size',
+    'camera_max_significant_bits',
     'camera_model',
     'camera_pixel_formats',
     'camera_reports_temperature',
@@ -177,7 +179,6 @@ def _resolve_lens_focal_length_mm(motorconfig, optics: dict) -> float | None:
     'led_max_ma',
     'lens_focal_length_mm',
     'model',
-    'native_bit_depth',
     'pixel_size_um',
 )
 @dataclass(frozen=True)
@@ -295,12 +296,21 @@ class ScopeCapabilities:
     Defaults to False so unknown/missing camera path treats output
     as mono."""
 
-    native_bit_depth: int = 16
-    """Container bit depth that the driver delivers to downstream code.
-    Mono10 / Mono12 / Mono16 packed into uint16 buffers all report 16
-    (the container width, not the payload bits). Sensors that report
-    Mono8 directly (IDS IMX676 -- U3-34L0XCP-M) report 8. Drives
-    buffer sizing decisions in pipeline stages."""
+    buffer_bit_depth: int = 16
+    """Width of the buffers the driver delivers frames in, not the bits
+    that carry data: Mono10 / Mono12 / Mono16 right-aligned in uint16
+    buffers all report 16. 8 for a camera that only delivers 8-bit buffers
+    (the FX2). Drives buffer sizing decisions in pipeline stages; the
+    depth of the data is ``camera_max_significant_bits``, and the current
+    frames' ``imaging.significant_bits``."""
+
+    camera_max_significant_bits: int | None = None
+    """The deepest payload depth the camera delivers, over its pixel
+    formats by its driver's own depth rule: 12 for a camera that offers
+    Mono12 (Basler, IDS), 8 for one that streams only 8 bits (the FX2).
+    None with no camera, or one whose formats are unknown. The depth of
+    the frames it delivers now, which follows ``set_image_mode``, is
+    ``imaging.significant_bits``."""
 
     camera_supports_conversion_gain_mode: bool = False
     """True if the camera exposes a switchable sensor conversion-gain
@@ -405,7 +415,8 @@ class ScopeCapabilities:
         camera_analog_gain_max_db: float | None = None
         camera_reports_temperature = False
         is_color_native = False
-        native_bit_depth = 16
+        buffer_bit_depth = 16
+        camera_max_significant_bits: int | None = None
         camera_supports_conversion_gain_mode = False
         camera_supports_line_noise_reduction = False
         camera_supports_black_level = False
@@ -435,7 +446,11 @@ class ScopeCapabilities:
                 documented, reported, _declared_max_frame(scope_models, model)
             )
             is_color_native = bool(getattr(camera, 'is_color_native', False))
-            native_bit_depth = int(getattr(camera, 'native_bit_depth', 16))
+            buffer_bit_depth = int(getattr(camera, 'native_bit_depth', 16))
+            if camera_pixel_formats:
+                camera_max_significant_bits = max(
+                    int(camera.significant_bits_for_format(name)) for name in camera_pixel_formats
+                )
             camera_supports_conversion_gain_mode = _probe(
                 'camera.supports_conversion_gain_mode',
                 lambda: bool(camera.supports_conversion_gain_mode()),
@@ -489,7 +504,8 @@ class ScopeCapabilities:
             camera_analog_gain_max_db=camera_analog_gain_max_db,
             camera_reports_temperature=camera_reports_temperature,
             is_color_native=is_color_native,
-            native_bit_depth=native_bit_depth,
+            buffer_bit_depth=buffer_bit_depth,
+            camera_max_significant_bits=camera_max_significant_bits,
             camera_supports_conversion_gain_mode=camera_supports_conversion_gain_mode,
             camera_supports_line_noise_reduction=camera_supports_line_noise_reduction,
             camera_supports_black_level=camera_supports_black_level,

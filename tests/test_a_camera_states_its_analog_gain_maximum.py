@@ -14,6 +14,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 from drivers.camera_profiles import GainInfo, lookup_profile
+from drivers.camera import Camera
 from modules.layer_record import UNRESOLVED
 from modules.scope_capabilities import ScopeCapabilities
 
@@ -25,6 +26,8 @@ def _capabilities(profile):
         timestamp_tick_frequency_hz=None,
         profile=profile,
         get_max_frame_size=lambda: None,
+        # The base driver's depth rule, which a real driver inherits.
+        significant_bits_for_format=lambda name: Camera.format_significant_bits(name, 16),
     )
     return ScopeCapabilities.from_drivers(
         motion=MagicMock(motorconfig=None),

@@ -1,4 +1,4 @@
-"""Camera capability flags -- ``is_color_native`` and ``native_bit_depth``.
+"""Camera capability flags -- ``is_color_native``, ``buffer_bit_depth`` and the deepest depth.
 
 Phase 1c.1 of the color audit / mono-native restructure. The flags
 surface through ``scope.capabilities`` so downstream allocators size
@@ -12,6 +12,7 @@ flags off the camera instance.
 
 from __future__ import annotations
 
+import re
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -118,6 +119,9 @@ class TestScopeCapabilitiesIntegration:
             timestamp_tick_frequency_hz=None,
             is_color_native=is_color_native,
             native_bit_depth=native_bit_depth,
+            # a stand-in by design: the capability reads the driver's depth
+            # rule; this one is the base rule (the format name's bit count).
+            significant_bits_for_format=lambda name: int(re.search(r'(\d+)', name).group(1)),
             profile=SimpleNamespace(
                 has_auto_gain=False,
                 has_auto_exposure=False,
@@ -139,9 +143,10 @@ class TestScopeCapabilitiesIntegration:
             scope_models={},
         )
         assert caps.is_color_native is False
-        assert caps.native_bit_depth == 16
+        assert caps.buffer_bit_depth == 16
+        assert caps.camera_max_significant_bits == 8
 
-    def test_ids_shape_surfaces_8bit(self):
+    def test_an_8bit_buffer_camera_surfaces_8(self):
         caps = ScopeCapabilities.from_drivers(
             motion=self._stub_motion(),
             led=self._stub_led(),
@@ -149,7 +154,7 @@ class TestScopeCapabilitiesIntegration:
             layer_identity=UNRESOLVED,
             scope_models={},
         )
-        assert caps.native_bit_depth == 8
+        assert caps.buffer_bit_depth == 8
 
     def test_color_camera_surfaces_true(self):
         """Phase 2 activation path: a hypothetical color-native camera
@@ -176,7 +181,8 @@ class TestScopeCapabilitiesIntegration:
             scope_models={},
         )
         assert caps.is_color_native is False
-        assert caps.native_bit_depth == 16
+        assert caps.buffer_bit_depth == 16
+        assert caps.camera_max_significant_bits is None
         assert caps.camera_supports_black_level is False
 
 

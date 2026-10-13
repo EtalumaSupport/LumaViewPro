@@ -357,6 +357,20 @@ def spec_scope(**attrs):
         # double answers both as the real scope does, not as a mock.
         double.settings_template = real.settings_template
         double.source_path = real.source_path
+        # Each sub-API's spec is taken on first access, from the real one:
+        # taken here, while its drivers are up, since a read the API refuses
+        # with no camera (imaging.significant_bits) would raise from a
+        # disconnected scope's.
+        for sub_api in (
+            'capabilities',
+            'diagnostics',
+            'illumination',
+            'imaging',
+            'motion',
+            'protocols',
+            'runtime_state',
+        ):
+            getattr(double, sub_api)
     finally:
         # The spec is captured by create_autospec; the live object has
         # served its purpose and must not keep simulated drivers open.
