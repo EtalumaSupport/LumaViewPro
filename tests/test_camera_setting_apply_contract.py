@@ -273,7 +273,6 @@ def _init_config(binning_size: int, frame_width: int = 1900, frame_height: int =
 
     return ScopeInitConfig(
         turreted=False,
-        preferred_turret_slot=None,
         binning_size=binning_size,
         frame_width=frame_width,
         frame_height=frame_height,

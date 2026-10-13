@@ -1372,24 +1372,25 @@ class ProtocolsAPI:
             if not named:
                 continue
             which = ', '.join(str(idx + 1) for idx in named)
+            several = len(named) > 1
+            steps = f'Steps {which} use' if several else f'Step {which} uses'
             slots = ' and '.join(str(slot) for slot in question.choices)
             reassigned = [idx for idx in named if idx in question.reassigned]
             if reassigned:
                 self._refuse(
                     reason='turret_slot_reassigned',
                     message=(
-                        f'Step {which} uses {question.objective_id}, and the turret slot it was '
-                        f'made at now holds another objective. {question.objective_id} is in '
-                        f'slot {slots}. Choose the slot for these steps; LumaViewPro asks when '
-                        'the protocol is opened.'
+                        f'{steps} {question.objective_id}, and the turret slot recorded for {"them" if several else "it"} '
+                        f'now holds another objective. {question.objective_id} is in slot '
+                        f'{slots}. Choose the slot; LumaViewPro asks when the protocol is opened.'
                     ),
                 )
             self._refuse(
                 reason='turret_slot_ambiguous',
                 message=(
-                    f'Step {which} uses {question.objective_id}, which is in slots {slots}, and '
-                    'which of them the step means is not recorded. Choose the slot for these '
-                    'steps; LumaViewPro asks when the protocol is opened.'
+                    f'{steps} {question.objective_id}, which is in slots {slots}, and which of '
+                    'them is meant is not recorded. Choose the slot; LumaViewPro asks when the '
+                    'protocol is opened.'
                 ),
             )
 

@@ -76,14 +76,6 @@ def main():
             f'slot2={at2} slot3={at3}',
         )
 
-        # --- the slot a person last turned to is the preferred slot, which
-        # the one slot lookup reads first; nothing else records it.
-        check(
-            'the last turret move is the preferred slot',
-            m.get_preferred_turret_slot() == 3,
-            str(m.get_preferred_turret_slot()),
-        )
-
         # --- out-of-range slot: the MOVE must refuse.
         for bad in (0, 5, 99):
             try:
