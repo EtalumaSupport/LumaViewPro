@@ -357,7 +357,7 @@ def published(
     return found
 
 
-def _event_model(name: str, **fields: object) -> type[pydantic.BaseModel]:
+def _event_model(name: str, /, **fields: object) -> type[pydantic.BaseModel]:
     camel = ''.join(part.title() for part in name.split('_'))
     return pydantic.create_model(
         f'{camel}Event',
