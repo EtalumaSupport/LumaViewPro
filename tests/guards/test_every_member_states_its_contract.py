@@ -47,7 +47,6 @@ _BUILT_INS_PINNED = {
     ('HeldClaim.release', 'RuntimeError'),
     ('ProtocolsAPI.tiling_config', 'RuntimeError'),
     ('ProtocolsAPI.tiling_config', 'ValueError'),
-    ('ProtocolsAPI.step_targets', 'RuntimeError'),
     ('RuntimeState.get_well_label', 'Exception'),
     ('ScopeSession.diagnostic_claim', 'RuntimeError'),
     ('ScopeSession.load_plugins', 'RuntimeError'),

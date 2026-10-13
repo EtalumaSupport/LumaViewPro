@@ -230,6 +230,35 @@ class TestTheRefusals:
 
         assert moves == []
 
+    def test_a_slot_cleared_after_the_protocol_loaded_refuses_its_steps_targets(
+        self, turret_session
+    ):
+        """The targets are a public read: a step whose objective lost its slot
+        is refused as the run and the navigation refuse it, over the wire too."""
+        from fastapi.testclient import TestClient
+
+        from rest.app import build_app
+
+        objective = '20x Oly'
+        slot = next(s for s, o in TEST_TURRET_OBJECTIVES.items() if o == objective)
+        protocol = _protocol('6 well microplate', _step(30.0, 20.0, 4000.0, objective))
+        live = turret_session.get_setting('live_folder')
+        turret_session.save_protocol(protocol, f'{live}/one_step')
+        with TestClient(build_app(turret_session)) as client:
+            loaded = client.post('/api/v1/load_protocol', json={'file_path': 'one_step.tsv'}).json()
+            asked = {'protocol': loaded['handle'], 'step_idx': 0}
+            assert (
+                client.post('/api/v1/scope/protocols/step_targets', json=asked).status_code == 200
+            )
+
+            turret_session.clear_turret_objective(int(slot))
+
+            with pytest.raises(ProtocolRunRefusedError) as refused:
+                turret_session.scope.protocols.step_targets(protocol, 0)
+            answer = client.post('/api/v1/scope/protocols/step_targets', json=asked)
+        assert refused.value.reason == 'turret_objectives_unassigned'
+        assert (answer.status_code, answer.json()['reason']) == (409, refused.value.reason)
+
 
 class TestOneTargetComputation:
     """The run engine and the Session both take a step's targets from ``step_targets``.
@@ -474,17 +503,19 @@ class TestEveryStepValueReachesTheLayer:
 
 
 class TestTheSlotLookupCannotDisagreeWithTheRule:
-    def test_a_missing_slot_after_the_rule_passed_is_a_defect_not_a_move(
+    def test_a_slot_cleared_between_the_rule_and_the_lookup_is_refused_not_moved_to(
         self, turret_session, monkeypatch
     ):
-        """The rule and the lookup read the same store, so this cannot happen.
+        """The rule and the lookup read the same store, one after the other,
+        so they disagree only when a slot is cleared in between.
 
-        When it does, the two have disagreed and the honest answer is to
-        stop. What this replaced logged, raised a dialog, and then moved X,
-        Y and Z without the objective -- a capture through whatever glass
-        happened to be in the path, named for the glass the step asked for.
+        The answer is the rule's refusal. What this replaced logged, raised a
+        dialog, and then moved X, Y and Z without the objective -- a capture
+        through whatever glass happened to be in the path, named for the glass
+        the step asked for.
         """
         moves = _spy_moves(monkeypatch, turret_session)
+        # a stand-in by design: the clear lands between two reads one call makes
         monkeypatch.setattr(
             turret_session.scope.motion,
             'get_turret_position_for_objective_id',
@@ -492,8 +523,8 @@ class TestTheSlotLookupCannotDisagreeWithTheRule:
         )
         protocol = _protocol('6 well microplate', _step(30.0, 20.0, 4000.0, '20x Oly'))
 
-        with pytest.raises(RuntimeError) as defect:
+        with pytest.raises(ProtocolRunRefusedError) as refused:
             turret_session.go_to_step(protocol, 0)
 
-        assert 'slot' in str(defect.value).lower()
+        assert refused.value.reason == 'turret_objectives_unassigned'
         assert moves == []

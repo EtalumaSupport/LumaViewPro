@@ -2228,7 +2228,11 @@ class ScopeSession:
                 or the board did not take an axis's command.
         """
         step = protocol.step(idx=step_idx)
-        self.scope.protocols.refuse_unaddressable_objectives([step['Objective']])
+        # Converted here, from the step read above, so the lane moves to the
+        # step this call was made for whatever the list holds by then; the
+        # conversion asks first whether the scope can put the step's
+        # objective in the light path.
+        targets = self.scope.protocols.step_targets(protocol, step_idx)
         self.scope.layer_identity.refuse_unless_on_scope(
             step['Color'], 'go_to_step', then='be gone to'
         )
@@ -2242,9 +2246,6 @@ class ScopeSession:
                     value=unknown[0],
                     offered=tuple(common_utils.get_layers()),
                 )
-        # Converted here, from the step read above, so the lane moves to the
-        # step this call was made for whatever the list holds by then.
-        targets = self.scope.protocols.step_targets(protocol, step_idx)
         # Every member inside bounds its own wait, so the task has no bound
         # of its own to add.
         return self.io_executor.call(

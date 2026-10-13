@@ -718,27 +718,27 @@ class ProtocolsAPI:
 
         Raises:
             StepNotFoundError: ``step_idx`` is not a step of ``protocol``.
+            ProtocolRunRefusedError: this scope cannot put the step's
+                objective in the light path (``refuse_unaddressable_objectives``):
+                ``'turret_objectives_unassigned'``, no turret slot carries it;
+                ``'objective_not_mounted'``, without a turret, it is not the
+                mounted objective. Asked here, so a step whose slot was cleared
+                after its protocol loaded is refused, never moved to through
+                the wrong glass.
             CatalogueNameRefusedError: as ``stage_targets``.
-            RuntimeError: this scope has a turret and no slot carries the
-                step's objective. The admissibility rule
-                (``refuse_unaddressable_objectives``) reads the same turret
-                configuration, so a step it admitted has a slot; the two
-                disagreeing is a defect, and what this replaced moved X, Y
-                and Z anyway, capturing through the wrong glass under the
-                right file name.
         """
         step = protocol.step(idx=step_idx)
+        self.refuse_unaddressable_objectives([step['Objective']])
         turret_slot = None
         if self._scope.capabilities.has_turret:
             turret_slot = self._scope.motion.get_turret_position_for_objective_id(
                 objective_id=step['Objective']
             )
             if turret_slot is None:
-                raise RuntimeError(
-                    f'no turret slot carries {step["Objective"]!r} for step {step_idx}, '
-                    'though the admissibility rule accepted it from the same turret '
-                    'configuration'
-                )
+                # The lookup reads the turret configuration the rule just
+                # read; no slot now means one was cleared in between, and a
+                # step without its slot would be imaged through other glass.
+                self._refuse_unassigned({step['Objective']})
         x, y, z = self.stage_targets(
             protocol, step['X'], step['Y'], step['Z'], stage_offset=stage_offset
         )
@@ -944,29 +944,14 @@ class ProtocolsAPI:
                 first.
 
         Raises:
-            ProtocolRunRefusedError: This scope cannot address them. It
-                has been logged and shown to the user before it is raised,
-                the way the protocol builder's refusal is: this runs
-                before any run exists, so no run funnel has seen it.
+            ProtocolRunRefusedError: This scope cannot address them. Raised,
+                not reported: the caller's boundary reports it.
         """
         named = set(objective_ids)
 
         if self._scope.capabilities.has_turret:
-            carried = {
-                objective
-                for objective in self._scope.runtime_state.get_turret_config().values()
-                if objective is not None
-            }
-            if not named.issubset(carried):
-                self._refuse(
-                    reason='turret_objectives_unassigned',
-                    message=(
-                        'This protocol uses objectives that are not assigned to turret '
-                        f'positions.\n\nIt needs: {self._render(named)}\n'
-                        f'The turret carries: {self._render(carried) or "None"}\n\n'
-                        'Assign the missing objectives in Objective Control > Turret.'
-                    ),
-                )
+            if not named.issubset(self._turret_carries()):
+                self._refuse_unassigned(named)
         elif len(named) > 1:
             self._refuse(
                 reason='objectives_require_turret',
@@ -1149,6 +1134,26 @@ class ProtocolsAPI:
                     + '\n\nEdit these steps to values this camera can take, then run again.'
                 ),
             )
+
+    def _turret_carries(self) -> set[str]:
+        """The objectives a turret slot is assigned, read from the turret configuration."""
+        return {
+            objective
+            for objective in self._scope.runtime_state.get_turret_config().values()
+            if objective is not None
+        }
+
+    def _refuse_unassigned(self, named: set[object]) -> typing.NoReturn:
+        """Refuse objectives no turret slot carries, naming what the turret does carry."""
+        self._refuse(
+            reason='turret_objectives_unassigned',
+            message=(
+                'This protocol uses objectives that are not assigned to turret '
+                f'positions.\n\nIt needs: {self._render(named)}\n'
+                f'The turret carries: {self._render(self._turret_carries()) or "None"}\n\n'
+                'Assign the missing objectives in Objective Control > Turret.'
+            ),
+        )
 
     @staticmethod
     def _render(objective_ids: set[object]) -> str:
