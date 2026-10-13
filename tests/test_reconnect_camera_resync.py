@@ -38,11 +38,8 @@ import pathlib
 from types import SimpleNamespace
 
 from modules.config_helpers import (
-    BF_MAX_MANUAL_EXPOSURE_MS,
     DEFAULT_MAX_EXPOSURE_MS,
     DEFAULT_MAX_GAIN_DB,
-    FLUORESCENCE_MAX_MANUAL_EXPOSURE_MS,
-    TRANSMITTED_MAX_MANUAL_EXPOSURE_MS,
     camera_max_exposure_for_ui,
     camera_max_gain_for_ui,
     layer_max_exposure_ms_for_ui,
@@ -295,13 +292,11 @@ class TestManualExposurePolicy:
     """
 
     def test_bf_stops_at_its_own_ceiling(self):
-        assert layer_max_exposure_ms_for_ui(10_000.0, 'BF') == BF_MAX_MANUAL_EXPOSURE_MS
+        assert layer_max_exposure_ms_for_ui(10_000.0, 'BF') == 50.0
 
     def test_the_other_transmitted_layers_stop_higher(self):
         for layer in ('PC', 'DF'):
-            assert (
-                layer_max_exposure_ms_for_ui(10_000.0, layer) == TRANSMITTED_MAX_MANUAL_EXPOSURE_MS
-            ), layer
+            assert layer_max_exposure_ms_for_ui(10_000.0, layer) == 200.0, layer
 
     def test_a_lower_camera_cap_wins(self):
         # The policy narrows the camera; it never widens past what the body can do.
@@ -310,9 +305,7 @@ class TestManualExposurePolicy:
 
     def test_fluorescence_stops_at_its_own_ceiling(self):
         for layer in ('Blue', 'Green', 'Red'):
-            assert (
-                layer_max_exposure_ms_for_ui(10_000.0, layer) == FLUORESCENCE_MAX_MANUAL_EXPOSURE_MS
-            ), layer
+            assert layer_max_exposure_ms_for_ui(10_000.0, layer) == 1000.0, layer
 
     def test_luminescence_alone_gets_the_camera_cap(self):
         """The exemption, asserted on its own so it cannot be folded away.
@@ -331,7 +324,7 @@ class TestManualExposurePolicy:
         """
         for layer in ('BF', 'PC', 'DF', 'Blue', 'Green', 'Red', 'Lumi'):
             assert layer_max_exposure_ms_for_ui(178.0, layer) <= 178.0, layer
-        assert layer_max_exposure_ms_for_ui(178.0, 'BF') == BF_MAX_MANUAL_EXPOSURE_MS
+        assert layer_max_exposure_ms_for_ui(178.0, 'BF') == 50.0
         assert layer_max_exposure_ms_for_ui(178.0, 'PC') == 178.0
         assert layer_max_exposure_ms_for_ui(178.0, 'Red') == 178.0
         assert layer_max_exposure_ms_for_ui(178.0, 'Lumi') == 178.0

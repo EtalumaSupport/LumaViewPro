@@ -15,6 +15,7 @@ import pytest
 
 from lvp_logger import logger as _mock_logger
 
+import modules.common_utils as common_utils
 from modules.layer_record import (
     UNRESOLVED,
     LayerIdentity,
@@ -110,6 +111,22 @@ class TestCatalogue:
         with pytest.raises(InstallationFileError, match='LayerOrder') as refused:
             load_layer_catalogue(read_installation_file(path), path)
         assert refused.value.file_path == path
+
+    def test_the_shipped_catalogue_answers_each_channel_set(self):
+        """Every channel set the program uses, read from the shipped catalogue.
+
+        Each set is what a consumer is handed (the composite's transmitted
+        base, the false-colour layers, the LED layers, the layers a scale bar
+        is drawn dark on), so the stock seven answer these whatever shape the
+        catalogue's entries take. DF is transmitted with a dark background.
+        """
+        assert common_utils.get_layers() == ['BF', 'PC', 'DF', 'Blue', 'Green', 'Red', 'Lumi']
+        assert common_utils.get_transmitted_layers() == ['BF', 'PC', 'DF']
+        assert common_utils.get_fluorescence_layers() == ['Blue', 'Green', 'Red']
+        assert common_utils.get_luminescence_layers() == ['Lumi']
+        assert common_utils.get_bright_background_layers() == ['BF', 'PC']
+        assert common_utils.get_image_layers() == ['Blue', 'Green', 'Red', 'Lumi']
+        assert common_utils.get_layers_with_led() == ['BF', 'PC', 'DF', 'Blue', 'Green', 'Red']
 
 
 class TestPrecedence:
