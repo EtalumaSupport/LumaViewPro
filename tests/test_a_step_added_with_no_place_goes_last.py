@@ -59,6 +59,7 @@ def test_the_protocols_own_insert_names_its_place(session):
     with pytest.raises(ProtocolError):
         protocol.insert_step(
             channel_group_id=protocol.new_channel_group_id(),
+            turret_slot=-1,
             step_name=None,
             layer='BF',
             layer_config=session.get_layer_configs()['BF'],

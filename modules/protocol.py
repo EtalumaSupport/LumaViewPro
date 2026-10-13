@@ -600,6 +600,7 @@ _STEP_CELLS = {
     'Auto_Named': _bool_cell,
     'Label': _str_cell,
     'Channel Group ID': _int_cell,
+    'Turret Slot': _int_cell,
 }
 
 
@@ -879,8 +880,11 @@ class Protocol:
     # position is otherwise identical in every column a builder groups on,
     # so separate Adds merged into one composite and all but one image per
     # channel were dropped. -1 is a step recorded before the column, whose
-    # Add is not known.
-    COLUMNS[9] = COLUMNS[8] + ['Channel Group ID']
+    # Add is not known. It also adds Turret Slot: the slot a step was made
+    # at. A step that named only its objective could not say which of two
+    # slots holding that objective it meant. -1: none (no turret, or a step
+    # recorded before the column).
+    COLUMNS[9] = COLUMNS[8] + ['Channel Group ID', 'Turret Slot']
     CURRENT_VERSION: ClassVar[int] = 9
     CURRENT_COLUMNS = COLUMNS[CURRENT_VERSION]
 
@@ -1273,6 +1277,7 @@ class Protocol:
                 ('Auto_Named', bool),
                 ('Label', str),
                 ('Channel Group ID', int),
+                ('Turret Slot', int),
             ]
         )
         df = pd.DataFrame(np.empty(0, dtype=dtypes))
@@ -1937,6 +1942,7 @@ class Protocol:
         plate_position: dict,
         objective_id: str,
         stim_configs: dict,
+        turret_slot: int,
         label: str | None = None,
     ) -> None:
         """Update a step in place; label=None keeps the step's existing label.
@@ -1963,6 +1969,7 @@ class Protocol:
             'Exposure': layer_config['exposure_ms'],
             'Sum': layer_config['sum'],
             'Objective': objective_id,
+            'Turret Slot': turret_slot,
             'Acquire': layer_config['acquire'],
             'Video Config': copy.deepcopy(layer_config['video_config']),
             'Stim_Config': copy.deepcopy(stim_configs),
@@ -1982,6 +1989,14 @@ class Protocol:
             return 0
         return max(int(steps['Channel Group ID'].max()), -1) + 1
 
+    def set_turret_slot(self, step_indices: list[int], slot: int) -> None:
+        """Point steps ``step_indices`` at turret slot ``slot``; their other columns are kept."""
+        for step_idx in step_indices:
+            self._refuse_unless_in_range(step_idx)
+        typed = self._typed_value('Turret Slot', slot)
+        for step_idx in step_indices:
+            self._config['steps'].at[step_idx, 'Turret Slot'] = typed
+
     def insert_step(
         self,
         step_name: str | None,
@@ -1991,6 +2006,7 @@ class Protocol:
         objective_id: str,
         stim_configs: dict,
         channel_group_id: int,
+        turret_slot: int,
         before_step: int | None = None,
         after_step: int | None = None,
     ) -> str:
@@ -2063,6 +2079,7 @@ class Protocol:
             stim_config=copy.deepcopy(stim_configs),
             auto_named=auto_named,
             channel_group_id=channel_group_id,
+            turret_slot=turret_slot,
         )
 
         if before_step is not None:
@@ -2278,6 +2295,7 @@ class Protocol:
                     stim_config=orig_step_df['Stim_Config'],
                     auto_named=orig_step_df['Auto_Named'],
                     channel_group_id=orig_step_df['Channel Group ID'],
+                    turret_slot=orig_step_df['Turret Slot'],
                 )
 
                 new_steps.append(new_step_dict)
@@ -2391,6 +2409,7 @@ class Protocol:
                     stim_config=orig_step_df['Stim_Config'],
                     auto_named=orig_step_df['Auto_Named'],
                     channel_group_id=orig_step_df['Channel Group ID'],
+                    turret_slot=orig_step_df['Turret Slot'],
                 )
 
                 group_steps.append((zstack_position, new_step_dict))
@@ -2673,6 +2692,9 @@ class Protocol:
                             stim_config=stim_config,
                             auto_named=True,
                             channel_group_id=channel_group_id,
+                            # The protocols API stamps the slot once the
+                            # protocol is built: this build has no scope.
+                            turret_slot=-1,
                         )
                         steps.append(step_dict)
 
@@ -2778,6 +2800,7 @@ class Protocol:
         stim_config,
         auto_named,
         channel_group_id,
+        turret_slot,
     ):
         """Build a step dict; the derived Name is rendered here, never passed.
 
@@ -2811,6 +2834,7 @@ class Protocol:
             'Auto_Named': auto_named,
             'Label': label,
             'Channel Group ID': channel_group_id,
+            'Turret Slot': turret_slot,
         }
         step['Name'] = common_utils.build_step_name(common_utils.step_components(step))
         return step
@@ -2945,8 +2969,8 @@ class Protocol:
         elif (config['version'] in (2, 3, 4, 5, 6, 7, 8)) and (cls.CURRENT_VERSION == 9):
             # v6 introduced the Layer Settings header block; v7 added the
             # Auto_Named column; v8 the Label column; v9 the Channel Group
-            # ID column. Older versions load with the missing columns
-            # recovered or defaulted below.
+            # ID and Turret Slot columns. Older versions load with the
+            # missing columns recovered or defaulted below.
             allowed = True
 
         if not allowed:
@@ -3318,6 +3342,10 @@ class Protocol:
             # from, and the boundaries cannot be recovered from the other
             # columns (two Adds at one position share every one of them).
             protocol_df['Channel Group ID'] = _typed_column((-1 for _ in protocol_df.index), int)
+        if 'Turret Slot' not in protocol_df.columns:
+            # A file from before the column named only each step's objective;
+            # the protocols API fills the slot where only one slot can mean it.
+            protocol_df['Turret Slot'] = _typed_column((-1 for _ in protocol_df.index), int)
 
         # The rename entry points store labels sanitized, but a file edited
         # outside the app may carry characters the writer strips at save

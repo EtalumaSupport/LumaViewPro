@@ -162,6 +162,7 @@ def _make_step(
         'Auto_Named': auto_named,
         'Label': label,
         'Channel Group ID': 0,
+        'Turret Slot': -1,
     }
 
 
@@ -1859,6 +1860,7 @@ class TestProtocolInsertStep:
         proto = _build_protocol([_make_step(name='existing')])
         proto.insert_step(
             channel_group_id=proto.new_channel_group_id(),
+            turret_slot=-1,
             step_name='new_step',
             layer='Green',
             layer_config=_layer_config(illumination=200.0),
@@ -1879,6 +1881,7 @@ class TestProtocolInsertStep:
         proto = _build_protocol([_make_step(name='first')])
         proto.insert_step(
             channel_group_id=proto.new_channel_group_id(),
+            turret_slot=-1,
             step_name='appended',
             layer='Red',
             layer_config=_layer_config(illumination=150.0),
@@ -1903,6 +1906,7 @@ class TestProtocolInsertStep:
         )
         proto.insert_step(
             channel_group_id=proto.new_channel_group_id(),
+            turret_slot=-1,
             step_name='middle',
             layer='BF',
             layer_config=_layer_config(),
@@ -1923,6 +1927,7 @@ class TestProtocolInsertStep:
         vc = {'duration': 5.0, 'fps': 30}
         proto.insert_step(
             channel_group_id=proto.new_channel_group_id(),
+            turret_slot=-1,
             step_name='video_step',
             layer='Red',
             layer_config=_layer_config(acquire='video', video_config=vc),
@@ -1942,6 +1947,7 @@ class TestProtocolInsertStep:
         sc = _stim_config_enabled(channels=['Green'])
         proto.insert_step(
             channel_group_id=proto.new_channel_group_id(),
+            turret_slot=-1,
             step_name='stim_step',
             layer='Red',
             layer_config=_layer_config(acquire='video'),
@@ -1960,6 +1966,7 @@ class TestProtocolInsertStep:
         proto = _build_protocol([_make_step(name='original', color='BF')])
         proto.insert_step(
             channel_group_id=proto.new_channel_group_id(),
+            turret_slot=-1,
             step_name='added_green',
             layer='Green',
             layer_config=_layer_config(illumination=200.0),
@@ -2043,6 +2050,7 @@ class TestProtocolModifyStep:
     def test_modify_color_and_illumination(self):
         proto = _build_protocol([_make_step(color='BF', illumination=50.0)])
         proto.modify_step(
+            turret_slot=-1,
             step_idx=0,
             label='modified',
             layer='Green',
@@ -2065,6 +2073,7 @@ class TestProtocolModifyStep:
         sc = _stim_config_enabled(channels=['Blue'])
         vc = {'duration': 3.0, 'fps': 15}
         proto.modify_step(
+            turret_slot=-1,
             step_idx=0,
             label='now_video',
             layer='Red',
@@ -2082,6 +2091,7 @@ class TestProtocolModifyStep:
         """Modify a step, save, reload, run."""
         proto = _build_protocol([_make_step(color='BF')])
         proto.modify_step(
+            turret_slot=-1,
             step_idx=0,
             label='modified_red',
             layer='Red',

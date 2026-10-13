@@ -74,6 +74,33 @@ class StepTargets:
     z: float | None
 
 
+@api_fields('objective_id', 'steps', 'reassigned', 'choices')
+@dataclasses.dataclass(frozen=True)
+class TurretSlotQuestion:
+    """Which turret slot some steps of a protocol mean: what to ask the person.
+
+    Returned by ``ProtocolsAPI.turret_slot_questions``, one per objective
+    whose steps cannot say which slot they mean: the objective is in two
+    or more slots and the steps recorded none (a protocol from before steps
+    recorded their slot), or the slot a step recorded now holds another
+    objective. The answer goes back through
+    ``ProtocolsAPI.point_steps_at_turret_slot``; until then a run and going
+    to one of these steps are refused.
+
+    Attributes:
+        objective_id: The objective the steps name.
+        steps: The indices of the steps the answer points, ascending.
+        reassigned: Those of ``steps`` whose recorded slot now holds
+            another objective; the others recorded no slot.
+        choices: The slots that hold ``objective_id`` now, ascending.
+    """
+
+    objective_id: str
+    steps: tuple[int, ...]
+    reassigned: tuple[int, ...]
+    choices: tuple[int, ...]
+
+
 class ProtocolsAPI:
     """Protocol-construction sub-API on a Lumascope.
 
@@ -155,6 +182,7 @@ class ProtocolsAPI:
         # return, so no caller ever holds an inadmissible protocol.
         self.refuse_unaddressable_objectives(protocol.steps()['Objective'].to_list())
         self.refuse_absent_layers(protocol)
+        self._fill_turret_slots(protocol)
         # Unsolicited, as the loader's duplicate-filename notice is: a load
         # may be the startup adoption, which nobody asked for.
         self._report_invalid_steps(protocol, solicited=False)
@@ -238,13 +266,15 @@ class ProtocolsAPI:
         )
         tcfg = self.tiling_configs_path()
         if input_config is not None:
-            return Protocol.from_config(
+            protocol = Protocol.from_config(
                 input_config=input_config,
                 tiling_configs_file_loc=tcfg,
                 capabilities=self._scope.capabilities,
                 objective_helper=self._scope.objective_helper,
                 wellplate_loader=self._scope.wellplate_loader,
             )
+            self._stamp_turret_slots(protocol)
+            return protocol
         return Protocol.create_empty(
             config=empty_config,
             tiling_configs_file_loc=tcfg,
@@ -311,6 +341,7 @@ class ProtocolsAPI:
 
         names: list[str] = []
         channel_group_id = protocol.new_channel_group_id()
+        turret_slot = self._live_turret_slot()
         for layer in ordered:
             layer_config = layer_configs[layer]
             if not Protocol.layer_acquires(layer_config):
@@ -323,6 +354,7 @@ class ProtocolsAPI:
                 plate_position=plate_position,
                 objective_id=objective_id,
                 channel_group_id=channel_group_id,
+                turret_slot=turret_slot,
                 before_step=before_step,
                 after_step=after_step,
             )
@@ -424,6 +456,7 @@ class ProtocolsAPI:
             stim_configs=self._stim_configs_with_invalid_channels_disabled(stim_configs),
             plate_position=plate_position,
             objective_id=objective_id,
+            turret_slot=self._live_turret_slot(),
         )
         self._report_invalid_steps(protocol, solicited=True)
         return protocol.step(idx=step_idx)['Name']
@@ -743,10 +776,11 @@ class ProtocolsAPI:
     ) -> StepTargets:
         """The motor targets of step ``step_idx``: the one conversion a run and a person's navigation share.
 
-        The turret slot is the one carrying the step's objective, chosen as
-        ``motion.get_turret_position_for_objective_id`` chooses it, so
-        navigating to a step and running it look through the same glass. X,
-        Y and Z are ``stage_targets``'s: None for an axis the scope lacks.
+        The turret slot is the one the step recorded, so navigating to a
+        step and running it look through the same glass, and two steps
+        naming one objective in two slots each go to their own. A step that
+        recorded no slot means the only slot holding its objective. X, Y and
+        Z are ``stage_targets``'s: None for an axis the scope lacks.
 
         Raises:
             StepNotFoundError: ``step_idx`` is not a step of ``protocol``.
@@ -756,20 +790,25 @@ class ProtocolsAPI:
                 ``'objective_not_mounted'``, without a turret, it is not the
                 mounted objective. Asked here, so a step whose slot was cleared
                 after its protocol loaded is refused, never moved to through
-                the wrong glass.
+                the wrong glass. ``'turret_slot_ambiguous'`` or
+                ``'turret_slot_reassigned'``, the step cannot say which slot
+                it means (``turret_slot_questions``).
             CatalogueNameRefusedError: as ``stage_targets``.
         """
         step = protocol.step(idx=step_idx)
         self.refuse_unaddressable_objectives([step['Objective']])
         turret_slot = None
         if self._scope.capabilities.has_turret:
-            turret_slot = self._scope.motion.get_turret_position_for_objective_id(
-                objective_id=step['Objective']
+            turret_slot = self._slot_meant(
+                step['Objective'],
+                step['Turret Slot'],
+                self._scope.runtime_state.get_turret_config(),
             )
             if turret_slot is None:
-                # The lookup reads the turret configuration the rule just
-                # read; no slot now means one was cleared in between, and a
-                # step without its slot would be imaged through other glass.
+                self.refuse_unchosen_turret_slots(protocol, steps=[step_idx])
+                # The rule above found the objective in a slot; none now
+                # means one was cleared in between, and a step without its
+                # slot would be imaged through other glass.
                 self._refuse_unassigned({step['Objective']})
         x, y, z = self.stage_targets(
             protocol, step['X'], step['Y'], step['Z'], stage_offset=stage_offset
@@ -1163,6 +1202,194 @@ class ProtocolsAPI:
                 message=(
                     common_utils.first_few(problems, separator='\n')
                     + '\n\nEdit these steps to values this camera can take, then run again.'
+                ),
+            )
+
+    def _live_turret_slot(self) -> int:
+        """The slot in the light path, which a step made now records; -1 without a turret.
+
+        Asked after ``_refuse_unrecordable_step``, which refuses a step
+        while the slot is unknown.
+        """
+        if not self._scope.capabilities.has_turret:
+            return -1
+        return self._scope.motion.get_turret_slot()
+
+    @staticmethod
+    def _holding(objective_id: object, turret_config: dict) -> tuple[int, ...]:
+        """The slots holding ``objective_id``, ascending."""
+        return tuple(sorted(slot for slot, held in turret_config.items() if held == objective_id))
+
+    @classmethod
+    def _slot_meant(cls, objective_id: object, slot: int, turret_config: dict) -> int | None:
+        """The slot a step means, or None when the step cannot say.
+
+        A recorded slot is meant while it holds the step's objective. A
+        step that recorded none means the only slot holding its objective:
+        that is no guess. With two or more, it cannot say, and choosing one
+        -- the current slot, the lowest -- would image through glass the
+        step may not have meant.
+        """
+        if slot != -1:
+            return slot if turret_config.get(slot) == objective_id else None
+        holding = cls._holding(objective_id, turret_config)
+        return holding[0] if len(holding) == 1 else None
+
+    def _fill_turret_slots(self, protocol: Protocol) -> None:
+        """Record the slot of each step that recorded none, where only one slot can be meant.
+
+        A protocol from before steps recorded their slot; the steps whose
+        objective is in two or more slots are left for the person
+        (``turret_slot_questions``).
+        """
+        if not self._scope.capabilities.has_turret:
+            return
+        turret_config = self._scope.runtime_state.get_turret_config()
+        steps = protocol.steps()
+        by_slot: dict[int, list[int]] = {}
+        for idx, (objective_id, slot) in enumerate(
+            zip(steps['Objective'], steps['Turret Slot'], strict=True)
+        ):
+            if slot != -1:
+                continue
+            meant = self._slot_meant(objective_id, slot, turret_config)
+            if meant is not None:
+                by_slot.setdefault(meant, []).append(idx)
+        for slot, indices in by_slot.items():
+            protocol.set_turret_slot(indices, slot)
+            _api_log.info(
+                f'[Protocol ] {len(indices)} step(s) recorded no turret slot; slot {slot} is the '
+                'only one holding their objective, and they now record it'
+            )
+
+    def _stamp_turret_slots(self, protocol: Protocol) -> None:
+        """Record the slot of each step of a protocol just built.
+
+        The slot in the light path where it holds the step's objective --
+        the slot the person stands at -- and otherwise the only slot holding
+        it. A caller naming an objective two other slots hold leaves its
+        steps to ``turret_slot_questions``.
+        """
+        if not self._scope.capabilities.has_turret:
+            return
+        live = self._scope.motion.get_turret_slot()
+        turret_config = self._scope.runtime_state.get_turret_config()
+        by_slot: dict[int, list[int]] = {}
+        for idx, objective_id in enumerate(protocol.steps()['Objective']):
+            if live is not None and turret_config.get(live) == objective_id:
+                meant = live
+            else:
+                meant = self._slot_meant(objective_id, -1, turret_config)
+            if meant is not None:
+                by_slot.setdefault(meant, []).append(idx)
+        for slot, indices in by_slot.items():
+            protocol.set_turret_slot(indices, slot)
+
+    @api(reads=True)
+    def turret_slot_questions(self, protocol: Protocol) -> list[TurretSlotQuestion]:
+        """What to ask about ``protocol``'s turret slots: one question per objective, or none.
+
+        A step that cannot say which slot it means is one whose objective is
+        in two or more slots and that recorded none, or whose recorded slot
+        now holds another objective. Each is refused by a run and by going
+        to it until ``point_steps_at_turret_slot`` answers its question.
+        LumaViewPro asks when a protocol is opened. Empty on a scope with no
+        turret, and for steps whose objective no slot holds, which a load
+        and a run refuse as ``turret_objectives_unassigned``.
+        """
+        if not self._scope.capabilities.has_turret:
+            return []
+        turret_config = self._scope.runtime_state.get_turret_config()
+        steps = protocol.steps()
+        asked: dict[object, tuple[list[int], list[int]]] = {}
+        for idx, (objective_id, slot) in enumerate(
+            zip(steps['Objective'], steps['Turret Slot'], strict=True)
+        ):
+            if self._slot_meant(objective_id, slot, turret_config) is not None:
+                continue
+            if not self._holding(objective_id, turret_config):
+                continue
+            unchosen, reassigned = asked.setdefault(objective_id, ([], []))
+            unchosen.append(idx)
+            if slot != -1:
+                reassigned.append(idx)
+        return [
+            TurretSlotQuestion(
+                objective_id=objective_id,
+                steps=tuple(unchosen),
+                reassigned=tuple(reassigned),
+                choices=self._holding(objective_id, turret_config),
+            )
+            for objective_id, (unchosen, reassigned) in asked.items()
+        ]
+
+    @api
+    def point_steps_at_turret_slot(
+        self, protocol: Protocol, objective_id: str, slot: int
+    ) -> tuple[int, ...]:
+        """Answer ``objective_id``'s turret slot question: its steps now record ``slot``.
+
+        Points exactly the steps ``turret_slot_questions`` names for
+        ``objective_id``; every other step keeps its slot. Returns the
+        indices pointed, which are empty when no question names it.
+
+        Raises:
+            ArgumentRefusedError: ``'slot_not_holding_objective'``, ``slot``
+                does not hold ``objective_id`` now (``offered``: the slots
+                that do). Nothing is changed.
+        """
+        holding = self._holding(objective_id, self._scope.runtime_state.get_turret_config())
+        if slot not in holding:
+            raise ArgumentRefusedError(
+                'slot_not_holding_objective', argument='slot', value=slot, offered=holding
+            )
+        asked = [q for q in self.turret_slot_questions(protocol) if q.objective_id == objective_id]
+        if not asked:
+            return ()
+        protocol.set_turret_slot(list(asked[0].steps), slot)
+        return asked[0].steps
+
+    def refuse_unchosen_turret_slots(
+        self, protocol: Protocol, *, steps: Iterable[int] | None = None
+    ) -> None:
+        """Refuse when a step (of ``steps``, or any) cannot say which turret slot it means.
+
+        Asked by a run's ``prepare()`` and by going to a step, after the
+        objective rule; a load admits the protocol and asks instead
+        (``turret_slot_questions``), so the protocol can be answered and
+        opened.
+
+        Raises:
+            ProtocolRunRefusedError: ``'turret_slot_reassigned'``, a step's
+                recorded slot now holds another objective;
+                ``'turret_slot_ambiguous'``, a step recorded no slot and its
+                objective is in two or more. Raised, not reported: the
+                caller's boundary reports it.
+        """
+        wanted = None if steps is None else set(steps)
+        for question in self.turret_slot_questions(protocol):
+            named = [idx for idx in question.steps if wanted is None or idx in wanted]
+            if not named:
+                continue
+            which = ', '.join(str(idx + 1) for idx in named)
+            slots = ' and '.join(str(slot) for slot in question.choices)
+            reassigned = [idx for idx in named if idx in question.reassigned]
+            if reassigned:
+                self._refuse(
+                    reason='turret_slot_reassigned',
+                    message=(
+                        f'Step {which} uses {question.objective_id}, and the turret slot it was '
+                        f'made at now holds another objective. {question.objective_id} is in '
+                        f'slot {slots}. Choose the slot for these steps; LumaViewPro asks when '
+                        'the protocol is opened.'
+                    ),
+                )
+            self._refuse(
+                reason='turret_slot_ambiguous',
+                message=(
+                    f'Step {which} uses {question.objective_id}, which is in slots {slots}, and '
+                    'which of them the step means is not recorded. Choose the slot for these '
+                    'steps; LumaViewPro asks when the protocol is opened.'
                 ),
             )
 

@@ -754,8 +754,58 @@ class ProtocolSettings(FloatLayout):
         # booting?", which answered the same way only while the load ran
         # inside the constructor; once it moved behind the objective
         # question it was answering a question it could no longer see.
-        if navigate:
-            self.go_to_step(step_idx=self.curr_step)
+        # The turret slot questions come first either way: the first step
+        # may be one the API refuses to go to until they are answered.
+        self._ask_turret_slots(
+            protocol, then=(lambda: self.go_to_step(step_idx=self.curr_step)) if navigate else None
+        )
+
+    def _ask_turret_slots(self, protocol: Protocol, then) -> None:
+        """Ask each turret slot question the API has about ``protocol``, in turn; then ``then``.
+
+        Display only: the API names the steps and the slots, and takes the
+        answer. A question answered later leaves its steps for the run and
+        the step navigation to refuse, naming them.
+        """
+        from ui.notification_popup import show_choice_popup
+
+        protocols = _app_ctx.ctx.session.scope.protocols
+        questions = list(protocols.turret_slot_questions(protocol))
+
+        def ask_next():
+            if not questions:
+                if then is not None:
+                    then()
+                return
+            question = questions.pop(0)
+            which = ', '.join(str(idx + 1) for idx in question.steps)
+            slots = ' and '.join(str(slot) for slot in question.choices)
+            if question.reassigned:
+                first = (
+                    f'Steps {which} use {question.objective_id}. The turret slot some of them '
+                    f'were made at now holds another objective; {question.objective_id} is in '
+                    f'slot {slots}.'
+                )
+            else:
+                first = (
+                    f'Steps {which} use {question.objective_id}, which is in turret slots '
+                    f'{slots}, and this protocol does not record which.'
+                )
+            show_choice_popup(
+                title='Turret Slot',
+                message=f'{first}\nWhich slot do these steps use?',
+                choices=[f'Slot {slot}' for slot in question.choices],
+                on_choice=lambda index, q=question: run_reported(
+                    lambda: protocols.point_steps_at_turret_slot(
+                        protocol, q.objective_id, q.choices[index]
+                    ),
+                    redraw=ask_next,
+                    label='TURRET_SLOT_ANSWER',
+                ),
+                on_later=ask_next,
+            )
+
+        ask_next()
 
     def get_default_name_for_curr_step(self):
         step = self.get_curr_step()

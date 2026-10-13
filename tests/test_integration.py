@@ -168,6 +168,7 @@ def _make_protocol(steps_config):
                 # filenames or validate_for_run refuses the run.
                 'Label': name,
                 'Channel Group ID': 0,
+                'Turret Slot': -1,
                 'Auto_Named': False,
             }
         )

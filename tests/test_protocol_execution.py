@@ -181,6 +181,7 @@ def _make_single_step_protocol(
         'Step Index': 0,
         'Label': '',
         'Channel Group ID': 0,
+        'Turret Slot': -1,
         'Auto_Named': True,
     }
     return _build_real_protocol([step])
@@ -250,6 +251,7 @@ def _make_multi_step_protocol(steps_config):
                 # filenames or validate_for_run refuses the run.
                 'Label': name,
                 'Channel Group ID': 0,
+                'Turret Slot': -1,
                 'Auto_Named': False,
             }
         )

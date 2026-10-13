@@ -966,9 +966,6 @@ class Lumascope:
         # write is bounded by the serial layer's own read and write timeouts;
         # nothing else holds the LED lock at bring-up.
         self.illumination._leds_off_if_present()
-        # A saved slot carried over from a turret scope means nothing here.
-        if self.capabilities.has_turret:
-            self.motion.seed_preferred_turret_slot(config.preferred_turret_slot)
         self.runtime_state.set_turreted(config.turreted)
         if config.turreted:
             # The objective is the one assigned to the slot in the light

@@ -3268,16 +3268,9 @@ class ScopeSession:
 
         t0 = time.monotonic()
         settings_snapshot = self.get_settings_snapshot()
-        # The persisted turret position is the slot a person last turned to,
-        # taken at save, which the next session's slot lookup prefers when two
-        # slots carry one objective. On a turreted scope nothing writes
-        # objective_id: the objective is the slot's assignment, so the file
-        # keeps whatever it held -- never null, which a launch as a
-        # turretless model would refuse.
-        if self.scope.runtime_state.is_turreted():
-            slot = self.scope.motion.get_preferred_turret_slot()
-            if slot is not None:
-                settings_snapshot['turret_position'] = slot
+        # On a turreted scope nothing writes objective_id: the objective is
+        # the slot's assignment, so the file keeps whatever it held -- never
+        # null, which a launch as a turretless model would refuse.
         # Resolve relative paths against source_path instead of relying on CWD
         if not os.path.isabs(file):
             file = os.path.join(self.source_path, file)

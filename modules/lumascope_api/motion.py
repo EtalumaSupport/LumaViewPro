@@ -328,14 +328,6 @@ class MotionAPI:
         # failure, and whenever T goes UNKNOWN (``_set_axis_state``).
         self._last_turret_position: int | None = None
 
-        # The slot the last successful turret MOVE landed on, which a home
-        # never writes: a home leaves the turret on slot 1 by convention, not
-        # by anyone's choice. When two slots carry the same objective, this is
-        # the one a person last chose, so the slot lookup prefers it over the
-        # current slot. Survives a restart through the saved turret_position,
-        # seeded at bring-up. None: no preference known.
-        self._preferred_turret_slot: int | None = None
-
         # Bumped by every stop_motion. A STOP sets target = actual on every
         # axis, so a move in flight then reports "reached" at a place
         # nobody commanded; a waited move compares this against the value
@@ -897,48 +889,6 @@ class MotionAPI:
             raise MotorStopFailedError() from e
 
     @api(reads=True)
-    def get_turret_position_for_objective_id(self, objective_id: str) -> int | None:
-        """The turret slot to use for an objective, or None when no slot carries it.
-
-        One lookup for every caller -- a run's step and a person's step
-        navigation -- so the two choose the same slot. When several slots
-        carry the objective, ranked:
-            1. The preferred slot (``get_preferred_turret_slot``): the last
-               slot a turret move landed on, surviving a restart. After a
-               home the turret sits on slot 1 by convention, which says
-               nothing about which of two identical objectives a person
-               uses.
-            2. The turret's current slot (``get_turret_slot``).
-            3. The lowest-numbered slot carrying it.
-
-        Args:
-            objective_id: Objective identifier to search for.
-
-        Returns:
-            int | None: Turret position (1-4), or None if not found.
-
-        Raises:
-            CatalogueNameRefusedError: ``'objective_not_in_catalogue'``,
-                ``objective_id`` is not a catalogue key.
-            ObjectiveUnknownError: ``'none_selected'``, ``objective_id`` is
-                None, which would otherwise match an unassigned slot.
-        """
-        self._scope.objective_helper.get_objective_info(objective_id=objective_id)
-        turret_config = self._scope.runtime_state.get_turret_config()
-        for slot in (self._preferred_turret_slot, self.get_turret_slot()):
-            if slot is not None and turret_config.get(slot) == objective_id:
-                return slot
-
-        for (
-            turret_position,
-            turret_objective_id,
-        ) in turret_config.items():
-            if objective_id == turret_objective_id:
-                return turret_position
-
-        return None
-
-    @api(reads=True)
     def is_current_turret_position_objective_set(self) -> bool:
         """Check whether the objective slot at the current turret position is set.
 
@@ -1236,10 +1186,8 @@ class MotionAPI:
 
         # Commanding a move of the T axis is slow, even if the move is to the current position.
         # A request for the slot the last successful turret command left the
-        # turret in is answered without moving -- and is still a choice of
-        # that slot.
+        # turret in is answered without moving.
         if self._last_turret_position == position:
-            self._preferred_turret_slot = int(position)
             return
 
         # Unknown from the start, and written only once the whole command --
@@ -1254,7 +1202,6 @@ class MotionAPI:
         if self._stopped_since(stop_generation):
             raise MoveStoppedError('T', 'stopped')
         self._last_turret_position = int(position)
-        self._preferred_turret_slot = int(position)
 
     @api(reads=True)
     def get_turret_slot(self) -> int | None:
@@ -1272,34 +1219,6 @@ class MotionAPI:
             int | None: The slot, 1-4, or None.
         """
         return self._last_turret_position
-
-    @api(reads=True)
-    def get_preferred_turret_slot(self) -> int | None:
-        """The slot the last successful turret move landed on, or None.
-
-        Never written by a home. Seeded at bring-up from the saved turret
-        position, so a person's choice between two slots carrying the same
-        objective survives a restart; the slot lookup prefers it.
-
-        Returns:
-            int | None: The slot, 1-4, or None when no preference is known.
-        """
-        return self._preferred_turret_slot
-
-    def seed_preferred_turret_slot(self, slot: int | None) -> None:
-        """Seed the preferred slot at bring-up from the saved turret position.
-
-        This is not part of the L2 API surface: it is bring-up's seam,
-        called by ``Lumascope.initialize`` with the saved value. A caller
-        that wants a slot preferred turns the turret to it with
-        ``move_turret``.
-
-        Raises:
-            PositionOutOfRangeError: ``slot`` is neither None nor a slot 1-4.
-        """
-        if slot is not None:
-            refuse_unless_turret_slot(slot)
-        self._preferred_turret_slot = slot
 
     @api(reads=True)
     def jog_step(self, axis: str, coarse: bool) -> float:

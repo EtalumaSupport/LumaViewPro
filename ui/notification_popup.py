@@ -458,6 +458,69 @@ def show_confirmation_popup(
     return popup
 
 
+def show_choice_popup(
+    title: str,
+    message: str,
+    choices: list[str],
+    on_choice: typing.Callable[[int], None],
+    on_later: typing.Callable[[], None],
+    later_text: str = 'Not Now',
+):
+    """Show a modal popup with one button per choice and one to decide later.
+
+    For a question the API asks with a short list of answers (a turret
+    slot among two to four). Display only: the API supplies the choices,
+    and the caller sends the chosen one back to it.
+
+    Args:
+        title: Short noun phrase.
+        message: What is being asked, and what answering does.
+        choices: Each answer's button label, in display order.
+        on_choice: Called with the index of the choice pressed.
+        on_later: Called when the person decides later, or the popup goes
+            away unanswered.
+        later_text: The decide-later button's label.
+    """
+    content = BoxLayout(orientation='vertical', padding=10, spacing=10)
+    content.add_widget(_make_message_label(message))
+
+    button_layout = BoxLayout(size_hint_y=None, height='40dp', spacing=10)
+    later_button = Button(text=later_text)
+    button_layout.add_widget(later_button)
+    choice_buttons = [Button(text=choice) for choice in choices]
+    for button in choice_buttons:
+        button_layout.add_widget(button)
+    content.add_widget(button_layout)
+
+    popup = Popup(title=title, content=content, size_hint=(0.6, 0.3), auto_dismiss=False)
+    decided = {'value': False}
+
+    def _choose(index):
+        decided['value'] = True
+        _log_response(title, f'CHOICE:{choices[index]}')
+        popup.dismiss()
+        on_choice(index)
+
+    def _later(*_a):
+        decided['value'] = True
+        _log_response(title, f'LATER:{later_text}')
+        popup.dismiss()
+        on_later()
+
+    def _on_dismiss(*_a):
+        if decided['value']:
+            return
+        _log_response(title, 'LATER:dismissed_without_button')
+        on_later()
+
+    for index, button in enumerate(choice_buttons):
+        button.bind(on_release=lambda *_a, index=index: _choose(index))
+    later_button.bind(on_release=_later)
+    popup.bind(on_dismiss=_on_dismiss)
+    popup.open()
+    return popup
+
+
 class _CompactSpinnerOption(SpinnerOption):
     def __init__(self, **kwargs):
         kwargs.setdefault('font_size', '12sp')

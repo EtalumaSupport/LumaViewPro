@@ -195,9 +195,3 @@ def test_none_is_refused_when_the_active_objective_is_already_unknown(tmp_path):
         assert s.settings['objective_confirmed'] is False
     finally:
         s.shutdown()
-
-
-def test_the_slot_lookup_asks_the_catalogue_first(session):
-    with pytest.raises(CatalogueNameRefusedError) as refused:
-        session.scope.motion.get_turret_position_for_objective_id('zzz')
-    assert refused.value.reason == 'objective_not_in_catalogue'

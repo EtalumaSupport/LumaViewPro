@@ -174,6 +174,7 @@ def _make_single_step_protocol(color='BF'):
         'Step Index': 0,
         'Label': 'A1_test',
         'Channel Group ID': 0,
+        'Turret Slot': -1,
         'Auto_Named': False,
     }
     return _build_real_protocol([step])
@@ -746,6 +747,11 @@ RUNNER_REFUSAL_COVERAGE = {
     'channel_already_in_add': (
         'tests/test_an_add_is_one_channel_group.py::TestAnUpdateCannotDoubleAChannelInItsAdd'
     ),
+    # Raised at prepare() only on a turret scope whose steps cannot say
+    # which slot they mean; its owner's test drives prepare() and the step
+    # navigation alike.
+    'turret_slot_ambiguous': ('tests/test_a_step_records_its_turret_slot.py::TestOldProtocols'),
+    'turret_slot_reassigned': ('tests/test_a_step_records_its_turret_slot.py::TestAReassignedSlot'),
     # Raised at prepare() only for a composite run, like the channel floor.
     'composite_two_transmitted_layers': (
         'tests/test_run_refusal_contract.py::TestTheCompositeChannelFloor'

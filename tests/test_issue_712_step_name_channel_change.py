@@ -75,6 +75,7 @@ def _modify_layer_config(acquire='image'):
 
 def _modify_channel(proto, *, layer, label=None):
     proto.modify_step(
+        turret_slot=-1,
         step_idx=0,
         label=label,
         layer=layer,

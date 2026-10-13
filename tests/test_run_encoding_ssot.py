@@ -92,6 +92,7 @@ def _make_step(color='BF'):
         'Auto_Named': True,
         'Label': '',
         'Channel Group ID': 0,
+        'Turret Slot': -1,
     }
 
 

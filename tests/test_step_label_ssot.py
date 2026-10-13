@@ -602,6 +602,7 @@ def test_modify_step_refuses_label_that_sanitizes_to_empty():
     }
     with pytest.raises(ProtocolError):
         proto.modify_step(
+            turret_slot=-1,
             step_idx=0,
             label='###',
             layer='Green',
@@ -632,6 +633,7 @@ def test_insert_step_refuses_name_that_sanitizes_to_empty():
     with pytest.raises(ProtocolError):
         proto.insert_step(
             channel_group_id=proto.new_channel_group_id(),
+            turret_slot=-1,
             step_name='###',
             layer='BF',
             layer_config=layer_config,

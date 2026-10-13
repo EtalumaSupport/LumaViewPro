@@ -30,6 +30,7 @@ _WIDE_Z = {'Z': {'min': 0.0, 'max': 10000.0}}
 def _insert_step(proto, *, step_name):
     proto.insert_step(
         channel_group_id=proto.new_channel_group_id(),
+        turret_slot=-1,
         step_name=step_name,
         layer='BF',
         layer_config=_add_layer_config(),

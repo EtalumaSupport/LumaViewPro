@@ -72,6 +72,7 @@ def _valid_step(**overrides) -> dict:
         'Auto_Named': True,
         'Label': '',
         'Channel Group ID': 0,
+        'Turret Slot': -1,
     }
     step.update(overrides)
     return step

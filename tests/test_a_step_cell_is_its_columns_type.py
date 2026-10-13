@@ -137,6 +137,7 @@ WRITES = {
     'modify_step': (
         'Exposure',
         lambda p, v: p.modify_step(
+            turret_slot=-1,
             step_idx=0,
             layer='BF',
             layer_config={
@@ -191,6 +192,7 @@ def test_no_step_frame_write_sits_outside_the_typed_writers():
         'Protocol.modify_name',
         'Protocol._regenerate_step_name',
         'Protocol.insert_step',
+        'Protocol.set_turret_slot',
     }
     writing = set()
     for qualname, node in walk_defs(parse_module('modules/protocol.py').body):
@@ -253,6 +255,7 @@ def test_a_runs_copy_reads_its_cells_as_its_source_does():
     with pytest.raises(ProtocolFormatError, match='Auto_Focus'):
         copy.insert_step(
             channel_group_id=copy.new_channel_group_id(),
+            turret_slot=-1,
             step_name='added',
             layer='BF',
             layer_config={

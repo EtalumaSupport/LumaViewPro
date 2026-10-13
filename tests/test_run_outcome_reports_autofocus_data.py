@@ -81,6 +81,7 @@ def _make_af_step_protocol():
         'Step Index': 0,
         'Label': 'AF_test',
         'Channel Group ID': 0,
+        'Turret Slot': -1,
         'Auto_Named': False,
     }
     config = {

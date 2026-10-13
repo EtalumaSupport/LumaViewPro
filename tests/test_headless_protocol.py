@@ -224,6 +224,7 @@ class TestHeadlessProtocolExecution:
                 'Step Index': 0,
                 'Label': 'A1_BF',
                 'Channel Group ID': 0,
+                'Turret Slot': -1,
                 'Auto_Named': False,
             }
         ]

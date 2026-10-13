@@ -173,6 +173,7 @@ def test_custom_step_count_resumes_past_loaded_labels(tmp_path):
 
     returned_name = proto.insert_step(
         channel_group_id=proto.new_channel_group_id(),
+        turret_slot=-1,
         step_name=None,
         layer='BF',
         layer_config=_insert_layer_config(),

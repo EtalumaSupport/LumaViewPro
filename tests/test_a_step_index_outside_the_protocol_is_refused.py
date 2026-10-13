@@ -58,6 +58,7 @@ WRITERS = {
     ),
     'modify_name': lambda p, i: p.modify_name(step_idx=i, step_name='renamed'),
     'modify_step': lambda p, i: p.modify_step(
+        turret_slot=-1,
         step_idx=i,
         layer='BF',
         layer_config=LAYER_CONFIG,
@@ -72,6 +73,7 @@ WRITERS = {
 def _insert(protocol, **place):
     return protocol.insert_step(
         channel_group_id=protocol.new_channel_group_id(),
+        turret_slot=-1,
         step_name='added',
         layer='BF',
         layer_config=LAYER_CONFIG,

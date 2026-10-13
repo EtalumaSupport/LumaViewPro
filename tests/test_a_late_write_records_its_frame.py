@@ -79,6 +79,7 @@ def _step(name, index, *, x, gain, sum_count=1, autofocus=False):
         'Auto_Named': False,
         'Label': '',
         'Channel Group ID': 0,
+        'Turret Slot': -1,
     }
 
 

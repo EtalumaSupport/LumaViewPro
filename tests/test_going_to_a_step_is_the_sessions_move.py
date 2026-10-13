@@ -67,6 +67,7 @@ def _step(x: float, y: float, z: float, objective: str) -> dict:
         'Auto_Named': False,
         'Label': '',
         'Channel Group ID': 0,
+        'Turret Slot': -1,
     }
 
 
@@ -518,11 +519,15 @@ class TestTheSlotLookupCannotDisagreeWithTheRule:
         """
         moves = _spy_moves(monkeypatch, turret_session)
         # a stand-in by design: the clear lands between two reads one call makes
-        monkeypatch.setattr(
-            turret_session.scope.motion,
-            'get_turret_position_for_objective_id',
-            lambda objective_id, persisted_position=None: None,
-        )
+        runtime_state = turret_session.scope.runtime_state
+        before_the_clear = runtime_state.get_turret_config()
+        reads = []
+
+        def turret_config():
+            reads.append(None)
+            return before_the_clear if len(reads) == 1 else dict.fromkeys(before_the_clear)
+
+        monkeypatch.setattr(runtime_state, 'get_turret_config', turret_config)
         protocol = _protocol('6 well microplate', _step(30.0, 20.0, 4000.0, '20x Oly'))
 
         with pytest.raises(ProtocolRunRefusedError) as refused:

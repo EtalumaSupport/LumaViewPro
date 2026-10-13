@@ -245,7 +245,6 @@ scope.runtime_state.get_available_objectives()
 
 # Turret integration
 scope.runtime_state.get_turret_config()                # {1: '4x Oly', 2: '10x Oly', 3: None, 4: None}, a copy
-scope.motion.get_turret_position_for_objective_id('10x Oly')   # returns 2 (turret position is motion state)
 scope.motion.is_current_turret_position_objective_set()        # False when the CURRENT turret slot has no configured objective
 
 # Labware + stage offset -- the plate-coordinate inputs
@@ -893,7 +892,14 @@ z = scope.protocols.focus_z(then='save the focus')
 scope.protocols.set_step_z(protocol, 0, z)
 ```
 
-**A step's motor targets.** `scope.protocols.step_targets(protocol, step_idx)` is the one conversion a run and a person's navigation share: a `StepTargets` (`modules.lumascope_api.protocols`) of `turret_slot` (the slot carrying the step's objective, chosen as `scope.motion.get_turret_position_for_objective_id` chooses it; None on a scope without a turret), and `x`, `y` and `z` in stage micrometres, X and Y converted on the protocol's own plate, not the scope's selected one; an axis the scope has no motor for is None, and nothing drives it. They come from `scope.protocols.stage_targets(protocol, px, py, z)`, which answers `(x, y, z)` the same way for any plate position and Z: the one conversion every step move takes, so a run's return to its first step between scans and after a z-stack drives only the axes the scope has too. It raises `StepNotFoundError` for a `step_idx` the protocol lacks, `ProtocolRunRefusedError` for a step whose objective this scope cannot put in the light path (`turret_objectives_unassigned` when no turret slot carries it, as after the slot is cleared; `objective_not_mounted` when, without a turret, it is not the mounted objective; 409, the scope's state), and `CatalogueNameRefusedError` for a plate the catalogue does not have. `scope.protocols.plate_to_stage(protocol, px, py)` is the plate-to-stage conversion under it, on the protocol's plate, whatever axes the scope has; all three take a `stage_offset=` to convert with a snapshot instead of the live offset, as a run does. `scope.protocols.plate_transform(protocol, stage_offset=offset)` is the inverse, bound when called: a function of `(sx_um, sy_um)` answering `(px_mm, py_mm)` on the protocol's plate with that offset, or None when `stage_offset` is None (a scope with no X/Y stage). A run states every frame it saves through it, stills and recorded frames alike: the position the stage was read at beside the grab, never the step's planned one, in the frame the run's steps were driven in, whatever plate is selected meanwhile; an axis the scope lacks or has lost its reference on states none.
+**A step's motor targets.** `scope.protocols.step_targets(protocol, step_idx)` is the one conversion a run and a person's navigation share: a `StepTargets` (`modules.lumascope_api.protocols`) of `turret_slot` (the slot the step recorded, its `Turret Slot`; a step that recorded none, from an older file, means the only slot holding its objective; None on a scope without a turret), and `x`, `y` and `z` in stage micrometres, X and Y converted on the protocol's own plate, not the scope's selected one; an axis the scope has no motor for is None, and nothing drives it. They come from `scope.protocols.stage_targets(protocol, px, py, z)`, which answers `(x, y, z)` the same way for any plate position and Z: the one conversion every step move takes, so a run's return to its first step between scans and after a z-stack drives only the axes the scope has too. It raises `StepNotFoundError` for a `step_idx` the protocol lacks, `ProtocolRunRefusedError` for a step whose objective this scope cannot put in the light path (`turret_objectives_unassigned` when no turret slot carries it, as after the slot is cleared; `objective_not_mounted` when, without a turret, it is not the mounted objective; 409, the scope's state) or that cannot say which slot it means (`turret_slot_ambiguous`, `turret_slot_reassigned`, below; 409), and `CatalogueNameRefusedError` for a plate the catalogue does not have.
+
+**Which turret slot a step uses.** Every step records the slot it was made or updated at, its `Turret Slot` (-1 without a turret): `add_step` and `update_step` record the slot in the light path, and `new_protocol` and `create_protocol` record, for each step, the slot in the light path when it holds the step's objective and otherwise the only slot that does. A run and `go_to_step` turn each step to its own slot, so two steps naming one objective in two slots each use their own, and updating one changes no other. A protocol opened with `load_protocol` gets a slot for each step that recorded none (a file from before steps recorded their slot) when only one slot holds its objective. A step that cannot say which slot it means -- its objective is in two or more slots and it recorded none, or the slot it recorded now holds another objective -- does not stop the load; `scope.protocols.turret_slot_questions(protocol)` returns one `TurretSlotQuestion` per objective with such steps (`objective_id`, `steps` the step indices, `reassigned` those whose slot now holds another objective, `choices` the slots holding it now), and `scope.protocols.point_steps_at_turret_slot(protocol, objective_id, slot)` answers it, pointing exactly those steps at `slot` and returning their indices; a slot that does not hold the objective is refused with `ArgumentRefusedError` (`slot_not_holding_objective`, `offered` the slots that do), nothing changed. Until it is answered, a run's start and going to such a step are refused with `ProtocolRunRefusedError`: `turret_slot_ambiguous` or `turret_slot_reassigned` (409), naming the steps and the slots. LumaViewPro asks each question when a protocol is opened. Saving the protocol writes the slots.
+
+```python
+for q in scope.protocols.turret_slot_questions(protocol):   # [] on a scope without a turret
+    scope.protocols.point_steps_at_turret_slot(protocol, q.objective_id, q.choices[0])
+``` `scope.protocols.plate_to_stage(protocol, px, py)` is the plate-to-stage conversion under it, on the protocol's plate, whatever axes the scope has; all three take a `stage_offset=` to convert with a snapshot instead of the live offset, as a run does. `scope.protocols.plate_transform(protocol, stage_offset=offset)` is the inverse, bound when called: a function of `(sx_um, sy_um)` answering `(px_mm, py_mm)` on the protocol's plate with that offset, or None when `stage_offset` is None (a scope with no X/Y stage). A run states every frame it saves through it, stills and recorded frames alike: the position the stage was read at beside the grab, never the step's planned one, in the frame the run's steps were driven in, whatever plate is selected meanwhile; an axis the scope lacks or has lost its reference on states none.
 
 ```python
 targets = scope.protocols.step_targets(protocol, 2)   # StepTargets(turret_slot=1, x=..., y=..., z=...)
@@ -902,7 +908,7 @@ x, y, z = scope.protocols.stage_targets(protocol, 60.0, 40.0, 5000.0)   # None f
 to_plate = scope.protocols.plate_transform(protocol, stage_offset=offset)   # stage um -> the protocol's plate mm, bound now
 ```
 
-**Going to a step.** `session.go_to_step(protocol, step_idx)` does what a click on a step does, as one task on the scope's IO lane: it asks every axis once whether it knows its position, turns the turret to the slot carrying the step's objective, starts X, Y and Z towards the step's targets together (`scope.protocols.step_targets`, above), puts the step's values into its layer's live settings (the layer acquiring as the step does, its stimulation from the step's; the layer's saved focus is left as it is, since `new_protocol` starts from it), and applies the step's LED preview: the step's channel at its current when `protocol_led_on` is set, every channel dark when not. While the stage travels it puts the step's layer on the camera (`session.apply_layer_camera`, below), and it returns once the camera holds that layer's exposure, gain and auto-gain and X, Y and Z have arrived, waiting off the IO lane so the lane takes other work meanwhile; a move that does not arrive raises `MoveNotCompletedError`, with the layer and the preview already the step's, and a setting the camera refuses raises `CameraSettingRejected` once the stage has arrived. `session.start_go_to_step(protocol, step_idx)` does the same but for the camera and returns the started X, Y and Z moves without waiting (their `wait()` gives each outcome): the form for a click, where a second click re-targets the stage at once, and whose caller applies the camera. Only the axes the scope has are moved: a manual scope moves nothing, does the rest and returns no moves; a motorized scope whose motor controller is not connected is refused with `HardwareCommandRefusedError` (`not_connected`) before anything changes, and so is a scope with no camera connected (`MissingPart.CAMERA`), and a step whose preview would light on a scope with no LED controller connected (a dark preview needs none, so with `protocol_led_on` off the stage still moves); after `session.shutdown()` it raises `scope_disconnected`. A repeat of the step the session last went to (a re-click) does everything but the preview, so a channel lit or put out in between stays as it was; a run transition forgets it. It is refused before anything changes: a `step_idx` that is not a step of `protocol` with `StepNotFoundError`; a step whose objective this scope cannot put in the light path with `ProtocolRunRefusedError`; a step whose colour is no layer with `ArgumentRefusedError` (`layer_unknown`); a step on a layer this scope lacks with `HardwareCommandRefusedError` (`axis_absent`); a stimulation naming no layer with `ArgumentRefusedError` (`layer_unknown`); an axis that does not know its position with `AxisStateUnknownError` (raised to you and posted to no listener); a scope held by a run or a diagnostic with `HardwareCommandRefusedError`. A step outside an axis's travel raises `PositionOutOfRangeError` from that axis's move; the axes before it have moved and nothing else changes.
+**Going to a step.** `session.go_to_step(protocol, step_idx)` does what a click on a step does, as one task on the scope's IO lane: it asks every axis once whether it knows its position, turns the turret to the step's own slot (above), starts X, Y and Z towards the step's targets together (`scope.protocols.step_targets`, above), puts the step's values into its layer's live settings (the layer acquiring as the step does, its stimulation from the step's; the layer's saved focus is left as it is, since `new_protocol` starts from it), and applies the step's LED preview: the step's channel at its current when `protocol_led_on` is set, every channel dark when not. While the stage travels it puts the step's layer on the camera (`session.apply_layer_camera`, below), and it returns once the camera holds that layer's exposure, gain and auto-gain and X, Y and Z have arrived, waiting off the IO lane so the lane takes other work meanwhile; a move that does not arrive raises `MoveNotCompletedError`, with the layer and the preview already the step's, and a setting the camera refuses raises `CameraSettingRejected` once the stage has arrived. `session.start_go_to_step(protocol, step_idx)` does the same but for the camera and returns the started X, Y and Z moves without waiting (their `wait()` gives each outcome): the form for a click, where a second click re-targets the stage at once, and whose caller applies the camera. Only the axes the scope has are moved: a manual scope moves nothing, does the rest and returns no moves; a motorized scope whose motor controller is not connected is refused with `HardwareCommandRefusedError` (`not_connected`) before anything changes, and so is a scope with no camera connected (`MissingPart.CAMERA`), and a step whose preview would light on a scope with no LED controller connected (a dark preview needs none, so with `protocol_led_on` off the stage still moves); after `session.shutdown()` it raises `scope_disconnected`. A repeat of the step the session last went to (a re-click) does everything but the preview, so a channel lit or put out in between stays as it was; a run transition forgets it. It is refused before anything changes: a `step_idx` that is not a step of `protocol` with `StepNotFoundError`; a step whose objective this scope cannot put in the light path with `ProtocolRunRefusedError`; a step whose colour is no layer with `ArgumentRefusedError` (`layer_unknown`); a step on a layer this scope lacks with `HardwareCommandRefusedError` (`axis_absent`); a stimulation naming no layer with `ArgumentRefusedError` (`layer_unknown`); an axis that does not know its position with `AxisStateUnknownError` (raised to you and posted to no listener); a scope held by a run or a diagnostic with `HardwareCommandRefusedError`. A step outside an axis's travel raises `PositionOutOfRangeError` from that axis's move; the axes before it have moved and nothing else changes.
 
 ```python
 session.go_to_step(protocol, 2)                       # turret, X, Y, Z, the layer, the LED, the camera; returns on arrival
@@ -1510,11 +1516,8 @@ scope.motion.get_turret_slot()                   # slot in the light path, or No
 # fails (MoveNotCompletedError), and after the turret's position is lost.
 # move_absolute / move_relative refuse 'T' with
 # ValueError -- the turret moves only by slot, through move_turret.
-scope.motion.get_preferred_turret_slot()         # the slot the last move_turret landed on, or None
-# Never written by a home, and saved as turret_position, so it survives a
-# restart. When two slots carry the same objective, the slot lookup
-# (get_turret_position_for_objective_id) prefers it, then the current slot,
-# then the lowest-numbered -- a run and step navigation choose alike.
+# Which slot a protocol step uses is the step's own (its Turret Slot, below):
+# two steps naming one objective in two slots each go to their own.
 
 # Stage
 scope.motion.get_axis_limits('Z')                # {'min': 0, 'max': 14000}, read-only
@@ -2757,8 +2760,9 @@ A1_Green	60000	40000	5000	False	Green	...
 | Auto_Named | bool | Whether Name is still the generated one |
 | Label | string | The step's base text: a typed name, or `custom<NNNN>` for an added step; empty means the Well |
 | Channel Group ID | int | The add a step came from (one value per `add_step` call; one per position in a generated protocol); post-processing builds one output per group. -1: recorded before the column (version 8 and older) |
+| Turret Slot | int | The turret slot the step was made or updated at, which a run and step navigation turn to; -1 on a scope without a turret, or recorded before the column (filled at load where one slot holds the step's objective) |
 
-A file of version 2 to 8 loads, its missing columns filled (`Channel Group ID` -1); saving it writes version 9. A file newer than the reader is refused (`ProtocolFormatError`). `Protocol.COLUMNS[Protocol.CURRENT_VERSION]` is the canonical column list.
+A file of version 2 to 8 loads, its missing columns filled (`Channel Group ID` and `Turret Slot` -1); saving it writes version 9. A file newer than the reader is refused (`ProtocolFormatError`). `Protocol.COLUMNS[Protocol.CURRENT_VERSION]` is the canonical column list.
 
 ---
 
@@ -2935,9 +2939,7 @@ Reached through `session.scope.motion`.
 - `get_axis_limits`
 - `get_axis_state`
 - `get_limit_switch_status`
-- `get_preferred_turret_slot`
 - `get_target_position`
-- `get_turret_position_for_objective_id`
 - `get_turret_slot`
 - `has_homed`
 - `home`
@@ -3055,10 +3057,12 @@ Reached through `session.scope.protocols`.
 - `focus_z`
 - `plate_to_stage`
 - `plate_transform` (in-process)
+- `point_steps_at_turret_slot`
 - `set_step_z`
 - `stage_targets`
 - `step_targets`
 - `tiling_config`
+- `turret_slot_questions`
 
 ### RuntimeState
 
@@ -3687,6 +3691,15 @@ Reached through returned by `scope.protocols.step_targets`.
 - `x`
 - `y`
 - `z`
+
+### TurretSlotQuestion
+
+Reached through returned by `scope.protocols.turret_slot_questions`.
+
+- `choices`
+- `objective_id`
+- `reassigned`
+- `steps`
 
 ### Substitution
 

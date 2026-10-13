@@ -495,39 +495,19 @@ class TestT10TurretWriters:
 
 
 class TestT10TurretPosition:
-    """The saved turret position is the slot a person last turned to -- a
-    preference between slots carrying one objective, seeded at bring-up and
-    written at save. Nothing records it live beside the API's own slot."""
+    """No turret position is stored: each protocol step records its own slot.
 
-    def test_bring_up_seeds_the_preference_from_the_saved_position(self, sessions):
+    A saved position was once preferred between slots carrying one
+    objective. One preference for every step sent every step naming that
+    objective to one slot, and the startup move to slot 1 overwrote it on
+    every launch."""
+
+    def test_a_stored_position_is_dropped_and_a_save_writes_none(self, sessions, tmp_path):
         session = sessions(**_turret_settings(turret_position=3))
-        assert session.scope.motion.get_preferred_turret_slot() == 3
-
-    def test_a_saved_position_that_is_no_slot_seeds_no_preference_and_says_so(self, sessions):
-        _clear_log()
-        session = sessions(**_turret_settings(turret_position=9))
-        assert session.scope.motion.get_preferred_turret_slot() is None
-        assert any('is not a slot' in line for line in _lines()), _lines()
-
-    def test_a_save_writes_the_last_slot_moved_to_not_the_home(self, sessions, tmp_path):
-        session = sessions(**_turret_settings(turret_position=1))
-        home_sim_scope(session.scope)
-        session.scope.motion.move_turret(3)
-        # A home lands on slot 1 by convention, not by anyone's choice.
-        home_sim_scope(session.scope)
-        assert session.scope.motion.get_turret_slot() == 1
+        assert 'turret_position' not in session.settings
         saved = tmp_path / 'current.json'
         session.save_settings(str(saved))
-        assert json.loads(saved.read_text())['turret_position'] == 3
-
-    def test_start_application_session_records_no_position(self, sessions):
-        session = sessions(**_turret_settings(turret_position=2))
-        session.start_application_session(
-            disable_homing=False,
-            home_fn=lambda axis: None,
-            turret_fn=lambda position: None,
-        )
-        assert session.settings['turret_position'] == 2
+        assert 'turret_position' not in json.loads(saved.read_text())
 
 
 # ---------------------------------------------------------------------------
@@ -615,10 +595,9 @@ _ALLOWED_WRITERS = {
     # scope is initialized: there is no runtime state yet to write beside
     # the store, and initialize reads the stored id.
     ('modules/scope_session.py', 'ScopeSession._replace_an_unknown_stored_objective'),
-    # These two write a snapshot copy, not the store; the census matches the
+    # This writes a snapshot copy, not the store; the census matches the
     # subscript shape and cannot tell a copy from the live dict.
     ('modules/scope_session.py', 'ScopeSession.capture_settings_snapshot'),
-    ('modules/scope_session.py', 'ScopeSession.save_settings'),
     ('modules/settings_init.py', '_normalize_turret_slot_keys'),
 }
 

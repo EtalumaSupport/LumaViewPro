@@ -1288,6 +1288,9 @@ class SequencedCaptureRunner:
         self._scope.protocols.refuse_unaddressable_objectives(
             protocol.steps()['Objective'].to_list()
         )
+        # Then which slot: a step that cannot say which of two slots holding
+        # its objective it means would be imaged through either.
+        self._scope.protocols.refuse_unchosen_turret_slots(protocol)
         # A step on a layer this scope lacks cannot be taken as the step
         # says. The load refuses it on the same rule; a protocol built in
         # memory meets it only here.

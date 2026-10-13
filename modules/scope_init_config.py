@@ -4,8 +4,6 @@ from dataclasses import dataclass
 
 import modules.binning as binning
 import modules.layer_record as layer_record
-from modules.lumascope_api._constants import is_turret_slot
-from lvp_logger import logger
 
 
 @dataclass
@@ -32,10 +30,6 @@ class ScopeInitConfig:
     # turreted scope treated as turretless would answer with its stored
     # objective instead of the one in the light path.
     turreted: bool
-    # The saved turret position: the slot a person last turned to, which
-    # the slot lookup prefers when two slots carry one objective. None when
-    # nothing usable was saved.
-    preferred_turret_slot: int | None
     binning_size: int
     frame_width: int
     frame_height: int
@@ -84,23 +78,12 @@ class ScopeInitConfig:
         acceleration_pct = settings['motion']['acceleration_max_pct']
         binning_size = binning.binning_size_str_to_int(text=settings['binning']['size'])
         expects_motion = layer_record.entry_expects_motion(scope_config)
-        preferred_turret_slot = settings.get('turret_position')
-        if preferred_turret_slot is not None and not is_turret_slot(preferred_turret_slot):
-            # A preference, not a position: a value that names no slot
-            # leaves no preference, which the lookup already handles, and
-            # is said here so a hand-edited file is visible in the record.
-            logger.warning(
-                f'[Session  ] saved turret_position {preferred_turret_slot!r} is not a slot '
-                '1-4; no preferred slot'
-            )
-            preferred_turret_slot = None
         if layer_identity is None:
             expects_led = True
         else:
             expects_led = any(layer.led_channel for layer in layer_identity.layers)
         return cls(
             turreted=turreted,
-            preferred_turret_slot=preferred_turret_slot,
             binning_size=binning_size,
             frame_width=settings['frame']['width'],
             frame_height=settings['frame']['height'],

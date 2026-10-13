@@ -376,6 +376,12 @@ def normalize_loaded_settings(settings_dict: dict) -> bool:
     if isinstance(protocol, dict) and protocol.pop('bf_af_for_fluorescence', None) is not None:
         changed = True
 
+    # The slot a person last turned the turret to, once preferred when two
+    # slots carry one objective. Each protocol step now records its own
+    # slot, and nothing reads this one.
+    if settings_dict.pop('turret_position', None) is not None:
+        changed = True
+
     # A top-level binning factor that nothing writes and no shipped template
     # carries. It was read as the headless binning and always answered 1;
     # binning lives at settings['binning']['size'] as the selector's label.

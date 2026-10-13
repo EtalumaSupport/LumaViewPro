@@ -33,6 +33,7 @@ try:
     lc['acquire'] = 'image'
     idx = p.insert_step(
         channel_group_id=p.new_channel_group_id(),
+        turret_slot=-1,
         step_name=None,
         layer='BF',
         layer_config=lc,
@@ -49,6 +50,7 @@ try:
     lc2['gain_db'] = 7.5
     lc2['exposure_ms'] = 42.0
     p.modify_step(
+        turret_slot=-1,
         step_idx=1,
         label='probe_renamed',
         layer='BF',

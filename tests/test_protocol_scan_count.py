@@ -51,6 +51,7 @@ def _step():
         'Auto_Named': True,
         'Label': '',
         'Channel Group ID': 0,
+        'Turret Slot': -1,
     }
 
 

@@ -1258,6 +1258,8 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
         'no_acquiring_layer': RefusalCause.STATE,
         'channel_already_in_add': RefusalCause.REQUEST,
         'composite_two_transmitted_layers': RefusalCause.REQUEST,
+        'turret_slot_ambiguous': RefusalCause.STATE,
+        'turret_slot_reassigned': RefusalCause.STATE,
         'step_position_unknown': RefusalCause.STATE,
         'turret_objective_unset': RefusalCause.STATE,
         'turret_objectives_unassigned': RefusalCause.STATE,
@@ -1302,6 +1304,8 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
         'no_acquiring_layer': 'No Channel Set to Acquire',
         'channel_already_in_add': 'Step Not Saved',
         'composite_two_transmitted_layers': 'One Transmitted Channel',
+        'turret_slot_ambiguous': 'Turret Slot Not Chosen',
+        'turret_slot_reassigned': 'Turret Slot Reassigned',
         'step_position_unknown': 'Step Not Saved',
         'turret_objective_unset': 'Step Not Saved',
         'turret_objectives_unassigned': 'Turret Configuration Required',
@@ -2879,6 +2883,9 @@ class ArgumentRefusedError(Refusal, ValueError):
               ``scope.simulation`` member, ``kind`` the board.
             - ``'argument_not_on_board'`` -- an argument of a simulated
               fault the board cannot take; ``kind`` names the board.
+            - ``'slot_not_holding_objective'`` -- a turret slot given for
+              steps naming an objective the slot does not hold now
+              (``offered``: the slots that hold it).
         argument: The name of the argument refused.
         value: What was given, as given.
         offered: The values the argument takes, where it takes a list;
@@ -3011,6 +3018,10 @@ class ArgumentRefusedError(Refusal, ValueError):
         'argument_not_on_board': (
             'Fault Not Injectable',
             '{argument} {value!r} is not taken by {kind}.',
+        ),
+        'slot_not_holding_objective': (
+            'Slot Does Not Hold That Objective',
+            '{argument} must be a slot holding the objective, one of {offered}; {value!r} is not.',
         ),
     }
 

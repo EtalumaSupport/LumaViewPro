@@ -87,6 +87,7 @@ LAYER_CONFIG = {
 def _insert(protocol, *, x, before_step=None, after_step=None):
     return protocol.insert_step(
         channel_group_id=protocol.new_channel_group_id(),
+        turret_slot=-1,
         step_name=None,
         layer='BF',
         layer_config=LAYER_CONFIG,
@@ -154,6 +155,7 @@ def env(monkeypatch):
 
     def update_step(protocol, step_idx, *, layer, label=None):
         protocol.modify_step(
+            turret_slot=-1,
             step_idx=step_idx,
             layer=layer,
             layer_config=LAYER_CONFIG,
@@ -438,6 +440,7 @@ def _add_bf_and_blue(protocol, *, before_step=None, after_step=None):
         names.append(
             protocol.insert_step(
                 channel_group_id=protocol.new_channel_group_id(),
+                turret_slot=-1,
                 step_name=None,
                 layer=layer,
                 layer_config=LAYER_CONFIG,

@@ -66,14 +66,17 @@ def test_current_version_pin():
 
 
 def test_previous_version_file_loads_and_upgrades(tmp_path):
-    # A v8 file is a v9 file without the Channel Group ID column; the
-    # loader gives its steps -1, no Add known, and hands back a protocol at
-    # CURRENT_VERSION semantics.
-    filepath = _write_versioned_file(tmp_path, version=8, drop_columns=('Channel Group ID',))
+    # A v8 file is a v9 file without the Channel Group ID and Turret Slot
+    # columns; the loader gives its steps -1 in each, no Add and no slot
+    # recorded, and hands back a protocol at CURRENT_VERSION semantics.
+    filepath = _write_versioned_file(
+        tmp_path, version=8, drop_columns=('Channel Group ID', 'Turret Slot')
+    )
     protocol = Protocol.from_file(filepath, tiling_configs_file_loc=TILING_CONFIGS)
     steps = protocol.steps()
     assert len(steps) == 1
     assert list(steps['Channel Group ID']) == [-1]
+    assert list(steps['Turret Slot']) == [-1]
 
     # Re-saving writes the CURRENT format, completing the upgrade.
     resaved = tmp_path / 'resaved.tsv'
@@ -90,9 +93,9 @@ def test_every_enumerated_older_version_is_accepted(tmp_path):
     # loads. v6-v8 share the v9 table shape closely enough to load via
     # column recovery; that acceptance must survive any bump.
     for version, dropped in (
-        (6, ('Label', 'Channel Group ID')),
-        (7, ('Label', 'Channel Group ID')),
-        (8, ('Channel Group ID',)),
+        (6, ('Label', 'Channel Group ID', 'Turret Slot')),
+        (7, ('Label', 'Channel Group ID', 'Turret Slot')),
+        (8, ('Channel Group ID', 'Turret Slot')),
     ):
         filepath = _write_versioned_file(tmp_path, version=version, drop_columns=dropped)
         protocol = Protocol.from_file(filepath, tiling_configs_file_loc=TILING_CONFIGS)

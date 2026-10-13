@@ -57,6 +57,7 @@ def _step(name, objective, index, position, layer):
         'Auto_Named': False,
         'Label': '',
         'Channel Group ID': 0,
+        'Turret Slot': -1,
     }
 
 

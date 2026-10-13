@@ -73,11 +73,10 @@ class TestTheCommandedSlot:
     def test_a_home_leaves_slot_1(self, session):
         assert session.scope.motion.get_turret_slot() == 1
 
-    def test_a_turret_move_records_its_slot_and_the_lookup_reads_it(self, session):
+    def test_a_turret_move_records_its_slot(self, session):
         motion = session.scope.motion
         motion.move_turret(2)
         assert motion.get_turret_slot() == 2
-        assert motion.get_turret_position_for_objective_id('4x Oly') == 2
         assert motion.is_current_turret_position_objective_set() is True
 
     def test_a_stalled_turret_move_leaves_no_slot(self, session, monkeypatch):

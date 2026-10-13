@@ -162,7 +162,6 @@ def test_a_z_only_scope_names_the_axis_it_lacks(make_session, monkeypatch, model
     # A turret command parks no Z and records no slot for a turret that is not there.
     assert scope.motion.get_current_position('Z') == z_before
     assert scope.motion.get_turret_slot() is None
-    assert scope.motion.get_preferred_turret_slot() is None
 
 
 def test_a_scope_with_no_turret_names_the_turret(make_session, monkeypatch):

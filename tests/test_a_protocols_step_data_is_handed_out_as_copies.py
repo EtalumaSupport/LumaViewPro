@@ -126,6 +126,7 @@ class TestEveryStoredCellIsReadOnly:
     def test_a_modified_steps_cells_are_read_only(self, protocol, column):
         step = protocol.step(0)
         protocol.modify_step(
+            turret_slot=-1,
             step_idx=0,
             layer='BF',
             layer_config={

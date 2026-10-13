@@ -90,6 +90,7 @@ def _make_single_step_protocol():
         'Step Index': 0,
         'Label': 'A1_test',
         'Channel Group ID': 0,
+        'Turret Slot': -1,
         'Auto_Named': False,
     }
     config = {
