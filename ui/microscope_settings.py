@@ -471,18 +471,17 @@ class MicroscopeSettings(BoxLayout):
         ctx.update_settings('show_tooltips', enabled)
 
     def apply_stimulation_support(self):
-        """Push the persisted global stimulation enable to every channel.
+        """Show or hide every channel's stimulation controls.
 
-        Single owner of the per-layer stimulation sync. Reads
-        ``settings['stimulation_enabled']`` (the source of truth, populated
-        by the settings load) rather than a widget, so the startup load and
-        the Advanced Settings toggle both drive the same path. Firmware
-        without stim support can never enable it, even if a stale setting
-        says otherwise.
+        Single owner of the per-layer stimulation display. Reads
+        ``settings['stimulation_enabled']`` (populated by the settings load)
+        rather than a widget, so the startup load and the Advanced Settings
+        toggle both drive the same path. Firmware without stim support never
+        shows them, whatever the setting says; the stored settings are
+        display input here and are never written.
         """
         settings = _app_ctx.ctx.settings
         stimulation_enabled = firmware_stim_supported() and settings['stimulation_enabled']
-        settings['stimulation_enabled'] = stimulation_enabled
 
         # Update all layer controls
         for layer in common_utils.get_layers():
@@ -501,9 +500,6 @@ class MicroscopeSettings(BoxLayout):
                         # Set stim to disabled
                         if 'stim_disable_btn' in layer_obj.ids:
                             layer_obj.ids['stim_disable_btn'].active = True
-                        # Disable stim_config
-                        if 'stim_config' in settings[layer]:
-                            settings[layer]['stim_config']['enabled'] = False
 
     def load_binning_sizes(self):
         sizes = _app_ctx.ctx.lumaview.scope.capabilities.camera_binning_sizes

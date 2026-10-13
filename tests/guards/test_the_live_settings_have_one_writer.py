@@ -31,13 +31,10 @@ _MUTATORS = frozenset(
     {'update', 'pop', 'setdefault', 'append', 'clear', 'extend', 'insert', 'remove', 'popitem'}
 )
 
-# Each a setting that is also an instrument state, or a write that carries a
-# decision; each moves to its own Session member and its count goes to 0.
-_DIRECT_WRITE_PIN = {
-    ('ui/advanced_settings.py', 'AdvancedSettings.update_stimulation_settings'): 1,
-    ('ui/layer_control.py', 'LayerControl.update_stim_enable'): 3,
-    ('ui/microscope_settings.py', 'MicroscopeSettings.apply_stimulation_support'): 2,
-}
+# Every write above the Session goes through its writer; a site added
+# here is a direct write waiting for its Session member, lowered to 0 in
+# the commit that gives it one.
+_DIRECT_WRITE_PIN: dict[tuple[str, str], int] = {}
 
 
 def _direct_writes(fn: ast.AST) -> set[int]:

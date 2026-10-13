@@ -238,7 +238,7 @@ class AdvancedSettings(Popup):
         ctx = _app_ctx.ctx
         enabled = self.ids['stimulation_settings_btn'].state == 'down'
         gui_logger.toggle('STIMULATION_ENABLED', enabled)
-        ctx.settings['stimulation_enabled'] = enabled
+        ctx.update_settings('stimulation_enabled', enabled)
         # The microscope panel owns the per-layer stim sync; the startup load
         # re-uses the same owner, so the toggle and load stay in lockstep.
         ctx.motion_settings.ids['microscope_settings_id'].apply_stimulation_support()

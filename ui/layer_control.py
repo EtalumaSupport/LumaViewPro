@@ -595,24 +595,15 @@ class LayerControl(BoxLayout):
             self.update_stim_controls_visibility()
 
     def update_stim_enable(self):
-        settings = _app_ctx.ctx.settings
+        ctx = _app_ctx.ctx
         logger.info('[LVP Main  ] LayerControl.update_stim_enable()')
         enabled = self.ids['stim_enable_btn'].active
         gui_logger.toggle(f'STIM_{self.layer}', enabled)
-        if self.ids['stim_enable_btn'].active:
-            if (
-                'stim_config' in settings[self.layer]
-                and settings[self.layer]['stim_config'] is not None
-            ):
-                settings[self.layer]['stim_config']['enabled'] = True
-            settings[self.layer]['acquire'] = None
+        if enabled:
+            ctx.session.set_layer_acquire(self.layer, None)
             self.ids['acquire_none'].active = True
             self.ids['acquire_none'].state = 'down'
-        elif (
-            'stim_config' in settings[self.layer]
-            and settings[self.layer]['stim_config'] is not None
-        ):
-            settings[self.layer]['stim_config']['enabled'] = False
+        ctx.update_settings(f'{self.layer}.stim_config.enabled', enabled)
 
         self.update_stim_controls_visibility()
 
