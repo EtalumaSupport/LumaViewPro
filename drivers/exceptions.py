@@ -2,9 +2,11 @@
 
 """Driver-layer exception classes (raised from drivers/, caught at module/API)."""
 
+from collections.abc import Mapping
 from typing import ClassVar
 
 from lib.lumascope_error import Fault, _Umbrella
+from lib.stage_interlock import INTERLOCK_TITLES
 
 
 class HardwareError(_Umbrella, Exception):
@@ -51,10 +53,7 @@ class MotionInterlockError(Fault, HardwareError):
             without power. The API counts a sent stop as a Stop.
     """
 
-    _TITLES: ClassVar[dict[str, str]] = {
-        'lid_open': 'Lid Open',
-        'stage_unpowered': 'No Stage Power',
-    }
+    _TITLES: ClassVar[Mapping[str, str]] = INTERLOCK_TITLES
 
     # Its words are the driver's record of the refusal; the person reads the
     # API's refusal, which says which interlock is open.

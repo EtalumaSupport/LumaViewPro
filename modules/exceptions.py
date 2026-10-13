@@ -11,8 +11,8 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import TYPE_CHECKING, ClassVar
 
-from drivers.exceptions import MotionInterlockError
 from lib.lumascope_error import Fault, LumascopeError, _Umbrella
+from lib.stage_interlock import INTERLOCK_TITLES
 from modules.api_surface import api_fields
 from modules.run_outcome import ENDING_TITLES
 
@@ -1295,7 +1295,7 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
         'hardware_disconnected': 'Hardware Disconnected',
         'camera_not_streaming': 'Camera Not Streaming',
         'position_unknown': 'Scope Not Homed',
-        'lid_open': MotionInterlockError._TITLES['lid_open'],
+        'lid_open': INTERLOCK_TITLES['lid_open'],
         'capture_location_unusable': 'Save Location Unusable',
         'no_acquiring_layer': 'No Channel Set to Acquire',
         'step_position_unknown': 'Step Not Saved',
@@ -2561,8 +2561,8 @@ class HardwareCommandRefusedError(Refusal, Exception):
         'scope_disconnected': 'Not Connected',
         'axis_absent': 'Not on This Microscope',
         'position_unread': 'Motor Controller Not Responding',
-        'lid_open': MotionInterlockError._TITLES['lid_open'],
-        'stage_unpowered': MotionInterlockError._TITLES['stage_unpowered'],
+        'lid_open': INTERLOCK_TITLES['lid_open'],
+        'stage_unpowered': INTERLOCK_TITLES['stage_unpowered'],
     }
 
     def __init__(
@@ -2589,8 +2589,8 @@ class HardwareCommandRefusedError(Refusal, Exception):
 
 # The refusals a stage's own interlock raises: the hardware is in a state
 # that does not let it move, and the person's remedy is at the scope. The
-# driver's interlock table names them, and is the one list.
-INTERLOCK_REASONS = frozenset(MotionInterlockError._TITLES)
+# interlocks' one list names them.
+INTERLOCK_REASONS = frozenset(INTERLOCK_TITLES)
 
 # The refusals that describe the hardware's state rather than who holds the
 # scope. A home refused for one of them is reported where it was asked for,
