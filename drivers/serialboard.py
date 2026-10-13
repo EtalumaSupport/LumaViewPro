@@ -32,6 +32,12 @@ from drivers.serial_backend import PYSERIAL, SerialBackend
 _serial_log = logging.getLogger('LVP.serial')
 
 
+def _describe_port(port) -> str:
+    """One listed serial port: its device, USB VID:PID, description and serial number."""
+    usb_id = '-' if port.vid is None else f'{port.vid:04X}:{port.pid:04X}'
+    return f'{port.device} (VID:PID {usb_id}, {port.description!r}, SN {port.serial_number})'
+
+
 class ProtocolVersion(Enum):
     LEGACY = 'legacy'  # All pre-v3.0 firmware (including v2.0 dev builds)
     V3 = 'v3'  # v3.0 JSON Lines protocol
@@ -115,8 +121,16 @@ class SerialBoard:
             if port.vid == self._vid and port.pid == self._pid:
                 self.port = port.device
                 self.found = True
-                logger.info(f'{self._label} Found device at {port.device}')
-                break
+                logger.info(f'{self._label} Found device at {_describe_port(port)}')
+                return
+        # What the OS did list tells "not on USB" apart from a board that
+        # enumerated under another VID:PID, as another device, or with no
+        # serial ports listed at all.
+        listed = '; '.join(_describe_port(port) for port in ports) or 'none'
+        logger.info(
+            f'{self._label} No device with VID:PID {self._vid:04X}:{self._pid:04X}; '
+            f'the OS listed {len(ports)} serial port(s): {listed}'
+        )
 
     # ------------------------------------------------------------------
     # Connection helpers (used by connect)
