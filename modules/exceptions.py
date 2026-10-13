@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import TYPE_CHECKING, ClassVar
 
+from drivers.exceptions import MotionInterlockError
 from lib.lumascope_error import Fault, LumascopeError, _Umbrella
 from modules.api_surface import api_fields
 from modules.run_outcome import ENDING_TITLES
@@ -311,7 +312,7 @@ class RecordingPositionNotRecordedNotice(Notice, Exception):  # noqa: N818 -- a 
         has_plate: Whether a plate frame exists to record X and Y in.
     """
 
-    title = 'Position Not Recorded'
+    title = CapturePositionNotRecordedNotice.title
     reason = 'position_not_recorded'
 
     def __init__(self, *, unknown_axes: list[str], has_plate: bool):
@@ -1294,7 +1295,7 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
         'hardware_disconnected': 'Hardware Disconnected',
         'camera_not_streaming': 'Camera Not Streaming',
         'position_unknown': 'Scope Not Homed',
-        'lid_open': 'Lid Open',
+        'lid_open': MotionInterlockError._TITLES['lid_open'],
         'capture_location_unusable': 'Save Location Unusable',
         'no_acquiring_layer': 'No Channel Set to Acquire',
         'step_position_unknown': 'Step Not Saved',
@@ -1311,7 +1312,9 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
         'tiling_scale_unknown': 'Tiling Not Available',
         'zstack_not_configured': 'Z-Stack Not Configured',
         'already_tiled': 'Protocol Already Tiled',
-        'objective_not_in_catalogue': 'Objective Not Known',
+        'objective_not_in_catalogue': CatalogueNameRefusedError._WORDS[
+            'objective_not_in_catalogue'
+        ][0],
         'tiles_outside_travel': 'Tiles Outside Stage Travel',
         'zslices_outside_travel': 'Z-Stack Outside Z Travel',
         'positions_outside_travel': 'Positions Outside Stage Travel',
@@ -1471,8 +1474,8 @@ class RecordingRefusedError(Refusal, CaptureError):
     cause = RefusalCause.STATE
 
     _TITLES: ClassVar[dict[str, str]] = {
-        'recording_active': 'Recording Active',
-        'exclusive_activity_running': 'Another Activity Running',
+        'recording_active': ProtocolRunRefusedError._TITLES['recording_active'],
+        'exclusive_activity_running': ProtocolRunRefusedError._TITLES['exclusive_activity_running'],
         'camera_inactive': 'Camera Not Active',
         'camera_exposure_unknown': 'Camera Exposure Unavailable',
         'capture_location_unusable': 'Cannot Save Recording',
@@ -1995,7 +1998,7 @@ class DiskSpaceCriticalError(Fault, CaptureError):
         free_mb: Space left on the drive, in MB.
     """
 
-    title = 'Disk Space Critical'
+    title = ENDING_TITLES['disk_space_critical']
 
     def __init__(self, free_mb: float):
         super().__init__(
@@ -2555,8 +2558,8 @@ class HardwareCommandRefusedError(Refusal, Exception):
         'scope_disconnected': 'Not Connected',
         'axis_absent': 'Not on This Microscope',
         'position_unread': 'Motor Controller Not Responding',
-        'lid_open': 'Lid Open',
-        'stage_unpowered': 'No Stage Power',
+        'lid_open': MotionInterlockError._TITLES['lid_open'],
+        'stage_unpowered': MotionInterlockError._TITLES['stage_unpowered'],
     }
 
     def __init__(
@@ -2582,8 +2585,9 @@ class HardwareCommandRefusedError(Refusal, Exception):
 
 
 # The refusals a stage's own interlock raises: the hardware is in a state
-# that does not let it move, and the person's remedy is at the scope.
-INTERLOCK_REASONS = frozenset({'lid_open', 'stage_unpowered'})
+# that does not let it move, and the person's remedy is at the scope. The
+# driver's interlock table names them, and is the one list.
+INTERLOCK_REASONS = frozenset(MotionInterlockError._TITLES)
 
 # The refusals that describe the hardware's state rather than who holds the
 # scope. A home refused for one of them is reported where it was asked for,
@@ -2758,7 +2762,7 @@ class DiagnosticRefusedError(Refusal, Exception):
     cause = RefusalCause.STATE
 
     _TITLES: ClassVar[dict[str, str]] = {
-        'exclusive_activity_running': 'Another Activity Running',
+        'exclusive_activity_running': ProtocolRunRefusedError._TITLES['exclusive_activity_running'],
     }
 
     def __init__(
@@ -3276,7 +3280,7 @@ class AxisStateUnknownError(Refusal, Exception):
 
     cause = RefusalCause.STATE
     reason = 'position_unknown'
-    title = 'Scope Not Homed'
+    title = ProtocolRunRefusedError._TITLES['position_unknown']
 
     def __init__(self, axes: dict[str, str], then: str = 'move it'):
         """Build the refusal for ``axes``.
@@ -3747,7 +3751,7 @@ class CameraSettingOutOfRangeError(Refusal, ValueError):
     # The range is the attached camera's, fixed for its life, so a value
     # outside it is refused every time it is sent.
     cause = RefusalCause.REQUEST
-    title = 'Camera Setting Out of Range'
+    title = ProtocolRunRefusedError._TITLES['camera_setting_out_of_range']
 
     def __init__(
         self,

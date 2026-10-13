@@ -12,6 +12,7 @@ from enum import StrEnum
 from modules.exceptions import (
     InstallationFileError,
     LiveFolderPathRefusedError,
+    ProtocolRunRefusedError,
     Refusal,
     RefusalCause,
 )
@@ -35,7 +36,7 @@ class CaptureLocationError(Refusal, Exception):
     """
 
     cause = RefusalCause.STATE
-    title = 'Save Location Unusable'
+    title = ProtocolRunRefusedError._TITLES['capture_location_unusable']
 
     def __init__(self, reason: str, message: str):
         super().__init__(message)

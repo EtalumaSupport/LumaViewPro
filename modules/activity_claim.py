@@ -6,7 +6,13 @@ import threading
 from collections.abc import Iterator
 from dataclasses import dataclass
 from modules.api_surface import api
-from modules.exceptions import Refusal, RefusalCause, SessionClosingError, the_activity_named
+from modules.exceptions import (
+    RecordingRefusedError,
+    Refusal,
+    RefusalCause,
+    SessionClosingError,
+    the_activity_named,
+)
 
 # The activity kinds that hold the WHOLE scope: a run and a diagnostic both
 # drive every axis, the LEDs and the camera, and a home leaves every axis
@@ -33,7 +39,7 @@ class FalsifyingChangeInFlightError(Refusal, Exception):
     """
 
     cause = RefusalCause.STATE
-    title = 'Microscope Changing'
+    title = RecordingRefusedError._TITLES['falsifying_change_in_flight']
 
     def __init__(self):
         super().__init__(
