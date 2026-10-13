@@ -85,6 +85,7 @@ from modules.manual_recording import ManualRecordingController
 from modules.config_helpers import DisplayRates
 from modules.metrics_logger import ENGINEERING_METRICS_INTERVAL_S, MetricsLogger
 from modules.plugins import PLUGIN_API_LEVEL, PluginRegistry
+from modules.python_values import python_values
 from modules.scheduler import Scheduler, ThreadingTimerScheduler
 from modules.sequential_io_executor import IOTask, refuse_blocking_on_a_worker, slow_task_budget
 from modules.api_surface import FilePath, ProgressCallback, api, api_fields
@@ -2460,12 +2461,16 @@ class ScopeSession:
                 template and lack the block the path is in. Nothing is
                 written.
 
+        A numpy scalar in ``value``, at any depth, is stored as the Python
+        value it holds.
+
         A layer's gain or exposure is stored as written, the person's
         intent; a camera that cannot reach it is driven at its own limit
         when the layer is applied (``ImagingAPI.applied_gain_db_for``).
         The log level and the autofocus score log (``'logging.*'``) take
         effect as they are written.
         """
+        value = python_values(value)
         settings_paths.check_write(
             self.scope.settings_template,
             path,

@@ -14,6 +14,7 @@ from modules.exceptions import (
     StoredSettingReplacedNotice,
 )
 from modules.path_utils import read_installation_file
+from modules.python_values import python_values
 
 # A setting's value: what one leaf of the settings file holds.
 type SettingValue = str | int | float | bool | list | dict | None
@@ -655,10 +656,13 @@ def prepare_loaded(
     """The one preparation every settings dict gets: ``loaded`` made USABLE against ``template``.
 
     Reading a file, or taking a dict from a caller's hand, is only the
-    first step. In order: the containers are held to the template's kinds
-    (the merge would not repair a mismatch, it only recurses where both
-    sides are dicts, so this comes first); the retired spellings and the
-    values the running version cannot use are folded forward; the turret
+    first step. In order: a numpy scalar a caller's dict carries, at any
+    depth, is made the Python value it holds, so the store and the file
+    written from it hold Python values; the containers are held to the
+    template's kinds (the merge would not repair a mismatch, it only
+    recurses where both sides are dicts, so this comes first); the retired
+    spellings and the values the running version cannot use are folded
+    forward; the turret
     slot keys become ints on BOTH sides before the merge, because merged
     afterwards the template's string keys would sit beside the stored int
     keys and the normalization that followed would let the template's
@@ -694,6 +698,7 @@ def prepare_loaded(
             the write's own reason (``'out_of_range'``, ``'wrong_kind'``,
             ``'not_a_number'``).
     """
+    python_values(loaded)
     template = copy.deepcopy(template)
     _normalize_turret_slot_keys(template)
     problems = _check_container_shape(loaded, template)

@@ -33,6 +33,7 @@ from modules.notification_center import notifications
 import modules.common_utils as common_utils
 import modules.path_utils as path_utils
 from modules.finite_number import is_finite_number, refuse_unless_finite_number
+from modules.python_values import python_values
 from modules.layer_record import refuse_unknown_layer
 from modules.request_fields import key_path, refuse_unless_kind, required
 import modules.labware_loader as labware_loader
@@ -554,10 +555,13 @@ def _dict_cell(value: object) -> dict:
     """A config cell: a dict, or the text of one.
 
     The current writer saves JSON; files written before it hold Python's
-    repr of the dict (single quotes, True/False), read by literal_eval.
+    repr of the dict (single quotes, True/False), read by literal_eval. A
+    dict is read as a copy whose numpy scalars are the Python values they
+    hold, so a step's config is copied into the settings and written to the
+    protocol's file as Python values; the caller's dict is not changed.
     """
     if isinstance(value, dict):
-        return value
+        return python_values(copy.deepcopy(value))
     if isinstance(value, str):
         try:
             parsed = json.loads(value)
