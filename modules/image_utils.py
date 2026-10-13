@@ -8,6 +8,7 @@ import json
 import pathlib
 import re
 import struct
+from collections.abc import Iterator
 from typing import TYPE_CHECKING
 import xml.etree.ElementTree as ET
 
@@ -334,18 +335,6 @@ _legacy_collapse_warned: bool = False
 # in ImageDescription (Image > Pixels > Channel + Plane) is unchanged
 # by this sidecar -- both representations coexist on the same IFD.
 LVP_HYPERSTACK_METADATA_TIFF_TAG: int = 51838
-
-
-def _json_default_numpy(obj):
-    """JSON-encode hook for numpy scalars / arrays that may sit in
-    hyperstack metadata dicts (positions sourced from pandas DataFrame
-    cells arrive as numpy.float64; channel-index lists as numpy arrays).
-    """
-    if hasattr(obj, 'item'):
-        return obj.item()
-    if hasattr(obj, 'tolist'):
-        return obj.tolist()
-    raise TypeError(f'Object of type {type(obj).__name__} is not JSON serializable')
 
 
 def read_tiff_with_legacy_collapse(path: pathlib.Path) -> np.ndarray:
@@ -1976,14 +1965,14 @@ def maybe_apply_false_color(
 
 
 def write_hyperstack_tiff(
-    planes,
+    planes: Iterator[np.ndarray],
     file_loc: pathlib.Path,
     shape: tuple,
-    dtype,
+    dtype: np.dtype,
     hyperstack_metadata: dict,
     hyperstack_options: dict,
     hyperstack_resolution: tuple | None = None,
-):
+) -> None:
     """Stream a 5D TZCYX hyperstack to disk with caller-prepared OME metadata.
 
     ``planes`` is an iterator of 2D YX planes in C-order of ``shape``
@@ -2025,7 +2014,7 @@ def write_hyperstack_tiff(
     # The sidecar recovers the OME subtrees tifffile drops (Instrument /
     # Plate / Objective) for LVP-aware consumers; render hints live in
     # the OME-XML itself (Channel.Color), so the dict serializes whole.
-    sidecar_json = json.dumps(hyperstack_metadata, default=_json_default_numpy)
+    sidecar_json = json.dumps(hyperstack_metadata)
     sidecar_extratag = (
         LVP_HYPERSTACK_METADATA_TIFF_TAG,
         's',

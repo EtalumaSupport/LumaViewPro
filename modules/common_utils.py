@@ -6,7 +6,6 @@ import dataclasses
 import enum
 import gc
 import io
-import json
 import numbers
 import os
 import pathlib
@@ -16,7 +15,6 @@ import threading
 import time as _time
 from typing import TYPE_CHECKING, ClassVar, Final, Protocol
 
-import numpy as np
 import psutil
 
 from modules.video_cadence import effective_recording_fps
@@ -59,25 +57,6 @@ class PostFunction(enum.Enum):
     @classmethod
     def list_values(cls):
         return [c.value for c in cls]
-
-
-# ---------------------------------------------------------------------------
-# JSON serialization
-# ---------------------------------------------------------------------------
-
-
-class CustomJSONizer(json.JSONEncoder):
-    def default(self, obj):
-        if isinstance(obj, np.bool_):
-            return bool(obj)
-        elif isinstance(obj, np.integer):
-            return int(obj)
-        elif isinstance(obj, np.floating):
-            return float(obj)
-        elif isinstance(obj, np.ndarray):
-            return obj.tolist()
-
-        return super().default(obj)
 
 
 @dataclasses.dataclass(frozen=True)

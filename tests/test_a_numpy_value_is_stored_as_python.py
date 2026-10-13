@@ -85,6 +85,11 @@ class TestTheSettings:
             assert session.settings is handed
             assert type(handed['BF']['gain']) is float
             assert type(handed['video']['max_fps']) is int
+
+            # Written by plain json, with no encoder behind it.
+            session.save_settings(str(tmp_path / 'saved.json'), force=True)
+            saved = json.loads((tmp_path / 'saved.json').read_text())
+            assert saved['video']['max_fps'] == 10
         finally:
             session.shutdown()
 

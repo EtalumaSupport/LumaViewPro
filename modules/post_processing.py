@@ -20,7 +20,7 @@ import modules.path_utils as path_utils
 
 from lvp_logger import logger
 from modules.cell_count import CellCount
-from modules.common_utils import CustomJSONizer, read_table
+from modules.common_utils import read_table
 from modules.finite_number import is_finite_number
 from modules.python_values import python_values
 from modules.exceptions import (
@@ -383,7 +383,7 @@ def save_cell_count_method(method: Mapping, path: str | os.PathLike) -> None:
     check_cell_count_method(method)
     saved = python_values(copy.deepcopy({**method, 'metadata': dict(_CELL_COUNT_METHOD_METADATA)}))
     with open(path, 'w') as f:
-        json.dump(saved, f, indent=4, cls=CustomJSONizer)
+        json.dump(saved, f, indent=4)
 
 
 def read_cell_count_results(path: str | os.PathLike) -> pd.DataFrame:

@@ -263,15 +263,6 @@ class TestTinyFileConsolidation:
         assert ColorChannel.Lumi.value == 6
         assert len(ColorChannel) == 7
 
-    def test_custom_jsonizer_in_common_utils(self):
-        import json
-        import numpy as np
-        from modules.common_utils import CustomJSONizer
-
-        data = {'a': np.int64(42), 'b': np.float64(3.14), 'c': np.bool_(True)}
-        result = json.loads(json.dumps(data, cls=CustomJSONizer))
-        assert result == {'a': 42, 'b': 3.14, 'c': True}
-
     def test_post_function_in_common_utils(self):
         from modules.common_utils import PostFunction
 

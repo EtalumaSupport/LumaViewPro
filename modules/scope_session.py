@@ -50,7 +50,6 @@ from modules.activity_claim import (
     acting,
     the_holder_named,
 )
-from modules.common_utils import CustomJSONizer
 from modules.exceptions import (
     AlreadyStartedError,
     ArgumentRefusedError,
@@ -3280,7 +3279,7 @@ class ScopeSession:
         if not os.path.isabs(file):
             file = os.path.join(self.source_path, file)
         with open(file, 'w') as write_file:
-            json.dump(settings_snapshot, write_file, indent=4, cls=CustomJSONizer)
+            json.dump(settings_snapshot, write_file, indent=4)
         dt = time.monotonic() - t0
         if dt > 0.1:
             logger.warning(f'[Session  ] save_settings took {dt * 1000:.0f}ms')
