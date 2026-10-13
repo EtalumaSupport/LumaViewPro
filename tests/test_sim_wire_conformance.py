@@ -19,10 +19,15 @@ the API, and each result is held to the bench:
 One repetition of each call is replayed; the pools hold all of them. The
 replay runs twice: once in realistic timing, where a home and a move take
 as long as on the board (about a minute of real waits, so the tests that
-need it are marked slow), and once in instant timing, which takes seconds
-and answers every reply the same except where the record stopped a move in
-flight. Durations and the stopped positions read the realistic replay; every
-other reply reads the instant one.
+need it are marked slow), and once in instant timing, which answers every
+reply the same except where the record stopped a move in flight. Instant
+timing takes the board's delays away, not the host's: a command the field
+firmware does not know (DRVSTAT, CURRENT, MOTORDETECT, the LEDREADs) is
+answered with an error and no end marker, and the host waits out its reply
+timeout, 5 s on a multi-line drain and 4 s on one line, as on the bench. So
+the instant replay also takes about a minute, all of it in the first test
+on its worker, which fetches the shared replay. Durations and the stopped
+positions read the realistic replay; every other reply reads the instant one.
 
 Where the model does not yet behave like the board, the check is a strict
 xfail naming the difference, so it turns red when the model is fixed and the
