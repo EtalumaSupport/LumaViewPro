@@ -2617,6 +2617,7 @@ class HardwareCommandRefusedError(Refusal, Exception):
         'capture_in_flight': RefusalCause.STATE,
         'home_in_flight': RefusalCause.STATE,
         'scope_disconnected': RefusalCause.STATE,
+        'monitor_ended': RefusalCause.STATE,
         'position_unread': RefusalCause.STATE,
         'lid_open': RefusalCause.STATE,
         'stage_unpowered': RefusalCause.STATE,
@@ -2634,6 +2635,7 @@ class HardwareCommandRefusedError(Refusal, Exception):
         'home_in_flight': 'Microscope Busy',
         'not_connected': 'Not Connected',
         'scope_disconnected': 'Not Connected',
+        'monitor_ended': 'Motion Monitor Stopped',
         'axis_absent': 'Not on This Microscope',
         'position_unread': 'Motor Controller Not Responding',
         'lid_open': INTERLOCK_TITLES['lid_open'],
@@ -2805,6 +2807,11 @@ def _command_refused_sentence(reason: str, holder: str | None) -> str:
         return 'The activity that sent this command has ended, so the command was not sent.'
     if reason == 'scope_disconnected':
         return 'The microscope has been disconnected, so the command was not sent.'
+    if reason == 'monitor_ended':
+        return (
+            'The software that watches moves has stopped, so nothing was moved. '
+            'Restart the application.'
+        )
     if reason == 'position_unread':
         return (
             'The motor controller did not report the stage position, so the move '
@@ -3443,14 +3450,16 @@ class MoveFaultError(Fault, MoveNotCompletedError):
     Attributes:
         reason: ``'driver_failed'`` -- the motor board did not take the
             command (chained from the driver's error). ``'stalled'`` --
-            the motion monitor gave the axis up: it did not reach its
-            target within the motion bound. ``'board_lost'`` -- the
+            the motion monitor gave the axis up: its position stopped
+            changing short of its target, and the stage was halted.
+            ``'monitor_ended'`` -- the motion monitor ended while the axis
+            moved, so nothing could judge the move. ``'board_lost'`` -- the
             monitor lost the motor board while the axis moved.
             ``'faulted'`` -- something else set the axis UNKNOWN during
             the wait (a disconnect, a home). ``'position_unread'`` -- the
             board reported the axis arrived but not where, within the
-            motion bound. ``'status_unread'`` -- the board did not report
-            whether the axis arrived, within the motion bound. Each leaves
+            stall window. ``'status_unread'`` -- the board did not report
+            whether the axis arrived, within the stall window. Each leaves
             the axis UNKNOWN.
         title: The heading shown with the sentence, which follows the reason.
     """
@@ -3462,8 +3471,12 @@ class MoveFaultError(Fault, MoveNotCompletedError):
             'unknown -- home the scope before moving it again.'
         ),
         'stalled': (
-            'it did not reach its target within the motion time limit and was '
-            'abandoned. Check for an obstruction, then home the axis and retry.'
+            'it stopped moving before it reached its target, and the stage was '
+            'halted. Check for an obstruction, then home the axis and retry.'
+        ),
+        'monitor_ended': (
+            'the software that watches moves stopped while it moved. The {axis} '
+            'position is now unknown -- restart the application before moving it again.'
         ),
         'board_lost': (
             'the motor board was lost while it moved, so the move was aborted. '
@@ -3487,6 +3500,7 @@ class MoveFaultError(Fault, MoveNotCompletedError):
         'driver_failed': 'Move Did Not Complete',
         'faulted': 'Move Did Not Complete',
         'stalled': 'Motor Axis Stalled',
+        'monitor_ended': 'Motion Monitor Stopped',
         'board_lost': 'Motor Board Disconnected',
         'position_unread': 'Motor Position Unknown',
         'status_unread': 'Motor Position Unknown',

@@ -1526,9 +1526,14 @@ scope.motion.start_move_relative('Z', 100).result()
 # 'superseded'; MoveFaultError, a fault, for every other reason, after which
 # the axis is UNKNOWN: 'driver_failed' (the board did not take the command; chained
 # from the driver's error), 'stalled' / 'board_lost' / 'position_unread' /
-# 'status_unread' (the motion monitor gave the axis up -- 'position_unread' when
-# the board said it arrived but never said where, 'status_unread' when it never
-# said whether it arrived; the move raises the very object the monitor reported),
+# 'status_unread' (the motion monitor gave the axis up -- 'stalled' when its
+# position held one value for 2 s short of its target, and the stage was then
+# halted; a move of any length that keeps moving is never given up;
+# 'position_unread' when the board said it arrived but never said where,
+# 'status_unread' when it never said whether it arrived, each for the same 2 s;
+# the move raises the very object the monitor reported), 'monitor_ended' (the
+# monitor itself stopped while the axis moved; every later move is refused,
+# HardwareCommandRefusedError 'monitor_ended', until a new session is brought up),
 # 'faulted' (set UNKNOWN by something else while it moved), 'stopped' (a stop landed on it: stop_motion, or the
 # stage's own stop in refusing a move), 'superseded'
 # (another move or a home took the axis before it arrived; the axis keeps

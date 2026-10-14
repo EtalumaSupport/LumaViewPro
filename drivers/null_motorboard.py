@@ -134,6 +134,14 @@ class NullMotionBoard:
         """
         raise PartAbsentError(f'current_pos_steps({axis}): no motor board')
 
+    def steps_to_position(self, axis: str, steps: int) -> float:
+        """Null implementation: raises, as its position reads do.
+
+        Raises:
+            HardwareError: there is no motor board.
+        """
+        raise PartAbsentError(f'steps_to_position({axis}): no motor board')
+
     # ------------------------------------------------------------------
     # Status
     # ------------------------------------------------------------------

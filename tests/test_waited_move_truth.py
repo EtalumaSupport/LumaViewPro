@@ -51,7 +51,7 @@ def test_a_stalled_waited_move_raises_and_the_axis_stays_unknown(session, monkey
     monkeypatch.setattr(
         motion, 'get_target_status', lambda ax: False if ax == 'Z' else real_status(ax)
     )
-    monkeypatch.setattr(motion, '_MOTION_SETTLE_TIMEOUT_S', 0.3)
+    monkeypatch.setattr(motion, '_MOVE_STALL_WINDOW_S', 0.3)
 
     with pytest.raises(MoveNotCompletedError) as exc:
         motion.move_absolute('Z', _z_target(motion))
@@ -100,7 +100,7 @@ def test_the_executor_shows_the_failure_in_its_own_words(centre_posts):
 
 def test_another_axis_timing_out_does_not_fail_an_arrived_move(session, monkeypatch):
     motion = session.scope.motion
-    monkeypatch.setattr(motion, '_MOTION_SETTLE_TIMEOUT_S', 0.5)
+    monkeypatch.setattr(motion, '_MOVE_STALL_WINDOW_S', 0.5)
     # HOMING clears X's arrival event and the monitor never sets it, so the
     # wait times out on X while Z arrives.
     motion._set_axis_state('X', AxisState.HOMING)

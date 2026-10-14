@@ -92,7 +92,7 @@ def test_a_home_after_a_stall_leaves_no_stale_fault(session, monkeypatch):
     monkeypatch.setattr(
         motion, 'get_target_status', lambda ax: False if ax == 'Z' else real_status(ax)
     )
-    monkeypatch.setattr(motion, '_MOTION_SETTLE_TIMEOUT_S', 0.5)
+    monkeypatch.setattr(motion, '_MOVE_STALL_WINDOW_S', 0.5)
     with pytest.raises(MoveNotCompletedError) as stalled:
         motion.move_absolute('Z', motion.get_current_position('Z') + 100.0)
     assert stalled.value.reason == 'stalled'

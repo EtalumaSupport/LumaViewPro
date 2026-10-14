@@ -248,7 +248,7 @@ def test_a_retargeted_move_is_timed_by_its_own_clock(session, monkeypatch):
     monkeypatch.setattr(
         motion, 'get_target_status', lambda ax: False if ax == 'X' else real_status(ax)
     )
-    monkeypatch.setattr(motion, '_MOTION_SETTLE_TIMEOUT_S', 2.0)
+    monkeypatch.setattr(motion, '_MOVE_STALL_WINDOW_S', 2.0)
 
     m1 = motion.start_move_absolute('X', 10000.0)
     time.sleep(0.5)
@@ -284,7 +284,7 @@ def test_a_verdict_cannot_land_between_the_moving_write_and_its_event(session, m
     ev = _SlowClearEvent()
     ev.set()
     motion._arrival_events['X'] = ev
-    monkeypatch.setattr(motion, '_MOTION_SETTLE_TIMEOUT_S', 3.0)
+    monkeypatch.setattr(motion, '_MOVE_STALL_WINDOW_S', 3.0)
     motion.start_move_absolute('Y', motion.get_current_position('Y') + 3000.0)
 
     ev.delay_s = 0.08

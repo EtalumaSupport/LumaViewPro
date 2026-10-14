@@ -114,7 +114,7 @@ def test_a_held_axis_never_arrives_and_its_move_is_not_completed(scope, monkeypa
     """The waiter and the monitor give the move up on one bound, whichever
     is first, and both name it ``'stalled'``: a move that did not arrive."""
     # The settle bound is 120 s; the patch stays until it has a seam.
-    monkeypatch.setattr(scope.motion, '_MOTION_SETTLE_TIMEOUT_S', 0.3)
+    monkeypatch.setattr(scope.motion, '_MOVE_STALL_WINDOW_S', 0.3)
     scope.simulation.hold_axis('X')
     with pytest.raises(MoveNotCompletedError) as not_completed:
         scope.motion.move_absolute('X', 20_000.0)

@@ -77,7 +77,7 @@ def test_a_stopped_run_halts_its_move(session, tmp_path):
 def test_a_run_ended_by_its_moves_fault_halts_the_move(session, tmp_path, monkeypatch):
     """The move's own stall bound ends the run; the run's step-motion bound
     is far longer, so it is not the one that ends it."""
-    monkeypatch.setattr(session.scope.motion, '_MOTION_SETTLE_TIMEOUT_S', 0.5)
+    monkeypatch.setattr(session.scope.motion, '_MOVE_STALL_WINDOW_S', 0.5)
     run, target = _start_held(session, tmp_path)
 
     outcome = run.result(timeout=COMPLETION_TIMEOUT)

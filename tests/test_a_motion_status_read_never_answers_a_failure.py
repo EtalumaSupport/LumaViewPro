@@ -129,7 +129,7 @@ def test_a_move_whose_arrival_is_never_read_ends_status_unread(make_session, cen
     scope = make_session('LS850').scope
     motion = scope.motion
     # Give up on the next poll rather than after the production bound.
-    motion._MOTION_SETTLE_TIMEOUT_S = 0.0
+    motion._MOVE_STALL_WINDOW_S = 0.001
     scope.simulation.drop_replies('motor', count=None, command='STATUS_RZ')
 
     with caplog.at_level(logging.WARNING, logger='LVP.api'):

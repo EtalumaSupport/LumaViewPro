@@ -405,7 +405,7 @@ def _drive_to_switch(board, axis, toward_reference):
             'toward_reference': toward_reference,
             'switches': _switches(board, axis),
             'board_usteps': actual,
-            'api_um': round(board._usteps_to_um(axis, board._from_board(axis, actual)), 2),
+            'api_um': round(board.steps_to_position(axis, board._from_board(axis, actual)), 2),
             'seconds': round(time.monotonic() - started, 1),
         }
     finally:

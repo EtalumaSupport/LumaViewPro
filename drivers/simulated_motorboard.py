@@ -1057,7 +1057,7 @@ class SimulatedMotorBoard:
             ValueError: ``axis`` is not a motor axis.
             HardwareError: the board did not report the target.
         """
-        return self._user_units(axis, self._read_register('TARGET_R', axis))
+        return self.steps_to_position(axis, self._read_register('TARGET_R', axis))
 
     def current_pos(self, axis: str) -> float | int:
         """Get the current position of an axis in user units.
@@ -1072,7 +1072,7 @@ class SimulatedMotorBoard:
             ValueError: ``axis`` is not a motor axis.
             HardwareError: the board did not report the position.
         """
-        return self._user_units(axis, self._read_register('ACTUAL_R', axis))
+        return self.steps_to_position(axis, self._read_register('ACTUAL_R', axis))
 
     def backlash_um(self) -> float:
         """Z antibacklash, um: how far below its target a downward Z move
@@ -1402,7 +1402,7 @@ class SimulatedMotorBoard:
                 f'{register}{axis}: the board did not report a position (reply {response!r})'
             ) from e
 
-    def _user_units(self, axis: str, steps: int) -> float | int:
+    def steps_to_position(self, axis: str, steps: int) -> float | int:
         """Microsteps to microns for X/Y/Z, to the 1-based position for T."""
         if axis == 'Z':
             return self.z_ustep2um(steps)

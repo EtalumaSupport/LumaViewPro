@@ -570,8 +570,9 @@ class Tmcm6110Board:
         """
         return self._read_usteps(axis, AP_ACTUAL_POSITION)
 
-    def _usteps_to_um(self, axis: str, usteps: int) -> float:
-        return self._ustep2um(axis, usteps)
+    def steps_to_position(self, axis: str, steps: int) -> float:
+        """The micrometres ``current_pos`` answers for ``steps`` API microsteps."""
+        return self._ustep2um(axis, steps)
 
     def target_pos(self, axis: str) -> float:
         """The board's target in micrometres.
@@ -579,7 +580,7 @@ class Tmcm6110Board:
         Raises:
             HardwareError: the board did not report the position.
         """
-        return self._usteps_to_um(axis, self.target_pos_steps(axis))
+        return self.steps_to_position(axis, self.target_pos_steps(axis))
 
     def current_pos(self, axis: str) -> float:
         """The actual position in micrometres.
@@ -587,7 +588,7 @@ class Tmcm6110Board:
         Raises:
             HardwareError: the board did not report the position.
         """
-        return self._usteps_to_um(axis, self.current_pos_steps(axis))
+        return self.steps_to_position(axis, self.current_pos_steps(axis))
 
     def target_status(self, axis: str) -> bool:
         """True when the axis stands still at the board's target.

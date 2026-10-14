@@ -94,9 +94,10 @@ def prologue_stall_threshold_s(exposure_s: float) -> float:
 class StallWatch:
     """Fires when an observed progress value stops changing for too long.
 
-    The one silent-feed-death detector for loops that consume camera
-    frames: the caller polls with its progress signal (a frame counter,
-    an arrival count) and its own clock; ANY change in the value resets
+    The one progress-stall detector: the loops that consume camera frames,
+    and the motion monitor's watch on each move. The caller polls with its
+    progress signal (a frame counter, an arrival count, an axis's
+    microstep reading) and its own clock; ANY change in the value resets
     the timer, and the anchor starts at the first call so "no progress
     ever" also fires at the threshold. Loop-local by design -- the
     consuming loop owns the response (abort, refuse, notify), so the

@@ -85,7 +85,7 @@ class TestTheCommandedSlot:
         monkeypatch.setattr(
             motion, 'get_target_status', lambda ax: False if ax == 'T' else real_status(ax)
         )
-        monkeypatch.setattr(motion, '_MOTION_SETTLE_TIMEOUT_S', 0.3)
+        monkeypatch.setattr(motion, '_MOVE_STALL_WINDOW_S', 0.3)
 
         with pytest.raises(MoveNotCompletedError):
             motion.move_turret(2)

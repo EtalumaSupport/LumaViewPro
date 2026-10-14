@@ -143,9 +143,8 @@ def test_a_home_ends_when_its_board_ends_it_however_long_it_takes(scope, monkeyp
         zhome()
 
     monkeypatch.setattr(scope._motion_driver, 'zhome', slow)
-    # Every wait the API derives from these is now zero; a home still waits.
+    # The bound the API's waits used to derive from is zero; a home still waits.
     monkeypatch.setattr(scope.motion, '_MOTION_WAIT_BASE_S', 0.0)
-    monkeypatch.setattr(scope.motion, '_MOTION_SETTLE_TIMEOUT_S', 0.0)
     threading.Timer(0.5, release.set).start()
 
     assert scope.motion.home('Z') is None

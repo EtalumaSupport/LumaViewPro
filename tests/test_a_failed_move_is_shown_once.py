@@ -71,7 +71,7 @@ def _z_never_arrives(motion, monkeypatch):
 
 def _monitor_gives_up_first(motion, monkeypatch):
     # The monitor's stall clock, shortened: its verdict is the one a move ends with.
-    monkeypatch.setattr(motion, '_MOTION_SETTLE_TIMEOUT_S', MONITOR_GIVES_UP_S)
+    monkeypatch.setattr(motion, '_MOVE_STALL_WINDOW_S', MONITOR_GIVES_UP_S)
 
 
 _DRIVER_MOVES = {
@@ -159,7 +159,7 @@ def test_a_board_lost_during_a_waited_move_is_one_popup_the_monitors(
 def test_a_stalled_jog_nobody_waits_on_is_shown_by_the_monitor(session, centre_posts, monkeypatch):
     motion = session.scope.motion
     _z_never_arrives(motion, monkeypatch)
-    monkeypatch.setattr(motion, '_MOTION_SETTLE_TIMEOUT_S', MONITOR_GIVES_UP_S)
+    monkeypatch.setattr(motion, '_MOVE_STALL_WINDOW_S', MONITOR_GIVES_UP_S)
 
     motion.start_move_relative('Z', 20.0)
     # The wait for motion nobody holds a handle to raises the monitor's own
