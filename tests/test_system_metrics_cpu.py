@@ -12,10 +12,10 @@ Process handle so the reading is the delta over the inter-snapshot interval.
 from modules import common_utils
 
 
-def test_self_process_is_cached():
+def test_self_process_is_cached(monkeypatch):
     # The handle must be the SAME object across calls, or cpu_percent() can never
     # compute a delta and always reads 0.0.
-    common_utils._SELF_PROC = None  # clean slate for the assertion
+    monkeypatch.setattr(common_utils, '_SELF_PROC', None)  # clean slate for the assertion
     p1 = common_utils._self_process()
     p2 = common_utils._self_process()
     assert p1 is p2
@@ -24,7 +24,7 @@ def test_self_process_is_cached():
 def test_system_metrics_uses_cached_process_not_a_fresh_one(monkeypatch):
     # system_metrics() must route through the cached handle, never construct a
     # fresh psutil.Process (the bug that pinned process CPU to 0.0%).
-    common_utils._SELF_PROC = None
+    monkeypatch.setattr(common_utils, '_SELF_PROC', None)
     constructed = []
     real_process = common_utils.psutil.Process
 

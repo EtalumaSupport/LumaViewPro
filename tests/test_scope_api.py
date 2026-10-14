@@ -25,7 +25,6 @@ from modules.sequential_io_executor import SequentialIOExecutor
 from tests.scope_fakes import (
     build_scope,
     real_executor_bundle,
-    scope_delivering_nothing,
     swap_lanes,
 )
 from tests.protocol_drives import run_identity
@@ -440,7 +439,7 @@ class TestGetCurrentPlatePosition:
 
 
 class TestLogSystemMetrics:
-    def test_calls_system_metrics(self):
+    def test_calls_system_metrics(self, sim_scope):
         settings = complete_settings(live_folder='/tmp')
         with (
             patch('modules.common_utils.system_metrics') as mock_metrics,
@@ -460,7 +459,7 @@ class TestLogSystemMetrics:
             mock_disk.return_value = 100000  # plenty of space
             mock_extra.return_value = None
             config_helpers.log_system_metrics(
-                settings, scope=scope_delivering_nothing(), executors=real_executor_bundle()
+                settings, scope=sim_scope, executors=real_executor_bundle()
             )
             import pathlib
 

@@ -167,7 +167,7 @@ def _entries_with_a_site() -> set[str]:
 
 # Seeded at LVP dev/4.0.0 b17419cc (2026-10-09) with 237 entries. Only shrinks: a
 # commit that takes a stand-in to the simulator deletes its entry and lowers this.
-ALLOWED_ENTRIES = 220
+ALLOWED_ENTRIES = 218
 ALLOWED = frozenset(
     {
         'tests/af_drives.py::af_runner_and_scope',
@@ -180,7 +180,6 @@ ALLOWED = frozenset(
         'tests/guards/test_session_construction.py::TestScopeOwnershipIsConstructorState.test_a_session_needs_a_bundle',
         'tests/guards/test_session_metrics_lifecycle.py::_make_session',
         'tests/plugin_test_harness.py::_make_ctx',
-        'tests/scope_fakes.py::scope_delivering_nothing',
         'tests/test_a_basler_camera_publishes_the_formats_it_offers.py::_capabilities',
         'tests/test_a_camera_command_with_no_camera_is_refused.py::test_the_gui_camera_controls_follow_whether_a_camera_is_connected',
         'tests/test_a_camera_refusal_is_reported_once.py::TestTheRunReportsAndCarriesOn.test_the_autofocus_sweep_reports_a_refused_target_once',
@@ -312,7 +311,6 @@ ALLOWED = frozenset(
         'tests/test_lumascope_api.py::TestProtocolConformance.test_ledboard_satisfies_protocol',
         'tests/test_lumascope_api.py::TestProtocolConformance.test_motorboard_satisfies_protocol',
         'tests/test_manual_capture_overlay_save.py::capture_ctx',
-        'tests/test_metrics_tick_cost.py::_make_session',
         'tests/test_motor_capability_probes.py::_make_board',
         'tests/test_motorboard_fullinfo_legacy_firmware.py::_make_board',
         'tests/test_motorconfig_provenance.py::TestLoaderRecordsProvenance._board_with_config',
