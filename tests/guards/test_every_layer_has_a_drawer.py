@@ -6,7 +6,8 @@ draws each from its layer's record, so a key added to the catalogue gets a
 drawer with no code edit. The drawers were five hand-written classes, two
 inline kv items and two lookup maps, and a catalogue layer with none of
 them had no controls on screen. A key named in the drawer code is the start
-of that again, so it is refused here, at commit.
+of that again, so it is refused here, at commit. The live view's shader is
+held to the same: it shows a colour, never a key's.
 """
 
 from __future__ import annotations
@@ -17,8 +18,8 @@ import re
 
 from tests.ast_seams import REPO_ROOT, parse_module
 
-# The Python modules that build and fill the drawers.
-_DRAWER_MODULES = ('ui/image_settings.py',)
+# The Python modules that build and fill the drawers, and colour the view.
+_DRAWER_MODULES = ('ui/image_settings.py', 'ui/shader.py')
 
 
 def _catalogue_keys() -> set[str]:

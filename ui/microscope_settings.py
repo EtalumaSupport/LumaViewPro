@@ -11,6 +11,7 @@ from kivy.uix.boxlayout import BoxLayout
 import modules.app_context as _app_ctx
 import modules.binning as binning
 import modules.common_utils as common_utils
+import modules.layer_record as layer_record
 import modules.config_ui_getters as config_ui_getters
 from modules import gui_logger, path_utils
 from modules.config_helpers import (
@@ -302,14 +303,11 @@ class MicroscopeSettings(BoxLayout):
     def update_bullseye_state(self):
         gui_logger.toggle('BULLSEYE', self.ids['enable_bullseye_btn_id'].state == 'down')
         if self.ids['enable_bullseye_btn_id'].state == 'down':
-            _app_ctx.ctx.viewer.update_shader(false_color='BF')
+            _app_ctx.ctx.viewer.update_shader(layer_record.GREY)
             _app_ctx.ctx.scope_display.use_bullseye = True
         else:
             layer = _app_ctx.ctx.session.shown_channel.layer
-            layer_obj = _app_ctx.ctx.image_settings.layer_lookup(layer=layer)
-            if layer_obj.ids['false_color'].active:
-                _app_ctx.ctx.viewer.update_shader(false_color=layer)
-
+            _app_ctx.ctx.image_settings.layer_lookup(layer=layer).update_shader(dt=0)
             _app_ctx.ctx.scope_display.use_bullseye = False
 
     def load_image_modes(self):

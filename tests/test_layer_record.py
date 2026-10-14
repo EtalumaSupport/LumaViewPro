@@ -21,6 +21,7 @@ from modules.layer_record import (
     LayerIdentity,
     LayerRecord,
     GREY,
+    format_display_color,
     load_layer_catalogue,
     output_color,
     parse_display_color,
@@ -184,6 +185,10 @@ class TestCatalogueRecords:
         assert parse_display_color('#ff8000') == (1.0, 128 / 255, 0.0)
         refused = [c for c in ('#FF8000', 'ff8000', '#ff800', [1, 0, 1]) if _refuses(c)]
         assert refused == ['#FF8000', 'ff8000', '#ff800', [1, 0, 1]]
+
+    def test_a_colour_is_written_as_the_text_it_was_read_from(self):
+        texts = ('#ff8000', '#ffffff', '#000000', '#0080ff', '#7f0001')
+        assert [format_display_color(parse_display_color(t)) for t in texts] == list(texts)
 
     def test_a_repeated_key_or_step_order_is_refused(self, tmp_path):
         assert 'key' in self._refused(tmp_path, [CATALOGUE[0], CATALOGUE[0]])

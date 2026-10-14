@@ -11,6 +11,7 @@ from kivy.uix.scrollview import ScrollView
 
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
+import modules.layer_record as layer_record
 import modules.image_mode as image_mode
 from modules import gui_logger
 from modules.config_ui_getters import firmware_stim_supported
@@ -963,9 +964,6 @@ class LayerControl(BoxLayout):
             self.update_shader(dt=0)
 
     def update_shader(self, dt):
-        ctx = _app_ctx.ctx
-        # logger.info('[LVP Main  ] LayerControl.update_shader()')
-        if self.ids['false_color'].active:
-            ctx.viewer.update_shader(self.layer)
-        else:
-            ctx.viewer.update_shader('none')
+        _app_ctx.ctx.viewer.update_shader(
+            layer_record.shown_color(self.layer, self.ids['false_color'].active)
+        )

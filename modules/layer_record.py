@@ -73,6 +73,12 @@ def parse_display_color(text: object) -> Color:
     return tuple(int(text[i : i + 2], 16) / 255 for i in (1, 3, 5))
 
 
+def format_display_color(color: Color) -> str:
+    """The ``'#rrggbb'`` text of a colour, the inverse of ``parse_display_color``:
+    each weight to the nearest of the 256 steps."""
+    return '#' + ''.join(f'{round(weight * 255):02x}' for weight in color)
+
+
 @dataclass(frozen=True)
 class CatalogueLayer:
     """What a layer of one key is in this release, on every unit that has it.

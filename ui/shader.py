@@ -12,6 +12,7 @@ from kivy.uix.scatter import Scatter
 import modules.app_context as _app_ctx
 import modules.config_ui_getters as config_ui_getters
 from modules import gui_logger
+from modules.layer_record import Color, format_display_color
 from ui.ui_helpers import fixed_number, run_unasked
 
 logger = logging.getLogger('LVP.ui.shader')
@@ -379,33 +380,18 @@ void main (void) {
                 title += f' -- {event_text}'
             Window.set_title(title)
 
-    def current_false_color(self) -> str:
-        return self._false_color
-
-    def update_shader(self, false_color='BF'):
-        # logger.info('[LVP Main  ] ShaderViewer.update_shader()')
-
+    def update_shader(self, color: Color):
+        """Show the view in ``color``: each plane's white point is the view's
+        white times the colour's weight on that plane (``GREY`` shows mono)."""
         c = self.canvas
         c['projection_mat'] = Window.render_context['projection_mat']
         c['time'] = Clock.get_boottime()
         c['resolution'] = list(map(float, self.size))
         c['black_point'] = (self.black,) * 4
         c['gamma'] = 2.2
-
-        if false_color == 'Red':
-            c['white_point'] = (self.white, 0.0, 0.0, 1.0)
-            tint = 'red'
-        elif false_color == 'Green':
-            c['white_point'] = (0.0, self.white, 0.0, 1.0)
-            tint = 'green'
-        elif false_color in ('Blue', 'Lumi'):
-            c['white_point'] = (0.0, 0.0, self.white, 1.0)
-            tint = 'blue'
-        else:
-            c['white_point'] = (self.white,) * 4
-            tint = 'none'
+        c['white_point'] = (*(self.white * weight for weight in color), 1.0)
         # Every writer of the view's colour comes through here.
-        gui_logger.display('VIEW_FALSE_COLOR', tint)
+        gui_logger.display('VIEW_FALSE_COLOR', format_display_color(color))
 
     def on_fs(self, instance, value):
         self.canvas.shader.fs = value
