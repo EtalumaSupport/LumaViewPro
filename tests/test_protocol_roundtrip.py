@@ -402,7 +402,7 @@ class TestRoundTripBasic:
         """Legacy TSVs written with Python dict repr (single quotes, True/False)
         must still load. Pandas' default CSV stringification produced this format
         in older versions; json.loads rejects it. Before the fix, legacy TSVs
-        came back with DEFAULT_STIM_CONFIG (enabled=False, ill=100) on every
+        came back with a stand-in stimulation (enabled=False, ill=100) on every
         step instead of the saved stim values -- stim ran but fired no pulses
         because every channel was read as disabled.
         """

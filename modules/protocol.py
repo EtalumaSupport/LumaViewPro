@@ -3201,31 +3201,6 @@ class Protocol:
         # Added in v4
         DEFAULT_SUM_CONFIG = 1
 
-        # Added in v5
-        DEFAULT_STIM_CONFIG = {
-            'Red': {
-                'enabled': False,
-                'illumination_ma': 100,
-                'frequency': 1,
-                'pulse_width': 10,
-                'pulse_count': 100,
-            },
-            'Green': {
-                'enabled': False,
-                'illumination_ma': 100,
-                'frequency': 1,
-                'pulse_width': 10,
-                'pulse_count': 100,
-            },
-            'Blue': {
-                'enabled': False,
-                'illumination_ma': 100,
-                'frequency': 1,
-                'pulse_width': 10,
-                'pulse_count': 100,
-            },
-        }
-
         if config['version'] < cls.CURRENT_VERSION:
             logger.info(
                 f'Converting loaded protocol from {config["version"]} to {cls.CURRENT_VERSION}'
@@ -3311,10 +3286,10 @@ class Protocol:
             protocol_df['Sum'] = DEFAULT_SUM_CONFIG
 
         if (config['version'] in (2, 3, 4)) and (cls.CURRENT_VERSION >= 5):
-            # Each row gets its own independent dict
-            protocol_df['Stim_Config'] = _typed_column(
-                (copy.deepcopy(DEFAULT_STIM_CONFIG) for _ in protocol_df.index), object
-            )
+            # Saved before stimulation existed, so a step records none. Going
+            # to a step writes each channel its Stim_Config names, so a
+            # stand-in here would overwrite the user's stimulation settings.
+            protocol_df['Stim_Config'] = _typed_column(({} for _ in protocol_df.index), object)
         else:
             protocol_df['Stim_Config'] = _typed_column(
                 (

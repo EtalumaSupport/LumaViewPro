@@ -381,6 +381,43 @@ class TestTheStepIntoItsLayer:
         assert session.settings['BF'] == before
         assert 'Purple' not in session.settings
 
+    def test_a_step_saved_before_stimulation_leaves_the_stimulation_settings_alone(
+        self, no_motor_session, tmp_path
+    ):
+        # A v4 file predates the Stim_Config column, so its steps record no
+        # stimulation; going to one must not stand a made-up one in for it.
+        saved = tmp_path / 'protocol_v4.tsv'
+        _protocol('Center Plate', _step(10.0, 10.0, 0.0, _objective_of(no_motor_session))).to_file(
+            saved
+        )
+        dropped = set(Protocol.COLUMNS[Protocol.CURRENT_VERSION]) - set(Protocol.COLUMNS[4])
+        lines, keep = [], None
+        for line in saved.read_text().splitlines():
+            cells = line.split('\t')
+            if cells[0] == 'Version':
+                cells = ['Version', '4']
+            elif 'Name' in cells and 'Color' in cells:
+                keep = [i for i, name in enumerate(cells) if name not in dropped]
+            if keep is not None and len(cells) > max(keep):
+                cells = [cells[i] for i in keep]
+            lines.append('\t'.join(cells))
+        saved.write_text('\n'.join(lines) + '\n')
+        protocol = Protocol.from_file(saved, REPO_ROOT / 'data' / 'tiling.json')
+        for layer in ('Blue', 'Green', 'Red'):
+            no_motor_session.update_settings(f'{layer}.stim_config.pulse_count', 7)
+        before = {
+            layer: copy.deepcopy(values['stim_config'])
+            for layer, values in no_motor_session.settings.items()
+            if isinstance(values, dict) and 'stim_config' in values
+        }
+
+        no_motor_session.go_to_step(protocol, 0)
+
+        assert {
+            layer: no_motor_session.settings[layer]['stim_config'] for layer in before
+        } == before
+        assert protocol.step(idx=0)['Stim_Config'] == {}
+
 
 class TestTheLedPreview:
     @staticmethod
