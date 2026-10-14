@@ -2161,30 +2161,17 @@
 	# A run moves the shown channel; a person opens a drawer between runs.
 	disabled: app.run_lockout
 	log_item: root.layer
-	title_template: 'ChannelDrawerTitle'
+	# A swatch of the layer's colour before its label, drawn over the title bar.
+	canvas.after:
+		Color:
+			rgba: self.color_rgba
+		Rectangle:
+			pos: (self.container_title.x + dp(10), self.container_title.center_y - dp(6)) if self.container_title else (0, 0)
+			size: (dp(12), dp(12)) if self.container_title else (0, 0)
 	LayerControl:
 		id: control
 		layer: root.layer
 		bg_color: root.color_rgba
-
-# Kivy's AccordionItemTitle (vertical only, as the layer accordion is), with
-# a swatch of the layer's colour before its label.
-[ChannelDrawerTitle@Label]:
-	text: ctx.title
-	normal_background: ctx.item.background_normal if ctx.item.collapse else ctx.item.background_selected
-	disabled_background: ctx.item.background_disabled_normal if ctx.item.collapse else ctx.item.background_disabled_selected
-	canvas.before:
-		Color:
-			rgba: self.disabled_color if self.disabled else self.color
-		BorderImage:
-			source: self.disabled_background if self.disabled else self.normal_background
-			pos: self.pos
-			size: self.size
-		Color:
-			rgba: ctx.item.color_rgba
-		Rectangle:
-			pos: self.x + dp(10), self.center_y - dp(6)
-			size: dp(12), dp(12)
 
 
 # ImageSettings - view and edit control accordion
