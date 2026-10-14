@@ -29,7 +29,6 @@ from modules.exceptions import (
     AxisStateUnknownError,
     CameraSettingRejected,
     HardwareCommandRefusedError,
-    MotorStopFailedError,
 )
 from modules.lumascope_api.illumination import (
     FIRE_AND_FORGET_TRANSITIONS,
@@ -177,23 +176,8 @@ class ProtocolStepRunner:
                 )
                 logger.error(f'[PROTOCOL] {timeout_msg} -- transitioning to ERROR state')
 
-                # The timed-out move is still in flight. Halt the motor before
-                # erroring out so it stops driving toward the unreachable target
-                # rather than latching against a limit. Idempotent + no-ops on
-                # field firmware without a STOP command. A STOP that failed is
-                # logged once and folded into the run's one fatal popup: the
-                # power-cycle advice has to reach the person, and the run
-                # must still reach ERROR. Asked first: a controller lost
-                # mid-run has nothing to stop, and its refusal would skip both.
-                try:
-                    if p._scope.motor_connected:
-                        p._scope.motion.stop_motion()
-                except MotorStopFailedError as e:
-                    notifications.report_outcome(
-                        e, solicited=False, category='Protocol', log_only=True
-                    )
-                    timeout_msg = f'{timeout_msg} {e}'
-
+                # The timed-out move is still in flight; the run's cleanup
+                # halts it, as it halts the move of every run that ends short.
                 p._scan_in_progress.clear()
                 # The ERROR state is written before the funnel darkens the
                 # sample and notifies, so a raise from the funnel cannot cost

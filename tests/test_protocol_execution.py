@@ -2285,12 +2285,13 @@ class TestMotionTimeoutEndsRunInsteadOfWedging:
             'left in flight while the protocol errors out.'
         )
 
-    def test_a_failed_stop_is_folded_into_the_one_fatal_popup(
+    def test_a_failed_halt_is_told_once_in_the_cleanup_summary(
         self, executor, scope, tmp_path, monkeypatch, centre_posts
     ):
-        """A STOP that fails on a motion timeout does not cost the run its
-        ERROR ending: the run still ends, with one fatal popup that carries
-        the power-cycle advice, and nothing else says it again."""
+        """A STOP that fails after a motion timeout does not cost the run its
+        ERROR ending: the run ends with its one fatal popup, and the halt the
+        run's cleanup could not make is told once, in the cleanup summary,
+        with the power-cycle advice; the outcome names the step."""
         from drivers.exceptions import BoardNoReplyError
 
         def _dead_stop():
@@ -2301,7 +2302,7 @@ class TestMotionTimeoutEndsRunInsteadOfWedging:
         monkeypatch.setattr(scope._motion_driver, 'motor_stop', _dead_stop)
 
         protocol = _make_single_step_protocol(color='BF')
-        completed, _ = _run_and_wait(
+        completed, ended = _run_and_wait(
             executor,
             protocol,
             tmp_path,
@@ -2310,9 +2311,14 @@ class TestMotionTimeoutEndsRunInsteadOfWedging:
         )
 
         assert completed, 'the run did not end after a motion timeout whose STOP failed'
+        assert ended['outcome'].reason == 'motion_timeout', ended['outcome']
+        assert ended['outcome'].cleanup_failures == ('Halt the stage',)
         fatal = [n for n in centre_posts if n.title == 'Protocol Error -- Motion Timeout']
         assert len(fatal) == 1
-        assert 'motor STOP command failed' in fatal[0].message
+        summaries = [n for n in centre_posts if n.title == 'Protocol cleanup issues']
+        assert len(summaries) == 1
+        assert 'Halt the stage' in summaries[0].message
+        assert 'power-cycle the microscope' in summaries[0].message
         assert not [n for n in centre_posts if 'Stop' in n.title or 'stop' in n.title]
 
 
