@@ -35,7 +35,7 @@ MODULES = REPO_ROOT / 'modules'
 class TestEndingLatch:
     def test_the_first_ending_is_the_one_kept(self):
         latch = EndingLatch()
-        first = RunEnding('failed', 'motion_timeout', 'the cause')
+        first = RunEnding('failed', 'position_lost', 'the cause')
         later = RunEnding('failed', 'run_loop_crashed', 'the consequence')
 
         assert latch.set_if_unset(first) is True
@@ -444,27 +444,6 @@ class TestTheLatchOutranksTheWordTheLoopStated:
             'a user Stop is not a fault; forcing dark here would override the '
             "user's own end-state policy"
         )
-
-
-class TestAMotionTimeoutEndsTheRunAsAFault:
-    def test_it_aborts_through_the_funnel_naming_the_timeout(self):
-        """A timed-out move is a fault the instrument imposed: it force-darkens
-        and names itself, where the strike ceiling (a policy stop) does not.
-        """
-        import modules.protocol_step_runner as psr
-        from tests.protocol_drives import protocol_step, scan_ready_runner
-
-        runner = scan_ready_runner(protocol_step())
-        runner._scope.motion.is_moving.return_value = True
-        runner._motion_wait_start = 0.0  # already past the bound
-        runner.MOTION_TIMEOUT_SECONDS = 0.0
-
-        psr.ProtocolStepRunner(runner).scan_iterate()
-
-        aborts = runner._image_writer._abort_run_fatal.call_args_list
-        assert len(aborts) == 1, f'a motion timeout must end the run once; got {len(aborts)}'
-        reason, _domain, _message = aborts[0].args
-        assert reason == 'motion_timeout'
 
 
 class TestTheRunLoopsOwnEndings:

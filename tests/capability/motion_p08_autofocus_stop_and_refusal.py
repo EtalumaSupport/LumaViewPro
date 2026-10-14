@@ -63,21 +63,20 @@ def body(s):
         f'<the finished run>.stop() -> {late_stop!r}',
     )
 
-    # --- the stuck-AF bound: the GUI arms a 15 s Clock timer
-    #     (ui/vertical_control.py:382, AF_SAFETY_TIMEOUT_S). Nothing under
-    #     modules/ carries one, so a headless autofocus that stops
-    #     progressing is bounded only by the run pipeline's motion timeout.
+    # --- no clock of its own: the GUI's 15 s stuck-AF timer is gone, and
+    #     nothing under modules/ or ui/ carries one. Every wait inside a
+    #     sweep is a move the motion monitor judges or a bounded capture.
     import subprocess
 
     hits = subprocess.run(
-        ['grep', '-rln', 'AF_SAFETY_TIMEOUT_S', str(REPO / 'modules')],
+        ['grep', '-rln', 'AF_SAFETY_TIMEOUT_S', str(REPO / 'modules'), str(REPO / 'ui')],
         capture_output=True,
         text=True,
     ).stdout.split()
     check(
-        'the 15 s stuck-AF bound has no home under modules/ -- it is GUI-only',
+        'no stuck-AF timer under modules/ or ui/: a sweep has no clock of its own',
         not hits,
-        f'modules/ hits: {hits}',
+        f'hits: {hits}',
     )
 
 

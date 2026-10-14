@@ -548,7 +548,6 @@ class TestAutofocusFailureDoesNotHaltProtocol:
         executor._set_state(ProtocolState.RUNNING)
         executor._grease_redistribution_event.set()
         executor._curr_step = 0
-        executor._motion_wait_start = None
         executor._step_start_time = 0.0
         with executor._protocol_state_lock:
             executor._n_scans = 1
@@ -1930,45 +1929,6 @@ class TestCaptureFailure:
 # ---------------------------------------------------------------------------
 
 
-class TestStepTimeout:
-    """P1-4: Steps that exceed MOTION_TIMEOUT_SECONDS are skipped."""
-
-    def test_stuck_motion_skips_step(self, executor, scope, tmp_path):
-        """If motion never completes, the step times out and protocol continues."""
-        from modules.sequenced_capture_runner import SequencedCaptureRunner
-
-        # Use a very short timeout for the test
-        original_timeout = SequencedCaptureRunner.MOTION_TIMEOUT_SECONDS
-        SequencedCaptureRunner.MOTION_TIMEOUT_SECONDS = 1  # 1 second
-
-        protocol = _make_multi_step_protocol(
-            [
-                {'color': 'BF', 'x': 10.0},
-                {'color': 'Red', 'x': 20.0},
-            ]
-        )
-
-        # Make get_target_status always return False for first step
-        call_count = [0]
-        original_get_target = scope.motion.get_target_status
-
-        def slow_target(axis):
-            call_count[0] += 1
-            # First ~200 calls (first step) -- never reach target
-            if call_count[0] < 200:
-                return False
-            return original_get_target(axis)
-
-        scope.motion.get_target_status = slow_target
-
-        completed, _ = _run_and_wait(executor, protocol, tmp_path)
-        # Restore
-        SequencedCaptureRunner.MOTION_TIMEOUT_SECONDS = original_timeout
-        scope.motion.get_target_status = original_get_target
-
-        assert completed
-
-
 # ---------------------------------------------------------------------------
 # P1-8: Camera gain/exposure restoration
 # ---------------------------------------------------------------------------
@@ -2202,122 +2162,6 @@ class TestProtocolLedNoFlash:
                 blinked = True
                 break
         assert not blinked, f'already-lit {color} was blinked off->on at run start: {events}'
-
-
-class TestMotionTimeoutEndsRunInsteadOfWedging:
-    """A motion timeout mid-run must END the protocol (ERROR -> cleanup ->
-    run_ended), not wedge it. Previously the timed-out scan was counted
-    complete and every later period raised an invalid ERROR->SCANNING
-    transition that the transient-failure classifier retried forever -- a
-    multi-day timelapse silently delivering nothing after one timeout."""
-
-    def test_run_completes_after_motion_timeout(self, executor, scope, tmp_path, monkeypatch):
-        from modules.protocol_state_machine import ProtocolState
-
-        executor.MOTION_TIMEOUT_SECONDS = 0.3
-        # Stage reports moving forever -> the step's motion wait must trip
-        # the timeout instead of completing.
-        monkeypatch.setattr(scope.motion, 'is_moving', lambda *a, **kw: True)
-
-        protocol = _make_single_step_protocol(color='BF')
-        completed, _ = _run_and_wait(
-            executor,
-            protocol,
-            tmp_path,
-            run_mode=SequencedCaptureRunMode.FULL_PROTOCOL,
-            max_scans=3,
-        )
-
-        assert completed, (
-            'Protocol wedged after a motion timeout: run_ended never '
-            'fired. ERROR state must terminate the run, not be retried '
-            'as a transient failure every period.'
-        )
-        assert executor._state == ProtocolState.IDLE, (
-            f'Expected IDLE after cleanup, got {executor._state}'
-        )
-
-    def test_a_plain_motion_timeout_is_shown_once_under_its_title(
-        self, executor, scope, tmp_path, monkeypatch, centre_posts
-    ):
-        """The timeout with a STOP that worked: one fatal popup, the ending's title."""
-        from modules.run_outcome import ENDING_TITLES
-
-        executor.MOTION_TIMEOUT_SECONDS = 0.3
-        monkeypatch.setattr(scope.motion, 'is_moving', lambda *a, **kw: True)
-
-        completed, ended = _run_and_wait(executor, _make_single_step_protocol(color='BF'), tmp_path)
-
-        assert completed
-        assert ended['outcome'].reason == 'motion_timeout', ended['outcome']
-        fatal = [n.title for n in centre_posts if n.shown and n.fatal]
-        assert fatal == [ENDING_TITLES['motion_timeout']], fatal
-
-    def test_motion_timeout_stops_the_motor(self, executor, scope, tmp_path, monkeypatch):
-        """A motion timeout must halt the in-flight move, not just error out.
-        Without stop_motion the motor keeps driving toward the unreachable
-        target while the protocol transitions to ERROR."""
-        executor.MOTION_TIMEOUT_SECONDS = 0.3
-        monkeypatch.setattr(scope.motion, 'is_moving', lambda *a, **kw: True)
-
-        stop_calls = []
-        orig_stop = scope.motion.stop_motion
-
-        def _spy_stop(*a, **kw):
-            stop_calls.append(True)
-            return orig_stop(*a, **kw)
-
-        monkeypatch.setattr(scope.motion, 'stop_motion', _spy_stop)
-
-        protocol = _make_single_step_protocol(color='BF')
-        _run_and_wait(
-            executor,
-            protocol,
-            tmp_path,
-            run_mode=SequencedCaptureRunMode.FULL_PROTOCOL,
-            max_scans=3,
-        )
-
-        assert stop_calls, (
-            'Motion timeout did not call stop_motion; the timed-out move is '
-            'left in flight while the protocol errors out.'
-        )
-
-    def test_a_failed_halt_is_told_once_in_the_cleanup_summary(
-        self, executor, scope, tmp_path, monkeypatch, centre_posts
-    ):
-        """A STOP that fails after a motion timeout does not cost the run its
-        ERROR ending: the run ends with its one fatal popup, and the halt the
-        run's cleanup could not make is told once, in the cleanup summary,
-        with the power-cycle advice; the outcome names the step."""
-        from drivers.exceptions import BoardNoReplyError
-
-        def _dead_stop():
-            raise BoardNoReplyError('no response from motor board')
-
-        executor.MOTION_TIMEOUT_SECONDS = 0.3
-        monkeypatch.setattr(scope.motion, 'is_moving', lambda *a, **kw: True)
-        monkeypatch.setattr(scope._motion_driver, 'motor_stop', _dead_stop)
-
-        protocol = _make_single_step_protocol(color='BF')
-        completed, ended = _run_and_wait(
-            executor,
-            protocol,
-            tmp_path,
-            run_mode=SequencedCaptureRunMode.FULL_PROTOCOL,
-            max_scans=3,
-        )
-
-        assert completed, 'the run did not end after a motion timeout whose STOP failed'
-        assert ended['outcome'].reason == 'motion_timeout', ended['outcome']
-        assert ended['outcome'].cleanup_failures == ('Halt the stage',)
-        fatal = [n for n in centre_posts if n.title == 'Protocol Error -- Motion Timeout']
-        assert len(fatal) == 1
-        summaries = [n for n in centre_posts if n.title == 'Protocol cleanup issues']
-        assert len(summaries) == 1
-        assert 'Halt the stage' in summaries[0].message
-        assert 'power-cycle the microscope' in summaries[0].message
-        assert not [n for n in centre_posts if 'Stop' in n.title or 'stop' in n.title]
 
 
 class TestSaveFailureRecordsRow:

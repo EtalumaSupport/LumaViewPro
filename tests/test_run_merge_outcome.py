@@ -36,7 +36,7 @@ from modules.run_outcome import (
 
 _COMPLETED = RunEnding('completed', 'completed', 'The run finished.')
 _ABORTED = RunEnding('aborted', 'stopped', 'Stopped by the user.')
-_FAILED = RunEnding('failed', 'motion_timeout', 'The stage did not arrive.')
+_FAILED = RunEnding('failed', 'position_lost', 'The stage did not arrive.')
 _SHUTDOWN = RunEnding('aborted', 'shutdown', 'The session shut down.')
 
 _ARTIFACT = '/runs/1/Composite/A1_Composite_1.tiff'

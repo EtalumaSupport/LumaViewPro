@@ -241,7 +241,6 @@ class AutofocusRunner:
         # interactive AF runs default to False so pre-AF state is
         # restored as before.
         self._keep_led_on = keep_led_on
-        self._last_progress_ts = time.monotonic()
 
         self._save_results_to_file = save_results_to_file
         self._write_batch = write_batch
@@ -770,7 +769,6 @@ class AutofocusRunner:
 
         if self._abort_event is not None and self._abort_event.is_set():
             self._is_focusing_event.clear()
-            self._last_progress_ts = time.monotonic()
             return
 
         # INTENTIONAL: No early termination on the coarse pass. Real
@@ -905,7 +903,6 @@ class AutofocusRunner:
         self._params['z_max'] = best_focus_position + prev_resolution
 
         self._move_absolute_position(position=self._params['z_min'])
-        self._last_progress_ts = time.monotonic()
 
         if self._params['resolution'] == af_min:
             self._last_pass = True

@@ -74,15 +74,19 @@ def test_a_stopped_run_halts_its_move(session, tmp_path):
     )
 
 
-def test_a_run_ended_by_its_moves_fault_halts_the_move(session, tmp_path, monkeypatch):
-    """The move's own stall bound ends the run; the run's step-motion bound
-    is far longer, so it is not the one that ends it."""
+def test_a_run_ended_by_its_moves_fault_halts_the_move(
+    session, tmp_path, monkeypatch, centre_posts
+):
+    """The move's own stall bound ends the run, which has no motion clock of
+    its own: the stall is told once, the run ending as a lost position."""
     monkeypatch.setattr(session.scope.motion, '_MOVE_STALL_WINDOW_S', 0.5)
     run, target = _start_held(session, tmp_path)
 
     outcome = run.result(timeout=COMPLETION_TIMEOUT)
 
     assert (outcome.status, outcome.reason) == ('failed', 'position_lost')
+    shown = [n.title for n in centre_posts if n.shown and n.fatal]
+    assert len(shown) == 1, shown
     assert _where_the_board_drives_x(session) < target - 1000.0, (
         'the faulted run left its move driving'
     )

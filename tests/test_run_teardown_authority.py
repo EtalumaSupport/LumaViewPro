@@ -208,7 +208,7 @@ class TestAStopControlCanSayTheRunIsStopping:
     def test_a_run_the_instrument_ended_is_not_stopping(self):
         from modules.run_outcome import RunEnding
 
-        assert self._stopping(True, RunEnding('failed', 'motion_timeout', 'M')) is False
+        assert self._stopping(True, RunEnding('failed', 'position_lost', 'M')) is False
 
     def test_a_run_that_is_not_live_is_not_stopping(self):
         from modules.run_outcome import RunEnding

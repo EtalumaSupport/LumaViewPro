@@ -221,7 +221,6 @@ def gui(monkeypatch):
     monkeypatch.setattr(vc.gui_logger, 'button', lambda *a, **kw: None)
     button = SimpleNamespace(
         _autofocus_run=None,
-        _unschedule_af_safety_timer=lambda: None,
     )
     button._autofocus_run_ended = lambda layer, outcome: vc.VerticalControl._autofocus_run_ended(
         button, layer, outcome

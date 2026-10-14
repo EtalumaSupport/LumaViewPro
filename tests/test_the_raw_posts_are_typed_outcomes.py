@@ -73,8 +73,8 @@ _FAULTS = [
         False,
     ),
     (
-        exc.RunFailedError(reason='motion_timeout', message='m'),
-        'motion_timeout',
+        exc.RunFailedError(reason='position_lost', message='m'),
+        'position_lost',
         True,
     ),
 ]

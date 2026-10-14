@@ -148,7 +148,7 @@ class TestCompositeOutcomeIsObservable:
 
     @pytest.mark.parametrize(
         ('status', 'reason'),
-        [('aborted', 'stopped'), ('failed', 'motion_timeout'), ('failed', 'disk_space_critical')],
+        [('aborted', 'stopped'), ('failed', 'position_lost'), ('failed', 'disk_space_critical')],
     )
     def test_a_run_that_never_completed_names_its_own_ending(self, status, reason):
         # There was no merge to blame: the run died first, so merge_reason

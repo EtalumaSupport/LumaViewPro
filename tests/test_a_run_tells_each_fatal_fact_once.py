@@ -54,21 +54,21 @@ class TestTheLatchSaysWhatEachFactIsTold:
     def test_the_first_fatal_is_shown_and_ends_the_run(self):
         latch = EndingLatch()
 
-        assert latch.record_fatal(_fatal('motion_timeout')) is FatalTold.SHOW
-        assert latch.get().reason == 'motion_timeout'
-        assert latch.shown_fatal == 'motion_timeout'
+        assert latch.record_fatal(_fatal('position_lost')) is FatalTold.SHOW
+        assert latch.get().reason == 'position_lost'
+        assert latch.shown_fatal == 'position_lost'
 
     def test_another_fatal_is_logged_once_and_the_same_one_again_not_at_all(self):
         latch = EndingLatch()
-        latch.record_fatal(_fatal('motion_timeout'))
+        latch.record_fatal(_fatal('position_lost'))
 
         told = [
             latch.record_fatal(_fatal(reason))
-            for reason in ('disk_space_critical', 'disk_space_critical', 'motion_timeout')
+            for reason in ('disk_space_critical', 'disk_space_critical', 'position_lost')
         ]
 
         assert told == [FatalTold.LOG, FatalTold.TOLD, FatalTold.TOLD]
-        assert latch.get().reason == 'motion_timeout', 'the first fact stays the ending'
+        assert latch.get().reason == 'position_lost', 'the first fact stays the ending'
 
     def test_a_fatal_after_a_stop_is_shown_and_the_stop_stays_the_ending(self):
         latch = EndingLatch()

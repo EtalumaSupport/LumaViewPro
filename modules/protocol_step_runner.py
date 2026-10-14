@@ -162,29 +162,11 @@ class ProtocolStepRunner:
         if remaining_scans <= 0:
             return
 
-        # Check motion timeout. The timer bounds ONE continuous motion:
-        # it starts when motion is first observed in flight and resets
-        # whenever the stage reports idle, so time spent in an in-step
-        # autofocus run never counts against a later move's budget.
+        # The step waits while the stage moves. The move is judged by the
+        # motion monitor, which gives an axis up once it stops progressing;
+        # an axis given up ends the run at its position check.
         if p._scope.motion.is_moving():
-            if p._motion_wait_start is None:
-                p._motion_wait_start = time.monotonic()
-            if time.monotonic() - p._motion_wait_start > p.MOTION_TIMEOUT_SECONDS:
-                timeout_msg = (
-                    f'Step {p._curr_step} timed out waiting for motion '
-                    f'({p.MOTION_TIMEOUT_SECONDS}s).'
-                )
-                logger.error(f'[PROTOCOL] {timeout_msg} -- transitioning to ERROR state')
-
-                # The timed-out move is still in flight; the run's cleanup
-                # halts it, as it halts the move of every run that ends short.
-                p._scan_in_progress.clear()
-                # The ERROR state is written before the funnel darkens the
-                # sample and notifies, so a raise from the funnel cannot cost
-                # this site the state that stops the loop re-entering.
-                p.end_run_fatally('motion_timeout', timeout_msg)
             return
-        p._motion_wait_start = None
 
         if not p._grease_redistribution_event.is_set():
             return
@@ -581,7 +563,6 @@ class ProtocolStepRunner:
         """Move to the position for a given protocol step."""
         p = self._p
         p._step_start_time = time.monotonic()
-        p._motion_wait_start = None
         if p._aborted.is_set():
             return
         deliver(p._events.step_started, 'step_started', step_idx)

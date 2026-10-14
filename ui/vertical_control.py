@@ -26,8 +26,6 @@ from ui.ui_helpers import (
 
 logger = logging.getLogger('LVP.ui.vertical_control')
 
-AF_SAFETY_TIMEOUT_S = 15  # Seconds before AF is considered stuck and force-reset
-
 
 # ============================================================================
 # VerticalControl -- Z-Axis, Objectives, Turret, and Autofocus
@@ -51,12 +49,9 @@ class VerticalControl(BoxLayout):
         self.is_autofocus = False
         self.record_autofocus_to_file = False
         self._next_pos = None
-        self._af_safety_event = None
-        # The handle this button's last start returned: what its Stop and
-        # its stuck-AF bound name. The engine answers whether it is live.
+        # The handle this button's last start returned: what its Stop
+        # names. The engine answers whether it is live.
         self._autofocus_run: Operation | None = None
-        # The run the stuck-AF bound was last armed for: one bound per run.
-        self._af_safety_run: Operation | None = None
 
         self.queue_slider_position_trigger = Clock.create_trigger(
             lambda dt: self.queue_slider_position(), 0.1
@@ -399,38 +394,6 @@ class VerticalControl(BoxLayout):
         button.state = 'down'
         button.text = 'Stopping...' if progress.is_stopping else 'Focusing...'
         gui_logger.display('AUTOFOCUS_BUTTON', f'{button.text} held={self.autofocus_held}')
-        # Armed by the run it bounds, the first time that run is seen live,
-        # and once per run: a timer armed before the run existed outlived
-        # every exit that started nothing and reached forward to abort the
-        # next autofocus that did.
-        if self._af_safety_run is not run:
-            self._af_safety_run = run
-            self._schedule_af_safety_timer(run)
-
-    def _unschedule_af_safety_timer(self):
-        if self._af_safety_event is not None:
-            Clock.unschedule(self._af_safety_event)
-            self._af_safety_event = None
-
-    def _schedule_af_safety_timer(self, run: 'Operation') -> None:
-        """Arm the stuck-AF bound for *run*: a standalone AF that stops
-        progressing is force-aborted rather than holding the lockout until
-        the user notices. The run pipeline bounds stalled MOTION, not a
-        stalled AF algorithm, so the bound lives with this starter.
-        """
-        self._unschedule_af_safety_timer()
-
-        def _af_safety(dt):
-            # Keyed on the run this bound was armed for, never on whatever
-            # this button holds when it fires, and never on the AF thread
-            # being busy: a timer that outlived its run must stay out of
-            # reach of the next autofocus, and a rival run's AF step is
-            # never this button's to stop.
-            if run.progress().is_live:
-                logger.warning('[AF Safety] Autofocus appeared stuck. Forced abort.')
-                self._stop_autofocus(run)
-
-        self._af_safety_event = Clock.schedule_once(_af_safety, AF_SAFETY_TIMEOUT_S)
 
     def _autofocus_run_ended(self, layer: str | None, outcome) -> None:
         """Save the focus this button's autofocus chose, as the focus of the layer it focused.
@@ -443,7 +406,6 @@ class VerticalControl(BoxLayout):
         delivery.
         """
         ctx = _app_ctx.ctx
-        self._unschedule_af_safety_timer()
         if layer is None:
             return
         # AF restored the camera from committed settings; an uncommitted

@@ -77,7 +77,6 @@ ENDING_TITLES: dict[str, str] = {
     'consecutive_scan_failures': 'Protocol Aborted',
     'interlock': 'Protocol Aborted -- Stage Interlock',
     'position_lost': 'Protocol Aborted -- Position Lost',
-    'motion_timeout': 'Protocol Error -- Motion Timeout',
     'disk_space_critical': 'Disk Space Critical',
     'file_writer_stalled': 'File Writer Stalled',
     'video_writer_died': 'Recording Failed',
@@ -98,7 +97,7 @@ class RunEnding:
             the run down); 'failed' is one the instrument imposed,
             including the strike ceiling for scans that kept failing.
         reason: Machine-readable cause, stable enough for a caller to
-            branch on ('motion_timeout', 'disk_space_critical',
+            branch on ('position_lost', 'disk_space_critical',
             'stopped', ...); one of ``ENDING_TITLES``' keys, or the
             ending fails where it is made.
         title: Short human sentence, suitable as a popup heading: the
@@ -306,7 +305,7 @@ class RunOutcome:
     Attributes:
         status: One of 'completed', 'incomplete', 'aborted', 'failed',
             'failed_at_start'.
-        reason: Why the RUN ended ('stopped', 'motion_timeout',
+        reason: Why the RUN ended ('stopped', 'position_lost',
             'captures_failed', ...).
         title: Short human sentence, suitable as a popup heading.
         message: The sentence a user reads.
