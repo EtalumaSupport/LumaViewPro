@@ -165,15 +165,14 @@ class TestCompositeOutcomeIsObservable:
         )
 
     def test_an_outcome_that_never_settles_raises_rather_than_hanging(self):
-        """The caller's own merge_timeout_s ran out: a TimeoutError, quiet,
-        that is still a CaptureError; it was a fault, though nothing failed."""
+        """The caller's own timeout_s ran out: a TimeoutError, quiet, as every
+        run's waiting form raises, holding the run that is still going."""
         runner = self._runner_whose_run(self._COMPLETED, settle=False)
 
         with pytest.raises(TimeoutError) as excinfo:
-            runner.run_composite(merge_timeout_s=0.05)
-        assert isinstance(excinfo.value, CaptureError)
-        assert excinfo.value.reason == 'merge_timeout'
-        assert 'wedged' in str(excinfo.value)
+            runner.run_composite(timeout_s=0.05)
+        assert excinfo.value.reason == 'still_running'
+        assert not excinfo.value.operation.done()
         assert outcome_of(excinfo.value).kind == OutcomeKind.QUIET
 
     def test_a_refused_run_reaches_the_caller_as_a_refusal(self):

@@ -84,7 +84,7 @@ def test_the_walk_finds_both_kinds():
     for name in ('StepNotFoundError', 'ProtocolScheduleRefusedError', *_FACTORIES):
         assert name in refusals, name
     assert set(_mixed(refusals)) == set(_FACTORIES)
-    assert 'CompositeWaitExpiredError' in _types_mixing_in(Quiet)
+    assert 'RunWaitExpiredError' in _types_mixing_in(Quiet)
 
 
 def test_every_refusal_and_quiet_type_declares_a_cause():

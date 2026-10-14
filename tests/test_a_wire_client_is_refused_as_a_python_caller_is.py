@@ -25,7 +25,7 @@ from fastapi.testclient import TestClient
 
 from modules.exceptions import (
     ArgumentRefusedError,
-    CompositeWaitExpiredError,
+    RunWaitExpiredError,
     LiveFolderPathRefusedError,
     Remedy,
 )
@@ -180,21 +180,19 @@ def test_a_move_another_request_stopped_answers_409_as_a_notice(client, session)
 
 def test_a_quiet_outcome_answers_by_its_cause_and_says_it_is_quiet(client, session, monkeypatch):
     def expired():
-        raise CompositeWaitExpiredError(
-            'the composite did not report an outcome within 5s; the run or its merge is wedged',
-            'merge_timeout',
-        )
+        raise RunWaitExpiredError('run_composite', 5.0, None)
 
     monkeypatch.setattr(session.scope.illumination, 'leds_off', expired)
 
-    # The run or its merge may still settle with the caller changing nothing:
-    # the scope's state's.
+    # The run may still end with the caller changing nothing: the scope's
+    # state's.
     body = _problem(client.post('/api/v1/scope/illumination/leds_off'), 409)
 
     assert (body['kind'], body['reason'], body['detail']) == (
         'quiet',
-        'merge_timeout',
-        'the composite did not report an outcome within 5s; the run or its merge is wedged',
+        'still_running',
+        'run_composite: the run was still going when the wait ran out after 5 s; '
+        "it goes on, held by this error's operation",
     )
 
 

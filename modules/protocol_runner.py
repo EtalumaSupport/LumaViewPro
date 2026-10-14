@@ -24,7 +24,7 @@ Usage
 import pathlib
 
 from modules.activity_claim import HeldClaim
-from modules.exceptions import CompositeFailedError, CompositeWaitExpiredError
+from modules.exceptions import CompositeFailedError, RunWaitExpiredError
 from modules.layer_record import refuse_unknown_layer
 from modules.protocol import Protocol
 from modules.run_events import RunEvents
@@ -514,13 +514,224 @@ class ProtocolRunner:
             return_to_position=position if return_to_start else None,
         )
 
-    @api
+    # ------------------------------------------------------------------
+    # Waiting forms: each run's start, waited for. In-process only: over
+    # REST a start's job, with Prefer: wait, is the waiting form.
+    # ------------------------------------------------------------------
+
+    @api(in_process=True)
+    def run_single_scan(
+        self,
+        protocol: Protocol,
+        sequence_name: str = 'scan',
+        parent_dir: FilePath | None = None,
+        enable_image_saving: bool = True,
+        events: RunEvents | None = None,
+        return_to_position: dict | None = None,
+        run_trigger_source: str = 'api_scan',
+        timeout_s: float | None = None,
+    ) -> RunOutcome:
+        """``start_single_scan``, waited for: returns the run's outcome once it has let go of the scope.
+
+        Takes ``start_single_scan``'s arguments, and ``timeout_s``: how long to wait
+        for the run to end; None waits for its end. A run that ends any way
+        returns its outcome, a stopped one included.
+
+        Raises:
+            ProtocolRunRefusedError: As ``start_single_scan``; nothing was started.
+            BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on the
+                UI thread, whose form is ``start_single_scan``. Nothing was started.
+            RunWaitExpiredError: ``'still_running'``, a ``TimeoutError``:
+                ``timeout_s`` ran out; its ``operation`` holds the run, still
+                going.
+        """
+        refuse_waiting_on_ui_thread('run_single_scan')
+        return self._waited(
+            'run_single_scan',
+            self.start_single_scan(
+                protocol=protocol,
+                sequence_name=sequence_name,
+                parent_dir=parent_dir,
+                enable_image_saving=enable_image_saving,
+                events=events,
+                return_to_position=return_to_position,
+                run_trigger_source=run_trigger_source,
+            ),
+            timeout_s,
+        )
+
+    @api(in_process=True)
+    def run_protocol(
+        self,
+        protocol: Protocol,
+        sequence_name: str = 'protocol',
+        parent_dir: FilePath | None = None,
+        enable_image_saving: bool = True,
+        events: RunEvents | None = None,
+        run_trigger_source: str = 'api_protocol',
+        timeout_s: float | None = None,
+    ) -> RunOutcome:
+        """``start_protocol``, waited for: returns the run's outcome once it has let go of the scope.
+
+        Takes ``start_protocol``'s arguments, and ``timeout_s``: how long to wait
+        for the run to end; None waits for its end. A run that ends any way
+        returns its outcome, a stopped one included.
+
+        Raises:
+            ProtocolRunRefusedError: As ``start_protocol``; nothing was started.
+            BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on the
+                UI thread, whose form is ``start_protocol``. Nothing was started.
+            RunWaitExpiredError: ``'still_running'``, a ``TimeoutError``:
+                ``timeout_s`` ran out; its ``operation`` holds the run, still
+                going.
+        """
+        refuse_waiting_on_ui_thread('run_protocol')
+        return self._waited(
+            'run_protocol',
+            self.start_protocol(
+                protocol=protocol,
+                sequence_name=sequence_name,
+                parent_dir=parent_dir,
+                enable_image_saving=enable_image_saving,
+                events=events,
+                run_trigger_source=run_trigger_source,
+            ),
+            timeout_s,
+        )
+
+    @api(in_process=True)
+    def run_autofocus(
+        self,
+        layer: str | None,
+        save_characterization_data: bool = False,
+        sequence_name: str = 'autofocus',
+        parent_dir: FilePath | None = None,
+        events: RunEvents | None = None,
+        claim: HeldClaim | None = None,
+        run_trigger_source: str = 'api_autofocus',
+        timeout_s: float | None = None,
+    ) -> RunOutcome:
+        """``start_autofocus``, waited for: returns the run's outcome once it has let go of the scope.
+
+        Takes ``start_autofocus``'s arguments, and ``timeout_s``: how long to wait
+        for the run to end; None waits for its end. A run that ends any way
+        returns its outcome, a stopped one included.
+
+        Raises:
+            ProtocolRunRefusedError: As ``start_autofocus``; nothing was started.
+            BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on the
+                UI thread, whose form is ``start_autofocus``. Nothing was started.
+            RunWaitExpiredError: ``'still_running'``, a ``TimeoutError``:
+                ``timeout_s`` ran out; its ``operation`` holds the run, still
+                going.
+        """
+        refuse_waiting_on_ui_thread('run_autofocus')
+        return self._waited(
+            'run_autofocus',
+            self.start_autofocus(
+                layer=layer,
+                save_characterization_data=save_characterization_data,
+                sequence_name=sequence_name,
+                parent_dir=parent_dir,
+                events=events,
+                claim=claim,
+                run_trigger_source=run_trigger_source,
+            ),
+            timeout_s,
+        )
+
+    @api(in_process=True)
+    def run_autofocus_all_steps(
+        self,
+        protocol: Protocol,
+        events: RunEvents | None = None,
+        run_trigger_source: str = 'api_autofocus_scan',
+        timeout_s: float | None = None,
+    ) -> RunOutcome:
+        """``start_autofocus_all_steps``, waited for: returns the run's outcome once it has let go of the scope.
+
+        Takes ``start_autofocus_all_steps``'s arguments, and ``timeout_s``: how long to wait
+        for the run to end; None waits for its end. A run that ends any way
+        returns its outcome, a stopped one included.
+
+        Raises:
+            ProtocolRunRefusedError: As ``start_autofocus_all_steps``; nothing was started.
+            BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on the
+                UI thread, whose form is ``start_autofocus_all_steps``. Nothing was started.
+            RunWaitExpiredError: ``'still_running'``, a ``TimeoutError``:
+                ``timeout_s`` ran out; its ``operation`` holds the run, still
+                going.
+        """
+        refuse_waiting_on_ui_thread('run_autofocus_all_steps')
+        return self._waited(
+            'run_autofocus_all_steps',
+            self.start_autofocus_all_steps(
+                protocol=protocol,
+                events=events,
+                run_trigger_source=run_trigger_source,
+            ),
+            timeout_s,
+        )
+
+    @api(in_process=True)
+    def run_zstack(
+        self,
+        layer: str | None,
+        sequence_name: str = 'zstack',
+        parent_dir: FilePath | None = None,
+        events: RunEvents | None = None,
+        return_to_start: bool = True,
+        run_trigger_source: str = 'api_zstack',
+        enable_image_saving: bool = True,
+        timeout_s: float | None = None,
+    ) -> RunOutcome:
+        """``start_zstack``, waited for: returns the run's outcome once it has let go of the scope.
+
+        Takes ``start_zstack``'s arguments, and ``timeout_s``: how long to wait
+        for the run to end; None waits for its end. A run that ends any way
+        returns its outcome, a stopped one included.
+
+        Raises:
+            ProtocolRunRefusedError: As ``start_zstack``; nothing was started.
+            BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on the
+                UI thread, whose form is ``start_zstack``. Nothing was started.
+            RunWaitExpiredError: ``'still_running'``, a ``TimeoutError``:
+                ``timeout_s`` ran out; its ``operation`` holds the run, still
+                going.
+        """
+        refuse_waiting_on_ui_thread('run_zstack')
+        return self._waited(
+            'run_zstack',
+            self.start_zstack(
+                layer=layer,
+                sequence_name=sequence_name,
+                parent_dir=parent_dir,
+                events=events,
+                return_to_start=return_to_start,
+                run_trigger_source=run_trigger_source,
+                enable_image_saving=enable_image_saving,
+            ),
+            timeout_s,
+        )
+
+    def _waited(self, member: str, run: Operation, timeout_s: float | None) -> RunOutcome:
+        """Wait for *run*'s outcome; a wait that runs out hands the caller the run, still going."""
+        try:
+            return run.result(timeout=timeout_s)
+        except TimeoutError:
+            # A run that ended in a TimeoutError of its own is not this wait's.
+            if run.done():
+                raise
+            raise RunWaitExpiredError(member, timeout_s, run) from None
+
+    @api(in_process=True)
     def run_composite(
         self,
         sequence_name: str = 'composite',
         parent_dir: FilePath | None = None,
         events: RunEvents | None = None,
-        merge_timeout_s: float = 900.0,
+        run_trigger_source: str = 'api_composite',
+        timeout_s: float | None = None,
     ) -> RunOutcome:
         """Capture one frame per acquiring channel and merge them.
 
@@ -548,9 +759,9 @@ class ProtocolRunner:
             parent_dir: Parent directory for output. Defaults to
                 'Manual/Composites' under the live folder, as start_composite.
             events: The run's event handlers (``RunEvents``); None for none.
-            merge_timeout_s: Upper bound on the whole capture-and-merge
-                wait. Covers the run itself, so it is longer than the
-                merge's own internal drain bound.
+            run_trigger_source: As ``start_composite``.
+            timeout_s: How long to wait for the run and its merge; None
+                waits for them to end.
 
         Returns:
             The run's RunOutcome: ``merged`` True, ``artifact_path`` the
@@ -565,27 +776,24 @@ class ProtocolRunner:
             CompositeFailedError: The run finished but produced no composite. The
                 error names the machine-readable reason, so a caller can
                 tell an aborted run from a failed merge.
-            CompositeWaitExpiredError: ``'merge_timeout'``, a
-                ``TimeoutError``: ``merge_timeout_s`` ran out before the run
-                or its merge reported; either may still be going.
+            RunWaitExpiredError: ``'still_running'``, a ``TimeoutError``:
+                ``timeout_s`` ran out before the run or its merge ended;
+                its ``operation`` holds the run, still going.
             BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on
                 the UI thread, whose form is ``start_composite``. Nothing
                 was started.
         """
         refuse_waiting_on_ui_thread('run_composite')
-        run = self.start_composite(
-            sequence_name=sequence_name,
-            parent_dir=parent_dir,
-            events=events,
+        settled = self._waited(
+            'run_composite',
+            self.start_composite(
+                sequence_name=sequence_name,
+                parent_dir=parent_dir,
+                events=events,
+                run_trigger_source=run_trigger_source,
+            ),
+            timeout_s,
         )
-        try:
-            settled = run.result(timeout=merge_timeout_s)
-        except TimeoutError:
-            raise CompositeWaitExpiredError(
-                f'the composite did not report an outcome within '
-                f'{merge_timeout_s:.0f}s; the run or its merge is wedged',
-                'merge_timeout',
-            ) from None
         if not settled.merged:
             # A run that did not complete names its own ending; a completed
             # run with no artifact names what the merge did. One field is

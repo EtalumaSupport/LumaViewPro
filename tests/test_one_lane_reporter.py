@@ -21,7 +21,7 @@ import pytest
 import modules.sequential_io_executor as sio
 from modules.activity_claim import ActivityClaim
 from modules.exceptions import (
-    CompositeWaitExpiredError,
+    RunWaitExpiredError,
     HardwareCommandRefusedError,
     LaneCallStillRunningError,
 )
@@ -121,10 +121,7 @@ class TestWhoReports:
 
     def test_a_quiet_outcome_is_logged_at_info_and_never_shown(self, lane, centre_posts, caplog):
         with caplog.at_level(logging.DEBUG):
-            expired = CompositeWaitExpiredError(
-                'the composite did not report an outcome within 5s; the run or its merge is wedged',
-                'merge_timeout',
-            )
+            expired = RunWaitExpiredError('run_composite', 5.0, None)
             lane.put(IOTask(action=_raise, args=(expired,)))
             _drain(lane)
 

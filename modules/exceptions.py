@@ -1285,6 +1285,34 @@ class CaptureFailedError(Fault, CaptureError):
         return self.reason != 'unknown_save_encoding'
 
 
+class RunWaitExpiredError(ProtocolError, Quiet, TimeoutError):
+    """A run's waiting form ran out of its ``timeout_s`` with the run still going: nothing failed.
+
+    Raised by ``ProtocolRunner.run_X``. A ``TimeoutError``, as a caller's own
+    wait expiring always is, and quiet: the run goes on, and ``operation``
+    is the caller's hold on it, to wait on again or to stop. ``TimeoutError``
+    is the last base, so its ``OSError`` constructor never reads the words
+    as an errno.
+
+    Attributes:
+        reason: ``'still_running'``.
+        member: The waiting form that was called.
+        operation: The run's ``Operation``, still running when this was raised.
+    """
+
+    title = 'Run Still Going'
+    cause = RefusalCause.STATE
+
+    def __init__(self, member: str, timeout_s: float, operation):
+        super().__init__(
+            f'{member}: the run was still going when the wait ran out after {timeout_s:g} s; '
+            "it goes on, held by this error's operation"
+        )
+        self.reason = 'still_running'
+        self.member = member
+        self.operation = operation
+
+
 class ProtocolRunRefusedError(Refusal, ProtocolError):
     """A sequenced run, or the protocol it would run, was refused before any state was committed.
 
@@ -2158,22 +2186,6 @@ class CompositeFailedError(Fault, CaptureError):
     """
 
     title = 'Composite Failed'
-
-
-class CompositeWaitExpiredError(CaptureError, Quiet, TimeoutError):
-    """The caller's ``merge_timeout_s`` ran out before the composite settled: nothing failed.
-
-    A ``TimeoutError``, as a caller's own wait expiring always is, and quiet:
-    the run or its merge may still be going. ``TimeoutError`` is the last
-    base, so its ``OSError`` constructor never reads the words and reason as
-    an errno.
-
-    Attributes:
-        reason: ``'merge_timeout'``.
-    """
-
-    title = 'Composite Still Running'
-    cause = RefusalCause.STATE
 
 
 class AutoGainNotSettledError(Fault, CaptureError):

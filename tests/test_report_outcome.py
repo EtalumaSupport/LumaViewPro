@@ -19,7 +19,7 @@ import pytest
 from drivers.exceptions import CameraReadFailedError, LedFirmwareWedgedError
 from modules.exceptions import (
     CaptureFailedError,
-    CompositeWaitExpiredError,
+    RunWaitExpiredError,
     HardwareCommandRefusedError,
     ObjectiveUnknownError,
     SingleScanNotice,
@@ -155,10 +155,7 @@ class TestAFault:
 @pytest.mark.parametrize(
     'quiet',
     [
-        CompositeWaitExpiredError(
-            'the composite did not report an outcome within 5s; the run or its merge is wedged',
-            'merge_timeout',
-        ),
+        RunWaitExpiredError('run_composite', 5.0, None),
         CancelledError(),
     ],
     ids=['quiet_marker', 'cancel'],

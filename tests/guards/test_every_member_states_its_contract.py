@@ -61,6 +61,13 @@ _REASON_UNNAMED_PINNED = frozenset(
         ('ProtocolRunner.start_autofocus', 'ProtocolRunRefusedError'),
         ('ProtocolRunner.start_autofocus_all_steps', 'ProtocolRunRefusedError'),
         ('ProtocolRunner.run_composite', 'ProtocolRunRefusedError'),
+        # Each run_ waiting form refuses as its start does, and names its
+        # reasons when its start does.
+        ('ProtocolRunner.run_autofocus', 'ProtocolRunRefusedError'),
+        ('ProtocolRunner.run_autofocus_all_steps', 'ProtocolRunRefusedError'),
+        ('ProtocolRunner.run_protocol', 'ProtocolRunRefusedError'),
+        ('ProtocolRunner.run_single_scan', 'ProtocolRunRefusedError'),
+        ('ProtocolRunner.run_zstack', 'ProtocolRunRefusedError'),
         ('ProtocolRunner.start_protocol', 'ProtocolRunRefusedError'),
         ('ProtocolRunner.start_single_scan', 'ProtocolRunRefusedError'),
         ('ProtocolRunner.start_zstack', 'ObjectiveUnknownError'),

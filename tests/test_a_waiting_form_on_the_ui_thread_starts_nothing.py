@@ -51,6 +51,11 @@ _WAITING_FORMS = {
     'go_to_step': lambda s, r, d: s.go_to_step(_far_step(s), 0),
     'run_application_session': lambda s, r, d: s.run_application_session(),
     'run_composite': lambda s, r, d: r.run_composite(parent_dir=str(d)),
+    'run_single_scan': lambda s, r, d: r.run_single_scan(_far_step(s), parent_dir=str(d)),
+    'run_protocol': lambda s, r, d: r.run_protocol(_far_step(s), parent_dir=str(d)),
+    'run_autofocus': lambda s, r, d: r.run_autofocus('BF', parent_dir=str(d)),
+    'run_autofocus_all_steps': lambda s, r, d: r.run_autofocus_all_steps(_far_step(s)),
+    'run_zstack': lambda s, r, d: r.run_zstack('BF', parent_dir=str(d)),
 }
 
 
