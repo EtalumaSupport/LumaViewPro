@@ -250,13 +250,13 @@ class TestChannelsAdd:
 
     def test_a_colour_that_is_not_a_primary_lands_on_each_plane_by_its_weight(self):
         magenta = layer_record.parse_display_color('#ff00ff')
-        half_green = layer_record.parse_display_color('#008000')
+        orange = layer_record.parse_display_color('#ff8000')
         channels = {
-            'Magenta': CompositeChannel(np.full((1, 1), 200, np.uint8), magenta),
-            'Dim': CompositeChannel(np.full((1, 1), 200, np.uint8), half_green),
+            'Magenta': CompositeChannel(np.full((1, 1), 50, np.uint8), magenta),
+            'Orange': CompositeChannel(np.full((1, 1), 100, np.uint8), orange),
         }
-        # #80 is 128 / 255 of full weight: 200 of it rounds to 100.
-        assert self._pixel(channels) == [200, 100, 200]
+        # Orange's #80 is 128 / 255 of full weight: 100 of it rounds to 50.
+        assert self._pixel(channels) == [150, 50, 50]
 
     def test_five_channels_sum_on_every_plane(self):
         def one(value):

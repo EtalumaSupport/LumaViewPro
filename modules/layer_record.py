@@ -63,14 +63,22 @@ def parse_display_color(text: object) -> Color:
     """The red, green and blue weights, each 0 to 1, of a ``'#rrggbb'`` colour.
 
     Lower-case hex digits only: an upper-case colour is refused, so a
-    colour has one stored form.
+    colour has one stored form. Its brightest component is ``ff``: a
+    channel baked in its colour then keeps the mono whole in its brightest
+    plane, so a build reads it back without knowing the colour it was
+    baked in, which a colour changed since the capture would contradict.
+    How bright a channel is shown is the display range's, not its colour's.
 
     Raises:
-        ValueError: ``text`` is not a ``'#rrggbb'`` string.
+        ValueError: ``text`` is not a ``'#rrggbb'`` string, or its
+            brightest component is not ``ff``.
     """
     if not isinstance(text, str) or not _DISPLAY_COLOR.fullmatch(text):
         raise ValueError(f"{text!r} is not a '#rrggbb' colour")
-    return tuple(int(text[i : i + 2], 16) / 255 for i in (1, 3, 5))
+    color = tuple(int(text[i : i + 2], 16) / 255 for i in (1, 3, 5))
+    if max(color) != 1:
+        raise ValueError(f'{text!r} is not at full brightness: its brightest component is not ff')
+    return color
 
 
 def format_display_color(color: Color) -> str:

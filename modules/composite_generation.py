@@ -342,9 +342,7 @@ class CompositeGeneration(ProtocolPostProcessor):
                 # detects the single-populated-plane case and uses
                 # max-axis extraction instead, preserving the full
                 # value. Mono 2D inputs (the common path) pass through.
-                transmitted_image = image_utils.rgb_image_to_gray(
-                    BF_image, layer_record.release_color(BF_channel)
-                )
+                transmitted_image = image_utils.rgb_image_to_gray(BF_image, baked=True)
             else:
                 logger.info('CompositeGeneration] Generating fluorescent channel composite')
 
@@ -368,10 +366,11 @@ class CompositeGeneration(ProtocolPostProcessor):
                 # and preserve via max-axis; pass through mono 2D
                 # inputs unchanged. RGB2GRAY luminance was destroying
                 # 41-89% of single-plane signal pre-fix.
-                color = layer_record.release_color(layer)
-                img_gray = image_utils.rgb_image_to_gray(f_image, color)
+                img_gray = image_utils.rgb_image_to_gray(f_image, baked=True)
 
-                channel_images[layer] = CompositeChannel(img_gray, color)
+                channel_images[layer] = CompositeChannel(
+                    img_gray, layer_record.release_color(layer)
+                )
 
                 # The mapping onto the composite's 8-bit output scale belongs to
                 # the builder, which owns that scale and the comparison the

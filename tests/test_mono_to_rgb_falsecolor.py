@@ -120,13 +120,15 @@ class TestAColourIsAValue:
         assert (magenta[:, :, 0] == mono).all() and (magenta[:, :, 2] == mono).all()
         assert (magenta[:, :, 1] == 0).all()
 
-    def test_a_baked_image_reads_back_as_its_mono_given_its_colour(self):
-        """The composite and stack inputs collapse a baked image by its colour,
-        so a non-primary channel is not read dim (magenta read 83 for 200)."""
+    def test_a_baked_image_reads_back_as_its_mono_without_its_colour(self):
+        """The composite and stack inputs collapse a baked image by its
+        brightest plane, so a non-primary channel is not read dim (magenta
+        read 83 for 200), and a build needs no record of the colour a file
+        was baked in."""
         for mono in (np.full((4, 4), 200, np.uint8), np.full((4, 4), 4000, np.uint16)):
             for colour in (self.MAGENTA, self.ORANGE):
                 baked = mono_to_rgb_falsecolor(mono, colour)
-                assert (image_utils.rgb_image_to_gray(baked, colour) == mono).all(), colour
+                assert (image_utils.rgb_image_to_gray(baked, baked=True) == mono).all(), colour
 
     def test_an_8_bit_tiff_carries_the_colour_in_its_palette(self, tmp_path):
         path = tmp_path / 'orange.tiff'

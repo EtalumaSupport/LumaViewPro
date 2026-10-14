@@ -186,8 +186,14 @@ class TestCatalogueRecords:
         refused = [c for c in ('#FF8000', 'ff8000', '#ff800', [1, 0, 1]) if _refuses(c)]
         assert refused == ['#FF8000', 'ff8000', '#ff800', [1, 0, 1]]
 
+    def test_a_colour_not_at_full_brightness_is_refused(self):
+        # A baked plane is read back by its brightest plane, which holds the
+        # mono whole only when that component is full.
+        refused = [c for c in ('#800080', '#7f0001', '#000000', '#fe0000') if _refuses(c)]
+        assert refused == ['#800080', '#7f0001', '#000000', '#fe0000']
+
     def test_a_colour_is_written_as_the_text_it_was_read_from(self):
-        texts = ('#ff8000', '#ffffff', '#000000', '#0080ff', '#7f0001')
+        texts = ('#ff8000', '#ffffff', '#00ff00', '#0080ff', '#ff00ff')
         assert [format_display_color(parse_display_color(t)) for t in texts] == list(texts)
 
     def test_a_repeated_key_or_step_order_is_refused(self, tmp_path):
