@@ -1027,7 +1027,7 @@ Each image is measured at the scale it states: a LumaViewPro capture carries its
 
 `modules.post_processing.read_cell_count_results(path)` reads a `results.csv` back as a pandas table, its `time` column a datetime column (the count's own time format). It reads any CSV in UTF-8 (the count writes its file in UTF-8 on every host): every cell is the text written, a column whose every cell is a number is a column of numbers (whole numbers when every cell is one), and any other column is text, so a cell such as `NA` is never read as a missing number; `results_axes(table)` returns the columns a graph can take as X (numbers and times) and as Y (numbers). A file that cannot be graphed (not UTF-8, a NUL, a quote that does not close, a row of the wrong length, a repeated column name, a time the count did not write, no column of numbers) is refused: `PostProcessingRefusedError` with `operation='Graphing'`, `reason='results_unreadable'`, its message naming the file. `modules.graph_analysis.trendline_kinds(x, y)` names the trendlines two columns take (a time X takes `'Linear'`, `'Quadratic'`, `'Exponential'`; two number columns also take `'Power'` and `'Logarithmic'`), and `fit_trendline(kind, x, y)` returns the curve (`.x` ascending, `.y`). It refuses a fit the values cannot give, such as a missing value, a 0 under a log, or too few distinct X values for the kind (`PostProcessingRefusedError`, `operation='Trendline'`, `reason='fit_impossible'`, naming the values and how many).
 
-Which images make one output: a composite, a z-projection, a video and a hyperstack each build from one channel group, the steps' `Channel Group ID`. Every step of one `add_step` call shares one group, and a generated protocol (`new_protocol`, `create_protocol`) gives every channel, tile and z-slice of one position one group; so two adds at one stage position give two composites, never one made from both. A stitch is not grouped by it: it joins one color's tiles across positions, added together or not. A still-image group that holds two images for one plane -- two of one color, or two different transmitted channels in a composite, or two stills of one scan in a timelapse -- is not built: the build's `PostProcessingFailedError` names the images, and the other groups are built. That is what a run folder from before steps carried their group yields when one position was added to more than once, since its steps all read `-1`. A composite run (`run_composite`) with two transmitted channels set to capture is refused at its start (`ProtocolRunRefusedError`, `composite_two_transmitted_layers`), before any capture; `update_step` refuses giving a step a channel another step of its add takes (`channel_already_in_add`).
+Which images make one output: a composite, a z-projection, a video and a hyperstack each build from one channel group, the steps' `Channel Group ID`. Every step of one `add_step` call shares one group, and a generated protocol (`new_protocol`, `create_protocol`) gives every channel, tile and z-slice of one position one group; so two adds at one stage position give two composites, never one made from both. A stitch is not grouped by it: it joins one color's tiles across positions, added together or not. A still-image group that holds two images for one input -- two of one channel, or two different transmitted channels in a composite, or two stills of one scan in a timelapse -- is not built: the build's `PostProcessingFailedError` names the images, and the other groups are built. That is what a run folder from before steps carried their group yields when one position was added to more than once, since its steps all read `-1`. A composite run (`run_composite`) with two transmitted channels set to capture is refused at its start (`ProtocolRunRefusedError`, `composite_two_transmitted_layers`), before any capture; `update_step` refuses giving a step a channel another step of its add takes (`channel_already_in_add`).
 
 The builds run on the session's own post-processing lane, one at a time in the order asked. A protocol run writes its images on a different lane, so a long build never delays a run's writes. The tiling config and the turret are the session's own: a caller passes neither.
 
@@ -2358,10 +2358,17 @@ These helpers read `scope.capabilities.pixel_size_um` / `scope.capabilities.lens
 
 ### Composite capture (`modules.composite_builder`)
 
-`build_composite()` composes multi-channel frames into a single false-color image. See the [Multi-channel composite](#multi-channel-composite) pattern under Common patterns for a runnable example.
+`build_composite()` composes multi-channel frames into one 8-bit RGB image. Each channel is a `CompositeChannel(image, color)`, its frame and its colour as red, green and blue weights from 0 to 1 (`modules.layer_record.parse_display_color('#ff00ff')` reads a stored colour). The channels add: each contributes its intensity times its colour, and the sum is clipped to 8 bits, so two channels that share a colour add rather than one hiding the other. With a transmitted frame, its grey stays wherever no channel reaches its blend cutoff. See the [Multi-channel composite](#multi-channel-composite) pattern under Common patterns for a runnable example.
 
 ```python
-from modules.composite_builder import build_composite
+from modules.composite_builder import CompositeChannel, build_composite
+from modules.layer_record import release_color
+
+rgb = build_composite(
+    channels={'Red': CompositeChannel(red, release_color('Red')),
+              'Lumi': CompositeChannel(lumi, release_color('Lumi'))},
+    significant_bits=12,
+)
 ```
 
 ### Autofocus (`modules.autofocus_functions`)
