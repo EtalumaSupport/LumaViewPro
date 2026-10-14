@@ -186,14 +186,16 @@ def make_settings(tmp_path, *, video_as_frames=True, max_fps=0, duration_s=60, h
     return settings
 
 
-def make_controller(tmp_path, *, scope=None, clock=None, lit=None, shown='BF', **settings_kwargs):
+def make_controller(
+    tmp_path, *, scope=None, clock=None, lit=None, shown='BF', claim=None, **settings_kwargs
+):
     scope = scope or _FakeScope(lit=lit)
     clock = clock or FakeClock()
     controller = ManualRecordingController(
         scope=scope,
         settings=make_settings(tmp_path, **settings_kwargs),
         shown_layer=lambda: shown,
-        activity_claim=ActivityClaim(),
+        activity_claim=claim or ActivityClaim(),
         scheduler=ManualFireScheduler(),
         clock=clock,
         channel_colors=release_colors,
@@ -664,6 +666,78 @@ class TestExclusivitySpansTheFinish:
         finish(controller)
 
 
+class TestARecordingIsAnOperation:
+    """A recording's start returns its Operation: done, with the recording's
+    end reason, only once a new recording may start; its stop stops that
+    recording and never one started after it."""
+
+    def test_its_operation_is_done_only_when_a_new_start_is_accepted(self, tmp_path, monkeypatch):
+        entered, release = _block_the_finish(monkeypatch)
+        controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit='Blue')
+        try:
+            recording = controller.start(false_color_on=True)
+            feed_frames(scope, clock, 3, fps=10.0)
+            recording.stop()
+            assert entered.wait(timeout=10)
+
+            # Drained and its claim released, but still finishing: a new
+            # start is refused, so the recording is not done.
+            assert not recording.done()
+            with pytest.raises(RecordingRefusedError):
+                controller.start()
+        finally:
+            release.set()
+
+        assert recording.result(timeout=15) == 'user_stop'
+        following = controller.start()
+        following.stop()
+        assert following.result(timeout=15) == 'user_stop'
+
+    def test_its_stop_leaves_a_recording_started_before_it_is_done(self, tmp_path):
+        # A new recording may start from the finish's last announce, before
+        # the ended one's Operation is done: the ended one's stop is late
+        # there, and the new recording keeps recording.
+        held = []
+
+        def on_transition():
+            if len(held) == 1 and not controller.is_busy:
+                held.append(controller.start())
+                held[0].stop()
+
+        controller, scope, clock = make_controller(
+            tmp_path, claim=ActivityClaim(on_transition=on_transition)
+        )
+        held.append(controller.start())
+        feed_frames(scope, clock, 2, fps=10.0)
+        controller.stop()
+        held[0].result(timeout=15)
+
+        assert controller.is_recording
+        held[1].stop()
+        assert held[1].result(timeout=15) == 'user_stop'
+
+    def test_a_stop_while_its_end_is_announced_leaves_its_end_reason(self, tmp_path):
+        # The finish's last announce runs the claim's listener once a new
+        # recording may start and before the Operation is done: a stop asked
+        # there is late, and does not rewrite how the recording ended.
+        held = []
+
+        def on_transition():
+            if held and not controller.is_busy:
+                held[0].stop()
+
+        controller, scope, clock = make_controller(
+            tmp_path, duration_s=2, claim=ActivityClaim(on_transition=on_transition)
+        )
+        held.append(controller.start())
+        feed_frames(scope, clock, 3, fps=10.0)
+        clock.advance(2.0)
+        controller._scheduler.fire()
+
+        assert held[0].result(timeout=15) == 'duration_elapsed'
+        assert controller.end_reason == 'duration_elapsed'
+
+
 class TestFinishThreadResilience:
     def test_finish_thread_survives_a_finalize_failure(self, tmp_path, monkeypatch, centre_posts):
         # The finish thread must complete even when the engine never
@@ -682,13 +756,11 @@ class TestFinishThreadResilience:
             manual_recording_module.VideoRecordingEngine, '_finalize_locked', _explode
         )
 
-        completed = threading.Event()
-        controller.start(on_complete=completed.set)
+        recording = controller.start()
         feed_frames(scope, clock, 3, fps=10.0)
         controller.stop()
-        finish(controller)
 
-        assert completed.is_set()
+        assert recording.result(timeout=15) == 'user_stop'
         assert made['writer'].close_calls == 1
         assert 'error' in recorder.severities()
         assert not controller.is_busy

@@ -82,10 +82,8 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
         false_color_on = ctx.image_settings.layer_lookup(layer=layer).ids['false_color'].active
 
         def _start():
-            controller.start(
-                false_color_on=false_color_on,
-                on_complete=self._on_recording_complete,
-            )
+            recording = controller.start(false_color_on=false_color_on)
+            recording.add_done_callback(self._on_recording_complete)
 
         # On the worker pool: the controller's start opens the encoder and
         # probes disk, which must not stall the GUI thread.
@@ -151,8 +149,8 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
                 stage='Writing Manual Video',
             )
 
-    def _on_recording_complete(self):
-        """Finish-thread callback from the controller; dispatch to GUI."""
+    def _on_recording_complete(self, _recording):
+        """The recording's done-callback, on the callback thread; dispatch to GUI."""
         Clock.schedule_once(lambda dt: self._finish_recording_ui(), 0)
 
     def _finish_recording_ui(self):

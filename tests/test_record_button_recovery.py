@@ -41,6 +41,7 @@ import modules.app_context as _app_ctx
 import ui.main_display as main_display
 import ui.ui_helpers as ui_helpers
 from modules.exceptions import RecordingRefusedError
+from modules.operation import Operation, join_callback_thread
 from tests.pool_fakes import run_task_now
 
 
@@ -66,11 +67,13 @@ class _Controller:
         self.stop_calls = 0
         self.start_calls = 0
 
-    def start(self, layer=None, false_color_on=False, on_complete=None):
+    def start(self, false_color_on=False):
         self.start_calls += 1
         if self.error is not None:
             raise self.error
         self.is_recording = True
+        self.recording = Operation()
+        return self.recording
 
     def stop(self):
         self.stop_calls += 1
@@ -203,3 +206,20 @@ class TestStartOrStopIsTheApisAnswer:
 
         assert poll is not None
         assert display._recording_poll is poll
+
+    def test_a_finished_recording_stops_the_poll_and_draws_the_button_idle(self, monkeypatch):
+        controller = _Controller()
+        display, toggle, _ctx = _make_display(monkeypatch, controller)
+        titles = []
+        monkeypatch.setattr(ui_helpers, 'set_title_event_text', titles.append)
+        toggle.press()
+        display.record_button()
+        assert display._recording_poll is not None
+
+        controller.is_recording = False
+        controller.recording.set_result('duration_elapsed')
+        join_callback_thread()
+
+        assert display._recording_poll is None
+        assert titles == [None]
+        assert toggle.state == 'normal'

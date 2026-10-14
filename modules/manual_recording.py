@@ -10,8 +10,8 @@ the rolling disk-floor stop, the wall-clock duration cap, and the
 post-drain finish (MP4 close, optional hyperstack, drop notification).
 
 GUI-agnostic by construction: no Kivy imports; the caller polls status
-properties for titles/buttons and passes ``on_complete`` for its own
-cleanup dispatch.
+properties for titles/buttons, and dispatches its own cleanup from the
+recording's ``Operation``.
 
 Timing axis: the engine receives host-epoch seconds. When the camera
 reports hardware timestamp ticks and a tick frequency, per-frame times
@@ -62,6 +62,7 @@ from modules.exceptions import (
     VideoWriterFailedError,
 )
 from modules.notification_center import notifications
+from modules.operation import Operation
 from modules.recording_frames import (
     MANUAL_HYPERSTACK_FILENAME,
     CameraTickRebaser,
@@ -171,7 +172,7 @@ class ManualRecordingController:
         self._rebaser: CameraTickRebaser | None = None
         self._hyperstack_rows: list | None = None
         self._last_disk_check_ts = 0.0
-        self._on_complete: Callable[[], None] | None = None
+        self._operation: Operation | None = None
         self._finish_thread: threading.Thread | None = None
         # Whether a recording's finish has yet to end. Its own store, not the
         # finish thread's liveness: the thread announces its end as its last
@@ -236,14 +237,9 @@ class ManualRecordingController:
     # Lifecycle
     # ------------------------------------------------------------------
 
-    @api(stop='ManualRecordingController.stop')
-    def start(
-        self,
-        *,
-        false_color_on: bool = False,
-        on_complete: Callable[[], None] | None = None,
-    ) -> None:
-        """Snapshot configuration and open a recording.
+    @api(stop='Operation.stop')
+    def start(self, *, false_color_on: bool = False) -> Operation:
+        """Snapshot configuration and open a recording; returns its operation.
 
         Channel IDENTITY (what was imaged) and false-color RENDERING (how
         it is displayed) are independent. Identity is recorded on every
@@ -256,9 +252,13 @@ class ManualRecordingController:
         Args:
             false_color_on: Whether the shown layer is displayed in false colour.
                 Controls rendering alone; grayscale when False.
-            on_complete: Invoked (on the finish thread) after the drain
-                and all post-drain work; the caller dispatches its own
-                UI cleanup from it.
+
+        Returns:
+            The recording's ``Operation``: done once its frames, MP4 close and
+            any hyperstack build are over and a new recording may start, with
+            the recording's ``end_reason``. Its ``stop()`` is the controller's
+            ``stop`` while this recording is live or still writing, and does
+            nothing after, so it never stops a recording started later.
 
         Raises:
             RecordingRefusedError: The start cannot proceed -- a previous
@@ -452,6 +452,8 @@ class ManualRecordingController:
         # here on leaves it holding nothing.
         frames_folder = save_folder if video_as_frames else None
 
+        operation = Operation(stop=lambda: self._stop_while_current(operation))
+
         # Engine start is the commit point: it acquires the claim or
         # raises. Assign controller state only after it succeeds.
         try:
@@ -503,7 +505,7 @@ class ManualRecordingController:
                 self._rebaser = CameraTickRebaser(camera.camera_timestamp_tick_hz, self._clock)
                 self._hyperstack_rows = [] if hyperstack else None
                 self._last_disk_check_ts = 0.0
-                self._on_complete = on_complete
+                self._operation = operation
                 self._end_reason = None
             # The frames folder was reserved before the commit point; nothing
             # to create here.
@@ -545,6 +547,7 @@ class ManualRecordingController:
             f'max {duration_s:.0f} s, {"frames" if video_as_frames else "mp4"} '
             f'-> {save_folder}'
         )
+        return operation
 
     def _unwind_failed_start(
         self, engine: VideoRecordingEngine, writer: Any, frames_folder: Path | None
@@ -612,6 +615,15 @@ class ManualRecordingController:
         except Exception as e:
             logger.warning(f'[ManualRecord] remove_frame_listener failed: {e}')
         engine.stop(reason)
+
+    def _stop_while_current(self, operation: Operation) -> None:
+        """A recording's ``Operation.stop``: this recording's stop, never a later one's.
+
+        Nothing once its finish has ended: a stop asked while the finish
+        announces its end, or once a new recording has started, is late.
+        """
+        if self._operation is operation and self._finishing:
+            self.stop()
 
     @api
     @property
@@ -818,6 +830,7 @@ class ManualRecordingController:
         occupy the shared FILE lane for the length of a drain tail.
         """
         engine = self._engine
+        operation = self._operation
         engine.wait_for_drain()
         # The recording is over on every path that gets here (the drain
         # completes only after selection closes); the health check has
@@ -864,7 +877,7 @@ class ManualRecordingController:
             notifications.report_outcome(fault, solicited=False, category='Recording')
         finally:
             # Reporting needs the measured truth; completing the recording
-            # does not. Keeping them apart is what lets the callback fire --
+            # does not. Keeping them apart is what lets the operation end --
             # and the UI leave its recording state -- after a failed finish.
             if result is not None:
                 if result.writer_failure is not None:
@@ -906,17 +919,15 @@ class ManualRecordingController:
                     f'{result.write_failures} failed, measured '
                     f'{result.measured_fps:.2f} fps over {result.measured_duration_s:.2f} s'
                 )
-            if self._on_complete is not None:
-                try:
-                    self._on_complete()
-                except Exception:
-                    logger.exception('[ManualRecord] on_complete callback failed')
-            # Last: once it reads False a new recording may start and rebind
-            # every per-recording slot this thread reads above. The claim was
+            end_reason = self._end_reason
+            # Once it reads False a new recording may start and rebind every
+            # per-recording slot this thread reads above. The claim was
             # released when the drain ended, so this end is no transition of
-            # the claim's and is announced on its own.
+            # the claim's and is announced on its own. The operation is done
+            # last, so whoever reads its result may start the next recording.
             self._finishing = False
             self._claim.announce()
+            operation.set_result(end_reason)
 
     def _build_hyperstack(self) -> None:
         plan = self._plan
