@@ -2459,8 +2459,9 @@ class ScopeSession:
         )
 
     def _step_lit_by_run(self, layer: str) -> None:
-        """A run's step has lit ``layer``: it is the shown channel, lit."""
-        self._set_shown_channel(ShownChannel(layer, lit=True))
+        """A run's step has shown ``layer``: it is the shown channel, lit as
+        its LED reads -- a layer with no LED is shown dark."""
+        self._set_shown_channel(ShownChannel(layer, lit=self._layer_lit(layer)))
 
     @api(reads=True)
     @property

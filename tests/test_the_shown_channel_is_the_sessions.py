@@ -74,3 +74,31 @@ def test_a_refused_light_turns_nothing_off(session):
         )
     assert refused.value.reason == 'illumination_out_of_range'
     assert _lit(session) == {'BF'}
+
+
+def test_a_runs_step_shows_its_layer_lit_only_when_its_led_is(tmp_path):
+    """A run's step makes its layer the shown channel, lit as its LED reads:
+    a layer with no LED (the Lumi model's Lumi) is shown dark, a BF step lit."""
+    from tests.scope_fakes import home_sim_scope
+    from tests.test_a_run_needs_every_axis_position import COMPLETION_TIMEOUT, _settings
+    from tests.test_run_refusal_contract import _build_real_protocol, _make_single_step_protocol
+
+    built = ScopeSession.create(
+        complete_settings(**_settings(tmp_path, microscope='Lumi')), simulate=True
+    )
+    try:
+        home_sim_scope(built.scope)
+        heard = []
+        built.add_shown_channel_listener(lambda layer, lit: heard.append((layer, lit)))
+        lumi = dict(_make_single_step_protocol(color='Lumi').step(idx=0))
+        bf = {**dict(_make_single_step_protocol(color='BF').step(idx=0)), 'Name': 'b'}
+        bf['Step Index'] = 1
+
+        run = built.create_protocol_runner().run_single_scan(
+            protocol=_build_real_protocol([lumi, bf]), parent_dir=str(tmp_path)
+        )
+        assert run.wait(timeout_s=COMPLETION_TIMEOUT).status == 'completed'
+
+        assert heard[:2] == [('Lumi', False), ('BF', True)]
+    finally:
+        built.shutdown()
