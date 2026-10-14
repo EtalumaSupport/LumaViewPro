@@ -374,8 +374,8 @@ A simulated session can likewise show a save drive that stops answering: pass `s
 ```python
 started = session.start_application_session()        # home ALL axes, then position turret; returns an Operation
 started.result()                                     # None once the motion has ended and the scope is free
-session.run_application_session()                  # the same, waited for
-session.run_application_session(disable_homing=True)  # skip homing; no startup motion at all
+session.run_application_session()                    # the same, waited for
+session.run_application_session(disable_homing=True) # skip homing; no startup motion at all
 ```
 
 `start_application_session()` is the single source of truth for the standard startup orchestration the GUI runs on launch: an all-axis `move_home` (firmware homes Z/T/X/Y in one routine; Z-only boards home what they have), then, when the scope has a turret, the T-axis to position 1 (where the home leaves it); the active objective is then slot 1's assignment. Headless / REST callers should use it rather than open-coding the home + turret sequence. It returns at once with an `Operation` (see "How a run ends"), whose `stop()` is `stop_motion` while the motion drives (refused `home_in_flight` while the home drives on a board that cannot stop one) and nothing once it has ended, so a late stop never halts what took the scope after it; `run_application_session()` is the same call, waited for, and refuses a call from an executor's worker, whose own queue or lane the motion may wait on, with `BlockingCallRefusedError` (`blocking_on_worker`; still a `RuntimeError`).
@@ -579,8 +579,8 @@ to ask.
 ### Periodic metrics logging (optional)
 
 ```python
-session.enable_metrics()   # start periodic runtime-health logging
-session.disable_metrics()    # stop it (idempotent; shutdown() calls this too)
+session.enable_metrics()    # start periodic runtime-health logging
+session.disable_metrics()   # stop it (idempotent; shutdown() calls this too)
 ```
 
 The session owns the metrics-logger lifecycle and one scheduler for every
@@ -2455,7 +2455,7 @@ from modules.scope_session import ScopeSession
 from rest.app import build_app
 
 session = ScopeSession.create(ScopeSession.load_user_settings('.'), simulate=True)
-session.run_application_session()        # homes the scope, as the GUI does at launch
+session.run_application_session()          # homes the scope, as the GUI does at launch
 uvicorn.run(build_app(session), host='127.0.0.1', port=8000)
 session.shutdown()                          # once uvicorn has stopped
 ```

@@ -159,7 +159,7 @@ class TestClearResultIsUnconditional:
 # ---------------------------------------------------------------------------
 
 
-def test_run_autofocus_reports_the_focus_and_writes_none(tmp_path):
+def test_start_autofocus_reports_the_focus_and_writes_none(tmp_path):
     """The member a script or REST calls writes no layer focus: what it
     chose is in its outcome, for the caller to keep or not."""
     from tests.test_composite_run_e2e import headless_settings, open_composite_session

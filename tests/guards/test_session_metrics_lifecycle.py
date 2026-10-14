@@ -54,14 +54,14 @@ def _make_session(**kwargs):
 
 
 class TestStartStop:
-    def test_start_metrics_uses_injected_scheduler_and_interval_override(self):
+    def test_enable_metrics_uses_injected_scheduler_and_interval_override(self):
         session = _make_session()
         session.enable_metrics()
         session.metrics_logger.start.assert_called_once_with(
             _SCHEDULER, display=None, system_metrics_interval_s=42.0
         )
 
-    def test_start_metrics_without_override_uses_logger_defaults(self):
+    def test_enable_metrics_without_override_uses_logger_defaults(self):
         session = _make_session(settings={'profiling': {'metrics_interval_s': None}})
         session.enable_metrics()
         session.metrics_logger.start.assert_called_once_with(_SCHEDULER, display=None)
@@ -93,7 +93,7 @@ class TestStartStop:
         session.disable_metrics()
         session.enable_metrics()
 
-    def test_stop_metrics_stops_and_is_idempotent(self):
+    def test_disable_metrics_stops_and_is_idempotent(self):
         session = _make_session()
         session.enable_metrics()
         session.disable_metrics()
