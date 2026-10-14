@@ -597,6 +597,7 @@ def _add(
                     p.alternatives,
                     resolve_path=session.live_folder_path,
                     handle=registry.get,
+                    job=jobs.operation,
                 )
                 for p in member.parameters
                 if p.name in sent

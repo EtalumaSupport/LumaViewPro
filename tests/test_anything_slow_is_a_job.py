@@ -288,6 +288,47 @@ def test_a_run_job_deleted_while_it_runs_is_stopped_and_ends_aborted(client, ses
     assert (ended['result']['status'], ended['result']['reason']) == ('aborted', 'stopped')
 
 
+def test_a_job_is_passed_as_an_argument_by_its_id(client, session, monkeypatch):
+    home_sim_scope(session.scope)
+    zipping = threading.Event()
+    real_zip = session.make_logs_zip
+
+    def zips_once_released(*args, **kwargs):
+        assert zipping.wait(10)
+        return real_zip(*args, **kwargs)
+
+    # Held so it is a job, adopted, when the client's wait ends.
+    monkeypatch.setattr(session, 'make_logs_zip', zips_once_released)
+    session.settings['BF']['acquire'] = 'image'
+    reached, release = _scans_held_at_their_first_step(session, monkeypatch)
+    protocol = client.post('/api/v1/create_empty_protocol').json()['handle']
+    assert client.post('/api/v1/add_step', json={'protocol': protocol}).status_code == 200
+    runner = client.post('/api/v1/create_protocol_runner').json()['handle']
+    try:
+        run = client.post(
+            f'/api/v1/handles/ProtocolRunner/{runner}/run_single_scan',
+            json={'protocol': protocol, 'enable_image_saving': False},
+        ).json()
+        assert reached.wait(30)
+
+        # The scope is held by the run itself, and by something else for anything else.
+        assert client.post('/api/v1/held_by_other', json={'run': run['id']}).json() is False
+        assert client.post('/api/v1/held_by_other', json={'run': None}).json() is True
+        unknown = client.post('/api/v1/held_by_other', json={'run': '999'})
+        assert (unknown.status_code, unknown.json()['reason']) == (404, 'not_found')
+        adopted = client.post(
+            '/api/v1/make_logs_zip', json={'output_dir': 'reports'}, headers={'Prefer': 'wait=0'}
+        ).json()
+        no_operation = client.post('/api/v1/held_by_other', json={'run': adopted['id']})
+        assert (no_operation.status_code, no_operation.json()['reason']) == (
+            422,
+            'invalid_request',
+        )
+    finally:
+        release.set()
+        zipping.set()
+
+
 def test_a_still_job_deleted_while_it_runs_is_accepted_and_ends_as_it_would_have(
     client, session, monkeypatch
 ):

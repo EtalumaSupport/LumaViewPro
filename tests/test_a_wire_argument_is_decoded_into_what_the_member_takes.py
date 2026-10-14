@@ -4,11 +4,11 @@
 ``wire_encoding.inbound`` reads a parameter's annotation into the forms a
 client may send, and ``decode`` turns the sent value back: seconds into a
 ``timedelta``, an enum's form into its member, an object into a record, a
-handle's id into its object, a live-folder name into a path, each item
-of an array or object as it would be alone. A type a
-client could not send unambiguously -- a job, a path inside an array, a
-union a value could be read as either side of -- is refused when the host
-is built, so no call ever guesses. The callbacks the host fills are not
+handle's id into its object, a job's id into its operation, a live-folder
+name into a path, each item of an array or object as it would be alone. A
+type a client could not send unambiguously -- a future that is no
+operation, a path inside an array, a union a value could be read as either
+side of -- is refused when the host is built, so no call ever guesses. The callbacks the host fills are not
 sent at all.
 """
 
@@ -47,6 +47,7 @@ def _decode(value, text, classes, aliases, **kw):
     alternatives = wire_encoding.inbound(text, classes, aliases)
     kw.setdefault('resolve_path', lambda name: pathlib.Path('/live') / name)
     kw.setdefault('handle', lambda ident, cls: (cls.__name__, ident))
+    kw.setdefault('job', lambda ident: ('job', ident))
     return wire_encoding.decode(value, alternatives, **kw)
 
 
@@ -61,6 +62,8 @@ def test_each_form_is_decoded_into_its_python_value(classes, aliases):
     assert _decode('red', '_Colour', local, aliases) is _Colour.RED
     assert _decode('runs/a.tsv', 'FilePath', local, aliases) == pathlib.Path('/live/runs/a.tsv')
     assert _decode('7', 'Protocol', local, aliases) == ('Protocol', '7')
+    assert _decode('3', 'Operation | None', local, aliases) == ('job', '3')
+    assert _decode(None, 'Operation | None', local, aliases) is None
     assert _decode([1, 2], 'tuple', local, aliases) == (1, 2)
     assert _decode([1, 2], 'tuple[int, ...]', local, aliases) == (1, 2)
     assert _decode(['x'], 'Iterable[str]', local, aliases) == ['x']
@@ -106,7 +109,7 @@ def test_a_parameter_the_host_fills_is_not_sent(classes, aliases):
         'tuple[int, str]',
     ],
     ids=[
-        'a job',
+        'a future that is no operation',
         'a path in an array',
         'a name or a path',
         'a handle or a name',

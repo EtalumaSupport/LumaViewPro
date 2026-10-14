@@ -202,6 +202,10 @@ def _one(a: wire_encoding.Inbound, records: dict[type, type[pydantic.BaseModel]]
         ]
     if a.form == wire_encoding.HANDLE:
         return typing.Annotated[str, pydantic.Field(description=f'The id of a {a.name} handle.')]
+    if a.form == wire_encoding.JOB:
+        return typing.Annotated[
+            str, pydantic.Field(description='The id of the job an operation is.')
+        ]
     if a.form == wire_encoding.ENUM:
         return typing.Literal[tuple(wire_form(m) for m in a.cls)]
     if a.form == wire_encoding.ARRAY:

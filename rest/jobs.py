@@ -320,6 +320,22 @@ class JobRegistry:
             raise problems.not_found(f'No job {job_id} is held.')
         return job
 
+    def operation(self, job_id: str) -> Operation:
+        """The operation the job with id *job_id* is, for a client that passes it by its id.
+
+        Raises:
+            ServerRefusedError: ``not_found``; ``invalid_request``, the job
+                is a call held as a job when it outlived its wait, which is
+                no operation.
+        """
+        job = self.get(job_id)
+        if job.operation is None:
+            raise problems.invalid_request(
+                f'Job {job_id} is a call held as a job when it outlived its wait: it is no '
+                'operation.'
+            )
+        return job.operation
+
     def delete(self, job_id: str) -> Job | None:
         """Forget a finished job, or ask a running one's operation to stop.
 

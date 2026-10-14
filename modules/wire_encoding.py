@@ -34,12 +34,12 @@ is marked in-process.
 
 Inbound, a parameter's value comes back the same way: seconds become a
 ``timedelta``, an enum's form its member, an object a record, a handle's
-id its live object, a live-folder name an absolute path. ``wire_members``
-describes each member a host routes to, and ``decode`` turns what a
-client sent into what the member takes. A parameter type with no inbound
-form -- a job, a path inside an array, a union a value could be read as
-either side of -- is refused when the host is built, never guessed at a
-call.
+id its live object, a job's id its operation, a live-folder name an
+absolute path. ``wire_members`` describes each member a host routes to,
+and ``decode`` turns what a client sent into what the member takes. A
+parameter type with no inbound form -- a future that is no operation, a
+path inside an array, a union a value could be read as either side of --
+is refused when the host is built, never guessed at a call.
 
 Outbound, ``outbound`` reads a member's return type into the form its
 answer takes, from the same table, so a host can describe each answer
@@ -475,7 +475,7 @@ def encode(
 
 # The forms whose value is turned into something else on the way in; every
 # other inbound form is taken as the client sent it.
-_CONVERTED = {SECONDS, PATH, ENUM, RECORD, HANDLE}
+_CONVERTED = {SECONDS, PATH, ENUM, RECORD, HANDLE, JOB}
 # The array types a JSON array becomes, by the name the annotation uses.
 _ARRAY_TYPES = {'tuple': tuple, 'set': set, 'frozenset': frozenset}
 
@@ -624,8 +624,8 @@ def inbound(
     client has no id to send for one.
 
     Raises:
-        NoWireFormError: the type has no inbound form -- a job, a thread, a
-            path inside an array -- or is a union a sent value
+        NoWireFormError: the type has no inbound form -- a future that is
+            no operation, a thread, a path inside an array -- or is a union a sent value
             could be read as either side of (a name or a path), so which one
             the client meant is not knowable.
         NotHandedOutError: every alternative but None is a live object no
@@ -659,7 +659,7 @@ def inbound(
             found.append(Inbound(form, name, cls, fields=fields))
         elif form == HANDLE and handed_out is not None and cls not in handed_out:
             unobtainable.append(name)
-        elif form in (SCALAR, SECONDS, PATH, ENUM, HANDLE):
+        elif form in (SCALAR, SECONDS, PATH, ENUM, HANDLE, JOB):
             found.append(Inbound(form, name, cls))
         else:
             raise NoWireFormError(f'{text}: {name} has no inbound form')
@@ -888,6 +888,7 @@ def decode(
     *,
     resolve_path: Callable[[str], pathlib.Path],
     handle: Callable[[str, type], object],
+    job: Callable[[str], Operation],
 ) -> object:
     """What a member takes for *value*, sent by a wire client for a parameter of *alternatives*.
 
@@ -897,7 +898,9 @@ def decode(
 
     ``resolve_path`` turns a live-folder name into an absolute path, refusing
     a name outside the live folder; ``handle`` turns a handle's id into its
-    live object of the given class, refusing an unknown id.
+    live object of the given class, refusing an unknown id; ``job`` turns a
+    job's id into its operation, refusing an unknown id and a job that holds
+    none.
     """
     converted = [a for a in alternatives if a.form in _CONVERTED]
     if value is None or not converted:
@@ -906,13 +909,14 @@ def decode(
         array = next((a for a in alternatives if a.form == ARRAY), None)
         if isinstance(value, list) and array is not None:
             items = [
-                decode(x, array.items, resolve_path=resolve_path, handle=handle) for x in value
+                decode(x, array.items, resolve_path=resolve_path, handle=handle, job=job)
+                for x in value
             ]
             return _ARRAY_TYPES[array.name](items) if array.name in _ARRAY_TYPES else items
         mapping = next((a for a in alternatives if a.form == OBJECT), None)
         if isinstance(value, dict) and mapping is not None:
             return {
-                k: decode(x, mapping.items, resolve_path=resolve_path, handle=handle)
+                k: decode(x, mapping.items, resolve_path=resolve_path, handle=handle, job=job)
                 for k, x in value.items()
             }
         return value
@@ -925,9 +929,11 @@ def decode(
         return a.cls(value) if issubclass(a.cls, enum.StrEnum) else a.cls[value]
     if a.form == HANDLE:
         return handle(value, a.cls)
+    if a.form == JOB:
+        return job(value)
     return a.cls(
         **{
-            f: decode(value[f], alts, resolve_path=resolve_path, handle=handle)
+            f: decode(value[f], alts, resolve_path=resolve_path, handle=handle, job=job)
             for f, alts in a.fields
             if f in value
         }

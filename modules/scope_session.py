@@ -678,8 +678,7 @@ class ScopeSession:
         """
         return self.sequenced_capture_runner.run_in_progress()
 
-    # In-process until a run's operation has an inbound form on the wire.
-    @api(reads=True, in_process=True)
+    @api(reads=True)
     def held_by_other(self, run: 'Operation | None') -> bool:
         """Whether the scope is held by anything but *run*, the operation a run member returned.
 
