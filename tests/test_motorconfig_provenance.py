@@ -121,21 +121,23 @@ class TestWholesaleLedBlock:
     def test_board_block_replaces_a_defaults_block_whole(self, tmp_path):
         config = make_config(
             tmp_path,
-            defaults={'Layers': {'hypothetical': 'dict-shaped'}, 'Filterset': 'Old'},
+            defaults={'Channels': {'BF': {'led_channel': 3}, 'Red': {}}, 'Filterset': 'Old'},
         )
-        config.update_from_board({'Layers': [{'key_name': 'BF'}], 'Filterset': 'New'})
+        config.update_from_board({'Channels': {'BF': {'led_channel': 4}}, 'Filterset': 'New'})
         block = config.led_block()
-        assert block == {'Layers': [{'key_name': 'BF'}], 'Filterset': 'New'}
+        assert block == {'Channels': {'BF': {'led_channel': 4}}, 'Filterset': 'New'}
 
     def test_absent_block_is_none_not_empty(self, tmp_path):
         config = make_config(tmp_path)
         config.update_from_board({'Serial Number': 'SN1'})
         assert config.led_block() is None
 
-    def test_block_without_filterset_gets_an_empty_string(self, tmp_path):
+    def test_the_block_is_the_keys_the_board_holds(self, tmp_path):
+        # The identity resolver decides what each key means: a Channels block
+        # with no Filterset, and the old Layers block, are handed over as held.
         config = make_config(tmp_path)
-        config.update_from_board({'Layers': []})
-        assert config.led_block() == {'Layers': [], 'Filterset': ''}
+        config.update_from_board({'Channels': {}, 'Layers': []})
+        assert config.led_block() == {'Channels': {}, 'Layers': []}
 
 
 def test_defaults_file_never_carries_an_led_block():
@@ -147,5 +149,6 @@ def test_defaults_file_never_carries_an_led_block():
     """
     with open(pathlib.Path('data/motorconfig_defaults.json'), encoding='utf-8') as f:
         defaults = json.load(f)
+    assert 'Channels' not in defaults
     assert 'Layers' not in defaults
     assert 'Filterset' not in defaults

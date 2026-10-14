@@ -515,11 +515,18 @@ def identity_with_layers(keys, *, model=None, filterset=''):
     for entry in layer_record.load_scope_models().values():
         for row in entry.get('Layers', []):
             shipped.setdefault(row['key_name'], row)
+    channels = {key: {k: v for k, v in shipped[key].items() if k != 'key_name'} for key in keys}
     return layer_record.resolve_layer_identity(
-        board_block={'Layers': [shipped[key] for key in keys], 'Filterset': filterset},
+        board_block={'Channels': channels, 'Filterset': filterset},
         board_config_read_ok=True,
         motor_model=model,
         configured_model=None,
         models={},
         catalogue=layer_record.release_layers(),
+        report=refuse_a_report,
     )
+
+
+def refuse_a_report(notice):
+    """An identity reporter for a resolve that has nothing to report."""
+    raise AssertionError(f'the identity resolve reported {notice!r}')

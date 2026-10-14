@@ -19,6 +19,7 @@ import pytest
 
 import modules.app_context as _app_ctx
 import modules.layer_record as layer_record
+from tests.scope_fakes import refuse_a_report
 from ui.image_settings import ImageSettings
 
 _uids = itertools.count()
@@ -67,6 +68,7 @@ def _identity(model):
         configured_model=None,
         models=layer_record.load_scope_models(),
         catalogue=layer_record.release_layers(),
+        report=refuse_a_report,
     )
 
 

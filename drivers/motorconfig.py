@@ -46,10 +46,11 @@ class MotorConfig:
     # difference or they silently serve the wrong unit's answer.
     board_config_read_ok: bool = True
 
-    # Keys that describe ONE physical assembly (the LED/filterset block).
-    # They are applied whole, never deep-merged: a field-by-field merge of
-    # two sources could describe hardware that does not exist.
-    _WHOLESALE_KEYS: ClassVar[frozenset] = frozenset({'Layers', 'Filterset'})
+    # Keys that describe ONE physical assembly (the channel/filterset block,
+    # and the old Layers block it replaced). They are applied whole, never
+    # deep-merged: a field-by-field merge of two sources could describe
+    # hardware that does not exist.
+    _WHOLESALE_KEYS: ClassVar[frozenset] = frozenset({'Channels', 'Layers', 'Filterset'})
 
     def __init__(self, defaults: Mapping):
         # A deep copy: the board merge edits nested sections in place, and
@@ -61,17 +62,14 @@ class MotorConfig:
         self.board_config_read_ok = False
 
     def led_block(self) -> dict | None:
-        """The per-unit LED/filterset identity block, or None when absent.
+        """The per-unit channel/filterset identity keys the config holds, or None when none.
 
-        Returned whole because the block describes one physical filterset
-        assembly; the caller consumes or replaces it as a unit.
+        Whichever of ``Channels``, the old ``Layers`` and ``Filterset`` are
+        present, returned whole because they describe one physical filterset
+        assembly; the identity resolver decides what each means.
         """
-        if 'Layers' not in self._config:
-            return None
-        return {
-            'Layers': self._config['Layers'],
-            'Filterset': self._config.get('Filterset', ''),
-        }
+        block = {key: self._config[key] for key in self._WHOLESALE_KEYS if key in self._config}
+        return block or None
 
     def update_from_board(self, board_config: dict) -> None:
         """Merge per-unit config from the motor controller on top of defaults.

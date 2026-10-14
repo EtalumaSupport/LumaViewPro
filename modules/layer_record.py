@@ -5,9 +5,9 @@
 One record per layer (stable key name, display name, LED board address,
 excitation wavelength) plus the unit's filterset, resolved once into an
 immutable snapshot. Identity is unit data, not code: different filtersets
-carry different LEDs, so the truth lives in the unit's motorconfig LED
-block when it has one, and in the model's `scopes.json` rows for units
-built before per-unit blocks existed.
+carry different LEDs, so the truth lives in the unit's motorconfig
+Channels block when it has one, and in the model's `scopes.json` rows for
+units built before per-unit blocks existed.
 
 Internally a layer is identified by its integer id. The names are fields
 that get WRITTEN OUT (display, and serialisation under the stable
@@ -24,16 +24,20 @@ from __future__ import annotations
 
 import os
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, fields
 
 from lvp_logger import logger
 from modules.exceptions import (
     ArgumentRefusedError,
+    ChannelBlockSupersededNotice,
+    ChannelBlockUnusableNotice,
+    ChannelRowsSkippedNotice,
     ConfigurationDefectError,
     HardwareCommandRefusedError,
     InstallationFileError,
     MissingPart,
+    Notice,
     ScopeModelUnknownError,
 )
 from modules.path_utils import read_installation_file, resolve_data_file
@@ -131,8 +135,10 @@ class LayerRecord:
     protocol TSV `Color`, filename tokens, metadata `channel`). It never
     changes when a layer is renamed.
 
-    `display_name` is what the operator sees. Freely changeable: a
-    rename touches this field and nothing persisted.
+    `display_name` is the unit's name for the layer. Freely changeable: a
+    rename touches this field and nothing persisted. None for a
+    fluorescence channel a board's Channels block names by its excitation
+    alone.
 
     `led_channel` is the LED board address(es) this layer drives, empty
     for a layer with no LED (luminescence). A tuple rather than a single
@@ -145,8 +151,9 @@ class LayerRecord:
     Green invites silently wrong metadata. None is the truth for
     broadband transmitted light and for LED-less layers.
 
-    `modality`, `background` and `display_color` are the layer's catalogue
-    record's (`CatalogueLayer`).
+    `modality` and `background` are the layer's catalogue record's
+    (`CatalogueLayer`). `display_color` is the unit's colour for the layer:
+    its board block row's, else the catalogue record's.
 
     `label` is what the layer is called wherever it is shown or written:
     a fluorescence layer's excitation (``'405 nm'``), any other layer's
@@ -155,7 +162,7 @@ class LayerRecord:
 
     id: int
     key_name: str
-    display_name: str
+    display_name: str | None
     led_channel: tuple[int, ...]
     excitation_nm: float | None
     modality: str
@@ -533,10 +540,84 @@ def _is_number(value: object) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
+def _record(key_name: str, row: dict, release: CatalogueLayer, position: int) -> LayerRecord | str:
+    """The record ``row`` describes for ``key_name``, or why it describes none.
+
+    One reading of a row for both sources, the model's rows and a board's
+    Channels block: the LED address, the excitation, the name, and an
+    optional colour. A fluorescence channel is labelled by its excitation,
+    so it must carry one and needs no name; any other channel is labelled by
+    its name. A row's colour is held to the one stored form and full
+    brightness (`parse_display_color`); without one the channel takes the
+    catalogue's.
+    """
+    raw_channel = row.get('led_channel')
+    if raw_channel is None:
+        channel: tuple[int, ...] = ()
+    elif isinstance(raw_channel, int) and not isinstance(raw_channel, bool):
+        channel = (raw_channel,)
+    elif isinstance(raw_channel, list) and all(
+        isinstance(c, int) and not isinstance(c, bool) for c in raw_channel
+    ):
+        channel = tuple(raw_channel)
+    else:
+        return f'has malformed led_channel {raw_channel!r}'
+    if len(channel) > 1:
+        return f'drives multiple channels {channel}; multi-channel layers are not supported yet'
+    raw_nm = row.get('excitation_nm')
+    if raw_nm is None:
+        excitation: float | None = None
+    elif _is_number(raw_nm):
+        excitation = float(raw_nm)
+    else:
+        return f'has malformed excitation_nm {raw_nm!r}'
+    display = row.get('display_name')
+    if display is not None and (not isinstance(display, str) or not display):
+        return f'has malformed display_name {display!r}'
+    if release.modality == 'fluorescence':
+        if excitation is None:
+            return 'has no excitation_nm'
+        label = f'{excitation:g} nm'
+    elif display is None:
+        return 'has no display_name'
+    else:
+        label = display
+    color = row.get('display_color')
+    if color is None:
+        color = release.display_color
+    else:
+        try:
+            parse_display_color(color)
+        except ValueError as e:
+            return f'has display_color {e}'
+    return LayerRecord(
+        id=position,
+        key_name=key_name,
+        display_name=display,
+        led_channel=channel,
+        excitation_nm=excitation,
+        modality=release.modality,
+        background=release.background,
+        display_color=color,
+        label=label,
+    )
+
+
+def _shared_address(records: list[LayerRecord]) -> str | None:
+    """Why ``records`` cannot all be one unit's: two of them on one LED address."""
+    holders: dict[int, str] = {}
+    for record in records:
+        for address in record.led_channel:
+            if address in holders:
+                return f'{holders[address]} and {record.key_name} both name LED address {address}'
+            holders[address] = record.key_name
+    return None
+
+
 def _parse_rows(
     rows: object, catalogue: tuple[CatalogueLayer, ...], origin: str
 ) -> tuple[LayerRecord, ...]:
-    """Parse identity rows, skipping each unusable row loudly.
+    """Parse a model's identity rows, skipping each unusable row loudly.
 
     A bad row costs that row, never the scope: the surviving layers keep
     working and the skipped one is absent from identity (so its LED use
@@ -545,9 +626,9 @@ def _parse_rows(
     have. Skipped-loudly cases: a row shape this release cannot read
     (the same forward-looking posture that lets an old release ignore a
     newer block), a key name outside the catalogue (an OEM/custom layer
-    this release has no seat for), and a multi-address `led_channel`
-    (representable, but drive semantics for it are not built yet), and a
-    fluorescence row with no excitation (its label is its excitation).
+    this release has no seat for), any row `_record` cannot read. Two
+    rows on one LED address leave the model no layers: which of them is
+    the LED's cannot be told.
 
     Each record takes its key's catalogue fields from ``catalogue``.
     """
@@ -572,69 +653,52 @@ def _parse_rows(
             )
             continue
         position, release = by_key[key_name]
-        raw_channel = row['led_channel']
-        if raw_channel is None:
-            channel: tuple[int, ...] = ()
-        elif isinstance(raw_channel, int) and not isinstance(raw_channel, bool):
-            channel = (raw_channel,)
-        elif isinstance(raw_channel, list) and all(
-            isinstance(c, int) and not isinstance(c, bool) for c in raw_channel
-        ):
-            channel = tuple(raw_channel)
-        else:
-            logger.error(
-                f'[LAYER_RECORD] {origin}: layer {key_name!r} has malformed '
-                f'led_channel {raw_channel!r}; skipped'
-            )
+        record = _record(key_name, row, release, position)
+        if isinstance(record, str):
+            logger.error(f'[LAYER_RECORD] {origin}: layer {key_name!r} {record}; skipped')
             continue
-        if len(channel) > 1:
-            logger.error(
-                f'[LAYER_RECORD] {origin}: layer {key_name!r} drives multiple '
-                f'channels {channel}; multi-channel layers are not supported '
-                f'yet; skipped'
-            )
+        records.append(record)
+    shared = _shared_address(records)
+    if shared is not None:
+        logger.error(f'[LAYER_RECORD] {origin}: {shared}; no layers')
+        return ()
+    return tuple(sorted(records, key=lambda r: r.id))
+
+
+def _parse_channel_block(
+    channels: object, catalogue: tuple[CatalogueLayer, ...], report: Callable[[Notice], None]
+) -> tuple[LayerRecord, ...]:
+    """Parse a board's Channels block: a mapping from catalogue key to its row.
+
+    A row this release cannot read costs that row, as a model's does, and
+    every such row is reported in one notice. A block that is not a mapping,
+    or that names one LED address twice, describes no assembly that can be
+    trusted in part: the unit has no channels, reported.
+    """
+    if not isinstance(channels, dict):
+        report(ChannelBlockUnusableNotice(f'its Channels is a {type(channels).__name__}'))
+        return ()
+    by_key = {layer.key: (position, layer) for position, layer in enumerate(catalogue)}
+    records, skipped = [], {}
+    for key_name, row in channels.items():
+        if key_name not in by_key:
+            skipped[str(key_name)] = 'not a channel this release knows'
             continue
-        raw_nm = row['excitation_nm']
-        if raw_nm is None:
-            excitation: float | None = None
-        elif isinstance(raw_nm, (int, float)) and not isinstance(raw_nm, bool):
-            excitation = float(raw_nm)
-        else:
-            logger.error(
-                f'[LAYER_RECORD] {origin}: layer {key_name!r} has malformed '
-                f'excitation_nm {raw_nm!r}; skipped'
-            )
+        if not isinstance(row, dict) or 'led_channel' not in row:
+            skipped[key_name] = 'not a mapping holding its led_channel'
             continue
-        display = row['display_name']
-        if not isinstance(display, str) or not display:
-            logger.error(
-                f'[LAYER_RECORD] {origin}: layer {key_name!r} has malformed '
-                f'display_name {display!r}; skipped'
-            )
+        position, release = by_key[key_name]
+        record = _record(key_name, row, release, position)
+        if isinstance(record, str):
+            skipped[key_name] = record
             continue
-        if release.modality == 'fluorescence':
-            if excitation is None:
-                logger.error(
-                    f'[LAYER_RECORD] {origin}: fluorescence layer {key_name!r} '
-                    f'has no excitation_nm; skipped'
-                )
-                continue
-            label = f'{excitation:g} nm'
-        else:
-            label = display
-        records.append(
-            LayerRecord(
-                id=position,
-                key_name=key_name,
-                display_name=display,
-                led_channel=channel,
-                excitation_nm=excitation,
-                modality=release.modality,
-                background=release.background,
-                display_color=release.display_color,
-                label=label,
-            )
-        )
+        records.append(record)
+    if skipped:
+        report(ChannelRowsSkippedNotice(skipped))
+    shared = _shared_address(records)
+    if shared is not None:
+        report(ChannelBlockUnusableNotice(shared))
+        return ()
     return tuple(sorted(records, key=lambda r: r.id))
 
 
@@ -646,16 +710,17 @@ def resolve_layer_identity(
     configured_model: str | None,
     models: Mapping,
     catalogue: tuple[CatalogueLayer, ...],
+    report: Callable[[Notice], None],
     override_model: str | None = None,
 ) -> LayerIdentity:
     """Resolve the unit's layer identity from the first authoritative source.
 
     Precedence: an explicit `override_model` (a lab/engineering request
     to impersonate a model for this session -- it wins over everything,
-    loudly, and is never persisted); else the unit's own motorconfig LED
-    block, taken WHOLE (a block describes one physical filterset
-    assembly, so merging it field-by-field with model data could
-    describe hardware that does not exist); else the model's
+    loudly, and is never persisted); else the unit's own motorconfig
+    Channels block with its Filterset, taken WHOLE (a block describes one
+    physical filterset assembly, so merging it field-by-field with model
+    data could describe hardware that does not exist); else the model's
     `scopes.json` rows, with the motor-reported model outranking the
     configured one because hardware truth beats a user selection; else
     the empty `unresolved` snapshot. Whichever rung answers, the snapshot
@@ -666,6 +731,10 @@ def resolve_layer_identity(
     as an error here (the one place both facts are in hand) and the
     model rung answers, so the scope stays usable while the failure
     stays visible.
+
+    A board carrying the old Layers block, or a Filterset with no
+    Channels, resolves from its model, reported through ``report``; so are
+    the board block's skipped rows and an unusable block.
 
     Reads nothing: ``models`` is the scope's model catalogue and
     ``catalogue`` the release's layer records, each read once by its
@@ -702,12 +771,15 @@ def resolve_layer_identity(
     # silently adopting whatever the user last selected.
     model = motor_model or configured_model
 
-    if board_block is not None:
-        layers = _parse_rows(board_block.get('Layers', []), catalogue, 'motorconfig')
-        filterset = board_block.get('Filterset', '')
+    board = board_block or {}
+    if 'Channels' in board:
+        layers = _parse_channel_block(board['Channels'], catalogue, report)
+        filterset = board.get('Filterset', '')
         if not isinstance(filterset, str):
             filterset = ''
         return LayerIdentity(layers=layers, filterset=filterset, source='motorconfig', model=model)
+    if 'Layers' in board or 'Filterset' in board:
+        report(ChannelBlockSupersededNotice(model))
 
     if not board_config_read_ok:
         logger.error(

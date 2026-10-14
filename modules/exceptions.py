@@ -520,6 +520,63 @@ class FrameRefittedNotice(Notice, Exception):  # noqa: N818 -- a notice, not an 
         )
 
 
+class ChannelBlockSupersededNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error
+    """The motor board carries the old Layers block, which is no longer read.
+
+    The unit's channels and filterset are its model's. A board's own channels
+    are its ``Channels`` block, beside its ``Filterset``.
+    """
+
+    title = 'Board channel block not read'
+    reason = 'channel_block_superseded'
+
+    def __init__(self, model: str | None):
+        source = f"the {model} model's" if model else "its model's"
+        super().__init__(
+            "This unit's motor board describes its channels in the old Layers block, which "
+            f'this LumaViewPro no longer reads; the scope uses {source} channels and filterset.'
+        )
+
+
+class ChannelBlockUnusableNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error
+    """The motor board's Channels block cannot be used, so the scope has no channels.
+
+    The block describes one filter assembly, so a block that contradicts
+    itself is not read in part: no row can be trusted over another.
+    """
+
+    title = 'Board channel block unusable'
+    reason = 'channel_block_unusable'
+
+    def __init__(self, why: str):
+        super().__init__(
+            f"This unit's motor board describes its channels in a block LumaViewPro cannot use "
+            f"({why}), so the scope has no channels. Correct the board's motorconfig.json."
+        )
+
+
+class ChannelRowsSkippedNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error
+    """Rows of the motor board's Channels block that could not be read; the rest are the scope's.
+
+    One notice names every skipped row, as one load's replaced settings are
+    one notice.
+
+    Attributes:
+        skipped: Each skipped row's key and why it was not read.
+    """
+
+    title = 'Board channels not read'
+    reason = 'channel_rows_skipped'
+
+    def __init__(self, skipped: dict[str, str]):
+        self.skipped = dict(skipped)
+        rows = '; '.join(f'{key}: {why}' for key, why in self.skipped.items())
+        super().__init__(
+            "This unit's motor board names channels LumaViewPro cannot read, so the scope "
+            f'runs without them: {rows}.'
+        )
+
+
 class StoredSettingReplacedNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error
     """Saved settings no write could store, replaced by the shipped values at load.
 

@@ -18,6 +18,7 @@ import pytest
 
 from modules import layer_record
 from modules.exceptions import Refusal
+from tests.scope_fakes import refuse_a_report
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 from tests.frame_records import frame_record, plate
@@ -31,6 +32,7 @@ def _resolve(**kwargs):
         'configured_model': None,
         'models': layer_record.load_scope_models(),
         'catalogue': layer_record.release_layers(),
+        'report': refuse_a_report,
     }
     args.update(kwargs)
     return layer_record.resolve_layer_identity(**args)
@@ -41,7 +43,7 @@ class TestEveryRungCarriesTheModel:
         assert _resolve(motor_model='LS850T', override_model='LS560').model == 'LS560'
 
     def test_the_board_block_rung_carries_the_boards_model(self):
-        block = {'Layers': [], 'Filterset': ''}
+        block = {'Channels': {}, 'Filterset': ''}
         assert _resolve(board_block=block, motor_model='LS850T').model == 'LS850T'
 
     def test_the_catalogue_rung_carries_the_selection_when_the_board_reports_none(self):

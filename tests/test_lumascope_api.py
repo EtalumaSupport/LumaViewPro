@@ -878,6 +878,7 @@ class TestScopeCapabilities:
             resolve_layer_identity,
         )
         from modules.scope_capabilities import ScopeCapabilities
+        from tests.scope_fakes import refuse_a_report
 
         class FourChannelLED(SimulatedLEDBoard):
             def available_channels(self):
@@ -894,6 +895,7 @@ class TestScopeCapabilities:
                 configured_model='LS620',
                 models=load_scope_models(),
                 catalogue=release_layers(),
+                report=refuse_a_report,
             ),
             scope_models=load_scope_models(),
         )

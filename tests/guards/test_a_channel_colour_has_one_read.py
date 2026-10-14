@@ -2,7 +2,7 @@
 """A channel's colour has one read: ``ScopeSession.channel_colors``.
 
 Every capture, recording, build and view is coloured from the mapping the
-Session hands it. A module that read the release's colour itself would
+Session hands it, which reads the release's colours and the unit's records'. A module that read the release's colour itself would
 colour its output past a per-channel override, so one capture or build
 would disagree with the rest about what colour a channel is. This walk over
 every production module, drivers, tools and the REST host included, refuses
@@ -75,4 +75,4 @@ def test_the_guard_sees_the_read_it_exempts():
     owned = {
         read for qualname, _lineno, read in _reads(trees[_OWNER_MODULE]) if qualname == _OWNER_DEF
     }
-    assert owned == {'release_colors'}
+    assert owned == {'release_colors', 'display_color'}

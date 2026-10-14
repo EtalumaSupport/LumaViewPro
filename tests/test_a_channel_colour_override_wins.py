@@ -3,7 +3,8 @@
 
 ``ScopeSession.channel_colors`` is the one read of a channel's colour: a
 layer's ``display_color``, a ``'#rrggbb'`` colour at full brightness, wins
-over the release catalogue's, and null is no override. A value the store
+over the unit's (its board block's, else the release catalogue's), and null
+is no override. A value the store
 cannot use as a colour is refused where it is written, never stored.
 """
 
@@ -38,6 +39,22 @@ def test_an_override_is_the_channels_colour_and_null_gives_the_release_back(sess
 
     assert overridden == {**release, 'Red': (1.0, 0.0, 1.0)}
     assert session.channel_colors() == release
+
+
+def test_a_unit_colour_its_board_gives_is_the_channels_unless_overridden(session):
+    # The board's own Channels block colours Blue cyan; a layer the block
+    # leaves out keeps the release's colour, and the override wins over both.
+    release = layer_record.release_colors()
+    session.scope._motion_driver.motorconfig.update_from_board(
+        {'Channels': {'Blue': {'led_channel': 0, 'excitation_nm': 405, 'display_color': '#00ffff'}}}
+    )
+    session.scope.refresh_layer_identity()
+
+    from_the_unit = session.channel_colors()
+    session.update_settings('Blue.display_color', MAGENTA)
+
+    assert from_the_unit == {**release, 'Blue': (0.0, 1.0, 1.0)}
+    assert session.channel_colors() == {**release, 'Blue': (1.0, 0.0, 1.0)}
 
 
 def test_a_colour_the_store_cannot_use_is_refused_at_the_write(session):

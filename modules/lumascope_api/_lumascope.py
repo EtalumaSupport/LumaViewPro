@@ -795,7 +795,7 @@ class Lumascope:
         # ----- Layer identity -----
         # What the layers on this unit ARE (names, LED addresses,
         # excitations, filterset) -- resolved from the unit's motorconfig
-        # LED block or the model's scopes.json rows, here at construction
+        # Channels block or the model's scopes.json rows, here at construction
         # so every caller (GUI, headless session, script) holds identity
         # without any separate initialize step. Distinct from the live
         # LED state the illumination API keeps: identity says what a
@@ -929,6 +929,9 @@ class Lumascope:
             configured_model=self._configured_model,
             models=self._scope_models,
             catalogue=release_layers(),
+            report=lambda notice: notifications.report_outcome(
+                notice, solicited=False, category='Illumination'
+            ),
             override_model=override_model,
         )
 

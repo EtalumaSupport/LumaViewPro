@@ -166,16 +166,20 @@ identity.model                           # the model it resolved as: the board's
 identity.filterset                       # the unit's filterset identity string
 for layer in identity.layers:
     layer.key_name                       # stable name: settings keys, protocol Color, filenames
-    layer.display_name                   # the unit's name for the layer (e.g. 'BF-Phase' on FX2)
+    layer.display_name                   # the unit's name for the layer (e.g. 'BF-Phase' on FX2); None for a fluorescence
+                                         # channel a board's Channels block names by its excitation alone
     layer.label                          # what to show: a fluorescence layer's excitation ('405 nm'), else display_name
     layer.modality                       # 'transmitted' | 'fluorescence' | 'luminescence'
     layer.background                     # 'bright' | 'dark': what an overlay is drawn against
-    layer.display_color                  # the release's colour for the layer, '#rrggbb'
+    layer.display_color                  # the unit's colour for the layer, '#rrggbb': its board block row's, else the
+                                         # release's; the colour used is session.channel_colors(), which applies the override
     layer.led_channel                    # tuple of board addresses; () = drives no LED
     layer.excitation_nm                  # excitation wavelength; None for broadband/LED-less
 
 identity.find('BF')                      # record by stable key name, or None
 ```
+
+A unit's own channels are its motor board's `Channels` block in `motorconfig.json`, beside its `Filterset`: a mapping from each channel's key to its row, `led_channel` (the LED address, null for none) and, for a fluorescence channel, `excitation_nm`, or for any other, `display_name`, each with an optional `display_color` (`'#rrggbb'`, lower case, brightest component ff). Its keys are the release's. A row this release cannot read is left out, and bring-up reports every such row in one notice, `ChannelRowsSkippedNotice` (`'channel_rows_skipped'`, `skipped`: each key and why). A block that is not a mapping, or that names one LED address twice, leaves the scope no channels, reported as `ChannelBlockUnusableNotice` (`'channel_block_unusable'`). A board carrying the old `Layers` block, or a `Filterset` with no `Channels`, resolves from its model, its channels and filterset both, reported as `ChannelBlockSupersededNotice` (`'channel_block_superseded'`).
 
 A scope's model is fixed for its lifetime: `identity.model`, `scope.capabilities.model` and the model every saved image records are one answer. A model the catalogue lacks is still carried, with no layers. To change the model of a scope that cannot report its own (the FX2 line), save the selection through the session; it applies the next time the scope is brought up, and a motor board that reports its own model still wins then:
 
@@ -1324,7 +1328,8 @@ session.get_auto_gain_settings()         # auto-gain config
 session.get_stim_configs()               # stim settings per layer
 session.channel_colors()                 # every layer's colour, (r, g, b) weights 0-1: what captures, recordings,
                                          # builds and the view are coloured in, read by each as it starts
-session.update_settings('Red.display_color', '#ff00ff')  # override a layer's colour; None gives the catalogue's back.
+session.update_settings('Red.display_color', '#ff00ff')  # override a layer's colour; None gives the unit's back
+                                         # (its board block's, else the catalogue's).
                                          # '#rrggbb', lower case, brightest component ff, else SettingRefusedError
 session.get_enabled_stim_configs()       # only the enabled ones
 ```

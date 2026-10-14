@@ -1545,8 +1545,10 @@ class ScopeSession:
         The one read of a channel's colour: every capture, recording, build
         and view takes it from here, the run and each build as it starts.
         A layer's ``display_color`` setting, a ``'#rrggbb'`` colour at full
-        brightness, overrides the release's colour for that layer; null is
-        no override.
+        brightness, overrides its colour; null is no override. Without one,
+        a layer this unit carries takes the unit's colour (its record's,
+        which a board's Channels block may give), and any other layer the
+        release's, so a folder captured on another unit still has one.
 
         Raises:
             InstallationFileError: the installation's ``scopes.json`` is
@@ -1555,6 +1557,8 @@ class ScopeSession:
         from modules.layer_record import parse_display_color, release_colors
 
         colors = release_colors()
+        for record in self.scope.layer_identity.layers:
+            colors[record.key_name] = parse_display_color(record.display_color)
         with self.settings_lock:
             overrides = {key: self.settings[key]['display_color'] for key in colors}
         for key, override in overrides.items():
