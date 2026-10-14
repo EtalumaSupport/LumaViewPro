@@ -173,5 +173,14 @@ class ModSliderAwareScrollView(ScrollView):
                 touch.pop()
         return super().on_touch_down(touch)
 
+    def update_from_scroll(self, *largs):
+        # Kivy 2.3.1 binds _change_bar_color to bar_color on every call, with
+        # no check for one already bound, and its fade trigger unbinds one: a
+        # drawer opening repositions the sidebar every animation frame, so
+        # each opening left a binding per frame behind. Unbinding first keeps
+        # one; the bar still shows bar_color while moving, then fades.
+        self.funbind('bar_color', self._change_bar_color)
+        super().update_from_scroll(*largs)
+
 
 Factory.register('ModSliderAwareScrollView', cls=ModSliderAwareScrollView)
