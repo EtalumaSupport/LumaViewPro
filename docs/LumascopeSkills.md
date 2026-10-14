@@ -444,7 +444,11 @@ that can take the value gets it back.
 **`update_settings(path, value)` is the one write.** `path` names one
 setting by its keys joined with dots (`'BF.sum'`, `'zstack.step_size'`,
 `'video.max_fps'`); the settings that exist, and the kind each holds,
-are `session.scope.settings_template`. Two settings act on the whole
+are `session.scope.settings_template`, which holds a block for every
+layer the release catalogues: a layer the shipped `settings.json` names
+no block for takes its modality's shared one from the file's
+`channel_defaults`, which the read consumes, so no template, settings
+dict or saved file holds it. Two settings act on the whole
 process as they are written: `logging.default.level`, the level of the
 main log on every host (applied when the session is created, before its
 scope comes up, and on each write; the installation's `debug_mode` puts it

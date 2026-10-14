@@ -24,12 +24,13 @@ import pytest
 from modules.config_helpers import get_sequenced_capture_config_from_settings
 from modules.labware_loader import WellPlateLoader
 from modules.objectives_loader import ObjectiveLoader
+from tests.settings_fixtures import shipped_template
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 
 
 def _settings(**overrides):
-    settings = json.loads((REPO / 'data' / 'settings.json').read_text())
+    settings = shipped_template()
     settings['frame'] = {'width': 1900, 'height': 1900}
     settings.update(overrides)
     return settings

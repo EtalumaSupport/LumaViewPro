@@ -12,7 +12,6 @@ saved focus; Add images every channel at the current Z
 
 from __future__ import annotations
 
-import json
 import pathlib
 from types import SimpleNamespace
 
@@ -23,6 +22,7 @@ from modules.common_utils import get_layers
 from modules.exceptions import FocusNotSavedError, ProtocolRunRefusedError
 from modules.labware_loader import WellPlateLoader
 from modules.objectives_loader import ObjectiveLoader
+from tests.settings_fixtures import shipped_template
 
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
@@ -76,7 +76,7 @@ def _from_config(cfg, capabilities):
 
 
 def test_the_template_saves_no_focus_for_any_layer():
-    template = json.loads((REPO / 'data' / 'settings.json').read_text())
+    template = shipped_template()
 
     assert {layer: template[layer]['focus'] for layer in get_layers()} == dict.fromkeys(
         get_layers()

@@ -22,7 +22,7 @@ from modules import settings_init, settings_paths
 from modules.exceptions import SettingRefusedError
 from modules.scope_session import ScopeSession
 from tests.ast_seams import REPO_ROOT
-from tests.settings_fixtures import complete_settings
+from tests.settings_fixtures import complete_settings, shipped_template
 from tests.case_walk import failing_cases
 
 TEMPLATE = REPO_ROOT / 'data' / 'settings.json'
@@ -110,8 +110,8 @@ def test_a_stored_value_outside_the_range_is_replaced_at_load_and_told_once(tmp_
     data_dir = tmp_path / 'data'
     data_dir.mkdir()
     shutil.copy(TEMPLATE, data_dir / 'settings.json')
-    shipped = json.loads(TEMPLATE.read_text())
-    current = json.loads(TEMPLATE.read_text())
+    shipped = shipped_template()
+    current = shipped_template()
     *blocks, leaf = path.split('.')
     holder, shipped_holder = current, shipped
     for block in blocks:

@@ -75,74 +75,30 @@
             "fps": 30
         }
     },
-    "Blue": {
-        "focus": null,
-        "autofocus": false,
-        "false_color": true,
-        "illumination_ma": 250.0,
-        "sum": 1,
-        "gain_db": 10.0,
-        "auto_gain": false,
-        "exposure_ms": 100.0,
-        "acquire": null,
-        "video_config": {
-            "duration": 5,
-            "fps": 30
-        },
-        "stim_config": {
-            "enabled": false,
-            "illumination_ma": 100,
-            "frequency": 1,
-            "pulse_width": 10,
-            "pulse_count": 100
-        },
-        "composite_brightness_threshold": 50
-    },
-    "Green": {
-        "focus": null,
-        "autofocus": false,
-        "false_color": true,
-        "illumination_ma": 250.0,
-        "sum": 1,
-        "gain_db": 10.0,
-        "auto_gain": false,
-        "exposure_ms": 100.0,
-        "acquire": null,
-        "video_config": {
-            "duration": 5,
-            "fps": 30
-        },
-        "stim_config": {
-            "enabled": false,
-            "illumination_ma": 100,
-            "frequency": 1,
-            "pulse_width": 10,
-            "pulse_count": 100
-        },
-        "composite_brightness_threshold": 50
-    },
-    "Red": {
-        "focus": null,
-        "autofocus": false,
-        "false_color": true,
-        "illumination_ma": 350.0,
-        "sum": 1,
-        "gain_db": 10.0,
-        "auto_gain": false,
-        "exposure_ms": 100.0,
-        "acquire": null,
-        "video_config": {
-            "duration": 5,
-            "fps": 30
-        },
-        "stim_config": {
-            "enabled": false,
-            "illumination_ma": 100,
-            "frequency": 1,
-            "pulse_width": 10,
-            "pulse_count": 100
-        },
-        "composite_brightness_threshold": 50
+    "channel_defaults": {
+        "fluorescence": {
+            "focus": null,
+            "autofocus": false,
+            "false_color": true,
+            "illumination_ma": 250.0,
+            "sum": 1,
+            "gain_db": 10.0,
+            "auto_gain": false,
+            "exposure_ms": 100.0,
+            "acquire": null,
+            "video_config": {
+                "duration": 5,
+                "fps": 30
+            },
+            "stim_config": {
+                "enabled": false,
+                "illumination_ma": 100,
+                "frequency": 1,
+                "pulse_width": 10,
+                "pulse_count": 100
+            },
+            "composite_brightness_threshold": 50
+        }
     },
     "Lumi": {
         "focus": null,

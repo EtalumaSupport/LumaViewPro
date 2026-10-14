@@ -37,8 +37,7 @@ def _data_dir(tmp_path):
 
 def _legacy_current(data_dir):
     """A current.json written by an older release, in that release's spellings."""
-    with open(SHIPPED_TEMPLATE) as f:
-        current = json.load(f)
+    current = settings_init.load_template(logger, SHIPPED_TEMPLATE)
 
     current['image_output_format']['sequenced'] = 'ImageJ Hyperstack'
     current['disable_protocol_accordions'] = True

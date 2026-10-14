@@ -14,12 +14,9 @@ invented 20 dB -- the guard held by accident, and a simulator that matches
 the daA3840 (48 dB) would have let a 45 dB layer through.
 """
 
-import json
-import pathlib
-
 import pytest
+from tests.settings_fixtures import shipped_template
 
-SETTINGS = pathlib.Path(__file__).resolve().parent.parent / 'data' / 'settings.json'
 LAYERS = ('BF', 'PC', 'DF', 'Blue', 'Green', 'Red', 'Lumi')
 
 # The smallest gain ceiling a shipped camera advertises: the IDS U3-34L0XCP's
@@ -31,7 +28,7 @@ SMALLEST_SHIPPED_CEILING_DB = 30.0
 
 @pytest.mark.parametrize('layer', LAYERS)
 def test_the_layer_gain_fits_the_smallest_camera(layer):
-    gain = json.loads(SETTINGS.read_text())[layer]['gain_db']
+    gain = shipped_template()[layer]['gain_db']
     assert 0.0 <= gain <= SMALLEST_SHIPPED_CEILING_DB, (
         f"{layer} ships at {gain} dB, outside the smallest shipped camera's range"
     )
@@ -41,4 +38,4 @@ def test_the_layer_gain_fits_the_smallest_camera(layer):
 def test_the_fluorescence_layers_ship_at_10_db(layer):
     """The fit alone admits Green at 30 dB, at the smallest ceiling; the
     template ships the three at 10 dB, well inside every camera's range."""
-    assert json.loads(SETTINGS.read_text())[layer]['gain_db'] == 10.0
+    assert shipped_template()[layer]['gain_db'] == 10.0

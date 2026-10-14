@@ -26,7 +26,6 @@ so a slow CI box cannot flake the suite on wall clock.
 
 import ast
 import inspect
-import json
 import pathlib
 import runpy
 import subprocess
@@ -34,6 +33,7 @@ import sys
 
 import pytest
 from tests.case_walk import failing_cases
+from tests.settings_fixtures import shipped_template
 
 EXAMPLES_DIR = pathlib.Path(__file__).resolve().parents[1] / 'docs' / 'api_examples'
 # Derived from the directory, never hand-listed: a roster has to be
@@ -66,8 +66,7 @@ def _restore_settings_globals():
         if module is not None
     }
     if module is not None:
-        with (EXAMPLES_DIR.parents[1] / 'data' / 'settings.json').open() as handle:
-            module.settings = json.load(handle)
+        module.settings = shipped_template()
     yield
     for name, value in saved.items():
         setattr(module, name, value)

@@ -25,6 +25,7 @@ from __future__ import annotations
 import ast
 import json
 import pathlib
+from tests.settings_fixtures import shipped_template
 
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
@@ -101,7 +102,7 @@ def test_scan_config_carries_the_persisted_overlap():
     that overlap comes from the persisted key and never from the spinner,
     held throughout. A source-shape assertion cannot tell those two apart.
     """
-    settings = json.loads((REPO / 'data' / 'settings.json').read_text())
+    settings = shipped_template()
     settings['tiling_overlap_percent'] = 25.0
 
     from modules.config_helpers import get_sequenced_capture_config_from_settings

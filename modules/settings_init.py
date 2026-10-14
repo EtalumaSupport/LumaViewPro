@@ -531,19 +531,57 @@ def _load_and_validate(logger, filepath: str) -> dict:
 
 
 def load_template(logger: logging.Logger, template_path: str) -> dict:
-    """The shipped template, checked for the keys the app needs.
+    """The shipped template, a block for every catalogue key, checked for the keys the app needs.
 
     Read as a file the installation ships, not as the user's: a template
-    that is missing or will not parse is the installation's fault and
-    raises ``InstallationFileError``, never a reason to skip the step that
-    needed it.
+    that is missing, will not parse, or cannot give every catalogue key a
+    block is the installation's fault and raises ``InstallationFileError``,
+    never a reason to skip the step that needed it.
     """
     template = read_installation_file(template_path)
     missing = _missing_required_keys(template)
     if missing:
         raise InstallationFileError(template_path, f'lacks the keys the app needs: {missing}')
+    _give_every_layer_a_block(template, template_path)
     _validate_settings(template, template_path, logger)
     return template
+
+
+def _give_every_layer_a_block(template: dict, template_path: str) -> None:
+    """Every catalogue key's block: its own, else a copy of its modality's default.
+
+    The file names a block only for a key with values of its own; every
+    other key takes ``channel_defaults``' block for its modality, so a key
+    added to the catalogue has settings without an edit here. The defaults
+    are consumed: no prepared dict, published template or saved file holds
+    them, so the only blocks a caller sees are layers.
+
+    Raises:
+        InstallationFileError: ``channel_defaults`` is missing or is not a
+            mapping of blocks, or has no block for the modality of a key
+            the file names none for.
+    """
+    # Deferred: layer_record imports lvp_logger, which imports this module.
+    from modules.layer_record import release_layers
+
+    defaults = template.pop('channel_defaults', None)
+    if not isinstance(defaults, dict) or not all(isinstance(b, dict) for b in defaults.values()):
+        raise InstallationFileError(
+            template_path, f'has no usable channel_defaults (found {defaults!r})'
+        )
+    unfilled = []
+    for layer in release_layers():
+        if layer.key in template:
+            continue
+        default = defaults.get(layer.modality)
+        if default is None:
+            unfilled.append(f'{layer.key} ({layer.modality})')
+            continue
+        template[layer.key] = copy.deepcopy(default)
+    if unfilled:
+        raise InstallationFileError(
+            template_path, f'has no block and no channel_defaults block for {unfilled}'
+        )
 
 
 def _normalize_turret_slot_keys(settings: dict) -> None:
