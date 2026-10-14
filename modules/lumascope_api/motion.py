@@ -48,7 +48,6 @@ from modules.exceptions import (
     HomingFailedError,
     HomingFaultError,
     HomingStoppedError,
-    LaneCallStillRunningError,
     MissingPart,
     MotorStopFailedError,
     MoveFaultError,
@@ -2122,16 +2121,15 @@ class MotionAPI:
     # they hold the scope. From a task already on the lane's worker the lane
     # runs the body inline.
 
-    # Base liveness margin for a dispatched motion command: queue residence
-    # plus the serial round-trips, with headroom. The per-command wait adds
-    # the body's own declared motion time on top, so a long but correct move
-    # or home is never timed out by its own liveness bound.
+    # Liveness margin for a dispatched motion command that waits for no
+    # motion (a move's command, a precision mode or acceleration write):
+    # queue residence plus the serial round-trips, with headroom. A home and
+    # a turret move wait for their body with no bound of their own: the
+    # board bounds a home, and each of a turret move's moves is judged.
     _MOTION_WAIT_BASE_S = 30.0
 
-    # One physically-waited motion's own bound: how long the monitor lets a
-    # move run before it gives the axis up as stalled, what the homing
-    # routine legitimately takes on long travel, and each motion of a turret
-    # move.
+    # How long the monitor lets a move run before it gives the axis up as
+    # stalled.
     _MOTION_SETTLE_TIMEOUT_S = 120.0
 
     def _dispatch_motion(
@@ -2354,15 +2352,21 @@ class MotionAPI:
 
         Returns only when the home established a reference: every homed
         axis has a known position (for ``'ALL'``, the axes the board has).
+        The API sets no time limit on the wait: the home ends when the board
+        ends it, which bounds each of its phases and halts when one runs out,
+        or when the driver stops waiting for a board that has stopped
+        answering; either ends it in ``HomingFaultError``.
 
         Args:
             axis: ``'Z'`` homes the Z axis only. ``'T'`` homes the turret
-                (parks Z at 0, homes T, restores Z -- three
-                physically-waited motions, so its wait bound is three
-                settle windows). ``'ALL'`` (default) homes every axis the
-                board has; the firmware routine homes Z, then T, then X/Y.
+                (parks Z at 0, homes T, restores Z). ``'ALL'`` (default)
+                homes every axis the board has; the firmware routine homes
+                Z, then T, then X/Y.
 
         Raises:
+            BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on the
+                UI thread; nothing was started (``start_home`` is the form
+                for a button).
             ArgumentRefusedError: ``'axis_unknown'``, ``axis`` is not
                 ``'Z'``, ``'T'`` or ``'ALL'``; nothing was asked of the scope.
             HardwareCommandRefusedError: ``'not_connected'`` or
@@ -2385,21 +2389,17 @@ class MotionAPI:
         already holds the scope (the support report's diagnostic), it runs
         as that activity's work and takes no claim of its own.
         """
-        impl, settle_windows = self._home_body(axis)
+        refuse_waiting_on_ui_thread('home')
+        impl = self._home_body(axis)
         body, release_if_unrun, _stop, taking = self.claim_home(impl)
         try:
             with acting(taking):
                 self._dispatch_motion(
                     body,
                     'home',
-                    timeout_s=self._MOTION_WAIT_BASE_S
-                    + settle_windows * self._MOTION_SETTLE_TIMEOUT_S,
+                    timeout_s=None,
                     falsifies_recording=self._home_moves_turret(impl),
                 )
-        except LaneCallStillRunningError:
-            # The home is still queued or running, and its body releases the
-            # claim when it ends; until then it is in flight.
-            raise
         except BaseException:
             release_if_unrun()
             raise
@@ -2424,7 +2424,7 @@ class MotionAPI:
                 asked earlier has not ended; or the home was refused as
                 ``home`` is refused.
         """
-        impl, _ = self._home_body(axis)
+        impl = self._home_body(axis)
         body, release_if_unrun, stop, taking = self.claim_home(impl)
         waiter: concurrent.futures.Future[None] = concurrent.futures.Future()
         # Marked running before the lane holds it, so only the lane settles
@@ -2442,14 +2442,14 @@ class MotionAPI:
             raise
         return Operation.following(waiter, stop=stop, first=release_if_unrun)
 
-    def _home_body(self, axis: str) -> tuple[Callable[[], None], int]:
-        """The home body for ``axis`` and how many settle windows bound its wait."""
+    def _home_body(self, axis: str) -> Callable[[], None]:
+        """The home body for ``axis``."""
         refuse_unknown_axis(axis, HOME_AXES)
         if axis == 'Z':
-            return self._zhome_impl, 1
+            return self._zhome_impl
         if axis == 'T':
-            return self._home_turret_impl, 3
-        return self._home_impl, 1
+            return self._home_turret_impl
+        return self._home_impl
 
     def claim_home(
         self, impl: Callable[[], None]
@@ -2523,19 +2523,23 @@ class MotionAPI:
     def move_turret(self, position: int, restore_z: bool = True) -> None:
         """Move the turret to a position, and wait for it. See ``_move_turret_impl``.
 
-        The wait bound covers three physically-waited motions: the Z park,
-        the turret move itself, and the Z restore.
+        Three moves -- the Z park, the turret move itself and the Z restore
+        -- each judged as every move is, so the wait sets no time limit of
+        its own.
 
         Raises:
+            BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on the
+                UI thread; nothing was started.
             HardwareCommandRefusedError: a recording holds the scope: its
                 frames carry the pixel size of the objective it started with.
         """
+        refuse_waiting_on_ui_thread('move_turret')
         return self._dispatch_motion(
             self._move_turret_impl,
             'move_turret',
             args=(position,),
             kwargs={'restore_z': restore_z},
-            timeout_s=self._MOTION_WAIT_BASE_S + 3 * self._MOTION_SETTLE_TIMEOUT_S,
+            timeout_s=None,
             falsifies_recording=True,
         )
 

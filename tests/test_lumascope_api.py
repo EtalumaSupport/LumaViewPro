@@ -154,33 +154,6 @@ class TestLumascopeHome:
         scope.motion.home()
         assert ran == ['Z', 'T', 'ALL']
 
-    def test_home_axis_t_waits_three_settle_windows(self):
-        """The turret home is three physically-waited motions (Z park,
-        turret home, Z restore), so its dispatch wait bound carries three
-        settle windows; 'Z' and 'ALL' carry one."""
-        scope = build_scope(simulate=True)
-        timeouts = {}
-        base = scope.motion._MOTION_WAIT_BASE_S
-        settle = scope.motion._MOTION_SETTLE_TIMEOUT_S
-
-        dispatch = scope.motion._dispatch_motion
-
-        def record(impl, name, timeout_s, **kwargs):
-            timeouts[len(timeouts)] = timeout_s
-            return dispatch(impl, name, timeout_s=timeout_s, **kwargs)
-
-        # The bodies do nothing; the dispatch is real, so each home ends on
-        # the lane as one does, and the next is not refused as in flight.
-        for body in ('_zhome_impl', '_home_turret_impl', '_home_impl'):
-            setattr(scope.motion, body, lambda: None)
-        scope.motion._dispatch_motion = record
-        scope.motion.home(axis='Z')
-        scope.motion.home(axis='T')
-        scope.motion.home()
-        assert timeouts[0] == base + settle
-        assert timeouts[1] == base + 3 * settle
-        assert timeouts[2] == base + settle
-
     def test_home_on_z_only_board_marks_z_idle(self):
         """LS820 (Z-only): the driver recognizes the 'X not present'
         firmware response as a partial-home success. The API trusts

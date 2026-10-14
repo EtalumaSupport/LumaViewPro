@@ -25,7 +25,6 @@ from modules.exceptions import (
     HardwareCommandRefusedError,
     HomingFailedError,
     HomingFaultError,
-    LaneCallStillRunningError,
 )
 from modules.lumascope_api import AxisState
 from tests.scope_fakes import build_scope
@@ -131,27 +130,23 @@ def test_a_turret_home_on_a_scope_with_no_turret_is_refused_and_homes_nothing():
     assert scope.motion.get_turret_slot() is None
 
 
-def test_a_home_past_the_api_s_bound_is_a_fault_that_says_it_may_still_finish(scope, monkeypatch):
-    """The API's own bound on the home ran out with the home still running:
-    a fault naming the home, never a TimeoutError a caller reads as its own
-    wait; the home goes on, and ends as homes do."""
+def test_a_home_ends_when_its_board_ends_it_however_long_it_takes(scope, monkeypatch):
+    """The API puts no bound of its own on a home: the board's or the
+    driver's ends it. Before, the API's wait ran out while the home still
+    drove and raised ``still_running``, so a home that went on to succeed
+    was told to its caller as given up."""
     release = threading.Event()
     zhome = scope._motion_driver.zhome
 
-    def held():
+    def slow():
         release.wait(30)
         zhome()
 
-    monkeypatch.setattr(scope._motion_driver, 'zhome', held)
+    monkeypatch.setattr(scope._motion_driver, 'zhome', slow)
+    # Every wait the API derives from these is now zero; a home still waits.
     monkeypatch.setattr(scope.motion, '_MOTION_WAIT_BASE_S', 0.0)
     monkeypatch.setattr(scope.motion, '_MOTION_SETTLE_TIMEOUT_S', 0.0)
+    threading.Timer(0.5, release.set).start()
 
-    with pytest.raises(LaneCallStillRunningError) as raised:
-        scope.motion.home('Z')
-    monkeypatch.undo()
-    release.set()
-    scope.motion.wait_until_finished_moving(timeout_s=30)
-
-    assert not isinstance(raised.value, TimeoutError)
-    assert (raised.value.reason, raised.value.member) == ('still_running', 'home')
+    assert scope.motion.home('Z') is None
     assert scope.motion.axes_without_position() == {}

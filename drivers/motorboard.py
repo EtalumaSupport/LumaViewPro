@@ -50,22 +50,26 @@ _FIRMWARE_AXES = ('X', 'Y', 'Z', 'T')
 # travel, and answers THOME and then drives Z back, without waiting. The
 # longest of those is Z's climb to centre, 682666 microsteps at the field Z
 # INI's VMAX of 400000 on a 16 MHz chip clock: about two seconds. The bound
-# is generous against that and well inside the motion API's own wait on a
-# home.
+# is generous against that.
 _HOME_ARRIVAL_TIMEOUT_S = 30.0
 
-# How long the host waits for the board's answer to each home. A board that
-# fails a home says so in its own words ("Z home timeout"), but only after
-# its own sequence ends; a host that stops reading first reports a blank
-# error, or none. Measured on the field firmware in the realistic-timing
-# simulator, every switch stuck: ZHOME 15.7 s; THOME 25.7 s (it re-homes Z
-# when Z is not homed, then waits for Z to reach 0 with no bound of its
-# own); HOME 65.9 s (Z, then that THOME, then XY). Each deadline is above
-# its worst case, and HOME's plus the arrival wait stays inside the motion
-# API's 150 s bound on a full home.
-_ZHOME_REPLY_TIMEOUT_S = 30.0
-_THOME_REPLY_TIMEOUT_S = 45.0
-_HOME_REPLY_TIMEOUT_S = 100.0
+# How long the host waits for the board's answer to each home: the backstop
+# for a board that has stopped answering, never the home's own bound. The
+# board bounds its home and says so in its own words ("Z home timeout"),
+# but only after its own sequence ends; a host that stops reading first
+# reports a blank error while the board goes on homing. So each deadline is
+# above the longest home any firmware may legitimately run. The field
+# firmware, measured in the realistic-timing simulator with every switch
+# stuck: ZHOME 15.7 s; THOME 25.7 s (it re-homes Z when Z is not homed);
+# HOME 65.9 s. The 3.0 firmware bounds each phase of a home on the board
+# (motorconfig "Axis Timeout": XY 10 s, Z and T 15 s), so its longest
+# legitimate home is the sum of its phases' bounds, derived from main.py:
+# ZHOME five Z phases, 75 s; THOME one Z move, a Z re-home and five T
+# phases, 165 s; HOME a Z home, a T home without its Z re-home and six XY
+# phases, 225 s. Each deadline is that sum with 15 s more.
+_ZHOME_REPLY_TIMEOUT_S = 90.0
+_THOME_REPLY_TIMEOUT_S = 180.0
+_HOME_REPLY_TIMEOUT_S = 240.0
 
 # What every consumer gets when FULLINFO is missing, unsupported, or
 # unparseable. Every key the parsed record has, so a caller reading a

@@ -1399,6 +1399,11 @@ Axes available depend on the scope — always check `scope.capabilities.axes`.
 scope.motion.home()                              # home everything the board has (axis='ALL' default)
 scope.motion.home(axis='Z')                      # Z only
 scope.motion.home(axis='T')                      # turret only (parks Z at 0, homes T, restores Z)
+# home() waits with no time limit of its own: the board bounds every home,
+# and the driver stops waiting only for a board that has stopped answering;
+# either ends it in HomingFaultError. home() and move_turret() are waiting
+# forms, refused on the UI thread (BlockingCallRefusedError, 'wait_on_ui_thread');
+# start_home() is the form for a button.
 # Each blocks until the home is done and returns only when it established
 # the reference. An axis other than 'Z', 'T' or 'ALL' is refused,
 # ArgumentRefusedError reason 'axis_unknown'. A home that could not

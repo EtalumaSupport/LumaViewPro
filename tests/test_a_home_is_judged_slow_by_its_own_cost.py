@@ -39,7 +39,7 @@ def test_the_home_the_lane_runs_carries_the_homes_declared_cost(session, monkeyp
         return real_call(task, member, *args, **kwargs)
 
     monkeypatch.setattr(lane, 'call', call)
-    impl, _ = session.scope.motion._home_body(axis)
+    impl = session.scope.motion._home_body(axis)
     declared = IOTask(action=impl).declared_slow_task_budget()
     assert declared is not None and declared > IOTask.DEFAULT_SLOW_TASK_THRESHOLD_SEC
 
