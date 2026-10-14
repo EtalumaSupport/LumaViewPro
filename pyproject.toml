@@ -6,6 +6,11 @@ repo = "lumaviewpro"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "--tb=short -q --durations=50 --dist loadgroup"
+# A test still running after this many seconds dumps every thread's Python stack
+# into the run's output ("Timeout (0:03:00)!"), naming a hung test and its frames
+# without a rerun, a profiler or sudo; the test itself goes on. The longest
+# recorded test takes about 105 s (a slow-marked wire conformance case).
+faulthandler_timeout = 180
 markers = [
     "requires_led_v2: requires LED firmware v2.0+",
     "requires_motor_v2: requires motor firmware v2.0+",
