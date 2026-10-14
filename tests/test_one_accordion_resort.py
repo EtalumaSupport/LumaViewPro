@@ -93,7 +93,6 @@ def test_both_panels_resort_through_the_helper(monkeypatch):
     calls = []
     for module in (image_settings, motion_settings):
         monkeypatch.setattr(module, 'resort_accordion', lambda acc, items: calls.append(acc))
-    monkeypatch.setattr(image_settings.common_utils, 'get_layers', lambda: ['BF'])
 
     left_accordion, right_accordion = object(), object()
     left = SimpleNamespace(
@@ -104,16 +103,8 @@ def test_both_panels_resort_through_the_helper(monkeypatch):
     )
     right = SimpleNamespace(
         ids={'accordion_id': right_accordion},
-        _resolve_pc_accordion=lambda: None,
-        _accordion_item_df_control=None,
-        _accordion_item_blue_control=None,
-        _accordion_item_green_control=None,
-        _accordion_item_red_control=None,
-        _accordion_item_lumi_control=None,
-        _accordion_item_pc_control_visible=False,
-        _accordion_item_df_control_visible=False,
-        _accordion_item_lumi_control_visible=False,
-        _fluorescence_control_visible={},
+        _drawers={},
+        _shown_layers=frozenset(),
     )
 
     motion_settings.MotionSettings._resort_accordion(left)

@@ -4,11 +4,13 @@ import logging
 
 from kivy.clock import Clock
 from kivy.metrics import dp
+from kivy.properties import ColorProperty, StringProperty
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.scrollview import ScrollView
 
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
+import modules.layer_record as layer_record
 from modules import gui_logger
 from modules.config_ui_getters import (
     camera_autogain_supported,
@@ -33,53 +35,24 @@ class AccordionItemXyStageControl(LoggedAccordionItem):
         self.ids['xy_stagecontrol_id'].update_gui(full_redraw=full_redraw)
 
 
-class AccordionItemImageSettingsBase(LoggedAccordionItem):
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
+class ChannelDrawer(LoggedAccordionItem):
+    """One layer's drawer: its controls, titled by the layer's label beside a
+    swatch of its colour.
 
+    One class for every catalogue key. What differs between layers is the
+    layer's record, applied by ``ImageSettings.show_drawers``; a key added to
+    the catalogue gets a drawer with no code naming it.
+    """
 
-class AccordionItemImageSettingsLumiControl(AccordionItemImageSettingsBase):
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-
-
-class AccordionItemImageSettingsDfControl(AccordionItemImageSettingsBase):
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-
-
-class AccordionItemImageSettingsRedControl(AccordionItemImageSettingsBase):
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-
-
-class AccordionItemImageSettingsGreenControl(AccordionItemImageSettingsBase):
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-
-
-class AccordionItemImageSettingsBlueControl(AccordionItemImageSettingsBase):
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
+    layer = StringProperty('')
+    # The layer's display colour as RGBA: the title's swatch and the
+    # controls' chrome.
+    color_rgba = ColorProperty((0.5, 0.5, 0.5, 1.0))
 
 
 # ============================================================================
 # ImageSettings -- Right Sidebar Panel (Channel Controls, LED, Exposure)
 # ============================================================================
-
-
-def layer_title(record) -> str:
-    """The accordion title for one layer: display name + excitation.
-
-    The 'Ex' marker is load-bearing: the layer name is the EMISSION
-    colour the operator sees, so a bare 'Green 488 nm' invites reading
-    the number as an emission wavelength. Broadband transmitted-light
-    layers and LED-less layers have no excitation (None) and get no
-    suffix.
-    """
-    if record.excitation_nm is None:
-        return record.display_name
-    return f'{record.display_name} Ex {record.excitation_nm:g} nm'
 
 
 class ImageSettings(BoxLayout):
@@ -89,57 +62,18 @@ class ImageSettings(BoxLayout):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         logger.debug('[LVP Main  ] ImageSettings.__init__()')
-        self._accordion_item_df_control_visible = False
-        self._accordion_item_df_control = AccordionItemImageSettingsDfControl()
-        self._accordion_item_lumi_control_visible = False
-        self._accordion_item_lumi_control = AccordionItemImageSettingsLumiControl()
-        # Per-layer, not one flag for the trio: which fluorescence
-        # channels exist comes from the unit's filterset, and a unit can
-        # carry any subset (a Green-only unit must not show dark Blue and
-        # Red drawers).
-        self._fluorescence_control_visible = {'Blue': False, 'Green': False, 'Red': False}
-        self._accordion_item_red_control = AccordionItemImageSettingsRedControl()
-        self._accordion_item_green_control = AccordionItemImageSettingsGreenControl()
-        self._accordion_item_blue_control = AccordionItemImageSettingsBlueControl()
-        # PC accordion item is defined inline in lumaviewpro.kv (unlike
-        # DF/Lumi/R/G/B which are Python class instances). Populated in
-        # _init_ui once self.ids is available. Visible-by-default here
-        # matches the kv starting state; set_phasecontrast_layer_control_visibility
-        # hides it for scopes that declare PhaseContrast=false
-        # (LS560/LS620 -- PC on those scopes is BF with a mechanical
-        # phase slider, not a separate LED channel).
-        self._accordion_item_pc_control = None
-        self._accordion_item_pc_control_visible = True
+        # One drawer per catalogue key, in display order; a drawer is in the
+        # accordion while the unit has its layer (show_drawers).
+        self._drawers = {layer: ChannelDrawer(layer=layer) for layer in common_utils.get_layers()}
+        self._shown_layers: frozenset[str] = frozenset()
         self._init_ui_retries = 0
         Clock.schedule_once(self._init_ui, 0)
 
     def layer_lookup(self, layer: str):
-        LAYER_MAP = {
-            'DF': self._accordion_item_df_control,
-            'Lumi': self._accordion_item_lumi_control,
-            'Blue': self._accordion_item_blue_control,
-            'Red': self._accordion_item_red_control,
-            'Green': self._accordion_item_green_control,
-        }
-
-        if layer in LAYER_MAP:
-            return LAYER_MAP[layer].ids[layer]
-        else:
-            return self.ids[layer]
+        return self._drawers[layer].ids['control']
 
     def accordion_item_lookup(self, layer: str):
-        LAYER_MAP = {
-            'DF': self._accordion_item_df_control,
-            'Lumi': self._accordion_item_lumi_control,
-            'Blue': self._accordion_item_blue_control,
-            'Red': self._accordion_item_red_control,
-            'Green': self._accordion_item_green_control,
-        }
-
-        if layer in LAYER_MAP:
-            return LAYER_MAP[layer]
-        else:
-            return self.ids[f'{layer}_accordion']
+        return self._drawers[layer]
 
     def draw_shown_channel(self, *largs) -> None:
         """Open the drawer of the Session's shown channel and close the others.
@@ -185,155 +119,54 @@ class ImageSettings(BoxLayout):
             f'SHOW_CHANNEL_{layer}',
         )
 
-    def set_lumi_layer_control_visibility(self, visible: bool) -> None:
-        if visible:
-            self._show_lumi_layer_control()
-        else:
-            self._hide_lumi_layer_control()
+    def show_drawers(self, identity) -> None:
+        """Show a drawer for each layer the unit has, drawn from its record,
+        and none for the others.
 
-    def _show_lumi_layer_control(self):
-        if not self._accordion_item_lumi_control_visible:
-            self._accordion_item_lumi_control_visible = True
-            self.ids['accordion_id'].add_widget(self._accordion_item_lumi_control, 0)
-            self._resort_accordion()
-
-    def _hide_lumi_layer_control(self):
-        _app_ctx.ctx.session.set_layer_acquire('Lumi', None)
-        if self._accordion_item_lumi_control_visible:
-            self._accordion_item_lumi_control.collapse = True
-            self._accordion_item_lumi_control_visible = False
-            self.ids['accordion_id'].remove_widget(self._accordion_item_lumi_control)
-
-    def set_df_layer_control_visibility(self, visible: bool) -> None:
-        if visible:
-            self._show_df_layer_control()
-        else:
-            self._hide_df_layer_control()
-
-    def _show_df_layer_control(self):
-        if not self._accordion_item_df_control_visible:
-            self._accordion_item_df_control_visible = True
-            self.ids['accordion_id'].add_widget(self._accordion_item_df_control, 0)
-            self._resort_accordion()
-
-    def _hide_df_layer_control(self):
-        _app_ctx.ctx.session.set_layer_acquire('DF', None)
-        if self._accordion_item_df_control_visible:
-            self._accordion_item_df_control.collapse = True
-            self._accordion_item_df_control_visible = False
-            self.ids['accordion_id'].remove_widget(self._accordion_item_df_control)
-
-    def set_phasecontrast_layer_control_visibility(self, visible: bool) -> None:
-        if visible:
-            self._show_pc_layer_control()
-        else:
-            self._hide_pc_layer_control()
-
-    def _resolve_pc_accordion(self):
-        """Return the PC_accordion widget, resolving from self.ids on
-        first use. `set_ui_features_for_scope()` runs during
-        load_settings before the Clock-scheduled _init_ui fires, so a
-        ref captured only in _init_ui arrives too late for the initial
-        hide. Lazy resolution keeps both code paths correct.
+        Visibility, titles and controls are per layer from the identity, so a
+        filterset carrying only some channels (a Green-only unit) shows
+        exactly what the unit has. A drawer is titled by its layer's label
+        beside a swatch of its colour, and has illumination controls where
+        the unit's row drives an LED. A layer the unit lacks stops being
+        acquired.
         """
-        if self._accordion_item_pc_control is None:
-            # Cache the REAL widget (`.__self__`), never the WeakProxy
-            # self.ids hands out: on scopes that hide this item,
-            # remove_widget drops the tree's only strong reference, and a
-            # proxy-cached item is garbage-collected with all its layer
-            # widgets -- every later deref of those ids then raises
-            # ReferenceError. The Python-constructed accordion items
-            # survive hiding precisely because their instance attributes
-            # are strong references; this cache must match.
-            proxy = self.ids.get('PC_accordion')
-            self._accordion_item_pc_control = proxy.__self__ if proxy is not None else None
-        return self._accordion_item_pc_control
-
-    def _show_pc_layer_control(self):
-        widget = self._resolve_pc_accordion()
-        if widget is not None and not self._accordion_item_pc_control_visible:
-            self._accordion_item_pc_control_visible = True
-            self.ids['accordion_id'].add_widget(widget)
-            self._resort_accordion()
-
-    def _hide_pc_layer_control(self):
-        _app_ctx.ctx.session.set_layer_acquire('PC', None)
-        widget = self._resolve_pc_accordion()
-        if widget is not None and self._accordion_item_pc_control_visible:
-            widget.collapse = True
-            self._accordion_item_pc_control_visible = False
-            self.ids['accordion_id'].remove_widget(widget)
-
-    def apply_layer_titles(self, layers) -> None:
-        """Retitle each layer accordion from its identity record.
-
-        Only layers present in the identity are retitled; a hidden
-        accordion keeps its last title and is refreshed the next time
-        its layer appears in identity. Every catalogue layer has a drawer
-        (tests/guards/test_every_layer_has_a_drawer.py).
-        """
-        for record in layers:
-            self.accordion_item_lookup(layer=record.key_name).title = layer_title(record)
+        records = {record.key_name: record for record in identity.layers}
+        for layer, drawer in self._drawers.items():
+            record = records.get(layer)
+            if record is None:
+                _app_ctx.ctx.session.set_layer_acquire(layer, None)
+                drawer.collapse = True
+                continue
+            drawer.color_rgba = (*layer_record.parse_display_color(record.display_color), 1.0)
+            drawer.title = record.label
+            control = drawer.ids['control']
+            control.illumination_support = bool(record.led_channel)
+            # Luminescence is long and dim: its exposure sums frames, and
+            # the camera's auto gain is not offered for it.
+            luminescence = record.modality == 'luminescence'
+            control.exposure_summing_support = luminescence
+            control.autogain_support = not luminescence
+        self._shown_layers = frozenset(records)
+        self._resort_accordion()
 
     def set_layer_focus_visibility(self, visible: bool) -> None:
         for layer in common_utils.get_layers():
             self.layer_lookup(layer=layer).focus_support = visible
 
-    def set_fluorescence_layer_control_visibility(self, layer: str, visible: bool) -> None:
-        if layer not in self._fluorescence_control_visible:
-            raise ValueError(f'{layer!r} is not a fluorescence layer')
-        if visible:
-            self._show_fluorescence_layer_control(layer)
-        else:
-            self._hide_fluorescence_layer_control(layer)
-
-    def _show_fluorescence_layer_control(self, layer: str):
-        if not self._fluorescence_control_visible[layer]:
-            self._fluorescence_control_visible[layer] = True
-            self.ids['accordion_id'].add_widget(self.accordion_item_lookup(layer=layer), 0)
-            self._resort_accordion()
-
-    def _hide_fluorescence_layer_control(self, layer: str):
-        _app_ctx.ctx.session.set_layer_acquire(layer, None)
-        if self._fluorescence_control_visible[layer]:
-            item = self.accordion_item_lookup(layer=layer)
-            item.collapse = True
-            self._fluorescence_control_visible[layer] = False
-            self.ids['accordion_id'].remove_widget(item)
-
     def _resort_accordion(self):
         """Put the layer accordion back in catalogue order after a model switch.
 
-        Live scope-model transitions (LS620 -> LS850, etc.) re-add hidden
-        layer controls out of order; after every ``_show_*`` call the order
-        is restored. Display order IS the catalogue order (a layer's id is
-        its position there), so no second order is authored here.
+        Live scope-model transitions (LS620 -> LS850, etc.) change which
+        drawers are shown; each change puts them back in order. Display order
+        IS the catalogue order (a layer's id is its position there), so no
+        second order is authored here.
         """
         accordion = self.ids.get('accordion_id') if hasattr(self, 'ids') else None
         if accordion is None:
             return
-        widget_for_layer = {
-            'BF': self.ids.get('BF_accordion'),
-            'PC': self._resolve_pc_accordion(),
-            'DF': self._accordion_item_df_control,
-            'Blue': self._accordion_item_blue_control,
-            'Green': self._accordion_item_green_control,
-            'Red': self._accordion_item_red_control,
-            'Lumi': self._accordion_item_lumi_control,
-        }
-        visible_for_layer = {
-            'BF': True,
-            'PC': self._accordion_item_pc_control_visible,
-            'DF': self._accordion_item_df_control_visible,
-            'Lumi': self._accordion_item_lumi_control_visible,
-            **self._fluorescence_control_visible,
-        }
         resort_accordion(
             accordion,
-            [
-                (widget_for_layer.get(layer), visible_for_layer.get(layer, False))
-                for layer in common_utils.get_layers()
-            ],
+            [(drawer, layer in self._shown_layers) for layer, drawer in self._drawers.items()],
         )
 
     def _init_ui(self, dt=0):
@@ -347,7 +180,6 @@ class ImageSettings(BoxLayout):
                 return
             Clock.schedule_once(self._init_ui, 0.1)
             return
-        self.assign_led_button_down_images()
         for layer in common_utils.get_layers():
             self.accordion_item_lookup(layer=layer).person_opened = functools.partial(
                 self._show_channel_for_person, layer
@@ -551,21 +383,6 @@ class ImageSettings(BoxLayout):
                 layer_obj.render_layer_values_from_settings()
                 if layer == shown:
                     layer_obj.apply_settings()
-
-    def assign_led_button_down_images(self):
-        led_button_down_background_map = {
-            'Red': './data/icons/ToggleRR.png',
-            'Green': './data/icons/ToggleRG.png',
-            'Blue': './data/icons/ToggleRB.png',
-            'Lumi': './data/icons/ToggleRB.png',
-        }
-
-        for layer in common_utils.get_layers_with_led():
-            button_down_image = led_button_down_background_map.get(
-                layer, './data/icons/ToggleRW.png'
-            )
-            layer_obj = self.layer_lookup(layer=layer)
-            layer_obj.ids['enable_led_btn'].background_down = button_down_image
 
     # Hide (and unhide) main settings
     def toggle_settings(self):

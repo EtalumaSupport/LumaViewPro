@@ -2153,72 +2153,38 @@
 			rectangle: (self.x, self.y, self.width, self.height)
 
 
-<AccordionItemImageSettingsBlueControl>:
-	id: Blue_accordion
+# ChannelDrawer - one layer's drawer, the same for every catalogue key;
+# ImageSettings.show_drawers fills in its record.
+# ------------------------------------------
+<ChannelDrawer>:
 	log_group: 'IMAGE_LAYER'
 	# A run moves the shown channel; a person opens a drawer between runs.
 	disabled: app.run_lockout
-	log_item: 'Blue'
-	title: 'Blue Channel Control'
+	log_item: root.layer
+	title_template: 'ChannelDrawerTitle'
 	LayerControl:
-		id: Blue
-		layer: 'Blue'
-		bg_color: 0, .5, 1, 1
-		stimulation_support: True
+		id: control
+		layer: root.layer
+		bg_color: root.color_rgba
 
-<AccordionItemImageSettingsGreenControl>:
-	id: Green_accordion
-	log_group: 'IMAGE_LAYER'
-	disabled: app.run_lockout
-	log_item: 'Green'
-	title: 'Green Channel Control'
-	LayerControl:
-		id: Green
-		layer: 'Green'
-		bg_color: .2, 0.8, 0.2, 1
-		stimulation_support: True
-
-<AccordionItemImageSettingsRedControl>:
-	id: Red_accordion
-	log_group: 'IMAGE_LAYER'
-	disabled: app.run_lockout
-	log_item: 'Red'
-	title: 'Red Channel Control'
-	collapse: False
-	LayerControl:
-		id: Red
-		layer: 'Red'
-		bg_color: 1, 0.2, 0, 1
-		stimulation_support: True
-
-<AccordionItemImageSettingsDfControl>:
-	id: DF_accordion
-	log_group: 'IMAGE_LAYER'
-	disabled: app.run_lockout
-	log_item: 'DF'
-	title: 'Low Mag Darkfield Control'
-	LayerControl:
-		id: DF
-		layer: 'DF'
-		bg_color: 0.5, 0.5, 0.5,  1
-		stimulation_support: False
-
-
-<AccordionItemImageSettingsLumiControl>:
-	id: Lumi_accordion
-	log_group: 'IMAGE_LAYER'
-	disabled: app.run_lockout
-	log_item: 'Lumi'
-	title: 'Luminescence Control'
-	collapse: False
-	LayerControl:
-		id: Lumi
-		layer: 'Lumi'
-		illumination_support: False
-		stimulation_support: False
-		autogain_support: False
-		exposure_summing_support: True
-		bg_color: 0, .5, 1, 1
+# Kivy's AccordionItemTitle (vertical only, as the layer accordion is), with
+# a swatch of the layer's colour before its label.
+[ChannelDrawerTitle@Label]:
+	text: ctx.title
+	normal_background: ctx.item.background_normal if ctx.item.collapse else ctx.item.background_selected
+	disabled_background: ctx.item.background_disabled_normal if ctx.item.collapse else ctx.item.background_disabled_selected
+	canvas.before:
+		Color:
+			rgba: self.disabled_color if self.disabled else self.color
+		BorderImage:
+			source: self.disabled_background if self.disabled else self.normal_background
+			pos: self.pos
+			size: self.size
+		Color:
+			rgba: ctx.item.color_rgba
+		Rectangle:
+			pos: self.x + dp(10), self.center_y - dp(6)
+			size: dp(12), dp(12)
 
 
 # ImageSettings - view and edit control accordion
@@ -2250,30 +2216,6 @@
         orientation: 'vertical'
         id: accordion_id
         disabled: app.controls_locked
-
-        # BRIGHTFIELD SETTINGS
-        LoggedAccordionItem:
-			id: BF_accordion
-			log_group: 'IMAGE_LAYER'
-			disabled: app.run_lockout
-			log_item: 'BF'
-            title: 'Brightfield Control'
-            LayerControl:
-                id: BF
-                layer: 'BF'
-                bg_color: 0.5, 0.5, 0.5,  1
-
-       # PHASE CONTRAST SETTINGS
-        LoggedAccordionItem:
-			id: PC_accordion
-			log_group: 'IMAGE_LAYER'
-			disabled: app.run_lockout
-			log_item: 'PC'
-            title: 'Phase Contrast Control'
-            LayerControl:
-                id: PC
-                layer: 'PC'
-                bg_color: 0.5, 0.5, 0.5,  1
 
 
 # MicroscopeSettings - Settings for  Microscope within ImageSettings
@@ -2832,7 +2774,9 @@
 					border: 0, 0, 0, 0
 					valign: 'middle'
 					background_normal: './data/icons/ToggleL.png'
-					background_down: './data/icons/ToggleR.png'
+					# One white image, lit in the layer's colour while on.
+					background_down: './data/icons/ToggleRW.png'
+					background_color: root.bg_color if self.state == 'down' else (1, 1, 1, 1)
 					on_release: root.led_toggle()
 
 			BoxLayout:

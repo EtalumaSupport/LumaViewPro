@@ -312,14 +312,8 @@ _ROSTER = {
     # Accordion items: each records SELECT <group> <item> from
     # LoggedAccordionItem's touch handler (tests/gui_logging_census.py
     # accordion_items).
-    'AccordionItemImageSettingsBlueControl.Blue_accordion': ('IMAGE_LAYER',),
-    'AccordionItemImageSettingsDfControl.DF_accordion': ('IMAGE_LAYER',),
-    'AccordionItemImageSettingsGreenControl.Green_accordion': ('IMAGE_LAYER',),
-    'AccordionItemImageSettingsLumiControl.Lumi_accordion': ('IMAGE_LAYER',),
-    'AccordionItemImageSettingsRedControl.Red_accordion': ('IMAGE_LAYER',),
     'AccordionItemXyStageControl.<rule>': ('SETTINGS_SECTION',),
-    'ImageSettings.BF_accordion': ('IMAGE_LAYER',),
-    'ImageSettings.PC_accordion': ('IMAGE_LAYER',),
+    'ChannelDrawer.<rule>': ('IMAGE_LAYER',),
     'MotionSettings.motionsettings_microscope_accordion_id': ('SETTINGS_SECTION',),
     'MotionSettings.motionsettings_postprocessing_accordion_id': ('SETTINGS_SECTION',),
     'MotionSettings.motionsettings_protocol_accordion_id': ('SETTINGS_SECTION',),

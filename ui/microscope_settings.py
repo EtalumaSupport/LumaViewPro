@@ -602,20 +602,9 @@ class MicroscopeSettings(BoxLayout):
         image_settings = ctx.image_settings
         # Which layers exist comes from the scope's resolved identity --
         # the one path that also serves headless callers -- refreshed by
-        # reconfigure_for_scope before this runs. Visibility and titles
-        # are per-layer from the record, so a filterset carrying only
-        # some channels (a Green-only unit) shows exactly what the unit
-        # has, with each drawer titled by what its layer IS on this unit.
+        # reconfigure_for_scope before this runs.
         identity = ctx.lumaview.scope.layer_identity
-        present = {layer.key_name for layer in identity.layers}
-        image_settings.set_df_layer_control_visibility(visible='DF' in present)
-        image_settings.set_lumi_layer_control_visibility(visible='Lumi' in present)
-        for color in common_utils.get_fluorescence_layers():
-            image_settings.set_fluorescence_layer_control_visibility(
-                color, visible=color in present
-            )
-        image_settings.set_phasecontrast_layer_control_visibility(visible='PC' in present)
-        image_settings.apply_layer_titles(identity.layers)
+        image_settings.show_drawers(identity)
         image_settings.set_layer_focus_visibility(visible=caps.has_focus)
 
         protocol_settings = ctx.motion_settings.ids['protocol_settings_id']

@@ -445,13 +445,8 @@ from modules.settings_init import current_json_path, fall_back_to_template
 from ui.file_dialogs import FileChooseBTN, FileSaveBTN, FolderChooseBTN
 from ui.histogram import Histogram
 from ui.image_settings import (
-    AccordionItemImageSettingsBase,
-    AccordionItemImageSettingsBlueControl,
-    AccordionItemImageSettingsDfControl,
-    AccordionItemImageSettingsGreenControl,
-    AccordionItemImageSettingsLumiControl,
-    AccordionItemImageSettingsRedControl,
     AccordionItemXyStageControl,
+    ChannelDrawer,
     ImageSettings,
 )
 from ui.layer_control import LayerControl
