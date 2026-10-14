@@ -16,8 +16,8 @@ Usage
     runner = ProtocolRunner(session)
 
     protocol = Protocol.from_file("my_protocol.csv")
-    pending = runner.run_single_scan(protocol, sequence_name="test_scan")
-    result = pending.wait(timeout_s=300)     # pending.stop() stops it
+    run = runner.run_single_scan(protocol, sequence_name="test_scan")
+    result = run.result(timeout=300)     # run.stop() stops it
     print(result.status, result.reason, result.message)
 """
 
@@ -28,9 +28,9 @@ from modules.exceptions import CompositeFailedError, CompositeWaitExpiredError
 from modules.layer_record import refuse_unknown_layer
 from modules.protocol import Protocol
 from modules.run_events import RunEvents
+from modules.operation import Operation
 from modules.run_outcome import RunOutcome
 from modules.sequenced_capture_runner import (
-    RunHandle,
     SequencedCaptureRunner,
     SequencedCaptureRunMode,
 )
@@ -74,7 +74,7 @@ class ProtocolRunner:
     # Run methods
     # ------------------------------------------------------------------
 
-    @api(stop='RunHandle.stop')
+    @api(stop='Operation.stop')
     def run_single_scan(
         self,
         protocol: Protocol,
@@ -84,7 +84,7 @@ class ProtocolRunner:
         events: RunEvents | None = None,
         return_to_position: dict | None = None,
         run_trigger_source: str = 'api_scan',
-    ) -> RunHandle:
+    ) -> Operation:
         """Run a single scan through the protocol steps.
 
         Args:
@@ -100,12 +100,13 @@ class ProtocolRunner:
                 token rather than the API's.
 
         Returns:
-            The committed run's handle. wait(timeout_s=...) on it for the
-            outcome: the status, reason, title and message the run ended with.
+            The run's operation. Its result() is the run's outcome -- the
+            status, reason, title and message the run ended with -- once the
+            run has let go of the scope and its run_ended has been delivered.
 
         Raises:
             ProtocolRunRefusedError: The run was refused before any state
-                was committed; no handle is returned and
+                was committed; no operation is returned and
                 session.is_protocol_running stays False.
         """
         return self._run(
@@ -121,7 +122,7 @@ class ProtocolRunner:
             return_to_position=return_to_position,
         )
 
-    @api(stop='RunHandle.stop')
+    @api(stop='Operation.stop')
     def run_protocol(
         self,
         protocol: Protocol,
@@ -130,7 +131,7 @@ class ProtocolRunner:
         enable_image_saving: bool = True,
         events: RunEvents | None = None,
         run_trigger_source: str = 'api_protocol',
-    ) -> RunHandle:
+    ) -> Operation:
         """Run a full protocol (multiple scans over time).
 
         Args:
@@ -145,12 +146,13 @@ class ProtocolRunner:
                 token rather than the API's.
 
         Returns:
-            The committed run's handle. wait(timeout_s=...) on it for the
-            outcome: the status, reason, title and message the run ended with.
+            The run's operation. Its result() is the run's outcome -- the
+            status, reason, title and message the run ended with -- once the
+            run has let go of the scope and its run_ended has been delivered.
 
         Raises:
             ProtocolRunRefusedError: The run was refused before any state
-                was committed; no handle is returned and
+                was committed; no operation is returned and
                 session.is_protocol_running stays False.
         """
         return self._run(
@@ -165,14 +167,14 @@ class ProtocolRunner:
             events=events,
         )
 
-    @api(stop='RunHandle.stop')
+    @api(stop='Operation.stop')
     def start_composite(
         self,
         sequence_name: str = 'composite',
         parent_dir: FilePath | None = None,
         events: RunEvents | None = None,
         run_trigger_source: str = 'api_composite',
-    ) -> RunHandle:
+    ) -> Operation:
         """Assemble a composite run and launch it, returning once committed.
 
         Split out of run_composite so a caller that must not block -- a GUI
@@ -194,8 +196,8 @@ class ProtocolRunner:
                 than the API's.
 
         Returns:
-            The committed run's handle, to wait on or to ignore;
-            wait(timeout_s=...) on it gives the run's outcome.
+            The run's operation, to wait on or to ignore; its result() is
+            the run's outcome.
 
         Raises:
             ProtocolRunRefusedError: Fewer than two channels are set to
@@ -229,7 +231,7 @@ class ProtocolRunner:
             composite_thresholds_percent=config_helpers.get_composite_blend_thresholds(settings),
         )
 
-    @api(stop='RunHandle.stop')
+    @api(stop='Operation.stop')
     def run_autofocus(
         self,
         layer: str | None,
@@ -239,7 +241,7 @@ class ProtocolRunner:
         events: RunEvents | None = None,
         claim: HeldClaim | None = None,
         run_trigger_source: str = 'api_autofocus',
-    ) -> RunHandle:
+    ) -> Operation:
         """Autofocus once on *layer*, at the current stage position.
 
         The headless twin of the standalone autofocus button: a
@@ -289,8 +291,8 @@ class ProtocolRunner:
                 -- its failures are shown -- unless it runs under *claim*.
 
         Returns:
-            The committed run's handle, to wait on or to ignore;
-            wait(timeout_s=...) on it gives the run's outcome.
+            The run's operation, to wait on or to ignore; its result() is
+            the run's outcome.
 
         Raises:
             ArgumentRefusedError: ``'layer_unknown'``, or
@@ -349,13 +351,13 @@ class ProtocolRunner:
             claim=claim,
         )
 
-    @api(stop='RunHandle.stop')
+    @api(stop='Operation.stop')
     def run_autofocus_all_steps(
         self,
         protocol: Protocol,
         events: RunEvents | None = None,
         run_trigger_source: str = 'api_autofocus_scan',
-    ) -> RunHandle:
+    ) -> Operation:
         """Autofocus at every step of *protocol*, and write the focus into it.
 
         One scan that visits each step with autofocus on, whatever each
@@ -380,8 +382,8 @@ class ProtocolRunner:
                 passes its own; a script keeps the default.
 
         Returns:
-            The committed run's handle, to wait on or to ignore;
-            wait(timeout_s=...) on it gives the run's outcome.
+            The run's operation, to wait on or to ignore; its result() is
+            the run's outcome.
 
         Raises:
             ProtocolRunRefusedError: The runner refused the request
@@ -403,7 +405,7 @@ class ProtocolRunner:
             write_focus_to=protocol,
         )
 
-    @api(stop='RunHandle.stop')
+    @api(stop='Operation.stop')
     def run_zstack(
         self,
         layer: str | None,
@@ -413,7 +415,7 @@ class ProtocolRunner:
         return_to_start: bool = True,
         run_trigger_source: str = 'api_zstack',
         enable_image_saving: bool = True,
-    ) -> RunHandle:
+    ) -> Operation:
         """Capture a z-stack on *layer*, around the current stage position.
 
         The one implementation of a z-stack run, for a script and for the
@@ -461,8 +463,8 @@ class ProtocolRunner:
                 stage without filling the disk.
 
         Returns:
-            The committed run's handle, to wait on or to ignore;
-            wait(timeout_s=...) on it gives the run's outcome.
+            The run's operation, to wait on or to ignore; its result() is
+            the run's outcome.
 
         Raises:
             ArgumentRefusedError: ``'layer_unknown'``, or
@@ -567,18 +569,19 @@ class ProtocolRunner:
                 ``TimeoutError``: ``merge_timeout_s`` ran out before the run
                 or its merge reported; either may still be going.
         """
-        outcome = self.start_composite(
+        run = self.start_composite(
             sequence_name=sequence_name,
             parent_dir=parent_dir,
             events=events,
         )
-        settled = outcome.wait(timeout_s=merge_timeout_s)
-        if settled is None:
+        try:
+            settled = run.result(timeout=merge_timeout_s)
+        except TimeoutError:
             raise CompositeWaitExpiredError(
                 f'the composite did not report an outcome within '
                 f'{merge_timeout_s:.0f}s; the run or its merge is wedged',
                 'merge_timeout',
-            )
+            ) from None
         if not settled.merged:
             # A run that did not complete names its own ending; a completed
             # run with no artifact names what the merge did. One field is
@@ -605,7 +608,7 @@ class ProtocolRunner:
         save_autofocus_data: bool = False,
         claim: HeldClaim | None = None,
         write_focus_to: Protocol | None = None,
-    ) -> RunHandle:
+    ) -> Operation:
         """Internal: configure and launch the sequenced capture executor.
 
         ``settings`` is the one copy the member took at its start: every
@@ -613,7 +616,7 @@ class ProtocolRunner:
         landing while the run is assembled cannot give one run two answers.
 
         Returns:
-            The committed run's handle.
+            The run's operation.
 
         Raises:
             ProtocolRunRefusedError: The runner refused the request (already

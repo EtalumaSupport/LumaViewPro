@@ -52,7 +52,7 @@ def _finish_one_run(runner, run_parent, name, events=None):
         parent_dir=str(run_parent),
         events=events,
     )
-    result = outcome.wait(timeout_s=WAIT_S)
+    result = outcome.result(timeout=WAIT_S)
     assert result is not None and result.status == 'completed', result
     assert runner.sequenced_capture_runner.wait_for_run_idle(WAIT_S)
 

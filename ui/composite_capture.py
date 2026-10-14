@@ -16,7 +16,7 @@ from modules import gui_logger
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from modules.sequenced_capture_runner import RunHandle
+    from modules.operation import Operation
 from modules.run_events import RunEvents
 from ui.ui_helpers import (
     run_reported,
@@ -32,7 +32,7 @@ logger = logging.getLogger('LVP.ui.composite_capture')
 class CompositeCapture(FloatLayout):
     # The handle this button's last start returned: what its Stop names.
     # The engine answers whether it is still the live run.
-    _composite_run: 'RunHandle | None' = None
+    _composite_run: 'Operation | None' = None
     # True while this button's own request is on its way to the engine; the
     # button is disabled until that request's redraw.
     composite_pending = BooleanProperty(False)
@@ -97,7 +97,7 @@ class CompositeCapture(FloatLayout):
         # second press cannot race the first one to the pool.
         self.composite_pending = True
 
-        if run is not None and run.is_live:
+        if run is not None and run.progress().is_live:
             submit_reported(
                 run.stop,
                 self._composite_request_done,
@@ -117,7 +117,7 @@ class CompositeCapture(FloatLayout):
             self._composite_run = started
             # Only reachable once the run is committed, so the saved
             # folder can only ever name THIS run's directory.
-            set_last_save_folder(dir=started.run_dir)
+            set_last_save_folder(dir=started.progress().run_dir)
 
         submit_reported(_start, self._composite_request_done, 'COMPOSITE_CAPTURE')
 
@@ -138,7 +138,7 @@ class CompositeCapture(FloatLayout):
         ctx = _app_ctx.ctx
         self.composite_held = ctx.session.held_by_other(self._composite_run)
         run = self._composite_run
-        live = run is not None and run.is_live
+        live = run is not None and run.progress().is_live
         self.ids['composite_btn'].state = 'down' if live else 'normal'
         gui_logger.display(
             'COMPOSITE_BUTTON', f'{"Stop" if live else "Composite"} held={self.composite_held}'

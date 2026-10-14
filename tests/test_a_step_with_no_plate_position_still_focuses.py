@@ -58,7 +58,7 @@ def _run_and_wait_for_files(session, tmp_path, protocol):
         events=RunEvents(files_written=lambda run_dir, files: files_written.set()),
     )
     assert files_written.wait(COMPLETION_TIMEOUT), 'the run never finished its files'
-    assert run.wait(timeout_s=COMPLETION_TIMEOUT) is not None
+    assert run.result(timeout=COMPLETION_TIMEOUT) is not None
 
 
 def test_the_run_ends_at_the_steps_z_and_the_image_says_so(zonly_session, tmp_path):

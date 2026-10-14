@@ -9,7 +9,7 @@ button states only what a running GUI knows (the open drawer, its own
 trigger token, the live engineering flag, the engineering panel's saving
 switch) and the member decides everything else, every refusal included.
 
-The button's "Z n/total" readout asks the run's handle for its step count:
+The button's "Z n/total" readout asks the run's progress for its step count:
 the member built the protocol, so the widget never holds it, and a second
 count computed from settings could disagree with the run.
 """
@@ -27,9 +27,30 @@ import ui.zstack as zs
 from modules.exceptions import ProtocolRunRefusedError
 from modules.run_outcome import PendingRunOutcome
 from modules.protocol_image_writer import RunWriteBatch
-from modules.sequenced_capture_runner import RunHandle
+from modules.sequenced_capture_runner import EngineRun, RunProgress
 from tests.pool_fakes import run_task_now
 from modules.scope_session import ShownChannel
+
+
+def _progress(
+    run: EngineRun,
+    *,
+    live: bool,
+    stopping: bool = False,
+    step: int | None = None,
+    steps: int | None = None,
+) -> RunProgress:
+    """The engine's record of *run*: its folder always, its step and count only while live."""
+    return RunProgress(
+        is_live=live,
+        is_stopping=stopping,
+        is_last_run=True,
+        run_dir=run._run_dir,
+        step_number=step if live else None,
+        num_steps=steps if live else None,
+        remaining_scans=1 if live else None,
+        interval=None,
+    )
 
 
 class _Starter(zs.ZStack):
@@ -58,14 +79,11 @@ def clicked(monkeypatch, centre_posts):
     monkeypatch.setattr(ui_helpers, '_schedule_ui', lambda fn, timeout=0: fn(0))
     member_runner = MagicMock()
     engine = MagicMock()
-    handle = RunHandle(engine, PendingRunOutcome(), RunWriteBatch(MagicMock()))
-    handle._run_dir = '/runs/zstack_1'
-    member_runner.run_zstack.return_value = handle
-    engine._is_live_run.return_value = False
-    # A handle's progress: the engine's reading while the handle is live.
-    engine._live_run_value.side_effect = lambda run, read: (
-        read() if engine._is_live_run(run) else None
-    )
+    run = EngineRun(engine, PendingRunOutcome(), RunWriteBatch(MagicMock()))
+    run._run_dir = '/runs/zstack_1'
+    member_runner.run_zstack.return_value = run.operation
+    # The run has ended by the time anything reads it, unless a test says otherwise.
+    engine._progress_of.side_effect = lambda asked: _progress(asked, live=False)
     session = MagicMock()
     session.create_protocol_runner.return_value = member_runner
     # Nothing holds the scope; a MagicMock's own answer would be truthy.
@@ -90,7 +108,7 @@ def clicked(monkeypatch, centre_posts):
     return SimpleNamespace(
         runner=member_runner,
         engine=engine,
-        handle=handle,
+        run=run,
         linked=linked,
         posts=centre_posts,
         starter=_Starter(),
@@ -124,7 +142,7 @@ def test_the_button_starts_no_run_of_its_own(clicked):
 def test_the_stop_names_the_handle_the_member_returned(clicked):
     clicked.starter.run_zstack_acquire_from_ui()
 
-    assert clicked.starter._zstack_run is clicked.handle
+    assert clicked.starter._zstack_run is clicked.run.operation
     assert clicked.linked == ['/runs/zstack_1']
 
 
@@ -143,10 +161,9 @@ def test_a_refusal_is_shown_once_draws_idle_and_links_no_folder(clicked):
 
 
 def test_progress_reads_the_runs_own_step_and_count(clicked):
-    clicked.engine._is_live_run.side_effect = lambda run: run is clicked.handle
-    clicked.engine._is_stopping.return_value = False
-    clicked.engine._step_number.return_value = 3
-    clicked.engine._num_steps.return_value = 7
+    clicked.engine._progress_of.side_effect = lambda run: _progress(
+        run, live=run is clicked.run, step=3, steps=7
+    )
 
     clicked.starter.run_zstack_acquire_from_ui()
     step_started = clicked.runner.run_zstack.call_args.kwargs['events'].step_started
@@ -169,15 +186,16 @@ def test_progress_after_the_run_ended_draws_idle(clicked):
 def test_a_second_press_stops_its_own_stack_ahead_of_queued_work(clicked):
     from modules.sequential_io_executor import PRIORITY_HIGH
 
-    clicked.starter._zstack_run = clicked.handle
-    clicked.engine._is_live_run.side_effect = lambda run: run is clicked.handle
-    clicked.engine._is_stopping.side_effect = lambda run: clicked.engine._reset.called
+    clicked.starter._zstack_run = clicked.run.operation
+    clicked.engine._progress_of.side_effect = lambda run: _progress(
+        run, live=run is clicked.run, stopping=clicked.engine._stop_run.called
+    )
 
     clicked.starter.run_zstack_acquire_from_ui()
 
     task = _app_ctx.ctx.worker_pool.put.call_args.args[0]
     assert task.priority == PRIORITY_HIGH, 'a Stop must not wait behind queued work'
-    clicked.engine._reset.assert_called_once_with(clicked.handle)
+    clicked.engine._stop_run.assert_called_once_with(clicked.run)
     assert not clicked.runner.run_zstack.called, 'a Stop is not a start'
     assert clicked.starter.button.text == 'Stopping...'
 
@@ -189,7 +207,7 @@ def test_a_press_is_a_start_whatever_the_toggle_reads(clicked):
 
     clicked.starter.run_zstack_acquire_from_ui()
 
-    assert not clicked.engine._reset.called, "a toggle reading 'normal' is not a Stop"
+    assert not clicked.engine._stop_run.called, "a toggle reading 'normal' is not a Stop"
     clicked.runner.run_zstack.assert_called_once()
 
 
@@ -247,9 +265,9 @@ def test_the_button_greys_while_anything_else_holds_the_scope(clicked):
     its own run leaves it live as that run's Stop."""
     import modules.app_context as app_context
 
-    own = RunHandle(
+    own = EngineRun(
         app_context.ctx.sequenced_capture_runner, PendingRunOutcome(), RunWriteBatch(MagicMock())
-    )
+    ).operation
     clicked.starter._zstack_run = own
     asked = []
 

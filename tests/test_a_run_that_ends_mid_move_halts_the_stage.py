@@ -66,7 +66,7 @@ def test_a_stopped_run_halts_its_move(session, tmp_path):
     run, target = _start_held(session, tmp_path)
 
     run.stop()
-    outcome = run.wait(timeout_s=COMPLETION_TIMEOUT)
+    outcome = run.result(timeout=COMPLETION_TIMEOUT)
 
     assert (outcome.status, outcome.reason) == ('aborted', 'stopped')
     assert _where_the_board_drives_x(session) < target - 1000.0, (
@@ -80,7 +80,7 @@ def test_a_run_ended_by_its_moves_fault_halts_the_move(session, tmp_path, monkey
     monkeypatch.setattr(session.scope.motion, '_MOTION_SETTLE_TIMEOUT_S', 0.5)
     run, target = _start_held(session, tmp_path)
 
-    outcome = run.wait(timeout_s=COMPLETION_TIMEOUT)
+    outcome = run.result(timeout=COMPLETION_TIMEOUT)
 
     assert (outcome.status, outcome.reason) == ('failed', 'position_lost')
     assert _where_the_board_drives_x(session) < target - 1000.0, (
@@ -143,5 +143,5 @@ def test_a_stop_halts_the_move_while_a_video_step_s_frames_still_drain(
             time.sleep(0.05)
     finally:
         disk.set()
-    outcome = run.wait(timeout_s=COMPLETION_TIMEOUT)
+    outcome = run.result(timeout=COMPLETION_TIMEOUT)
     assert (outcome.status, outcome.reason) == ('aborted', 'stopped')

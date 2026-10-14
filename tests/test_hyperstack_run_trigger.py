@@ -54,7 +54,7 @@ class TestRunnerHyperstackTrigger:
     def test_completion_builds_hyperstacks_without_any_ui(self, tmp_path):
         runner = _hyperstack_runner(tmp_path)
         with patch('modules.stack_builder.build_hyperstacks_for_run') as build:
-            thread = runner._start_hyperstack_build()
+            thread = runner._start_hyperstack_build(on_end=lambda: None)
             _join(thread)
         build.assert_called_once_with(
             run_dir=tmp_path,
@@ -84,7 +84,7 @@ class TestRunnerHyperstackTrigger:
         builder.operation_key = 'hyperstack_build'
         monkeypatch.setattr(stack_builder, 'StackBuilder', lambda has_turret: builder)
 
-        _join(runner._start_hyperstack_build())
+        _join(runner._start_hyperstack_build(on_end=lambda: None))
 
         builder.load_folder.assert_not_called()
         # The announcement is reported too; what went wrong is the rest.
@@ -108,11 +108,13 @@ class TestRunnerHyperstackTrigger:
         # values are in place.
         held = []
         monkeypatch.setattr(
-            runner, '_spawn_post_run_step', lambda name, build_fn: held.append(build_fn)
+            runner,
+            '_spawn_post_run_step',
+            lambda name, build_fn, on_end=None: held.append(build_fn),
         )
 
         with patch('modules.stack_builder.build_hyperstacks_for_run') as build:
-            runner._start_hyperstack_build()
+            runner._start_hyperstack_build(on_end=lambda: None)
             runner._tiling_configs_file_loc = tmp_path / 'next_run' / 'data' / 'tiling.json'
             successor_batch = MagicMock()
             runner._write_batch = successor_batch
@@ -147,7 +149,7 @@ class TestRunnerHyperstackTrigger:
         runner = _hyperstack_runner(tmp_path)
         mutate(runner)
         with patch('modules.stack_builder.build_hyperstacks_for_run') as build:
-            assert runner._start_hyperstack_build() is None
+            assert runner._start_hyperstack_build(on_end=lambda: None) is None
         build.assert_not_called()
 
     @pytest.mark.parametrize(
@@ -158,7 +160,7 @@ class TestRunnerHyperstackTrigger:
     def test_scan_and_zstack_modes_also_build(self, tmp_path, run_mode):
         runner = _hyperstack_runner(tmp_path, run_mode=run_mode)
         with patch('modules.stack_builder.build_hyperstacks_for_run') as build:
-            thread = runner._start_hyperstack_build()
+            thread = runner._start_hyperstack_build(on_end=lambda: None)
             _join(thread)
         build.assert_called_once()
 
@@ -256,7 +258,7 @@ def test_run_mode_hyperstack_applicability_matches_its_declared_row(tmp_path):
         run_dir.mkdir()
         runner = _hyperstack_runner(run_dir, run_mode=run_mode)
         with patch('modules.stack_builder.build_hyperstacks_for_run'):
-            result = runner._start_hyperstack_build()
+            result = runner._start_hyperstack_build(on_end=lambda: None)
             if isinstance(result, threading.Thread):
                 _join(result)
         blocked = result is None

@@ -22,7 +22,6 @@ from modules.lumascope_api.motion import MoveInFlight
 from modules.protocol import Protocol
 from modules.protocol_runner import ProtocolRunner
 from modules.scope_session import ScopeSession
-from modules.sequenced_capture_runner import RunHandle
 from rest.app import build_app
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
@@ -69,8 +68,8 @@ def test_the_live_objects_a_client_can_be_handed_each_have_their_members(client)
     }
 
     types = {path.split('/')[0] for _, path in served}
-    assert types == {'MoveInFlight', 'Protocol', 'ProtocolRunner', 'RunHandle'}
-    for cls in (MoveInFlight, Protocol, ProtocolRunner, RunHandle):
+    assert types == {'MoveInFlight', 'Protocol', 'ProtocolRunner'}
+    for cls in (MoveInFlight, Protocol, ProtocolRunner):
         assert {
             (method, path.split('/', 2)[2])
             for method, path in served
@@ -122,7 +121,8 @@ def test_an_id_not_held_for_its_type_is_404(client):
 
     assert client.post('/api/v1/handles/Protocol/999/num_steps').status_code == 404
     wrong_type = client.post(
-        f'/api/v1/handles/RunHandle/{protocol["handle"]}/wait', json={'timeout_s': 1}
+        f'/api/v1/handles/ProtocolRunner/{protocol["handle"]}/run_single_scan',
+        json={'protocol': protocol['handle']},
     )
     assert wrong_type.status_code == 404
     as_argument = client.post('/api/v1/save_protocol', json={'protocol': '999', 'file_path': 'x'})

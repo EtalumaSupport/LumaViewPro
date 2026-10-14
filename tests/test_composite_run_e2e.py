@@ -205,8 +205,8 @@ class TestCompositeRunEndToEnd:
         assert not session.is_protocol_running, (
             'run_composite returned while the run still held the activity claim'
         )
-        outcome = runner._executor._last_run()
-        settled = outcome.wait(timeout_s=0)
+        outcome = runner._executor._last_run().operation
+        settled = outcome.result(timeout=0)
         assert settled is not None and settled.merged, (
             f'the merge outcome was not resolved-merged at return: {settled}'
         )
@@ -291,7 +291,7 @@ class TestStartComposite:
                 )
             ),
         )
-        assert outcome.wait(timeout_s=120) is not None, 'the run never settled'
+        assert outcome.result(timeout=120) is not None, 'the run never settled'
         assert held_by == ['composite']
 
         assert wait_until_not_running(session), 'the run never released the claim'
@@ -310,7 +310,7 @@ class TestStartComposite:
             parent_dir=str(tmp_path),
             events=RunEvents(run_ended=lambda outcome, run_dir, protocol: heard.append(outcome)),
         )
-        settled = outcome.wait(timeout_s=120)
+        settled = outcome.result(timeout=120)
 
         assert settled is not None, 'the run never settled'
         assert heard == [settled], (
@@ -327,9 +327,9 @@ class TestStartComposite:
         _session, runner, tmp_path = composite_session
 
         first = runner.start_composite(sequence_name='own_1', parent_dir=str(tmp_path))
-        first_settled = first.wait(timeout_s=120)
+        first_settled = first.result(timeout=120)
         second = runner.start_composite(sequence_name='own_2', parent_dir=str(tmp_path))
-        second_settled = second.wait(timeout_s=120)
+        second_settled = second.result(timeout=120)
 
         assert first is not second, "the second run reused the first run's outcome object"
         assert first_settled.merged and second_settled.merged, (

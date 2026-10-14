@@ -123,7 +123,7 @@ def _run_protocol(runner, tmp_path, *, sequenced_format='TIFF'):
         parent_dir=str(tmp_path / 'runs'),
         run_trigger_source='api_protocol',
     )
-    files = run.wait_for_files(timeout_s=WAIT_S)
+    files = run.files.result(timeout=WAIT_S)
     assert files is not None, 'the run never finished its files'
     return run, files
 
@@ -145,7 +145,7 @@ class TestAFullProtocolRunsTheOptedInProcessors:
         assert files.outcome == 'written'
         assert len(opted_in.calls) == 1
         input_dir, manifest, thread_name = opted_in.calls[0]
-        assert input_dir == str(run.run_dir)
+        assert input_dir == str(run.progress().run_dir)
         assert manifest['trigger_source'] == 'api_protocol'
         assert manifest['protocol_name'] == 'protocol'
         assert thread_name.startswith('POSTPROC'), thread_name
@@ -164,7 +164,7 @@ class TestAFullProtocolRunsTheOptedInProcessors:
                 threading.Event().wait(0.05)
 
         assert sorted(call[0] for call in opted_in.calls) == sorted(
-            [str(first.run_dir), str(second.run_dir)]
+            [str(first.progress().run_dir), str(second.progress().run_dir)]
         )
 
     def test_a_scan_hands_nothing_on(self, tmp_path):
@@ -174,14 +174,14 @@ class TestAFullProtocolRunsTheOptedInProcessors:
             scan = runner.run_single_scan(
                 protocol=_one_scan_protocol(), parent_dir=str(tmp_path / 'runs')
             )
-            assert scan.wait_for_files(timeout_s=WAIT_S) is not None
+            assert scan.files.result(timeout=WAIT_S) is not None
             # The positive barrier: a Full Protocol after the scan is handed
             # on, so a hand-off the scan owed would have come first.
             protocol, _files = _run_protocol(runner, tmp_path)
             assert opted_in.called.wait(WAIT_S), 'the protocol after the scan was not handed on'
             _drain_lane(session)
 
-        assert [call[0] for call in opted_in.calls] == [str(protocol.run_dir)]
+        assert [call[0] for call in opted_in.calls] == [str(protocol.progress().run_dir)]
 
     def test_a_session_without_plugins_runs_its_protocol(self, tmp_path):
         with open_composite_session(headless_settings(tmp_path)) as (session, runner):
@@ -256,7 +256,7 @@ class TestAFullProtocolRunsTheOptedInProcessors:
                 second = runner.run_single_scan(
                     protocol=_one_scan_protocol('P2'), parent_dir=str(tmp_path / 'runs')
                 )
-                assert second.wait_for_files(timeout_s=WAIT_S) is not None
+                assert second.files.result(timeout=WAIT_S) is not None
                 release.set()
                 _drain_lane(session)
         finally:
@@ -326,7 +326,7 @@ class TestOnlyALoadedPluginIsHandedTheFolder:
             run = runner.run_protocol(
                 protocol=_one_scan_protocol(), parent_dir=str(tmp_path / 'runs')
             )
-            files = run.wait_for_files(timeout_s=WAIT_S)
+            files = run.files.result(timeout=WAIT_S)
             assert files is not None and files.outcome == 'incomplete'
             assert handed_on.wait(WAIT_S), 'the run was never handed on'
 

@@ -36,13 +36,13 @@ if TYPE_CHECKING:
     from modules.lumascope_api import Lumascope
     from modules.protocol import Protocol
     from modules.protocol_image_writer import RunWriteBatch
-    from modules.sequenced_capture_runner import RunHandle
+    from modules.sequenced_capture_runner import EngineRun
 
 
 def send_run_ended(
-    events: RunEvents, run: RunHandle, *, protocol: Protocol, run_dir: pathlib.Path | None
+    events: RunEvents, run: EngineRun, *, protocol: Protocol, run_dir: pathlib.Path | None
 ) -> None:
-    """Send the run's one ``run_ended`` once its outcome settles; mark *run* told after it.
+    """Send the run's one ``run_ended`` once its outcome settles; settle *run*'s operation after it.
 
     Called once the run has let go of the scope, on every path, a cleanup
     that raised included, and before the run's files are handed their
@@ -51,7 +51,9 @@ def send_run_ended(
     the merge's thread: before or after its ``files_written``, whichever the
     merge and the last write reach first. The values are captured here, while the run's
     fields are still its own: a successor started after the release
-    replaces them.
+    replaces them. The delivery is the run's operation's settling: inside
+    the handler its ``result()`` answers at once, and every other observer
+    sees the run done once the handler has returned.
     """
 
     def _send(outcome) -> None:
@@ -61,16 +63,16 @@ def send_run_ended(
             outcome,
             run_dir,
             protocol,
-            delivery=run._delivering(run._run_told),
+            delivery=run.operation.settling(result=outcome),
         )
 
     run._pending.when_settled(_send)
 
 
 def send_files_written(
-    events: RunEvents, run: RunHandle, *, run_dir: pathlib.Path | None, files: str
+    events: RunEvents, run: EngineRun, *, run_dir: pathlib.Path | None, files: str
 ) -> None:
-    """Send the run's one ``files_written``; mark *run* files told after it.
+    """Send the run's one ``files_written``; one of *run*'s files events once it has run.
 
     ``files`` is the run's write outcome: ``'written'``, or ``'incomplete'``
     when some of its images are not on disk.
@@ -80,7 +82,7 @@ def send_files_written(
         'files_written',
         run_dir,
         files,
-        delivery=run._delivering(run._files_told),
+        delivery=run.files_told(),
     )
 
 

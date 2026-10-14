@@ -150,7 +150,7 @@ class _AfRig:
         )
         assert self._done.wait(timeout=COMPLETION_TIMEOUT), 'AF run did not complete'
         assert self._files_done.wait(timeout=COMPLETION_TIMEOUT), 'files_written did not fire'
-        outcome = pending.wait(timeout_s=COMPLETION_TIMEOUT)
+        outcome = pending.result(timeout=COMPLETION_TIMEOUT)
         assert outcome is not None, 'the AF run never settled its outcome'
         return outcome
 
@@ -474,7 +474,7 @@ class TestARunUnderALentClaim:
                 rig.prepare_autofocus(tmp_path, save_data=False)
             assert excinfo.value.reason == 'exclusive_activity_running', excinfo.value.reason
             assert excinfo.value.holder == 'diagnostic'
-            pending.wait(timeout_s=COMPLETION_TIMEOUT)
+            pending.result(timeout=COMPLETION_TIMEOUT)
             assert rig.runner.wait_for_run_idle(COMPLETION_TIMEOUT)
         finally:
             diagnostic.release()
@@ -496,7 +496,7 @@ class TestARunUnderALentClaim:
             with pytest.raises(ProtocolRunRefusedError) as excinfo:
                 rig.runner.start(stale)
             assert excinfo.value.holder == 'diagnostic', excinfo.value.holder
-            pending.wait(timeout_s=COMPLETION_TIMEOUT)
+            pending.result(timeout=COMPLETION_TIMEOUT)
             assert rig.runner.wait_for_run_idle(COMPLETION_TIMEOUT)
         finally:
             diagnostic.release()

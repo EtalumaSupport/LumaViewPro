@@ -50,7 +50,7 @@ try:
         reloaded,
         sequence_name='probe_roundtrip',
     )
-    settled = outcome.wait(timeout_s=240)
+    settled = outcome.result(timeout=240)
     print('status          :', getattr(settled, 'status', None))
     print('reason          :', getattr(settled, 'reason', None))
     print('message         :', getattr(settled, 'message', None))

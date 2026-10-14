@@ -1,4 +1,4 @@
-"""P08 -- the STOP half of the autofocus toggle, and the stale-stop refusal.
+"""P08 -- the STOP half of the autofocus toggle, and the stale stop that does nothing.
 
 GUI entry: ui/vertical_control.py run_autofocus_from_ui (a press while the
 engine says the button's own run is live) -> _stop_autofocus -> ui_helpers
@@ -9,7 +9,6 @@ start returned.
 from harness import REPO, check, run
 from modules.protocol_runner import ProtocolRunner
 from modules.run_events import RunEvents
-from modules.exceptions import ProtocolRunRefusedError, RunAlreadyEndedError
 
 
 def body(s):
@@ -21,7 +20,7 @@ def body(s):
 
     # A first autofocus, run to its end: its handle is the stale one below.
     earlier = runner.run_autofocus(layer='BF')
-    check('the earlier run finished', earlier.wait(timeout_s=300) is not None)
+    check('the earlier run finished', earlier.result(timeout=300) is not None)
 
     # --- a run in flight names its trigger source; the GUI's is 'autofocus',
     #     run_autofocus's is 'api_autofocus'.
@@ -39,41 +38,29 @@ def body(s):
         f'run_trigger_source={src!r}',
     )
 
-    # --- a STOP through a handle whose run is not the live one is refused ---
-    refused = None
-    try:
-        earlier.stop()
-        refused = False
-    except ProtocolRunRefusedError as e:
-        refused = True if e.reason == 'run_not_live' else f'reason={e.reason!r}'
-    except Exception as e:
-        refused = f'{type(e).__name__}'
-    print('stale-handle reset ->', refused, flush=True)
+    # --- a STOP through a handle whose run is not the live one does nothing
+    #     to the live run, and raises nothing (a raise fails the probe) ---
+    stale_stop = earlier.stop()
+    still_live = pending.progress().is_live
+    print('stale-handle stop ->', stale_stop, 'live run still live:', still_live, flush=True)
 
-    outcome = pending.wait(timeout_s=300)
+    outcome = pending.result(timeout=300)
     check('run finished', outcome is not None, f'status={outcome.status}')
     check('a caller-supplied run_ended handler fires', seen.get('ended') is True)
 
     check(
-        "a STOP naming another run is refused at the API ('run_not_live')",
-        refused is True,
-        f'<the earlier run>.stop() -> {refused}',
+        'a STOP naming another run returns None and leaves the live run live',
+        stale_stop is None and still_live is True,
+        f'<the earlier run>.stop() -> {stale_stop!r}; live run is_live={still_live!r}',
     )
 
-    # --- a STOP after the run ended is told so, and is not a refusal ---
+    # --- a STOP after the run ended does nothing and raises nothing ---
     check('the run let go of the scope when its wait returned', not s.is_protocol_running)
-    ended = None
-    try:
-        pending.stop()
-        ended = False
-    except RunAlreadyEndedError:
-        ended = True
-    except Exception as e:
-        ended = f'{type(e).__name__}'
+    late_stop = pending.stop()
     check(
-        'a STOP naming a run that has ended raises RunAlreadyEndedError',
-        ended is True,
-        f'<the finished run>.stop() -> {ended}',
+        'a STOP naming a run that has ended returns None',
+        late_stop is None,
+        f'<the finished run>.stop() -> {late_stop!r}',
     )
 
     # --- the stuck-AF bound: the GUI arms a 15 s Clock timer

@@ -224,7 +224,7 @@ class RunTag:
     """A run call's event handlers: each event names the run once the call has handed it out.
 
     A run's first events can come before the call that started it returns,
-    since the run is dispatched before its handle is handed back; they are
+    since the run is dispatched before its job is handed back; they are
     held, in order, until ``settle`` names the run, then sent ahead of any
     later one.
     """
@@ -252,7 +252,7 @@ class RunTag:
         return heard
 
     def settle(self, run: object) -> None:
-        """Name the run, ``{"handle", "type"}``, or None when the call handed out none; send what was held."""
+        """Name the run, ``{"job"}``, or None when the call handed out none; send what was held."""
         with self._lock:
             self._run = run
             held, self._held = self._held or [], None
@@ -350,7 +350,7 @@ def published(
             for f, alternatives in _sent_fields(record, handed_out).items()
         }
         if name in run_events:
-            fields['run'] = (routes.Handle | None, ...)
+            fields['run'] = (routes.RunJob | None, ...)
         found[name] = _event_model(name, **fields)
     found['reset'] = _event_model('reset')
     found['closing'] = _event_model('closing')

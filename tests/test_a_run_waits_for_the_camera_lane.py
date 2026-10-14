@@ -118,7 +118,7 @@ class TestAStillInFlightFinishesFirst:
         paths = still.result(timeout=RESULT_TIMEOUT_S)
         assert paths and paths[0].exists(), 'the still under a starting run saved nothing'
         assert session.sequenced_capture_runner.wait_for_run_idle(timeout_s=RESULT_TIMEOUT_S)
-        result = outcome.wait(timeout_s=RESULT_TIMEOUT_S)
+        result = outcome.result(timeout=RESULT_TIMEOUT_S)
         assert result is not None and result.status == 'completed', result
         assert seen['still_in_flight'] is False, (
             "the run's first step ran while the still was still on the lane"
@@ -139,7 +139,7 @@ class TestAStillInFlightFinishesFirst:
         paths = still.result(timeout=RESULT_TIMEOUT_S)
         assert paths and paths[0].exists(), 'the run refused a still put on an idle lane'
         assert session.sequenced_capture_runner.wait_for_run_idle(timeout_s=RESULT_TIMEOUT_S)
-        result = outcome.wait(timeout_s=RESULT_TIMEOUT_S)
+        result = outcome.result(timeout=RESULT_TIMEOUT_S)
         assert result is not None and result.status == 'completed', result
 
 
@@ -163,7 +163,7 @@ class TestAStillQueuedBehindCameraWork:
         assert refused.value.reason == 'exclusive_activity_running'
         assert not session.manual_capture.in_flight, 'a refused still kept the guard'
         assert session.sequenced_capture_runner.wait_for_run_idle(timeout_s=RESULT_TIMEOUT_S)
-        result = outcome.wait(timeout_s=RESULT_TIMEOUT_S)
+        result = outcome.result(timeout=RESULT_TIMEOUT_S)
         assert result is not None and result.status == 'completed', result
 
 
@@ -185,11 +185,11 @@ class TestAHeldLane:
             outcome = runner.start_composite(sequence_name='stopped', parent_dir=str(tmp_path))
             assert session.is_protocol_running
             # The run is waiting on the protocol thread; Stop it there.
-            session.sequenced_capture_runner._reset(outcome)
+            outcome.stop()
             assert session.sequenced_capture_runner.wait_for_run_idle(timeout_s=RESULT_TIMEOUT_S)
         finally:
             hold.release()
-        result = outcome.wait(timeout_s=RESULT_TIMEOUT_S)
+        result = outcome.result(timeout=RESULT_TIMEOUT_S)
         assert result is not None and result.status == 'aborted', result
         assert result.reason == 'stopped'
         assert scope.imaging.get_gain_db() == gain_before, 'cleanup wrote the camera'
@@ -213,7 +213,7 @@ class TestAHeldLane:
                 )
         finally:
             hold.release()
-        result = outcome.wait(timeout_s=RESULT_TIMEOUT_S)
+        result = outcome.result(timeout=RESULT_TIMEOUT_S)
         assert result is not None and result.status == 'failed', result
         assert result.reason == 'camera_lane_stalled'
         assert len(completions) == 1, completions
@@ -251,7 +251,7 @@ class TestATakeoverWriteThatRaises:
                 events=RunEvents(run_ended=lambda *ended: completions.append(ended)),
             )
             assert session.sequenced_capture_runner.wait_for_run_idle(timeout_s=RESULT_TIMEOUT_S)
-        result = outcome.wait(timeout_s=RESULT_TIMEOUT_S)
+        result = outcome.result(timeout=RESULT_TIMEOUT_S)
         assert result is not None and result.status == 'failed', result
         assert result.reason == 'run_loop_crashed'
         assert len(completions) == 1, completions

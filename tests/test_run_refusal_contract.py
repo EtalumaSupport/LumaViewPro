@@ -262,7 +262,7 @@ def _run_to_completion(executor, protocol, tmp_path):
     assert done.wait(timeout=COMPLETION_TIMEOUT), 'run did not complete within timeout'
     # Its files land after it lets go of the scope, and prepare() refuses
     # the next run until they have.
-    assert handle.wait_for_files(timeout_s=FILES_WAIT_S) is not None, "the run's files never landed"
+    assert handle.files.result(timeout=FILES_WAIT_S) is not None, "the run's files never landed"
 
 
 def _wait_for_executors_out_of_protocol_mode(executor, timeout=5.0):
@@ -372,7 +372,7 @@ class TestHeadlessRefusalDoesNotHang:
                 events=RunEvents(run_ended=lambda *_ended: done.set()),
             )
             assert done.wait(timeout=COMPLETION_TIMEOUT), 'first run did not end'
-            settled = first.wait(timeout_s=COMPLETION_TIMEOUT)
+            settled = first.result(timeout=COMPLETION_TIMEOUT)
             assert settled is not None, 'the first run never reported an outcome'
             assert (settled.status, settled.reason) == ('completed', 'completed'), (
                 f'the first run reported {settled.status!r} ({settled.reason!r})'
@@ -381,7 +381,7 @@ class TestHeadlessRefusalDoesNotHang:
             # The completed run is still writing its files, and prepare()
             # refuses a new run until they land -- a refusal this test is
             # not about.
-            assert first.wait_for_files(timeout_s=FILES_WAIT_S) is not None
+            assert first.files.result(timeout=FILES_WAIT_S) is not None
 
             # A refused run raises out of run_single_scan; nothing waits.
             with pytest.raises(ProtocolRunRefusedError) as excinfo:
@@ -485,7 +485,7 @@ class TestLateFailurePreservesNothingAndLeavesNoOrphan:
             raise OSError('No space left on device')
 
         monkeypatch.setattr(plan.protocol, 'to_file', _refused)
-        outcome = executor.start(plan).wait(COMPLETION_TIMEOUT)
+        outcome = executor.start(plan).result(COMPLETION_TIMEOUT)
 
         assert (outcome.status, outcome.reason) == ('failed_at_start', 'run_dir_init_failed')
         assert [c.status for c in completions] == ['failed_at_start']
@@ -725,10 +725,6 @@ RUNNER_REFUSAL_COVERAGE = {
     'composite_needs_two_channels': (
         'tests/test_run_refusal_contract.py::TestTheCompositeChannelFloor'
     ),
-    # Raised at reset(), not prepare(): it refuses a STOP naming a run
-    # that has ended while another is live, so there is no plan to drive
-    # and it cannot ride the loop.
-    'run_not_live': ('tests/test_run_teardown_authority.py::TestTeardownAuthority'),
     # Raised by the protocol BUILDER, before prepare() is reached at all:
     # a stack cannot be built from a range of zero, so there is no plan to
     # drive it with. The builder does its own log-notify-raise, and that

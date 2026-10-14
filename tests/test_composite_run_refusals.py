@@ -146,7 +146,7 @@ class TestARivalRunRefusesTheComposite:
             f'{refusal.value.reason!r}, not for the run already holding the scope'
         )
 
-        settled = outcome.wait(timeout_s=120)
+        settled = outcome.result(timeout=120)
         assert settled is not None and settled.merged, (
             f'the refused second click cost the first run its merge: {settled}'
         )
@@ -184,7 +184,7 @@ class TestARivalRunRefusesTheComposite:
         )
         # Waited on through the scan's own handle: the refused composite
         # returned none.
-        settled = pending.wait(timeout_s=120)
+        settled = pending.result(timeout=120)
         assert settled is not None and settled.status == 'completed', (
             f'the scan never completed: {settled}'
         )

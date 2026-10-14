@@ -23,13 +23,13 @@ def main() -> int:
         session.scope.motion.move_absolute('Z', 1000.0)
         session.scope.motion.wait_until_finished_moving(timeout_s=60)
         pending = runner.run_zstack(layer='BF', sequence_name='probe_zstack')
-        outcome = pending.wait(timeout_s=180)
+        outcome = pending.result(timeout=180)
         print('zstack outcome:', outcome)
         run_dir = pathlib.Path(pending.run_dir) if pending.run_dir else None
         print('run_dir:', run_dir)
         # The outcome answers before the run's files drain; the projection
         # reads the run's record, so wait for the run's files.
-        print('files:', pending.wait_for_files(timeout_s=60))
+        print('files:', pending.files.result(timeout=60))
 
         # Find the run folder the z-stack produced.
         candidates = sorted(live.rglob('protocol_record.tsv'))

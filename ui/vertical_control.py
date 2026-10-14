@@ -11,7 +11,7 @@ from modules.debounce import debounce
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from modules.sequenced_capture_runner import RunHandle
+    from modules.operation import Operation
 from modules.run_events import RunEvents
 from ui.ui_helpers import (
     move_absolute,
@@ -54,9 +54,9 @@ class VerticalControl(BoxLayout):
         self._af_safety_event = None
         # The handle this button's last start returned: what its Stop and
         # its stuck-AF bound name. The engine answers whether it is live.
-        self._autofocus_run: RunHandle | None = None
+        self._autofocus_run: Operation | None = None
         # The run the stuck-AF bound was last armed for: one bound per run.
-        self._af_safety_run: RunHandle | None = None
+        self._af_safety_run: Operation | None = None
 
         self.queue_slider_position_trigger = Clock.create_trigger(
             lambda dt: self.queue_slider_position(), 0.1
@@ -343,7 +343,7 @@ class VerticalControl(BoxLayout):
         logger.info('[LVP Main  ] VerticalControl.run_autofocus_from_ui()')
         ctx = _app_ctx.ctx
         run = self._autofocus_run
-        if run is not None and run.is_live:
+        if run is not None and run.progress().is_live:
             self._stop_autofocus(run)
             return
 
@@ -365,7 +365,7 @@ class VerticalControl(BoxLayout):
 
         self._submit_autofocus_request(_start)
 
-    def _stop_autofocus(self, run: 'RunHandle') -> None:
+    def _stop_autofocus(self, run: 'Operation') -> None:
         self._submit_autofocus_request(run.stop, stop=True)
 
     def _submit_autofocus_request(self, call, stop: bool = False) -> None:
@@ -390,13 +390,14 @@ class VerticalControl(BoxLayout):
         run = self._autofocus_run
         self.autofocus_held = ctx.session.held_by_other(run)
         button = self.ids['autofocus_id']
-        if run is None or not run.is_live:
+        progress = None if run is None else run.progress()
+        if progress is None or not progress.is_live:
             button.state = 'normal'
             button.text = 'Autofocus'
             gui_logger.display('AUTOFOCUS_BUTTON', f'{button.text} held={self.autofocus_held}')
             return
         button.state = 'down'
-        button.text = 'Stopping...' if run.is_stopping else 'Focusing...'
+        button.text = 'Stopping...' if progress.is_stopping else 'Focusing...'
         gui_logger.display('AUTOFOCUS_BUTTON', f'{button.text} held={self.autofocus_held}')
         # Armed by the run it bounds, the first time that run is seen live,
         # and once per run: a timer armed before the run existed outlived
@@ -411,7 +412,7 @@ class VerticalControl(BoxLayout):
             Clock.unschedule(self._af_safety_event)
             self._af_safety_event = None
 
-    def _schedule_af_safety_timer(self, run: 'RunHandle') -> None:
+    def _schedule_af_safety_timer(self, run: 'Operation') -> None:
         """Arm the stuck-AF bound for *run*: a standalone AF that stops
         progressing is force-aborted rather than holding the lockout until
         the user notices. The run pipeline bounds stalled MOTION, not a
@@ -425,7 +426,7 @@ class VerticalControl(BoxLayout):
             # being busy: a timer that outlived its run must stay out of
             # reach of the next autofocus, and a rival run's AF step is
             # never this button's to stop.
-            if run.is_live:
+            if run.progress().is_live:
                 logger.warning('[AF Safety] Autofocus appeared stuck. Forced abort.')
                 self._stop_autofocus(run)
 

@@ -1,36 +1,30 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """Regression tests for run-teardown authority.
 
-A stop names the RUN it means to stop -- the handle that run's start()
-returned -- never the caller: who is asking is self-declared and
-protects nothing, while a stale control naming an OLD run is the hole
-that once destroyed a scan the control never started. The refusal is
-the API's, so it reaches a REST or SDK caller exactly as it reaches the
-GUI -- a teardown that could only be refused by a widget would be no
-refusal at all.
+A stop is the RUN's -- the operation that run's start() returned --
+never the caller's: who is asking is self-declared and protects nothing,
+while a stale control naming an OLD run is the hole that once destroyed a
+scan the control never started. The stop is the API's, so it holds for a
+REST or SDK caller exactly as for the GUI.
 
 The contract:
 
-- reset(run) with the live run's handle unwinds the run, whoever holds
-  the handle.
-- reset(run) with a handle naming a run that has ended, while another
-  run is live, raises ProtocolRunRefusedError with reason
-  'run_not_live' AND LEAVES THE LIVE RUN RUNNING. This is the case that
-  lost 170 of 192 protocol steps in the field: a stale autofocus toggle
-  reached reset() and destroyed a scan it never started.
-- reset(run) with nothing live raises RunAlreadyEndedError -- not a
-  refusal, and never notified: the run finished before the stop arrived.
+- stop() on the live run's operation unwinds the run, whoever holds it.
+- stop() on the operation of a run that has ended does nothing, while
+  another run is live: it raises nothing, notifies nothing AND LEAVES THE
+  LIVE RUN RUNNING. This is the case that lost 170 of 192 protocol steps
+  in the field: a stale autofocus toggle reached the teardown and
+  destroyed a scan it never started.
+- stop() with nothing live does nothing either: the run finished before
+  the stop arrived (Eric, 2026-10-13: a stop once ended does nothing).
 - force_reset(reason) is the named shutdown override: it tears down the
   live run without naming it, and says so at WARNING. It exists so app
-  close, which holds no run's handle, still stops whatever is live.
+  close, which holds no run's operation, still stops whatever is live.
 """
 
 import threading
 import time
 
-import pytest
-
-from modules.exceptions import ProtocolRunRefusedError, RunAlreadyEndedError
 from modules.run_events import RunEvents
 from modules.sequenced_capture_runner import SequencedCaptureRunMode
 from tests.test_protocol_execution import (  # noqa: F401 -- pytest fixtures
@@ -49,7 +43,7 @@ OWNER = 'scan'
 
 def _start_run(executor, tmp_path, done):
     """Start a long-enough run triggered by OWNER, wait until it is live,
-    and return the handle start() gave back."""
+    and return the operation start() gave back."""
     protocol = _make_multi_step_protocol(_make_tile_grid_steps(rows=6, cols=8))
 
     plan = executor.prepare(
@@ -73,13 +67,13 @@ def _start_run(executor, tmp_path, done):
 
 
 def _an_ended_run(executor, tmp_path):
-    """The handle of a run that has been stopped and has fully unwound."""
+    """The operation of a run that has been stopped and has fully unwound."""
     done = threading.Event()
     run = _start_run(executor, tmp_path / 'ended', done)
-    executor._reset(run)
+    run.stop()
     assert done.wait(timeout=COMPLETION_TIMEOUT), 'the first run never ended'
     assert executor.wait_for_run_idle(COMPLETION_TIMEOUT), 'the first run never went idle'
-    assert not executor._is_live_run(run)
+    assert not run.progress().is_live
     # Its files drain after it ends, and the next start is refused until
     # they have landed -- the designed two-phase completion.
     assert executor.write_batch().wait_complete(COMPLETION_TIMEOUT), (
@@ -96,7 +90,7 @@ def _notified_since(centre_posts, start):
 
 
 class TestTeardownAuthority:
-    def test_a_stale_handle_is_refused_and_the_live_run_survives(
+    def test_a_stale_stop_does_nothing_and_the_live_run_survives(
         self, executor, scope, tmp_path, centre_posts
     ):
         """The reproduced defect: a stop naming an old run must not destroy
@@ -106,20 +100,14 @@ class TestTeardownAuthority:
         done = threading.Event()
         live = _start_run(executor, tmp_path, done)
 
-        with pytest.raises(ProtocolRunRefusedError) as exc:
-            executor._reset(stale)
+        assert stale.stop() is None
 
         notified = _notified_since(centre_posts, start)
-        assert exc.value.reason == 'run_not_live'
-        # Raised, like every other refusal: the boundary the Stop came
-        # through tells the person; the engine posts nothing.
-        assert notified == [], f'expected no notification, got {notified}'
-        # The live run is named, so a caller can say WHOSE run it is.
-        assert exc.value.holder == 'protocol'
-        assert exc.value.holder_trigger == OWNER
+        assert notified == [], f'a stale stop notified: {notified}'
         # The point of the whole slice: the live run is still running.
-        assert executor.run_in_progress(), 'a refused teardown still killed the run'
-        assert executor._is_live_run(live)
+        assert executor.run_in_progress(), 'a stale stop still killed the run'
+        assert live.progress().is_live
+        assert not live.progress().is_stopping, 'a stale stop recorded a Stop on the live run'
 
         executor.force_reset(reason='test cleanup')
         assert done.wait(timeout=COMPLETION_TIMEOUT)
@@ -128,35 +116,23 @@ class TestTeardownAuthority:
         done = threading.Event()
         run = _start_run(executor, tmp_path, done)
 
-        executor._reset(run)
+        run.stop()
 
-        assert done.wait(timeout=COMPLETION_TIMEOUT), 'reset did not unwind the run'
+        assert done.wait(timeout=COMPLETION_TIMEOUT), 'the stop did not unwind the run'
+        assert (run.result(COMPLETION_TIMEOUT).status, run.result(0).reason) == (
+            'aborted',
+            'stopped',
+        )
 
-    def test_anyone_holding_the_live_handle_may_stop_it(self, executor, scope, tmp_path):
-        """The handle is the credential, not who started the run: a caller
-        that fetched the live run's handle stops it like its starter would."""
-        done = threading.Event()
-        started = _start_run(executor, tmp_path, done)
-        fetched = executor._last_run()
-        assert fetched is started
-
-        executor._reset(fetched)
-
-        assert done.wait(timeout=COMPLETION_TIMEOUT), 'reset did not unwind the run'
-
-    def test_teardown_with_no_run_raises_run_already_ended(
-        self, executor, scope, tmp_path, centre_posts
-    ):
-        """A stop that arrives after its run ended is told so, and nobody is
-        notified: nothing was refused."""
+    def test_a_stop_with_no_run_live_does_nothing(self, executor, scope, tmp_path, centre_posts):
+        """A stop that arrives after its run ended raises nothing, and nobody
+        is notified: the run finished before the stop arrived."""
         stale = _an_ended_run(executor, tmp_path)
         start = len(centre_posts)
 
-        with pytest.raises(RunAlreadyEndedError) as exc:
-            executor._reset(stale)
+        assert stale.stop() is None
 
         notified = _notified_since(centre_posts, start)
-        assert not isinstance(exc.value, ProtocolRunRefusedError)
         assert notified == [], f'a stop after the run ended notified: {notified}'
 
     def test_force_reset_overrides_ownership(self, executor, scope, tmp_path):
@@ -191,16 +167,8 @@ class TestTeardownAuthority:
         assert done.is_set(), 'the run ended without run_ended'
 
 
-class TestTheRunIsRequired:
-    """A stop that does not name a run cannot be written: no default."""
-
-    def test_reset_without_a_run_is_a_type_error(self, executor, scope, tmp_path):
-        with pytest.raises(TypeError):
-            executor._reset()
-
-
 class TestAStopControlCanSayTheRunIsStopping:
-    """_is_stopping(run): live, and a Stop of it accepted -- what a stop control shows.
+    """progress().is_stopping: live, and a Stop of it accepted -- what a stop control shows.
 
     A stopped run stays live through its teardown, so liveness alone makes a
     stop control say "running" until the LEDs, camera and lanes are put
@@ -208,49 +176,55 @@ class TestAStopControlCanSayTheRunIsStopping:
     """
 
     @staticmethod
-    def _runner(live, monkeypatch):
+    def _stopping(live, ending=None):
+        """``is_stopping`` from the engine's progress read of a run that is *live* or not."""
+        import types
+
         from modules.run_outcome import EndingLatch
         from modules.sequenced_capture_runner import SequencedCaptureRunner
 
+        # A stand-in by design: the engine's progress read over its own
+        # latch, with liveness and the counters given, so each ending's
+        # answer is read without driving a run to that ending.
         runner = object.__new__(SequencedCaptureRunner)
         runner._run_lock = threading.RLock()
         runner._ending = EndingLatch()
-        monkeypatch.setattr(runner, '_is_live_run_locked', lambda run: live)
-        return runner
+        if ending is not None:
+            runner._ending.set_if_unset(ending)
+        runner._is_live_run_locked = lambda run: live
+        runner._run_handle = None
+        for read in ('_step_number', '_num_steps', '_remaining_scans', '_protocol_interval'):
+            setattr(runner, read, lambda: None)
+        return runner._progress_of(types.SimpleNamespace(_run_dir=None)).is_stopping
 
-    def test_a_live_run_nobody_stopped_is_not_stopping(self, monkeypatch):
-        assert self._runner(True, monkeypatch)._is_stopping(object()) is False
+    def test_a_live_run_nobody_stopped_is_not_stopping(self):
+        assert self._stopping(True) is False
 
-    def test_a_live_run_with_an_accepted_stop_is_stopping(self, monkeypatch):
+    def test_a_live_run_with_an_accepted_stop_is_stopping(self):
         from modules.run_outcome import RunEnding
 
-        runner = self._runner(True, monkeypatch)
-        runner._ending.set_if_unset(RunEnding('aborted', 'stopped', 'Stopped'))
-        assert runner._is_stopping(object()) is True
+        assert self._stopping(True, RunEnding('aborted', 'stopped', 'Stopped')) is True
 
-    def test_a_run_the_instrument_ended_is_not_stopping(self, monkeypatch):
+    def test_a_run_the_instrument_ended_is_not_stopping(self):
         from modules.run_outcome import RunEnding
 
-        runner = self._runner(True, monkeypatch)
-        runner._ending.set_if_unset(RunEnding('failed', 'motion_timeout', 'M'))
-        assert runner._is_stopping(object()) is False
+        assert self._stopping(True, RunEnding('failed', 'motion_timeout', 'M')) is False
 
-    def test_a_run_that_is_not_live_is_not_stopping(self, monkeypatch):
+    def test_a_run_that_is_not_live_is_not_stopping(self):
         from modules.run_outcome import RunEnding
 
-        runner = self._runner(False, monkeypatch)
-        runner._ending.set_if_unset(RunEnding('aborted', 'stopped', 'Stopped'))
-        assert runner._is_stopping(object()) is False
+        assert self._stopping(False, RunEnding('aborted', 'stopped', 'Stopped')) is False
 
     def test_a_real_stop_reads_stopping_until_the_run_has_ended(self, executor, tmp_path):
         done = threading.Event()
         run = _start_run(executor, tmp_path, done)
-        assert executor._is_stopping(run) is False
-        executor._reset(run)
-        assert executor._is_stopping(run) or not executor._is_live_run(run)
+        assert run.progress().is_stopping is False
+        run.stop()
+        progress = run.progress()
+        assert progress.is_stopping or not progress.is_live
         assert done.wait(timeout=COMPLETION_TIMEOUT)
         assert executor.wait_for_run_idle(COMPLETION_TIMEOUT)
-        assert executor._is_stopping(run) is False
+        assert run.progress().is_stopping is False
 
 
 class TestTheRunsEndIsAnnounced:
@@ -286,7 +260,7 @@ class TestTheRunsEndIsAnnounced:
         heard = self._listen(executor)
         done = threading.Event()
         run = _start_run(executor, tmp_path, done)
-        executor._reset(run)
+        run.stop()
         assert done.wait(timeout=COMPLETION_TIMEOUT)
         assert self._heard_the_end(heard), f'the end was not announced after IDLE: {heard}'
 
@@ -306,8 +280,8 @@ class TestTheRunsEndIsAnnounced:
 class TestHeldByOther:
     """A run control greys while the scope is held by anything but its run.
 
-    Its own run leaves it live as that run's Stop; the handle, not the
-    trigger, says which run is its own.
+    Its own run leaves it live as that run's Stop; the run's operation, not
+    the trigger, says which run is its own.
     """
 
     def test_the_live_run_is_not_other_to_itself(self, executor, tmp_path):

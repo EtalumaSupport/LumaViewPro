@@ -145,8 +145,10 @@ def test_a_failed_starts_handle_keeps_no_folder_when_its_subscriber_starts_the_n
     )
     assert second, 'the subscriber never started the next run'
     assert second_done.wait(COMPLETION_TIMEOUT), 'the next run never finished'
-    assert failed.run_dir is None, f"the failed start's handle took {failed.run_dir}"
-    assert second[0].run_dir is not None and second[0].run_dir.is_dir()
+    assert failed.progress().run_dir is None, (
+        f"the failed start's run took {failed.progress().run_dir}"
+    )
+    assert second[0].progress().run_dir is not None and second[0].progress().run_dir.is_dir()
 
 
 def test_a_raising_run_state_listener_does_not_cost_the_events(executor, tmp_path):

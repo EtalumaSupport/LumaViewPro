@@ -9,20 +9,11 @@ that joins the two, and the one a blanket ``except Exception as e`` puts
 on screen when it renders ``str(e)``.
 
 So any UI handler that can catch a refusal must render the refusal's own
-title and message, or -- where the engine's funnel has already notified
--- render nothing at all. What it must never do is hand the user the
-joined form, because that is a dialog reading "run_not_live: That run
-has already ended" over a title of "Error".
+title and message, or -- where the refusal has already been told -- render
+nothing at all. What it must never do is hand the user the joined form.
 
-Two paths can do that today:
-
-- **The z-stack Stop.** A teardown the engine refuses (reason
-  ``run_not_live``) once unwound into the starter's blanket handler. The
-  Stop now goes through the one boundary, which reports the refusal
-  through the one reporter in its own words.
-- **New Protocol.** Its ``except Exception as e`` renders ``str(e)``
-  under the title "Protocol Creation Error". The builder cannot refuse
-  today; it is about to, which is why this hole closes first.
+The path pinned here is New Protocol: its builder refuses a z-stack with no
+range, and tells the person itself before it raises.
 """
 
 from __future__ import annotations
@@ -36,42 +27,7 @@ import pytest
 import modules.app_context as _app_ctx
 import ui.notification_popup as notification_popup
 import ui.protocol_settings as ps
-import ui.zstack as zs
 from modules.exceptions import ProtocolRunRefusedError
-from modules.run_outcome import PendingRunOutcome
-from modules.protocol_image_writer import RunWriteBatch
-from modules.sequenced_capture_runner import RunHandle
-
-
-# The refusal the engine raises when a stop names a run that has ended
-# while another run is live -- the case that reaches the z-stack handler.
-# Its words are the engine's; only the joined form is the bug.
-RUN_NOT_LIVE = ProtocolRunRefusedError(
-    reason='run_not_live',
-    message='That run has already ended. A protocol run is using the microscope now.',
-)
-
-
-class _ZStackStarter(zs.ZStack):
-    """The real class, with only the widget tree stubbed.
-
-    It subclasses rather than mimics: the stop branch calls the starter's
-    own button-reset helpers, so a stand-in would have to reimplement the
-    methods that are part of what is under test.
-    """
-
-    def __init__(self):
-        # 'down' is what a first click leaves behind. The stop branch is
-        # reached because this button's own run is live, not by this, but a
-        # button reading 'normal' would take the same branch for the wrong
-        # reason and the test would pass without exercising the teardown.
-        self.button = SimpleNamespace(state='down', text='Running Z-Stack')
-        self.ids = {'zstack_aqr_btn': self.button}
-        self.zstack_pending = False
-        # The handle this button's start returned.
-        self._zstack_run = RunHandle(
-            _app_ctx.ctx.sequenced_capture_runner, PendingRunOutcome(), RunWriteBatch(MagicMock())
-        )
 
 
 @pytest.fixture
@@ -82,79 +38,6 @@ def popups(monkeypatch):
         notification_popup, 'show_notification_popup', lambda **kw: shown.append(kw)
     )
     return shown
-
-
-@pytest.fixture
-def refusing_runner():
-    """A runner whose live run is the z-stack's at the click, and whose
-    teardown it then refuses.
-
-    This button's run being live is what routes the click to the teardown;
-    the refusal is what the widget then has to render. The two together
-    are the real sequence -- the z-stack ended and another run started
-    between the click and the reset.
-    """
-    runner = MagicMock()
-    runner.run_in_progress.return_value = True
-    runner.run_trigger_source.return_value = 'zstack'
-    runner._is_live_run.side_effect = lambda run: isinstance(run, RunHandle)
-    runner._reset.side_effect = RUN_NOT_LIVE
-    return runner
-
-
-@pytest.fixture
-def app_ctx(monkeypatch, refusing_runner):
-    from modules.sequential_io_executor import ENQUEUED
-    import ui.ui_helpers as ui_helpers
-
-    pool = MagicMock()
-
-    def _run_now(task):
-        task.action(*task.args, **task.kwargs)
-        return ENQUEUED
-
-    pool.put.side_effect = _run_now
-    monkeypatch.setattr(ui_helpers, '_schedule_ui', lambda fn, timeout=0: fn(0))
-    monkeypatch.setattr(
-        _app_ctx,
-        'ctx',
-        SimpleNamespace(
-            sequenced_capture_runner=refusing_runner,
-            settings={},
-            worker_pool=pool,
-        ),
-    )
-    # The GUI interaction log is ambient to this path; stubbing it keeps
-    # the test about what the user is told.
-    monkeypatch.setattr(zs.gui_logger, 'button', lambda *a, **kw: None)
-    return refusing_runner
-
-
-class TestARefusedZStackTeardown:
-    def test_it_shows_no_dialog_titled_error(self, app_ctx, popups):
-        starter = _ZStackStarter()
-
-        starter.run_zstack_acquire_from_ui()
-
-        assert app_ctx._reset.called, (
-            'the click never reached the teardown -- the test is not exercising the refusal'
-        )
-        app_ctx._reset.assert_called_with(starter._zstack_run)
-        assert [p for p in popups if p.get('title') == 'Error'] == [], (
-            'a refused teardown is a designed outcome the engine already reported; '
-            f'it must not surface as an Error dialog. Popups: {popups}'
-        )
-
-    def test_it_shows_no_raw_reason_code(self, app_ctx, popups):
-        starter = _ZStackStarter()
-
-        starter.run_zstack_acquire_from_ui()
-
-        for popup in popups:
-            assert 'run_not_live' not in str(popup.get('message', '')), (
-                'the reason code is for a REST or SDK caller to branch on; '
-                f'the user gets the sentence. Popup: {popup}'
-            )
 
 
 # The refusal the protocol builder raises for a z-stack enabled with no

@@ -45,7 +45,7 @@ def _one_run(tmp_path, monkeypatch):
             parent_dir=str(tmp_path / 'runs'),
             events=RunEvents(files_written=lambda run_dir, _files: files.append(run_dir)),
         )
-        assert outcome.wait(timeout_s=WAIT_S) is not None
+        assert outcome.result(timeout=WAIT_S) is not None
         deadline = time.monotonic() + WAIT_S
         while not files and time.monotonic() < deadline:
             time.sleep(0.02)

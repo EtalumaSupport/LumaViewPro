@@ -142,7 +142,7 @@ class TestTheRunnerHandsOverItsOwnDirectory:
         the claim still held -- not later, when run_ended is sent."""
         from modules.protocol_image_writer import RunWriteBatch
         from modules.run_outcome import PendingRunOutcome
-        from modules.sequenced_capture_runner import RunHandle
+        from modules.sequenced_capture_runner import EngineRun
         from tests.protocol_drives import protocol_step, scan_ready_runner
 
         run_dir = pathlib.Path('/tmp/this_runs_dir')
@@ -156,7 +156,7 @@ class TestTheRunnerHandsOverItsOwnDirectory:
         # The run start() would have committed, with its writes.
         runner._run_outcome = PendingRunOutcome()
         runner._write_batch = RunWriteBatch(runner.file_io_executor)
-        run = runner._run_handle = RunHandle(runner, runner._run_outcome, runner._write_batch)
+        run = runner._run_handle = EngineRun(runner, runner._run_outcome, runner._write_batch)
 
         runner._events = _events(fired, files=False)
 
@@ -164,7 +164,7 @@ class TestTheRunnerHandsOverItsOwnDirectory:
         # to a different contract; this drive stops at the handover. The
         # directory rides the run's run_ended, captured by value in cleanup
         # and sent once the run has let go and its outcome has settled.
-        monkeypatch.setattr(runner, '_start_hyperstack_build', lambda: None)
+        monkeypatch.setattr(runner, '_start_hyperstack_build', lambda on_end: None)
         monkeypatch.setattr('modules.sequenced_capture_runner.run_cleanup', lambda **kw: True)
         from modules.run_outcome import RunEnding
 

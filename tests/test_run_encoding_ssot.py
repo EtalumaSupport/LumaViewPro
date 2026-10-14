@@ -215,7 +215,7 @@ def _run_one_still(executor, tmp_path, config):
     handle = executor.start(plan)
     assert done.wait(timeout=COMPLETION_TIMEOUT), 'run did not complete'
     # The save runs on the file lane, after the run lets go of the scope.
-    assert handle.wait_for_files(timeout_s=FILES_WAIT_S) is not None, "the run's files never landed"
+    assert handle.files.result(timeout=FILES_WAIT_S) is not None, "the run's files never landed"
 
 
 def _saves(recorded):

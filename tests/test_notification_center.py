@@ -308,9 +308,9 @@ class TestEveryHostReadsAnOutcomeAlike:
 
         from modules.exceptions import (
             CaptureFailedError,
+            CompositeWaitExpiredError,
             LiveFolderPathRefusedError,
             RefusalCause,
-            RunAlreadyEndedError,
             SingleScanNotice,
         )
         from modules.notification_center import OutcomeKind, outcome_of
@@ -319,7 +319,12 @@ class TestEveryHostReadsAnOutcomeAlike:
         notice = outcome_of(
             SingleScanNotice(period=datetime.timedelta(0), duration=datetime.timedelta(0))
         )
-        quiet = outcome_of(RunAlreadyEndedError('The run has ended.'))
+        quiet = outcome_of(
+            CompositeWaitExpiredError(
+                'the composite did not report an outcome within 5s; the run or its merge is wedged',
+                'merge_timeout',
+            )
+        )
         typed = outcome_of(CaptureFailedError('The camera returned nothing.', 'no_frame_returned'))
         untyped = outcome_of(ValueError('bad shape (3,)'))
 
@@ -335,7 +340,7 @@ class TestEveryHostReadsAnOutcomeAlike:
             'single_scan',
             None,
         )
-        assert (quiet.kind, quiet.cause) == (OutcomeKind.QUIET, RefusalCause.REQUEST)
+        assert (quiet.kind, quiet.cause) == (OutcomeKind.QUIET, RefusalCause.STATE)
         assert quiet.for_person
         assert (typed.kind, typed.title, typed.reason, typed.for_person, typed.cause) == (
             OutcomeKind.FAULT,

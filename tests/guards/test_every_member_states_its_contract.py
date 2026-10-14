@@ -72,7 +72,6 @@ _REASON_UNNAMED_PINNED = frozenset(
         ('ProtocolsAPI.plate_transform', 'ArgumentRefusedError'),
         ('ProtocolsAPI.stage_targets', 'CatalogueNameRefusedError'),
         ('ProtocolsAPI.step_targets', 'CatalogueNameRefusedError'),
-        ('RunHandle.stop', 'ProtocolRunRefusedError'),
         ('ScopeSession.apply_focus_to_layer_steps', 'ProtocolRunRefusedError'),
         ('ScopeSession.apply_tiling', 'ProtocolRunRefusedError'),
         ('ScopeSession.apply_zstacking', 'ProtocolRunRefusedError'),
@@ -96,7 +95,7 @@ _REASON_UNNAMED_PINNED = frozenset(
 # ScopeSession.shown_channel and its listener pair, a read and an add and
 # remove that raise nothing (Eric, 2026-10-13); the count does not yet tell
 # a member that raises nothing from one that has not said.
-_WITHOUT_A_SECTION_CEILING = 169
+_WITHOUT_A_SECTION_CEILING = 163
 
 
 def _sections():

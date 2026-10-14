@@ -124,7 +124,7 @@ def test_a_save_after_the_next_turret_move_keeps_its_own_objective(tmp_path, mon
             parent_dir=str(run_parent),
             events=RunEvents(files_written=lambda *_: files_written.set()),
         )
-        result = outcome.wait(timeout_s=60.0)
+        result = outcome.result(timeout=60.0)
         assert result is not None and result.status == 'completed', result
         assert files_written.wait(MOVE_TIMEOUT_S), "the run's files were never written"
 

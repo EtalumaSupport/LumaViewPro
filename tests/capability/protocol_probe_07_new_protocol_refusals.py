@@ -41,7 +41,7 @@ try:
             p,
             sequence_name='empty',
         )
-        print('NO RAISE:', out.wait(timeout_s=60))
+        print('NO RAISE:', out.result(timeout=60))
     except Exception as e:
         print(f'RAISED {type(e).__name__}: {e} | reason={getattr(e, "reason", None)}')
 

@@ -55,14 +55,14 @@ def _make_runner_stub(scope, *, lease):
     an inert mock slot.
     """
     stub = MagicMock()
-    run = scr.RunHandle(stub, PendingRunOutcome(), scr.RunWriteBatch(MagicMock()))
+    run = scr.EngineRun(stub, PendingRunOutcome(), scr.RunWriteBatch(MagicMock()))
     stub.run_outcome = lambda: run
     stub._scope = scope
     stub._led_lease = lease
     stub._image_writer = None
     stub._is_run_live = lambda: True
     stub.LOGGER_NAME = 'TestCleanup'
-    stub._start_hyperstack_build = lambda: None
+    stub._start_hyperstack_build = lambda on_end: None
     stub._release_scan_led_lease = types.MethodType(
         scr.SequencedCaptureRunner._release_scan_led_lease, stub
     )

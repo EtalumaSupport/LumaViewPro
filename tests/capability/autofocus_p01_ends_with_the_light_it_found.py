@@ -48,7 +48,7 @@ def _autofocus(session, runner, current_ma, *, stop):
         figure(f'{leg}: Z position at stop um', motion.get_current_position('Z'))
         if check(f'{leg}: the run was live when stopped', handle.is_live):
             handle.stop()
-    outcome = handle.wait(timeout_s=RUN_TIMEOUT_S)
+    outcome = handle.result(timeout=RUN_TIMEOUT_S)
     figure(f'{leg}: outcome', None if outcome is None else (outcome.status, outcome.reason))
     check(f'{leg}: the run ended', outcome is not None)
 

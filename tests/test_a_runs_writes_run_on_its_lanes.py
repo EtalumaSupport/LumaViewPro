@@ -88,7 +88,7 @@ def _run_protocol(session, tmp_path, steps) -> None:
         events=RunEvents(files_written=lambda *_written: files_written.set()),
     )
     assert files_written.wait(COMPLETION_TIMEOUT), 'the run never finished its files'
-    outcome = run.wait(timeout_s=COMPLETION_TIMEOUT)
+    outcome = run.result(timeout=COMPLETION_TIMEOUT)
     assert outcome.status == 'completed', outcome
 
 
@@ -239,7 +239,7 @@ def test_a_camera_task_queued_as_run_is_pressed_is_refused_and_the_run_completes
     outcome = runner.start_composite(sequence_name='queued_camera_task', parent_dir=str(tmp_path))
     hold.release()
 
-    result = outcome.wait(timeout_s=RESULT_TIMEOUT_S)
+    result = outcome.result(timeout=RESULT_TIMEOUT_S)
     assert result is not None and result.status == 'completed', result
     with pytest.raises(HardwareCommandRefusedError):
         queued.result(timeout=RESULT_TIMEOUT_S)

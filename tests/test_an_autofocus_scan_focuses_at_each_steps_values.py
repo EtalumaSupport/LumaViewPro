@@ -44,7 +44,7 @@ def _sweep_targets(tmp_path, run_mode):
         )
         pending = rig.runner.start(plan)
         assert rig._done.wait(timeout=COMPLETION_TIMEOUT), 'the autofocus run did not complete'
-        pending.wait(timeout_s=COMPLETION_TIMEOUT)
+        pending.result(timeout=COMPLETION_TIMEOUT)
     finally:
         rig.close()
     return sweeps

@@ -271,9 +271,9 @@ def _saved(live: pathlib.Path, start: Callable[[], object]) -> pathlib.Path:
     """The folder of the run *start* launches, once it has completed and its files are written."""
     before = set(live.rglob('protocol_record.tsv'))
     pending = start()
-    outcome = pending.wait(timeout_s=120)
+    outcome = pending.result(timeout=120)
     assert outcome.status == 'completed', outcome
-    assert pending.wait_for_files(timeout_s=60) is not None, "the run's files never finished"
+    assert pending.files.result(timeout=60) is not None, "the run's files never finished"
     (record,) = set(live.rglob('protocol_record.tsv')) - before
     return record.parent
 

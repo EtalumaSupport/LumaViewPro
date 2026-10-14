@@ -110,7 +110,7 @@ def test_a_sweep_that_fails_in_the_run_shows_nothing(tmp_path, shown, run_mode, 
     try:
         pending = _start(rig, tmp_path, run_mode, trigger, borrowed)
         assert rig._done.wait(timeout=COMPLETION_TIMEOUT), 'the run did not complete'
-        assert pending.wait(timeout_s=COMPLETION_TIMEOUT) is not None
+        assert pending.result(timeout=COMPLETION_TIMEOUT) is not None
     finally:
         rig.close()
 
@@ -131,7 +131,7 @@ def test_a_one_position_autofocus_shows_its_sweep_failure_whoever_started_it(
     try:
         pending = _start(rig, tmp_path, SequencedCaptureRunMode.SINGLE_AUTOFOCUS, trigger, False)
         assert rig._done.wait(timeout=COMPLETION_TIMEOUT), 'the run did not complete'
-        assert pending.wait(timeout_s=COMPLETION_TIMEOUT) is not None
+        assert pending.result(timeout=COMPLETION_TIMEOUT) is not None
     finally:
         rig.close()
 
@@ -150,9 +150,9 @@ def test_a_sweep_the_stop_aborts_shows_nothing(tmp_path, shown, run_mode, trigge
         _wait_for_live_sweep(rig)
         sweep = rig.af_thread.current_future
         sweep.add_done_callback(lambda _f: sweep_ended.set())
-        rig.runner._reset(pending)
+        pending.stop()
         rig.protocol_thread.abort()
-        assert pending.wait(timeout_s=COMPLETION_TIMEOUT) is not None, 'the run never settled'
+        assert pending.result(timeout=COMPLETION_TIMEOUT) is not None, 'the run never settled'
         assert sweep_ended.wait(timeout=COMPLETION_TIMEOUT), 'the sweep never ended'
     finally:
         rig.close()

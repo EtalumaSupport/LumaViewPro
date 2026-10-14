@@ -103,6 +103,8 @@ NAMED_FORMS = {
     'Mapping': OBJECT,
     'Series': OBJECT,
     'Future': JOB,
+    # The one handle every operation the API starts returns: a Future.
+    'Operation': JOB,
 }
 # Names that wrap a type without changing its form.
 _TRANSPARENT = {'ClassVar', 'Optional', 'Union'}

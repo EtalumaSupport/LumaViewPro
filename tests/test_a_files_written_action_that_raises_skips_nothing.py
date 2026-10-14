@@ -68,7 +68,7 @@ def test_a_raising_run_ended_send_still_tells_the_files_and_ends_the_drain(tmp_p
         )
         # A run_ended that could not be sent is told all the same: the
         # wait does not run out its bound on a delivery that never comes.
-        assert outcome.wait(timeout_s=WAIT_S) is not None
+        assert outcome.result(timeout=WAIT_S) is not None
         deadline = time.monotonic() + WAIT_S
         while not files and time.monotonic() < deadline:
             time.sleep(0.02)

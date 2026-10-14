@@ -262,7 +262,7 @@ def test_a_run_arms_the_camera_at_the_ceiling_the_settings_hold(tmp_path, monkey
             events=RunEvents(run_ended=lambda *_ended: done.set()),
         )
         assert done.wait(timeout=COMPLETION_TIMEOUT), 'the run did not end'
-        settled = started.wait(timeout_s=COMPLETION_TIMEOUT)
+        settled = started.result(timeout=COMPLETION_TIMEOUT)
         assert (settled.status, settled.reason) == ('completed', 'completed')
         assert wait_until_not_running(session)
         assert armed and set(armed) == {123.0}, f'the camera was armed at {armed}'

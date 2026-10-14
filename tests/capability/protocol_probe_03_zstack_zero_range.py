@@ -19,7 +19,7 @@ try:
     banner('run_zstack with range=0 step_size=0')
     try:
         outcome = runner.run_zstack(layer='BF')
-        settled = outcome.wait(timeout_s=120)
+        settled = outcome.result(timeout=120)
         print('NO RAISE. status:', settled.status, settled.reason, '|', settled.message)
     except Exception as e:
         print(f'RAISED {type(e).__name__}: {e}')

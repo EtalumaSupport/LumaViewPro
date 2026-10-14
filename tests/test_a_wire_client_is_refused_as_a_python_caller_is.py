@@ -25,9 +25,9 @@ from fastapi.testclient import TestClient
 
 from modules.exceptions import (
     ArgumentRefusedError,
+    CompositeWaitExpiredError,
     LiveFolderPathRefusedError,
     Remedy,
-    RunAlreadyEndedError,
 )
 from modules.scope_session import ScopeSession
 from rest.app import build_app
@@ -179,18 +179,22 @@ def test_a_move_another_request_stopped_answers_409_as_a_notice(client, session)
 
 
 def test_a_quiet_outcome_answers_by_its_cause_and_says_it_is_quiet(client, session, monkeypatch):
-    def ended():
-        raise RunAlreadyEndedError('The run has already ended.')
+    def expired():
+        raise CompositeWaitExpiredError(
+            'the composite did not report an outcome within 5s; the run or its merge is wedged',
+            'merge_timeout',
+        )
 
-    monkeypatch.setattr(session.scope.illumination, 'leds_off', ended)
+    monkeypatch.setattr(session.scope.illumination, 'leds_off', expired)
 
-    # An ended run's handle never names a live run again: the request's.
-    body = _problem(client.post('/api/v1/scope/illumination/leds_off'), 422)
+    # The run or its merge may still settle with the caller changing nothing:
+    # the scope's state's.
+    body = _problem(client.post('/api/v1/scope/illumination/leds_off'), 409)
 
     assert (body['kind'], body['reason'], body['detail']) == (
         'quiet',
-        'run_already_ended',
-        'The run has already ended.',
+        'merge_timeout',
+        'the composite did not report an outcome within 5s; the run or its merge is wedged',
     )
 
 

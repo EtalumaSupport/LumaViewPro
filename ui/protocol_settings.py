@@ -19,7 +19,8 @@ from modules.protocol import Protocol, schedule_from_units
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from modules.sequenced_capture_runner import RunHandle
+    from modules.operation import Operation
+    from modules.sequenced_capture_runner import RunProgress
 from ui.step_navigation import go_to_step
 from modules.timedelta_formatter import strfdelta
 from modules import gui_logger
@@ -88,29 +89,21 @@ _PANEL_RUN_BUTTONS = {
 }
 
 
-def _running_label(run: 'RunHandle | None', trigger: str, look: _PanelRunButton) -> str | None:
-    """What a panel button says while its run is live; None when it is not.
-
-    None also when the run ended between the live read and the progress
-    reads, so the button draws what it read rather than a running label for
-    a run that has ended.
-    """
-    if run is None or not run.is_live:
+def _running_label(run: 'Operation | None', trigger: str, look: _PanelRunButton) -> str | None:
+    """What a panel button says while its run is live; None when it is not."""
+    progress = None if run is None else run.progress()
+    if progress is None or not progress.is_live:
         return None
-    if run.is_stopping:
+    if progress.is_stopping:
         return 'Stopping...'
     if trigger == 'protocol':
-        return _protocol_remaining_text(run)
+        return _protocol_remaining_text(progress)
     return look.running_text
 
 
-def _protocol_remaining_text(run: 'RunHandle') -> str | None:
-    """The Full Protocol button's running label, from the run's own count.
-
-    None once the run has ended, between the caller's live read and these;
-    the caller then draws the button idle.
-    """
-    remaining_scans, interval = run.remaining_scans, run.interval
+def _protocol_remaining_text(progress: 'RunProgress') -> str | None:
+    """The Full Protocol button's running label, from the run's own count; None without one."""
+    remaining_scans, interval = progress.remaining_scans, progress.interval
     if remaining_scans is None or interval is None:
         return None
     remaining_duration_str = strfdelta(
@@ -151,7 +144,7 @@ class ProtocolSettings(FloatLayout):
         # The handle each of this panel's run buttons' last start returned,
         # by trigger: what that button's Stop names. The engine answers
         # whether it is still the live run.
-        self._runs_started_here: dict[str, RunHandle] = {}
+        self._runs_started_here: dict[str, Operation] = {}
         # The drain display's tick: one pending at a time, however many
         # redraws ask for it.
         self._drain_tick_trigger = Clock.create_trigger(self._drain_tick, 0.5)
@@ -1073,7 +1066,7 @@ class ProtocolSettings(FloatLayout):
                 stage = label if label in ('Stopping...', look.running_text) else 'running'
             else:
                 button.state = 'normal'
-                if draining and run is not None and run.is_last_run:
+                if draining and run is not None and run.progress().is_last_run:
                     stalled = session.protocol_files_stalled
                     button.text = (
                         'File writer stalled'
@@ -1120,7 +1113,7 @@ class ProtocolSettings(FloatLayout):
         is recorded once, as what it did, after that answer.
         """
         run = self._runs_started_here.get(trigger)
-        if run is not None and run.is_live:
+        if run is not None and run.progress().is_live:
             log_stop()
             self._submit_panel_request(trigger, run.stop, stop=True)
             return
@@ -1258,7 +1251,7 @@ class ProtocolSettings(FloatLayout):
 
     def _sequenced_capture_start(
         self,
-        start_run: typing.Callable[..., 'RunHandle'],
+        start_run: typing.Callable[..., 'Operation'],
         run_trigger_source: str,
         protocol: Protocol,
         *,
@@ -1304,6 +1297,6 @@ class ProtocolSettings(FloatLayout):
             # A start() that failed during setup unwound as a failed run: its
             # run_dir is None (set_last_save_folder no-ops on None), so the
             # saved folder never names a run that did not happen.
-            set_last_save_folder(dir=started.run_dir)
+            set_last_save_folder(dir=started.progress().run_dir)
 
         return _start

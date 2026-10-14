@@ -1,17 +1,22 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""A run's waits return only after the event handlers they name have run.
+"""A run's operation is done only once the run has let go and its handlers have run.
 
-``handle.wait()`` returned at the release while the run's ``run_ended``
-was still to run, and ``handle.wait_for_files()`` returned when the last
-write landed while the lost-image report, the record's reconcile and
-``files_written`` were still to run. A caller that waits and then reads
-what its own callback did read it before the callback had done it.
+A run's wait once returned at the release while the run's ``run_ended`` was
+still to run, and its files' wait when the last write landed while the
+lost-image report, the record's reconcile and ``files_written`` were still
+to run: a caller that waited and then read what its own callback did read
+it before the callback had done it. The run's ``Operation`` settles at the
+end of its ``run_ended`` delivery, so every observer of it -- ``result()``,
+``done()``, a done-callback, ``concurrent.futures.wait`` and
+``as_completed`` -- sees the outcome only then; inside that delivery its
+``result()`` answers at once.
 
 Driven on the real engine with simulated hardware, headless (callbacks
 delivered inline on the thread that ends the run) and under a stand-in for
 the GUI's dispatcher, which delivers on its own thread.
 """
 
+import concurrent.futures as cf
 import queue
 import threading
 import time
@@ -19,7 +24,7 @@ import time
 import pytest
 
 from modules import kivy_utils
-from modules.exceptions import BlockingCallRefusedError, RunCleanupFailedError
+from modules.exceptions import RunCleanupFailedError
 from modules.protocol import Protocol
 from modules.run_events import RunEvents
 from modules.scope_session import ScopeSession
@@ -99,96 +104,151 @@ def _slow(seen, name):
     return _callback
 
 
-class TestAWaitIsNotWokenBeforeItsCallback:
-    def test_wait_returns_after_a_slow_run_ended(self, scope):
+class TestTheOperationIsNotDoneBeforeItsCallback:
+    def test_result_returns_after_a_slow_run_ended(self, scope):
         runner, runs = scope
         seen = {}
-        handle = _scan(runner, runs, RunEvents(run_ended=_slow(seen, 'run_ended')))
+        run = _scan(runner, runs, RunEvents(run_ended=_slow(seen, 'run_ended')))
 
-        outcome = handle.wait(BOUND_S)
+        outcome = run.result(BOUND_S)
 
-        assert outcome is not None and outcome.status == 'completed', outcome
-        assert 'run_ended_ended' in seen, 'wait() returned while run_ended was still running'
+        assert outcome.status == 'completed', outcome
+        assert 'run_ended_ended' in seen, 'result() returned while run_ended was still running'
 
-    def test_wait_for_files_returns_after_a_slow_files_written(self, scope):
+    def test_files_result_returns_after_a_slow_files_written(self, scope):
         runner, runs = scope
         seen = {}
-        handle = _scan(runner, runs, RunEvents(files_written=_slow(seen, 'files_written')))
+        run = _scan(runner, runs, RunEvents(files_written=_slow(seen, 'files_written')))
 
-        files = handle.wait_for_files(BOUND_S)
+        files = run.files.result(BOUND_S)
 
-        assert files is not None and files.outcome == 'written', files
+        assert files.outcome == 'written', files
         assert 'files_written_ended' in seen, (
-            'wait_for_files() returned while files_written was still running'
+            "the run's files were done while files_written was still running"
         )
 
-    def test_deferred_wait_for_files_returns_after_run_ended(self, scope, deferred):
+    def test_deferred_files_are_done_after_run_ended(self, scope, deferred):
         # Under a deferring dispatcher a run with no files_written has its
         # files told at once, while run_ended still waits its turn.
         runner, runs = scope
         seen = {}
-        handle = _scan(runner, runs, RunEvents(run_ended=_slow(seen, 'run_ended')))
+        run = _scan(runner, runs, RunEvents(run_ended=_slow(seen, 'run_ended')))
 
-        files = handle.wait_for_files(BOUND_S)
+        run.files.result(BOUND_S)
 
-        assert files is not None, 'wait_for_files() timed out'
         assert seen.get('run_ended_thread') is deferred.thread
         assert 'run_ended_ended' in seen, (
-            'wait_for_files() returned while run_ended was still running'
+            "the run's files were done while run_ended was still running"
         )
 
 
-def _waits_on_its_own_run(answers, handle_box):
+class TestEveryObserverSeesTheOutcomeOnceTheRunLetGo:
+    def test_a_done_callback_finds_the_scope_free_and_run_ended_run(self, scope):
+        runner, runs = scope
+        seen = {}
+        probed = queue.Queue()
+        run = _scan(runner, runs, RunEvents(run_ended=_slow(seen, 'run_ended')))
+
+        run.add_done_callback(
+            lambda op: probed.put(
+                (
+                    op.result(0).status,
+                    runner.sequenced_capture_runner.run_in_progress(),
+                    'run_ended_ended' in seen,
+                )
+            )
+        )
+
+        assert probed.get(timeout=BOUND_S) == ('completed', False, True)
+
+    @pytest.mark.parametrize('observe', ['cf.wait', 'as_completed'])
+    def test_the_standard_waits_see_it_after_run_ended(self, scope, observe):
+        runner, runs = scope
+        seen = {}
+        run = _scan(runner, runs, RunEvents(run_ended=_slow(seen, 'run_ended')))
+
+        if observe == 'cf.wait':
+            done, _ = cf.wait([run], timeout=BOUND_S)
+            assert done == {run}
+        else:
+            assert next(cf.as_completed([run], timeout=BOUND_S)) is run
+
+        assert 'run_ended_ended' in seen, f'{observe} returned while run_ended was still running'
+        assert not runner.sequenced_capture_runner.run_in_progress()
+
+    def test_a_done_callback_that_waits_does_not_hold_the_next_run(self, scope):
+        """A callback runs on the callback thread, never the run's own, so a
+        callback that blocks leaves the run's teardown and the next run free."""
+        runner, runs = scope
+        released = threading.Event()
+        entered = threading.Event()
+
+        def _blocks(_op):
+            entered.set()
+            released.wait(BOUND_S)
+
+        first = _scan(runner, runs, RunEvents(), save=False)
+        first.add_done_callback(_blocks)
+        try:
+            assert entered.wait(BOUND_S), 'the done-callback never ran'
+            second = _scan(runner, runs, RunEvents(), save=False, sequence_name='second')
+            assert second.progress().is_live or second.done()
+        finally:
+            released.set()
+        assert second.result(BOUND_S).status == 'completed'
+
+
+def _waits_on_its_own_run(answers, run_box):
     def _callback(*_args):
-        handle = handle_box['handle']
+        run = run_box['run']
         started = time.monotonic()
-        answers['wait'] = handle.wait(BOUND_S)
-        answers['wait_for_files'] = handle.wait_for_files(BOUND_S)
+        answers['done'] = run.done()
+        answers['result'] = run.result(BOUND_S)
         answers['took_s'] = time.monotonic() - started
 
     return _callback
 
 
-def _handle_box_ready(handle_box, handle):
-    handle_box['handle'] = handle
-    handle_box['ready'].set()
+def _run_box_ready(run_box, run):
+    run_box['run'] = run
+    run_box['ready'].set()
 
 
-class TestACallbackThatWaitsOnItsOwnRun:
+class TestInsideItsOwnRunEnded:
     @pytest.mark.parametrize('dispatch', ['inline', 'deferred'])
-    def test_returns(self, scope, dispatch, request):
+    def test_result_answers_at_once(self, scope, dispatch, request):
         if dispatch == 'deferred':
             request.getfixturevalue('deferred')
         runner, runs = scope
         answers = {}
-        handle_box = {'ready': threading.Event()}
-        callback = _waits_on_its_own_run(answers, handle_box)
+        run_box = {'ready': threading.Event()}
+        callback = _waits_on_its_own_run(answers, run_box)
 
         def _run_ended(*args):
             # The handler may be delivered before start() has returned the
-            # handle to this test; it waits for it like any caller would.
-            assert handle_box['ready'].wait(BOUND_S)
+            # operation to this test; it waits for it like any caller would.
+            assert run_box['ready'].wait(BOUND_S)
             callback(*args)
 
-        _handle_box_ready(handle_box, _scan(runner, runs, RunEvents(run_ended=_run_ended)))
+        _run_box_ready(run_box, _scan(runner, runs, RunEvents(run_ended=_run_ended)))
 
-        assert handle_box['handle'].wait(BOUND_S) is not None
-        assert answers['wait'] is not None and answers['wait'].status == 'completed', answers
-        assert answers['wait_for_files'] is not None, answers
+        assert run_box['run'].result(BOUND_S).status == 'completed'
+        assert answers['done'] is True, answers
+        assert answers['result'].status == 'completed', answers
         assert answers['took_s'] < BOUND_S / 2, answers
 
-    def test_returns_with_a_failed_start_delivered_inside_it(self, scope, monkeypatch):
+    def test_result_answers_with_a_failed_start_delivered_inside_it(self, scope, monkeypatch):
         # A's run_ended starts B, which fails after it commits (its
         # protocol copy cannot be written): B's cleanup runs inline, and its
         # run_ended is delivered inside A's on A's thread. B's delivery
-        # ending must not make A's wait wait on A's own delivery. A saves
-        # nothing, so B is not refused for A's files first.
+        # ending must not end A's. A saves nothing, so B is not refused for
+        # A's files first.
         runner, runs = scope
         answers = {}
-        handle_box = {'ready': threading.Event()}
+        run_box = {'ready': threading.Event()}
         nested = {}
 
-        def _copy_refused(self, **kwargs):
+        def _copy_refused(*_args, **_kwargs):
             raise OSError('No space left on device')
 
         def _b_run_ended(*args):
@@ -196,32 +256,30 @@ class TestACallbackThatWaitsOnItsOwnRun:
             nested['inside_a'] = 'a_thread' in nested and 'a_left' not in nested
 
         def _a_run_ended(*args):
-            assert handle_box['ready'].wait(BOUND_S)
+            assert run_box['ready'].wait(BOUND_S)
             nested['a_thread'] = threading.current_thread()
-            monkeypatch.setattr(Protocol, 'to_file', _copy_refused)
-            try:
-                _scan(runner, runs, RunEvents(run_ended=_b_run_ended), sequence_name='b')
-            except Exception as ex:
-                nested['b_start'] = ex
-            _waits_on_its_own_run(answers, handle_box)(*args)
+            with monkeypatch.context() as patched:
+                patched.setattr(Protocol, 'to_file', _copy_refused)
+                try:
+                    _scan(runner, runs, RunEvents(run_ended=_b_run_ended), sequence_name='b')
+                except Exception as ex:
+                    nested['b_start'] = ex
+            _waits_on_its_own_run(answers, run_box)(*args)
             nested['a_left'] = True
 
-        _handle_box_ready(
-            handle_box, _scan(runner, runs, RunEvents(run_ended=_a_run_ended), save=False)
-        )
+        _run_box_ready(run_box, _scan(runner, runs, RunEvents(run_ended=_a_run_ended), save=False))
 
-        assert handle_box['handle'].wait(BOUND_S) is not None
+        assert run_box['run'].result(BOUND_S) is not None
         assert nested.get('inside_a') and nested['thread'] is nested['a_thread'], (
             "the failed start's run_ended was not delivered inside A's: "
             f'the shape under test is absent ({nested})'
         )
-        assert answers['wait'] is not None, answers
-        assert answers['wait_for_files'] is not None, answers
+        assert answers['result'] is not None, answers
         assert answers['took_s'] < BOUND_S / 2, answers
 
 
 class TestARaisingRunEnded:
-    def test_still_releases_wait_and_is_reported_once_as_itself(self, scope, monkeypatch):
+    def test_still_settles_and_is_reported_once_as_itself(self, scope, monkeypatch):
         from modules.notification_center import notifications
 
         runner, runs = scope
@@ -239,23 +297,44 @@ class TestARaisingRunEnded:
         def _raising(*_args):
             raise failure
 
-        handle = _scan(runner, runs, RunEvents(run_ended=_raising))
+        run = _scan(runner, runs, RunEvents(run_ended=_raising))
 
-        assert handle.wait(BOUND_S) is not None, 'a raising run_ended held wait() past its bound'
+        assert run.result(BOUND_S).status == 'completed'
         assert reported.count(failure) == 1, reported
         assert not [ex for ex in reported if isinstance(ex, RunCleanupFailedError)], reported
 
 
 class TestAWaitOnTheUiThread:
-    def test_outside_any_delivery_is_refused(self, scope, deferred):
+    def test_an_ended_run_answers(self, scope, deferred):
+        """A wait refused on the UI thread is one for an operation not yet
+        done (tests/test_operation.py); one done answers there."""
         runner, runs = scope
-        handle = _scan(runner, runs, RunEvents())
-        assert handle.wait_for_files(BOUND_S) is not None
+        run = _scan(runner, runs, RunEvents())
+        run.files.result(BOUND_S)
 
-        for wait in (handle.wait, handle.wait_for_files):
+        for wait in (run.result, run.files.result):
             how, answer = deferred.call(lambda wait=wait: wait(BOUND_S))
-            assert how == 'raised' and isinstance(answer, BlockingCallRefusedError), (how, answer)
-            assert answer.reason == 'wait_on_ui_thread'
+            assert how == 'returned' and answer is not None, (how, answer)
+
+
+class TestTheFilesSettleWhenCleanupRaised:
+    def test_a_cleanup_that_raised_before_the_build_still_settles_the_files(
+        self, scope, monkeypatch
+    ):
+        import modules.sequenced_capture_runner as scr
+
+        runner, runs = scope
+
+        def _raises(**_kwargs):
+            raise RuntimeError('cleanup raised')
+
+        # A stand-in by design: a cleanup step that raises, which the
+        # simulator cannot make fail on its own.
+        monkeypatch.setattr(scr, 'run_cleanup', _raises)
+        run = _scan(runner, runs, RunEvents())
+
+        assert run.result(BOUND_S) is not None
+        assert run.files.result(BOUND_S) is not None, "the run's files never settled"
 
 
 def test_the_stand_in_dispatcher_delivers_on_its_own_thread(deferred):

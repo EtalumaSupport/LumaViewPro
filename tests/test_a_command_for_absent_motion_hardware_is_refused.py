@@ -280,8 +280,8 @@ def test_a_present_axis_that_lost_its_reference_keeps_its_number(make_session):
 
 def _wait(run):
     """The run's outcome, once its files are done, so the next run is admitted."""
-    outcome = run.wait(timeout_s=_RUN_WAIT_S)
-    run.wait_for_files(timeout_s=_RUN_WAIT_S)
+    outcome = run.result(timeout=_RUN_WAIT_S)
+    run.files.result(timeout=_RUN_WAIT_S)
     return outcome.status, outcome.reason
 
 

@@ -159,7 +159,7 @@ try:
     # ---------------- Part B: actually run it ----------------
     banner('B. run_zstack for real, assert slices on disk')
     outcome = runner.run_zstack(layer='BF', sequence_name='probe_zstack')
-    settled = outcome.wait(timeout_s=300)
+    settled = outcome.result(timeout=300)
     print('status :', settled.status, settled.reason)
     run_dir = outcome.run_dir
     print('run_dir:', run_dir)

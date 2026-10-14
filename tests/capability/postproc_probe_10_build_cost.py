@@ -127,8 +127,8 @@ def _zstack(args):
     with headless_session(live, acquiring=('BF',), zstack=zstack) as (session, runner):
         _over_a_well(session)
         pending = runner.run_zstack(layer='BF', sequence_name='probe_build_cost_zstack')
-        pending.wait(timeout_s=600)
-        check("the Z-stack's files were written", pending.wait_for_files(timeout_s=120) is not None)
+        pending.result(timeout=600)
+        check("the Z-stack's files were written", pending.files.result(timeout=120) is not None)
         records = sorted(live.rglob('protocol_record.tsv'))
         check('the Z-stack made a folder', bool(records))
         if not records:

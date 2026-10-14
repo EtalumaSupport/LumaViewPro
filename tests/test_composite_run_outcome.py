@@ -22,6 +22,7 @@ import pytest
 from modules.exceptions import CaptureError
 from modules.notification_center import OutcomeKind, outcome_of
 from modules.protocol_state_machine import SequencedCaptureRunMode
+from modules.operation import Operation
 from modules.run_outcome import PendingRunOutcome, RunEnding
 from tests.test_composite_run_config import _settings
 
@@ -111,7 +112,12 @@ class TestCompositeOutcomeIsObservable:
             settled.resolve(
                 token, merged=merged, artifact_path=artifact_path, merge_reason=merge_reason
             )
-        runner._executor.start.return_value = settled
+        # The run's operation, done with the settled outcome when the run
+        # has ended.
+        run = Operation()
+        if settle:
+            run.set_result(settled.wait(timeout_s=0))
+        runner._executor.start.return_value = run
         return runner
 
     def test_run_composite_returns_the_merged_artifact_path(self):

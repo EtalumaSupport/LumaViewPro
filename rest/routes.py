@@ -52,6 +52,13 @@ class Handle(pydantic.BaseModel):
     type: str
 
 
+class RunJob(pydantic.BaseModel):
+    """The run a run event is of: the id of the job its call handed out."""
+
+    model_config = ANSWER_CONFIG
+    job: str
+
+
 class PathAnswer(pydantic.BaseModel):
     """A path: its name in the live folder, None when it is outside it, and its path on the host."""
 

@@ -21,7 +21,7 @@ def body(s):
     z_before = m.get_current_position('Z')
 
     pending = runner.run_autofocus(layer='BF')
-    outcome = pending.wait(timeout_s=300)
+    outcome = pending.result(timeout=300)
     z_after = m.get_current_position('Z')
     print('outcome:', outcome.status, '|', outcome.reason, '|', outcome.message, flush=True)
     check(
@@ -53,7 +53,7 @@ def body(s):
 
     # second run works (no lock left behind)
     p2 = runner.run_autofocus(layer='BF')
-    o2 = p2.wait(timeout_s=300)
+    o2 = p2.result(timeout=300)
     check(
         'a second run_autofocus is accepted',
         str(o2.status).lower().find('fail') < 0,

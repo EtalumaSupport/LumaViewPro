@@ -1290,7 +1290,6 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
         'turret_objectives_unassigned': RefusalCause.STATE,
         'objective_not_mounted': RefusalCause.STATE,
         'objective_unknown': RefusalCause.STATE,
-        'run_not_live': RefusalCause.REQUEST,
         'sequence_name_invalid': RefusalCause.REQUEST,
         'empty_protocol': RefusalCause.REQUEST,
         'validation_failed': RefusalCause.REQUEST,
@@ -1336,7 +1335,6 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
         'turret_objectives_unassigned': 'Turret Configuration Required',
         'objective_not_mounted': 'Objective Not Mounted',
         'objective_unknown': 'Step Not Saved',
-        'run_not_live': 'Run Already Ended',
         'sequence_name_invalid': 'Run Name Not Valid',
         'empty_protocol': 'No Steps',
         'validation_failed': 'Validation failed',
@@ -1409,25 +1407,6 @@ class RunCheckFailedError(Fault, ProtocolError):
         self.reason = reason
         self.title = self._TITLES[reason]
         self.message = message
-
-
-class RunAlreadyEndedError(Quiet, ProtocolError):
-    """A stop named a run that has ended, and no run is live.
-
-    Not a refusal: nothing was refused -- the run ended on its own, and a
-    Stop that arrives after that has nothing to act on. Raised so a script
-    learns its handle is stale; logged, never notified, because the person
-    at the instrument pressed Stop on a run that has already stopped.
-
-    Attributes:
-        reason: ``'run_already_ended'``.
-    """
-
-    # An ended run's handle never names a live run again, so the same stop
-    # can never act: the request's, not the scope's.
-    cause = RefusalCause.REQUEST
-    reason = 'run_already_ended'
-    title = 'Run Already Ended'
 
 
 class RunStartError(Fault, ProtocolError):

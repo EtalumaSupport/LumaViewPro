@@ -28,9 +28,9 @@ def _run(session, runner, protocol, parent, name):
     pending = runner.run_single_scan(
         protocol=protocol, sequence_name=name, parent_dir=str(parent), enable_image_saving=True
     )
-    outcome = pending.wait(timeout_s=3600)
+    outcome = pending.result(timeout=3600)
     ended = time.monotonic()
-    pending.wait_for_files(timeout_s=300)
+    pending.files.result(timeout=300)
     files_done = time.monotonic()
     records = sorted(parent.rglob('protocol_record.tsv'))
     return outcome, started, ended, files_done, (records[0] if records else None)

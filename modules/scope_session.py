@@ -139,7 +139,7 @@ if TYPE_CHECKING:
     from modules.objectives_loader import ObjectiveLoader
     from modules.protocol import Protocol, ProtocolSizeAdvisory
     from modules.lumascope_api.protocols import StepTargets
-    from modules.sequenced_capture_runner import RunHandle
+    from modules.operation import Operation
     from modules.protocol_runner import ProtocolRunner
     from modules.sequential_io_executor import SequentialIOExecutor
     from modules.plugins import PluginHealth
@@ -679,9 +679,10 @@ class ScopeSession:
         """
         return self.sequenced_capture_runner.run_in_progress()
 
-    @api(reads=True)
-    def held_by_other(self, run: 'RunHandle | None') -> bool:
-        """Whether the scope is held by anything but *run*, a run start() returned.
+    # In-process until a run's operation has an inbound form on the wire.
+    @api(reads=True, in_process=True)
+    def held_by_other(self, run: 'Operation | None') -> bool:
+        """Whether the scope is held by anything but *run*, the operation a run member returned.
 
         What a run control greys on while leaving its own run's Stop live;
         None asks whether anything holds the scope at all.

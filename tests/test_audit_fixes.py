@@ -38,7 +38,7 @@ from modules.exceptions import (
 
 from modules.notification_center import Severity
 from modules.run_outcome import EndingLatch, PendingRunOutcome, RunEnding
-from modules.sequenced_capture_runner import RunHandle
+from modules.sequenced_capture_runner import EngineRun
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 from tests.protocol_drives import run_identity
 
@@ -8177,16 +8177,16 @@ class TestSCEResetSignalsAbort:
         runner._set_state(ProtocolState.RUNNING)
         # A live run always has a trigger and a handle: start() writes both
         # before it publishes liveness, under one lock. Leaving IDLE alone
-        # builds a run nobody started, which reset() is right to refuse.
+        # builds a run nobody started, which a stop is right to leave alone.
         runner._run_identity = run_identity()
         runner._run_outcome = PendingRunOutcome()
-        run = runner._run_handle = RunHandle(
+        run = runner._run_handle = EngineRun(
             runner, runner._run_outcome, RunWriteBatch(MagicMock())
         )
         # _cleanup() has side effects we don't want to actually run; patch it.
         runner._cleanup = MagicMock()
 
-        runner._reset(run)
+        run.operation.stop()
 
         runner.protocol_thread.abort.assert_called_once()
 
@@ -8202,16 +8202,16 @@ class TestSCEResetSignalsAbort:
         runner._set_state(ProtocolState.RUNNING)
         # A live run always has a trigger and a handle: start() writes both
         # before it publishes liveness, under one lock. Leaving IDLE alone
-        # builds a run nobody started, which reset() is right to refuse.
+        # builds a run nobody started, which a stop is right to leave alone.
         runner._run_identity = run_identity()
         runner._run_outcome = PendingRunOutcome()
-        run = runner._run_handle = RunHandle(
+        run = runner._run_handle = EngineRun(
             runner, runner._run_outcome, RunWriteBatch(MagicMock())
         )
         runner.protocol_thread.is_running = True
         runner._cleanup = MagicMock()
 
-        runner._reset(run)
+        run.operation.stop()
 
         runner.protocol_thread.abort.assert_called_once()
         runner._cleanup.assert_not_called()
@@ -8227,16 +8227,16 @@ class TestSCEResetSignalsAbort:
         runner._set_state(ProtocolState.RUNNING)
         # A live run always has a trigger and a handle: start() writes both
         # before it publishes liveness, under one lock. Leaving IDLE alone
-        # builds a run nobody started, which reset() is right to refuse.
+        # builds a run nobody started, which a stop is right to leave alone.
         runner._run_identity = run_identity()
         runner._run_outcome = PendingRunOutcome()
-        run = runner._run_handle = RunHandle(
+        run = runner._run_handle = EngineRun(
             runner, runner._run_outcome, RunWriteBatch(MagicMock())
         )
         runner.protocol_thread.is_running = False
         runner._cleanup = MagicMock()
 
-        runner._reset(run)
+        run.operation.stop()
 
         runner.protocol_thread.abort.assert_called_once()
         runner._cleanup.assert_not_called()
@@ -8253,7 +8253,7 @@ class TestSCEResetSignalsAbort:
         runner._set_state(ProtocolState.RUNNING)
         # A live run always has an owner: start() writes the trigger before
         # it publishes liveness, under one lock. Leaving IDLE alone builds
-        # a run nobody started, which reset() is right to refuse.
+        # a run nobody started, which a stop is right to leave alone.
         runner._run_identity = run_identity()
         assert runner.wait_for_run_idle(timeout_s=0.2) is False
 
@@ -8266,21 +8266,19 @@ class TestSCEResetSignalsAbort:
         runner._set_state(ProtocolState.RUNNING)
         # A live run always has an owner: start() writes the trigger before
         # it publishes liveness, under one lock. Leaving IDLE alone builds
-        # a run nobody started, which reset() is right to refuse.
+        # a run nobody started, which a stop is right to leave alone.
         runner._run_identity = run_identity()
         threading.Timer(0.1, lambda: runner._set_state(ProtocolState.IDLE)).start()
         assert runner.wait_for_run_idle(timeout_s=2.0) is True
 
-    def test_reset_noop_when_no_run_in_progress(self):
-        from modules.exceptions import RunAlreadyEndedError
-
+    def test_stop_noop_when_no_run_in_progress(self):
         runner = self._make_runner()
-        # Run not in progress -- reset() says the run has already ended and
-        # touches nothing.
+        # Run not in progress -- a stop of a run that has ended touches
+        # nothing.
         runner._cleanup = MagicMock()
+        ended = EngineRun(runner, PendingRunOutcome(), RunWriteBatch(MagicMock()))
 
-        with pytest.raises(RunAlreadyEndedError):
-            runner._reset(None)
+        ended.operation.stop()
 
         runner.protocol_thread.abort.assert_not_called()
         runner._cleanup.assert_not_called()

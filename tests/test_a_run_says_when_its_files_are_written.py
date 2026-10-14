@@ -1,12 +1,12 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""A run's handle says when its files are done, and what became of its images.
+"""A run's operation says when its files are done, and what became of its images.
 
-``wait()`` returns once the run no longer holds the scope, but its files
-can still be writing, and a next run is refused 'files_writing' until
+The run's operation is done once the run no longer holds the scope, but its
+files can still be writing, and a next run is refused 'files_writing' until
 they land. Nothing let a caller wait for that: it polled the Session's
-drain, which answers for whichever run ran last. ``wait_for_files`` waits
-for THIS run's images, its hyperstack build when it has one, and the run's
-end, and returns what became of the images.
+drain, which answers for whichever run ran last. ``files`` is done for THIS
+run's images, its hyperstack build when it has one, and the run's end, and
+its result is what became of the images.
 """
 
 import threading
@@ -52,16 +52,16 @@ def test_the_files_wait_returns_once_the_images_land_and_the_next_run_is_admitte
 ):
     with open_composite_session(headless_settings(tmp_path)) as (session, runner):
         first = _scan(runner, tmp_path / 'runs', 'C1')
-        assert first.wait(timeout_s=WAIT_S) is not None
+        assert first.result(timeout=WAIT_S) is not None
         # The positive control: the Session's drain poll sees the held write.
         assert session.protocol_files_draining, 'the held save did not hold the drain'
 
-        assert first.wait_for_files(timeout_s=SHORT_S) is None, (
-            'the files wait returned while an image was still unwritten'
+        assert not first.files.done(), (
+            "the run's files were done while an image was still unwritten"
         )
 
         held_saves.set()
-        files = first.wait_for_files(timeout_s=WAIT_S)
+        files = first.files.result(timeout=WAIT_S)
         assert files is not None
         assert files.outcome == 'written'
         assert files.written >= 1
@@ -69,7 +69,7 @@ def test_the_files_wait_returns_once_the_images_land_and_the_next_run_is_admitte
         assert files.not_written_reason is None
 
         second = _scan(runner, tmp_path / 'runs', 'C2')
-        assert second.wait(timeout_s=WAIT_S) is not None
+        assert second.result(timeout=WAIT_S) is not None
 
 
 def test_an_image_that_failed_to_save_is_counted(tmp_path, monkeypatch):
@@ -79,7 +79,7 @@ def test_an_image_that_failed_to_save_is_counted(tmp_path, monkeypatch):
     monkeypatch.setattr(protocol_image_writer, 'save_image', _fail)
     with open_composite_session(headless_settings(tmp_path)) as (_session, runner):
         run = _scan(runner, tmp_path / 'runs', 'C1')
-        files = run.wait_for_files(timeout_s=WAIT_S)
+        files = run.files.result(timeout=WAIT_S)
 
     assert files is not None
     assert files.outcome == 'incomplete'
@@ -106,17 +106,15 @@ def test_a_hyperstack_run_waits_for_its_build(tmp_path, monkeypatch):
                 'C1',
                 sequenced_format=image_mode.OUTPUT_FORMAT_HYPERSTACK,
             )
-            assert run.wait(timeout_s=WAIT_S) is not None
+            assert run.result(timeout=WAIT_S) is not None
             assert session.sequenced_capture_runner.write_batch().wait_complete(WAIT_S)
             # The positive control: the images are down and the build is held.
             assert not built.is_set()
 
-            assert run.wait_for_files(timeout_s=SHORT_S) is None, (
-                'the files wait returned before the hyperstack build finished'
-            )
+            assert not run.files.done(), "the run's files were done before its build finished"
 
             release.set()
-            files = run.wait_for_files(timeout_s=WAIT_S)
+            files = run.files.result(timeout=WAIT_S)
             assert files is not None
             assert built.is_set()
     finally:

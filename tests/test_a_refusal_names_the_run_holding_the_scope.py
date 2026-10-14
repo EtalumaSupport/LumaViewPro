@@ -103,22 +103,6 @@ class TestTheRefusalNamesTheHolder:
         )
         assert refusal.value.holder_trigger == 'zstack'
 
-    def test_a_refused_stop_still_names_the_owner(self, executor):
-        """The sentence this shares: a stop naming a run that has ended,
-        refused while a z-stack is live, names the z-stack."""
-        _a_zstack_holds_the_scope(executor)
-        an_ended_scan = PendingRunOutcome()
-        try:
-            with pytest.raises(ProtocolRunRefusedError) as refusal:
-                executor._reset(an_ended_scan)
-        finally:
-            executor._set_state(ProtocolState.IDLE)
-
-        assert refusal.value.reason == 'run_not_live'
-        assert refusal.value.holder_trigger == 'zstack'
-        assert 'The Z-stack run is using the microscope now' in refusal.value.message
-        assert 'zstack' not in refusal.value.message
-
 
 class TestARawTokenNeverReachesAPerson:
     def test_an_api_run_is_named_by_its_kind(self, executor, tmp_path):

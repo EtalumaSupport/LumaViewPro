@@ -12,7 +12,7 @@ from modules.config_ui_getters import is_image_saving_enabled
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from modules.sequenced_capture_runner import RunHandle
+    from modules.operation import Operation
 from modules.run_events import RunEvents
 from ui.ui_helpers import (
     set_last_save_folder,
@@ -30,7 +30,7 @@ logger = logging.getLogger('LVP.ui.zstack')
 class ZStack(FloatLayout):
     # The handle this button's last start returned: what its Stop names.
     # The engine answers whether it is still the live run.
-    _zstack_run: 'RunHandle | None' = None
+    _zstack_run: 'Operation | None' = None
     # True while this button's own request is on its way to the engine; the
     # button is disabled until that request's redraw.
     zstack_pending = BooleanProperty(False)
@@ -124,7 +124,7 @@ class ZStack(FloatLayout):
         # second press cannot race the first one to the pool.
         self.zstack_pending = True
 
-        if run is not None and run.is_live:
+        if run is not None and run.progress().is_live:
             submit_reported(
                 run.stop,
                 self._zstack_request_done,
@@ -156,7 +156,7 @@ class ZStack(FloatLayout):
             # A refusal raises out of run_zstack before this line, so the
             # save folder can only ever point at THIS run's directory,
             # never a previous run's stale data.
-            set_last_save_folder(dir=started.run_dir)
+            set_last_save_folder(dir=started.progress().run_dir)
 
         submit_reported(_start, self._zstack_request_done, 'ZSTACK')
 
@@ -192,18 +192,14 @@ class ZStack(FloatLayout):
         )
 
 
-def _running_label(run: 'RunHandle | None') -> str | None:
-    """What the button says while its run is live; None when it is not.
-
-    None also when the run ended between the live read and the progress
-    reads -- its progress is None then -- so the button draws what it read
-    rather than a running label for a run that has ended.
-    """
-    if run is None or not run.is_live:
+def _running_label(run: 'Operation | None') -> str | None:
+    """What the button says while its run is live; None when it is not, or has no step yet."""
+    progress = None if run is None else run.progress()
+    if progress is None or not progress.is_live:
         return None
-    if run.is_stopping:
+    if progress.is_stopping:
         return 'Stopping...'
-    step, total = run.step_number, run.num_steps
+    step, total = progress.step_number, progress.num_steps
     if step is None or total is None:
         return None
     return f'Z {step}/{total}'

@@ -22,9 +22,9 @@ def test_a_run_saves_the_mode_the_session_was_set_to(tmp_path):
             protocol=_protocol([_step('C1', 0, x=20.0, gain=1.0)]),
             parent_dir=str(tmp_path / 'runs'),
         )
-        outcome = run.wait(timeout_s=WAIT_S)
+        outcome = run.result(timeout=WAIT_S)
         assert outcome is not None and outcome.status == 'completed', outcome
-        assert run.wait_for_files(timeout_s=WAIT_S) is not None, "the run's files never landed"
+        assert run.files.result(timeout=WAIT_S) is not None, "the run's files never landed"
 
     saved = sorted((tmp_path / 'runs').rglob('*.tif*'))
     assert saved, 'the run saved no image'

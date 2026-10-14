@@ -183,8 +183,9 @@ def test_every_event_of_a_run_names_the_run_its_call_handed_out(client, session,
 
     run_events = [e for e in events if e['event'] in {'scan_started', 'step_started', 'run_ended'}]
     assert run_events[0]['event'] == 'scan_started'
-    assert {json.dumps(e['data']['run']) for e in run_events} == {json.dumps(run)}
-    assert run['type'] == 'RunHandle'
+    # The call answers the run's job; every one of its events names that job.
+    assert run['member'].endswith('/run_single_scan'), run
+    assert {json.dumps(e['data']['run']) for e in run_events} == {json.dumps({'job': run['id']})}
     # The run's own copy of its protocol is no client's: it is left out.
     assert 'protocol' not in run_events[-1]['data']
     # A path crosses as its name in the live folder.

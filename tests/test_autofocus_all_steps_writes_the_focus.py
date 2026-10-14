@@ -28,7 +28,7 @@ from modules.exceptions import FocusNotWrittenError, Refusal
 from modules.run_outcome import PendingRunOutcome, RunEnding
 from modules.protocol_image_writer import RunWriteBatch
 from modules.run_events import RunEvents
-from modules.sequenced_capture_runner import RunHandle
+from modules.sequenced_capture_runner import EngineRun
 
 from tests.test_a_late_write_records_its_frame import _protocol, _step
 from tests.test_composite_run_e2e import headless_settings, open_composite_session
@@ -78,7 +78,7 @@ class TestTheScanWritesTheFocusIntoTheCallersProtocol:
     def test_every_step_takes_the_focus_found_for_it(self, tmp_path):
         protocol = _two_steps()
         with _focusing_session(tmp_path) as (_session, runner):
-            outcome = runner.run_autofocus_all_steps(protocol).wait(timeout_s=WAIT_S)
+            outcome = runner.run_autofocus_all_steps(protocol).result(timeout=WAIT_S)
 
         assert outcome.status == 'completed', outcome
         assert outcome.focus_written is True, outcome
@@ -93,7 +93,7 @@ class TestTheScanWritesTheFocusIntoTheCallersProtocol:
         protocol = _two_steps()
         before = protocol.steps().drop(columns=['Z']).copy()
         with _focusing_session(tmp_path) as (_session, runner):
-            runner.run_autofocus_all_steps(protocol).wait(timeout_s=WAIT_S)
+            runner.run_autofocus_all_steps(protocol).result(timeout=WAIT_S)
 
         assert protocol.steps().drop(columns=['Z']).equals(before), (
             "the scan turned every step's autofocus on in its own copy, not the caller's"
@@ -110,7 +110,7 @@ class TestTheScanWritesTheFocusIntoTheCallersProtocol:
                         protocol.steps()['Z'].tolist()
                     )
                 ),
-            ).wait(timeout_s=WAIT_S)
+            ).result(timeout=WAIT_S)
 
         assert seen_at_run_ended == [protocol.steps()['Z'].tolist()]
         assert STEP_Z_UM not in seen_at_run_ended[0], (
@@ -121,7 +121,7 @@ class TestTheScanWritesTheFocusIntoTheCallersProtocol:
         # A run that focuses at several steps has no one focus to report;
         # the per-step answer is the protocol's Z column.
         with _focusing_session(tmp_path) as (_session, runner):
-            outcome = runner.run_autofocus_all_steps(_two_steps()).wait(timeout_s=WAIT_S)
+            outcome = runner.run_autofocus_all_steps(_two_steps()).result(timeout=WAIT_S)
 
         assert outcome.af_focus_z_um is None, outcome
 
@@ -142,7 +142,7 @@ class TestAProtocolThatChangedDuringTheScanIsLeftAlone:
         ):
             outcome = runner.run_autofocus_all_steps(
                 protocol, events=RunEvents(step_started=_move_a_step)
-            ).wait(timeout_s=WAIT_S)
+            ).result(timeout=WAIT_S)
 
         assert outcome.status == 'completed', outcome
         assert outcome.focus_written is False, outcome
@@ -161,7 +161,7 @@ class TestAProtocolThatChangedDuringTheScanIsLeftAlone:
             have_handle = threading.Event()
 
             def _stop_once_held():
-                assert have_handle.wait(WAIT_S), 'the start never returned its handle'
+                assert have_handle.wait(WAIT_S), 'the start never returned its operation'
                 started[0].stop()
 
             def _stop(step_idx):
@@ -171,7 +171,7 @@ class TestAProtocolThatChangedDuringTheScanIsLeftAlone:
             run = runner.run_autofocus_all_steps(protocol, events=RunEvents(step_started=_stop))
             started.append(run)
             have_handle.set()
-            outcome = run.wait(timeout_s=WAIT_S)
+            outcome = run.result(timeout=WAIT_S)
 
         assert outcome.status == 'aborted', outcome
         assert outcome.focus_written is False, outcome
@@ -202,7 +202,7 @@ class TestOnlyACompletedScanWritesItsFocus:
 
         engine._write_focus(
             RunEnding('completed', 'completed', 'm'),
-            RunHandle(engine, pending, RunWriteBatch(MagicMock())),
+            EngineRun(engine, pending, RunWriteBatch(MagicMock())),
         )
 
         assert protocol.steps()['Z'].tolist() == [5111.0, 5222.0]
@@ -226,7 +226,7 @@ class TestOnlyACompletedScanWritesItsFocus:
 class TestARunThatWritesNoFocusSaysNone:
     def test_a_standalone_autofocus(self, tmp_path):
         with _focusing_session(tmp_path) as (_session, runner):
-            outcome = runner.run_autofocus(layer='BF').wait(timeout_s=WAIT_S)
+            outcome = runner.run_autofocus(layer='BF').result(timeout=WAIT_S)
 
         assert outcome.focus_written is None, outcome
 
@@ -235,7 +235,7 @@ class TestARunThatWritesNoFocusSaysNone:
             outcome = runner.run_single_scan(
                 protocol=_two_steps(),
                 parent_dir=str(tmp_path / 'runs'),
-            ).wait(timeout_s=WAIT_S)
+            ).result(timeout=WAIT_S)
 
         assert outcome.focus_written is None, outcome
 

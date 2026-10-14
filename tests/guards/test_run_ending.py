@@ -19,7 +19,6 @@ from types import SimpleNamespace
 import pytest
 from unittest.mock import MagicMock
 
-from modules.exceptions import RunAlreadyEndedError
 from modules.run_events import RunEvents
 from modules.run_outcome import ENDING_TITLES, EndingLatch, PendingRunOutcome, RunEnding
 from tests.ast_seams import REPO_ROOT
@@ -247,7 +246,7 @@ def _stop_stub(trigger='test', loop_ended=False):
         LOGGER_NAME='TEST',
     )
     # The runner's own liveness answer, so the stub cannot disagree with it.
-    stub._run_handle = scr.RunHandle(stub, stub._run_outcome, scr.RunWriteBatch(MagicMock()))
+    stub._run_handle = scr.EngineRun(stub, stub._run_outcome, scr.RunWriteBatch(MagicMock()))
     stub._last_run = lambda: scr.SequencedCaptureRunner._last_run(stub)
     stub._last_run_trigger = lambda: scr.SequencedCaptureRunner._last_run_trigger(stub)
     stub._is_live_run_locked = lambda run: scr.SequencedCaptureRunner._is_live_run_locked(stub, run)
@@ -259,7 +258,7 @@ class TestTheRunnerRecordsTheStop:
         """A stop names the run, not the caller, so the ending records that
         the run was stopped and nothing about who asked."""
         scr, stub, _cleaned = _stop_stub()
-        scr.SequencedCaptureRunner._reset(stub, stub._run_handle)
+        scr.SequencedCaptureRunner._stop_run(stub, stub._run_handle)
 
         ending = stub._ending.get()
         assert (ending.status, ending.reason, ending.message) == (
@@ -273,8 +272,7 @@ class TestTheRunnerRecordsTheStop:
         leave no reason behind for the NEXT run to report as its own."""
         scr, stub, _ = _stop_stub()
         stub._is_run_live = lambda: False
-        with pytest.raises(RunAlreadyEndedError):
-            scr.SequencedCaptureRunner._reset(stub, stub._run_handle)
+        scr.SequencedCaptureRunner._stop_run(stub, stub._run_handle)
         assert stub._ending.get() is None
 
     def test_the_shutdown_unwind_gets_the_same_record(self):
@@ -368,7 +366,7 @@ def _cleanup_stub(latched=None, forced_dark=False):
 
     stub = MagicMock()
     # The run this cleanup is for is the runner's current run.
-    stub._last_run.return_value = scr.RunHandle(
+    stub._last_run.return_value = scr.EngineRun(
         stub, PendingRunOutcome(), scr.RunWriteBatch(MagicMock())
     )
     stub._is_run_live = lambda: True
@@ -569,7 +567,7 @@ class TestTheCallerHoldsTheEndingOfTheRunItStarted:
                 'run_single_scan committed a run and handed back nothing; the '
                 'caller has no way to learn how its own run ended'
             )
-            settled = pending.wait(timeout_s=60)
+            settled = pending.result(timeout=60)
 
         assert settled is not None, 'the committed run never settled its outcome'
         # The same fact through both channels. A caller that waits and a
@@ -593,7 +591,7 @@ class TestTheCallerHoldsTheEndingOfTheRunItStarted:
                 sequence_name='no_merge_scan',
                 parent_dir=str(tmp_path),
             )
-            settled = pending.wait(timeout_s=60)
+            settled = pending.result(timeout=60)
 
         assert settled is not None
         assert (settled.status, settled.merged, settled.merge_reason) == ('completed', False, ''), (

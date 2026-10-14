@@ -26,7 +26,7 @@ from modules.run_events import deliver
 from modules.run_outcome import RunEnding
 
 if TYPE_CHECKING:
-    from modules.sequenced_capture_runner import RunHandle, SequencedCaptureRunner
+    from modules.sequenced_capture_runner import EngineRun, SequencedCaptureRunner
 
 # --- Hardware health check ---
 HW_CHECK_INTERVAL_S = 30  # Seconds between hardware connection checks
@@ -55,7 +55,7 @@ class ProtocolRunLoop:
     def __init__(self, parent: SequencedCaptureRunner):
         self._p = parent
 
-    def run_loop(self, run: RunHandle) -> None:
+    def run_loop(self, run: EngineRun) -> None:
         """Main entry point -- runs the loop, then unwinds the run once.
 
         ``run`` is the run this loop was dispatched for. The loop body only
@@ -151,7 +151,7 @@ class ProtocolRunLoop:
         first_step = p._protocol.step(idx=0)
         p._step_executor.default_move(px=first_step['X'], py=first_step['Y'], z=first_step['Z'])
 
-    def _run_loop_inner(self, run: RunHandle) -> RunEnding:
+    def _run_loop_inner(self, run: EngineRun) -> RunEnding:
         """The run loop body; returns how the run ended, for run_loop to unwind."""
         p = self._p
         last_connection_check = time.monotonic()

@@ -136,7 +136,7 @@ def _run_with_every_write_held(tmp_path, monkeypatch, steps, on_capture=None, mi
             parent_dir=str(run_parent),
             events=RunEvents(files_written=lambda *_written: files_written.set()),
         )
-        result = outcome.wait(timeout_s=120.0)
+        result = outcome.result(timeout=120.0)
         assert result is not None and result.status == 'completed', result
         assert files_written.wait(FILES_TIMEOUT_S), "the run's files were never written"
 

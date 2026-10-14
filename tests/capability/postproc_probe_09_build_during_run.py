@@ -89,11 +89,11 @@ def _run(session, runner, protocol, parent, name):
         parent_dir=str(parent),
         enable_image_saving=True,
     )
-    outcome = pending.wait(timeout_s=3600)
+    outcome = pending.result(timeout=3600)
     ended = time.monotonic()
     # The outcome answers before the run's files drain; the folder is read
     # once the run has finished writing it.
-    assert pending.wait_for_files(timeout_s=120) is not None, "the run's files never finished"
+    assert pending.files.result(timeout=120) is not None, "the run's files never finished"
     records = sorted(parent.rglob('protocol_record.tsv'))
     return outcome, started, ended, (records[0] if records else None)
 

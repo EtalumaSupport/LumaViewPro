@@ -105,7 +105,7 @@ class TestAShortRunWhileTheFileWorkerWaits:
                     protocol=_protocol([_step('C2', 0, x=20.0, gain=1.0)]),
                     parent_dir=str(run_parent),
                 )
-                result = outcome.wait(timeout_s=WAIT_S)
+                result = outcome.result(timeout=WAIT_S)
                 assert result is not None and result.status == 'completed', result
                 assert runner.sequenced_capture_runner.wait_for_run_idle(WAIT_S)
             finally:
@@ -113,7 +113,7 @@ class TestAShortRunWhileTheFileWorkerWaits:
 
             # The run's files are done, written or given up on; the loss
             # this pins is silent, so what is on disk then is the answer.
-            assert outcome.wait_for_files(timeout_s=WAIT_S) is not None, (
+            assert outcome.files.result(timeout=WAIT_S) is not None, (
                 'the run never finished its files'
             )
             images = _images(run_parent)
@@ -158,7 +158,7 @@ class TestAnErrorAbort:
                 parent_dir=str(run_parent),
                 events=heard_events.as_events(),
             )
-            result = outcome.wait(timeout_s=WAIT_S)
+            result = outcome.result(timeout=WAIT_S)
             assert result is not None and result.status == 'failed', result
             assert result.reason == 'hardware_disconnected', result
             assert runner.sequenced_capture_runner.wait_for_run_idle(WAIT_S)
@@ -210,7 +210,7 @@ class TestAnErrorAbort:
                 parent_dir=str(run_parent),
                 events=heard_events.as_events(),
             )
-            result = outcome.wait(timeout_s=WAIT_S)
+            result = outcome.result(timeout=WAIT_S)
             assert result is not None and result.status == 'failed', result
             assert runner.sequenced_capture_runner.wait_for_run_idle(WAIT_S)
             assert not any(e[0] == 'record_complete' for e in heard_events.events), (
@@ -237,7 +237,7 @@ class TestBackToBackRuns:
                     parent_dir=str(run_parent),
                     events=heard_events.as_events(),
                 )
-                assert outcome.wait(timeout_s=WAIT_S) is not None
+                assert outcome.result(timeout=WAIT_S) is not None
                 assert heard_events.files_done.wait(WAIT_S), (
                     f'run {index} never heard files_written'
                 )
@@ -279,7 +279,7 @@ class TestANewRunWhileTheLastRunsFilesWrite:
                 parent_dir=str(run_parent),
                 events=heard_events.as_events(),
             )
-            assert outcome.wait(timeout_s=WAIT_S) is not None
+            assert outcome.result(timeout=WAIT_S) is not None
             # Read the moment the outcome releases its caller: an L2 script
             # waits on the outcome and then asks whether the disk has
             # settled, and must not be told it has.
@@ -305,7 +305,7 @@ class TestANewRunWhileTheLastRunsFilesWrite:
                 protocol=_protocol([_step('C3', 0, x=20.0, gain=1.0)]),
                 parent_dir=str(run_parent),
             )
-            assert second.wait(timeout_s=WAIT_S).status == 'completed'
+            assert second.result(timeout=WAIT_S).status == 'completed'
 
 
 class TestTheRunsWritesCloseBeforeItEnds:
@@ -346,7 +346,7 @@ class TestTheRunsWritesCloseBeforeItEnds:
                 protocol=_protocol([_step('C1', 0, x=20.0, gain=1.0)]),
                 parent_dir=str(tmp_path / 'runs'),
             )
-            assert outcome.wait(timeout_s=WAIT_S) is not None
+            assert outcome.result(timeout=WAIT_S) is not None
             assert engine.wait_for_run_idle(WAIT_S)
             assert started.acquire(timeout=WAIT_S)
             release.set()
@@ -385,7 +385,7 @@ class TestACleanupThatRaises:
                 protocol=_protocol([_step('C2', 0, x=20.0, gain=1.0)]),
                 parent_dir=str(run_parent),
             )
-            assert second.wait(timeout_s=WAIT_S).status == 'completed'
+            assert second.result(timeout=WAIT_S).status == 'completed'
 
         assert [event[0] for event in heard_events.events] == ['run_ended', 'files_written']
 
@@ -421,7 +421,7 @@ class TestAStartThatFails:
                 parent_dir=str(tmp_path / 'runs'),
                 events=heard_events.as_events(),
             )
-            result = outcome.wait(timeout_s=WAIT_S)
+            result = outcome.result(timeout=WAIT_S)
             assert result is not None and result.status == 'failed_at_start', result
             assert engine.wait_for_run_idle(WAIT_S)
             assert heard_events.files_done.wait(WAIT_S), 'files_written never came'
@@ -464,7 +464,7 @@ class TestARunAfterAnErrorAbort:
                 parent_dir=str(run_parent / 'first'),
                 events=first_files.as_events(),
             )
-            assert first.wait(timeout_s=WAIT_S).status == 'failed'
+            assert first.result(timeout=WAIT_S).status == 'failed'
             assert engine.wait_for_run_idle(WAIT_S)
             assert first_files.files_done.wait(WAIT_S)
             disconnected.clear()
@@ -483,7 +483,7 @@ class TestARunAfterAnErrorAbort:
                 events=second_files.as_events(),
             )
             assert started.acquire(timeout=WAIT_S), "the second run's first write never started"
-            assert second.wait(timeout_s=WAIT_S).status == 'completed'
+            assert second.result(timeout=WAIT_S).status == 'completed'
             release.set()
             assert second_files.files_done.wait(WAIT_S), 'files_written never came'
 
@@ -518,7 +518,7 @@ class TestAWriteWhoseFailureReportRaises:
                 parent_dir=str(run_parent),
                 events=heard_events.as_events(),
             )
-            assert outcome.wait(timeout_s=WAIT_S) is not None
+            assert outcome.result(timeout=WAIT_S) is not None
             assert runner.sequenced_capture_runner.wait_for_run_idle(WAIT_S)
             assert heard_events.files_done.wait(WAIT_S), 'the failed write left the batch owing it'
             assert not session.protocol_files_draining

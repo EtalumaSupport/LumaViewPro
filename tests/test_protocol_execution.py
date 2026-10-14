@@ -27,7 +27,7 @@ from modules.lumascope_api.illumination import LedState
 
 
 from modules.activity_claim import ActivityClaim
-from modules.exceptions import ProtocolRunRefusedError, RunAlreadyEndedError
+from modules.exceptions import ProtocolRunRefusedError
 from modules.protocol_state_machine import ProtocolState
 from modules.run_events import RunEvents
 from modules.image_mode import ImageCaptureConfig
@@ -297,7 +297,7 @@ def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
     # The images and the record are on the file lane; they are there once
     # the run says its files are done, not when it lets go of the scope.
     if completed:
-        assert handle.wait_for_files(timeout_s=FILES_WAIT_S) is not None, (
+        assert handle.files.result(timeout=FILES_WAIT_S) is not None, (
             'the run never finished its files'
         )
     return completed, result_holder
@@ -1394,7 +1394,7 @@ class TestCancellationMidRun:
 
         # Let it run briefly then cancel
         time.sleep(1.0)
-        executor._reset(run)
+        run.stop()
 
         completed = done.wait(timeout=COMPLETION_TIMEOUT)
         assert completed, 'Protocol did not complete after reset()'
@@ -1426,7 +1426,7 @@ class TestCancellationMidRun:
 
         # Cancel almost immediately
         time.sleep(0.2)
-        executor._reset(run)
+        run.stop()
 
         completed = done.wait(timeout=COMPLETION_TIMEOUT)
         assert completed, 'Protocol did not complete after early reset()'
@@ -1442,7 +1442,7 @@ class TestBackToBackRuns:
 
     run_ended comes once the run has ended, and its files can still be
     draining then. A second start before they land is refused by design,
-    so _run_and_wait returns only once the run's wait_for_files has -- the
+    so _run_and_wait returns only once the run's files are done -- the
     designed contract, not a workaround for an executor bug.
     """
 
@@ -1790,16 +1790,14 @@ class TestCleanupConcurrency:
         run = executor.start(plan)
         # Let protocol start
         time.sleep(0.1)
-        # Fire reset from multiple threads simultaneously. A stop that lands
-        # after an earlier one has already ended the run is told so with
-        # RunAlreadyEndedError; any other exception is a crash.
+        # Fire stops from multiple threads simultaneously. A stop that lands
+        # after an earlier one has already ended the run does nothing; any
+        # exception is a crash.
         unexpected = []
 
         def _stop():
             try:
-                executor._reset(run)
-            except RunAlreadyEndedError:
-                pass
+                run.stop()
             except Exception as e:
                 unexpected.append(e)
 
@@ -1812,18 +1810,16 @@ class TestCleanupConcurrency:
         # Should not crash; protocol should end
         assert done.wait(timeout=COMPLETION_TIMEOUT), 'protocol did not end after concurrent reset'
 
-    def test_double_reset_idempotent(self, executor, scope, tmp_path):
-        """Calling reset() twice in quick succession doesn't crash."""
+    def test_double_stop_idempotent(self, executor, scope, tmp_path):
+        """Stopping an ended run twice in quick succession does nothing, twice."""
         protocol = _make_single_step_protocol(color='BF')
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
-        # Protocol already completed and cleaned up -- each further stop is
-        # told the run has ended, and neither disturbs the other.
-        run = executor._last_run()
-        with pytest.raises(RunAlreadyEndedError):
-            executor._reset(run)
-        with pytest.raises(RunAlreadyEndedError):
-            executor._reset(run)
+        # The run already completed and cleaned up -- each further stop does
+        # nothing, and neither disturbs the other.
+        run = executor._last_run().operation
+        assert run.stop() is None
+        assert run.stop() is None
         assert not executor.run_in_progress()
 
 
@@ -2054,7 +2050,7 @@ class TestCameraStateRestoration:
         )
         run = executor.start(plan)
         time.sleep(0.2)
-        executor._reset(run)
+        run.stop()
         done.wait(timeout=COMPLETION_TIMEOUT)
 
         assert scope.imaging.get_gain_db() == pytest.approx(original_gain, abs=0.1)
@@ -2110,7 +2106,7 @@ class TestCleanupCorrectness:
         )
         run = executor.start(plan)
         time.sleep(0.2)
-        executor._reset(run)
+        run.stop()
         done.wait(timeout=COMPLETION_TIMEOUT)
 
         not_dark = [r for r in scope.illumination.get_led_states() if r.state is not LedState.DARK]

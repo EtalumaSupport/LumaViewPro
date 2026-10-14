@@ -26,6 +26,7 @@ import dataclasses
 import datetime
 import threading
 import time
+import weakref
 from collections.abc import Callable
 from concurrent.futures import Future
 
@@ -145,6 +146,9 @@ class JobRegistry:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._jobs: dict[str, Job] = {}
+        # The job each running call a member handed back is, so one running
+        # call is one job whichever answer or event names it.
+        self._of_future: weakref.WeakKeyDictionary[Future, Job] = weakref.WeakKeyDictionary()
         self._next = 1
         self._live_calls = 0
         # The calls' threads, each until it has ended, so the server's close can join them.
@@ -240,8 +244,13 @@ class JobRegistry:
         """The job a running call a member handed back is, in its wire form.
 
         ``answer`` turns the finished future into its answer, on the thread
-        that finished it.
+        that finished it. The same future is the same job, however many
+        times it is named.
         """
+        with self._lock:
+            known = self._of_future.get(future)
+        if known is not None:
+            return known.view()
         answered: asyncio.Future[Answer] = loop.create_future()
 
         def finished(done: Future) -> None:
@@ -257,6 +266,8 @@ class JobRegistry:
             None,
             started=lambda: future.running() or future.done(),
         )
+        with self._lock:
+            self._of_future[future] = job
         future.add_done_callback(finished)
         return job.view()
 

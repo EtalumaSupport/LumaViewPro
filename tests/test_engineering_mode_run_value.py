@@ -81,7 +81,7 @@ class TestAModeTurnedOnAfterTheSessionIsBuiltIsTheRuns:
                 parent_dir=str(tmp_path),
                 run_trigger_source='composite',
             )
-            settled = outcome.wait(timeout_s=120)
+            settled = outcome.result(timeout=120)
             assert settled is not None and settled.merged, 'the run never settled'
             token = _turret_token(session)
 

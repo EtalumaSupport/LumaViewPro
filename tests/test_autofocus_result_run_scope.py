@@ -171,7 +171,7 @@ def test_run_autofocus_reports_the_focus_and_writes_none(tmp_path):
         # Mid-travel, so the sweep's window fits inside Z's travel.
         motion.move_absolute('Z', (limits['min'] + limits['max']) / 2.0)
 
-        outcome = runner.run_autofocus(layer='BF').wait(timeout_s=60)
+        outcome = runner.run_autofocus(layer='BF').result(timeout=60)
 
         assert outcome is not None and outcome.af_focus_z_um is not None, (
             f'precondition: the sweep chose a focus; got {outcome}'

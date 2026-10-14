@@ -221,7 +221,7 @@ def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
     # The images and the record are on the file lane; they are there once
     # the run says its files are done, not when it lets go of the scope.
     if completed:
-        assert handle.wait_for_files(timeout_s=FILES_WAIT_S) is not None, (
+        assert handle.files.result(timeout=FILES_WAIT_S) is not None, (
             'the run never finished its files'
         )
     return completed, result_holder

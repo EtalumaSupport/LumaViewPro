@@ -52,7 +52,7 @@ def _start_run(executor, tmp_path):
 
 
 def _stop_the_run_being_started(executor):
-    executor._reset(executor._last_run())
+    executor._last_run().operation.stop()
 
 
 def _inject_at_setup_run_dir(executor, monkeypatch):
@@ -99,7 +99,7 @@ def test_a_stop_during_setup_ends_the_run_stopped_with_nothing_left_set_up(
     inject(executor, monkeypatch)
 
     run = _start_run(executor, tmp_path)
-    outcome = run.wait(timeout_s=COMPLETION_TIMEOUT)
+    outcome = run.result(timeout=COMPLETION_TIMEOUT)
     assert executor.wait_for_run_idle(COMPLETION_TIMEOUT), 'the stopped run never went idle'
     deadline = time.monotonic() + COMPLETION_TIMEOUT
     while executor.protocol_thread.is_running:
@@ -127,7 +127,7 @@ def test_a_shutdown_during_a_later_runs_setup_leaves_the_unwind_to_start(
     the loop it finds must be this run's (none yet), never the previous
     run's finished one, or the shutdown tears the run down mid-setup."""
     first = _start_run(executor, tmp_path / 'first')
-    assert first.wait(timeout_s=COMPLETION_TIMEOUT) is not None
+    assert first.result(timeout=COMPLETION_TIMEOUT) is not None
     assert executor.wait_for_run_idle(COMPLETION_TIMEOUT)
     assert executor.write_batch().wait_complete(COMPLETION_TIMEOUT)
 
@@ -149,7 +149,7 @@ def test_a_shutdown_during_a_later_runs_setup_leaves_the_unwind_to_start(
     monkeypatch.setattr(lane, 'protocol_start', shutdown_then_protocol_start)
 
     second = _start_run(executor, tmp_path / 'second')
-    outcome = second.wait(timeout_s=COMPLETION_TIMEOUT)
+    outcome = second.result(timeout=COMPLETION_TIMEOUT)
 
     assert outcome is not None
     assert (outcome.status, outcome.reason) == ('aborted', 'shutdown')

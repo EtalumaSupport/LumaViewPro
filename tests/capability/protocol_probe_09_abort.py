@@ -36,7 +36,7 @@ try:
         p,
         sequence_name='earlier',
     )
-    print('earlier:', earlier.wait(timeout_s=120).status)
+    print('earlier:', earlier.result(timeout=120).status)
     deadline = time.time() + 90
     # A new run is refused while the earlier run's files still write.
     while time.time() < deadline and session.run_lockout:
@@ -59,7 +59,7 @@ try:
 
     banner('the run is stopped by its own handle')
     out.stop()
-    s = out.wait(timeout_s=120)
+    s = out.result(timeout=120)
     print('status:', s.status, s.reason)
     print('ASSERT stopped:', 'PASS' if not session.is_protocol_running else 'FAIL')
 finally:

@@ -112,7 +112,7 @@ class TestARunWhoseSaveFails:
                 parent_dir=str(tmp_path / 'runs'),
                 events=RunEvents(files_written=lambda _run_dir, files_: files.append(files_)),
             )
-            assert outcome.wait(timeout_s=WAIT_S) is not None
+            assert outcome.result(timeout=WAIT_S) is not None
             _wait_for(files)
 
             assert files == ['incomplete'], (

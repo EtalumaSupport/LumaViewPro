@@ -34,7 +34,7 @@ from tests.test_the_autofocus_button_runs_through_run_autofocus import (  # noqa
 from modules.exceptions import ProtocolRunRefusedError
 from modules.run_outcome import PendingRunOutcome
 from modules.protocol_image_writer import RunWriteBatch
-from modules.sequenced_capture_runner import RunHandle
+from modules.sequenced_capture_runner import EngineRun
 
 
 REFUSAL = ProtocolRunRefusedError(
@@ -59,39 +59,39 @@ class TestARefusedAutofocusClick:
         )
 
     def test_a_started_run_still_arms_one(self, pressed):
-        _live(pressed.engine, pressed.handle)
+        _live(pressed.engine, pressed.run)
 
         pressed.button.run_autofocus_from_ui()
 
-        assert pressed.button.armed == [pressed.handle], (
+        assert pressed.button.armed == [pressed.run.operation], (
             'the stuck-AF bound is the reason this timer exists; a committed '
             f'run must still get one. Timer calls: {pressed.button.armed}'
         )
 
     def test_every_later_redraw_of_the_same_run_arms_nothing_more(self, pressed):
-        _live(pressed.engine, pressed.handle)
+        _live(pressed.engine, pressed.run)
         pressed.button.run_autofocus_from_ui()
 
         pressed.button.draw_autofocus_button()
         pressed.button.draw_autofocus_button()
 
-        assert pressed.button.armed == [pressed.handle], (
+        assert pressed.button.armed == [pressed.run.operation], (
             'one bound per run: a re-armed timer restarts the 15 s, and a run '
             'redrawn on every edge would never be bounded at all'
         )
 
     def test_the_next_run_gets_its_own(self, pressed):
         first, second = (
-            pressed.handle,
-            RunHandle(pressed.engine, PendingRunOutcome(), RunWriteBatch(MagicMock())),
+            pressed.run,
+            EngineRun(pressed.engine, PendingRunOutcome(), RunWriteBatch(MagicMock())),
         )
         _live(pressed.engine, first)
         pressed.button.run_autofocus_from_ui()
         _live(pressed.engine)
         pressed.button.draw_autofocus_button()
 
-        pressed.member.run_autofocus.return_value = second
+        pressed.member.run_autofocus.return_value = second.operation
         _live(pressed.engine, second)
         pressed.button.run_autofocus_from_ui()
 
-        assert pressed.button.armed == [first, second]
+        assert pressed.button.armed == [first.operation, second.operation]

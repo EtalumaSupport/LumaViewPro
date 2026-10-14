@@ -569,7 +569,7 @@ class TestTheRunsOwnWorkRunsUnderItsClaim:
                 events=RunEvents(files_written=lambda *_written: files_written.set()),
             )
             assert files_written.wait(COMPLETION_TIMEOUT), 'the run never finished its files'
-            outcome = run.wait(timeout_s=COMPLETION_TIMEOUT)
+            outcome = run.result(timeout=COMPLETION_TIMEOUT)
             assert outcome.status == 'completed', outcome
             assert greased == [session.io_executor.executor_name], greased
         finally:

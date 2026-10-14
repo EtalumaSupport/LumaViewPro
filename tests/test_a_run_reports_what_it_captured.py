@@ -32,10 +32,10 @@ def _run(runner, run_parent, steps, events=None):
         parent_dir=str(run_parent),
         events=events,
     )
-    outcome = pending.wait(timeout_s=WAIT_S)
+    outcome = pending.result(timeout=WAIT_S)
     # The record and the images are on the file lane; they are there once
     # the run says its files are done, not when it lets go of the scope.
-    assert pending.wait_for_files(timeout_s=WAIT_S) is not None, 'the run never finished its files'
+    assert pending.files.result(timeout=WAIT_S) is not None, 'the run never finished its files'
     return outcome
 
 
@@ -204,7 +204,7 @@ class TestARunWithFailedCapturesEndsIncomplete:
                 parent_dir=str(tmp_path / 'runs'),
                 enable_image_saving=False,
             )
-            outcome = pending.wait(timeout_s=WAIT_S)
+            outcome = pending.result(timeout=WAIT_S)
         assert outcome.status == 'completed', outcome
         assert outcome.captures.asked == 0, outcome.captures
 
@@ -531,7 +531,7 @@ class TestACompositeThatCannotMerge:
                 events=_fail_these_channels(
                     session.scope._camera_driver, ('BF', _FAILING), {_FAILING}
                 ),
-            ).wait(timeout_s=WAIT_S)
+            ).result(timeout=WAIT_S)
         assert settled is not None and not settled.merged, settled
         assert settled.merge_reason == 'no_data', settled
         # Two notices, each its own type: the merge's refusal, then the run's

@@ -1,6 +1,5 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
-import collections
 import contextlib
 import copy
 import dataclasses
@@ -25,7 +24,6 @@ from modules.lumascope_api import AxisState, Lumascope
 
 import modules.common_utils as common_utils
 import modules.image_mode as image_mode
-from modules import kivy_utils
 
 from modules.activity_claim import (
     ActivityClaim,
@@ -40,14 +38,12 @@ from modules.activity_claim import (
 from modules.autofocus_runner import AutofocusRunner
 from modules.layer_record import ChannelColors
 from modules.exceptions import (
-    BlockingCallRefusedError,
     CameraSettingRejected,
     CompositeFailedError,
     FileWriterStalledError,
     ProtocolRunRefusedError,
     RecordIncompleteError,
     Remedy,
-    RunAlreadyEndedError,
     RunCheckFailedError,
     RunFailedToStartError,
     RunImagesNotSavedError,
@@ -64,7 +60,6 @@ from modules.run_outcome import (
     EndingLatch,
     PendingRunOutcome,
     RunEnding,
-    RunOutcome,
 )
 
 from modules.scheduler import Scheduler
@@ -74,7 +69,8 @@ import threading
 
 import modules.stack_builder as stack_builder
 from modules.config_helpers import COMPOSITE_MIN_CHANNELS
-from modules.api_surface import api, api_fields
+from modules.api_surface import api_fields
+from modules.operation import Operation
 
 # How often the run loop re-asks whether the camera lane has gone idle
 # before the run takes the camera; a still's grab is tens to hundreds of
@@ -137,23 +133,61 @@ class RunFiles:
     not_written_reason: str | None
 
 
-def _remaining(deadline: float | None) -> float | None:
-    """Seconds left before *deadline*, never negative; None for no deadline."""
-    if deadline is None:
-        return None
-    return max(0.0, deadline - time.monotonic())
+@api_fields(
+    'interval',
+    'is_last_run',
+    'is_live',
+    'is_stopping',
+    'num_steps',
+    'remaining_scans',
+    'run_dir',
+    'step_number',
+)
+@dataclasses.dataclass(frozen=True)
+class RunProgress:
+    """Where one run has got, read in one hold of the run lock: every field is that run's.
 
-
-class RunHandle:
-    """One run, as the caller that started it holds it: watch it, wait for it, stop it.
-
-    What every start returns, and the only thing a caller needs about its
-    run: whether it is live, whether a Stop has been accepted, its folder,
-    its progress, its outcome, and its Stop. Every answer is about THIS
-    run -- a handle never answers for whichever run happens to be live --
-    and the handle cannot write the run's outcome: the outcome it waits
-    on is the engine's, and only the engine settles it.
+    Attributes:
+        is_live: The run holds the scope: started and not yet torn down.
+            False once its teardown has finished, while its ``run_ended``
+            may still be on its way, so a run can be not live and its
+            operation not yet done.
+        is_stopping: Live, and a Stop of it accepted: True until its
+            teardown finishes.
+        is_last_run: The run is the engine's most recent, live or finished.
+        run_dir: The run's folder; None for a run that saves nothing or
+            never started.
+        step_number: The step executing now, counted from 1; None once the
+            run is not live.
+        num_steps: The run's step count; None once it is not live.
+        remaining_scans: The scans still to run; None once it is not live.
+        interval: The run's scan period; None once it is not live.
     """
+
+    is_live: bool
+    is_stopping: bool
+    is_last_run: bool
+    run_dir: pathlib.Path | None
+    step_number: int | None
+    num_steps: int | None
+    remaining_scans: int | None
+    interval: datetime.timedelta | None
+
+
+class EngineRun:
+    """One run, as the engine holds it: its outcome, its writes, its folder and its two operations.
+
+    The caller holds ``operation``, which settles with the run's outcome
+    once the run has let go of the scope and its ``run_ended`` has been
+    delivered, and ``operation.files``, which settles with the run's
+    ``RunFiles`` once the last of three things has happened: the
+    ``files_written`` delivery has ended, the hyperstack build (when there
+    is one) has ended, and ``operation`` has settled. Each of the three
+    calls ``_files_event_done`` once, on every path, so ``files`` settles
+    whichever comes last.
+    """
+
+    _FILES_EVENTS = 3
 
     def __init__(
         self,
@@ -166,214 +200,47 @@ class RunHandle:
         # This run's writes, the batch start() made with it -- never the
         # engine's current batch, which the next run's start() replaces.
         self._write_batch = write_batch
-        # Written by the start() that made this handle, after the run's
-        # setup and before its loop is dispatched: None for a run that
-        # saves nothing, or that never started.
+        # Written by the start() that made this run, after the run's setup
+        # and before its loop is dispatched: None for a run that saves
+        # nothing, or that never started.
         self._run_dir: pathlib.Path | None = None
-        # Written once, by the run's cleanup, before the run ends: the
-        # thread building its hyperstacks, which writes after the batch
-        # completes; None for a run that builds none.
-        self._hyperstack_build: threading.Thread | None = None
-        # Set once the run's run_ended, then its files_written, has run
-        # -- or at once when it has none to run -- on every path that
-        # reaches IDLE. What the waits wait for last.
-        self._run_told = threading.Event()
-        self._files_told = threading.Event()
-        # The threads delivering one of this run's callbacks right now, with
-        # how many deliveries deep: a callback that waits on its own run
-        # there must not wait for its own delivery to end. A count, because
-        # another run's delivery can nest inside this one's on its thread.
-        self._delivery_lock = threading.Lock()
-        self._deliveries: collections.Counter[threading.Thread] = collections.Counter()
-
-    @api
-    def wait(self, timeout_s: float | None) -> 'RunOutcome | None':
-        """How this run ended, once it no longer holds the scope and has told its caller.
-
-        Blocks for the outcome, then, inside the same bound, for the run's
-        teardown to finish and its run_ended to have run, so a caller
-        woken here can start the next run, move the stage or write a setting
-        without a second wait, and reads what its run_ended did. A new
-        run can still be refused while this run's files finish writing;
-        that refusal is the drain's.
-
-        Made from inside one of this run's own callbacks, it does not wait
-        for that callback: it returns once the run has let go of the scope.
-
-        Returns:
-            The run's outcome, or None when the bound passes first.
-
-        Raises:
-            BlockingCallRefusedError: ``'wait_on_ui_thread'``, made on the
-                thread that delivers the run's callbacks, outside them -- it
-                would wait on itself.
-        """
-        deadline = None if timeout_s is None else time.monotonic() + timeout_s
-        own = self._waiting_inside_own_delivery('RunHandle.wait')
-        outcome = self._wait_released(deadline)
-        if outcome is None:
-            return None
-        if not own and not self._run_told.wait(_remaining(deadline)):
-            return None
-        return outcome
-
-    @api
-    def wait_for_files(self, timeout_s: float | None) -> RunFiles | None:
-        """What became of this run's images, once its files are done and told.
-
-        Blocks, inside one bound, for everything wait() does, then until the
-        run's images are on disk or given up on, its hyperstack build, when
-        it has one, has finished, and the run has said everything about
-        them -- the lost-image report, the record's reconcile and its
-        files_written -- so a caller woken here can start the next run
-        without a 'files_writing' refusal. One thing can still refuse it,
-        as after wait(): an autofocus sweep that did not stop inside
-        cleanup's bound, which the run's outcome names as a cleanup
-        failure, refuses the next run 'autofocus_running' until it stops.
-
-        A hyperstack build's own failure is reported by the build; what is
-        returned here is the images. Made from inside one of this run's own
-        callbacks, it does not wait for this run's callbacks.
-
-        Returns:
-            The run's images, or None when the bound passes first. The
-            images are accounted for only once the run's cleanup has closed
-            its writes, so a shutdown that ends the session before that
-            cleanup runs leaves them unaccounted, and the wait answers None.
-
-        Raises:
-            BlockingCallRefusedError: ``'wait_on_ui_thread'``, made on the
-                thread that delivers the run's callbacks, outside them -- it
-                would wait on itself.
-        """
-        deadline = None if timeout_s is None else time.monotonic() + timeout_s
-        own = self._waiting_inside_own_delivery('RunHandle.wait_for_files')
-        if self._wait_released(deadline) is None:
-            return None
-        batch = self._write_batch
-        if not batch.wait_complete(_remaining(deadline)):
-            return None
-        # Read after the run ended: cleanup writes it before the run ends.
-        build = self._hyperstack_build
-        if build is not None:
-            build.join(_remaining(deadline))
-            if build.is_alive():
-                return None
-        if not own:
-            # Both: under the GUI a run with no files_written handler has its
-            # files told at once, while its run_ended waits its turn.
-            for told in (self._run_told, self._files_told):
-                if not told.wait(_remaining(deadline)):
-                    return None
-        return RunFiles(
-            outcome=batch.outcome,
-            written=batch.written,
-            not_written=batch.not_written,
-            not_written_reason=batch.not_written_reason,
+        self._files_lock = threading.Lock()
+        self._files_events_left = self._FILES_EVENTS
+        files = Operation()
+        self.operation = Operation(
+            stop=lambda: engine._stop_run(self),
+            progress=lambda: engine._progress_of(self),
+            files=files,
         )
+        self.operation.add_done_callback(lambda _op: self._files_event_done())
 
-    def _wait_released(self, deadline: float | None) -> 'RunOutcome | None':
-        """The run's outcome once it no longer holds the scope; None at *deadline*."""
-        outcome = self._pending.wait(timeout_s=_remaining(deadline))
-        if outcome is None:
-            return None
-        while self.is_live:
-            if deadline is not None and time.monotonic() >= deadline:
-                return None
-            time.sleep(0.02)
-        return outcome
+    @property
+    def files(self) -> Operation:
+        return self.operation.files
 
-    def _waiting_inside_own_delivery(self, member: str) -> bool:
-        """Whether this thread is delivering one of this run's callbacks; refuses the UI thread otherwise.
-
-        Inside its own delivery a wait skips its told waits, which only that
-        delivery ending could satisfy -- checked first, so a callback the GUI
-        delivers may still wait on its own run. Outside one, the UI thread
-        is where the told waits' deliveries run, so a wait there is refused.
-        """
-        me = threading.current_thread()
-        with self._delivery_lock:
-            if self._deliveries[me]:
-                return True
-        if me is kivy_utils.ui_thread():
-            raise BlockingCallRefusedError('wait_on_ui_thread', member)
-        return False
+    def _files_event_done(self) -> None:
+        """One of the three events ``files`` waits for has happened; settle it after the last."""
+        with self._files_lock:
+            self._files_events_left -= 1
+            last = self._files_events_left == 0
+        if last:
+            batch = self._write_batch
+            self.files.set_result(
+                RunFiles(
+                    outcome=batch.outcome,
+                    written=batch.written,
+                    not_written=batch.not_written,
+                    not_written_reason=batch.not_written_reason,
+                )
+            )
 
     @contextlib.contextmanager
-    def _delivering(self, told: threading.Event):
-        """Deliver one of this run's callbacks on this thread; *told* is set once it has run."""
-        me = threading.current_thread()
-        with self._delivery_lock:
-            self._deliveries[me] += 1
+    def files_told(self) -> typing.Iterator[None]:
+        """Deliver this run's ``files_written``; one of ``files``'s three events once it has run."""
         try:
             yield
         finally:
-            with self._delivery_lock:
-                self._deliveries[me] -= 1
-                if not self._deliveries[me]:
-                    del self._deliveries[me]
-            told.set()
-
-    @api
-    def stop(self) -> None:
-        """Stop this run. Only asks: the run ends on its own thread.
-
-        Raises:
-            RunAlreadyEndedError: no run is live.
-            ProtocolRunRefusedError: reason 'run_not_live' -- another run
-                is live and this one is not it.
-        """
-        self._engine._reset(self)
-
-    @api
-    @property
-    def is_live(self) -> bool:
-        return self._engine._is_live_run(self)
-
-    @api
-    @property
-    def is_stopping(self) -> bool:
-        """Live, and a Stop of it accepted: True until its teardown finishes."""
-        return self._engine._is_stopping(self)
-
-    @api
-    @property
-    def is_last_run(self) -> bool:
-        """Whether this is the engine's most recent run, live or finished."""
-        return self._engine._last_run() is self
-
-    @api
-    @property
-    def run_dir(self) -> pathlib.Path | None:
-        return self._run_dir
-
-    @api
-    @property
-    def step_number(self) -> int | None:
-        """The step executing now, counted from 1; None once this run is not live."""
-        return self._engine._live_run_value(self, self._engine._step_number)
-
-    @api
-    @property
-    def num_steps(self) -> int | None:
-        """This run's step count; None once this run is not live.
-
-        The run's own count: a caller that started the run through a member
-        never holds the protocol the member built, so a count it made from
-        settings could disagree with the run.
-        """
-        return self._engine._live_run_value(self, self._engine._num_steps)
-
-    @api
-    @property
-    def remaining_scans(self) -> int | None:
-        return self._engine._live_run_value(self, self._engine._remaining_scans)
-
-    @api
-    @property
-    def interval(self) -> datetime.timedelta | None:
-        """This run's scan period; None once it is not live."""
-        return self._engine._live_run_value(self, self._engine._protocol_interval)
+            self._files_event_done()
 
 
 @dataclasses.dataclass(frozen=True)
@@ -768,16 +635,16 @@ class SequencedCaptureRunner:
 
         return True
 
-    def _reset(self, run: 'RunHandle | None') -> None:
-        """Stop *run*, the object its start() returned. Non-blocking for the caller.
+    def _stop_run(self, run: 'EngineRun') -> None:
+        """Stop *run*, the run its start() made. Non-blocking for the caller.
 
         Anyone may stop the live run, and the stop names the run rather
         than the caller: who asks is self-declared and protects nothing,
         while a stale toggle naming an OLD run is the hole that once
         destroyed a scan it never started. A stop naming a run that is not
-        the live one never touches the live one: while another run is live
-        it is refused (logged and notified); when nothing is live it is a
-        Stop that arrived after its run ended, raised but not notified.
+        the live one does nothing: its run has ended, and the live run, if
+        any, is another's. Checked under the run lock every Stop takes, so
+        no ending slips between the check and the stop.
 
         A Stop only asks: it records the run's ending and signals it, and
         the thread that owns the run tears it down -- the run loop's
@@ -789,31 +656,10 @@ class SequencedCaptureRunner:
         setting the run up left both lanes in run mode under an idle
         runner. Callers that must wait for the teardown to finish (app
         shutdown) use wait_for_run_idle().
-
-        Raises:
-            RunAlreadyEndedError: no run is live.
-            ProtocolRunRefusedError: reason 'run_not_live' -- another run
-                is live and *run* is not it.
         """
         with self._run_lock:
-            if not self._is_run_live():
-                raise RunAlreadyEndedError('That run has already ended; no run is live.')
             if not self._is_live_run_locked(run):
-                holder = self._run_identity
-                self._refuse(
-                    reason='run_not_live',
-                    message=(
-                        'That run has already ended. '
-                        f'{the_run_named(holder, sentence_start=True)} '
-                        'is using the microscope now; stop it from its own control.'
-                    ),
-                    holder='protocol',
-                    holder_trigger=holder.trigger if holder is not None else None,
-                )
-
-            # Recorded only past the guard above: a Stop that was refused
-            # ended no run, and must not leave a reason behind for the next
-            # one to report.
+                return
             self._ending.set_if_unset(RunEnding('aborted', 'stopped', 'Stopped'))
             self.protocol_thread.abort()
 
@@ -1529,7 +1375,7 @@ class SequencedCaptureRunner:
         self._take_auto_gain_arm_for_run()
         return None
 
-    def start(self, plan: RunPlan) -> RunHandle:
+    def start(self, plan: RunPlan) -> Operation:
         """Commit to the prepared run and dispatch it.
 
         The commitment point: once entered, the run's terminal callback
@@ -1681,7 +1527,7 @@ class SequencedCaptureRunner:
             self._write_batch = write_batch
             # What the caller holds: the run's identity for every question
             # and Stop, published with the outcome and the writes it waits on.
-            handle = RunHandle(self, outcome, write_batch)
+            handle = EngineRun(self, outcome, write_batch)
             self._run_handle = handle
 
             self._run_loop_future = None
@@ -1801,7 +1647,7 @@ class SequencedCaptureRunner:
 
         # Reached on the failed-at-start and stopped-before-dispatch paths too, where the unwind has
         # already resolved the outcome: the caller waits and is told at once.
-        return handle
+        return handle.operation
 
     def _setup_run_dir(self) -> None:
         """Create and initialize the run directory; raise on failure.
@@ -1840,7 +1686,7 @@ class SequencedCaptureRunner:
                 'The run folder could not be initialized. See the log for details.',
             ) from ex
 
-    def _fail_run_at_start(self, exc: Exception, run: RunHandle) -> None:
+    def _fail_run_at_start(self, exc: Exception, run: EngineRun) -> None:
         """Unwind a run that failed during start()'s setup phase.
 
         Routes the failure through the normal run cleanup so the terminal
@@ -1871,7 +1717,7 @@ class SequencedCaptureRunner:
             category='Protocol',
         )
 
-    def _unwind_undispatched_run(self, ending: RunEnding, run: RunHandle) -> None:
+    def _unwind_undispatched_run(self, ending: RunEnding, run: EngineRun) -> None:
         """Unwind a run whose loop was never dispatched, on start()'s thread.
 
         Two ways to get here: the setup failed, or a Stop was accepted
@@ -1999,7 +1845,7 @@ class SequencedCaptureRunner:
         self._protocol_iterator = None
         self._scan_iterator = None
 
-    def _cleanup(self, ending: RunEnding, run: RunHandle):
+    def _cleanup(self, ending: RunEnding, run: EngineRun):
         """Unwind *run*; ending names the terminal outcome and its cause.
 
         ending is REQUIRED so every cleanup site states the truth it
@@ -2046,7 +1892,7 @@ class SequencedCaptureRunner:
                 except Exception as ex:
                     notifications.report_outcome(ex, solicited=False, category='Protocol')
 
-    def _run_loop_under_claim(self, run: RunHandle) -> None:
+    def _run_loop_under_claim(self, run: EngineRun) -> None:
         """The run loop, on the protocol thread, acting under the run's taking.
 
         Every move, LED and camera task the run submits is stamped with the
@@ -2073,7 +1919,7 @@ class SequencedCaptureRunner:
             led_lease.release(leave_on=True)
             self._led_lease = None
 
-    def _write_focus(self, ending: RunEnding, run: RunHandle) -> None:
+    def _write_focus(self, ending: RunEnding, run: EngineRun) -> None:
         """Write a completed autofocus scan's focus into the caller's protocol.
 
         Here, on the run's thread before run_ended is sent, because the
@@ -2185,8 +2031,8 @@ class SequencedCaptureRunner:
             )
             outcome.force_resolve('cleanup_error', fallback=ending)
 
-    def _last_run(self) -> 'RunHandle | None':
-        """The live or last run's handle, or None when no run has started."""
+    def _last_run(self) -> 'EngineRun | None':
+        """The live or last run, or None when no run has started."""
         return getattr(self, '_run_handle', None)
 
     def write_batch(self) -> RunWriteBatch | None:
@@ -2234,32 +2080,32 @@ class SequencedCaptureRunner:
         )
         notifications.report_outcome(stalled, solicited=False, category='Protocol')
 
-    def _is_live_run(self, run: 'RunHandle | None') -> bool:
-        """Whether *run* -- the object a start() returned -- is the live run.
+    def _progress_of(self, run: 'EngineRun') -> RunProgress:
+        """*run*'s progress, every field read in one hold of the run lock.
 
-        What a stop control asks to decide that a click means Stop: the
-        answer is the engine's, so a widget never compares triggers.
+        One hold, so the record never pairs this run's liveness with a
+        successor's values: a run cannot end and another start while the
+        lock is held. A stopped run stays live until its teardown finishes
+        -- the LEDs, the camera and the lanes are put back first -- so
+        ``is_stopping`` is the run's own recorded ending: someone asked for
+        it to end, and it has not finished ending yet.
         """
         with self._run_lock:
-            return self._is_live_run_locked(run)
+            live = self._is_live_run_locked(run)
+            ending = self._ending.get() if live else None
+            return RunProgress(
+                is_live=live,
+                is_stopping=ending is not None and ending.status == 'aborted',
+                is_last_run=self._last_run() is run,
+                run_dir=run._run_dir,
+                step_number=self._step_number() if live else None,
+                num_steps=self._num_steps() if live else None,
+                remaining_scans=self._remaining_scans() if live else None,
+                interval=self._protocol_interval() if live else None,
+            )
 
-    def _is_stopping(self, run: 'RunHandle | None') -> bool:
-        """Whether *run* is live and a Stop of it has been accepted.
-
-        A stopped run stays live until its teardown finishes -- the LEDs,
-        the camera and the lanes are put back first -- so "live" alone
-        cannot tell a stop control whether to say the run is running or
-        stopping. The answer is the run's own recorded ending: someone asked
-        for it to end, and it has not finished ending yet.
-        """
-        with self._run_lock:
-            if not self._is_live_run_locked(run):
-                return False
-            ending = self._ending.get()
-            return ending is not None and ending.status == 'aborted'
-
-    def held_by_other(self, run: 'RunHandle | None') -> bool:
-        """Whether the scope is held by anything but *run* -- the object a start() returned.
+    def held_by_other(self, run: Operation | None) -> bool:
+        """Whether the scope is held by anything but *run* -- the operation a start() returned.
 
         What a run control greys on: anything else holding the scope --
         another run, a recording, a diagnostic, a home -- greys it, and its own run
@@ -2270,22 +2116,15 @@ class SequencedCaptureRunner:
         with self._run_lock:
             if self._activity_claim.holder is None:
                 return False
-            return not self._is_live_run_locked(run)
+            live = self._run_handle
+            return not (
+                run is not None
+                and live is not None
+                and live.operation is run
+                and self._is_live_run_locked(live)
+            )
 
-    def _live_run_value(self, run: RunHandle, read: typing.Callable[[], T]) -> T | None:
-        """*read*'s answer while *run* is the live run; None once it is not.
-
-        One hold of the run lock across the liveness read and *read*, so a
-        handle never answers with a successor's value: a run cannot end and
-        another start while the lock is held. *read* must not take the run
-        lock itself.
-        """
-        with self._run_lock:
-            if not self._is_live_run_locked(run):
-                return None
-            return read()
-
-    def _is_live_run_locked(self, run: 'RunHandle | None') -> bool:
+    def _is_live_run_locked(self, run: 'EngineRun | None') -> bool:
         return run is not None and run is self._run_handle and self._is_run_live()
 
     def _release_activity_claim(self):
@@ -2300,7 +2139,7 @@ class SequencedCaptureRunner:
         if held is not None:
             held.release()
 
-    def _start_hyperstack_build(self) -> threading.Thread | None:
+    def _start_hyperstack_build(self, on_end: typing.Callable[[], None]) -> threading.Thread | None:
         """Kick off the post-run per-well hyperstack build, when configured.
 
         Runs from cleanup for every capturing run mode (an autofocus scan
@@ -2310,6 +2149,10 @@ class SequencedCaptureRunner:
         own config snapshot, never the live UI, so a headless / L2 run
         triggers exactly like a GUI run. The batch is captured by value: a
         successor run replaces the runner's.
+
+        Args:
+            on_end: Called once the build has ended, on the build's thread,
+                however it ended; not called when this run does not build.
 
         Returns:
             The build thread, or None when this run does not build.
@@ -2329,6 +2172,7 @@ class SequencedCaptureRunner:
 
         return self._spawn_post_run_step(
             name='hyperstack-build',
+            on_end=on_end,
             build_fn=lambda: stack_builder.build_hyperstacks_for_run(
                 run_dir=run_dir,
                 has_turret=has_turret,
@@ -2473,8 +2317,8 @@ class SequencedCaptureRunner:
         Only a Full Protocol that made a folder is handed on, whoever started
         it. The step waits on this run's own batch and build, captured here
         by value, since a successor run may own the runner's fields by then.
-        Not tracked by the run handle: what is done with the folder is
-        isolated from the run, so ``wait_for_files`` does not wait for it.
+        Not one of the run's own events: what is done with the folder is
+        isolated from the run, so the run's ``files`` does not wait for it.
         """
         handoff = self._on_protocol_files_written
         run_dir = self._run_dir
@@ -2496,7 +2340,9 @@ class SequencedCaptureRunner:
 
         self._spawn_post_run_step(name='protocol-files-handoff', build_fn=_handoff)
 
-    def _spawn_post_run_step(self, *, name: str, build_fn) -> threading.Thread:
+    def _spawn_post_run_step(
+        self, *, name: str, build_fn, on_end: typing.Callable[[], None] | None = None
+    ) -> threading.Thread:
         """Run a post-run build on a daemon thread.
 
         The one owner of the thread every post-run step needs -- the per-well
@@ -2506,7 +2352,8 @@ class SequencedCaptureRunner:
         waiting for its run's images to land, inside its own outcome
         handling, so a wait that expires or finds images not written is
         reported in that step's words. The thread is kept until it ends,
-        so ``post_run_steps_running`` names it.
+        so ``post_run_steps_running`` names it. ``on_end``, when given, is
+        called last, however the step ended.
         """
 
         def step() -> None:
@@ -2515,6 +2362,8 @@ class SequencedCaptureRunner:
             finally:
                 with self._post_run_steps_lock:
                     self._post_run_steps.discard(thread)
+                if on_end is not None:
+                    on_end()
 
         thread = threading.Thread(target=step, name=name, daemon=True)
         with self._post_run_steps_lock:
@@ -2534,7 +2383,7 @@ class SequencedCaptureRunner:
             return tuple(sorted(step.name for step in self._post_run_steps))
 
     def _close_run_writes(
-        self, write_batch: RunWriteBatch, ending: RunEnding, run: RunHandle
+        self, write_batch: RunWriteBatch, ending: RunEnding, run: EngineRun
     ) -> typing.Callable[[str], None]:
         """Close the run's writes; return what follows the last one landing.
 
@@ -2668,7 +2517,7 @@ class SequencedCaptureRunner:
         return ()
 
     def _cleanup_inner(
-        self, ending: RunEnding, run: RunHandle, after_end: list[typing.Callable[[], None]]
+        self, ending: RunEnding, run: EngineRun, after_end: list[typing.Callable[[], None]]
     ):
         """Put the scope back and let go of it; what tells callers goes in *after_end*.
 
@@ -2687,6 +2536,11 @@ class SequencedCaptureRunner:
         # This run's writes, read while the run is still this runner's.
         write_batch = self._write_batch
         run_ending = None
+        # Whether the build's end -- one of the three events the run's files
+        # wait for -- is accounted for: by the build itself, or here for a
+        # run that builds nothing. A cleanup that raised before it leaves it
+        # to the finally, so the run's files still settle.
+        build_settled = False
         try:
             # First, before anything cleanup waits on: a move the run has
             # under way drives on until it is halted.
@@ -2735,8 +2589,11 @@ class SequencedCaptureRunner:
                 record_cleanup_failures=run._pending.record_cleanup_failures,
                 failed_before=halt_failed,
             )
-            run._hyperstack_build = self._start_hyperstack_build()
-            self._start_protocol_files_handoff(run._hyperstack_build)
+            build = self._start_hyperstack_build(on_end=run._files_event_done)
+            build_settled = True
+            if build is None:
+                run._files_event_done()
+            self._start_protocol_files_handoff(build)
         finally:
             if not led_end_state_applied and getattr(self, '_led_lease', None) is not None:
                 # The run's LED end-state was never decided (the RUN_END
@@ -2773,6 +2630,8 @@ class SequencedCaptureRunner:
             # A cleanup that raised before its read closes the latch here,
             # so the files and the outcome below read the one ending.
             run_ending = run_ending or self._ending.close(ending)
+            if not build_settled:
+                run._files_event_done()
             # The run's events, protocol and directory by value: run_ended is
             # sent after the release, when a successor's start() may have
             # replaced the runner's fields, and a subscriber would otherwise

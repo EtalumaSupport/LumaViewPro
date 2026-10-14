@@ -500,9 +500,15 @@ def _add(
     }
 
     async def answer(
-        request: fastapi.Request, handle_id: str | None, act: Callable[[object, Progress], object]
+        request: fastapi.Request,
+        handle_id: str | None,
+        act: Callable[[object, Progress, Callable[[Future], dict]], object],
     ) -> JSONResponse:
-        """Run the call on its own thread; answer it, or hand out its job when it outlives the wait."""
+        """Run the call on its own thread; answer it, or hand out its job when it outlives the wait.
+
+        *act* is given the owner, the call's progress, and how to name the
+        job a running call it hands back is.
+        """
         _refuse_query(request)
         if closing.begun:
             raise problems.server_closing()
@@ -514,14 +520,15 @@ def _add(
         loop = asyncio.get_running_loop()
         progress = Progress()
 
+        def job_of(future: Future) -> dict:
+            return jobs.of_future(future, member=asked, answer=future_answer, loop=loop)
+
         def encoded(value: object) -> object:
             return wire_encoding.encode(
                 value,
                 live_folder=session.get_setting('live_folder'),
                 handle=registry.mint,
-                job=lambda future: jobs.of_future(
-                    future, member=asked, answer=future_answer, loop=loop
-                ),
+                job=job_of,
             )
 
         def future_answer(future: Future) -> Answer:
@@ -533,7 +540,7 @@ def _add(
                 owner = getattr(owner, segment)
                 if owner is None:
                     raise problems.not_found(f'{name}: this scope has no {segment}.')
-            return encoded(act(owner, progress))
+            return encoded(act(owner, progress, job_of))
 
         answered = jobs.run(lambda: _answered(work, request_id), name, request_id)
         wait = Wait.of(request.headers.get('prefer'))
@@ -562,7 +569,9 @@ def _add(
     if member.read:
 
         async def read(request: fastapi.Request, handle_id: str | None = None) -> JSONResponse:
-            return await answer(request, handle_id, lambda owner, _p: getattr(owner, member.name))
+            return await answer(
+                request, handle_id, lambda owner, _p, _job_of: getattr(owner, member.name)
+            )
 
         _sign(read, on_handle, None)
         app.add_api_route(endpoint=read, methods=['GET'], **common)
@@ -573,7 +582,7 @@ def _add(
     ) -> JSONResponse:
         sent = body.model_dump(include=body.model_fields_set) if body is not None else {}
 
-        def invoke(owner: object, progress: Progress) -> object:
+        def invoke(owner: object, progress: Progress, job_of: Callable[[Future], dict]) -> object:
             arguments = {
                 p.name: wire_encoding.decode(
                     sent[p.name],
@@ -588,7 +597,8 @@ def _add(
                 arguments[member.progress] = progress
             if member.run_events is None:
                 return getattr(owner, member.name)(**arguments)
-            # The run's events name it once the call has handed it out.
+            # The run's events name it, by its job, once the call has handed
+            # it out; a call that waits for its run hands out none.
             tag = stream.run_events()
             arguments[member.run_events] = tag.events()
             try:
@@ -596,7 +606,7 @@ def _add(
             except BaseException:
                 tag.settle(None)
                 raise
-            tag.settle(registry.mint(value) if member.hands_out and value is not None else None)
+            tag.settle({'job': job_of(value)['id']} if isinstance(value, Future) else None)
             return value
 
         return await answer(request, handle_id, invoke)

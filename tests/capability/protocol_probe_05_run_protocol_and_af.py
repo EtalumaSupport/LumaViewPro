@@ -50,7 +50,7 @@ try:
         protocol,
         sequence_name='probe_full_protocol',
     )
-    settled = outcome.wait(timeout_s=300)
+    settled = outcome.result(timeout=300)
     print('status:', settled.status, settled.reason)
     run_dir = outcome.run_dir
     deadline = time.time() + 90
@@ -65,7 +65,7 @@ try:
     banner('B. AUTOFOCUS ALL STEPS through ProtocolRunner.run_autofocus_all_steps')
     z_before = session.scope.motion.get_current_position('Z')
     z_in = protocol.steps()['Z'].tolist()
-    af = runner.run_autofocus_all_steps(protocol).wait(timeout_s=300)
+    af = runner.run_autofocus_all_steps(protocol).result(timeout=300)
     print('status:', af.status, af.reason, 'focus_written:', af.focus_written)
     z_after = session.scope.motion.get_current_position('Z')
     print('Z before/after:', z_before, z_after)

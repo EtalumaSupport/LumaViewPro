@@ -14,6 +14,10 @@ and ``asyncio.wrap_future`` behave as a Future's do. What it adds:
   any operation without holding the producer that would settle it.
 - ``stop()`` stops the operation's work while it is under way, and does
   nothing once it is done or when the operation has no stop.
+- ``progress()`` answers where it has got, for an operation that keeps a
+  progress record (a run's ``RunProgress``); None for one that does not.
+- ``files`` is a run's second operation, done once its files are written;
+  None on every other operation.
 - A producer whose end is a delivery (a run's ``run_ended``) settles it
   through ``settling``: inside that delivery, the delivering thread's
   ``result()``, ``exception()`` and ``done()`` answer at once, while every
@@ -27,10 +31,15 @@ import contextlib
 import queue
 import threading
 from collections.abc import Callable, Iterator
+from typing import TYPE_CHECKING
 
 from lvp_logger import logger
 from modules import kivy_utils
+from modules.api_surface import api, api_fields
 from modules.exceptions import BlockingCallRefusedError
+
+if TYPE_CHECKING:
+    from modules.sequenced_capture_runner import RunProgress
 
 
 class _CallbackThread:
@@ -106,22 +115,51 @@ def join_callback_thread() -> None:
     _callbacks.join(_JOIN_S)
 
 
+@api_fields('files')
 class Operation(concurrent.futures.Future):
-    """One operation in flight: its outcome, its done-callbacks and its stop."""
+    """One operation in flight: its outcome, its done-callbacks, its stop and its progress.
 
-    def __init__(self, *, stop: Callable[[], object] | None = None) -> None:
+    Attributes:
+        files: A run's files, as their own operation: done once the run's
+            images are on disk or given up on, its hyperstack build (when it
+            has one) has ended and its ``files_written`` has been delivered,
+            with the run's ``RunFiles``. None on every other operation.
+    """
+
+    files: 'Operation | None'
+
+    def __init__(
+        self,
+        *,
+        stop: Callable[[], object] | None = None,
+        progress: 'Callable[[], RunProgress] | None' = None,
+        files: 'Operation | None' = None,
+    ) -> None:
         super().__init__()
         self.set_running_or_notify_cancel()
         self._stop = stop
+        self._progress = progress
+        self.files = files
         # Set only while a producer delivers this operation's end on one
         # thread: that thread and the outcome it is delivering.
         self._own: tuple[threading.Thread, object, BaseException | None] | None = None
 
+    @api
     def stop(self) -> None:
-        """Stop this operation's work; nothing once it is done, or when it has no stop."""
+        """Stop this operation's work; only asks, and the operation ends on its own.
+
+        Does nothing once the operation is done, or once its work has ended
+        and it is still telling its listeners, or when it has no stop (a
+        still): a stop that arrives late never touches another operation.
+        """
         if self._stop is None or super().done():
             return
         self._stop()
+
+    @api(reads=True)
+    def progress(self) -> 'RunProgress | None':
+        """Where this operation has got, read now; None for one that keeps no progress record."""
+        return None if self._progress is None else self._progress()
 
     def add_done_callback(self, fn: Callable[['Operation'], object]) -> None:
         """Run ``fn(self)`` on the callback thread once this operation is done."""

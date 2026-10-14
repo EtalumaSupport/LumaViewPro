@@ -18,7 +18,7 @@ import pytest
 
 from modules.protocol_image_writer import RunWriteBatch
 from modules.run_outcome import PendingRunOutcome
-from modules.sequenced_capture_runner import RunHandle
+from modules.sequenced_capture_runner import EngineRun
 from tests.test_diagnostic_claim import _make_session
 from tests.protocol_drives import run_identity
 
@@ -98,9 +98,11 @@ class TestHeldByOther:
 
         monkeypatch.setattr(session.sequenced_capture_runner, 'held_by_other', _held_by_other)
         engine = session.sequenced_capture_runner
-        handle = RunHandle(engine, PendingRunOutcome(), RunWriteBatch(session.file_io_executor))
-        assert session.held_by_other(handle) is True
-        assert asked == [handle]
+        run = EngineRun(
+            engine, PendingRunOutcome(), RunWriteBatch(session.file_io_executor)
+        ).operation
+        assert session.held_by_other(run) is True
+        assert asked == [run]
 
 
 class TestWhatTheGuiDerivesToday:

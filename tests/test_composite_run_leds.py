@@ -192,7 +192,7 @@ def aborted_composite(tmp_path):
         )
         started.append(outcome)
         have_handle.set()
-        settled = outcome.wait(timeout_s=120)
+        settled = outcome.result(timeout=120)
 
         yield {
             'session': session,

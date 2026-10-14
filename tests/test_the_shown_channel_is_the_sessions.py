@@ -97,7 +97,7 @@ def test_a_runs_step_shows_its_layer_lit_only_when_its_led_is(tmp_path):
         run = built.create_protocol_runner().run_single_scan(
             protocol=_build_real_protocol([lumi, bf]), parent_dir=str(tmp_path)
         )
-        assert run.wait(timeout_s=COMPLETION_TIMEOUT).status == 'completed'
+        assert run.result(timeout=COMPLETION_TIMEOUT).status == 'completed'
 
         assert heard[:2] == [('Lumi', False), ('BF', True)]
     finally:

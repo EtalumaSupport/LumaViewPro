@@ -96,7 +96,7 @@ def test_a_sweep_that_will_not_stop_is_one_cleanup_failure_and_then_silent(af_se
     handle = runner.run_autofocus(layer='BF')
     assert sweep.inside.wait(RESULT_TIMEOUT_S), 'the sweep never reached its capture'
     handle.stop()
-    outcome = handle.wait(timeout_s=RESULT_TIMEOUT_S)
+    outcome = handle.result(timeout=RESULT_TIMEOUT_S)
 
     assert outcome is not None, 'the stopped run never let go of the scope'
     assert (outcome.status, outcome.reason) == ('aborted', 'stopped'), outcome
@@ -119,7 +119,7 @@ def test_a_sweep_that_will_not_stop_is_one_cleanup_failure_and_then_silent(af_se
     ]
     assert late == [], 'the freed sweep reported faults of a run that was over'
 
-    again = runner.run_autofocus(layer='BF').wait(timeout_s=RESULT_TIMEOUT_S)
+    again = runner.run_autofocus(layer='BF').result(timeout=RESULT_TIMEOUT_S)
     assert again is not None and again.status == 'completed', again
 
 
@@ -131,7 +131,7 @@ def test_a_sweep_that_stops_in_time_is_no_cleanup_failure(af_session, monkeypatc
     handle = runner.run_autofocus(layer='BF')
     assert sweep.inside.wait(RESULT_TIMEOUT_S), 'the sweep never reached its capture'
     handle.stop()
-    outcome = handle.wait(timeout_s=RESULT_TIMEOUT_S)
+    outcome = handle.result(timeout=RESULT_TIMEOUT_S)
 
     assert (outcome.status, outcome.reason) == ('aborted', 'stopped'), outcome
     assert outcome.cleanup_failures == (), outcome.cleanup_failures

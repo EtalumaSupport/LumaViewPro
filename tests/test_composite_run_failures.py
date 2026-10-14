@@ -160,7 +160,7 @@ class TestAChannelThatCapturesNothing:
                     _session.scope._camera_driver, ('BF', _FAILING), {_FAILING}
                 ),
             )
-            settled = outcome.wait(timeout_s=120)
+            settled = outcome.result(timeout=120)
 
             assert settled is not None, 'the run never settled its outcome'
             assert not settled.merged, (
@@ -207,7 +207,7 @@ class TestAChannelThatCapturesNothing:
                 events=_fail_these_channels(
                     _session.scope._camera_driver, ('BF', _FAILING), {_FAILING}
                 ),
-            ).wait(timeout_s=120)
+            ).result(timeout=120)
 
             run_dir = single_run_dir(tmp_path)
             frames = sorted(p.name for p in run_dir.glob('*.tiff'))
@@ -255,7 +255,7 @@ class TestAChannelThatCapturesNothing:
                 parent_dir=str(tmp_path),
                 events=_fail_these_channels(_session.scope._camera_driver, step_colors, {_FAILING}),
             )
-            settled = outcome.wait(timeout_s=120)
+            settled = outcome.result(timeout=120)
 
             assert settled is not None and settled.merged, (
                 f'two surviving channels are a mergeable group, but the run '
@@ -295,12 +295,10 @@ class TestTheThreeStrikeFatalAbort:
             )
 
             outcome = runner.start_composite(sequence_name='fatal', parent_dir=str(tmp_path))
-            settled = outcome.wait(timeout_s=120)
+            settled = outcome.result(timeout=120)
 
             assert settled is not None, 'the aborted run never settled its outcome'
-            assert outcome.wait_for_files(timeout_s=120) is not None, (
-                'the run never finished its files'
-            )
+            assert outcome.files.result(timeout=120) is not None, 'the run never finished its files'
             assert not settled.merged, f'an aborted run reported a merge: {settled}'
             # The two vocabularies, separated. status says the RUN failed;
             # reason says what killed it. Before they shared one field the
@@ -343,8 +341,8 @@ class TestTheThreeStrikeFatalAbort:
                 0,
             )
 
-            runner.start_composite(sequence_name='released', parent_dir=str(tmp_path)).wait(
-                timeout_s=120
+            runner.start_composite(sequence_name='released', parent_dir=str(tmp_path)).result(
+                timeout=120
             )
 
             assert not session.is_protocol_running, (
@@ -378,8 +376,8 @@ class TestTheThreeStrikeFatalAbort:
                 None,
                 0,
             )
-            runner.start_composite(sequence_name='dark', parent_dir=str(tmp_path)).wait(
-                timeout_s=120
+            runner.start_composite(sequence_name='dark', parent_dir=str(tmp_path)).result(
+                timeout=120
             )
 
             lit = {

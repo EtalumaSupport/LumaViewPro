@@ -35,7 +35,7 @@ def _count_teardowns(executor, monkeypatch):
 
 
 def _ended(executor, run):
-    outcome = run.wait(timeout_s=COMPLETION_TIMEOUT)
+    outcome = run.result(timeout=COMPLETION_TIMEOUT)
     assert outcome is not None, 'the run never reported'
     assert executor.wait_for_run_idle(COMPLETION_TIMEOUT), 'the run never went idle'
     deadline = time.monotonic() + COMPLETION_TIMEOUT
@@ -60,7 +60,7 @@ def test_a_stopped_run_is_torn_down_once(executor, tmp_path, monkeypatch):
     teardowns = _count_teardowns(executor, monkeypatch)
     run = _start_run(executor, tmp_path, threading.Event())
 
-    executor._reset(run)
+    run.stop()
     outcome = _ended(executor, run)
 
     assert (outcome.status, outcome.reason) == ('aborted', 'stopped')

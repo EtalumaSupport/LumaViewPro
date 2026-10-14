@@ -193,18 +193,18 @@ class TestTheFlagAndTheClaimEndTogether:
         # cleanup names it, and closes its batch on the way out.
         from modules.protocol_image_writer import RunWriteBatch
         from modules.run_outcome import PendingRunOutcome
-        from modules.sequenced_capture_runner import RunHandle
+        from modules.sequenced_capture_runner import EngineRun
 
         runner._run_outcome = PendingRunOutcome()
         runner._write_batch = RunWriteBatch(runner.file_io_executor)
-        run = runner._run_handle = RunHandle(runner, runner._run_outcome, runner._write_batch)
+        run = runner._run_handle = EngineRun(runner, runner._run_outcome, runner._write_batch)
         assert runner.run_in_progress()
 
         def _boom(**_kwargs):
             raise RuntimeError('cleanup died before it cleared the run flag')
 
         monkeypatch.setattr('modules.sequenced_capture_runner.run_cleanup', _boom)
-        monkeypatch.setattr(runner, '_start_hyperstack_build', lambda: None)
+        monkeypatch.setattr(runner, '_start_hyperstack_build', lambda on_end: None)
 
         from modules.run_outcome import RunEnding
 

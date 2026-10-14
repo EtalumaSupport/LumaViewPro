@@ -171,7 +171,7 @@ def main():
                 parent_dir=str(run_parent),
                 events=RunEvents(files_written=lambda *written: files_written.set()),
             )
-            result = outcome.wait(timeout_s=RUN_TIMEOUT_S)
+            result = outcome.result(timeout=RUN_TIMEOUT_S)
         finally:
             del motion.move_turret
         figure('run result', None if result is None else (result.status, result.reason))

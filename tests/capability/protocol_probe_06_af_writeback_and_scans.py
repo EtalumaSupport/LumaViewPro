@@ -63,7 +63,7 @@ try:
     )
     print('remaining_scans at start:', out.remaining_scans)
     print('protocol_interval       :', out.interval)
-    s = out.wait(timeout_s=300)
+    s = out.result(timeout=300)
     print('status:', s.status, s.reason)
     rd = out.run_dir
     deadline = time.time() + 90

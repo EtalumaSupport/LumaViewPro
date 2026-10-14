@@ -50,10 +50,10 @@ for _name, _attr in (
 import modules.app_context as _app_ctx
 import ui.protocol_settings as ps
 import ui.ui_helpers as ui_helpers
-from modules.exceptions import ProtocolRunRefusedError, RunAlreadyEndedError
+from modules.exceptions import ProtocolRunRefusedError
 from modules.run_outcome import PendingRunOutcome
 from modules.protocol_image_writer import RunWriteBatch
-from modules.sequenced_capture_runner import RunHandle
+from modules.sequenced_capture_runner import EngineRun, RunProgress
 from tests.pool_fakes import run_task_now
 
 
@@ -85,12 +85,8 @@ class _Panel(ps.ProtocolSettings):
 @pytest.fixture
 def engine():
     e = MagicMock()
-    e._is_live_run.return_value = False
-    e._is_stopping.return_value = False
-    e._last_run.return_value = None
     e.run_dir.return_value = None
-    # A handle's progress: the engine's reading while the handle is live.
-    e._live_run_value.side_effect = lambda run, read: read() if e._is_live_run(run) else None
+    _live(e)
     return e
 
 
@@ -150,13 +146,39 @@ def app_ctx(engine, session, held, tmp_path, monkeypatch):
     _app_ctx.ctx = saved
 
 
-def _handle(engine):
-    """A run's handle over the engine stand-in, as the engine's start() makes it."""
-    return RunHandle(engine, PendingRunOutcome(), RunWriteBatch(MagicMock()))
+def _run(engine):
+    """A run over the engine stand-in, as start() makes it; a button holds its ``operation``."""
+    return EngineRun(engine, PendingRunOutcome(), RunWriteBatch(MagicMock()))
 
 
-def _live(engine, *runs):
-    engine._is_live_run.side_effect = lambda run: run is not None and any(run is r for r in runs)
+def _live(
+    engine,
+    *runs,
+    stopping=lambda: False,
+    last=None,
+    remaining_scans=None,
+    interval=None,
+):
+    """The engine's progress record of each run: live for *runs*, ended for every other.
+
+    *stopping* is asked at each read, so a Stop the test makes shows on the
+    next redraw; *last* is the engine's most recent run, live or finished.
+    """
+
+    def _progress_of(run):
+        live = any(run is r for r in runs)
+        return RunProgress(
+            is_live=live,
+            is_stopping=live and stopping(),
+            is_last_run=run is last,
+            run_dir=None,
+            step_number=1 if live else None,
+            num_steps=1 if live else None,
+            remaining_scans=remaining_scans if live else None,
+            interval=interval if live else None,
+        )
+
+    engine._progress_of.side_effect = _progress_of
 
 
 @pytest.mark.parametrize(
@@ -171,8 +193,8 @@ def test_a_press_starts_its_run_through_the_apis_runner(
 ):
     """Run and Scan are the calls a script makes, with what only the panel knows."""
     panel = _Panel()
-    handle = _handle(engine)
-    engine.start.return_value = handle
+    run = _run(engine)
+    engine.start.return_value = run.operation
 
     getattr(panel, press)()
 
@@ -185,8 +207,10 @@ def test_a_press_starts_its_run_through_the_apis_runner(
     assert member.call_args.args[0] is panel._protocol.copy_for_execution.return_value, (
         "the run gets the copy taken at the click; the panel's protocol is the person's"
     )
-    assert panel._runs_started_here[trigger] is handle, 'the handle is what its Stop names'
-    assert not engine._reset.called, 'a start is not a stop'
+    assert panel._runs_started_here[trigger] is run.operation, (
+        'the operation is what its Stop names'
+    )
+    assert not engine._stop_run.called, 'a start is not a stop'
 
 
 def test_a_refused_start_is_shown_once_and_the_button_draws_idle(app_ctx, engine, centre_posts):
@@ -231,9 +255,9 @@ def test_an_unexpected_failure_is_one_fault_and_the_button_draws_idle(
 
 def test_a_started_run_draws_running(app_ctx, engine):
     panel = _Panel()
-    handle = _handle(engine)
-    engine.start.return_value = handle
-    _live(engine, handle)
+    run = _run(engine)
+    engine.start.return_value = run.operation
+    _live(engine, run)
 
     panel.run_scan_from_ui()
 
@@ -243,83 +267,50 @@ def test_a_started_run_draws_running(app_ctx, engine):
 
 def test_the_full_protocol_button_counts_the_live_runs_own_scans(app_ctx, engine):
     panel = _Panel()
-    handle = _handle(engine)
-    engine.start.return_value = handle
-    engine._remaining_scans.return_value = 3
-    engine._protocol_interval.return_value = timedelta(minutes=20)
-    _live(engine, handle)
+    run = _run(engine)
+    engine.start.return_value = run.operation
+    _live(engine, run, remaining_scans=3, interval=timedelta(minutes=20))
 
     panel.run_protocol_from_ui()
 
     assert panel.ids['run_protocol_btn'].text == '3 scans (1h 0m) remaining.\nPress to ABORT'
 
 
-def test_a_run_that_ended_between_the_reads_draws_idle(app_ctx, engine):
-    """Live at the first read, ended by the progress read: the button
-    draws what it read -- idle -- not a running label for an ended run."""
-    panel = _Panel()
-    handle = _handle(engine)
-    panel._runs_started_here = {'protocol': handle}
-    _live(engine, handle)
-    engine._live_run_value.side_effect = lambda run, read: None
-
-    panel.draw_protocol_buttons()
-
-    button = panel.ids['run_protocol_btn']
-    assert (button.state, button.text) == ('normal', 'Run Full Protocol')
-
-
 def test_a_second_press_stops_its_own_run_ahead_of_queued_work(app_ctx, engine):
     from modules.sequential_io_executor import PRIORITY_HIGH
 
     panel = _Panel()
-    handle = _handle(engine)
-    panel._runs_started_here['protocol'] = handle
-    _live(engine, handle)
-    engine._is_stopping.side_effect = lambda run: run is handle and engine._reset.called
+    run = _run(engine)
+    panel._runs_started_here['protocol'] = run.operation
+    _live(engine, run, stopping=lambda: engine._stop_run.called)
 
     panel.run_protocol_from_ui()
 
     task = app_ctx.worker_pool.put.call_args.args[0]
     assert task.priority == PRIORITY_HIGH, 'a Stop must not wait behind queued work'
-    engine._reset.assert_called_once_with(handle)
+    engine._stop_run.assert_called_once_with(run)
     assert not engine.prepare.called, 'a Stop is not a start'
     assert panel.ids['run_protocol_btn'].text == 'Stopping...'
 
 
-def test_a_stop_that_finds_its_run_already_ended_shows_nothing(app_ctx, engine, centre_posts):
+def test_a_stop_that_finds_its_run_already_ended_shows_nothing(app_ctx, held, engine, centre_posts):
+    # The press reads its run live and hands a Stop to the pool; the run
+    # ends before the pool runs it. A Stop of an ended run does nothing and
+    # raises nothing, so there is nothing to show and nothing is stopped.
+    held.append('hold')
     panel = _Panel()
-    handle = _handle(engine)
-    panel._runs_started_here['scan'] = handle
-    _live(engine, handle)
-
-    def _ended(run):
-        _live(engine)  # the run ended between the press and the pool
-        raise RunAlreadyEndedError('the run already ended')
-
-    engine._reset.side_effect = _ended
+    run = _run(engine)
+    panel._runs_started_here['scan'] = run.operation
+    _live(engine, run)
 
     panel.run_scan_from_ui()
+    _live(engine)
+    run.operation.set_result(None)
+    run_task_now(held[1])
 
     assert centre_posts == []
+    assert not engine._stop_run.called, 'a Stop of an ended run reached the engine'
     assert panel.ids['run_scan_btn'].state == 'normal'
-
-
-def test_a_refused_stop_leaves_every_button_showing_its_own_run(app_ctx, engine, centre_posts):
-    panel = _Panel()
-    mine, theirs = _handle(engine), _handle(engine)
-    panel._runs_started_here['scan'] = mine
-    panel._runs_started_here['protocol'] = theirs
-    _live(engine, mine, theirs)
-    engine._reset.side_effect = ProtocolRunRefusedError(
-        'run_not_live', 'That run is not the one running.'
-    )
-
-    panel.run_scan_from_ui()
-
-    assert [n.title for n in centre_posts] == ['Run Already Ended']
-    assert panel.ids['run_scan_btn'].state == 'down'
-    assert panel.ids['run_protocol_btn'].state == 'down'
 
 
 def test_the_button_is_disabled_while_its_own_request_is_in_flight(app_ctx, held, engine):
@@ -336,9 +327,9 @@ def test_the_button_is_disabled_while_its_own_request_is_in_flight(app_ctx, held
 
 def test_a_finished_runs_drain_shows_its_count(app_ctx, engine, session):
     panel = _Panel()
-    finished = _handle(engine)
-    panel._runs_started_here['protocol'] = finished
-    engine._last_run.return_value = finished
+    finished = _run(engine)
+    panel._runs_started_here['protocol'] = finished.operation
+    _live(engine, last=finished)
     session.protocol_files_draining = True
     session.protocol_files_pending = 7
 
@@ -372,9 +363,9 @@ def test_each_button_records_what_it_shows_and_whether_it_is_held(app_ctx, engin
     gui_logger._shown.clear()
     caplog.set_level(logging.INFO, logger='LVP.gui_interactions')
     panel = _Panel()
-    finished = _handle(engine)
-    panel._runs_started_here['protocol'] = finished
-    engine._last_run.return_value = finished
+    finished = _run(engine)
+    panel._runs_started_here['protocol'] = finished.operation
+    _live(engine, last=finished)
     session.held_by_other = lambda run: run is None
     session.protocol_files_draining = True
 
@@ -393,9 +384,9 @@ def test_each_button_records_what_it_shows_and_whether_it_is_held(app_ctx, engin
 
 def test_a_live_runs_own_writes_do_not_disable_its_stop(app_ctx, engine, session):
     panel = _Panel()
-    handle = _handle(engine)
-    panel._runs_started_here['scan'] = handle
-    _live(engine, handle)
+    run = _run(engine)
+    panel._runs_started_here['scan'] = run.operation
+    _live(engine, run)
     session.protocol_files_draining = True
     session.is_protocol_running = True
 
@@ -424,9 +415,9 @@ def test_a_stalled_drain_opens_no_offer_of_its_own(app_ctx, session, monkeypatch
 
 def test_a_scan_between_iterations_redraws_rather_than_drawing_idle(app_ctx, engine):
     panel = _Panel()
-    handle = _handle(engine)
-    engine.start.return_value = handle
-    _live(engine, handle)
+    run = _run(engine)
+    engine.start.return_value = run.operation
+    _live(engine, run)
     panel.run_scan_from_ui()
     scan_ended = engine.prepare.call_args.kwargs['events'].scan_ended
 
@@ -459,15 +450,15 @@ def test_each_panel_press_is_recorded_once_as_what_it_did(app_ctx, engine, monke
     wrong = {}
     for press, start, stop in _PRESSES:
         panel = _Panel()
-        handle = _handle(engine)
-        engine.start.return_value = handle
+        run = _run(engine)
+        engine.start.return_value = run.operation
 
         recorded.clear()
         getattr(panel, press)()
         started = list(recorded)
 
         recorded.clear()
-        _live(engine, handle)
+        _live(engine, run)
         getattr(panel, press)()
         stopped = list(recorded)
 
@@ -512,7 +503,7 @@ def test_each_button_greys_while_anything_else_holds_the_scope(app_ctx, session)
     holder greys it, its own run leaves it live as that run's Stop."""
     panel = _Panel()
     engine = app_ctx.sequenced_capture_runner
-    runs = {trigger: _handle(engine) for trigger in ('scan', 'protocol', 'autofocus_scan')}
+    runs = {trigger: _run(engine).operation for trigger in ('scan', 'protocol', 'autofocus_scan')}
     panel._runs_started_here = dict(runs)
     own_run = runs['protocol']
     session.held_by_other = lambda run: run is not own_run

@@ -83,9 +83,9 @@ def test_a_live_runs_captured_images_are_written_not_called_incomplete(sim_sessi
 
     sim_session.shutdown()
 
-    outcome = run.wait(timeout_s=SETTLE_S)
+    outcome = run.result(timeout=SETTLE_S)
     assert (outcome.status, outcome.reason) == ('aborted', 'shutdown')
-    files = run.wait_for_files(timeout_s=SETTLE_S)
+    files = run.files.result(timeout=SETTLE_S)
     assert files.not_written_reason != 'write_batch_abandoned', files
     assert files.written == outcome.captures.captured, files
 
@@ -124,7 +124,7 @@ def test_a_run_started_while_the_close_runs_is_never_left_live(tmp_path):
         assert session.activity_claim.holder is None, f'trial {trial}: the scope is still held'
         assert not session.sequenced_capture_runner.run_live, f'trial {trial}: a run is live'
         if 'run' in box:
-            assert box['run'].wait(timeout_s=SETTLE_S) is not None
+            assert box['run'].result(timeout=SETTLE_S) is not None
 
 
 def test_two_closes_at_once_tear_down_once(tmp_path):

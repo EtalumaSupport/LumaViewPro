@@ -56,7 +56,7 @@ IN_PROCESS_LABEL = '(in-process)'
 NOT_VACUOUS = {
     'ScopeSession.add_step',
     'ImagingAPI.set_gain_db',
-    'RunHandle.wait',
+    'Operation.stop',
     'RunOutcome.status',
     'Notification.kind',
 }

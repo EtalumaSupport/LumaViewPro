@@ -46,7 +46,7 @@ def test_an_auto_gain_step_arms_captures_and_disarms_inside_its_run(tmp_path):
             events=RunEvents(files_written=lambda *written: files_written.set()),
         )
         assert files_written.wait(COMPLETION_TIMEOUT), 'the run never finished its files'
-        outcome = run.wait(timeout_s=COMPLETION_TIMEOUT)
+        outcome = run.result(timeout=COMPLETION_TIMEOUT)
         assert outcome.status == 'completed', outcome
         images = [p for p in tmp_path.rglob('*') if p.suffix.lower() in ('.tif', '.tiff')]
         assert len(images) == 1, (

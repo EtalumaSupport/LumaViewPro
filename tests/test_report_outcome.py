@@ -19,9 +19,9 @@ import pytest
 from drivers.exceptions import CameraReadFailedError, LedFirmwareWedgedError
 from modules.exceptions import (
     CaptureFailedError,
+    CompositeWaitExpiredError,
     HardwareCommandRefusedError,
     ObjectiveUnknownError,
-    RunAlreadyEndedError,
     SingleScanNotice,
 )
 from modules.notification_center import REFUSAL_OPERATION_KEY, NotificationCenter, Severity
@@ -154,7 +154,13 @@ class TestAFault:
 
 @pytest.mark.parametrize(
     'quiet',
-    [RunAlreadyEndedError('the run has ended'), CancelledError()],
+    [
+        CompositeWaitExpiredError(
+            'the composite did not report an outcome within 5s; the run or its merge is wedged',
+            'merge_timeout',
+        ),
+        CancelledError(),
+    ],
     ids=['quiet_marker', 'cancel'],
 )
 def test_a_quiet_outcome_is_logged_at_info_and_never_shown(centre, caplog, quiet):

@@ -217,9 +217,9 @@ def test_a_floor_met_after_the_run_settled_is_told_once_as_lost_images(
         start = len(centre_posts)
         steps = [_step(f'C{i}', i, x=20.0 + 5 * i, gain=1.0) for i in range(3)]
         run = runner.run_single_scan(protocol=_protocol(steps), parent_dir=str(tmp_path / 'runs'))
-        outcome = run.wait(timeout_s=WAIT_S)
+        outcome = run.result(timeout=WAIT_S)
         settled_at.append(time.monotonic())
-        files = run.wait_for_files(timeout_s=WAIT_S)
+        files = run.files.result(timeout=WAIT_S)
 
     posts = [(n.title, n.shown) for n in centre_posts[start:]]
     assert (outcome.status, outcome.reason) == ('completed', 'completed'), outcome
@@ -246,8 +246,8 @@ def test_a_crashed_run_loop_is_shown_once(tmp_path, monkeypatch, centre_posts):
             protocol=_protocol([_step('C1', 0, x=20.0, gain=1.0)]),
             parent_dir=str(tmp_path / 'runs'),
         )
-        outcome = run.wait(timeout_s=WAIT_S)
-        run.wait_for_files(timeout_s=WAIT_S)
+        outcome = run.result(timeout=WAIT_S)
+        run.files.result(timeout=WAIT_S)
 
     assert (outcome.status, outcome.reason) == ('failed', 'run_loop_crashed'), outcome
     shown = [n.title for n in centre_posts[start:] if n.shown and n.fatal]

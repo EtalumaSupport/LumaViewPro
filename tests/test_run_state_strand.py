@@ -130,7 +130,7 @@ class TestClaimRefusalLeavesNoState:
                 events=RunEvents(run_ended=lambda *_: first_done.set()),
             )
             assert first_done.wait(timeout=COMPLETION_TIMEOUT), 'first run did not end'
-            settled = first.wait(timeout_s=COMPLETION_TIMEOUT)
+            settled = first.result(timeout=COMPLETION_TIMEOUT)
             assert settled is not None, 'the first run never reported an outcome'
             assert (settled.status, settled.reason) == ('completed', 'completed'), (
                 f'the first run reported {settled.status!r} ({settled.reason!r})'
@@ -229,7 +229,7 @@ class TestTheHolderIsTheLiveRun:
                 parent_dir=str(tmp_path),
                 events=RunEvents(scan_started=_observe),
             )
-            assert run.wait(timeout_s=COMPLETION_TIMEOUT) is not None
+            assert run.result(timeout=COMPLETION_TIMEOUT) is not None
 
             assert observed['kind'] == 'protocol', (
                 'the run did not hold the claim while it was running'

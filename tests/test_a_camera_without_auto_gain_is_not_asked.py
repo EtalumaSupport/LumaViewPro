@@ -202,7 +202,7 @@ class TestARun:
             assert session.scope.capabilities.camera_supports_auto_gain is False
 
             outcome = runner.start_composite(sequence_name='ag_less', parent_dir=str(tmp_path))
-            result = outcome.wait(timeout_s=30.0)
+            result = outcome.result(timeout=30.0)
 
         assert result is not None and result.status == 'completed', result
         assert asked == []

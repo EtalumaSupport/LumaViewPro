@@ -35,8 +35,8 @@ _ABORTED = RunEnding('aborted', 'stopped', 'Stopped by test')
 def _started_runner():
     """A runner past prepare()+start(): claim held, lease held, RUNNING.
 
-    Returns the runner and the run start() committed -- the run a cleanup
-    of it names.
+    Returns the runner and the run start() committed, as the engine holds
+    it -- the run a cleanup of it names.
 
     The dispatched Future is left UNRESOLVED, which is what start() reads
     as "the run loop is live": a resolved one means the dispatch was
@@ -47,8 +47,8 @@ def _started_runner():
     runner = bare_capture_runner()
     runner.protocol_thread.run_protocol.return_value = Future()
     runner.protocol_thread.aborted = threading.Event()
-    run = runner.start(runner.prepare(**scr_run_kwargs()))
-    return runner, run
+    runner.start(runner.prepare(**scr_run_kwargs()))
+    return runner, runner._last_run()
 
 
 def test_a_cleanup_that_raises_past_the_phase_change_still_ends_idle(monkeypatch):
@@ -79,7 +79,8 @@ def test_a_cleanup_that_raises_past_the_phase_change_still_ends_idle(monkeypatch
     # The researcher presses Run again. This is the whole point: at the
     # defect it raised ValueError out of start() and burned the claim.
     monkeypatch.undo()
-    next_run = runner.start(runner.prepare(**scr_run_kwargs()))
+    runner.start(runner.prepare(**scr_run_kwargs()))
+    next_run = runner._last_run()
     assert runner.run_in_progress(), 'the next run did not start after a raising cleanup'
     runner._cleanup(_ABORTED, next_run)
 
@@ -104,7 +105,8 @@ def test_a_cleanup_that_raises_before_the_phase_change_still_ends_idle(monkeypat
     assert runner._state is ProtocolState.IDLE, 'a run that stopped at RUNNING did not end idle'
     assert runner._activity_claim.holder is None, 'the activity claim outlived the run'
     writer.wait_for_video_drains.side_effect = None
-    next_run = runner.start(runner.prepare(**scr_run_kwargs()))
+    runner.start(runner.prepare(**scr_run_kwargs()))
+    next_run = runner._last_run()
     assert runner.run_in_progress(), 'the next run did not start after a raising cleanup'
     runner._cleanup(_ABORTED, next_run)
 
@@ -137,7 +139,7 @@ def test_a_live_error_run_reads_as_in_progress():
 
     A predicate that answered "not in progress" for it would make
     wait_for_run_idle return True at shutdown with the teardown still
-    running, and reset() / force_reset() silently early-return.
+    running, and a stop and force_reset() silently early-return.
     """
     runner, run = _started_runner()
 

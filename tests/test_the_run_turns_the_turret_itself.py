@@ -40,7 +40,7 @@ def test_a_headless_run_visits_each_steps_slot(tmp_path, monkeypatch):
             parent_dir=str(tmp_path / 'runs'),
             events=RunEvents(step_started=displayed.append),
         )
-        result = outcome.wait(timeout_s=60.0)
+        result = outcome.result(timeout=60.0)
         assert result is not None and result.status == 'completed', result
 
     slots = {obj: slot for slot, obj in TEST_TURRET_OBJECTIVES.items() if obj}

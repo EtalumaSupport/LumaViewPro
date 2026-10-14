@@ -136,7 +136,7 @@ def test_a_layers_autofocus_switched_during_a_run_is_still_switched_after_it(ses
         ),
     )
     assert files_written.wait(COMPLETION_TIMEOUT), 'the run never finished its files'
-    assert run.wait(timeout_s=COMPLETION_TIMEOUT) is not None
+    assert run.result(timeout=COMPLETION_TIMEOUT) is not None
 
     assert session.settings['BF']['autofocus'] is True
 
