@@ -43,7 +43,7 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-PRODUCTION_ROOTS = ('modules/', 'ui/', 'drivers/', 'tools/', 'lumaviewpro.py')
+PRODUCTION_ROOTS = ('modules/', 'ui/', 'drivers/', 'tools/', 'rest/', 'lumaviewpro.py')
 GUARDS = 'tests/guards'
 
 

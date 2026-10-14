@@ -118,6 +118,25 @@ def test_the_command_prints_one_path_per_line_and_refuses_no_production_path(tmp
     assert capsys.readouterr().err.strip() == 'no changed production .py path given'
 
 
+def test_a_rest_path_is_production_and_is_reached_by_the_tests_that_import_it(tmp_path, capsys):
+    """``rest/`` is the shipped REST host, an L2 caller in the repository, so a
+    change under it is a changed production path like one under ``modules/``.
+    Before, the tool answered "no changed production .py path given" for a
+    REST-only change and the session built its list by hand (primary,
+    2026-10-14, at 97abcaca)."""
+    root = _tree(
+        tmp_path,
+        {
+            'rest/__init__.py': '',
+            'rest/app.py': 'def app():\n    return 1\n',
+            'tests/test_rest_app.py': 'from rest.app import app\n\ndef test_k():\n    assert app()\n',
+        },
+    )
+    assert main(['--root', str(root), 'rest/app.py']) == 0
+    out, _err = capsys.readouterr()
+    assert out.splitlines() == ['tests/guards/test_a_guard.py', 'tests/test_rest_app.py']
+
+
 def test_the_changed_paths_come_from_a_commit_or_the_working_tree(tmp_path, capsys):
     root = _tree(tmp_path)
 
