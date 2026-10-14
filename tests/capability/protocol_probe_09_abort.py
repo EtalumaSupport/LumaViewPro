@@ -32,7 +32,7 @@ try:
     )
 
     banner('an earlier scan, run to its end: its handle is the stale one below')
-    earlier = runner.run_single_scan(
+    earlier = runner.start_single_scan(
         p,
         sequence_name='earlier',
     )
@@ -43,7 +43,7 @@ try:
         time.sleep(0.5)
 
     banner('start a long protocol, then stop it')
-    out = runner.run_protocol(
+    out = runner.start_protocol(
         p,
         sequence_name='abortme',
     )

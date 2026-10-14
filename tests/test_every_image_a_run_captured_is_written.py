@@ -101,7 +101,7 @@ class TestAShortRunWhileTheFileWorkerWaits:
             lane_queue.get = _parked_get
             try:
                 assert parked.wait(WAIT_S), 'the file worker never came back to its wait'
-                outcome = runner.run_single_scan(
+                outcome = runner.start_single_scan(
                     protocol=_protocol([_step('C2', 0, x=20.0, gain=1.0)]),
                     parent_dir=str(run_parent),
                 )
@@ -151,7 +151,7 @@ class TestAnErrorAbort:
                 'are_all_connected',
                 lambda: False if disconnected.is_set() else real_connected(),
             )
-            outcome = runner.run_single_scan(
+            outcome = runner.start_single_scan(
                 protocol=_protocol(
                     [_step('B3', 0, x=20.0, gain=1.0), _step('B1', 1, x=60.0, gain=1.0)]
                 ),
@@ -203,7 +203,7 @@ class TestAnErrorAbort:
                 'are_all_connected',
                 lambda: False if disconnected.is_set() else real_connected(),
             )
-            outcome = runner.run_single_scan(
+            outcome = runner.start_single_scan(
                 protocol=_protocol(
                     [_step('B3', 0, x=20.0, gain=1.0), _step('B1', 1, x=60.0, gain=1.0)]
                 ),
@@ -232,7 +232,7 @@ class TestBackToBackRuns:
             engine = runner.sequenced_capture_runner
             for index in range(3):
                 heard_events = _Heard()
-                outcome = runner.run_single_scan(
+                outcome = runner.start_single_scan(
                     protocol=_protocol([_step(f'C{index}', 0, x=20.0, gain=1.0)]),
                     parent_dir=str(run_parent),
                     events=heard_events.as_events(),
@@ -274,7 +274,7 @@ class TestANewRunWhileTheLastRunsFilesWrite:
         heard_events = _Heard()
         with open_composite_session(headless_settings(tmp_path)) as (session, runner):
             engine = runner.sequenced_capture_runner
-            outcome = runner.run_single_scan(
+            outcome = runner.start_single_scan(
                 protocol=_protocol([_step('C1', 0, x=20.0, gain=1.0)]),
                 parent_dir=str(run_parent),
                 events=heard_events.as_events(),
@@ -292,7 +292,7 @@ class TestANewRunWhileTheLastRunsFilesWrite:
             assert session.protocol_files_draining
             assert session.protocol_files_pending == 1
             with pytest.raises(ProtocolRunRefusedError) as refused:
-                runner.run_single_scan(
+                runner.start_single_scan(
                     protocol=_protocol([_step('C2', 0, x=20.0, gain=1.0)]),
                     parent_dir=str(run_parent),
                 )
@@ -301,7 +301,7 @@ class TestANewRunWhileTheLastRunsFilesWrite:
             release.set()
             assert heard_events.files_done.wait(WAIT_S)
             assert not session.protocol_files_draining
-            second = runner.run_single_scan(
+            second = runner.start_single_scan(
                 protocol=_protocol([_step('C3', 0, x=20.0, gain=1.0)]),
                 parent_dir=str(run_parent),
             )
@@ -342,7 +342,7 @@ class TestTheRunsWritesCloseBeforeItEnds:
 
             monkeypatch.setattr(engine, '_settle_run_outcome', _settle)
             monkeypatch.setattr(engine, '_set_state', _set_state)
-            outcome = runner.run_single_scan(
+            outcome = runner.start_single_scan(
                 protocol=_protocol([_step('C1', 0, x=20.0, gain=1.0)]),
                 parent_dir=str(tmp_path / 'runs'),
             )
@@ -372,7 +372,7 @@ class TestACleanupThatRaises:
         heard_events = _Heard()
         with open_composite_session(headless_settings(tmp_path)) as (_session, runner):
             engine = runner.sequenced_capture_runner
-            runner.run_single_scan(
+            runner.start_single_scan(
                 protocol=_protocol([_step('C1', 0, x=20.0, gain=1.0)]),
                 parent_dir=str(run_parent),
                 events=heard_events.as_events(),
@@ -381,7 +381,7 @@ class TestACleanupThatRaises:
             assert engine.wait_for_run_idle(WAIT_S)
             time.sleep(0.3)
             monkeypatch.undo()
-            second = runner.run_single_scan(
+            second = runner.start_single_scan(
                 protocol=_protocol([_step('C2', 0, x=20.0, gain=1.0)]),
                 parent_dir=str(run_parent),
             )
@@ -416,7 +416,7 @@ class TestAStartThatFails:
                     return future
 
                 monkeypatch.setattr(engine.protocol_thread, 'run_protocol', _refused)
-            outcome = runner.run_single_scan(
+            outcome = runner.start_single_scan(
                 protocol=_protocol([_step('C1', 0, x=20.0, gain=1.0)]),
                 parent_dir=str(tmp_path / 'runs'),
                 events=heard_events.as_events(),
@@ -457,7 +457,7 @@ class TestARunAfterAnErrorAbort:
                 lambda: False if disconnected.is_set() else real_connected(),
             )
             first_files = _Heard()
-            first = runner.run_single_scan(
+            first = runner.start_single_scan(
                 protocol=_protocol(
                     [_step('A1', 0, x=20.0, gain=1.0), _step('A2', 1, x=60.0, gain=1.0)]
                 ),
@@ -471,7 +471,7 @@ class TestARunAfterAnErrorAbort:
 
             release, started = _hold_saves(monkeypatch)
             second_files = _Heard()
-            second = runner.run_single_scan(
+            second = runner.start_single_scan(
                 protocol=_protocol(
                     [
                         _step('B1', 0, x=20.0, gain=1.0),
@@ -513,7 +513,7 @@ class TestAWriteWhoseFailureReportRaises:
                 raise RuntimeError('reporting the failure failed')
 
             monkeypatch.setattr(lane, '_report_task_failure', _report_fails)
-            outcome = runner.run_single_scan(
+            outcome = runner.start_single_scan(
                 protocol=_protocol([_step('C1', 0, x=20.0, gain=1.0)]),
                 parent_dir=str(run_parent),
                 events=heard_events.as_events(),

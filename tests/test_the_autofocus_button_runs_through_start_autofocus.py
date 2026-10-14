@@ -1,5 +1,5 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""The Autofocus button runs through ``ProtocolRunner.run_autofocus`` and draws its run.
+"""The Autofocus button runs through ``ProtocolRunner.start_autofocus`` and draws its run.
 
 There is one implementation of "autofocus once, here". The button once
 built the whole run itself -- the objective check, the position, the layer
@@ -76,7 +76,7 @@ def pressed(monkeypatch, held, centre_posts):
     member = MagicMock()
     engine = MagicMock()
     run = EngineRun(engine, PendingRunOutcome(), RunWriteBatch(MagicMock()))
-    member.run_autofocus.return_value = run.operation
+    member.start_autofocus.return_value = run.operation
     _live(engine)
     session = MagicMock()
     session.create_protocol_runner.return_value = member
@@ -122,8 +122,8 @@ def _live(engine, *runs):
 def test_the_button_states_only_what_the_gui_knows(pressed):
     pressed.button.run_autofocus_from_ui()
 
-    pressed.member.run_autofocus.assert_called_once()
-    kwargs = pressed.member.run_autofocus.call_args.kwargs
+    pressed.member.start_autofocus.assert_called_once()
+    kwargs = pressed.member.start_autofocus.call_args.kwargs
     assert kwargs['layer'] == 'Green'
     assert kwargs['run_trigger_source'] == 'autofocus', 'the attended trigger'
     assert kwargs['save_characterization_data'] is True, (
@@ -149,7 +149,7 @@ def test_the_button_starts_no_run_of_its_own(pressed):
 
 
 def test_a_refused_start_is_shown_once_and_the_button_draws_idle(pressed):
-    pressed.member.run_autofocus.side_effect = ProtocolRunRefusedError(
+    pressed.member.start_autofocus.side_effect = ProtocolRunRefusedError(
         reason='autofocus_running', message='m'
     )
 
@@ -161,7 +161,7 @@ def test_a_refused_start_is_shown_once_and_the_button_draws_idle(pressed):
 
 
 def test_an_unexpected_failure_is_one_fault_and_the_button_draws_idle(pressed):
-    pressed.member.run_autofocus.side_effect = TypeError('bad call')
+    pressed.member.start_autofocus.side_effect = TypeError('bad call')
 
     pressed.button.run_autofocus_from_ui()
 
@@ -191,7 +191,7 @@ def test_a_second_press_stops_its_own_run_ahead_of_queued_work(pressed):
     task = pressed.pool.put.call_args.args[0]
     assert task.priority == PRIORITY_HIGH, 'a Stop must not wait behind queued work'
     pressed.engine._stop_run.assert_called_once_with(pressed.run)
-    assert not pressed.member.run_autofocus.called, 'a Stop is not a start'
+    assert not pressed.member.start_autofocus.called, 'a Stop is not a start'
     assert pressed.button.button.text == 'Stopping...'
 
 
@@ -226,7 +226,7 @@ def test_the_button_is_disabled_while_its_own_request_is_in_flight(pressed, held
     assert pressed.button.autofocus_pending is False, (
         "the request's own redraw brings the button back"
     )
-    assert pressed.member.run_autofocus.call_count == 1
+    assert pressed.member.start_autofocus.call_count == 1
 
 
 def test_a_protocols_autofocus_is_not_this_buttons_to_show(pressed):
@@ -314,7 +314,7 @@ def test_a_bound_that_outlived_its_run_leaves_the_next_autofocus_alone(pressed, 
     [stale] = real.clock.scheduled
 
     _live(pressed.engine)  # the first run ends
-    pressed.member.run_autofocus.return_value = second.operation
+    pressed.member.start_autofocus.return_value = second.operation
     _live(pressed.engine, second)
     real.button.run_autofocus_from_ui()
 
@@ -365,4 +365,4 @@ def test_a_press_during_a_finished_runs_drain_reaches_the_api(pressed):
 
     pressed.button.run_autofocus_from_ui()
 
-    pressed.member.run_autofocus.assert_called_once()
+    pressed.member.start_autofocus.assert_called_once()

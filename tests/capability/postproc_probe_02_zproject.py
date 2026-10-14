@@ -3,7 +3,7 @@
 GUI equivalent: Post-Processing > Z-Projection > Run, i.e.
 ui/post_processing.py:284 ZProjectionControls.run_zprojection.
 
-Headless route under test: ScopeSession -> ProtocolRunner.run_zstack to
+Headless route under test: ScopeSession -> ProtocolRunner.start_zstack to
 produce the folder, then session.post_processing.zproject to
 project it. No Kivy, no ui.* import.
 """
@@ -21,7 +21,7 @@ def main() -> int:
         # clear of the lower travel limit first.
         session.scope.motion.move_absolute('Z', 1000.0)
         session.scope.motion.wait_until_finished_moving(timeout_s=60)
-        pending = runner.run_zstack(layer='BF', sequence_name='probe_zstack')
+        pending = runner.start_zstack(layer='BF', sequence_name='probe_zstack')
         outcome = pending.result(timeout=180)
         print('zstack outcome:', outcome)
         run_dir = pending.progress().run_dir

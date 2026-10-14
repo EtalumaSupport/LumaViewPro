@@ -96,7 +96,7 @@ def session(engine):
     # engine's prepare() then start(); this member does the same with the
     # engine stand-in, so one stand-in answers all three buttons.
     member = MagicMock()
-    for name in ('run_single_scan', 'run_protocol', 'run_autofocus_all_steps'):
+    for name in ('start_single_scan', 'start_protocol', 'start_autofocus_all_steps'):
         getattr(member, name).side_effect = lambda protocol, **kw: engine.start(
             engine.prepare(protocol=protocol, **kw)
         )
@@ -184,8 +184,8 @@ def _live(
 @pytest.mark.parametrize(
     'press, member_name, trigger',
     [
-        ('run_scan_from_ui', 'run_single_scan', 'scan'),
-        ('run_protocol_from_ui', 'run_protocol', 'protocol'),
+        ('run_scan_from_ui', 'start_single_scan', 'scan'),
+        ('run_protocol_from_ui', 'start_protocol', 'protocol'),
     ],
 )
 def test_a_press_starts_its_run_through_the_apis_runner(

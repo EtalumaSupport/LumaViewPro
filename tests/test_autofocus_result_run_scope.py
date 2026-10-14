@@ -25,7 +25,7 @@ consumers read it across that gap:
   That reuse has since been removed (#324).
 
 The run now clears the result before producing one, and reports what it
-found in its outcome (``af_focus_z_um``). ``run_autofocus`` writes no focus
+found in its outcome (``af_focus_z_um``). ``start_autofocus`` writes no focus
 itself; the Autofocus button saves the outcome's Z, on ``run_ended``, as the
 focus of the layer it started the run on, through
 ``ScopeSession.save_layer_focus``.
@@ -155,7 +155,7 @@ class TestClearResultIsUnconditional:
 
 
 # ---------------------------------------------------------------------------
-# run_autofocus reports the focus; the Autofocus button saves it
+# start_autofocus reports the focus; the Autofocus button saves it
 # ---------------------------------------------------------------------------
 
 
@@ -171,14 +171,14 @@ def test_run_autofocus_reports_the_focus_and_writes_none(tmp_path):
         # Mid-travel, so the sweep's window fits inside Z's travel.
         motion.move_absolute('Z', (limits['min'] + limits['max']) / 2.0)
 
-        outcome = runner.run_autofocus(layer='BF').result(timeout=60)
+        outcome = runner.start_autofocus(layer='BF').result(timeout=60)
 
         assert outcome is not None and outcome.af_focus_z_um is not None, (
             f'precondition: the sweep chose a focus; got {outcome}'
         )
         assert outcome.af_focus_z_um != stored, 'precondition: the chosen Z differs from the stored'
         assert session.settings['BF']['focus'] == stored, (
-            "run_autofocus wrote a layer focus; the caller keeps the outcome's Z or not"
+            "start_autofocus wrote a layer focus; the caller keeps the outcome's Z or not"
         )
 
 
@@ -232,12 +232,12 @@ def gui(monkeypatch):
 
 
 def _press(gui, monkeypatch):
-    """Press Autofocus; return the events the button handed run_autofocus."""
+    """Press Autofocus; return the events the button handed start_autofocus."""
     member = MagicMock()
     gui.ctx.session.create_protocol_runner = lambda: member
     gui.button._submit_autofocus_request = lambda call, stop=False: call()
     gui.vc.VerticalControl.run_autofocus_from_ui(gui.button)
-    return member.run_autofocus.call_args.kwargs['events']
+    return member.start_autofocus.call_args.kwargs['events']
 
 
 class TestTheButtonSavesTheFocusItsRunChose:

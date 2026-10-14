@@ -26,7 +26,7 @@ SHORT_S = 0.3
 
 def _scan(runner, run_parent, name, sequenced_format='TIFF'):
     runner.session.update_settings('image_output_format.sequenced', sequenced_format)
-    return runner.run_single_scan(
+    return runner.start_single_scan(
         protocol=_protocol([_step(name, 0, x=20.0, gain=1.0)]),
         parent_dir=str(run_parent),
     )

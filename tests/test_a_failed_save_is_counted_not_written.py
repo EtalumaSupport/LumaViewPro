@@ -107,7 +107,7 @@ class TestARunWhoseSaveFails:
         _fail_saves(monkeypatch)
         files = []
         with open_composite_session(headless_settings(tmp_path)) as (_session, runner):
-            outcome = runner.run_single_scan(
+            outcome = runner.start_single_scan(
                 protocol=_protocol([_step('C1', 0, x=20.0, gain=1.0)]),
                 parent_dir=str(tmp_path / 'runs'),
                 events=RunEvents(files_written=lambda _run_dir, files_: files.append(files_)),

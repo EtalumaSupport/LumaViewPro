@@ -11,7 +11,7 @@ passes neither gets the API's own trigger and the session's mode.
 import pytest
 
 from tests.test_run_refusal_contract import _make_single_step_protocol
-from tests.test_run_zstack_entry_point import _prepared, _runner
+from tests.test_start_zstack_entry_point import _prepared, _runner
 
 
 def _run(runner, member, **kwargs):
@@ -22,7 +22,7 @@ def _run(runner, member, **kwargs):
 
 @pytest.mark.parametrize(
     'member, api_trigger',
-    [('run_protocol', 'api_protocol'), ('run_single_scan', 'api_scan')],
+    [('start_protocol', 'api_protocol'), ('start_single_scan', 'api_scan')],
 )
 class TestTheCallerNamesItsRun:
     def test_a_script_gets_the_apis_trigger_and_the_sessions_mode(self, member, api_trigger):
@@ -69,7 +69,7 @@ class TestTheRunReadsOneSnapshotOfTheSettings:
         snapshot['protocol']['autogain']['target_brightness'] = 0.123
         runner.session.get_settings_snapshot.return_value = snapshot
 
-        _run(runner, 'run_protocol')
+        _run(runner, 'start_protocol')
 
         prepared = _prepared(runner)
         assert prepared['parent_dir'] == tmp_path.resolve() / 'ProtocolData'
@@ -86,7 +86,7 @@ class TestTheScanLogNamesTheFormatInForce:
         runner = _runner()
         runner.session.scope.imaging.pixel_format_cached = 'Mono8'
 
-        _run(runner, 'run_single_scan')
+        _run(runner, 'start_single_scan')
 
         (scan,) = [line for line in lines if '[Protocol] scan' in line]
         assert 'pixel_format=Mono8' in scan

@@ -39,7 +39,7 @@ try:
         seen['z_on_mine'] = protocol.steps()['Z'].tolist()
 
     z_in = protocol.steps()['Z'].tolist()
-    af = runner.run_autofocus_all_steps(protocol, events=RunEvents(run_ended=on_ended)).result(
+    af = runner.start_autofocus_all_steps(protocol, events=RunEvents(run_ended=on_ended)).result(
         timeout=300
     )
     print('status / focus_written :', af.status, af.focus_written)
@@ -57,7 +57,7 @@ try:
     protocol.modify_time_params(
         period=datetime.timedelta(seconds=5), duration=datetime.timedelta(seconds=20)
     )
-    out = runner.run_protocol(
+    out = runner.start_protocol(
         protocol,
         sequence_name='multi',
     )

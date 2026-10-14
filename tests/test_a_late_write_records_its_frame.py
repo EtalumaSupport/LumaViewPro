@@ -131,7 +131,7 @@ def _run_with_every_write_held(tmp_path, monkeypatch, steps, on_capture=None, mi
         # file that merely exists may still be mid-write, and one read in
         # its first few hundred bytes has no metadata at all.
         files_written = threading.Event()
-        outcome = runner.run_single_scan(
+        outcome = runner.start_single_scan(
             protocol=_protocol(steps),
             parent_dir=str(run_parent),
             events=RunEvents(files_written=lambda *_written: files_written.set()),

@@ -1159,7 +1159,7 @@ class ProtocolSettings(FloatLayout):
         """Return the call that starts the autofocus scan of this panel's protocol.
 
         The scan and the focus it writes into the protocol are
-        ProtocolRunner.run_autofocus_all_steps, the one a script or REST
+        ProtocolRunner.start_autofocus_all_steps, the one a script or REST
         calls; this panel passes its protocol and its own event handlers.
         """
         ctx = _app_ctx.ctx
@@ -1181,7 +1181,7 @@ class ProtocolSettings(FloatLayout):
         )
 
         def _start():
-            self._runs_started_here[trigger_source] = member.run_autofocus_all_steps(
+            self._runs_started_here[trigger_source] = member.start_autofocus_all_steps(
                 protocol,
                 events=events,
                 run_trigger_source=trigger_source,
@@ -1200,7 +1200,7 @@ class ProtocolSettings(FloatLayout):
     def _scan_start(self) -> typing.Callable[[], None]:
         ctx = _app_ctx.ctx
         return self._sequenced_capture_start(
-            start_run=ctx.session.create_protocol_runner().run_single_scan,
+            start_run=ctx.session.create_protocol_runner().start_single_scan,
             run_trigger_source='scan',
             protocol=self._protocol.copy_for_execution(),
             scan_started=lambda *_scan: self._run_scan_pre_callback(),
@@ -1226,7 +1226,7 @@ class ProtocolSettings(FloatLayout):
             self._run_scan_pre_callback()
 
         return self._sequenced_capture_start(
-            start_run=ctx.session.create_protocol_runner().run_protocol,
+            start_run=ctx.session.create_protocol_runner().start_protocol,
             run_trigger_source='protocol',
             protocol=protocol,
             scan_started=_scan_started,

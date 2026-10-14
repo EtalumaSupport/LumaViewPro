@@ -358,7 +358,7 @@ class TestHeadlessRefusalDoesNotHang:
         try:
             # First: a valid run that completes.
             done = threading.Event()
-            first = runner.run_single_scan(
+            first = runner.start_single_scan(
                 protocol=_make_single_step_protocol(),
                 sequence_name='refusal_headless_first',
                 parent_dir=str(tmp_path),
@@ -376,9 +376,9 @@ class TestHeadlessRefusalDoesNotHang:
             # not about.
             assert first.files.result(timeout=FILES_WAIT_S) is not None
 
-            # A refused run raises out of run_single_scan; nothing waits.
+            # A refused run raises out of start_single_scan; nothing waits.
             with pytest.raises(ProtocolRunRefusedError) as excinfo:
-                runner.run_single_scan(
+                runner.start_single_scan(
                     protocol=_build_real_protocol([]),
                     sequence_name='refusal_headless_refused',
                     parent_dir=str(tmp_path),
@@ -390,7 +390,7 @@ class TestHeadlessRefusalDoesNotHang:
 
             # The session is not wedged: a subsequent valid run works.
             done2 = threading.Event()
-            runner.run_single_scan(
+            runner.start_single_scan(
                 protocol=_make_single_step_protocol(),
                 sequence_name='refusal_headless_second',
                 parent_dir=str(tmp_path),

@@ -60,12 +60,12 @@ def _built_config(runner):
 class TestTheRunIsAnAutofocusOfItsOwn:
     def test_it_prepares_as_an_autofocus_scan(self):
         runner = _runner()
-        runner.run_autofocus(layer='BF')
+        runner.start_autofocus(layer='BF')
         assert _prepared(runner)['run_mode'] is SequencedCaptureRunMode.SINGLE_AUTOFOCUS
 
     def test_it_runs_exactly_one_scan(self):
         runner = _runner()
-        runner.run_autofocus(layer='BF')
+        runner.start_autofocus(layer='BF')
         assert _prepared(runner)['max_scans'] == 1
 
     def test_the_trigger_source_names_the_api_caller(self):
@@ -73,26 +73,26 @@ class TestTheRunIsAnAutofocusOfItsOwn:
         # compares it, so a click during an API autofocus must read as a
         # rival rather than as this run's own.
         runner = _runner()
-        runner.run_autofocus(layer='BF')
+        runner.start_autofocus(layer='BF')
         assert _prepared(runner)['run_trigger_source'] == 'api_autofocus'
 
     def test_it_saves_no_images(self):
         runner = _runner()
-        runner.run_autofocus(layer='BF')
+        runner.start_autofocus(layer='BF')
         assert _prepared(runner)['enable_image_saving'] is False
 
     def test_it_writes_no_run_artifacts(self):
         # A focus measurement is not an acquisition: no run folder, no
         # protocol copy, no execution record.
         runner = _runner()
-        runner.run_autofocus(layer='BF')
+        runner.start_autofocus(layer='BF')
         assert _prepared(runner)['disable_saving_artifacts'] is True
 
     def test_it_hands_the_illumination_back_as_it_found_it(self):
         # One field at a scope someone is standing at, not a plate
         # traverse that must end dark.
         runner = _runner()
-        runner.run_autofocus(layer='BF')
+        runner.start_autofocus(layer='BF')
         assert _prepared(runner)['run_mode'].leds_state_at_end == 'return_to_original'
 
 
@@ -100,22 +100,22 @@ class TestCharacterizationDataIsOptIn:
     def test_no_data_is_requested_by_default(self):
         """A caller that does not ask for data does not get a folder."""
         runner = _runner()
-        runner.run_autofocus(layer='BF')
+        runner.start_autofocus(layer='BF')
         assert _prepared(runner)['save_autofocus_data'] is False
 
     def test_asking_for_data_reaches_the_boundary(self):
         runner = _runner()
-        runner.run_autofocus(layer='BF', save_characterization_data=True)
+        runner.start_autofocus(layer='BF', save_characterization_data=True)
         assert _prepared(runner)['save_autofocus_data'] is True
 
     def test_the_data_lands_under_the_characterization_folder(self):
         runner = _runner()
-        runner.run_autofocus(layer='BF', save_characterization_data=True)
+        runner.start_autofocus(layer='BF', save_characterization_data=True)
         assert _prepared(runner)['parent_dir'].name == 'Autofocus Characterization'
 
     def test_a_stated_parent_dir_wins(self, tmp_path):
         runner = _runner()
-        runner.run_autofocus(layer='BF', save_characterization_data=True, parent_dir=tmp_path)
+        runner.start_autofocus(layer='BF', save_characterization_data=True, parent_dir=tmp_path)
         assert _prepared(runner)['parent_dir'] == tmp_path
 
 
@@ -124,33 +124,33 @@ class TestTheButtonRunsThroughThisMember:
 
     def test_a_caller_names_its_trigger(self):
         runner = _runner()
-        runner.run_autofocus(layer='BF', run_trigger_source='autofocus')
+        runner.start_autofocus(layer='BF', run_trigger_source='autofocus')
         assert _prepared(runner)['run_trigger_source'] == 'autofocus'
 
     def test_the_sessions_engineering_mode_reaches_the_boundary(self):
         runner = _runner()
         runner.session.engineering_mode = True
-        runner.run_autofocus(layer='BF')
+        runner.start_autofocus(layer='BF')
         assert _prepared(runner)['engineering_mode'] is True
 
     def test_outside_engineering_mode_the_boundary_is_told_so(self):
         runner = _runner()
         runner.session.engineering_mode = False
-        runner.run_autofocus(layer='BF')
+        runner.start_autofocus(layer='BF')
         assert _prepared(runner)['engineering_mode'] is False
 
     def test_a_run_that_saves_nothing_is_given_nowhere_to_write(self, tmp_path):
         # No directory, so prepare() does not refuse the run over a folder
         # it would never write to -- as the button has always asked.
         runner = _runner()
-        runner.run_autofocus(layer='BF', parent_dir=tmp_path)
+        runner.start_autofocus(layer='BF', parent_dir=tmp_path)
         assert _prepared(runner)['parent_dir'] is None
 
 
 class TestTheLayerIsTheCallersToName:
     def test_the_named_layer_is_the_only_one_configured(self):
         runner = _runner(acquiring=())
-        runner.run_autofocus(layer='Green')
+        runner.start_autofocus(layer='Green')
         assert list(_built_config(runner)['layer_configs']) == ['Green']
 
     def test_autofocus_is_on_for_that_layer_whatever_settings_say(self):
@@ -159,12 +159,12 @@ class TestTheLayerIsTheCallersToName:
         # one. _settings leaves every layer's autofocus off, so this
         # would read False if the stored flag were honoured.
         runner = _runner()
-        runner.run_autofocus(layer='BF')
+        runner.start_autofocus(layer='BF')
         assert _built_config(runner)['layer_configs']['BF']['autofocus'] is True
 
     def test_the_single_position_is_the_current_stage_position(self):
         runner = _runner()
-        runner.run_autofocus(layer='BF')
+        runner.start_autofocus(layer='BF')
         positions = _built_config(runner)['positions']
         assert len(positions) == 1
         assert (positions[0]['x'], positions[0]['y']) == (1.0, 2.0)
@@ -179,14 +179,14 @@ class TestTheLayerIsTheCallersToName:
         """
         runner = _runner()
         with pytest.raises(ArgumentRefusedError) as excinfo:
-            runner.run_autofocus(layer='Purple')
+            runner.start_autofocus(layer='Purple')
         assert (excinfo.value.reason, excinfo.value.value) == ('layer_unknown', 'Purple')
         assert 'BF' in excinfo.value.offered, 'the refusal should say which layers there are'
 
     def test_an_unknown_layer_refuses_before_the_engine_is_touched(self):
         runner = _runner()
         with pytest.raises(ArgumentRefusedError):
-            runner.run_autofocus(layer='Purple')
+            runner.start_autofocus(layer='Purple')
         runner._executor.prepare.assert_not_called()
         runner._executor.start.assert_not_called()
 
@@ -195,11 +195,11 @@ class TestAStandaloneAutofocusWritesNoFocusIntoAProtocol:
     def test_the_boundary_is_given_no_protocol_to_write_to(self):
         """The found focus is never written into a caller's protocol.
 
-        Only run_autofocus_all_steps names a protocol to write into; a
+        Only start_autofocus_all_steps names a protocol to write into; a
         standalone autofocus focuses the stage and nothing else.
         """
         runner = _runner()
-        runner.run_autofocus(layer='BF')
+        runner.start_autofocus(layer='BF')
         assert _prepared(runner).get('write_focus_to') is None
 
     def test_the_method_offers_no_way_to_ask_for_it(self):
@@ -207,7 +207,7 @@ class TestAStandaloneAutofocusWritesNoFocusIntoAProtocol:
 
         from modules.protocol_runner import ProtocolRunner
 
-        params = inspect.signature(ProtocolRunner.run_autofocus).parameters
+        params = inspect.signature(ProtocolRunner.start_autofocus).parameters
         assert 'write_focus_to' not in params
 
 
@@ -221,7 +221,7 @@ class TestTheExistingFamilyIsUnchanged:
 
         runner = _runner()
         protocol = MagicMock(spec=Protocol)
-        runner.run_single_scan(
+        runner.start_single_scan(
             protocol,
         )
         prepared = _prepared(runner)

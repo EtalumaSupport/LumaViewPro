@@ -32,7 +32,7 @@ def _autofocus(session, runner, current_ma, *, stop):
     leg = 'stopped' if stop else 'finished'
     figure(f'{leg}: {LAYER} before', before)
 
-    handle = runner.run_autofocus(layer=LAYER)
+    handle = runner.start_autofocus(layer=LAYER)
     if stop:
         # Stopped inside the sweep, not during the run's setup or its move to
         # the step: half a second after the autofocus machinery says it is

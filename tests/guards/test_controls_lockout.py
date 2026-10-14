@@ -228,8 +228,8 @@ class TestStandaloneAfLockout:
             for sub in ast.walk(node)
             if isinstance(sub, ast.Call) and isinstance(sub.func, ast.Attribute)
         }
-        assert {'create_protocol_runner', 'run_autofocus'} <= called, (
-            'the standalone button must run ProtocolRunner.run_autofocus, the '
+        assert {'create_protocol_runner', 'start_autofocus'} <= called, (
+            'the standalone button must run ProtocolRunner.start_autofocus, the '
             'one autofocus a script and REST also run; a second assembly in '
             'the widget drifts from it'
         )
@@ -251,7 +251,7 @@ class TestStandaloneAfLockout:
         first_line: dict[str, int] = {}
         for sub in ast.walk(node):
             # The own-run question is the handle's `is_live`; the start is
-            # the member's run_autofocus call.
+            # the member's start_autofocus call.
             if isinstance(sub, ast.Attribute) and sub.attr == 'is_live':
                 first_line['is_live'] = min(first_line.get('is_live', sub.lineno), sub.lineno)
             elif isinstance(sub, ast.Call):
@@ -260,11 +260,11 @@ class TestStandaloneAfLockout:
                     if isinstance(sub.func, ast.Attribute)
                     else getattr(sub.func, 'id', '')
                 )
-                if name == 'run_autofocus':
-                    first_line['run_autofocus'] = min(
-                        first_line.get('run_autofocus', sub.lineno), sub.lineno
+                if name == 'start_autofocus':
+                    first_line['start_autofocus'] = min(
+                        first_line.get('start_autofocus', sub.lineno), sub.lineno
                     )
-        assert 0 < first_line.get('is_live', 0) < first_line.get('run_autofocus', 0), (
+        assert 0 < first_line.get('is_live', 0) < first_line.get('start_autofocus', 0), (
             'the own-run stop must be decided before the member starts the run; '
             'a start ahead of it runs an autofocus the press should have stopped. '
             f'Found: {first_line}'

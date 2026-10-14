@@ -19,17 +19,17 @@ def body(s):
     runner = ProtocolRunner(s)
 
     # A first autofocus, run to its end: its handle is the stale one below.
-    earlier = runner.run_autofocus(layer='BF')
+    earlier = runner.start_autofocus(layer='BF')
     check('the earlier run finished', earlier.result(timeout=300) is not None)
 
     # --- a run in flight names its trigger source; the GUI's is 'autofocus',
-    #     run_autofocus's is 'api_autofocus'.
+    #     start_autofocus's is 'api_autofocus'.
     seen = {}
 
     def on_ended(outcome, run_dir, protocol):
         seen['ended'] = True
 
-    pending = runner.run_autofocus(layer='BF', events=RunEvents(run_ended=on_ended))
+    pending = runner.start_autofocus(layer='BF', events=RunEvents(run_ended=on_ended))
     holder = s.activity_claim.holder
     src = holder.run_trigger_source if holder is not None else None
     check(

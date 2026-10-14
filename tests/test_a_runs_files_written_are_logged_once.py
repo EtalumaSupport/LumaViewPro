@@ -38,7 +38,7 @@ def _one_run(tmp_path, monkeypatch):
     monkeypatch.setattr(sequenced_capture_runner.logger, 'info', _info)
     monkeypatch.setattr(sequenced_capture_runner.logger, 'warning', _warning)
     with open_composite_session(headless_settings(tmp_path)) as (_session, runner):
-        outcome = runner.run_single_scan(
+        outcome = runner.start_single_scan(
             protocol=_protocol(
                 [_step('C1', 0, x=20.0, gain=1.0), _step('C2', 1, x=20.0, gain=1.0)]
             ),

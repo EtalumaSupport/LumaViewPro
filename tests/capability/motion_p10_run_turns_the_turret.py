@@ -166,7 +166,7 @@ def main():
         run_parent = SCRATCH / 'p10_runs'
         files_written = threading.Event()
         try:
-            outcome = runner.run_single_scan(
+            outcome = runner.start_single_scan(
                 protocol=protocol,
                 parent_dir=str(run_parent),
                 events=RunEvents(files_written=lambda *written: files_written.set()),

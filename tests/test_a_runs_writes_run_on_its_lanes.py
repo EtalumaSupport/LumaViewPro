@@ -81,7 +81,7 @@ def _run_protocol(session, tmp_path, steps) -> None:
 
     runner = session.create_protocol_runner()
     files_written = threading.Event()
-    run = runner.run_single_scan(
+    run = runner.start_single_scan(
         protocol=_build_real_protocol(steps),
         sequence_name='lanes',
         parent_dir=str(tmp_path),

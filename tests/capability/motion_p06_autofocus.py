@@ -1,7 +1,7 @@
 """P06 -- the autofocus button, headless.
 
 GUI entry: ui/vertical_control.py:446 run_autofocus_from_ui (kv line 537).
-API member under test: modules/protocol_runner.py:281 ProtocolRunner.run_autofocus.
+API member under test: modules/protocol_runner.py:281 ProtocolRunner.start_autofocus.
 """
 
 from harness import check, run, void
@@ -20,17 +20,17 @@ def body(s):
     runner = ProtocolRunner(s)
     z_before = m.get_current_position('Z')
 
-    pending = runner.run_autofocus(layer='BF')
+    pending = runner.start_autofocus(layer='BF')
     outcome = pending.result(timeout=300)
     z_after = m.get_current_position('Z')
     print('outcome:', outcome.status, '|', outcome.reason, '|', outcome.message, flush=True)
     check(
-        'run_autofocus completes',
+        'start_autofocus completes',
         str(outcome.status).lower().find('fail') < 0,
         f'status={outcome.status} reason={outcome.reason}',
     )
     check(
-        'run_autofocus moved Z (stage left at the focus it found)',
+        'start_autofocus moved Z (stage left at the focus it found)',
         abs(z_after - z_before) > 0.5,
         f'{z_before} -> {z_after}',
     )
@@ -38,7 +38,7 @@ def body(s):
     # does it ALSO write the layer's focus the way the button does?
     focus_after = s.get_settings_snapshot()['BF']['focus']
     void(
-        "run_autofocus wrote settings['BF']['focus'] to what it found",
+        "start_autofocus wrote settings['BF']['focus'] to what it found",
         focus_after is not None and abs(focus_after - z_after) < 5.0,
         f'settings BF focus={focus_after}, stage Z={z_after}; '
         'a headless caller can only infer the focus from the stage position',
@@ -46,16 +46,16 @@ def body(s):
 
     # a bad layer is refused
     try:
-        runner.run_autofocus(layer='Purple')
+        runner.start_autofocus(layer='Purple')
         check('unknown layer refused', False, 'NO RAISE')
     except ArgumentRefusedError as e:
         check('unknown layer refused', e.reason == 'layer_unknown', f'reason={e.reason}')
 
     # second run works (no lock left behind)
-    p2 = runner.run_autofocus(layer='BF')
+    p2 = runner.start_autofocus(layer='BF')
     o2 = p2.result(timeout=300)
     check(
-        'a second run_autofocus is accepted',
+        'a second start_autofocus is accepted',
         str(o2.status).lower().find('fail') < 0,
         f'status={o2.status}',
     )

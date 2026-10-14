@@ -18,7 +18,7 @@ WAIT_S = 60.0
 
 
 def _scan(runner, run_parent, name):
-    return runner.run_single_scan(
+    return runner.start_single_scan(
         protocol=_protocol([_step(name, 0, x=20.0, gain=1.0)]),
         parent_dir=str(run_parent),
     )
@@ -42,12 +42,12 @@ def test_a_woken_waiter_finds_the_scope_free_and_starts_the_next_run(tmp_path, m
 
         monkeypatch.setattr(engine, '_release_activity_claim', slow_release)
 
-        first = runner.run_autofocus(layer='BF')
+        first = runner.start_autofocus(layer='BF')
         assert first.result(timeout=WAIT_S) is not None
         assert session.exclusive_activity is None, (
             f'the wait returned while {session.exclusive_activity!r} still held the scope'
         )
-        second = runner.run_autofocus(layer='BF')
+        second = runner.start_autofocus(layer='BF')
         assert second.result(timeout=WAIT_S) is not None
 
 

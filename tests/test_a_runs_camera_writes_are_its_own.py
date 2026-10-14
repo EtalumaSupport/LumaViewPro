@@ -39,7 +39,7 @@ def test_an_auto_gain_step_arms_captures_and_disarms_inside_its_run(tmp_path):
         step = {**_make_single_step_protocol().step(idx=0), 'Auto_Gain': True}
         runner = session.create_protocol_runner()
         files_written = threading.Event()
-        run = runner.run_single_scan(
+        run = runner.start_single_scan(
             protocol=_build_real_protocol([step]),
             sequence_name='auto_gain',
             parent_dir=str(tmp_path),

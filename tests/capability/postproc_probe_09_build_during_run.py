@@ -83,7 +83,7 @@ def _refuse_video_layers(session):
 def _run(session, runner, protocol, parent, name):
     parent.mkdir(parents=True, exist_ok=True)
     started = time.monotonic()
-    pending = runner.run_single_scan(
+    pending = runner.start_single_scan(
         protocol=protocol,
         sequence_name=name,
         parent_dir=str(parent),

@@ -46,7 +46,7 @@ try:
     print('steps match     :', reloaded.num_steps() == protocol.num_steps())
 
     banner('4. run one scan over the reloaded protocol')
-    outcome = runner.run_single_scan(
+    outcome = runner.start_single_scan(
         reloaded,
         sequence_name='probe_roundtrip',
     )

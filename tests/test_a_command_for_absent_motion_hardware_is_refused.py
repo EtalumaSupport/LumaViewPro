@@ -318,7 +318,7 @@ def test_a_time_lapse_returns_to_its_first_step_on_the_axes_it_has(
     session = make_session(model)
     runner = session.create_protocol_runner()
 
-    run = runner.run_protocol(
+    run = runner.start_protocol(
         protocol=_protocol(n_scans=3),
         sequence_name='timelapse',
         parent_dir=str(tmp_path),
@@ -334,7 +334,7 @@ def test_a_single_scan_and_a_composite_on_a_manual_scope_complete(make_session, 
     session = make_session(model, acquiring=('BF', 'Blue', 'Green'))
     runner = session.create_protocol_runner()
 
-    run = runner.run_single_scan(
+    run = runner.start_single_scan(
         protocol=_protocol(),
         sequence_name='scan',
         parent_dir=str(tmp_path),
@@ -352,7 +352,7 @@ def test_a_z_stack_on_a_z_only_scope_returns_z_to_its_start(make_session, tmp_pa
     scope.motion.move_absolute('Z', 3000.0)
     runner = session.create_protocol_runner()
 
-    assert _wait(runner.run_zstack(layer='BF', parent_dir=str(tmp_path))) == (
+    assert _wait(runner.start_zstack(layer='BF', parent_dir=str(tmp_path))) == (
         'completed',
         'completed',
     )
@@ -391,7 +391,7 @@ def test_an_unhomed_z_only_scope_with_an_xy_protocol_is_told_it_has_no_xy(make_s
     b = {**a, 'Label': 'b', 'X': 30.0, 'Y': 30.0}
 
     with pytest.raises(ProtocolRunRefusedError) as exc:
-        runner.run_single_scan(
+        runner.start_single_scan(
             protocol=_build_real_protocol([a, b]),
             sequence_name='s',
             parent_dir=str(tmp_path),

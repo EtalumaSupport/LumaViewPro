@@ -58,7 +58,7 @@ def test_a_raising_run_ended_send_still_tells_the_files_and_ends_the_drain(tmp_p
     monkeypatch.setattr(protocol_cleanup, 'deliver', _cannot_send_run_ended)
     files = []
     with open_composite_session(headless_settings(tmp_path)) as (session, runner):
-        outcome = runner.run_single_scan(
+        outcome = runner.start_single_scan(
             protocol=_protocol([_step('C1', 0, x=20.0, gain=1.0)]),
             parent_dir=str(tmp_path / 'runs'),
             events=RunEvents(

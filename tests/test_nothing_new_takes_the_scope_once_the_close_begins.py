@@ -51,7 +51,7 @@ def test_a_run_a_recording_a_home_and_a_diagnostic_are_each_refused(sim_session,
     runner = sim_session.create_protocol_runner()
     protocol = _build_real_protocol([_make_single_step_protocol().step(idx=0)])
     _refused(
-        lambda: runner.run_single_scan(
+        lambda: runner.start_single_scan(
             protocol=protocol, sequence_name='closing', parent_dir=str(tmp_path)
         ),
         'protocol',

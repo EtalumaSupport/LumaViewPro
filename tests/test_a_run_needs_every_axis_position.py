@@ -108,9 +108,9 @@ def _run(session, tmp_path, protocol=None, scans=1):
         'events': RunEvents(run_ended=lambda *ended: done.set()),
     }
     if scans == 1:
-        run = runner.run_single_scan(**kwargs)
+        run = runner.start_single_scan(**kwargs)
     else:
-        run = runner.run_protocol(**kwargs)
+        run = runner.start_protocol(**kwargs)
     assert done.wait(COMPLETION_TIMEOUT), 'the run never ended'
     outcome = run.result(timeout=COMPLETION_TIMEOUT)
     assert outcome is not None

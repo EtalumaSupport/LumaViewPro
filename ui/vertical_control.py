@@ -327,7 +327,7 @@ class VerticalControl(BoxLayout):
     def run_autofocus_from_ui(self):
         """Autofocus on the open layer, or stop the autofocus this button started.
 
-        The run is ProtocolRunner.run_autofocus, the one a script or REST
+        The run is ProtocolRunner.start_autofocus, the one a script or REST
         calls: everything about it -- the objective, the capture, every
         refusal -- is the member's, and the boundary shows a refusal once.
         This button states only what a running GUI knows: the open drawer,
@@ -356,7 +356,7 @@ class VerticalControl(BoxLayout):
         )
 
         def _start():
-            self._autofocus_run = member.run_autofocus(
+            self._autofocus_run = member.start_autofocus(
                 layer=layer,
                 save_characterization_data=engineering_mode,
                 events=events,

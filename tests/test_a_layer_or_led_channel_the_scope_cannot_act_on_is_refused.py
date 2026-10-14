@@ -131,8 +131,8 @@ def test_a_current_off_the_boards_range_is_refused_with_its_limits(session):
 
 
 RUNNERS = {
-    'run_autofocus': lambda r, v: r.run_autofocus(layer=v),
-    'run_zstack': lambda r, v: r.run_zstack(layer=v),
+    'start_autofocus': lambda r, v: r.start_autofocus(layer=v),
+    'start_zstack': lambda r, v: r.start_zstack(layer=v),
 }
 
 

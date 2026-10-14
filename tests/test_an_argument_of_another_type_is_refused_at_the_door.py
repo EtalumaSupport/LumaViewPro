@@ -92,7 +92,7 @@ def test_none_is_taken_only_where_the_signature_says_so(session):
     _refused(lambda: session.saved_focus(None), 'ScopeSession.saved_focus', 'layer')
 
 
-@pytest.mark.parametrize('member', ['run_zstack', 'run_autofocus'])
+@pytest.mark.parametrize('member', ['start_zstack', 'start_autofocus'])
 def test_a_run_given_no_layer_is_told_none_is_selected(session, member):
     """The GUI hands the open drawer's layer, None when no drawer is open:
     these two take None and answer it by name."""
@@ -117,8 +117,8 @@ def test_a_union_takes_each_of_its_types_and_nothing_else(session):
 def test_a_class_is_taken_only_as_itself(session):
     runner = session.create_protocol_runner()
     _refused(
-        lambda: runner.run_single_scan(protocol=MagicMock()),
-        'ProtocolRunner.run_single_scan',
+        lambda: runner.start_single_scan(protocol=MagicMock()),
+        'ProtocolRunner.start_single_scan',
         'protocol',
     )
 

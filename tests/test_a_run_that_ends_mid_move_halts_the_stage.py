@@ -44,7 +44,7 @@ def _start_held(session, tmp_path):
     """Start a one-step scan whose X move halts part of the way; return the run and X's target."""
     held = session.scope.simulation.hold_axis('X')
     step = {**_make_single_step_protocol().step(idx=0), 'X': 60.0, 'Y': 20.0}
-    run = session.create_protocol_runner().run_single_scan(
+    run = session.create_protocol_runner().start_single_scan(
         protocol=_build_real_protocol([step]), parent_dir=str(tmp_path)
     )
     assert held.wait(_HOLD_WAIT_S), "the run's move never got part of the way"
@@ -121,7 +121,7 @@ def test_a_stop_halts_the_move_while_a_video_step_s_frames_still_drain(
     base = _make_single_step_protocol().step(idx=0)
     video = {**base, 'X': 20.0, 'Y': 20.0, 'Acquire': 'video', 'Name': 'video', 'Step Index': 0}
     image = {**base, 'X': 60.0, 'Y': 20.0, 'Name': 'image', 'Step Index': 1}
-    run = session.create_protocol_runner().run_single_scan(
+    run = session.create_protocol_runner().start_single_scan(
         protocol=_build_real_protocol([video, image]), parent_dir=str(tmp_path)
     )
     try:

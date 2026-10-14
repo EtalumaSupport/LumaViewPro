@@ -562,7 +562,7 @@ class TestTheRunsOwnWorkRunsUnderItsClaim:
             protocol = _build_real_protocol([af_step, video_step])
             runner = session.create_protocol_runner()
             files_written = threading.Event()
-            run = runner.run_single_scan(
+            run = runner.start_single_scan(
                 protocol=protocol,
                 sequence_name='gating',
                 parent_dir=str(tmp_path),

@@ -118,7 +118,7 @@ def _drain_lane(session):
 
 def _run_protocol(runner, tmp_path, *, sequenced_format='TIFF'):
     runner.session.update_settings('image_output_format.sequenced', sequenced_format)
-    run = runner.run_protocol(
+    run = runner.start_protocol(
         protocol=_one_scan_protocol(),
         parent_dir=str(tmp_path / 'runs'),
         run_trigger_source='api_protocol',
@@ -171,7 +171,7 @@ class TestAFullProtocolRunsTheOptedInProcessors:
         opted_in = _recording_processor()
         with open_composite_session(headless_settings(tmp_path)) as (session, runner):
             _load(session, _plugin('opted_in', processor=opted_in, auto_run=True))
-            scan = runner.run_single_scan(
+            scan = runner.start_single_scan(
                 protocol=_one_scan_protocol(), parent_dir=str(tmp_path / 'runs')
             )
             assert scan.files.result(timeout=WAIT_S) is not None
@@ -253,7 +253,7 @@ class TestAFullProtocolRunsTheOptedInProcessors:
                 assert started.wait(WAIT_S), 'the processor never started'
                 # The run's files are done while its processor is still held,
                 # and the scope takes the next run.
-                second = runner.run_single_scan(
+                second = runner.start_single_scan(
                     protocol=_one_scan_protocol('P2'), parent_dir=str(tmp_path / 'runs')
                 )
                 assert second.files.result(timeout=WAIT_S) is not None
@@ -323,7 +323,7 @@ class TestOnlyALoadedPluginIsHandedTheFolder:
                 handed_on.set()
 
             monkeypatch.setattr(session.plugins, 'run_protocol_complete_processors', _spy)
-            run = runner.run_protocol(
+            run = runner.start_protocol(
                 protocol=_one_scan_protocol(), parent_dir=str(tmp_path / 'runs')
             )
             files = run.files.result(timeout=WAIT_S)

@@ -691,7 +691,7 @@ class TestSessionActivityClaim:
         assert recording
         runner = headless_session.create_protocol_runner()
         with pytest.raises(ProtocolRunRefusedError):
-            runner.run_single_scan(
+            runner.start_single_scan(
                 protocol=_make_single_step_protocol(),
                 sequence_name='refused_while_recording',
                 parent_dir=str(tmp_path),

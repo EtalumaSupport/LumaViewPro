@@ -51,7 +51,7 @@ def _step_at(z_um):
 def _run_and_wait_for_files(session, tmp_path, protocol):
     runner = session.create_protocol_runner()
     files_written = threading.Event()
-    run = runner.run_single_scan(
+    run = runner.start_single_scan(
         protocol=protocol,
         sequence_name='zonly',
         parent_dir=str(tmp_path),

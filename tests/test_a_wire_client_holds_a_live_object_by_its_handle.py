@@ -109,7 +109,7 @@ def test_an_id_not_held_for_its_type_is_404(client):
 
     assert client.post('/api/v1/handles/Protocol/999/num_steps').status_code == 404
     wrong_type = client.post(
-        f'/api/v1/handles/ProtocolRunner/{protocol["handle"]}/run_single_scan',
+        f'/api/v1/handles/ProtocolRunner/{protocol["handle"]}/start_single_scan',
         json={'protocol': protocol['handle']},
     )
     assert wrong_type.status_code == 404
@@ -145,7 +145,7 @@ def test_a_call_that_would_hand_out_past_the_limit_is_refused_before_it_runs(cli
 
 def test_a_parameter_no_client_can_fill_is_not_on_the_wire(client):
     paths = client.get('/api/v1/openapi.json').json()
-    operation = paths['paths']['/api/v1/handles/ProtocolRunner/{handle_id}/run_autofocus']['post']
+    operation = paths['paths']['/api/v1/handles/ProtocolRunner/{handle_id}/start_autofocus']['post']
     schema_ref = operation['requestBody']['content']['application/json']['schema']
     name = (schema_ref.get('$ref') or schema_ref['anyOf'][0]['$ref']).rsplit('/', 1)[1]
 

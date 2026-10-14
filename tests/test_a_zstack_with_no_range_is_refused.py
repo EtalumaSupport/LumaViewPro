@@ -12,7 +12,7 @@ papered over with a plausible wrong result. The builder now refuses.
 
 From the GUI this case is unreachable today: the z-stack starter runs its
 own zero-range check before the builder is ever called. The live case is
-the headless one, where ``ProtocolRunner.run_zstack()`` passes
+the headless one, where ``ProtocolRunner.start_zstack()`` passes
 ``use_zstacking=True`` with no guard of its own, which is why the second
 class here drives the refusal through that entry point rather than
 through a widget.
@@ -34,7 +34,7 @@ from modules.labware_loader import WellPlateLoader
 from modules.notification_center import Severity
 from modules.protocol import Protocol
 from tests.scope_fakes import build_scope
-from tests.test_run_zstack_entry_point import _POSITION, _zstack_settings
+from tests.test_start_zstack_entry_point import _POSITION, _zstack_settings
 
 _REPO_ROOT = pathlib.Path(__file__).parent.parent
 _TILING = _REPO_ROOT / 'data' / 'tiling.json'
@@ -178,7 +178,7 @@ class TestTheHeadlessCallerGetsIt:
     """The reachable case: ProtocolRunner passes use_zstacking=True unguarded."""
 
     @pytest.mark.parametrize('zstack', UNCONFIGURED)
-    def test_run_zstack_refuses_instead_of_capturing_one_plane(self, zstack, sim_scope, tmp_path):
+    def test_start_zstack_refuses_instead_of_capturing_one_plane(self, zstack, sim_scope, tmp_path):
         from modules.protocol_runner import ProtocolRunner
 
         settings = _zstack_settings()
@@ -195,7 +195,7 @@ class TestTheHeadlessCallerGetsIt:
         runner = ProtocolRunner(session)
 
         with pytest.raises(ProtocolRunRefusedError) as refusal:
-            runner.run_zstack(layer='BF')
+            runner.start_zstack(layer='BF')
 
         assert refusal.value.reason == 'zstack_not_configured'
         assert not runner._executor.prepare.called, (

@@ -1,4 +1,4 @@
-"""Probe 02 -- the z-stack Acquire button vs ProtocolRunner.run_zstack.
+"""Probe 02 -- the z-stack Acquire button vs ProtocolRunner.start_zstack.
 
 Part A: itemise the difference by capturing the kwargs each lane hands to
         SequencedCaptureRunner.prepare(). The GUI lane is replayed here in
@@ -6,7 +6,7 @@ Part A: itemise the difference by capturing the kwargs each lane hands to
         `*_from_ui` getter swapped for the `*_from_settings` function it
         delegates to -- see modules/config_ui_getters.py, each of which is
         a one-line adapter).
-Part B: RUN run_zstack for real and assert the slices landed on disk.
+Part B: RUN start_zstack for real and assert the slices landed on disk.
 """
 
 import pathlib
@@ -114,8 +114,8 @@ try:
     for k in sorted(gui_kwargs):
         print(f'  {k:28s} = {gui_kwargs[k]!r}'[:160])
 
-    # ---------------- Lane 2: ProtocolRunner.run_zstack ----------------
-    banner('A2. run_zstack prepare kwargs (spied, no run committed)')
+    # ---------------- Lane 2: ProtocolRunner.start_zstack ----------------
+    banner('A2. start_zstack prepare kwargs (spied, no run committed)')
     real_prepare = engine.prepare
 
     def spy(**kw):
@@ -124,7 +124,7 @@ try:
 
     engine.prepare = spy
     try:
-        runner.run_zstack(layer='BF')
+        runner.start_zstack(layer='BF')
     except _StopError:
         pass
     finally:
@@ -157,8 +157,8 @@ try:
             print(f'            API: {a!r}'[:200])
 
     # ---------------- Part B: actually run it ----------------
-    banner('B. run_zstack for real, assert slices on disk')
-    outcome = runner.run_zstack(layer='BF', sequence_name='probe_zstack')
+    banner('B. start_zstack for real, assert slices on disk')
+    outcome = runner.start_zstack(layer='BF', sequence_name='probe_zstack')
     settled = outcome.result(timeout=300)
     print('status :', settled.status, settled.reason)
     run_dir = outcome.progress().run_dir

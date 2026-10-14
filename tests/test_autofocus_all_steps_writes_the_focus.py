@@ -9,7 +9,7 @@ run had released the scope. A script had to rebuild all of it by hand,
 and still found the focus only on the protocol the run_ended event handed
 it.
 
-Now ``ProtocolRunner.run_autofocus_all_steps`` is the scan, and the run
+Now ``ProtocolRunner.start_autofocus_all_steps`` is the scan, and the run
 writes the focused Z into the caller's protocol itself, on its own
 thread, before run_ended is sent and before it lets go of the scope.
 A protocol whose steps no longer match the scanned copy -- a different
@@ -78,7 +78,7 @@ class TestTheScanWritesTheFocusIntoTheCallersProtocol:
     def test_every_step_takes_the_focus_found_for_it(self, tmp_path):
         protocol = _two_steps()
         with _focusing_session(tmp_path) as (_session, runner):
-            outcome = runner.run_autofocus_all_steps(protocol).result(timeout=WAIT_S)
+            outcome = runner.start_autofocus_all_steps(protocol).result(timeout=WAIT_S)
 
         assert outcome.status == 'completed', outcome
         assert outcome.focus_written is True, outcome
@@ -93,7 +93,7 @@ class TestTheScanWritesTheFocusIntoTheCallersProtocol:
         protocol = _two_steps()
         before = protocol.steps().drop(columns=['Z']).copy()
         with _focusing_session(tmp_path) as (_session, runner):
-            runner.run_autofocus_all_steps(protocol).result(timeout=WAIT_S)
+            runner.start_autofocus_all_steps(protocol).result(timeout=WAIT_S)
 
         assert protocol.steps().drop(columns=['Z']).equals(before), (
             "the scan turned every step's autofocus on in its own copy, not the caller's"
@@ -103,7 +103,7 @@ class TestTheScanWritesTheFocusIntoTheCallersProtocol:
         protocol = _two_steps()
         seen_at_run_ended = []
         with _focusing_session(tmp_path) as (_session, runner):
-            runner.run_autofocus_all_steps(
+            runner.start_autofocus_all_steps(
                 protocol,
                 events=RunEvents(
                     run_ended=lambda *ended: seen_at_run_ended.append(
@@ -121,7 +121,7 @@ class TestTheScanWritesTheFocusIntoTheCallersProtocol:
         # A run that focuses at several steps has no one focus to report;
         # the per-step answer is the protocol's Z column.
         with _focusing_session(tmp_path) as (_session, runner):
-            outcome = runner.run_autofocus_all_steps(_two_steps()).result(timeout=WAIT_S)
+            outcome = runner.start_autofocus_all_steps(_two_steps()).result(timeout=WAIT_S)
 
         assert outcome.af_focus_z_um is None, outcome
 
@@ -140,7 +140,7 @@ class TestAProtocolThatChangedDuringTheScanIsLeftAlone:
             _reports_of(FocusNotWrittenError) as reported,
             _focusing_session(tmp_path) as (_session, runner),
         ):
-            outcome = runner.run_autofocus_all_steps(
+            outcome = runner.start_autofocus_all_steps(
                 protocol, events=RunEvents(step_started=_move_a_step)
             ).result(timeout=WAIT_S)
 
@@ -168,7 +168,7 @@ class TestAProtocolThatChangedDuringTheScanIsLeftAlone:
                 if step_idx == 1:
                     threading.Thread(target=_stop_once_held).start()
 
-            run = runner.run_autofocus_all_steps(protocol, events=RunEvents(step_started=_stop))
+            run = runner.start_autofocus_all_steps(protocol, events=RunEvents(step_started=_stop))
             started.append(run)
             have_handle.set()
             outcome = run.result(timeout=WAIT_S)
@@ -226,13 +226,13 @@ class TestOnlyACompletedScanWritesItsFocus:
 class TestARunThatWritesNoFocusSaysNone:
     def test_a_standalone_autofocus(self, tmp_path):
         with _focusing_session(tmp_path) as (_session, runner):
-            outcome = runner.run_autofocus(layer='BF').result(timeout=WAIT_S)
+            outcome = runner.start_autofocus(layer='BF').result(timeout=WAIT_S)
 
         assert outcome.focus_written is None, outcome
 
     def test_a_scan(self, tmp_path):
         with _focusing_session(tmp_path) as (_session, runner):
-            outcome = runner.run_single_scan(
+            outcome = runner.start_single_scan(
                 protocol=_two_steps(),
                 parent_dir=str(tmp_path / 'runs'),
             ).result(timeout=WAIT_S)

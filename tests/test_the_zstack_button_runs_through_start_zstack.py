@@ -1,5 +1,5 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""The Z-stack Acquire button runs through ``ProtocolRunner.run_zstack``.
+"""The Z-stack Acquire button runs through ``ProtocolRunner.start_zstack``.
 
 There is one implementation of "assemble and start a z-stack". The button
 once built the whole run itself -- objective, stack, capture config, the
@@ -81,7 +81,7 @@ def clicked(monkeypatch, centre_posts):
     engine = MagicMock()
     run = EngineRun(engine, PendingRunOutcome(), RunWriteBatch(MagicMock()))
     run._run_dir = '/runs/zstack_1'
-    member_runner.run_zstack.return_value = run.operation
+    member_runner.start_zstack.return_value = run.operation
     # The run has ended by the time anything reads it, unless a test says otherwise.
     engine._progress_of.side_effect = lambda asked: _progress(asked, live=False)
     session = MagicMock()
@@ -118,8 +118,8 @@ def clicked(monkeypatch, centre_posts):
 def test_the_button_states_only_what_the_gui_knows(clicked):
     clicked.starter.run_zstack_acquire_from_ui()
 
-    clicked.runner.run_zstack.assert_called_once()
-    kwargs = clicked.runner.run_zstack.call_args.kwargs
+    clicked.runner.start_zstack.assert_called_once()
+    kwargs = clicked.runner.start_zstack.call_args.kwargs
     assert kwargs['layer'] == 'Green'
     assert kwargs['run_trigger_source'] == 'zstack'
     assert kwargs['enable_image_saving'] is False
@@ -147,7 +147,7 @@ def test_the_stop_names_the_handle_the_member_returned(clicked):
 
 
 def test_a_refusal_is_shown_once_draws_idle_and_links_no_folder(clicked):
-    clicked.runner.run_zstack.side_effect = ProtocolRunRefusedError(
+    clicked.runner.start_zstack.side_effect = ProtocolRunRefusedError(
         reason='zstack_not_configured', message='m'
     )
 
@@ -166,7 +166,7 @@ def test_progress_reads_the_runs_own_step_and_count(clicked):
     )
 
     clicked.starter.run_zstack_acquire_from_ui()
-    step_started = clicked.runner.run_zstack.call_args.kwargs['events'].step_started
+    step_started = clicked.runner.start_zstack.call_args.kwargs['events'].step_started
     step_started(2)
 
     assert clicked.starter.button.text == 'Z 3/7'
@@ -177,7 +177,7 @@ def test_progress_reads_the_runs_own_step_and_count(clicked):
 
 def test_progress_after_the_run_ended_draws_idle(clicked):
     clicked.starter.run_zstack_acquire_from_ui()
-    step_started = clicked.runner.run_zstack.call_args.kwargs['events'].step_started
+    step_started = clicked.runner.start_zstack.call_args.kwargs['events'].step_started
     step_started(2)
 
     assert (clicked.starter.button.state, clicked.starter.button.text) == ('normal', 'Acquire')
@@ -196,7 +196,7 @@ def test_a_second_press_stops_its_own_stack_ahead_of_queued_work(clicked):
     task = _app_ctx.ctx.worker_pool.put.call_args.args[0]
     assert task.priority == PRIORITY_HIGH, 'a Stop must not wait behind queued work'
     clicked.engine._stop_run.assert_called_once_with(clicked.run)
-    assert not clicked.runner.run_zstack.called, 'a Stop is not a start'
+    assert not clicked.runner.start_zstack.called, 'a Stop is not a start'
     assert clicked.starter.button.text == 'Stopping...'
 
 
@@ -208,7 +208,7 @@ def test_a_press_is_a_start_whatever_the_toggle_reads(clicked):
     clicked.starter.run_zstack_acquire_from_ui()
 
     assert not clicked.engine._stop_run.called, "a toggle reading 'normal' is not a Stop"
-    clicked.runner.run_zstack.assert_called_once()
+    clicked.runner.start_zstack.assert_called_once()
 
 
 def test_the_button_is_disabled_while_its_own_request_is_in_flight(clicked):
@@ -232,11 +232,11 @@ class TestTheMemberCarriesWhatTheGuiStates:
     not among them: it is the session's."""
 
     def test_they_reach_prepare(self):
-        from tests.test_run_zstack_entry_point import _prepared, _runner
+        from tests.test_start_zstack_entry_point import _prepared, _runner
 
         runner = _runner()
         runner.session.engineering_mode = True
-        runner.run_zstack(
+        runner.start_zstack(
             layer='BF',
             run_trigger_source='zstack',
             enable_image_saving=False,
@@ -248,11 +248,11 @@ class TestTheMemberCarriesWhatTheGuiStates:
         assert prepared['enable_image_saving'] is False
 
     def test_a_headless_caller_keeps_its_defaults(self):
-        from tests.test_run_zstack_entry_point import _prepared, _runner
+        from tests.test_start_zstack_entry_point import _prepared, _runner
 
         runner = _runner()
         runner.session.engineering_mode = False
-        runner.run_zstack(layer='BF')
+        runner.start_zstack(layer='BF')
 
         prepared = _prepared(runner)
         assert prepared['run_trigger_source'] == 'api_zstack'

@@ -79,10 +79,10 @@ def _runner_over_a_store_edited_after_the_first_read():
 
 _MEMBERS = {
     'composite': lambda runner: runner.start_composite(),
-    'autofocus': lambda runner: runner.run_autofocus(layer='BF'),
-    'zstack': lambda runner: runner.run_zstack(layer='BF'),
-    'single_scan': lambda runner: runner.run_single_scan(protocol=_make_single_step_protocol()),
-    'protocol': lambda runner: runner.run_protocol(protocol=_make_single_step_protocol()),
+    'autofocus': lambda runner: runner.start_autofocus(layer='BF'),
+    'zstack': lambda runner: runner.start_zstack(layer='BF'),
+    'single_scan': lambda runner: runner.start_single_scan(protocol=_make_single_step_protocol()),
+    'protocol': lambda runner: runner.start_protocol(protocol=_make_single_step_protocol()),
 }
 
 
@@ -126,7 +126,7 @@ def test_a_layers_autofocus_switched_during_a_run_is_still_switched_after_it(ses
         with session.settings_lock:
             session.settings['BF']['autofocus'] = True
 
-    run = session.create_protocol_runner().run_single_scan(
+    run = session.create_protocol_runner().start_single_scan(
         protocol=_build_real_protocol([copy.deepcopy(_make_single_step_protocol().step(idx=0))]),
         sequence_name='autofocus_switch',
         parent_dir=str(tmp_path),

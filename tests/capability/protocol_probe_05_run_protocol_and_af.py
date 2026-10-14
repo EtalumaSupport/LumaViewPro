@@ -1,7 +1,7 @@
 """Probe 05 -- run a FULL protocol headlessly, and autofocus all steps.
 
-Full protocol: ProtocolRunner.run_protocol (named API method).
-Autofocus All Steps: ProtocolRunner.run_autofocus_all_steps, which writes
+Full protocol: ProtocolRunner.start_protocol (named API method).
+Autofocus All Steps: ProtocolRunner.start_autofocus_all_steps, which writes
 the focused Z into the protocol it is given.
 """
 
@@ -46,7 +46,7 @@ try:
         duration=datetime.timedelta(seconds=15),
     )
     print('period/duration:', protocol.period(), protocol.duration())
-    outcome = runner.run_protocol(
+    outcome = runner.start_protocol(
         protocol,
         sequence_name='probe_full_protocol',
     )
@@ -62,10 +62,10 @@ try:
     print('images :', len(imgs), [p.name for p in imgs][:6])
     print('ASSERT >=2 scans worth of images:', 'PASS' if len(imgs) >= 2 else f'FAIL ({len(imgs)})')
 
-    banner('B. AUTOFOCUS ALL STEPS through ProtocolRunner.run_autofocus_all_steps')
+    banner('B. AUTOFOCUS ALL STEPS through ProtocolRunner.start_autofocus_all_steps')
     z_before = session.scope.motion.get_current_position('Z')
     z_in = protocol.steps()['Z'].tolist()
-    af = runner.run_autofocus_all_steps(protocol).result(timeout=300)
+    af = runner.start_autofocus_all_steps(protocol).result(timeout=300)
     print('status:', af.status, af.reason, 'focus_written:', af.focus_written)
     z_after = session.scope.motion.get_current_position('Z')
     print('Z before/after:', z_before, z_after)

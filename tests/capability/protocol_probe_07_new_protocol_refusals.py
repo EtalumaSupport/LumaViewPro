@@ -37,7 +37,7 @@ try:
 
     runner = ProtocolRunner(session)
     try:
-        out = runner.run_single_scan(
+        out = runner.start_single_scan(
             p,
             sequence_name='empty',
         )

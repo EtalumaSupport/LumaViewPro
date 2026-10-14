@@ -77,7 +77,7 @@ class _StepGate:
 def _plain_scan_protocol(session):
     """The steps a composite would capture, for a NON-composite run.
 
-    ``run_single_scan`` needs a Protocol, and production assembly already
+    ``start_single_scan`` needs a Protocol, and production assembly already
     builds one from the same settings snapshot the composite uses. Borrow
     it rather than hand-rolling a DataFrame: what makes this a rival is
     the run MODE and the claim it takes, not which positions it visits.
@@ -164,7 +164,7 @@ class TestARivalRunRefusesTheComposite:
         session, runner, tmp_path = composite_session
         gate = _StepGate()
 
-        pending = runner.run_single_scan(
+        pending = runner.start_single_scan(
             _plain_scan_protocol(session),
             sequence_name='scan_incumbent',
             parent_dir=str(tmp_path),

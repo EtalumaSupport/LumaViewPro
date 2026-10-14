@@ -899,7 +899,7 @@ class SequencedCaptureRunner:
         return_to_position: dict | None = None,
         disable_saving_artifacts: bool = False,
         save_autofocus_data: bool = False,
-        # Set ONLY by ProtocolRunner.run_autofocus_all_steps, whose completed
+        # Set ONLY by ProtocolRunner.start_autofocus_all_steps, whose completed
         # scan writes the focused Z column into this protocol. It is absent
         # from get_sequenced_run_settings, so no Run button turns it on: in an
         # ordinary run it is None and the write-backs it guards never fire.

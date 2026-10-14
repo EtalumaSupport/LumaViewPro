@@ -16,7 +16,7 @@ Usage
     runner = ProtocolRunner(session)
 
     protocol = Protocol.from_file("my_protocol.csv")
-    run = runner.run_single_scan(protocol, sequence_name="test_scan")
+    run = runner.start_single_scan(protocol, sequence_name="test_scan")
     result = run.result(timeout=300)     # run.stop() stops it
     print(result.status, result.reason, result.message)
 """
@@ -75,7 +75,7 @@ class ProtocolRunner:
     # ------------------------------------------------------------------
 
     @api(stop='Operation.stop')
-    def run_single_scan(
+    def start_single_scan(
         self,
         protocol: Protocol,
         sequence_name: str = 'scan',
@@ -123,7 +123,7 @@ class ProtocolRunner:
         )
 
     @api(stop='Operation.stop')
-    def run_protocol(
+    def start_protocol(
         self,
         protocol: Protocol,
         sequence_name: str = 'protocol',
@@ -232,7 +232,7 @@ class ProtocolRunner:
         )
 
     @api(stop='Operation.stop')
-    def run_autofocus(
+    def start_autofocus(
         self,
         layer: str | None,
         save_characterization_data: bool = False,
@@ -352,7 +352,7 @@ class ProtocolRunner:
         )
 
     @api(stop='Operation.stop')
-    def run_autofocus_all_steps(
+    def start_autofocus_all_steps(
         self,
         protocol: Protocol,
         events: RunEvents | None = None,
@@ -406,7 +406,7 @@ class ProtocolRunner:
         )
 
     @api(stop='Operation.stop')
-    def run_zstack(
+    def start_zstack(
         self,
         layer: str | None,
         sequence_name: str = 'zstack',
@@ -428,7 +428,7 @@ class ProtocolRunner:
         position is the top, centre or bottom of the sweep -- come from the
         settings store, as does everything else about the capture, so this
         run and a click on the button resolve the same way. The layer is named by the
-        caller for the same reason run_autofocus asks for it: an open
+        caller for the same reason start_autofocus asks for it: an open
         drawer is a fact about a running GUI.
 
         Autofocus is forced OFF for the step, matching the button. A

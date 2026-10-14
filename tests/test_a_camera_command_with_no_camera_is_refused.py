@@ -319,14 +319,14 @@ def test_with_no_camera_a_run_an_autofocus_and_a_recording_are_refused_at_the_st
     runner = session.create_protocol_runner()
 
     with pytest.raises(ProtocolRunRefusedError) as run:
-        runner.run_single_scan(
+        runner.start_single_scan(
             protocol=_protocol(),
             sequence_name='s',
             parent_dir=str(tmp_path),
         )
     assert run.value.reason == 'hardware_disconnected'
     with pytest.raises(ProtocolRunRefusedError):
-        runner.run_autofocus(layer='BF')
+        runner.start_autofocus(layer='BF')
     with pytest.raises(RecordingRefusedError):
         session.manual_recording.start()
 
@@ -404,7 +404,7 @@ def test_a_camera_removed_mid_run_ends_the_run_hardware_disconnected(
     second = {**first, 'Name': 'A1_second', 'Label': 'A1_second', 'X': 12.0}
     runner = session.create_protocol_runner()
 
-    run = runner.run_single_scan(
+    run = runner.start_single_scan(
         protocol=_build_real_protocol([first, second]),
         sequence_name='removed',
         parent_dir=str(tmp_path),
@@ -528,7 +528,7 @@ def test_a_camera_removed_as_the_run_takes_the_auto_gain_arm_ends_the_run_hardwa
     session.scope.simulation.refuse_camera_write('auto_gain', 'removed')
     step = {**_make_single_step_protocol().step(idx=0), 'Z': 3000.0}
 
-    run = session.create_protocol_runner().run_single_scan(
+    run = session.create_protocol_runner().start_single_scan(
         protocol=_build_real_protocol([step]),
         sequence_name='removed',
         parent_dir=str(tmp_path),

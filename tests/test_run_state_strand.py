@@ -116,7 +116,7 @@ class TestClaimRefusalLeavesNoState:
             # refusal below has prior state to preserve (mirrors the
             # prepare-side contract test).
             first_done = threading.Event()
-            first = runner.run_single_scan(
+            first = runner.start_single_scan(
                 protocol=_make_single_step_protocol(),
                 sequence_name='pre_refusal_scan',
                 parent_dir=str(tmp_path),
@@ -149,7 +149,7 @@ class TestClaimRefusalLeavesNoState:
             claim_held = True
 
             with pytest.raises(ProtocolRunRefusedError) as excinfo:
-                runner.run_single_scan(
+                runner.start_single_scan(
                     protocol=_make_single_step_protocol(),
                     sequence_name='claim_refused_scan',
                     parent_dir=str(tmp_path),
@@ -172,7 +172,7 @@ class TestClaimRefusalLeavesNoState:
             recording.release()
             claim_held = False
             done = threading.Event()
-            runner.run_single_scan(
+            runner.start_single_scan(
                 protocol=_make_single_step_protocol(),
                 sequence_name='post_refusal_scan',
                 parent_dir=str(tmp_path),
@@ -216,7 +216,7 @@ class TestTheHolderIsTheLiveRun:
                 observed['kind'] = holder.kind if holder is not None else None
                 observed['trigger'] = holder.run_trigger_source if holder is not None else None
 
-            run = runner.run_single_scan(
+            run = runner.start_single_scan(
                 protocol=_make_single_step_protocol(),
                 sequence_name='holder_scan',
                 parent_dir=str(tmp_path),

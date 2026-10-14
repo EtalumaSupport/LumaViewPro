@@ -216,7 +216,7 @@ def test_a_floor_met_after_the_run_settled_is_told_once_as_lost_images(
         monkeypatch.setattr(common_utils, 'check_disk_space_ok', slow_floor)
         start = len(centre_posts)
         steps = [_step(f'C{i}', i, x=20.0 + 5 * i, gain=1.0) for i in range(3)]
-        run = runner.run_single_scan(protocol=_protocol(steps), parent_dir=str(tmp_path / 'runs'))
+        run = runner.start_single_scan(protocol=_protocol(steps), parent_dir=str(tmp_path / 'runs'))
         outcome = run.result(timeout=WAIT_S)
         settled_at.append(time.monotonic())
         files = run.files.result(timeout=WAIT_S)
@@ -242,7 +242,7 @@ def test_a_crashed_run_loop_is_shown_once(tmp_path, monkeypatch, centre_posts):
     monkeypatch.setattr(prl.ProtocolRunLoop, '_run_loop_inner', crashes)
     with open_composite_session(headless_settings(tmp_path)) as (_session, runner):
         start = len(centre_posts)
-        run = runner.run_single_scan(
+        run = runner.start_single_scan(
             protocol=_protocol([_step('C1', 0, x=20.0, gain=1.0)]),
             parent_dir=str(tmp_path / 'runs'),
         )

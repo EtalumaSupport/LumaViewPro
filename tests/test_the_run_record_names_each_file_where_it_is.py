@@ -37,7 +37,7 @@ def test_with_a_folder_per_channel_every_file_row_names_where_its_file_is(tmp_pa
     settings['separate_folder_per_channel'] = True
     settings['video_as_frames'] = True
     with open_composite_session(settings) as (_session, runner):
-        pending = runner.run_single_scan(
+        pending = runner.start_single_scan(
             protocol=_protocol([_step('S1', 0, x=20.0, gain=1.0), _video('V1', 1)]),
             parent_dir=str(tmp_path / 'runs'),
         )

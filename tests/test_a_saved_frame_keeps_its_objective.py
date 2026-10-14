@@ -119,7 +119,7 @@ def test_a_save_after_the_next_turret_move_keeps_its_own_objective(tmp_path, mon
         # file that merely exists may still be mid-write: read the files once
         # the run says they are written.
         files_written = threading.Event()
-        outcome = runner.run_single_scan(
+        outcome = runner.start_single_scan(
             protocol=_two_objective_protocol(),
             parent_dir=str(run_parent),
             events=RunEvents(files_written=lambda *_: files_written.set()),

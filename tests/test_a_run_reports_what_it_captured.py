@@ -27,7 +27,7 @@ WAIT_S = 60.0
 
 
 def _run(runner, run_parent, steps, events=None):
-    pending = runner.run_single_scan(
+    pending = runner.start_single_scan(
         protocol=_protocol(steps),
         parent_dir=str(run_parent),
         events=events,
@@ -199,7 +199,7 @@ class TestARunWithFailedCapturesEndsIncomplete:
         # An autofocus scan saves nothing; it cannot fall short of captures
         # it was never asked for.
         with open_composite_session(headless_settings(tmp_path)) as (_session, runner):
-            pending = runner.run_single_scan(
+            pending = runner.start_single_scan(
                 protocol=_protocol(_two_steps()),
                 parent_dir=str(tmp_path / 'runs'),
                 enable_image_saving=False,

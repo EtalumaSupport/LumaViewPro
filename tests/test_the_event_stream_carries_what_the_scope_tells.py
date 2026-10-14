@@ -155,7 +155,7 @@ def test_every_event_of_a_run_names_the_run_its_call_handed_out(client, session,
     # The run is dispatched before its call returns, so its first event can
     # come first; this call returns only once it has, every time.
     the_runner = session.create_protocol_runner()
-    real = the_runner.run_single_scan
+    real = the_runner.start_single_scan
 
     def returns_after_the_first_event(*args, events, **kwargs):
         told = threading.Event()
@@ -168,12 +168,12 @@ def test_every_event_of_a_run_names_the_run_its_call_handed_out(client, session,
         assert told.wait(10)
         return run
 
-    monkeypatch.setattr(the_runner, 'run_single_scan', returns_after_the_first_event)
+    monkeypatch.setattr(the_runner, 'start_single_scan', returns_after_the_first_event)
 
     with _reading(client) as stream:
         stream.until('status')
         run = client.post(
-            f'/api/v1/handles/ProtocolRunner/{runner}/run_single_scan',
+            f'/api/v1/handles/ProtocolRunner/{runner}/start_single_scan',
             json={'protocol': protocol, 'enable_image_saving': False},
             # The call's answer, not its job: a loaded machine can take
             # longer than the default wait to reach the first event.
@@ -184,7 +184,7 @@ def test_every_event_of_a_run_names_the_run_its_call_handed_out(client, session,
     run_events = [e for e in events if e['event'] in {'scan_started', 'step_started', 'run_ended'}]
     assert run_events[0]['event'] == 'scan_started'
     # The call answers the run's job; every one of its events names that job.
-    assert run['member'].endswith('/run_single_scan'), run
+    assert run['member'].endswith('/start_single_scan'), run
     assert {json.dumps(e['data']['run']) for e in run_events} == {json.dumps({'job': run['id']})}
     # The run's own copy of its protocol is no client's: it is left out.
     assert 'protocol' not in run_events[-1]['data']

@@ -776,7 +776,7 @@ class TestHeadlessSession:
             def on_complete(*_ended):
                 done.set()
 
-            runner.run_single_scan(
+            runner.start_single_scan(
                 protocol=protocol,
                 sequence_name='headless_test',
                 parent_dir=str(tmp_path),

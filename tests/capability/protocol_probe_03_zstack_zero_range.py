@@ -16,9 +16,9 @@ try:
     from modules.protocol_runner import ProtocolRunner
 
     runner = ProtocolRunner(session)
-    banner('run_zstack with range=0 step_size=0')
+    banner('start_zstack with range=0 step_size=0')
     try:
-        outcome = runner.run_zstack(layer='BF')
+        outcome = runner.start_zstack(layer='BF')
         settled = outcome.result(timeout=120)
         print('NO RAISE. status:', settled.status, settled.reason, '|', settled.message)
     except Exception as e:

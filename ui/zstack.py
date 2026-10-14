@@ -146,14 +146,14 @@ class ZStack(FloatLayout):
         )
 
         def _start():
-            started = runner.run_zstack(
+            started = runner.start_zstack(
                 layer=layer,
                 events=events,
                 run_trigger_source='zstack',
                 enable_image_saving=enable_image_saving,
             )
             self._zstack_run = started
-            # A refusal raises out of run_zstack before this line, so the
+            # A refusal raises out of start_zstack before this line, so the
             # save folder can only ever point at THIS run's directory,
             # never a previous run's stale data.
             set_last_save_folder(dir=started.progress().run_dir)

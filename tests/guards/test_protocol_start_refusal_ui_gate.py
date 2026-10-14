@@ -120,7 +120,7 @@ def test_the_panels_start_runs_through_the_api_then_names_the_folder():
     for name in ('prepare', 'start', 'run'):
         assert not _calls_named(method, name), (
             f"_sequenced_capture_start must not call the engine's {name}() itself: "
-            'ProtocolRunner.run_protocol / run_single_scan are the one way to start a run'
+            'ProtocolRunner.start_protocol / start_single_scan are the one way to start a run'
         )
 
     src = ast.unparse(method)
@@ -129,8 +129,8 @@ def test_the_panels_start_runs_through_the_api_then_names_the_folder():
     )
 
     for starter, member in (
-        ('_scan_start', 'run_single_scan'),
-        ('_protocol_start', 'run_protocol'),
+        ('_scan_start', 'start_single_scan'),
+        ('_protocol_start', 'start_protocol'),
     ):
         handed = _calls_named(
             _method_node(path, 'ProtocolSettings', starter), '_sequenced_capture_start'

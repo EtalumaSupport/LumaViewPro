@@ -546,7 +546,7 @@ class TestTheCallerHoldsTheEndingOfTheRunItStarted:
     """The run's ending reaches the caller that asked for the run.
 
     Sixteen sites could end a run and none of the answers left the
-    process: run_single_scan dropped what it started, and
+    process: start_single_scan dropped what it started, and
     wait_for_completion was one bit with three meanings ("completed",
     "timed out", "never started"). A caller could not tell a user Stop
     from a dead camera from a run that was refused.
@@ -557,14 +557,14 @@ class TestTheCallerHoldsTheEndingOfTheRunItStarted:
 
         reported = {}
         with open_composite_session(headless_settings(tmp_path)) as (session, runner):
-            pending = runner.run_single_scan(
+            pending = runner.start_single_scan(
                 _plain_scan_protocol(session),
                 sequence_name='ending_scan',
                 parent_dir=str(tmp_path),
                 events=RunEvents(run_ended=lambda outcome, *_: reported.update(outcome=outcome)),
             )
             assert pending is not None, (
-                'run_single_scan committed a run and handed back nothing; the '
+                'start_single_scan committed a run and handed back nothing; the '
                 'caller has no way to learn how its own run ended'
             )
             settled = pending.result(timeout=60)
@@ -586,7 +586,7 @@ class TestTheCallerHoldsTheEndingOfTheRunItStarted:
         from tests.test_composite_run_e2e import headless_settings, open_composite_session
 
         with open_composite_session(headless_settings(tmp_path)) as (session, runner):
-            pending = runner.run_single_scan(
+            pending = runner.start_single_scan(
                 _plain_scan_protocol(session),
                 sequence_name='no_merge_scan',
                 parent_dir=str(tmp_path),

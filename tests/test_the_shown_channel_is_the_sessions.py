@@ -94,7 +94,7 @@ def test_a_runs_step_shows_its_layer_lit_only_when_its_led_is(tmp_path):
         bf = {**dict(_make_single_step_protocol(color='BF').step(idx=0)), 'Name': 'b'}
         bf['Step Index'] = 1
 
-        run = built.create_protocol_runner().run_single_scan(
+        run = built.create_protocol_runner().start_single_scan(
             protocol=_build_real_protocol([lumi, bf]), parent_dir=str(tmp_path)
         )
         assert run.result(timeout=COMPLETION_TIMEOUT).status == 'completed'

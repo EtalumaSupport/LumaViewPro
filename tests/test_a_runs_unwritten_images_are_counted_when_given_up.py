@@ -47,7 +47,7 @@ def _hold_saves(monkeypatch):
 
 
 def _finish_one_run(runner, run_parent, name, events=None):
-    outcome = runner.run_single_scan(
+    outcome = runner.start_single_scan(
         protocol=_protocol([_step(name, 0, x=20.0, gain=1.0)]),
         parent_dir=str(run_parent),
         events=events,
@@ -164,7 +164,7 @@ class TestShuttingDownWithImagesStillWriting:
         monkeypatch.setattr(protocol_image_writer, 'WRITE_BACKLOG_BOUND', 1)
         release, started, _real_save = _hold_saves(monkeypatch)
         with open_composite_session(headless_settings(tmp_path)) as (session, runner):
-            runner.run_single_scan(
+            runner.start_single_scan(
                 protocol=_protocol([_step(f'C{i}', i, x=20.0, gain=1.0) for i in range(4)]),
                 parent_dir=str(tmp_path / 'runs'),
             )

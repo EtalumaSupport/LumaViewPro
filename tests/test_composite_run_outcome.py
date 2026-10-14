@@ -86,12 +86,12 @@ class TestCompositeRunsAsItsOwnKind:
 
         runner = _runner()
         protocol = MagicMock(spec=Protocol)
-        runner.run_single_scan(
+        runner.start_single_scan(
             protocol=protocol,
         )
         assert runner._executor.prepare.call_args.kwargs['run_mode'].leds_state_at_end == 'off'
 
-        runner.run_protocol(
+        runner.start_protocol(
             protocol=protocol,
         )
         assert runner._executor.prepare.call_args.kwargs['run_mode'].leds_state_at_end == 'off'

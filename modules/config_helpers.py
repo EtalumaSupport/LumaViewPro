@@ -1306,7 +1306,7 @@ def get_standalone_capture_config_from_settings(
             empty dict keeps the run stim-free.
 
     *layer* is a layer of this release: the members that build this
-    (``ProtocolRunner.run_autofocus``, ``run_zstack``) judge it at their
+    (``ProtocolRunner.start_autofocus``, ``start_zstack``) judge it at their
     door, before they read the scope. Unjudged, an unknown name would not
     fail here -- the layer selector below skips what the catalogue lacks
     -- and the run would be refused several steps later as "Protocol has

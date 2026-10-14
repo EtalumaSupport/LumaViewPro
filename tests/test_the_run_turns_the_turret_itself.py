@@ -35,7 +35,7 @@ def test_a_headless_run_visits_each_steps_slot(tmp_path, monkeypatch):
         monkeypatch.setattr(motion, '_move_turret_impl', _turret_move)
         displayed = []
 
-        outcome = runner.run_single_scan(
+        outcome = runner.start_single_scan(
             protocol=_two_objective_protocol(),
             parent_dir=str(tmp_path / 'runs'),
             events=RunEvents(step_started=displayed.append),

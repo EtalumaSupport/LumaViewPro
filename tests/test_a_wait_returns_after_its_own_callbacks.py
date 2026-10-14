@@ -37,7 +37,7 @@ SLOW_S = 0.5
 
 def _scan(runner, parent, events, *, save=True, sequence_name=None):
     kwargs = {} if sequence_name is None else {'sequence_name': sequence_name}
-    return runner.run_single_scan(
+    return runner.start_single_scan(
         enable_image_saving=save,
         protocol=_protocol([_step('C1', 0, x=20.0, gain=1.0)]),
         parent_dir=str(parent),

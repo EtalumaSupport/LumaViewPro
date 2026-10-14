@@ -111,7 +111,7 @@ def main():
     #   # (session.set_image_mode(...) chooses it).
     #
     #   # Run a single scan (captures all positions/channels once)
-    #   pending = runner.run_single_scan(
+    #   pending = runner.start_single_scan(
     #       protocol=protocol,
     #       sequence_name="my_scan",
     #       parent_dir=pathlib.Path("./output"),
@@ -131,7 +131,7 @@ def main():
     #   print(f"Ended: {result.status} ({result.reason}) -- {result.message}")
     #
     #   # For a full timed protocol (repeats scans over duration):
-    #   pending = runner.run_protocol(
+    #   pending = runner.start_protocol(
     #       protocol=protocol,
     #       sequence_name="my_protocol",
     #   )

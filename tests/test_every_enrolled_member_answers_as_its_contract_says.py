@@ -300,18 +300,20 @@ def run_folders(tmp_path_factory):
         launch = {'parent_dir': str(live), 'enable_image_saving': True}
         tiled = _saved(
             live,
-            lambda: runner.run_single_scan(protocol=scan('2x2'), sequence_name='tiled', **launch),
+            lambda: runner.start_single_scan(protocol=scan('2x2'), sequence_name='tiled', **launch),
         )
         session.update_settings('zstack.step_size', 10.0)
         session.update_settings('zstack.range', 20.0)
         _over_a_well(session)
-        zstack = _saved(live, lambda: runner.run_zstack(layer='BF', sequence_name='zstack'))
+        zstack = _saved(live, lambda: runner.start_zstack(layer='BF', sequence_name='zstack'))
         # Minutes and hours, as the protocol settings hold them: three scans a second apart.
         session.update_settings('protocol.period', 1 / 60)
         session.update_settings('protocol.duration', 3 / 3600)
         timelapse = _saved(
             live,
-            lambda: runner.run_protocol(protocol=scan('1x1'), sequence_name='timelapse', **launch),
+            lambda: runner.start_protocol(
+                protocol=scan('1x1'), sequence_name='timelapse', **launch
+            ),
         )
         yield {'tiled': tiled, 'zstack': zstack, 'timelapse': timelapse}
     finally:

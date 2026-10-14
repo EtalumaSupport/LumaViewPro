@@ -1,9 +1,9 @@
 """P10 -- an autofocus whose search would leave Z's travel is refused, by the API.
 
 GUI entry: ui/vertical_control.py run_autofocus_from_ui -> the standalone
-autofocus run, the one `ProtocolRunner.run_autofocus` starts.
+autofocus run, the one `ProtocolRunner.start_autofocus` starts.
 
-Three starts, each through `run_autofocus` and the Session's outcome
+Three starts, each through `start_autofocus` and the Session's outcome
 listener, which hears the failure no caller waits on:
 
   top of travel     the first window reaches past the maximum: refused before
@@ -30,7 +30,7 @@ def _autofocus_from(session, runner, z, heard):
     motion = session.scope.motion
     motion.move_absolute('Z', z)
     heard.clear()
-    outcome = runner.run_autofocus(layer=LAYER).result(timeout=TIMEOUT_S)
+    outcome = runner.start_autofocus(layer=LAYER).result(timeout=TIMEOUT_S)
     while motion.is_moving():
         pass
     refused = [n for n in heard if getattr(n, 'reason', None) == 'out_of_travel']

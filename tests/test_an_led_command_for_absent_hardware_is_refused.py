@@ -250,7 +250,7 @@ def test_a_run_without_the_led_board_is_refused_for_the_led_controller(
     runner = session.create_protocol_runner()
 
     with pytest.raises(ProtocolRunRefusedError) as exc:
-        runner.run_single_scan(
+        runner.start_single_scan(
             protocol=_protocol(),
             sequence_name='s',
             parent_dir=str(tmp_path),
@@ -302,7 +302,7 @@ def test_a_board_pulled_mid_run_ends_the_run_at_its_next_led_write(
     second = {**first, 'Name': 'A1_second', 'Label': 'A1_second', 'Color': 'Blue', 'X': 12.0}
     runner = session.create_protocol_runner()
 
-    run = runner.run_single_scan(
+    run = runner.start_single_scan(
         protocol=_build_real_protocol([first, second]),
         sequence_name='pulled',
         parent_dir=str(tmp_path),

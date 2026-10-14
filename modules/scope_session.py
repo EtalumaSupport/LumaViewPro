@@ -593,7 +593,7 @@ class ScopeSession:
         run. The claim is released when the block ends, including on a
         raise, so no caller owns the release path.
 
-        A run the diagnostic lent its claim to (``run_autofocus(claim=...)``)
+        A run the diagnostic lent its claim to (``start_autofocus(claim=...)``)
         may still be live when the block ends -- a caller that raised
         between starting it and waiting on it. The release waits for that
         run to go idle first: its LED lease lives under this claim, and

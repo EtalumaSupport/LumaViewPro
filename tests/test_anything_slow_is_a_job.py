@@ -244,7 +244,7 @@ def _scans_held_at_their_first_step(session, monkeypatch):
     """
     reached, release = threading.Event(), threading.Event()
     runner = session.create_protocol_runner()
-    real = runner.run_single_scan
+    real = runner.start_single_scan
 
     def held(*args, events, **kwargs):
         def step_started(index):
@@ -254,7 +254,7 @@ def _scans_held_at_their_first_step(session, monkeypatch):
 
         return real(*args, events=dataclasses.replace(events, step_started=step_started), **kwargs)
 
-    monkeypatch.setattr(runner, 'run_single_scan', held)
+    monkeypatch.setattr(runner, 'start_single_scan', held)
     return reached, release
 
 
@@ -267,7 +267,7 @@ def test_a_run_job_deleted_while_it_runs_is_stopped_and_ends_aborted(client, ses
     runner = client.post('/api/v1/create_protocol_runner').json()['handle']
     try:
         job = client.post(
-            f'/api/v1/handles/ProtocolRunner/{runner}/run_single_scan',
+            f'/api/v1/handles/ProtocolRunner/{runner}/start_single_scan',
             json={'protocol': protocol, 'enable_image_saving': False},
         ).json()
         assert reached.wait(30)
@@ -306,7 +306,7 @@ def test_a_job_is_passed_as_an_argument_by_its_id(client, session, monkeypatch):
     runner = client.post('/api/v1/create_protocol_runner').json()['handle']
     try:
         run = client.post(
-            f'/api/v1/handles/ProtocolRunner/{runner}/run_single_scan',
+            f'/api/v1/handles/ProtocolRunner/{runner}/start_single_scan',
             json={'protocol': protocol, 'enable_image_saving': False},
         ).json()
         assert reached.wait(30)

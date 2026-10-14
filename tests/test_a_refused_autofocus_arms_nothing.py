@@ -26,7 +26,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from tests.test_the_autofocus_button_runs_through_run_autofocus import (  # noqa: F401
+from tests.test_the_autofocus_button_runs_through_start_autofocus import (  # noqa: F401
     _live,
     held,
     pressed,
@@ -45,11 +45,11 @@ REFUSAL = ProtocolRunRefusedError(
 
 class TestARefusedAutofocusClick:
     def test_it_arms_no_safety_timer(self, pressed):
-        pressed.member.run_autofocus.side_effect = REFUSAL
+        pressed.member.start_autofocus.side_effect = REFUSAL
 
         pressed.button.run_autofocus_from_ui()
 
-        assert pressed.member.run_autofocus.called, (
+        assert pressed.member.start_autofocus.called, (
             'the click never reached the engine -- the test is not exercising the refusal'
         )
         assert pressed.button.armed == [], (
@@ -90,7 +90,7 @@ class TestARefusedAutofocusClick:
         _live(pressed.engine)
         pressed.button.draw_autofocus_button()
 
-        pressed.member.run_autofocus.return_value = second.operation
+        pressed.member.start_autofocus.return_value = second.operation
         _live(pressed.engine, second)
         pressed.button.run_autofocus_from_ui()
 

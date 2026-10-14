@@ -62,5 +62,5 @@ def test_autofocus_all_steps_is_judged_by_the_scopes_cap(tmp_path):
         step = _step('too_bright', 0, x=20.0, gain=1.0)
         step['Illumination'] = float(cap + 1)
         with pytest.raises(ProtocolRunRefusedError) as refusal:
-            runner.run_autofocus_all_steps(_protocol([step]))
+            runner.start_autofocus_all_steps(_protocol([step]))
     _refused_for_illumination(refusal.value, cap)

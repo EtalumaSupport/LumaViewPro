@@ -27,7 +27,7 @@ def run_protocol_folder(
         # z-stack lanes put into this config.
         config['positions'] = positions
     protocol = session.scope.protocols.create_protocol(input_config=config)
-    launch = runner.run_single_scan if single_scan else runner.run_protocol
+    launch = runner.start_single_scan if single_scan else runner.start_protocol
     pending = launch(
         protocol=protocol,
         sequence_name=sequence_name,
