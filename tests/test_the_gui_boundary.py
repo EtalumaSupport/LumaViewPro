@@ -18,9 +18,9 @@ import types
 import pytest
 
 import modules.app_context as _app_ctx
-from modules.exceptions import HardwareCommandRefusedError
+from modules.exceptions import BlockingCallRefusedError, HardwareCommandRefusedError
 from modules.notification_center import Severity
-from modules.sequential_io_executor import IOTask, SequentialIOExecutor
+from modules.sequential_io_executor import IOTask, SequentialIOExecutor, inline_outcome
 from ui import ui_helpers
 from ui.ui_helpers import run_reported, submit_reported
 from tests.protocol_drives import run_identity
@@ -103,7 +103,14 @@ class TestTheInlineForm:
             lambda: lane.call(IOTask(action=ran.append, args=(1,)), 'move', 5.0), None, 'T'
         )
         assert ran == []
-        assert [(n.severity, n.category) for n in centre_posts] == [(Severity.ERROR, 'UI:T')]
+        assert [(n.severity, n.category) for n in centre_posts] == [(Severity.WARNING, 'UI:T')]
+
+    def test_the_lane_refuses_a_wait_from_inside_the_form(self, lane):
+        ran = []
+        with inline_outcome(), pytest.raises(BlockingCallRefusedError) as refused:
+            lane.call(IOTask(action=ran.append, args=(1,)), 'move', 5.0)
+        assert (refused.value.reason, refused.value.member) == ('blocking_inline', 'move')
+        assert ran == []
 
     def test_the_mark_does_not_outlive_the_call(self, centre_posts, lane):
         run_reported(_fail, None, 'T')

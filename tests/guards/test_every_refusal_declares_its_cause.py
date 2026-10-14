@@ -28,6 +28,7 @@ import pytest
 from modules.exceptions import (
     INTERLOCK_REASONS,
     AlreadyStartedError,
+    BlockingCallRefusedError,
     HardwareCommandRefusedError,
     LiveFolderPathRefusedError,
     MissingPart,
@@ -72,6 +73,7 @@ _FACTORIES = {
     'LiveFolderPathRefusedError': lambda reason: LiveFolderPathRefusedError(reason, 'n', 'm'),
     'ProtocolRunRefusedError': lambda reason: ProtocolRunRefusedError(reason, 'm'),
     'HardwareCommandRefusedError': lambda reason: HardwareCommandRefusedError(reason, 'member'),
+    'BlockingCallRefusedError': lambda reason: BlockingCallRefusedError(reason, 'member'),
 }
 
 

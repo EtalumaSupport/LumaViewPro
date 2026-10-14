@@ -39,6 +39,7 @@ from modules.activity_claim import (
 )
 from modules.autofocus_runner import AutofocusRunner
 from modules.exceptions import (
+    BlockingCallRefusedError,
     CameraSettingRejected,
     CompositeFailedError,
     FileWriterStalledError,
@@ -51,7 +52,6 @@ from modules.exceptions import (
     RunImagesNotSavedError,
     RunIncompleteError,
     RunStartError,
-    RunWaitOnUiThreadError,
     SingleScanNotice,
     describe_unknown_positions,
 )
@@ -203,11 +203,12 @@ class RunHandle:
             The run's outcome, or None when the bound passes first.
 
         Raises:
-            RunWaitOnUiThreadError: made on the thread that delivers the
-                run's callbacks, outside them -- it would wait on itself.
+            BlockingCallRefusedError: ``'wait_on_ui_thread'``, made on the
+                thread that delivers the run's callbacks, outside them -- it
+                would wait on itself.
         """
         deadline = None if timeout_s is None else time.monotonic() + timeout_s
-        own = self._waiting_inside_own_delivery()
+        own = self._waiting_inside_own_delivery('RunHandle.wait')
         outcome = self._wait_released(deadline)
         if outcome is None:
             return None
@@ -240,11 +241,12 @@ class RunHandle:
             cleanup runs leaves them unaccounted, and the wait answers None.
 
         Raises:
-            RunWaitOnUiThreadError: made on the thread that delivers the
-                run's callbacks, outside them -- it would wait on itself.
+            BlockingCallRefusedError: ``'wait_on_ui_thread'``, made on the
+                thread that delivers the run's callbacks, outside them -- it
+                would wait on itself.
         """
         deadline = None if timeout_s is None else time.monotonic() + timeout_s
-        own = self._waiting_inside_own_delivery()
+        own = self._waiting_inside_own_delivery('RunHandle.wait_for_files')
         if self._wait_released(deadline) is None:
             return None
         batch = self._write_batch
@@ -280,7 +282,7 @@ class RunHandle:
             time.sleep(0.02)
         return outcome
 
-    def _waiting_inside_own_delivery(self) -> bool:
+    def _waiting_inside_own_delivery(self, member: str) -> bool:
         """Whether this thread is delivering one of this run's callbacks; refuses the UI thread otherwise.
 
         Inside its own delivery a wait skips its told waits, which only that
@@ -293,7 +295,7 @@ class RunHandle:
             if self._deliveries[me]:
                 return True
         if me is kivy_utils.ui_thread():
-            raise RunWaitOnUiThreadError()
+            raise BlockingCallRefusedError('wait_on_ui_thread', member)
         return False
 
     @contextlib.contextmanager

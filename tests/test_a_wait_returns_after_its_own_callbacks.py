@@ -19,7 +19,7 @@ import time
 import pytest
 
 from modules import kivy_utils
-from modules.exceptions import RunCleanupFailedError, RunWaitOnUiThreadError
+from modules.exceptions import BlockingCallRefusedError, RunCleanupFailedError
 from modules.protocol import Protocol
 from modules.run_events import RunEvents
 from modules.scope_session import ScopeSession
@@ -254,7 +254,8 @@ class TestAWaitOnTheUiThread:
 
         for wait in (handle.wait, handle.wait_for_files):
             how, answer = deferred.call(lambda wait=wait: wait(BOUND_S))
-            assert how == 'raised' and isinstance(answer, RunWaitOnUiThreadError), (how, answer)
+            assert how == 'raised' and isinstance(answer, BlockingCallRefusedError), (how, answer)
+            assert answer.reason == 'wait_on_ui_thread'
 
 
 def test_the_stand_in_dispatcher_delivers_on_its_own_thread(deferred):

@@ -178,7 +178,7 @@ def refuse_blocking_on_a_worker(member: str) -> None:
     """
     worker = getattr(_executor_worker, 'executor', None)
     if worker is not None:
-        raise BlockingCallRefusedError(member, worker.executor_name)
+        raise BlockingCallRefusedError('blocking_on_worker', member, worker=worker.executor_name)
 
 
 # Set while the GUI's inline boundary runs a call on its own thread. That
@@ -201,11 +201,13 @@ def inline_outcome() -> Iterator[None]:
 
 
 def refuse_blocking_inline(member: str) -> None:
-    """Raise if this thread is inside the inline boundary, before any wait is made."""
+    """Refuse a blocking call inside the inline boundary, before any wait is made.
+
+    Raises:
+        BlockingCallRefusedError: ``'blocking_inline'``.
+    """
     if getattr(_inline_outcome, 'active', False):
-        raise RuntimeError(
-            f'{member}: a blocking dispatch from the inline run_reported; use submit_reported'
-        )
+        raise BlockingCallRefusedError('blocking_inline', member)
 
 
 # Per-thread waiter cache. Each calling thread that submits with
@@ -806,8 +808,10 @@ class SequentialIOExecutor:
         way, through the door the run's own work uses.
 
         Raises:
-            RuntimeError: called from another lane's worker, which never
-                waits on a lane.
+            BlockingCallRefusedError: ``'blocking_on_worker'``, called from
+                another lane's worker, which never waits on a lane;
+                ``'blocking_inline'``, called inside the GUI's inline
+                boundary.
             HardwareCommandRefusedError: the lane is closed, or the scope is
                 held by an activity this call is not made under.
             LaneCallStillRunningError: ``timeout_s``, the API's own bound,
@@ -825,9 +829,10 @@ class SequentialIOExecutor:
                 if counted:
                     self._claim.leave_falsifying_change()
         if worker is not None:
-            raise RuntimeError(
-                f'{member}: a blocking dispatch from the {worker.executor_name} lane worker '
-                f'onto {self.executor_name} -- a lane worker never waits on another lane'
+            # A lane worker never waits on another lane: that wait is one
+            # half of the pair that makes a deadlock.
+            raise BlockingCallRefusedError(
+                'blocking_on_worker', member, worker=worker.executor_name
             )
         refuse_blocking_inline(member)
         fut = self.submit(task, member, override=override)

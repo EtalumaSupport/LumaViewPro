@@ -15,7 +15,7 @@ import threading
 import pytest
 
 from modules.activity_claim import ActivityClaim, acting, current_taking
-from modules.exceptions import HardwareCommandRefusedError, Refusal
+from modules.exceptions import BlockingCallRefusedError, HardwareCommandRefusedError, Refusal
 from modules.run_events import RunEvents
 from modules.sequential_io_executor import ENQUEUED, IOTask, SequentialIOExecutor
 from tests.protocol_drives import run_identity
@@ -255,8 +255,12 @@ class TestNoLaneWorkerWaitsOnALane:
                 ),
                 return_future=True,
             )
-            with pytest.raises(RuntimeError, match='lane'):
+            with pytest.raises(BlockingCallRefusedError) as refused:
                 fut.result(timeout=_WAIT_S)
+            assert (refused.value.reason, refused.value.member) == (
+                'blocking_on_worker',
+                'move_absolute',
+            )
         finally:
             io.shutdown()
             camera.shutdown()
@@ -406,8 +410,9 @@ class TestTheHardwareMembersUseTheLanesDispatch:
         fut = getattr(sim_session, lane).put(
             IOTask(action=member, args=(scope,), silent_on_failure=True), return_future=True
         )
-        with pytest.raises(RuntimeError, match='never waits on another lane'):
+        with pytest.raises(BlockingCallRefusedError) as refused:
             fut.result(timeout=10.0)
+        assert refused.value.reason == 'blocking_on_worker'
 
 
 class TestTheShutdownOverride:

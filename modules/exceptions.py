@@ -1430,26 +1430,6 @@ class RunAlreadyEndedError(Quiet, ProtocolError):
     title = 'Run Already Ended'
 
 
-class RunWaitOnUiThreadError(Fault, ProtocolError):
-    """A run's wait was made on the thread that delivers the run's callbacks.
-
-    Under the GUI a run's ``run_ended`` and ``files_written`` are
-    delivered on the UI thread, and a run's waits return only once they
-    have run, so a wait there would wait on itself. Not a refusal: a caller
-    that blocks the UI thread on a run is a defect in the caller, and the
-    GUI displays a run's end from its callbacks, never by waiting on it.
-    """
-
-    reason = 'wait_on_callback_thread'
-    title = 'Run Wait Not Possible'
-
-    def __init__(self):
-        super().__init__(
-            "A run's wait was made on the thread that delivers the run's callbacks, "
-            'where it would wait on itself.'
-        )
-
-
 class RunStartError(Fault, ProtocolError):
     """A sequenced run failed after it was committed but before it ran.
 
@@ -3936,26 +3916,46 @@ class AlreadyStartedError(Refusal, RuntimeError):
 
 
 class BlockingCallRefusedError(Refusal, RuntimeError):
-    """A blocking call was made from an executor's worker, which it could end up waiting on.
+    """A blocking call was made on a thread it could end up waiting on.
 
-    The call waits on work that may queue behind the worker it was made
-    from, so it is refused before any wait is made; its non-blocking form
-    is the one a worker uses. Still a ``RuntimeError``, as it was
-    documented.
+    Refused before any wait is made, by where the call was made: its
+    non-blocking form is the one that thread uses. Still a ``RuntimeError``,
+    as it was documented.
 
     Attributes:
+        reason: ``'blocking_on_worker'`` -- made on an executor's worker,
+            whose own work it may queue behind. ``'wait_on_ui_thread'`` --
+            a wait on the UI thread for an operation not yet done, which
+            would hold the window until the operation ends; a done-callback
+            is the UI thread's form. ``'blocking_inline'`` -- made inside
+            the GUI's inline boundary, whose thread draws the window;
+            ``submit_reported`` is that call's form.
         member: The member that was called.
     """
 
-    cause = RefusalCause.REQUEST
-    reason = 'blocking_on_worker'
     title = 'Blocking Call Refused'
+    causes: ClassVar[dict[str, RefusalCause]] = {
+        'blocking_on_worker': RefusalCause.REQUEST,
+        'wait_on_ui_thread': RefusalCause.REQUEST,
+        'blocking_inline': RefusalCause.REQUEST,
+    }
 
-    def __init__(self, member: str, worker: str):
-        super().__init__(
-            f'{member}: a blocking call from the {worker} worker, which its own work '
-            'may queue behind; use the non-blocking form'
-        )
+    def __init__(self, reason: str, member: str, *, worker: str | None = None):
+        reason = self._declared(reason)
+        if reason == 'blocking_on_worker':
+            words = (
+                f'a blocking call from the {worker} worker, which its own work may queue '
+                'behind; use the non-blocking form'
+            )
+        elif reason == 'wait_on_ui_thread':
+            words = (
+                'a wait on the UI thread for an operation that has not ended, which would '
+                'hold the window until it does; add a done-callback instead'
+            )
+        else:
+            words = 'a blocking dispatch from the inline run_reported; use submit_reported'
+        super().__init__(f'{member}: {words}')
+        self.reason = reason
         self.member = member
 
 
