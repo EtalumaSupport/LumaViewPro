@@ -39,8 +39,8 @@ try:
         seen['z_on_mine'] = protocol.steps()['Z'].tolist()
 
     z_in = protocol.steps()['Z'].tolist()
-    af = runner.run_autofocus_all_steps(protocol, events=RunEvents(run_ended=on_ended)).wait(
-        timeout_s=300
+    af = runner.run_autofocus_all_steps(protocol, events=RunEvents(run_ended=on_ended)).result(
+        timeout=300
     )
     print('status / focus_written :', af.status, af.focus_written)
     print('Z handed in            :', z_in)
@@ -61,11 +61,12 @@ try:
         protocol,
         sequence_name='multi',
     )
-    print('remaining_scans at start:', out.remaining_scans)
-    print('protocol_interval       :', out.interval)
+    at_start = out.progress()
+    print('remaining_scans at start:', at_start.remaining_scans)
+    print('protocol_interval       :', at_start.interval)
     s = out.result(timeout=300)
     print('status:', s.status, s.reason)
-    rd = out.run_dir
+    rd = out.progress().run_dir
     deadline = time.time() + 90
     # Until the run has let go of the scope AND its files have landed.
     while time.time() < deadline and session.run_lockout:

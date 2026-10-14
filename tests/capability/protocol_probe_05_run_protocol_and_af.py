@@ -52,7 +52,7 @@ try:
     )
     settled = outcome.result(timeout=300)
     print('status:', settled.status, settled.reason)
-    run_dir = outcome.run_dir
+    run_dir = outcome.progress().run_dir
     deadline = time.time() + 90
     # Until the run has let go of the scope AND its files have landed.
     while time.time() < deadline and session.run_lockout:

@@ -8,7 +8,6 @@ produce the folder, then session.post_processing.zproject to
 project it. No Kivy, no ui.* import.
 """
 
-import pathlib
 import sys
 
 from harness import headless_session, probe_dir
@@ -25,7 +24,7 @@ def main() -> int:
         pending = runner.run_zstack(layer='BF', sequence_name='probe_zstack')
         outcome = pending.result(timeout=180)
         print('zstack outcome:', outcome)
-        run_dir = pathlib.Path(pending.run_dir) if pending.run_dir else None
+        run_dir = pending.progress().run_dir
         print('run_dir:', run_dir)
         # The outcome answers before the run's files drain; the projection
         # reads the run's record, so wait for the run's files.

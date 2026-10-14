@@ -48,14 +48,16 @@ try:
         sequence_name='abortme',
     )
     time.sleep(3)
-    print('is_protocol_running:', session.is_protocol_running, '| out.is_live:', out.is_live)
+    print(
+        'is_protocol_running:',
+        session.is_protocol_running,
+        '| out.is_live:',
+        out.progress().is_live,
+    )
 
-    banner('a stop through the handle of a run that is not the live one must be refused')
-    try:
-        earlier.stop()
-        print('NOT REFUSED (FAIL)')
-    except Exception as e:
-        print(f'refused: {type(e).__name__}: {getattr(e, "reason", "")}: {e}')
+    banner('a stop through the operation of a run that has ended does nothing')
+    earlier.stop()
+    print('ASSERT the live run is still live:', 'PASS' if out.progress().is_live else 'FAIL')
 
     banner('the run is stopped by its own handle')
     out.stop()

@@ -745,11 +745,11 @@ written = session.save_protocol(protocol, 'my_protocol')   # -> Path('my_protoco
 # A run captures and saves in the session's image mode and output formats:
 # session.set_image_mode(...) chooses the mode before the run starts.
 pending = runner.run_single_scan(protocol)
-result = pending.wait(timeout_s=300)
+result = pending.result(timeout=300)
 print(result.status, result.reason, result.message)
 
-# Or stop it at any time through the handle its call returned. A handle
-# whose run has ended never touches the run that is live now.
+# Or stop it at any time through the operation its call returned. An
+# operation whose run has ended never touches the run that is live now.
 pending.stop()
 ```
 
@@ -757,7 +757,7 @@ pending.stop()
 
 ```python
 pending = runner.run_autofocus('BF', save_characterization_data=True)
-result = pending.wait(timeout_s=120)
+result = pending.result(timeout=120)
 if result.af_focus_z_um is None:
     print('no focus found; the stage is back where it started')
 else:
@@ -776,20 +776,20 @@ The run saves no images and writes no run artifacts, and it leaves the stage at 
 
 ```python
 pending = runner.run_autofocus_all_steps(protocol)
-result = pending.wait(timeout_s=600)
+result = pending.result(timeout=600)
 if result.focus_written:
     print('focused Z:', protocol.steps()['Z'].tolist())
 else:
     print('protocol unchanged:', result.status, result.reason)
 ```
 
-The scan visits each step with autofocus on, whatever the step's own autofocus setting, and captures nothing; the protocol's autofocus settings are not changed. When the scan completes, each step's Z becomes the focus found for it, written before the run lets go of the scope, so a caller reading the protocol in `run_ended` or after `wait` sees the focused values. A step whose sweep found no focus keeps its Z. A scan that does not complete (stopped, failed) writes nothing, because it focused only some of the steps. A protocol whose steps changed during the scan -- a different number of them, or a step at a different position, channel or objective -- is left unchanged, and the person is told once as `Focus Not Saved` (`FocusNotWrittenError` in `modules.exceptions`, a refusal); the outcome's `focus_written` says which happened. The run-wide settings (illumination, gain, exposure, frame size) come from the settings store, so this run resolves exactly as the protocol panel's Autofocus All Steps button does.
+The scan visits each step with autofocus on, whatever the step's own autofocus setting, and captures nothing; the protocol's autofocus settings are not changed. When the scan completes, each step's Z becomes the focus found for it, written before the run lets go of the scope, so a caller reading the protocol in `run_ended` or after `result()` sees the focused values. A step whose sweep found no focus keeps its Z. A scan that does not complete (stopped, failed) writes nothing, because it focused only some of the steps. A protocol whose steps changed during the scan -- a different number of them, or a step at a different position, channel or objective -- is left unchanged, and the person is told once as `Focus Not Saved` (`FocusNotWrittenError` in `modules.exceptions`, a refusal); the outcome's `focus_written` says which happened. The run-wide settings (illumination, gain, exposure, frame size) come from the settings store, so this run resolves exactly as the protocol panel's Autofocus All Steps button does.
 
 **Standalone z-stack.** `run_zstack(layer)` captures a stack on one layer, around the current stage position:
 
 ```python
 pending = runner.run_zstack('BF')
-result = pending.wait(timeout_s=600)
+result = pending.result(timeout=600)
 print(result.status, result.reason)
 ```
 
@@ -2751,7 +2751,7 @@ protocol = session.load_protocol('./my_protocol.tsv')
 
 runner = session.create_protocol_runner()
 pending = runner.run_single_scan(protocol)
-result = pending.wait(timeout_s=300)
+result = pending.result(timeout=300)
 print(result.status, result.reason, result.message)
 
 session.shutdown()          # the factory built this scope, so shutdown() disconnects it

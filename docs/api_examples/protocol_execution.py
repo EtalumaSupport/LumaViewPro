@@ -117,15 +117,17 @@ def main():
     #       parent_dir=pathlib.Path("./output"),
     #   )
     #
-    #   # Monitor progress through the run's handle
-    #   print(f"Running: {pending.is_live}, step {pending.step_number} of {pending.num_steps}")
-    #   print(f"Output dir: {pending.run_dir}")
+    #   # Monitor progress through the run's operation
+    #   progress = pending.progress()
+    #   print(f"Running: {progress.is_live}, step {progress.step_number} of {progress.num_steps}")
+    #   print(f"Output dir: {progress.run_dir}")
     #
-    #   # Wait for the run to end, then read HOW it ended. None means the
-    #   # bound expired; otherwise status is completed/incomplete/aborted/
-    #   # failed/failed_at_start and reason is the machine-readable cause;
-    #   # result.captures says what was captured of what was asked for.
-    #   result = pending.wait(timeout_s=300)
+    #   # Wait for the run to end, then read HOW it ended. A bound that
+    #   # expires first raises TimeoutError and leaves the run going; status
+    #   # is completed/incomplete/aborted/failed/failed_at_start and reason
+    #   # is the machine-readable cause; result.captures says what was
+    #   # captured of what was asked for.
+    #   result = pending.result(timeout=300)
     #   print(f"Ended: {result.status} ({result.reason}) -- {result.message}")
     #
     #   # For a full timed protocol (repeats scans over duration):
@@ -134,9 +136,9 @@ def main():
     #       sequence_name="my_protocol",
     #   )
     #
-    #   # To stop it, through its handle; wait says when it has ended:
+    #   # To stop it, through its operation; result says when it has ended:
     #   pending.stop()
-    #   pending.wait(timeout_s=60)
+    #   pending.result(timeout=60)
 
     print('\nProtocol setup complete (not executed in simulate-only example)')
     print('See comments in source for full execution flow')

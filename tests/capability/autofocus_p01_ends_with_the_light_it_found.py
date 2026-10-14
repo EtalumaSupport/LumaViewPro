@@ -41,12 +41,12 @@ def _autofocus(session, runner, current_ma, *, stop):
         imaging = session.scope.imaging
         motion = session.scope.motion
         deadline = time.monotonic() + RUN_TIMEOUT_S
-        while handle.is_live and not imaging.is_focusing and time.monotonic() < deadline:
+        while handle.progress().is_live and not imaging.is_focusing and time.monotonic() < deadline:
             time.sleep(0.01)
         time.sleep(0.5)
         check(f'{leg}: the autofocus was sweeping when stopped', imaging.is_focusing)
         figure(f'{leg}: Z position at stop um', motion.get_current_position('Z'))
-        if check(f'{leg}: the run was live when stopped', handle.is_live):
+        if check(f'{leg}: the run was live when stopped', handle.progress().is_live):
             handle.stop()
     outcome = handle.result(timeout=RUN_TIMEOUT_S)
     figure(f'{leg}: outcome', None if outcome is None else (outcome.status, outcome.reason))
