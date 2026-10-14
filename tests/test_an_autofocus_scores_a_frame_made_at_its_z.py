@@ -53,7 +53,7 @@ def _session_over_the_focus_target():
     """A homed simulated session streaming a focus target, Z parked above its focus."""
     session = ScopeSession.create(complete_settings(), simulate=True)
     try:
-        session.scope.imaging.start_streaming()
+        session.scope.imaging.enable_streaming()
         home_sim_scope(session.scope)
         camera = session.scope._camera_driver
         camera.set_test_pattern(enabled=True, pattern='focus_target')

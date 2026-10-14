@@ -3239,7 +3239,7 @@ class ImagingAPI:
 
         # active (connected) is necessary but not sufficient to deliver a
         # frame: connect() configures the camera without starting the feed
-        # (the lifecycle split), and stop_streaming() deliberately halts it.
+        # (the lifecycle split), and disable_streaming() deliberately halts it.
         # A not-grabbing camera cannot produce a capture, so return the same
         # not-ready sentinel as the active check above -- named distinctly so
         # a stopped or not-yet-started feed is not misread as a grab timeout.
@@ -4236,25 +4236,25 @@ class ImagingAPI:
         return image_utils.summed_full_scale(*summing)
 
     # --- Streaming control ---
-    @api(stop='ImagingAPI.stop_streaming')
-    def start_streaming(self) -> None:
+    @api
+    def enable_streaming(self) -> None:
         """Begin camera streaming -- the public way to start the live feed, and wait.
 
         After ``connect()`` the camera is configured but NOT grabbing (the
         camera-lifecycle split); ``Lumascope.initialize`` makes the one-time
         bring-up start. This restarts a feed that was deliberately stopped,
         and is idempotent on a feed already running. Refused, naming the camera,
-        when none is connected. See ``_start_streaming_impl``; this adds the dispatch
+        when none is connected. See ``_enable_streaming_impl``; this adds the dispatch
         described on ``_dispatch_camera``, on the geometry timeout (a stop
         or start of the grab has been measured near 11 s on a Pylon body).
         """
         return self._dispatch_camera(
-            self._start_streaming_impl,
-            'start_streaming',
+            self._enable_streaming_impl,
+            'enable_streaming',
             timeout_s=self._CAMERA_GEOMETRY_TIMEOUT_S,
         )
 
-    def _start_streaming_impl(self) -> None:
+    def _enable_streaming_impl(self) -> None:
         driver = self._driver
         if driver is None:
             return
@@ -4267,22 +4267,22 @@ class ImagingAPI:
             driver.start_grabbing()
 
     @api
-    def stop_streaming(self) -> None:
+    def disable_streaming(self) -> None:
         """Stop camera streaming, and wait.
 
         After this, ``capture_and_wait()`` fails until streaming resumes;
         ``get_image()`` still returns the last frame the camera delivered.
         Satisfied with no camera connected: nothing is streaming. Dispatched
-        as ``start_streaming`` is.
+        as ``enable_streaming`` is.
         """
         return self._dispatch_camera(
-            self._stop_streaming_impl,
-            'stop_streaming',
+            self._disable_streaming_impl,
+            'disable_streaming',
             timeout_s=self._CAMERA_GEOMETRY_TIMEOUT_S,
             satisfied_when_absent=None,
         )
 
-    def _stop_streaming_impl(self) -> None:
+    def _disable_streaming_impl(self) -> None:
         driver = self._driver
         if driver is None:
             return

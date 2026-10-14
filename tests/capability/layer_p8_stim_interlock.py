@@ -50,7 +50,7 @@ try:
     # run it and see whether prepare() refuses the illegal pair
     s.scope.motion.home('ALL')
     time.sleep(2)
-    s.scope.imaging.start_streaming()
+    s.scope.imaging.enable_streaming()
     runner = s.create_protocol_runner()
     refused = False
     try:

@@ -15,7 +15,7 @@ def step(label, fn):
 
 
 try:
-    im.start_streaming()
+    im.enable_streaming()
     step('set_gain_db(7.5)', lambda: (im.set_gain_db(7.5), im.get_gain_db(), im.gain_db_cached))
     step(
         'set_exposure_ms(123.0)',

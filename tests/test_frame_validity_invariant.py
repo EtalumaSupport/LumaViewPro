@@ -39,9 +39,9 @@ def sim_imaging():
     """
     scope = build_scope(simulate=True)
     bind_settings_like_a_session(scope)
-    scope.imaging.start_streaming()
+    scope.imaging.enable_streaming()
     yield scope.imaging, scope._camera_driver
-    scope.imaging.stop_streaming()
+    scope.imaging.disable_streaming()
 
 
 class TestSetGainAlwaysInvalidatesDespiteStaleCache:

@@ -373,7 +373,7 @@ class TestTheGuiTakesTheFactory:
         assert load is not None
         hits = sorted(
             {c.func.attr for c in _calls(load) if isinstance(c.func, ast.Attribute)}
-            & {'get_motor_info', 'configure_scope', 'start_streaming'}
+            & {'get_motor_info', 'configure_scope', 'enable_streaming'}
         )
         assert hits == [], f'load_settings still runs bring-up steps: {hits}'
         assert any(

@@ -36,13 +36,13 @@ def session(tmp_path):
 
 
 def test_a_run_on_a_stopped_feed_is_refused_and_runs_once_the_feed_starts(session, tmp_path):
-    session.scope.imaging.stop_streaming()
+    session.scope.imaging.disable_streaming()
 
     with pytest.raises(ProtocolRunRefusedError) as refused:
         _run(session, tmp_path)
     assert refused.value.reason == 'camera_not_streaming'
 
-    session.scope.imaging.start_streaming()
+    session.scope.imaging.enable_streaming()
     assert _run(session, tmp_path).status == 'completed'
 
 

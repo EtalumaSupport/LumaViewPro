@@ -129,10 +129,10 @@ def test_a_snapshot_is_the_newest_frame_at_half_its_width(session):
 
 
 def test_a_snapshot_with_no_frame_is_refused_until_one_comes(session):
-    session.scope.imaging.stop_streaming()
+    session.scope.imaging.disable_streaming()
     with _serving(session) as (app, _server, client):
         refused = client.get('/api/v1/live.jpg')
-        session.scope.imaging.start_streaming()
+        session.scope.imaging.enable_streaming()
         shot = client.get('/api/v1/live.jpg')
         watchers = app.state.live.watchers
 

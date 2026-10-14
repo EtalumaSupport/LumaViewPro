@@ -40,11 +40,11 @@ def test_a_last_listener_auto_removed_on_the_pump_thread_unregisters_cleanly(mon
 
         scope.imaging.set_exposure_ms(1.0)
         scope.imaging.add_frame_listener(bad, name='bad_plugin')
-        scope.imaging.start_streaming()
+        scope.imaging.enable_streaming()
         assert removed.wait(timeout=5.0)
 
         assert [w for w in warnings if 'did not unregister' in w] == []
         assert scope._camera_driver._registered_frame_callbacks == []
     finally:
-        scope.imaging.stop_streaming()
+        scope.imaging.disable_streaming()
         scope.disconnect()

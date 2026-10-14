@@ -298,7 +298,7 @@ def session():
     settings['microscope'] = 'LS620'
     settings['simulator_tier'] = 'fast'
     session = ScopeSession.create(settings, simulate=True)
-    session.scope.imaging.start_streaming()
+    session.scope.imaging.enable_streaming()
     assert _wait_until(lambda: session.scope.imaging.get_image() is not None, 5.0)
     yield session
     session.shutdown()

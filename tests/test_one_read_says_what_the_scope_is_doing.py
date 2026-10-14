@@ -63,6 +63,6 @@ def test_a_home_in_progress_is_the_work_and_no_axis_has_a_position(sim_session):
 
 
 def test_a_stopped_camera_reads_not_streaming(sim_session):
-    sim_session.scope.imaging.stop_streaming()
+    sim_session.scope.imaging.disable_streaming()
 
     assert sim_session.status.camera_streaming is False

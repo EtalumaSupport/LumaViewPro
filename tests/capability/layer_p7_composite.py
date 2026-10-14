@@ -25,7 +25,7 @@ try:
     except Exception as e:
         print('a: start_composite while NOT streaming -> REFUSED', type(e).__name__, e)
     # (b) streaming
-    s.scope.imaging.start_streaming()
+    s.scope.imaging.enable_streaming()
     try:
         out = runner.start_composite(sequence_name='composite2', parent_dir=parent)
         print('b: start_composite streaming -> ACCEPTED', out)

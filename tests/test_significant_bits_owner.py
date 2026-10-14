@@ -38,7 +38,7 @@ def _configure_sim(scope, pixel_format, pattern='White'):
     cam.set_timing_mode('fast')
     cam.set_pixel_format(pixel_format)
     cam.set_test_pattern(True, pattern)
-    scope.imaging.start_streaming()
+    scope.imaging.enable_streaming()
     return scope
 
 
@@ -59,7 +59,7 @@ def make_scope():
     yield _make
     for scope in scopes:
         try:
-            scope.imaging.stop_streaming()
+            scope.imaging.disable_streaming()
             scope.disconnect()
         except Exception:
             pass

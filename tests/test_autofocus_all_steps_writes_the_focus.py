@@ -49,7 +49,7 @@ def _focusing_session(tmp_path):
     """A headless session whose simulated sample comes into focus inside the sweep."""
     with open_composite_session(headless_settings(tmp_path)) as (session, runner):
         session.scope._camera_driver.set_test_pattern(True, 'focus_target')
-        session.scope.imaging.start_streaming()
+        session.scope.imaging.enable_streaming()
         session.scope._camera_driver.set_focal_z(FOCAL_Z_UM)
         yield session, runner
 

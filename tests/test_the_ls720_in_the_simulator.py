@@ -38,7 +38,7 @@ def scope():
     # The shipped stage offset, which the bench LS720's index positions
     # were measured against.
     bind_settings_like_a_session(s, objective_id='10x Oly', stage_offset={'x': 5500.0, 'y': 4000.0})
-    s.imaging.start_streaming()
+    s.imaging.enable_streaming()
     yield s
     s.disconnect()
 

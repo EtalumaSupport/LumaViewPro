@@ -3,7 +3,7 @@
 E2E: a manual recording on the real simulated stack ends within the
 stall bound when the feed silently dies -- with NO host pump at all.
 
-Production-path injection: stop_streaming halts the sim camera's
+Production-path injection: disable_streaming halts the sim camera's
 callback pump WITHOUT flipping active_cached -- the silent-stall shape.
 The controller's self-armed health check (real timer scheduler, the
 same one a headless host gets) must stop the recording, keep the
@@ -61,7 +61,7 @@ def test_manual_recording_ends_within_the_stall_bound(sim_scope, tmp_path, monke
     assert list(controller.save_folder.glob('ManualVideo_Frame_*.tiff')), (
         'precondition: the recording wrote a frame before the feed died'
     )
-    sim_scope.imaging.stop_streaming()
+    sim_scope.imaging.disable_streaming()
 
     deadline = time.monotonic() + 30.0
     while controller.is_recording and time.monotonic() < deadline:

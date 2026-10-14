@@ -47,9 +47,9 @@ def live_scope():
     scope._motion_driver.set_timing_mode('fast')
     scope._camera_driver.set_timing_mode('fast')
     scope._camera_driver.load_specimen()
-    scope.imaging.start_streaming()
+    scope.imaging.enable_streaming()
     yield scope
-    scope.imaging.stop_streaming()
+    scope.imaging.disable_streaming()
     scope.disconnect()
 
 

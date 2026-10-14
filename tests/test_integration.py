@@ -246,7 +246,7 @@ def scope():
     s._motion_driver.set_timing_mode('fast')
     s._camera_driver.set_timing_mode('fast')
     # Camera must be grabbing for get_image to work
-    s.imaging.start_streaming()
+    s.imaging.enable_streaming()
     home_sim_scope(s)
     yield s
     # disconnect() stops the stream itself; a stop sent through the camera
@@ -1023,7 +1023,7 @@ class TestRestAPIPrep:
         from modules.autofocus_thread import AutofocusThread
 
         session = ScopeSession.create(complete_settings(), simulate=True)
-        session.scope.imaging.start_streaming()
+        session.scope.imaging.enable_streaming()
         # Autofocus drives Z; a headless session has not homed.
         home_sim_scope(session.scope)
         # A target that blurs with defocus, in focus inside the sweep (Z 0 to
@@ -1073,7 +1073,7 @@ class TestRestAPIPrep:
         from modules.exceptions import AutofocusAborted
 
         session = ScopeSession.create(complete_settings(), simulate=True)
-        session.scope.imaging.start_streaming()
+        session.scope.imaging.enable_streaming()
         # Autofocus drives Z; a headless session has not homed.
         home_sim_scope(session.scope)
         park_z(session.scope, 7000.0)

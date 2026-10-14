@@ -61,7 +61,7 @@ REFUSED = {
     'set_auto_exposure_time_on': lambda im: im.set_auto_exposure_time(True),
     'update_auto_gain_target_brightness': lambda im: im.update_auto_gain_target_brightness(0.5),
     'auto_gain_once': lambda im: im.auto_gain_once(True, 0.5, 0.0, 20.0),
-    'start_streaming': lambda im: im.start_streaming(),
+    'enable_streaming': lambda im: im.enable_streaming(),
     'set_frame_size': lambda im: im.set_frame_size(1024, 1024),
     'set_binning_size': lambda im: im.set_binning_size(1),
     'set_pixel_format': lambda im: im.set_pixel_format('Mono8'),
@@ -73,7 +73,7 @@ REFUSED = {
 
 # The offs: satisfied with no camera, answering what each answers with one.
 SATISFIED = {
-    'stop_streaming': lambda im: im.stop_streaming(),
+    'disable_streaming': lambda im: im.disable_streaming(),
     'set_auto_gain_off': lambda im: im.set_auto_gain(False, _AUTO_GAIN),
     'set_auto_exposure_time_off': lambda im: im.set_auto_exposure_time(False),
     'lock_auto_gain': lambda im: im.lock_auto_gain(),
@@ -141,8 +141,8 @@ def test_with_its_camera_every_command_and_read_answers_as_before(make_session, 
     assert im.get_exposure_ms() == pytest.approx(20.0, rel=0.1)
     assert im.get_width() > 0 and im.get_height() > 0
     assert im.capture_and_wait() is not None
-    im.stop_streaming()
-    im.start_streaming()
+    im.disable_streaming()
+    im.enable_streaming()
     im.restore_camera_state(im.save_camera_state('present'))
 
 

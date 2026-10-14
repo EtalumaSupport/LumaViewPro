@@ -15,7 +15,7 @@ from tests.scope_fakes import build_scope
 
 def test_a_grab_after_the_removal_latch_returns_at_once_and_says_so():
     scope = build_scope(simulate=True)
-    scope.imaging.start_streaming()
+    scope.imaging.enable_streaming()
     time.sleep(0.3)
     driver = scope._camera_driver
 

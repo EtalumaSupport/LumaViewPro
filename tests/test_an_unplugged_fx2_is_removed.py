@@ -40,7 +40,7 @@ def session():
     settings['microscope'] = 'LS620'
     settings['simulator_tier'] = 'fast'
     session = ScopeSession.create(settings, simulate=True)
-    session.scope.imaging.start_streaming()
+    session.scope.imaging.enable_streaming()
     assert _wait_until(lambda: session.scope.imaging.get_image() is not None, 5.0)
     yield session
     session.shutdown()
@@ -124,7 +124,7 @@ def test_the_settings_are_saved_after_the_scope_is_unplugged(tmp_path):
     settings['simulator_tier'] = 'fast'
     out = tmp_path / 'current.json'
     session = ScopeSession.create(settings, simulate=True, settings_file=str(out))
-    session.scope.imaging.start_streaming()
+    session.scope.imaging.enable_streaming()
     session.scope.simulation.unplug('led')
     assert _wait_until(lambda: not session.scope.camera_connected, 6.0)
 
@@ -138,7 +138,7 @@ def test_the_shutdown_after_a_removal_raises_nothing():
     settings['microscope'] = 'LS620'
     settings['simulator_tier'] = 'fast'
     session = ScopeSession.create(settings, simulate=True)
-    session.scope.imaging.start_streaming()
+    session.scope.imaging.enable_streaming()
     session.scope.simulation.unplug('led')
     assert _wait_until(lambda: not session.scope.camera_connected, 6.0)
 
@@ -234,7 +234,7 @@ def test_the_shutdown_after_a_removal_writes_nothing_to_the_gone_led():
     settings['microscope'] = 'LS620'
     settings['simulator_tier'] = 'fast'
     session = ScopeSession.create(settings, simulate=True)
-    session.scope.imaging.start_streaming()
+    session.scope.imaging.enable_streaming()
     session.scope.simulation.unplug('led')
     assert _wait_until(lambda: not session.scope.camera_connected, 6.0)
     led = session.scope._led_driver

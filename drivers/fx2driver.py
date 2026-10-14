@@ -2010,7 +2010,7 @@ class FX2Camera(Camera):
         once via ``open_and_start()`` (the start gate). ScopeDisplay polls
         assuming the camera is grabbing, so the live view stays blank until
         the gate is released; the bring-up sites release it via
-        ``scope.imaging.start_streaming()`` after configuration (the
+        ``scope.imaging.enable_streaming()`` after configuration (the
         blank-view failure that bit the first LS620 GUI launch 2026-04-15).
         """
         if self._fx2 is None:

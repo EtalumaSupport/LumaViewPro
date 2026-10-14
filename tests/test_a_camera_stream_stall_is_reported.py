@@ -163,7 +163,7 @@ class TestWhatIsNotAStall:
             assert _wait_for(lambda: shown, 3.0), 'the short bound never came back'
 
     def test_a_camera_that_is_not_streaming_is_not_stalled(self, session, shown, caplog):
-        session.scope.imaging.stop_streaming()
+        session.scope.imaging.disable_streaming()
         with caplog.at_level(logging.INFO):
             time.sleep(1.5)
         assert shown == []

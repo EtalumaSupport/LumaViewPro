@@ -48,7 +48,7 @@ def frozen_clock(monkeypatch, tmp_path):
 def test_two_benchmarks_in_one_instant_do_not_overwrite(frozen_clock):
     scope = build_scope(simulate=True)
     if not scope.imaging.is_streaming():
-        scope.imaging.start_streaming()
+        scope.imaging.enable_streaming()
 
     first = scope.diagnostics.run_grab_lifecycle_benchmark(num_cycles=2)
     second = scope.diagnostics.run_grab_lifecycle_benchmark(num_cycles=3)
@@ -119,7 +119,7 @@ def test_the_probe_name_carries_the_microseconds(frozen_clock):
 def test_the_name_carries_the_microseconds(frozen_clock):
     scope = build_scope(simulate=True)
     if not scope.imaging.is_streaming():
-        scope.imaging.start_streaming()
+        scope.imaging.enable_streaming()
 
     result = scope.diagnostics.run_grab_lifecycle_benchmark(num_cycles=1)
 

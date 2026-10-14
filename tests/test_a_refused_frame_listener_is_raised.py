@@ -49,7 +49,7 @@ def sim_scope():
     scope.runtime_state.set_turreted(False)
     bind_settings_like_a_session(scope, objective_id='4x Oly')
     yield scope
-    scope.imaging.stop_streaming()
+    scope.imaging.disable_streaming()
     scope.disconnect()
 
 
@@ -212,7 +212,7 @@ class TestAFailingHandlerIsBounded:
         try:
             sim_scope.imaging.set_exposure_ms(1.0)
             sim_scope.imaging.add_frame_listener(bad, name='bad_plugin')
-            sim_scope.imaging.start_streaming()
+            sim_scope.imaging.enable_streaming()
             assert removed.wait(timeout=5.0), 'a handler failing every frame must be removed'
             # The removal is reported after it is made; the report is the signal.
             assert reported.wait(timeout=5.0), 'the removal was never reported'

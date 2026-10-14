@@ -613,7 +613,7 @@ class TestRunGrabLifecycleBenchmark:
         # SimulatedCamera is wired by the registry; ensure it is in the
         # active grabbing state the benchmark expects.
         if scope._camera_driver and not scope.imaging.is_streaming():
-            scope.imaging.start_streaming()
+            scope.imaging.enable_streaming()
         return scope
 
     def test_returns_required_dict_keys(self):

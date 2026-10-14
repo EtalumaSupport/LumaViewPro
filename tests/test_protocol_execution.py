@@ -68,7 +68,7 @@ def _make_simulated_scope():
     # store, and a turret carrying nothing addresses no glass, so every
     # protocol naming an objective would be refused.
     configure_turret_like_bringup(s)
-    s.imaging.start_streaming()
+    s.imaging.enable_streaming()
     return s
 
 

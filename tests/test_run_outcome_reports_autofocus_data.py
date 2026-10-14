@@ -114,7 +114,7 @@ class _AfRig:
         self.scope._led_driver.set_timing_mode('fast')
         self.scope._motion_driver.set_timing_mode('fast')
         self.scope._camera_driver.set_timing_mode('fast')
-        self.scope.imaging.start_streaming()
+        self.scope.imaging.enable_streaming()
 
         self.io_executor = SequentialIOExecutor(name='AFOUT_IO')
         self.file_io_executor = SequentialIOExecutor(name='AFOUT_FILE')

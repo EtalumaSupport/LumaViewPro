@@ -627,7 +627,7 @@ _UI_EXCEPT_PIN = {
 # for other uses. lumaviewpro.py is the GUI's entry point and is counted
 # with ui/.
 _ORCHESTRATION_MEMBERS = frozenset(
-    {'initialize', 'start_streaming', 'stop_streaming', 'disconnect', 'set_acceleration_limit'}
+    {'initialize', 'enable_streaming', 'disable_streaming', 'disconnect', 'set_acceleration_limit'}
 )
 _ORCHESTRATION_CONSTRUCTORS = frozenset(
     {
@@ -729,7 +729,7 @@ _GUI_ORCHESTRATION_PIN = {
     ('ui/microscope_settings.py', 'Lumascope'): 0,
     ('ui/microscope_settings.py', 'disconnect'): 0,
     ('ui/microscope_settings.py', 'initialize'): 0,
-    ('ui/microscope_settings.py', 'start_streaming'): 0,
+    ('ui/microscope_settings.py', 'enable_streaming'): 0,
     ('ui/protocol_settings.py', 'set_labware'): 0,
 }
 

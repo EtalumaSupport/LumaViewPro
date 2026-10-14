@@ -12,7 +12,7 @@ import harness
 s, live = harness.make_session('p4')
 scope = s.scope
 try:
-    scope.imaging.start_streaming()
+    scope.imaging.enable_streaming()
 
     # --- Stage A: the API delivers a frame ---
     arr = scope.imaging.capture_and_wait(force_to_8bit=False, timeout_s=5.0)

@@ -51,7 +51,7 @@ def sim_camera():
         cam.set_timing_mode('fast')
         cam.set_pixel_format(pixel_format)
         cam.set_test_pattern(True, 'White')
-        scope.imaging.start_streaming()
+        scope.imaging.enable_streaming()
         return scope
 
     return _make

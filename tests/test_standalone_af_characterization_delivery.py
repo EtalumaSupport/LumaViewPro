@@ -102,7 +102,7 @@ class TestStandaloneAfDeliversCharacterizationData:
         scope._led_driver.set_timing_mode('fast')
         scope._motion_driver.set_timing_mode('fast')
         scope._camera_driver.set_timing_mode('fast')
-        scope.imaging.start_streaming()
+        scope.imaging.enable_streaming()
 
         io_executor = SequentialIOExecutor(name='AF790_IO')
         file_io_executor = SequentialIOExecutor(name='AF790_FILE')

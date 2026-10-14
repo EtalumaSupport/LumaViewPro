@@ -894,9 +894,9 @@ def sim_scope():
     s._motion_driver.set_timing_mode('fast')
     s._camera_driver.set_timing_mode('fast')
     s._camera_driver.load_specimen()
-    s.imaging.start_streaming()
+    s.imaging.enable_streaming()
     yield s
-    s.imaging.stop_streaming()
+    s.imaging.disable_streaming()
     s.disconnect()
 
 

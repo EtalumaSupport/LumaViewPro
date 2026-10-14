@@ -219,7 +219,7 @@ def scope():
     s._led_driver.set_timing_mode('fast')
     s._motion_driver.set_timing_mode('fast')
     s._camera_driver.set_timing_mode('fast')
-    s.imaging.start_streaming()
+    s.imaging.enable_streaming()
     yield s
     # disconnect() stops the stream itself; a stop sent through the camera
     # lane would be refused once the test's own lanes are shut.
@@ -2458,7 +2458,7 @@ class TestV6LayerSettings:
 class TestFeedLossEndsVideoStep:
     """E2E: a silently dead feed ends a video step within the stall bound.
 
-    Production-path injection: stop_streaming halts the sim camera's
+    Production-path injection: disable_streaming halts the sim camera's
     callback pump WITHOUT flipping active_cached -- exactly the shape of
     a feed that dies with no disconnect event. The run must survive (the
     step strikes, the run completes) and the recording's manifest must
@@ -2477,7 +2477,7 @@ class TestFeedLossEndsVideoStep:
             time.sleep(1.5)
             # The body, not the member: the run holds the camera lane, and a
             # feed that dies asks no one's leave.
-            scope.imaging._stop_streaming_impl()
+            scope.imaging._disable_streaming_impl()
 
         killer = threading.Thread(target=_kill_feed_soon, daemon=True)
         killer.start()

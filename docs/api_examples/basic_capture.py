@@ -29,7 +29,7 @@ def main():
     # create(simulate=True) is the supported factory for a simulated session: it
     # wires the simulated drivers, configures the scope from settings and
     # releases the camera start gate, so there is no separate bring-up and no
-    # start_streaming() call to make here.
+    # enable_streaming() call to make here.
     #
     # source_path defaults to the working directory, which must be an LVP
     # installation root. ConfigError is caught to say so beside its own words:

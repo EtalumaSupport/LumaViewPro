@@ -251,7 +251,7 @@ class TestADisconnectedCameraRefusesTheComposite:
             runner.start_composite(sequence_name='camera_off', parent_dir=str(tmp_path))
 
         session.scope._camera_driver.connect()
-        session.scope.imaging.start_streaming()
+        session.scope.imaging.enable_streaming()
 
         artifact = pathlib.Path(
             runner.run_composite(sequence_name='after', parent_dir=str(tmp_path)).artifact_path

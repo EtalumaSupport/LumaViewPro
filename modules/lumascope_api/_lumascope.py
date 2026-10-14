@@ -1134,7 +1134,7 @@ class Lumascope:
             self.motion._set_acceleration_limit_impl(val_pct=config.acceleration_pct)
         # Last: the one-time release of the camera start gate, once the
         # capture pixel format above has been applied with the gate closed.
-        self.imaging._start_streaming_impl()
+        self.imaging._enable_streaming_impl()
         logger.info('[SCOPE API ] Scope initialized')
 
     def bind_settings(self, reader: 'Callable[[str], Any]') -> None:

@@ -142,7 +142,7 @@ def _build(ae_lands_on_ms: float) -> tuple[ImagingAPI, _ChunkAeSim]:
     scope.imaging = imaging
     scope.illumination = _StubIllumination()
     scope.runtime_state = _StubRuntimeState()
-    imaging.start_streaming()
+    imaging.enable_streaming()
     return imaging, cam
 
 
@@ -381,7 +381,7 @@ def _build_inert() -> tuple[ImagingAPI, _InertAeSim]:
     scope.imaging = imaging
     scope.illumination = _StubIllumination()
     scope.runtime_state = _StubRuntimeState()
-    imaging.start_streaming()
+    imaging.enable_streaming()
     return imaging, cam
 
 
