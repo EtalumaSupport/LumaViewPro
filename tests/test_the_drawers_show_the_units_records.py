@@ -19,6 +19,8 @@ import pytest
 
 import modules.app_context as _app_ctx
 import modules.layer_record as layer_record
+from modules.path_utils import read_installation_file
+from tests.installation_fixtures import FLUORESCENCE_UNITS, write_release_with_added_channels
 from tests.scope_fakes import refuse_a_report
 from ui.image_settings import ImageSettings
 
@@ -60,13 +62,13 @@ class _Accordion:
         return [w.layer for w in reversed(self.children)]
 
 
-def _identity(model):
+def _identity(model, data_file=None):
     return layer_record.resolve_layer_identity(
         board_block=None,
         board_config_read_ok=True,
         motor_model=model,
         configured_model=None,
-        models=layer_record.load_scope_models(),
+        models=layer_record.load_scope_models(data_file),
         catalogue=layer_record.release_layers(),
         report=refuse_a_report,
     )
@@ -74,6 +76,27 @@ def _identity(model):
 
 @pytest.fixture
 def panel(monkeypatch):
+    return _panel(monkeypatch)
+
+
+@pytest.fixture
+def added_release(tmp_path, monkeypatch):
+    """The release with two channels added as data; its scopes.json path."""
+    scopes = write_release_with_added_channels(tmp_path)
+    monkeypatch.setattr(
+        layer_record,
+        '_CATALOGUE_CACHE',
+        layer_record.load_layer_catalogue(read_installation_file(scopes), scopes),
+    )
+    return str(scopes)
+
+
+@pytest.fixture
+def panel_on_added_release(added_release, monkeypatch):
+    return _panel(monkeypatch)
+
+
+def _panel(monkeypatch):
     # a stand-in by design: Kivy is stubbed in the test process; the subject
     # is what show_drawers writes onto each drawer and which it shows
     acquire = []
@@ -150,3 +173,29 @@ def test_a_model_switch_and_back_restores_the_drawers_in_catalogue_order(panel):
     assert panel.ids['accordion_id'].top_to_bottom() == [
         r.key_name for r in _identity('LS850').layers
     ]
+
+
+def test_a_channel_added_by_data_gets_a_drawer_on_each_unit_carrying_it(
+    added_release, panel_on_added_release
+):
+    # Units with none, two and five fluorescence channels, two of them
+    # (445 nm on address 6, 640 nm on 7) catalogue records and model rows.
+    panel = panel_on_added_release
+    for model in FLUORESCENCE_UNITS:
+        identity = _identity(model, added_release)
+
+        ImageSettings.show_drawers(panel, identity)
+
+        assert panel.ids['accordion_id'].top_to_bottom() == [r.key_name for r in identity.layers]
+        present = {r.key_name for r in identity.layers}
+        for key, title, color in (
+            ('Ex445', '445 nm', (0.0, 1.0, 1.0, 1.0)),
+            ('Ex640', '640 nm', (1.0, 0.0, 1.0, 1.0)),
+        ):
+            drawer = panel._drawers[key]
+            if key not in present:
+                assert drawer.collapse, (model, key)
+                continue
+            assert drawer.title == title, model
+            assert drawer.color_rgba == color, model
+            assert drawer.ids['control'].illumination_support is True, model
