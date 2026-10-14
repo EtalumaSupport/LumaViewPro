@@ -10,6 +10,7 @@ capture path and the post-capture composite generation path.
 import math
 from typing import NamedTuple
 
+import cv2
 import numpy as np
 
 import modules.image_utils as image_utils
@@ -78,8 +79,9 @@ def build_composite(
     depth-carrying composite.
 
     The channels add: each contributes its intensity times its colour, summed
-    in a wider accumulator and clipped to 8 bits, so two channels that share
-    a colour add instead of the later one overwriting the earlier.
+    with saturation at 8 bits, so two channels that share a colour add
+    instead of the later one overwriting the earlier, and a sum past full
+    scale holds at 255 instead of wrapping.
 
     Args:
         channels: Dict mapping channel name to its ``CompositeChannel``: a 2D
@@ -109,29 +111,25 @@ def build_composite(
         labeled.append(('transmitted', transmitted_image))
     image_utils.require_uniform_geometry(labeled, operation='composite this tile-group')
 
-    # Downconvert every input to the 8-bit output scale up front, so the blend
-    # below is a single dtype and the thresholds compare against 8-bit values.
-    channel_images = {
-        name: image_utils.convert_to_8bit(channel.image, significant_bits)
-        for name, channel in channels.items()
-    }
+    # Every input is downconverted to the 8-bit output scale before it is
+    # blended, so the blend is a single dtype and the thresholds compare
+    # against 8-bit values. Each channel is converted as it is added, so only
+    # one channel's 8-bit copy is held at a time.
     if transmitted_image is not None:
         transmitted_image = image_utils.convert_to_8bit(transmitted_image, significant_bits)
-
-    # Determine image dimensions from first available image
-    if transmitted_image is not None:
         h, w = transmitted_image.shape[:2]
     else:
-        first_img = next(iter(channel_images.values()))
-        h, w = first_img.shape[:2]
+        h, w = next(iter(channels.values())).image.shape[:2]
 
-    # 16 bits hold 257 channels at full scale in one plane; a composite takes
-    # one image per channel key, and a scope lights at most eight. Narrower
-    # than 32 bits because a stitched composite can be hundreds of megapixels.
-    total = np.zeros((h, w, 3), dtype=np.uint16)
+    # The sum is kept in 8 bits and added with saturation: a sum of
+    # non-negative values clipped at each step equals the sum clipped once,
+    # so no wider total is needed, and a stitched composite can be hundreds
+    # of megapixels.
+    img = np.zeros((h, w, 3), dtype=np.uint8)
     colored = np.empty((h, w, 3), dtype=np.uint8)
     reached_any = np.zeros((h, w), dtype=bool)
-    for name, img_gray in channel_images.items():
+    for name, channel in channels.items():
+        img_gray = image_utils.convert_to_8bit(channel.image, significant_bits)
         if transmitted_image is not None:
             # Inclusive, against the integer cutoff brightness_cutoff_from_percent
             # produces: the cutoff is the lowest value that blends, so the top of
@@ -139,10 +137,12 @@ def build_composite(
             reached = img_gray >= brightness_thresholds.get(name, 1)
             reached_any |= reached
             img_gray = img_gray * reached
-        total += image_utils.mono_to_rgb_falsecolor(img_gray, channels[name].color, colored)
+        cv2.add(
+            img,
+            image_utils.mono_to_rgb_falsecolor(img_gray, channel.color, colored),
+            dst=img,
+        )
 
-    np.minimum(total, _MAX_8BIT_VALUE, out=total)
-    img = total.astype(np.uint8)
     if transmitted_image is not None:
         img[~reached_any] = transmitted_image[~reached_any, None]
     return img

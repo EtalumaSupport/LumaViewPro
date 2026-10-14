@@ -268,3 +268,33 @@ class TestChannelsAdd:
         channels['Magenta'] = CompositeChannel(one(20), layer_record.parse_display_color('#ff00ff'))
         assert self._pixel(channels) == [60, 50, 150]
         assert self._pixel(channels, base=90) == [60, 50, 150]
+
+
+def test_the_builds_peak_memory_does_not_grow_with_the_channel_count():
+    """A stitched composite can be hundreds of megapixels, so the build holds
+    one 8-bit total, one coloured channel and one channel's 8-bit copy at a
+    time: five 12-bit channels peak under 10 bytes a pixel, as three do.
+
+    The 16-bit total it replaced, with every channel converted up front,
+    peaked at 16 bytes a pixel for three channels and grew with each one.
+    """
+    import tracemalloc
+
+    rng = np.random.default_rng(0)
+    side = 1000
+
+    def peak_per_pixel(keys):
+        channels = _in_release_colours(
+            {key: rng.integers(0, 4096, (side, side), dtype=np.uint16) for key in keys}
+        )
+        tracemalloc.start()
+        try:
+            build_composite(channels=channels, significant_bits=12)
+            return tracemalloc.get_traced_memory()[1] / side / side
+        finally:
+            tracemalloc.stop()
+
+    three = peak_per_pixel(('Red', 'Green', 'Blue'))
+    five = peak_per_pixel(('Red', 'Green', 'Blue', 'Lumi', 'BF'))
+    assert five < 10, five
+    assert five - three < 1, (three, five)
