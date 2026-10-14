@@ -294,3 +294,54 @@ def test_a_stop_after_the_turret_arrived_leaves_z_parked_and_no_slot(turret_sess
     assert not [c for c in after_stop if c.startswith('TARGET_WZ')], after_stop
     assert driver.current_pos('Z') == pytest.approx(0.0, abs=0.1)
     assert motion.get_turret_slot() is None
+
+
+@pytest.fixture
+def field_session(tmp_path):
+    """A scope on the field firmware, which has no STOP command, its stage
+    moving at the bench's speed: the board most shipped units carry."""
+    s = ScopeSession.create(
+        complete_settings(
+            live_folder=str(tmp_path), simulator_tier='realistic', microscope='LS850T'
+        ),
+        simulate=True,
+    )
+    try:
+        assert s.scope.motion._driver.supports_motor_stop() is False, 'not the field firmware'
+        s.scope.motion.home()
+        yield s
+    finally:
+        s.shutdown()
+        s.scope.disconnect()
+
+
+@pytest.mark.slow
+def test_a_stop_on_firmware_without_stop_leaves_the_stage_short_and_at_rest(field_session):
+    """The field firmware answers STOP with an error. Before, the Stop
+    returned as if it had worked and the move drove on to its target; the
+    driver now halts each axis where it is, as the newer firmware's own
+    STOP does."""
+    motion = field_session.scope.motion
+    driver = motion._driver
+    start = motion.get_current_position('X')
+    part_way = threading.Event()
+
+    def seen(axis, position):
+        if axis == 'X' and position.position is not None and position.position < start - 10000.0:
+            part_way.set()
+
+    motion.add_position_listener(seen)
+    try:
+        handle = motion.start_move_absolute('X', 0.0)
+        assert part_way.wait(_HOLD_WAIT_S), 'the move never got part of the way'
+        motion.stop_motion()
+    finally:
+        motion.remove_position_listener(seen)
+
+    assert _reason(handle) == 'stopped'
+    assert motion.get_axis_state('X') == AxisState.IDLE
+    stopped_at = driver.current_pos('X')
+    assert 1000.0 < stopped_at < start - 10000.0
+    time.sleep(0.3)
+    assert driver.current_pos('X') == stopped_at
+    assert motion.get_current_position('X') == pytest.approx(stopped_at, abs=0.1)

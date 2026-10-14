@@ -2509,8 +2509,7 @@ class SequencedCaptureRunner:
         owes no halt. Only a run that took the camera, which its loop does
         before its first move: any other made no move, and a move in flight
         then is someone else's. A STOP with nothing moving is a no-op on the
-        board, so none is read first; on firmware with no STOP it is a no-op
-        and the move runs on. A STOP sent while an autofocus sweep is live
+        board, so none is read first. A STOP sent while an autofocus sweep is live
         ends the sweep's own Z move, which its unwind then puts back.
         """
         recorded = self._ending.get() or ending

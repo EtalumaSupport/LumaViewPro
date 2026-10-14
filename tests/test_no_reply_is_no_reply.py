@@ -101,8 +101,9 @@ def test_a_stop_with_no_reply_raises_and_caches_nothing(motor):
     with pytest.raises(HardwareError):
         board.motor_stop()
     assert getattr(board, '_supports_stop_cached', None) is None
-    # The next stop reaches the board, which answers that it has no STOP.
-    assert board.motor_stop() is False
+    # The next stop reaches the board, which answers that it has no STOP,
+    # and halts it axis by axis instead.
+    assert board.motor_stop() is True
     assert board._supports_stop_cached is False
 
 

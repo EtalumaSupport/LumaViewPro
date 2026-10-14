@@ -101,7 +101,7 @@ class TestTheCommandedSlot:
 
 
 class TestAStopIsNotAnArrival:
-    def _halt_on_stop(self, motion, monkeypatch, *, firmware_has_stop=True):
+    def _halt_on_stop(self, motion, monkeypatch):
         """The sim's STOP is a no-op; stand in for the firmware's, which
         sets target = actual so the next status poll reports "reached"."""
         stopped = threading.Event()
@@ -114,7 +114,7 @@ class TestAStopIsNotAnArrival:
 
         def _motor_stop():
             stopped.set()
-            return firmware_has_stop
+            return True
 
         monkeypatch.setattr(motion._driver, 'motor_stop', _motor_stop)
 
@@ -130,20 +130,6 @@ class TestAStopIsNotAnArrival:
         assert isinstance(outcome.get('raised'), MoveNotCompletedError), outcome
         assert outcome['raised'].reason == 'stopped'
         assert motion.get_turret_slot() is None
-
-    def test_firmware_without_stop_does_not_turn_an_arrival_into_a_stop(self, session, monkeypatch):
-        """Field firmware has no STOP: nothing was stopped, so the move that
-        arrives is reported as arrived."""
-        motion = session.scope.motion
-        self._halt_on_stop(motion, monkeypatch, firmware_has_stop=False)
-
-        t, outcome = _move_turret_in_thread(motion, 2)
-        _wait_for_state(motion, 'T', AxisState.MOVING)
-        motion.stop_motion()
-        t.join(timeout=10)
-
-        assert outcome == {'returned': True}
-        assert motion.get_turret_slot() == 2
 
 
 class TestNothingElseMovesTheTurret:

@@ -850,28 +850,19 @@ class MotionAPI:
         """Send the STOP: the scope's own teardown, which asks presence first."""
         # The generation moves inside this lock, after the board answered,
         # and a waited move reads it under the same lock: a move the STOP
-        # ended cannot read the generation before the bump, and a firmware
-        # that does not implement STOP (nothing stopped) never bumps it.
+        # ended cannot read the generation before the bump.
         with self._stop_lock:
             self._send_stop()
 
     def _send_stop(self) -> None:
         try:
-            # Route through MotorBoard.motor_stop so field firmware
-            # (2024-09-10 EL-0940-02, no STOP command) silently no-ops
-            # instead of producing two FIRMWARE ERROR warnings per
-            # shutdown. motor_stop returns True if STOP was accepted,
-            # False if firmware doesn't implement it (cached).
-            stopped = self._driver.motor_stop()
-            if stopped:
-                self._stop_generation += 1
-                self._stops_asked += 1
-                logger.info('[SCOPE API ] stop_motion: motors stopped')
-            else:
-                logger.debug(
-                    '[SCOPE API ] stop_motion: firmware does not '
-                    'implement STOP; motors will latch on disconnect'
-                )
+            # The driver halts every axis on every firmware: by STOP where
+            # the firmware has it, else axis by axis (field firmware,
+            # 2024-09-10 EL-0940-02, has no STOP command).
+            self._driver.motor_stop()
+            self._stop_generation += 1
+            self._stops_asked += 1
+            logger.info('[SCOPE API ] stop_motion: motors stopped')
         except Exception as e:
             # The exchange may have failed after the board took the STOP,
             # so a move in flight cannot be vouched for as arrived.

@@ -1481,6 +1481,11 @@ scope.motion.get_actual_position('Z')            # hardware position via serial 
 
 # Stop + tuning
 scope.motion.stop_motion()                       # stop all in-flight moves (the app-level abort for the move_* family)
+# It halts every axis on every firmware: the board's STOP where the firmware
+# has one, else each axis's actual position written as its target, which is
+# what that STOP does on the board. On firmware without STOP an axis caught
+# at speed comes to rest a little past where the stop was asked (X at full
+# speed: about 2 mm, measured on an LS850T).
 # A STOP the board did not take raises MotorStopFailedError (title 'Motor Stop
 # Failed', chained from the driver's error): the stage may still be moving.
 # While a home drives on a board that cannot stop one, it raises

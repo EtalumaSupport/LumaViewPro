@@ -1278,45 +1278,50 @@ class MotorBoard(SerialBoard):
         return self._command_supported('VOLTAGE', '_supports_diagnostics_cached')
 
     def motor_stop(self) -> bool:
-        """Stop all motors via STOP, with field-firmware fallback.
+        """Stop every motor where it is, on every firmware.
 
-        Field firmware (e.g. EL-0940-02 2024-09-10) does not implement
-        the ``STOP`` command and replies ``ERROR: command 'STOP' not
-        found``. Newer firmware (2025-onward) accepts STOP as the
-        emergency-stop command (sets target=actual on every axis).
+        Newer firmware (2025-onward) takes ``STOP``, which it implements
+        as ``motorstop``: each axis's actual position written as its
+        target. Field firmware (e.g. EL-0940-02 2024-09-10) has no STOP
+        and replies ``ERROR: command 'STOP' not found``; on it the host
+        does what ``motorstop`` does, one axis at a time, through the
+        ``ACTUAL_R`` read and the ``TARGET_W`` write the firmware has.
+        On the field firmware an axis caught at speed runs on while the
+        reads and writes go out and it decelerates: X at full speed came to
+        rest about 2 mm past where the stop was asked, with no drive back
+        (an LS850T, 2026-10-14, ``tests/capability/motion_p11_stop_halts_and_progress_reads.py``).
 
-        The send doubles as the support probe: the response is
-        interpreted and cached (shared with ``supports_motor_stop``),
-        so firmware without STOP is asked exactly once and every later
-        call skips the wire and returns False.
-
-        The caller's shutdown is unaffected when STOP isn't supported:
-        the host is about to disconnect anyway, and v3.0.x firmware
-        latches its current state when the host stops issuing commands.
-        Returning False lets the caller know the stop didn't actually
-        execute (useful for tests / diagnostics).
+        The first send doubles as the support probe: the response is
+        interpreted and cached (shared with ``supports_motor_stop``), so
+        firmware without STOP is asked exactly once and every later stop
+        goes straight to the per-axis halt.
 
         Idempotent + safe to call concurrently with other operations
         (per SerialBoard's exchange_command lock).
 
+        Returns:
+            bool: True: every axis was halted.
+
         Raises:
-            HardwareError: the board did not answer the STOP. It may have
-                taken it, so the stage may be stopping or still moving:
-                neither a stop nor an answer about support.
+            HardwareError: the board did not answer the STOP, or a read or
+                write of the per-axis halt. It may have taken part of it,
+                so the stage may be stopping or still moving.
         """
-        # Cached "unsupported" -- silently skip the wire (and skip the
-        # FIRMWARE ERROR warning that exchange_command would emit).
-        if getattr(self, '_supports_stop_cached', None) is False:
-            return False
-        # expect_unsupported=True suppresses the FIRMWARE ERROR warning
-        # when this send turns out to be the first-contact probe of
-        # legacy firmware; _record_support logs that case at INFO.
-        resp = self.exchange_command('STOP', expect_unsupported=True)
-        if resp is None:
-            raise BoardNoReplyError(
-                'STOP: no reply from the motor board; the stage may still be moving'
-            )
-        return self._record_support('STOP', '_supports_stop_cached', resp)
+        if getattr(self, '_supports_stop_cached', None) is not False:
+            # expect_unsupported=True suppresses the FIRMWARE ERROR warning
+            # when this send turns out to be the first-contact probe of
+            # legacy firmware; _record_support logs that case at INFO.
+            resp = self.exchange_command('STOP', expect_unsupported=True)
+            if resp is None:
+                raise BoardNoReplyError(
+                    'STOP: no reply from the motor board; the stage may still be moving'
+                )
+            if self._record_support('STOP', '_supports_stop_cached', resp):
+                return True
+        for axis in ('X', 'Y', 'Z', 'T'):
+            if axis in self.axes_config:
+                self.move(axis, self.current_pos_steps(axis))
+        return True
 
     # return True if current position and target position are the same
     def target_status(self, axis: str) -> bool:

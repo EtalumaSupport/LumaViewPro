@@ -429,12 +429,12 @@ class NullMotionBoard:
         return []
 
     def motor_stop(self) -> bool:
-        """No motor, no stop.
+        """No motor, so nothing is left moving.
 
         Returns:
-            bool: Always False.
+            bool: Always True.
         """
-        return False
+        return True
 
     def interlocks(self) -> frozenset[str]:
         """No motor, no interlock."""
