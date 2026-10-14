@@ -27,6 +27,14 @@ there to answer. A walk that ends in ``quit`` or presses ``close`` is one
 nobody watches, so a stop at a failed step also stops the app, with a picture
 of the window; any other walk leaves the app open. Each step's outcome is logged to the main log under ``[SIM WALK  ]``.
 
+``wait`` ends when nothing a gesture started is still in flight: no popup is
+open and the app's ``in_flight`` names nothing (what holds the scope, a lane
+with a task running or queued, an axis moving, an autofocus sweep). Each
+owner answers for its own work; the walk asks and decides nothing. A
+``wait`` that times out names what it was still waiting on, so a stuck walk
+says which. A turret pick, a jog, a go-to, a build: the step after the
+``wait`` reads the state after the work, however long it took.
+
 Walk files are read and checked by ``ui.sim_walk_file``.
 """
 
@@ -74,15 +82,26 @@ class SimWalk:
     ``bring_up_owes`` names what bring-up has not finished (the app passes
     its ``_bring_up_owes``): the walk starts once it names nothing, and stops
     before step 1, saying what was still owed, when it never does.
-    ``shot_dir`` receives the window pictures. ``finished``, ``outcome``
-    (``'done'`` or ``'stopped at step N (...)'``), ``reads`` and ``shots`` are
-    the result.
+    ``in_flight`` names what a gesture started that is still running (the
+    app passes the session's ``in_flight_named``): a ``wait`` ends once it names nothing and
+    no popup is open. ``shot_dir`` receives the window pictures. ``finished``,
+    ``outcome`` (``'done'`` or ``'stopped at step N (...)'``), ``reads`` and
+    ``shots`` are the result.
     """
 
-    def __init__(self, steps: list[dict], *, source: str, bring_up_owes, shot_dir: pathlib.Path):
+    def __init__(
+        self,
+        steps: list[dict],
+        *,
+        source: str,
+        bring_up_owes,
+        in_flight,
+        shot_dir: pathlib.Path,
+    ):
         self._steps = steps
         self._source = source
         self._bring_up_owes = bring_up_owes
+        self._in_flight = in_flight
         self._bring_up_deadline = 0.0
         self._shot_dir = shot_dir
         self._number = 0
@@ -289,9 +308,13 @@ class SimWalk:
     def _wait(self, step):
         timeout = step.get('timeout_s', _WAIT_TIMEOUT_S)
         deadline = time.monotonic() + timeout
-        while open_popups() or getattr(App.get_running_app(), 'run_lockout', False):
+        while True:
+            still = [f'a popup ({getattr(view, "title", "")!r})' for view in open_popups()]
+            still.extend(self._in_flight())
+            if not still:
+                return
             if time.monotonic() > deadline:
-                raise WalkStepError(f'a popup or a run was still up after {timeout:g} s')
+                raise WalkStepError(f'still in flight after {timeout:g} s: {"; ".join(still)}')
             yield _POLL_S
 
     def _close(self, step):

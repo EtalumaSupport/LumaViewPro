@@ -15,6 +15,7 @@ that function, so no test here can start the app.
 """
 
 import json
+import re
 import pathlib
 import subprocess
 import sys
@@ -29,7 +30,7 @@ pytestmark = pytest.mark.skipif(
 )
 
 _HARNESS = r"""
-import json, logging, os, pathlib, sys
+import json, logging, os, pathlib, sys, time
 os.environ['KIVY_NO_ARGS'] = '1'
 os.environ['KIVY_NO_CONSOLELOG'] = '1'
 sys.path.insert(0, sys.argv[1])
@@ -66,9 +67,11 @@ class _Collect(logging.Handler):
 logging.getLogger('LVP.gui_interactions').addHandler(_Collect())
 logging.getLogger('LVP.gui_interactions').setLevel(logging.INFO)
 walk_lines = []
+walk_times = {}
 class _CollectWalk(logging.Handler):
     def emit(self, record):
         walk_lines.append(record.getMessage())
+        walk_times[record.getMessage()] = record.created
 logging.getLogger('LVP.sim_walk').addHandler(_CollectWalk())
 logging.getLogger('LVP.sim_walk').setLevel(logging.INFO)
 
@@ -186,6 +189,18 @@ Builder.load_string('''
         size_hint: None, None
         size: 100, 40
         pos: 620, 300
+    Button:
+        id: busybtn
+        text: 'busy'
+        size_hint: None, None
+        size: 100, 40
+        pos: 740, 300
+    Button:
+        id: longbtn
+        text: 'long'
+        size_hint: None, None
+        size: 100, 40
+        pos: 740, 200
 ''')
 
 root = FloatLayout()
@@ -245,6 +260,19 @@ def open_spinner_popup(*_):
     Popup(title='Settings', content=spinner, size_hint=(0.4, 0.4), auto_dismiss=False).open()
 ids.spinpopbtn.bind(on_release=open_spinner_popup)
 
+# A gesture that waits on a lane, standing in for a turret pick or a build:
+# a real lane, one sleeping task per press, its end recorded in wall time.
+from modules.sequential_io_executor import IOTask, SequentialIOExecutor
+lane = SequentialIOExecutor(name='IO')
+lane.start()
+def busy(seconds):
+    time.sleep(seconds)
+    frames['busy_end'] = time.time()
+ids.busybtn.bind(on_release=lambda *_: lane.put(IOTask(action=busy, args=(1.5,))))
+ids.longbtn.bind(on_release=lambda *_: lane.put(IOTask(action=busy, args=(5.0,))))
+def in_flight():
+    return [f'the IO lane ({lane.describe_running_task()})'] if lane.is_busy() else []
+
 def native():
     raise AssertionError('the native picker ran during a scripted walk')
 ids.filebtn.bind(on_release=lambda b: file_dialogs._run_native_dialog_async(
@@ -252,7 +280,7 @@ ids.filebtn.bind(on_release=lambda b: file_dialogs._run_native_dialog_async(
     on_cancel=lambda: hits.append('file cancelled')))
 
 def run(steps, shot_dir, bring_up):
-    hits.clear(); frames.clear(); records.clear(); walk_lines.clear(); closes.clear(); stops.clear()
+    hits.clear(); frames.clear(); records.clear(); walk_lines.clear(); walk_times.clear(); closes.clear(); stops.clear()
     # The app's bring-up, standing in: owes the named facts for the first
     # ``clears_after`` polls, then nothing. None is a bring-up already done.
     polls = []
@@ -269,24 +297,31 @@ def run(steps, shot_dir, bring_up):
         # in the frame the walk starts, its expand animation still to run.
         drawers.ids[bring_up['opens_drawer']].collapse = False
     walk = SimWalk(parse_walk(json.dumps(steps), source='fragment'), source='fragment',
-                   bring_up_owes=bring_up_owes, shot_dir=pathlib.Path(shot_dir))
+                   bring_up_owes=bring_up_owes, in_flight=in_flight, shot_dir=pathlib.Path(shot_dir))
     walk.start()
     for _ in range(4000):
         EventLoop.idle()
         if walk.finished:
             break
+    # A lane task the walk did not wait for still ends, so the result holds
+    # its end time either way and a test compares, never asks whether.
+    deadline = time.time() + 10
+    while lane.is_busy() and time.time() < deadline:
+        time.sleep(0.05)
     for p in [w for w in Window.children if isinstance(w, Popup)]:
         p.dismiss()
     for _ in range(10):
         EventLoop.idle()
     return {'outcome': walk.outcome, 'hits': list(hits), 'frames': dict(frames),
-            'records': list(records), 'walk_lines': list(walk_lines), 'reads': walk.reads, 'shots': walk.shots,
+            'records': list(records), 'walk_lines': list(walk_lines), 'walk_times': dict(walk_times),
+            'reads': walk.reads, 'shots': walk.shots,
             'two_collapsed': drawers.ids.two.collapse, 'closes': len(closes), 'stops': len(stops),
             'polls': len(polls)}
 
 steps = json.loads(sys.argv[2])
 bring_up = json.loads(sys.argv[4]) if len(sys.argv) > 4 else None
 print('RESULT ' + json.dumps(run(steps, sys.argv[3], bring_up)))
+lane.shutdown(wait=False)
 """
 
 
@@ -571,6 +606,37 @@ def test_a_bring_up_that_never_finishes_stops_the_walk_before_step_1(tmp_path):
         'still owed: the saved protocol load, a displayed frame'
     ), result
     assert result['hits'] == [], result
+
+
+@pytest.mark.slow
+def test_a_wait_holds_while_a_lane_works_and_names_it_at_the_timeout(tmp_path):
+    """A ``wait`` ends when nothing a gesture started is in flight, so the
+    read after it sees the state after the work (primary, 2026-10-13: a
+    turret pick's 6 s move on the IO lane, the wait back in 0.3 s and the
+    reads showing the slot from before it); a ``wait`` that times out names
+    the lane and its task. The lane is a real one; the task's end is wall
+    time the harness records, and the read's time is its log record's."""
+    result = _run(
+        tmp_path,
+        [
+            {'do': 'press', 'path': 'Panel/busybtn'},
+            {'do': 'wait'},
+            {'do': 'read', 'path': 'Panel/field', 'props': ['text']},
+        ],
+    )
+    assert result['outcome'] == 'done', result
+    read_line = next(line for line in result['walk_lines'] if ' step 3 read ' in line)
+    assert result['walk_times'][read_line] > result['frames']['busy_end'], (
+        'the read ran before the lane task ended',
+        result['walk_times'][read_line] - result['frames']['busy_end'],
+    )
+    stopped = _run(
+        tmp_path, [{'do': 'press', 'path': 'Panel/longbtn'}, {'do': 'wait', 'timeout_s': 1}]
+    )
+    assert re.fullmatch(
+        r'stopped at step 2 \(wait\): still in flight after 1 s: the IO lane \(busy \ds in flight\)',
+        stopped['outcome'],
+    ), stopped['outcome']
 
 
 def test_a_press_waits_for_the_drawer_it_sits_in_to_settle(tmp_path):

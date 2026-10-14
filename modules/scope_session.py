@@ -865,6 +865,33 @@ class ScopeSession:
             return "A protocol's files are still being written."
         return None
 
+    def in_flight_named(self) -> list[str]:
+        """What a gesture started that is still running, each as a sentence; empty when nothing is.
+
+        The read a sim walk's ``wait`` makes before its next step, and the
+        one place the answer is composed, so the GUI reads nothing below the
+        Session: what holds the scope (``run_lockout_named``); each queued
+        lane with a task running or queued, since a turret pick or a build
+        blocks on its lane; an axis still travelling, since a jog, a go-to
+        or a stage click starts its move on the lane and the lane is idle
+        while the stage moves; an autofocus sweep, which holds no scope
+        claim. Composition wiring for the walk host, not part of the L2 API
+        surface; the engineering plugin's own test thread is nobody's to
+        report.
+        """
+        still = []
+        holding = self.run_lockout_named
+        if holding is not None:
+            still.append(holding)
+        for name, lane in self.executor_bundle.queued_executors():
+            if lane.is_busy():
+                still.append(f'the {name} lane ({lane.describe_running_task()})')
+        if self.scope.motion.is_moving():
+            still.append('an axis moving')
+        if self.autofocus_thread.is_running:
+            still.append('an autofocus sweep')
+        return still
+
     @api
     @property
     def recording_active(self) -> bool:
