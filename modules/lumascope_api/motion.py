@@ -58,7 +58,7 @@ from modules.exceptions import (
 )
 from modules.notification_center import notifications
 from modules.activity_claim import Taking, acting, current_taking
-from modules.operation import Operation
+from modules.operation import Operation, refuse_waiting_on_ui_thread
 from modules.sequential_io_executor import IOTask, slow_task_budget
 
 # Declared costs, module-level because the @slow_task_budget decorators run at
@@ -2314,7 +2314,11 @@ class MotionAPI:
                 command.
             MoveNotCompletedError: The axis did not arrive; see
                 ``start_move_absolute``.
+            BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on
+                the UI thread, whose form is ``start_move_absolute``.
+                Nothing was driven.
         """
+        refuse_waiting_on_ui_thread('move_absolute')
         self._start(
             'move_absolute',
             self._move_absolute_impl,
@@ -2340,7 +2344,11 @@ class MotionAPI:
         Raises:
             MoveNotCompletedError: The axis did not arrive; see
                 ``start_move_absolute``.
+            BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on
+                the UI thread, whose form is ``start_move_relative``.
+                Nothing was driven.
         """
+        refuse_waiting_on_ui_thread('move_relative')
         self._start(
             'move_relative',
             self._move_relative_impl,

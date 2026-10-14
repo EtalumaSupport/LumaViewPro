@@ -28,7 +28,7 @@ from modules.exceptions import CompositeFailedError, CompositeWaitExpiredError
 from modules.layer_record import refuse_unknown_layer
 from modules.protocol import Protocol
 from modules.run_events import RunEvents
-from modules.operation import Operation
+from modules.operation import Operation, refuse_waiting_on_ui_thread
 from modules.run_outcome import RunOutcome
 from modules.sequenced_capture_runner import (
     SequencedCaptureRunner,
@@ -568,7 +568,11 @@ class ProtocolRunner:
             CompositeWaitExpiredError: ``'merge_timeout'``, a
                 ``TimeoutError``: ``merge_timeout_s`` ran out before the run
                 or its merge reported; either may still be going.
+            BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on
+                the UI thread, whose form is ``start_composite``. Nothing
+                was started.
         """
+        refuse_waiting_on_ui_thread('run_composite')
         run = self.start_composite(
             sequence_name=sequence_name,
             parent_dir=parent_dir,

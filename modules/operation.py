@@ -24,6 +24,8 @@ and ``asyncio.wrap_future`` behave as a Future's do. What it adds:
   other observer sees it done only once the delivery has returned.
 - A ``result()`` or ``exception()`` on the UI thread for an operation not
   yet done is refused (``BlockingCallRefusedError``, ``'wait_on_ui_thread'``).
+  A waiting form, which starts an operation and then waits on it, is refused
+  the same way before it starts (``refuse_waiting_on_ui_thread``).
 """
 
 import concurrent.futures
@@ -113,6 +115,21 @@ def join_callback_thread() -> None:
     settle operations of its own.
     """
     _callbacks.join(_JOIN_S)
+
+
+def refuse_waiting_on_ui_thread(member: str) -> None:
+    """Refuse a wait on the UI thread, before anything is started.
+
+    A waiting form calls it first: refused only at its wait, the caller
+    would be told "refused" while the operation it had already started
+    went on.
+
+    Raises:
+        BlockingCallRefusedError: ``'wait_on_ui_thread'``, this is the UI
+            thread.
+    """
+    if threading.current_thread() is kivy_utils.ui_thread():
+        raise BlockingCallRefusedError('wait_on_ui_thread', member)
 
 
 @api_fields('files')
@@ -282,5 +299,5 @@ class Operation(concurrent.futures.Future):
         return own[1], own[2]
 
     def _refuse_on_ui_thread(self, member: str) -> None:
-        if not super().done() and threading.current_thread() is kivy_utils.ui_thread():
-            raise BlockingCallRefusedError('wait_on_ui_thread', member)
+        if not super().done():
+            refuse_waiting_on_ui_thread(member)

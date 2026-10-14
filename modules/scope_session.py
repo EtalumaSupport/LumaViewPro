@@ -82,7 +82,7 @@ from modules.lumascope_api.illumination import LedState, LedTransition, LedTrans
 from modules.lumascope_api.runtime_state import slots_holding
 from modules.manual_capture import ManualCaptureController
 from modules.notification_center import Notification
-from modules.operation import Operation
+from modules.operation import Operation, refuse_waiting_on_ui_thread
 from modules.manual_recording import ManualRecordingController
 from modules.config_helpers import DisplayRates
 from modules.metrics_logger import ENGINEERING_METRICS_INTERVAL_S, MetricsLogger
@@ -2312,7 +2312,11 @@ class ScopeSession:
             CameraSettingRejected: the camera refused a setting of the
                 step's layer, raised once the stage has arrived; see
                 ``apply_layer_camera``.
+            BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on
+                the UI thread, whose form is ``start_go_to_step``. Nothing
+                was started.
         """
+        refuse_waiting_on_ui_thread('go_to_step')
         # Read before the start, as the start reads it: the step this call
         # was made for, whatever the list holds once the lane has run.
         layer = protocol.step(idx=step_idx)['Color']
@@ -4760,9 +4764,12 @@ class ScopeSession:
                 worker and waits on the io lane, so a worker waiting for it
                 can be waiting on itself; ``start_application_session`` is the
                 form a worker uses. Still a ``RuntimeError``.
+                ``'wait_on_ui_thread'``, called on the UI thread, whose form
+                is ``start_application_session`` too. Nothing was started.
             HardwareCommandRefusedError: as ``start_application_session``.
         """
         refuse_blocking_on_a_worker('run_application_session')
+        refuse_waiting_on_ui_thread('run_application_session')
         self.start_application_session(
             disable_homing=disable_homing, home_fn=home_fn, turret_fn=turret_fn
         ).result()
