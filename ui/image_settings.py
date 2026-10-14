@@ -45,9 +45,20 @@ class ChannelDrawer(LoggedAccordionItem):
     """
 
     layer = StringProperty('')
-    # The layer's display colour as RGBA: the title's swatch and the
-    # controls' chrome.
+    # The layer's display colour as RGBA, the title's swatch.
     color_rgba = ColorProperty((0.5, 0.5, 0.5, 1.0))
+    # The controls' chrome: the display colour lightened, so a dark colour's
+    # headings stay legible on the panel's dark ground.
+    chrome_rgba = ColorProperty((0.5, 0.5, 0.5, 1.0))
+
+
+# How far a drawer's chrome moves from its layer's colour toward white:
+# pure blue becomes (0.4, 0.4, 1.0), readable as text on the dark panel.
+_CHROME_LIGHTENING = 0.4
+
+
+def _lightened(color: layer_record.Color) -> layer_record.Color:
+    return tuple(weight + (1.0 - weight) * _CHROME_LIGHTENING for weight in color)
 
 
 # ============================================================================
@@ -137,7 +148,9 @@ class ImageSettings(BoxLayout):
                 _app_ctx.ctx.session.set_layer_acquire(layer, None)
                 drawer.collapse = True
                 continue
-            drawer.color_rgba = (*layer_record.parse_display_color(record.display_color), 1.0)
+            color = layer_record.parse_display_color(record.display_color)
+            drawer.color_rgba = (*color, 1.0)
+            drawer.chrome_rgba = (*_lightened(color), 1.0)
             drawer.title = record.label
             control = drawer.ids['control']
             control.illumination_support = bool(record.led_channel)

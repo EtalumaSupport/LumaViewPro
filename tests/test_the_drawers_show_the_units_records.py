@@ -3,10 +3,11 @@
 
 ``ImageSettings.show_drawers`` takes the unit's identity: each layer it holds
 is shown in catalogue order, titled by its record's label beside a swatch of
-its display colour, with illumination where its row drives an LED and
-summing for luminescence; each layer it lacks is hidden and stops being
-acquired. The identities are the real ones, resolved from the installation's
-``scopes.json`` for three models that differ in which layers they carry.
+its display colour, its controls drawn in that colour lightened, with
+illumination where its row drives an LED and summing for luminescence; each
+layer it lacks is hidden and stops being acquired. The identities are the
+real ones, resolved from the installation's ``scopes.json`` for three models
+that differ in which layers they carry.
 """
 
 from __future__ import annotations
@@ -33,6 +34,7 @@ class _Drawer:
         self.collapse = False
         self.title = ''
         self.color_rgba = None
+        self.chrome_rgba = None
         self.ids = {'control': SimpleNamespace()}
 
 
@@ -103,7 +105,10 @@ def test_each_layer_the_unit_has_is_shown_from_its_record(panel, model):
         drawer = panel._drawers[record.key_name]
         control = drawer.ids['control']
         assert drawer.title == record.label
-        assert drawer.color_rgba == (*layer_record.parse_display_color(record.display_color), 1.0)
+        color = layer_record.parse_display_color(record.display_color)
+        assert drawer.color_rgba == (*color, 1.0)
+        # The chrome is the colour moved toward white, so no plane is darker.
+        assert all(c >= w for c, w in zip(drawer.chrome_rgba, (*color, 1.0), strict=True))
         assert control.illumination_support == bool(record.led_channel)
         assert control.exposure_summing_support == (record.modality == 'luminescence')
         assert control.autogain_support == (record.modality != 'luminescence')
@@ -118,6 +123,7 @@ def test_a_fluorescence_drawer_is_titled_by_its_excitation_and_lumi_sums(panel):
     blue = panel._drawers['Blue']
     assert blue.title == '405 nm'
     assert blue.color_rgba == (0.0, 0.0, 1.0, 1.0)
+    assert blue.chrome_rgba == pytest.approx((0.4, 0.4, 1.0, 1.0))
     assert blue.ids['control'].exposure_summing_support is False
 
     ImageSettings.show_drawers(panel, _identity('Lumi'))
