@@ -11,7 +11,6 @@ These pin the SURFACE: what reaches the prepare boundary, and what the
 selector's config builds when the real protocol builder gets hold of it.
 """
 
-import pathlib
 from unittest.mock import MagicMock
 
 import pytest
@@ -19,10 +18,10 @@ import pytest
 from modules.exceptions import ArgumentRefusedError
 from modules.labware_loader import WellPlateLoader
 from modules.protocol_state_machine import SequencedCaptureRunMode
-from tests.scope_fakes import build_scope
 from tests.test_composite_run_config import _settings
 
-_POSITION = {'x': 1.0, 'y': 2.0, 'z': 3.0}
+# Mid-travel in Z, so a stack around it is inside the travel the build judges.
+_POSITION = {'x': 1.0, 'y': 2.0, 'z': 5000.0}
 
 
 def _zstack_settings(**overrides):
@@ -205,7 +204,6 @@ class TestTheConfigActuallyBuildsASliceEach:
 
     def _protocol(self, zstack=None):
         import modules.config_helpers as config_helpers
-        from modules.protocol import Protocol
 
         settings = _zstack_settings()
         if zstack is not None:
@@ -225,19 +223,14 @@ class TestTheConfigActuallyBuildsASliceEach:
             use_zstacking=True,
             stim_config={},
         )
-        scope = build_scope(simulate=True)
+        from modules.scope_session import ScopeSession
+        from tests.settings_fixtures import complete_settings
+
+        session = ScopeSession.create(complete_settings(), simulate=True)
         try:
-            return Protocol.from_config(
-                input_config=config,
-                tiling_configs_file_loc=(
-                    pathlib.Path(__file__).parent.parent / 'data' / 'tiling.json'
-                ),
-                capabilities=scope.capabilities,
-                objective_helper=scope.objective_helper,
-                wellplate_loader=scope.wellplate_loader,
-            )
+            return session.scope.protocols.create_protocol(input_config=config)
         finally:
-            scope.disconnect()
+            session.shutdown()
 
     def test_a_configured_stack_builds_more_than_one_slice(self):
         protocol = self._protocol()

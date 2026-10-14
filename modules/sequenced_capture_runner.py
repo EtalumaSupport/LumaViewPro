@@ -882,6 +882,35 @@ class SequencedCaptureRunner:
             remedy=remedy,
         )
 
+    def refuse_unknown_positions(self) -> None:
+        """Refuse a run while an axis this scope has does not know its position.
+
+        Every run mode moves every axis this scope has, and each move on an
+        axis whose position is not known is refused -- so a run admitted
+        would fail every scan and end in a disconnect's words. ``prepare``
+        asks it; a run whose build reads the stage's position (a standalone
+        z-stack, stacked around it) asks it before the build, so the build
+        never judges a position nobody vouches for.
+
+        Raises:
+            ProtocolRunRefusedError: ``position_unknown``, naming the axes.
+                Reported once.
+        """
+        unknown_axes = self._scope.motion.axes_without_position()
+        if unknown_axes:
+            waiting = all(state == AxisState.HOMING for state in unknown_axes.values())
+            self._refuse(
+                reason='position_unknown',
+                message=(
+                    f'Cannot start the run: {describe_unknown_positions(unknown_axes)}. '
+                    + (
+                        'Wait for the home to finish, then start the run.'
+                        if waiting
+                        else 'Home the scope, then start the run.'
+                    )
+                ),
+            )
+
     def prepare(
         self,
         protocol: Protocol,
@@ -1163,26 +1192,10 @@ class SequencedCaptureRunner:
         self._scope.protocols.refuse_unreachable_positions(protocol.steps())
         self._scope.protocols.refuse_camera_values_out_of_range(protocol.steps())
 
-        # Every run mode moves every axis this scope has, and each move on
-        # an axis whose position is not known is refused -- so a run
-        # admitted here would fail every scan and end in a disconnect's
-        # words. After the connection gate: a board that dropped reports
-        # its axes unknown as a consequence, and the disconnect is the
-        # cause the user must act on.
-        unknown_axes = self._scope.motion.axes_without_position()
-        if unknown_axes:
-            waiting = all(state == AxisState.HOMING for state in unknown_axes.values())
-            self._refuse(
-                reason='position_unknown',
-                message=(
-                    f'Cannot start the run: {describe_unknown_positions(unknown_axes)}. '
-                    + (
-                        'Wait for the home to finish, then start the run.'
-                        if waiting
-                        else 'Home the scope, then start the run.'
-                    )
-                ),
-            )
+        # After the connection gate: a board that dropped reports its axes
+        # unknown as a consequence, and the disconnect is the cause the user
+        # must act on.
+        self.refuse_unknown_positions()
 
         # Every run commands X and Y at every plate step, and the stage's
         # lid refuses each of those moves, so a run admitted with the lid

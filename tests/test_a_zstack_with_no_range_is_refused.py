@@ -1,7 +1,8 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """A z-stack asked for and not configured is refused, not quietly flattened.
 
-``Protocol.from_config`` used to treat ``use_zstacking=True`` with a zero
+The protocol build (``ProtocolsAPI.create_protocol``, behind New, REST and
+``start_zstack``) used to treat ``use_zstacking=True`` with a zero
 range or a zero step size as a request for a single plane: it logged a
 warning and built one step per position. The caller asked for a stack and
 got a photograph, and because the result was non-empty it sailed past the
@@ -24,7 +25,6 @@ this is the layer above, where the degrade branch decided not to build a
 
 from __future__ import annotations
 
-import pathlib
 from unittest.mock import MagicMock
 
 import pytest
@@ -32,12 +32,9 @@ import pytest
 from modules.exceptions import ProtocolRunRefusedError
 from modules.labware_loader import WellPlateLoader
 from modules.notification_center import Severity
-from modules.protocol import Protocol
-from tests.scope_fakes import build_scope
+from modules.scope_session import ScopeSession
+from tests.settings_fixtures import complete_settings
 from tests.test_start_zstack_entry_point import _POSITION, _zstack_settings
-
-_REPO_ROOT = pathlib.Path(__file__).parent.parent
-_TILING = _REPO_ROOT / 'data' / 'tiling.json'
 
 
 # Both halves of "not configured": the count needs a range to sweep and a
@@ -75,26 +72,21 @@ def _standalone_config(zstack: dict, *, use_zstacking: bool = True) -> dict:
 
 
 @pytest.fixture
-def sim_scope():
-
-    scope = build_scope(simulate=True, source_path=_REPO_ROOT)
+def sim_scope(tmp_path):
+    """The simulated scope, composed into a session: the protocol build
+    stamps turret slots from the session's settings."""
+    session = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
     try:
-        yield scope
+        yield session.scope
     finally:
-        scope.disconnect()
+        session.shutdown()
 
 
 class TestTheBuilderRefuses:
     @pytest.mark.parametrize('zstack', UNCONFIGURED)
     def test_an_unconfigured_stack_is_refused(self, zstack, sim_scope):
         with pytest.raises(ProtocolRunRefusedError) as refusal:
-            Protocol.from_config(
-                input_config=_standalone_config(zstack),
-                tiling_configs_file_loc=_TILING,
-                capabilities=sim_scope.capabilities,
-                objective_helper=sim_scope.objective_helper,
-                wellplate_loader=sim_scope.wellplate_loader,
-            )
+            sim_scope.protocols.create_protocol(input_config=_standalone_config(zstack))
 
         assert refusal.value.reason == 'zstack_not_configured', (
             'the reason code is the contract a REST or SDK caller branches on'
@@ -102,12 +94,8 @@ class TestTheBuilderRefuses:
 
     def test_a_configured_stack_still_builds(self, sim_scope):
         """The guard must not refuse the stacks that are fine."""
-        protocol = Protocol.from_config(
-            input_config=_standalone_config({'range': 20.0, 'step_size': 5.0}),
-            tiling_configs_file_loc=_TILING,
-            capabilities=sim_scope.capabilities,
-            objective_helper=sim_scope.objective_helper,
-            wellplate_loader=sim_scope.wellplate_loader,
+        protocol = sim_scope.protocols.create_protocol(
+            input_config=_standalone_config({'range': 20.0, 'step_size': 5.0})
         )
 
         assert protocol.num_steps() > 1, 'a configured stack is more than one plane'
@@ -120,12 +108,8 @@ class TestTheBuilderRefuses:
         carries, so a guard keyed on the values alone would refuse most of
         the protocols in the program.
         """
-        protocol = Protocol.from_config(
-            input_config=_standalone_config(zstack, use_zstacking=False),
-            tiling_configs_file_loc=_TILING,
-            capabilities=sim_scope.capabilities,
-            objective_helper=sim_scope.objective_helper,
-            wellplate_loader=sim_scope.wellplate_loader,
+        protocol = sim_scope.protocols.create_protocol(
+            input_config=_standalone_config(zstack, use_zstacking=False)
         )
 
         assert protocol.num_steps() >= 1
@@ -141,12 +125,8 @@ class TestTheRefusalReachesTheUser:
     """
 
     def _build(self, sim_scope):
-        Protocol.from_config(
-            input_config=_standalone_config({'range': 0.0, 'step_size': 5.0}),
-            tiling_configs_file_loc=_TILING,
-            capabilities=sim_scope.capabilities,
-            objective_helper=sim_scope.objective_helper,
-            wellplate_loader=sim_scope.wellplate_loader,
+        sim_scope.protocols.create_protocol(
+            input_config=_standalone_config({'range': 0.0, 'step_size': 5.0})
         )
 
     def test_the_builder_raises_and_posts_nothing(self, sim_scope, centre_posts):

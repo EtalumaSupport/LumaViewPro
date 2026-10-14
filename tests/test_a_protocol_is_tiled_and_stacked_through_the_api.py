@@ -222,6 +222,53 @@ class TestZStacking:
         assert protocol.num_steps() == 5
 
 
+def _new_bf_and_blue(session, *, bf_focus, blue_focus, range_um=10.0):
+    """New with the stack ticked: BF autofocusing, Blue not, each at its own saved focus."""
+    for layer in config_helpers.get_layer_configs(session.settings):
+        session.settings[layer]['acquire'] = None
+        session.settings[layer]['autofocus'] = False
+    for layer, focus in (('BF', bf_focus), ('Blue', blue_focus)):
+        session.settings[layer]['acquire'] = 'image'
+        session.save_layer_focus(layer, focus)
+    session.settings['BF']['autofocus'] = True
+    session.settings['zstack'] = {
+        'range': range_um,
+        'step_size': 5.0,
+        'position': 'Current Position at Center',
+    }
+    return session.new_protocol(use_zstacking=True)
+
+
+class TestNewStacksAsApplyDoes:
+    """New stacks through apply_zstacking: one group per position, every
+    channel in it, focused once (Eric, 2026-10-14). New's own loop made the
+    same per-position group but flagged autofocus on every slice, so the run
+    anchored the group's focus on its bottom slice."""
+
+    def test_every_channel_at_a_well_is_one_group_focused_at_the_autofocus_channels_focus(
+        self, session
+    ):
+        protocol = _new_bf_and_blue(session, bf_focus=5000.0, blue_focus=5020.0)
+
+        steps = protocol.steps()
+        wells = steps['Well'].nunique()
+        groups = steps.groupby('Z-Stack Group ID')
+        assert groups.ngroups == wells
+        assert all(set(group['Color']) == {'BF', 'Blue'} for _, group in groups)
+        flagged = steps[steps['Auto_Focus']]
+        assert flagged.groupby('Z-Stack Group ID').size().tolist() == [1] * wells
+        assert set(flagged['Color']) == {'BF'}
+        assert flagged['Z'].tolist() == pytest.approx([5000.0] * wells)
+
+    def test_a_stack_past_the_z_travel_is_refused(self, session):
+        z_max = session.scope.motion.get_axis_limits('Z')['max']
+
+        with pytest.raises(ProtocolRunRefusedError) as refused:
+            _new_bf_and_blue(session, bf_focus=z_max - 1.0, blue_focus=z_max - 1.0)
+
+        assert refused.value.reason == 'zslices_outside_travel'
+
+
 def test_the_motion_api_has_one_read_of_the_travel():
     """The limits are get_axis_limits'. Two retired doors answered them too:
     the motion API's, as the driver's microstep config, and the composition

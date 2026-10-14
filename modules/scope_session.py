@@ -1937,7 +1937,9 @@ class ScopeSession:
         Raises:
             ProtocolRunRefusedError: reason ``no_acquiring_layer``, logged
                 and notified once; ``zstack_not_configured``, a z-stack with
-                no extent.
+                no extent; ``positions_unreachable``, a z-stack on a scope
+                with no Z motor; ``zslices_outside_travel``, a slice past the
+                Z travel.
             ObjectiveUnknownError: the objective in the light path is
                 unknown, so the config cannot be assembled:
                 ``'slot_unknown'``, ``'slot_unassigned'`` or

@@ -391,8 +391,9 @@ class ProtocolStepRunner:
                 if p._curr_step < num_steps - 1:
                     next_step = p._protocol.step(idx=p._curr_step + 1)
                     same_color = next_step['Color'] == step['Color']
-                    # A z-stack group is one channel acquired across z slices, so
-                    # group membership already implies the same color.
+                    # A z-stack group holds every channel at one position, so the
+                    # color is judged too: the LED is held only across slices of
+                    # one channel.
                     same_zstack_group = (
                         same_color
                         and step['Z-Stack Group ID'] != -1

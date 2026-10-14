@@ -241,8 +241,15 @@ class ProtocolsAPI:
                 objective the installation's catalogues do not hold.
             ProtocolRunRefusedError: the configuration cannot be built --
                 ``objective_not_given``, ``focus_not_given``,
-                ``overlap_out_of_range``, ``tiling_unknown``,
-                ``zstack_not_configured`` -- reported once.
+                ``overlap_out_of_range``, ``tiling_unknown`` -- or the stack
+                it asks for cannot be, as ``apply_zstacking`` refuses it
+                (``zstack_not_configured``, ``positions_unreachable``,
+                ``zslices_outside_travel``); reported once.
+
+        A configuration with ``use_zstacking`` is built flat and then
+        stacked by ``Protocol.apply_zstacking``, the one z-stack build, so
+        a New protocol's stacks are grouped, focused and refused as Apply's
+        and Add's are.
         """
         from modules.protocol import Protocol, refuse_unless_buildable_config
 
@@ -269,6 +276,8 @@ class ProtocolsAPI:
                 objective_helper=self._scope.objective_helper,
                 wellplate_loader=self._scope.wellplate_loader,
             )
+            if input_config['use_zstacking']:
+                protocol.apply_zstacking(input_config['zstack_params'], self._travel_limits())
             self._stamp_turret_slots(protocol)
             return protocol
         return Protocol.create_empty(

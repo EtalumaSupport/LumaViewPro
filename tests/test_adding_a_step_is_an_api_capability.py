@@ -283,7 +283,8 @@ class TestAnAddCanBeAZStack:
             stack = added[added['Color'] == color].sort_values('Z-Slice')
             assert stack['Z-Slice'].tolist() == [0, 1, 2]
             assert stack['Z'].tolist() == pytest.approx([4995.0, 5000.0, 5005.0])
-        assert added.groupby('Z-Stack Group ID')['Color'].nunique().tolist() == [1, 1]
+        # One Add at one place is one group, every channel in it: a run focuses it once.
+        assert added['Z-Stack Group ID'].nunique() == 1
         assert added['Z'].tolist() == sorted(added['Z'].tolist()), 'not in the order a run visits'
 
     def test_a_stack_with_no_extent_adds_nothing(self, session):

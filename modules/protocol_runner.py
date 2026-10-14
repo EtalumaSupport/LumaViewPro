@@ -481,6 +481,9 @@ class ProtocolRunner:
         refuse_unknown_layer(layer)
         settings = self.session.capture_settings_snapshot()
         position = self.session.plate_position_on(settings['protocol']['labware'])
+        # The build stacks around this position and judges the slices'
+        # travel; a position no axis vouches for is the run's to refuse first.
+        self._executor.refuse_unknown_positions()
         input_config = config_helpers.get_standalone_capture_config_from_settings(
             settings,
             self.session.objective_helper,
