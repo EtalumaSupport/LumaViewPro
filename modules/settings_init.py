@@ -431,6 +431,12 @@ def normalize_loaded_settings(settings_dict: dict) -> bool:
         if not isinstance(layer_settings, dict):
             continue
 
+        # A filename prefix every layer once shipped, which nothing reads:
+        # a capture's name is built by the writer that saves it.
+        if 'file_root' in layer_settings:
+            del layer_settings['file_root']
+            changed = True
+
         video_config = layer_settings.get('video_config')
         if not isinstance(video_config, dict):
             video_config = {}

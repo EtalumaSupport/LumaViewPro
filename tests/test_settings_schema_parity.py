@@ -52,16 +52,18 @@ RUNTIME_ONLY_PER_LAYER = {
     'frame': {'native_width', 'native_height'},
 }
 
-# Per-layer keys a load-time migration renames, exempt on EVERY layer rather
+# Per-layer keys a load renames or drops, exempt on EVERY layer rather
 # than under one named entry the way RUNTIME_ONLY_PER_LAYER works -- all seven
 # layers carry them. A current.json of any age may still hold the old
 # spellings until its next clean shutdown; migrate_layer_key_names_dict moves
-# them at load. Like MIGRATED_TOP_LEVEL they must never come back in
-# settings.json, where they would resurrect the retired schema:
+# them at load, and normalize_loaded_settings drops the retired ones. Like
+# MIGRATED_TOP_LEVEL they must never come back in settings.json, where they
+# would resurrect the retired schema:
 # - ill_ma / exp_ms: renamed to illumination_ma / exposure_ms when the
 #   storage dict became the L2 API surface and its keys became the names
 #   callers write.
-MIGRATED_PER_LAYER = {'ill_ma', 'exp_ms'}
+# - file_root: a filename prefix every layer shipped, which nothing read.
+MIGRATED_PER_LAYER = {'ill_ma', 'exp_ms', 'file_root'}
 
 # Nested keys the loader drops, keyed by the entry they lived under, as
 # RUNTIME_ONLY_PER_LAYER is. A current.json of any age may still hold them

@@ -31,7 +31,6 @@
         "z": 4950.0
     },
     "BF": {
-        "file_root": "BF_",
         "focus": null,
         "autofocus": false,
         "false_color": false,
@@ -47,7 +46,6 @@
         }
     },
     "PC": {
-        "file_root": "PC_",
         "focus": null,
         "autofocus": false,
         "false_color": false,
@@ -63,7 +61,6 @@
         }
     },
     "DF": {
-        "file_root": "DF_",
         "focus": null,
         "autofocus": false,
         "false_color": false,
@@ -79,7 +76,6 @@
         }
     },
     "Blue": {
-        "file_root": "B_",
         "focus": null,
         "autofocus": false,
         "false_color": true,
@@ -103,7 +99,6 @@
         "composite_brightness_threshold": 50
     },
     "Green": {
-        "file_root": "G_",
         "focus": null,
         "autofocus": false,
         "false_color": true,
@@ -127,7 +122,6 @@
         "composite_brightness_threshold": 50
     },
     "Red": {
-        "file_root": "R_",
         "focus": null,
         "autofocus": false,
         "false_color": true,
@@ -151,7 +145,6 @@
         "composite_brightness_threshold": 50
     },
     "Lumi": {
-        "file_root": "LM_",
         "focus": null,
         "autofocus": false,
         "false_color": true,

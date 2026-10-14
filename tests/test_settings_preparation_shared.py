@@ -192,6 +192,22 @@ def test_the_settings_nothing_reads_are_dropped_from_a_stored_file():
     assert 'stage' not in stored
 
 
+def test_a_stored_layer_file_root_is_dropped_at_load(tmp_path):
+    # Every layer once shipped a filename prefix nothing read; a current.json
+    # that still carries one comes up without it.
+    data_dir = _data_dir(tmp_path)
+    stored = json.loads((data_dir / 'settings.json').read_text())
+    stored['BF']['file_root'] = 'BF_'
+    (data_dir / 'current.json').write_text(json.dumps(stored))
+
+    prepared, rejected = settings_init.prepare_settings(
+        logger, str(tmp_path), fall_back_to_template=False
+    )
+
+    assert rejected is None
+    assert 'file_root' not in prepared['BF']
+
+
 def test_a_plate_the_catalogue_never_had_is_left_as_written():
     # Preparation folds spellings; it does not judge. Whether the plate
     # exists is answered where the plate is selected, against the catalogue.
