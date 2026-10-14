@@ -61,6 +61,7 @@ import pkgutil
 import typing
 import warnings
 from collections.abc import Callable, Iterable, Mapping
+
 from lib.lumascope_error import Fault
 from modules.api_surface import API, fields_of, is_record, mark_of
 from modules.operation import Operation
@@ -625,9 +626,9 @@ def inbound(
 
     Raises:
         NoWireFormError: the type has no inbound form -- a future that is
-            no operation, a thread, a path inside an array -- or is a union a sent value
-            could be read as either side of (a name or a path), so which one
-            the client meant is not knowable.
+            no operation, a thread, a path inside an array -- or is a union
+            a sent value could be read as either side of (a name or a path),
+            so which one the client meant is not knowable.
         NotHandedOutError: every alternative but None is a live object no
             wire member hands out.
     """

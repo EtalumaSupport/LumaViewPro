@@ -208,7 +208,7 @@ def test_the_servers_own_answers_and_a_handle_and_a_path_match_their_models(sess
         assert accepted.status_code == 202
         _matches(job, accepted.json())
         running = client.get(accepted.headers['Location'], headers={'Prefer': 'wait=0'}).json()
-        assert running['status'] in ('pending', 'running')
+        assert running['status'] == 'running'
         _matches(job, running)
 
         zipping = client.post(

@@ -127,7 +127,12 @@ class Job:
         return self.answered.result().ended if self.finished else None
 
     def view(self) -> dict[str, object]:
-        """The job as a client reads it; an operation's progress is read now, off the event loop."""
+        """The job as a client reads it, its progress read now.
+
+        An operation's progress is read under its own locks (a run's under
+        the run's), so a caller on the event loop reads a job that holds
+        one through a thread.
+        """
         if not self.finished:
             status = 'running'
         else:

@@ -8,8 +8,8 @@ handle's id into its object, a job's id into its operation, a live-folder
 name into a path, each item of an array or object as it would be alone. A
 type a client could not send unambiguously -- a future that is no
 operation, a path inside an array, a union a value could be read as either
-side of -- is refused when the host is built, so no call ever guesses. The callbacks the host fills are not
-sent at all.
+side of -- is refused when the host is built, so no call ever guesses. The
+callbacks the host fills are not sent at all.
 """
 
 from __future__ import annotations
