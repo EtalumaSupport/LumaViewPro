@@ -2902,7 +2902,6 @@ Reached through `ScopeSession.create(settings, ...)`; every L2 caller starts her
 - `app_runtime`
 - `app_version`
 - `assign_turret_objective`
-- `start_application_session` (in-process)
 - `bring_up_record`
 - `capture_settings_snapshot`
 - `channel_colors`
@@ -2915,7 +2914,9 @@ Reached through `ScopeSession.create(settings, ...)`; every L2 caller starts her
 - `create_protocol_runner`
 - `delete_step`
 - `diagnostic_claim` (in-process)
+- `disable_metrics` (in-process)
 - `discard_close_drain`
+- `enable_metrics` (in-process)
 - `engineering_mode`
 - `exclusive_activity`
 - `frame_at_binning`
@@ -2961,6 +2962,7 @@ Reached through `ScopeSession.create(settings, ...)`; every L2 caller starts her
 - `remove_shown_channel_listener` (in-process)
 - `rename_step`
 - `retire_rejected_settings`
+- `run_application_session` (in-process)
 - `run_in_progress`
 - `run_lockout`
 - `run_lockout_named`
@@ -2992,11 +2994,9 @@ Reached through `ScopeSession.create(settings, ...)`; every L2 caller starts her
 - `shown_channel`
 - `shutdown` (in-process)
 - `source_path`
-- `run_application_session` (in-process)
+- `start_application_session` (in-process)
 - `start_go_to_step`
-- `enable_metrics` (in-process)
 - `status`
-- `disable_metrics` (in-process)
 - `unload_plugins` (in-process)
 - `update_settings`
 - `update_step`
@@ -3086,6 +3086,8 @@ Reached through `session.scope.imaging`.
 - `capture_and_wait` (in-process)
 - `capture_frame_depth` (in-process)
 - `capture_frame_full_scale` (in-process)
+- `disable_streaming`
+- `enable_streaming`
 - `exposure_ms_cached`
 - `frame_is_valid`
 - `frame_size_cached`
@@ -3121,8 +3123,6 @@ Reached through `session.scope.imaging`.
 - `set_gain_db`
 - `set_scale_bar_color`
 - `significant_bits`
-- `enable_streaming`
-- `disable_streaming`
 - `update_auto_gain_target_brightness`
 
 ### DiagnosticsAPI
@@ -3293,13 +3293,13 @@ Reached through `session.manual_recording`.
 
 Reached through returned by `session.create_protocol_runner()`.
 
+- `run_composite`
 - `start_autofocus`
 - `start_autofocus_all_steps`
-- `run_composite`
+- `start_composite`
 - `start_protocol`
 - `start_single_scan`
 - `start_zstack`
-- `start_composite`
 
 ### Protocol
 
