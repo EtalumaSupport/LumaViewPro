@@ -162,60 +162,104 @@ def test_pure_blue_mp4_roundtrip(tmp_path):
 # MUST-HAVE 3: composite RGB all-channels round-trip
 # ---------------------------------------------------------------------------
 
+_RUN_COLUMNS = [
+    'Name', 'X', 'Y', 'Z', 'Auto_Focus', 'Color', 'False_Color', 'Illumination',
+    'Gain', 'Auto_Gain', 'Exposure', 'Sum', 'Objective', 'Well', 'Tile', 'Z-Slice',
+    'Custom Step', 'Tile Group ID', 'Z-Stack Group ID', 'Acquire', 'Video Config',
+    'Stim_Config', 'Auto_Named', 'Label',
+]  # fmt: skip
+_CHANNEL_VALUES = {'Red': 200, 'Green': 140, 'Blue': 80}
 
-def test_composite_rgb_allchannels_roundtrip(tmp_path):
-    """Synth 3 mono TIFFs (R, G, B layers); run composite generation;
-    read output via tifffile axes='YXS'; assert per-channel preservation.
 
-    Today: ``composite_generation.py`` reads per-channel inputs via
-    ``cv2.imread`` (3-channel BGR) then extracts the relevant channel
-    via ``cvtColor(BGR2GRAY)`` to recover mono. The redundancy is the
-    bug surface (``#672`` extract-from-wrong-channel) plus a perf
-    cost (3x read bandwidth).
+def _rgb_step(index: int, color: str) -> list[str]:
+    return [
+        f'custom000{index}_{color}', '10.0000', '10.0000', '5000.0', 'False', color,
+        'True', '5.0', '1.0', 'False', '2.0', '1', '20x Oly', '', 'A1', '-1', 'True',
+        str(index), '-1', 'image', '"{""duration"": 5, ""fps"": 30}"', '"{}"', 'True', '',
+    ]  # fmt: skip
 
-    Post-1d: per-channel inputs are mono 2D; composite reads directly
-    via ``tf.imread`` and stacks into the canonical (H, W, 3) output.
+
+@pytest.fixture
+def session(tmp_path):
+    from modules.scope_session import ScopeSession
+    from tests.settings_fixtures import complete_settings
+
+    session = ScopeSession.create(
+        complete_settings(live_folder=str(tmp_path / 'live')), simulate=True
+    )
+    yield session
+    session.shutdown()
+
+
+@pytest.fixture
+def rgb_run_folder(tmp_path):
+    """One position imaged in Red, Green and Blue, each a flat 8-bit frame
+    of its own value, as a run of this release saves it."""
+    from modules import image_utils
+
+    folder = tmp_path / 'live' / 'ProtocolData' / '20261013_120000'
+    folder.mkdir(parents=True)
+    steps = [_rgb_step(index, color) for index, color in enumerate(_CHANNEL_VALUES)]
+    (folder / 'run.tsv').write_text(
+        'LumaViewPro Protocol\nVersion\t8\nPeriod\t20.0\nDuration\t48.0\n'
+        'Labware\t96 well microplate\nCapture Root\t\n\nSteps\n'
+        + '\t'.join(_RUN_COLUMNS)
+        + '\n'
+        + ''.join('\t'.join(step) + '\n' for step in steps)
+    )
+    record_rows = []
+    for index, step in enumerate(steps):
+        name, color = step[0], step[5]
+        filename = f'{name}_0000.tiff'
+        image_utils.write_tiff(
+            data=np.full((16, 16), _CHANNEL_VALUES[color], dtype=np.uint8),
+            file_loc=folder / filename,
+            metadata={
+                'pixel_size_um': 0.5,
+                'channel': color,
+                'objective': '20x Oly',
+                'exposure_time_ms': 2.0,
+                'gain_db': 1.0,
+                'illumination_ma': 5.0,
+                'z_pos_um': 5000.0,
+                'plate_pos_mm': {'x': 10.0, 'y': 10.0},
+                'datetime': '2026:10:13 12:00:00',
+                'camera_make': 'Test',
+                'microscope': 'TestScope',
+                'well_label': '',
+                'significant_bits': 8,
+            },
+            ome=False,
+            color=release_color(color),
+            significant_bits=8,
+            save_encoding='right_aligned',
+        )
+        record_rows.append(
+            f'{filename}\t{name}\t{index}\t0\t2026-10-13 12:00:{index:02d}.000001\t1\t0.0\n'
+        )
+    (folder / 'protocol_record.tsv').write_text(
+        'LumaViewPro Protocol Execution Record\nVersion\t3\nProtocol File\trun.tsv\n'
+        'Filename\tStep Name\tStep Index\tScan Count\tTimestamp\tFrame Count\tDuration (s)\n'
+        + ''.join(record_rows)
+    )
+    return folder
+
+
+def test_a_composite_from_a_folder_keeps_each_channel_on_its_own_plane(session, rgb_run_folder):
+    """A Red, Green and Blue position composited through the Session's
+    post-processing reads back as one 8-bit RGB image with each channel on
+    its own plane (R 0, G 1, B 2): the routing the #657 / #672 swaps broke.
 
     Historical bugs: ``cefdfcb`` (composite OME-TIFF axes mismatch),
     ``e2ef49e`` (#657 frames swap on save).
     """
-    input_dir = tmp_path / 'channels'
-    input_dir.mkdir()
+    built = session.post_processing.composite(rgb_run_folder)
 
-    # Post-1d input: 3 mono channel files
-    red_val, green_val, blue_val = 50000, 35000, 20000
-    tf.imwrite(str(input_dir / 'r.tiff'), np.full((8, 8), red_val, dtype=np.uint16))
-    tf.imwrite(str(input_dir / 'g.tiff'), np.full((8, 8), green_val, dtype=np.uint16))
-    tf.imwrite(str(input_dir / 'b.tiff'), np.full((8, 8), blue_val, dtype=np.uint16))
-
-    out_path = tmp_path / 'composite.tiff'
-
-    from modules.composite_generation import CompositeGeneration
-
-    cg = CompositeGeneration(has_turret=False)
-    cg.generate_composite_from_paths(
-        red_path=input_dir / 'r.tiff',
-        green_path=input_dir / 'g.tiff',
-        blue_path=input_dir / 'b.tiff',
-        output_path=out_path,
-    )
-
-    import modules.image_utils as image_utils
-
-    result = tf.imread(str(out_path))
-    assert result.ndim == 3 and result.shape[2] == 3
-    # A composite is a viewing product: always 8-bit RGB, so the 16-bit inputs
-    # are downconverted, not preserved verbatim. What this test guards is the
-    # CHANNEL ROUTING (R->0, G->1, B->2) surviving the merge -- assert each
-    # plane holds the canonical 8-bit downconvert of its own input.
+    assert built.new_count == 1
+    result = tf.imread(str(built.artifact_paths[0]))
     assert result.dtype == np.uint8
-
-    def _to8(val):
-        return image_utils.convert_to_8bit(np.full((1, 1), val, dtype=np.uint16), 16)[0, 0]
-
-    assert result[0, 0, 0] == _to8(red_val)
-    assert result[0, 0, 1] == _to8(green_val)
-    assert result[0, 0, 2] == _to8(blue_val)
+    assert result.shape == (16, 16, 3)
+    assert result[0, 0].tolist() == list(_CHANNEL_VALUES.values())
 
 
 # ---------------------------------------------------------------------------
@@ -259,37 +303,19 @@ def test_pure_color_16bit_falsecolor_tiff_roundtrip(tmp_path, color):
 # ---------------------------------------------------------------------------
 
 
-def test_composite_ome_tiff_axes_structural(tmp_path):
-    """Composite OME-TIFF must carry axes='YXS' (Y, X, Sample) for the
-    3-channel output. ``cefdfcb`` was a crash on axes mismatch; today's
-    composite passes via tifffile; post-1d the same axes structure
-    holds even though the per-channel reads are mono.
+def test_a_composite_from_a_folder_in_ome_tiff_has_yxs_axes(session, rgb_run_folder):
+    """A composite built with the run output format OME-TIFF carries OME
+    metadata and axes 'YXS' (Y, X, Sample) for its 3-channel image.
+    ``cefdfcb`` was a crash on that axes mismatch.
     """
-    input_dir = tmp_path / 'channels'
-    input_dir.mkdir()
-    for ch in ('r', 'g', 'b'):
-        tf.imwrite(str(input_dir / f'{ch}.tiff'), np.full((8, 8), 30000, dtype=np.uint16))
+    session.update_settings('image_output_format.sequenced', 'OME-TIFF')
 
-    out_path = tmp_path / 'composite.ome.tiff'
+    built = session.post_processing.composite(rgb_run_folder)
 
-    from modules.composite_generation import CompositeGeneration
-
-    cg = CompositeGeneration(has_turret=False)
-    cg.generate_composite_from_paths(
-        red_path=input_dir / 'r.tiff',
-        green_path=input_dir / 'g.tiff',
-        blue_path=input_dir / 'b.tiff',
-        output_path=out_path,
-        format='ome-tiff',
-    )
-
-    # Read with tifffile; OME-TIFF metadata must indicate YXS axes
-    with tf.TiffFile(str(out_path)) as t:
-        ome_meta = t.ome_metadata
-        assert ome_meta is not None, 'composite OME-TIFF missing OME metadata block'
-        assert 'YXS' in (t.series[0].axes if t.series else ''), (
-            f'Composite OME-TIFF axes should be YXS, got {t.series[0].axes!r}'
-        )
+    assert built.new_count == 1
+    with tf.TiffFile(str(built.artifact_paths[0])) as t:
+        assert t.ome_metadata is not None, 'composite OME-TIFF missing OME metadata block'
+        assert t.series[0].axes == 'YXS'
 
 
 def test_composite_sequenced_path_honors_output_format(tmp_path):
