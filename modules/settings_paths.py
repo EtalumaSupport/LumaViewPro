@@ -29,6 +29,7 @@ from modules.image_mode import (
     available_modes,
 )
 from modules.finite_number import is_finite_number
+from modules.layer_record import parse_display_color
 from modules.lumascope_api._constants import SIMULATOR_TIERS, refuse_acceleration_pct
 from modules.protocol import Protocol, ProtocolScheduleRefusedError, schedule_from_units
 from modules.tiling_config import TilingConfig
@@ -275,6 +276,18 @@ def _stim_pulse_count(path: str, value: float) -> None:
     _refuse_outside(path, value, *STIM_PULSE_COUNT_RANGE)
 
 
+def _display_color(path: str, value: str | None) -> None:
+    # None is no override: the channel is shown in its catalogue colour.
+    if value is None:
+        return
+    try:
+        parse_display_color(value)
+    except ValueError:
+        raise SettingRefusedError(
+            'out_of_range', path, f"it must be None or a '#rrggbb' colour, not {value!r}"
+        ) from None
+
+
 # The range the writer owns for a setting: what any value of it must satisfy
 # whatever hardware is attached. A ceiling the attached hardware declares (a
 # camera's exposure or gain, an LED board's current) is not a range here: the
@@ -317,6 +330,7 @@ _RANGES: typing.Final[dict[str, typing.Callable[[str, typing.Any], None]]] = {
     '*.stim_config.pulse_width': _stim_pulse_width,
     '*.stim_config.pulse_count': _stim_pulse_count,
     '*.stim_config.illumination_ma': _non_negative,
+    '*.display_color': _display_color,
 }
 
 

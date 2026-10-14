@@ -1324,6 +1324,8 @@ session.get_auto_gain_settings()         # auto-gain config
 session.get_stim_configs()               # stim settings per layer
 session.channel_colors()                 # every layer's colour, (r, g, b) weights 0-1: what captures, recordings,
                                          # builds and the view are coloured in, read by each as it starts
+session.update_settings('Red.display_color', '#ff00ff')  # override a layer's colour; None gives the catalogue's back.
+                                         # '#rrggbb', lower case, brightest component ff, else SettingRefusedError
 session.get_enabled_stim_configs()       # only the enabled ones
 ```
 

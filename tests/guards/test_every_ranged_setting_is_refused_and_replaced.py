@@ -64,6 +64,7 @@ _OUT_OF_RANGE = {
     '*.stim_config.pulse_width': settings_paths.STIM_PULSE_WIDTH_MS_RANGE[0] - 1,
     '*.stim_config.pulse_count': settings_paths.STIM_PULSE_COUNT_RANGE[1] + 1,
     '*.stim_config.illumination_ma': -1,
+    '*.display_color': '#800080',
 }
 
 _CASES = sorted(

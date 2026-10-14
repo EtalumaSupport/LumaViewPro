@@ -1,0 +1,70 @@
+# Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
+"""A layer's ``display_color`` setting overrides the colour it is shown and written in.
+
+``ScopeSession.channel_colors`` is the one read of a channel's colour: a
+layer's ``display_color``, a ``'#rrggbb'`` colour at full brightness, wins
+over the release catalogue's, and null is no override. A value the store
+cannot use as a colour is refused where it is written, never stored.
+"""
+
+import pytest
+import tifffile
+
+from modules import layer_record
+from modules.exceptions import SettingRefusedError
+from modules.scope_session import ScopeSession
+from tests.settings_fixtures import complete_settings
+from tests.test_manual_capture_member import _capture, _open_session, _settings
+
+MAGENTA = '#ff00ff'
+
+
+@pytest.fixture
+def session(tmp_path):
+    s = ScopeSession.create(
+        complete_settings(live_folder=str(tmp_path)), simulate=True, warn_pre_release=False
+    )
+    yield s
+    s.shutdown()
+    s.scope.disconnect()
+
+
+def test_an_override_is_the_channels_colour_and_null_gives_the_release_back(session):
+    release = layer_record.release_colors()
+
+    session.update_settings('Red.display_color', MAGENTA)
+    overridden = session.channel_colors()
+    session.update_settings('Red.display_color', None)
+
+    assert overridden == {**release, 'Red': (1.0, 0.0, 1.0)}
+    assert session.channel_colors() == release
+
+
+def test_a_colour_the_store_cannot_use_is_refused_at_the_write(session):
+    refused = {}
+    for value in ([1, 0, 1], 'magenta', '#800080', '#FF00FF'):
+        with pytest.raises(SettingRefusedError) as raised:
+            session.update_settings('Red.display_color', value)
+        refused[repr(value)] = raised.value.reason
+
+    assert refused == {
+        '[1, 0, 1]': 'wrong_kind',
+        "'magenta'": 'out_of_range',
+        "'#800080'": 'out_of_range',
+        "'#FF00FF'": 'out_of_range',
+    }
+    assert session.get_setting('Red.display_color') is None
+
+
+def test_a_still_is_saved_in_its_channels_override(tmp_path):
+    # An 8-bit fluorescence still carries its colour in the TIFF's palette:
+    # the palette's brightest entry is the colour at full weight.
+    with _open_session(_settings(tmp_path)) as session:
+        session.show_channel('Red')
+        session.update_settings('Red.display_color', MAGENTA)
+
+        (path,) = _capture(session, false_color_on=True)
+
+        with tifffile.TiffFile(path) as tif:
+            brightest = [int(v) for v in tif.pages[0].colormap[:, -1]]
+    assert brightest == [65535, 0, 65535]

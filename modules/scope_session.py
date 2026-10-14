@@ -1543,14 +1543,23 @@ class ScopeSession:
 
         The one read of a channel's colour: every capture, recording, build
         and view takes it from here, the run and each build as it starts.
+        A layer's ``display_color`` setting, a ``'#rrggbb'`` colour at full
+        brightness, overrides the release's colour for that layer; null is
+        no override.
 
         Raises:
             InstallationFileError: the installation's ``scopes.json`` is
                 unusable (``layer_record.release_layers``).
         """
-        from modules.layer_record import release_colors
+        from modules.layer_record import parse_display_color, release_colors
 
-        return release_colors()
+        colors = release_colors()
+        with self.settings_lock:
+            overrides = {key: self.settings[key]['display_color'] for key in colors}
+        for key, override in overrides.items():
+            if override is not None:
+                colors[key] = parse_display_color(override)
+        return colors
 
     @api(reads=True)
     def get_stim_configs(self) -> dict:
