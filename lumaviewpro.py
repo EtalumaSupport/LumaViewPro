@@ -50,45 +50,43 @@ if __name__ == '__main__':
     no_engineering = '--no-engineering' in sys.argv
     if no_engineering:
         sys.argv.remove('--no-engineering')
+    from modules.app_environment import take_sim_launch_value
+
+    def _take_stall(flag):
+        try:
+            value = take_sim_launch_value(sys.argv, flag, simulate=simulate_mode)
+            if value is None:
+                return None
+            from drivers.simulated_camera import SimulatedStall
+
+            _after, _for = value.split(',')
+            return SimulatedStall(after_s=float(_after), for_s=float(_for))
+        except ValueError as _stall_error:
+            sys.exit(f'--{flag}=AFTER,FOR (seconds): {_stall_error}')
+
+    # Each simulator flag is read here, beside --simulate, so a malformed
+    # value stops the launch before anything starts.
     # --sim-camera-stall=AFTER,FOR stops the simulated camera's frames AFTER
     # seconds into the session, for FOR seconds, the camera staying connected
-    # and grabbing: a stalled stream, shown without hardware. Read here, beside
-    # --simulate, so a malformed value stops the launch before anything starts.
-    sim_camera_stall = None
-    _stall_args = [arg for arg in sys.argv if arg.startswith('--sim-camera-stall=')]
-    for _arg in _stall_args:
-        sys.argv.remove(_arg)
-    if _stall_args:
-        from drivers.simulated_camera import SimulatedStall
-
-        try:
-            if len(_stall_args) > 1:
-                raise ValueError('give --sim-camera-stall once')
-            if not simulate_mode:
-                raise ValueError('--sim-camera-stall needs --simulate')
-            _after, _for = _stall_args[0].split('=', 1)[1].split(',')
-            sim_camera_stall = SimulatedStall(after_s=float(_after), for_s=float(_for))
-        except ValueError as _stall_error:
-            sys.exit(f'--sim-camera-stall=AFTER,FOR (seconds): {_stall_error}')
+    # and grabbing: a stalled stream, shown without hardware.
+    sim_camera_stall = _take_stall('sim-camera-stall')
     # --sim-file-stall=AFTER,FOR holds the file lane's worker AFTER seconds
     # into the session, for FOR seconds: a save drive that stops answering,
     # so a stalled file writer is shown without one.
-    sim_file_stall = None
-    _file_stall_args = [arg for arg in sys.argv if arg.startswith('--sim-file-stall=')]
-    for _arg in _file_stall_args:
-        sys.argv.remove(_arg)
-    if _file_stall_args:
-        from drivers.simulated_camera import SimulatedStall
-
-        try:
-            if len(_file_stall_args) > 1:
-                raise ValueError('give --sim-file-stall once')
-            if not simulate_mode:
-                raise ValueError('--sim-file-stall needs --simulate')
-            _after, _for = _file_stall_args[0].split('=', 1)[1].split(',')
-            sim_file_stall = SimulatedStall(after_s=float(_after), for_s=float(_for))
-        except ValueError as _stall_error:
-            sys.exit(f'--sim-file-stall=AFTER,FOR (seconds): {_stall_error}')
+    sim_file_stall = _take_stall('sim-file-stall')
+    # --sim-focal-spread=UM draws the simulated sample's focus once within UM
+    # of where bring-up leaves the stage, so the session needs a real
+    # autofocus; without it the sample is in focus there. The simulated
+    # camera's alone: a model simulated with an FX2 refuses it.
+    sim_focal_spread_um = 0.0
+    try:
+        _spread = take_sim_launch_value(sys.argv, 'sim-focal-spread', simulate=simulate_mode)
+        if _spread is not None:
+            sim_focal_spread_um = float(_spread)
+            if not 0 < sim_focal_spread_um < float('inf'):
+                raise ValueError(f'{_spread!r} is not a distance above 0')
+    except ValueError as _spread_error:
+        sys.exit(f'--sim-focal-spread=UM: {_spread_error}')
     # --sim-walk=<file> performs a sim walk's steps on the GUI once bring-up
     # has finished (ui/sim_walk.py; what it waits on is _bring_up_owes
     # below). Simulator only: a walk on hardware would move a real stage.
@@ -1022,10 +1020,7 @@ class LumaViewProApp(TooltipMixin, App):
                 no_engineering=no_engineering,
                 sim_camera_stall=sim_camera_stall,
                 sim_file_stall=sim_file_stall,
-                # A simulated sample's focus lies up to 25 um from where
-                # bring-up leaves the stage, as a real sample's does, so each
-                # simulated start needs a real autofocus.
-                sim_focal_spread_um=25.0 if simulate_mode else 0.0,
+                sim_focal_spread_um=sim_focal_spread_um,
                 outcome_listener=notification_popup_bridge,
                 settings_file=current_json_path(source_path),
             )

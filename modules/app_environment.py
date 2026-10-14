@@ -64,6 +64,29 @@ def init_environment(main_file: str) -> AppEnvironment:
     )
 
 
+def take_sim_launch_value(argv: list[str], flag: str, *, simulate: bool) -> str | None:
+    """The value of the simulator launch flag ``--<flag>=<value>``, or None
+    when it is not given.
+
+    Every ``--<flag>=`` argument is removed from ``argv`` first, refused or
+    not, because Kivy exits on a flag it does not know.
+
+    Raises:
+        ValueError: the flag is given more than once, or without ``--simulate``.
+    """
+    prefix = f'--{flag}='
+    given = [arg for arg in argv if arg.startswith(prefix)]
+    for arg in given:
+        argv.remove(arg)
+    if not given:
+        return None
+    if len(given) > 1:
+        raise ValueError(f'give --{flag} once')
+    if not simulate:
+        raise ValueError(f'--{flag} needs --simulate')
+    return given[0][len(prefix) :]
+
+
 def _dist_version(name: str) -> str | None:
     try:
         import importlib.metadata as imeta
