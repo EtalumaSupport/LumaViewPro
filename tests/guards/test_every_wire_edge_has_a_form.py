@@ -22,6 +22,7 @@ import pytest
 
 from modules import wire_encoding
 from modules.api_surface import MARK_ATTRIBUTE, api, api_fields
+from modules.operation import Operation
 
 
 @pytest.fixture(scope='module')
@@ -171,3 +172,38 @@ def test_validate_steps_put_back_on_the_wire_is_caught(classes, aliases, monkeyp
 
     gaps = wire_encoding.wire_gaps(ScopeSession, classes, aliases)
     assert any('validate_steps' in g and 'ObjectiveLoader' in g for g in gaps), gaps
+
+
+class _Pending(Operation):
+    """A running call under a name of its own, with a wire member of its own."""
+
+    @api
+    def stop(self) -> None:
+        raise NotImplementedError
+
+
+class _Starter:
+    @api
+    def start(self) -> _Pending:
+        raise NotImplementedError
+
+
+def test_a_running_call_of_any_name_crosses_as_a_job(classes):
+    """An ``Operation`` subclass is a job by its class, in the description and in the answer alike.
+
+    Classified by name, one the table did not list was described as a
+    handle, with handle routes of its own, while ``encode`` sent it as a
+    job: a client told to hold a handle was handed a job.
+    """
+    classes = {**classes, '_Starter': _Starter, '_Pending': _Pending}
+    reach = wire_encoding.handed_out(_Starter, classes, {})
+    (start,) = wire_encoding.wire_members(_Starter, classes, {}, handed_out=reach)
+
+    assert [a.form for a in start.returns] == [wire_encoding.JOB]
+    assert start.returns_job
+    assert reach == frozenset()
+    assert wire_encoding.wire_gaps(_Starter, classes, {}) == []
+    sent = wire_encoding.encode(
+        _Pending(), live_folder='.', handle=lambda v: 'handle', job=lambda f: 'job'
+    )
+    assert sent == 'job'

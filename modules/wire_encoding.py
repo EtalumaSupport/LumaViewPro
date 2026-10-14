@@ -23,7 +23,7 @@ The forms:
 - A tuple, list, set, frozenset or iterable: an array, a set sorted.
 - A dict, mapping or ``pandas.Series``: an object, keys as strings (an
   enum key in its own form).
-- A ``Future``: a job, from the host's job registry.
+- An ``Operation``: a job, from the host's job registry.
 - Any other object with wire members: a handle, from the host's registry.
 - A callable parameter (an ``on_progress``, a run's ``RunEvents``): not
   on the wire; the host passes its own.
@@ -61,10 +61,9 @@ import pkgutil
 import typing
 import warnings
 from collections.abc import Callable, Iterable, Mapping
-from concurrent.futures import Future
-
 from lib.lumascope_error import Fault
 from modules.api_surface import API, fields_of, is_record, mark_of
+from modules.operation import Operation
 
 # The forms a value takes on the wire.
 SCALAR = 'scalar'
@@ -102,9 +101,6 @@ NAMED_FORMS = {
     'dict': OBJECT,
     'Mapping': OBJECT,
     'Series': OBJECT,
-    'Future': JOB,
-    # The one handle every operation the API starts returns: a Future.
-    'Operation': JOB,
 }
 # Names that wrap a type without changing its form.
 _TRANSPARENT = {'ClassVar', 'Optional', 'Union'}
@@ -193,7 +189,15 @@ def _wire_methods(cls: type) -> list[str]:
 
 
 def class_form(cls: type) -> str | None:
-    """The form a project class crosses in, or None when it has none."""
+    """The form a project class crosses in, or None when it has none.
+
+    An ``Operation`` of any class is a running call, a job, whatever
+    members it marks: ``encode`` sends it as one by ``isinstance``, and a
+    description that called it a handle would promise the client routes no
+    answer reaches.
+    """
+    if issubclass(cls, Operation):
+        return JOB
     if issubclass(cls, enum.Enum):
         return ENUM
     if is_record(cls):
@@ -406,7 +410,7 @@ def encode(
     *,
     live_folder: pathlib.Path,
     handle: Callable[[object], object],
-    job: Callable[[Future], object],
+    job: Callable[[Operation], object],
 ) -> object:
     """*value* in its wire form, JSON-ready.
 
@@ -437,7 +441,7 @@ def encode(
             return v.isoformat()
         if isinstance(v, pathlib.PurePath):
             return _path(v, live_folder)
-        if isinstance(v, Future):
+        if isinstance(v, Operation):
             return job(v)
         cls = type(v)
         if is_record(cls):
@@ -555,7 +559,7 @@ class WireMember:
         hands_out: Whether its answer can carry a live object a client is
             handed; known only when ``wire_members`` is given ``handed_out``.
         returns_job: Whether its answer can carry a running call (a
-            ``Future``), which a host hands out as a job.
+            ``Operation``), which a host hands out as a job.
         progress: The parameter a host fills with its own ``ProgressCallback``
             to hear how far the call has got; None when it takes none.
         run_events: The parameter a host fills with its own ``RunEvents`` to
@@ -699,7 +703,7 @@ def outbound(
     Read from ``NAMED_FORMS`` and ``class_form``, the table ``encode``
     follows, so each alternative is the form ``encode`` gives a value of
     that type: a record by its published fields and wire properties, a
-    live object as its handle, a ``Future`` as its job, a path as its
+    live object as its handle, an ``Operation`` as its job, a path as its
     live-folder name and host path, an array or object by its items, a
     fixed-shape tuple by its parts.
 
@@ -820,7 +824,7 @@ def wire_members(
                 parameters=tuple(parameters),
                 doc=function.__doc__ or '',
                 hands_out=_hands_out(returns, handed_out, aliases),
-                returns_job=_returns_job(returns, aliases),
+                returns_job=_returns_job(returns, classes, aliases),
                 progress=progress,
                 run_events=run_events,
             )
@@ -849,11 +853,11 @@ def _read(
         segment=segment,
         doc=getattr(function, '__doc__', '') or '',
         hands_out=_hands_out(text, handed_out, aliases),
-        returns_job=_returns_job(text, aliases),
+        returns_job=_returns_job(text, classes, aliases),
     )
 
 
-def _returns_job(text: str | None, aliases: dict[str, str]) -> bool:
+def _returns_job(text: str | None, classes: dict[str, type], aliases: dict[str, str]) -> bool:
     """Whether a value of type *text* can carry a running call, which crosses as a job."""
     if not text:
         return False
@@ -861,7 +865,7 @@ def _returns_job(text: str | None, aliases: dict[str, str]) -> bool:
     for used in used_names:
         if used in aliases and used not in NAMED_FORMS:
             used_names += _names(aliases[used])
-    return any(NAMED_FORMS.get(n) == JOB for n in used_names)
+    return any(n in classes and class_form(classes[n]) == JOB for n in used_names)
 
 
 def _hands_out(
