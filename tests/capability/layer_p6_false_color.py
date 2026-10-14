@@ -21,6 +21,7 @@ try:
 
     # 2) does it change the bytes on disk?
     from modules.image_save import save_image
+    from modules.layer_record import release_colors
 
     arr = (np.arange(64 * 64, dtype=np.uint16).reshape(64, 64) % 4096).astype(np.uint16)
     outs = {}
@@ -33,6 +34,7 @@ try:
             append=f'{fc}',
             channel='Blue',
             false_color_on=fc,
+            channel_colors=release_colors(),
             save_encoding='rgb',
             output_format='TIFF',
             significant_bits=12,

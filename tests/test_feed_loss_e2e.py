@@ -19,6 +19,7 @@ import pytest
 
 from modules.activity_claim import ActivityClaim
 import modules.manual_recording as manual_recording_module
+from modules.layer_record import release_colors
 from modules.manual_recording import ManualRecordingController
 from modules.scheduler import ThreadingTimerScheduler
 from tests.scope_fakes import bind_settings_like_a_session
@@ -45,6 +46,7 @@ def test_manual_recording_ends_within_the_stall_bound(sim_scope, tmp_path, monke
         scope=sim_scope,
         settings=settings,
         shown_layer=lambda: 'BF',
+        channel_colors=release_colors,
         activity_claim=ActivityClaim(),
         scheduler=scheduler,
     )

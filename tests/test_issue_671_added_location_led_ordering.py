@@ -49,6 +49,7 @@ import pytest
 
 from modules.activity_claim import ActivityClaim
 from modules.image_mode import ImageCaptureConfig
+from modules.layer_record import release_colors
 from tests.scope_fakes import build_scope, home_sim_scope, swap_lanes
 from modules.protocol import Protocol
 from modules.run_events import RunEvents
@@ -237,6 +238,7 @@ def executor(scope, executors):
         file_io_executor=executors['file_io'],
         autofocus_thread=MagicMock(in_flight_sweep=None),
         activity_claim=ActivityClaim(),
+        channel_colors=release_colors,
         autofocus_runner=mock_af,
     )
     return exc
