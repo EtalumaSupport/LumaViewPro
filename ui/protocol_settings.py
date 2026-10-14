@@ -10,10 +10,7 @@ from kivy.uix.floatlayout import FloatLayout
 
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
-from modules.config_ui_getters import (
-    get_zstack_params,
-    is_image_saving_enabled,
-)
+from modules.config_ui_getters import is_image_saving_enabled
 from modules.labware_loader import CENTER_PLATE
 from modules.protocol import Protocol, schedule_from_units
 from typing import TYPE_CHECKING
@@ -477,7 +474,7 @@ class ProtocolSettings(FloatLayout):
 
         logger.info('[LVP Main  ] Apply Z-Stacking to protocol')
 
-        zstack_params = get_zstack_params()
+        zstack_params = ctx.session.get_zstack_params()
         ctx.session.apply_zstacking(
             self._protocol,
             range_um=zstack_params['range'],
@@ -985,7 +982,10 @@ class ProtocolSettings(FloatLayout):
 
         Of the steps added, one per acquiring channel, it goes to the one for
         the channel being viewed, so adding changes nothing on screen; when
-        that channel acquires nothing, to the first added.
+        that channel acquires nothing, to the first added. With Enable
+        Z-Stack ticked each step is added as a stack, and of the viewed
+        channel's slices it goes to the one nearest the stage's Z, for the
+        same reason.
 
         The move to the new step is a navigation that belongs only to a step
         the API accepted, so it is the last call, never reached on a refusal.
@@ -997,18 +997,25 @@ class ProtocolSettings(FloatLayout):
             after_step = None
             before_step = self.curr_step
 
-        names = _app_ctx.ctx.session.add_step(
-            self._protocol, before_step=before_step, after_step=after_step
+        session = _app_ctx.ctx.session
+        names = session.add_step(
+            self._protocol,
+            before_step=before_step,
+            after_step=after_step,
+            use_zstacking=self.ids['acquire_zstack_id'].active,
         )
 
         # The added steps sit together, in the order the names came back.
         first_added = self.curr_step + 1 if after_current_step else max(self.curr_step, 0)
         added = range(first_added, first_added + len(names))
-        shown = _app_ctx.ctx.session.shown_channel.layer
-        self.curr_step = next(
-            (idx for idx in added if self._protocol.step(idx)['Color'] == shown),
-            first_added,
-        )
+        shown = session.shown_channel.layer
+        of_shown = [idx for idx in added if self._protocol.step(idx)['Color'] == shown]
+        if len(of_shown) > 1:
+            # A stack's slices: read after the add, which refuses a position
+            # no axis vouches for.
+            live_z = session.get_current_plate_position()['z']
+            of_shown.sort(key=lambda idx: abs(self._protocol.step(idx)['Z'] - live_z))
+        self.curr_step = of_shown[0] if of_shown else first_added
 
         self.go_to_step(step_idx=self.curr_step)
 

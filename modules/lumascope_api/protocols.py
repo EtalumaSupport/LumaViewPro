@@ -290,6 +290,7 @@ class ProtocolsAPI:
         channel_order: list[str] | None = None,
         before_step: int | None = None,
         after_step: int | None = None,
+        zstack_params: dict | None = None,
     ) -> list[str]:
         """Add one step per acquiring layer to ``protocol`` at ``plate_position``.
 
@@ -315,12 +316,22 @@ class ProtocolsAPI:
         they follow the last step, which is what a script building a
         protocol one add at a time means by "add".
 
-        Returns the inserted step names, in protocol order.
+        ``zstack_params`` (``range``, ``step_size``, ``z_reference``) makes
+        each added step a z-stack around the live Z, built as
+        ``apply_zstacking`` builds one; the protocol's other steps are left as
+        they are, where they are. The stack is judged before anything is
+        added, so a stack that cannot be built adds nothing.
+
+        Returns the inserted step names, in protocol order: each stack's
+        slices when stacked.
 
         Raises:
             ProtocolRunRefusedError: an axis does not know its position, no
                 layer acquires, the turret's current slot has no objective,
                 or the active objective is unknown. Logged and notified once.
+                With ``zstack_params``, also what ``apply_zstacking`` refuses.
+            ArgumentRefusedError: with ``zstack_params``, as
+                ``apply_zstacking``.
             ProtocolError: an impossible ``before_step`` / ``after_step``,
                 or both given (raised by the protocol).
         """
@@ -334,14 +345,20 @@ class ProtocolsAPI:
         stim_configs = self._stim_configs_with_invalid_channels_disabled(stim_configs)
         if before_step is None and after_step is None:
             after_step = protocol.num_steps() - 1
+        acquiring = [layer for layer in ordered if Protocol.layer_acquires(layer_configs[layer])]
+        if zstack_params is not None:
+            Protocol.refuse_unbuildable_zstack(
+                zstack_params,
+                self._travel_limits(),
+                [(f'the new {layer} step', plate_position['z']) for layer in acquiring],
+            )
+        first_added = before_step if before_step is not None else after_step + 1
 
         names: list[str] = []
         channel_group_id = protocol.new_channel_group_id()
         turret_slot = self._live_turret_slot()
-        for layer in ordered:
+        for layer in acquiring:
             layer_config = layer_configs[layer]
-            if not Protocol.layer_acquires(layer_config):
-                continue
             name = protocol.insert_step(
                 step_name=None,
                 layer=layer,
@@ -361,6 +378,17 @@ class ProtocolsAPI:
             # name lookup: a loaded file may carry duplicate names.
             inserted_at = before_step if before_step is not None else after_step + 1
             before_step, after_step = None, inserted_at
+        if zstack_params is not None:
+            steps_before = protocol.num_steps()
+            protocol.apply_zstacking(
+                zstack_params,
+                self._travel_limits(),
+                only=range(first_added, first_added + len(names)),
+            )
+            added = len(names) + protocol.num_steps() - steps_before
+            names = [
+                protocol.step(idx=idx)['Name'] for idx in range(first_added, first_added + added)
+            ]
         self._report_invalid_steps(protocol, solicited=True)
         return names
 

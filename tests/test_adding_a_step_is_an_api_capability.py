@@ -240,3 +240,77 @@ class TestAScriptAddsAStepThroughTheSession:
         assert excinfo.value.reason == 'no_acquiring_layer'
         assert list(captured) == []
         assert protocol.num_steps() == 0
+
+
+def _only_acquiring(session, *layers):
+    for layer in config_helpers.get_layer_configs(session.settings):
+        session.settings[layer]['acquire'] = 'image' if layer in layers else None
+
+
+def _stack_settings(session, *, range_um, step_size_um):
+    session.settings['zstack'] = {
+        'range': range_um,
+        'step_size': step_size_um,
+        'position': 'Current Position at Center',
+    }
+
+
+class TestAnAddCanBeAZStack:
+    """``add_step(use_zstacking=True)`` stacks the steps it adds, and only those.
+
+    The GUI's Enable Z-Stack box sits beside Add; an Add that ignored it
+    ran flat images with the box ticked.
+    """
+
+    def test_the_added_steps_are_stacks_and_the_earlier_step_is_left_alone(self, session):
+        _only_acquiring(session, 'BF')
+        session.scope.motion.move_absolute('Z', 5000.0)
+        protocol = session.scope.protocols.create_protocol(
+            empty_config=session.get_sequenced_capture_config()
+        )
+        session.add_step(protocol)
+        earlier = protocol.step(idx=0).to_dict()
+
+        _only_acquiring(session, 'BF', 'Blue')
+        _stack_settings(session, range_um=10.0, step_size_um=5.0)
+        names = session.add_step(protocol, use_zstacking=True)
+
+        steps = protocol.steps()
+        assert steps.iloc[0].to_dict() == earlier
+        added = steps.iloc[1:]
+        assert added['Name'].tolist() == names
+        for color in ('BF', 'Blue'):
+            stack = added[added['Color'] == color].sort_values('Z-Slice')
+            assert stack['Z-Slice'].tolist() == [0, 1, 2]
+            assert stack['Z'].tolist() == pytest.approx([4995.0, 5000.0, 5005.0])
+        assert added.groupby('Z-Stack Group ID')['Color'].nunique().tolist() == [1, 1]
+        assert added['Z'].tolist() == sorted(added['Z'].tolist()), 'not in the order a run visits'
+
+    def test_a_stack_with_no_extent_adds_nothing(self, session):
+        _only_acquiring(session, 'BF')
+        _stack_settings(session, range_um=0.0, step_size_um=5.0)
+        protocol = session.scope.protocols.create_protocol(
+            empty_config=session.get_sequenced_capture_config()
+        )
+
+        with pytest.raises(ProtocolRunRefusedError) as excinfo:
+            session.add_step(protocol, use_zstacking=True)
+
+        assert excinfo.value.reason == 'zstack_not_configured'
+        assert protocol.num_steps() == 0
+
+    def test_a_stack_past_the_z_travel_adds_nothing(self, session):
+        _only_acquiring(session, 'BF', 'Blue')
+        _stack_settings(session, range_um=10.0, step_size_um=5.0)
+        z_max = session.scope.motion.get_axis_limits('Z')['max']
+        session.scope.motion.move_absolute('Z', z_max - 1.0)
+        protocol = session.scope.protocols.create_protocol(
+            empty_config=session.get_sequenced_capture_config()
+        )
+
+        with pytest.raises(ProtocolRunRefusedError) as excinfo:
+            session.add_step(protocol, use_zstacking=True)
+
+        assert excinfo.value.reason == 'zslices_outside_travel'
+        assert 'the new BF step' in str(excinfo.value)
+        assert protocol.num_steps() == 0

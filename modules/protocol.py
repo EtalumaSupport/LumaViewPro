@@ -2320,15 +2320,74 @@ class Protocol:
             f'{self.num_steps()} steps'
         )
 
+    @staticmethod
+    def refuse_unbuildable_zstack(
+        zstack_params: dict, axis_limits: dict, stacks: list[tuple[str, float]]
+    ) -> None:
+        """Refuse a z-stack around each of *stacks* that cannot be built whole.
+
+        *stacks* holds, for each step to be stacked, a name the refusal can
+        show and the Z it is stacked around. The one judgment of a stack's
+        buildability: ``apply_zstacking`` asks it of the steps it is about to
+        expand, and an Add asks it of the steps it is about to insert, so the
+        Add refuses before it adds anything.
+
+        Raises:
+            ProtocolRunRefusedError: the range or step size is not greater
+                than zero, the scope has no Z motor, or a slice falls outside
+                the Z travel. Reported once.
+            ArgumentRefusedError: ``'zstack_reference_unknown'``, the
+                reference is not one of ``Z_REFERENCES``.
+        """
+        refuse_unless_zstack_reference(zstack_params['z_reference'], 'z_reference')
+        _refuse_unless_zstack_has_extent(zstack_params)
+
+        z_limits = _axis_limits_or_refuse(axis_limits, ('Z',), what='a z-stack')
+
+        outside: dict[str, int] = {}
+        total = 0
+        for name, z in stacks:
+            positions = ZStackConfig(
+                range=zstack_params['range'],
+                step_size=zstack_params['step_size'],
+                current_z_reference=zstack_params['z_reference'],
+                current_z_value=z,
+            ).step_positions()
+            total += len(positions)
+            # A slice past the Z travel would drive the stage to the end of
+            # travel and stop the run there.
+            beyond = sum(
+                1
+                for position in positions.values()
+                if axes_outside_travel({'Z': position}, z_limits)
+            )
+            if beyond:
+                outside[name] = beyond
+        _refuse_positions_outside_travel(
+            reason='zslices_outside_travel',
+            what='z-slices',
+            outside=outside,
+            total=total,
+            remedy='Reduce the range, or move the focus of those steps away from the end of travel.',
+        )
+
     def apply_zstacking(
         self,
         zstack_params: dict,
         axis_limits: dict,
+        *,
+        only: range | None = None,
     ) -> None:
         """Expand every step not already in a stack into a z-stack, in the order a run visits them.
 
         *axis_limits* holds the travel of each axis the scope has a motor
         for, and only those.
+
+        *only* limits the expansion to the steps at those indices, which sit
+        together (one Add's steps), and leaves every other step where it is:
+        their slices take the steps' place as one block, ordered by objective
+        and then Z, as a run visits one position. Without it the whole
+        protocol is reordered as a run visits it.
 
         Raises:
             ProtocolRunRefusedError: the range or step size is not greater
@@ -2339,12 +2398,20 @@ class Protocol:
                 reference is not one of ``Z_REFERENCES``, refused before any
                 step changes -- on a protocol with no steps too, which never
                 reaches the slice positions that would read it.
+            StepNotFoundError: *only* names an index that is no step.
         """
-        refuse_unless_zstack_reference(zstack_params['z_reference'], 'z_reference')
-        _refuse_unless_zstack_has_extent(zstack_params)
+        if only is not None and len(only) > 0:
+            self._refuse_unless_in_range(only.start)
+            self._refuse_unless_in_range(only[-1])
+        expanded = range(self.num_steps()) if only is None else only
+        unstacked = [idx for idx in expanded if self.step(idx=idx)['Z-Slice'] in (None, '', -1)]
+        Protocol.refuse_unbuildable_zstack(
+            zstack_params,
+            axis_limits,
+            [(self.step(idx=idx)['Name'], self.step(idx=idx)['Z']) for idx in unstacked],
+        )
 
-        z_limits = _axis_limits_or_refuse(axis_limits, ('Z',), what='a z-stack')
-
+        to_stack = set(unstacked)
         steps = self._config['steps']
         existing_max_zstack_group_id = steps['Z-Stack Group ID'].max()
 
@@ -2352,17 +2419,19 @@ class Protocol:
 
         num_steps = self.num_steps()
         new_steps = []
-        outside: dict[str, int] = {}
-        new_slices = 0
+        block: list[dict] = []
+        block_at = None
 
         for row_idx in range(num_steps):
             orig_step_df = self.step(idx=row_idx)
             orig_step_dict = orig_step_df.to_dict()
 
-            # If already part of a Z-Stack, copy it over to the new protocol
-            if orig_step_df['Z-Slice'] not in (None, '', -1):
+            # If already part of a Z-Stack, or not asked for, copy it over to the new protocol
+            if row_idx not in to_stack:
                 new_steps.append(orig_step_dict)
                 continue
+            if block_at is None:
+                block_at = len(new_steps)
 
             zstack_config = ZStackConfig(
                 range=zstack_params['range'],
@@ -2375,19 +2444,11 @@ class Protocol:
                 continue
 
             zstack_positions = zstack_config.step_positions()
-            new_slices += len(zstack_positions)
 
             # Create a z-stack. The slices are collected first so exactly one
             # of them can be marked as the group's focus reference below.
             group_steps: list[tuple[float, dict]] = []
             for zstack_slice, zstack_position in zstack_positions.items():
-                # A slice past the Z travel would drive the stage to the end of
-                # travel and stop the run there.
-                if axes_outside_travel({'Z': zstack_position}, z_limits):
-                    name = orig_step_df['Name']
-                    outside[name] = outside.get(name, 0) + 1
-                    continue
-
                 new_step_dict = self._create_step_dict(
                     label=orig_step_df['Label'],
                     x=orig_step_df['X'],
@@ -2432,19 +2493,19 @@ class Protocol:
                 )
                 reference_step['Auto_Focus'] = True
 
-            new_steps.extend(step_dict for _, step_dict in group_steps)
+            (new_steps if only is None else block).extend(step_dict for _, step_dict in group_steps)
 
             zstack_group_id += 1
 
-        _refuse_positions_outside_travel(
-            reason='zslices_outside_travel',
-            what='z-slices',
-            outside=outside,
-            total=new_slices,
-            remedy='Reduce the range, or move the focus of those steps away from the end of travel.',
-        )
-        self._set_steps(pd.DataFrame.from_dict(new_steps))
-        self.optimize_step_ordering()
+        if only is None:
+            self._set_steps(pd.DataFrame.from_dict(new_steps))
+            self.optimize_step_ordering()
+        else:
+            # Stable, so slices at one Z keep the Add's channel order.
+            block.sort(key=lambda step_dict: (step_dict['Objective'], step_dict['Z']))
+            if block_at is not None:
+                new_steps[block_at:block_at] = block
+            self._set_steps(pd.DataFrame.from_dict(new_steps))
         logger.info(
             f'[Protocol] Z-stack applied (range {zstack_params["range"]} um, step '
             f'{zstack_params["step_size"]} um): {num_steps} -> {self.num_steps()} steps'

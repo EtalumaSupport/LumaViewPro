@@ -73,6 +73,7 @@ NOT_WRITERS = frozenset(
         'new_channel_group_id',
         'num_steps',
         'period',
+        'refuse_unbuildable_zstack',
         'sanitize_step_name',
         'size_advisory',
         'step',

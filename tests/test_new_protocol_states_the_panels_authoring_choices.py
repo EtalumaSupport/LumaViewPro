@@ -1,5 +1,5 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""New Protocol hands the Session the two choices only the panel knows.
+"""New Protocol and Add hand the Session the choices only the panel knows.
 
 The protocol panel builds its protocol through `ScopeSession.new_protocol`,
 the same call a script makes. Tiling and z-stacking are that member's
@@ -15,6 +15,8 @@ states both, from its own spinner and toggle, every time.
 import datetime
 from types import SimpleNamespace
 from unittest.mock import MagicMock
+
+import pytest
 
 import modules.app_context as _app_ctx
 import ui.protocol_settings as ps
@@ -82,6 +84,33 @@ def test_the_defaults_are_stated_too_never_left_to_the_member(monkeypatch):
         'period': PERIOD,
         'duration': DURATION,
     }
+
+
+def _drive_add(monkeypatch, *, use_zstacking: bool) -> dict:
+    """Click Add and return what the panel asked the Session for."""
+    asked: dict = {}
+
+    def add_step(protocol, **choices):
+        asked.update(choices)
+        raise ProtocolRunRefusedError(reason='zstack_not_configured', message='m')
+
+    monkeypatch.setattr(
+        _app_ctx, 'ctx', SimpleNamespace(session=SimpleNamespace(add_step=add_step))
+    )
+    panel = _Panel('1x1', use_zstacking)
+    panel.curr_step = 0
+
+    with pytest.raises(ProtocolRunRefusedError):
+        panel.insert_step_ex(after_current_step=True)
+    return asked
+
+
+def test_add_states_the_panels_zstack_choice(monkeypatch):
+    """Add takes the Enable Z-Stack box as New does: with it left to the
+    member's default, a ticked box added flat steps and the run took one
+    image per channel."""
+    assert _drive_add(monkeypatch, use_zstacking=True)['use_zstacking'] is True
+    assert _drive_add(monkeypatch, use_zstacking=False)['use_zstacking'] is False
 
 
 def test_an_unknown_objective_is_shown_not_raised(monkeypatch, tmp_path, caplog, centre_posts):

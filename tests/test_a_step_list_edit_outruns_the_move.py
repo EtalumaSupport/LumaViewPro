@@ -121,6 +121,7 @@ class _Panel(ps.ProtocolSettings):
             'step_name_input': SimpleNamespace(text='', hint_text=''),
             'capture_period': SimpleNamespace(text=''),
             'capture_dur': SimpleNamespace(text=''),
+            'acquire_zstack_id': SimpleNamespace(active=False),
         }
         self._protocol = protocol
         self.curr_step = curr_step
@@ -146,7 +147,7 @@ def env(monkeypatch):
     monkeypatch.setattr(ps.gui_logger, 'protocol_action', lambda *a, **kw: None)
     monkeypatch.setattr(ps.gui_logger, 'text_input', lambda *a, **kw: None)
 
-    def add_step(protocol, *, before_step=None, after_step=None):
+    def add_step(protocol, *, before_step=None, after_step=None, use_zstacking=False):
         return [_insert(protocol, x=99.0, before_step=before_step, after_step=after_step)]
 
     def update_step(protocol, step_idx, *, layer, label=None):
@@ -430,7 +431,7 @@ def test_a_move_the_list_did_not_change_under_still_lands(env):
     assert env.loaded == [2.0]
 
 
-def _add_bf_and_blue(protocol, *, before_step=None, after_step=None):
+def _add_bf_and_blue(protocol, *, before_step=None, after_step=None, use_zstacking=False):
     names = []
     for layer in ('BF', 'Blue'):
         names.append(

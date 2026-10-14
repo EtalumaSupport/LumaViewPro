@@ -144,27 +144,6 @@ def is_image_saving_enabled() -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Binning / Z-stack
-# ---------------------------------------------------------------------------
-
-
-def get_zstack_params() -> dict:
-    """The z-stack range, step size and reference for the running GUI.
-
-    Reads the settings store, not the three widgets. Each widget commits to the
-    store as it changes -- the two TextInputs through the z-stack step handler,
-    the spinner through its position handler -- so the store already holds the
-    stack; parsing the widget text a second time here only created a way for
-    the two lanes to answer differently.
-
-    Raises:
-        ConfigError: the stored stack will not parse -- an unmapped position
-            label, or a range / step size that is not a number.
-    """
-    return config_helpers.get_zstack_params_from_settings(_app_ctx.ctx.settings)
-
-
-# ---------------------------------------------------------------------------
 # Layer / channel configuration
 # ---------------------------------------------------------------------------
 

@@ -1536,6 +1536,21 @@ class ScopeSession:
         return focus
 
     @api(reads=True)
+    def get_zstack_params(self) -> dict:
+        """The stored z-stack, what New and Add stack with.
+
+        ``range`` and ``step_size`` in micrometres, and ``z_reference``, where
+        a step's Z sits in its stack: ``'top'``, ``'center'`` or ``'bottom'``.
+
+        Raises:
+            ConfigError: the stored stack will not parse -- an unmapped
+                position label, or a range / step size that is not a number.
+        """
+        import modules.config_helpers as config_helpers
+
+        return config_helpers.get_zstack_params_from_settings(self.settings)
+
+    @api(reads=True)
     def channel_colors(self) -> dict[str, tuple[float, float, float]]:
         """Every layer of the release and the colour it is shown and written
         in, as red, green and blue weights, each 0 to 1.
@@ -1975,6 +1990,7 @@ class ScopeSession:
         *,
         before_step: int | None = None,
         after_step: int | None = None,
+        use_zstacking: bool = False,
     ) -> list[str]:
         """Add a step to ``protocol`` from this session's settings and live position.
 
@@ -1985,7 +2001,12 @@ class ScopeSession:
         and refuses when nothing would be added; this composes its inputs
         from the session the same way the GUI's handler does.
 
-        Returns the inserted step names, in protocol order.
+        ``use_zstacking`` makes each added step a z-stack of the stored
+        z-stack settings, as ``new_protocol`` does for its steps; the
+        protocol's other steps are left as they are.
+
+        Returns the inserted step names, in protocol order: each stack's
+        slices when stacked.
         """
         # None when unknown: the protocols API refuses that by name, notified.
         objective_id = self.scope.runtime_state.get_current_objective_id()
@@ -1998,6 +2019,7 @@ class ScopeSession:
             channel_order=self.settings['step_channel_order'],
             before_step=before_step,
             after_step=after_step,
+            zstack_params=self.get_zstack_params() if use_zstacking else None,
         )
 
     @api
