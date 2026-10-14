@@ -178,6 +178,7 @@ def _run_cleanup_capture_led_ctx(*, forced_dark, leds_state_at_end):
         write_batch=RunWriteBatch(_FakeExecutor()),
         ending=ending,
         record_cleanup_failures=lambda steps: None,
+        failed_before=(),
     )
     run_end = [ctx for t, ctx in applied if t is LedTransition.RUN_END]
     assert len(run_end) == 1

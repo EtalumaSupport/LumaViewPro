@@ -352,6 +352,7 @@ class TestRunCleanup:
             'write_batch': RunWriteBatch(file_exec),
             'ending': ending,
             'record_cleanup_failures': lambda steps: None,
+            'failed_before': (),
         }
         defaults.update(overrides)
         # Cleanup ends the scope's own IO and CAMERA lanes; the fakes, or a

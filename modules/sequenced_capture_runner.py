@@ -2622,6 +2622,38 @@ class SequencedCaptureRunner:
             notifications.report_outcome(ex, solicited=False, category='Protocol')
         return _files_written
 
+    def _halt_the_run_s_move(self, ending: RunEnding) -> tuple[tuple[str, str], ...]:
+        """Halt the stage where it is when the run is not ending at its end; what failed, for the summary.
+
+        A Stop or a fault ends the run, not its move, so a move of the run's
+        still driving would travel on to a step the run will never take, for
+        as long as cleanup waits on anything before it is halted. The ending
+        is the one recorded so far, or the loop's own when nothing has
+        ended the run: the latch closes later, after the waits, and a fault
+        met in between only turns a finished run into a failed one, which
+        owes no halt. Only a run that took the camera, which its loop does
+        before its first move: any other made no move, and a move in flight
+        then is someone else's. A STOP with nothing moving is a no-op on the
+        board, so none is read first; on firmware with no STOP it is a no-op
+        and the move runs on. A STOP sent while an autofocus sweep is live
+        ends the sweep's own Z move, which its unwind then puts back.
+        """
+        recorded = self._ending.get() or ending
+        if (
+            recorded.status in ('completed', 'incomplete')
+            or self._original_led_states is None
+            or not self._scope.motor_connected
+        ):
+            return ()
+        try:
+            self._scope.motion.stop_motion()
+        except Exception as ex:
+            # A home on a board that cannot stop one runs to its end
+            # ('home_in_flight'); a STOP the board did not take leaves the
+            # stage maybe still moving. Either is told in the summary.
+            return (('Halt the stage', f'{type(ex).__name__}: {ex}'),)
+        return ()
+
     def _cleanup_inner(
         self, ending: RunEnding, run: RunHandle, after_end: list[typing.Callable[[], None]]
     ):
@@ -2643,9 +2675,12 @@ class SequencedCaptureRunner:
         write_batch = self._write_batch
         run_ending = None
         try:
+            # First, before anything cleanup waits on: a move the run has
+            # under way drives on until it is halted.
+            halt_failed = self._halt_the_run_s_move(ending)
             # A video step's drain tail writes on its own thread; its
-            # execution-record row must land before the record reconciles
-            # inside run_cleanup, so wait it out here (bounded).
+            # execution-record row must land before the run's writes close
+            # (_close_run_writes), so wait it out here (bounded).
             writer = self._image_writer
             if writer is not None and writer.video_busy:
                 logger.info('[Protocol] Waiting for video write drain before run cleanup')
@@ -2685,6 +2720,7 @@ class SequencedCaptureRunner:
                 logger_name=self.LOGGER_NAME,
                 ending=ending,
                 record_cleanup_failures=run._pending.record_cleanup_failures,
+                failed_before=halt_failed,
             )
             run._hyperstack_build = self._start_hyperstack_build()
             self._start_protocol_files_handoff(run._hyperstack_build)

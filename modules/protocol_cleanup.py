@@ -128,6 +128,9 @@ def run_cleanup(
     # Where the run's outcome takes the names of the steps that failed to
     # put the scope back; called once, with none when every step finished.
     record_cleanup_failures: Callable[[tuple[str, ...]], None],
+    # The steps the run took before this was called that did not finish,
+    # (name, what happened) each: told in the same summary.
+    failed_before: tuple[tuple[str, str], ...],
 ) -> bool:
     """Core cleanup logic -- restores state, ends executors.
 
@@ -160,7 +163,7 @@ def run_cleanup(
     # the next step (fault tolerance -- every step must run regardless of
     # any one failing); total silence at the end was the bug. One
     # summary popup, not one per step.
-    cleanup_errors: list[tuple[str, str]] = []
+    cleanup_errors: list[tuple[str, str]] = list(failed_before)
 
     try:
         cancel_scheduled_events_fn()
@@ -210,29 +213,6 @@ def run_cleanup(
                     f'[{logger_name}] Cleanup: error waiting for autofocus '
                     f'to unwind: {type(ex).__name__}: {ex}'
                 )
-
-    # --- Halt the run's move ---
-    # A run that did not reach its end may have a move of its own still
-    # driving -- a Stop or a fault ends the run, not the move -- so the stage
-    # is halted where it is before anything puts the scope back, rather than
-    # left to travel on to a step the run will never take. Every ending
-    # passes through here, so the halt is the run's, not one ending site's.
-    # Only a run that took the camera, which its loop does before its first
-    # move: any other made no move, and a move in flight then is someone
-    # else's. A STOP with nothing moving is a no-op on the board, so none is
-    # read first; on firmware with no STOP it is a no-op and the move runs on.
-    if (
-        ending.status not in ('completed', 'incomplete')
-        and original_led_states is not None
-        and scope.motor_connected
-    ):
-        try:
-            scope.motion.stop_motion()
-        except Exception as ex:
-            # A home on a board that cannot stop one runs to its end
-            # ('home_in_flight'); a STOP the board did not take leaves the
-            # stage maybe still moving. Either is told in the summary.
-            cleanup_errors.append(('Halt the stage', f'{type(ex).__name__}: {ex}'))
 
     # --- Restore LEDs ---
     # One authority diff sets the run's end-state: off, or back to the

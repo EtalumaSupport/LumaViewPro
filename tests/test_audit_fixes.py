@@ -1367,6 +1367,7 @@ def _run_cleanup_kwargs(**overrides):
         'write_batch': RunWriteBatch(MagicMock()),
         'ending': ending,
         'record_cleanup_failures': lambda steps: None,
+        'failed_before': (),
     }
     kwargs.update(overrides)
     return kwargs
