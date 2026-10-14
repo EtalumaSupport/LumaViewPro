@@ -210,7 +210,7 @@ class TestARunWithFailedCapturesEndsIncomplete:
 
 
 class TestACompositeMissingAChannel:
-    def test_it_merges_the_rest_and_says_which_is_missing(self, tmp_path):
+    def test_it_merges_nothing_and_says_which_is_missing(self, tmp_path):
         from tests.test_composite_run_failures import _FAILING, _fail_these_channels
 
         step_colors = ('BF', _FAILING, 'Green')
@@ -219,12 +219,12 @@ class TestACompositeMissingAChannel:
             _reports_of(RunIncompleteError) as reported,
             open_composite_session(settings) as (session, runner),
         ):
-            outcome = runner.run_composite(
+            outcome = runner.start_composite(
                 sequence_name='two_of_three',
                 parent_dir=str(tmp_path),
                 events=_fail_these_channels(session.scope._camera_driver, step_colors, {_FAILING}),
-            )
-        assert outcome.merged and pathlib.Path(outcome.artifact_path).exists(), outcome
+            ).result(timeout=WAIT_S)
+        assert not outcome.merged and outcome.artifact_path is None, outcome
         assert outcome.status == 'incomplete', outcome
         assert len(outcome.captures.failed) == 1, outcome.captures
         assert _FAILING in outcome.captures.failed[0].step_name, outcome.captures
@@ -249,17 +249,16 @@ class TestACompositeMissingAChannel:
 
             notifications.report_outcome = recorded
             try:
-                outcome = runner.run_composite(
+                runner.start_composite(
                     sequence_name='two_of_three',
                     parent_dir=str(tmp_path),
                     events=_fail_these_channels(
                         session.scope._camera_driver, step_colors, {_FAILING}
                     ),
-                )
+                ).result(timeout=WAIT_S)
                 told_when_returned = list(states_at_report)
             finally:
                 notifications.report_outcome = report
-        assert outcome.merged, outcome
         assert told_when_returned == ['armed'], told_when_returned
 
 
@@ -514,29 +513,3 @@ class TestTheFilesLineAndItsReport:
             assert files_done.wait(WAIT_S), 'the run never reported its files'
         assert failed.value.reason == 'write_batch_save_failed'
         assert lost == [], lost
-
-
-class TestACompositeThatCannotMerge:
-    def test_the_refusal_and_the_shortfall_are_each_told_as_themselves(
-        self, tmp_path, centre_posts
-    ):
-        from modules.notification_center import Severity
-        from tests.test_composite_run_failures import _FAILING, _fail_these_channels
-
-        settings = headless_settings(tmp_path, acquiring=('BF', _FAILING))
-        with open_composite_session(settings) as (session, runner):
-            settled = runner.start_composite(
-                sequence_name='one_of_two',
-                parent_dir=str(tmp_path),
-                events=_fail_these_channels(
-                    session.scope._camera_driver, ('BF', _FAILING), {_FAILING}
-                ),
-            ).result(timeout=WAIT_S)
-        assert settled is not None and not settled.merged, settled
-        assert settled.merge_reason == 'no_data', settled
-        # Two notices, each its own type: the merge's refusal, then the run's
-        # shortfall naming the channel that failed. Neither is folded into a
-        # "Composite Failed".
-        shown = [(n.title, n.message) for n in centre_posts if n.severity >= Severity.WARNING]
-        assert [title for title, _ in shown] == ['Composite Not Possible', 'Run Incomplete'], shown
-        assert _FAILING in shown[1][1], shown[1][1]

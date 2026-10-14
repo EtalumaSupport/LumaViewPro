@@ -144,13 +144,12 @@ def _failed_step_names(run_dir):
 class TestAChannelThatCapturesNothing:
     """One channel comes back black; what the caller is told about it."""
 
-    def test_two_channels_with_one_failure_leave_nothing_to_merge(self, tmp_path):
-        # Two channels is the minimum a merge can consume, so losing one
-        # leaves a group of a single frame -- which the post-processor
-        # skips at source rather than writing a one-channel "composite".
-        # The caller therefore gets a resolved, not-merged outcome; the
-        # channel that failed is named in the run record, not in the
-        # outcome, because the outcome answers "is there an artifact".
+    def test_two_channels_with_one_failure_merge_nothing(self, tmp_path):
+        # A composite is built from every channel its run recorded or not at
+        # all: the channel that captured nothing fails the merge's one group,
+        # which is not mistaken for a one-image group with nothing to merge.
+        # The caller gets a resolved, not-merged outcome; the channel that
+        # failed is named in the run record and in the merge's failure.
         settings = headless_settings(tmp_path, acquiring=('BF', _FAILING))
         with open_composite_session(settings) as (_session, runner):
             outcome = runner.start_composite(
@@ -176,12 +175,12 @@ class TestAChannelThatCapturesNothing:
                 f'channel: {_record_rows(run_dir)}'
             )
             # Asserted last so the facts above are checked either way. The
-            # code is the post-processor's own: 'no_data' is what it returns
-            # when no image group is usable, and the runner relays it as is.
-            # The runner's 'merge_failed' is only the fallback for a result
-            # that carries no reason at all, so a caller seeing it here
-            # would mean the specific code was lost on the way.
-            assert settled.merge_reason == 'no_data', (
+            # code is the post-processor's own: 'post_processing_failed' is
+            # a build whose every group failed, and the runner relays it as
+            # is. The runner's 'merge_failed' is only the fallback for a
+            # result that carries no reason at all, so a caller seeing it
+            # here would mean the specific code was lost on the way.
+            assert settled.merge_reason == 'post_processing_failed', (
                 f'the outcome named the failure {settled.merge_reason!r}; the '
                 f'code is what a REST or SDK caller maps to a response, so it '
                 f'is part of the contract, not prose'
@@ -236,17 +235,16 @@ class TestAChannelThatCapturesNothing:
                     ),
                 )
 
-            assert excinfo.value.reason == 'no_data', (
+            assert excinfo.value.reason == 'post_processing_failed', (
                 f'the raise carried reason {excinfo.value.reason!r}, not the '
-                f"post-processor's code for a merge with no usable group"
+                f"post-processor's code for a build whose every group failed"
             )
 
-    def test_three_channels_with_one_failure_still_merge_the_other_two(self, tmp_path):
-        # The true partial merge: two survivors are still a mergeable
-        # group, so the run must produce a real composite AND still say
-        # which channel is missing from it. A run that merged silently
-        # here would hand a user a two-channel image they asked three
-        # channels for.
+    def test_three_channels_with_one_failure_merge_nothing(self, tmp_path):
+        # Two survivors would make an image, but not the composite asked
+        # for: a merge of the other two would hand a user a two-channel
+        # image they asked three channels for. The group fails, naming the
+        # channel, and no composite is written.
         step_colors = ('BF', _FAILING, 'Green')
         settings = headless_settings(tmp_path, acquiring=step_colors)
         with open_composite_session(settings) as (_session, runner):
@@ -257,18 +255,15 @@ class TestAChannelThatCapturesNothing:
             )
             settled = outcome.result(timeout=120)
 
-            assert settled is not None and settled.merged, (
-                f'two surviving channels are a mergeable group, but the run '
-                f'produced nothing: {settled}'
-            )
-            assert pathlib.Path(settled.artifact_path).exists(), (
-                f'the merge reported {settled.artifact_path}, which is not there'
-            )
+            assert settled is not None and not settled.merged, settled
+            assert settled.artifact_path is None, settled
+            assert settled.merge_reason == 'post_processing_failed', settled
+            assert settled.status == 'incomplete', settled
 
             run_dir = single_run_dir(tmp_path)
+            assert not list((run_dir / 'Composite').glob('*')), 'a composite was written'
             assert any(_FAILING in name for name in _failed_step_names(run_dir)), (
-                f'a composite was produced without the record saying which '
-                f'channel is absent from it: {_record_rows(run_dir)}'
+                f'the record does not say which channel failed: {_record_rows(run_dir)}'
             )
 
 

@@ -537,10 +537,10 @@ class ProtocolRunner:
         the merge settles and returns the run's outcome, the artifact's path
         on it. A run that reported 'completed' while the merged file was
         missing would be indistinguishable from a successful one to every
-        headless caller, which is the boundary this run kind exists to fix;
-        and a composite merged from fewer channels than were asked for says
-        so, with status 'incomplete' and the failed channels in
-        ``captures``, beside its path.
+        headless caller, which is the boundary this run kind exists to fix.
+        A composite is merged from every channel asked for or not at all: a
+        channel that captured nothing leaves no composite, the run's status
+        'incomplete' with the failed channels in ``captures``.
 
         Args:
             sequence_name: The name of the protocol file the run saves in

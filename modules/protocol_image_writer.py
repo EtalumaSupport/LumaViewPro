@@ -37,6 +37,7 @@ from modules.layer_record import ChannelColors
 from modules.lumascope_api.imaging import capture_failure_cause
 from modules.notification_center import notifications
 from modules.protocol import Protocol
+from modules.protocol_execution_record import ProtocolExecutionRecord
 from modules.protocol_recording import ProtocolVideoStep
 from modules.recording_frames import FrameFact, frame_fact
 from modules.run_events import RunEvents, deliver_here
@@ -52,7 +53,6 @@ if TYPE_CHECKING:
     from modules.labware import WellPlate
     from modules.lumascope_api import Lumascope
     from modules.lumascope_api.frame_record import FrameRecord
-    from modules.protocol_execution_record import ProtocolExecutionRecord
     from modules.sequential_io_executor import SequentialIOExecutor
 
 
@@ -1696,7 +1696,7 @@ class ProtocolImageWriter:
                 raise
 
             if capture_result is None:
-                capture_result_filepath_name = 'unsaved'
+                capture_result_filepath_name = ProtocolExecutionRecord.UNSAVED
             elif isinstance(capture_result, dict):
                 capture_result_filepath_name = capture_result['metadata']['file_loc']
             else:
@@ -1705,7 +1705,7 @@ class ProtocolImageWriter:
                 )
 
         else:
-            capture_result_filepath_name = 'unsaved'
+            capture_result_filepath_name = ProtocolExecutionRecord.UNSAVED
 
         if self._execution_record is not None:
             try:

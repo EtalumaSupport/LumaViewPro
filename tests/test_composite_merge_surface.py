@@ -20,7 +20,7 @@ import time
 
 import pytest
 
-from modules.exceptions import CaptureError
+from modules.exceptions import CaptureError, PostProcessingRefusedError
 from modules.notification_center import Severity, notifications
 from tests.test_composite_run_e2e import headless_settings, open_composite_session
 from tests.test_composite_run_failures import _fail_these_channels
@@ -69,9 +69,11 @@ class TestAFailedMergeTellsTheUserOnce:
         assert failures[0].severity >= Severity.ERROR
         return failures[0]
 
-    def test_nothing_usable_to_merge(self, tmp_path):
-        # One of two channels comes back black, so the post-processor has
-        # no group it can merge and returns its own reason.
+    def test_a_channel_that_captured_nothing_fails_the_merge(self, tmp_path):
+        # One of two channels comes back black: the merge's one group lacks a
+        # frame its run recorded, so it is not built. The merge's failure
+        # names the channel, and the run's missing channel is its own
+        # notice, after it.
         settings = headless_settings(tmp_path, acquiring=('BF', 'Blue'))
         with (
             open_composite_session(settings) as (session, runner),
@@ -79,21 +81,44 @@ class TestAFailedMergeTellsTheUserOnce:
             pytest.raises(CaptureError) as excinfo,
         ):
             runner.run_composite(
-                sequence_name='no_data',
+                sequence_name='one_of_two',
                 parent_dir=str(tmp_path),
                 events=_fail_these_channels(session.scope._camera_driver, ('BF', 'Blue'), {'Blue'}),
             )
 
-        # The post-processor's refusal is told as itself: a warning under
-        # its own title, never re-typed as a merge failure. The run's missing
-        # channel is its own notice, after it.
-        assert excinfo.value.reason == 'no_data'
+        assert excinfo.value.reason == 'post_processing_failed'
         told = [(n.title, n.severity) for n in seen if n.severity >= Severity.NOTICE]
         assert told == [
-            ('Composite Not Possible', Severity.WARNING),
+            ('Composite Failed', Severity.ERROR),
             ('Run Incomplete', Severity.ERROR),
         ], told
-        assert 'Blue' in seen[-1].message, 'the shortfall must name the channel that failed'
+        assert all('Blue' in n.message for n in seen if n.severity >= Severity.NOTICE), (
+            'each notice must name the channel that failed'
+        )
+
+    def test_a_refusal_from_the_merge_is_told_as_itself(self, tmp_path, monkeypatch):
+        from modules.composite_generation import CompositeGeneration
+
+        # a stand-in by design: the subject is how the merge's surface tells
+        # a refusal; a composite run leaves its merge nothing to refuse (every
+        # channel present builds, one missing fails), so the merge refuses here.
+        def _refuse(self, **kwargs):
+            raise PostProcessingRefusedError(
+                operation='Composite', reason='no_data', message='Nothing to merge.'
+            )
+
+        monkeypatch.setattr(CompositeGeneration, 'load_folder', _refuse)
+        with (
+            open_composite_session(headless_settings(tmp_path)) as (_session, runner),
+            _bus_at_popup_threshold() as seen,
+            pytest.raises(CaptureError) as excinfo,
+        ):
+            runner.run_composite(sequence_name='refused', parent_dir=str(tmp_path))
+
+        # A warning under its own title, never re-typed as a merge failure.
+        assert excinfo.value.reason == 'no_data'
+        told = [(n.title, n.severity) for n in seen if n.severity >= Severity.NOTICE]
+        assert told == [('Composite Not Possible', Severity.WARNING)], told
 
     def test_the_merge_raises(self, tmp_path, monkeypatch):
         from modules.composite_generation import CompositeGeneration

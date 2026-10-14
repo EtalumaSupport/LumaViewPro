@@ -17,6 +17,41 @@ from modules.protocol_post_record import ProtocolPostRecord
 from lvp_logger import logger
 
 
+def _raw_row(
+    image_name: pathlib.Path, recorded: dict, protocol: Protocol, *, missing: str, frames: int
+) -> dict:
+    """One raw frame's row: its file, its step's columns, and its record's.
+
+    ``Missing`` is empty for a frame in the folder, else why it is not;
+    ``Frames`` is how many frames the row stands for.
+    """
+    step_idx = recorded['Step Index']
+    step = protocol.step(idx=step_idx)
+    return {
+        'Filepath': image_name,
+        'Name': step['Name'],
+        'Label': step['Label'],
+        'Scan Count': recorded['Scan Count'],
+        'Step Index': step_idx,
+        'X': step['X'],
+        'Y': step['Y'],
+        'Z': step['Z'],
+        'Z-Slice': step['Z-Slice'],
+        'Well': step['Well'],
+        'Color': step['Color'],
+        'Objective': step['Objective'],
+        'Tile': step['Tile'],
+        'Tile Group ID': step['Tile Group ID'],
+        'Z-Stack Group ID': step['Z-Stack Group ID'],
+        'Channel Group ID': step['Channel Group ID'],
+        'Custom Step': step['Custom Step'],
+        'Acquire': step['Acquire'],
+        'Timestamp': recorded['Timestamp'],
+        'Missing': missing,
+        'Frames': frames,
+    }
+
+
 class ProtocolPostProcessingHelper:
     def __init__(self):
         self._name = self.__class__.__name__
@@ -162,7 +197,7 @@ class ProtocolPostProcessingHelper:
         image_names: list,
         protocol: Protocol,
         protocol_execution_record: ProtocolExecutionRecord,
-    ) -> pd.DataFrame | None:
+    ) -> pd.DataFrame:
 
         image_data = []
 
@@ -180,36 +215,58 @@ class ProtocolPostProcessingHelper:
                 logger.warning(f'No info found in protocol execution record for {image_name}')
                 continue
 
-            step_idx = file_data['Step Index']
-            step = protocol.step(idx=step_idx)
+            image_data.append(_raw_row(image_name, file_data, protocol, missing='', frames=1))
 
-            image_data.append(
-                {
-                    'Filepath': image_name,
-                    'Name': step['Name'],
-                    'Label': step['Label'],
-                    'Scan Count': file_data['Scan Count'],
-                    'Step Index': step_idx,
-                    'X': step['X'],
-                    'Y': step['Y'],
-                    'Z': step['Z'],
-                    'Z-Slice': step['Z-Slice'],
-                    'Well': step['Well'],
-                    'Color': step['Color'],
-                    'Objective': step['Objective'],
-                    'Tile': step['Tile'],
-                    'Tile Group ID': step['Tile Group ID'],
-                    'Z-Stack Group ID': step['Z-Stack Group ID'],
-                    'Channel Group ID': step['Channel Group ID'],
-                    'Custom Step': step['Custom Step'],
-                    'Timestamp': file_data['Timestamp'],
-                }
+        return pd.DataFrame(image_data)
+
+    @staticmethod
+    def _get_missing_images(
+        protocol: Protocol,
+        protocol_execution_record: ProtocolExecutionRecord,
+        root_path: pathlib.Path,
+        include_subpaths: list[str],
+    ) -> list[dict]:
+        """A marked row for each frame the run recorded that the folder lacks.
+
+        Two kinds: a recorded file that is not in the folder (``Missing`` is
+        ``'not_on_disk'``), and a capture the run recorded as leaving no
+        file (``Missing`` is the reason word the run wrote). Only what the
+        disk walk would have taken counts: a TIFF or a recording's frames
+        folder, in the selected subfolder when one is selected; a capture
+        that left no file belongs to a subfolder named for its channel.
+        ``Frames`` is how many frames the row stands for, so a missing
+        recording is a group's worth, not one.
+        """
+        rows = []
+        for entry in protocol_execution_record.saved_entries():
+            reason = entry['No File']
+            if reason is None:
+                recorded = pathlib.Path(entry['Filename'])
+                takes = (
+                    recorded.suffix.lower() in image_utils.TIFF_SUFFIXES
+                    or recording_frames.is_video_recording_dir_name(recorded.name)
+                )
+                if not takes or (root_path / recorded).exists():
+                    continue
+                if include_subpaths and str(recorded.parent) not in include_subpaths:
+                    continue
+                missing = 'not_on_disk'
+            else:
+                recorded = pathlib.Path(reason)
+                color = protocol.step(idx=entry['Step Index'])['Color']
+                if include_subpaths and color not in include_subpaths:
+                    continue
+                missing = reason
+            rows.append(
+                _raw_row(
+                    recorded,
+                    entry,
+                    protocol,
+                    missing=missing,
+                    frames=max(1, entry['Frame Count']),
+                )
             )
-
-        df = pd.DataFrame(image_data)
-        df = df.fillna('')
-
-        return df
+        return rows
 
     def _get_post_images_df(
         self,
@@ -360,11 +417,21 @@ class ProtocolPostProcessingHelper:
                 path=root_path, exclude_subpaths=[], include_subpaths=include_subpaths
             )
 
-        raw_images_df = self._get_raw_images_df(
+        raw_images = self._get_raw_images_df(
             image_names=image_names['raw'],
             protocol=protocol,
             protocol_execution_record=protocol_execution_record,
-        )
+        ).to_dict('records')
+        # A selected recording folder is its frames only; any other
+        # selection also takes what the run recorded and the folder lacks.
+        if not recording_frames.is_video_recording_dir(path):
+            raw_images += self._get_missing_images(
+                protocol=protocol,
+                protocol_execution_record=protocol_execution_record,
+                root_path=root_path,
+                include_subpaths=include_subpaths,
+            )
+        raw_images_df = pd.DataFrame(raw_images).fillna('')
 
         raw_images_df['Raw'] = True
 

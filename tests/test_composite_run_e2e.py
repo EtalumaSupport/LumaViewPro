@@ -221,9 +221,9 @@ class TestCompositeRunEndToEnd:
         #
         # Delaying the write is what makes the race observable: the merge
         # now reaches its wait with the frames still in flight, so a merge
-        # that skips the wait finds a directory holding fewer channels than
-        # the run captured -- which is a composite silently missing a
-        # channel, the failure the bound exists to prevent.
+        # that skips the wait finds a channel the run captured not yet in
+        # the folder, and fails for it -- a composite lost for a frame that
+        # was only late, the failure the bound exists to prevent.
         import modules.protocol_image_writer as piw
 
         real_save = piw.save_image

@@ -75,6 +75,43 @@ _MULTI_FRAME_REQUIREMENT = {
 }
 
 
+def _missing(df: pd.DataFrame) -> pd.Series:
+    """Which rows stand for frames the run recorded and the folder lacks.
+
+    The loader marks them (``Missing``); a table with no such column, and a
+    post-processed output's row, holds none.
+    """
+    marks = df.get('Missing')
+    if marks is None:
+        return pd.Series(False, index=df.index)
+    return marks.fillna('').astype(str) != ''
+
+
+def _recording_frames(df: pd.DataFrame) -> pd.Series:
+    """Which rows are a recording's frames: told by the frame's file name,
+    or, for a frame the folder lacks, by its step."""
+    # astype(bool): on an EMPTY frame map() cannot infer a dtype, and
+    # indexing with the resulting non-bool series degrades from a row
+    # mask to column selection -- silently dropping every column.
+    frames = df['Filepath'].map(recording_frames.is_video_frame).astype(bool)
+    missing = _missing(df)
+    if missing.any():
+        frames = frames | (missing & (df['Acquire'] == 'video'))
+    return frames
+
+
+def _missing_frames_error(missing: pd.DataFrame) -> str:
+    """Why a group was not built: each recorded frame it lacks, and why."""
+    named = []
+    for _, row in missing.iterrows():
+        if row['Missing'] == 'not_on_disk':
+            why = f'not in the folder: {row["Filepath"]}'
+        else:
+            why = f'its capture failed during the run: {row["Missing"]}'
+        named.append(f'{row["Name"]} scan {row["Scan Count"]} ({why})')
+    return f'{len(named)} frame(s) the run recorded are missing -- ' + '; '.join(named)
+
+
 class ProtocolPostProcessor(abc.ABC):
     def __init__(
         self,
@@ -105,9 +142,7 @@ class ProtocolPostProcessor(abc.ABC):
         frame numbers collide. Stills share the one sentinel so their
         cross-scan grouping is untouched.
         """
-        recording_scan = df['Scan Count'].where(
-            df['Filepath'].map(recording_frames.is_video_frame), -1
-        )
+        recording_scan = df['Scan Count'].where(_recording_frames(df), -1)
         return df.assign(**{'Recording Scan': recording_scan})
 
     @staticmethod
@@ -121,10 +156,7 @@ class ProtocolPostProcessor(abc.ABC):
         real. Video frames belong to exactly two consumers, Create Video
         and the per-(well, scan) hyperstack, which do NOT call this.
         """
-        # astype(bool): on an EMPTY frame map() cannot infer a dtype, and
-        # indexing with the resulting non-bool series degrades from a row
-        # mask to column selection -- silently dropping every column.
-        return df[~df['Filepath'].map(recording_frames.is_video_frame).astype(bool)]
+        return df[~_recording_frames(df)]
 
     @abc.abstractmethod
     def _generate_filename(self, df: pd.DataFrame, **kwargs) -> str:
@@ -334,7 +366,7 @@ class ProtocolPostProcessor(abc.ABC):
         unsupported_source = next(
             (
                 pathlib.Path(str(filepath))
-                for filepath in df['Filepath']
+                for filepath in df.loc[~_missing(df), 'Filepath']
                 if pathlib.Path(str(filepath)).suffix.lower() not in image_utils.TIFF_SUFFIXES
             ),
             None,
@@ -465,11 +497,16 @@ class ProtocolPostProcessor(abc.ABC):
             if len(group) == 0:
                 continue
 
-            if len(group) == 1:
-                skipped_single_paths.append(str(group.iloc[0]['Filepath']))
-                logger.debug(
-                    f'[{self._name} ] Skipping generation for {group.iloc[0]["Filepath"]} since only {len(group)} image found.'
-                )
+            # A row for a missing recording stands for its frames, so the
+            # group it is in counts as the group it would have been.
+            missing = group[_missing(group)]
+            frames = len(group) - len(missing) + int(missing['Frames'].sum() if len(missing) else 0)
+            if frames == 1:
+                if missing.empty:
+                    skipped_single_paths.append(str(group.iloc[0]['Filepath']))
+                    logger.debug(
+                        f'[{self._name} ] Skipping generation for {group.iloc[0]["Filepath"]} since only {len(group)} image found.'
+                    )
                 continue
 
             output_filename, record_data_post_functions, output_file_loc = self._planned_output(
@@ -493,6 +530,15 @@ class ProtocolPostProcessor(abc.ABC):
                 existing_count += (
                     1  # Count this so we don't error out if no other matches are found
                 )
+                continue
+
+            # Built whole or not at all: a group missing a frame the run
+            # recorded -- deleted since, or never captured -- is this group's
+            # failure, never an output short of it.
+            if not missing.empty:
+                last_error = _missing_frames_error(missing)
+                group_errors.append(f'{output_file_loc_rel}: {last_error}')
+                logger.error(f'Not generating {output_file_loc_rel}: {last_error}')
                 continue
 
             kwargs['output_file_loc'] = output_file_loc_rel

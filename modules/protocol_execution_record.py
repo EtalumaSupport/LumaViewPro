@@ -14,6 +14,8 @@ class ProtocolExecutionRecord:
     FILE_HEADER = 'LumaViewPro Protocol Execution Record'
     CURRENT_VERSION = 3
     DEFAULT_FILENAME = 'protocol_record.tsv'
+    # The Filename of a capture taken with saving off: no file, by request.
+    UNSAVED = 'unsaved'
     # 'Scan Count' is the CONTRACT for the temporal ordinal everywhere a
     # post-processing dataframe carries the column: which pass through
     # the protocol produced this capture. Post-processing consumers
@@ -179,6 +181,25 @@ class ProtocolExecutionRecord:
             'Scan Count': first_row['Scan Count'],
             'Timestamp': first_row['Timestamp'],
         }
+
+    def saved_entries(self) -> list[dict]:
+        """Every row of a capture the run meant to save, in record order.
+
+        Each is the row's ``Filename``, ``Step Index``, ``Scan Count``,
+        ``Timestamp`` and ``Frame Count``, and ``No File``: None for a row
+        naming the file its capture saved, else the reason word the run wrote
+        in the file's place (``capture_failed``, ``save_failed``,
+        ``video_<end_reason>``, ...). A row naming a file counts at least one
+        frame; a row for a capture that left no file counts none. Rows of
+        captures taken with saving off are not among them.
+        """
+        entries = []
+        for row in self._records.to_dict('records'):
+            if row['Filename'] == self.UNSAVED:
+                continue
+            row['No File'] = row['Filename'] if row['Frame Count'] == 0 else None
+            entries.append(row)
+        return entries
 
     def num_records(self) -> int:
         return len(self._records)

@@ -24,7 +24,11 @@ import pytest
 import tifffile as tf
 
 from modules import image_utils
-from modules.exceptions import InputFramesUnusableError, PostProcessingFailedError
+from modules.exceptions import (
+    InputFramesUnusableError,
+    PostProcessingFailedError,
+    PostProcessingRefusedError,
+)
 from modules.stack_builder import StackBuilder
 from modules.stitcher import Stitcher
 from modules.video_builder import VideoBuilder
@@ -73,7 +77,11 @@ def _run_folder(tmp_path, frames: list[dict]) -> pathlib.Path:
     """A run folder as a run of this release saves it, one step per frame.
 
     Each frame names its well, x, z-slice, scan and (for a tiled well) its
-    tile; its file is ``<name>_<scan>.tiff``.
+    tile; its file is ``<name>_<scan>.tiff``. A frame may also name its
+    ``color`` (BF), be saved in its channel's folder (``channel_folder``),
+    be a capture the run recorded as leaving no file (``no_file``, the
+    reason word), or be a recording of that many frames whose frames folder
+    is not there (``recording``).
     """
     folder = tmp_path / 'live' / 'ProtocolData' / '20261007_120000'
     folder.mkdir(parents=True)
@@ -90,15 +98,27 @@ def _run_folder(tmp_path, frames: list[dict]) -> pathlib.Path:
                 frame['well'],
             )
             step[1] = str(frame['x'])
+            step[5] = frame.get('color', 'BF')
             step[14] = frame.get('tile', '')
             step[17] = str(frame.get('tile_group', -1))
+            step[19] = 'video' if 'recording' in frame else 'image'
             steps.append(step)
         scan = frame.get('scan', 0)
         filename = f'{name}_{scan:04d}.tiff'
+        if frame.get('channel_folder'):
+            filename = f'{frame.get("color", "BF")}/{filename}'
+        recorded, count = filename, 1
+        if 'no_file' in frame:
+            recorded, count = frame['no_file'], 0
+        elif 'recording' in frame:
+            recorded, count = f'{name}_{scan:04d}_video', frame['recording']
         record.append(
-            f'{filename}\t{name}\t{names[name]}\t{scan}\t'
-            f'2026-10-07 12:{scan:02d}:{seed:02d}.000001\t1\t0.0\n'
+            f'{recorded}\t{name}\t{names[name]}\t{scan}\t'
+            f'2026-10-07 12:{scan:02d}:{seed:02d}.000001\t{count}\t0.0\n'
         )
+        if recorded != filename:
+            continue
+        (folder / filename).parent.mkdir(exist_ok=True)
         _write_frame(
             folder / filename,
             x=frame['x'],
@@ -337,3 +357,143 @@ def test_a_composite_of_a_simulator_runs_folder_fails_only_the_damaged_position(
     made = _outputs(run_dir)
     assert any(name.startswith('p1') for name in made), made
     assert not any(name.startswith('p0') for name in made), made
+
+
+def _zproject(folder):
+    return ZProjector(has_turret=False).load_folder(
+        path=folder,
+        tiling_configs_file_loc=TILING_CONFIGS,
+        method=ZProjector.methods()[0],
+        channel_colors=release_colors(),
+    )
+
+
+def _hyperstack(folder):
+    return StackBuilder(has_turret=False).load_folder(
+        path=folder,
+        tiling_configs_file_loc=TILING_CONFIGS,
+        save_encoding='right_aligned',
+        channel_colors=release_colors(),
+    )
+
+
+class TestAFrameTheRunRecordedAndTheFolderLacks:
+    """A group missing a frame its run recorded is not built (the plan:
+    Firmware docs/MISSING_FRAME_PLAN_2026-10-14.md). The frame was deleted
+    since, or its capture failed during the run; either way the group fails,
+    named, and the others build."""
+
+    # parametrize-justified: each builder groups the folder its own way
+    @pytest.mark.parametrize('build', [_zproject, _hyperstack], ids=['z-projection', 'hyperstack'])
+    def test_a_deleted_slice_fails_its_well_and_the_others_are_built(self, tmp_path, build):
+        # Two slices a well: losing one left a single image, skipped unsaid.
+        folder = _z_stacks(tmp_path)
+        (folder / 'A1_BF_Z1_0000.tiff').unlink()
+
+        with pytest.raises(PostProcessingFailedError) as incomplete:
+            build(folder)
+
+        assert 'A1_BF_Z1 scan 0 (not in the folder: A1_BF_Z1_0000.tiff)' in str(
+            incomplete.value.errors
+        )
+        made = _outputs(folder)
+        assert any(name.startswith('A2') for name in made), made
+        assert not any(name.startswith('A1') for name in made), made
+
+    def test_a_slice_whose_capture_failed_fails_its_well(self, tmp_path):
+        folder = _z_stacks(tmp_path, no_file='capture_failed')
+
+        with pytest.raises(PostProcessingFailedError) as incomplete:
+            _zproject(folder)
+
+        assert 'A1_BF_Z1 scan 0 (its capture failed during the run: capture_failed)' in str(
+            incomplete.value.errors
+        )
+        assert not any(name.startswith('A1') for name in _outputs(folder))
+
+    def test_a_missing_recording_fails_its_group(self, tmp_path):
+        folder = _run_folder(
+            tmp_path,
+            [
+                {'name': 'A1_BF', 'well': 'A1', 'x': 14.38, 'recording': 5},
+                *({'name': f'A2_BF_Z{z}', 'well': 'A2', 'x': 23.38, 'z_slice': z} for z in (0, 1)),
+            ],
+        )
+
+        with pytest.raises(PostProcessingFailedError) as incomplete:
+            _hyperstack(folder)
+
+        assert '(not in the folder: A1_BF_0000_video)' in str(incomplete.value.errors)
+        assert any(name.startswith('A2') for name in _outputs(folder))
+
+    def test_a_z_projection_takes_no_recording_missing_or_not(self, tmp_path):
+        # A recording's frames are a time series, never Z-slices: its row is
+        # dropped by the step it came from, so the missing recording fails
+        # no z-projection group.
+        folder = _run_folder(
+            tmp_path,
+            [
+                {'name': 'A1_BF', 'well': 'A1', 'x': 14.38, 'recording': 5},
+                *({'name': f'A2_BF_Z{z}', 'well': 'A2', 'x': 23.38, 'z_slice': z} for z in (0, 1)),
+            ],
+        )
+
+        assert _zproject(folder)['status'] is True
+        assert any(name.startswith('A2') for name in _outputs(folder))
+
+    def test_a_group_missing_a_frame_still_shares_its_name(self, tmp_path):
+        # Two positions in one well render one z-projection name, and one
+        # has lost a slice. The pair is refused as indistinguishable, as a
+        # whole pair is: built first, the whole one's name would let the
+        # other pass as already made, unsaid.
+        folder = _run_folder(
+            tmp_path,
+            [
+                {'name': f'P{p}_Z{z}', 'well': 'A1', 'x': 14.38 + p, 'z_slice': z}
+                for p in (1, 2)
+                for z in (0, 1)
+            ],
+        )
+        (folder / 'P2_Z1_0000.tiff').unlink()
+
+        with pytest.raises(PostProcessingRefusedError) as refused:
+            _zproject(folder)
+
+        assert 'shared with another group' in str(refused.value)
+        assert _outputs(folder) == set()
+
+    def test_a_failed_capture_with_nothing_to_combine_fails_nothing(self, tmp_path):
+        # One image a well: no z-projection was owed for either, so the
+        # capture that failed costs no group.
+        folder = _run_folder(
+            tmp_path,
+            [
+                {'name': 'A1_BF', 'well': 'A1', 'x': 14.38},
+                {'name': 'A2_BF', 'well': 'A2', 'x': 23.38, 'no_file': 'capture_failed'},
+            ],
+        )
+
+        with pytest.raises(PostProcessingRefusedError) as refused:
+            _zproject(folder)
+
+        assert 'capture_failed' not in str(refused.value)
+
+    def test_a_channel_folder_takes_only_its_own_channels_failed_captures(self, tmp_path):
+        folder = _run_folder(
+            tmp_path,
+            [
+                {'name': f'A1_{color}_Z{z}', 'well': 'A1', 'x': 14.38, 'z_slice': z,
+                 'color': color, 'channel_folder': True,
+                 **({'no_file': 'capture_failed'} if (color, z) == ('Blue', 1) else {})}
+                for color in ('BF', 'Blue')
+                for z in (0, 1)
+            ],
+        )  # fmt: skip
+
+        assert _zproject(folder / 'BF')['status'] is True
+        with pytest.raises(PostProcessingFailedError) as failed:
+            _zproject(folder / 'Blue')
+
+        assert 'A1_Blue_Z1 scan 0 (its capture failed during the run: capture_failed)' in str(
+            failed.value.errors
+        )
