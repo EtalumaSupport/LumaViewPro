@@ -579,24 +579,24 @@ to ask.
 ### Periodic metrics logging (optional)
 
 ```python
-session.start_metrics()   # start periodic runtime-health logging
-session.stop_metrics()    # stop it (idempotent; shutdown() calls this too)
+session.enable_metrics()   # start periodic runtime-health logging
+session.disable_metrics()    # stop it (idempotent; shutdown() calls this too)
 ```
 
 The session owns the metrics-logger lifecycle and one scheduler for every
 periodic consumer, plain daemon timers on every host (never a UI clock:
 a safety bound armed on a UI loop stops when the UI freezes). The
 scheduler existing does not start metrics: they run only after
-`start_metrics()`, so every session, factory-built or not, keeps metrics
+`enable_metrics()`, so every session, factory-built or not, keeps metrics
 off unless the host opts in. `settings['profiling']['metrics_interval_s']`
 overrides the default hourly cadence: seconds above zero, or null for the
 default; any other value is refused (`SettingRefusedError`). Every host's metrics log the
 session's executor queues and futures; a host with a live display passes
-it as `start_metrics(display=...)` (a `DisplayRates`: the GUI passes its
+it as `enable_metrics(display=...)` (a `DisplayRates`: the GUI passes its
 own), and its drawn rate and frame intervals are logged beside the
-camera's. `start_metrics()` raises `AlreadyStartedError`
+camera's. `enable_metrics()` raises `AlreadyStartedError`
 (`metrics_running`; still a `RuntimeError`) if metrics are already running,
-until `stop_metrics()`, which is idempotent. These members
+until `disable_metrics()`, which is idempotent. These members
 are host-serialized: call them from one thread (the GUI uses its main
 thread only).
 
@@ -2994,9 +2994,9 @@ Reached through `ScopeSession.create(settings, ...)`; every L2 caller starts her
 - `source_path`
 - `run_application_session` (in-process)
 - `start_go_to_step`
-- `start_metrics` (in-process)
+- `enable_metrics` (in-process)
 - `status`
-- `stop_metrics` (in-process)
+- `disable_metrics` (in-process)
 - `unload_plugins` (in-process)
 - `update_settings`
 - `update_step`
@@ -3494,7 +3494,7 @@ Reached through returned by `scope.imaging.get_delivered_rate`.
 
 ### DisplayRates
 
-Implemented by a host with a live display, and passed to `session.start_metrics(display=...)`.
+Implemented by a host with a live display, and passed to `session.enable_metrics(display=...)`.
 
 - `display_fps` (in-process)
 - `frame_interval_percentiles_ms` (in-process)

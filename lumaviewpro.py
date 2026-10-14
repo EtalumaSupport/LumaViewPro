@@ -716,7 +716,7 @@ class LumaViewProApp(TooltipMixin, App):
             # engineering mode; settings.profiling.metrics_interval_s
             # overrides both (gen2_depth + handle/thread counts are the
             # signals worth sub-minute granularity on a short leak hunt).
-            ctx.session.start_metrics(display=ctx.scope_display)
+            ctx.session.enable_metrics(display=ctx.scope_display)
 
             # The atexit emergency-shutdown hook is registered in Lumascope.__init__
             # so every Lumascope user gets the same safety net automatically.

@@ -555,7 +555,7 @@ class TestTheProvisionalStateIsTheSessions:
                 (node.lineno, ast.unparse(node.func))
                 for node in _calls(methods[name])
                 if node.func.attr
-                in ('disconnect', 'shutdown_threads', 'stop_motion', 'stop_metrics')
+                in ('disconnect', 'shutdown_threads', 'stop_motion', 'disable_metrics')
                 or (node.func.attr == 'shutdown' and _chain(node.func.value) != ['session', 'ctx'])
                 or (node.func.attr == 'stop' and _chain(node.func.value) != ['profiling_helper'])
             ]

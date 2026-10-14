@@ -9,7 +9,7 @@ contract, preserved.
 
 MetricsLogger.start is NOT idempotent (a second start silently
 overwrites its schedule handles, orphaning forever-ticking Clock
-events), so start_metrics refuses a double start loudly; the running
+events), so enable_metrics refuses a double start loudly; the running
 fact lives in one place (the session flag) with start/stop as its only
 writers. These members are host-serialized (main-thread-only in the
 GUI); a threaded host must serialize them itself.
@@ -56,23 +56,23 @@ def _make_session(**kwargs):
 class TestStartStop:
     def test_start_metrics_uses_injected_scheduler_and_interval_override(self):
         session = _make_session()
-        session.start_metrics()
+        session.enable_metrics()
         session.metrics_logger.start.assert_called_once_with(
             _SCHEDULER, display=None, system_metrics_interval_s=42.0
         )
 
     def test_start_metrics_without_override_uses_logger_defaults(self):
         session = _make_session(settings={'profiling': {'metrics_interval_s': None}})
-        session.start_metrics()
+        session.enable_metrics()
         session.metrics_logger.start.assert_called_once_with(_SCHEDULER, display=None)
 
     def test_default_session_owns_a_real_scheduler_and_metrics_stay_opt_in(self):
         # No injected scheduler: the session builds and owns its own, and
-        # metrics still start ONLY when start_metrics is called -- the
+        # metrics still start ONLY when enable_metrics is called -- the
         # scheduler existing must not start them.
         session = _make_session(scheduler=None)
         session.metrics_logger.start.assert_not_called()
-        session.start_metrics()
+        session.enable_metrics()
         session.metrics_logger.start.assert_called_once()
         (sched_arg,), _kwargs = session.metrics_logger.start.call_args
         assert sched_arg is session._scheduler
@@ -82,28 +82,28 @@ class TestStartStop:
         # orphaning the first set as untracked forever-ticking events;
         # the refusal makes that state unreachable.
         session = _make_session()
-        session.start_metrics()
+        session.enable_metrics()
         with pytest.raises(AlreadyStartedError) as refused:
-            session.start_metrics()
+            session.enable_metrics()
         assert refused.value.reason == 'metrics_running'
         # Refused for the scope's state: a stop lets it start again.
         assert refused.value.cause is RefusalCause.STATE
         assert isinstance(refused.value, RuntimeError), 'still what it was documented as'
         session.metrics_logger.start.assert_called_once()
-        session.stop_metrics()
-        session.start_metrics()
+        session.disable_metrics()
+        session.enable_metrics()
 
     def test_stop_metrics_stops_and_is_idempotent(self):
         session = _make_session()
-        session.start_metrics()
-        session.stop_metrics()
+        session.enable_metrics()
+        session.disable_metrics()
         session.metrics_logger.stop.assert_called_once()
-        session.stop_metrics()  # second stop: no raise, no second call
+        session.disable_metrics()  # second stop: no raise, no second call
         session.metrics_logger.stop.assert_called_once()
 
     def test_shutdown_stops_running_metrics(self):
         session = _make_session()
-        session.start_metrics()
+        session.enable_metrics()
         session.shutdown()
         session.metrics_logger.stop.assert_called_once()
 

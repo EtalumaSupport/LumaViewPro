@@ -355,17 +355,17 @@ class ScopeSession:
         # when the UI freezes, and one timebase means the GUI, tests,
         # and headless all exercise the same path. Injectable so tests
         # fire callbacks by hand. Metrics stay opt-in through
-        # start_metrics; the scheduler existing does not start them.
+        # enable_metrics; the scheduler existing does not start them.
         if scheduler is None:
             scheduler = ThreadingTimerScheduler(
                 name_prefix='LVP-SessionTimer',
                 on_callback_error=_scheduler_callback_error,
             )
         self._scheduler = scheduler
-        # The one store for "metrics are running"; start_metrics /
-        # stop_metrics are its only writers. Host-serialized (main
+        # The one store for "metrics are running"; enable_metrics /
+        # disable_metrics are its only writers. Host-serialized (main
         # thread in the GUI): a threaded host must serialize
-        # start_metrics / stop_metrics itself.
+        # enable_metrics / disable_metrics itself.
         self._metrics_started = False
         # Whether a shutdown() pass has COMPLETED. Written True as the last
         # statement of that pass, so a pass that raised part-way leaves a
@@ -4326,7 +4326,7 @@ class ScopeSession:
     # session.scope.runtime_state.* -- so every command has exactly one
     # public spelling and the Session owns only what is session-scoped:
     # lifecycle (create / shutdown /
-    # start_ / run_application_session / start_metrics / stop_metrics), the
+    # start_ / run_application_session / enable_metrics / disable_metrics), the
     # protocol runner, run-state queries, the settings-composition
     # getters above, and the members that apply a setting and store it
     # (a setting has one store, and it is the Session's).
@@ -4357,7 +4357,7 @@ class ScopeSession:
     # ------------------------------------------------------------------
 
     @api(in_process=True)
-    def start_metrics(self, display: DisplayRates | None = None) -> None:
+    def enable_metrics(self, display: DisplayRates | None = None) -> None:
         """Start the session's periodic metrics logging.
 
         Uses the session's scheduler and the
@@ -4373,7 +4373,7 @@ class ScopeSession:
 
         Raises:
             AlreadyStartedError: ``'metrics_running'``, metrics are already
-                running; ``stop_metrics`` lets them start again. A second
+                running; ``disable_metrics`` lets them start again. A second
                 ``MetricsLogger.start`` would silently overwrite its
                 schedule handles and orphan the first set as untracked,
                 forever-ticking events. Still a ``RuntimeError``.
@@ -4403,7 +4403,7 @@ class ScopeSession:
         self._metrics_started = True
 
     @api(in_process=True)
-    def stop_metrics(self) -> None:
+    def disable_metrics(self) -> None:
         """Stop the session's periodic metrics logging. Idempotent.
 
         Never shuts the scheduler itself down -- a shut scheduler
@@ -4482,7 +4482,7 @@ class ScopeSession:
         # Plugins first, while everything they hold still runs: an
         # unregister stops its own work and may wait for it.
         self.unload_plugins()
-        self.stop_metrics()
+        self.disable_metrics()
         runner = self.sequenced_capture_runner
         if runner is not None:
             runner.force_reset(reason='session close')

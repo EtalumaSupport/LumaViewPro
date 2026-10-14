@@ -203,9 +203,9 @@ def system_tick_interval(sim_scope):
             scheduler=scheduler,
             **kwargs,
         )
-        session.start_metrics()
+        session.enable_metrics()
         tick = session.metrics_logger.tick_system_metrics
-        session.stop_metrics()
+        session.disable_metrics()
         (interval,) = [i for callback, i in scheduler.intervals if callback == tick]
         return interval
 

@@ -465,7 +465,7 @@ def log_environment_once():
 class DisplayRates(typing.Protocol):
     """A live display's own rates, which only a host with a display has.
 
-    The GUI hands its display down through ``ScopeSession.start_metrics``;
+    The GUI hands its display down through ``ScopeSession.enable_metrics``;
     a module never reaches up to it.
     """
 

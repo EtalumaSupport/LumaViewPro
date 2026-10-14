@@ -3936,7 +3936,7 @@ class AlreadyStartedError(Refusal, RuntimeError):
     Attributes:
         reason: ``'plugins_loaded'`` -- this session already loaded its
             plugins; it never loads them again. ``'metrics_running'`` --
-            metrics are already running; ``stop_metrics`` lets them start
+            metrics are already running; ``disable_metrics`` lets them start
             again.
     """
 

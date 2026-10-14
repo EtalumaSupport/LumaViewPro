@@ -76,7 +76,7 @@ def main(argv: list[str] | None = None) -> int:
         # serves, so a client can home again.
         session.run_application_session()
         session.load_plugins()
-        session.start_metrics()
+        session.enable_metrics()
         print(
             f'LumaViewPro REST server: http://{HOST}:{port}/api/v1 (reference: /docs)', flush=True
         )
