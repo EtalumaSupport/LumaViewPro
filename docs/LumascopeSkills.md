@@ -1634,7 +1634,6 @@ not the supported contract and will not be part of the REST surface.
 
 ```python
 scope.illumination.led_on('Blue', 200)                 # Blue LED at 200 mA
-scope.illumination.led_on('Blue', 200, block=True)     # EL-0940 board: re-send until the board echoes it, up to 5 s, never raising; FX2: no effect
 scope.illumination.led_off('Blue')
 scope.illumination.leds_off()                          # turn off all LEDs
 

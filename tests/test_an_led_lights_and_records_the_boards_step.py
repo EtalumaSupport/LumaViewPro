@@ -133,7 +133,7 @@ def test_a_serial_request_below_1_ma_lights_at_1_ma(serial):
 def test_a_blocking_serial_request_off_the_step_is_confirmed_at_once(serial):
     illumination, board = serial
     started = time.monotonic()
-    commanded = illumination.led_on(0, 1.7, block=True)
+    commanded = illumination.led_on(0, 1.7)
     assert _dac(board, 0) == 1011
     assert time.monotonic() - started < 1.0
     assert commanded == 2.0

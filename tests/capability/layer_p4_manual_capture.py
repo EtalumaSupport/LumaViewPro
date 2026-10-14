@@ -20,7 +20,7 @@ try:
     harness.check('a script can get one frame from the API', arr is not None)
 
     # --- Stage B: the Session member captures and saves one still ---
-    scope.illumination.led_on('Blue', 100.0, block=True)
+    scope.illumination.led_on('Blue', 100.0)
     s.show_channel('Blue')
     paths = s.manual_capture.capture(false_color_on=True).result(timeout=30)
     print('B: session.manual_capture.capture ->', paths)

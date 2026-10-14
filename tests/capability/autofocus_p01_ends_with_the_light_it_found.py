@@ -27,7 +27,7 @@ RUN_TIMEOUT_S = 180.0
 
 def _autofocus(session, runner, current_ma, *, stop):
     illumination = session.scope.illumination
-    illumination.led_on(LAYER, current_ma, block=True)
+    illumination.led_on(LAYER, current_ma)
     before = illumination.get_led_state(LAYER)
     leg = 'stopped' if stop else 'finished'
     figure(f'{leg}: {LAYER} before', before)

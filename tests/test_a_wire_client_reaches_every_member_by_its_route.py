@@ -115,7 +115,7 @@ def test_a_read_answers_its_encoded_value(client, session):
 def test_a_sub_objects_method_is_called_with_its_arguments_by_name(client, session):
     on = client.post(
         '/api/v1/scope/illumination/led_on',
-        json={'channel': 'Red', 'illumination_ma': 10.0, 'block': True},
+        json={'channel': 'Red', 'illumination_ma': 10.0},
     )
     assert on.status_code == 200
     assert on.json() == 10.0
@@ -130,7 +130,7 @@ def test_a_sub_objects_method_is_called_with_its_arguments_by_name(client, sessi
 def test_a_snapshot_read_over_the_wire_is_taken_back_by_restore(client, session):
     # The snapshot holds its readings as records inside an array; the
     # wire answers it as JSON and restore_led_state decodes it back.
-    session.scope.illumination.led_on('Red', 10.0, block=True)
+    session.scope.illumination.led_on('Red', 10.0)
     snapshot = client.post('/api/v1/scope/illumination/save_led_state', json={'tag': 'before'})
     assert snapshot.status_code == 200
     assert snapshot.json()['tag'] == 'before'
@@ -151,7 +151,7 @@ def test_a_snapshot_read_over_the_wire_is_taken_back_by_restore(client, session)
 
 @pytest.mark.parametrize('body', [None, {}])
 def test_a_method_with_no_arguments_takes_an_empty_body_or_an_empty_object(client, session, body):
-    session.scope.illumination.led_on('Red', 10.0, block=True)
+    session.scope.illumination.led_on('Red', 10.0)
 
     answer = client.post('/api/v1/scope/illumination/leds_off', json=body)
 
@@ -165,14 +165,12 @@ def test_a_method_with_no_arguments_takes_an_empty_body_or_an_empty_object(clien
         {},
         {'channel': 'Red'},
         {'channel': 'Red', 'illumination_ma': '10'},
-        {'channel': 'Red', 'illumination_ma': 10.0, 'block': 1},
         {'channel': 'Red', 'illumination_ma': 10.0, 'brightness': 3},
     ],
     ids=[
         'empty',
         'missing',
         'a string for a number',
-        'a number for a bool',
         'an unknown key',
     ],
 )
@@ -181,6 +179,19 @@ def test_a_body_that_does_not_fit_is_422_and_reaches_nothing(client, session, bo
 
     assert answer.status_code == 422
     assert session.scope.illumination.get_led_state('Red').state is LedState.DARK
+
+
+def test_a_number_for_a_bool_is_422_and_reaches_nothing(client, session):
+    motion = session.scope.motion
+    before = motion.get_current_position('Z')
+
+    answer = client.post(
+        '/api/v1/scope/motion/move_absolute',
+        json={'axis': 'Z', 'position': before + 50.0, 'overshoot_enabled': 1},
+    )
+
+    assert answer.status_code == 422
+    assert motion.get_current_position('Z') == before
 
 
 @pytest.mark.parametrize('number', ['NaN', 'Infinity', '1e400'])

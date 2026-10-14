@@ -74,7 +74,7 @@ def main():
         for request in (1.0, 5.0, 0.0):
             expected = illumination._driver.commanded_ma(request)
             print(f'--- {LAYER} {request} mA: look at the optics now ---', flush=True)
-            commanded = illumination.led_on(LAYER, request, block=True)
+            commanded = illumination.led_on(LAYER, request)
             time.sleep(HOLD_S)
             state = illumination.get_led_state(LAYER)
             mean, record = _frame(scope)

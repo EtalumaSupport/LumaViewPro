@@ -948,7 +948,6 @@ class IlluminationAPI:
         self,
         channel: int | str,
         illumination_ma: float,
-        block: bool = False,
     ) -> float:
         """Turn on an LED channel at the specified current, and wait for it.
 
@@ -968,7 +967,7 @@ class IlluminationAPI:
         return self._dispatch_led(
             self._led_on_impl,
             'led_on',
-            args=(channel, illumination_ma, block),
+            args=(channel, illumination_ma),
         )
 
     @api
