@@ -266,6 +266,11 @@ class VideoRecordingEngine:
         return self._pending
 
     @property
+    def end_reason(self) -> str:
+        """Why selection closed, the result's ``end_reason``; read once it has closed."""
+        return self._end_reason
+
+    @property
     def frames_selected(self) -> int:
         """Frames the cadence selector has kept so far."""
         return self._frames_selected

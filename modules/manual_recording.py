@@ -185,7 +185,10 @@ class ManualRecordingController:
         # and a check racing a start could otherwise pair the new
         # engine with the previous recording's start timestamp.
         self._state_lock = threading.Lock()
-        self._end_reason: str | None = None
+        # Why the most recent recording ended when its engine was dropped:
+        # only a start unwound after its commit drops it. Every other end
+        # is the engine's own reason.
+        self._failed_start_reason: str | None = None
 
     # ------------------------------------------------------------------
     # Status surface (GUI polls these; all None-safe)
@@ -256,9 +259,9 @@ class ManualRecordingController:
         Returns:
             The recording's ``Operation``: done once its frames, MP4 close and
             any hyperstack build are over and a new recording may start, with
-            the recording's ``end_reason``. Its ``stop()`` is the controller's
-            ``stop`` while this recording is live or still writing, and does
-            nothing after, so it never stops a recording started later.
+            the recording's ``end_reason``. Its ``stop()`` stops this
+            recording as ``stop`` does, and does nothing once it has stopped,
+            so it never stops a recording started later.
 
         Raises:
             RecordingRefusedError: The start cannot proceed -- a previous
@@ -452,7 +455,11 @@ class ManualRecordingController:
         # here on leaves it holding nothing.
         frames_folder = save_folder if video_as_frames else None
 
-        operation = Operation(stop=lambda: self._stop_while_current(operation))
+        # Its stop is this recording's own engine's, never the controller's
+        # current one: a late stop reaches an engine already closed, which
+        # keeps the reason it closed with. The frame listener stays until
+        # the finish removes it; it offers nothing to a closed engine.
+        operation = Operation(stop=lambda: engine.stop('user_stop'))
 
         # Engine start is the commit point: it acquires the claim or
         # raises. Assign controller state only after it succeeds.
@@ -506,7 +513,7 @@ class ManualRecordingController:
                 self._hyperstack_rows = [] if hyperstack else None
                 self._last_disk_check_ts = 0.0
                 self._operation = operation
-                self._end_reason = None
+                self._failed_start_reason = None
             # The frames folder was reserved before the commit point; nothing
             # to create here.
 
@@ -561,7 +568,7 @@ class ManualRecordingController:
         """
         # Idempotent no-op when the failure preceded the arming.
         self._disarm_health_check()
-        self._end_reason = END_REASON_START_FAILED
+        self._failed_start_reason = END_REASON_START_FAILED
         try:
             self._scope.imaging.remove_frame_listener(self._on_camera_frame)
         except Exception as e:
@@ -609,21 +616,11 @@ class ManualRecordingController:
         engine = self._engine
         if engine is None:
             return
-        self._end_reason = reason
         try:
             self._scope.imaging.remove_frame_listener(self._on_camera_frame)
         except Exception as e:
             logger.warning(f'[ManualRecord] remove_frame_listener failed: {e}')
         engine.stop(reason)
-
-    def _stop_while_current(self, operation: Operation) -> None:
-        """A recording's ``Operation.stop``: this recording's stop, never a later one's.
-
-        Nothing once its finish has ended: a stop asked while the finish
-        announces its end, or once a new recording has started, is late.
-        """
-        if self._operation is operation and self._finishing:
-            self.stop()
 
     @api
     @property
@@ -631,12 +628,16 @@ class ManualRecordingController:
         """Why the most recent recording ended, or None before any has.
 
         Manifest vocabulary ('user_stop', 'duration_elapsed',
-        'camera_stalled', ...). Latched on the controller because the
-        engine handle -- and its own reason -- is dropped exactly on the
-        failed-start unwind, and a caller watching is_recording flip
-        False needs to distinguish a camera death from a user stop.
+        'camera_stalled', ...), read from the recording's engine as soon
+        as its selection closes, so a caller watching is_recording flip
+        False can tell a camera death from a user stop while the frames
+        still drain. The first close names it: a later stop does not
+        rewrite it.
         """
-        return self._end_reason
+        engine = self._engine
+        if engine is not None and not engine.is_recording:
+            return engine.end_reason
+        return self._failed_start_reason
 
     def _health_check(self) -> None:
         """Watch the recording's health; armed by the controller itself.
@@ -859,10 +860,6 @@ class ManualRecordingController:
                 writer_dropped = self._writer.dropped_frames
 
             result = engine.result()
-            # The engine's reason is the measured truth (it alone knows a
-            # budget-fill end); the latch taken at stop() is only the
-            # fallback for a finish that never produced a result.
-            self._end_reason = result.end_reason
 
             if self._hyperstack_rows is not None:
                 self._build_hyperstack()
@@ -919,7 +916,7 @@ class ManualRecordingController:
                     f'{result.write_failures} failed, measured '
                     f'{result.measured_fps:.2f} fps over {result.measured_duration_s:.2f} s'
                 )
-            end_reason = self._end_reason
+            end_reason = engine.end_reason
             # Once it reads False a new recording may start and rebind every
             # per-recording slot this thread reads above. The claim was
             # released when the drain ended, so this end is no transition of

@@ -737,6 +737,25 @@ class TestARecordingIsAnOperation:
         assert held[0].result(timeout=15) == 'duration_elapsed'
         assert controller.end_reason == 'duration_elapsed'
 
+    def test_one_stopped_through_its_operation_says_so_when_its_finish_fails(
+        self, tmp_path, monkeypatch, centre_posts
+    ):
+        # No result is produced, so the reason comes from the engine the
+        # operation stopped, not from a latch only the controller's stop sets.
+        def _explode(_self):
+            raise RuntimeError('scripted finalize failure')
+
+        monkeypatch.setattr(
+            manual_recording_module.VideoRecordingEngine, '_finalize_locked', _explode
+        )
+        controller, scope, clock = make_controller(tmp_path, video_as_frames=False)
+        recording = controller.start()
+        feed_frames(scope, clock, 3, fps=10.0)
+        recording.stop()
+
+        assert recording.result(timeout=15) == 'user_stop'
+        assert controller.end_reason == 'user_stop'
+
 
 class TestFinishThreadResilience:
     def test_finish_thread_survives_a_finalize_failure(self, tmp_path, monkeypatch, centre_posts):
@@ -1408,3 +1427,40 @@ class TestARecordingThatCannotBeOneHyperstackSaysWhy:
         assert message.startswith('Cannot build a hyperstack for this recording')
         assert '2 channels' in message
         assert 'Recording Finalize Failed' not in [t for t, _ in shown]
+
+
+class TestTheEndReason:
+    def test_one_stopped_through_its_operation_reads_user_stop_while_it_drains(
+        self, tmp_path, monkeypatch
+    ):
+        writing = threading.Event()
+        real_write = ManualRecordingController._write_frame
+
+        def _held_write(self, *args):
+            writing.wait(timeout=15)
+            return real_write(self, *args)
+
+        monkeypatch.setattr(ManualRecordingController, '_write_frame', _held_write)
+        controller, scope, clock = make_controller(tmp_path)
+        recording = controller.start()
+        try:
+            feed_frames(scope, clock, 3, fps=10.0)
+            recording.stop()
+
+            assert not controller.is_recording
+            assert controller.is_draining
+            assert controller.end_reason == 'user_stop'
+        finally:
+            writing.set()
+        assert recording.result(timeout=15) == 'user_stop'
+
+    def test_a_stop_after_the_duration_ended_it_leaves_duration_elapsed(self, tmp_path):
+        controller, scope, clock = make_controller(tmp_path, duration_s=2)
+        recording = controller.start()
+        feed_frames(scope, clock, 3, fps=10.0)
+        clock.advance(2.0)
+        controller._scheduler.fire()
+        controller.stop()
+
+        assert controller.end_reason == 'duration_elapsed'
+        assert recording.result(timeout=15) == 'duration_elapsed'
