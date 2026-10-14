@@ -371,15 +371,15 @@ A simulated session can likewise show a save drive that stops answering: pass `s
 ### Application startup sequence
 
 ```python
-started = session.begin_application_session()        # home ALL axes, then position turret; returns an Operation
+started = session.start_application_session()        # home ALL axes, then position turret; returns an Operation
 started.result()                                     # None once the motion has ended and the scope is free
 session.run_application_session()                  # the same, waited for
 session.run_application_session(disable_homing=True)  # skip homing; no startup motion at all
 ```
 
-`begin_application_session()` is the single source of truth for the standard startup orchestration the GUI runs on launch: an all-axis `move_home` (firmware homes Z/T/X/Y in one routine; Z-only boards home what they have), then, when the scope has a turret, the T-axis to position 1 (where the home leaves it); the active objective is then slot 1's assignment. Headless / REST callers should use it rather than open-coding the home + turret sequence. It returns at once with an `Operation` (see "How a run ends"), whose `stop()` is `stop_motion` while the motion drives (refused `home_in_flight` while the home drives on a board that cannot stop one) and nothing once it has ended, so a late stop never halts what took the scope after it; `run_application_session()` is the same call, waited for, and refuses a call from an executor's worker, whose own queue or lane the motion may wait on, with `BlockingCallRefusedError` (`blocking_on_worker`; still a `RuntimeError`).
+`start_application_session()` is the single source of truth for the standard startup orchestration the GUI runs on launch: an all-axis `move_home` (firmware homes Z/T/X/Y in one routine; Z-only boards home what they have), then, when the scope has a turret, the T-axis to position 1 (where the home leaves it); the active objective is then slot 1's assignment. Headless / REST callers should use it rather than open-coding the home + turret sequence. It returns at once with an `Operation` (see "How a run ends"), whose `stop()` is `stop_motion` while the motion drives (refused `home_in_flight` while the home drives on a board that cannot stop one) and nothing once it has ended, so a late stop never halts what took the scope after it; `run_application_session()` is the same call, waited for, and refuses a call from an executor's worker, whose own queue or lane the motion may wait on, with `BlockingCallRefusedError` (`blocking_on_worker`; still a `RuntimeError`).
 
-The scope is the startup's from before `begin_application_session()` returns until the motion ends, as it is during any home: every other request is refused naming the home (`exclusive_activity_running` / `home_in_flight`), and `controls_locked` is True. The claim is released before the operation is done. A failed home is reported as an outcome and skips the turret move; the operation still settles with None. `disable_homing=True` skips every startup motion: the turret is left where it is, like the stage axes, and no turret position is recorded. Position it yourself after homing.
+The scope is the startup's from before `start_application_session()` returns until the motion ends, as it is during any home: every other request is refused naming the home (`exclusive_activity_running` / `home_in_flight`), and `controls_locked` is True. The claim is released before the operation is done. A failed home is reported as an outcome and skips the turret move; the operation still settles with None. `disable_homing=True` skips every startup motion: the turret is left where it is, like the stage axes, and no turret position is recorded. Position it yourself after homing.
 
 ### Camera capture settings
 
@@ -2901,7 +2901,7 @@ Reached through `ScopeSession.create(settings, ...)`; every L2 caller starts her
 - `app_runtime`
 - `app_version`
 - `assign_turret_objective`
-- `begin_application_session` (in-process)
+- `start_application_session` (in-process)
 - `bring_up_record`
 - `capture_settings_snapshot`
 - `channel_colors`
@@ -3341,7 +3341,7 @@ Reached through built by the caller and passed as `events=` to a `ProtocolRunner
 
 ### Operation
 
-Reached through returned by a `ProtocolRunner` run member that started a run; a run's `Operation.files`; returned by `scope.motion.start_move_absolute`, `start_move_relative` and `start_home`, `session.start_go_to_step`, `session.begin_application_session`, `session.manual_capture.capture` and `session.manual_recording.start`. A `concurrent.futures.Future`: its `result`, `exception`, `done` and `add_done_callback` are the Future's.
+Reached through returned by a `ProtocolRunner` run member that started a run; a run's `Operation.files`; returned by `scope.motion.start_move_absolute`, `start_move_relative` and `start_home`, `session.start_go_to_step`, `session.start_application_session`, `session.manual_capture.capture` and `session.manual_recording.start`. A `concurrent.futures.Future`: its `result`, `exception`, `done` and `add_done_callback` are the Future's.
 
 - `files`
 - `progress`

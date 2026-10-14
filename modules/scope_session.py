@@ -4326,7 +4326,7 @@ class ScopeSession:
     # session.scope.runtime_state.* -- so every command has exactly one
     # public spelling and the Session owns only what is session-scoped:
     # lifecycle (create / shutdown /
-    # run_application_session / start_metrics / stop_metrics), the
+    # start_ / run_application_session / start_metrics / stop_metrics), the
     # protocol runner, run-state queries, the settings-composition
     # getters above, and the members that apply a setting and store it
     # (a setting has one store, and it is the Session's).
@@ -4606,7 +4606,7 @@ class ScopeSession:
         self._shut_down = True
 
     @api(in_process=True, stop='Operation.stop')
-    def begin_application_session(
+    def start_application_session(
         self,
         *,
         disable_homing: bool = False,
@@ -4710,7 +4710,7 @@ class ScopeSession:
         try:
             with acting(taking):
                 self.executor_bundle.diagnostics_executor.submit(
-                    IOTask(action=body), 'begin_application_session', waiter=waiter
+                    IOTask(action=body), 'start_application_session', waiter=waiter
                 )
         except BaseException:
             release_if_unrun()
@@ -4727,7 +4727,7 @@ class ScopeSession:
     ) -> None:
         """Run the standard startup motion, and wait for it.
 
-        ``begin_application_session``, waited for: returns when the startup
+        ``start_application_session``, waited for: returns when the startup
         motion has ended and the scope is free, and raises what its
         operation would. Headless / REST callers use this exact call to apply the
         standard startup orchestration without copy-pasting from the App.
@@ -4736,12 +4736,12 @@ class ScopeSession:
             BlockingCallRefusedError: ``'blocking_on_worker'``, called from
                 an executor's worker. The motion runs on the diagnostics
                 worker and waits on the io lane, so a worker waiting for it
-                can be waiting on itself; ``begin_application_session`` is the
+                can be waiting on itself; ``start_application_session`` is the
                 form a worker uses. Still a ``RuntimeError``.
-            HardwareCommandRefusedError: as ``begin_application_session``.
+            HardwareCommandRefusedError: as ``start_application_session``.
         """
         refuse_blocking_on_a_worker('run_application_session')
-        self.begin_application_session(
+        self.start_application_session(
             disable_homing=disable_homing, home_fn=home_fn, turret_fn=turret_fn
         ).result()
 

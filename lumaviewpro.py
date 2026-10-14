@@ -751,7 +751,7 @@ class LumaViewProApp(TooltipMixin, App):
         # the startup motion runs; the scope is the motion's until it ends.
         from ui.ui_helpers import move_home_cb, set_title_event_text
 
-        started = ctx.session.begin_application_session(disable_homing=disable_homing)
+        started = ctx.session.start_application_session(disable_homing=disable_homing)
         if not started.done():
             set_title_event_text('Homing, please wait...')
         started.add_done_callback(

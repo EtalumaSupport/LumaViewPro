@@ -203,7 +203,7 @@ def test_a_homes_stop_once_it_has_let_go_of_the_scope_sends_nothing(session):
 def test_the_startup_motions_stop_once_it_has_let_go_of_the_scope_sends_nothing(session):
     started = []
     sent, asked = _stop_as_the_scope_is_let_go(session, started)
-    started.append(session.begin_application_session())
+    started.append(session.start_application_session())
 
     assert started[0].result(60) is None
     assert asked, 'the listener never saw the scope let go'

@@ -58,7 +58,7 @@ def test_the_startup_motion_holds_the_scope_until_it_ends(session, monkeypatch):
     scope = session.scope
     held = _HeldHome(scope, monkeypatch)
 
-    started = session.begin_application_session()
+    started = session.start_application_session()
     locked_when_settled = []
     told = threading.Event()
 
@@ -110,7 +110,7 @@ def test_its_stop_is_the_stages_stop_refused_while_this_board_homes(session, mon
     LS850T's board, which cannot take a STOP while it homes, it is refused
     for the home in flight and the startup motion runs to its end."""
     held = _HeldHome(session.scope, monkeypatch)
-    started = session.begin_application_session()
+    started = session.start_application_session()
     try:
         assert held.entered.wait(HOME_S)
         with pytest.raises(HardwareCommandRefusedError) as refused:
