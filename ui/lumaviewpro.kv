@@ -1522,7 +1522,7 @@
 				Label:
 					id: protocol_zstacking_box_label_id
 					text: 'Z-Stacking'
-					tooltip_text: 'Use Z-stack settings under Objective Settings'
+					tooltip_text: 'Use the Z-stack settings in Objective Control'
 					size_hint_y: None
 					height: '30dp'
 					size_hint_x: None
@@ -1558,14 +1558,14 @@
 					id: acquire_zstack_id
 					disabled: app.run_lockout
 					size_hint_x: None
-					tooltip_text: 'Use Z-stack settings under Objective Settings\nfor New Protocol creation'
+					tooltip_text: 'Use the Z-stack settings in Objective Control\nwhen New or Add makes steps'
 					width: '30dp'
 					active: False
 					on_release: root.update_acquire_zstack()
 
 				Label:
 					text: 'Enable Z-Stack'
-					tooltip_text: 'Use Z-stack settings under Objective Settings\nfor New Protocol creation'
+					tooltip_text: 'Use the Z-stack settings in Objective Control\nwhen New or Add makes steps'
 					font_size: '12sp'
 					halign: 'left'
 					valign: 'middle'
