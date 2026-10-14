@@ -5,7 +5,16 @@ import numpy as np
 import pytest
 
 import modules.image_utils as image_utils
-from modules.composite_builder import build_composite
+import modules.layer_record as layer_record
+from modules.composite_builder import CompositeChannel, build_composite
+
+
+def _in_release_colours(images):
+    """Each image as a composite channel in its layer's release colour."""
+    return {
+        key: CompositeChannel(image, layer_record.release_color(key))
+        for key, image in images.items()
+    }
 
 
 def test_a_composite_of_pure_primaries_puts_each_channel_on_its_own_plane():
@@ -66,7 +75,7 @@ def test_a_composite_of_pure_primaries_puts_each_channel_on_its_own_plane():
                         expected[lit] = overlay[lit]
 
                     built = build_composite(
-                        channel_images=channels,
+                        channels=_in_release_colours(channels),
                         significant_bits=bits,
                         transmitted_image=base,
                         brightness_thresholds=dict.fromkeys(keys, cutoff) if with_base else None,
@@ -83,7 +92,7 @@ class TestBuildCompositeNoTransmitted:
 
     def test_single_red_channel(self):
         red = np.full((4, 4), 200, dtype=np.uint8)
-        img = build_composite(channel_images={'Red': red}, significant_bits=8)
+        img = build_composite(channels=_in_release_colours({'Red': red}), significant_bits=8)
         assert img.shape == (4, 4, 3)
         assert img.dtype == np.uint8
         np.testing.assert_array_equal(img[:, :, 0], 200)  # Red channel
@@ -92,7 +101,7 @@ class TestBuildCompositeNoTransmitted:
 
     def test_lumi_goes_to_blue_channel(self):
         lumi = np.full((4, 4), 80, dtype=np.uint8)
-        img = build_composite(channel_images={'Lumi': lumi}, significant_bits=8)
+        img = build_composite(channels=_in_release_colours({'Lumi': lumi}), significant_bits=8)
         np.testing.assert_array_equal(img[:, :, 2], 80)
 
     def test_all_three_channels(self):
@@ -101,7 +110,7 @@ class TestBuildCompositeNoTransmitted:
             'Green': np.full((4, 4), 150, dtype=np.uint8),
             'Blue': np.full((4, 4), 200, dtype=np.uint8),
         }
-        img = build_composite(channel_images=channels, significant_bits=8)
+        img = build_composite(channels=_in_release_colours(channels), significant_bits=8)
         np.testing.assert_array_equal(img[:, :, 0], 100)
         np.testing.assert_array_equal(img[:, :, 1], 150)
         np.testing.assert_array_equal(img[:, :, 2], 200)
@@ -111,7 +120,7 @@ class TestBuildCompositeNoTransmitted:
         not stored right-aligned in a 16-bit container (which renders near-black
         in any viewer that ignores the depth tag)."""
         red = np.full((4, 4), 3000, dtype=np.uint16)
-        img = build_composite(channel_images={'Red': red}, significant_bits=12)
+        img = build_composite(channels=_in_release_colours({'Red': red}), significant_bits=12)
         assert img.dtype == np.uint8
         # The red plane equals the canonical downconvert of the input -- not the
         # raw 12-bit value (3000), which the old build stored verbatim.
@@ -125,14 +134,14 @@ class TestBuildCompositeNoTransmitted:
         (255) -- the composite is bright, not the ~6%-of-full-scale that made
         12-bit composites read as black."""
         red = np.full((4, 4), 4095, dtype=np.uint16)
-        img = build_composite(channel_images={'Red': red}, significant_bits=12)
+        img = build_composite(channels=_in_release_colours({'Red': red}), significant_bits=12)
         assert img.dtype == np.uint8
         np.testing.assert_array_equal(img[:, :, 0], 255)
 
     def test_empty_channels_returns_black(self):
         """Empty channel dict with no transmitted image should raise."""
         with pytest.raises((StopIteration, ValueError)):
-            build_composite(channel_images={}, significant_bits=8)
+            build_composite(channels=_in_release_colours({}), significant_bits=8)
 
 
 class TestBuildCompositeWithTransmitted:
@@ -140,7 +149,9 @@ class TestBuildCompositeWithTransmitted:
 
     def test_transmitted_only_replicates_to_rgb(self):
         bf = np.full((4, 4), 128, dtype=np.uint8)
-        img = build_composite(channel_images={}, significant_bits=8, transmitted_image=bf)
+        img = build_composite(
+            channels=_in_release_colours({}), significant_bits=8, transmitted_image=bf
+        )
         # Transmitted image replicated to all 3 channels
         np.testing.assert_array_equal(img[:, :, 0], 128)
         np.testing.assert_array_equal(img[:, :, 1], 128)
@@ -158,7 +169,7 @@ class TestBuildCompositeWithTransmitted:
             dtype=np.uint8,
         )
         img = build_composite(
-            channel_images={'Green': green},
+            channels=_in_release_colours({'Green': green}),
             significant_bits=8,
             transmitted_image=bf,
             brightness_thresholds={'Green': 50},
@@ -177,38 +188,83 @@ class TestBuildCompositeWithTransmitted:
         red = np.full((4, 4), 200, dtype=np.uint8)
         green = np.full((4, 4), 150, dtype=np.uint8)
         img = build_composite(
-            channel_images={'Red': red, 'Green': green},
+            channels=_in_release_colours({'Red': red, 'Green': green}),
             significant_bits=8,
             transmitted_image=bf,
             brightness_thresholds={'Red': 10, 'Green': 10},
         )
-        # Both above threshold: first channel clears and sets, second adds
+        # Both above threshold: the pixel is their sum in place of the base
         np.testing.assert_array_equal(img[:, :, 0], 200)  # Red
-        np.testing.assert_array_equal(img[:, :, 1], 150)  # Green added
-        np.testing.assert_array_equal(img[:, :, 2], 0)  # Blue cleared by first
+        np.testing.assert_array_equal(img[:, :, 1], 150)  # Green
+        np.testing.assert_array_equal(img[:, :, 2], 0)  # no channel, no base
 
-    def test_default_threshold_is_zero(self):
-        """When no thresholds provided, all pixels above 0 are composited."""
+    def test_default_threshold_is_one(self):
+        """When no thresholds provided, every pixel above 0 is composited."""
         bf = np.full((4, 4), 100, dtype=np.uint8)
         red = np.full((4, 4), 1, dtype=np.uint8)  # Very dim but > 0
         img = build_composite(
-            channel_images={'Red': red},
+            channels=_in_release_colours({'Red': red}),
             significant_bits=8,
             transmitted_image=bf,
         )
-        # Default threshold 0: any pixel > 0 replaces transmitted
+        # Default cutoff 1: any pixel > 0 replaces transmitted
         np.testing.assert_array_equal(img[:, :, 0], 1)
         np.testing.assert_array_equal(img[:, :, 1], 0)
         np.testing.assert_array_equal(img[:, :, 2], 0)
 
-    def test_unknown_channel_name_ignored(self):
-        bf = np.full((4, 4), 100, dtype=np.uint8)
-        img = build_composite(
-            channel_images={'Unknown': np.full((4, 4), 200, dtype=np.uint8)},
+
+class TestChannelsAdd:
+    """Each channel contributes its intensity times its colour, summed and
+    clipped, so channels that share a colour add instead of overwriting."""
+
+    def _pixel(self, channels, base=None):
+        return build_composite(
+            channels=channels,
             significant_bits=8,
-            transmitted_image=bf,
+            transmitted_image=None if base is None else np.full((1, 1), base, np.uint8),
+            brightness_thresholds=None if base is None else dict.fromkeys(channels, 1),
+        )[0, 0].tolist()
+
+    def test_blue_and_lumi_add_in_either_order_with_a_base_or_none(self):
+        blue = np.full((1, 1), 100, np.uint8)
+        lumi = np.full((1, 1), 50, np.uint8)
+        blue_first = _in_release_colours({'Blue': blue, 'Lumi': lumi})
+        lumi_first = _in_release_colours({'Lumi': lumi, 'Blue': blue})
+        for base in (None, 30):
+            assert self._pixel(blue_first, base) == [0, 0, 150]
+            assert self._pixel(lumi_first, base) == [0, 0, 150]
+
+    def test_a_sum_past_full_scale_saturates_rather_than_wrapping(self):
+        channels = _in_release_colours(
+            {'Blue': np.full((1, 1), 200, np.uint8), 'Lumi': np.full((1, 1), 100, np.uint8)}
         )
-        # Unknown channel ignored -- transmitted preserved
-        np.testing.assert_array_equal(img[:, :, 0], 100)
-        np.testing.assert_array_equal(img[:, :, 1], 100)
-        np.testing.assert_array_equal(img[:, :, 2], 100)
+        assert self._pixel(channels) == [0, 0, 255]
+
+    def test_equal_red_and_green_are_equal_in_the_composite(self):
+        # Green is not weaker than Red at the same intensity (#521).
+        pair = _in_release_colours(
+            {'Red': np.full((1, 1), 120, np.uint8), 'Green': np.full((1, 1), 120, np.uint8)}
+        )
+        assert self._pixel(pair) == [120, 120, 0]
+        assert self._pixel(pair, base=40) == [120, 120, 0]
+
+    def test_a_colour_that_is_not_a_primary_lands_on_each_plane_by_its_weight(self):
+        magenta = layer_record.parse_display_color('#ff00ff')
+        half_green = layer_record.parse_display_color('#008000')
+        channels = {
+            'Magenta': CompositeChannel(np.full((1, 1), 200, np.uint8), magenta),
+            'Dim': CompositeChannel(np.full((1, 1), 200, np.uint8), half_green),
+        }
+        # #80 is 128 / 255 of full weight: 200 of it rounds to 100.
+        assert self._pixel(channels) == [200, 100, 200]
+
+    def test_five_channels_sum_on_every_plane(self):
+        def one(value):
+            return np.full((1, 1), value, np.uint8)
+
+        channels = _in_release_colours(
+            {'Red': one(40), 'Green': one(50), 'Blue': one(60), 'Lumi': one(70)}
+        )
+        channels['Magenta'] = CompositeChannel(one(20), layer_record.parse_display_color('#ff00ff'))
+        assert self._pixel(channels) == [60, 50, 150]
+        assert self._pixel(channels, base=90) == [60, 50, 150]

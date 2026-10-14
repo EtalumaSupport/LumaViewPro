@@ -356,7 +356,12 @@ class TestTheEngineMatchesTheWorkerItReplaces:
     def test_the_merged_array_is_identical_to_the_workers(self, composite_session):
         import numpy as np
 
-        from modules.composite_builder import brightness_cutoff_from_percent, build_composite
+        import modules.layer_record as layer_record
+        from modules.composite_builder import (
+            CompositeChannel,
+            brightness_cutoff_from_percent,
+            build_composite,
+        )
 
         _session, runner, tmp_path = composite_session
 
@@ -383,7 +388,10 @@ class TestTheEngineMatchesTheWorkerItReplaces:
         thresholds = dict.fromkeys(fluorescence, brightness_cutoff_from_percent(25))
 
         expected = build_composite(
-            channel_images=fluorescence,
+            channels={
+                name: CompositeChannel(arr, layer_record.release_color(name))
+                for name, arr in fluorescence.items()
+            },
             significant_bits=8 if transmitted.dtype == np.uint8 else 12,
             transmitted_image=transmitted,
             brightness_thresholds=thresholds,

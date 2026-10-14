@@ -21,9 +21,22 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from modules.composite_builder import brightness_cutoff_from_percent, build_composite
+import modules.layer_record as layer_record
+from modules.composite_builder import (
+    CompositeChannel,
+    brightness_cutoff_from_percent,
+    build_composite,
+)
 from modules.composite_generation import CompositeGeneration
 from modules.exceptions import ConfigError
+
+
+def _in_release_colours(images):
+    """Each image as a composite channel in its layer's release colour."""
+    return {
+        key: CompositeChannel(image, layer_record.release_color(key))
+        for key, image in images.items()
+    }
 
 
 class TestTheCutoffCoversTheWholeSlider:
@@ -62,7 +75,7 @@ class TestTheLayerSurvivesTheTopOfTheSlider:
         transmitted, red = self._one_saturated_pixel()
 
         img = build_composite(
-            channel_images={'Red': red},
+            channels=_in_release_colours({'Red': red}),
             significant_bits=8,
             transmitted_image=transmitted,
             brightness_thresholds={'Red': brightness_cutoff_from_percent(100)},
@@ -76,7 +89,7 @@ class TestTheLayerSurvivesTheTopOfTheSlider:
         red = np.full((2, 2), 254, dtype=np.uint8)
 
         img = build_composite(
-            channel_images={'Red': red},
+            channels=_in_release_colours({'Red': red}),
             significant_bits=8,
             transmitted_image=transmitted,
             brightness_thresholds={'Red': brightness_cutoff_from_percent(100)},

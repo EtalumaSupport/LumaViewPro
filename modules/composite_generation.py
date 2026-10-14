@@ -6,7 +6,11 @@ import pandas as pd
 
 import modules.common_utils as common_utils
 from modules.finite_number import is_finite_number
-from modules.composite_builder import brightness_cutoff_from_percent, build_composite
+from modules.composite_builder import (
+    CompositeChannel,
+    brightness_cutoff_from_percent,
+    build_composite,
+)
 import modules.image_mode as image_mode
 import modules.image_utils as image_utils
 import modules.layer_record as layer_record
@@ -173,12 +177,13 @@ class CompositeGeneration(ProtocolPostProcessor):
     def _more_than_one_image_per_plane(df: pd.DataFrame, transmitted_layers) -> str | None:
         """Why this group cannot be one composite, or None when it can.
 
-        A composite has one transmitted plane and one plane per other
-        channel. A group holding two images for one plane -- two of one
-        color, or two different transmitted layers -- has no one answer for
-        that plane, and keeping one of them would discard an acquired image
-        behind a composite that looks complete. The data that reaches here
-        doubled is a run folder from before steps recorded their Add.
+        A composite takes one transmitted image and one image per other
+        channel key; channels that share a colour add. A group holding two
+        images for one key, or two different transmitted layers, has no one
+        answer for that input, and keeping one of them would discard an
+        acquired image behind a composite that looks complete. The data that
+        reaches here doubled is a run folder from before steps recorded their
+        Add.
         """
         transmitted = df[df['Color'].isin(transmitted_layers)]
         others = df[~df['Color'].isin(transmitted_layers)]
@@ -363,9 +368,10 @@ class CompositeGeneration(ProtocolPostProcessor):
                 # and preserve via max-axis; pass through mono 2D
                 # inputs unchanged. RGB2GRAY luminance was destroying
                 # 41-89% of single-plane signal pre-fix.
-                img_gray = image_utils.rgb_image_to_gray(f_image, layer_record.release_color(layer))
+                color = layer_record.release_color(layer)
+                img_gray = image_utils.rgb_image_to_gray(f_image, color)
 
-                channel_images[layer] = img_gray
+                channel_images[layer] = CompositeChannel(img_gray, color)
 
                 # The mapping onto the composite's 8-bit output scale belongs to
                 # the builder, which owns that scale and the comparison the
@@ -392,8 +398,15 @@ class CompositeGeneration(ProtocolPostProcessor):
                 # bypassed for the composite case -- returning
                 # 'image': None below tells the base class the subclass
                 # has already written.
+                logger.info(
+                    'CompositeGeneration] Channel colours: '
+                    + ', '.join(
+                        f'{layer} {tuple(round(w, 3) for w in channel.color)}'
+                        for layer, channel in channel_images.items()
+                    )
+                )
                 img = build_composite(
-                    channel_images=channel_images,
+                    channels=channel_images,
                     significant_bits=output_depth,
                     transmitted_image=transmitted_image,
                     brightness_thresholds=brightness_thresholds,

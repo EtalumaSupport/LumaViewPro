@@ -10078,7 +10078,8 @@ class TestCompositeOrchestrationByteEqualManualVsProtocol:
         import numpy as np
         import pandas as pd
         import tifffile as tf
-        from modules.composite_builder import build_composite
+        import modules.layer_record as layer_record
+        from modules.composite_builder import CompositeChannel, build_composite
         from modules.composite_generation import CompositeGeneration
 
         # Three known mono channels: a Red gradient, a Green stripe, a
@@ -10103,7 +10104,10 @@ class TestCompositeOrchestrationByteEqualManualVsProtocol:
 
         # Path A: manual composite path. build_composite -> tifffile.
         manual_rgb = build_composite(
-            channel_images=channel_images,
+            channels={
+                name: CompositeChannel(image, layer_record.release_color(name))
+                for name, image in channel_images.items()
+            },
             significant_bits=8,
             transmitted_image=None,
             brightness_thresholds=None,
