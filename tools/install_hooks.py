@@ -71,15 +71,29 @@ git add "$VERSION_FILE"
 # as nothing to judge. The flags make the diff the stage's own whatever the
 # session's git configuration says: --text --no-textconv against a -diff
 # attribute or a textconv, -M against diff.renames, the prefixes against
-# diff.noprefix, GIT_DIFF_OPTS unset against a context override.
+# diff.noprefix, GIT_DIFF_OPTS unset against a context override. An amend
+# replaces HEAD, so the commit it produces is the index against HEAD's
+# parent, and that is what the judge reads; git tells a hook nothing about
+# an amend, but the hook's parent process is the `git commit` itself and
+# its command line carries the flag. The index against HEAD alone is the
+# amend's delta, and a delta that only removes lines reads as a guard
+# deleted even when the same commit keeps the refusal a few lines away
+# (triage, 2026-10-14). A `--amend` inside a message widens the read to the
+# whole commit, which is harmless; a root commit has no parent and keeps
+# HEAD.
 _JUDGE_STAGE = """if [ -n "${COMMIT_JUDGE:-}" ]; then
     if git rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1; then
         echo "pre-commit: merge commit, not judged by the no-quick-fix judge (Eric, 2026-10-03)" >&2
     else
+        JUDGE_BASE=HEAD
+        case " $(ps -o command= -p "$PPID" 2>/dev/null) " in
+            *" --amend "*)
+                if git rev-parse -q --verify 'HEAD^' >/dev/null 2>&1; then JUDGE_BASE='HEAD^'; fi ;;
+        esac
         (
             set -o pipefail
             unset GIT_DIFF_OPTS
-            git diff --cached --no-color --no-ext-diff --text --no-textconv -M --src-prefix=a/ --dst-prefix=b/ -U3 -- '*.py' \\
+            git diff --cached --no-color --no-ext-diff --text --no-textconv -M --src-prefix=a/ --dst-prefix=b/ -U3 "$JUDGE_BASE" -- '*.py' \\
                 | "$COMMIT_JUDGE" --repo "$REPO_ROOT"
         ) || exit 1
     fi

@@ -158,6 +158,27 @@ def test_ih3_an_amend_with_a_staged_bandaid_is_refused(repo):
     assert repo.git('commit', '-q', '--amend', '--no-edit').returncode != 0
 
 
+def test_ih3b_an_amend_is_judged_as_the_commit_it_produces(repo):
+    """An amend replaces HEAD, so the judge reads the index against HEAD's
+    parent, the amended commit's whole change, never the amend's own delta.
+
+    Here the commit being amended carried a band-aid and the amend takes it
+    out: the whole change (seed to the clean read) has no band-aid and
+    lands, while the delta alone (band-aid to clean) still names the
+    swallowed ValueError on its removed lines. A delta read that way called
+    a kept refusal a deleted guard (triage, 2026-10-14, LVP 5a52ed38).
+    """
+    repo.write('modules/x.py', _BANDAID)
+    repo.ok('commit', '-q', '-m', 'carries a band-aid', '--', 'modules/x.py', judged=False)
+    repo.write('modules/x.py', _CLEANER)
+    repo.ok('add', 'modules/x.py')
+    r = repo.git('commit', '-q', '--amend', '--no-edit')
+    assert r.returncode == 0, r.stderr
+    judged = repo.judged_diff() or ''
+    assert 'except ValueError' not in judged
+    assert '+        return f.read().strip()' in judged
+
+
 def test_ih4_a_pathspec_commit_beside_a_peers_staged_bandaid_lands_and_the_judge_saw_only_its_file(
     repo,
 ):
