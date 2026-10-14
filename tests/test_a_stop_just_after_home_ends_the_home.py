@@ -105,26 +105,26 @@ def _announce_the_board_homing(scope, monkeypatch, axis):
 def test_a_stop_while_the_board_homes_ends_it_only_where_the_board_can_take_one(
     homed, monkeypatch, axis
 ):
+    """Through the started home's ``stop()``, which is ``stop_motion``."""
     if axis != 'ALL' and axis not in homed.capabilities.axes:
         pytest.skip(f'this scope has no {axis}')
     homing = _announce_the_board_homing(homed, monkeypatch, axis)
 
-    with concurrent.futures.ThreadPoolExecutor(1) as pool:
-        home = pool.submit(homed.motion.home, axis)
-        assert homing.wait(30)
-        if _STOPS_A_HOME[homed.capabilities.model]:
-            homed.motion.stop_motion()
-            with pytest.raises(HomingStoppedError) as ended:
-                home.result(60)
-            assert (ended.value.reason, ended.value.title) == ('stopped', 'Homing Stopped')
-            assert outcome_of(ended.value).kind == OutcomeKind.NOTICE
-            assert ended.value.axes
-        else:
-            with pytest.raises(HardwareCommandRefusedError) as refused:
-                homed.motion.stop_motion()
-            assert (refused.value.reason, refused.value.member) == ('home_in_flight', 'stop_motion')
-            assert home.result(60) is None
-            assert homed.motion.axes_without_position() == {}
+    home = homed.motion.start_home(axis)
+    assert homing.wait(30)
+    if _STOPS_A_HOME[homed.capabilities.model]:
+        home.stop()
+        with pytest.raises(HomingStoppedError) as ended:
+            home.result(60)
+        assert (ended.value.reason, ended.value.title) == ('stopped', 'Homing Stopped')
+        assert outcome_of(ended.value).kind == OutcomeKind.NOTICE
+        assert ended.value.axes
+    else:
+        with pytest.raises(HardwareCommandRefusedError) as refused:
+            home.stop()
+        assert (refused.value.reason, refused.value.member) == ('home_in_flight', 'stop_motion')
+        assert home.result(60) is None
+        assert homed.motion.axes_without_position() == {}
 
 
 def test_the_el0940_driver_refuses_a_stop_while_it_homes(monkeypatch):

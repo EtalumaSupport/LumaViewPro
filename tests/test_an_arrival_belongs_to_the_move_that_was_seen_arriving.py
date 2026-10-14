@@ -52,7 +52,7 @@ def session(tmp_path):
 
 def _outcome(handle):
     try:
-        handle.wait()
+        handle.result()
         return 'arrived'
     except MoveNotCompletedError as e:
         return e.reason
@@ -249,9 +249,6 @@ def test_a_retargeted_move_is_timed_by_its_own_clock(session, monkeypatch):
         motion, 'get_target_status', lambda ax: False if ax == 'X' else real_status(ax)
     )
     monkeypatch.setattr(motion, '_MOTION_SETTLE_TIMEOUT_S', 2.0)
-    # The waiter's own bound is kept out of it: the monitor's clock judges.
-    real_wait = motion._wait_for_move
-    monkeypatch.setattr(motion, '_wait_for_move', lambda move, timeout_s: real_wait(move, 5.0))
 
     m1 = motion.start_move_absolute('X', 10000.0)
     time.sleep(0.5)
@@ -263,40 +260,6 @@ def test_a_retargeted_move_is_timed_by_its_own_clock(session, monkeypatch):
     assert m2_out == 'stalled'
     assert faulted_after >= 1.9, faulted_after
     assert _outcome(m1) == 'superseded'
-
-
-def test_a_timed_out_wait_does_not_fault_the_move_that_started_in_its_window(session, monkeypatch):
-    """Move 1's wait runs out while the stage travels. Move 2 starts in the
-    window between the waiter's decision and its UNKNOWN write. Move 2 is
-    not faulted; move 1 reads superseded."""
-    motion = session.scope.motion
-    driver = motion._driver
-    motion.move_absolute('X', 10000.0)
-    real_wait = motion._wait_for_move
-    real_set = motion._set_axis_state
-    waiter = threading.current_thread()
-    m2 = {}
-
-    monkeypatch.setattr(motion, '_wait_for_move', lambda move, timeout_s: real_wait(move, 0.3))
-
-    def start_m2_inside_the_waiters_write(axis, state, **kw):
-        if state == AxisState.UNKNOWN and threading.current_thread() is waiter and 'h' not in m2:
-            _start_in_thread(lambda: m2.update(h=motion.start_move_absolute('X', 10300.0))).join()
-        return real_set(axis, state, **kw)
-
-    monkeypatch.setattr(motion, '_set_axis_state', start_m2_inside_the_waiters_write)
-    # Move 1 stands part of the way, so its wait's 0.3 s runs out first
-    # however slowly the waiter runs; move 2's target ends the hold.
-    session.scope.simulation.hold_axis('X')
-    m1 = motion.start_move_absolute('X', 40000.0)
-    m1_out = _outcome(m1)
-    monkeypatch.setattr(motion, '_set_axis_state', real_set)
-    monkeypatch.setattr(motion, '_wait_for_move', real_wait)
-
-    assert 'h' in m2
-    assert _outcome(m2['h']) == 'arrived'
-    assert abs(driver.current_pos('X') - 10300.0) <= _MICROSTEP_UM
-    assert m1_out == 'superseded'
 
 
 class _SlowClearEvent(threading.Event):

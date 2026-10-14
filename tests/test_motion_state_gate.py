@@ -177,7 +177,7 @@ def test_forced_move_still_drives_on_unknown_axis(scope):
     _home_and_fail(scope)
     # A refusal raises here; a forced move drives, and its wait returns only
     # once Z arrived.
-    scope.motion._move_absolute_impl('Z', position=0, force=True).wait()
+    scope.motion._move_absolute_impl('Z', position=0, force=True).result()
     assert scope.motion._axis_state['Z'] == AxisState.IDLE
 
 

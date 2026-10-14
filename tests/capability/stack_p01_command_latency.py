@@ -103,7 +103,7 @@ def body(session):
         # S1b: Z moves while X travels back (the monitor polls X at 50 Hz meanwhile).
         handle = m.start_move_absolute('X', x0)
         during = _timed(z_move, n=min(N, 10))
-        handle.wait()
+        handle.result()
         figure('S1.z_move_100um_during_x_travel', _ms(during))
 
     # S2a: LED alone.

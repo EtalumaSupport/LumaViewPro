@@ -163,6 +163,75 @@ class TestItsStop:
         assert op.running()
 
 
+class TestOneForSeveral:
+    """``Operation.all_of``: one operation for several started together, as
+    ``start_go_to_step`` hands out its X, Y and Z moves."""
+
+    def test_it_is_done_once_every_one_is_and_raises_the_first_ones_raise(self):
+        x, y, z = Operation(), Operation(), Operation()
+        joined = Operation.all_of((x, y, z))
+
+        z.set_exception(ValueError('z'))
+        x.set_result(None)
+        assert not joined.done()
+        y.set_exception(ValueError('y'))
+
+        assert str(joined.exception(BOUND_S)) == 'y'
+
+    def test_a_done_callback_may_wait_on_it(self):
+        x, y = Operation(), Operation()
+        joined = Operation.all_of((x, y))
+        answered = queue.Queue()
+        x.add_done_callback(lambda _op: answered.put(joined.exception(BOUND_S)))
+
+        x.set_result(None)
+        y.set_result(None)
+
+        assert answered.get(timeout=BOUND_S) is None
+
+    def test_stop_stops_each_one_still_under_way(self):
+        stopped = []
+        x = Operation(stop=lambda: stopped.append('x'))
+        y = Operation(stop=lambda: stopped.append('y'))
+        joined = Operation.all_of((x, y))
+        x.set_result(None)
+
+        joined.stop()
+
+        assert stopped == ['y']
+
+    def test_with_none_it_is_done_at_once(self):
+        assert Operation.all_of(()).result(0) is None
+
+
+class TestFollowingALaneWaiter:
+    """``Operation.following``: a lane task's waiter settles it, after the
+    producer's release, so whoever reads the outcome finds it let go."""
+
+    def test_the_release_runs_before_it_is_done_and_the_outcome_follows(self):
+        waiter = cf.Future()
+        waiter.set_running_or_notify_cancel()
+        done_at_release = []
+        op = Operation.following(waiter, first=lambda: done_at_release.append(op.done()))
+
+        waiter.set_result(['a.tiff'])
+
+        assert done_at_release == [False]
+        assert op.result(0) == ['a.tiff']
+
+    def test_a_raise_the_release_meets_still_settles_it_with_the_tasks_outcome(self):
+        waiter = cf.Future()
+        waiter.set_running_or_notify_cancel()
+
+        def release():
+            raise RuntimeError('release')
+
+        op = Operation.following(waiter, first=release)
+        waiter.set_exception(cf.CancelledError())
+
+        assert isinstance(op.exception(0), cf.CancelledError)
+
+
 class TestInsideItsOwnDelivery:
     def test_the_delivering_thread_reads_the_outcome_at_once_and_others_wait_for_the_end(self):
         op = Operation()

@@ -60,7 +60,13 @@ def test_the_startup_motion_holds_the_scope_until_it_ends(session, monkeypatch):
 
     started = session.begin_application_session()
     locked_when_settled = []
-    started.add_done_callback(lambda _done: locked_when_settled.append(session.controls_locked))
+    told = threading.Event()
+
+    def on_done(_done):
+        locked_when_settled.append(session.controls_locked)
+        told.set()
+
+    started.add_done_callback(on_done)
     try:
         assert held.entered.wait(HOME_S)
         assert not started.done()
@@ -72,6 +78,7 @@ def test_the_startup_motion_holds_the_scope_until_it_ends(session, monkeypatch):
         held.release.set()
         started.exception(timeout=HOME_S)
     started.result(timeout=HOME_S)
+    assert told.wait(ASKED_S), 'the done-callback never ran'
 
     assert locked_when_settled == [False]
     assert not session.controls_locked
@@ -96,3 +103,21 @@ def test_a_blocking_startup_asked_from_a_lane_task_is_refused(session):
     assert isinstance(refusal, BlockingCallRefusedError), refusal
     assert (refusal.reason, refusal.member) == ('blocking_on_worker', 'start_application_session')
     assert isinstance(refusal, RuntimeError), 'still what it was documented as'
+
+
+def test_its_stop_is_the_stages_stop_refused_while_this_board_homes(session, monkeypatch):
+    """The started startup motion's ``stop()`` is ``stop_motion``: on the
+    LS850T's board, which cannot take a STOP while it homes, it is refused
+    for the home in flight and the startup motion runs to its end."""
+    held = _HeldHome(session.scope, monkeypatch)
+    started = session.begin_application_session()
+    try:
+        assert held.entered.wait(HOME_S)
+        with pytest.raises(HardwareCommandRefusedError) as refused:
+            started.stop()
+    finally:
+        held.release.set()
+
+    assert (refused.value.reason, refused.value.member) == ('home_in_flight', 'stop_motion')
+    assert started.result(timeout=HOME_S) is None
+    assert session.scope.motion.get_turret_slot() == 1

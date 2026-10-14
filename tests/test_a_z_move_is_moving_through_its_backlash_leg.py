@@ -67,7 +67,7 @@ def test_every_reader_sees_the_leg_as_the_move(session):
     observer.start()
     handle = motion.start_move_absolute('Z', 1000.0, overshoot_enabled=True)
     observer.join(15.0)
-    handle.wait()
+    handle.result()
 
     assert seen['stage_in_leg'] > 1000.0, 'the observer did not read during the leg'
     assert seen['state'] == AxisState.MOVING

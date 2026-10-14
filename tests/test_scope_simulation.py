@@ -208,7 +208,7 @@ def test_a_held_axis_says_when_it_halted_and_clear_releases_it(scope):
     assert halted.wait(10.0), 'the held move never halted'
     assert 0.0 < scope.motion.get_actual_position('X') < 20_000.0
     scope.simulation.clear()
-    handle.wait()
+    handle.result()
     assert scope.motion.get_actual_position('X') == pytest.approx(20_000.0, abs=0.1)
 
 

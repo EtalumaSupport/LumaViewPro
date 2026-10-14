@@ -340,7 +340,7 @@ Bring-up asks the motor board which model it is before anything else. When the b
 
 To hear what bring-up reports (a camera not found, a partial-hardware warning), pass your outcome listener to the factory: `ScopeSession.create(..., outcome_listener=on_outcome)` registers it before the scope is built. See "Outcomes" below.
 
-**The UI dispatcher.** A host with a UI thread tells the process once how to reach it, before it builds a session: `ScopeSession.set_ui_dispatcher(UiDispatcher(schedule=..., thread=...))`, with `UiDispatcher` from `modules.kivy_utils`. `schedule` has `Clock.schedule_once(func, dt)`'s shape, and `thread` is the thread it delivers on. It is one setting for the process, not for a session: every lane's completion callback, every run event but `frame_captured` and every state listener the GUI marshals is handed to it at the moment it is delivered, whichever session or scope it belongs to. A host with no UI thread (a script, a REST server) never sets it, and a callback then runs on the thread that delivers it, its raise reported rather than raised; `set_ui_dispatcher(None)` restores that. A run's `wait()` made on `thread`, outside the run's own event handlers, raises `BlockingCallRefusedError` (`wait_on_ui_thread`).
+**The UI dispatcher.** A host with a UI thread tells the process once how to reach it, before it builds a session: `ScopeSession.set_ui_dispatcher(UiDispatcher(schedule=..., thread=...))`, with `UiDispatcher` from `modules.kivy_utils`. `schedule` has `Clock.schedule_once(func, dt)`'s shape, and `thread` is the thread it delivers on. It is one setting for the process, not for a session: every lane's completion callback, every run event but `frame_captured` and every state listener the GUI marshals is handed to it at the moment it is delivered, whichever session or scope it belongs to. A host with no UI thread (a script, a REST server) never sets it, and a callback then runs on the thread that delivers it, its raise reported rather than raised; `set_ui_dispatcher(None)` restores that. An `Operation`'s `result()` or `exception()` made on `thread` while it is not yet done, outside a run's own `run_ended` handler, raises `BlockingCallRefusedError` (`wait_on_ui_thread`).
 
 ```python
 from modules.kivy_utils import UiDispatcher
@@ -371,15 +371,15 @@ A simulated session can likewise show a save drive that stops answering: pass `s
 ### Application startup sequence
 
 ```python
-started = session.begin_application_session()        # home ALL axes, then position turret; returns a Future
+started = session.begin_application_session()        # home ALL axes, then position turret; returns an Operation
 started.result()                                     # None once the motion has ended and the scope is free
 session.start_application_session()                  # the same, waited for
 session.start_application_session(disable_homing=True)  # skip homing; no startup motion at all
 ```
 
-`begin_application_session()` is the single source of truth for the standard startup orchestration the GUI runs on launch: an all-axis `move_home` (firmware homes Z/T/X/Y in one routine; Z-only boards home what they have), then, when the scope has a turret, the T-axis to position 1 (where the home leaves it); the active objective is then slot 1's assignment. Headless / REST callers should use it rather than open-coding the home + turret sequence. It returns at once with a `concurrent.futures.Future`; `start_application_session()` is the same call, waited for, and refuses a call from an executor's worker, whose own queue or lane the motion may wait on, with `BlockingCallRefusedError` (`blocking_on_worker`; still a `RuntimeError`).
+`begin_application_session()` is the single source of truth for the standard startup orchestration the GUI runs on launch: an all-axis `move_home` (firmware homes Z/T/X/Y in one routine; Z-only boards home what they have), then, when the scope has a turret, the T-axis to position 1 (where the home leaves it); the active objective is then slot 1's assignment. Headless / REST callers should use it rather than open-coding the home + turret sequence. It returns at once with an `Operation` (see "How a run ends"), whose `stop()` is `stop_motion` (refused `home_in_flight` while the home drives on a board that cannot stop one); `start_application_session()` is the same call, waited for, and refuses a call from an executor's worker, whose own queue or lane the motion may wait on, with `BlockingCallRefusedError` (`blocking_on_worker`; still a `RuntimeError`).
 
-The scope is the startup's from before `begin_application_session()` returns until the motion ends, as it is during any home: every other request is refused naming the home (`exclusive_activity_running` / `home_in_flight`), and `controls_locked` is True. The claim is released before the Future settles. A failed home is reported as an outcome and skips the turret move; the Future still settles with None. `disable_homing=True` skips every startup motion: the turret is left where it is, like the stage axes, and no turret position is recorded. Position it yourself after homing.
+The scope is the startup's from before `begin_application_session()` returns until the motion ends, as it is during any home: every other request is refused naming the home (`exclusive_activity_running` / `home_in_flight`), and `controls_locked` is True. The claim is released before the operation is done. A failed home is reported as an outcome and skips the turret move; the operation still settles with None. `disable_homing=True` skips every startup motion: the turret is left where it is, like the stage axes, and no turret position is recorded. Position it yourself after homing.
 
 ### Camera capture settings
 
@@ -648,8 +648,10 @@ channel (the lit LED, else the shown channel's layer, `session.shown_channel`;
 see "The shown channel"), the folder (`live_folder/Manual`, per channel when
 `separate_folder_per_channel`),
 the name, summing, format and encoding come from the session's settings. It
-returns at once with a `concurrent.futures.Future` of the paths written, the
-unmarked file first; an overlay adds a second file from the same frame.
+returns at once with an `Operation` of the paths written, the unmarked file
+first; an overlay adds a second file from the same frame. It is done once the
+still has let go of the camera, so a second still asked then is not refused
+`'capture_in_flight'`. A still has no stop: its `stop()` does nothing.
 Each file records where the stage was when the frame was grabbed: the plate
 position (`PositionX`, `PositionY`, mm) and Z (`PositionZ`, um), each absent
 when the scope did not know it (an axis that has lost its reference, or a
@@ -665,7 +667,7 @@ paths = session.manual_capture.capture(
 It raises `HardwareCommandRefusedError` with reason `'capture_in_flight'` while an
 earlier still is running, `'exclusive_activity_running'` while a run, a
 diagnostic or a home holds the scope, and `'scope_disconnected'` when the camera is
-closed. When it returns, the still is on the camera lane. The Future raises
+closed. When it returns, the still is on the camera lane. The operation raises
 `ObjectiveUnknownError` when the objective in the light path is unknown
 (nothing captured) and `CaptureError` (reason `'no_frame_returned'`, the
 capture engine's cause as its message) when no frame passed.
@@ -677,7 +679,7 @@ idle camera lane, so the
 still saves under the state it started with and the run begins after it. A
 still queued behind other camera work (another command waiting or running
 when `capture()` put it there) and not yet running when a run takes the scope
-is refused, and its Future raises `HardwareCommandRefusedError` (reason
+is refused, and its operation raises `HardwareCommandRefusedError` (reason
 `'exclusive_activity_running'`).
 
 To save a frame you already hold, capture it and call `save_image`. It
@@ -940,11 +942,11 @@ x, y, z = scope.protocols.stage_targets(protocol, 60.0, 40.0, 5000.0)   # None f
 to_plate = scope.protocols.plate_transform(protocol, stage_offset=offset)   # stage um -> the protocol's plate mm, bound now
 ```
 
-**Going to a step.** `session.go_to_step(protocol, step_idx)` does what a click on a step does, as one task on the scope's IO lane: it asks every axis once whether it knows its position, turns the turret to the step's own slot (above), starts X, Y and Z towards the step's targets together (`scope.protocols.step_targets`, above), puts the step's values into its layer's live settings (the layer acquiring as the step does, its stimulation from the step's; the layer's saved focus is left as it is, since `new_protocol` starts from it), and applies the step's LED preview: the step's channel at its current when `protocol_led_on` is set, every channel dark when not. While the stage travels it puts the step's layer on the camera (`session.apply_layer_camera`, below), and it returns once the camera holds that layer's exposure, gain and auto-gain and X, Y and Z have arrived, waiting off the IO lane so the lane takes other work meanwhile; a move that does not arrive raises `MoveNotCompletedError`, with the layer and the preview already the step's, and a setting the camera refuses raises `CameraSettingRejected` once the stage has arrived. `session.start_go_to_step(protocol, step_idx)` does the same but for the camera and returns the started X, Y and Z moves without waiting (their `wait()` gives each outcome): the form for a click, where a second click re-targets the stage at once, and whose caller applies the camera. Only the axes the scope has are moved: a manual scope moves nothing, does the rest and returns no moves; a motorized scope whose motor controller is not connected is refused with `HardwareCommandRefusedError` (`not_connected`) before anything changes, and so is a scope with no camera connected (`MissingPart.CAMERA`), and a step whose preview would light on a scope with no LED controller connected (a dark preview needs none, so with `protocol_led_on` off the stage still moves); after `session.shutdown()` it raises `scope_disconnected`. A repeat of the step the session last went to (a re-click) does everything but the preview, so a channel lit or put out in between stays as it was; a run transition forgets it. It is refused before anything changes: a `step_idx` that is not a step of `protocol` with `StepNotFoundError`; a step whose objective this scope cannot put in the light path with `ProtocolRunRefusedError`; a step whose colour is no layer with `ArgumentRefusedError` (`layer_unknown`); a step on a layer this scope lacks with `HardwareCommandRefusedError` (`axis_absent`); a stimulation naming no layer with `ArgumentRefusedError` (`layer_unknown`); an axis that does not know its position with `AxisStateUnknownError` (raised to you and posted to no listener); a scope held by a run or a diagnostic with `HardwareCommandRefusedError`. A step outside an axis's travel raises `PositionOutOfRangeError` from that axis's move; the axes before it have moved and nothing else changes.
+**Going to a step.** `session.go_to_step(protocol, step_idx)` does what a click on a step does, as one task on the scope's IO lane: it asks every axis once whether it knows its position, turns the turret to the step's own slot (above), starts X, Y and Z towards the step's targets together (`scope.protocols.step_targets`, above), puts the step's values into its layer's live settings (the layer acquiring as the step does, its stimulation from the step's; the layer's saved focus is left as it is, since `new_protocol` starts from it), and applies the step's LED preview: the step's channel at its current when `protocol_led_on` is set, every channel dark when not. While the stage travels it puts the step's layer on the camera (`session.apply_layer_camera`, below), and it returns once the camera holds that layer's exposure, gain and auto-gain and X, Y and Z have arrived, waiting off the IO lane so the lane takes other work meanwhile; a move that does not arrive raises `MoveNotCompletedError`, with the layer and the preview already the step's, and a setting the camera refuses raises `CameraSettingRejected` once the stage has arrived. `session.start_go_to_step(protocol, step_idx)` does the same but for the camera and returns without waiting, with one `Operation` for the X, Y and Z moves it started: done once every one has ended, its `result()` None when all arrived and the first `MoveNotCompletedError` in X, Y, Z order when one did not, its `stop()` the moves' stop. It is the form for a click, where a second click re-targets the stage at once, and whose caller applies the camera. Only the axes the scope has are moved: a manual scope moves nothing, does the rest and returns an operation already done; a motorized scope whose motor controller is not connected is refused with `HardwareCommandRefusedError` (`not_connected`) before anything changes, and so is a scope with no camera connected (`MissingPart.CAMERA`), and a step whose preview would light on a scope with no LED controller connected (a dark preview needs none, so with `protocol_led_on` off the stage still moves); after `session.shutdown()` it raises `scope_disconnected`. A repeat of the step the session last went to (a re-click) does everything but the preview, so a channel lit or put out in between stays as it was; a run transition forgets it. It is refused before anything changes: a `step_idx` that is not a step of `protocol` with `StepNotFoundError`; a step whose objective this scope cannot put in the light path with `ProtocolRunRefusedError`; a step whose colour is no layer with `ArgumentRefusedError` (`layer_unknown`); a step on a layer this scope lacks with `HardwareCommandRefusedError` (`axis_absent`); a stimulation naming no layer with `ArgumentRefusedError` (`layer_unknown`); an axis that does not know its position with `AxisStateUnknownError` (raised to you and posted to no listener); a scope held by a run or a diagnostic with `HardwareCommandRefusedError`. A step outside an axis's travel raises `PositionOutOfRangeError` from that axis's move; the axes before it have moved and nothing else changes.
 
 ```python
 session.go_to_step(protocol, 2)                       # turret, X, Y, Z, the layer, the LED, the camera; returns on arrival
-moves = session.start_go_to_step(protocol, 3)         # the same, started; each move's wait() gives its outcome
+going = session.start_go_to_step(protocol, 3)         # the same, started; going.result() is the moves' outcome
 ```
 
 **Putting a layer on the camera.** `session.apply_layer_camera(layer)` puts the layer's stored exposure, gain and auto-gain on the camera and waits; it returns the gain and exposure now in effect. A stored auto-gain arms the live auto loop, capped to the layer's channel class; a camera without hardware auto-gain applies the layer manually. Bring-up applies BF this way (skipped with no camera, or on a scope with no BF layer), and `go_to_step` the step's layer. Refused: a name that is no layer with `ArgumentRefusedError` (`layer_unknown`); a layer this scope lacks with `HardwareCommandRefusedError` (`axis_absent`, `MissingPart.layer`); a scope held by a run (an autofocus is one) or a diagnostic, or with no camera connected (`not_connected`), with `HardwareCommandRefusedError`; a setting the camera refuses raises `CameraSettingRejected` with the other settings applied.
@@ -1424,9 +1426,12 @@ scope.motion.home(axis='T')                      # turret only (parks Z at 0, ho
 # guard is the Session's: a Lumascope built without a ScopeSession has no
 # activity claim, and its homes are not refused for one another.
 # Post-processing stays open during a home, as during a run.
-future = scope.motion.start_home(axis='ALL')     # same home, not waited: refused or started
-                                                 # before it returns; the Future settles
-                                                 # with what home() returns or raises
+homing = scope.motion.start_home(axis='ALL')     # same home, not waited: refused or started
+                                                 # before it returns; an Operation, done once
+                                                 # the home has let go of the scope, with what
+                                                 # home() returns or raises. homing.stop() is
+                                                 # stop_motion (refused 'home_in_flight' on a
+                                                 # board that cannot stop a home)
 scope.motion.has_homed()                         # True if the stage/focus axes know where they are
 scope.motion.position_is_known('T')              # turret-specific
 scope.motion.axes_without_position()             # {axis: 'unknown' | 'homing'}; {} when all known
@@ -1484,16 +1489,21 @@ scope.motion.move_absolute('Z', 5000)
 scope.motion.move_absolute('X', 60000)
 
 # Started moves: return once the board has taken the command, for work done
-# while the axis travels or axes moved together. The handle's wait() gives
-# the outcome move_absolute would have given.
+# while the axis travels or axes moved together. Each is an Operation (see
+# "How a run ends"), done once the axis has been set at rest, or given up,
+# and the position listeners told: result() returns None on arrival and
+# raises what move_absolute would have raised. stop() is stop_motion while
+# this move still has its axis, and nothing once it has ended -- a stop sent
+# late never halts the move that took the axis; the board's STOP halts every
+# axis.
 x = scope.motion.start_move_absolute('X', 60000)
 y = scope.motion.start_move_absolute('Y', 40000)
-x.wait()
-y.wait()
+x.result()
+y.result()
 
 # Relative moves (µm), waited like move_absolute; start_move_relative is the started form
 scope.motion.move_relative('Z', 100)
-scope.motion.start_move_relative('Z', 100).wait()
+scope.motion.start_move_relative('Z', 100).result()
 
 # A move that does not complete raises MoveNotCompletedError, never raised
 # itself, one object with .axis, .reason and .title. Its child says which
@@ -1503,14 +1513,14 @@ scope.motion.start_move_relative('Z', 100).wait()
 # from the driver's error), 'stalled' / 'board_lost' / 'position_unread' /
 # 'status_unread' (the motion monitor gave the axis up -- 'position_unread' when
 # the board said it arrived but never said where, 'status_unread' when it never
-# said whether it arrived; a waited move raises the very object the monitor reported;
-# 'stalled' too when the wait's own bound ran out first), 'faulted' (set UNKNOWN by something
-# else during the wait), 'stopped' (a stop landed on it: stop_motion, or the
+# said whether it arrived; the move raises the very object the monitor reported),
+# 'faulted' (set UNKNOWN by something else while it moved), 'stopped' (a stop landed on it: stop_motion, or the
 # stage's own stop in refusing a move), 'superseded'
 # (another move or a home took the axis before it arrived; the axis keeps
 # what that command gives it). The outcome is fixed when the move ends: a
-# move that arrived reads arrived however late wait() is called, whatever
-# moved or stopped the axis since.
+# move that arrived reads arrived however late result() is called, whatever
+# moved or stopped the axis since. A caller's own result(timeout) that
+# expires first raises TimeoutError and leaves the move going.
 
 # Interlocks. A stage that guards motion with its own inputs refuses a move
 # while one is open: HardwareCommandRefusedError, .reason 'lid_open' (title
@@ -3322,7 +3332,7 @@ Reached through built by the caller and passed as `events=` to a `ProtocolRunner
 
 ### Operation
 
-Reached through returned by a `ProtocolRunner` run member that started a run; a run's `Operation.files`. A `concurrent.futures.Future`: its `result`, `exception`, `done` and `add_done_callback` are the Future's.
+Reached through returned by a `ProtocolRunner` run member that started a run; a run's `Operation.files`; returned by `scope.motion.start_move_absolute`, `start_move_relative` and `start_home`, `session.start_go_to_step`, `session.begin_application_session` and `session.manual_capture.capture`. A `concurrent.futures.Future`: its `result`, `exception`, `done` and `add_done_callback` are the Future's.
 
 - `files`
 - `progress`
@@ -3593,13 +3603,6 @@ Reached through `session.live_work`.
 - `closed`
 - `closing`
 - `work`
-
-### MoveInFlight
-
-Reached through returned by `scope.motion.start_move_absolute`, `start_move_relative` and `session.start_go_to_step`.
-
-- `axis`
-- `wait`
 
 ### NamespaceHealth
 

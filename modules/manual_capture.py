@@ -30,6 +30,7 @@ from modules.layer_record import ChannelColors
 from modules.lumascope_api.imaging import capture_failure_cause
 from modules.recording_frames import frame_fact
 from modules.api_surface import api
+from modules.operation import Operation
 
 logger = logging.getLogger('LVP.modules.manual_capture')
 
@@ -90,7 +91,7 @@ class ManualCaptureController:
         false_color_on: bool,
         bullseye: bool = False,
         crosshairs: bool = False,
-    ) -> 'concurrent.futures.Future[list[pathlib.Path]]':
+    ) -> Operation:
         """Capture one still and save it; returns at once.
 
         Args:
@@ -107,10 +108,13 @@ class ManualCaptureController:
         engineering mode the name carries the turret slot.
 
         Returns:
-            A Future of the paths written, the unmarked file first. The
+            An ``Operation`` whose result is the paths written, the unmarked
+            file first, done once the still has let go of the camera lane's
+            guard, so a second still asked then is not refused. The
             still is on the camera lane when this returns, so a run started
             after it waits for it when it is running or was put on an idle
-            lane. The Future raises what the
+            lane. A still has no stop: ``stop()`` does nothing. The
+            operation raises what the
             capture raised: ``ObjectiveUnknownError`` when the objective in
             the light path is unknown (nothing captured),
             ``LiveFolderPathRefusedError`` (reason
@@ -122,8 +126,8 @@ class ManualCaptureController:
             ``'exclusive_activity_running'``) when a run took the scope
             while the still was queued behind other camera work, waiting or
             running when it was put on the lane; ``CancelledError`` when the lane dropped it unrun (the
-            scope disconnected). The Future sets no timeout: its caller
-            bounds its own wait.
+            scope disconnected). It sets no timeout: its caller bounds its
+            own wait.
 
         Raises:
             HardwareCommandRefusedError: reason ``'capture_in_flight'``,
@@ -146,23 +150,22 @@ class ManualCaptureController:
                 engineering_mode=self._engineering_mode(),
                 channel_colors=self._channel_colors(),
             )
-            future: concurrent.futures.Future = concurrent.futures.Future()
-            # Marked running before anyone else holds it, so only the lane
-            # settles it: a caller's cancel() is refused, and cannot release
-            # the guard a second time beside the lane.
-            future.set_running_or_notify_cancel()
+            waiter: concurrent.futures.Future = concurrent.futures.Future()
+            # Marked running before the lane holds it, so only the lane
+            # settles it and nothing releases the guard a second time
+            # beside the lane.
+            waiter.set_running_or_notify_cancel()
             # Submitted on the caller's thread, under the caller's taking: a
             # diagnostic holding the scope takes a still under its own, and
             # a run that takes the scope after this returns finds the still
             # already on the lane.
             request.scope.imaging._submit_camera(
-                self._still_body, _MEMBER, args=(request,), waiter=future
+                self._still_body, _MEMBER, args=(request,), waiter=waiter
             )
         except BaseException:
             self._in_flight.release()
             raise
-        future.add_done_callback(lambda _settled: self._release_if_unrun(request))
-        return future
+        return Operation.following(waiter, first=lambda: self._release_if_unrun(request))
 
     def _release_if_unrun(self, request: '_StillRequest') -> None:
         # Refused while queued or dropped before the lane ran the body, so

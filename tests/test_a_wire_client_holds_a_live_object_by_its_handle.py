@@ -1,8 +1,9 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """A wire client holds a live object by its handle, and reaches its members through it.
 
-A protocol, a run, a move in flight and the session's protocol runner cross
-the wire as ``{"handle": <id>, "type": <class name>}``. Their members are at
+A protocol and the session's protocol runner cross the wire as
+``{"handle": <id>, "type": <class name>}``; an operation in flight, a run or
+a move, is a job instead. Their members are at
 ``/api/v1/handles/<type>/<id>/<member>``, and a client passes one as an
 argument by its id. One object has one id. ``GET /api/v1/handles`` lists the
 held ids, so a client whose answer was lost finds its handle; ``DELETE``
@@ -18,12 +19,10 @@ from fastapi.testclient import TestClient
 
 import rest.handles
 from modules.api_surface import API, fields_of, mark_of
-from modules.lumascope_api.motion import MoveInFlight
 from modules.protocol import Protocol
 from modules.protocol_runner import ProtocolRunner
 from modules.scope_session import ScopeSession
 from rest.app import build_app
-from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
 
 
@@ -68,8 +67,8 @@ def test_the_live_objects_a_client_can_be_handed_each_have_their_members(client)
     }
 
     types = {path.split('/')[0] for _, path in served}
-    assert types == {'MoveInFlight', 'Protocol', 'ProtocolRunner'}
-    for cls in (MoveInFlight, Protocol, ProtocolRunner):
+    assert types == {'Protocol', 'ProtocolRunner'}
+    for cls in (Protocol, ProtocolRunner):
         assert {
             (method, path.split('/', 2)[2])
             for method, path in served
@@ -103,17 +102,6 @@ def test_a_handle_is_passed_as_an_argument_by_its_id(client, live):
 
     assert saved.json()['name'] == 'plate.tsv'
     assert (live / 'plate.tsv').is_file()
-
-
-def test_a_move_in_flight_is_waited_on_through_its_handle(client, session):
-    home_sim_scope(session.scope)
-    move = client.post(
-        '/api/v1/scope/motion/start_move_absolute', json={'axis': 'Z', 'position': 100.0}
-    ).json()
-
-    assert move['type'] == 'MoveInFlight'
-    assert client.post(f'/api/v1/handles/MoveInFlight/{move["handle"]}/wait').status_code == 200
-    assert session.scope.motion.axis_positions()['Z'].position == pytest.approx(100.0, abs=1)
 
 
 def test_an_id_not_held_for_its_type_is_404(client):

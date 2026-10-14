@@ -19,7 +19,6 @@ whose arrival was never read up as ``'status_unread'``, warning once.
 from __future__ import annotations
 
 import logging
-import time
 
 import pytest
 
@@ -135,13 +134,9 @@ def test_a_move_whose_arrival_is_never_read_ends_status_unread(make_session, cen
 
     with caplog.at_level(logging.WARNING, logger='LVP.api'):
         move = motion.start_move_relative('Z', 50.0)
-        # The wait's bound is the same zero: let the monitor end the move
-        # first, then the wait raises the object the monitor reported.
-        deadline = time.monotonic() + 5.0
-        while motion.is_moving() and time.monotonic() < deadline:
-            time.sleep(0.02)
+        # The monitor ends the move, and the move raises the object it reported.
         with pytest.raises(MoveNotCompletedError) as exc:
-            move.wait()
+            move.result(timeout=5.0)
 
     assert exc.value.reason == 'status_unread'
     assert exc.value.title == 'Motor Position Unknown'

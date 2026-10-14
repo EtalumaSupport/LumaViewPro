@@ -34,7 +34,7 @@ _WAIT_S = 10.0
 
 def _reason(handle):
     try:
-        handle.wait()
+        handle.result()
     except MoveNotCompletedError as e:
         return e.reason
     return 'arrived'
@@ -89,12 +89,10 @@ def test_a_home_after_a_stall_leaves_no_stale_fault(session, monkeypatch):
     already shown."""
     motion = session.scope.motion
     real_status = motion.get_target_status
-    real_wait = motion._wait_for_move
     monkeypatch.setattr(
         motion, 'get_target_status', lambda ax: False if ax == 'Z' else real_status(ax)
     )
     monkeypatch.setattr(motion, '_MOTION_SETTLE_TIMEOUT_S', 0.5)
-    monkeypatch.setattr(motion, '_wait_for_move', lambda move, timeout_s: real_wait(move, _WAIT_S))
     with pytest.raises(MoveNotCompletedError) as stalled:
         motion.move_absolute('Z', motion.get_current_position('Z') + 100.0)
     assert stalled.value.reason == 'stalled'

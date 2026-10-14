@@ -70,13 +70,8 @@ def _z_never_arrives(motion, monkeypatch):
 
 
 def _monitor_gives_up_first(motion, monkeypatch):
-    # The monitor's stall clock and the waiter's bound are the same number;
-    # the waiter's is widened so the monitor's verdict is the one tested.
+    # The monitor's stall clock, shortened: its verdict is the one a move ends with.
     monkeypatch.setattr(motion, '_MOTION_SETTLE_TIMEOUT_S', MONITOR_GIVES_UP_S)
-    real_wait = motion._wait_for_move
-    monkeypatch.setattr(
-        motion, '_wait_for_move', lambda move, timeout_s: real_wait(move, WAITER_BOUND_S)
-    )
 
 
 _DRIVER_MOVES = {
@@ -184,14 +179,11 @@ def test_a_later_wait_does_not_raise_an_earlier_stall(session, centre_posts, mon
     _the_caller_reports(lambda: motion.move_absolute('Z', _z_target(motion)))
     motion.home('Z')
 
-    # The next move's wait ends with Z set UNKNOWN by something other than
-    # the monitor: its outcome is that, not the stall before it.
-    def _something_else_faults_z(move, timeout_s):
-        motion._set_axis_state('Z', AxisState.UNKNOWN)
-        return True
-
-    monkeypatch.setattr(motion, '_wait_for_move', _something_else_faults_z)
+    # The next move ends with Z set UNKNOWN by something other than the
+    # monitor: its outcome is that, not the stall before it.
+    move = motion.start_move_absolute('Z', _z_target(motion))
+    motion._set_axis_state('Z', AxisState.UNKNOWN)
     with pytest.raises(MoveNotCompletedError) as raised:
-        motion.move_absolute('Z', _z_target(motion))
+        move.result(timeout=WAITER_BOUND_S)
 
     assert raised.value.reason == 'faulted'

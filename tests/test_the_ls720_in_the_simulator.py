@@ -122,7 +122,7 @@ def test_the_lid_refuses_x_and_y_and_lets_z_move(homed):
 
 def _ended(handle):
     with pytest.raises(MoveNotCompletedError) as raised:
-        handle.wait()
+        handle.result()
     return raised.value.reason
 
 
@@ -204,7 +204,7 @@ def test_the_motion_monitor_outlives_a_silence_during_a_move(homed):
     # Answered, X arrives well inside the 1.5 s; silenced, no arrival is read.
     assert homed.motion.get_axis_state('X') == AxisState.MOVING
     homed.simulation.unsilence('motor')
-    move.wait()
+    move.result()
     homed.motion.home()
     homed.motion.move_absolute('Y', 20_000)
     assert _at(homed, 'Y') == pytest.approx(20_000, abs=0.2)

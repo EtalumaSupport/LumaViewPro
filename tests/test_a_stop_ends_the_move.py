@@ -50,9 +50,9 @@ def _ended(e: MoveNotCompletedError) -> str:
     return e.reason
 
 
-def _reason(handle):
+def _reason(move):
     try:
-        handle.wait()
+        move.result(timeout=_HOLD_WAIT_S)
     except MoveNotCompletedError as e:
         return _ended(e)
     return 'arrived'
@@ -186,6 +186,30 @@ def test_a_move_a_stop_ended_reads_stopped_not_superseded(session, monkeypatch):
     assert motion.get_current_position('X') == pytest.approx(driver.current_pos('X'), abs=0.1)
 
 
+def test_a_moves_stop_once_another_move_has_its_axis_leaves_that_move_driving(session):
+    """A move's ``stop()`` stops the board only while its move still has
+    the axis. The window: the superseded move is over, but its operation
+    is not yet done while the new move's MOVING is told to the listeners --
+    a stop sent there withheld the new move's drive."""
+    motion = session.scope.motion
+    first = motion.start_move_absolute('X', 60000.0)
+    retargeting = threading.Event()
+
+    def stop_the_first_as_the_second_is_told(axis, at):
+        if axis == 'X' and at.state == AxisState.MOVING and retargeting.is_set():
+            retargeting.clear()
+            first.stop()
+
+    motion.add_position_listener(stop_the_first_as_the_second_is_told)
+    retargeting.set()
+    second = motion.start_move_absolute('X', 10000.0)
+
+    assert not retargeting.is_set(), 'the listener never saw the second move start'
+    assert _reason(first) == 'superseded'
+    assert _reason(second) == 'arrived'
+    assert motion.get_current_position('X') == pytest.approx(10000.0, abs=1.0)
+
+
 @pytest.fixture
 def turret_session(tmp_path):
     s = ScopeSession.create(
@@ -250,16 +274,17 @@ def test_a_stop_after_the_turret_arrived_leaves_z_parked_and_no_slot(turret_sess
     real_move = motion._move_absolute_impl
 
     def the_turn_arrives_then_a_stop(axis, *args, **kwargs):
-        handle = real_move(axis, *args, **kwargs)
+        move = real_move(axis, *args, **kwargs)
         if axis == 'T':
-            real_wait = handle.wait
+            real_result = move.result
 
-            def wait_then_stop(*wait_args, **wait_kwargs):
-                real_wait(*wait_args, **wait_kwargs)
+            def result_then_stop(*result_args, **result_kwargs):
+                answer = real_result(*result_args, **result_kwargs)
                 motion.stop_motion()
+                return answer
 
-            handle.wait = wait_then_stop
-        return handle
+            move.result = result_then_stop
+        return move
 
     monkeypatch.setattr(motion, '_move_absolute_impl', the_turn_arrives_then_a_stop)
     reason = _turret_change_reason(motion)

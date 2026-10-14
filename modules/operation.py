@@ -161,6 +161,74 @@ class Operation(concurrent.futures.Future):
         """Where this operation has got, read now; None for one that keeps no progress record."""
         return None if self._progress is None else self._progress()
 
+    @classmethod
+    def following(
+        cls,
+        waiter: concurrent.futures.Future,
+        *,
+        stop: Callable[[], object] | None = None,
+        first: Callable[[], object] | None = None,
+    ) -> 'Operation':
+        """The operation a lane task's *waiter* settles: done with its outcome, once *first()* has run.
+
+        For a producer whose task holds something it releases when the task
+        ends: *first* runs on the thread that settles *waiter*, before this
+        operation is done, so whoever reads the outcome finds it let go. A
+        done-callback on the operation itself would run that release on the
+        callback thread, after a waiting caller was already told.
+        """
+        op = cls(stop=stop)
+
+        def settle(settled: concurrent.futures.Future) -> None:
+            try:
+                if first is not None:
+                    first()
+            finally:
+                exception = settled.exception()
+                if exception is None:
+                    op.set_result(settled.result())
+                else:
+                    op.set_exception(exception)
+
+        waiter.add_done_callback(settle)
+        return op
+
+    @classmethod
+    def all_of(cls, operations: 'tuple[Operation, ...]') -> 'Operation':
+        """One operation for several started together: done once every one is, raising the first one's raise.
+
+        ``stop()`` stops each one still under way. With none, it is done at once.
+        """
+
+        def stop() -> None:
+            for op in operations:
+                op.stop()
+
+        joined = cls(stop=stop)
+        if not operations:
+            joined.set_result(None)
+            return joined
+        lock = threading.Lock()
+        left = [len(operations)]
+
+        def one_ended(_op: concurrent.futures.Future) -> None:
+            with lock:
+                left[0] -= 1
+                if left[0]:
+                    return
+            raised = next((op.exception() for op in operations if op.exception() is not None), None)
+            if raised is None:
+                joined.set_result(None)
+            else:
+                joined.set_exception(raised)
+
+        # Counted on each settling thread, not the callback thread: a
+        # done-callback that waits on the joined operation would otherwise
+        # hold the one thread its count needs.
+        for op in operations:
+            concurrent.futures.Future.add_done_callback(op, one_ended)
+        return joined
+
     def add_done_callback(self, fn: Callable[['Operation'], object]) -> None:
         """Run ``fn(self)`` on the callback thread once this operation is done."""
         super().add_done_callback(lambda op: _callbacks.hand(fn, op))

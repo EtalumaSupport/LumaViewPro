@@ -65,7 +65,7 @@ def test_a_stopped_move_answers_the_poll(session):
     assert held.wait(10.0)
     motion.stop_motion()
     with pytest.raises(MoveNotCompletedError):
-        handle.wait()
+        handle.result()
     assert motion.get_target_position('X') == motion.get_current_position('X')
     assert motion.get_target_position('X') != 60000.0
 

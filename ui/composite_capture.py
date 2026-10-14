@@ -53,7 +53,7 @@ class CompositeCapture(FloatLayout):
         looking at, read here on the main thread. A second press while a
         still is in flight, and a press while a run holds the camera, are
         the member's refusals; the reporter shows them, and whatever the
-        still's Future settles with, like any other outcome.
+        still's operation settles with, like any other outcome.
         """
         gui_logger.button('LIVE_CAPTURE')
         ctx = _app_ctx.ctx

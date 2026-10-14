@@ -256,7 +256,7 @@ class TestALidOpenedDuringAMove:
             move = ls720.motion.start_move_absolute('X', far)
 
             with pytest.raises(MoveStoppedError) as ended:
-                move.wait()
+                move.result()
 
             assert ended.value.reason == 'stopped'
             stopped_at = ls720.motion.get_current_position()['X']

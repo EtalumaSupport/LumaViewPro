@@ -233,6 +233,20 @@ class TestOverlays:
 
 
 class TestRefusalsAndFailures:
+    def test_a_still_has_no_stop_so_stop_leaves_it_to_finish(self, still_session):
+        """A still is an ``Operation`` with no stop: ``stop()`` while it is
+        on the lane does nothing, and the still is written (Eric 2026-10-13:
+        refusing it "seems rude")."""
+        session, _ = still_session
+        blocker = _LaneBlocker(session)
+        try:
+            still = session.manual_capture.capture(false_color_on=False)
+            assert still.stop() is None
+            assert not still.done()
+        finally:
+            blocker.release()
+        assert still.result(timeout=RESULT_TIMEOUT_S)[0].is_file()
+
     def test_a_second_still_while_one_is_in_flight_is_refused(self, still_session):
         session, _ = still_session
         blocker = _LaneBlocker(session)

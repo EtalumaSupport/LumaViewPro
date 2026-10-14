@@ -106,7 +106,7 @@ class TestAMoveWaits:
         move = motion.start_move_absolute('Z', _z_target(motion))
 
         with pytest.raises(MoveNotCompletedError) as exc:
-            move.wait()
+            move.result()
         puller.join()
 
         assert exc.value.axis == 'Z'
@@ -116,7 +116,7 @@ class TestAMoveWaits:
         motion = session.scope.motion
         target = _z_target(motion)
 
-        motion.start_move_absolute('Z', target).wait()
+        motion.start_move_absolute('Z', target).result()
 
         assert motion.get_axis_state('Z') == AxisState.IDLE
         assert motion.get_current_position('Z') == pytest.approx(target, abs=1.0)
@@ -162,8 +162,8 @@ class TestTheWaitIsOffTheLane:
         second = motion.start_move_absolute('Z', first_target + 100.0)
 
         with pytest.raises(MoveNotCompletedError) as exc:
-            first.wait()
-        second.wait()
+            first.result()
+        second.result()
 
         assert exc.value.reason == 'superseded'
         assert motion.get_current_position('Z') == pytest.approx(first_target + 100.0, abs=1.0)
@@ -220,7 +220,7 @@ class TestWaitingForMotionTheCallerDidNotStart:
         motion.wait_until_finished_moving(timeout_s=_TRAVEL_WAIT_S)
 
         with pytest.raises(MoveNotCompletedError) as exc:
-            move.wait()
+            move.result()
         assert exc.value.reason == 'stopped'
 
 
@@ -316,10 +316,114 @@ class TestAStartedGoToStep:
 
         session.start_go_to_step(protocol, 0)
         assert motion.is_moving(), 'the started form returned after the stage arrived'
-        moves = session.start_go_to_step(protocol, 1)
-        for move in moves:
-            move.wait()
+        session.start_go_to_step(protocol, 1).result(timeout=_TRAVEL_WAIT_S)
 
         step_two = session.scope.protocols.step_targets(protocol, 1)
         assert motion.get_current_position('X') == pytest.approx(step_two.x, abs=1.0)
         assert motion.get_current_position('Y') == pytest.approx(step_two.y, abs=1.0)
+
+    def test_its_one_operation_is_done_once_every_axis_has_arrived(self, session):
+        motion = session.scope.motion
+        motion._driver.set_timing_mode('realistic')
+        protocol = self._two_step_protocol(session)
+        step = session.scope.protocols.step_targets(protocol, 1)
+
+        seen = _after(
+            session.start_go_to_step(protocol, 1),
+            lambda op: {
+                'ended': op.exception(),
+                'states': {axis: motion.get_axis_state(axis) for axis in 'XYZ'},
+                'at': tuple(motion.get_current_position(axis) for axis in 'XYZ'),
+            },
+        )
+
+        assert seen == {
+            'ended': None,
+            'states': dict.fromkeys('XYZ', AxisState.IDLE),
+            'at': tuple(pytest.approx(v, abs=1.0) for v in (step.x, step.y, step.z)),
+        }
+
+
+def _after(operation, then) -> dict:
+    """Run ``then(operation)`` as the operation's done-callback; answer what it saw.
+
+    Waits on the callback's own event, so a callback that never runs, or
+    one wedged by a wait it made, fails here by name.
+    """
+    seen: dict = {}
+    ran = threading.Event()
+
+    def on_done(op):
+        try:
+            seen.update(then(op))
+        except Exception as e:  # asserted by the caller through seen['error']
+            seen['error'] = e
+        finally:
+            ran.set()
+
+    operation.add_done_callback(on_done)
+    assert ran.wait(_TRAVEL_WAIT_S), 'the done-callback never ran, or never returned'
+    return seen
+
+
+class TestAStartedMoveIsAnOperation:
+    """A started move is an ``Operation``: done once its axis has been set
+    at rest and its position listeners told, its done-callbacks free to read
+    the axis and to make a waited move, whichever thread ended it."""
+
+    def test_a_done_callback_after_arrival_sees_the_axis_told_at_rest_and_may_move(self, session):
+        motion = session.scope.motion
+        target = _z_target(motion)
+        told = []
+        motion.add_position_listener(lambda axis, at: told.append((axis, at.state)))
+
+        def then(op):
+            assert op.exception() is None
+            seen = {
+                'state': motion.get_axis_state('Z'),
+                'position': motion.get_current_position('Z'),
+                'listener_told_idle': ('Z', AxisState.IDLE) in told,
+            }
+            motion.move_absolute('Z', target + 20.0)
+            seen['moved_to'] = motion.get_current_position('Z')
+            return seen
+
+        seen = _after(motion.start_move_absolute('Z', target), then)
+
+        assert seen == {
+            'state': AxisState.IDLE,
+            'position': pytest.approx(target, abs=1.0),
+            'listener_told_idle': True,
+            'moved_to': pytest.approx(target + 20.0, abs=1.0),
+        }
+
+    def test_a_done_callback_of_a_move_superseded_on_the_lane_may_move_another_axis(self, session):
+        motion = session.scope.motion
+        target = _z_target(motion)
+        x_target = motion.get_current_position('X') + 500.0
+        first = motion.start_move_absolute('Z', target)
+
+        def then(op):
+            ended = op.exception()
+            motion.move_absolute('X', x_target)
+            return {'ended': getattr(ended, 'reason', ended), 'x': motion.get_current_position('X')}
+
+        second = motion.start_move_absolute('Z', target + 100.0)
+        seen = _after(first, then)
+        second.result(timeout=_TRAVEL_WAIT_S)
+
+        assert seen == {'ended': 'superseded', 'x': pytest.approx(x_target, abs=1.0)}
+
+    def test_a_callers_expired_wait_raises_timeout_and_the_move_still_arrives(self, session):
+        motion = session.scope.motion
+        target = _z_target(motion)
+        halted = session.scope.simulation.hold_axis('Z')
+        move = motion.start_move_absolute('Z', target)
+        assert halted.wait(_TRAVEL_WAIT_S), 'the move never reached its hold'
+
+        with pytest.raises(TimeoutError):
+            move.result(timeout=0.05)
+        session.scope.simulation.clear()
+
+        assert move.result(timeout=_TRAVEL_WAIT_S) is None
+        assert motion.get_current_position('Z') == pytest.approx(target, abs=1.0)

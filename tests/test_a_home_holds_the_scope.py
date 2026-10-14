@@ -103,7 +103,7 @@ def test_a_home_holds_the_scope_until_it_ends(session, monkeypatch):
 
     assert not session.controls_locked
     assert True in edges and edges[-1] is False
-    scope.motion.start_move_relative('Z', 10.0).wait()
+    scope.motion.start_move_relative('Z', 10.0).result()
 
 
 def test_a_home_inside_a_diagnostic_runs_under_it(session):

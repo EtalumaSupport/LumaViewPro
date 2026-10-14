@@ -376,7 +376,8 @@ def test_go_to_step_on_a_manual_scope_moves_nothing_and_loads_the_layer(make_ses
     protocol = _protocol()
     session.settings['BF']['exposure_ms'] = protocol.step(idx=0)['Exposure'] + 1.0
 
-    assert session.start_go_to_step(protocol, 0) == ()
+    going = session.start_go_to_step(protocol, 0)
+    assert going.done() and going.result() is None
     assert session.get_setting('BF')['exposure_ms'] == protocol.step(idx=0)['Exposure']
 
 

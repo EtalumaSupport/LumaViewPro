@@ -82,6 +82,7 @@ from modules.lumascope_api.illumination import LedState, LedTransition, LedTrans
 from modules.lumascope_api.runtime_state import slots_holding
 from modules.manual_capture import ManualCaptureController
 from modules.notification_center import Notification
+from modules.operation import Operation
 from modules.manual_recording import ManualRecordingController
 from modules.config_helpers import DisplayRates
 from modules.metrics_logger import ENGINEERING_METRICS_INTERVAL_S, MetricsLogger
@@ -135,11 +136,9 @@ if TYPE_CHECKING:
     from modules.lumascope_api import Lumascope
     from modules.lumascope_api.bring_up import BringUpRecord
     from modules.lumascope_api.imaging import AutoGainLock
-    from modules.lumascope_api.motion import MoveInFlight
     from modules.objectives_loader import ObjectiveLoader
     from modules.protocol import Protocol, ProtocolSizeAdvisory
     from modules.lumascope_api.protocols import StepTargets
-    from modules.operation import Operation
     from modules.protocol_runner import ProtocolRunner
     from modules.sequential_io_executor import SequentialIOExecutor
     from modules.plugins import PluginHealth
@@ -2277,7 +2276,8 @@ class ScopeSession:
         """Go to step ``step_idx`` of ``protocol``; return once the camera holds the step's layer and the stage has arrived.
 
         ``start_go_to_step``, then ``apply_layer_camera`` for the step's
-        layer while the stage travels, then each started move's ``wait()``;
+        layer while the stage travels, then the started operation's
+        ``result()``;
         see ``start_go_to_step`` for what going to a step does and refuses.
         Both waits run in this caller's thread, so the IO lane takes other
         work meanwhile.
@@ -2286,8 +2286,8 @@ class ScopeSession:
 
         Raises:
             MoveNotCompletedError: an axis did not arrive at the step; see
-                ``MoveInFlight.wait``. The layer and the preview are the
-                step's.
+                ``MotionAPI.start_move_absolute``. The layer and the preview
+                are the step's.
             CameraSettingRejected: the camera refused a setting of the
                 step's layer, raised once the stage has arrived; see
                 ``apply_layer_camera``.
@@ -2295,17 +2295,16 @@ class ScopeSession:
         # Read before the start, as the start reads it: the step this call
         # was made for, whatever the list holds once the lane has run.
         layer = protocol.step(idx=step_idx)['Color']
-        moves = self.start_go_to_step(protocol, step_idx)
+        going = self.start_go_to_step(protocol, step_idx)
         try:
             self.apply_layer_camera(layer)
         finally:
             # A refused apply still waits out the travel it started, so the
             # caller is never handed a raise with the stage still moving.
-            for move in moves:
-                move.wait()
+            going.result()
 
-    @api
-    def start_go_to_step(self, protocol: 'Protocol', step_idx: int) -> 'tuple[MoveInFlight, ...]':
+    @api(stop='Operation.stop')
+    def start_go_to_step(self, protocol: 'Protocol', step_idx: int) -> Operation:
         """Start going to step ``step_idx`` of ``protocol``, as a click on a step does.
 
         One task on the scope's IO lane: the axes are asked once whether
@@ -2316,13 +2315,16 @@ class ScopeSession:
         the layer acquiring as the step does and its focus at the step's Z,
         so the layer and the step agree; and the step's LED preview is
         applied -- its channel at its current when ``protocol_led_on`` is
-        set, every channel dark when not. It returns the started X, Y and Z
-        moves once that task has run, before the stage arrives: each move's
-        ``wait()`` says whether it got there, and ``go_to_step`` waits on
-        them. A person's click is a gesture and does not wait; a fault on
-        the way is the motion monitor's to report. Only the axes this scope
-        has are moved: a manual scope moves nothing, does the rest and
-        returns no moves.
+        set, every channel dark when not. It returns once that task has run,
+        before the stage arrives, with one ``Operation`` for the X, Y and Z
+        moves it started: done once every one has ended, its ``result()``
+        returns None when all arrived and raises the first that did not, in
+        X, Y, Z order, as ``MotionAPI.start_move_absolute`` says; its
+        ``stop()`` stops the moves still under way. ``go_to_step`` waits on
+        it. A person's click is a gesture and does not wait; a fault on the
+        way is the motion monitor's to report. Only the axes this scope has
+        are moved: a manual scope moves nothing, does the rest and returns
+        an operation already done.
 
         A repeat of the step this session last went to (a re-click, a
         re-typed number) does everything but the preview: a channel the
@@ -2379,15 +2381,16 @@ class ScopeSession:
                 )
         # Every member inside bounds its own wait, so the task has no bound
         # of its own to add.
-        return self.io_executor.call(
+        moves = self.io_executor.call(
             IOTask(action=self._go_to_step_on_lane, args=(protocol, step_idx, step, targets)),
             'go_to_step',
             timeout_s=None,
         )
+        return Operation.all_of(moves)
 
     def _go_to_step_on_lane(
         self, protocol: 'Protocol', step_idx: int, step, targets: 'StepTargets'
-    ) -> 'tuple[MoveInFlight, ...]':
+    ) -> tuple[Operation, ...]:
         """The lane half of ``go_to_step``: ask once, start the moves, load the layer, preview.
 
         Returns the started moves, one per axis this scope has among X, Y
@@ -4603,15 +4606,15 @@ class ScopeSession:
             self.remove_outcome_listener(listener)
         self._shut_down = True
 
-    @api(in_process=True)
+    @api(in_process=True, stop='Operation.stop')
     def begin_application_session(
         self,
         *,
         disable_homing: bool = False,
         home_fn: Callable[[str], object] | None = None,
         turret_fn: Callable[[int], object] | None = None,
-    ) -> concurrent.futures.Future[None]:
-        """Start the standard startup motion without waiting for it; returns its Future.
+    ) -> Operation:
+        """Start the standard startup motion without waiting for it; returns its ``Operation``.
 
         The one implementation of the startup motion for every host:
         the App's launch and its reconnect handler once open-coded the
@@ -4635,14 +4638,16 @@ class ScopeSession:
         refused naming the home, and the controls lock. So a turret pick made
         meanwhile is refused rather than undone by step 2. Asked under a live
         taking, the motion is that activity's work and takes nothing. The
-        claim is released before the Future settles, so a caller told the
-        motion has ended finds the scope free.
+        claim is released before the operation is done, so a caller told
+        the motion has ended finds the scope free. Its ``stop()`` is
+        ``stop_motion``, refused ``'home_in_flight'`` while the home drives
+        on a board that cannot stop one.
 
         A failed home is reported (``report_outcome``) and ends the motion
         without the turret move -- an absolute move against a reference the
-        home did not establish; the Future settles with None. A refusal that
-        is not for the hardware's state is a defect, and settles the Future
-        with it.
+        home did not establish; the operation settles with None. A refusal
+        that is not for the hardware's state is a defect, and settles the
+        operation with it.
 
         ``disable_homing=True`` skips every step: no startup motion on any
         axis. The turret is left where it is, like the stage axes, in no
@@ -4654,7 +4659,7 @@ class ScopeSession:
         False) has nothing to home, so it issues no startup motion either;
         nor does one whose motor board bring-up recorded as missing, which
         bring-up's own report has already named. A skip takes nothing and
-        returns a settled Future.
+        returns an operation already done.
 
         Args:
             disable_homing: If True, issue no startup motion at all.
@@ -4668,18 +4673,14 @@ class ScopeSession:
                 ``'exclusive_activity_running'``: something already holds
                 the scope. Nothing was taken.
         """
-        settled: concurrent.futures.Future[None] = concurrent.futures.Future()
-        # Marked running before anyone else holds it, so only the lane
-        # settles it and a caller's cancel() cannot release the claim.
-        settled.set_running_or_notify_cancel()
+        skipped = Operation()
+        skipped.set_result(None)
         if disable_homing:
             logger.info('startup motion skipped: homing disabled; the turret is left where it is')
-            settled.set_result(None)
-            return settled
+            return skipped
         if not self.scope.motion_expected:
             logger.info('startup motion skipped: this scope model has no motor board')
-            settled.set_result(None)
-            return settled
+            return skipped
         from modules.lumascope_api.bring_up import MOTOR
 
         # Bring-up has already reported the missing board once, in its own
@@ -4687,8 +4688,7 @@ class ScopeSession:
         # connected" and show the same absence a second time.
         if self.scope.bring_up_record().part(MOTOR).missing:
             logger.info('startup motion skipped: the motor board did not come up at bring-up')
-            settled.set_result(None)
-            return settled
+            return skipped
 
         if home_fn is None:
             home_fn = self.scope.motion.home
@@ -4703,16 +4703,21 @@ class ScopeSession:
         # its moves; the diagnostics worker carries it, because the moves
         # themselves wait on the io lane.
         body, release_if_unrun, taking = self.scope.motion.claim_home(startup_motion)
+        waiter: concurrent.futures.Future[None] = concurrent.futures.Future()
+        # Marked running before the lane holds it, so only the lane settles
+        # it and nothing cancels it beside the claim.
+        waiter.set_running_or_notify_cancel()
         try:
             with acting(taking):
                 self.executor_bundle.diagnostics_executor.submit(
-                    IOTask(action=body), 'begin_application_session', waiter=settled
+                    IOTask(action=body), 'begin_application_session', waiter=waiter
                 )
         except BaseException:
             release_if_unrun()
             raise
-        settled.add_done_callback(lambda _settled: release_if_unrun())
-        return settled
+        return Operation.following(
+            waiter, stop=self.scope.motion.stop_motion, first=release_if_unrun
+        )
 
     @api(in_process=True)
     def start_application_session(
@@ -4725,8 +4730,8 @@ class ScopeSession:
         """Run the standard startup motion, and wait for it.
 
         ``begin_application_session``, waited for: returns when the startup
-        motion has ended and the scope is free, and raises what its Future
-        would. Headless / REST callers use this exact call to apply the
+        motion has ended and the scope is free, and raises what its
+        operation would. Headless / REST callers use this exact call to apply the
         standard startup orchestration without copy-pasting from the App.
 
         Raises:

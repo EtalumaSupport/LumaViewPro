@@ -58,6 +58,7 @@ from modules.exceptions import (
 )
 from modules.notification_center import notifications
 from modules.activity_claim import Taking, acting, current_taking
+from modules.operation import Operation
 from modules.sequential_io_executor import IOTask, slow_task_budget
 
 # Declared costs, module-level because the @slow_task_budget decorators run at
@@ -127,6 +128,7 @@ class _Move:
     read as this move's outcome. Settled once: the first ending wins.
 
     Attributes:
+        axis: The axis it drives.
         stop_generation: ``MotionAPI._stop_generation`` as the move's body
             read it before driving; a different one at the move's IDLE
             means a STOP the board took ended it.
@@ -134,74 +136,47 @@ class _Move:
             board's reached bit is this move's: set by ``_publish_drive``.
             Until then a reached bit is the previous target's, or the
             backlash leg's, and the monitor writes no verdict for the move.
-        done: Set when the move is settled; the fields below are read only
-            after it.
         outcome: ``'arrived'``, ``'stopped'``, ``'superseded'`` or
             ``'faulted'``; None until settled.
         fault: The error an UNKNOWN ending carried, or None.
         target: The final target the move wrote to the board, set by
             ``_publish_drive``; None until written, and for good when a stop
             withheld it.
+        operation: The move as its caller holds it: done by ``publish``,
+            once the hold that settled the move has been released and the
+            axis's listeners told.
     """
 
-    __slots__ = ('armed', 'done', 'fault', 'outcome', 'stop_generation', 'target')
+    __slots__ = ('armed', 'axis', 'fault', 'operation', 'outcome', 'stop_generation', 'target')
 
-    def __init__(self, stop_generation: int) -> None:
+    def __init__(self, axis: str, stop_generation: int, stop: Callable[[], None]) -> None:
+        self.axis = axis
         self.stop_generation = stop_generation
         self.armed = False
-        self.done = threading.Event()
         self.outcome: str | None = None
         self.fault: MoveFaultError | None = None
         self.target: float | None = None
+        self.operation = Operation(stop=stop)
 
-    def settle(self, outcome: str, fault: MoveFaultError | None = None) -> None:
-        """Fix the outcome, unless the move is already settled."""
-        if self.done.is_set():
-            return
+    def settle(self, outcome: str, fault: MoveFaultError | None = None) -> bool:
+        """Fix the outcome, unless the move is already settled; whether this call fixed it."""
+        if self.outcome is not None:
+            return False
         self.outcome = outcome
         self.fault = fault
-        self.done.set()
+        return True
 
+    def publish(self) -> None:
+        """Settle the operation with the outcome: None on arrival, else what ended the move.
 
-@api_fields('axis')
-class MoveInFlight:
-    """A move that has started; ``wait()`` gives its outcome.
-
-    Returned by ``MotionAPI.start_move_absolute`` and ``start_move_relative``
-    once the board has taken the command and the axis is MOVING. ``wait()``
-    returns when this move's axis arrived and raises otherwise -- the same
-    verdict ``move_absolute`` and ``move_relative`` give, because each of
-    them is a start followed by this wait. It blocks the calling thread,
-    never the scope's IO lane. The outcome is the one the move ended with,
-    however late the wait: a later move or a STOP after it ended does not
-    change it.
-
-    Attributes:
-        axis: The axis this move drove.
-    """
-
-    axis: str
-
-    def __init__(self, motion: MotionAPI, axis: str, move: _Move) -> None:
-        self._motion = motion
-        self.axis = axis
-        self._move = move
-
-    @api
-    def wait(self) -> None:
-        """Return once this move's axis has arrived at its target.
-
-        Raises:
-            MoveNotCompletedError: The axis did not arrive. ``'stalled'``,
-                ``'board_lost'``, ``'position_unread'`` or
-                ``'status_unread'``, the motion monitor gave it up, or the
-                motion bound ran out (``'stalled'``); ``'faulted'``, something
-                else set it UNKNOWN (each of these leaves the axis UNKNOWN); ``'stopped'``, a stop the board took while it
-                moved halted it, ``stop_motion``'s or the stage's own in
-                refusing a move; ``'superseded'``, another move or a home
-                took the axis before it arrived.
+        Called outside ``_axis_state_lock``: a done-callback, or a waiter
+        woken here, reads the motion state through that lock.
         """
-        self._motion._await_move(self.axis, self._move)
+        if self.outcome == 'arrived':
+            self.operation.set_result(None)
+        else:
+            # Only a fault carries its object; the other endings are stops.
+            self.operation.set_exception(self.fault or MoveStoppedError(self.axis, self.outcome))
 
 
 @api_fields('axis', 'at')
@@ -1044,7 +1019,7 @@ class MotionAPI:
         # have established it is the operation being recovered. Refusing
         # here would mean an UNKNOWN Z could never be re-homed without
         # restarting the application.
-        self._move_absolute_impl('Z', position=0, force=True).wait()
+        self._move_absolute_impl('Z', position=0, force=True).result()
         self._is_turreting = True
         try:
             yield stop_generation
@@ -1067,7 +1042,7 @@ class MotionAPI:
                 # force for the same reason as the retract: this is the
                 # other half of one recovery, and refusing it would park
                 # the stage at Z=0 with no way back.
-                self._move_absolute_impl('Z', position=initial_z, force=True).wait()
+                self._move_absolute_impl('Z', position=initial_z, force=True).result()
             else:
                 logger.info(
                     '[SCOPE API ] Skipping Z restore -- caller will overwrite Z next',
@@ -1196,7 +1171,7 @@ class MotionAPI:
         self._last_turret_position = None
         with self._safe_turret_move(restore_z=restore_z) as stop_generation:
             logger.info(f'[SCOPE API ] Moving T to position {position}')
-            self._move_absolute_impl('T', position).wait()
+            self._move_absolute_impl('T', position).result()
         # T's own wait judges only T; a stop after T arrived, before the
         # restore, ended the change all the same.
         if self._stopped_since(stop_generation):
@@ -1902,12 +1877,12 @@ class MotionAPI:
         ignore_limits: bool = False,
         force: bool = False,
         frame: str = 'stage',
-    ) -> MoveInFlight:
+    ) -> Operation:
         """Start an axis moving to an absolute position; return the started move.
 
         Returns once the board has taken the command and the axis is
-        MOVING. The returned handle's ``wait()`` is the move's outcome; a
-        caller that needs the axis where it was sent waits on it.
+        MOVING. The returned operation's ``result()`` is the move's outcome;
+        a caller that needs the axis where it was sent waits on it.
 
         Args:
             axis (str): Axis name ("X", "Y", "Z", "T").
@@ -2014,53 +1989,7 @@ class MotionAPI:
         # get_target_position reads it.
         self._fire_position_listeners(axis)
         _api_log.info(f'move_abs {axis}={position:.1f}um')
-        return MoveInFlight(self, axis, move)
-
-    def _await_move(self, axis: str, move: _Move) -> None:
-        """Return only once ``move`` arrived at its target; raise otherwise.
-
-        The outcome is the one the move was settled with when it ended (see
-        ``_Move``), not anything read from the axis now: a move that
-        arrived reads arrived however late this runs, and one that ended
-        answers at once, never after a later move on the axis.
-
-        Only this move is waited on and judged. Another axis's outcome
-        belongs to whatever moved it, and waiting on it would hold this
-        caller while, say, a person scrolls the focus.
-
-        Args:
-            axis: The axis this move drove.
-            move: The move's record, from its MOVING write.
-
-        Raises:
-            MoveNotCompletedError: the fault it ended with (the monitor's
-                own object when it gave the axis up, so the person is shown
-                it once: ``'stalled'``, ``'board_lost'``,
-                ``'position_unread'`` or ``'status_unread'``; ``'faulted'``
-                when something else set it UNKNOWN); ``'stalled'`` too when it
-                had not ended as the wait's bound ran out -- the axis is then
-                written UNKNOWN, in the same hold as the check that the axis
-                is still this move's; ``'stopped'``, a STOP the board took
-                while it moved; ``'superseded'``, another move or a home
-                took the axis first.
-        """
-        if not self._wait_for_move(move, self._MOTION_SETTLE_TIMEOUT_S):
-            # Refused only when the move ended meanwhile: every write that
-            # takes the axis out of this move settles it in the same hold.
-            self._set_axis_state(
-                axis,
-                AxisState.UNKNOWN,
-                verdict_for=move,
-                fault=MoveFaultError(axis, 'stalled'),
-            )
-        if move.outcome == 'arrived':
-            return
-        # Only a fault carries its object; the other endings are stops.
-        raise move.fault or MoveStoppedError(axis, move.outcome)
-
-    def _wait_for_move(self, move: _Move, timeout_s: float) -> bool:
-        """Wait for ``move`` to be settled; True when it was within ``timeout_s``."""
-        return move.done.wait(timeout=timeout_s)
+        return move.operation
 
     def _wait_for_axis_to_stop(self, axis: str, timeout_s: float) -> bool:
         """Wait for ``axis``'s arrival event; True when it was set within ``timeout_s``.
@@ -2085,11 +2014,11 @@ class MotionAPI:
         axis: str,
         distance: float,
         overshoot_enabled: bool = False,
-    ) -> MoveInFlight:
+    ) -> Operation:
         """Start an axis moving by a relative distance; return the started move.
 
         Returns as ``_move_absolute_impl`` does: once the axis is MOVING,
-        with the handle whose ``wait()`` is the move's outcome.
+        with the operation whose ``result()`` is the move's outcome.
 
         Args:
             axis (str): Axis name ("X", "Y", "Z", "T").
@@ -2177,7 +2106,7 @@ class MotionAPI:
         # get_target_position reads it.
         self._fire_position_listeners(axis)
         _api_log.info(f'move_rel {axis}={distance:+.1f}um')
-        return MoveInFlight(self, axis, move)
+        return move.operation
 
     # --- Public dispatch ---
     # These are what every caller reaches: an SDK script, a REST
@@ -2192,9 +2121,10 @@ class MotionAPI:
     # or home is never timed out by its own liveness bound.
     _MOTION_WAIT_BASE_S = 30.0
 
-    # One physically-waited motion's own bound: what a started move's
-    # wait allows it, and what the homing routine legitimately takes on
-    # long travel.
+    # One physically-waited motion's own bound: how long the monitor lets a
+    # move run before it gives the axis up as stalled, what the homing
+    # routine legitimately takes on long travel, and each motion of a turret
+    # move.
     _MOTION_SETTLE_TIMEOUT_S = 120.0
 
     def _dispatch_motion(
@@ -2241,7 +2171,7 @@ class MotionAPI:
             timeout_s,
         )
 
-    def _start(self, member: str, body, axis: str, target: float, **kwargs) -> MoveInFlight:
+    def _start(self, member: str, body, axis: str, target: float, **kwargs) -> Operation:
         """Start one X, Y or Z move through ``member``: refuse what no scope can act on, then command it on the lane.
 
         A name that is no axis, the turret, and a frame that is no frame
@@ -2249,7 +2179,7 @@ class MotionAPI:
         scope is doing -- not refused first for a home in flight or a shut
         lane. The lane carries only the command -- the body's checks, the
         board write and the MOVING transition -- so its bound is the
-        command's alone; the wait for arrival is the handle's, in the
+        command's alone; the wait for arrival is the operation's, in the
         caller's thread.
 
         Raises:
@@ -2272,7 +2202,7 @@ class MotionAPI:
             timeout_s=self._MOTION_WAIT_BASE_S,
         )
 
-    @api
+    @api(stop='Operation.stop')
     def start_move_absolute(
         self,
         axis: str,
@@ -2280,15 +2210,29 @@ class MotionAPI:
         overshoot_enabled: bool = True,
         ignore_limits: bool = False,
         frame: str = 'stage',
-    ) -> MoveInFlight:
+    ) -> Operation:
         """Start X, Y or Z moving to an absolute position, in um; return the started move.
 
         For a caller that works while the axis travels -- measuring during
         the motion, or starting several axes together. It refuses exactly
         what ``move_absolute`` refuses, before anything moves, and returns
-        once the board has taken the command. ``wait()`` on the returned
-        handle gives the outcome ``move_absolute`` would have given. See
-        ``_move_absolute_impl`` for the argument contract.
+        once the board has taken the command. See ``_move_absolute_impl``
+        for the argument contract.
+
+        Returns:
+            The move's ``Operation``. It is done once the axis has been set
+            at rest, or given up, and the position listeners told: its
+            ``result()`` returns None when the axis arrived, and raises
+            ``MoveNotCompletedError`` otherwise -- the monitor's fault
+            (``'stalled'``, ``'board_lost'``, ``'position_unread'`` or
+            ``'status_unread'``) or ``'faulted'``, each leaving the axis
+            UNKNOWN; ``MoveStoppedError`` ``'stopped'``, a stop the board
+            took while it moved, ``stop_motion``'s or the stage's own in
+            refusing a move; ``MoveStoppedError`` ``'superseded'``, another
+            move or a home took the axis first. The outcome is the one the
+            move ended with, however late it is read. Its ``stop()`` is
+            ``stop_motion`` while this move still has its axis, and nothing
+            once it has ended; the board's STOP halts every axis.
         """
         return self._start(
             'start_move_absolute',
@@ -2300,13 +2244,13 @@ class MotionAPI:
             frame=frame,
         )
 
-    @api
+    @api(stop='Operation.stop')
     def start_move_relative(
         self,
         axis: str,
         distance: float,
         overshoot_enabled: bool = False,
-    ) -> MoveInFlight:
+    ) -> Operation:
         """Start X, Y or Z moving by a relative distance, in um; return the started move.
 
         As ``start_move_absolute``, for ``move_relative``. See
@@ -2332,8 +2276,8 @@ class MotionAPI:
         """Move X, Y or Z to an absolute position, in um, and return once it has arrived.
 
         The turret moves by slot: ``move_turret``. This is
-        ``start_move_absolute`` followed by the handle's ``wait()``: the
-        command goes on the scope's IO lane, and the wait for arrival
+        ``start_move_absolute`` followed by its operation's ``result()``:
+        the command goes on the scope's IO lane, and the wait for arrival
         blocks this caller, not the lane. A move on an axis this scope does
         not have is refused (``_refuse_absent``) and drives nothing.
 
@@ -2353,7 +2297,7 @@ class MotionAPI:
             MoveFaultError: ``'driver_failed'``, the board did not take the
                 command.
             MoveNotCompletedError: The axis did not arrive; see
-                ``MoveInFlight.wait``.
+                ``start_move_absolute``.
         """
         self._start(
             'move_absolute',
@@ -2363,7 +2307,7 @@ class MotionAPI:
             overshoot_enabled=overshoot_enabled,
             ignore_limits=ignore_limits,
             frame=frame,
-        ).wait()
+        ).result()
 
     @api
     def move_relative(
@@ -2375,11 +2319,11 @@ class MotionAPI:
         """Move X, Y or Z by a relative distance, in um, and return once it has arrived.
 
         The turret moves by slot: ``move_turret``. As ``move_absolute``:
-        ``start_move_relative`` followed by the handle's ``wait()``.
+        ``start_move_relative`` followed by its operation's ``result()``.
 
         Raises:
             MoveNotCompletedError: The axis did not arrive; see
-                ``MoveInFlight.wait``.
+                ``start_move_absolute``.
         """
         self._start(
             'move_relative',
@@ -2387,7 +2331,7 @@ class MotionAPI:
             axis,
             distance,
             overshoot_enabled=overshoot_enabled,
-        ).wait()
+        ).result()
 
     @api
     def home(self, axis: str = 'ALL') -> None:
@@ -2445,15 +2389,17 @@ class MotionAPI:
             release_if_unrun()
             raise
 
-    @api
-    def start_home(self, axis: str = 'ALL') -> concurrent.futures.Future[None]:
-        """Start the home ``home`` runs, without waiting for it; returns its Future.
+    @api(stop='Operation.stop')
+    def start_home(self, axis: str = 'ALL') -> Operation:
+        """Start the home ``home`` runs, without waiting for it; returns its ``Operation``.
 
         For a caller that must not block for the length of a home -- a
         button. The home is asked, and refused or put on the io lane, before
         this returns, so a second home asked while this one is in flight is
-        refused at once rather than queued behind it. The Future settles
-        with what ``home`` would have returned or raised.
+        refused at once rather than queued behind it. The operation is done
+        once the home has released the scope, with what ``home`` would have
+        returned or raised; its ``stop()`` is ``stop_motion``, refused
+        ``'home_in_flight'`` on a board that cannot stop a home.
 
         Raises:
             ArgumentRefusedError: ``'axis_unknown'``, ``axis`` is not
@@ -2464,22 +2410,21 @@ class MotionAPI:
         """
         impl, _ = self._home_body(axis)
         body, release_if_unrun, taking = self.claim_home(impl)
-        future: concurrent.futures.Future[None] = concurrent.futures.Future()
-        # Marked running before anyone else holds it, so only the lane
-        # settles it and a caller's cancel() cannot release the claim.
-        future.set_running_or_notify_cancel()
+        waiter: concurrent.futures.Future[None] = concurrent.futures.Future()
+        # Marked running before the lane holds it, so only the lane settles
+        # it and nothing cancels it beside the claim.
+        waiter.set_running_or_notify_cancel()
         try:
             with acting(taking):
                 self._scope._io_executor.submit(
                     IOTask(action=body, falsifies_recording=self._home_moves_turret(impl)),
                     'home',
-                    waiter=future,
+                    waiter=waiter,
                 )
         except BaseException:
             release_if_unrun()
             raise
-        future.add_done_callback(lambda _settled: release_if_unrun())
-        return future
+        return Operation.following(waiter, stop=self.stop_motion, first=release_if_unrun)
 
     def _home_body(self, axis: str) -> tuple[Callable[[], None], int]:
         """The home body for ``axis`` and how many settle windows bound its wait."""
@@ -2572,8 +2517,8 @@ class MotionAPI:
         """Block until every axis moving now has stopped; raise if one did not stop well.
 
         For motion the caller did not start, or started without keeping its
-        handle. A move the caller started is judged by its handle's
-        ``wait()``, which also knows when a stop or a later move ended it;
+        operation. A move the caller started is judged by its operation's
+        ``result()``, which also knows when a stop or a later move ended it;
         this wait judges only whether each axis stopped with a known
         position. An axis a stop halted is IDLE where it stopped, so after a
         stop this returns.
@@ -2651,7 +2596,9 @@ class MotionAPI:
         'faulted'; MOVING or HOMING settles it 'superseded', or 'stopped'
         when a STOP was taken since the move began. MOVING is
         written only with the new ``move`` (``_begin_move``), which becomes
-        the current one; HOMING leaves none.
+        the current one; HOMING leaves none. The settled move's operation is
+        done after the hold is released and the listeners are told
+        (``_Move.publish``).
 
         Returns:
             bool: Whether the write happened. False for an axis that is not
@@ -2673,19 +2620,22 @@ class MotionAPI:
             ):
                 return False
             current = self._current_move.get(axis)
+            ended = None
             if old_state == AxisState.MOVING and current is not None:
                 if state == AxisState.IDLE:
                     stopped = stop_generation is not None and (
                         stop_generation != current.stop_generation
                     )
-                    current.settle('stopped' if stopped else 'arrived')
+                    settled = current.settle('stopped' if stopped else 'arrived')
                 elif state == AxisState.UNKNOWN:
-                    current.settle('faulted', fault or MoveFaultError(axis, 'faulted'))
+                    settled = current.settle('faulted', fault or MoveFaultError(axis, 'faulted'))
                 else:
                     # A STOP the board took before this write halted the
                     # move, though the monitor has not yet seen it at rest.
                     stopped = self._stop_generation != current.stop_generation
-                    current.settle('stopped' if stopped else 'superseded')
+                    settled = current.settle('stopped' if stopped else 'superseded')
+                if settled:
+                    ended = current
             self._axis_state[axis] = state
             # One place for every route that loses the turret -- a fault, a
             # failed home, a stall, a lost board: a turret whose position is
@@ -2704,19 +2654,25 @@ class MotionAPI:
                 # must unblock rather than hang on a cleared event until the
                 # 120s motion timeout.
                 self._arrival_events[axis].set()
-        if profile_trace.ENABLE_PROFILE_TRACE and old_state != state:
-            profile_trace.trace(
-                'motion_trace.csv',
-                'ts_ms,duration_ms,event,axis,detail',
-                [int(time.time() * 1000), 0, 'transition', axis, f'{old_state}->{state}'],
-                recording_id=profile_trace.NO_RECORDING,
-            )
+        # The ended move's operation is the only thing that ends its waiters,
+        # so it settles on every exit from here.
+        try:
+            if profile_trace.ENABLE_PROFILE_TRACE and old_state != state:
+                profile_trace.trace(
+                    'motion_trace.csv',
+                    'ts_ms,duration_ms,event,axis,detail',
+                    [int(time.time() * 1000), 0, 'transition', axis, f'{old_state}->{state}'],
+                    recording_id=profile_trace.NO_RECORDING,
+                )
 
-        if state in (AxisState.MOVING, AxisState.HOMING):
-            # Wake the motion monitor to start polling
-            self._motion_wake.set()
+            if state in (AxisState.MOVING, AxisState.HOMING):
+                # Wake the motion monitor to start polling
+                self._motion_wake.set()
 
-        self._fire_position_listeners(axis)
+            self._fire_position_listeners(axis)
+        finally:
+            if ended is not None:
+                ended.publish()
         return True
 
     def _backlash_leg(
@@ -2806,9 +2762,22 @@ class MotionAPI:
         Returns:
             The new move's record, settled when the move ends.
         """
-        move = _Move(stop_generation)
+        move = _Move(axis, stop_generation, lambda: self._stop_move(move))
         self._set_axis_state(axis, AxisState.MOVING, move=move)
         return move
+
+    def _stop_move(self, move: _Move) -> None:
+        """A started move's stop: ``stop_motion`` while ``move`` still has its axis, else nothing.
+
+        A move that has ended -- arrived, stopped, or its axis taken by a
+        later move or a home -- may still be telling its listeners before
+        its operation is done; a stop asked of it then must not halt the
+        motion that took its axis.
+        """
+        with self._axis_state_lock:
+            if self._current_move.get(move.axis) is not move or move.outcome is not None:
+                return
+        self.stop_motion()
 
     def _send_drive(self, axis: str, stop_generation: int, send, member: str) -> tuple[_Move, bool]:
         """Set ``axis`` MOVING and disarmed, then send its drive.

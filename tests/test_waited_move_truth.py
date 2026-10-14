@@ -2,8 +2,7 @@
 """A waited move tells the truth about arriving.
 
 A move returns only when its axis confirmably reached the target. When the wait ends any other way -- the
-motion monitor faulted the axis UNKNOWN (a stall, a lost board) or the
-wait's bound ran out before the axis arrived -- the move raises
+motion monitor faulted the axis UNKNOWN (a stall, a lost board) -- the move raises
 ``MoveNotCompletedError`` and the axis stays UNKNOWN. The earlier body
 wrote IDLE after the wait whatever it returned, so a stalled turret move
 read as a turret in its commanded slot, and every consumer of the axis
@@ -78,49 +77,6 @@ def test_a_board_lost_during_the_wait_raises_board_lost(session, monkeypatch):
     assert exc.value.axis == 'Z'
     assert exc.value.reason == 'board_lost'
     assert motion.get_axis_state('Z') == AxisState.UNKNOWN
-
-
-def test_a_waited_move_whose_axis_never_arrives_raises_stalled(session, monkeypatch):
-    motion = session.scope.motion
-    # Nothing confirms arrival once the monitor is stopped, so the wait's
-    # bound is what ends it.
-    motion._motion_monitor_stop.set()
-    motion._motion_wake.set()
-    motion._motion_monitor_thread.join(timeout=2.0)
-    monkeypatch.setattr(motion, '_MOTION_SETTLE_TIMEOUT_S', 0.3)
-
-    with pytest.raises(MoveNotCompletedError) as exc:
-        motion.move_relative('Z', 20.0)
-
-    assert exc.value.axis == 'Z'
-    assert exc.value.reason == 'stalled'
-    assert motion.get_axis_state('Z') == AxisState.UNKNOWN
-
-
-def test_a_later_move_on_the_same_axis_supersedes_this_one(session, monkeypatch):
-    """The wait saw Z stop, then another move on Z began before this move
-    looked: the axis is that move's, so this one is superseded -- neither
-    faulted with the later move's state nor reported as arrived."""
-    motion = session.scope.motion
-    move = motion.start_move_absolute('Z', _z_target(motion))
-    # The monitor would end the later move below as soon as it judged it, so
-    # it is stopped: the later move stays MOVING while this one looks.
-    motion._motion_monitor_stop.set()
-    motion._motion_wake.set()
-    motion._motion_monitor_thread.join(timeout=2.0)
-
-    def _a_later_move_starts(move, timeout_s):
-        motion._begin_move('Z', motion._stop_generation)
-        return True
-
-    monkeypatch.setattr(motion, '_wait_for_move', _a_later_move_starts)
-    try:
-        with pytest.raises(MoveNotCompletedError) as exc:
-            move.wait()
-        assert exc.value.reason == 'superseded'
-        assert motion.get_axis_state('Z') == AxisState.MOVING
-    finally:
-        motion._set_axis_state('Z', AxisState.IDLE)
 
 
 def test_the_executor_shows_the_failure_in_its_own_words(centre_posts):
