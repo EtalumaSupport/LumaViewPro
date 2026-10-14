@@ -4559,6 +4559,11 @@ class ScopeSession:
             # unregisters the atexit hook; it is repeatable, so a host's own
             # later disconnect is harmless.
             self.scope.disconnect()
+        # After the disconnect, which can settle the moves it stops, so their
+        # done-callbacks run before the session reports itself closed.
+        from modules.operation import join_callback_thread
+
+        join_callback_thread()
         # Last, so a listener hears what the teardown itself reported.
         for listener in list(self._outcome_listeners):
             self.remove_outcome_listener(listener)
