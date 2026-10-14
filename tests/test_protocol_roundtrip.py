@@ -32,6 +32,7 @@ from modules.activity_claim import ActivityClaim
 from modules.exceptions import ProtocolRunRefusedError
 from modules.image_mode import ImageCaptureConfig
 from modules.labware_loader import WellPlateLoader
+from modules.layer_record import release_catalogue
 from modules.objectives_loader import ObjectiveLoader
 from modules.protocol import Protocol, ProtocolFormatError
 from modules.run_events import RunEvents
@@ -693,11 +694,11 @@ class TestRoundTripEdgeCases:
 
     def test_all_channels(self, tmp_path):
         """Protocol with every channel type."""
-        colors = ['BF', 'PC', 'DF', 'Red', 'Green', 'Blue']
+        colors = release_catalogue()
         steps = [_make_step(name=f'A1_{c}', color=c) for c in colors]
         proto = _build_protocol(steps)
         reloaded = _save_and_reload(proto, tmp_path)
-        assert reloaded.num_steps() == 6
+        assert reloaded.num_steps() == len(colors)
         for i, c in enumerate(colors):
             assert reloaded.step(idx=i)['Color'] == c
 

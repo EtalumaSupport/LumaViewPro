@@ -44,6 +44,7 @@ from modules.config_helpers import (
     camera_max_gain_for_ui,
     layer_max_exposure_ms_for_ui,
 )
+from modules.layer_record import release_catalogue
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 IMAGE_SETTINGS_PATH = REPO_ROOT / 'ui' / 'image_settings.py'
@@ -304,7 +305,7 @@ class TestManualExposurePolicy:
         boards once capped at 178 ms). Nothing may hand any layer a bound
         above what the attached body will honor.
         """
-        for layer in ('BF', 'PC', 'DF', 'Blue', 'Green', 'Red', 'Lumi'):
+        for layer in release_catalogue():
             assert layer_max_exposure_ms_for_ui(178.0, layer) <= 178.0, layer
         assert layer_max_exposure_ms_for_ui(178.0, 'BF') == 50.0
         assert layer_max_exposure_ms_for_ui(178.0, 'PC') == 178.0

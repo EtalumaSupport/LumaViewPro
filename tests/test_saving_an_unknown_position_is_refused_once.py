@@ -20,6 +20,7 @@ import ui.layer_control as layer_control
 import ui.motion_settings as motion_settings
 import ui.vertical_control as vertical_control
 from modules.exceptions import AxisStateUnknownError
+from modules.layer_record import release_catalogue
 from modules.lumascope_api.protocols import ProtocolsAPI
 from modules.notification_center import Severity
 from modules.scope_session import ScopeSession
@@ -87,9 +88,7 @@ def unknown(monkeypatch, centre_posts):
     scope.motion.refuse_unknown_positions.side_effect = _refuse
     settings = {
         'bookmark': {'x': 1.0, 'y': 2.0, 'z': 3.0},
-        **{
-            layer: {'focus': 7000.0} for layer in ('BF', 'PC', 'DF', 'Blue', 'Green', 'Red', 'Lumi')
-        },
+        **{layer: {'focus': 7000.0} for layer in release_catalogue()},
     }
     # Save Focus, Apply Focus and the bookmarks are the Session's: its real
     # members, over the real protocols API, on this scope.

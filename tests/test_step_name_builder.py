@@ -30,9 +30,10 @@ from modules.common_utils import (
     build_step_name,
     parse_legacy_step_name,
 )
+from modules.layer_record import release_catalogue
 from tests.case_walk import failing_cases
 
-_KNOWN_LAYERS = ['Blue', 'Green', 'Red', 'BF', 'PC', 'DF', 'Lumi']
+_KNOWN_LAYERS = list(release_catalogue())
 _KNOWN_OBJECTIVES = ['10x', '4x', '20x']
 
 

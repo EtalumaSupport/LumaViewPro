@@ -19,6 +19,7 @@ steps, typed the same way.
 import pytest
 
 from modules.exceptions import ProtocolNotSavedError
+from modules.layer_record import release_catalogue
 from modules.protocol import ProtocolFormatError
 from tests.scope_fakes import home_sim_scope
 from tests.test_labware_name_resolution import _STEP_HEADER, _STEP_ROW, _protocol_file
@@ -67,7 +68,7 @@ def _layer_fields(session, layer):
 
 
 def _only_bf_acquiring(session):
-    for layer in ('BF', 'PC', 'DF', 'Red', 'Green', 'Blue', 'Lumi'):
+    for layer in release_catalogue():
         if layer in session.settings:
             _set_layer(session, layer, acquire=None)
     _set_layer(

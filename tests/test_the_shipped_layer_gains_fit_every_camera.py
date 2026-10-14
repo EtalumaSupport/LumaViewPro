@@ -15,9 +15,9 @@ the daA3840 (48 dB) would have let a 45 dB layer through.
 """
 
 import pytest
+from modules.layer_record import release_catalogue
+from tests.case_walk import failing_cases
 from tests.settings_fixtures import shipped_template
-
-LAYERS = ('BF', 'PC', 'DF', 'Blue', 'Green', 'Red', 'Lumi')
 
 # The smallest gain ceiling a shipped camera advertises: the IDS U3-34L0XCP's
 # 30 dB, pinned by its driver's test
@@ -26,12 +26,16 @@ LAYERS = ('BF', 'PC', 'DF', 'Blue', 'Green', 'Red', 'Lumi')
 SMALLEST_SHIPPED_CEILING_DB = 30.0
 
 
-@pytest.mark.parametrize('layer', LAYERS)
-def test_the_layer_gain_fits_the_smallest_camera(layer):
-    gain = shipped_template()[layer]['gain_db']
-    assert 0.0 <= gain <= SMALLEST_SHIPPED_CEILING_DB, (
-        f"{layer} ships at {gain} dB, outside the smallest shipped camera's range"
-    )
+def test_every_layer_gain_fits_the_smallest_camera():
+    template = shipped_template()
+
+    def check(layer):
+        gain = template[layer]['gain_db']
+        assert 0.0 <= gain <= SMALLEST_SHIPPED_CEILING_DB, (
+            f"{layer} ships at {gain} dB, outside the smallest shipped camera's range"
+        )
+
+    assert failing_cases(release_catalogue(), check) == {}
 
 
 @pytest.mark.parametrize('layer', ('Green', 'Red', 'Lumi'))

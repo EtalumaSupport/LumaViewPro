@@ -48,6 +48,7 @@ from modules.lumascope_api.illumination import LedState
 from modules.activity_claim import ActivityClaim
 from modules.exceptions import HardwareCommandRefusedError
 from modules.image_mode import ImageCaptureConfig
+from modules import common_utils
 from tests.af_drives import park_z
 from tests.scope_fakes import build_scope, home_sim_scope, swap_lanes
 from modules.lumascope_api.illumination import LedTransition, LedTransitionCtx
@@ -370,7 +371,7 @@ def _run_protocol(
 # because production never invokes the AF runner when Auto_Focus is False.
 # ---------------------------------------------------------------------------
 
-ALL_COLORS = ['BF', 'Blue', 'Green', 'Red', 'PC', 'DF']
+ALL_COLORS = common_utils.get_layers_with_led()
 
 
 def _recorded_run(

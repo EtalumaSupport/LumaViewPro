@@ -749,13 +749,6 @@ class TestHeadlessSession:
     def test_protocol_runner_runs_protocol(self, tmp_path):
         """ProtocolRunner should execute a protocol to completion on headless session."""
         settings = {
-            'BF': {'autofocus': False},
-            'PC': {'autofocus': False},
-            'DF': {'autofocus': False},
-            'Red': {'autofocus': False},
-            'Green': {'autofocus': False},
-            'Blue': {'autofocus': False},
-            'Lumi': {'autofocus': False},
             'stage_offset': {'x': 0.0, 'y': 0.0},
             'live_folder': str(tmp_path),
             # The objective this file's protocols name: a scope with no turret

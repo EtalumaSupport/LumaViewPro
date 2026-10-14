@@ -21,7 +21,7 @@ import pytest
 import tifffile as tf
 
 from modules import image_utils
-from modules.layer_record import GREY, release_color
+from modules.layer_record import GREY, release_catalogue, release_color
 
 
 # ---------------------------------------------------------------------------
@@ -740,57 +740,39 @@ class TestWindowsPreviewCompat:
     These tests ensure we never produce those combinations.
     """
 
-    @pytest.mark.parametrize('color', ['BF', 'PC', 'DF', 'Red', 'Green', 'Blue', 'Lumi'])
-    def test_16bit_no_palette(self, img_16bit, metadata, tmp_tiff, color):
-        """No 16-bit image should use PALETTE photometric."""
-        path = tmp_tiff()
-        image_utils.write_tiff(
-            data=img_16bit,
-            file_loc=path,
-            metadata=metadata,
-            ome=False,
-            color=release_color(color),
-            significant_bits=16,
-            save_encoding='right_aligned',
-        )
-        info = _read_tiff(path)
-        assert info['photometric'] != tf.PHOTOMETRIC.PALETTE, (
-            f'16-bit {color} must not use PALETTE (breaks Windows Preview)'
+    @staticmethod
+    def _written(img_16bit, metadata, tmp_tiff, *, ome):
+        """Each catalogue channel's 16-bit file, read back, by channel."""
+        written = {}
+        for channel in release_catalogue():
+            path = tmp_tiff()
+            image_utils.write_tiff(
+                data=img_16bit,
+                file_loc=path,
+                metadata=metadata,
+                ome=ome,
+                color=release_color(channel),
+                significant_bits=16,
+                save_encoding='right_aligned',
+            )
+            written[channel] = _read_tiff(path)
+        return written
+
+    def test_no_16bit_tiff_uses_a_palette_or_a_colormap_tag(self, img_16bit, metadata, tmp_tiff):
+        """No channel's 16-bit TIFF uses PALETTE photometric or carries tag 320."""
+        written = self._written(img_16bit, metadata, tmp_tiff, ome=False)
+        palette = [
+            c for c, info in written.items() if info['photometric'] == tf.PHOTOMETRIC.PALETTE
+        ]
+        colormap = [c for c, info in written.items() if info['has_colormap_tag']]
+        assert (palette, colormap) == ([], []), (
+            f'16-bit PALETTE {palette} and tag 320 {colormap} break Windows Preview'
         )
 
-    @pytest.mark.parametrize('color', ['BF', 'PC', 'DF', 'Red', 'Green', 'Blue', 'Lumi'])
-    def test_16bit_no_colormap_tag(self, img_16bit, metadata, tmp_tiff, color):
-        """No 16-bit single-channel image should have tag 320."""
-        path = tmp_tiff()
-        image_utils.write_tiff(
-            data=img_16bit,
-            file_loc=path,
-            metadata=metadata,
-            ome=False,
-            color=release_color(color),
-            significant_bits=16,
-            save_encoding='right_aligned',
-        )
-        info = _read_tiff(path)
-        assert not info['has_colormap_tag'], (
-            f'16-bit {color} must not have colormap tag 320 (breaks Windows Preview)'
-        )
-
-    @pytest.mark.parametrize('color', ['BF', 'PC', 'DF', 'Red', 'Green', 'Blue', 'Lumi'])
-    def test_16bit_ome_no_colormap_tag(self, img_16bit, metadata, tmp_tiff, color):
+    def test_no_16bit_ome_tiff_carries_a_colormap_tag(self, img_16bit, metadata, tmp_tiff):
         """OME-TIFF 16-bit should also not have tag 320."""
-        path = tmp_tiff()
-        image_utils.write_tiff(
-            data=img_16bit,
-            file_loc=path,
-            metadata=metadata,
-            ome=True,
-            color=release_color(color),
-            significant_bits=16,
-            save_encoding='right_aligned',
-        )
-        info = _read_tiff(path)
-        assert not info['has_colormap_tag']
+        written = self._written(img_16bit, metadata, tmp_tiff, ome=True)
+        assert [c for c, info in written.items() if info['has_colormap_tag']] == []
 
 
 # ---------------------------------------------------------------------------

@@ -13,6 +13,7 @@ import pandas as pd
 import pytest
 
 from modules.labware_loader import WellPlateLoader
+from modules.layer_record import release_catalogue
 from modules.objectives_loader import ObjectiveLoader
 from modules.protocol import Protocol, ProtocolFormatError
 from tests.test_protocol_roundtrip import TILING_CONFIGS
@@ -101,7 +102,7 @@ class TestValidateColor:
         assert "Color 'Purple'" in errors[0]
 
     def test_all_valid_colors(self):
-        for color in ('Blue', 'Green', 'Red', 'BF', 'PC', 'DF', 'Lumi'):
+        for color in release_catalogue():
             p = _make_protocol([_valid_step(Color=color)])
             assert p.validate_steps(ObjectiveLoader(), led_max_ma=1000) == [], (
                 f'Color {color} should be valid'

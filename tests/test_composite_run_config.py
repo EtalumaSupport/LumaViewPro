@@ -29,13 +29,14 @@ from modules.image_mode import (
 )
 
 import modules.config_helpers as config_helpers
+from modules.layer_record import release_catalogue
 from tests.settings_fixtures import complete_settings
 
 # The plate position a composite starts from; every channel step shares
 # it, so only the name and the deferred z carry meaning here.
 _POSITION = {'x': 1234.5, 'y': 678.9, 'z': 4321.0}
 
-_ALL_LAYERS = ('BF', 'PC', 'DF', 'Blue', 'Green', 'Red', 'Lumi')
+_ALL_LAYERS = release_catalogue()
 
 
 def _layer(acquire=None, focus=0.0):

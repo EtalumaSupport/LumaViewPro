@@ -635,13 +635,6 @@ class TestSessionActivityClaim:
         from modules.scope_session import ScopeSession
 
         settings = {
-            'BF': {'autofocus': False},
-            'PC': {'autofocus': False},
-            'DF': {'autofocus': False},
-            'Red': {'autofocus': False},
-            'Green': {'autofocus': False},
-            'Blue': {'autofocus': False},
-            'Lumi': {'autofocus': False},
             'stage_offset': {'x': 0.0, 'y': 0.0},
             'live_folder': str(tmp_path),
             'protocol': {

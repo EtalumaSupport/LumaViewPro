@@ -41,8 +41,6 @@ def _settings(tmp_path, **extra):
         # refuses a protocol for any glass other than the selected one.
         'objective_id': '10x Oly',
     }
-    for layer in ('BF', 'PC', 'DF', 'Red', 'Green', 'Blue', 'Lumi'):
-        settings[layer] = {'autofocus': False}
     settings.update(extra)
     return settings
 

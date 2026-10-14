@@ -23,7 +23,7 @@ import tifffile as tf
 
 from tests.ast_seams import REPO_ROOT, parse_module
 from tests.scope_fakes import bind_settings_like_a_session
-from modules.layer_record import release_colors
+from modules.layer_record import release_catalogue, release_colors
 
 
 PLATE = '24 well microplate'
@@ -65,7 +65,7 @@ def _run_manual_capture(tmp_path, scope, *, shown_layer, false_color_on, separat
         image_output_format={'live': 'TIFF', 'sequenced': 'TIFF'},
         image_mode='8bit',
     )
-    for name in ('BF', 'PC', 'DF', 'Blue', 'Green', 'Red', 'Lumi'):
+    for name in release_catalogue():
         settings[name].update({'exposure_ms': 10, 'sum': 1, 'illumination_ma': 0})
     capture = ManualCaptureController(
         scope=scope,

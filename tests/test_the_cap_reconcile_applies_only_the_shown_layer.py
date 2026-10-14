@@ -14,6 +14,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import modules.app_context as _app_ctx
+from modules.layer_record import release_catalogue
 from modules.lumascope_api.imaging import cap_stored_value
 from modules.scope_session import ShownChannel
 
@@ -35,7 +36,7 @@ def _reconcile(monkeypatch, *, shown, capped):
 
     settings = {
         layer: {'gain_db': 48.0 if layer in capped else 1.0, 'exposure_ms': 10.0}
-        for layer in ('BF', 'PC', 'DF', 'Blue', 'Green', 'Red', 'Lumi')
+        for layer in release_catalogue()
     }
     context = MagicMock()
     context.settings = settings

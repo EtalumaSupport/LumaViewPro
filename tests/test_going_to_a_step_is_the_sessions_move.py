@@ -403,13 +403,18 @@ class TestTheStepIntoItsLayer:
             lines.append('\t'.join(cells))
         saved.write_text('\n'.join(lines) + '\n')
         protocol = Protocol.from_file(saved, REPO_ROOT / 'data' / 'tiling.json')
-        for layer in ('Blue', 'Green', 'Red'):
+        stimulating = [
+            layer
+            for layer, values in no_motor_session.settings.items()
+            if isinstance(values, dict) and values.get('stim_config') is not None
+        ]
+        for layer in stimulating:
             no_motor_session.update_settings(f'{layer}.stim_config.pulse_count', 7)
         before = {
-            layer: copy.deepcopy(values['stim_config'])
-            for layer, values in no_motor_session.settings.items()
-            if isinstance(values, dict) and 'stim_config' in values
+            layer: copy.deepcopy(no_motor_session.settings[layer]['stim_config'])
+            for layer in stimulating
         }
+        assert before, 'no layer carries a stimulation to protect'
 
         no_motor_session.go_to_step(protocol, 0)
 
