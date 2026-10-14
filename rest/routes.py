@@ -23,6 +23,7 @@ import typing
 import pydantic
 
 from modules import wire_encoding
+from modules.operation import Operation
 from modules.wire_encoding import WireMember, WireParameter
 
 # The Python type a JSON value of each scalar name is checked as.
@@ -73,24 +74,6 @@ class JobProgress(pydantic.BaseModel):
     model_config = ANSWER_CONFIG
     percent: float
     detail: str | None
-
-
-class Job(pydantic.BaseModel):
-    """A call running on, or ended, read at ``/api/v1/jobs/<id>``.
-
-    ``result`` is the member's answer once the call has completed, and
-    ``error`` the problem it ended in once it has failed.
-    """
-
-    model_config = ANSWER_CONFIG
-    id: str
-    member: str
-    status: typing.Literal['pending', 'running', 'completed', 'failed']
-    requested: datetime.datetime
-    ended: datetime.datetime | None
-    progress: JobProgress | None
-    result: typing.Any = pydantic.Field(default=None)
-    error: dict | None = pydantic.Field(default=None)
 
 
 # One model per record class, shared by every route and event that answers
@@ -264,3 +247,35 @@ def _answer(a: wire_encoding.Outbound) -> object:
             a.name, __config__=ANSWER_CONFIG, __doc__=a.cls.__doc__, **fields
         )
     return _ANSWER_RECORDS[a.cls]
+
+
+def _operation_progress() -> object:
+    """What an operation's ``progress()`` answers, described from its declared type as every answer is."""
+    members = wire_encoding.wire_members(
+        Operation, wire_encoding.project_classes(), wire_encoding.project_aliases()
+    )
+    (progress,) = [m for m in members if m.name == 'progress']
+    return answer_type(progress.returns)
+
+
+_OPERATION_PROGRESS = _operation_progress()
+
+
+class Job(pydantic.BaseModel):
+    """A call running on, or ended, read at ``/api/v1/jobs/<id>``.
+
+    ``progress`` is how far it has got: a call's own report, or for a
+    running call a member handed back, its operation's (a run's
+    ``RunProgress``). ``result`` is the member's answer once the call has
+    completed, and ``error`` the problem it ended in once it has failed.
+    """
+
+    model_config = ANSWER_CONFIG
+    id: str
+    member: str
+    status: typing.Literal['running', 'completed', 'failed']
+    requested: datetime.datetime
+    ended: datetime.datetime | None
+    progress: JobProgress | _OPERATION_PROGRESS
+    result: typing.Any = pydantic.Field(default=None)
+    error: dict | None = pydantic.Field(default=None)

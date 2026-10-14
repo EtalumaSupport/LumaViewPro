@@ -6,17 +6,18 @@ it will wait (``Prefer: wait=<seconds>``, RFC 7240; 2 s when it says
 nothing, at most 60 s). A call still running then is answered
 ``202 Accepted`` with the job's address, and the client reads the job --
 ``GET /api/v1/jobs/<id>``, itself waiting by ``Prefer: wait`` -- for the
-answer the call would have given. A running call a member hands back (a
-``Future``) is a job too.
+answer the call would have given. A running call a member hands back (an
+``Operation``) is a job too.
 
 A job is ``{id, member, status, requested, ended, progress}`` and, once it
-has ended, ``result`` or ``error``: ``status`` goes ``pending`` ->
-``running`` -> ``completed`` | ``failed``, ``progress`` is the member's own
-report of how far it has got, and ``error`` is the problem the call ended
-in. Reading a failed job is 200: the read succeeded. There is no generic
-cancel: each activity that can be stopped has its own member. A finished
-job is kept until a client forgets it, or until a new job finds it past
-the count or age bound.
+has ended, ``result`` or ``error``: ``status`` goes ``running`` ->
+``completed`` | ``failed``, ``progress`` is how far it has got -- the
+member's own report, or the operation's ``progress()`` -- and ``error`` is
+the problem the call ended in. Reading a failed job is 200: the read
+succeeded. ``DELETE`` on a running job is its operation's stop, which only
+asks; a call adopted as a job holds no operation and cannot be stopped
+there. A finished job is kept until a client forgets it, or until a new
+job finds it past the count or age bound.
 """
 
 from __future__ import annotations
@@ -28,8 +29,8 @@ import threading
 import time
 import weakref
 from collections.abc import Callable
-from concurrent.futures import Future
 
+from modules.operation import Operation
 from rest import problems
 from rest.problems import Answer
 
@@ -91,7 +92,13 @@ class Progress:
 
 
 class Job:
-    """A call a client was told is still running, and the answer it ends in."""
+    """A call a client was told is still running, and the answer it ends in.
+
+    Attributes:
+        operation: The running call a member handed back, whose stop a
+            ``DELETE`` asks; None for a call adopted as a job, which holds
+            none.
+    """
 
     def __init__(
         self,
@@ -99,15 +106,15 @@ class Job:
         member: str,
         requested: datetime.datetime,
         answered: asyncio.Future[Answer],
-        progress: Progress | None,
-        started: Callable[[], bool],
+        progress: Callable[[], object],
+        operation: Operation | None,
     ) -> None:
         self.id = job_id
         self.member = member
         self.requested = requested
         self.answered = answered
-        self.progress = progress
-        self._started = started
+        self._progress = progress
+        self.operation = operation
 
     @property
     def finished(self) -> bool:
@@ -120,9 +127,9 @@ class Job:
         return self.answered.result().ended if self.finished else None
 
     def view(self) -> dict[str, object]:
-        """The job as a client reads it."""
+        """The job as a client reads it; an operation's progress is read now, off the event loop."""
         if not self.finished:
-            status = 'running' if self._started() else 'pending'
+            status = 'running'
         else:
             answer = self.answered.result()
             status = 'failed' if answer.is_problem else 'completed'
@@ -132,7 +139,7 @@ class Job:
             'status': status,
             'requested': self.requested.isoformat(),
             'ended': self.ended.isoformat() if self.ended else None,
-            'progress': self.progress.last if self.progress else None,
+            'progress': self._progress(),
         }
         if self.finished:
             answer = self.answered.result()
@@ -148,7 +155,7 @@ class JobRegistry:
         self._jobs: dict[str, Job] = {}
         # The job each running call a member handed back is, so one running
         # call is one job whichever answer or event names it.
-        self._of_future: weakref.WeakKeyDictionary[Future, Job] = weakref.WeakKeyDictionary()
+        self._of_future: weakref.WeakKeyDictionary[Operation, Job] = weakref.WeakKeyDictionary()
         self._next = 1
         self._live_calls = 0
         # The calls' threads, each until it has ended, so the server's close can join them.
@@ -231,21 +238,29 @@ class JobRegistry:
         progress: Progress | None,
     ) -> Job:
         """Hold a call that outlived the client's wait as a job."""
-        return self._add(member, requested, answered, progress, started=lambda: True)
+        return self._add(
+            member,
+            requested,
+            answered,
+            lambda: progress.last if progress else None,
+            operation=None,
+        )
 
     def of_future(
         self,
-        future: Future,
+        future: Operation,
         *,
         member: str,
-        answer: Callable[[Future], Answer],
+        answer: Callable[[Operation], Answer],
+        progress: Callable[[], object],
         loop: asyncio.AbstractEventLoop,
     ) -> dict[str, object]:
         """The job a running call a member handed back is, in its wire form.
 
-        ``answer`` turns the finished future into its answer, on the thread
-        that finished it. The same future is the same job, however many
-        times it is named.
+        ``answer`` turns the finished operation into its answer, on the
+        thread that finished it; ``progress`` reads its ``progress()`` in
+        wire form. The same operation is the same job, however many times
+        it is named.
         """
         with self._lock:
             known = self._of_future.get(future)
@@ -253,19 +268,13 @@ class JobRegistry:
             return known.view()
         answered: asyncio.Future[Answer] = loop.create_future()
 
-        def finished(done: Future) -> None:
+        def finished(done: Operation) -> None:
             reply = answer(done)
             loop.call_soon_threadsafe(
                 lambda: None if answered.done() else answered.set_result(reply)
             )
 
-        job = self._add(
-            member,
-            problems.now(),
-            answered,
-            None,
-            started=lambda: future.running() or future.done(),
-        )
+        job = self._add(member, problems.now(), answered, progress, operation=future)
         with self._lock:
             self._of_future[future] = job
         future.add_done_callback(finished)
@@ -276,14 +285,14 @@ class JobRegistry:
         member: str,
         requested: datetime.datetime,
         answered: asyncio.Future[Answer],
-        progress: Progress | None,
+        progress: Callable[[], object],
         *,
-        started: Callable[[], bool],
+        operation: Operation | None,
     ) -> Job:
         with self._lock:
             job_id = str(self._next)
             self._next += 1
-            job = Job(job_id, member, requested, answered, progress, started)
+            job = Job(job_id, member, requested, answered, progress, operation)
             self._jobs[job_id] = job
             self._prune()
         return job
@@ -311,21 +320,35 @@ class JobRegistry:
             raise problems.not_found(f'No job {job_id} is held.')
         return job
 
-    def forget(self, job_id: str) -> None:
-        """Forget a finished job.
+    def delete(self, job_id: str) -> Job | None:
+        """Forget a finished job, or ask a running one's operation to stop.
+
+        Blocks while the stop is sent. Returns None when the job was
+        forgotten; the job, still held, when its stop was asked -- the
+        operation ends on its own, and once ended the job is forgotten by
+        the next ``delete``. A stop asked once its operation's work has
+        ended, or of an operation with no stop (a still), does nothing.
 
         Raises:
-            ServerRefusedError: ``not_found``; ``job_running`` (409), the call
-                has not ended -- its own member stops it.
+            ServerRefusedError: ``not_found``; ``not_cancellable`` (409), the
+                job is a call adopted as one, which holds no operation to
+                stop.
+            Exception: what the operation's stop raised -- a refusal of the
+                stop (a home on a board that cannot stop one).
         """
         job = self.get(job_id)
-        if not job.finished:
+        if job.finished:
+            with self._lock:
+                self._jobs.pop(job_id, None)
+            return None
+        if job.operation is None:
             raise problems.ServerRefusedError(
-                'job_running',
-                f'Job {job_id} has not ended: it is forgotten once it has.',
+                'not_cancellable',
+                f'Job {job_id} is a call held as a job when it outlived its wait: it '
+                'holds no operation to stop, and is forgotten once it has ended.',
             )
-        with self._lock:
-            self._jobs.pop(job_id, None)
+        job.operation.stop()
+        return job
 
     def listing(self) -> list[dict[str, object]]:
         """Every job held, newest first."""

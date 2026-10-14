@@ -21,8 +21,9 @@ The server's own answers carry their own reasons, kind ``refusal``:
 ``invalid_request`` 422, ``not_found`` 404, ``method_not_allowed`` 405,
 ``unsupported_media_type`` 415, ``overloaded`` 503, ``server_closing`` 503
 for a member asked while the server closes, ``no_frame_yet`` 503 for a
-live view the camera has sent no frame to, and ``handle_shared`` 409 for
-an id every client shares.
+live view the camera has sent no frame to, ``handle_shared`` 409 for an
+id every client shares, and ``not_cancellable`` 409 for a stop asked of a
+job that holds no operation.
 """
 
 from __future__ import annotations
@@ -149,7 +150,7 @@ class ServerRefusedError(Refusal, Exception):
         'overloaded': RefusalCause.STATE,
         'server_closing': RefusalCause.STATE,
         'no_frame_yet': RefusalCause.STATE,
-        'job_running': RefusalCause.STATE,
+        'not_cancellable': RefusalCause.REQUEST,
     }
 
     _STATUSES: ClassVar[dict[str, int]] = {
@@ -161,7 +162,7 @@ class ServerRefusedError(Refusal, Exception):
         'overloaded': 503,
         'server_closing': 503,
         'no_frame_yet': 503,
-        'job_running': 409,
+        'not_cancellable': 409,
     }
 
     _TITLES: ClassVar[dict[str, str]] = {
@@ -173,7 +174,7 @@ class ServerRefusedError(Refusal, Exception):
         'overloaded': 'Overloaded',
         'server_closing': 'Server Closing',
         'no_frame_yet': 'No Frame Yet',
-        'job_running': 'Job Running',
+        'not_cancellable': 'Not Cancellable',
     }
 
     def __init__(

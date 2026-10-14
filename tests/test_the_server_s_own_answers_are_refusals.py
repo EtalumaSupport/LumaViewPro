@@ -47,7 +47,7 @@ def test_each_reason_s_status_and_title_are_the_type_s():
         'overloaded': (503, 'Overloaded'),
         'server_closing': (503, 'Server Closing'),
         'no_frame_yet': (503, 'No Frame Yet'),
-        'job_running': (409, 'Job Running'),
+        'not_cancellable': (409, 'Not Cancellable'),
     }
     assert set(expected) == set(problems.ServerRefusedError.causes)
     answered = {}

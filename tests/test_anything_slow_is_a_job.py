@@ -8,14 +8,20 @@ is ``202 Accepted`` with the job's address, and the job, read with its
 own ``Prefer: wait``, ends ``completed`` with the result a 200 would have
 carried or ``failed`` with the problem; reading it is 200 either way. A
 member's own progress report is the job's ``progress``. A running call a
-member hands back is a job too. A finished job is forgotten by ``DELETE``;
-one still running is not. Past the live limit a call is refused before it
-runs, and many clients waiting on jobs hold no thread a new call needs.
+member hands back is a job too, and ``DELETE`` on it while it runs is
+its operation's stop: ``202`` with the job, which ends as the stop leaves
+it -- a stopped run ``aborted``, a still, which has no stop, as it would
+have -- and a stop the scope refuses is the answer. A call adopted as a
+job holds no operation, and ``DELETE`` on it while it runs is ``409``
+``not_cancellable``. A finished job is forgotten by ``DELETE``. Past the
+live limit a call is refused before it runs, and many clients waiting on
+jobs hold no thread a new call needs.
 """
 
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import threading
 import time
 
@@ -26,6 +32,7 @@ import rest.jobs
 from modules.scope_session import ScopeSession
 from rest import problems
 from rest.app import build_app
+from tests.scope_fakes import build_scope, home_sim_scope
 from tests.settings_fixtures import complete_settings
 
 
@@ -215,17 +222,130 @@ def test_a_running_call_a_member_hands_back_is_a_job(client):
     assert client.get('/api/v1/jobs').json()[0]['id'] == job['id']
 
 
-def test_a_finished_job_is_forgotten_and_a_running_one_is_not(client, held):
+def test_a_finished_job_is_forgotten_and_a_running_adopted_call_is_not_stopped(client, held):
     accepted = client.post('/api/v1/scope/illumination/leds_off', headers={'Prefer': 'wait=0'})
     location = accepted.headers['Location']
 
     running = client.delete(location)
-    assert (running.status_code, running.json()['reason']) == (409, 'job_running')
+    assert (running.status_code, running.json()['reason']) == (409, 'not_cancellable')
+    assert client.get(location).json()['status'] == 'running'
 
     held.set()
     client.get(location, headers={'Prefer': 'wait=10'})
     assert client.delete(location).status_code == 204
     assert client.get(location).status_code == 404
+
+
+def _scans_held_at_their_first_step(session, monkeypatch):
+    """The shared runner's scans, each held at its first step until *release* is set.
+
+    ``step_started`` is delivered on the run's own thread on a host with no
+    UI dispatcher, as the server is, so the run waits in it.
+    """
+    reached, release = threading.Event(), threading.Event()
+    runner = session.create_protocol_runner()
+    real = runner.run_single_scan
+
+    def held(*args, events, **kwargs):
+        def step_started(index):
+            events.step_started(index)
+            reached.set()
+            release.wait(30)
+
+        return real(*args, events=dataclasses.replace(events, step_started=step_started), **kwargs)
+
+    monkeypatch.setattr(runner, 'run_single_scan', held)
+    return reached, release
+
+
+def test_a_run_job_deleted_while_it_runs_is_stopped_and_ends_aborted(client, session, monkeypatch):
+    home_sim_scope(session.scope)
+    session.settings['BF']['acquire'] = 'image'
+    reached, release = _scans_held_at_their_first_step(session, monkeypatch)
+    protocol = client.post('/api/v1/create_empty_protocol').json()['handle']
+    assert client.post('/api/v1/add_step', json={'protocol': protocol}).status_code == 200
+    runner = client.post('/api/v1/create_protocol_runner').json()['handle']
+    try:
+        job = client.post(
+            f'/api/v1/handles/ProtocolRunner/{runner}/run_single_scan',
+            json={'protocol': protocol, 'enable_image_saving': False},
+        ).json()
+        assert reached.wait(30)
+        location = f'/api/v1/jobs/{job["id"]}'
+        running = client.get(location).json()
+        assert running['status'] == 'running'
+        assert (running['progress']['is_live'], running['progress']['is_stopping']) == (True, False)
+
+        stopping = client.delete(location)
+
+        assert stopping.status_code == 202
+        assert stopping.json()['id'] == job['id']
+        assert stopping.json()['progress']['is_stopping'] is True
+    finally:
+        release.set()
+    ended = client.get(location, headers={'Prefer': 'wait=30'}).json()
+    assert ended['status'] == 'completed'
+    assert (ended['result']['status'], ended['result']['reason']) == ('aborted', 'stopped')
+
+
+def test_a_still_job_deleted_while_it_runs_is_accepted_and_ends_as_it_would_have(
+    client, session, monkeypatch
+):
+    """A still has no stop, and asking it to stop is not refused (Eric, 2026-10-13)."""
+    release = threading.Event()
+    real = session.manual_capture._capture_and_save
+
+    def held(request):
+        assert release.wait(10)
+        return real(request)
+
+    # a stand-in by design: holds the still on the camera lane so the DELETE
+    # meets it running; the simulated camera captures at once.
+    monkeypatch.setattr(session.manual_capture, '_capture_and_save', held)
+    try:
+        job = client.post('/api/v1/manual_capture/capture', json={'false_color_on': False}).json()
+        location = f'/api/v1/jobs/{job["id"]}'
+
+        asked = client.delete(location)
+
+        assert asked.status_code == 202
+        assert asked.json()['status'] == 'running'
+    finally:
+        release.set()
+    ended = client.get(location, headers={'Prefer': 'wait=30'}).json()
+    assert ended['status'] == 'completed'
+    assert len(ended['result']) == 1
+
+
+def test_a_stop_the_scope_refuses_is_the_deletes_answer(tmp_path, monkeypatch):
+    """A home on the EL-0940, whose board takes no stop while it homes."""
+    scope = build_scope(
+        simulate=True, sim_model='LS850', sim_tier='firmware', register_atexit=False
+    )
+    session = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), scope=scope)
+    homing = threading.Event()
+    real = scope._motion_driver.zhome
+
+    def announced(*args, **kwargs):
+        homing.set()
+        return real(*args, **kwargs)
+
+    # a stand-in by design: tells the test the board has begun the home, a
+    # moment the simulated board does not announce.
+    monkeypatch.setattr(scope._motion_driver, 'zhome', announced)
+    try:
+        with TestClient(build_app(session)) as client:
+            job = client.post('/api/v1/scope/motion/start_home', json={'axis': 'Z'}).json()
+            assert homing.wait(30)
+
+            refused = client.delete(f'/api/v1/jobs/{job["id"]}')
+
+            assert (refused.status_code, refused.json()['reason']) == (409, 'home_in_flight')
+            ended = client.get(f'/api/v1/jobs/{job["id"]}', headers={'Prefer': 'wait=60'})
+            assert ended.json()['status'] == 'completed'
+    finally:
+        session.shutdown()
+        scope.disconnect()
 
 
 def test_a_call_past_the_live_limit_is_refused_before_it_runs(client, held, monkeypatch):

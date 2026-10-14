@@ -26,7 +26,6 @@ import logging
 import time
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
-from concurrent.futures import Future
 
 import fastapi
 import pydantic
@@ -35,6 +34,7 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from modules import wire_encoding
+from modules.operation import Operation
 from modules.protocol_runner import ProtocolRunner
 from modules.scope_session import ScopeSession
 from rest import live as live_view
@@ -502,7 +502,7 @@ def _add(
     async def answer(
         request: fastapi.Request,
         handle_id: str | None,
-        act: Callable[[object, Progress, Callable[[Future], dict]], object],
+        act: Callable[[object, Progress, Callable[[Operation], dict]], object],
     ) -> JSONResponse:
         """Run the call on its own thread; answer it, or hand out its job when it outlives the wait.
 
@@ -520,8 +520,14 @@ def _add(
         loop = asyncio.get_running_loop()
         progress = Progress()
 
-        def job_of(future: Future) -> dict:
-            return jobs.of_future(future, member=asked, answer=future_answer, loop=loop)
+        def job_of(operation: Operation) -> dict:
+            return jobs.of_future(
+                operation,
+                member=asked,
+                answer=future_answer,
+                progress=lambda: encoded(operation.progress()),
+                loop=loop,
+            )
 
         def encoded(value: object) -> object:
             return wire_encoding.encode(
@@ -531,8 +537,8 @@ def _add(
                 job=job_of,
             )
 
-        def future_answer(future: Future) -> Answer:
-            return _answered(lambda: encoded(future.result()), request_id)
+        def future_answer(operation: Operation) -> Answer:
+            return _answered(lambda: encoded(operation.result()), request_id)
 
         def work() -> object:
             owner = registry.get(handle_id, route.root) if on_handle else session
@@ -582,7 +588,9 @@ def _add(
     ) -> JSONResponse:
         sent = body.model_dump(include=body.model_fields_set) if body is not None else {}
 
-        def invoke(owner: object, progress: Progress, job_of: Callable[[Future], dict]) -> object:
+        def invoke(
+            owner: object, progress: Progress, job_of: Callable[[Operation], dict]
+        ) -> object:
             arguments = {
                 p.name: wire_encoding.decode(
                     sent[p.name],
@@ -606,7 +614,7 @@ def _add(
             except BaseException:
                 tag.settle(None)
                 raise
-            tag.settle({'job': job_of(value)['id']} if isinstance(value, Future) else None)
+            tag.settle({'job': job_of(value)['id']} if isinstance(value, Operation) else None)
             return value
 
         return await answer(request, handle_id, invoke)
@@ -632,7 +640,8 @@ def _answered(work: Callable[[], object], request_id: str) -> Answer:
 def _add_job_routes(app: fastapi.FastAPI, jobs: JobRegistry) -> None:
     async def listing() -> list[dict[str, object]]:
         """Every job held, newest first."""
-        return jobs.listing()
+        # Off the loop: a run's progress is read under the run's lock.
+        return await asyncio.to_thread(jobs.listing)
 
     app.add_api_route(
         f'{PREFIX}/jobs',
@@ -653,7 +662,7 @@ def _add_job_routes(app: fastapi.FastAPI, jobs: JobRegistry) -> None:
         wait = Wait.of(request.headers.get('prefer'))
         if not job.finished:
             await asyncio.wait({job.answered}, timeout=wait.seconds)
-        return JSONResponse(job.view(), headers=wait.headers())
+        return JSONResponse(await asyncio.to_thread(job.view), headers=wait.headers())
 
     app.add_api_route(
         f'{PREFIX}/jobs/{{job_id}}',
@@ -664,13 +673,34 @@ def _add_job_routes(app: fastapi.FastAPI, jobs: JobRegistry) -> None:
         responses={200: {'model': Job, 'description': 'The job.'}},
     )
 
-    async def forget(job_id: str) -> fastapi.Response:
-        """Forget a finished job; one still running is 409, and its own member stops it."""
-        jobs.forget(job_id)
-        return fastapi.Response(status_code=204)
+    async def delete(request: fastapi.Request, job_id: str) -> fastapi.Response:
+        """Forget a finished job (204), or stop a running one (202, with the job).
+
+        A running job's operation is asked to stop, and the job ends as the
+        stop leaves it: a stopped run ``aborted``, while a still, which has
+        no stop, ends as it would have. A stop the scope refuses is the
+        answer, as its member's refusal. A call held as a job when it
+        outlived its wait holds no operation: 409 ``not_cancellable``.
+        """
+        try:
+            # Off the loop: a stop is sent to the scope.
+            job = await asyncio.to_thread(jobs.delete, job_id)
+        except ServerRefusedError:
+            raise
+        except Exception as e:
+            return problems.answered_by_member(e, request.state.request_id).response()
+        if job is None:
+            return fastapi.Response(status_code=204)
+        return JSONResponse(await asyncio.to_thread(job.view), status_code=202)
 
     app.add_api_route(
-        f'{PREFIX}/jobs/{{job_id}}', forget, methods=['DELETE'], status_code=204, tags=['jobs']
+        f'{PREFIX}/jobs/{{job_id}}',
+        delete,
+        methods=['DELETE'],
+        status_code=204,
+        tags=['jobs'],
+        response_model=None,
+        responses={202: {'model': Job, 'description': 'The job, asked to stop.'}},
     )
 
 
