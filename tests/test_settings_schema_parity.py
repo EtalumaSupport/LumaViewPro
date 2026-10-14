@@ -23,9 +23,9 @@ import pathlib
 
 import pytest
 
+from tests.settings_fixtures import shipped_template
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
-SETTINGS_PATH = REPO_ROOT / 'data' / 'settings.json'
 CURRENT_PATH = REPO_ROOT / 'data' / 'current.json'
 
 # Top-level keys that exist ONLY in current.json, on purpose:
@@ -90,7 +90,8 @@ requires_current_json = pytest.mark.skipif(
 
 
 def _load_settings():
-    return json.loads(SETTINGS_PATH.read_text())
+    # The template as every host reads it: a block for every catalogue key.
+    return shipped_template()
 
 
 def _load_current():
