@@ -26,6 +26,7 @@ from modules.run_events import RunEvents
 
 
 from modules.run_outcome import EndingLatch
+from modules.layer_record import release_colors
 
 
 def _drive_capture(monkeypatch, debug_enabled):
@@ -48,6 +49,7 @@ def _drive_capture(monkeypatch, debug_enabled):
         labware=plate(),
         to_plate=None,
         captures_asked=1,
+        channel_colors=release_colors(),
     )
     scope = writer._scope
     # The objective the frame is taken with, read at capture.

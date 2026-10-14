@@ -21,6 +21,7 @@ from tests.test_manual_capture_overlay_save import (  # noqa: F401 -- the fixtur
     capture_ctx,
 )
 from tests.test_manual_recording_controller import make_controller
+from modules.layer_record import release_colors
 
 
 class TestTheLocationOwnerAnswers:
@@ -60,6 +61,7 @@ def test_a_manual_still_into_a_missing_folder_is_refused_before_the_grab(capture
         settings_snapshot=lambda: settings,
         shown_layer=lambda: LAYER,
         engineering_mode=lambda: False,
+        channel_colors=release_colors,
     )
 
     future = capture.capture(false_color_on=False, bullseye=False, crosshairs=False)

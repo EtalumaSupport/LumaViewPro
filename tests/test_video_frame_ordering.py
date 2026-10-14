@@ -18,6 +18,7 @@ import pandas as pd
 import pytest
 
 from modules.video_builder import VideoBuilder
+from modules.layer_record import release_colors
 
 
 def _frame_name(n):
@@ -52,6 +53,7 @@ def _consumed_order(tmp_path, frame_numbers):
             frames_per_sec=10,
             enable_timestamp_overlay=False,
             output_file_loc=pathlib.Path('out.mp4'),
+            channel_colors=release_colors(),
         )
     return consumed
 
@@ -80,6 +82,7 @@ def test_unparseable_frame_name_fails_loudly(tmp_path):
             frames_per_sec=10,
             enable_timestamp_overlay=False,
             output_file_loc=pathlib.Path('out.mp4'),
+            channel_colors=release_colors(),
         )
 
 
@@ -99,7 +102,9 @@ def test_manual_leg_orders_frames_numerically_across_10k(tmp_path):
 
     with patch.object(VideoBuilder, '_create_video', _capture_df):
         builder = VideoBuilder(has_turret=False)
-        result = builder._build_manual_recording_video(tmp_path, frames_per_sec=10)
+        result = builder._build_manual_recording_video(
+            tmp_path, frames_per_sec=10, channel_colors=release_colors()
+        )
 
     assert result['status'] is True
     assert captured['order'] == sorted(frames)

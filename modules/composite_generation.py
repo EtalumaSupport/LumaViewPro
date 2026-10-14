@@ -140,6 +140,7 @@ class CompositeGeneration(ProtocolPostProcessor):
                 brightness_thresholds_percent=kwargs['brightness_thresholds_percent'],
                 output_file_loc=path / output_file_loc_rel if output_file_loc_rel else None,
                 output_format=output_format,
+                channel_colors=kwargs['channel_colors'],
             )
         )
 
@@ -210,6 +211,8 @@ class CompositeGeneration(ProtocolPostProcessor):
         brightness_thresholds_percent: dict,
         output_file_loc: pathlib.Path | None = None,
         output_format: str = 'TIFF',
+        *,
+        channel_colors: layer_record.ChannelColors,
     ):
         """Merge one group's per-channel frames into a single composite.
 
@@ -220,7 +223,8 @@ class CompositeGeneration(ProtocolPostProcessor):
         module-level settings global it used to read is published only by
         the app bootstrap, so every headless caller found it None and
         crashed at the threshold lookup. Passing the values in makes the
-        headless and GUI paths identical by construction.
+        headless and GUI paths identical by construction. channel_colors is
+        the colour each layer is added in, handed in for the same reason.
         """
 
         BF_present = False
@@ -368,9 +372,7 @@ class CompositeGeneration(ProtocolPostProcessor):
                 # 41-89% of single-plane signal pre-fix.
                 img_gray = image_utils.rgb_image_to_gray(f_image, baked=True)
 
-                channel_images[layer] = CompositeChannel(
-                    img_gray, layer_record.release_color(layer)
-                )
+                channel_images[layer] = CompositeChannel(img_gray, channel_colors[layer])
 
                 # The mapping onto the composite's 8-bit output scale belongs to
                 # the builder, which owns that scale and the comparison the

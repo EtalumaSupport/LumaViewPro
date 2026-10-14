@@ -29,6 +29,7 @@ from modules.composite_builder import (
 )
 from modules.composite_generation import CompositeGeneration
 from modules.exceptions import ConfigError
+from modules.layer_record import release_colors
 
 
 def _in_release_colours(images):
@@ -128,6 +129,7 @@ class TestAPercentageOutsideTheRangeIsRefused:
                 df=df,
                 brightness_thresholds_percent=thresholds,
                 output_file_loc=None,
+                channel_colors=release_colors(),
             )
 
         message = str(excinfo.value)
@@ -144,6 +146,7 @@ class TestAPercentageOutsideTheRangeIsRefused:
                 df=df,
                 brightness_thresholds_percent=thresholds,
                 output_file_loc=None,
+                channel_colors=release_colors(),
             )
 
     @pytest.mark.parametrize('good', [0, 50, 100])
@@ -155,6 +158,7 @@ class TestAPercentageOutsideTheRangeIsRefused:
             df=df,
             brightness_thresholds_percent=thresholds,
             output_file_loc=None,
+            channel_colors=release_colors(),
         )
 
         assert result['status'] is True, result['error']

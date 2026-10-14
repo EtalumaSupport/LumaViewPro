@@ -19,6 +19,7 @@ from modules.exceptions import PostProcessingRefusedError
 from modules.zprojector import ZProjector
 from tests.test_capture_collision_policy import TILING_CONFIGS
 from modules.layer_record import release_color
+from modules.layer_record import release_colors
 
 _COLUMNS = [
     'Name', 'X', 'Y', 'Z', 'Auto_Focus', 'Color', 'False_Color', 'Illumination',
@@ -89,7 +90,10 @@ def _run_folder(tmp_path, *, well='A1', protocol_file='run.tsv'):
 
 def _project(folder):
     return ZProjector(has_turret=False).load_folder(
-        path=folder, tiling_configs_file_loc=TILING_CONFIGS, method=ZProjector.methods()[0]
+        path=folder,
+        tiling_configs_file_loc=TILING_CONFIGS,
+        method=ZProjector.methods()[0],
+        channel_colors=release_colors(),
     )
 
 

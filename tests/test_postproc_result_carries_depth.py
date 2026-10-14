@@ -23,6 +23,7 @@ from modules.composite_generation import CompositeGeneration
 from modules.protocol_post_processing_result import PostProcResult
 from modules.stitcher import Stitcher
 from modules.zprojector import ZProjector
+from modules.layer_record import release_colors
 
 
 @pytest.fixture
@@ -83,6 +84,7 @@ class TestGroupAlgorithmsCarryDepth:
             df=df,
             method='Average',
             output_file_loc=pd.Series(['out.tiff'])[0],
+            channel_colors=release_colors(),
         )
         assert isinstance(result, PostProcResult)
         assert result.status is True
@@ -110,6 +112,7 @@ class TestGroupAlgorithmsCarryDepth:
             path=tmp_path,
             df=df,
             output_file_loc=pd.Series(['stitched.tiff'])[0],
+            channel_colors=release_colors(),
         )
         assert isinstance(result, PostProcResult)
         assert result.status is True
@@ -128,6 +131,7 @@ class TestGroupAlgorithmsCarryDepth:
             df=df,
             brightness_thresholds_percent={},
             output_file_loc=pd.Series(['composite.tiff'])[0],
+            channel_colors=release_colors(),
         )
         assert isinstance(result, PostProcResult)
         assert result.status is True

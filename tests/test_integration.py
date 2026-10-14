@@ -286,6 +286,7 @@ def executor(scope, executors):
         autofocus_thread=MagicMock(in_flight_sweep=None),
         activity_claim=ActivityClaim(),
         autofocus_runner=mock_af,
+        channel_colors=release_colors,
     )
     return exc
 
@@ -305,6 +306,7 @@ def af_executor(scope, executors):
         autofocus_thread=MagicMock(in_flight_sweep=None),
         activity_claim=ActivityClaim(),
         autofocus_runner=af,
+        channel_colors=release_colors,
     )
     return exc
 
@@ -694,6 +696,7 @@ from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 from tests.scope_fakes import configure_turret_like_bringup
 from modules.protocol_runner import ProtocolRunner
+from modules.layer_record import release_colors
 
 
 class TestHeadlessSession:

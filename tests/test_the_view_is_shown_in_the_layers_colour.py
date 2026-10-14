@@ -57,7 +57,13 @@ def test_each_plane_is_the_views_white_times_the_colours_weight(caplog):
 @pytest.fixture
 def viewer(monkeypatch):
     viewer = MagicMock()
-    monkeypatch.setattr(_app_ctx, 'ctx', SimpleNamespace(viewer=viewer))
+    monkeypatch.setattr(
+        _app_ctx,
+        'ctx',
+        SimpleNamespace(
+            viewer=viewer, session=SimpleNamespace(channel_colors=layer_record.release_colors)
+        ),
+    )
     return viewer
 
 
@@ -86,7 +92,10 @@ def test_the_bullseye_shows_grey_and_leaving_it_redraws_the_shown_layer(monkeypa
     ctx = SimpleNamespace(
         viewer=viewer,
         scope_display=SimpleNamespace(use_bullseye=False),
-        session=SimpleNamespace(shown_channel=ShownChannel('Red', lit=False)),
+        session=SimpleNamespace(
+            shown_channel=ShownChannel('Red', lit=False),
+            channel_colors=layer_record.release_colors,
+        ),
         image_settings=SimpleNamespace(layer_lookup=lambda layer: {'Red': shown_layer}[layer]),
     )
     monkeypatch.setattr(_app_ctx, 'ctx', ctx)

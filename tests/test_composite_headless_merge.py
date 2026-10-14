@@ -27,6 +27,7 @@ from modules.exceptions import ConfigError
 from tests import ast_seams
 
 import pandas as pd
+from modules.layer_record import release_colors
 
 
 def _channel_files(tmp_path, colors):
@@ -50,6 +51,7 @@ class TestHeadlessCompositeWithTransmittedBase:
             df=df,
             brightness_thresholds_percent={'Red': 25},
             output_file_loc=out,
+            channel_colors=release_colors(),
         )
 
         assert result['status'] is True, f'headless merge failed: {result.get("error")}'
@@ -64,6 +66,7 @@ class TestHeadlessCompositeWithTransmittedBase:
                 df=df,
                 brightness_thresholds_percent={},
                 output_file_loc=tmp_path / 'composite.tiff',
+                channel_colors=release_colors(),
             )
         assert 'Red' in str(excinfo.value), (
             'the refusal must name the layer whose threshold is missing'
@@ -81,6 +84,7 @@ class TestHeadlessCompositeWithTransmittedBase:
             df=df,
             brightness_thresholds_percent={},
             output_file_loc=out,
+            channel_colors=release_colors(),
         )
 
         assert result['status'] is True

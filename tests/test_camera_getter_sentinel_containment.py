@@ -66,6 +66,7 @@ GOOD_ROUND = {
 from modules.run_outcome import EndingLatch
 from tests.scope_fakes import give_camera_capabilities, give_stub_lanes
 from tests.case_walk import failing_cases
+from modules.layer_record import release_colors
 
 
 class _StampedFrameHandler:
@@ -712,6 +713,7 @@ def test_writer_saves_capture_time_depth_not_save_time_rederivation(monkeypatch,
         labware=plate(),
         to_plate=None,
         captures_asked=1,
+        channel_colors=release_colors(),
     )
     recorded = []
     monkeypatch.setattr(

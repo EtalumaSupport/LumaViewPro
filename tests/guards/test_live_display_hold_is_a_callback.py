@@ -38,6 +38,7 @@ for _name in ('kivy.clock', 'kivy.uix', 'kivy.uix.scrollview'):
 
 
 from modules.run_outcome import EndingLatch
+from modules.layer_record import release_colors
 
 
 def _writer(events):
@@ -60,6 +61,7 @@ def _writer(events):
         labware=plate(),
         to_plate=None,
         captures_asked=1,
+        channel_colors=release_colors(),
     )
     scope = writer._scope
     # The objective the frame is taken with, read at capture.

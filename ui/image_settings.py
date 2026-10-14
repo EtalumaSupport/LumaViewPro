@@ -142,13 +142,14 @@ class ImageSettings(BoxLayout):
         acquired.
         """
         records = {record.key_name: record for record in identity.layers}
+        colors = _app_ctx.ctx.session.channel_colors()
         for layer, drawer in self._drawers.items():
             record = records.get(layer)
             if record is None:
                 _app_ctx.ctx.session.set_layer_acquire(layer, None)
                 drawer.collapse = True
                 continue
-            color = layer_record.parse_display_color(record.display_color)
+            color = colors[layer]
             drawer.color_rgba = (*color, 1.0)
             drawer.chrome_rgba = (*_lightened(color), 1.0)
             drawer.title = record.label

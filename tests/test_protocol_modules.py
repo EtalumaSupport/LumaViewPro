@@ -40,6 +40,7 @@ from modules.run_events import RunEvents
 
 from modules.run_outcome import EndingLatch, RunEnding
 from tests.scope_fakes import swap_lanes
+from modules.layer_record import release_colors
 
 
 class TestSequencedCaptureRunMode:
@@ -577,6 +578,7 @@ class TestProtocolImageWriterWriteCapture:
             labware=plate(),
             to_plate=None,
             captures_asked=1,
+            channel_colors=release_colors(),
         )
         return writer
 

@@ -22,6 +22,7 @@ from modules.protocol_recording import ProtocolVideoStep
 from modules.run_events import RunEvents
 from tests.scope_fakes import answer_auto_gain_like_the_api
 from modules.layer_record import GREY, release_color
+from modules.layer_record import release_colors
 
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -99,6 +100,7 @@ def _video_step(monkeypatch, tmp_path, *, timestamp_overlay, false_color=False):
         record_dropped_capture=MagicMock(),
         run_claim=lent_run_claim(),
         to_plate=None,
+        channel_colors=release_colors(),
     )
     outcome = recorder.run_blocking()
     assert outcome == protocol_recording.NO_FRAMES

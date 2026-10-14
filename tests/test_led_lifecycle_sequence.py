@@ -60,6 +60,7 @@ from modules.sequenced_capture_runner import (
 from modules.sequential_io_executor import SequentialIOExecutor
 from tests.protocol_drives import held_run_claim
 from tests.scope_fakes import configure_turret_like_bringup
+from modules.layer_record import release_colors
 
 
 # Plate coordinates in mm for distinct well positions.
@@ -309,6 +310,7 @@ def _make_runner(scope, execs):
         autofocus_thread=MagicMock(in_flight_sweep=None),
         activity_claim=ActivityClaim(),
         autofocus_runner=_mock_af_runner(),
+        channel_colors=release_colors,
     )
     return exc
 

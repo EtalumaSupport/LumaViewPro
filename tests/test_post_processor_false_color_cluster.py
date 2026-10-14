@@ -34,6 +34,7 @@ import tifffile as tf
 from modules import app_context as _app_ctx
 from modules.stitcher import Stitcher
 from modules.zprojector import ZProjector
+from modules.layer_record import release_colors
 
 
 @pytest.fixture
@@ -93,6 +94,7 @@ class TestStitcherGroupAlgorithmCarriesColor:
             path=tmp_path,
             df=df,
             output_file_loc=pd.Series(['stitched.tiff'])[0],
+            channel_colors=release_colors(),
         )
         assert result.status, (
             f'_group_algorithm returned status=False: {result.error}. '
@@ -135,6 +137,7 @@ class TestPostProcessorSkipsFalseColorForTransmitted:
             df=df,
             method='Average',
             output_file_loc=pd.Series(['out.tiff'])[0],
+            channel_colors=release_colors(),
         )
         assert result['status']
         out = tf.imread(str(tmp_path / 'out.tiff'))
@@ -152,6 +155,7 @@ class TestPostProcessorSkipsFalseColorForTransmitted:
             path=tmp_path,
             df=df,
             output_file_loc=pd.Series(['stitched.tiff'])[0],
+            channel_colors=release_colors(),
         )
         assert result['status']
         out = tf.imread(str(tmp_path / 'stitched.tiff'))

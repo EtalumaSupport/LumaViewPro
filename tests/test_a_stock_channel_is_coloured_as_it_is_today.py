@@ -24,6 +24,7 @@ from modules import image_utils
 from modules.layer_record import release_color
 from modules.quick_enhance import QuickEnhancer
 from modules.video_writer import VideoWriter
+from modules.layer_record import release_colors
 
 # None is grey.
 _COLOUR = {
@@ -83,7 +84,9 @@ def test_false_colour_puts_each_channel_on_its_plane_or_grey():
 def test_quick_enhance_colours_a_fluorescence_image_and_leaves_a_transmitted_one_grey():
     wrong = []
     for channel, colour in _COLOUR.items():
-        got = QuickEnhancer.colorize_mono_for_visual_output(_MONO, channel)
+        got = QuickEnhancer.colorize_mono_for_visual_output(
+            _MONO, channel, channel_colors=release_colors()
+        )
         want = _MONO if colour is None else _rgb(_MONO, colour)
         if not np.array_equal(got, want):
             wrong.append(channel)

@@ -23,6 +23,7 @@ from modules.post_processing import (
     check_cell_count_method,
     default_cell_count_method,
 )
+from modules.layer_record import release_colors
 
 
 def _blobs() -> np.ndarray:
@@ -141,6 +142,7 @@ def test_the_session_refuses_a_bad_method_before_the_count_is_queued(tmp_path):
         tiling_configs_path=lambda: tmp_path,
         has_turret=lambda: False,
         settings_snapshot=dict,
+        channel_colors=release_colors,
     )
     with pytest.raises(PostProcessingRefusedError) as refused:
         api.count_cells(tmp_path, method=_method(pixels_per_um=0))

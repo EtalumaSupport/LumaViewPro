@@ -29,6 +29,7 @@ from unittest.mock import patch
 
 from modules.plugins.builtin import stitcher_plugin
 from tests.plugin_test_harness import harness_ctx  # noqa: F401
+from modules.layer_record import release_colors
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
 
@@ -126,6 +127,7 @@ def test_processor_returns_processor_result_on_missing_folder(
         tiling_configs_path=lambda: REPO / 'data' / 'tiling.json',
         has_turret=lambda: False,
         settings_snapshot=dict,
+        channel_colors=release_colors,
     )
     stitcher_plugin.register(harness_ctx)
     processor = harness_ctx.plugins.post_processing.get('stitcher')
@@ -209,7 +211,9 @@ def test_processor_real_stitch_via_test_fixtures(harness_ctx, tmp_path):
     processor = harness_ctx.plugins.post_processing.get('stitcher')
     assert processor is not None
 
-    direct_result = Stitcher._simple_position_stitcher(tmp_path, df)
+    direct_result = Stitcher._simple_position_stitcher(
+        tmp_path, df, channel_colors=release_colors()
+    )
     assert direct_result['status'] is True
     assert direct_result['image'].shape == (80, 80)
 

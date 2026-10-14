@@ -22,6 +22,7 @@ from modules.protocol_image_writer import RunWriteBatch
 from modules.protocol_state_machine import SequencedCaptureRunMode
 from tests.protocol_drives import bare_capture_runner
 from tests.case_walk import failing_cases
+from modules.layer_record import release_colors
 
 
 def _hyperstack_runner(tmp_path, run_mode=SequencedCaptureRunMode.FULL_PROTOCOL):
@@ -38,6 +39,8 @@ def _hyperstack_runner(tmp_path, run_mode=SequencedCaptureRunMode.FULL_PROTOCOL)
     runner._write_batch = RunWriteBatch(MagicMock())
     runner._write_batch.close()
     runner._scope.capabilities.has_turret = False
+    # The colours the run took at start.
+    runner._channel_colors = release_colors()
     return runner
 
 
@@ -59,6 +62,7 @@ class TestRunnerHyperstackTrigger:
             tiling_configs_file_loc=tmp_path / 'data' / 'tiling.json',
             wait_for_images=ANY,
             save_encoding='8bit',
+            channel_colors=release_colors(),
         )
 
     def test_a_held_batch_builds_nothing_and_reports_the_timeout(
@@ -121,6 +125,7 @@ class TestRunnerHyperstackTrigger:
             tiling_configs_file_loc=armed,
             wait_for_images=ANY,
             save_encoding='8bit',
+            channel_colors=release_colors(),
         )
         # The images it waits for are its own run's, not the successor's.
         build.call_args.kwargs['wait_for_images']()

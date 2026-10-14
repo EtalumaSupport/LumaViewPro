@@ -130,6 +130,8 @@ class ManualRecordingController:
             recording runs from its immutable snapshot.
         shown_layer: Reads the layer of the session's shown channel, once,
             at ``start``: it names the channel when no LED is lit.
+        channel_colors: Reads every layer's colour, from the Session's one
+            read of it, once, at ``start``.
         activity_claim: The session's compare-and-claim handle; passed
             through to the engine so a recording and a protocol run are
             mutually exclusive.
@@ -147,6 +149,7 @@ class ManualRecordingController:
         scope: Any,
         settings: dict,
         shown_layer: Callable[[], str],
+        channel_colors: Callable[[], layer_record.ChannelColors],
         activity_claim: Any,
         scheduler: Scheduler,
         clock: Callable[[], float] = time.time,
@@ -154,6 +157,7 @@ class ManualRecordingController:
         self._scope = scope
         self._settings = settings
         self._shown_layer = shown_layer
+        self._channel_colors = channel_colors
         self._claim = activity_claim
         self._scheduler = scheduler
         self._clock = clock
@@ -463,6 +467,7 @@ class ManualRecordingController:
                 save_folder=save_folder,
                 layer=resolved_layer,
                 false_color_on=false_color_on,
+                channel_colors=self._channel_colors(),
                 save_encoding=capture_config.save_encoding,
                 capture_depth=capture_config.capture_depth,
                 tick_freq_hz=camera.camera_timestamp_tick_hz,
@@ -481,7 +486,9 @@ class ManualRecordingController:
                     height=claimed['frame_size']['height'],
                     # Rendering: grey keeps the encoder gray, which is what a
                     # recording with the toggle off must produce.
-                    color=layer_record.shown_color(resolved_layer, false_color_on),
+                    color=layer_record.shown_color(
+                        resolved_layer, false_color_on, plan.channel_colors
+                    ),
                     include_timestamp_overlay=config.timestamp_overlay,
                     vfr=True,
                 )
@@ -737,6 +744,7 @@ class ManualRecordingController:
             # states one channel and is coloured as another.
             channel=fact.channel,
             false_color_on=plan.false_color_on,
+            channel_colors=plan.channel_colors,
             save_encoding=plan.save_encoding,
             capture_depth=plan.capture_depth,
         )
@@ -922,6 +930,7 @@ class ManualRecordingController:
                 path=plan.save_folder,
                 output_file_loc=output,
                 save_encoding=plan.save_encoding,
+                channel_colors=plan.channel_colors,
             )
         except InputFramesUnusableError as unusable:
             # Frames the stack cannot use are a hyperstack the recording did
@@ -1001,6 +1010,9 @@ class _RecordingPlan:
     # what an unnamed channel means.
     layer: str
     false_color_on: bool
+    # Every layer's colour as the recording began: each frame is coloured
+    # as the channel that lit it, so one colour would not do.
+    channel_colors: layer_record.ChannelColors
     save_encoding: str
     capture_depth: int
     tick_freq_hz: float | None

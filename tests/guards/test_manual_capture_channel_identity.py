@@ -23,6 +23,7 @@ import tifffile as tf
 
 from tests.ast_seams import REPO_ROOT, parse_module
 from tests.scope_fakes import bind_settings_like_a_session
+from modules.layer_record import release_colors
 
 
 PLATE = '24 well microplate'
@@ -71,6 +72,7 @@ def _run_manual_capture(tmp_path, scope, *, shown_layer, false_color_on, separat
         settings_snapshot=lambda: settings,
         shown_layer=lambda: shown_layer,
         engineering_mode=lambda: False,
+        channel_colors=release_colors,
     )
     reported = capture.capture(false_color_on=false_color_on).result(timeout=30)
 

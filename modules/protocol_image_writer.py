@@ -33,6 +33,7 @@ from modules.exceptions import (
     RunWriteRefusedError,
 )
 from modules.image_save import save_image
+from modules.layer_record import ChannelColors
 from modules.lumascope_api.imaging import capture_failure_cause
 from modules.notification_center import notifications
 from modules.protocol import Protocol
@@ -607,6 +608,9 @@ class ProtocolImageWriter:
         # headless run's filenames without their turret position. Required
         # so no writer can silently decide it.
         engineering_mode: bool,
+        # Every layer's colour as the run began: what its stills and videos
+        # are coloured in, never the live settings mid-run.
+        channel_colors: ChannelColors,
         # The run's activity claim, lent to the work inside the run: a
         # video step records under it and cannot release it.
         run_claim: BorrowedClaim,
@@ -638,6 +642,7 @@ class ProtocolImageWriter:
         self._timestamp_overlay = timestamp_overlay
         self._video_max_fps = video_max_fps
         self._engineering_mode = engineering_mode
+        self._channel_colors = channel_colors
         self._run_claim = run_claim
         self._labware = labware
         self._to_plate = to_plate
@@ -1297,6 +1302,7 @@ class ProtocolImageWriter:
                         capture_config=self._config,
                         timestamp_overlay=self._timestamp_overlay,
                         global_max_fps=self._video_max_fps,
+                        channel_colors=self._channel_colors,
                         autogain_settings=autogain_settings,
                         events=self._events,
                         aborted_event=self._aborted,
@@ -1645,6 +1651,7 @@ class ProtocolImageWriter:
                     jpeg_quality=self._config.jpg_quality,
                     channel=step['Color'],
                     false_color_on=bool(step['False_Color']),
+                    channel_colors=self._channel_colors,
                     # The frame's position fact holds plate mm for X and Y
                     # and stage um for Z -- the frames the saved file
                     # declares, so each goes into the parameter named for it

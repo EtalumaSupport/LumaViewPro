@@ -32,6 +32,7 @@ import numpy as np
 import pytest
 import tifffile as tf
 from modules.layer_record import release_color
+from modules.layer_record import release_colors
 
 
 XFAIL_REASON = (
@@ -137,6 +138,7 @@ def test_pure_blue_mp4_roundtrip(tmp_path):
         output_file=out_path,
         false_color=True,
         color='Blue',
+        channel_colors=release_colors(),
     )
 
     # Decode first frame via PyAV
@@ -343,6 +345,7 @@ def test_composite_sequenced_path_honors_output_format(tmp_path):
         brightness_thresholds_percent={},
         output_file_loc=ome_out,
         output_format='OME-TIFF',
+        channel_colors=release_colors(),
     )
     with tf.TiffFile(str(ome_out)) as t:
         assert t.ome_metadata is not None, 'OME-TIFF format must produce OME metadata'
@@ -354,6 +357,7 @@ def test_composite_sequenced_path_honors_output_format(tmp_path):
         brightness_thresholds_percent={},
         output_file_loc=plain_out,
         output_format='TIFF',
+        channel_colors=release_colors(),
     )
     with tf.TiffFile(str(plain_out)) as t:
         assert t.ome_metadata is None, 'TIFF format must not produce OME metadata'

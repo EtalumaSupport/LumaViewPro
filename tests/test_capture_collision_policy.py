@@ -47,6 +47,7 @@ from tests.test_validate_steps import (
     _make_protocol,
     _valid_step,
 )
+from modules.layer_record import release_colors
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 TILING_CONFIGS = REPO / 'data' / 'tiling.json'
@@ -252,7 +253,9 @@ def _drive_load_folder(processor, tmp_path, monkeypatch, images_df, post_record)
             'protocol': None,
         },
     )
-    return processor.load_folder(path=tmp_path, tiling_configs_file_loc=TILING_CONFIGS)
+    return processor.load_folder(
+        path=tmp_path, tiling_configs_file_loc=TILING_CONFIGS, channel_colors=release_colors()
+    )
 
 
 def test_post_processor_all_groups_colliding_refuses_with_reason(tmp_path, monkeypatch):
@@ -490,6 +493,7 @@ def test_video_step_row_records_writers_actual_path(tmp_path, monkeypatch):
         clock=lambda: clock['t'],
         run_claim=lent_run_claim(),
         to_plate=None,
+        channel_colors=release_colors(),
     )
 
     outcomes = []
@@ -551,6 +555,7 @@ def test_video_builder_create_video_reports_actual_output_file(tmp_path):
         on_progress=None,
         total_groups=1,
         current_group=1,
+        channel_colors=release_colors(),
     )
     assert result['status'] is True
     actual = pathlib.Path(str(result['actual_output_file_loc']))

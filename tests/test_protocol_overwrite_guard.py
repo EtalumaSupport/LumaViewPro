@@ -35,6 +35,7 @@ from tests.protocol_drives import lent_run_claim
 from tests.frame_records import frame_record, plate, unpositioned
 from modules.protocol_image_writer import RunWriteBatch
 from modules.run_outcome import EndingLatch
+from modules.layer_record import release_colors
 
 
 def test_generate_image_save_path_supports_if_collision_mode(tmp_path):
@@ -92,6 +93,7 @@ def test_protocol_image_writer_uses_if_collision(monkeypatch, tmp_path):
         labware=plate(),
         to_plate=None,
         captures_asked=1,
+        channel_colors=release_colors(),
     )
     recorded = []
     monkeypatch.setattr(

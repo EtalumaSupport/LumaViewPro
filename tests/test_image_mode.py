@@ -29,6 +29,7 @@ import numpy as np
 import pytest
 import tifffile as tf
 from modules.layer_record import release_color
+from modules.layer_record import release_colors
 
 
 def _metadata(path, channel='Blue', significant_bits=None):
@@ -394,6 +395,7 @@ def test_record_frame_must_be_right_aligned_for_video_frame(tmp_path):
         false_color_on=False,
         save_encoding='right_aligned',
         capture_depth=12,
+        channel_colors=release_colors(),
     )
     arr = tf.imread(str(correct))
     assert arr[0, 0] == 4095, 'right-aligned frame must round-trip the raw 12-bit value'
@@ -414,6 +416,7 @@ def test_record_frame_must_be_right_aligned_for_video_frame(tmp_path):
         false_color_on=False,
         save_encoding='right_aligned',
         capture_depth=12,
+        channel_colors=release_colors(),
     )
     arr_bug = tf.imread(str(corrupt))
     assert arr_bug[0, 0] == 65520, 'left-justified frame corrupts the saved value (4095 -> 65520)'
@@ -506,10 +509,20 @@ def test_mp4_writers_pass_layer_color():
     # video step).
     manual_src = (repo / 'modules' / 'manual_recording.py').read_text()
     cap_src = (repo / 'modules' / 'protocol_recording.py').read_text()
-    # Both colorize from the recorded layer's false-color signal, and both
-    # encode grey when false color is off -- one contract, one resolver.
-    assert 'color=layer_record.shown_color(resolved_layer, false_color_on)' in manual_src
-    assert "color=layer_record.shown_color(step['Color'], false_color_on)" in cap_src
+    # Both colorize from the recorded layer's false-color signal, in the
+    # colours the recording began with, and both encode grey when false
+    # color is off -- one contract, one resolver. Whitespace is dropped, so a
+    # reflow of the call does not read as a change.
+    manual_flat = ''.join(manual_src.split())
+    cap_flat = ''.join(cap_src.split())
+    assert (
+        'color=layer_record.shown_color(resolved_layer,false_color_on,plan.channel_colors)'
+        in manual_flat
+    )
+    assert (
+        "color=layer_record.shown_color(step['Color'],false_color_on,self._channel_colors)"
+        in cap_flat
+    )
     # The inline protocol-capture bake stays gone (one colorization authority).
     assert 'add_false_color' not in cap_src
 
@@ -609,6 +622,7 @@ def test_write_video_frame_matrix(
         false_color_on=fc_on,
         save_encoding=save_encoding,
         capture_depth=capture_depth,
+        channel_colors=release_colors(),
     )
     arr = tf.imread(str(out_path))
     assert arr.ndim == ndim
@@ -631,6 +645,7 @@ def test_write_video_frame_12bit_falsecolor_off_stays_mono(tmp_path):
         false_color_on=False,
         save_encoding='rgb',
         capture_depth=12,
+        channel_colors=release_colors(),
     )
     arr = tf.imread(str(out_path))
     assert arr.ndim == 2, 'false-color-off layer must stay mono even in RGB mode'
@@ -651,6 +666,7 @@ def test_write_video_frame_8bit_falsecolor_bakes_rgb(tmp_path):
         false_color_on=True,
         save_encoding='8bit',
         capture_depth=8,
+        channel_colors=release_colors(),
     )
     arr = tf.imread(str(out_path))
     assert arr.shape == (8, 8, 3)
@@ -674,6 +690,7 @@ def test_write_video_frame_stamps_significant_bits_for_scaled(tmp_path):
         false_color_on=False,
         save_encoding='msb_aligned',
         capture_depth=12,
+        channel_colors=release_colors(),
     )
     arr = tf.imread(str(out_path))
     assert arr[0, 0] == 65520, 'capture_depth=12 must drive the x16 left-justify'
@@ -699,6 +716,7 @@ def test_write_video_frame_rejects_unknown_save_encoding(tmp_path):
             false_color_on=False,
             save_encoding='not_a_real_encoding',
             capture_depth=12,
+            channel_colors=release_colors(),
         )
     assert not out_path.exists(), 'a rejected encoding must not produce a file'
 
@@ -741,6 +759,7 @@ def test_save_image_requires_save_encoding():
         save_image(
             None,
             array=np.zeros((4, 4), dtype=np.uint8),
+            channel_colors=release_colors(),
         )
 
 

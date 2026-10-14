@@ -34,6 +34,7 @@ from modules.zprojector import ZProjector
 from tests.scope_fakes import build_scope, bind_settings_like_a_session
 from tests.settings_fixtures import complete_settings
 from modules.layer_record import release_color
+from modules.layer_record import release_colors
 
 WHITE = {'Mono8': 255, 'Mono12': 4095}
 
@@ -256,6 +257,7 @@ def test_a_12bit_sum_projection_is_tagged_by_its_reach_and_reads_back(tmp_path):
         df=pd.DataFrame(rows),
         method='Sum',
         output_file_loc=pathlib.Path('projected.tiff'),
+        channel_colors=release_colors(),
     )
     assert result['significant_bits'] == 14
     pixels, bits = image_utils.load_pixels(tmp_path / 'projected.tiff')
@@ -301,6 +303,7 @@ def test_a_hyperstack_of_8bit_and_16bit_planes_is_built_at_16bit(
         df=_mixed_planes(tmp_path, encoding),
         output_file_loc=pathlib.Path('stack.ome.tiff'),
         save_encoding=encoding,
+        channel_colors=release_colors(),
     )
     assert result['status'], result.get('error')
     assert _plane_maxima(tmp_path / 'stack.ome.tiff') == sorted([unsummed, summed])
@@ -314,6 +317,7 @@ def test_a_runs_stack_is_built_in_the_runs_encoding(tmp_path, encoding, unsummed
         df=_mixed_planes(tmp_path, encoding),
         output_file_loc=pathlib.Path('stack.ome.tiff'),
         save_encoding=encoding,
+        channel_colors=release_colors(),
     )
     assert result.status, result.error
     assert _plane_maxima(tmp_path / 'stack.ome.tiff') == sorted([unsummed, summed])
@@ -328,6 +332,7 @@ def test_a_manual_recordings_stack_is_built_in_its_encoding(tmp_path, encoding, 
         path=tmp_path,
         output_file_loc=tmp_path / 'stack.ome.tiff',
         save_encoding=encoding,
+        channel_colors=release_colors(),
     )
     assert result['status'], result.get('error')
     assert _plane_maxima(tmp_path / 'stack.ome.tiff') == sorted([unsummed, summed])
@@ -362,6 +367,7 @@ def test_a_sums_jpg_is_rendered_against_one_frames_white(tmp_path):
         frame_record=frame_record(frames_summed=3, frame_significant_bits=8),
         labware=plate(),
         well_label=None,
+        channel_colors=release_colors(),
     )
     jpg = cv2.imdecode(np.frombuffer(pathlib.Path(path).read_bytes(), np.uint8), cv2.IMREAD_COLOR)
     assert int(jpg.min()) >= 250
@@ -392,5 +398,6 @@ def test_the_post_run_build_is_told_the_runs_encoding(monkeypatch, tmp_path):
         tmp_path / 'tiling.json',
         wait_for_images=lambda: None,
         save_encoding='msb_aligned',
+        channel_colors=release_colors(),
     )
     assert asked['save_encoding'] == 'msb_aligned'

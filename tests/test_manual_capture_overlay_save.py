@@ -31,6 +31,7 @@ from modules.lumascope_api._constants import AxisPosition, AxisState
 from tests.ast_seams import parse_module
 from tests.frame_records import frame_record, plate
 from tests.scope_fakes import spec_scope
+from modules.layer_record import release_colors
 
 LAYER = 'Lumi'
 
@@ -92,6 +93,7 @@ def _run_capture(ctx, sum_count=1):
         settings_snapshot=lambda: settings,
         shown_layer=lambda: LAYER,
         engineering_mode=lambda: ctx.engineering_mode,
+        channel_colors=release_colors,
     )
 
     def _saved(scope, array, *, file_root, append, **kwargs):

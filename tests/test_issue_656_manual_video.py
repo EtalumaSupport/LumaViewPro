@@ -24,6 +24,7 @@ import modules.recording_frames as recording_frames
 from modules.video_builder import VideoBuilder
 from modules.recording_frames import FrameFact
 from modules.layer_record import release_color
+from modules.layer_record import release_colors
 
 _FACT = FrameFact(plate_x_mm=None, plate_y_mm=None, z_um=None, moving=False, channel='BF')
 
@@ -150,6 +151,7 @@ def test_build_from_folder_manual_creates_video_excluding_hyperstack(tmp_path):
         None,
         frames_per_sec=5,
         enable_timestamp_overlay=False,
+        channel_colors=release_colors(),
     )
 
     assert result['status'] is True
@@ -172,7 +174,9 @@ def test_build_from_folder_empty_is_refused(tmp_path):
     # No manual frames -> falls through to load_folder, which refuses a
     # folder holding no protocol data.
     with pytest.raises(PostProcessingRefusedError):
-        builder.build_from_folder(folder, tmp_path / 'tiling.json', None)
+        builder.build_from_folder(
+            folder, tmp_path / 'tiling.json', None, channel_colors=release_colors()
+        )
 
 
 def test_build_from_folder_routes_protocol_to_load_folder(tmp_path, monkeypatch):
@@ -191,7 +195,9 @@ def test_build_from_folder_routes_protocol_to_load_folder(tmp_path, monkeypatch)
         return {'status': True, 'message': 'Success'}
 
     monkeypatch.setattr(builder, 'load_folder', fake_load_folder)
-    builder.build_from_folder(folder, tmp_path / 'tiling.json', None)
+    builder.build_from_folder(
+        folder, tmp_path / 'tiling.json', None, channel_colors=release_colors()
+    )
     assert called['path'] == folder
 
 
@@ -206,10 +212,20 @@ def test_timestamp_overlay_toggle_changes_output(tmp_path):
 
     builder = VideoBuilder(has_turret=False)
     builder.build_from_folder(
-        off_folder, tmp_path / 'tiling.json', None, frames_per_sec=5, enable_timestamp_overlay=False
+        off_folder,
+        tmp_path / 'tiling.json',
+        None,
+        frames_per_sec=5,
+        enable_timestamp_overlay=False,
+        channel_colors=release_colors(),
     )
     builder.build_from_folder(
-        on_folder, tmp_path / 'tiling.json', None, frames_per_sec=5, enable_timestamp_overlay=True
+        on_folder,
+        tmp_path / 'tiling.json',
+        None,
+        frames_per_sec=5,
+        enable_timestamp_overlay=True,
+        channel_colors=release_colors(),
     )
 
     # The overlay draws a timestamp into the bottom-left; the frames must differ.
@@ -234,7 +250,9 @@ def test_manual_video_renders_channel_color_from_manifest(tmp_path):
         tmp_path, n_frames=2, include_hyperstack=False, channel_color='Red'
     )
     builder = VideoBuilder(has_turret=False)
-    result = builder.build_from_folder(folder, tmp_path / 'tiling.json', None, frames_per_sec=5)
+    result = builder.build_from_folder(
+        folder, tmp_path / 'tiling.json', None, frames_per_sec=5, channel_colors=release_colors()
+    )
     assert result['status'] is True
     b, g, r = _channel_means_bgr(_first_frame(_find_video(folder, folder.name)))
     # 'Red' false-color -> red channel dominates; NOT grayscale (the bug).
@@ -245,7 +263,9 @@ def test_manual_video_grayscale_without_channel_color(tmp_path):
     # No channel_color in the manifest (old recording / brightfield) -> gray.
     folder = _make_manual_folder(tmp_path, n_frames=2, include_hyperstack=False, channel_color=None)
     builder = VideoBuilder(has_turret=False)
-    result = builder.build_from_folder(folder, tmp_path / 'tiling.json', None, frames_per_sec=5)
+    result = builder.build_from_folder(
+        folder, tmp_path / 'tiling.json', None, frames_per_sec=5, channel_colors=release_colors()
+    )
     assert result['status'] is True
     b, g, r = _channel_means_bgr(_first_frame(_find_video(folder, folder.name)))
     assert abs(r - g) < 8 and abs(g - b) < 8, f'expected gray frame, got B={b} G={g} R={r}'
@@ -305,7 +325,12 @@ def test_overlay_build_opens_each_tiff_once(tmp_path, monkeypatch):
 
     builder = VideoBuilder(has_turret=False)
     result = builder.build_from_folder(
-        folder, tmp_path / 'tiling.json', None, frames_per_sec=5, enable_timestamp_overlay=True
+        folder,
+        tmp_path / 'tiling.json',
+        None,
+        frames_per_sec=5,
+        enable_timestamp_overlay=True,
+        channel_colors=release_colors(),
     )
     assert result['status'] is True
 
@@ -363,6 +388,7 @@ def test_overlay_off_skips_to_pydatetime(tmp_path):
         on_progress=None,
         total_groups=1,
         current_group=1,
+        channel_colors=release_colors(),
     )
     assert result_off['status'] is True
     assert off_counter['n'] == 0, f'overlay OFF must convert no Timestamp, got {off_counter["n"]}'
@@ -382,6 +408,7 @@ def test_overlay_off_skips_to_pydatetime(tmp_path):
         on_progress=None,
         total_groups=1,
         current_group=1,
+        channel_colors=release_colors(),
     )
     assert result_on['status'] is True
     assert on_counter['n'] == 3, (
@@ -416,6 +443,7 @@ def test_create_video_missing_timestamp_no_crash(tmp_path):
         on_progress=None,
         total_groups=1,
         current_group=1,
+        channel_colors=release_colors(),
     )
     assert result['status'] is True
     assert _find_video(folder, 'out').is_file()
@@ -446,6 +474,7 @@ def test_a_video_of_composites_builds_from_their_rgb(tmp_path):
         on_progress=None,
         total_groups=1,
         current_group=1,
+        channel_colors=release_colors(),
     )
     assert result['status'] is True
     assert _find_video(folder, 'out').is_file()

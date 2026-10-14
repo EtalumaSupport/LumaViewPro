@@ -965,5 +965,7 @@ class LayerControl(BoxLayout):
 
     def update_shader(self, dt):
         _app_ctx.ctx.viewer.update_shader(
-            layer_record.shown_color(self.layer, self.ids['false_color'].active)
+            layer_record.shown_color(
+                self.layer, self.ids['false_color'].active, _app_ctx.ctx.session.channel_colors()
+            )
         )

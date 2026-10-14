@@ -435,6 +435,7 @@ class ScopeSession:
             tiling_configs_path=scope.protocols.tiling_configs_path,
             has_turret=lambda: scope.capabilities.has_turret,
             settings_snapshot=self.get_settings_snapshot,
+            channel_colors=self.channel_colors,
         )
         # Run-state listeners: zero-argument callables notified on every
         # run-state transition edge (claim grant/release, a run's return
@@ -494,6 +495,7 @@ class ScopeSession:
             scope=scope,
             settings=settings,
             shown_layer=lambda: self._shown_channel.layer,
+            channel_colors=self.channel_colors,
             activity_claim=self.activity_claim,
             scheduler=self._scheduler,
         )
@@ -505,6 +507,7 @@ class ScopeSession:
             settings_snapshot=self.get_settings_snapshot,
             shown_layer=lambda: self._shown_channel.layer,
             engineering_mode=lambda: self.engineering_mode,
+            channel_colors=self.channel_colors,
         )
 
         # The run engine and its autofocus pair are SESSION-composed:
@@ -527,6 +530,7 @@ class ScopeSession:
             autofocus_thread=autofocus_thread,
             autofocus_runner=autofocus_runner,
             activity_claim=self.activity_claim,
+            channel_colors=self.channel_colors,
             on_run_idle=self._run_went_idle,
             on_protocol_files_written=self._run_protocol_complete_processors,
             on_step_lit=self._step_lit_by_run,
@@ -1531,6 +1535,22 @@ class ScopeSession:
         if focus is None:
             raise FocusNotSavedError(layer)
         return focus
+
+    @api(reads=True)
+    def channel_colors(self) -> dict[str, tuple[float, float, float]]:
+        """Every layer of the release and the colour it is shown and written
+        in, as red, green and blue weights, each 0 to 1.
+
+        The one read of a channel's colour: every capture, recording, build
+        and view takes it from here, the run and each build as it starts.
+
+        Raises:
+            InstallationFileError: the installation's ``scopes.json`` is
+                unusable (``layer_record.release_layers``).
+        """
+        from modules.layer_record import release_colors
+
+        return release_colors()
 
     @api(reads=True)
     def get_stim_configs(self) -> dict:

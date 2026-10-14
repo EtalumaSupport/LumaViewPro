@@ -41,6 +41,7 @@ from tests.protocol_drives import (
     wait_for_run_end,
 )
 from tests.scope_fakes import build_scope, configure_turret_like_bringup, swap_lanes
+from modules.layer_record import release_colors
 
 # ---------------------------------------------------------------------------
 # Test constants
@@ -348,6 +349,7 @@ def executor(scope, executors):
         autofocus_thread=MagicMock(in_flight_sweep=None),
         activity_claim=ActivityClaim(),
         autofocus_runner=mock_af,
+        channel_colors=release_colors,
     )
     return exc
 

@@ -30,6 +30,7 @@ import modules.image_save as image_save
 import modules.image_utils as image_utils
 from tests.frame_records import frame_record, plate
 from tests.scope_fakes import bind_settings_like_a_session
+from modules.layer_record import release_colors
 
 POSITION_KEYS = ('plate_pos_mm', 'x_pos', 'y_pos', 'z_pos_um')
 
@@ -65,6 +66,7 @@ def _save(scope, folder, **position) -> str:
         frame_record=frame_record(),
         labware=plate(),
         well_label=None,
+        channel_colors=release_colors(),
     )
 
 

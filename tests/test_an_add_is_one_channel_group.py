@@ -40,6 +40,7 @@ from tests.test_capture_collision_policy import TILING_CONFIGS
 from tests.test_issue_524_extra_z_step_on_objective_change import _empty_protocol_for_add
 from tests.test_protocol_execution import scope  # noqa: F401 -- pytest fixture
 from modules.layer_record import release_color
+from modules.layer_record import release_colors
 
 AT = {'x': 122.26, 'y': 81.48, 'z': 5000.0}
 OBJECTIVE = '4x Oly'
@@ -145,6 +146,7 @@ def _composite(folder):
         path=folder,
         tiling_configs_file_loc=TILING_CONFIGS,
         brightness_thresholds_percent=THRESHOLDS,
+        channel_colors=release_colors(),
     )
 
 
@@ -201,7 +203,11 @@ class TestTheCompositeRefusesADoubledPlane:
         out = tmp_path / 'composite.tiff'
 
         result = CompositeGeneration._create_composite_image(
-            path=tmp_path, df=df, brightness_thresholds_percent=THRESHOLDS, output_file_loc=out
+            path=tmp_path,
+            df=df,
+            brightness_thresholds_percent=THRESHOLDS,
+            output_file_loc=out,
+            channel_colors=release_colors(),
         )
 
         assert result['status'] is False
@@ -213,7 +219,11 @@ class TestTheCompositeRefusesADoubledPlane:
         out = tmp_path / 'composite.tiff'
 
         result = CompositeGeneration._create_composite_image(
-            path=tmp_path, df=df, brightness_thresholds_percent=THRESHOLDS, output_file_loc=out
+            path=tmp_path,
+            df=df,
+            brightness_thresholds_percent=THRESHOLDS,
+            output_file_loc=out,
+            channel_colors=release_colors(),
         )
 
         assert result['status'] is True, result['error']
@@ -307,6 +317,7 @@ class TestADoubledStillIsRefusedByTheVideoAndTheStack:
             frames_per_sec=1,
             enable_timestamp_overlay=False,
             output_file_loc=pathlib.Path('out.mp4'),
+            channel_colors=release_colors(),
         )
 
         assert result['status'] is False

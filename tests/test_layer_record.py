@@ -31,6 +31,7 @@ from modules.layer_record import (
 )
 from modules.exceptions import ArgumentRefusedError, InstallationFileError
 from modules.path_utils import read_installation_file, resolve_data_file
+from modules.layer_record import release_colors
 
 # The shipped catalogue's records, as scopes.json states them.
 CATALOGUE = read_installation_file(resolve_data_file('scopes.json'))['LayerOrder']
@@ -214,16 +215,20 @@ class TestTheColourRead:
         assert release_color('BF') == GREY
 
     def test_a_composite_is_written_grey_and_a_layer_in_its_colour(self):
-        assert output_color('Composite') == GREY
-        assert output_color('Red') == (1.0, 0.0, 0.0)
+        assert output_color('Composite', colors=release_colors()) == GREY
+        assert output_color('Red', colors=release_colors()) == (1.0, 0.0, 0.0)
 
     def test_false_colour_off_shows_grey(self):
-        assert shown_color('Blue', True) == (0.0, 0.0, 1.0)
-        assert shown_color('Blue', False) == GREY
+        assert shown_color('Blue', True, colors=release_colors()) == (0.0, 0.0, 1.0)
+        assert shown_color('Blue', False, colors=release_colors()) == GREY
 
     def test_a_name_that_is_no_layer_has_no_colour(self):
         refused = []
-        for read in (release_color, output_color, lambda name: shown_color(name, False)):
+        for read in (
+            release_color,
+            lambda name: output_color(name, colors=release_colors()),
+            lambda name: shown_color(name, False, colors=release_colors()),
+        ):
             with pytest.raises(ArgumentRefusedError) as raised:
                 read('FarRed')
             refused.append(raised.value.reason)

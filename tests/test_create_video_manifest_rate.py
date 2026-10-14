@@ -18,6 +18,7 @@ from unittest.mock import patch
 import pytest
 
 from modules.video_builder import DEFAULT_BUILD_FPS, VideoBuilder
+from modules.layer_record import release_colors
 
 
 def _make_manual_folder(tmp_path, n=3):
@@ -40,6 +41,7 @@ def _built_rate(tmp_path, frames_per_sec):
             pathlib.Path('unused_tiling.json'),
             frames_per_sec=frames_per_sec,
             enable_timestamp_overlay=False,
+            channel_colors=release_colors(),
         )
     assert result['status'] is True
     return captured['fps']

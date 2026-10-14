@@ -13,6 +13,7 @@ from modules import image_utils
 from modules.exceptions import PostProcessingFailedError, PostProcessingRefusedError
 from modules.quick_enhance import QUANTITATIVE_USE_WARNING, QuickEnhanceSettings, QuickEnhancer
 from modules.layer_record import GREY, release_color
+from modules.layer_record import release_colors
 
 
 def _metadata(significant_bits: int, channel: str = 'Green') -> dict:
@@ -101,7 +102,9 @@ def test_representative_bf_fluorescence_and_composite_exports_preserve_sources(t
         source = tmp_path / f'{name}.tif'
         _write_source(source, pixels, 12, channel=channel)
         original = source.read_bytes()
-        exported = enhancer.export_file(source, QuickEnhanceSettings())
+        exported = enhancer.export_file(
+            source, QuickEnhanceSettings(), channel_colors=release_colors()
+        )
         output, bits = image_utils.load_pixels(
             exported['output_path'], collapse_legacy_false_color=False
         )
@@ -123,7 +126,9 @@ def test_png_and_jpeg_load_preview_and_export_as_derived_tiff(tmp_path, suffix):
 
     loaded, significant_bits = image_utils.load_pixels(source)
     before, after = QuickEnhancer().preview(loaded, QuickEnhanceSettings(), significant_bits)
-    exported = QuickEnhancer().export_file(source, QuickEnhanceSettings())
+    exported = QuickEnhancer().export_file(
+        source, QuickEnhanceSettings(), channel_colors=release_colors()
+    )
 
     assert before.shape == loaded.shape
     assert after.shape == loaded.shape
@@ -253,8 +258,8 @@ def test_export_preserves_tiff_depth_writes_recipe_and_never_overwrites(tmp_path
     original_bytes = source.read_bytes()
     enhancer = QuickEnhancer()
 
-    first = enhancer.export_file(source, QuickEnhanceSettings())
-    second = enhancer.export_file(source, QuickEnhanceSettings())
+    first = enhancer.export_file(source, QuickEnhanceSettings(), channel_colors=release_colors())
+    second = enhancer.export_file(source, QuickEnhanceSettings(), channel_colors=release_colors())
 
     assert source.read_bytes() == original_bytes
     assert first['output_path'].name == 'original_enhanced.tif'
@@ -272,7 +277,9 @@ def test_brightfield_tiff_stays_monochrome_and_preserves_payload_depth(tmp_path)
     source_data = np.linspace(0, 4095, 256, dtype=np.uint16).reshape(16, 16)
     _write_source(source, source_data, 12, channel='BF')
 
-    exported = QuickEnhancer().export_file(source, QuickEnhanceSettings())
+    exported = QuickEnhancer().export_file(
+        source, QuickEnhanceSettings(), channel_colors=release_colors()
+    )
     output, significant_bits = image_utils.load_pixels(exported['output_path'])
 
     assert output.ndim == 2
@@ -288,7 +295,9 @@ def test_composite_tiff_stays_rgb_and_retains_composite_channel_metadata(tmp_pat
     source_data[..., 2] = 1000
     _write_source(source, source_data, 12, channel='Composite')
 
-    exported = QuickEnhancer().export_file(source, QuickEnhanceSettings())
+    exported = QuickEnhancer().export_file(
+        source, QuickEnhanceSettings(), channel_colors=release_colors()
+    )
     output, significant_bits = image_utils.load_pixels(exported['output_path'])
     metadata = image_utils.read_postproc_input_metadata(exported['output_path'])
 
@@ -306,7 +315,9 @@ def test_rgba_composite_exports_as_rgb_without_rejecting_composite_metadata(tmp_
     source_data[..., 3] = 4095
     tf.imwrite(source, source_data, photometric='rgb')
 
-    exported = QuickEnhancer().export_file(source, QuickEnhanceSettings())
+    exported = QuickEnhancer().export_file(
+        source, QuickEnhanceSettings(), channel_colors=release_colors()
+    )
     output, significant_bits = image_utils.load_pixels(
         exported['output_path'], collapse_legacy_false_color=False
     )
@@ -323,7 +334,9 @@ def test_rgba_composite_png_drops_alpha_before_rgb_tiff_export(tmp_path):
     source_data[..., 3] = 255
     assert cv2.imwrite(str(source), source_data)
 
-    exported = QuickEnhancer().export_file(source, QuickEnhanceSettings())
+    exported = QuickEnhancer().export_file(
+        source, QuickEnhanceSettings(), channel_colors=release_colors()
+    )
     output, significant_bits = image_utils.load_pixels(
         exported['output_path'], collapse_legacy_false_color=False
     )
@@ -341,8 +354,12 @@ def test_fluorescence_mono_output_is_false_colored_without_changing_bf_rules(cha
     enhancer = QuickEnhancer()
     mono = np.arange(64, dtype=np.uint16).reshape(8, 8)
 
-    colored = enhancer.colorize_mono_for_visual_output(mono, channel)
-    grayscale_bf = enhancer.colorize_mono_for_visual_output(mono, 'BF')
+    colored = enhancer.colorize_mono_for_visual_output(
+        mono, channel, channel_colors=release_colors()
+    )
+    grayscale_bf = enhancer.colorize_mono_for_visual_output(
+        mono, 'BF', channel_colors=release_colors()
+    )
 
     assert colored.shape == (8, 8, 3)
     assert np.array_equal(colored[..., color_index], mono)
@@ -356,7 +373,7 @@ def test_green_export_is_rgb_and_a_second_run_keeps_green_metadata(tmp_path):
     _write_source(source, source_data, 12, channel='Green')
     enhancer = QuickEnhancer()
 
-    first = enhancer.export_file(source, QuickEnhanceSettings())
+    first = enhancer.export_file(source, QuickEnhanceSettings(), channel_colors=release_colors())
     output, significant_bits = image_utils.load_pixels(
         first['output_path'], collapse_legacy_false_color=False
     )
@@ -378,7 +395,9 @@ def test_metadata_less_legacy_green_rgb_with_numeric_prefix_exports_green(tmp_pa
     tf.imwrite(source, source_data, photometric='rgb')
     original = source.read_bytes()
 
-    exported = QuickEnhancer().export_file(source, QuickEnhanceSettings())
+    exported = QuickEnhancer().export_file(
+        source, QuickEnhanceSettings(), channel_colors=release_colors()
+    )
     output, significant_bits = image_utils.load_pixels(
         exported['output_path'], collapse_legacy_false_color=False
     )
@@ -417,7 +436,9 @@ def test_a_folder_of_only_undecodable_images_is_refused_as_the_count_refuses_it(
     (tmp_path / 'bad.tif').write_bytes(b'not a tiff')
 
     with pytest.raises(PostProcessingRefusedError) as refused:
-        QuickEnhancer().export_folder(tmp_path, QuickEnhanceSettings())
+        QuickEnhancer().export_folder(
+            tmp_path, QuickEnhanceSettings(), channel_colors=release_colors()
+        )
 
     assert refused.value.reason == 'no_data'
     assert 'None of the 1 image(s)' in str(refused.value)
@@ -440,6 +461,7 @@ def test_folder_batch_skips_unreadable_file_and_continues(tmp_path):
             progress_callback=lambda completed, total, path: progress.append(
                 (completed, total, path.name)
             ),
+            channel_colors=release_colors(),
         )
 
     assert raised.value.produced_paths == (str(tmp_path / 'valid_enhanced.tif'),)
@@ -482,6 +504,7 @@ def test_mixed_folder_exports_bf_composite_png_jpeg_and_skips_bad_or_derived_fil
             display_callback=lambda image, significant_bits: displayed.append(
                 (image.shape, significant_bits)
             ),
+            channel_colors=release_colors(),
         )
 
     assert len(raised.value.produced_paths) == 4

@@ -1325,6 +1325,7 @@ class TestRule14_A7_HyperstackBuildNotify:
             # The run's images are all on disk: the build goes on to load.
             wait_for_images=lambda: None,
             save_encoding='8bit',
+            channel_colors=release_colors(),
         )
 
         # The announcement is reported too; what went wrong is the rest.
@@ -2456,7 +2457,7 @@ def _bare_protocol_writer(**overrides):
     }
     scope_is_stubbed = 'scope' not in overrides
     kwargs.update(overrides)
-    writer = ProtocolImageWriter(**kwargs)
+    writer = ProtocolImageWriter(**kwargs, channel_colors=release_colors())
     if scope_is_stubbed:
         # A brought-up scope answers the objective in the light path; the
         # writer reads it once per capture, for the file name and the scale.
@@ -2489,7 +2490,7 @@ def _make_capture_runner(**overrides):
         io=kwargs.pop('io_executor', None),
         camera=kwargs.pop('camera_executor', None),
     )
-    return SequencedCaptureRunner(**kwargs)
+    return SequencedCaptureRunner(**kwargs, channel_colors=release_colors)
 
 
 def _protocol_step(**overrides):
@@ -2609,6 +2610,7 @@ class TestPIW3_FalseColor16bitCachedAtRunStart:
             frame_record=frame_record(),
             labware=plate(),
             well_label=None,
+            channel_colors=release_colors(),
         )
         assert recorded.get('save_encoding') == 'rgb', (
             'save_image must thread the resolved save_encoding through to '
@@ -3274,6 +3276,7 @@ from tests.camera_fakes import (
 from tests.scope_fakes import build_scope, give_camera_capabilities, give_stub_lanes, swap_lanes
 from tests.installation_fixtures import copy_installation_files
 from modules.layer_record import release_color
+from modules.layer_record import release_colors
 
 
 def _function_source(source: str, func_name: str) -> str:
@@ -8094,6 +8097,7 @@ class TestSequencedCaptureRunnerRunDirCollision:
             file_io_executor=MagicMock(),
             autofocus_thread=MagicMock(in_flight_sweep=None),
             activity_claim=ActivityClaim(),
+            channel_colors=release_colors,
         )
         exc._parent_dir = parent_dir
         return exc
@@ -10075,6 +10079,7 @@ class TestCompositeOrchestrationByteEqualManualVsProtocol:
                 df=df,
                 brightness_thresholds_percent={},
                 output_file_loc=protocol_tiff,
+                channel_colors=release_colors(),
             )
             assert result['status'] is True, (
                 f'Protocol composite generation must succeed; got error: {result.get("error")}'
@@ -10126,6 +10131,7 @@ class TestCompositeOrchestrationByteEqualManualVsProtocol:
                 df=df,
                 brightness_thresholds_percent={},
                 output_file_loc=None,
+                channel_colors=release_colors(),
             )
             assert result['status'] is True
             assert result['image'] is not None, (
@@ -10723,7 +10729,10 @@ class TestProtocolPostProcessorNoBareCvImwrite_F35_2:
         )
 
         result = Stitcher._simple_position_stitcher(
-            path=tmp_path, df=df, output_file_loc=pathlib.Path('stitched.tiff')
+            path=tmp_path,
+            df=df,
+            output_file_loc=pathlib.Path('stitched.tiff'),
+            channel_colors=release_colors(),
         )
 
         # Subclass-write contract: image=None signals the base class to skip

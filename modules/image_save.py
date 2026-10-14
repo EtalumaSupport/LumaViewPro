@@ -48,6 +48,7 @@ def write_video_frame(
     metadata: dict,
     channel: str,
     false_color_on: bool,
+    channel_colors: layer_record.ChannelColors,
     save_encoding: str,
     capture_depth: int,
 ) -> None:
@@ -70,6 +71,7 @@ def write_video_frame(
         metadata: Per-frame metadata dict (must include 'datetime').
         channel: Acquiring channel ('Red'/'Green'/'Blue'/'Lumi'/'BF'/...).
         false_color_on: Whether the layer's false-color toggle was on.
+        channel_colors: Every layer's colour as the recording began.
         save_encoding: Resolved image-mode save encoding ('8bit'/'right_aligned'/
             'msb_aligned'/'rgb').
         capture_depth: Acquired bit depth (8 or 12); stamps significant_bits for
@@ -92,7 +94,7 @@ def write_video_frame(
     # the specimen that the file cannot walk back. Video frames carry no
     # channel field today, so nothing structural stops it here; the names are
     # what keep them apart.
-    render_color = layer_record.shown_color(channel, false_color_on)
+    render_color = layer_record.shown_color(channel, false_color_on, channel_colors)
     # State the payload depth so the file is labeled honestly: an 8-bit frame
     # is 8-bit; a uint16 frame carries its acquired depth (12 for Mono12) so
     # msb_aligned can left-justify and right_aligned marks the true depth; a
@@ -606,6 +608,7 @@ def save_image(
     *,
     channel: str,
     false_color_on: bool,
+    channel_colors: layer_record.ChannelColors,
     save_encoding: str,
     output_format: str = 'TIFF',
     plate_x_mm: float | None = None,
@@ -635,6 +638,8 @@ def save_image(
         false_color_on: Whether the channel's false-color toggle was on --
             how the image is DISPLAYED. Required and keyword-only; drives the
             colormap and the JPG bake, and reaches no identity field.
+        channel_colors: Every layer's colour, from the Session's one read
+            of it; the channel's is the one it is shown in.
         output_format: "TIFF", "OME-TIFF", or "JPG".
         plate_x_mm: Plate X position in mm -- the frame the file records, and
             the frame the caller must supply. Named for its frame because the
@@ -692,7 +697,7 @@ def save_image(
     # The one place the two facts meet, and they meet on the rendering side
     # only. A channel with false color off is drawn grey; it is still that
     # channel, and the metadata below says so.
-    render_color = layer_record.shown_color(channel, false_color_on)
+    render_color = layer_record.shown_color(channel, false_color_on, channel_colors)
 
     if output_format == 'JPG':
         # JPG is a convenience / sharing export: no metadata is embedded

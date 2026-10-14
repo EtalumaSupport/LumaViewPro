@@ -107,6 +107,7 @@ class ZProjector(ProtocolPostProcessor):
                 df=df[['Filepath', 'Color']],
                 method=kwargs['method'],
                 output_file_loc=kwargs['output_file_loc'],
+                channel_colors=kwargs['channel_colors'],
             )
         )
 
@@ -207,6 +208,7 @@ class ZProjector(ProtocolPostProcessor):
         df: pd.DataFrame,
         method: str,
         output_file_loc: pathlib.Path,
+        channel_colors: layer_record.ChannelColors,
     ):
         method = zprojection.ZProjectMethod[method]
 
@@ -265,7 +267,7 @@ class ZProjector(ProtocolPostProcessor):
             file_loc=output_file_loc_abs,
             metadata=metadata,
             ome=False,
-            color=layer_record.output_color(first_slice_row['Color']),
+            color=layer_record.output_color(first_slice_row['Color'], channel_colors),
             significant_bits=metadata['significant_bits'],
             save_encoding=derived_output_encoding.resolve_output_save_encoding(result['image']),
         )

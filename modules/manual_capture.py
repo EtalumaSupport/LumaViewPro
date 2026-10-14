@@ -26,6 +26,7 @@ from modules.exceptions import (
     LiveFolderPathRefusedError,
 )
 from modules.image_save import save_image
+from modules.layer_record import ChannelColors
 from modules.lumascope_api.imaging import capture_failure_cause
 from modules.recording_frames import frame_fact
 from modules.api_surface import api
@@ -53,6 +54,8 @@ class ManualCaptureController:
         engineering_mode: Reads the session's engineering mode, once per
             capture, when the capture is asked for: a plugin may turn it on
             after the controller is built.
+        channel_colors: Reads every layer's colour, from the Session's one
+            read of it, once per capture, when the capture is asked for.
     """
 
     def __init__(
@@ -62,11 +65,13 @@ class ManualCaptureController:
         settings_snapshot: Callable[[], dict],
         shown_layer: Callable[[], str],
         engineering_mode: Callable[[], bool],
+        channel_colors: Callable[[], ChannelColors],
     ):
         self._scope = scope
         self._settings_snapshot = settings_snapshot
         self._shown_layer = shown_layer
         self._engineering_mode = engineering_mode
+        self._channel_colors = channel_colors
         # Held from the call until the camera-lane body has finished, so a
         # caller that stops waiting cannot let a second still overtake a slow
         # grab. Released on the lane, which a plain Lock allows.
@@ -139,6 +144,7 @@ class ManualCaptureController:
                 bullseye=bullseye,
                 crosshairs=crosshairs,
                 engineering_mode=self._engineering_mode(),
+                channel_colors=self._channel_colors(),
             )
             future: concurrent.futures.Future = concurrent.futures.Future()
             # Marked running before anyone else holds it, so only the lane
@@ -280,6 +286,7 @@ class ManualCaptureController:
             significant_bits=significant_bits,
             channel=channel,
             false_color_on=request.false_color_on,
+            channel_colors=request.channel_colors,
             output_format=capture_config.output_format_live,
             jpeg_quality=capture_config.jpg_quality,
             save_encoding=capture_config.save_encoding,
@@ -318,6 +325,7 @@ class ManualCaptureController:
                     significant_bits=scope.imaging.capture_frame_depth(overlay),
                     channel=channel,
                     false_color_on=request.false_color_on,
+                    channel_colors=request.channel_colors,
                     output_format=capture_config.output_format_live,
                     jpeg_quality=capture_config.jpg_quality,
                     save_encoding=capture_config.save_encoding,
@@ -362,6 +370,7 @@ class _StillRequest:
         bullseye: bool,
         crosshairs: bool,
         engineering_mode: bool,
+        channel_colors: ChannelColors,
     ):
         self.scope = scope
         self.settings = settings
@@ -370,6 +379,7 @@ class _StillRequest:
         self.bullseye = bullseye
         self.crosshairs = crosshairs
         self.engineering_mode = engineering_mode
+        self.channel_colors = channel_colors
         # Set as the lane body's first act: after it, the body owns releasing
         # the in-flight guard.
         self.body_started = threading.Event()

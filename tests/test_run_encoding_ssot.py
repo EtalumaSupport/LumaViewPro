@@ -62,6 +62,7 @@ FILES_WAIT_S = 60
 
 
 from modules.run_outcome import EndingLatch
+from modules.layer_record import release_colors
 
 
 def _make_step(color='BF'):
@@ -174,6 +175,7 @@ def executor(scope, executors):
         autofocus_thread=MagicMock(in_flight_sweep=None),
         activity_claim=ActivityClaim(),
         autofocus_runner=mock_af,
+        channel_colors=release_colors,
     )
     mock_transformer = MagicMock()
     mock_transformer.plate_to_stage = MagicMock(return_value=(0.0, 0.0))
@@ -290,6 +292,7 @@ class TestOneRunOneEncoding:
             labware=plate(),
             to_plate=None,
             captures_asked=1,
+            channel_colors=release_colors(),
         )
 
     def test_still_and_video_legs_read_the_same_held_config(self, monkeypatch, tmp_path):

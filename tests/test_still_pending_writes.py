@@ -32,6 +32,7 @@ from tests.scope_fakes import spec_scope
 
 
 from modules.run_outcome import EndingLatch
+from modules.layer_record import release_colors
 
 
 def _writer(file_io_executor=None):
@@ -54,6 +55,7 @@ def _writer(file_io_executor=None):
         labware=plate(),
         to_plate=None,
         captures_asked=1,
+        channel_colors=release_colors(),
     )
 
 

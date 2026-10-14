@@ -33,6 +33,7 @@ def build_hyperstacks_for_run(
     tiling_configs_file_loc: pathlib.Path,
     wait_for_images: Callable[[], None],
     save_encoding: str,
+    channel_colors: layer_record.ChannelColors,
 ) -> None:
     """Build per-well hyperstacks from a finished run's folder, and tell the person.
 
@@ -52,6 +53,8 @@ def build_hyperstacks_for_run(
     ``save_encoding`` is the run's: the per-step files were written in it,
     and a stack that mixes 8-bit and 16-bit planes needs it to bring the
     8-bit ones into the 16-bit stack the way the run wrote the others.
+    ``channel_colors`` is the run's too: each channel's colour as the run
+    began, which the stack describes its channels in.
 
     Nobody waits on this build, so this is where its outcome is reported:
     announced as it starts, so a multi-minute build is not a silent hang,
@@ -70,6 +73,7 @@ def build_hyperstacks_for_run(
             path=run_dir,
             tiling_configs_file_loc=tiling_configs_file_loc,
             save_encoding=save_encoding,
+            channel_colors=channel_colors,
         )
     except Exception as ex:
         notifications.report_outcome(
@@ -184,6 +188,7 @@ class StackBuilder(ProtocolPostProcessor):
                 df=df,
                 output_file_loc=kwargs['output_file_loc'],
                 save_encoding=kwargs['save_encoding'],
+                channel_colors=kwargs['channel_colors'],
             )
         )
 
@@ -226,6 +231,7 @@ class StackBuilder(ProtocolPostProcessor):
         output_file_loc: pathlib.Path,
         plane_metadata: dict,
         significant_bits: int,
+        channel_colors: layer_record.ChannelColors,
     ):
         channel_names = df['Color'].unique().tolist()
         row0 = df.iloc[0]
@@ -265,7 +271,9 @@ class StackBuilder(ProtocolPostProcessor):
         metadata = image_utils.build_hyperstack_output_metadata(
             reference_input_path=sample_image_file_loc,
             channel_names=channel_names,
-            channel_colors=[layer_record.output_color(name) for name in channel_names],
+            channel_colors=[
+                layer_record.output_color(name, channel_colors) for name in channel_names
+            ],
             plane_positions={
                 'PositionX': plane_metadata['PositionX'],
                 'PositionY': plane_metadata['PositionY'],
@@ -317,6 +325,7 @@ class StackBuilder(ProtocolPostProcessor):
         output_file_loc: pathlib.Path,
         *,
         save_encoding: str,
+        channel_colors: layer_record.ChannelColors,
         sort_order: list[str] | None = None,
     ):
         if sort_order is None:
@@ -448,6 +457,7 @@ class StackBuilder(ProtocolPostProcessor):
             output_file_loc=output_file_loc,
             plane_metadata=plane_metadata,
             significant_bits=output_depth,
+            channel_colors=channel_colors,
         )
 
         def _planes():
@@ -528,6 +538,7 @@ class StackBuilder(ProtocolPostProcessor):
         output_file_loc: pathlib.Path,
         *,
         save_encoding: str,
+        channel_colors: layer_record.ChannelColors,
     ) -> dict:
         # Manual-recording entry point: sorts by Scan Count alone (Z and
         # Color axes collapse to single values for single recordings)
@@ -546,6 +557,7 @@ class StackBuilder(ProtocolPostProcessor):
             df=df,
             output_file_loc=rel_loc,
             save_encoding=save_encoding,
+            channel_colors=channel_colors,
             sort_order=['Scan Count'],
         )
 

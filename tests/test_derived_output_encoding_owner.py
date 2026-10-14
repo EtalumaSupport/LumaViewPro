@@ -31,6 +31,7 @@ import modules.image_utils as image_utils
 from modules.composite_generation import CompositeGeneration
 from tests.ast_seams import parse_module
 from modules.layer_record import GREY
+from modules.layer_record import release_colors
 
 RGB_MODE = '12bit_false_color_rgb'
 
@@ -81,6 +82,7 @@ def _merge(tmp_path):
         df=df,
         brightness_thresholds_percent={'Red': 25},
         output_file_loc=tmp_path / 'composite.tiff',
+        channel_colors=release_colors(),
     )
     assert result['status'] is True, f'the merge failed: {result.get("error")}'
 
@@ -125,6 +127,7 @@ class TestTheGuiPostProcessorsHonourTheLiveMode:
             center={'x': 0.0, 'y': 0.0},
             significant_bits=16,
             algorithm='test',
+            channel_colors=release_colors(),
         )
 
         assert recorded_writes[0]['save_encoding'] == 'rgb'
@@ -144,6 +147,7 @@ class TestTheGuiPostProcessorsHonourTheLiveMode:
             center={'x': 0.0, 'y': 0.0},
             significant_bits=16,
             algorithm='test',
+            channel_colors=release_colors(),
         )
 
         assert recorded_writes[0]['save_encoding'] == 'right_aligned'
@@ -164,6 +168,7 @@ class TestTheGuiPostProcessorsHonourTheLiveMode:
             df=pd.DataFrame(rows),
             method='Max',
             output_file_loc=pathlib.Path('projected.tiff'),
+            channel_colors=release_colors(),
         )
 
         assert recorded_writes[0]['save_encoding'] == 'rgb'

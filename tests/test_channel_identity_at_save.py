@@ -33,6 +33,7 @@ from modules import image_save
 from tests.ast_seams import find_def
 from tests.frame_records import frame_record, plate
 from tests.scope_fakes import bind_settings_like_a_session
+from modules.layer_record import release_colors
 
 
 LAYER = 'Green'
@@ -118,6 +119,7 @@ def _run_manual_capture(tmp_path, scope, *, false_color_active, use_crosshairs):
         settings_snapshot=lambda: settings,
         shown_layer=lambda: LAYER,
         engineering_mode=lambda: False,
+        channel_colors=release_colors,
     )
     capture.capture(false_color_on=false_color_active, crosshairs=use_crosshairs).result(timeout=30)
 
@@ -200,6 +202,7 @@ def test_manual_and_protocol_captures_of_one_frame_agree(identity_scope, tmp_pat
         frame_record=frame_record(),
         labware=plate(),
         well_label=None,
+        channel_colors=release_colors(),
     )
     protocol = image_save.save_image(
         identity_scope,
@@ -217,6 +220,7 @@ def test_manual_and_protocol_captures_of_one_frame_agree(identity_scope, tmp_pat
         frame_record=frame_record(),
         labware=plate(),
         well_label=None,
+        channel_colors=release_colors(),
     )
 
     assert _read_channel(manual) == _read_channel(protocol) == LAYER, (
@@ -279,6 +283,7 @@ def test_save_image_rejects_a_missing_channel(identity_scope):
             frame_record=frame_record(),
             labware=plate(),
             well_label=None,
+            channel_colors=release_colors(),
         )
 
 
@@ -324,6 +329,7 @@ def test_composite_export_stamps_composite(identity_scope, tmp_path):
         frame_record=frame_record(),
         labware=plate(),
         well_label=None,
+        channel_colors=release_colors(),
     )
     assert _read_identity(path)['Name'] == 'Composite', (
         'a multi-channel composite must record Composite, not brightfield'
@@ -348,6 +354,7 @@ def test_single_channel_composite_export_stamps_that_channel(identity_scope, tmp
         frame_record=frame_record(),
         labware=plate(),
         well_label=None,
+        channel_colors=release_colors(),
     )
     assert _read_identity(path)['Name'] == LAYER, (
         'a single-channel composite export records the channel it holds'
@@ -387,6 +394,7 @@ def test_false_colour_off_does_not_rewrite_recorded_identity(identity_scope, tmp
             frame_record=frame_record(),
             labware=plate(),
             well_label=None,
+            channel_colors=release_colors(),
         )
 
     on = _read_identity(_save(True, 'on_'))
@@ -458,6 +466,7 @@ def test_video_frame_render_colour_cannot_reach_an_identity_field():
         and isinstance(call.func, ast.Attribute)
         and call.func.attr == 'shown_color'
     ), 'render_color must still be the toggle-conditional collapse (layer_record.shown_color)'
-    assert [a.id for a in call.args if isinstance(a, ast.Name)] == ['channel', 'false_color_on'], (
-        'render_color is the acquiring channel shown under false_color_on'
-    )
+    assert [a.id for a in call.args if isinstance(a, ast.Name)][:2] == [
+        'channel',
+        'false_color_on',
+    ], 'render_color is the acquiring channel shown under false_color_on'

@@ -48,6 +48,7 @@ if TYPE_CHECKING:
     import numpy as np
 
     from modules.api_surface import ProgressCallback
+    from modules.layer_record import ChannelColors
     from modules.sequential_io_executor import SequentialIOExecutor
 
 
@@ -197,6 +198,7 @@ class PostProcessingAPI:
         tiling_configs_path: Callable[[], pathlib.Path],
         has_turret: Callable[[], bool],
         settings_snapshot: Callable[[], dict],
+        channel_colors: Callable[[], ChannelColors],
     ):
         """
         Args:
@@ -208,11 +210,14 @@ class PostProcessingAPI:
             settings_snapshot: The live user configuration, read when a
                 build needs a user setting (the composite's output format
                 and blend thresholds).
+            channel_colors: Every layer's colour, from the Session's one
+                read of it, read as each build is asked for.
         """
         self.lane = lane
         self._tiling_configs_path = tiling_configs_path
         self._has_turret = has_turret
         self._settings_snapshot = settings_snapshot
+        self._channel_colors = channel_colors
         # Each build submitted through _run, by its lane task, with its
         # progress as its own callback last said; kept from the submit until
         # the call returns, so the lane's running task is named by it.
@@ -289,6 +294,7 @@ class PostProcessingAPI:
             tiling_configs_file_loc=self._tiling_configs_path(),
             on_progress=on_progress,
             stitching_mode=mode,
+            channel_colors=self._channel_colors(),
         )
 
     @api
@@ -333,6 +339,7 @@ class PostProcessingAPI:
             tiling_configs_file_loc=self._tiling_configs_path(),
             on_progress=on_progress,
             method=method,
+            channel_colors=self._channel_colors(),
         )
 
     @api
@@ -372,6 +379,7 @@ class PostProcessingAPI:
             on_progress=on_progress,
             output_format=settings['image_output_format']['sequenced'],
             brightness_thresholds_percent=config_helpers.get_composite_blend_thresholds(settings),
+            channel_colors=self._channel_colors(),
         )
 
     @api
@@ -415,6 +423,7 @@ class PostProcessingAPI:
             on_progress=on_progress,
             frames_per_sec=rate,
             enable_timestamp_overlay=timestamp_overlay,
+            channel_colors=self._channel_colors(),
         )
 
     @api
@@ -451,6 +460,7 @@ class PostProcessingAPI:
             reads=_existing_file_or_folder,
             on_progress=on_progress,
             on_derived_image=on_derived_image,
+            channel_colors=self._channel_colors(),
         )
 
     @api
@@ -563,6 +573,7 @@ class PostProcessingAPI:
         target: pathlib.Path,
         on_progress: ProgressCallback | None,
         on_derived_image: Callable[[np.ndarray, int], None] | None,
+        channel_colors: ChannelColors,
     ) -> EnhanceResult:
         import cv2
 
@@ -588,6 +599,7 @@ class PostProcessingAPI:
                 settings,
                 progress_callback=_progress,
                 display_callback=on_derived_image,
+                channel_colors=channel_colors,
             )
             created = result['created']
         else:
@@ -601,7 +613,12 @@ class PostProcessingAPI:
                 )
             try:
                 created = [
-                    enhancer.export_file(target, settings, display_callback=on_derived_image)
+                    enhancer.export_file(
+                        target,
+                        settings,
+                        display_callback=on_derived_image,
+                        channel_colors=channel_colors,
+                    )
                 ]
             except (OSError, ValueError, cv2.error, MemoryError) as e:
                 raise PostProcessingFailedError(

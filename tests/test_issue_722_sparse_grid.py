@@ -29,6 +29,7 @@ import tifffile as tf
 from modules import image_utils
 from modules.stack_builder import StackBuilder
 from modules.layer_record import release_color
+from modules.layer_record import release_colors
 
 
 def _write_frame(
@@ -102,6 +103,7 @@ def test_sparse_grid_refused_not_crashed(tmp_path):
         df=df,
         output_file_loc=pathlib.Path('out.ome.tiff'),
         save_encoding='right_aligned',
+        channel_colors=release_colors(),
     )
 
     assert result['status'] is False, 'a non-rectangular grid must be refused, not built'
@@ -129,6 +131,7 @@ def test_duplicate_cell_refused(tmp_path):
         df=df,
         output_file_loc=pathlib.Path('dup.ome.tiff'),
         save_encoding='right_aligned',
+        channel_colors=release_colors(),
     )
 
     assert result['status'] is False
@@ -151,6 +154,7 @@ def test_rectangular_multichannel_still_builds(tmp_path):
         df=df,
         output_file_loc=pathlib.Path('good.ome.tiff'),
         save_encoding='right_aligned',
+        channel_colors=release_colors(),
     )
 
     assert result['status'] is True, f'valid grid must build: {result.get("error")}'
@@ -205,6 +209,7 @@ def test_sparse_stills_still_refuse_beside_a_building_video_group(tmp_path):
             df=group.reset_index(drop=True),
             output_file_loc=pathlib.Path(f'out_{i}.ome.tiff'),
             save_encoding='right_aligned',
+            channel_colors=release_colors(),
         )
         from modules import recording_frames
 

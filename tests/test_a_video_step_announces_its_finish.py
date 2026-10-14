@@ -25,6 +25,7 @@ from modules.activity_claim import ActivityClaim
 from modules.protocol_recording import ProtocolVideoStep
 from tests.scope_fakes import answer_auto_gain_like_the_api, spec_scope
 from tests.protocol_drives import run_identity
+from modules.layer_record import release_colors
 
 WAIT_S = 10.0
 
@@ -97,6 +98,7 @@ def test_the_finish_end_is_announced_and_reads_not_busy(tmp_path, monkeypatch):
         clock=lambda: clock['t'],
         run_claim=run.lend(),
         to_plate=None,
+        channel_colors=release_colors(),
     )
     step_box['step'] = step
 

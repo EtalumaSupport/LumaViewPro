@@ -25,6 +25,7 @@ from modules.common_utils import PostFunction
 from modules.stack_builder import StackBuilder
 from modules.recording_frames import FrameFact
 from modules.layer_record import release_color
+from modules.layer_record import release_colors
 
 _FACT = FrameFact(plate_x_mm=None, plate_y_mm=None, z_um=None, moving=False, channel='BF')
 
@@ -159,6 +160,7 @@ class TestVideoWellStackBuild:
             df=group.reset_index(drop=True),
             output_file_loc=pathlib.Path('out.ome.tiff'),
             save_encoding='right_aligned',
+            channel_colors=release_colors(),
         )
 
         assert result.status, f'video-well stack build failed: {result.error}'
@@ -208,6 +210,7 @@ class TestVideoWellStackBuild:
             df=group.reset_index(drop=True),
             output_file_loc=pathlib.Path('out.ome.tiff'),
             save_encoding='right_aligned',
+            channel_colors=release_colors(),
         )
         assert result.status, f'stack build failed: {result.error}'
 
@@ -233,6 +236,7 @@ class TestVideoWellStackBuild:
             df=group.reset_index(drop=True),
             output_file_loc=pathlib.Path('out.ome.tiff'),
             save_encoding='right_aligned',
+            channel_colors=release_colors(),
         )
         assert result.status, f'stack build failed: {result.error}'
 
@@ -256,6 +260,7 @@ class TestVideoWellStackBuild:
             df=group.reset_index(drop=True),
             output_file_loc=pathlib.Path('out.ome.tiff'),
             save_encoding='right_aligned',
+            channel_colors=release_colors(),
         )
 
         assert not result.status

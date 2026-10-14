@@ -32,6 +32,7 @@ from modules.zprojector import ZProjector
 from tests.test_capture_collision_policy import TILING_CONFIGS
 from tests.test_post_processing_stays_inside_its_folder import _COLUMNS, _step
 from modules.layer_record import release_color
+from modules.layer_record import release_colors
 
 
 def _write_frame(path: pathlib.Path, *, x: float, well: str, seed: int, size: int = 256) -> None:
@@ -174,11 +175,11 @@ class TestTheReader:
     ('folder_of', 'bad_frame', 'build'),
     [
         (_z_stacks, 'A1_BF_Z1_0000.tiff', lambda f: ZProjector(has_turret=False).load_folder(
-            path=f, tiling_configs_file_loc=TILING_CONFIGS, method=ZProjector.methods()[0])),
+            path=f, tiling_configs_file_loc=TILING_CONFIGS, method=ZProjector.methods()[0], channel_colors=release_colors())),
         (_z_stacks, 'A1_BF_Z1_0000.tiff', lambda f: StackBuilder(has_turret=False).load_folder(
-            path=f, tiling_configs_file_loc=TILING_CONFIGS, save_encoding='right_aligned')),
+            path=f, tiling_configs_file_loc=TILING_CONFIGS, save_encoding='right_aligned', channel_colors=release_colors())),
         (_tiles, 'A1_BF_T0_0000.tiff', lambda f: Stitcher(has_turret=False).load_folder(
-            path=f, tiling_configs_file_loc=TILING_CONFIGS)),
+            path=f, tiling_configs_file_loc=TILING_CONFIGS, channel_colors=release_colors())),
     ],
     ids=['z-projection', 'hyperstack', 'stitch'],
 )  # fmt: skip
@@ -202,7 +203,10 @@ def test_a_slice_of_another_size_fails_its_group_and_the_others_are_built(tmp_pa
 
     with pytest.raises(PostProcessingFailedError) as incomplete:
         ZProjector(has_turret=False).load_folder(
-            path=folder, tiling_configs_file_loc=TILING_CONFIGS, method=ZProjector.methods()[0]
+            path=folder,
+            tiling_configs_file_loc=TILING_CONFIGS,
+            method=ZProjector.methods()[0],
+            channel_colors=release_colors(),
         )
 
     assert '128x128' in str(incomplete.value)
@@ -229,6 +233,7 @@ def test_a_video_none_of_whose_frames_can_be_read_is_a_failed_group(tmp_path):
             tiling_configs_file_loc=TILING_CONFIGS,
             frames_per_sec=5,
             enable_timestamp_overlay=False,
+            channel_colors=release_colors(),
         )
 
     assert 'none of its 3 frames' in str(incomplete.value)
@@ -262,6 +267,7 @@ class TestAHyperstackLeavesNothingWhenRefused:
                 df=df,
                 output_file_loc=pathlib.Path('out.ome.tiff'),
                 save_encoding='right_aligned',
+                channel_colors=release_colors(),
             )
 
         assert refused.value.reason == 'geometry'
@@ -282,6 +288,7 @@ def test_a_custom_steps_refusal_names_no_well(tmp_path):
         df=pd.DataFrame(rows),
         output_file_loc=pathlib.Path('out.ome.tiff'),
         save_encoding='right_aligned',
+        channel_colors=release_colors(),
     )
 
     assert result['status'] is False
@@ -323,6 +330,7 @@ def test_a_composite_of_a_simulator_runs_folder_fails_only_the_damaged_position(
             tiling_configs_file_loc=TILING_CONFIGS,
             output_format='TIFF',
             brightness_thresholds_percent={'Green': 50},
+            channel_colors=release_colors(),
         )
 
     assert bad_frame.name in str(incomplete.value)

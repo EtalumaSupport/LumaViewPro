@@ -22,6 +22,7 @@ from modules.exceptions import PostProcessingFailedError, PostProcessingRefusedE
 from modules.post_processing import PostProcessing, default_cell_count_method
 from modules.quick_enhance import QuickEnhancer, QuickEnhanceSettings
 from modules.layer_record import release_color
+from modules.layer_record import release_colors
 
 OLD_RESULTS = 'file,time,num_cells\nold.tif,yesterday,7\n'
 
@@ -133,14 +134,18 @@ def test_a_failed_results_write_raises_and_keeps_the_previous_results(
 
 def test_an_enhance_of_a_folder_with_no_images_is_refused(tmp_path):
     with pytest.raises(PostProcessingRefusedError):
-        QuickEnhancer().export_folder(tmp_path, QuickEnhanceSettings())
+        QuickEnhancer().export_folder(
+            tmp_path, QuickEnhanceSettings(), channel_colors=release_colors()
+        )
 
 
 def test_an_enhance_that_skips_an_image_is_incomplete_with_what_it_saved(tmp_path):
     _write_tiff(tmp_path / 'good.tif')
     (tmp_path / 'broken.tif').write_bytes(b'not a tiff')
     with pytest.raises(PostProcessingFailedError) as raised:
-        QuickEnhancer().export_folder(tmp_path, QuickEnhanceSettings())
+        QuickEnhancer().export_folder(
+            tmp_path, QuickEnhanceSettings(), channel_colors=release_colors()
+        )
     assert len(raised.value.produced_paths) == 1
     assert 'good_enhanced' in raised.value.produced_paths[0]
 
@@ -156,6 +161,7 @@ def test_an_enhance_of_one_image_answers_with_its_folder_progress_and_display(tm
         tmp_path / 'one.tif',
         lambda percent, text: texts.append((percent, text)),
         lambda image, significant_bits: shown.append(significant_bits),
+        channel_colors=release_colors(),
     )
 
     assert result.output_folder == tmp_path
@@ -181,7 +187,7 @@ def test_an_enhance_of_one_image_that_fails_is_typed(tmp_path, monkeypatch):
     monkeypatch.setattr(QuickEnhancer, 'export_file', fail)
 
     with pytest.raises(PostProcessingFailedError) as failure:
-        PostProcessingAPI._enhance(source, None, None)
+        PostProcessingAPI._enhance(source, None, None, channel_colors=release_colors())
     assert failure.value.produced_paths == ()
 
 
@@ -195,7 +201,7 @@ def test_an_enhance_of_one_file_that_cannot_be_decoded_is_refused_as_the_count_r
     source.write_bytes(b'not a tiff')
 
     with pytest.raises(PostProcessingRefusedError) as enhance:
-        PostProcessingAPI._enhance(source, None, None)
+        PostProcessingAPI._enhance(source, None, None, channel_colors=release_colors())
     with pytest.raises(PostProcessingRefusedError) as count:
         read_cell_count_image(source)
 
@@ -263,6 +269,7 @@ def _drive_scripted(name, tmp_path, monkeypatch, **kwargs):
         tiling_configs_file_loc=tmp_path / 'tiling.json',
         on_progress=lambda percent, text: seen.append((percent, text)),
         **kwargs,
+        channel_colors=release_colors(),
     )
     return seen
 
@@ -330,6 +337,7 @@ def test_a_protocol_video_hands_its_progress_to_the_encoder(tmp_path, monkeypatc
             on_progress=progress,
             total_groups=1,
             current_group=1,
+            channel_colors=release_colors(),
         )
     except Exception:
         # The result shape is the encoder's business; this pins only what

@@ -22,6 +22,7 @@ from modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
 from tests.frame_records import frame_record, plate
+from modules.layer_record import release_colors
 
 
 @pytest.fixture
@@ -63,6 +64,7 @@ class TestAFactorySessionIsConfigured:
             frame_record=frame_record(),
             labware=plate(),
             well_label=None,
+            channel_colors=release_colors(),
         )
         assert path is not None
 

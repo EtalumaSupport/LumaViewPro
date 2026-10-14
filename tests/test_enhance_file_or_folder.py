@@ -3,6 +3,7 @@
 import ast
 from pathlib import Path
 from modules.layer_record import release_color
+from modules.layer_record import release_colors
 
 
 REPO = Path(__file__).resolve().parents[1]
@@ -96,6 +97,7 @@ def test_enhance_progress_is_counted_and_each_saved_image_reaches_the_main_viewe
         tmp_path,
         lambda percent, text: texts.append(text),
         lambda image, significant_bits: shown.append(significant_bits),
+        channel_colors=release_colors(),
     )
 
     assert texts == ['Image 1 of 2', 'Image 2 of 2']
@@ -116,7 +118,7 @@ def test_enhance_completion_hides_the_derived_output_path(tmp_path):
     source = tmp_path / 'source.tif'
     _write_source(source)
 
-    result = PostProcessingAPI._enhance(source, None, None)
+    result = PostProcessingAPI._enhance(source, None, None, channel_colors=release_colors())
 
     assert result.message == 'Enhance complete.'
     assert str(tmp_path) not in result.message

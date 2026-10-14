@@ -27,6 +27,7 @@ sys.path.insert(0, str(REPO))
 from modules import image_utils
 from tests.frame_records import frame_record, plate
 from modules.layer_record import release_color
+from modules.layer_record import release_colors
 
 
 def _bright_mono(value: int = 200) -> np.ndarray:
@@ -122,6 +123,7 @@ def test_save_image_routes_jpg_to_encoder(tmp_path):
         frame_record=frame_record(),
         labware=plate(),
         well_label=None,
+        channel_colors=release_colors(),
     )
     saved = pathlib.Path(path)
     assert saved.suffix == '.jpg', 'JPG format must resolve a .jpg extension'

@@ -32,6 +32,7 @@ from tests.ast_seams import find_def
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
 from tests.protocol_drives import run_identity
+from modules.layer_record import release_colors
 
 _WAIT_S = 2.0
 
@@ -320,6 +321,7 @@ class TestTheManualRecordingReadsItsClaimsUnderTheClaim:
             activity_claim=claim,
             scheduler=ManualFireScheduler(),
             clock=FakeClock(),
+            channel_colors=release_colors,
         )
         controller.start()
         controller.stop()

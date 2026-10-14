@@ -42,6 +42,7 @@ from modules.sequenced_capture_runner import SequencedCaptureRunMode
 from modules.sequential_io_executor import SequentialIOExecutor
 from tests.scope_fakes import build_scope, home_sim_scope, swap_lanes
 from tests.scope_fakes import configure_turret_like_bringup
+from modules.layer_record import release_colors
 
 COMPLETION_TIMEOUT = 60  # seconds -- a real AF sweep runs in sim time
 
@@ -137,6 +138,7 @@ class _AfRig:
             autofocus_thread=self.af_thread,
             activity_claim=ActivityClaim(),
             autofocus_runner=self.af_runner,
+            channel_colors=release_colors,
         )
 
     def run_autofocus(

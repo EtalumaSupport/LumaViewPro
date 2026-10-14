@@ -47,6 +47,7 @@ from modules.sequenced_capture_runner import (
 )
 from modules.sequential_io_executor import SequentialIOExecutor
 from tests.scope_fakes import configure_turret_like_bringup
+from modules.layer_record import release_colors
 
 
 def _build_single_step_ag_protocol(color='BF', auto_gain=True):
@@ -171,6 +172,7 @@ def executor(scope, executors):
         autofocus_thread=MagicMock(in_flight_sweep=None),
         activity_claim=ActivityClaim(),
         autofocus_runner=mock_af,
+        channel_colors=release_colors,
     )
     return exc
 

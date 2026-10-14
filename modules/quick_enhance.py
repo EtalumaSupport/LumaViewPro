@@ -20,8 +20,8 @@ import cv2
 import numpy as np
 
 from lvp_logger import logger
-from modules import common_utils, image_utils, layer_record
-from modules.layer_record import GREY, Color
+from modules import image_utils
+from modules.layer_record import GREY, ChannelColors, Color
 from modules.exceptions import (
     PostProcessingFailedError,
     PostProcessingOperation,
@@ -128,16 +128,16 @@ class QuickEnhancer:
         return None
 
     @staticmethod
-    def _channel_color(channel: str | None) -> Color:
-        """The colour a derived image of ``channel`` is shown in: a release
-        layer's colour, and grey for a source that names none (a foreign
-        file, a composite, an unrecognised token)."""
-        if channel in common_utils.get_layers():
-            return layer_record.release_color(channel)
-        return GREY
+    def _channel_color(channel: str | None, channel_colors: ChannelColors) -> Color:
+        """The colour a derived image of ``channel`` is shown in: a layer's
+        colour in ``channel_colors``, and grey for a source that names none
+        (a foreign file, a composite, an unrecognised token)."""
+        return channel_colors.get(channel, GREY)
 
     @staticmethod
-    def colorize_mono_for_visual_output(image: np.ndarray, channel: str | None) -> np.ndarray:
+    def colorize_mono_for_visual_output(
+        image: np.ndarray, channel: str | None, channel_colors: ChannelColors
+    ) -> np.ndarray:
         """Return RGB false color for a mono derived image of a coloured channel.
 
         Quick Enhance is a visual-export path. It retains mono images of a
@@ -145,7 +145,7 @@ class QuickEnhancer:
         a coloured channel receives its display color only in the derived
         output.
         """
-        color = QuickEnhancer._channel_color(channel)
+        color = QuickEnhancer._channel_color(channel, channel_colors)
         if image.ndim == 2 and color != GREY:
             return image_utils.mono_to_rgb_falsecolor(image, color)
         return image
@@ -368,6 +368,8 @@ class QuickEnhancer:
         source_path: str | pathlib.Path,
         settings: QuickEnhanceSettings,
         display_callback: Callable[[np.ndarray, int], None] | None = None,
+        *,
+        channel_colors: ChannelColors,
     ) -> dict:
         source_path = pathlib.Path(source_path)
         try:
@@ -409,7 +411,7 @@ class QuickEnhancer:
                 channel=channel,
                 significant_bits=significant_bits,
             )
-            output_for_write = self.colorize_mono_for_visual_output(output, channel)
+            output_for_write = self.colorize_mono_for_visual_output(output, channel, channel_colors)
             if output_for_write.ndim == 3 and output_for_write.shape[2] == 4:
                 # The TIFF writer supports RGB samples, not RGBA. Alpha is a
                 # display-only component for these composite inputs, so retain
@@ -423,7 +425,7 @@ class QuickEnhancer:
                     output_for_write,
                     cv2.COLOR_BGR2RGB,
                 )
-            render_color = self._channel_color(channel)
+            render_color = self._channel_color(channel, channel_colors)
             image_utils.write_tiff(
                 data=output_for_write,
                 file_loc=temp_output,
@@ -468,6 +470,8 @@ class QuickEnhancer:
         settings: QuickEnhanceSettings,
         progress_callback: Callable[[int, int, pathlib.Path], None] | None = None,
         display_callback: Callable[[np.ndarray, int], None] | None = None,
+        *,
+        channel_colors: ChannelColors,
     ) -> dict:
         """Enhance every supported image in *folder*, each to its own derived file.
 
@@ -497,6 +501,7 @@ class QuickEnhancer:
                         source_path,
                         settings,
                         display_callback=display_callback,
+                        channel_colors=channel_colors,
                     )
                 )
             except (PostProcessingRefusedError, OSError, ValueError, cv2.error, MemoryError) as exc:

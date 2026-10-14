@@ -1322,6 +1322,8 @@ session.get_current_plate_position()     # current XY in plate coords; Catalogue
                                          # (before a home) -- never a converted number nobody read
 session.get_auto_gain_settings()         # auto-gain config
 session.get_stim_configs()               # stim settings per layer
+session.channel_colors()                 # every layer's colour, (r, g, b) weights 0-1: what captures, recordings,
+                                         # builds and the view are coloured in, read by each as it starts
 session.get_enabled_stim_configs()       # only the enabled ones
 ```
 
@@ -2878,6 +2880,7 @@ Reached through `ScopeSession.create(settings, ...)`; every L2 caller starts her
 - `begin_application_session` (in-process)
 - `bring_up_record`
 - `capture_settings_snapshot`
+- `channel_colors`
 - `clear_current_turret_objective`
 - `clear_turret_objective`
 - `confirm_objective`

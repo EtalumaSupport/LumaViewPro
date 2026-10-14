@@ -170,6 +170,7 @@ from modules.stitcher import Stitcher
 import modules.common_utils as common_utils
 import modules.image_utils as image_utils
 from modules.layer_record import release_color
+from modules.layer_record import release_colors
 
 
 class TestFeatureStitchSharedRange:
@@ -211,7 +212,7 @@ class TestStitchLoudDegradeOnMissingPixelSize:
             mock.patch.object(stitcher_mod, 'PostProcResult'),
             mock.patch.object(stitcher_mod, 'logger') as log,
         ):
-            st._group_algorithm(pathlib.Path('/tmp'), df)
+            st._group_algorithm(pathlib.Path('/tmp'), df, channel_colors=release_colors())
         assert log.warning.called
         assert 'PhysicalSizeX' in log.warning.call_args[0][0]
 
@@ -245,14 +246,18 @@ class TestSimplePositionStitcher:
         )
 
     def test_output_dimensions(self, tile_dir, tile_df):
-        result = Stitcher._simple_position_stitcher(tile_dir, tile_df)
+        result = Stitcher._simple_position_stitcher(
+            tile_dir, tile_df, channel_colors=release_colors()
+        )
         assert result['status'] is True
         img = result['image']
         # 2x2 grid of 50x50 tiles -> 100x100
         assert img.shape == (100, 100)
 
     def test_center_metadata(self, tile_dir, tile_df):
-        result = Stitcher._simple_position_stitcher(tile_dir, tile_df)
+        result = Stitcher._simple_position_stitcher(
+            tile_dir, tile_df, channel_colors=release_colors()
+        )
         center = result['metadata']['center']
         assert center['x'] == 0.5  # mean of [0.0, 1.0]
         assert center['y'] == 0.5
@@ -278,7 +283,9 @@ class TestSimplePositionStitcher:
         assert center['y'] == 3.0
 
     def test_all_pixels_filled(self, tile_dir, tile_df):
-        result = Stitcher._simple_position_stitcher(tile_dir, tile_df)
+        result = Stitcher._simple_position_stitcher(
+            tile_dir, tile_df, channel_colors=release_colors()
+        )
         img = result['image']
         # No black pixels -- all tiles have nonzero values
         assert img.min() > 0
@@ -290,7 +297,9 @@ class TestSimplePositionStitcher:
         output stays byte-identical to the unspied run."""
         from modules import image_utils
 
-        baseline = Stitcher._simple_position_stitcher(tile_dir, tile_df)['image']
+        baseline = Stitcher._simple_position_stitcher(
+            tile_dir, tile_df, channel_colors=release_colors()
+        )['image']
 
         real_tifffile = image_utils.tf.TiffFile
         opens = {}
@@ -300,7 +309,9 @@ class TestSimplePositionStitcher:
             return real_tifffile(arg, *args, **kwargs)
 
         monkeypatch.setattr(image_utils.tf, 'TiffFile', counting_tifffile)
-        result = Stitcher._simple_position_stitcher(tile_dir, tile_df)
+        result = Stitcher._simple_position_stitcher(
+            tile_dir, tile_df, channel_colors=release_colors()
+        )
 
         # df.iloc[0] is the geometry-probe tile, decoded once and reused for its
         # placement rather than re-read.
@@ -314,7 +325,7 @@ class TestSimplePositionStitcher:
         tile = np.full((64, 64), 42, dtype=np.uint8)
         cv2.imwrite(str(tmp_path / 'single.tiff'), tile)
         df = pd.DataFrame([{'Filepath': 'single.tiff', 'X': 0.0, 'Y': 0.0}])
-        result = Stitcher._simple_position_stitcher(tmp_path, df)
+        result = Stitcher._simple_position_stitcher(tmp_path, df, channel_colors=release_colors())
         assert result['status'] is True
         assert result['image'].shape == (64, 64)
         assert np.all(result['image'] == 42)
@@ -331,7 +342,7 @@ class TestSimplePositionStitcher:
                 {'Filepath': 'b.tiff', 'X': 1.0, 'Y': 0.0},
             ]
         )
-        result = Stitcher._simple_position_stitcher(tmp_path, df)
+        result = Stitcher._simple_position_stitcher(tmp_path, df, channel_colors=release_colors())
         assert result['status'] is True
         img = result['image']
         assert img.shape == (40, 80, 3)
@@ -342,7 +353,7 @@ class TestSimplePositionStitcher:
             tile = np.full((30, 30), (i + 1) * 60, dtype=np.uint8)
             cv2.imwrite(str(tmp_path / f't{i}.tiff'), tile)
         df = pd.DataFrame([{'Filepath': f't{i}.tiff', 'X': float(i), 'Y': 0.0} for i in range(3)])
-        result = Stitcher._simple_position_stitcher(tmp_path, df)
+        result = Stitcher._simple_position_stitcher(tmp_path, df, channel_colors=release_colors())
         assert result['status'] is True
         assert result['image'].shape == (30, 90)
 
@@ -358,7 +369,7 @@ class TestSimplePositionStitcher:
                 {'Filepath': 'b.tiff', 'X': 0.0, 'Y': 1.0},
             ]
         )
-        result = Stitcher._simple_position_stitcher(tmp_path, df)
+        result = Stitcher._simple_position_stitcher(tmp_path, df, channel_colors=release_colors())
         assert result['status'] is True
         assert result['image'].dtype == np.uint16
         assert result['image'].shape == (64, 32)
@@ -385,7 +396,9 @@ class TestSimplePositionStitcher:
             ]
         )
 
-        result = channel_aware_stitcher(tmp_path, df, pixel_size_um=None)
+        result = channel_aware_stitcher(
+            tmp_path, df, pixel_size_um=None, channel_colors=release_colors()
+        )
 
         assert result['status'] is True
         assert result['image'].shape == (24, 20)
@@ -413,7 +426,9 @@ class TestSimplePositionStitcher:
             ]
         )
 
-        result = channel_aware_stitcher(tmp_path, df, pixel_size_um=None)
+        result = channel_aware_stitcher(
+            tmp_path, df, pixel_size_um=None, channel_colors=release_colors()
+        )
 
         assert result['status'] is True
         assert result['image'].shape == (16, 12)
@@ -483,7 +498,9 @@ class TestSimplePositionStitcher:
 
         monkeypatch.setattr(stitcher, '_group_algorithm', degraded_group_algorithm)
 
-        result = stitcher.load_folder(tmp_path, tmp_path / 'tiling.json')
+        result = stitcher.load_folder(
+            tmp_path, tmp_path / 'tiling.json', channel_colors=release_colors()
+        )
 
         assert result['status'] is True
         assert result['degraded'] is True
@@ -594,7 +611,9 @@ class TestSimplePositionStitcher:
         )
         monkeypatch.setattr('modules.stitching_core.simple_position_stitcher', simple_success)
 
-        result = channel_aware_stitcher(tmp_path, df, pixel_size_um=1.0)
+        result = channel_aware_stitcher(
+            tmp_path, df, pixel_size_um=1.0, channel_colors=release_colors()
+        )
 
         assert result['status'] is True
         assert calls == [
@@ -661,7 +680,9 @@ class TestSimplePositionStitcher:
         )
 
         with caplog.at_level(logging.WARNING, logger='LVP.modules.stitching_core'):
-            result = channel_aware_stitcher(tmp_path, df, pixel_size_um=1.0)
+            result = channel_aware_stitcher(
+                tmp_path, df, pixel_size_um=1.0, channel_colors=release_colors()
+            )
 
         assert result['status'] is True
         assert result['metadata']['fallback_from'] == 'quality_local_ncc'
@@ -731,7 +752,9 @@ class TestSimplePositionStitcher:
             lambda *_: (np.ones((100, 100), dtype=np.uint8), 8),
         )
 
-        result = channel_aware_stitcher(tmp_path, df, pixel_size_um=1.0)
+        result = channel_aware_stitcher(
+            tmp_path, df, pixel_size_um=1.0, channel_colors=release_colors()
+        )
 
         assert result['status'] is True
         assert calls == ['overlap_stitcher', 'stage_position_stitcher', 'simple_position_stitcher']
@@ -810,6 +833,7 @@ class TestSimplePositionStitcher:
             df,
             pixel_size_um=1.0,
             stitching_mode=Stitcher.FAST_PREVIEW_MODE,
+            channel_colors=release_colors(),
         )
 
         assert result['status'] is True
@@ -907,6 +931,7 @@ class TestGroupAlgorithmPixelSize:
                 path=tmp_path,
                 df=df,
                 output_file_loc=pd.Series(['stitched.tiff'])[0],
+                channel_colors=release_colors(),
             )
 
         assert captured['pixel_size_um'] == tile_pixel_size_um
@@ -942,7 +967,7 @@ class TestBfFeatureOutputContract:
             return np.full((4, 8, 3), 50, dtype=np.uint8)
 
         monkeypatch.setattr(stitching_core, 'feature_stitch', spy)
-        stitching_core.bf_feature_stitcher(tmp_path, df)
+        stitching_core.bf_feature_stitcher(tmp_path, df, channel_colors=release_colors())
 
         dim_bgr, bright_bgr = captured['tiles']
         # Shared hi=200: the dim tile's 100 maps to 127 (100/200*255), NOT its
@@ -961,7 +986,7 @@ class TestBfFeatureOutputContract:
             'feature_stitch',
             lambda images: np.full((8, 16, 3), 120, dtype=np.uint8),
         )
-        result = stitching_core.bf_feature_stitcher(tmp_path, df)
+        result = stitching_core.bf_feature_stitcher(tmp_path, df, channel_colors=release_colors())
 
         assert result['status'] is True
         # 16-bit inputs, but the OpenCV feature path emits uint8 -> depth is 8.
@@ -985,7 +1010,10 @@ class TestStitchOutputAlgorithmStamp:
             [{'Filepath': f't{i}.tiff', 'Color': 'BF', 'X': float(i), 'Y': 0.0} for i in range(2)]
         )
         stitching_core.simple_position_stitcher(
-            tmp_path, df, output_file_loc=pathlib.Path('stitched.tiff')
+            tmp_path,
+            df,
+            output_file_loc=pathlib.Path('stitched.tiff'),
+            channel_colors=release_colors(),
         )
         with tifffile.TiffFile(str(tmp_path / 'stitched.tiff')) as tif:
             structured = tif.shaped_metadata[0]
@@ -1066,7 +1094,9 @@ class TestLiveStitcherRealGeometry:
     ):
         df, pixel_size_um = self._two_tile_group(tmp_path, scale_capabilities)
 
-        result = overlap_stitcher(tmp_path, df, pixel_size_um=pixel_size_um)
+        result = overlap_stitcher(
+            tmp_path, df, pixel_size_um=pixel_size_um, channel_colors=release_colors()
+        )
 
         assert result['status'] is True
         assert result['metadata']['algorithm'] == 'overlap_stitcher'
@@ -1110,7 +1140,9 @@ class TestLiveStitcherRealGeometry:
         # math runs rather than the simple-grid short-circuit.
         df, pixel_size_um = self._two_tile_group(tmp_path, scale_capabilities)
 
-        result = stitch_fn(tmp_path, df, pixel_size_um=pixel_size_um)
+        result = stitch_fn(
+            tmp_path, df, pixel_size_um=pixel_size_um, channel_colors=release_colors()
+        )
 
         assert result['status'] is True
         assert result['metadata']['algorithm'] == algorithm
@@ -1121,7 +1153,7 @@ class TestLiveStitcherRealGeometry:
         # pitch and report success.
         df, _ = self._two_tile_group(tmp_path, scale_capabilities)
 
-        result = overlap_stitcher(tmp_path, df, pixel_size_um=None)
+        result = overlap_stitcher(tmp_path, df, pixel_size_um=None, channel_colors=release_colors())
 
         assert result['status'] is False
         assert 'pixel_size_um' in result['error']
@@ -1354,7 +1386,13 @@ class TestPositionAwareStitcher:
         )
         out = pathlib.Path('stitched_red.tiff')
 
-        result = overlap_stitcher(tmp_path, df, pixel_size_um=pixel_size_um, output_file_loc=out)
+        result = overlap_stitcher(
+            tmp_path,
+            df,
+            pixel_size_um=pixel_size_um,
+            output_file_loc=out,
+            channel_colors=release_colors(),
+        )
 
         assert result['status'] is True
         assert result['image'] is None  # subclass-wrote signal
@@ -1475,7 +1513,11 @@ class TestStageConstrainedStitchModes:
         monkeypatch.setattr('modules.stitching_core.stage_position_stitcher', stage_success)
 
         result = channel_aware_stitcher(
-            tmp_path, frame, pixel_size_um=1.0, stitching_mode='quality'
+            tmp_path,
+            frame,
+            pixel_size_um=1.0,
+            stitching_mode='quality',
+            channel_colors=release_colors(),
         )
 
         assert result['status'] is True
@@ -1509,7 +1551,9 @@ class TestStageConstrainedStitchModes:
             ]
         )
 
-        result = channel_aware_stitcher(tmp_path, frame, pixel_size_um=1.0)
+        result = channel_aware_stitcher(
+            tmp_path, frame, pixel_size_um=1.0, channel_colors=release_colors()
+        )
 
         assert result['status'] is True
         assert result['metadata']['algorithm'] == 'quality_local_ncc'
@@ -1546,7 +1590,11 @@ class TestStageConstrainedStitchModes:
         )
 
         result = channel_aware_stitcher(
-            tmp_path, frame, pixel_size_um=1.0, stitching_mode='fast_preview'
+            tmp_path,
+            frame,
+            pixel_size_um=1.0,
+            stitching_mode='fast_preview',
+            channel_colors=release_colors(),
         )
 
         assert result['status'] is True

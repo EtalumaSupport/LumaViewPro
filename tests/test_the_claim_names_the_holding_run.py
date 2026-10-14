@@ -19,6 +19,7 @@ from modules.activity_claim import ActivityClaim
 from modules.exceptions import ProtocolRunRefusedError
 from tests.protocol_drives import bare_capture_runner, scr_run_kwargs
 from tests.protocol_drives import run_identity
+from modules.layer_record import release_colors
 
 
 class TestTheClaimCarriesTheRun:
@@ -144,6 +145,7 @@ class TestTheRunnerReadsTheClaim:
                 protocol_thread=MagicMock(),
                 file_io_executor=MagicMock(),
                 autofocus_thread=MagicMock(in_flight_sweep=None),
+                channel_colors=release_colors,
             )
 
     def test_the_getter_is_empty_before_any_run(self):

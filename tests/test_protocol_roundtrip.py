@@ -44,6 +44,7 @@ from tests.protocol_drives import (
 )
 from tests.scope_fakes import configure_turret_like_bringup
 from unittest.mock import MagicMock
+from modules.layer_record import release_colors
 
 
 # ---------------------------------------------------------------------------
@@ -269,6 +270,7 @@ def executor(scope, executors):
         autofocus_thread=MagicMock(in_flight_sweep=None),
         activity_claim=ActivityClaim(),
         autofocus_runner=mock_af,
+        channel_colors=release_colors,
     )
     return exc
 
@@ -297,6 +299,7 @@ def real_executor(scope, executors):
         autofocus_thread=MagicMock(in_flight_sweep=None),
         activity_claim=ActivityClaim(),
         autofocus_runner=mock_af,
+        channel_colors=release_colors,
     )
     return exc
 

@@ -142,6 +142,7 @@ class ProtocolVideoStep:
         capture_config: Any,
         timestamp_overlay: bool,
         global_max_fps: float,
+        channel_colors: layer_record.ChannelColors,
         autogain_settings: dict,
         events: RunEvents,
         aborted_event: threading.Event,
@@ -161,6 +162,7 @@ class ProtocolVideoStep:
         self._capture_config = capture_config
         self._timestamp_overlay = timestamp_overlay
         self._global_max_fps = global_max_fps
+        self._channel_colors = channel_colors
         self._autogain_settings = autogain_settings
         self._events = events
         # Whether this step has sent a recording or writing phase, which
@@ -327,7 +329,7 @@ class ProtocolVideoStep:
                 height=frame_size['height'],
                 # Grey (a gray encode) when false color is off -- the same
                 # contract the manual leg encodes with.
-                color=layer_record.shown_color(step['Color'], false_color_on),
+                color=layer_record.shown_color(step['Color'], false_color_on, self._channel_colors),
                 include_timestamp_overlay=self._timestamp_overlay,
                 vfr=True,
             )
@@ -563,6 +565,7 @@ class ProtocolVideoStep:
                 # never states one channel and is coloured as another.
                 channel=fact.channel,
                 false_color_on=bool(step['False_Color']),
+                channel_colors=self._channel_colors,
                 save_encoding=self._capture_config.save_encoding,
                 capture_depth=self._capture_config.capture_depth,
             )

@@ -18,6 +18,7 @@ from unittest.mock import MagicMock, patch
 from modules import recording_frames
 from modules.protocol_post_processing_helper import ProtocolPostProcessingHelper
 from modules.video_builder import VideoBuilder
+from modules.layer_record import release_colors
 
 
 class TestFrameNameShapes:
@@ -150,6 +151,7 @@ class TestManualFramesTakeTheNumericSortBranch:
                 frames_per_sec=10,
                 enable_timestamp_overlay=False,
                 output_file_loc=pathlib.Path('out.mp4'),
+                channel_colors=release_colors(),
             )
 
         assert consumed == sorted(frames)

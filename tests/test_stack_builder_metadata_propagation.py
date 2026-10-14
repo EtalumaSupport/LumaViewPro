@@ -34,6 +34,7 @@ import tifffile as tf
 from modules import image_utils
 from modules.stack_builder import StackBuilder
 from modules.layer_record import release_color
+from modules.layer_record import release_colors
 
 
 def _write_structured_input(
@@ -127,6 +128,7 @@ class TestStackBuilderPropagatesPlanePositions:
             df=df,
             output_file_loc=output_file_loc,
             save_encoding='right_aligned',
+            channel_colors=release_colors(),
         )
         assert result['status'], f'_create_stack failed: {result.get("error")}'
 
@@ -184,6 +186,7 @@ class TestStackBuilderPropagatesPlanePositions:
             df=df,
             output_file_loc=pathlib.Path('out.ome.tiff'),
             save_encoding='right_aligned',
+            channel_colors=release_colors(),
         )
         with tf.TiffFile(str(tmp_path / 'out.ome.tiff')) as tif:
             ome_xml = tif.ome_metadata or ''
@@ -235,6 +238,7 @@ class TestStackBuilderPropagatesPixelSizeAndChannels:
             df=df,
             output_file_loc=pathlib.Path('out.ome.tiff'),
             save_encoding='right_aligned',
+            channel_colors=release_colors(),
         )
         with tf.TiffFile(str(tmp_path / 'out.ome.tiff')) as tif:
             ome_xml = tif.ome_metadata or ''
@@ -278,6 +282,7 @@ class TestStackBuilderPropagatesPixelSizeAndChannels:
             df=df,
             output_file_loc=pathlib.Path('out.ome.tiff'),
             save_encoding='right_aligned',
+            channel_colors=release_colors(),
         )
         with tf.TiffFile(str(tmp_path / 'out.ome.tiff')) as tif:
             ome_xml = tif.ome_metadata or ''
@@ -320,6 +325,7 @@ class TestStackBuilderHandlesInputsWithoutStructuredMetadata:
             df=df,
             output_file_loc=pathlib.Path('out.ome.tiff'),
             save_encoding='right_aligned',
+            channel_colors=release_colors(),
         )
         assert result['status'], f'Bare-input fallback path must not crash: {result.get("error")}'
         # Output should still be a valid OME-TIFF.
@@ -365,6 +371,7 @@ class TestStackBuilderPrivateTagRecoversDroppedMetadata:
             df=df,
             output_file_loc=pathlib.Path('out.ome.tiff'),
             save_encoding='right_aligned',
+            channel_colors=release_colors(),
         )
 
         recovered = image_utils.read_hyperstack_private_metadata(tmp_path / 'out.ome.tiff')
@@ -415,6 +422,7 @@ class TestStackBuilderPrivateTagRecoversDroppedMetadata:
             df=df,
             output_file_loc=pathlib.Path('out.ome.tiff'),
             save_encoding='right_aligned',
+            channel_colors=release_colors(),
         )
 
         recovered = image_utils.read_hyperstack_private_metadata(tmp_path / 'out.ome.tiff')
@@ -451,6 +459,7 @@ class TestStackBuilderPrivateTagRecoversDroppedMetadata:
             df=df,
             output_file_loc=pathlib.Path('out.ome.tiff'),
             save_encoding='right_aligned',
+            channel_colors=release_colors(),
         )
 
         recovered = image_utils.read_hyperstack_private_metadata(tmp_path / 'out.ome.tiff')
@@ -492,6 +501,7 @@ class TestStackBuilderPrivateTagRecoversDroppedMetadata:
             df=df,
             output_file_loc=pathlib.Path('out.ome.tiff'),
             save_encoding='right_aligned',
+            channel_colors=release_colors(),
         )
 
         recovered = image_utils.read_hyperstack_private_metadata(tmp_path / 'out.ome.tiff')
@@ -597,6 +607,7 @@ class TestHyperstackChannelColor:
             df=df,
             output_file_loc=pathlib.Path('out.ome.tiff'),
             save_encoding='right_aligned',
+            channel_colors=release_colors(),
         )
 
         with tf.TiffFile(str(tmp_path / 'out.ome.tiff')) as tif:
@@ -644,6 +655,7 @@ class TestHyperstackChannelColor:
             df=df,
             output_file_loc=pathlib.Path('out.ome.tiff'),
             save_encoding='right_aligned',
+            channel_colors=release_colors(),
         )
 
         recovered = image_utils.read_hyperstack_private_metadata(tmp_path / 'out.ome.tiff')
@@ -695,6 +707,7 @@ class TestHyperstackScaleComesFromTheInput:
             df=pd.DataFrame(rows),
             output_file_loc=pathlib.Path('out.ome.tiff'),
             save_encoding='right_aligned',
+            channel_colors=release_colors(),
         )
 
         with tf.TiffFile(str(tmp_path / 'out.ome.tiff')) as tif:
@@ -738,6 +751,7 @@ class TestHyperstackScaleComesFromTheInput:
             df=pd.DataFrame(rows),
             output_file_loc=pathlib.Path('out.ome.tiff'),
             save_encoding='right_aligned',
+            channel_colors=release_colors(),
         )
 
         out = tmp_path / 'out.ome.tiff'
@@ -834,7 +848,11 @@ def test_nondense_scan_counts_build_by_rank(tmp_path):
 
     output_file_loc = pathlib.Path('out.ome.tiff')
     result = StackBuilder._create_stack(
-        path=tmp_path, df=df, output_file_loc=output_file_loc, save_encoding='right_aligned'
+        path=tmp_path,
+        df=df,
+        output_file_loc=output_file_loc,
+        save_encoding='right_aligned',
+        channel_colors=release_colors(),
     )
     assert result['status'], f'_create_stack failed: {result.get("error")}'
 
@@ -883,6 +901,7 @@ def test_mixed_dtype_inputs_refused_naming_the_file(tmp_path):
             df=df,
             output_file_loc=pathlib.Path('out.ome.tiff'),
             save_encoding='right_aligned',
+            channel_colors=release_colors(),
         )
     assert refused.value.reason == 'mixed_pixel_types'
     # Refused part-way through the write: nothing is left at the output name.
@@ -915,7 +934,11 @@ def test_hyperstack_output_uses_strips(tmp_path):
     )
     output_file_loc = pathlib.Path('out.ome.tiff')
     result = StackBuilder._create_stack(
-        path=tmp_path, df=df, output_file_loc=output_file_loc, save_encoding='right_aligned'
+        path=tmp_path,
+        df=df,
+        output_file_loc=output_file_loc,
+        save_encoding='right_aligned',
+        channel_colors=release_colors(),
     )
     assert result['status'], f'_create_stack failed: {result.get("error")}'
 

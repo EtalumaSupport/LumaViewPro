@@ -17,6 +17,7 @@ import modules.video_writer as video_writer_module
 from modules.video_writer import VideoWriter
 from tests.scope_fakes import answer_auto_gain_like_the_api
 from modules.layer_record import GREY, release_color
+from modules.layer_record import release_colors
 
 
 class _FakeStream:
@@ -340,6 +341,7 @@ class TestProtocolVideoDropNotification:
             clock=lambda: clock['t'],
             run_claim=lent_run_claim(),
             to_plate=None,
+            channel_colors=release_colors(),
         )
         worker = threading.Thread(target=recorder.run_blocking)
         worker.start()
@@ -398,6 +400,7 @@ class TestVideoBuilderDropAccounting:
             source_dir=src,
             output_file=tmp_path / 'out.mp4',
             fps=10,
+            channel_colors=release_colors(),
         )
         assert result['frame_count'] == 0, 'no readable frame should encode'
         assert result['dropped_frames'] == 2, 'both unreadable sources must be counted'
@@ -456,6 +459,7 @@ class TestBuildVideoSignificantBits:
                 source_dir=src,
                 output_file=tmp_path / 'out.mp4',
                 fps=10,
+                channel_colors=release_colors(),
             )
 
         assert result['frame_count'] == 1, 'the readable frame must encode'

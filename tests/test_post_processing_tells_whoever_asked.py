@@ -35,6 +35,7 @@ from modules.notification_center import NotificationCenter, Severity, notificati
 from modules.protocol_post_processor import ProtocolPostProcessor
 from modules.protocol_post_processing_result import PostProcResult
 from tests.test_capture_collision_policy import TILING_CONFIGS
+from modules.layer_record import release_colors
 
 
 class _Processor(ProtocolPostProcessor):
@@ -81,7 +82,9 @@ def _drive(processor, tmp_path, monkeypatch, *, helper=None, groups=2):
         'protocol': None,
     }
     monkeypatch.setattr(processor._post_processing_helper, 'load_folder', lambda **kw: answer)
-    return processor.load_folder(path=tmp_path, tiling_configs_file_loc=TILING_CONFIGS)
+    return processor.load_folder(
+        path=tmp_path, tiling_configs_file_loc=TILING_CONFIGS, channel_colors=release_colors()
+    )
 
 
 def _ok(**metadata):
@@ -222,7 +225,12 @@ def _hyperstack_build(monkeypatch, tmp_path, answer):
     monkeypatch.setattr(stack_builder.StackBuilder, 'load_folder', _load_folder)
     # The run's images are already on disk: the wait returns at once.
     stack_builder.build_hyperstacks_for_run(
-        tmp_path, False, TILING_CONFIGS, wait_for_images=lambda: None, save_encoding='8bit'
+        tmp_path,
+        False,
+        TILING_CONFIGS,
+        wait_for_images=lambda: None,
+        save_encoding='8bit',
+        channel_colors=release_colors(),
     )
     return notices, reports
 
@@ -376,7 +384,9 @@ def _manual_video(monkeypatch, tmp_path, video_result):
     monkeypatch.setattr(video_builder.recording_frames, 'frame_number', lambda n: 0)
     monkeypatch.setattr(builder, '_read_recording_manifest', lambda path: {'channel_color': None})
     monkeypatch.setattr(builder, '_create_video', lambda **kwargs: video_result)
-    return builder._build_manual_recording_video(tmp_path, frames_per_sec=10)
+    return builder._build_manual_recording_video(
+        tmp_path, frames_per_sec=10, channel_colors=release_colors()
+    )
 
 
 def test_a_manual_video_that_failed_to_encode_raises(tmp_path, monkeypatch):

@@ -23,6 +23,7 @@ from modules.stack_builder import StackBuilder
 from tests.test_hyperstack_video_grouping import _frame_path, _stack_df
 from modules.recording_frames import FrameFact
 from modules.layer_record import release_color
+from modules.layer_record import release_colors
 
 _FACT = FrameFact(plate_x_mm=None, plate_y_mm=None, z_um=None, moving=False, channel='BF')
 
@@ -62,6 +63,7 @@ def _build(tmp_path, df, out_name='out.ome.tiff'):
         df=group.reset_index(drop=True),
         output_file_loc=pathlib.Path(out_name),
         save_encoding='right_aligned',
+        channel_colors=release_colors(),
     )
     assert result.status, f'stack build failed: {result.error}'
     with tf.TiffFile(str(tmp_path / out_name)) as tif:

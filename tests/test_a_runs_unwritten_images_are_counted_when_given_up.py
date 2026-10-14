@@ -27,6 +27,7 @@ from modules.run_events import RunEvents
 from tests.af_drives import af_runner_and_scope, drive_af
 from tests.test_a_late_write_records_its_frame import _protocol, _step
 from tests.test_composite_run_e2e import headless_settings, open_composite_session
+from modules.layer_record import release_colors
 
 WAIT_S = 30.0
 
@@ -239,6 +240,7 @@ class TestNothingBuildsFromAFolderMissingImages:
             tiling_configs_file_loc=tmp_path / 'tiling.json',
             wait_for_images=_abandoned,
             save_encoding='8bit',
+            channel_colors=release_colors(),
         )
 
         loaded.assert_not_called()

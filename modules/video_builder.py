@@ -7,7 +7,7 @@ import pandas as pd
 
 import modules.image_utils as image_utils
 import modules.layer_record as layer_record
-from modules.layer_record import GREY
+from modules.layer_record import GREY, ChannelColors
 import modules.common_utils as common_utils
 import modules.recording_frames as recording_frames
 from modules.common_utils import PostFunction
@@ -121,6 +121,7 @@ class VideoBuilder(ProtocolPostProcessor):
                 on_progress=kwargs['on_progress'],
                 total_groups=kwargs['total_groups'],
                 current_group=kwargs['current_group'],
+                channel_colors=kwargs['channel_colors'],
             )
         )
 
@@ -215,6 +216,8 @@ class VideoBuilder(ProtocolPostProcessor):
         on_progress: ProgressCallback | None = None,
         total_groups=1,
         current_group=1,
+        *,
+        channel_colors: ChannelColors,
     ) -> dict:
 
         if recording_frames.is_video_frame(df['Filepath'].values[0]):
@@ -251,7 +254,7 @@ class VideoBuilder(ProtocolPostProcessor):
         # when it was recorded with false color off, which is grey too, and a
         # group of composites is their own RGB.
         layer = df.iloc[0]['Color'] if 'Color' in df.columns else None
-        layer_color = GREY if layer is None else layer_record.output_color(layer)
+        layer_color = GREY if layer is None else layer_record.output_color(layer, channel_colors)
         output_file_loc_abs = path / output_file_loc
         output_file_loc_abs.parent.mkdir(exist_ok=True, parents=True)
         video = VideoWriter(
@@ -354,6 +357,7 @@ class VideoBuilder(ProtocolPostProcessor):
         color: str | None = None,
         fps: int = 10,
         include_timestamp_overlay: bool = False,
+        channel_colors: ChannelColors,
     ) -> dict:
         """Build a single video file from mono TIFFs in source_dir.
 
@@ -396,7 +400,7 @@ class VideoBuilder(ProtocolPostProcessor):
         if not tiff_paths:
             raise ValueError(f'build_video: no .tiff / .tif files in {source_dir}')
 
-        writer_color = layer_record.output_color(color) if false_color else GREY
+        writer_color = layer_record.output_color(color, channel_colors) if false_color else GREY
         writer = VideoWriter(
             output_path=output_file,
             fps=fps,
@@ -564,6 +568,7 @@ class VideoBuilder(ProtocolPostProcessor):
         *,
         frames_per_sec: float,
         enable_timestamp_overlay: bool = False,
+        channel_colors: ChannelColors,
         **_ignored: dict,
     ) -> dict:
         frame_paths = [
@@ -612,6 +617,7 @@ class VideoBuilder(ProtocolPostProcessor):
             on_progress=on_progress,
             total_groups=1,
             current_group=1,
+            channel_colors=channel_colors,
         )
 
         if on_progress is not None:

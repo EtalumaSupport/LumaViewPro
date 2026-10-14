@@ -20,6 +20,7 @@ from modules.exceptions import CaptureError, ImageSaveError
 from modules.lumascope_api.runtime_state import RuntimeState
 from tests.test_jpg_export import _bright_mono, _scope_with_depth
 from tests.frame_records import frame_record, plate
+from modules.layer_record import release_colors
 
 
 def _save(tmp_path):
@@ -39,6 +40,7 @@ def _save(tmp_path):
         frame_record=frame_record(),
         labware=plate(),
         well_label=None,
+        channel_colors=release_colors(),
     )
 
 

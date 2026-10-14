@@ -24,6 +24,7 @@ from modules.lumascope_api.runtime_state import RuntimeState
 from modules.recording_frames import FrameFact, frame_fact, tiff_frame_metadata
 from modules.video_recording import RecordingConfig, VideoRecordingEngine
 from tests.video_engine_harness import FakeClock, FrameFeed, WriterStub
+from modules.layer_record import release_colors
 
 A_FACT = FrameFact(plate_x_mm=1.5, plate_y_mm=2.5, z_um=3.0, moving=False, channel='Green')
 
@@ -196,6 +197,7 @@ class TestTheFrameFile:
             false_color_on=False,
             save_encoding='8bit',
             capture_depth=8,
+            channel_colors=release_colors(),
         )
         with tf.TiffFile(path) as t:
             described = json.loads(t.pages[0].tags['ImageDescription'].value)

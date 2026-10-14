@@ -43,6 +43,7 @@ import modules.config_helpers as config_helpers
 
 from tests.camera_fakes import bare_pylon_camera
 from tests.scope_fakes import give_camera_capabilities
+from modules.layer_record import release_colors
 
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
@@ -332,6 +333,7 @@ def _video_session_autogain_call(autogain_settings):
         record_dropped_capture=MagicMock(),
         run_claim=lent_run_claim(),
         to_plate=None,
+        channel_colors=release_colors(),
     )
     from unittest.mock import patch
 

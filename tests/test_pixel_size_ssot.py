@@ -24,6 +24,7 @@ from modules.scope_capabilities import (
 )
 from modules.recording_frames import FrameFact
 from modules.layer_record import release_color
+from modules.layer_record import release_colors
 
 _FACT = FrameFact(plate_x_mm=None, plate_y_mm=None, z_um=None, moving=False, channel='BF')
 
@@ -153,6 +154,7 @@ class TestVideoFrameScaleClaim:
             false_color_on=False,
             save_encoding='right_aligned',
             capture_depth=12,
+            channel_colors=release_colors(),
         )
 
         with tf.TiffFile(path) as t:
@@ -239,6 +241,7 @@ class TestVideoFrameCarriesScale:
             false_color_on=False,
             save_encoding='right_aligned',
             capture_depth=12,
+            channel_colors=release_colors(),
         )
 
         with tf.TiffFile(path) as t:
@@ -272,6 +275,7 @@ class TestVideoFrameCarriesScale:
             false_color_on=False,
             save_encoding='right_aligned',
             capture_depth=12,
+            channel_colors=release_colors(),
         )
 
         with tf.TiffFile(path) as t:
@@ -307,6 +311,7 @@ class TestReadPixelSizeUm:
             false_color_on=False,
             save_encoding='right_aligned',
             capture_depth=12,
+            channel_colors=release_colors(),
         )
         return path
 

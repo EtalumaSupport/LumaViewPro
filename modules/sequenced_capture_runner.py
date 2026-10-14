@@ -38,6 +38,7 @@ from modules.activity_claim import (
     the_run_named,
 )
 from modules.autofocus_runner import AutofocusRunner
+from modules.layer_record import ChannelColors
 from modules.exceptions import (
     BlockingCallRefusedError,
     CameraSettingRejected,
@@ -457,6 +458,7 @@ class SequencedCaptureRunner:
         file_io_executor: SequentialIOExecutor,
         autofocus_thread,
         activity_claim: ActivityClaim,
+        channel_colors: typing.Callable[[], ChannelColors],
         autofocus_runner: AutofocusRunner | None = None,
         on_run_idle: typing.Callable[[], None] | None = None,
         on_protocol_files_written: typing.Callable[[pathlib.Path, str, str, str], None]
@@ -466,6 +468,11 @@ class SequencedCaptureRunner:
         # Told the layer each step has lit, once its light is on: the
         # session's shown channel follows the run.
         self._on_step_lit = on_step_lit
+        # The Session's one read of every layer's colour. start() takes it
+        # once, so a run's captures, recordings and post-run builds are all
+        # coloured as the run began, whatever changes while it runs.
+        self._read_channel_colors = channel_colors
+        self._channel_colors: ChannelColors | None = None
         # Handed (run_dir, files outcome, trigger source, protocol name) once per Full
         # Protocol, after its images are written and its hyperstack build has
         # ended: the session's hand-off to the post-processing plugins. Runs
@@ -1613,6 +1620,7 @@ class SequencedCaptureRunner:
             self._engineering_mode = plan.engineering_mode
             self._stage_offset = plan.stage_offset
             self._composite_thresholds_percent = plan.composite_thresholds_percent
+            self._channel_colors = self._read_channel_colors()
             self._run_identity = self._identity_of(plan)
             # Failure-safe defaults: a setup failure below unwinds through
             # the normal run cleanup, which reads these; a prior run's stale
@@ -1728,6 +1736,7 @@ class SequencedCaptureRunner:
                 timestamp_overlay=self._timestamp_overlay,
                 video_max_fps=self._video_max_fps,
                 engineering_mode=self._engineering_mode,
+                channel_colors=self._channel_colors,
                 run_claim=self._held_claim.lend(),
                 labware=self._scope.wellplate_loader.get_plate(plate_key=self._protocol.labware()),
                 to_plate=self._scope.protocols.plate_transform(
@@ -2316,6 +2325,7 @@ class SequencedCaptureRunner:
         has_turret = self._scope.capabilities.has_turret
         tiling_configs_file_loc = self._tiling_configs_file_loc
         write_batch = self._write_batch
+        channel_colors = self._channel_colors
 
         return self._spawn_post_run_step(
             name='hyperstack-build',
@@ -2325,6 +2335,7 @@ class SequencedCaptureRunner:
                 tiling_configs_file_loc=tiling_configs_file_loc,
                 wait_for_images=lambda: write_batch.wait_until_written(_POST_RUN_WRITES_WAIT_S),
                 save_encoding=config.save_encoding,
+                channel_colors=channel_colors,
             ),
         )
 
@@ -2354,6 +2365,7 @@ class SequencedCaptureRunner:
         run_dir = self._run_dir
         write_batch = self._write_batch
         thresholds = self._composite_thresholds_percent
+        channel_colors = self._channel_colors
         output_format = (
             self._image_capture_config.output_format_sequenced
             if self._image_capture_config is not None
@@ -2435,6 +2447,7 @@ class SequencedCaptureRunner:
                     tiling_configs_file_loc=tiling_configs_file_loc,
                     output_format=output_format,
                     brightness_thresholds_percent=thresholds,
+                    channel_colors=channel_colors,
                 )
             except Exception as ex:
                 # A typed outcome says why in its own reason, kind and words;

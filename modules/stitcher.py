@@ -17,6 +17,7 @@ from modules.common_utils import PostFunction
 from modules.protocol_post_processor import ProtocolPostProcessor
 from modules.protocol_post_processing_result import PostProcResult
 from modules.protocol_post_record import ProtocolPostRecord
+from modules.layer_record import ChannelColors
 
 logger = logging.getLogger('LVP.modules.stitcher')
 
@@ -157,6 +158,7 @@ class Stitcher(ProtocolPostProcessor):
             pixel_size_um=pixel_size_um,
             output_file_loc=kwargs.get('output_file_loc'),
             stitching_mode=kwargs.get('stitching_mode', self.QUALITY_MODE),
+            channel_colors=kwargs['channel_colors'],
         )
         result.setdefault('metadata', {})['channel_group_id'] = self._stitched_channel_group(df)
         return PostProcResult.from_group_result(result)
@@ -208,11 +210,14 @@ class Stitcher(ProtocolPostProcessor):
         path: pathlib.Path,
         df: pd.DataFrame,
         output_file_loc: pathlib.Path | None = None,
+        *,
+        channel_colors: ChannelColors,
     ):
         return simple_position_stitcher(
             path=path,
             df=df,
             output_file_loc=output_file_loc,
+            channel_colors=channel_colors,
         )
 
 

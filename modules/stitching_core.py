@@ -98,6 +98,7 @@ def _write_output(
     image: np.ndarray,
     first_tile_path: pathlib.Path,
     color: str,
+    channel_colors: layer_record.ChannelColors,
     center: dict,
     significant_bits: int,
     algorithm: str,
@@ -120,7 +121,7 @@ def _write_output(
         file_loc=output_file_loc_abs,
         metadata=metadata,
         ome=False,
-        color=layer_record.output_color(color),
+        color=layer_record.output_color(color, channel_colors),
         significant_bits=metadata['significant_bits'],
         save_encoding=derived_output_encoding.resolve_output_save_encoding(image),
     )
@@ -142,6 +143,7 @@ def _result(
     df: pd.DataFrame,
     metadata: dict,
     significant_bits: int,
+    channel_colors: layer_record.ChannelColors,
 ) -> dict:
     first_row = df.iloc[0]
     color = str(first_row.get('Color', ''))
@@ -152,6 +154,7 @@ def _result(
         image=image,
         first_tile_path=path / first_row['Filepath'],
         color=color,
+        channel_colors=channel_colors,
         center=center,
         significant_bits=significant_bits,
         algorithm=metadata['algorithm'],
@@ -291,6 +294,8 @@ def bf_feature_stitcher(
     path: pathlib.Path,
     df: pd.DataFrame,
     output_file_loc: pathlib.Path | None = None,
+    *,
+    channel_colors: layer_record.ChannelColors,
 ) -> dict:
     """Use OpenCV feature stitching for brightfield groups."""
     center = _center_metadata(df)
@@ -327,6 +332,7 @@ def bf_feature_stitcher(
         path=path,
         output_file_loc=output_file_loc,
         df=df,
+        channel_colors=channel_colors,
         metadata={'center': center, 'algorithm': 'bf_feature_stitcher'},
         # Couple the tag to the ACTUAL output: the OpenCV feature path emits
         # 8-bit BGR regardless of input depth. Tagging this uint8 montage with a
@@ -340,9 +346,11 @@ def overlap_stitcher(
     df: pd.DataFrame,
     pixel_size_um: float | None,
     output_file_loc: pathlib.Path | None = None,
-    estimator=estimate_overlap_offset,
+    estimator: Callable[..., tuple[int, int, float]] = estimate_overlap_offset,
     algorithm: str = 'quality_local_ncc',
     blend_mode: str = 'source_preserving',
+    *,
+    channel_colors: layer_record.ChannelColors,
 ) -> dict:
     """Use the newest stage-position + overlap-registration stitch math."""
     center = _center_metadata(df)
@@ -418,6 +426,7 @@ def overlap_stitcher(
         path=path,
         output_file_loc=output_file_loc,
         df=df,
+        channel_colors=channel_colors,
         metadata={
             'center': center,
             'algorithm': algorithm,
@@ -434,6 +443,8 @@ def fft_phase_stitcher(
     df: pd.DataFrame,
     pixel_size_um: float | None,
     output_file_loc: pathlib.Path | None = None,
+    *,
+    channel_colors: layer_record.ChannelColors,
 ) -> dict:
     """Fast, stage-constrained preview registration for real overlaps only."""
     return overlap_stitcher(
@@ -444,6 +455,7 @@ def fft_phase_stitcher(
         estimator=estimate_phase_offset,
         algorithm='fast_fft_phase',
         blend_mode='source_preserving',
+        channel_colors=channel_colors,
     )
 
 
@@ -452,6 +464,8 @@ def stage_position_stitcher(
     df: pd.DataFrame,
     pixel_size_um: float | None,
     output_file_loc: pathlib.Path | None = None,
+    *,
+    channel_colors: layer_record.ChannelColors,
 ) -> dict:
     """Place tiles by recorded stage position without registration correction."""
     center = _center_metadata(df)
@@ -536,6 +550,7 @@ def stage_position_stitcher(
         path=path,
         output_file_loc=output_file_loc,
         df=df,
+        channel_colors=channel_colors,
         metadata={
             'center': center,
             'algorithm': 'stage_position_stitcher',
@@ -550,6 +565,8 @@ def simple_position_stitcher(
     path: pathlib.Path,
     df: pd.DataFrame,
     output_file_loc: pathlib.Path | None = None,
+    *,
+    channel_colors: layer_record.ChannelColors,
 ) -> dict:
     """Place tiles by X/Y rank, preserving the legacy no-overlap behavior."""
     try:
@@ -644,6 +661,7 @@ def simple_position_stitcher(
         path=path,
         output_file_loc=output_file_loc,
         df=df,
+        channel_colors=channel_colors,
         metadata={'center': center, 'algorithm': 'simple_position_stitcher'},
         significant_bits=image_utils.resolve_output_depth(input_depths),
     )
@@ -655,6 +673,8 @@ def channel_aware_stitcher(
     pixel_size_um: float | None = None,
     output_file_loc: pathlib.Path | None = None,
     stitching_mode: str = 'quality',
+    *,
+    channel_colors: layer_record.ChannelColors,
 ) -> dict:
     """Route channels through the preferred algorithm and fallbacks.
 
@@ -679,6 +699,7 @@ def channel_aware_stitcher(
         'path': path,
         'df': df,
         'output_file_loc': output_file_loc,
+        'channel_colors': channel_colors,
     }
     chain: list[tuple[str, Callable[[], dict]]] = []
     if overlap['has_overlap'] and mode == 'fast_preview':

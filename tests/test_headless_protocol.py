@@ -66,6 +66,7 @@ from modules.scope_session import ScopeSession
 # Re-install (idempotent) now that the kivy-free imports are proven.
 from tests.conftest import install_mock_deps
 from tests.scope_fakes import build_scope, configure_turret_like_bringup, swap_lanes
+from modules.layer_record import release_colors
 
 install_mock_deps()
 
@@ -279,6 +280,7 @@ class TestHeadlessProtocolExecution:
                     autofocus_thread=MagicMock(in_flight_sweep=None),
                     activity_claim=ActivityClaim(),
                     autofocus_runner=mock_af,
+                    channel_colors=release_colors,
                 )
                 protocol = self._make_protocol()
 

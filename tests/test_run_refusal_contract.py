@@ -63,6 +63,7 @@ from modules.protocol import Protocol
 from modules.sequenced_capture_runner import SequencedCaptureRunner
 from modules.sequenced_capture_runner import SequencedCaptureRunMode
 from modules.sequential_io_executor import SequentialIOExecutor
+from modules.layer_record import release_colors
 
 COMPLETION_TIMEOUT = 15  # seconds -- generous for CI
 # A bound only on a stuck file lane: a loaded host can take seconds to write.
@@ -230,6 +231,7 @@ def executor(scope, executors):
         autofocus_thread=MagicMock(in_flight_sweep=None),
         activity_claim=ActivityClaim(),
         autofocus_runner=mock_af,
+        channel_colors=release_colors,
     )
     return exc
 

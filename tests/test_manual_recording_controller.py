@@ -28,6 +28,7 @@ from tests.scope_fakes import identity_with_layers
 from tests.settings_fixtures import complete_settings
 from tests.video_engine_harness import FakeClock, ManualFireScheduler, NotifyRecorder
 from modules.lumascope_api import AxisPosition, AxisState
+from modules.layer_record import release_colors
 
 TICK_HZ = 1_000_000_000
 
@@ -195,6 +196,7 @@ def make_controller(tmp_path, *, scope=None, clock=None, lit=None, shown='BF', *
         activity_claim=ActivityClaim(),
         scheduler=ManualFireScheduler(),
         clock=clock,
+        channel_colors=release_colors,
     )
     return controller, scope, clock
 
@@ -602,7 +604,9 @@ def _block_the_finish(monkeypatch):
         def __init__(self, **kwargs):
             pass
 
-        def create_single_recording_stack(self, df, path, output_file_loc, *, save_encoding):
+        def create_single_recording_stack(
+            self, df, path, output_file_loc, *, save_encoding, channel_colors
+        ):
             entered.set()
             release.wait(timeout=15)
             return {'status': True, 'error': None, 'metadata': {}}
@@ -760,7 +764,9 @@ def _capture_hyperstack_df(monkeypatch):
         def __init__(self, **kwargs):
             pass
 
-        def create_single_recording_stack(self, df, path, output_file_loc, *, save_encoding):
+        def create_single_recording_stack(
+            self, df, path, output_file_loc, *, save_encoding, channel_colors
+        ):
             captured['df'] = df
             return {'status': True, 'error': None, 'metadata': {}}
 

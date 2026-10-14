@@ -316,10 +316,22 @@ def release_color(key: object) -> Color:
     return parse_display_color(release_layer(key).display_color)
 
 
-def output_color(name: object) -> Color:
-    """The colour an image named for ``name`` is written in: a layer's
-    colour, and ``GREY`` for a composite (``PostFunction.COMPOSITE``), which
-    is RGB and carries its own -- and is grey once collapsed into a stack.
+# Every layer of the release and the colour it is shown and written in,
+# from the one read of it, ``ScopeSession.channel_colors``. A module below
+# the Session is handed this and reads no colour of its own.
+type ChannelColors = Mapping[str, Color]
+
+
+def release_colors() -> dict[str, Color]:
+    """Every release layer's colour, ``release_color`` of each key."""
+    return {key: release_color(key) for key in release_catalogue()}
+
+
+def output_color(name: object, colors: ChannelColors) -> Color:
+    """The colour an image named for ``name`` is written in: the layer's
+    colour in ``colors``, and ``GREY`` for a composite
+    (``PostFunction.COMPOSITE``), which is RGB and carries its own -- and is
+    grey once collapsed into a stack.
 
     Raises:
         ArgumentRefusedError: ``name`` is neither a layer of this release
@@ -329,10 +341,11 @@ def output_color(name: object) -> Color:
 
     if name == PostFunction.COMPOSITE.value:
         return GREY
-    return release_color(name)
+    refuse_unknown_layer(name)
+    return colors[name]
 
 
-def shown_color(name: object, false_color_on: bool) -> Color:
+def shown_color(name: object, false_color_on: bool, colors: ChannelColors) -> Color:
     """The colour an image named for ``name`` is shown in: its
     ``output_color`` with false colour on, ``GREY`` with it off.
 
@@ -340,7 +353,7 @@ def shown_color(name: object, false_color_on: bool) -> Color:
         ArgumentRefusedError: as ``output_color``, whether false colour is
             on or off.
     """
-    color = output_color(name)
+    color = output_color(name, colors)
     return color if false_color_on else GREY
 
 

@@ -16,6 +16,7 @@ import pytest
 from tests.protocol_drives import lent_run_claim
 import modules.protocol_recording as protocol_recording
 from modules.run_events import RunEvents
+from modules.layer_record import release_colors
 
 
 def _make_recorder(tmp_path, clock, active_cached=True):
@@ -52,6 +53,7 @@ def _make_recorder(tmp_path, clock, active_cached=True):
         clock=lambda: clock['t'],
         run_claim=lent_run_claim(),
         to_plate=None,
+        channel_colors=release_colors(),
     )
 
 
