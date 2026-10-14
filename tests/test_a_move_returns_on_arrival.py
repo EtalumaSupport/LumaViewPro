@@ -414,6 +414,32 @@ class TestAStartedMoveIsAnOperation:
 
         assert seen == {'ended': 'superseded', 'x': pytest.approx(x_target, abs=1.0)}
 
+    # The monitor's thread ending is the case under test, so its unhandled-
+    # thread warning is expected here.
+    @pytest.mark.filterwarnings('ignore::pytest.PytestUnhandledThreadExceptionWarning')
+    def test_a_move_whose_arrival_write_ends_the_monitor_is_still_done(self, session):
+        # A listener's Exception is reported where it is told; one that is
+        # not an Exception leaves the arrival write and ends the monitor's
+        # thread. The move it settled is still done: nothing else would end
+        # its waiters.
+        class _EndsTheThread(BaseException):
+            pass
+
+        motion = session.scope.motion
+        target = _z_target(motion)
+        raised = []
+
+        def listener(axis, at):
+            if axis == 'Z' and at.state == AxisState.IDLE and not raised:
+                raised.append(True)
+                raise _EndsTheThread()
+
+        motion.add_position_listener(listener)
+        move = motion.start_move_absolute('Z', target)
+
+        assert move.result(timeout=_TRAVEL_WAIT_S) is None
+        assert raised
+
     def test_a_callers_expired_wait_raises_timeout_and_the_move_still_arrives(self, session):
         motion = session.scope.motion
         target = _z_target(motion)
