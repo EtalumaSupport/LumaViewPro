@@ -125,8 +125,11 @@ def build_composite(
         first_img = next(iter(channel_images.values()))
         h, w = first_img.shape[:2]
 
-    # Wide enough for any number of channels each at full scale in one plane.
-    total = np.zeros((h, w, 3), dtype=np.uint32)
+    # 16 bits hold 257 channels at full scale in one plane; a composite takes
+    # one image per channel key, and a scope lights at most eight. Narrower
+    # than 32 bits because a stitched composite can be hundreds of megapixels.
+    total = np.zeros((h, w, 3), dtype=np.uint16)
+    colored = np.empty((h, w, 3), dtype=np.uint8)
     reached_any = np.zeros((h, w), dtype=bool)
     for name, img_gray in channel_images.items():
         if transmitted_image is not None:
@@ -135,10 +138,11 @@ def build_composite(
             # the scale stays expressible. An exclusive test cannot admit 255.
             reached = img_gray >= brightness_thresholds.get(name, 1)
             reached_any |= reached
-            img_gray = np.where(reached, img_gray, 0).astype(np.uint8)
-        total += image_utils.mono_to_rgb_falsecolor(img_gray, channels[name].color)
+            img_gray = img_gray * reached
+        total += image_utils.mono_to_rgb_falsecolor(img_gray, channels[name].color, colored)
 
-    img = np.minimum(total, _MAX_8BIT_VALUE).astype(np.uint8)
+    np.minimum(total, _MAX_8BIT_VALUE, out=total)
+    img = total.astype(np.uint8)
     if transmitted_image is not None:
         img[~reached_any] = transmitted_image[~reached_any, None]
     return img
