@@ -8,6 +8,76 @@ import modules.image_utils as image_utils
 from modules.composite_builder import build_composite
 
 
+def test_a_composite_of_pure_primaries_puts_each_channel_on_its_own_plane():
+    """Red, Green and Blue, one each, build the composite they always have.
+
+    Every pixel's planes come from the channels alone: with no transmitted
+    base, each channel's 8-bit value on its own plane; with one, a pixel where
+    any channel reaches its cutoff carries each channel at or above its cutoff
+    on its plane and nothing else, and every other pixel keeps the base's grey.
+    The 120 cases walk three input depths, a base or none, four cutoffs and
+    five channel sets, each with a row of black and a row at full scale, and
+    every case that differs is named.
+    """
+    plane_of = {'Red': 0, 'Green': 1, 'Blue': 2}
+    rng = np.random.default_rng(0)
+    differing = []
+    cases = 0
+    for bits, dtype in ((8, np.uint8), (12, np.uint16), (16, np.uint16)):
+        full_scale = (1 << bits) - 1
+        for with_base in (False, True):
+            for cutoff in (1, 50, 128, 255):
+                for keys in (
+                    ('Red', 'Green', 'Blue'),
+                    ('Red', 'Green'),
+                    ('Green', 'Blue'),
+                    ('Blue',),
+                    ('Red', 'Blue'),
+                ):
+                    channels = {}
+                    for key in keys:
+                        image = rng.integers(0, full_scale + 1, (16, 16)).astype(dtype)
+                        image[0, :] = 0
+                        image[1, :] = full_scale
+                        channels[key] = image
+                    base = (
+                        rng.integers(0, full_scale + 1, (16, 16)).astype(dtype)
+                        if with_base
+                        else None
+                    )
+
+                    eight_bit = {
+                        key: image_utils.convert_to_8bit(image, bits)
+                        for key, image in channels.items()
+                    }
+                    if base is None:
+                        expected = np.zeros((16, 16, 3), np.uint8)
+                        for key, image in eight_bit.items():
+                            expected[:, :, plane_of[key]] = image
+                    else:
+                        base8 = image_utils.convert_to_8bit(base, bits)
+                        expected = np.repeat(base8[:, :, None], 3, axis=2)
+                        lit = np.zeros((16, 16), bool)
+                        overlay = np.zeros((16, 16, 3), np.uint8)
+                        for key, image in eight_bit.items():
+                            reached = image >= cutoff
+                            lit |= reached
+                            overlay[reached, plane_of[key]] = image[reached]
+                        expected[lit] = overlay[lit]
+
+                    built = build_composite(
+                        channel_images=channels,
+                        significant_bits=bits,
+                        transmitted_image=base,
+                        brightness_thresholds=dict.fromkeys(keys, cutoff) if with_base else None,
+                    )
+                    cases += 1
+                    if not np.array_equal(built, expected):
+                        differing.append((bits, with_base, cutoff, keys))
+    assert cases == 120
+    assert differing == []
+
+
 class TestBuildCompositeNoTransmitted:
     """Composite without transmitted (BF/PC/DF) channel."""
 
