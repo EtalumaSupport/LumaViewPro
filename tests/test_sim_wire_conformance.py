@@ -117,26 +117,25 @@ _DURATIONS = _pools('api_ms')
 _POSITIONS = _pools('reply')
 
 
-def _replayed(timing: str) -> dict:
-    """The bench's calls replayed on the simulated unit in ``timing``; index -> (reply, ms)."""
+def _replayed(simulator_tier: str) -> dict:
+    """The bench's calls replayed on the simulated unit on ``simulator_tier``; index -> (reply, ms).
+
+    The tier is what sets the boards' timing: ``'realistic'`` moves at the
+    bench-fitted ramp, ``'firmware'`` at once. The unit is this bench's,
+    booted on the field firmware with its own config.
+    """
     with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(
-            sim_backend,
-            'LedBoardSpec',
-            functools.partial(sim_backend.LedBoardSpec, timing=timing),
-        )
         mp.setattr(
             sim_backend,
             'MotorBoardSpec',
             functools.partial(
                 sim_backend.MotorBoardSpec,
                 dialect='field',
-                timing=timing,
                 unit_config=_UNIT_CONFIG,
             ),
         )
         session = ScopeSession.create(
-            complete_settings(simulator_tier='firmware', microscope=BENCH['unit']['model']),
+            complete_settings(simulator_tier=simulator_tier, microscope=BENCH['unit']['model']),
             simulate=True,
             warn_pre_release=False,
         )
@@ -152,7 +151,7 @@ def replayed_on_the_firmware():
 @pytest.fixture(scope='module')
 def replayed_instantly():
     """The replay in instant timing: every other reply, in seconds."""
-    return _replayed('instant')
+    return _replayed('firmware')
 
 
 def _duration_group(record) -> str | None:
