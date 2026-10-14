@@ -935,9 +935,6 @@ class ProtocolSettings(FloatLayout):
     def modify_step(self):
         logger.info('[LVP Main  ] ProtocolSettings.modify_step()')
 
-        if self._protocol.num_steps() < 1:
-            return
-
         gui_logger.protocol_action('MODIFY_STEP', f'curr_step={self.curr_step}')
         ctx = _app_ctx.ctx
         shown_layer = ctx.session.shown_channel.layer

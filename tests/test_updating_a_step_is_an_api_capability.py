@@ -22,6 +22,7 @@ import pytest
 import modules.config_helpers as config_helpers
 from modules.exceptions import ProtocolRunRefusedError
 from modules.lumascope_api import AxisState
+from modules.protocol import StepNotFoundError
 from modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
@@ -152,6 +153,20 @@ class TestTheApiRefuses:
         )
         assert list(captured) == []
         assert _step(protocol) == before
+
+    def test_an_empty_protocol_has_no_step_to_update_whatever_the_layer(self, scope):
+        """Judged first: an empty protocol was refused for its layer
+        (``no_acquiring_layer``) when the layer acquired nothing, a reason
+        that was not why nothing could be updated."""
+        protocol = _empty_protocol_for_add()
+        configs = _layer_configs()
+        configs['Green'] = {**configs['Green'], 'acquire': None}
+
+        with pytest.raises(StepNotFoundError) as excinfo:
+            _update(scope, protocol, layer='Green', layer_configs=configs)
+
+        assert excinfo.value.title == 'No Such Step'
+        assert protocol.num_steps() == 0
 
 
 @pytest.mark.usefixtures('turret_in_a_known_slot')

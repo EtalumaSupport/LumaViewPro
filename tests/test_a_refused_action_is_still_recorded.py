@@ -73,6 +73,7 @@ class _Protocols(ps.ProtocolSettings):
         self.ids = {
             'tiling_size_spinner': SimpleNamespace(text='1x1'),
             'acquire_zstack_id': SimpleNamespace(active=False),
+            'step_name_input': SimpleNamespace(text=''),
         }
         self._protocol = SimpleNamespace(
             period=lambda: datetime.timedelta(minutes=20),
@@ -138,6 +139,34 @@ def test_a_new_protocol_the_session_refuses_is_still_recorded(session, monkeypat
     recorded = _recorded(caplog)
     assert 'BUTTON NEW_PROTOCOL ' in recorded, recorded
     assert not [line for line in recorded if line.startswith('PROTOCOL NEW')], recorded
+
+
+def test_change_on_an_empty_protocol_is_recorded_and_refused_by_the_session(
+    session, monkeypatch, caplog
+):
+    """Change on an empty protocol returned in the panel before its record,
+    so the press left no line and no reason, where Delete was refused "No Such
+    Step" by the Session."""
+    from modules.notification_center import notifications
+
+    reported = []
+    monkeypatch.setattr(notifications, 'report_outcome', lambda exc, **_kw: reported.append(exc))
+    # a stand-in by design: the stage map is a Kivy widget the redraw after the refusal draws on
+    stage = SimpleNamespace(set_protocol_steps=lambda protocol: None)
+    monkeypatch.setattr(_app_ctx, 'ctx', SimpleNamespace(session=session, stage=stage))
+    panel = _Protocols()
+    panel._protocol = session.create_empty_protocol()
+    panel.curr_step = -1
+
+    with caplog.at_level(logging.INFO, logger=_GUI_LOG):
+        panel.modify_step()
+
+    assert any(line.startswith('PROTOCOL MODIFY_STEP') for line in _recorded(caplog)), _recorded(
+        caplog
+    )
+    assert [(type(e).__name__, e.title) for e in reported] == [
+        ('StepNotFoundError', 'No Such Step')
+    ]
 
 
 @pytest.mark.parametrize(

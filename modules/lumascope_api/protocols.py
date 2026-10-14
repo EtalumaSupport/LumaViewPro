@@ -451,15 +451,17 @@ class ProtocolsAPI:
                 (reason ``channel_already_in_add``). Logged and notified
                 once; the step is unchanged.
             ProtocolError: ``step_idx`` is not a step of ``protocol``
-                (raised by the protocol).
+                (raised by the protocol), judged before anything else: an
+                empty protocol has no step to update, whatever the layer.
         """
         from modules.protocol import Protocol
 
+        step = protocol.step(idx=step_idx)
         self._refuse_unrecordable_step(verb='update', objective_id=objective_id)
 
         stim_config = layer_configs[layer].get('stim_config')
         if stim_config is not None and stim_config['enabled']:
-            layer = protocol.step(idx=step_idx)['Color']
+            layer = step['Color']
 
         if not Protocol.layer_acquires(layer_configs[layer]):
             self._refuse(
