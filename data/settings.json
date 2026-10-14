@@ -146,7 +146,6 @@
         },
         "autofocus": false
     },
-    "step_channel_order": ["BF", "PC", "DF", "Green", "Blue", "Red", "Lumi"],
     "mode": "normal",
     "debug_mode": false,
     "cprofile_enabled": false,

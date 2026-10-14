@@ -6,7 +6,9 @@ and holds one shared block per modality in ``channel_defaults``;
 ``settings_init.load_template``, the template's one read, gives every other
 catalogue key a copy of its modality's block and consumes the defaults. A
 key added to the catalogue therefore has settings with no edit to the
-template, and nothing a caller reads holds ``channel_defaults``.
+template, and nothing a caller reads holds ``channel_defaults``. The order
+a new protocol's steps take is each record's ``step_order``, said once, in
+the catalogue.
 """
 
 import dataclasses
@@ -129,6 +131,70 @@ def test_a_key_with_no_block_and_no_default_for_its_modality_is_refused_naming_i
 
     assert refused.value.file_path == data / 'settings.json'
     assert 'Blue (fluorescence)' in str(refused.value)
+
+
+def test_a_fresh_install_adds_a_multi_channel_step_green_before_blue(tmp_path):
+    # The shipped step order is the catalogue's step_order, which puts Green
+    # before Blue for the composite's focus, not the display order.
+    settings = complete_settings(live_folder=str(tmp_path), microscope='LS620')
+    for key in layer_record.release_catalogue():
+        settings[key]['acquire'] = None
+    session = ScopeSession.create(settings, simulate=True, warn_pre_release=False)
+    try:
+        protocol = session.scope.protocols.create_protocol(
+            empty_config=session.get_sequenced_capture_config()
+        )
+        for key in ('Blue', 'BF', 'Green'):
+            session.set_layer_acquire(key, 'image')
+
+        session.add_step(protocol)
+
+        assert [protocol.step(idx=i)['Color'] for i in range(3)] == ['BF', 'Green', 'Blue']
+    finally:
+        session.shutdown()
+        session.scope.disconnect()
+
+
+def test_a_key_added_to_the_catalogue_takes_its_step_order(monkeypatch):
+    shipped = layer_record.release_layers()
+    blue = next(layer for layer in shipped if layer.key == 'Blue')
+    nir = dataclasses.replace(blue, key='NIR', display_color='#ff00ff', step_order=-1)
+    monkeypatch.setattr(layer_record, '_CATALOGUE_CACHE', (*shipped, nir))
+
+    template = settings_init.load_template(logger, str(SHIPPED_TEMPLATE))
+
+    assert template['step_channel_order'] == [
+        'NIR',
+        'BF',
+        'PC',
+        'DF',
+        'Green',
+        'Blue',
+        'Red',
+        'Lumi',
+    ]
+
+
+def test_a_template_that_states_a_step_order_is_refused_naming_it(tmp_path):
+    data = _installation(tmp_path)
+    _write_template(data, lambda t: t.update(step_channel_order=['BF', 'Blue']))
+
+    with pytest.raises(InstallationFileError) as refused:
+        settings_init.prepare_settings(logger, str(tmp_path), fall_back_to_template=True)
+
+    assert refused.value.file_path == data / 'settings.json'
+    assert 'step_channel_order' in str(refused.value)
+
+
+def test_a_stored_step_order_is_kept(tmp_path):
+    data = _installation(tmp_path)
+    stored = settings_init.load_template(logger, str(SHIPPED_TEMPLATE))
+    stored['step_channel_order'] = ['Blue', 'BF']
+    (data / 'current.json').write_text(json.dumps(stored))
+
+    prepared, _ = settings_init.prepare_settings(logger, str(tmp_path), fall_back_to_template=False)
+
+    assert prepared['step_channel_order'] == ['Blue', 'BF']
 
 
 def test_a_stored_red_illumination_is_kept(tmp_path):

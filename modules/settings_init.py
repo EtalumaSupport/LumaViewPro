@@ -543,8 +543,33 @@ def load_template(logger: logging.Logger, template_path: str) -> dict:
     if missing:
         raise InstallationFileError(template_path, f'lacks the keys the app needs: {missing}')
     _give_every_layer_a_block(template, template_path)
+    _give_the_shipped_step_order(template, template_path)
     _validate_settings(template, template_path, logger)
     return template
+
+
+def _give_the_shipped_step_order(template: dict, template_path: str) -> None:
+    """The order a new protocol's steps take, from the catalogue's ``step_order``.
+
+    The catalogue's record is the one place a layer's step order is said, so
+    a key added there takes its place without an edit here. A template that
+    states its own order would be a second, unread source of it, and is
+    refused. A user's stored order is theirs, and is untouched.
+
+    Raises:
+        InstallationFileError: the template states ``step_channel_order``.
+    """
+    # Deferred: layer_record imports lvp_logger, which imports this module.
+    from modules.layer_record import release_layers
+
+    if 'step_channel_order' in template:
+        raise InstallationFileError(
+            template_path,
+            "states step_channel_order, which is each scopes.json LayerOrder record's step_order",
+        )
+    template['step_channel_order'] = [
+        layer.key for layer in sorted(release_layers(), key=lambda layer: layer.step_order)
+    ]
 
 
 def _give_every_layer_a_block(template: dict, template_path: str) -> None:
