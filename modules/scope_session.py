@@ -4640,8 +4640,9 @@ class ScopeSession:
         taking, the motion is that activity's work and takes nothing. The
         claim is released before the operation is done, so a caller told
         the motion has ended finds the scope free. Its ``stop()`` is
-        ``stop_motion``, refused ``'home_in_flight'`` while the home drives
-        on a board that cannot stop one.
+        ``stop_motion`` while the motion drives, refused ``'home_in_flight'``
+        while the home drives on a board that cannot stop one, and nothing
+        once the motion has ended.
 
         A failed home is reported (``report_outcome``) and ends the motion
         without the turret move -- an absolute move against a reference the
@@ -4702,7 +4703,7 @@ class ScopeSession:
         # The whole motion is one home's taking, so no request lands between
         # its moves; the diagnostics worker carries it, because the moves
         # themselves wait on the io lane.
-        body, release_if_unrun, taking = self.scope.motion.claim_home(startup_motion)
+        body, release_if_unrun, stop, taking = self.scope.motion.claim_home(startup_motion)
         waiter: concurrent.futures.Future[None] = concurrent.futures.Future()
         # Marked running before the lane holds it, so only the lane settles
         # it and nothing cancels it beside the claim.
@@ -4715,9 +4716,7 @@ class ScopeSession:
         except BaseException:
             release_if_unrun()
             raise
-        return Operation.following(
-            waiter, stop=self.scope.motion.stop_motion, first=release_if_unrun
-        )
+        return Operation.following(waiter, stop=stop, first=release_if_unrun)
 
     @api(in_process=True)
     def start_application_session(

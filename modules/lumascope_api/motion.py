@@ -824,8 +824,24 @@ class MotionAPI:
                 stage may still be moving. Chained from the driver's
                 error. The stop generation has moved regardless.
         """
+        self._stop_motion_while(lambda: True)
+
+    def _stop_motion_while(self, live: Callable[[], bool]) -> None:
+        """``stop_motion``, for one operation's work: sent only while ``live()`` answers True.
+
+        ``live()`` is asked and the STOP sent in one hold of ``_stop_lock``,
+        and the work's end is written where that hold excludes it -- a
+        home's body says it has ended under the lock, and the monitor reads
+        the generation under it before it judges an arrival -- so a stop
+        asked once the work has ended sends nothing. One asked while it is
+        live is a Stop like any other: a move that supersedes the work
+        while the STOP is being sent has its drive withheld, as every move
+        started while a Stop lands does.
+        """
         self._refuse_absent('stop_motion')
         with self._stop_lock:
+            if not live():
+                return
             if self._unstoppable_homes_driving:
                 raise HardwareCommandRefusedError('home_in_flight', 'stop_motion')
             self._send_stop()
@@ -2371,7 +2387,7 @@ class MotionAPI:
         as that activity's work and takes no claim of its own.
         """
         impl, settle_windows = self._home_body(axis)
-        body, release_if_unrun, taking = self.claim_home(impl)
+        body, release_if_unrun, _stop, taking = self.claim_home(impl)
         try:
             with acting(taking):
                 self._dispatch_motion(
@@ -2398,8 +2414,9 @@ class MotionAPI:
         this returns, so a second home asked while this one is in flight is
         refused at once rather than queued behind it. The operation is done
         once the home has released the scope, with what ``home`` would have
-        returned or raised; its ``stop()`` is ``stop_motion``, refused
-        ``'home_in_flight'`` on a board that cannot stop a home.
+        returned or raised; its ``stop()`` is ``stop_motion`` while the home
+        drives, refused ``'home_in_flight'`` on a board that cannot stop a
+        home, and nothing once the home has ended.
 
         Raises:
             ArgumentRefusedError: ``'axis_unknown'``, ``axis`` is not
@@ -2409,7 +2426,7 @@ class MotionAPI:
                 ``home`` is refused.
         """
         impl, _ = self._home_body(axis)
-        body, release_if_unrun, taking = self.claim_home(impl)
+        body, release_if_unrun, stop, taking = self.claim_home(impl)
         waiter: concurrent.futures.Future[None] = concurrent.futures.Future()
         # Marked running before the lane holds it, so only the lane settles
         # it and nothing cancels it beside the claim.
@@ -2424,7 +2441,7 @@ class MotionAPI:
         except BaseException:
             release_if_unrun()
             raise
-        return Operation.following(waiter, stop=self.stop_motion, first=release_if_unrun)
+        return Operation.following(waiter, stop=stop, first=release_if_unrun)
 
     def _home_body(self, axis: str) -> tuple[Callable[[], None], int]:
         """The home body for ``axis`` and how many settle windows bound its wait."""
@@ -2437,7 +2454,7 @@ class MotionAPI:
 
     def claim_home(
         self, impl: Callable[[], None]
-    ) -> tuple[Callable[[], None], Callable[[], None], Taking | None]:
+    ) -> tuple[Callable[[], None], Callable[[], None], Callable[[], None], Taking | None]:
         """Take the scope for a home of ``impl``, or refuse this one.
 
         ``impl`` is a home, or the Session's startup sequence, which holds the
@@ -2446,8 +2463,11 @@ class MotionAPI:
         Returns the lane body, which runs ``impl`` and releases the claim when
         it ends; the release for a body the lane never ran: refused at
         admission, refused while queued, or dropped (a body that started
-        releases its own, so the second is a no-op then); and the taking the
-        home is submitted under, so the lane runs it while the claim holds.
+        releases its own, so the second is a no-op then); the home's stop,
+        ``stop_motion`` until the body has ended and nothing after, so a
+        stop asked as the home lets go never reaches motion begun after it;
+        and the taking the home is submitted under, so the lane runs it
+        while the claim holds.
 
         Asked under a live taking, the home is that activity's work: it is
         submitted under that taking and takes nothing. On a scope no session
@@ -2471,6 +2491,7 @@ class MotionAPI:
                     'exclusive_activity_running', 'home', holder.kind if holder else None
                 )
         started = threading.Event()
+        ended = threading.Event()
 
         def release() -> None:
             if held is not None:
@@ -2484,13 +2505,20 @@ class MotionAPI:
             try:
                 impl()
             finally:
+                # Under the lock the home's stop asks it in, before the claim
+                # lets anything else take the scope.
+                with self._stop_lock:
+                    ended.set()
                 release()
 
         def release_if_unrun() -> None:
             if not started.is_set():
                 release()
 
-        return body, release_if_unrun, held if held is not None else current
+        def stop() -> None:
+            self._stop_motion_while(lambda: not ended.is_set())
+
+        return body, release_if_unrun, stop, held if held is not None else current
 
     @api
     def move_turret(self, position: int, restore_z: bool = True) -> None:
@@ -2774,10 +2802,12 @@ class MotionAPI:
         its operation is done; a stop asked of it then must not halt the
         motion that took its axis.
         """
-        with self._axis_state_lock:
-            if self._current_move.get(move.axis) is not move or move.outcome is not None:
-                return
-        self.stop_motion()
+
+        def live() -> bool:
+            with self._axis_state_lock:
+                return self._current_move.get(move.axis) is move and move.outcome is None
+
+        self._stop_motion_while(live)
 
     def _send_drive(self, axis: str, stop_generation: int, send, member: str) -> tuple[_Move, bool]:
         """Set ``axis`` MOVING and disarmed, then send its drive.

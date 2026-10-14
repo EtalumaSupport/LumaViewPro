@@ -25,7 +25,14 @@ import pytest
 
 from modules.exceptions import HardwareCommandRefusedError, HomingStoppedError
 from modules.notification_center import OutcomeKind, outcome_of
-from tests.scope_fakes import bind_settings_like_a_session, build_scope, record_turret_answer
+from modules.scope_session import ScopeSession
+from tests.scope_fakes import (
+    bind_settings_like_a_session,
+    build_scope,
+    home_sim_scope,
+    record_turret_answer,
+)
+from tests.settings_fixtures import complete_settings
 
 
 @pytest.fixture(params=['LS720', 'LS850', 'LS850T'])
@@ -143,3 +150,61 @@ def test_the_el0940_driver_refuses_a_stop_while_it_homes(monkeypatch):
             assert home.result(60) is None
     finally:
         scope.disconnect()
+
+
+@pytest.fixture
+def session(tmp_path):
+    s = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
+    try:
+        home_sim_scope(s.scope)
+        yield s
+    finally:
+        s.shutdown()
+        s.scope.disconnect()
+
+
+def _stop_as_the_scope_is_let_go(session, started):
+    """Ask ``started[0].stop()`` from the run-state listener the home's
+    release calls: the home is over and the scope free, but its operation
+    is not yet done. Returns the commands the board was sent from then on."""
+    driver = session.scope._motion_driver
+    sent = []
+    real = driver.exchange_command
+    asked = []
+
+    def stop_when_free():
+        if started and not asked and session.exclusive_activity is None:
+            asked.append(True)
+            sent.clear()
+            started[0].stop()
+
+    def recorded(command, *args, **kwargs):
+        sent.append(command)
+        return real(command, *args, **kwargs)
+
+    driver.exchange_command = recorded
+    session.add_run_state_listener(stop_when_free)
+    return sent, asked
+
+
+def test_a_homes_stop_once_it_has_let_go_of_the_scope_sends_nothing(session):
+    """A home's ``stop()`` stops the board only while the home drives: one
+    asked once it has let go of the scope, before its operation is done,
+    would halt whatever took the scope next."""
+    started = []
+    sent, asked = _stop_as_the_scope_is_let_go(session, started)
+    started.append(session.scope.motion.start_home('Z'))
+
+    assert started[0].result(60) is None
+    assert asked, 'the listener never saw the scope let go'
+    assert 'STOP' not in sent
+
+
+def test_the_startup_motions_stop_once_it_has_let_go_of_the_scope_sends_nothing(session):
+    started = []
+    sent, asked = _stop_as_the_scope_is_let_go(session, started)
+    started.append(session.begin_application_session())
+
+    assert started[0].result(60) is None
+    assert asked, 'the listener never saw the scope let go'
+    assert 'STOP' not in sent

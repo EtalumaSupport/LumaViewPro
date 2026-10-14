@@ -377,7 +377,7 @@ session.start_application_session()                  # the same, waited for
 session.start_application_session(disable_homing=True)  # skip homing; no startup motion at all
 ```
 
-`begin_application_session()` is the single source of truth for the standard startup orchestration the GUI runs on launch: an all-axis `move_home` (firmware homes Z/T/X/Y in one routine; Z-only boards home what they have), then, when the scope has a turret, the T-axis to position 1 (where the home leaves it); the active objective is then slot 1's assignment. Headless / REST callers should use it rather than open-coding the home + turret sequence. It returns at once with an `Operation` (see "How a run ends"), whose `stop()` is `stop_motion` (refused `home_in_flight` while the home drives on a board that cannot stop one); `start_application_session()` is the same call, waited for, and refuses a call from an executor's worker, whose own queue or lane the motion may wait on, with `BlockingCallRefusedError` (`blocking_on_worker`; still a `RuntimeError`).
+`begin_application_session()` is the single source of truth for the standard startup orchestration the GUI runs on launch: an all-axis `move_home` (firmware homes Z/T/X/Y in one routine; Z-only boards home what they have), then, when the scope has a turret, the T-axis to position 1 (where the home leaves it); the active objective is then slot 1's assignment. Headless / REST callers should use it rather than open-coding the home + turret sequence. It returns at once with an `Operation` (see "How a run ends"), whose `stop()` is `stop_motion` while the motion drives (refused `home_in_flight` while the home drives on a board that cannot stop one) and nothing once it has ended, so a late stop never halts what took the scope after it; `start_application_session()` is the same call, waited for, and refuses a call from an executor's worker, whose own queue or lane the motion may wait on, with `BlockingCallRefusedError` (`blocking_on_worker`; still a `RuntimeError`).
 
 The scope is the startup's from before `begin_application_session()` returns until the motion ends, as it is during any home: every other request is refused naming the home (`exclusive_activity_running` / `home_in_flight`), and `controls_locked` is True. The claim is released before the operation is done. A failed home is reported as an outcome and skips the turret move; the operation still settles with None. `disable_homing=True` skips every startup motion: the turret is left where it is, like the stage axes, and no turret position is recorded. Position it yourself after homing.
 
@@ -1430,8 +1430,9 @@ homing = scope.motion.start_home(axis='ALL')     # same home, not waited: refuse
                                                  # before it returns; an Operation, done once
                                                  # the home has let go of the scope, with what
                                                  # home() returns or raises. homing.stop() is
-                                                 # stop_motion (refused 'home_in_flight' on a
-                                                 # board that cannot stop a home)
+                                                 # stop_motion while the home drives (refused
+                                                 # 'home_in_flight' on a board that cannot stop
+                                                 # a home), and nothing once it has ended
 scope.motion.has_homed()                         # True if the stage/focus axes know where they are
 scope.motion.position_is_known('T')              # turret-specific
 scope.motion.axes_without_position()             # {axis: 'unknown' | 'homing'}; {} when all known
