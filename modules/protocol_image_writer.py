@@ -552,6 +552,15 @@ class CapturedFrame(NamedTuple):
     position: FrameFact
 
 
+def _recorded_name(step, file_name, separate_folder_per_channel: bool):
+    """The name a run-record row gives a file the step saved: its path from
+    the run folder, the folder post-processing finds it from. With a folder
+    per channel the step saved into its channel's folder."""
+    if separate_folder_per_channel:
+        return pathlib.Path(step['Color']) / file_name
+    return file_name
+
+
 class ProtocolImageWriter:
     """Handles image/video capture and file writing during protocol runs.
 
@@ -769,6 +778,7 @@ class ProtocolImageWriter:
         frame_count,
         duration_sec,
         timestamp,
+        separate_folder_per_channel,
     ) -> None:
         """Record one finished video step: the attempt and its row, paired.
 
@@ -781,7 +791,9 @@ class ProtocolImageWriter:
         self._execution_record.note_capture_attempt()
         try:
             self._execution_record.add_step(
-                capture_result_file_name=capture_result_file_name,
+                capture_result_file_name=_recorded_name(
+                    step, capture_result_file_name, separate_folder_per_channel
+                ),
                 step_name=name if name else 'unknown',
                 step_index=step_index,
                 scan_count=scan_count,
@@ -1314,6 +1326,7 @@ class ProtocolImageWriter:
                             step_index=curr_step,
                             scan_count=scan_count,
                             name=name,
+                            separate_folder_per_channel=separate_folder_per_channel,
                         ),
                         record_dropped_capture=functools.partial(
                             self._record_unfinished_video,
@@ -1686,10 +1699,10 @@ class ProtocolImageWriter:
                 capture_result_filepath_name = 'unsaved'
             elif isinstance(capture_result, dict):
                 capture_result_filepath_name = capture_result['metadata']['file_loc']
-            elif separate_folder_per_channel:
-                capture_result_filepath_name = pathlib.Path(step['Color']) / capture_result.name
             else:
-                capture_result_filepath_name = capture_result.name
+                capture_result_filepath_name = _recorded_name(
+                    step, capture_result.name, separate_folder_per_channel
+                )
 
         else:
             capture_result_filepath_name = 'unsaved'
