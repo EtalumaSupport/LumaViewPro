@@ -1466,8 +1466,12 @@
 				orientation: 'horizontal'
 				id: tiling_box_layout_id
 				size_hint_y: None
+				# Kept at its height when hidden: a row of no height leaves its
+				# 30dp children over the row above, where they take its touches.
 				height: '30dp'
-				opacity: 1
+				opacity: 1 if self.visible else 0
+				disabled: not self.visible
+				visible: True
 				spacing: '5dp'
 			
 				Label:
