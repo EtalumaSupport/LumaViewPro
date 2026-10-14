@@ -49,7 +49,7 @@ def test_bring_up_shows_it_once_and_leaves_the_turret_alone(session, centre_post
     def refused(axis):
         raise HardwareCommandRefusedError(reason, 'home')
 
-    session.start_application_session(home_fn=refused, turret_fn=turret.append)
+    session.run_application_session(home_fn=refused, turret_fn=turret.append)
 
     title, words = REASONS[reason]
     shown = [n for n in centre_posts if n.severity >= Severity.INFO]

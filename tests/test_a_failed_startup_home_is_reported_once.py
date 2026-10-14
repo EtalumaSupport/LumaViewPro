@@ -37,7 +37,7 @@ def _raises(exc):
 def test_a_homing_fault_is_shown_once_and_the_turret_is_not_moved(session, centre_posts):
     turret = []
     fault = HomingFaultError('ALL', 'error', ('X', 'Y', 'Z', 'T'))
-    session.start_application_session(home_fn=_raises(fault), turret_fn=turret.append)
+    session.run_application_session(home_fn=_raises(fault), turret_fn=turret.append)
 
     assert [(n.severity, n.title, n.message) for n in centre_posts] == [
         (Severity.ERROR, 'Homing Failed', 'Homing encountered an error. Position is unknown.')
@@ -47,7 +47,7 @@ def test_a_homing_fault_is_shown_once_and_the_turret_is_not_moved(session, centr
 
 def test_no_motor_controller_is_shown_once_as_not_connected(session, centre_posts):
     turret = []
-    session.start_application_session(
+    session.run_application_session(
         home_fn=_raises(
             HardwareCommandRefusedError(
                 'not_connected', 'home', missing=MissingPart.MOTOR_CONTROLLER
@@ -64,6 +64,6 @@ def test_a_busy_refusal_reaches_the_caller(session, centre_posts):
     refusal = HardwareCommandRefusedError('exclusive_activity_running', 'home', 'protocol')
 
     with pytest.raises(HardwareCommandRefusedError) as raised:
-        session.start_application_session(home_fn=_raises(refusal), turret_fn=lambda position: None)
+        session.run_application_session(home_fn=_raises(refusal), turret_fn=lambda position: None)
 
     assert raised.value is refusal

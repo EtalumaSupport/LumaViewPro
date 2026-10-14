@@ -122,7 +122,7 @@ class TestDisableHomingIsNoStartupMotion:
         attempts = []
         session.settings['turret_position'] = 3
 
-        session.start_application_session(
+        session.run_application_session(
             disable_homing=True,
             home_fn=lambda axis: attempts.append(('home', axis)),
             turret_fn=lambda position: attempts.append(('turret', position)),
@@ -142,7 +142,7 @@ class TestDisableHomingIsNoStartupMotion:
         rather than guessing where it is. Skipping the home therefore has
         to skip the placement too, and this pins that they stay together.
         """
-        session.start_application_session(disable_homing=True)
+        session.run_application_session(disable_homing=True)
 
         assert session.scope.motion.get_current_position('Z') == pytest.approx(0.0, abs=1.0), (
             'homing disabled must leave the stage untouched at its unhomed origin'
@@ -161,7 +161,7 @@ class TestTheSimulatorStartsWhereItsSampleIs:
     """
 
     def test_bringup_leaves_z_off_the_floor_and_near_the_sample(self, session):
-        session.start_application_session()
+        session.run_application_session()
 
         z = session.scope.motion.get_current_position('Z')
         assert z > 0.0, 'bring-up left the stage at the bottom of travel, where no sample is'

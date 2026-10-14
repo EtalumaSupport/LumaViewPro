@@ -74,7 +74,7 @@ def main(argv: list[str] | None = None) -> int:
         server = Server(uvicorn.Config(app, host=HOST, port=port), session, app.state.closing)
         # A failed home is reported and the motion ends; the server still
         # serves, so a client can home again.
-        session.start_application_session()
+        session.run_application_session()
         session.load_plugins()
         session.start_metrics()
         print(

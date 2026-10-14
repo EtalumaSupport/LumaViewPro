@@ -91,7 +91,7 @@ def test_a_blocking_startup_asked_from_a_lane_task_is_refused(session):
 
     def asked_on_the_lane():
         try:
-            session.start_application_session()
+            session.run_application_session()
         except BaseException as e:
             outcome.set_result(e)
         else:
@@ -101,7 +101,7 @@ def test_a_blocking_startup_asked_from_a_lane_task_is_refused(session):
     scope.io_lane().put(IOTask(action=asked_on_the_lane))
     refusal = outcome.result(timeout=ASKED_S)
     assert isinstance(refusal, BlockingCallRefusedError), refusal
-    assert (refusal.reason, refusal.member) == ('blocking_on_worker', 'start_application_session')
+    assert (refusal.reason, refusal.member) == ('blocking_on_worker', 'run_application_session')
     assert isinstance(refusal, RuntimeError), 'still what it was documented as'
 
 

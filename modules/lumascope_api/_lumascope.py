@@ -1562,7 +1562,7 @@ class Lumascope:
     def move_to_simulated_sample_plane(self) -> None:
         """Place the stage where the simulated sample is (not part of the L2 API surface).
 
-        Bring-up's own step, called by ``ScopeSession.start_application_session``.
+        Bring-up's own step, called by the startup motion (``ScopeSession.begin_application_session``).
         An L2 caller has no reason to reach it: on real hardware it does
         nothing, and on a simulator bring-up has already run it.
 

@@ -52,7 +52,7 @@ def test_a_missing_motor_is_reported_once_and_never_homed(
         raise HardwareCommandRefusedError('not_connected', 'home')
 
     try:
-        session.start_application_session(home_fn=_home, turret_fn=turret.append)
+        session.run_application_session(home_fn=_home, turret_fn=turret.append)
     finally:
         session.shutdown()
         session.scope.disconnect()
@@ -65,7 +65,7 @@ def test_a_motor_that_came_up_is_homed(monkeypatch, tmp_path, centre_posts):
     session = _bring_up(monkeypatch, tmp_path, microscope='LS850T')
     homed = []
     try:
-        session.start_application_session(home_fn=homed.append, turret_fn=lambda position: None)
+        session.run_application_session(home_fn=homed.append, turret_fn=lambda position: None)
     finally:
         session.shutdown()
         session.scope.disconnect()

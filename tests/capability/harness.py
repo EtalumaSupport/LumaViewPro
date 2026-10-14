@@ -209,7 +209,7 @@ def make_session(name='probe', *, home=False, settings_file=None, **overrides):
     `settings_file` is the file the session saves its settings to (None
     saves nothing), as `ScopeSession.create` takes it.
 
-    `home` runs `ScopeSession.start_application_session()`, the one bring-up
+    `home` runs `ScopeSession.run_application_session()`, the one bring-up
     seam, and waits for the queued home to drain. Without it every protocol
     move is refused with `AxisStateUnknownError` and the run dies at
     `consecutive_scan_failures`, so a protocol probe MUST ask for it.
@@ -226,7 +226,7 @@ def make_session(name='probe', *, home=False, settings_file=None, **overrides):
         settings_file=settings_file,
     )
     if home:
-        session.start_application_session()
+        session.run_application_session()
         deadline = time.time() + 60
         while time.time() < deadline and not session.scope.motion.has_homed():
             time.sleep(0.25)
@@ -296,7 +296,7 @@ def hardware_session():
     `current.json`, read from the root the app reads: a root without one is
     refused, because the shipped template would configure a scope that is not
     the one on the desk. Bring-up is the one host bring-up,
-    `start_application_session`, which returns once the stage has homed; a
+    `run_application_session`, which returns once the stage has homed; a
     scope with no motor board comes straight up. An objective nobody has
     confirmed stops the probe -- it never tells the scope what is in the
     light path. Nothing here saves settings, and the file is checked
@@ -328,7 +328,7 @@ def hardware_session():
 
     session = ScopeSession.create(ScopeSession.load_user_settings(str(root)), source_path=str(root))
     try:
-        session.start_application_session()
+        session.run_application_session()
         scope = session.scope
         IDENTITY.update(
             model=scope.layer_identity.model,

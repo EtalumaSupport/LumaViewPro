@@ -6,7 +6,7 @@ settings, executors and the protocol runner into one object per client,
 and L2 callers (REST / SDK / MATLAB / micromanager) reach the hardware
 only through it. It had no test file of its own, so what coverage existed
 was incidental -- including one test that asserted
-`start_application_session` exists and that its name appears in a
+`run_application_session` exists and that its name appears in a
 docstring, which passes for a method that does nothing.
 
 Everything here composes a REAL `Lumascope(simulate=True)` into a REAL
@@ -21,7 +21,7 @@ Deliberately NOT covered: the ~20 zero-caller convenience forwarders
 file for no gain, and a forwarder's behavior is its target's behavior,
 tested where that lives.
 
-`start_application_session` is covered where its motion lives:
+`run_application_session` is covered where its motion lives:
 `test_motion_state_gate.py` (the home-then-turret sequence and the
 failed-home gate) and `test_session_bringup.py` (homing disabled means
 no startup motion).

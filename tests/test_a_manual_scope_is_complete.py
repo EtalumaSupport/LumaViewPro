@@ -86,7 +86,7 @@ def test_a_manual_scope_starts_without_a_home_and_is_admitted(model, tier, centr
         assert scope.are_all_connected()
 
         homes = []
-        session.start_application_session(
+        session.run_application_session(
             home_fn=lambda axis: homes.append(axis),
             turret_fn=lambda position: homes.append(('T', position)),
         )

@@ -9096,13 +9096,13 @@ class TestLumascopeSkillsApiPluginDocBatch:
         assert hasattr(ImagingAPI, '_set_acquisition_stop_mode')
         assert not hasattr(ImagingAPI, 'set_acquisition_stop_mode')
 
-    def test_start_application_session_documented_and_exists(self):
+    def test_run_application_session_documented_and_exists(self):
         # F24
         from modules.scope_session import ScopeSession
 
         doc = self._doc()
-        assert 'start_application_session' in doc
-        assert hasattr(ScopeSession, 'start_application_session')
+        assert 'run_application_session' in doc
+        assert hasattr(ScopeSession, 'run_application_session')
 
     def test_protocol_canonical_entry_points_documented(self):
         # F25: the L2 doc names the canonical protocol constructors, and
