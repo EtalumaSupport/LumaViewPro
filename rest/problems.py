@@ -35,7 +35,8 @@ from typing import ClassVar
 from fastapi.responses import JSONResponse
 
 from modules import notification_center
-from modules.api_surface import fields_of
+from lib.lumascope_error import Fault, LumascopeError
+from modules.api_surface import fields_of, raises_of
 from modules.exceptions import Refusal, RefusalCause
 from modules.notification_center import OutcomeKind, outcome_of
 from rest.routes import wire_form
@@ -80,6 +81,78 @@ TYPE_PREFIX = 'urn:lumascope:problem:'
 _CAUSE_STATUS = {RefusalCause.REQUEST: 422, RefusalCause.STATE: 409, None: 409}
 # What a fault answers.
 _FAULT_STATUS = 500
+
+
+def outcome_classes() -> dict[str, type[LumascopeError]]:
+    """Every outcome class defined so far, by name: what a ``Raises:`` entry names.
+
+    Read when the server is built, once the API's modules are imported.
+
+    Raises:
+        TypeError: Two classes share a name, so an entry naming it is ambiguous.
+    """
+    found: dict[str, type[LumascopeError]] = {}
+    pending = [LumascopeError]
+    while pending:
+        cls = pending.pop()
+        for sub in cls.__subclasses__():
+            pending.append(sub)
+            if found.setdefault(sub.__name__, sub) is not sub:
+                raise TypeError(f'two outcome classes are named {sub.__name__}')
+    return found
+
+
+def declared(doc: str, classes: dict[str, type[LumascopeError]]) -> dict[int, dict]:
+    """The responses a member's ``Raises:`` section declares, for its route's description.
+
+    Each class an entry names is described under the status each of its
+    reasons answers -- a refusal's cause per reason, a fault 500 -- with
+    the reasons the entry quotes, or every reason the class can carry when
+    it quotes none. Each status carries ``x-refusals``, class to reasons.
+
+    Raises:
+        KeyError: An entry names a class that is not an outcome class.
+    """
+    by_status: dict[int, dict[str, list[str]]] = {}
+    for name, quoted in raises_of(doc):
+        cls = classes[name]
+        for reason in quoted or _reasons_of(cls) or ('',):
+            said = by_status.setdefault(_status_of(cls, reason), {}).setdefault(name, [])
+            if reason and reason not in said:
+                said.append(reason)
+    return {
+        status: {
+            'description': '; '.join(
+                f'`{name}`' + (f': {", ".join(f"`{r}`" for r in reasons)}' if reasons else '')
+                for name, reasons in refusals.items()
+            ),
+            'content': {MEDIA_TYPE: {'schema': _SCHEMA}},
+            'x-refusals': refusals,
+        }
+        for status, refusals in sorted(by_status.items())
+    }
+
+
+def _reasons_of(cls: type) -> tuple[str, ...]:
+    """Every reason *cls* can carry, as its type declares them."""
+    causes = getattr(cls, 'causes', None)
+    if isinstance(causes, dict):
+        return tuple(causes)
+    reason = getattr(cls, 'reason', None)
+    return (reason,) if isinstance(reason, str) else ()
+
+
+def _status_of(cls: type, reason: str) -> int:
+    """What *cls* raised with *reason* answers, as ``answered_by_member`` decides it."""
+    if issubclass(cls, Fault):
+        return _FAULT_STATUS
+    causes = getattr(cls, 'causes', None)
+    if isinstance(causes, dict) and reason in causes:
+        return _CAUSE_STATUS[causes[reason]]
+    # A type with one cause states it in its body; the base's ``cause`` is a
+    # read of ``causes`` by an instance's reason.
+    stated = (vars(k).get('cause') for k in cls.__mro__)
+    return _CAUSE_STATUS[next((c for c in stated if isinstance(c, RefusalCause)), None)]
 
 
 def now() -> datetime.datetime:

@@ -1,0 +1,71 @@
+# Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
+"""A route's description says what it refuses and fails with, from its member's ``Raises:`` section.
+
+Each class an entry names, with the reasons it quotes, is described under
+the status each reason answers: a refusal's cause decides 422 or 409 per
+reason, a fault is 500. An entry that quotes no reason is described with
+every reason its class can carry. Each status carries the classes and
+reasons as ``x-refusals``; the ``4XX`` and ``5XX`` ranges stay for what no
+section declares.
+"""
+
+from __future__ import annotations
+
+import pytest
+from fastapi.testclient import TestClient
+
+from modules.exceptions import HardwareCommandRefusedError, ProtocolRunRefusedError
+from modules.scope_session import ScopeSession
+from rest import problems
+from rest.app import build_app
+from tests.settings_fixtures import complete_settings
+
+
+@pytest.fixture(scope='module')
+def described(tmp_path_factory):
+    live = tmp_path_factory.mktemp('live')
+    session = ScopeSession.create(complete_settings(live_folder=str(live)), simulate=True)
+    try:
+        with TestClient(build_app(session)) as client:
+            yield client.get('/api/v1/openapi.json').json()
+    finally:
+        session.shutdown()
+
+
+def _refusals(described: dict, path: str) -> dict[str, dict[str, list[str]]]:
+    responses = described['paths'][path]['post']['responses']
+    return {status: r['x-refusals'] for status, r in responses.items() if 'x-refusals' in r}
+
+
+def _status(cls: type, reason: str) -> str:
+    return str(problems._CAUSE_STATUS[cls.causes[reason]])
+
+
+def test_each_reason_an_entry_quotes_is_described_under_the_status_it_answers(described):
+    refusals = _refusals(described, '/api/v1/scope/motion/move_absolute')
+
+    for reason in ('not_connected', 'axis_absent', 'position_unread', 'lid_open'):
+        status = _status(HardwareCommandRefusedError, reason)
+        assert reason in refusals[status]['HardwareCommandRefusedError'], (reason, status)
+    assert {_status(HardwareCommandRefusedError, r) for r in ('axis_absent', 'not_connected')} == {
+        '422',
+        '409',
+    }
+    assert refusals['500']['MoveFaultError'] == ['driver_failed']
+
+
+def test_an_entry_that_quotes_no_reason_is_described_with_every_reason_of_its_class(described):
+    refusals = _refusals(described, '/api/v1/handles/ProtocolRunner/{handle_id}/start_single_scan')
+
+    said = {
+        reason: status
+        for status, classes in refusals.items()
+        for reason in classes.get('ProtocolRunRefusedError', [])
+    }
+    assert said == {r: _status(ProtocolRunRefusedError, r) for r in ProtocolRunRefusedError.causes}
+
+
+def test_the_ranges_stay_for_what_no_section_declares(described):
+    responses = described['paths']['/api/v1/scope/motion/move_absolute']['post']['responses']
+
+    assert {'4XX', '5XX'} <= set(responses)

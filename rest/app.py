@@ -171,6 +171,8 @@ def build_app(session: ScopeSession) -> fastapi.FastAPI:
 
     jobs = JobRegistry(ended=stream.job_ended)
     keys = idempotency.IdempotencyKeys()
+    # What each route's member says it raises, by the class it names.
+    classes = problems.outcome_classes()
     live = live_view.LiveView(session)
     closing = Closing(stream, jobs, live)
     app.state.closing = closing
@@ -185,10 +187,10 @@ def build_app(session: ScopeSession) -> fastapi.FastAPI:
     if shadowed:
         raise TypeError(f"Session members {sorted(shadowed)} are named as the server's own routes")
     for route in session_routes:
-        _add(app, session, registry, jobs, stream, closing, keys, route)
+        _add(app, session, registry, jobs, stream, closing, keys, classes, route)
     for cls in sorted(handed_out, key=lambda c: c.__name__):
         for route in routes(cls, handed_out=handed_out):
-            _add(app, session, registry, jobs, stream, closing, keys, route)
+            _add(app, session, registry, jobs, stream, closing, keys, classes, route)
     return app
 
 
@@ -496,6 +498,7 @@ def _add(
     stream: EventStream,
     closing: Closing,
     keys: idempotency.IdempotencyKeys,
+    classes: dict[str, type],
     route: Route,
 ) -> None:
     doc = inspect.cleandoc(route.member.doc)
@@ -521,6 +524,7 @@ def _add(
         'responses': {
             200: {'model': route.answer, 'description': "The member's answer."},
             202: _ANSWERED_AS_JOB,
+            **problems.declared(doc, classes),
         },
     }
 

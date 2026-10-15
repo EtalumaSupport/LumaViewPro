@@ -373,18 +373,20 @@ def test_the_openapi_declares_every_answer_that_is_not_a_result_as_a_problem(cli
     operations = [op for path in openapi['paths'].values() for op in path.values()]
     refused = client.post('/api/v1/scope/motion/move_absolute', json={'axis': 'x', 'position': 0})
 
-    declared = {
-        tuple(sorted(code for code in op['responses'] if not code.startswith('2')))
-        for op in operations
-    }
+    # Every route keeps the ranges; a status its member declares (its
+    # Raises: section) is a problem too.
+    missing_ranges = [
+        op['operationId'] for op in operations if not {'4XX', '5XX'} <= set(op['responses'])
+    ]
     media = {
         media
         for op in operations
-        for code in ('4XX', '5XX')
-        for media in op['responses'][code]['content']
+        for code, response in op['responses'].items()
+        if not code.startswith('2')
+        for media in response['content']
     }
     schema = operations[0]['responses']['4XX']['content']['application/problem+json']['schema']
-    assert declared == {('4XX', '5XX')}
+    assert missing_ranges == []
     assert media == {'application/problem+json'}
     assert 'HTTPValidationError' not in str(openapi)
     assert set(schema['required']) <= set(refused.json())

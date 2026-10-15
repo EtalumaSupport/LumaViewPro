@@ -30,16 +30,15 @@ import re
 
 from lib.lumascope_error import LumascopeError
 from modules import wire_encoding
-from modules.api_surface import _function_of, mark_of
+from modules.api_surface import QUOTED_REASON, RAISES_ENTRY, RAISES_SECTION, _function_of, mark_of
 from modules.exceptions import Refusal
 from tests.guards.test_every_outcome_joins_the_root import EXCEPTION_CLASSES
 
-_SECTION = re.compile(r'^Raises:\n((?:[ \t]+.*\n?|\n)+)', re.M)
+# The section, its entries and a quoted reason are read as the REST
+# description reads them (api_surface); a line at the entry indent that is
+# no entry is this guard's own check.
+_SECTION, _ENTRY, _QUOTED_REASON = RAISES_SECTION, RAISES_ENTRY, QUOTED_REASON
 _AT_ENTRY_INDENT = re.compile(r'^ {4}\S.*$', re.M)
-_ENTRY = re.compile(r'^ {4}(\w+):(.*(?:\n {8,}.*)*)', re.M)
-# A reason is written quoted (``'not_connected'``) or after the word
-# (reason ``no_data``); either names it.
-_QUOTED_REASON = re.compile(r"``'[a-z][a-z0-9_]*'``|reason\s+``[a-z][a-z0-9_]*``")
 
 # Refusal entries that do not yet say which reason; finished after W0
 # (NEXT_PRIMARY). A pair leaves this set when its entry names its reason.

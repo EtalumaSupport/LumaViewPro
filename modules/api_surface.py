@@ -49,6 +49,7 @@ import dataclasses
 import functools
 import inspect
 import os
+import re
 from collections.abc import Callable
 
 # The attribute the mark is recorded under, on the function itself: a
@@ -191,6 +192,29 @@ def api_fields[C: type](*names: str, record: bool = False) -> Callable[[C], C]:
         return cls
 
     return publish
+
+
+# A ``Raises:`` section, its entries (``ClassName: words``, continued
+# deeper), and a reason an entry quotes (``'not_connected'``, or after the
+# word: reason ``no_data``).
+RAISES_SECTION = re.compile(r'^Raises:\n((?:[ \t]+.*\n?|\n)+)', re.M)
+RAISES_ENTRY = re.compile(r'^ {4}(\w+):(.*(?:\n {8,}.*)*)', re.M)
+QUOTED_REASON = re.compile(r"``'([a-z][a-z0-9_]*)'``|reason\s+``([a-z][a-z0-9_]*)``")
+
+
+def raises_of(doc: str) -> list[tuple[str, tuple[str, ...]]]:
+    """Each entry of *doc*'s ``Raises:`` section: the class it names, and the reasons it quotes.
+
+    *doc* is a member's docstring as ``inspect.getdoc`` gives it. A member
+    with no section declares nothing.
+    """
+    found = RAISES_SECTION.search(doc)
+    if found is None:
+        return []
+    return [
+        (name, tuple(dict.fromkeys(a or b for a, b in QUOTED_REASON.findall(words))))
+        for name, words in RAISES_ENTRY.findall(found.group(1))
+    ]
 
 
 def mark_of(member: object) -> str | None:
