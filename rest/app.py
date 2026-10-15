@@ -37,6 +37,7 @@ from modules import wire_encoding
 from modules.operation import Operation
 from modules.protocol_runner import ProtocolRunner
 from modules.scope_session import ScopeSession
+from rest import idempotency
 from rest import live as live_view
 from rest import problems
 from rest import events as event_stream
@@ -169,6 +170,7 @@ def build_app(session: ScopeSession) -> fastapi.FastAPI:
     app.add_exception_handler(Exception, _failed)
 
     jobs = JobRegistry(ended=stream.job_ended)
+    keys = idempotency.IdempotencyKeys()
     live = live_view.LiveView(session)
     closing = Closing(stream, jobs, live)
     app.state.closing = closing
@@ -183,10 +185,10 @@ def build_app(session: ScopeSession) -> fastapi.FastAPI:
     if shadowed:
         raise TypeError(f"Session members {sorted(shadowed)} are named as the server's own routes")
     for route in session_routes:
-        _add(app, session, registry, jobs, stream, closing, route)
+        _add(app, session, registry, jobs, stream, closing, keys, route)
     for cls in sorted(handed_out, key=lambda c: c.__name__):
         for route in routes(cls, handed_out=handed_out):
-            _add(app, session, registry, jobs, stream, closing, route)
+            _add(app, session, registry, jobs, stream, closing, keys, route)
     return app
 
 
@@ -493,6 +495,7 @@ def _add(
     jobs: JobRegistry,
     stream: EventStream,
     closing: Closing,
+    keys: idempotency.IdempotencyKeys,
     route: Route,
 ) -> None:
     doc = inspect.cleandoc(route.member.doc)
@@ -525,6 +528,54 @@ def _add(
         request: fastapi.Request,
         handle_id: str | None,
         act: Callable[[object, Progress, Callable[[Operation], dict]], object],
+        sent: dict[str, object] | None = None,
+    ) -> fastapi.Response:
+        """Admit the call and answer it; a retried request (``Idempotency-Key``) is answered its first answer.
+
+        *sent* is a POST's body, which a key is held with; a read has none,
+        and runs again whatever key it is sent.
+        """
+        _refuse_query(request)
+        if closing.begun:
+            raise problems.server_closing()
+        if member.hands_out:
+            registry.admit()
+        jobs.admit(returns_job=member.returns_job)
+        key = request.headers.get('idempotency-key') if sent is not None else None
+        if key is None:
+            return await respond(request, handle_id, act)
+        asked = idempotency.digest(request.url.path, sent)
+        while True:
+            mine, first = keys.claim(key, asked)
+            if mine:
+                break
+            try:
+                recorded = await asyncio.shield(first)
+            except asyncio.CancelledError:
+                if first.cancelled():
+                    # The first request was let go before it answered: this one runs.
+                    continue
+                raise
+            if isinstance(recorded, BaseException):
+                raise recorded
+            return recorded.replayed()
+        try:
+            response = await respond(request, handle_id, act)
+        except Exception as e:
+            keys.forget(key, first)
+            first.set_result(e)
+            raise
+        except BaseException:
+            keys.forget(key, first)
+            first.cancel()
+            raise
+        first.set_result(idempotency.Recorded.of(response))
+        return response
+
+    async def respond(
+        request: fastapi.Request,
+        handle_id: str | None,
+        act: Callable[[object, Progress, Callable[[Operation], dict]], object],
     ) -> JSONResponse:
         """Run the call on its own thread; answer it, or hand out its job when it outlives the wait.
 
@@ -537,12 +588,6 @@ def _add(
         *act* is given the owner, the call's progress, and how to name the
         job a running call it hands back is.
         """
-        _refuse_query(request)
-        if closing.begun:
-            raise problems.server_closing()
-        if member.hands_out:
-            registry.admit()
-        jobs.admit(returns_job=member.returns_job)
         request_id = request.state.request_id
         asked = request.url.path.removeprefix(f'{PREFIX}/')
         loop = asyncio.get_running_loop()
@@ -654,7 +699,7 @@ def _add(
             tag.settle({'job': job_of(value)['id']} if isinstance(value, Operation) else None)
             return value
 
-        return await answer(request, handle_id, invoke)
+        return await answer(request, handle_id, invoke, sent)
 
     _sign(call, on_handle, route)
     app.add_api_route(endpoint=call, methods=['POST'], **common)

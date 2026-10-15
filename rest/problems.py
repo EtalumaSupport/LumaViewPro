@@ -151,6 +151,7 @@ class ServerRefusedError(Refusal, Exception):
         'server_closing': RefusalCause.STATE,
         'no_frame_yet': RefusalCause.STATE,
         'not_cancellable': RefusalCause.REQUEST,
+        'idempotency_key_reused': RefusalCause.REQUEST,
     }
 
     _STATUSES: ClassVar[dict[str, int]] = {
@@ -163,6 +164,7 @@ class ServerRefusedError(Refusal, Exception):
         'server_closing': 503,
         'no_frame_yet': 503,
         'not_cancellable': 409,
+        'idempotency_key_reused': 422,
     }
 
     _TITLES: ClassVar[dict[str, str]] = {
@@ -175,6 +177,7 @@ class ServerRefusedError(Refusal, Exception):
         'server_closing': 'Server Closing',
         'no_frame_yet': 'No Frame Yet',
         'not_cancellable': 'Not Cancellable',
+        'idempotency_key_reused': 'Idempotency Key Reused',
     }
 
     def __init__(
