@@ -18,7 +18,7 @@ from types import SimpleNamespace
 import pytest
 
 import ui.post_processing as panel_module
-from modules.exceptions import PostProcessingRefusedError
+from modules.exceptions import LiveFolderPathRefusedError, PostProcessingRefusedError
 from modules.post_processing import (
     default_cell_count_method,
     load_cell_count_method,
@@ -56,6 +56,16 @@ def test_a_method_the_count_cannot_use_is_not_saved(tmp_path):
     with pytest.raises(PostProcessingRefusedError):
         save_cell_count_method(method, path)
     assert not path.exists()
+
+
+def test_a_folder_at_the_path_is_refused_and_left_as_it_was(tmp_path):
+    folder = tmp_path / 'method.json'
+    folder.mkdir()
+    (folder / 'kept.txt').write_text('kept')
+    with pytest.raises(LiveFolderPathRefusedError) as refused:
+        save_cell_count_method(default_cell_count_method(), folder)
+    assert refused.value.reason == 'not_a_file'
+    assert [p.name for p in folder.iterdir()] == ['kept.txt']
 
 
 # parametrize-justified: each case writes its own file and is refused for its own reason

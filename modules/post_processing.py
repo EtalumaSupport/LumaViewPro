@@ -376,11 +376,17 @@ def load_cell_count_method(path: str | os.PathLike) -> dict:
 def save_cell_count_method(method: Mapping, path: str | os.PathLike) -> None:
     """Write *method* to *path* as a cell-count method file.
 
+    A missing folder is made where *path* sends it.
+
     Raises:
+        LiveFolderPathRefusedError: ``'not_a_file'``, a folder is at
+            *path*; ``'not_a_folder'``, a file is where its folder would
+            be. Nothing is written.
         PostProcessingRefusedError: the method cannot be used, and nothing
             is written.
     """
     check_cell_count_method(method)
+    path = path_utils.file_to_write(path)
     saved = python_values(copy.deepcopy({**method, 'metadata': dict(_CELL_COUNT_METHOD_METADATA)}))
     with open(path, 'w') as f:
         json.dump(saved, f, indent=4)
