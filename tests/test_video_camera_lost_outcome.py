@@ -15,6 +15,7 @@ import pytest
 
 from tests.protocol_drives import lent_run_claim
 import modules.protocol_recording as protocol_recording
+from modules.exceptions import CaptureFailedError
 from modules.run_events import RunEvents
 from modules.layer_record import release_colors
 
@@ -187,7 +188,9 @@ class TestPrologueFeedDeath:
 
         def _grab(*args, **kwargs):
             clock['t'] += 1.0
-            return object() if frame_arrives else None
+            if not frame_arrives:
+                raise CaptureFailedError('no_frame')
+            return object()
 
         recorder._scope.imaging.frames_until_valid.return_value = 1
         recorder._scope.imaging.get_image.side_effect = _grab

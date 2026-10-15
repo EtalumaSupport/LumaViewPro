@@ -75,7 +75,7 @@ from modules.lumascope_api.diagnostics import (
 from modules.path_utils import desktop_folder, folder_to_make, get_script_root, get_source_root
 from modules.protocol import Protocol
 from modules.protocol_execution_record import ProtocolExecutionRecord
-from modules.api_surface import api, api_fields
+from modules.api_surface import ProgressCallback, api, api_fields
 
 logger = logging.getLogger(__name__)
 
@@ -825,14 +825,14 @@ class CameraBandwidthTest:
         self.scope = scope
         self.num_frames = num_frames
 
-    def run(self, progress_callback=None):
+    def run(self, progress_callback: ProgressCallback | None = None) -> dict:
         """Run test. Returns results dict."""
         if self.scope is None:
             return {
                 'num_frames_requested': self.num_frames,
                 'num_frames_received': 0,
-                'num_frames_none': 0,
-                'num_frames_error': 0,
+                'num_frames_failed': 0,
+                'failed_by_reason': {},
                 'total_bytes': 0,
                 'elapsed_seconds': 0,
                 'mb_per_second': 0.0,
@@ -2608,8 +2608,10 @@ class TechSupportReport:
             f.write(f'Configured FPS:  {results.get("configured_fps", "?")}\n\n')
             f.write(f'Frames requested: {results["num_frames_requested"]}\n')
             f.write(f'Frames received:  {results["num_frames_received"]}\n')
-            f.write(f'Frames None:      {results["num_frames_none"]}\n')
-            f.write(f'Frames errored:   {results["num_frames_error"]}\n\n')
+            f.write(f'Frames failed:    {results["num_frames_failed"]}\n')
+            for reason, count in sorted(results['failed_by_reason'].items()):
+                f.write(f'  {reason}: {count}\n')
+            f.write('\n')
             total_mb = results['total_bytes'] / (1024 * 1024)
             f.write(f'Total data:   {total_mb:.1f} MB\n')
             f.write(f'Elapsed:      {results["elapsed_seconds"]:.1f} s\n')

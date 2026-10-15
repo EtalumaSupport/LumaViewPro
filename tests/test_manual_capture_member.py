@@ -25,11 +25,10 @@ import pytest
 
 import modules.image_mode as image_mode
 from modules.exceptions import (
-    CaptureError,
+    CaptureFailedError,
     HardwareCommandRefusedError,
 )
 from modules.image_utils import read_postproc_input_metadata, read_tiff_with_legacy_collapse
-from modules.lumascope_api.imaging import capture_failure_cause
 from modules.sequential_io_executor import IOTask
 from tests.scope_fakes import home_sim_scope
 from tests.test_composite_run_e2e import headless_settings
@@ -315,18 +314,29 @@ class TestRefusalsAndFailures:
             future.result(timeout=RESULT_TIMEOUT_S)
         assert not session.manual_capture.in_flight, 'a dropped still kept the guard'
 
-    def test_no_frame_raises_with_the_engines_cause(self, still_session):
+    def test_no_frame_raises_the_captures_own_failure(self, still_session):
+        session, tmp_path = still_session
+        session.scope.simulation.stall_stream(0.0, 600.0)
+
+        future = session.manual_capture.capture(false_color_on=False)
+
+        with pytest.raises(CaptureFailedError) as failed:
+            future.result(timeout=RESULT_TIMEOUT_S)
+        assert failed.value.reason == 'no_frame', (
+            "the still raises the capture's own reason, not a save-time placeholder"
+        )
+        assert not list((tmp_path / 'Manual').glob('*.tiff'))
+        assert not session.manual_capture.in_flight
+
+    def test_a_stopped_feed_is_refused_as_not_streaming(self, still_session):
         session, tmp_path = still_session
         session.scope._camera_driver.stop_grabbing()
 
         future = session.manual_capture.capture(false_color_on=False)
 
-        with pytest.raises(CaptureError) as failed:
+        with pytest.raises(HardwareCommandRefusedError) as refused:
             future.result(timeout=RESULT_TIMEOUT_S)
-        assert failed.value.reason == 'no_frame_returned'
-        assert str(failed.value) == capture_failure_cause(
-            session.scope.imaging.last_capture_info
-        ), "the failure must carry the capture engine's cause, not a save-time placeholder"
+        assert refused.value.reason == 'camera_not_streaming'
         assert not list((tmp_path / 'Manual').glob('*.tiff'))
         assert not session.manual_capture.in_flight
 

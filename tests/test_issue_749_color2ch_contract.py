@@ -32,6 +32,7 @@ sys.path.insert(0, str(REPO))
 import pytest
 
 from modules import common_utils
+from modules.exceptions import CaptureFailedError
 from tests.scope_fakes import build_scope
 
 
@@ -248,7 +249,7 @@ class TestCaptureAbortWording:
         scope.capabilities.has_turret = False
         scope.led_connected = led_connected
         scope.illumination.color2ch.return_value = channel
-        scope.imaging.capture_and_wait.return_value = None
+        scope.imaging.capture_and_wait.side_effect = CaptureFailedError('no_frame')
         writer._consecutive_capture_failures = writer._MAX_CONSECUTIVE_CAPTURE_FAILURES - 1
         protocol = MagicMock()
         protocol.capture_root.return_value = ''

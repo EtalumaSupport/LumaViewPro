@@ -125,22 +125,22 @@ class TestAFault:
     def test_its_one_line_names_its_reason_code(self, centre, caplog):
         # Two faults can share a type; a support bundle tells them apart by
         # the reason the one line carries.
-        fault = _raised(CaptureFailedError('camera inactive or not grabbing', 'no_frame_returned'))
+        fault = _raised(CaptureFailedError('no_frame'))
         with caplog.at_level(logging.DEBUG):
             centre.report_outcome(fault, solicited=True, category='UI:LIVE_CAPTURE')
 
         assert _records(caplog) == [(OUTCOMES, logging.ERROR, True)]
         (line,) = [r.getMessage() for r in caplog.records if r.name == OUTCOMES]
-        assert 'CaptureFailedError (no_frame_returned)' in line, line
+        assert 'CaptureFailedError (no_frame)' in line, line
 
     def test_a_capture_failure_is_shown_under_its_types_title(self, centre):
-        fault = _raised(CaptureFailedError('camera inactive or not grabbing', 'no_frame_returned'))
+        fault = _raised(CaptureFailedError('no_frame'))
         centre.report_outcome(
             fault, solicited=True, category='UI:LIVE_CAPTURE', untyped_title='Grab failed'
         )
 
         assert [(n.severity, n.title, n.message) for n in centre.shown] == [
-            (Severity.ERROR, 'Capture Failed', 'camera inactive or not grabbing')
+            (Severity.ERROR, 'Capture Failed', str(fault))
         ]
 
     def test_untyped_is_shown_in_the_generic_sentence(self, centre):

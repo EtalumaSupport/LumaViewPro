@@ -92,9 +92,9 @@ class TestDomainExceptions:
         # A capture failure carries a required failure code: a caller
         # mapping failures onto responses reads the code, and the prose
         # stays for the human.
-        with pytest.raises(CaptureError, match='test message') as excinfo:
-            raise CaptureFailedError('test message', 'no_frame_returned')
-        assert excinfo.value.reason == 'no_frame_returned'
+        with pytest.raises(CaptureError, match='no new frame') as excinfo:
+            raise CaptureFailedError('no_frame')
+        assert excinfo.value.reason == 'no_frame'
 
 
 # ===========================================================================
@@ -11463,7 +11463,7 @@ class TestCaptureFailureAbortNotificationOrdering:
         scope.led_connected = False
         scope.capabilities.has_turret = False
         # Force the capture to fail (returns no frame) so the failure branch runs.
-        scope.imaging.capture_and_wait.return_value = None
+        scope.imaging.capture_and_wait.side_effect = CaptureFailedError('no_frame')
         protocol = MagicMock()
         protocol.capture_root.return_value = ''
 

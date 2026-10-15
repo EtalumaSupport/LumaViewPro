@@ -89,17 +89,13 @@ def test_a_diagnostics_refusal_shows_its_own_title_and_words(button_ctx, centre_
     assert notice.message == str(refused)
 
 
-def test_a_capture_failure_shows_the_engines_cause(button_ctx, centre_posts):
-    _press(
-        button_ctx,
-        settles=_settled_with(
-            CaptureFailedError('camera inactive or not grabbing', 'no_frame_returned')
-        ),
-    )
+def test_a_capture_failure_shows_the_captures_own_words(button_ctx, centre_posts):
+    failed = CaptureFailedError('no_frame')
+    _press(button_ctx, settles=_settled_with(failed))
 
     notice = _one_notice(centre_posts)
     assert notice.title == 'Capture Failed'
-    assert notice.message == 'camera inactive or not grabbing'
+    assert notice.message == str(failed)
 
 
 def test_an_unknown_objective_shows_what_to_do(button_ctx, centre_posts):

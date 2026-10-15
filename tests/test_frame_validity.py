@@ -644,18 +644,21 @@ class TestCaptureTimeChunkVerification:
         # Two stale frames rejected, third (matching) frame accepted.
         assert driver.grabs == 3
 
-    def test_persistent_stale_chunks_time_out_to_none(self):
+    def test_persistent_stale_chunks_raise_chunk_rejected_naming_the_setting(self):
+        from modules.exceptions import CaptureFailedError
+
         stale = {'Gain': 30.0, 'ExposureTime': 100000.0}
         driver = self._ChunkStubDriver([stale])
         imaging = self._make_imaging(driver)
         imaging.frame_validity.set_target('exposure', 3730.0)
 
-        image = imaging.get_image(
-            force_new_capture=True,
-            verify_chunk_targets=True,
-            timeout_s=0.01,
-        )
-        assert image is None
+        with pytest.raises(CaptureFailedError) as failed:
+            imaging.get_image(
+                force_new_capture=True,
+                verify_chunk_targets=True,
+                timeout_s=0.01,
+            )
+        assert (failed.value.reason, failed.value.setting) == ('chunk_rejected', 'exposure')
 
     def test_no_targets_means_no_verification(self):
         """Hardware auto-gain clears targets; chunk mismatch must not block."""

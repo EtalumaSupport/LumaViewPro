@@ -18,7 +18,12 @@ import numpy as np
 from lvp_logger import log_dir, logger, version
 from modules.finite_number import refuse_unless_finite_number
 from modules.api_surface import ProgressCallback, api
-from modules.exceptions import ArgumentRefusedError, HardwareCommandRefusedError, MissingPart
+from modules.exceptions import (
+    ArgumentRefusedError,
+    CaptureFailedError,
+    HardwareCommandRefusedError,
+    MissingPart,
+)
 from modules.lumascope_api._constants import refuse_unknown_axis
 
 if TYPE_CHECKING:
@@ -299,21 +304,26 @@ class DiagnosticsAPI:
                 called every 250 frames.
 
         Returns:
-            dict: Same shape as the legacy ``CameraBandwidthTest.run()`` --
-                num_frames_requested, num_frames_received, num_frames_none,
-                num_frames_error, total_bytes, elapsed_seconds,
-                mb_per_second, fps_actual, frame_sizes, errors, passed.
+            dict: num_frames_requested, num_frames_received,
+                num_frames_failed (the grabs that raised
+                ``CaptureFailedError``), failed_by_reason (those, counted by
+                the failure's reason), total_bytes, elapsed_seconds,
+                mb_per_second, fps_actual, frame_sizes, errors (the first 20
+                failures' words), passed.
 
         Raises:
             ArgumentRefusedError: ``'not_a_number'``, ``timeout_s`` is not a finite
                 number. Nothing reached the camera.
+            HardwareCommandRefusedError: ``'not_connected'``, naming the
+                camera, removed during the test. Only a capture failure is
+                counted: any other raise from a grab ends the test as itself.
         """
         refuse_unless_finite_number(timeout_s, 'timeout_s')
         results = {
             'num_frames_requested': int(num_frames),
             'num_frames_received': 0,
-            'num_frames_none': 0,
-            'num_frames_error': 0,
+            'num_frames_failed': 0,
+            'failed_by_reason': {},
             'total_bytes': 0,
             'elapsed_seconds': 0,
             'mb_per_second': 0.0,
@@ -348,17 +358,17 @@ class DiagnosticsAPI:
                 # force_to_8bit=False keeps native depth so frame size
                 # reflects the actual bytes the SDK delivered.
                 frame = self._scope.imaging.get_image(force_to_8bit=False, force_new_capture=True)
-                if frame is None:
-                    results['num_frames_none'] += 1
-                else:
-                    results['num_frames_received'] += 1
-                    nbytes = getattr(frame, 'nbytes', None) or len(frame)
-                    results['total_bytes'] += nbytes
-                    frame_size_set.add(int(nbytes))
-            except Exception as e:
-                results['num_frames_error'] += 1
+            except CaptureFailedError as failed:
+                results['num_frames_failed'] += 1
+                by_reason = results['failed_by_reason']
+                by_reason[failed.reason] = by_reason.get(failed.reason, 0) + 1
                 if len(results['errors']) < 20:
-                    results['errors'].append(f'Frame {i}: {type(e).__name__}: {e}')
+                    results['errors'].append(f'Frame {i}: {failed}')
+            else:
+                results['num_frames_received'] += 1
+                nbytes = getattr(frame, 'nbytes', None) or len(frame)
+                results['total_bytes'] += nbytes
+                frame_size_set.add(int(nbytes))
 
             if time.monotonic() - start > timeout_s:
                 results['errors'].append(f'Timeout at frame {i} after {timeout_s}s')
@@ -372,13 +382,7 @@ class DiagnosticsAPI:
             results['fps_actual'] = round(results['num_frames_received'] / elapsed, 1)
         results['frame_sizes'] = sorted(frame_size_set)
 
-        if results['num_frames_none'] > 0:
-            results['passed'] = False
-            results['errors'].append(
-                f'{results["num_frames_none"]} frames returned None -- '
-                f'possible USB disconnect or bandwidth issue'
-            )
-        if results['num_frames_error'] > 0:
+        if results['num_frames_failed'] > 0:
             results['passed'] = False
         if len(frame_size_set) > 1:
             results['passed'] = False

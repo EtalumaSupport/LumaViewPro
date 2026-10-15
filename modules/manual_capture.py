@@ -20,14 +20,12 @@ import modules.config_helpers as config_helpers
 import modules.image_utils as image_utils
 from modules import capture_overlays, path_utils
 from modules.exceptions import (
-    CaptureFailedError,
     CapturePositionNotRecordedNotice,
     HardwareCommandRefusedError,
     LiveFolderPathRefusedError,
 )
 from modules.image_save import save_image
 from modules.layer_record import ChannelColors
-from modules.lumascope_api.imaging import capture_failure_cause
 from modules.recording_frames import frame_fact
 from modules.api_surface import api
 from modules.operation import Operation
@@ -119,11 +117,12 @@ class ManualCaptureController:
             the light path is unknown (nothing captured),
             ``LiveFolderPathRefusedError`` (reason
             ``'capture_location_unusable'``) when the live folder cannot
-            take the still, ``CaptureFailedError``
-            (reason ``'no_frame_returned'``) when no frame passed, with the
-            capture engine's cause as its message;
-            ``HardwareCommandRefusedError`` (reason
-            ``'exclusive_activity_running'``) when a run took the scope
+            take the still, ``CaptureFailedError`` when no frame passed,
+            with the capture's own reason (``capture_and_wait``);
+            ``HardwareCommandRefusedError`` (reason ``'not_connected'``)
+            when the camera is absent or was removed during the still,
+            ``'camera_not_streaming'`` when its feed is stopped, and
+            ``'exclusive_activity_running'`` when a run took the scope
             while the still was queued behind other camera work, waiting or
             running when it was put on the lane; ``CancelledError`` when the lane dropped it unrun (the
             scope disconnected). It sets no timeout: its caller bounds its
@@ -224,6 +223,11 @@ class ManualCaptureController:
         # Read beside the grab: the file records the objective the frame was
         # taken with, and an unknown one refuses before anything is captured.
         objective_id, _ = scope.runtime_state.resolve_current_objective()
+        # The capture's body, not its public member: this still is already the
+        # lane task its taking admitted, and the public member would be
+        # admitted again, inline, against whatever holds the scope now -- a
+        # run that took it after the still was put on the lane would refuse
+        # the still it waits for.
         array = scope.imaging._capture_and_wait_impl(
             force_to_8bit=capture_config.capture_depth == 8,
             all_ones_check=True,
@@ -231,11 +235,6 @@ class ManualCaptureController:
             sum_count=sum_count,
             sum_delay_s=sum_delay_s,
         )
-        if array is None:
-            raise CaptureFailedError(
-                capture_failure_cause(scope.imaging.last_capture_info),
-                'no_frame_returned',
-            )
         # The instrument's account of this frame, taken with it; read before
         # anything on this lane can capture again.
         frame_record = scope.imaging.last_capture_info['frame_record']

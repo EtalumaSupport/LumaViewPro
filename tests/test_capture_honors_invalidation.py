@@ -29,6 +29,7 @@ import threading
 import numpy as np
 import pytest
 
+from modules.exceptions import CaptureFailedError
 from tests.scope_fakes import build_scope, bind_settings_like_a_session
 
 _DARK = np.full((8, 8), 6, dtype=np.uint8)  # max 2.4% of full scale -- no signal
@@ -148,16 +149,16 @@ class TestMidWindowInvalidationHonored:
 
 class TestDrainDeadline:
     @pytest.mark.slow
-    def test_sustained_invalidation_returns_loud_none_in_bounded_time(
+    def test_sustained_invalidation_raises_deadline_expired_in_bounded_time(
         self, live_scope, monkeypatch
     ):
         """The live-lock pin: invalidation arriving at least as fast as
         frames drain kept the pre-fix capture spinning for the stream's
         whole duration (25+ s recorded, bounded only by the harness
         watchdog). Post-fix the frozen budget expires and the capture
-        returns None, recorded as a deadline expiry -- never as a grab
-        failure. Slow: the budget's floor is 3 s of wall time, and the
-        timing is the subject."""
+        raises ``deadline_expired`` -- never a grab failure's ``no_frame``.
+        Slow: the budget's floor is 3 s of wall time, and the timing is the
+        subject."""
         fv = live_scope.imaging.frame_validity
         real_get_array = live_scope._camera_driver.get_array
 
@@ -168,12 +169,11 @@ class TestDrainDeadline:
         monkeypatch.setattr(live_scope._camera_driver, 'get_array', streaming_interference)
         fv.invalidate('led')
 
-        out = live_scope.imaging.capture_and_wait(timeout_s=0.5)
+        with pytest.raises(CaptureFailedError) as failed:
+            live_scope.imaging.capture_and_wait(timeout_s=0.5)
 
-        assert out is None
+        assert failed.value.reason == 'deadline_expired', 'expiry is not a grab failure'
         info = live_scope.imaging.last_capture_info
-        assert info.get('deadline_expired') is True
-        assert 'drain_failed' not in info, 'expiry must not be recorded as a grab failure'
         assert info['active_s'] <= info['deadline_s'] + 2.0, (
             'expiry must land near the budget, not an open-ended hold'
         )
@@ -206,10 +206,7 @@ class TestDrainDeadline:
         info = live_scope.imaging.last_capture_info
         assert info['n_entry'] == 0, 'precondition: nothing owed at entry'
         assert info['rechecks'] >= 1, 'the dirtied window must be re-run'
-        assert 'deadline_expired' not in info, (
-            f'the grab waited out its own retry window and was blamed on motion: {info}'
-        )
-        assert out is not None
+        assert out is not None, 'the grab waited out its own retry window and was refused'
         assert info.get('dark_saved') is True
 
     def test_healthy_capture_records_telemetry(self, live_scope):
@@ -220,4 +217,3 @@ class TestDrainDeadline:
         info = live_scope.imaging.last_capture_info
         for key in ('hold_ms', 'drained', 'rechecks', 'deadline_s', 'n_entry', 'active_s'):
             assert key in info, f'missing capture-evidence key {key!r}'
-        assert 'deadline_expired' not in info

@@ -28,6 +28,7 @@ from modules.exceptions import (
     AutofocusStopped,
     AutofocusZNotRestoredError,
     CameraSettingRejected,
+    CaptureFailedError,
     HardwareCommandRefusedError,
 )
 from modules.lumascope_api.illumination import (
@@ -404,12 +405,19 @@ class AutofocusRunner:
             self._is_focusing_event.clear()
             self._is_complete_event.clear()
             if isinstance(
-                ex, (AutofocusFailedError, AutofocusOutOfTravelError, HardwareCommandRefusedError)
+                ex,
+                (
+                    AutofocusFailedError,
+                    AutofocusOutOfTravelError,
+                    CaptureFailedError,
+                    HardwareCommandRefusedError,
+                ),
             ):
                 # A refusal the sweep decided, already logged with its
                 # numbers, is reported as itself; so is a command the
                 # hardware refused -- the light that could not go on names
-                # the missing LED controller, not an unexpected error.
+                # the missing LED controller, not an unexpected error -- and
+                # a capture that got no frame after its retries.
                 failed = ex
             else:
                 params_repr = repr(getattr(self, '_params', None))[:500]
@@ -707,23 +715,24 @@ class AutofocusRunner:
             self._is_focusing_event.clear()
             return
 
-        image = False
         num_retries = 5
-        count = 0
-        while True:
+        for attempt in range(1, num_retries + 1):
             # accept_dark: AF consumes focus scores, not saved truth,
             # and a hard dark-reject mid-sweep would stall the scan; the
             # mean-intensity retry below handles dark frames. The Z move is
             # waited out like any other change: a frame already on its way
             # when the move went out shows the previous step's Z, and its
-            # score would be recorded at this one.
-            image = self._scope.imaging.capture_and_wait(accept_dark=True)
-            count += 1
-            if isinstance(image, np.ndarray):
+            # score would be recorded at this one. A capture that got no
+            # frame is tried again; the last failure is the sweep's, raised
+            # as itself. A camera that is gone is refused, and stops the
+            # sweep at once.
+            try:
+                image = self._scope.imaging.capture_and_wait(accept_dark=True)
                 break
-
-            if count >= num_retries:
-                raise Exception('Unable to grab image for autofocusing after max retries')
+            except CaptureFailedError as failed:
+                if attempt == num_retries:
+                    raise
+                _af_log.warning(f'  NO FRAME ({failed.reason}), try {attempt}/{num_retries}')
 
         height, width = image.shape
 
@@ -739,9 +748,10 @@ class AutofocusRunner:
         mean_intensity = float(np.mean(image))
         if mean_intensity < 1.0:
             _af_log.warning(f'  DARK FRAME: mean={mean_intensity:.2f}, retrying')
-            retry = self._scope.imaging.capture_and_wait(accept_dark=True)
-            if isinstance(retry, np.ndarray):
-                image = retry
+            try:
+                image = self._scope.imaging.capture_and_wait(accept_dark=True)
+            except CaptureFailedError as failed:
+                _af_log.warning(f'  DARK FRAME kept: its retry got no frame ({failed.reason})')
 
         # Use center quarter of image for focusing
         height, width = image.shape

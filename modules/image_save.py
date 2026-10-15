@@ -31,7 +31,12 @@ import modules.image_utils as image_utils
 import modules.layer_record as layer_record
 from lib.handle_trace import tick as _h_tick
 from lvp_logger import logger, version
-from modules.exceptions import CaptureFailedError, ConfigurationDefectError, ImageSaveError
+from modules.exceptions import (
+    ArgumentRefusedError,
+    CaptureFailedError,
+    ConfigurationDefectError,
+    ImageSaveError,
+)
 
 if TYPE_CHECKING:
     from modules.labware import LabWare
@@ -83,11 +88,7 @@ def write_video_frame(
             fall through to a plain mono write).
     """
     if save_encoding not in image_mode.VALID_SAVE_ENCODINGS:
-        raise CaptureFailedError(
-            f'unknown save_encoding {save_encoding!r}; a video frame cannot be saved '
-            'with an unrecognized image-mode encoding',
-            'unknown_save_encoding',
-        )
+        raise CaptureFailedError('unknown_save_encoding', encoding=save_encoding)
     # Rendering value, permanently: it is grey whenever false color is off.
     # Nothing derived from false_color_on may reach a field describing WHAT
     # the frame is -- a display setting recorded as identity is a claim about
@@ -600,7 +601,7 @@ def prepare_image_for_saving(
 
 def save_image(
     scope: Lumascope,
-    array: np.ndarray | None,
+    array: np.ndarray,
     save_folder: pathlib.Path | str = './capture',
     file_root: str = 'img_',
     append: str = 'ms',
@@ -676,22 +677,16 @@ def save_image(
         pathlib.Path: Path to the saved file.
 
     Raises:
-        CaptureFailedError: ``'no_frame_returned'``, if ``array`` is None (camera silent-stuck or
-            grab-timeout). Surfaces to IOTask popup with a user-friendly
-            message instead of a raw AttributeError downstream.
+        ArgumentRefusedError: ``'wrong_kind'``, if ``array`` is None. A capture
+            that got no frame raises rather than answering None, so None here
+            is a caller's defect, refused before anything is written.
         ImageSaveError: The file could not be written (a missing or
             read-only folder, a full disk), chained from the ``OSError``.
             Any other failure propagates as itself.
     """
-    # Camera silent-stuck or grab-timeout produces None; raise typed
-    # exception so the IOTask popup carries a user-friendly message
-    # instead of a raw AttributeError. The deeper recovery work
-    # (camera reset / USB reset on persistent stuck) lives elsewhere.
     if array is None:
-        raise CaptureFailedError(
-            'Camera did not return an image. The capture was skipped; '
-            'the protocol will retry on the next step.',
-            'no_frame_returned',
+        raise ArgumentRefusedError(
+            'wrong_kind', argument='array', value=None, kind='an image array'
         )
 
     # The one place the two facts meet, and they meet on the rendering side

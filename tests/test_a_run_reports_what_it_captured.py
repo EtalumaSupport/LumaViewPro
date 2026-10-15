@@ -105,9 +105,9 @@ class TestARunWhoseCameraIsGoneEndsAtOnce:
             outcome = _run(runner, run_parent, steps)
             rows = _record_rows(run_parent)
         assert (outcome.status, outcome.reason) == ('failed', 'hardware_disconnected'), outcome
-        assert rows == ['capture_failed'], (
-            f'the run went on capturing after its camera was removed: {rows}'
-        )
+        # The removal is refused at the capture, and the refusal ends the run
+        # from the step that met it: no step is captured or recorded after.
+        assert rows == [], f'the run went on capturing after its camera was removed: {rows}'
         # Cleanup's camera restore writes nothing to a removed camera; each
         # write would report the camera absent again after the ending did.
         assert writes_after_removal == [], writes_after_removal

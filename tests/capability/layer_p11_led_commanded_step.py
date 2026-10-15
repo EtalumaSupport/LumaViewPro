@@ -30,7 +30,7 @@ def _frame(scope):
     imaging = scope.imaging
     image = imaging.capture_and_wait(accept_dark=True, timeout_s=5.0)
     record = (imaging.last_capture_info or {}).get('frame_record')
-    mean = None if image is None else round(float(image.mean()), 2)
+    mean = round(float(image.mean()), 2)
     return mean, record
 
 

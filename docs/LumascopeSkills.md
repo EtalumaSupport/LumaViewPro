@@ -108,7 +108,8 @@ Methods on the L2 surface follow one of two contracts; if a method's docstring h
 - **Hardware-command dispatch** (LED, motion, and camera commands): each command submits to one of the scope's own lanes -- IO for LED and motion, CAMERA for camera -- and blocks until the hardware has it. Every `Lumascope` builds and starts its two lanes, so commands from every caller run one at a time per bus, in order. While a run, a diagnostic or a home holds the scope (or a lane is disabled), the command raises `HardwareCommandRefusedError` (`modules.exceptions`), carrying the machine-readable `reason` (`exclusive_activity_running`) and the refused member. After `session.shutdown()` the lanes are shut, and every command raises at once with `reason` `scope_disconnected`, `stop_motion` included. A motion, LED or camera command for hardware the scope does not have raises it too, before anything moves, lights or is written, and its `missing` (a `MissingPart`, `modules.exceptions`) names the part, its words coming from it: `reason` `not_connected` when the model has a motor controller and none is connected -- never came up, or its cable pulled -- (`MissingPart.MOTOR_CONTROLLER`, "Check the USB cable ..."), or when no LED controller is connected (`MissingPart.LED_CONTROLLER`), or no camera ("The camera is not connected.", `MissingPart.CAMERA`: every camera command, the camera's diagnostic runners, `add_frame_listener` and a manual still's Future included); `axis_absent` when the scope does not have the part: `MissingPart.FAN_CONTROL` and `MissingPart.LED_ENGINEERING_MODE` for the diagnostics' fan and LED engineering mode, `MissingPart.X`, `Y` or `Z` for an axis it lacks, `MissingPart.TURRET` for a turret, and `MissingPart.MOTORS` on a manual scope (LS620, LS560), for every motion command, `stop_motion`, `home()` and the acceleration limit included; `MissingPart.led(...)` for an LED the model lacks, named as the command named it ("This microscope has no Red LED.", "... no LED on channel 2."); `MissingPart.layer(...)` for a layer the model lacks that a layer's settings, its focus or a still names ("This microscope has no Lumi layer."). A name that is no axis at all is refused first, on every model, with `ArgumentRefusedError` reason `axis_unknown` (see the arguments paragraph below). An LED off whose end state already holds is not refused: an off of a channel the API holds dark, of an LED the model lacks, or with no LED controller and nothing believed lit returns with nothing written and nothing logged. So with no camera does a camera off, with the answer it gives with a camera: `disable_streaming` (None), `set_auto_gain(False, ...)` and `set_auto_exposure_time(False)` (True), and `lock_auto_gain` (an `AutoGainLock` whose `state` is None: no arm can stand). `remove_frame_listener` never needs a camera. There is one form of each command; a caller that must not wait runs it on its own thread.
 - **Sentinel-return methods log** at `logger.warning` or `logger.info` per Rule 5; they do **not** fire user notifications (no actionable failure occurred -- the value is just unknown).
 - **`camera_connected` is an instantaneous, non-latching poll.** A `False` can be transient (a single flaky connectivity query on an otherwise healthy camera). Consumers may skip work on `False` and re-poll on their next cycle; they must never latch, self-cancel, or tear anything down on it -- one transient `False` on a multi-day run should cost one skipped cycle, not the rest of the session.
-- **`scope.imaging.camera_removed` is the latched answer.** It is True once the camera's driver has declared it removed (unplugged, off the bus), and stays True until the camera connects again. Unlike a `False` from `camera_connected`, it is never transient, so it is safe to act on: a run that fails a capture after the camera was removed ends at once, `status='failed'`, `reason='hardware_disconnected'`. False on a scope with no camera at all.
+- **`scope.imaging.camera_removed` is the latched answer.** It is True once the camera's driver has declared it removed (unplugged, off the bus), and stays True until the camera connects again. Unlike a `False` from `camera_connected`, it is never transient, so it is safe to act on. A capture that meets a removed camera is refused `HardwareCommandRefusedError` (`not_connected`), and a run that meets it ends at once, `status='failed'`, `reason='hardware_disconnected'`, in words naming the part gone. False on a scope with no camera at all.
+- **Captures return a frame or raise.** `capture_and_wait` and `get_image` never answer None. A capture that got no frame raises `CaptureFailedError` (`modules.exceptions`, a `CaptureError` fault), its `reason` one of `no_frame` (the camera delivered no new frame within its grab window), `deadline_expired` (the scope's state kept changing for longer than the capture's budget) or `chunk_rejected` (frames came, none exposed at the `setting` asked, `'exposure'` or `'gain'`), its title and words the reason's. A camera that is not there, absent at the call or removed during it, is refused `HardwareCommandRefusedError` (`not_connected`), and one connected but not streaming `camera_not_streaming`. Nothing inside the API reports either: the raise is the report, yours to show.
 
 If you are writing a new wrapper, the `Raises:` section is the canonical declaration of which contract applies.
 
@@ -675,8 +676,10 @@ earlier still is running, `'exclusive_activity_running'` while a run, a
 diagnostic or a home holds the scope, and `'scope_disconnected'` when the camera is
 closed. When it returns, the still is on the camera lane. The operation raises
 `ObjectiveUnknownError` when the objective in the light path is unknown
-(nothing captured) and `CaptureError` (reason `'no_frame_returned'`, the
-capture engine's cause as its message) when no frame passed.
+(nothing captured), `CaptureFailedError` (the capture's own reason:
+`no_frame`, `deadline_expired`, `chunk_rejected`) when no frame passed, and
+`HardwareCommandRefusedError` (`not_connected`, `camera_not_streaming`) when
+the camera is gone or not streaming.
 `session.manual_capture.in_flight` is True from the call until the still
 has finished or been refused. The order of the calls decides, not how soon
 the lane's worker wakes. A run started after `capture()` returns waits for the
@@ -1323,6 +1326,7 @@ still states the major version.
 | level 9 | The session saves every accepted settings write itself (`ScopeSession.create(settings_file=...)`), and `save_settings`, `SettingsSaveRefusedError` and `on_settings_changed` are gone; `PluginSpec.subscribes_to` is accepted empty, and a spec naming keys is not loaded, its reason naming level 8 as the last that told a plugin of a settings change. |
 | level 10 | LED state is by address: `get_led_state` (a layer name or an address) answers an `LedReading` (`address`, `name`, `state`, `illumination_ma`), `get_led_states` a tuple of them for every address of the board, `save_led_state` an `LedSnapshot`; the LED listener is called with `(address, name, state, illumination_ma)`; `get_led_state` of a layer the identity gives no LED raises `axis_absent`; the drivers' `ch2color`, `color2ch`, `available_colors` and `led_ma` are gone, and the EL-0940 board addresses 0-7; an LED write the active lease does not permit raises `exclusive_activity_running`, and `led_on` always returns the commanded current. |
 | level 11 | A run returns its `Operation` (`start_move_absolute`, `start_move_relative` and `start_home` return one too), and `ProtocolRunner`'s run members start it: `run_single_scan`, `run_protocol`, `run_autofocus`, `run_autofocus_all_steps` and `run_zstack` are `start_single_scan`, `start_protocol`, `start_autofocus`, `start_autofocus_all_steps` and `start_zstack`. |
+| level 12 | A capture returns a frame or raises: `capture_and_wait` and `get_image` raise `CaptureFailedError` (`no_frame`, `deadline_expired`, `chunk_rejected` with its `setting`) for no frame and `HardwareCommandRefusedError` (`not_connected`, `camera_not_streaming`) for a camera gone or not streaming, and never answer None; `capture_failure_cause` and the failure flags of `last_capture_info` (`not_ready`, `drain_failed`, `deadline_expired`, `chunk_rejected`) are gone; `run_camera_bandwidth_test` answers `num_frames_failed` and `failed_by_reason` where it answered `num_frames_none` and `num_frames_error`. |
 
 ### Configuration queries
 
@@ -1754,7 +1758,8 @@ reference.
 # Lumascope you constructed yourself needs the explicit call.
 scope.imaging.enable_streaming()  # start the live feed and return; it does not wait for a
                                   # frame (idempotent; restarts a stopped feed)
-scope.imaging.disable_streaming() # stop the feed; capture_and_wait then fails
+scope.imaging.disable_streaming() # stop the feed; capture_and_wait is then refused
+                                  # camera_not_streaming
 image = scope.imaging.capture_and_wait()  # the first frame after a start: a frame that
                                   # arrives after this call
 scope.imaging.is_streaming()      # True while acquiring (queries the driver)
@@ -1764,9 +1769,9 @@ scope.imaging.is_streaming()      # True while acquiring (queries the driver)
 # Raw frame grab (no validity wait — use capture_and_wait instead in most cases)
 image = scope.imaging.get_image()
 image = scope.imaging.get_image(force_to_8bit=False)   # keep native 12/16-bit
-# Returns numpy.ndarray on success, None on failure (camera inactive,
-# frame drain failed, timeout). Per the sentinel-return contract:
-#   if image is None: ...
+# Returns numpy.ndarray, or raises: CaptureFailedError ('no_frame', or
+# 'chunk_rejected' with verify_chunk_targets) for no frame, and
+# HardwareCommandRefusedError ('not_connected') for a camera that is gone.
 #
 # Shape is (H, W) 2D mono for mono-native cameras and (H, W, 3) RGB
 # for color-native cameras (see scope.capabilities.is_color_native).
@@ -1778,7 +1783,10 @@ image = scope.imaging.get_image(force_to_8bit=False)   # keep native 12/16-bit
 
 # Frame-validity capture — PREFERRED for all real captures.
 # Waits for all pending changes (LED, gain, exposure, motion) to settle,
-# drains stale frames, returns a valid frame. Returns None on failure.
+# drains stale frames, returns a valid frame. Raises CaptureFailedError
+# for no frame ('no_frame', 'deadline_expired', 'chunk_rejected') and
+# HardwareCommandRefusedError for a camera gone ('not_connected') or not
+# streaming ('camera_not_streaming').
 # The capture honors invalidation across its WHOLE window: a state change
 # landing after the drain — during the grab itself — is detected, and the
 # capture re-drains, re-derives its expectations, and grabs again, so the
@@ -1787,8 +1795,8 @@ image = scope.imaging.get_image(force_to_8bit=False)   # keep native 12/16-bit
 # The settle-and-recheck work is bounded by a deadline sized from the
 # pending work at entry (frames to settle, exposure, sum window): if
 # invalidation keeps arriving faster than frames can settle it, the
-# capture returns None in bounded seconds with "DEADLINE EXPIRED" named
-# in the log, instead of holding indefinitely. The deadline suspends
+# capture raises CaptureFailedError('deadline_expired') in bounded seconds,
+# instead of holding indefinitely. The deadline suspends
 # while commanded stage motion is still physically settling — a capture
 # issued during a long move waits for the move, as it should.
 # The dark-floor expectation is DERIVED from commanded LED state: a
@@ -2164,6 +2172,9 @@ link = scope.diagnostics.get_camera_link_info()
 # occupy the camera for their duration -- do not start one while a run
 # or recording is live.
 results = scope.diagnostics.run_camera_bandwidth_test(num_frames=200, timeout_s=60.0)
+# num_frames_failed counts the grabs that raised CaptureFailedError, and
+# failed_by_reason counts them by reason; a camera removed mid-test is
+# refused (not_connected), raised, not counted.
 results = scope.diagnostics.run_grab_lifecycle_benchmark(num_cycles=100, vary_settings=False)
 
 # Cross-host / cross-camera / cross-firmware diagnostic probe.
@@ -3486,6 +3497,12 @@ Reached through the event `scope.imaging.add_camera_listener` delivers.
 
 - `setting`
 - `value`
+
+### CaptureFailedError
+
+Reached through a REST problem, whose members carry it.
+
+- `setting`
 
 ### CaptureTally
 

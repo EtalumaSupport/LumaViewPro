@@ -1,38 +1,15 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""capture_and_wait names the not-grabbing precondition instead of timing out.
+"""capture_and_wait delivers while the camera streams.
 
-A camera that is connected (active) but not grabbing -- a bare scope that never
-called enable_streaming, or a feed deliberately halted by disable_streaming --
-cannot deliver a frame. Before, capture_and_wait entered the drain loop and
-limped to a falsy return after burning the grab timeout, with a symptom
-indistinguishable from a real grab failure. Now it returns the not-ready
-sentinel immediately and logs a distinct cause.
+A connected camera that is not grabbing is refused ``camera_not_streaming``
+and a stalled stream raises ``no_frame`` (both pinned in
+``test_a_capture_that_gets_no_frame_raises_why.py``); these pin that the
+streaming path still delivers, a sum included.
 """
 
 from __future__ import annotations
 
 import datetime
-from unittest.mock import patch
-
-from modules.lumascope_api import imaging as imaging_module
-
-
-def test_capture_and_wait_returns_none_and_names_cause_when_not_grabbing(sim_scope):
-    # sim_scope starts streaming; stop it so the camera stays connected
-    # (active) but is no longer grabbing.
-    sim_scope.imaging.disable_streaming()
-    assert not sim_scope.imaging.is_streaming()
-
-    # The module logger is mocked in the test env, so assert on the warning
-    # call rather than a captured record.
-    with patch.object(imaging_module, 'logger') as mock_logger:
-        result = sim_scope.imaging.capture_and_wait(timeout_s=1.0)
-
-    assert result is None
-    warned = ' '.join(str(c).lower() for c in mock_logger.warning.call_args_list)
-    assert 'no active grab' in warned, (
-        'not-grabbing capture must warn a distinct cause, not fail silently'
-    )
 
 
 def test_capture_and_wait_succeeds_while_streaming(sim_scope):
@@ -41,29 +18,6 @@ def test_capture_and_wait_succeeds_while_streaming(sim_scope):
     assert sim_scope.imaging.is_streaming()
     result = sim_scope.imaging.capture_and_wait(timeout_s=2.0)
     assert result is not None
-
-
-def test_capture_and_wait_returns_none_when_drain_stalls(sim_scope):
-    """A live feed whose drain gets no frame fails with None and no recheck.
-
-    The stalled-feed failure mode: a write is pending, so the capture must
-    drain, and the camera, connected and grabbing, stops delivering frames.
-    The contract's failure sentinel is None -- a bool here slips every
-    `is None` caller check, so the stills leg skipped its capture strike
-    (and reset the accumulated counter) on exactly this mode. The failure
-    is a clean window's, so the capture is not re-run: a recovery path that
-    retried a failure it cannot cure would hold the caller for nothing.
-    """
-    assert sim_scope.imaging.is_streaming()
-    sim_scope.imaging.frame_validity.invalidate('exposure')
-    sim_scope.simulation.stall_stream(0.0, 30.0)
-
-    result = sim_scope.imaging.capture_and_wait(timeout_s=1.0)
-
-    assert result is None, 'stalled-feed drain failure must return the None sentinel'
-    info = sim_scope.imaging.last_capture_info
-    assert info['drain_failed'] is True
-    assert info['rechecks'] == 0
 
 
 def test_a_summed_capture_survives_a_backwards_clock_step(sim_scope):

@@ -707,7 +707,7 @@ def test_write_video_frame_rejects_unknown_save_encoding(tmp_path):
 
     out_path = tmp_path / 'bad_encoding.tiff'
     data = np.full((8, 8), 4095, dtype=np.uint16)
-    with pytest.raises(CaptureError, match='save_encoding'):
+    with pytest.raises(CaptureError, match='save encoding'):
         write_video_frame(
             frame=data,
             file_loc=out_path,

@@ -13,42 +13,10 @@ The guard is right and stays: issues #671 and #721 are the record of a near-blac
 frame being silently saved, and `tests/test_dark_floor_capture_guard.py` locks the
 rejection itself. What was wrong is the CAUSE reported afterwards.
 
-`capture_failure_cause` is a ladder of named causes whose own docstring warns
-that 'a hardcoded cause once mislabeled every failure as the latter'. The dark
-path had no rung, so it fell through to the camera-inactive default -- exactly
-the failure the docstring predicted. This adds the missing rung and locks it.
+The failure ladder that reported it is gone: a capture that gets no frame now
+raises its own reason, and a dark frame is not a failure at all -- it is
+delivered, saved and marked. These lock that it stays delivered and marked.
 """
-
-
-def test_darkness_is_not_a_failure_cause_at_all():
-    """Darkness never reaches the failure ladder.
-
-    A dark frame is delivered, so it is not a capture failure and has no
-    rung here. A rung for it would be unreachable, and an unreachable
-    rung invites the next reader to route a real failure through it.
-    """
-    from modules.lumascope_api.imaging import capture_failure_cause
-
-    for info in ({}, {'dark_saved': True}):
-        assert 'dark' not in capture_failure_cause(info).lower(), (
-            'a dark frame is saved, not failed, so no failure cause may name darkness'
-        )
-
-
-def test_every_rung_still_outranks_the_default():
-    """The ladder's real causes keep their own answers."""
-    from modules.lumascope_api.imaging import capture_failure_cause
-
-    default = capture_failure_cause({})
-    assert default == 'camera inactive or not grabbing'
-    for info in (
-        {'deadline_expired': True},
-        {'drain_failed': True},
-        {'chunk_rejected': 'exposure'},
-    ):
-        assert capture_failure_cause(info) != default, (
-            f'{info} must name its own cause rather than fall through'
-        )
 
 
 def test_the_dark_flag_is_cleared_per_capture():

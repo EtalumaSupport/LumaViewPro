@@ -27,10 +27,6 @@ _EXEMPT_FILES = frozenset({'modules/notification_center.py'})
 # them). The count, so a new post in a listed function is not waved through
 # with the one already there.
 _NOT_YET_TYPED = {
-    ('modules/lumascope_api/imaging.py', 'ImagingAPI._get_image_impl'): (
-        1,
-        "primary's row 'A camera removed mid-session (C)', a capture with the camera gone",
-    ),
     ('modules/lumascope_api/illumination.py', 'IlluminationAPI._notify_if_led_command_failed'): (
         1,
         'the LED confirmation-before-cache work',

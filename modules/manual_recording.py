@@ -535,11 +535,7 @@ class ManualRecordingController:
             self._unwind_failed_start(engine, writer, frames_folder)
             # Said as what the person pressed Record for: the recording, not
             # the listener it would have needed.
-            raise CaptureFailedError(
-                'The recording did not start: the camera did not accept its frame '
-                'listener. Check the log for the camera driver error.',
-                'recording_not_started',
-            ) from refused
+            raise CaptureFailedError('recording_not_started') from refused
         except BaseException:
             # Past the commit point the engine holds the claim, and this is
             # the only frame holding the writer -- the engine is handed a

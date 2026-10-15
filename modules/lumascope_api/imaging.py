@@ -35,6 +35,7 @@ from modules.exceptions import (
     CameraSettingRejected,
     CameraSettingUnsupportedError,
     CameraStreamStalledError,
+    CaptureFailedError,
     ExposureAtMaximumNotice,
     ExposureAtMinimumNotice,
     FrameHandlerRemovedError,
@@ -88,6 +89,32 @@ def _camera_not_connected(member: str) -> HardwareCommandRefusedError:
     """
     part = MissingPart.CAMERA
     return HardwareCommandRefusedError(part.reason, member, missing=part)
+
+
+@dataclasses.dataclass(frozen=True)
+class _NoFrame:
+    """A grab that ended without a frame, handed back for its caller to raise.
+
+    The grab raises nothing itself: ``capture_and_wait`` first asks whether
+    its window was dirtied (a re-grab, not a failure) and runs its own
+    cleanup, then raises. ``reason`` is a ``CaptureFailedError`` reason, or
+    ``'removed'`` for a camera found gone, which is refused as every camera
+    command is, naming the caller's member. ``leg`` is where the grab
+    stopped -- ``'entry'``, ``'grab'`` or ``'sum'`` -- for the log.
+    """
+
+    reason: str
+    leg: str
+    setting: str | None = None
+
+    @property
+    def removed(self) -> bool:
+        return self.reason == 'removed'
+
+    def error(self, member: str) -> CaptureFailedError | HardwareCommandRefusedError:
+        if self.removed:
+            return _camera_not_connected(member)
+        return CaptureFailedError(self.reason, setting=self.setting)
 
 
 def _no_camera_cache() -> dict:
@@ -166,29 +193,6 @@ class AutoGainLock:
                 'AutoGainLock carries exposure_ms and gain_db together or not at all; '
                 f'got exposure_ms={self.exposure_ms!r} gain_db={self.gain_db!r}'
             )
-
-
-def capture_failure_cause(info: dict | None) -> str:
-    """Why a capture returned no frame, read off its evidence record.
-
-    One ladder for every reader -- the protocol writer's failure row and
-    the manual capture's notice -- so a support bundle and the screen name
-    the same cause. A deadline expiry (state changes outran the budget)
-    reads very differently from a camera that delivered nothing, and a
-    hardcoded cause once mislabeled every failure as the latter.
-    """
-    info = info or {}
-    if info.get('deadline_expired'):
-        return 'capture deadline expired -- invalidation outran the budget'
-    if info.get('drain_failed'):
-        return 'frame drain failed -- camera delivered no frame'
-    if info.get('chunk_rejected'):
-        return (
-            f'frame chunk never matched the {info["chunk_rejected"]} '
-            'target -- the camera delivered frames exposed under '
-            'other settings'
-        )
-    return 'camera inactive or not grabbing'
 
 
 def stored_exposure_after_lock(exposure_ms: float, floor_ms: float | None) -> float:
@@ -3174,7 +3178,7 @@ class ImagingAPI:
         sum_count: int = 1,
         sum_delay_s: float = 0.0,
         sum_iteration_callback=None,
-    ) -> np.ndarray | None:
+    ) -> np.ndarray:
         """Capture a frame guaranteed to reflect the current hardware state.
 
         Uses frame-based settling: drains stale frames from the camera pipeline
@@ -3207,18 +3211,27 @@ class ImagingAPI:
             sum_iteration_callback: Called after each summed frame.
 
         Returns:
-            numpy.ndarray | None: Captured image array on success, None
-                on camera-inactive, frame-drain failure, or deadline
-                expiry. Per the Sentinel-return contract:
-                `if image is None: ...`.
+            numpy.ndarray: The captured image.
+
+        Raises:
+            CaptureFailedError: no frame: ``'no_frame'``, the camera
+                delivered none within its grab window, draining, grabbing or
+                waiting for a sum's next frame; ``'deadline_expired'``, state
+                changes outran the budget below; ``'chunk_rejected'``, frames
+                came but none at the ``setting`` asked.
+            HardwareCommandRefusedError: ``'not_connected'``, naming the
+                camera, absent at the call or removed during the capture;
+                ``'camera_not_streaming'``, connected but not grabbing.
+                Nothing reports either here: the raise is the report, so a
+                live-view auto-gain arm is not re-armed on a removal.
 
         The capture honors invalidation across its whole window: hardware
         state changing between the drain's settle and the grab's return is
         detected via the invalidation counters, and the capture re-drains,
         re-derives its expectations (dark floor included), and re-grabs.
         The drain-and-recheck deadline bounds that loop -- a sustained
-        invalidation stream produces a loud, distinctly-logged None in
-        bounded time instead of an open-ended hold. The deadline clock
+        invalidation stream raises ``'deadline_expired'`` in bounded time
+        instead of an open-ended hold. The deadline clock
         suspends while commanded motion is still physically settling
         (motion has its own authoritative completion signal, and a frame
         budget must not out-vote it), and it governs only the drain and
@@ -3228,29 +3241,23 @@ class ImagingAPI:
         whose invalidate has not yet landed when the grab returns; that
         residual is microseconds wide and accepted.
         """
-        # Every exit -- including these not-ready sentinels -- records
-        # last_capture_info, so a consumer relaying the failure cause is
-        # always reading THIS attempt, never a stale dict from the
-        # previous capture.
+        # A capture refused at its call records nothing; every capture past
+        # it records its evidence in last_capture_info, frame or not.
         if not self._driver or not self._driver.active:
-            with self._state_lock:
-                self._last_capture_info = {'not_ready': True}
-            return None
+            raise _camera_not_connected('capture_and_wait')
 
         # active (connected) is necessary but not sufficient to deliver a
         # frame: connect() configures the camera without starting the feed
         # (the lifecycle split), and disable_streaming() deliberately halts it.
-        # A not-grabbing camera cannot produce a capture, so return the same
-        # not-ready sentinel as the active check above -- named distinctly so
-        # a stopped or not-yet-started feed is not misread as a grab timeout.
+        # A not-grabbing camera cannot produce a capture, so it is refused
+        # as that, distinctly, so a stopped or not-yet-started feed is not
+        # misread as a grab timeout.
         if not self._driver.is_grabbing():
             logger.warning(
                 '[SCOPE API ] capture_and_wait: no active grab (streaming not '
-                'started or stopped) -- returning None until the feed is running.'
+                'started or stopped) -- refused until the feed is running.'
             )
-            with self._state_lock:
-                self._last_capture_info = {'not_ready': True}
-            return None
+            raise HardwareCommandRefusedError('camera_not_streaming', 'capture_and_wait')
 
         hold_start = time.monotonic()
         exposure_s = self._grab_sizing_exposure_s()
@@ -3304,7 +3311,7 @@ class ImagingAPI:
                     **extra,
                 }
 
-        def _deadline_none(where: str):
+        def _deadline_expired_error(where: str) -> CaptureFailedError:
             if lock is not None:
                 self._resume_auto_gain_impl(lock)
             logger.warning(
@@ -3315,8 +3322,8 @@ class ImagingAPI:
                 f'wall={time.monotonic() - hold_start:.3f}s); invalidation '
                 f'outran the capture budget. Distinct from grab failure.'
             )
-            _record_capture_info(deadline_expired=True)
-            return None
+            _record_capture_info()
+            return CaptureFailedError('deadline_expired')
 
         # `drained` accumulates across every drain re-entry; `rechecks`
         # counts how many times the window was dirtied and re-run.
@@ -3328,7 +3335,7 @@ class ImagingAPI:
         lock: AutoGainLock | None = None
         while True:
             if _deadline_expired():
-                return _deadline_none('recheck-top')
+                raise _deadline_expired_error('recheck-top')
             # Grab plumbing is re-derived each cycle so a mid-window
             # exposure change sizes the NEXT drain and grab for the state
             # that now holds -- a grab timeout sized to a stale short
@@ -3361,7 +3368,7 @@ class ImagingAPI:
             # twice.
             while self.frame_validity.frames_until_valid(exclude_sources=exclude_sources) > 0:
                 if _deadline_expired():
-                    return _deadline_none('drain-loop')
+                    raise _deadline_expired_error('drain-loop')
                 status, _drain_frame_ts, drain_seq = self._driver.grab_new_capture(
                     timeout_s=grab_timeout_s
                 )
@@ -3372,26 +3379,23 @@ class ImagingAPI:
                     remaining = self.frame_validity.frames_until_valid(
                         exclude_sources=exclude_sources
                     )
-                    device_removed = (
-                        self._driver.is_device_removed()
-                        if self._driver and hasattr(self._driver, 'is_device_removed')
-                        else None
-                    )
+                    # The removal latch is set the moment a removal is seen;
+                    # ``active`` is released later, off-thread.
+                    removed = self.camera_removed or not self._driver.active
                     logger.warning(
                         f'[SCOPE API ] capture_and_wait: frame drain failed -- '
                         f'grab_new_capture returned status=False after '
                         f'{grab_timeout_s:.1f}s timeout '
                         f'(drained={drain_iterations}, frames_until_valid={remaining}, '
-                        f'device_removed={device_removed})'
+                        f'device_removed={removed})'
                     )
-                    # None is the contract's failure sentinel. A bool here
-                    # slips every `is None` caller check: the stills leg
-                    # skipped its capture strike -- and reset the accumulated
-                    # counter -- on exactly this stalled-feed failure mode.
-                    _record_capture_info(drain_failed=True)
+                    _record_capture_info()
+                    if removed:
+                        # The raise is the report: nothing to re-arm.
+                        raise _camera_not_connected('capture_and_wait')
                     if lock is not None:
                         self._resume_auto_gain_impl(lock)
-                    return None
+                    raise CaptureFailedError('no_frame')
 
             if lock is None:
                 # The lock consumes the arm under _state_lock and reports
@@ -3415,7 +3419,7 @@ class ImagingAPI:
 
             with self._state_lock:
                 self._dark_saved = False
-            image = self._get_image_impl(
+            grabbed = self._get_image_impl(
                 force_to_8bit=force_to_8bit,
                 all_ones_check=all_ones_check,
                 dark_floor_check=expected_lit and not accept_dark,
@@ -3431,12 +3435,12 @@ class ImagingAPI:
 
             # Post-grab compare: a changed counter means the window was
             # dirtied and the frame (or failure) predates the state the
-            # caller commanded. The compare runs BEFORE any None
-            # propagates: a dirtied-window failure is recoverable -- it
-            # was caused by the very change this loop exists to honor --
-            # so only a clean-window None falls through as a genuine grab
-            # failure. Compare spans both key sets: a source's first-ever
-            # invalidation adds a key the snapshot lacks.
+            # caller commanded. The compare runs BEFORE any failure is
+            # raised: a dirtied-window failure is recoverable -- it was
+            # caused by the very change this loop exists to honor -- so
+            # only a clean-window failure is raised as a genuine one. Compare
+            # spans both key sets: a source's first-ever invalidation adds a
+            # key the snapshot lacks.
             counts_after = {
                 s: c
                 for s, c in self.frame_validity.invalidation_counts.items()
@@ -3456,35 +3460,48 @@ class ImagingAPI:
             extra['auto_gain'] = lock.state.value
             extra['auto_gain_exposure_ms'] = lock.exposure_ms
             extra['auto_gain_gain_db'] = lock.gain_db
-        if image is None:
-            # A clean-window None with a target still mismatching is the
-            # gate's rejection; name it so the writer's cause is truthful.
-            stale = self._chunk_target_mismatch()
-            if stale is not None:
-                extra['chunk_rejected'] = stale
-        # Recorded whether or not a frame came back, and OUTSIDE the None
-        # branch: a dark frame is delivered, not refused, so this fact rides
-        # a SUCCESSFUL capture. It is the only way a caller that did not
+        failed = grabbed if isinstance(grabbed, _NoFrame) else None
+        if failed is not None:
+            logger.warning(
+                f'[SCOPE API ] capture_and_wait: no frame -- {failed.reason} at the '
+                f'{failed.leg} (drained={drain_iterations}, rechecks={recheck_cycles})'
+            )
+        # A dark frame is delivered, not refused, so this fact rides a
+        # SUCCESSFUL capture. It is the only way a caller that did not
         # measure the pixels itself can tell a dark frame from a lit one.
         with self._state_lock:
             if self._dark_saved:
                 extra['dark_saved'] = True
-        # The record's black level read raises on a failed read and fails the
-        # capture; a locked auto-gain arm is re-armed either way.
+        # A camera found gone is refused, and its refusal is the report: a
+        # locked auto-gain arm is re-armed on every other exit, and on that
+        # one there is nothing to re-arm.
+        removed = failed is not None and failed.removed
         try:
-            if image is not None:
-                extra['frame_record'] = self._build_frame_record(
-                    chunks=chunks, lit=lit, captured_at=grabbed_at
-                )
+            if failed is None:
+                # The record's black level read raises on a failed read and
+                # fails the capture; one that failed because the camera left
+                # between the grab and the read is that removal.
+                try:
+                    extra['frame_record'] = self._build_frame_record(
+                        chunks=chunks, lit=lit, captured_at=grabbed_at
+                    )
+                except CameraReadFailedError as unread:
+                    if not self.camera_removed:
+                        raise
+                    removed = True
+                    _record_capture_info()
+                    raise _camera_not_connected('capture_and_wait') from unread
             _record_capture_info(
                 chunk_exposure_us=chunks.get('ExposureTime'),
                 chunk_gain_db=chunks.get('Gain'),
                 **extra,
             )
         finally:
-            if lock is not None:
+            if lock is not None and not removed:
                 self._resume_auto_gain_impl(lock)
-        return image
+        if failed is not None:
+            raise failed.error('capture_and_wait')
+        return grabbed
 
     def _build_frame_record(
         self,
@@ -3573,11 +3590,11 @@ class ImagingAPI:
         sum_count: int = 1,
         sum_delay_s: float = 0.0,
         sum_iteration_callback: Callable[[], None] | None = None,
-    ) -> np.ndarray | None:
+    ) -> np.ndarray:
         """Capture a frame-valid image on the camera worker, and wait for it.
 
         See ``_capture_and_wait_impl`` for the argument contract, the
-        frame-drain behaviour, and the None-on-failure sentinel; this adds
+        frame-drain behaviour, and what it raises for no frame; this adds
         only the dispatch described on ``_dispatch_camera``. ``timeout_s``
         stays the content-gate retry budget the body reads; the executor
         wait is bounded separately and internally.
@@ -3598,7 +3615,7 @@ class ImagingAPI:
         # the body's own drain-and-recheck deadline -- otherwise a deep
         # legitimate drain (a 20-frame auto-gain settle at the luminescence
         # exposure ceiling) surfaces to the caller as an executor
-        # TimeoutError instead of the body's loud, distinctly-logged None.
+        # TimeoutError instead of the body's own 'deadline_expired'.
         frame_cost_s = max(
             self.exposure_ms_cached / 1000.0,
             self._CAPTURE_DEADLINE_MIN_FRAME_PERIOD_S,
@@ -3692,7 +3709,7 @@ class ImagingAPI:
         force_new_capture: bool = False,
         new_capture_timeout_s: float = 5.0,
         verify_chunk_targets: bool = False,
-    ) -> np.ndarray | None:
+    ) -> np.ndarray | _NoFrame:
         """Grab and return an image from the camera.
 
         By default returns the last buffered frame. Set force_new_capture=True
@@ -3734,10 +3751,10 @@ class ImagingAPI:
                 hardware auto-gain owns the value).
 
         Returns:
-            numpy.ndarray | None: Captured image array, or None on failure
-                (camera inactive, frame drain failed, timeout exceeded).
-                Per the Sentinel-return contract preface in LumascopeSkills:
-                `if image is None: ...` to detect failure.
+            numpy.ndarray | _NoFrame: The captured image, or the record of
+                a grab that got none, which the caller raises once its own
+                cleanup has run (``_NoFrame.error``). Nothing is raised or
+                reported here.
 
                 Shape is (H, W) 2D mono for mono-native cameras and
                 (H, W, 3) RGB for color-native cameras. Probe
@@ -3755,7 +3772,7 @@ class ImagingAPI:
         """
 
         if not self._driver or not self._driver.active:
-            return None
+            return _NoFrame('removed', 'entry')
 
         tmp_buffer = []
         # Arrival ordinal of the frame most recently taken into the sum; None
@@ -3763,7 +3780,9 @@ class ImagingAPI:
         # outlived one capture would reject the next capture's frames.
         earliest_seq = None
         timeout_td = datetime.timedelta(seconds=timeout_s)
-        for _ in range(sum_count):
+        for frame_index in range(sum_count):
+            # Waiting for a sum's next frame is its own leg, for the log.
+            leg = 'sum' if frame_index else 'grab'
             start_time = datetime.datetime.now()
             stop_time = start_time + timeout_td
 
@@ -3789,17 +3808,10 @@ class ImagingAPI:
                     # so it alone would miss a failure in between.
                     if self.camera_removed or not self._driver.active:
                         logger.error('[SCOPE API ] get_image: camera disconnected')
-                        from modules.notification_center import notifications
-
-                        notifications.error(
-                            'Camera',
-                            'Camera Disconnected',
-                            'Camera is no longer available. Check USB connection.',
-                        )
-                        return None
+                        return _NoFrame('removed', leg)
                     if datetime.datetime.now() > stop_time:
                         logger.error(f'[SCOPE API ] get_image timeout ({stop_time}) exceeded')
-                        return None
+                        return _NoFrame('no_frame', leg)
                     logger.debug('[SCOPE API ] get_image grab failed, retrying')
                     time.sleep(0.05)
                     continue
@@ -3921,7 +3933,7 @@ class ImagingAPI:
                                 f'exposed under the previous settings, or it '
                                 f'clamped the requested value. Capture rejected.'
                             )
-                            return None
+                            return _NoFrame('chunk_rejected', leg, setting=stale_source)
                         logger.debug(
                             f'[SCOPE API ] get_image: rejecting frame exposed '
                             f'under stale {stale_source}; waiting for a frame '
@@ -3954,7 +3966,7 @@ class ImagingAPI:
                 # Timestamp not met -- check timeout then retry
                 if datetime.datetime.now() > stop_time:
                     logger.error(f'[SCOPE API ] get_image timeout ({stop_time}) exceeded')
-                    return None
+                    return _NoFrame('no_frame', leg)
                 time.sleep(0.05)
 
             if sum_count > 1:
@@ -4033,7 +4045,7 @@ class ImagingAPI:
         force_new_capture: bool = False,
         new_capture_timeout_s: float = 5.0,
         verify_chunk_targets: bool = False,
-    ) -> np.ndarray | None:
+    ) -> np.ndarray:
         """Grab and return an image from the camera -- the UNGATED primitive.
 
         Never dark-rejects: liveness probes and diagnostics must see what
@@ -4051,6 +4063,11 @@ class ImagingAPI:
         Raises:
             ArgumentRefusedError: ``'not_a_number'``, a time is not a finite
                 number.
+            CaptureFailedError: ``'no_frame'``, no frame within the timeouts;
+                ``'chunk_rejected'``, frames came but none at the ``setting``
+                asked (``verify_chunk_targets``).
+            HardwareCommandRefusedError: ``'not_connected'``, naming the
+                camera, absent at the call or removed during the grab.
         """
         for name, value in (
             ('timeout_s', timeout_s),
@@ -4058,7 +4075,7 @@ class ImagingAPI:
             ('new_capture_timeout_s', new_capture_timeout_s),
         ):
             refuse_unless_finite_number(value, name)
-        return self._get_image_impl(
+        grabbed = self._get_image_impl(
             force_to_8bit=force_to_8bit,
             timeout_s=timeout_s,
             all_ones_check=all_ones_check,
@@ -4069,6 +4086,9 @@ class ImagingAPI:
             new_capture_timeout_s=new_capture_timeout_s,
             verify_chunk_targets=verify_chunk_targets,
         )
+        if isinstance(grabbed, _NoFrame):
+            raise grabbed.error('get_image')
+        return grabbed
 
     @api(in_process=True)
     def get_image_from_buffer(
@@ -5197,15 +5217,19 @@ class ImagingAPI:
 
         Returns:
             dict | None: ``{'hold_ms', 'drained', 'chunk_exposure_us',
-                'chunk_gain_db'}`` for the latest capture, or None before
-                the first capture. Chunk values are None on cameras
+                'chunk_gain_db'}`` for the latest capture past its call,
+                whether it returned a frame or raised why it got none; None
+                before the first. A capture refused at its call (no camera,
+                or one not streaming) records nothing, so read this only
+                after a capture that returned or raised
+                ``CaptureFailedError``. Why a capture got no frame is what it
+                raised, never this record. Chunk values are None on cameras
                 without chunk support. When the capture locked a standing
                 auto-gain arm it also carries ``'auto_gain'`` (one of
                 ``AutoGainConvergence``'s values: CONVERGED / MAXED /
                 AT_MINIMUM / FAILED), ``'auto_gain_exposure_ms'`` and
                 ``'auto_gain_gain_db'`` (the locked values, None on
-                FAILED). A capture the chunk gate rejected carries
-                ``'chunk_rejected'`` naming the source. A capture that
+                FAILED). A capture that
                 returned a frame carries ``'frame_record'``, the
                 ``FrameRecord`` taken with it: read it on the thread that
                 captured, before capturing again, and hand it on with the

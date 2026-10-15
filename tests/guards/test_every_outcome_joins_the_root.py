@@ -185,7 +185,7 @@ def test_an_umbrella_s_children_are_still_caught_by_it():
     from modules.exceptions import CaptureFailedError, ConfigurationDefectError
 
     assert isinstance(ConfigurationDefectError('settings_not_prepared', 'x'), ConfigError)
-    assert isinstance(CaptureFailedError('x', 'no_frame_returned'), CaptureError)
+    assert isinstance(CaptureFailedError('no_frame'), CaptureError)
 
 
 def test_a_configuration_defect_outside_its_vocabulary_fails_where_it_is_raised():
@@ -199,7 +199,7 @@ def test_a_capture_failure_outside_its_vocabulary_fails_where_it_is_raised():
     from modules.exceptions import CaptureFailedError
 
     with pytest.raises(TypeError, match='nope'):
-        CaptureFailedError('x', 'nope')
+        CaptureFailedError('nope')
 
 
 def test_a_defect_s_words_are_shown_only_where_they_are_written_for_the_person():
@@ -208,8 +208,8 @@ def test_a_defect_s_words_are_shown_only_where_they_are_written_for_the_person()
 
     assert outcome_of(ConfigurationDefectError('settings_not_prepared', 'x')).for_person is False
     assert outcome_of(ConfigurationDefectError('layers_unresolved', 'x')).for_person is True
-    assert outcome_of(CaptureFailedError('x', 'no_frame_returned')).for_person is True
-    assert outcome_of(CaptureFailedError('x', 'unknown_save_encoding')).for_person is False
+    assert outcome_of(CaptureFailedError('no_frame')).for_person is True
+    assert outcome_of(CaptureFailedError('unknown_save_encoding', encoding='x')).for_person is False
 
 
 def test_no_kind_is_itself_an_exception():

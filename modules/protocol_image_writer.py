@@ -27,6 +27,7 @@ from lvp_logger import protocol_logger as logger
 from modules.activity_claim import BorrowedClaim
 from modules.exceptions import (
     CameraSettingRejected,
+    CaptureFailedError,
     MissingPart,
     ObjectiveUnknownError,
     RunFailedError,
@@ -35,7 +36,6 @@ from modules.exceptions import (
 )
 from modules.image_save import save_image
 from modules.layer_record import ChannelColors
-from modules.lumascope_api.imaging import capture_failure_cause
 from modules.notification_center import notifications
 from modules.protocol import Protocol
 from modules.protocol_execution_record import ProtocolExecutionRecord
@@ -1149,6 +1149,10 @@ class ProtocolImageWriter:
             the LED off themselves; fatal faults route through
             _abort_run_fatal, which force-darkens immediately, and cleanup
             re-asserts dark as the run's terminal LED state.
+
+        Raises:
+            HardwareCommandRefusedError: ``'not_connected'``, the camera left
+                during the still's capture; the run loop ends the run on it.
         """
         if self._aborted.is_set():
             return False
@@ -1410,19 +1414,20 @@ class ProtocolImageWriter:
                     # that delivers a black frame fails loudly while an
                     # illumination-0 or luminescence step stays dark by
                     # design.
-                    captured_image = self._scope.imaging.capture_and_wait(
-                        force_to_8bit=capture_depth == 8,
-                        all_ones_check=True,
-                        timeout_s=1.0,
-                        sum_count=sum_count,
-                        sum_delay_s=step['Exposure'] / 1000,
-                        sum_iteration_callback=sum_iteration_callback,
-                    )
-
-                    if captured_image is None:
-                        # The cause relays what the capture actually recorded,
-                        # through the one ladder the manual path reads too.
-                        cause = capture_failure_cause(self._scope.imaging.last_capture_info)
+                    # A capture that got no frame is a strike, named by its
+                    # own reason. A camera that is gone is refused, and the
+                    # refusal leaves this step: the run loop ends the run
+                    # on it, as for any hardware that left.
+                    try:
+                        captured_image = self._scope.imaging.capture_and_wait(
+                            force_to_8bit=capture_depth == 8,
+                            all_ones_check=True,
+                            timeout_s=1.0,
+                            sum_count=sum_count,
+                            sum_delay_s=step['Exposure'] / 1000,
+                            sum_iteration_callback=sum_iteration_callback,
+                        )
+                    except CaptureFailedError as failed:
                         self._note_capture_failure(
                             step=step,
                             curr_step=curr_step,
@@ -1430,7 +1435,7 @@ class ProtocolImageWriter:
                             name=name,
                             enable_image_saving=enable_image_saving,
                             separate_folder_per_channel=separate_folder_per_channel,
-                            cause=cause,
+                            cause=str(failed),
                         )
                         _proto_outcome = 'capture_failed'
                         return False

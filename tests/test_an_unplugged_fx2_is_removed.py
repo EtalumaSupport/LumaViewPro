@@ -22,7 +22,7 @@ import pytest
 
 from drivers import fx2driver
 from drivers.fx2driver import _ByteStream
-from modules.exceptions import HardwareCommandRefusedError, MissingPart
+from modules.exceptions import CaptureFailedError, HardwareCommandRefusedError, MissingPart
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 
@@ -41,9 +41,18 @@ def session():
     settings['simulator_tier'] = 'fast'
     session = ScopeSession.create(settings, simulate=True)
     session.scope.imaging.enable_streaming()
-    assert _wait_until(lambda: session.scope.imaging.get_image() is not None, 5.0)
+    assert _wait_until(lambda: _delivers(session.scope), 5.0)
     yield session
     session.shutdown()
+
+
+def _delivers(scope) -> bool:
+    """Whether a grab now returns a frame; one that got none raises."""
+    try:
+        scope.imaging.get_image()
+    except CaptureFailedError:
+        return False
+    return True
 
 
 def _transport(session):
@@ -60,7 +69,9 @@ def test_an_unplug_while_streaming_disconnects_the_camera_and_the_led(session):
     assert _wait_until(lambda: not scope.camera_connected, 6.0)
     assert scope.led_connected is False
     assert scope.are_all_connected() is False
-    assert scope.imaging.get_image() is None
+    with pytest.raises(HardwareCommandRefusedError) as refused:
+        scope.imaging.get_image()
+    assert refused.value.reason == 'not_connected'
     assert _wait_until(lambda: not grab_thread.is_alive(), 6.0)
     assert _wait_until(lambda: scope._camera_driver.active is None, 6.0)
 

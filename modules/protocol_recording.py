@@ -48,6 +48,7 @@ import modules.image_utils as image_utils
 import modules.layer_record as layer_record
 from modules.exceptions import (
     CameraSettingRejected,
+    CaptureFailedError,
     FrameListenerNotRegisteredError,
     RecordingDetailsNotSavedError,
     RecordingFinalizeError,
@@ -421,6 +422,11 @@ class ProtocolVideoStep:
         ``frames_until_valid`` while frames keep arriving, and blaming
         the camera for a motion fault would send the run's abort message
         pointing at the wrong hardware.
+
+        Raises:
+            HardwareCommandRefusedError: ``'not_connected'``, the camera
+                left during the drain; it leaves the video step, and the run
+                loop ends the run on it.
         """
         scope = self._scope
         exposure_s = float(step['Exposure']) / 1000.0
@@ -437,8 +443,14 @@ class ProtocolVideoStep:
                     'treating the feed as dead'
                 )
                 return NO_FRAMES
-            if scope.imaging.get_image(force_new_capture=True) is not None:
-                arrivals += 1
+            # A grab that got no frame is no arrival, for the stall watch. A
+            # camera that is gone is refused, and the refusal leaves the step:
+            # the run loop ends the run on it, as for a still.
+            try:
+                scope.imaging.get_image(force_new_capture=True)
+            except CaptureFailedError:
+                continue
+            arrivals += 1
         time.sleep(max(step['Exposure'] / 1000, 0.05))
 
         # A camera without hardware auto-gain records the step manual, as

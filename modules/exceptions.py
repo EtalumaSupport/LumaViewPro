@@ -19,6 +19,10 @@ from modules.run_outcome import ENDING_TITLES
 if TYPE_CHECKING:
     from modules.plugins import PluginNotLoaded
 
+# A camera that is connected and not delivering frames: a run refused at its
+# start and a capture refused at its call carry the one heading.
+CAMERA_NOT_STREAMING_TITLE = 'Camera Not Streaming'
+
 
 @api_fields('member', 'confirm_text', 'cancel_text')
 @dataclass(frozen=True)
@@ -1261,28 +1265,79 @@ class CaptureError(_Umbrella, Exception):
         self.reason = reason
 
 
+@api_fields('setting')
 class CaptureFailedError(Fault, CaptureError):
     """A capture or a recording was attempted and produced nothing.
 
+    Raised by ``capture_and_wait`` and ``get_image`` for a capture that got
+    no frame; a camera that is not there is refused instead
+    (``HardwareCommandRefusedError``, ``'not_connected'``).
+
     Attributes:
-        reason: ``'no_frame_returned'`` -- the camera returned no image;
-            ``'recording_not_started'`` -- the camera did not take the
-            recording's frame listener; ``'unknown_save_encoding'`` -- a
-            frame was handed an encoding no writer knows, which the
-            program, not the person, got wrong.
+        reason: One of:
+
+            - ``'no_frame'`` -- the camera delivered no new frame within its
+              grab window, whether the capture was draining, grabbing or
+              waiting for a sum's next frame.
+            - ``'deadline_expired'`` -- the scope's state kept changing for
+              longer than the capture's budget.
+            - ``'chunk_rejected'`` -- frames came, but none was exposed at
+              the ``setting`` asked.
+            - ``'recording_not_started'`` -- the camera did not take the
+              recording's frame listener.
+            - ``'unknown_save_encoding'`` -- a frame was handed an encoding
+              no writer knows, which the program, not the person, got wrong.
+        setting: The setting no frame matched, ``'exposure'`` or ``'gain'``,
+            for ``'chunk_rejected'``; None otherwise.
     """
 
-    _TITLES: ClassVar[dict[str, str]] = {
-        'no_frame_returned': 'Capture Failed',
-        'recording_not_started': 'Recording Not Started',
-        'unknown_save_encoding': 'Capture Failed',
+    setting: str | None
+
+    _WORDS: ClassVar[dict[str, tuple[str, str]]] = {
+        'no_frame': (
+            'Capture Failed',
+            'The camera delivered no new frame in time, so nothing was captured. '
+            'Check that the live view is moving; if it has stopped, check the '
+            "camera's USB cable.",
+        ),
+        'deadline_expired': (
+            'Capture Failed',
+            "The microscope's state kept changing for longer than the capture could "
+            'wait, so nothing was captured. Try again once the stage and lights '
+            'have settled.',
+        ),
+        'chunk_rejected': (
+            'Capture Failed',
+            'The camera kept delivering frames that were not exposed at the '
+            '{setting} asked for, so none was captured. Try again; if it repeats, '
+            'the camera is holding a different {setting} than was set.',
+        ),
+        'recording_not_started': (
+            'Recording Not Started',
+            'The recording did not start: the camera did not accept its frame '
+            'listener. Check the log for the camera driver error.',
+        ),
+        'unknown_save_encoding': (
+            'Capture Failed',
+            'A frame was handed the save encoding {encoding!r}, which no image '
+            'writer knows, so it was not saved.',
+        ),
     }
 
-    def __init__(self, message: str, reason: str):
-        if reason not in self._TITLES:
+    def __init__(self, reason: str, *, setting: str | None = None, encoding: str | None = None):
+        if reason not in self._WORDS:
             raise TypeError(f'CaptureFailedError has no reason {reason!r}')
-        super().__init__(message, reason)
-        self.title = self._TITLES[reason]
+        if (setting is None) == (reason == 'chunk_rejected'):
+            raise TypeError(
+                f'a {reason!r} capture failure takes setting= exactly when chunk_rejected'
+            )
+        if (encoding is None) == (reason == 'unknown_save_encoding'):
+            raise TypeError(
+                f'a {reason!r} capture failure takes encoding= exactly when unknown_save_encoding'
+            )
+        self.title, words = self._WORDS[reason]
+        super().__init__(words.format(setting=setting, encoding=encoding), reason)
+        self.setting = setting
 
     @property
     def words_for_person(self) -> bool:
@@ -1410,7 +1465,7 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
         'files_writing_stalled': ENDING_TITLES['file_writer_stalled'],
         'autofocus_running': 'Autofocus Running',
         'hardware_disconnected': 'Hardware Disconnected',
-        'camera_not_streaming': 'Camera Not Streaming',
+        'camera_not_streaming': CAMERA_NOT_STREAMING_TITLE,
         'position_unknown': 'Scope Not Homed',
         'lid_open': INTERLOCK_TITLES['lid_open'],
         'capture_location_unusable': 'Save Location Unusable',
@@ -2596,6 +2651,8 @@ class HardwareCommandRefusedError(Refusal, Exception):
     So does a move or a home the stage's own interlock refused before
     anything moved (``INTERLOCK_REASONS``): the lid is open, or the stage
     has no power; the refused axis is where it was, its position known.
+    A capture asked of a camera that is connected but not streaming is
+    refused ``'camera_not_streaming'``: nothing can deliver its frame.
 
     A declined request, not a fault, so it is a ``Refusal``: the lane shows
     it as a warning in its own words and logs one line without a
@@ -2626,6 +2683,7 @@ class HardwareCommandRefusedError(Refusal, Exception):
         'lid_open': RefusalCause.STATE,
         'stage_unpowered': RefusalCause.STATE,
         'not_connected': RefusalCause.STATE,
+        'camera_not_streaming': RefusalCause.STATE,
         'axis_absent': RefusalCause.REQUEST,
         'activity_ended': RefusalCause.REQUEST,
     }
@@ -2639,6 +2697,7 @@ class HardwareCommandRefusedError(Refusal, Exception):
         'home_in_flight': 'Microscope Busy',
         'not_connected': 'Not Connected',
         'scope_disconnected': 'Not Connected',
+        'camera_not_streaming': CAMERA_NOT_STREAMING_TITLE,
         'monitor_ended': 'Motion Monitor Stopped',
         'axis_absent': 'Not on This Microscope',
         'position_unread': 'Motor Controller Not Responding',
@@ -2825,6 +2884,11 @@ def _command_refused_sentence(reason: str, holder: str | None) -> str:
         return "The microscope's lid is open. Close it to move or home the stage."
     if reason == 'stage_unpowered':
         return "The stage has no power. Check the stage's power supply, then home."
+    if reason == 'camera_not_streaming':
+        return (
+            'The camera is connected but is not delivering frames, so nothing was '
+            'captured. Start its live feed and try again.'
+        )
     return f'{the_activity_named(holder)} is using the microscope. Try again when it ends.'
 
 
@@ -2947,8 +3011,9 @@ class ArgumentRefusedError(Refusal, ValueError):
               ``limits``, 0 to the attached LED board's maximum, in mA.
             - ``'missing_key'`` -- a dictionary argument lacks a key its
               member reads; ``argument`` names the key's path.
-            - ``'wrong_kind'`` -- a value in a dictionary argument is not
-              of the kind its member reads (``kind``, in words).
+            - ``'wrong_kind'`` -- an argument, or a value in a dictionary
+              argument, is not of the kind its member reads (``kind``, in
+              words).
             - ``'protocol_source_ambiguous'`` -- not exactly one of the
               protocol sources ``offered`` was given.
             - ``'zstack_reference_unknown'`` -- a z-stack reference that is
