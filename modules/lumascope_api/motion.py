@@ -194,7 +194,7 @@ class PositionChanged:
 class MotionAPI:
     """Motion sub-API. Hosts stateless (Phase 2b) and stateful (Phase 2c) bodies."""
 
-    _MOTION_POLL_INTERVAL = 0.02  # 50 Hz
+    _MOTION_POLL_INTERVAL = 0.02  # the sleep between polls, not their period
     # How long an axis may sit MOVING with the motor board disconnected
     # before the monitor faults it to a terminal state. Well above a
     # transient USB blip, well below the 120s motion timeout.
@@ -2954,13 +2954,22 @@ class MotionAPI:
                     self._give_axis_up(ax, 'monitor_ended')
 
     def _judge_moves(self):
-        """Poll firmware for axis arrival at 50 Hz.
+        """Poll firmware for axis arrival, ``_MOTION_POLL_INTERVAL`` apart.
 
         Sleeps on ``_motion_wake`` when all axes are IDLE. Wakes when any
         axis transitions to MOVING. Polls ``get_target_status()`` per
         MOVING axis and transitions them to IDLE on arrival. This is the
         single place where firmware target-status queries happen during
         normal operation -- all other code reads the in-memory axis state.
+
+        A poll is two exchanges per moving axis, so its rate is the
+        board's, not the interval's: about 7 polls a second with X and Y
+        moving on an LS850T over Windows (2026-10-14). Its listeners are
+        told once every moving axis is read, so a reader of
+        ``axis_positions`` told of one axis finds the others from the same
+        poll; told as each axis was read, the stage drew X's new position
+        beside Y's from the poll before, and a diagonal move crossed the
+        plate in steps.
         """
         while not self._motion_monitor_stop.is_set():
             # Sleep until something starts moving (or shutdown)
@@ -2989,6 +2998,7 @@ class MotionAPI:
                     break
 
                 # Query firmware for each MOVING axis
+                read_this_poll = []
                 with profile_trace.timer(
                     'motion_trace.csv',
                     'ts_ms,duration_ms,event,axis,detail',
@@ -3139,6 +3149,8 @@ class MotionAPI:
                         # No verdict this poll (still moving, a drive in
                         # flight, or the reached bit was another move's):
                         # propagate the refreshed cache value to UI listeners.
-                        self._fire_position_listeners(ax)
+                        read_this_poll.append(ax)
 
+                for ax in read_this_poll:
+                    self._fire_position_listeners(ax)
                 time.sleep(self._MOTION_POLL_INTERVAL)
