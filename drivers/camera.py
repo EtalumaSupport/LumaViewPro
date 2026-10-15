@@ -389,17 +389,19 @@ _TRANSPORT_NAMES = {
 }
 
 
-def declared_unit(genicam_unit: str) -> str | None:
-    """A GenICam node's unit as the node declares it; the empty string
-    GenICam returns for a node with no unit is None, the unit unknown."""
-    return genicam_unit if genicam_unit else None
+def declared_speed(value: float, genicam_unit: str) -> tuple[float, str] | None:
+    """A GenICam speed node's value with the unit the node declares, or None.
+
+    A node that declares no unit (GenICam's empty string; a daA3840-45um's
+    DeviceLinkSpeed) gives a number no caller can read, so it is no speed.
+    """
+    return (value, genicam_unit) if genicam_unit else None
 
 
 def link_info(
     *,
     transport: str | None = None,
-    link_speed: float | None = None,
-    link_speed_unit: str | None = None,
+    link_speed: tuple[float, str] | None = None,
     packet_size_bytes: int | None = None,
     inter_packet_delay: int | None = None,
 ) -> dict:
@@ -407,16 +409,17 @@ def link_info(
     not report a field. ``transport`` is mapped to 'USB3' / 'GigE' / 'USB2'
     where the SDK's name is a known one.
 
-    The speed is carried with the unit the camera declares for it, never
-    converted: Basler's DeviceLinkSpeed is in a unit that varies by model
-    (bits per second on newer bodies), so a fixed conversion would be wrong
-    on some. A camera that declares no unit reports ``link_speed_unit``
-    None.
+    ``link_speed`` is the negotiated speed and its unit, taken together so
+    a speed never arrives without one. It is carried in the unit the camera
+    declares, never converted: Basler's DeviceLinkSpeed is in a unit that
+    varies by model (bits per second on newer bodies), so a fixed
+    conversion would be wrong on some.
     """
+    speed, unit = link_speed if link_speed is not None else (None, None)
     return {
         'transport': _TRANSPORT_NAMES.get(transport, transport),
-        'link_speed': link_speed,
-        'link_speed_unit': link_speed_unit,
+        'link_speed': speed,
+        'link_speed_unit': unit,
         'packet_size_bytes': packet_size_bytes,
         'inter_packet_delay': inter_packet_delay,
     }

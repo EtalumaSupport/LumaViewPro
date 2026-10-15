@@ -41,6 +41,19 @@ def test_the_fx2_is_usb2_at_the_speed_it_negotiated(fx2_session):
     }
 
 
+def test_an_fx2_whose_speed_libusb_does_not_know_reports_no_speed_and_no_unit(
+    fx2_session, monkeypatch
+):
+    # A stand-in by design: the simulated FX2 always negotiates a speed;
+    # libusb's unknown answer (speed 0) is the transport's, pinned below.
+    fx2 = fx2_session.scope._camera_driver._fx2
+    monkeypatch.setattr(fx2, 'link_speed_mbps', lambda: None)
+
+    info = fx2_session.scope.diagnostics.get_camera_link_info()
+
+    assert (info['link_speed'], info['link_speed_unit']) == (None, None)
+
+
 @pytest.mark.parametrize('libusb_speed, mbps', [(0, None), (2, 12.0), (3, 480.0), (4, 5000.0)])
 def test_the_fx2_transport_reads_libusbs_speed(libusb_speed, mbps):
     transport = fx2driver._PyusbTransport()
@@ -88,11 +101,12 @@ def test_pylon_usb3_reports_its_link_speed_in_the_unit_it_declares():
     }
 
 
-def test_pylon_speed_with_no_declared_unit_says_its_unit_is_unknown():
-    cam = _pylon({'DeviceLinkSpeed': 400_000_000}, speed_unit='')
+def test_pylon_speed_with_no_declared_unit_is_not_reported():
+    # A daA3840-45um declares none: a bare 4000000000 is a number no caller
+    # can read, so the speed is unknown with its unit.
+    cam = _pylon({'DeviceLinkSpeed': 4_000_000_000}, speed_unit='')
     info = cam.get_link_info()
-    assert info['link_speed'] == 400_000_000
-    assert info['link_speed_unit'] is None
+    assert (info['link_speed'], info['link_speed_unit']) == (None, None)
 
 
 def test_pylon_gige_reports_its_stream_packet_settings():
@@ -146,10 +160,11 @@ def test_ids_usb3_reports_its_transport_and_link_speed():
     }
 
 
-def test_ids_speed_with_no_declared_unit_says_its_unit_is_unknown():
+def test_ids_speed_with_no_declared_unit_is_not_reported():
     cam, nodes = _ids({'DeviceLinkSpeed': 400_000_000})
     nodes['DeviceLinkSpeed'].Unit.return_value = ''
-    assert cam.get_link_info()['link_speed_unit'] is None
+    info = cam.get_link_info()
+    assert (info['link_speed'], info['link_speed_unit']) == (None, None)
 
 
 def test_ids_without_the_nodes_reports_none_for_each():

@@ -29,7 +29,7 @@ from drivers.camera import (
     Camera,
     FrameGrid,
     ImageHandlerBase,
-    declared_unit,
+    declared_speed,
     link_info,
     no_hardware_auto_mode,
 )
@@ -3181,14 +3181,13 @@ class IDSCamera(Camera):
             transport = None
             if nodemap.HasNode('DeviceTLType'):
                 transport = nodemap.FindNode('DeviceTLType').CurrentEntry().SymbolicValue()
-            speed = speed_unit = None
+            speed = None
             if nodemap.HasNode('DeviceLinkSpeed'):
                 node = nodemap.FindNode('DeviceLinkSpeed')
-                speed, speed_unit = node.Value(), declared_unit(node.Unit())
+                speed = declared_speed(node.Value(), node.Unit())
             return link_info(
                 transport=transport,
                 link_speed=speed,
-                link_speed_unit=speed_unit,
                 packet_size_bytes=_read('GevSCPSPacketSize'),
                 inter_packet_delay=_read('GevSCPD'),
             )

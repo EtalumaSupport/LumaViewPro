@@ -195,8 +195,9 @@ class DiagnosticsAPI:
                 ``link_speed`` is the negotiated speed in the unit the camera
                 declares, ``link_speed_unit`` (GenICam's DeviceLinkSpeed,
                 whose unit varies by Basler model; 'Mbps' from libusb on the
-                FX2); it is never converted, and a camera that declares no
-                unit reports the unit None. The packet size and inter-packet
+                FX2); it is never converted, and a speed whose camera
+                declares no unit is reported None with its unit, a number
+                no caller could read. The packet size and inter-packet
                 delay are GigE's stream settings. None when no camera is
                 connected, after ``disconnect()`` too.
 
