@@ -450,7 +450,9 @@ class SimulationAPI:
                 (no confirmation), ``'true'`` (a bare True that confirms no
                 value), ``'raise'``, or ``'removed'`` (False, with the camera
                 gone from the bus during the write; it stays removed for the
-                session, as after ``remove_camera``).
+                session, as after ``remove_camera``), or ``'no_answer'``
+                (``CameraNoAnswerError``: the write timed out, and the
+                camera stays on the bus).
 
         Raises:
             ArgumentRefusedError: ``'needs_simulated_scope'``;

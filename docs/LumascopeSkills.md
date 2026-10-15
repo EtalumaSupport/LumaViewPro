@@ -1121,6 +1121,7 @@ A fault in the hardware itself is a child of `HardwareError` (`drivers.exception
 | `LedFirmwareWedgedError` | `led_firmware_wedged` | The LED controller's firmware is stuck; power-cycle the unit |
 | `CameraReadFailedError` | `camera_read_failed` | A read or probe of a camera value failed |
 | `CameraWriteFailedError` | `camera_write_failed` | A camera setting write failed (a setter answers it as the `__cause__` of `CameraSettingRejected`) |
+| `CameraNoAnswerError` | `camera_no_answer` | The camera did not answer a setting write in time; it is still on the bus and may answer it sent again |
 | `ConfigReadError` | `config_unread` | The board's per-unit config could not be read, or a value in it is not a number |
 | `PartAbsentError` | `part_absent` | A driver was asked for a part it does not have; the API refuses such a command first (`axis_absent`, `not_connected`), so only a caller below the API meets it |
 

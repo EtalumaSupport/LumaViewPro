@@ -1753,6 +1753,22 @@ class TestTheCamerasFaultDoors:
         with pytest.raises(RuntimeError, match='exposure node write failed'):
             cam.exposure_t(5.0)
 
+    def test_a_write_the_camera_does_not_answer_raises_and_keeps_the_camera(self):
+        # A timed-out write: the camera may answer the next one, so it is
+        # not taken for gone, and nothing moved.
+        from drivers.exceptions import CameraNoAnswerError
+
+        cam = SimulatedCamera()
+        cam.gain(2.0)
+        cam.refuse_write('gain', 'no_answer')
+        with pytest.raises(CameraNoAnswerError) as raised:
+            cam.gain(8.0)
+        assert raised.value.reason == 'camera_no_answer'
+        assert not cam.is_device_removed()
+        assert cam.get_gain() == pytest.approx(2.0)
+        cam.gain(8.0)
+        assert cam.get_gain() == pytest.approx(8.0)
+
     def test_a_refusal_no_write_met_is_taken_back(self):
         cam = SimulatedCamera()
         cam.refuse_write('gain', 'false')

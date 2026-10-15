@@ -169,6 +169,20 @@ class CameraWriteFailedError(Fault, HardwareError):
     words_for_person = False
 
 
+class CameraNoAnswerError(Fault, HardwareError):
+    """The camera did not answer a write of one of its settings in time.
+
+    An SDK or USB timeout on the access that decides whether the write
+    happened. The camera is still on the bus and may answer the same write
+    sent again; whether this one was applied is not known.
+    """
+
+    reason = 'camera_no_answer'
+    title = 'Camera Did Not Answer'
+
+    words_for_person = False
+
+
 class PartAbsentError(Fault, HardwareError):
     """A driver was asked for a part it does not have: an axis, a turret, a
     board, an active camera or an SDK node.

@@ -23,7 +23,7 @@ import numpy as np
 from lvp_logger import logger
 from drivers.camera import Camera, FrameGrid, ImageHandlerBase, link_info
 from drivers.camera_profiles import simulated_exposure_delay_frames, simulated_profile
-from drivers.exceptions import PartAbsentError
+from drivers.exceptions import CameraNoAnswerError, PartAbsentError
 from drivers.registry import camera_registry
 from drivers.simulated_specimen import drift_frames, specimen_field
 
@@ -162,13 +162,15 @@ class SimulatedCamera(Camera):
     }
     # What a refused write answers, by name: a real SDK's node write
     # answers False, nothing, a bare True that confirms no value, or raises;
-    # or answers False because the camera left the bus during the write.
+    # or answers False because the camera left the bus during the write; or
+    # is not answered in time while the camera stays on the bus.
     REFUSED_WRITE_ANSWERS: ClassVar[tuple[str, ...]] = (
         'false',
         'none',
         'true',
         'raise',
         'removed',
+        'no_answer',
     )
 
     def __init__(
@@ -486,7 +488,9 @@ class SimulatedCamera(Camera):
                 ``'none'`` or ``'true'`` is returned; ``'raise'`` raises
                 ``RuntimeError`` as a failed node write; ``'removed'``
                 takes the camera off the bus and returns False, as a
-                camera pulled during the write does.
+                camera pulled during the write does; ``'no_answer'``
+                raises ``CameraNoAnswerError`` as a write the camera did
+                not answer in time, leaving it on the bus.
 
         Raises:
             ValueError: ``node`` or ``answer`` is not one of those.
@@ -507,6 +511,8 @@ class SimulatedCamera(Camera):
             if answer == 'removed':
                 self.leave_bus()
                 return False
+            if answer == 'no_answer':
+                raise CameraNoAnswerError(f'simulated {node} write: the camera did not answer')
             return {'false': False, 'none': None, 'true': True}[answer]
 
         vars(self)[setter] = refused
