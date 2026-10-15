@@ -259,6 +259,9 @@ _ROSTER = {
     # Widening this again would mean the button had been given back a
     # second responsibility.
     'VerticalControl.reset_turret_objective_btn': ('RESET_TURRET_OBJECTIVE',),
+    # Its own record: the question it opens is the objective prompt's, whose
+    # answer and Cancel are recorded as popup responses.
+    'VerticalControl.set_turret_objective_btn': ('SET_TURRET_OBJECTIVE',),
     'VerticalControl.slow_down': (_D('fine_down'),),
     'VerticalControl.slow_up': (_D('fine_up'),),
     # Narrowed to the gesture: a turret press no longer selects an objective

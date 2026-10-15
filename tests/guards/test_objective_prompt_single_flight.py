@@ -113,14 +113,28 @@ def popups(monkeypatch):
     return opened
 
 
+def _descendants(widget):
+    # The popup's spacers are the conftest's bare Widget stub: no children.
+    for child in getattr(widget, '_children', ()):
+        yield child
+        yield from _descendants(child)
+
+
+def _button(popup, text):
+    return next(w for w in _descendants(popup.content) if getattr(w, 'text', None) == text)
+
+
 def confirm(popup, choice=None):
     """Click Confirm on an open popup -- the real production callback."""
-    widgets = popup.content._children
-    spinner = next(w for w in widgets if hasattr(w, 'values'))
-    button = next(w for w in widgets if getattr(w, 'text', None) == 'Confirm')
+    spinner = next(w for w in _descendants(popup.content) if hasattr(w, 'values'))
     if choice is not None:
         spinner.text = choice
-    button.fire('on_release')
+    _button(popup, 'Confirm').fire('on_release')
+
+
+def cancel(popup):
+    """Click Cancel on an open popup -- the real production callback."""
+    _button(popup, 'Cancel').fire('on_release')
 
 
 @pytest.fixture(autouse=True)
@@ -161,6 +175,7 @@ class _Stand:
     # Borrowed, not stubbed: it decides whether a startup step waiting
     # on the objective runs at all.
     _resolve_objective = VerticalControl._resolve_objective
+    set_turret_objective = VerticalControl.set_turret_objective
 
     def __init__(self):
         self.ids = {'objective_spinner2': _FakeWidget(text='')}
@@ -639,8 +654,9 @@ class TestTheFoldedRequestIsStillAnswered:
     ):
         """A continuation left behind would fire on the NEXT prompt's
         answer -- a startup step run against a question nobody asked it
-        about. Unreachable while the modal is cancel-less; pinned so that
-        adding a cancel path cannot quietly create it."""
+        about. Cancel runs them (the test below); this is a dismiss that is
+        neither Confirm nor Cancel, pinned so that no such path can quietly
+        leave one behind."""
         _install_ctx(monkeypatch, session)
         stand = _Stand()
         ran = []
@@ -653,3 +669,23 @@ class TestTheFoldedRequestIsStillAnswered:
         confirm(popups[1], '10x Oly')
 
         assert ran == []
+
+    def test_cancel_writes_nothing_and_every_caller_s_work_still_runs(
+        self, monkeypatch, popups, session
+    ):
+        """Cancel leaves the objective unknown and the slot unassigned, and
+        the asker's and the folded caller's continuations both run: the
+        startup protocol load is never stranded behind a cancelled question."""
+        _install_ctx(monkeypatch, session)
+        stand = _Stand()
+        ran = []
+
+        stand.prompt_if_objective_unknown(on_resolved=lambda: ran.append('asker'))
+        stand.prompt_if_objective_unknown(on_resolved=lambda: ran.append('startup'))
+        cancel(popups[0])
+
+        assert sorted(ran) == ['asker', 'startup']
+        assert session.settings['turret_objectives'][1] is None
+        assert session.scope.runtime_state.get_current_objective_id() is None
+        stand.prompt_if_objective_unknown()
+        assert len(popups) == 2, 'a cancelled prompt leaves the app able to ask again'

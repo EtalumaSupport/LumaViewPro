@@ -250,6 +250,8 @@ On a turret scope `confirm_objective` requires `turret_position` (`ArgumentRefus
 
 `objective_question()` is a read: it returns a question when no one has confirmed the objective for this scope's light path, or when the slot in the light path on a declared turret model has no assignment. The question names the live slot (`scope.motion.get_turret_slot()`) and proposes only that slot's assignment; an unknown slot alone -- as during every turret move -- owes no question, but on an install whose objective has never been confirmed an unknown slot raises `ObjectiveUnknownError` (`.reason` `'slot_unknown'`) rather than ask about a slot the turret may not be in. It may log one withheld-question line per call while a question is owed and suppressed (no hardware; provisional settings) -- a caller that polls it will see that line per poll. A configured session may still have a question to ask: the factories do not ask it. A turret move onto an unassigned slot does not ask either, so a headless caller asks `objective_question()` after the move.
 
+`current_slot_objective_question()` is the same question for the slot in the light path, asked whether or not one is owed: to change what a slot holds, or to name a slot nothing is assigned to. It proposes the slot's assignment (the catalogue default when the slot holds a name the catalogue lacks), so an unchanged answer leaves the slot as it is, and its answer goes to `confirm_objective` with the slot the question names. It raises `ObjectiveUnknownError` (`'slot_unknown'`) while the slot is unknown and `HardwareCommandRefusedError` (`'axis_absent'`) on a scope with no turret.
+
 Labware / turret-config / stage-offset are runtime-mutable microscope configuration (not live hardware). The `scope.runtime_state` sub-API answers them, reading the session's settings, their one store, on every answer; it holds no copy and has no setter. L2 callers reach it through the composition root the Session exposes: `session.scope.runtime_state.*`. They are changed only through the Session: `session.select_objective`, `session.assign_turret_objective` / `session.clear_turret_objective`, `session.select_labware`, and `session.update_settings('stage_offset.x', ...)`. What a getter returns is a copy: changing it changes no setting.
 
 ```python
@@ -2959,6 +2961,7 @@ Reached through `ScopeSession.create(settings, ...)`; every L2 caller starts her
 - `create` (in-process)
 - `create_empty_protocol`
 - `create_protocol_runner`
+- `current_slot_objective_question`
 - `delete_step`
 - `diagnostic_claim` (in-process)
 - `disable_metrics` (in-process)

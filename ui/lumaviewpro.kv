@@ -701,14 +701,25 @@
 			        log_name: 'OBJECTIVE'
 			        on_pick: root.pick_objective(args[1])
 
-			RoundedButton:
-				id: reset_turret_objective_btn
-				text: 'Reset Turret Objective'
+			BoxLayout:
+				orientation: 'horizontal'
+				id: turret_objective_btn_box
 				size_hint_y: None
-				height: '30dp'
-				font_size: '12sp'
-				disabled: app.controls_locked
-				on_release: root.reset_turret_objective()
+				height: '30dp' if self.visible else 0
+				opacity: 1 if self.visible else 0
+				disabled: (not self.visible) or app.controls_locked
+				visible: True
+				spacing: '5dp'
+				RoundedButton:
+					id: set_turret_objective_btn
+					text: 'Set Turret Objective'
+					font_size: '12sp'
+					on_release: root.set_turret_objective()
+				RoundedButton:
+					id: reset_turret_objective_btn
+					text: 'Reset Turret Objective'
+					font_size: '12sp'
+					on_release: root.reset_turret_objective()
             
 			ZStack:
 				id: zstack_id

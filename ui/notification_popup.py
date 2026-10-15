@@ -551,6 +551,7 @@ def show_objective_selection_popup(
     objectives: list[str],
     current_objective_id: str,
     on_confirm: typing.Callable[[str], None],
+    on_cancel: typing.Callable[[], None],
     on_folded: typing.Callable[[], None],
 ):
     """Modal prompt asking the user which objective is in the light path.
@@ -559,10 +560,13 @@ def show_objective_selection_popup(
     bar and every saved image's metadata, and a wrong one cannot be told
     from a measured one afterwards -- so when the app cannot know the
     objective (first run, or a turret position with no assignment), it
-    asks instead of assuming silently. There is deliberately no cancel
-    path: dismissing without answering would put the app right back in
-    the cannot-know state the prompt exists to resolve, so the popup
-    stays until the user confirms a choice.
+    asks instead of assuming silently. Cancel leaves the objective as
+    unknown as it was: every capture then refuses, saying to assign it,
+    and Set Turret Objective asks again. Without it a person who does
+    not know what is installed could only answer by writing an objective
+    nobody named -- the catalogue default, preselected. The popup has no
+    X: Cancel is the one way to leave it unanswered, and it runs every
+    folded caller's continuation as Confirm does.
 
     Args:
         title: Short noun phrase.
@@ -570,6 +574,9 @@ def show_objective_selection_popup(
         objectives: Selectable objective ids, in display order.
         current_objective_id: Pre-selected value (the proposed default).
         on_confirm: Called with the chosen objective id: applies the answer.
+        on_cancel: This request's continuation when the person cancels:
+            nothing is written, and whatever waits on the question going
+            away -- the startup protocol load -- still runs.
         on_folded: This request's continuation, run instead of ``on_confirm``
             when the request is folded into a prompt already on screen.
             The answer is applied once, by the prompt on screen, to the
@@ -632,8 +639,12 @@ def show_objective_selection_popup(
     content.add_widget(spinner)
     content.add_widget(Widget())
 
-    confirm_button = Button(text='Confirm', size_hint_y=None, height='34dp')
-    content.add_widget(confirm_button)
+    buttons = BoxLayout(orientation='horizontal', size_hint_y=None, height='34dp', spacing=10)
+    cancel_button = Button(text='Cancel')
+    confirm_button = Button(text='Confirm')
+    buttons.add_widget(cancel_button)
+    buttons.add_widget(confirm_button)
+    content.add_widget(buttons)
 
     popup = Popup(
         title=title,
@@ -656,6 +667,17 @@ def show_objective_selection_popup(
         for continuation in folded:
             continuation()
 
+    def _on_cancel(*_a):
+        global _objective_popup_folded
+        _log_response(title, 'CANCEL')
+        # As in _on_confirm: the folded callers asked and are owed their
+        # continuations; only the answer is withheld.
+        folded, _objective_popup_folded = _objective_popup_folded, []
+        popup.dismiss()
+        on_cancel()
+        for continuation in folded:
+            continuation()
+
     def _on_dismiss(*_a):
         global _objective_popup_open, _objective_popup_folded
         _objective_popup_open = False
@@ -666,6 +688,7 @@ def show_objective_selection_popup(
         _objective_popup_folded = []
 
     confirm_button.bind(on_release=_on_confirm)
+    cancel_button.bind(on_release=_on_cancel)
     # Dismiss (which confirm fires before applying the answer) clears the
     # outstanding-question flag, so a failure while applying cannot leave
     # the app unable to ever ask again. The flag is set only after a

@@ -433,12 +433,28 @@ class VerticalControl(BoxLayout):
         )
 
         # No prompt follows, deliberately. The press IS the user saying
-        # this slot is empty, and the objective prompt has no cancel
-        # path -- so asking here forced an objective back into the slot
-        # that had just been cleared, leaving the button unable to do
-        # its job at any position. Arriving at an unassigned slot still
-        # asks, and so does startup, so no position goes unasked before
-        # its objective matters.
+        # this slot is empty; asking straight back which objective is in
+        # it is a question they have just answered. Set Turret Objective
+        # names the slot's glass when they want to.
+
+    def set_turret_objective(self):
+        """Ask which objective is installed in the slot in the light path.
+
+        The question is the Session's, asked whether or not one is owed,
+        and is shown by the one objective popup; its answer and its
+        Cancel go where the owed question's do. A refusal -- the turret
+        in no known slot -- is shown.
+        """
+        gui_logger.button('SET_TURRET_OBJECTIVE')
+        # The popup is opened inside the reported call: run_reported drops
+        # the call's return, and the question is that return.
+        run_reported(
+            lambda: self._render_objective_question(
+                _app_ctx.ctx.session.current_slot_objective_question()
+            ),
+            redraw=None,
+            label='SET_TURRET_OBJECTIVE',
+        )
 
     def prompt_if_objective_unknown(self, on_resolved=None):
         """Ask the Session whether the objective needs confirming; render the answer.
@@ -511,6 +527,7 @@ class VerticalControl(BoxLayout):
             on_confirm=lambda chosen: self._apply_objective_answer(
                 chosen, question.turret_position, on_resolved=on_resolved
             ),
+            on_cancel=lambda: self._resolve_objective(on_resolved),
             on_folded=lambda: self._resolve_objective(on_resolved),
         )
 

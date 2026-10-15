@@ -211,15 +211,16 @@ def _tell_stored_replacements(pending: list[tuple[str, object, object]]) -> None
 @api_fields('choices', 'proposed', 'turret_position')
 @dataclasses.dataclass(frozen=True)
 class ObjectiveQuestion:
-    """The objective is unknowable; this is what to ask the user.
+    """Which objective is in the light path; what to ask the user.
 
     Returned by ``ScopeSession.objective_question`` when no one has ever
     confirmed the objective on this install, or the turret sits on a slot
-    with no assignment. The pixel size derived from the objective is
-    stamped into the scale bar and every saved image's metadata, and a
-    wrong scale cannot be told from a measured one afterwards -- so the
-    session exposes the question instead of assuming silently, and a
-    host renders it however it likes. The answer goes back through
+    with no assignment; and by ``current_slot_objective_question`` whenever
+    a person asks to say what the current turret slot holds. The pixel size
+    derived from the objective is stamped into the scale bar and every
+    saved image's metadata, and a wrong scale cannot be told from a
+    measured one afterwards -- so the session exposes the question instead
+    of assuming silently, and a host renders it however it likes. The answer goes back through
     ``ScopeSession.confirm_objective``.
 
     Attributes:
@@ -3685,13 +3686,49 @@ class ScopeSession:
             return None
         if has_turret and position is None:
             raise ObjectiveUnknownError('slot_unknown')
+        return self._objective_question_at(position)
+
+    @api(reads=True)
+    def current_slot_objective_question(self) -> ObjectiveQuestion:
+        """The objective question for the turret slot in the light path, owed or not.
+
+        A person asking to say which objective is installed in the current
+        slot: to change an assignment, or to name a slot nothing is assigned
+        to, at any time rather than only when ``objective_question`` owes it.
+        The question is that read's, proposing the slot's assignment, so an
+        unchanged answer leaves the slot as it is. The answer goes back
+        through ``confirm_objective`` with the slot the question names, which
+        is the slot written even if the turret has moved since.
+
+        A hold or provisional settings refuse nothing here: the answer's own
+        write refuses a change under a hold, and a write while settings are
+        provisional is kept like any other setting's.
+
+        Raises:
+            HardwareCommandRefusedError: ``'axis_absent'``, the scope has no
+                turret.
+            ObjectiveUnknownError: ``'slot_unknown'``, the slot in the light
+                path is unknown -- the turret is turning or has not been homed.
+            ConfigError: the catalogue is empty, or cannot be read.
+        """
+        self._refuse_without_a_turret('current_slot_objective_question')
+        position = self.scope.motion.get_turret_slot()
+        if position is None:
+            raise ObjectiveUnknownError('slot_unknown')
+        return self._objective_question_at(position)
+
+    def _objective_question_at(self, position: 'int | None') -> ObjectiveQuestion:
+        # The one proposal rule for both reads; position is None only on a
+        # turretless scope.
+        slots = self.settings['turret_objectives']
+        confirmed = self.settings['objective_confirmed']
         choices = tuple(self.objective_helper.get_objectives_list())
         # The slot's own assignment names glass someone confirmed. On a
         # turretless scope the stored objective_id does once a confirmation
         # exists: owed then, the confirmation was a turret's, and the stored id
         # is the pick the scope last had before it. Never confirmed, it is the
         # shipped template's value. Everything else gets the catalogue's default.
-        if has_turret:
+        if position is not None:
             proposed = slots.get(position)
         else:
             proposed = self.settings['objective_id'] if confirmed is not None else None

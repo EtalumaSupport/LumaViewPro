@@ -33,6 +33,10 @@ class _Stand:
     pick_objective = VerticalControl.pick_objective
     turret_select = VerticalControl.turret_select
     reset_turret_objective = VerticalControl.reset_turret_objective
+    set_turret_objective = VerticalControl.set_turret_objective
+    _render_objective_question = VerticalControl._render_objective_question
+    _apply_objective_answer = VerticalControl._apply_objective_answer
+    _resolve_objective = VerticalControl._resolve_objective
 
     def __init__(self):
         self.ids = {'objective_spinner2': SimpleNamespace(text='Unknown')}
@@ -208,6 +212,89 @@ class TestResetClearsTheApisSlot:
             session.clear_current_turret_objective()
         assert excinfo.value.reason == 'slot_unknown'
         assert session.settings['turret_objectives'] == {int(k): v for k, v in ASSIGNED.items()}
+
+
+class TestSetAsksWhatTheSlotHolds:
+    """Set Turret Objective asks the Session's question for the slot in the
+    light path, owed or not, and its answer is the owed question's write."""
+
+    @pytest.fixture
+    def asked(self, monkeypatch):
+        # A stand-in by design: the popup's widget tree. The question it is
+        # handed and the answer it returns are the production ones.
+        shown = []
+        monkeypatch.setattr(
+            notification_popup, 'show_objective_selection_popup', lambda **kw: shown.append(kw)
+        )
+        return shown
+
+    def test_an_assigned_slot_is_asked_about_and_its_glass_replaced(self, stand, session, asked):
+        home_sim_scope(session.scope)
+        session.scope.motion.move_turret(1)
+        stand.set_turret_objective()
+        (popup,) = asked
+        assert popup['current_objective_id'] == '10x Oly'
+        popup['on_confirm']('40x w/collar')
+        assert session.settings['turret_objectives'][1] == '40x w/collar'
+        assert session.scope.runtime_state.get_current_objective_id() == '40x w/collar'
+
+    def test_an_unassigned_slot_is_asked_about_and_named(self, stand, session, asked):
+        home_sim_scope(session.scope)
+        session.scope.motion.move_turret(3)
+        stand.set_turret_objective()
+        asked[0]['on_confirm']('40x w/collar')
+        assert session.settings['turret_objectives'][3] == '40x w/collar'
+
+    def test_cancel_writes_no_slot(self, stand, session, asked):
+        home_sim_scope(session.scope)
+        session.scope.motion.move_turret(3)
+        stand.set_turret_objective()
+        asked[0]['on_cancel']()
+        assert session.settings['turret_objectives'] == {int(k): v for k, v in ASSIGNED.items()}
+
+    def test_at_an_unknown_slot_the_refusal_is_shown_and_nothing_asked(
+        self, stand, session, asked, centre_posts
+    ):
+        stand.set_turret_objective()
+        assert asked == []
+        assert [n.title for n in centre_posts] == ['Objective Unknown']
+
+
+class TestTheAskedQuestion:
+    """``current_slot_objective_question``: the owed question's proposal
+    rule, for the slot in the light path, at any time."""
+
+    def test_it_proposes_the_slot_s_assignment(self, session):
+        home_sim_scope(session.scope)
+        session.scope.motion.move_turret(2)
+        question = session.current_slot_objective_question()
+        assert (question.turret_position, question.proposed) == (2, '4x Oly')
+
+    def test_a_slot_holding_glass_the_catalogue_lacks_proposes_the_default(self, session):
+        from modules.objectives_loader import DEFAULT_PROPOSED_OBJECTIVE_ID
+
+        home_sim_scope(session.scope)
+        session.scope.motion.move_turret(4)
+        question = session.current_slot_objective_question()
+        assert question.proposed == DEFAULT_PROPOSED_OBJECTIVE_ID
+        session.confirm_objective(question.proposed, turret_position=question.turret_position)
+        assert session.settings['turret_objectives'][4] == DEFAULT_PROPOSED_OBJECTIVE_ID
+
+    def test_an_unknown_slot_is_refused(self, session):
+        with pytest.raises(ObjectiveUnknownError) as excinfo:
+            session.current_slot_objective_question()
+        assert excinfo.value.reason == 'slot_unknown'
+
+    def test_a_scope_with_no_turret_is_refused(self):
+        from modules.exceptions import HardwareCommandRefusedError
+
+        turretless = ScopeSession.create(complete_settings(microscope='LS850'), simulate=True)
+        try:
+            with pytest.raises(HardwareCommandRefusedError) as excinfo:
+                turretless.current_slot_objective_question()
+            assert excinfo.value.reason == 'axis_absent'
+        finally:
+            turretless.shutdown()
 
 
 def test_a_full_home_shows_the_turret(monkeypatch):

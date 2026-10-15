@@ -178,11 +178,8 @@ class MotionSettings(BoxLayout):
 
     def set_turret_control_visibility(self, visible: bool) -> None:
         vert_control = self.ids['verticalcontrol_id']
-        for turret_id in ('turret_selection_label', 'turret_btn_box'):
+        for turret_id in ('turret_selection_label', 'turret_btn_box', 'turret_objective_btn_box'):
             vert_control.ids[turret_id].visible = visible
-
-        vert_control.ids['reset_turret_objective_btn'].disabled = not visible
-        vert_control.ids['reset_turret_objective_btn'].opacity = 1 if visible else 0
 
     def set_focus_control_visibility(self, visible: bool) -> None:
         vert_control = self.ids['verticalcontrol_id']
