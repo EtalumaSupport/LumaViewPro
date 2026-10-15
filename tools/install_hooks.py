@@ -71,7 +71,14 @@ git add "$VERSION_FILE"
 # as nothing to judge. The flags make the diff the stage's own whatever the
 # session's git configuration says: --text --no-textconv against a -diff
 # attribute or a textconv, -M against diff.renames, the prefixes against
-# diff.noprefix, GIT_DIFF_OPTS unset against a context override. An amend
+# diff.noprefix, GIT_DIFF_OPTS unset against a context override. -W shows
+# the whole enclosing function of every hunk (the def, from .gitattributes'
+# `*.py diff=python`): three lines of context hid a refusal a few lines up
+# or the call below whose callee refuses, and the judge read a deleted
+# sentinel answer as a deleted guard (triage, 2026-10-15; Eric: "it isn't
+# looking at a big enough scope"). Measured on the twelve trunk commits
+# before it: 1.3x to 4.3x the payload, the largest 101 KB to 289 KB, which
+# the judge read and answered in seconds. An amend
 # replaces HEAD, so the commit it produces is the index against HEAD's
 # parent, and that is what the judge reads; git tells a hook nothing about
 # an amend, but the hook's parent process is the `git commit` itself and
@@ -93,7 +100,7 @@ _JUDGE_STAGE = """if [ -n "${COMMIT_JUDGE:-}" ]; then
         (
             set -o pipefail
             unset GIT_DIFF_OPTS
-            git diff --cached --no-color --no-ext-diff --text --no-textconv -M --src-prefix=a/ --dst-prefix=b/ -U3 "$JUDGE_BASE" -- '*.py' \\
+            git diff --cached --no-color --no-ext-diff --text --no-textconv -M --src-prefix=a/ --dst-prefix=b/ -U3 -W "$JUDGE_BASE" -- '*.py' \\
                 | "$COMMIT_JUDGE" --repo "$REPO_ROOT"
         ) || exit 1
     fi

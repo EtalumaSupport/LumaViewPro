@@ -6,3 +6,5 @@
 # .git directory is absent, sidestepping the "Git: unknown" gap in
 # startup logging. See lvp_logger.py for the runtime reader.
 .git_archival.txt export-subst
+# The commit judge reads each hunk with its whole enclosing def (git diff -W).
+*.py diff=python

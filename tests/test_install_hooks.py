@@ -63,6 +63,7 @@ def test_the_stage_pins_the_diff_it_reads():
         '--src-prefix=a/',
         '--dst-prefix=b/',
         '-U3',
+        '-W',
         '--no-ext-diff',
         '--no-color',
     ):
