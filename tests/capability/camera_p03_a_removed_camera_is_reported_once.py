@@ -7,11 +7,14 @@ the report, made once by the caller's boundary. An autofocus is a run: it
 ends `failed`, reported once as the `not_connected` refusal, in words naming
 the camera. Neither is told again by the auto-gain arm's re-arm.
 
-Each phase is its own run, since the camera has to be plugged back in
-between:
+On hardware each phase is its own run, since the camera has to be plugged
+back in between; on the simulator a run with no phase runs both, each in its
+own session:
 
-    python tests/capability/camera_p03_a_removed_camera_is_reported_once.py still             # simulated LS850T
+    python tests/capability/camera_p03_a_removed_camera_is_reported_once.py                   # simulated LS850T
+    python tests/capability/camera_p03_a_removed_camera_is_reported_once.py still
     python tests/capability/camera_p03_a_removed_camera_is_reported_once.py autofocus
+    python tests/capability/camera_p03_a_removed_camera_is_reported_once.py autofocus blank  # nothing to focus on
     python tests/capability/camera_p03_a_removed_camera_is_reported_once.py still --hardware  # the connected scope
     python tests/capability/camera_p03_a_removed_camera_is_reported_once.py autofocus --hardware
 
@@ -19,8 +22,9 @@ On hardware the probe prints `UNPLUG NOW` and captures back to back for up
 to WINDOW_S; the camera's USB cable is pulled at any moment in that window.
 The camera's own cable: on a scope whose main cable carries the motor board
 too, pulling that removes the stage as well, and the autofocus meets both.
-On the simulator `simulation.remove_camera()` stands in for the hand, at a
-random moment. A still that is refused at its entry, before it reached the
+On the simulator `simulation.remove_camera()` stands in for the hand: at a
+random moment among the stills, and partway into an autofocus run's sweep,
+since a hand that lands between two runs tests nothing. A still that is refused at its entry, before it reached the
 camera, is recorded as such: the question is what a capture under way does.
 An autofocus moves only Z, at the stage's home position.
 """
@@ -71,12 +75,18 @@ def _told(session):
         notifications.remove_listener(post)
 
 
-def _the_hand(session):
-    """Remove the camera: the operator's hand on hardware, the simulator's otherwise."""
+# How far into an autofocus run the simulator removes the camera: inside
+# its sweep, which takes over a second on the simulated scope.
+SIM_REMOVAL_INTO_RUN_S = 0.5
+
+
+def _the_hand(session, delay=None):
+    """Remove the camera: the operator's hand on hardware, the simulator's after ``delay`` s."""
     if HARDWARE:
         print(f'UNPLUG NOW: pull the camera USB cable within {WINDOW_S:.0f} s', flush=True)
         return
-    delay = random.uniform(0.5, 3.0)
+    if delay is None:
+        delay = random.uniform(0.5, 3.0)
     figure('simulated removal after s', round(delay, 2))
     threading.Timer(delay, session.scope.simulation.remove_camera).start()
 
@@ -117,34 +127,59 @@ def _still(session, runner):
 
 
 def _autofocus(session, runner):
+    # The home leaves Z at the end of its travel, where an autofocus refuses
+    # to search; from the middle each run sweeps, capturing as it goes.
+    motion = session.scope.motion
+    z = motion.get_axis_limits('Z')
+    motion.start_move_absolute('Z', (z['min'] + z['max']) / 2).result(timeout=60)
     _arm(session)
-    with _told(session) as (posted, outcomes):
-        _the_hand(session)
+    runs = 0
+    outcome, met = None, 'no removal in the window'
+    # A run before the removal may end on its own (a field with nothing to
+    # focus on), so runs follow one another with no pause until one meets the
+    # removal, and only what is told from that run's start on is judged.
+    with _told(session) as (all_posted, all_outcomes):
+        if HARDWARE:
+            _the_hand(session)
         until = time.monotonic() + WINDOW_S
-        runs = 0
         while time.monotonic() < until:
-            outcome = runner.start_autofocus('BF').result(timeout=120)
-            if outcome.reason == 'hardware_disconnected' or outcome.status != 'completed':
+            seen = (len(all_posted), len(all_outcomes))
+            if not HARDWARE and runs == 0:
+                _the_hand(session, SIM_REMOVAL_INTO_RUN_S)
+            try:
+                outcome = runner.start_autofocus('BF').result(timeout=120)
+            except Exception as e:
+                # The removal landed between two runs: the start is refused.
+                met = f'between runs: {type(e).__name__}: {getattr(e, "reason", e)}'
+                outcome = None
+                break
+            if any(o.split()[0] == 'not_connected' for o in all_outcomes[seen[1] :]):
+                met = 'under way'
                 break
             runs += 1
-        else:
-            outcome = None
         time.sleep(1.0)
-    figure('autofocus runs completed before the removal', runs)
+        posted, outcomes = all_posted[seen[0] :], all_outcomes[seen[1] :]
+    figure('autofocus runs before the removal', runs)
+    figure('met the removal', met)
     if outcome is not None:
         figure('the run ended', (outcome.status, outcome.reason))
         figure('its message', outcome.message)
     figure('posted', posted)
     figure('outcomes reported', outcomes)
+    check('the removal met a run under way', met == 'under way', met)
     check('the autofocus ended failed', outcome is not None and outcome.status == 'failed')
     check(
         'the message names the camera',
         outcome is not None and 'camera' in outcome.message.lower(),
         outcome and outcome.message,
     )
+    # What the run told before the removal is its own (a field too dark for
+    # the auto-gain arm reports exposure_at_maximum at each run's start); the
+    # removal is told once, and nothing is told after it.
+    reasons = [o.split()[0] for o in outcomes]
     check(
-        'it was reported once, as the not_connected refusal',
-        [o.split()[0] for o in outcomes] == ['not_connected'],
+        'the removal was reported once, as the not_connected refusal, and nothing after it',
+        reasons.count('not_connected') == 1 and reasons[-1] == 'not_connected',
         outcomes,
     )
 
@@ -153,11 +188,18 @@ PHASES = {'still': _still, 'autofocus': _autofocus}
 
 
 def main():
-    phase = next((a for a in sys.argv[1:] if a in PHASES), None)
-    if phase is None:
-        print(f'usage: {sys.argv[0]} {{{"|".join(PHASES)}}} [--hardware]')
+    asked = [a for a in sys.argv[1:] if a in PHASES]
+    if not asked and HARDWARE:
+        print(f'usage: {sys.argv[0]} {{{"|".join(PHASES)}}} --hardware')
         sys.exit(2)
+    for phase in asked or list(PHASES):
+        _phase(phase)
+
+
+def _phase(phase):
     figure('phase', phase)
+    # A simulated field with nothing to focus on, as a scope with no sample sees.
+    blank = 'blank' in sys.argv[1:]
     if HARDWARE:
         session_cm = hardware_session()
     else:
@@ -176,6 +218,8 @@ def main():
             # session's home leaves it in no known slot.
             session.scope.motion.home('T')
             session.scope.motion.move_turret(1)
+            if blank:
+                session.scope._camera_driver.set_test_pattern(enabled=True, pattern='white')
             try:
                 yield session, session.create_protocol_runner()
             finally:
