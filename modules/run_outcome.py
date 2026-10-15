@@ -121,6 +121,23 @@ class RunEnding:
         return ENDING_TITLES[self.reason]
 
 
+def hardware_disconnected_ending(parts: tuple[str, ...]) -> RunEnding:
+    """The ending of a run whose hardware left it, in one set of words.
+
+    Whichever site finds it -- the run loop's connection check, or a step
+    whose camera was removed -- the run ends in these words, naming each
+    part gone (``Lumascope.unconnected_parts``' names); none is named when
+    the question itself failed.
+    """
+    gone = ' and '.join(parts) if parts else "microscope's hardware"
+    return RunEnding(
+        'failed',
+        'hardware_disconnected',
+        f'The {gone} disconnected during the run. Check the USB cable and power '
+        'connections, save the protocol, then restart LumaViewPro and the protocol.',
+    )
+
+
 # Endings whose own popup already told the person the run's files were not
 # all written: the disk floor, a stuck file writer, a video writer that
 # died. The images not saved and the record rows missing after one of them

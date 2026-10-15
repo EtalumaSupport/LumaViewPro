@@ -145,11 +145,11 @@ class TestAnErrorAbort:
         monkeypatch.setattr(protocol_run_loop, 'HW_CHECK_INTERVAL_S', -1)
         heard_events = _Heard()
         with open_composite_session(headless_settings(tmp_path)) as (session, runner):
-            real_connected = session.scope.are_all_connected
+            real_unconnected = session.scope.unconnected_parts
             monkeypatch.setattr(
                 session.scope,
-                'are_all_connected',
-                lambda: False if disconnected.is_set() else real_connected(),
+                'unconnected_parts',
+                lambda: ('camera',) if disconnected.is_set() else real_unconnected(),
             )
             outcome = runner.start_single_scan(
                 protocol=_protocol(
@@ -197,11 +197,11 @@ class TestAnErrorAbort:
 
         monkeypatch.setattr(ProtocolExecutionRecord, 'complete', _recorded_complete)
         with open_composite_session(headless_settings(tmp_path)) as (session, runner):
-            real_connected = session.scope.are_all_connected
+            real_unconnected = session.scope.unconnected_parts
             monkeypatch.setattr(
                 session.scope,
-                'are_all_connected',
-                lambda: False if disconnected.is_set() else real_connected(),
+                'unconnected_parts',
+                lambda: ('camera',) if disconnected.is_set() else real_unconnected(),
             )
             outcome = runner.start_single_scan(
                 protocol=_protocol(
@@ -450,11 +450,11 @@ class TestARunAfterAnErrorAbort:
         monkeypatch.setattr(protocol_run_loop, 'HW_CHECK_INTERVAL_S', -1)
         with open_composite_session(headless_settings(tmp_path)) as (session, runner):
             engine = runner.sequenced_capture_runner
-            real_connected = session.scope.are_all_connected
+            real_unconnected = session.scope.unconnected_parts
             monkeypatch.setattr(
                 session.scope,
-                'are_all_connected',
-                lambda: False if disconnected.is_set() else real_connected(),
+                'unconnected_parts',
+                lambda: ('camera',) if disconnected.is_set() else real_unconnected(),
             )
             first_files = _Heard()
             first = runner.start_single_scan(

@@ -27,6 +27,7 @@ from lvp_logger import protocol_logger as logger
 from modules.activity_claim import BorrowedClaim
 from modules.exceptions import (
     CameraSettingRejected,
+    MissingPart,
     ObjectiveUnknownError,
     RunFailedError,
     RunFilesNotWrittenError,
@@ -41,7 +42,14 @@ from modules.protocol_execution_record import ProtocolExecutionRecord
 from modules.protocol_recording import ProtocolVideoStep
 from modules.recording_frames import FrameFact, frame_fact
 from modules.run_events import RunEvents, deliver_here
-from modules.run_outcome import CaptureTally, EndingLatch, FailedCapture, FatalTold, RunEnding
+from modules.run_outcome import (
+    CaptureTally,
+    EndingLatch,
+    FailedCapture,
+    FatalTold,
+    RunEnding,
+    hardware_disconnected_ending,
+)
 from modules.sequential_io_executor import IOTask
 
 if TYPE_CHECKING:
@@ -582,6 +590,10 @@ class ProtocolImageWriter:
         # owes the disk is answered per run, never by the shared lane.
         write_batch: RunWriteBatch,
         abort_fn,  # callable -- bound to protocol_thread.abort
+        # The runner's fatal ending, which also puts the run in ERROR: the
+        # one call that ends a run whose hardware left it, here and in the
+        # run loop, so both end it the same way.
+        end_run_fatally: Callable[[str, str], None],
         # THIS run's fatal-abort flag, allocated fresh per run by the runner.
         # Per-run, not runner-lifetime: queued write tasks keep draining after
         # the run ends and can fire a fatal abort (disk-full) from the OLD
@@ -642,6 +654,7 @@ class ProtocolImageWriter:
         self._aborted = aborted
         self._write_batch = write_batch
         self._abort_fn = abort_fn
+        self._end_run_fatally = end_run_fatally
         self._fatal_abort_event = fatal_abort_event
         self._ending = ending
         self._execution_record = execution_record
@@ -919,13 +932,8 @@ class ProtocolImageWriter:
                 f'[PROTOCOL] Capture failed for step {curr_step} ({step.get("Name", "?")}), '
                 f'scan {scan_count} -- the camera was removed'
             )
-            self._abort_run_fatal(
-                'hardware_disconnected',
-                'Protocol',
-                'The camera was disconnected during the protocol run. '
-                'Check the USB cable and power connections, save the '
-                'protocol, then restart LumaViewPro and the protocol.',
-            )
+            ending = hardware_disconnected_ending((MissingPart.CAMERA.name,))
+            self._end_run_fatally(ending.reason, ending.message)
             return
         self._consecutive_capture_failures += 1
         logger.error(

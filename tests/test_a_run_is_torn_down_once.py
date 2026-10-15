@@ -86,7 +86,7 @@ def test_a_run_a_fault_ended_is_torn_down_once(executor, scope, tmp_path, monkey
     teardowns = _count_teardowns(executor, monkeypatch)
 
     unplugged = threading.Event()
-    connected = executor._scope.are_all_connected
+    unconnected = executor._scope.unconnected_parts
 
     def the_move_fails(*args, **kwargs):
         unplugged.set()
@@ -94,7 +94,9 @@ def test_a_run_a_fault_ended_is_torn_down_once(executor, scope, tmp_path, monkey
 
     monkeypatch.setattr(executor._step_executor, 'go_to_step', the_move_fails)
     monkeypatch.setattr(
-        executor._scope, 'are_all_connected', lambda: not unplugged.is_set() and connected()
+        executor._scope,
+        'unconnected_parts',
+        lambda: ('camera',) if unplugged.is_set() else unconnected(),
     )
     run = _start_run(executor, tmp_path, threading.Event())
 

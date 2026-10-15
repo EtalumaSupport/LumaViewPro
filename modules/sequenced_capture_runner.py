@@ -1577,6 +1577,7 @@ class SequencedCaptureRunner:
                 aborted=self._aborted,
                 write_batch=self._write_batch,
                 abort_fn=self.protocol_thread.abort,
+                end_run_fatally=self.end_run_fatally,
                 fatal_abort_event=self._fatal_abort_event,
                 ending=self._ending,
                 execution_record=self._protocol_execution_record,

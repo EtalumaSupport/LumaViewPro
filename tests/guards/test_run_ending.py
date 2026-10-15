@@ -91,6 +91,8 @@ ENDING_FILES = [
     'protocol_image_writer.py',
     'protocol_recording.py',
     'sequenced_capture_runner.py',
+    # The one builder of an ending more than one site makes.
+    'run_outcome.py',
 ]
 
 

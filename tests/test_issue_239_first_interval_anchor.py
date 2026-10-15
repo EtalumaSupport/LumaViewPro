@@ -57,6 +57,9 @@ def _make_parent(clock, n_scans, period_s, first_scan_lead_s=30.0, later_scan_le
     # The loop takes the camera first; a stub with a mock scope has no lane to wait for.
     p._take_camera = lambda: None
     p._scope = mock.MagicMock()
+    # The loop asks which parts are not connected; a bare mock's truthy
+    # answer would end the run as a disconnect.
+    p._scope.unconnected_parts.return_value = ()
     p._protocol = mock.MagicMock()
     p._protocol.period.return_value = datetime.timedelta(seconds=period_s)
     p._parent_dir = None

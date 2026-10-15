@@ -150,6 +150,9 @@ def bare_capture_runner(**overrides):
         # the default scope states the homed answer. A test about position
         # passes its own scope.
         kwargs['scope'].motion.axes_without_position.return_value = {}
+        # The run loop asks which parts are not connected; a bare mock's
+        # truthy answer would end every run as a disconnect.
+        kwargs['scope'].unconnected_parts.return_value = ()
     # The engine reads IO and CAMERA from its scope; a test that passes its
     # own lane puts it there.
     swap_lanes(

@@ -23,7 +23,7 @@ from modules.exceptions import (
     describe_unknown_positions,
 )
 from modules.run_events import deliver
-from modules.run_outcome import RunEnding
+from modules.run_outcome import RunEnding, hardware_disconnected_ending
 
 if TYPE_CHECKING:
     from modules.sequenced_capture_runner import EngineRun, SequencedCaptureRunner
@@ -187,22 +187,15 @@ class ProtocolRunLoop:
                     # abort raised or swallowed in here would leave the run
                     # going with the hardware gone.
                     try:
-                        connected = p._scope.are_all_connected()
+                        gone = p._scope.unconnected_parts()
                     except Exception as ex:
                         logger.warning(f'[PROTOCOL] Connection check failed: {ex}')
-                        connected = True
-                    if not connected:
+                        gone = ()
+                    if gone:
                         logger.error(
                             '[PROTOCOL] Hardware disconnected during run -- aborting protocol'
                         )
-                        ending = RunEnding(
-                            'failed',
-                            'hardware_disconnected',
-                            'Hardware disconnected during protocol run. '
-                            'Check the USB cable and power connections, '
-                            'save the protocol, then restart LumaViewPro '
-                            'and the protocol.',
-                        )
+                        ending = hardware_disconnected_ending(gone)
                         p.end_run_fatally(ending.reason, ending.message)
                         return ending
 
@@ -348,7 +341,7 @@ class ProtocolRunLoop:
                 # the protocol from making progress; transient errors
                 # (one bad LED ack, one frame timeout, etc.) are
                 # exactly what a periodic protocol is supposed to ride
-                # out. The 30s periodic are_all_connected() check
+                # out. The 30s periodic unconnected_parts() check
                 # earlier in this loop covers between-scan
                 # disconnects; this branch covers during-scan ones.
                 # Handle-state check only (cached connected flags), NOT a
@@ -358,26 +351,20 @@ class ProtocolRunLoop:
                 # a true liveness probe (a hardware round-trip) is deferred --
                 # it needs bench validation before it can change classification.
                 try:
-                    connected = p._scope.are_all_connected()
+                    gone = p._scope.unconnected_parts()
+                    connected = not gone
                 except Exception:
                     # If the connection probe itself fails, assume
                     # the worst -- a disconnect that broke the probe
                     # is still a disconnect.
-                    connected = False
+                    gone, connected = (), False
 
                 if not connected:
                     logger.error(
                         f'[Protocol] Hardware disconnect during scan: {ex}',
                         exc_info=True,
                     )
-                    ending = RunEnding(
-                        'failed',
-                        'hardware_disconnected',
-                        'Hardware disconnected during protocol run. '
-                        'Check the USB cable and power connections, save '
-                        'the protocol, then restart LumaViewPro and the '
-                        'protocol.',
-                    )
+                    ending = hardware_disconnected_ending(gone)
                     p.end_run_fatally(ending.reason, ending.message)
                     return ending
 

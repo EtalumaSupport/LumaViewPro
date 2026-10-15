@@ -17,7 +17,7 @@ scan scheduler kept restarting on a fault that wasn't transient.
 After this fix:
 - ``scan_loop`` no longer catches exceptions; they propagate to
   ``_run_loop_inner``'s outer except.
-- The outer except classifies via ``scope.are_all_connected()``:
+- The outer except classifies via ``scope.unconnected_parts()``:
     * disconnected -> fatal, fire "Protocol Aborted" + cleanup + break
     * connected   -> transient, log warning only, do not increment
       ``_scan_count``, do not break; outer loop's next iteration
@@ -42,7 +42,7 @@ class TestRunLoopInnerClassifiesByConnection:
 
     def _drive_failing_run_loop(self, centre_posts, *, connected):
         """run_loop on a runner whose every scan raises; classification
-        is steered by the mocked are_all_connected."""
+        is steered by the mocked unconnected_parts."""
         from unittest.mock import MagicMock
 
         from modules.notification_center import Severity
@@ -56,7 +56,7 @@ class TestRunLoopInnerClassifiesByConnection:
         # the other slip past unseen.
         runner = run_loop_ready_runner(protocol_step())
         runner._protocol.step.side_effect = RuntimeError('serial dropped mid-step')
-        runner._scope.are_all_connected = MagicMock(return_value=connected)
+        runner._scope.unconnected_parts = MagicMock(return_value=() if connected else ('camera',))
         runner._run_loop_executor.run_loop(runner._last_run())
         captured = [
             (n.category, n.title, n.message)
@@ -81,8 +81,8 @@ class TestRunLoopInnerClassifiesByConnection:
         assert reason == 'hardware_disconnected', (
             f'the abort must name the disconnect as its cause; got {aborts[0].args}'
         )
-        assert 'Hardware disconnected' in message, (
-            f'the message the user reads must name the disconnect; got {message!r}'
+        assert 'camera disconnected' in message, (
+            f'the message the user reads must name what disconnected; got {message!r}'
         )
         assert captured == [], (
             f'the funnel posts the disconnect popup; a site posting its own too '

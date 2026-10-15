@@ -42,6 +42,7 @@ def _writer(file_io_executor=None):
         aborted=threading.Event(),
         write_batch=RunWriteBatch(file_io_executor or MagicMock()),
         abort_fn=MagicMock(),
+        end_run_fatally=lambda reason, message: None,
         fatal_abort_event=threading.Event(),
         ending=EndingLatch(),
         execution_record=MagicMock(),
