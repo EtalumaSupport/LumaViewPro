@@ -2176,6 +2176,8 @@ link = scope.diagnostics.get_camera_link_info()
 # home holds the scope they are refused (exclusive_activity_running),
 # raised; do not start one while a recording is live.
 results = scope.diagnostics.run_camera_bandwidth_test(num_frames=200, timeout_s=60.0)
+# num_frames is 1 to 100,000; outside it is refused (ArgumentRefusedError,
+# out_of_range) before the camera is touched.
 # num_frames_failed counts the grabs that raised CaptureFailedError, and
 # failed_by_reason counts them by reason; a camera absent at the call or
 # removed mid-test is refused (not_connected), raised, not counted.

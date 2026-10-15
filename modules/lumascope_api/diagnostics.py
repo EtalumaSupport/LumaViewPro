@@ -49,6 +49,8 @@ _SPI_READ = re.compile(r'SPI[A-Z]0X([0-7][0-9A-F])\d+')
 # What the camera benchmarks take: generous for any characterization, and
 # short of a lane wait the host cannot hold (a huge one overflowed it).
 _BENCHMARK_CYCLES = (1, 10_000)
+# A test of no frames received none and would answer passed.
+_BANDWIDTH_FRAMES = (1, 100_000)
 _BENCHMARK_DELAY_MS = (0, 60_000)
 _BENCHMARK_SLOW_S = (0, 600)
 _PROBE_DURATION_S = (0, 3_600)
@@ -313,13 +315,15 @@ class DiagnosticsAPI:
 
         Raises:
             ArgumentRefusedError: ``'not_a_number'``, ``timeout_s`` is not a finite
-                number. Nothing reached the camera.
+                number; ``'out_of_range'``, ``num_frames`` is outside 1 to
+                100,000. Nothing reached the camera.
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera, absent at the call or removed during the test;
                 ``'exclusive_activity_running'``, another activity holds the
                 scope, raised at the first frame. Only a capture failure is
                 counted: any other raise from a grab ends the test as itself.
         """
+        _refuse_outside(num_frames, 'num_frames', _BANDWIDTH_FRAMES)
         refuse_unless_finite_number(timeout_s, 'timeout_s')
         self._scope.imaging.refuse_camera_not_connected('run_camera_bandwidth_test')
         results = {

@@ -92,6 +92,18 @@ def _rows(session):
             lambda: session.frame_at_binning(0),
         ),
         (
+            'run_camera_bandwidth_test, no frames',
+            ArgumentRefusedError,
+            'out_of_range',
+            lambda: diagnostics.run_camera_bandwidth_test(0),
+        ),
+        (
+            'run_camera_bandwidth_test, negative frames',
+            ArgumentRefusedError,
+            'out_of_range',
+            lambda: diagnostics.run_camera_bandwidth_test(-1),
+        ),
+        (
             'run_grab_lifecycle_benchmark, too many cycles',
             ArgumentRefusedError,
             'out_of_range',
