@@ -20,6 +20,7 @@ from drivers.camera import (
     link_info,
 )
 from drivers.exceptions import (
+    CameraNoAnswerError,
     CameraReadFailedError,
     CameraWriteFailedError,
     HardwareError,
@@ -84,6 +85,26 @@ def _log_cam(level: str, message: str) -> None:
             prefix for grep-ability (matches the prefix in the main log).
     """
     log_to(logger, _cam_log, level=level, message=message)
+
+
+def _no_answer(write: str, e: Exception, *, read: str | None = None) -> CameraNoAnswerError:
+    """The error for a setting write the camera did not answer in time.
+
+    Raised for the write itself, or, with ``read``, for a read the setter
+    must make before it can send the write (a bound it clamps to, a node it
+    probes), in which case nothing was written. Not for a read that only
+    skips a redundant write, nor for the read-back after a write the camera
+    took. A timeout is the camera still on the bus but slow, so removal is
+    not latched, and the caller may send the same write again.
+    """
+    if read is None:
+        words = f'The camera did not answer {write}'
+    else:
+        words = (
+            f'The camera did not answer the read of {read} that {write} needs; nothing was written'
+        )
+    _cam_log.warning(f'[CAM Class ] {words}: {e}')
+    return CameraNoAnswerError(f'{words}: {type(e).__name__}: {e}')
 
 
 def describe_device_info(dev_info: Any) -> str:
@@ -2250,10 +2271,10 @@ class PylonCamera(Camera):
                 guards). Hardware-level failure raises HardwareError.
 
         Raises:
-            HardwareError: SDK call failed (RuntimeException, transient
-                or persistent). Camera is marked disconnected on
-                RuntimeException; transient timeouts let the caller decide
-                whether to retry.
+            CameraNoAnswerError: The PixelFormat write timed out; the camera
+                is not marked disconnected, and the caller may send it again.
+            HardwareError: Any other SDK failure (CameraWriteFailedError).
+                Camera is marked disconnected on RuntimeException.
         """
         if not self.active:
             return False
@@ -2301,6 +2322,8 @@ class PylonCamera(Camera):
             raise CameraWriteFailedError(
                 f'set_pixel_format({pixel_format}) failed: {type(e).__name__}: {e}'
             ) from e
+        except genicam.TimeoutException as e:
+            raise _no_answer(f'set_pixel_format({pixel_format})', e) from e
         except Exception as e:
             if _cam_log is not None:
                 _cam_log.error(f'pylon PixelFormat.SetValue({pixel_format!r}) FAILED: {e}')
@@ -2370,10 +2393,11 @@ class PylonCamera(Camera):
                 Hardware-level failure raises HardwareError.
 
         Raises:
-            HardwareError: SDK call failed. TimeoutException is treated as
-                transient (does NOT mark disconnected) so the caller can
-                choose to retry; RuntimeException marks disconnected before
-                raising.
+            CameraNoAnswerError: A binning write timed out. Transient: the
+                camera is not marked disconnected, and the caller may send
+                it again.
+            HardwareError: Any other SDK failure (CameraWriteFailedError);
+                RuntimeException marks disconnected before raising.
         """
         if not self.active:
             return False
@@ -2406,8 +2430,7 @@ class PylonCamera(Camera):
         except genicam.TimeoutException as e:
             # USB roundtrip timed out. Transient -- do NOT mark disconnected,
             # single timeouts can recover. Caller can choose to retry.
-            _cam_log.warning(f'[CAM Class ] set_binning_size({size}) timed out: {e}')
-            raise CameraWriteFailedError(f'set_binning_size({size}) timed out: {e}') from e
+            raise _no_answer(f'set_binning_size({size})', e) from e
         except genicam.RuntimeException as e:
             _cam_log.error(
                 f'[CAM Class ] Camera communication error during set_binning_size({size}): {e}'
@@ -2480,15 +2503,24 @@ class PylonCamera(Camera):
                 failure raises HardwareError.
 
         Raises:
-            HardwareError: SDK call failed. RuntimeException marks the
-                camera disconnected before raising.
+            CameraNoAnswerError: The write, or the node probe it needs,
+                timed out (after the probe nothing was written); the camera
+                is not marked disconnected, and the caller may send it again.
+            HardwareError: Any other SDK failure (CameraWriteFailedError).
+                RuntimeException marks the camera disconnected before raising.
         """
         if not self.active:
             return False
         if mode not in ('Low', 'High'):
             _cam_log.error(f'[CAM Class ] Unsupported conversion gain mode: {mode}')
             return False
-        if not self._has_node(self.active.GetNodeMap(), 'BslConversionGainMode'):
+        try:
+            has_node = self._has_node(self.active.GetNodeMap(), 'BslConversionGainMode')
+        except genicam.TimeoutException as e:
+            raise _no_answer(
+                f'set_conversion_gain_mode({mode})', e, read='the BslConversionGainMode node'
+            ) from e
+        if not has_node:
             return False
         try:
             if _cam_log is not None:
@@ -2505,6 +2537,8 @@ class PylonCamera(Camera):
             raise CameraWriteFailedError(
                 f'set_conversion_gain_mode({mode}) failed: {type(e).__name__}: {e}'
             ) from e
+        except genicam.TimeoutException as e:
+            raise _no_answer(f'set_conversion_gain_mode({mode})', e) from e
         except Exception as e:
             _cam_log.exception(f'[CAM Class ] Unexpected error in set_conversion_gain_mode: {e}')
             raise CameraWriteFailedError(
@@ -2529,16 +2563,24 @@ class PylonCamera(Camera):
                 level failure raises HardwareError.
 
         Raises:
-            HardwareError: SDK call failed. RuntimeException marks the
-                camera disconnected before raising.
+            CameraNoAnswerError: A write, or the node probe they need,
+                timed out (after the probe nothing was written); the camera
+                is not marked disconnected, and the caller may send it again.
+            HardwareError: Any other SDK failure (CameraWriteFailedError).
+                RuntimeException marks the camera disconnected before raising.
         """
         if not self.active:
             return False
-        node_map = self.active.GetNodeMap()
-        if not (
-            self._has_node(node_map, 'BslLineNoiseReductionEnable')
-            and self._has_node(node_map, 'BslLineNoiseReduction')
-        ):
+        try:
+            node_map = self.active.GetNodeMap()
+            has_nodes = self._has_node(node_map, 'BslLineNoiseReductionEnable') and self._has_node(
+                node_map, 'BslLineNoiseReduction'
+            )
+        except genicam.TimeoutException as e:
+            raise _no_answer(
+                f'set_line_noise_reduction({enabled})', e, read='the BslLineNoiseReduction nodes'
+            ) from e
+        if not has_nodes:
             return False
         try:
             if _cam_log is not None:
@@ -2559,6 +2601,8 @@ class PylonCamera(Camera):
             raise CameraWriteFailedError(
                 f'set_line_noise_reduction({enabled}) failed: {type(e).__name__}: {e}'
             ) from e
+        except genicam.TimeoutException as e:
+            raise _no_answer(f'set_line_noise_reduction({enabled})', e) from e
         except Exception as e:
             _cam_log.exception(f'[CAM Class ] Unexpected error in set_line_noise_reduction: {e}')
             raise CameraWriteFailedError(
@@ -2645,18 +2689,44 @@ class PylonCamera(Camera):
 
     def set_black_level(self, value: float) -> float | bool | None:
         """Set BlackLevel, with BlackLevelSelector 'All' where the body has
-        the selector (Basler black-level.html). Returns as ``gain`` does."""
+        the selector (Basler black-level.html). Returns as ``gain`` does.
+
+        Raises:
+            CameraNoAnswerError: The selector probe, the selector write or
+                the BlackLevel write timed out; the camera is not marked
+                disconnected.
+            CameraWriteFailedError: Any other failure but a RuntimeException.
+        """
         if self.active is None:
             _cam_log.warning(f'[CAM Class ] Cannot set black level {value}: camera inactive')
             return None
         try:
-            if self._has_node(self.active.GetNodeMap(), 'BlackLevelSelector'):
+            try:
+                has_selector = self._has_node(self.active.GetNodeMap(), 'BlackLevelSelector')
+            except genicam.TimeoutException as e:
+                raise _no_answer(
+                    f'set_black_level({value})', e, read='the BlackLevelSelector node'
+                ) from e
+            if has_selector:
                 self.active.BlackLevelSelector.SetValue('All')
             if _cam_log is not None:
                 _cam_log.info(f'pylon BlackLevel.SetValue({float(value):g})')
             self.active.BlackLevel.SetValue(float(value))
-            # Read back, as gain does: the node may snap to its increment.
-            return float(self.active.BlackLevel.GetValue())
+            # Read back, as gain does: the node may snap to its increment. A
+            # read-back the camera does not answer follows a write it took, so
+            # it answers applied-unconfirmed, as gain's does.
+            try:
+                return float(self.active.BlackLevel.GetValue())
+            except genicam.TimeoutException as e:
+                _cam_log.warning(
+                    f'[CAM Class ] BlackLevel {value} written but the read-back timed out; '
+                    f'the black level in effect is unconfirmed: {e}'
+                )
+                return True
+        except HardwareError:
+            raise
+        except genicam.TimeoutException as e:
+            raise _no_answer(f'set_black_level({value})', e) from e
         except genicam.RuntimeException as e:
             _cam_log.error(
                 f'[CAM Class ] Camera communication error setting BlackLevel {value}: {e}'
@@ -2840,6 +2910,10 @@ class PylonCamera(Camera):
 
         Args:
             auto_target_brightness: Target brightness in 0..1.
+
+        Raises:
+            CameraNoAnswerError: The AutoTargetBrightness write timed out;
+                the camera is not marked disconnected.
         """
         # Basler runtime-modifiable parameter -- AutoTargetBrightness can
         # be changed while StartGrabbing is active. The previous wrap
@@ -2881,6 +2955,10 @@ class PylonCamera(Camera):
             )
             self._mark_disconnected()
             return False
+        except genicam.TimeoutException as e:
+            raise _no_answer(
+                f'update_auto_gain_target_brightness({auto_target_brightness})', e
+            ) from e
         except Exception as e:
             if _cam_log is not None:
                 _cam_log.error(
@@ -3105,6 +3183,11 @@ class PylonCamera(Camera):
         """The Width / Height nodes' grid at the current binning.
 
         None when the camera is inactive or the nodes cannot be read.
+
+        Raises:
+            CameraNoAnswerError: The camera did not answer a read in time;
+                the frame size cannot be planned without the grid, so no
+                write is sent.
         """
         camera = self.active
         if camera is None:
@@ -3121,6 +3204,8 @@ class PylonCamera(Camera):
             # loop's definitive paths.
             _cam_log.error(f'[CAM Class ] Failed to read the frame size grid: {e}')
             return None
+        except genicam.TimeoutException as e:
+            raise _no_answer('set_frame_size', e, read='the Width/Height grid') from e
 
     def _set_hardware_window(self, plan) -> bool:
         """Set Width and Height to the planned acquisition and recenter the ROI.
@@ -3133,6 +3218,10 @@ class PylonCamera(Camera):
         Returns:
             True once the window is set (or already in place); False when
             the camera is inactive or the apply fails.
+
+        Raises:
+            CameraNoAnswerError: A Width / Height write or a recentre timed
+                out; the camera is not marked disconnected.
         """
         camera = self.active
         if camera is None:
@@ -3186,6 +3275,8 @@ class PylonCamera(Camera):
             # False as the rejection signal, while None counts as applied and
             # would cache geometry the hardware never took.
             return False
+        except genicam.TimeoutException as e:
+            raise _no_answer(f'set_frame_size({w}x{h})', e) from e
         except Exception as e:
             _cam_log.exception(f'[CAM Class ] Unexpected error in set_frame_size: {e}')
             return False
@@ -3318,9 +3409,17 @@ class PylonCamera(Camera):
         handler below with the camera still live and streaming. That
         handler reports the refusal rather than falling through it.
 
+        A timeout on the short-circuit read falls through to the write, and
+        one on the read-back after the write answers applied-unconfirmed:
+        neither is the access that decides whether the write happened.
+
         Returns:
             float | bool | None: See ``Camera.gain``. The dB written, or the
                 dB already in effect on the short-circuit path.
+
+        Raises:
+            CameraNoAnswerError: The Gain write timed out; the camera is not
+                marked disconnected.
         """
         if self.active is None:
             if _cam_log is not None:
@@ -3375,6 +3474,8 @@ class PylonCamera(Camera):
             _cam_log.error(f'[CAM Class ] Camera communication error during gain({value}): {e}')
             self._mark_disconnected()
             return False
+        except genicam.TimeoutException as e:
+            raise _no_answer(f'gain({value})', e) from e
         except Exception as e:
             if _cam_log is not None:
                 _cam_log.error(f'pylon Gain.SetValue({value}) FAILED: {e}')
@@ -3410,6 +3511,11 @@ class PylonCamera(Camera):
                 exposure AG/AE may drive to, or ``None`` to open the
                 bound to the sensor max. Caller (which knows the layer)
                 supplies the class cap.
+
+        Raises:
+            CameraNoAnswerError: The GainAuto / ExposureAuto write, or the
+                AutoTargetBrightness write before it, timed out; the camera
+                is not marked disconnected.
         """
 
         if self.active is None:
@@ -3446,6 +3552,10 @@ class PylonCamera(Camera):
                     _cam_log.info('pylon GainAuto.SetValue(Off) ExposureAuto.SetValue(Off)')
             _log_cam('info', f'[CAM Class ] Auto gain {"enabled" if state else "disabled"}')
             return True
+        except HardwareError:
+            raise
+        except genicam.TimeoutException as e:
+            raise _no_answer(f'auto_gain({state})', e) from e
         except genicam.RuntimeException as e:
             _cam_log.error(f'[CAM Class ] Auto gain({state}) failed: {e}')
             self._mark_disconnected()
@@ -3480,6 +3590,11 @@ class PylonCamera(Camera):
             ae_max_exposure_ms: Per-channel-class upper bound (ms) on the
                 exposure AG/AE may drive to, or ``None`` for the sensor
                 max.
+
+        Raises:
+            CameraNoAnswerError: The GainAuto / ExposureAuto write, or the
+                AutoTargetBrightness write before it, timed out; the camera
+                is not marked disconnected.
         """
 
         if self.active is None:
@@ -3501,6 +3616,10 @@ class PylonCamera(Camera):
                 self.active.ExposureAuto.SetValue('Off')
             _log_cam('info', f'[CAM Class ] Auto gain once {"enabled" if state else "disabled"}')
             return True
+        except HardwareError:
+            raise
+        except genicam.TimeoutException as e:
+            raise _no_answer(f'auto_gain_once({state})', e) from e
         except genicam.RuntimeException as e:
             _cam_log.error(f'[CAM Class ] Auto gain once({state}) failed: {e}')
             self._mark_disconnected()
@@ -3530,6 +3649,12 @@ class PylonCamera(Camera):
             float | bool | None: See ``Camera.exposure_t``. Microseconds
                 in effect on both the write and short-circuit paths;
                 ``False`` where the write was refused or failed.
+
+        Raises:
+            CameraNoAnswerError: The ExposureTime write, or the
+                ExposureTime.Min read its clamp needs, timed out (after the
+                read nothing was written); the camera is not marked
+                disconnected.
         """
         if self.active is None:
             if _cam_log is not None:
@@ -3552,7 +3677,11 @@ class PylonCamera(Camera):
 
         # Pylon takes time in microseconds, so multiply by 1000 to convert
         try:
-            us_value = max(float(exposure_ms) * 1000, self.active.ExposureTime.Min)
+            try:
+                floor_us = self.active.ExposureTime.Min
+            except genicam.TimeoutException as e:
+                raise _no_answer(f'exposure_t({exposure_ms}ms)', e, read='ExposureTime.Min') from e
+            us_value = max(float(exposure_ms) * 1000, floor_us)
             # Short-circuit when already at target us. SDK rounds to its clock
             # grid so same target ms maps to same us count; 1 us tolerance is
             # below ExposureTime increment on ace 2 / dart.
@@ -3574,6 +3703,10 @@ class PylonCamera(Camera):
             self.active.ExposureTime.SetValue(us_value)
             _log_cam('debug', f'[CAM Class ] Exposure set to {exposure_ms}ms')
             return us_value
+        except HardwareError:
+            raise
+        except genicam.TimeoutException as e:
+            raise _no_answer(f'exposure_t({exposure_ms}ms)', e) from e
         except genicam.RuntimeException as e:
             if _cam_log is not None:
                 _cam_log.error(f'pylon ExposureTime.SetValue({exposure_ms}ms) FAILED: {e}')
@@ -3666,6 +3799,10 @@ class PylonCamera(Camera):
         Args:
             state: ``True`` to enable Continuous mode, ``False`` to
                 disable.
+
+        Raises:
+            CameraNoAnswerError: The ExposureAuto write timed out; the camera
+                is not marked disconnected.
         """
 
         if self.active is None:
@@ -3679,6 +3816,8 @@ class PylonCamera(Camera):
                 self.active.ExposureAuto.SetValue('Off')
             _log_cam('info', f'[CAM Class ] Auto exposure {"enabled" if state else "disabled"}')
             return True
+        except genicam.TimeoutException as e:
+            raise _no_answer(f'auto_exposure_t({state})', e) from e
         except genicam.RuntimeException as e:
             _cam_log.error(f'[CAM Class ] Auto exposure({state}) failed: {e}')
             self._mark_disconnected()
