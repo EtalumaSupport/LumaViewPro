@@ -26,7 +26,7 @@ from modules.finite_number import refuse_unless_finite_number
 from modules.request_fields import key_path, refuse_unless_kind, required
 import modules.image_utils as image_utils
 from drivers import camera_profiles
-from drivers.exceptions import CameraReadFailedError, HardwareError
+from drivers.exceptions import CameraNoAnswerError, CameraReadFailedError, HardwareError
 from lib import profile_trace
 from lvp_logger import logger
 from modules.exceptions import (
@@ -335,6 +335,24 @@ def _refuse_unless_auto_gain_settings(settings: object, argument: str) -> None:
         refuse_unless_kind(required(settings, key, argument), 'number', key_path(argument, key))
     for key in ('max_exposure_ms', 'min_exposure_ms'):
         refuse_unless_kind(settings.get(key), 'number', key_path(argument, key), nullable=True)
+
+
+def _no_answer_rejection(rejected: CameraSettingRejected) -> CameraSettingRejected:
+    """The same setting's rejection when the camera answered neither try.
+
+    Its own words, not the refusal's: a refusal leaves the camera at its
+    previous value, but a write nobody answered may have been taken.
+    """
+    noun = rejected.setting.removesuffix('_db').removesuffix('_ms').replace('_', ' ')
+    return CameraSettingRejected(
+        rejected.setting,
+        rejected.requested,
+        message=(
+            f'The camera did not answer a {noun} change, sent twice, so whether '
+            'it took it is not known. Check the USB connection if this repeats.'
+        ),
+        reason='camera_no_answer',
+    )
 
 
 def _mode_rejection(setting: str, requested: object, what: str) -> CameraSettingRejected:
@@ -991,13 +1009,22 @@ class ImagingAPI:
         Order is load-bearing: the write happens first, then ``force_invalidate``
         fires unconditionally (the always-mark-RED contract for the manual value
         setters, so a hardware-rejected write still expires validity rather than
-        leaving a stale frame acceptable), then the applied-only block runs. A
-        write is "applied" when the driver did not return ``False`` -- an explicit
-        ``False`` is the only rejection signal; a ``None`` return (drivers without
-        a confirmation signal) and any truthy result both count as applied.
-        A write that raises is refused: the unconditional block still fires,
-        and ``refusal()`` is raised with the driver's exception as its cause,
-        so no setter lets a driver's own exception out of the API.
+        leaving a stale frame acceptable), then the applied-only block runs.
+
+        A write either applied or raises, so no setter answers a refusal with
+        a value a caller could forget to check. An explicit ``False`` is the
+        driver's refusal and raises ``refusal()``; a ``None`` return (drivers
+        without a confirmation signal) and any truthy result count as applied.
+        A write the camera did not answer (``CameraNoAnswerError``) is sent
+        once more, at once: every setting write is value-idempotent, and a
+        refusal is not resent, since the camera would refuse it again. Not
+        answered the second time either, its value is not known, so the
+        chunk target of each source it would have recorded is cleared (the
+        next captures settle by frame count), its applied-only invalidations
+        fire, and the refusal is raised as ``'camera_no_answer'``. A write
+        that raises anything else is refused as ``refusal()``; each raise
+        carries the driver's exception as its cause, so no setter lets a
+        driver's own exception out of the API.
 
         A camera declared removed by the time a sent write returns is refused
         as an absent one, whatever the driver answered: a camera that is gone
@@ -1045,18 +1072,36 @@ class ImagingAPI:
                 for that source.
 
         Returns:
-            The driver write's result, so the caller can do its own rejection
-            handling / listener fire.
+            The driver write's result, never ``False``, so the caller can
+            read the value the driver applied and fire its listeners.
 
         Raises:
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera: it was declared removed by the time the write
                 returned. Chained to the driver's exception when it raised.
-            CameraSettingRejected: The driver raised from the write, the
-                camera still present; chained.
+            CameraSettingRejected: The camera still present, the driver
+                refused the write (``'camera_rejected'``), raised from it
+                (``'camera_rejected'``, chained), or answered neither try
+                (``'camera_no_answer'``, chained).
         """
         try:
-            result = write_fn()
+            try:
+                result = write_fn()
+            except CameraNoAnswerError as unanswered:
+                if refusal is None:
+                    raise
+                _api_log.info(f'{member}: the camera did not answer ({unanswered}); sent again')
+                result = write_fn()
+        except CameraNoAnswerError as ex:
+            if refusal is None:
+                raise
+            for source, _value in targets:
+                self.frame_validity.set_target(source, None)
+            for source in invalidates:
+                self.frame_validity.invalidate(source)
+            if self.camera_removed:
+                raise _camera_not_connected(member) from ex
+            raise _no_answer_rejection(refusal()) from ex
         except Exception as ex:
             if refusal is None:
                 raise
@@ -1070,24 +1115,24 @@ class ImagingAPI:
                 self.frame_validity.set_target(source, None)
         if refusal is not None and self.camera_removed:
             raise _camera_not_connected(member)
-        applied = result is not False
-        if applied:
-            for source in invalidates:
-                self.frame_validity.invalidate(source)
-            for source, value in targets:
-                if (
-                    source in target_from_result
-                    and isinstance(result, (int, float))
-                    and not isinstance(result, bool)
-                ):
-                    # bool is an int subclass, so a driver reporting a bare
-                    # True would otherwise stamp a 1.0 target and reject
-                    # every frame -- the failure this parameter exists to
-                    # prevent, reintroduced by the check meant to prevent it.
-                    value = float(result)
-                self.frame_validity.set_target(source, value)
-            if cache_update:
-                self._commit_camera_writes(cache_update)
+        if result is False:
+            raise refusal()
+        for source in invalidates:
+            self.frame_validity.invalidate(source)
+        for source, value in targets:
+            if (
+                source in target_from_result
+                and isinstance(result, (int, float))
+                and not isinstance(result, bool)
+            ):
+                # bool is an int subclass, so a driver reporting a bare
+                # True would otherwise stamp a 1.0 target and reject
+                # every frame -- the failure this parameter exists to
+                # prevent, reintroduced by the check meant to prevent it.
+                value = float(result)
+            self.frame_validity.set_target(source, value)
+        if cache_update:
+            self._commit_camera_writes(cache_update)
         return result
 
     # Failed camera reads inside this window after a WARNING log at debug;
@@ -1151,30 +1196,30 @@ class ImagingAPI:
         return self._driver is not None and self._driver.is_device_removed()
 
     # --- Setters ---
-    def _set_gain_db_impl(self, gain_db: float) -> float | bool | None:
+    def _set_gain_db_impl(self, gain_db: float) -> float | None:
         """Set the camera gain, and answer with the gain now in effect.
 
-        Deliberately does NOT raise on a refusal, unlike the public
-        ``set_gain_db`` that wraps it; a driver that raises from the write
-        raises ``CameraSettingRejected`` here, chained (``_camera_write``).
-        This body is the composition primitive the auto-gain lock, the
-        exposure ceiling, the camera restore and the layer apply build on,
-        and each of them carries on at the gain the camera holds and answers
-        for the refusal in its own outcome. Nothing
-        is logged or shown here: a refusal is reported once, by whoever ends
-        its flight.
+        The composition primitive the auto-gain lock, the exposure ceiling,
+        the camera restore and the layer apply build on; a write that did
+        not apply raises (``_camera_write``), and each of them catches it,
+        carries on at the gain the camera holds, and answers for it in its
+        own outcome. Nothing is logged or shown here: a refusal is reported
+        once, by whoever ends its flight.
 
         Args:
             gain_db: Gain value in dB.
 
         Returns:
-            float | bool | None: The gain in dB now in effect -- the driver's
-                own answer when it gives one, since a body that clamps or
+            float | None: The gain in dB now in effect -- the driver's own
+                answer when it gives one, since a body that clamps or
                 quantizes applies something other than the request, else the
-                request. ``False`` on a confirmed driver refusal. ``None``
-                when no camera is active.
+                request. ``None`` when no camera is active.
 
         Raises:
+            CameraSettingRejected: The write did not apply
+                (``_camera_write``); the gain is not recorded, since frames
+                keep streaming at the old one and IDS has no chunk backstop
+                to catch the mismatch downstream.
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera, when it was removed during the write
                 (``_camera_write``).
@@ -1204,11 +1249,6 @@ class ImagingAPI:
             targets=(('gain', float(gain_db)),),
             target_from_result=('gain',),
         )
-        if ok is False:
-            # Frames keep streaming at the OLD gain, and IDS has no chunk
-            # backstop to catch a mismatch downstream, so the request is not
-            # recorded as truth.
-            return False
         applied = _value_in_effect(ok, float(gain_db))
         self._commit_camera_writes({'gain_db': applied})
         if abs(applied - prior) >= 0.001:
@@ -1216,24 +1256,26 @@ class ImagingAPI:
             self._fire_camera_listeners('gain', applied)
         return applied
 
-    def _set_exposure_ms_impl(self, exposure_ms: float) -> float | bool | None:
+    def _set_exposure_ms_impl(self, exposure_ms: float) -> float | None:
         """Set the camera exposure time, and answer with the exposure now in
         effect.
 
-        Non-raising and silent for the same reason as ``_set_gain_db_impl``.
+        Silent, and raising when the write did not apply, for the reason
+        given on ``_set_gain_db_impl``.
 
         Args:
             exposure_ms: Exposure time in milliseconds.
 
         Returns:
-            float | bool | None: The exposure in milliseconds now in effect --
+            float | None: The exposure in milliseconds now in effect --
                 converted from the driver's microseconds when it reports
                 them, since a body that clamps to its floor or quantizes onto
                 a row grid applies something other than the request, else the
-                request. ``False`` on a confirmed driver refusal. ``None``
-                when no camera is active.
+                request. ``None`` when no camera is active.
 
         Raises:
+            CameraSettingRejected: The write did not apply
+                (``_camera_write``); the exposure is not recorded.
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera, when it was removed during the write
                 (``_camera_write``).
@@ -1280,11 +1322,6 @@ class ImagingAPI:
             targets=(('exposure', float(exposure_ms) * 1000.0),),
             target_from_result=('exposure',),
         )
-        if ok is False:
-            # Frames keep streaming at the OLD exposure, and IDS has no chunk
-            # backstop to catch a mismatch downstream, so the request is not
-            # recorded as truth.
-            return False
         applied = _value_in_effect(ok, float(exposure_ms), scale=0.001)
         self._commit_camera_writes({'exposure_ms': applied})
         if abs(applied - prior) >= 0.001:
@@ -1544,18 +1581,12 @@ class ImagingAPI:
             noun='gain',
             unit='dB',
         )
-        applied = self._dispatch_camera(
+        return self._dispatch_camera(
             self._set_gain_db_impl,
             'set_gain_db',
             args=(gain_db,),
             timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
         )
-        if applied is False:
-            raise _value_rejection('gain_db', gain_db)
-        # Passed through, not swallowed: every dispatcher in this class returns
-        # what its impl returned, and a test pins that contract across all of
-        # them. The raise is added to that, not substituted for it.
-        return applied
 
     @api
     def set_exposure_ms(self, exposure_ms: float) -> float | None:
@@ -1591,16 +1622,12 @@ class ImagingAPI:
             noun='exposure',
             unit='ms',
         )
-        applied = self._dispatch_camera(
+        return self._dispatch_camera(
             self._set_exposure_ms_impl,
             'set_exposure_ms',
             args=(exposure_ms,),
             timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
         )
-        if applied is False:
-            raise _value_rejection('exposure_ms', exposure_ms)
-        # See set_gain_db: the dispatcher's pass-through contract holds.
-        return applied
 
     @api
     def set_auto_gain(
@@ -1627,7 +1654,7 @@ class ImagingAPI:
                 or one is not a number.
         """
         _refuse_unless_auto_gain_settings(settings, 'settings')
-        result = self._dispatch_camera(
+        return self._dispatch_camera(
             self._set_auto_gain_impl,
             'set_auto_gain',
             args=(state, settings),
@@ -1635,19 +1662,15 @@ class ImagingAPI:
             timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
             satisfied_when_absent=_REFUSED_WHEN_ABSENT if state else True,
         )
-        if result is False:
-            raise _mode_rejection('auto_gain', state, 'auto-gain')
-        return result
 
     def _set_auto_gain_impl(
         self, state: bool, settings: dict, *, resume_after_capture: bool = True
     ) -> bool | None:
         """Enable or disable automatic gain adjustment.
 
-        Non-raising on a refusal, as the value impls are (a raising write
-        raises ``CameraSettingRejected``); a refusal is answered, not
-        reported, and records no arm: the lock would otherwise write back
-        values from a loop that never ran.
+        A write that did not apply raises, as the value impls do, unreported
+        and recording no arm: the lock would otherwise write back values
+        from a loop that never ran.
 
         Args:
             state: True to enable auto gain, False to disable.
@@ -1660,14 +1683,15 @@ class ImagingAPI:
                 leaves the camera at the locked values (a protocol step).
 
         Returns:
-            bool | None: The driver's answer (see ``Camera.gain`` for the
-                three cases); ``None`` when no camera is active. ``True``,
+            bool | None: The driver's answer (``None`` or ``True``; see
+                ``Camera.gain``); ``None`` when no camera is active. ``True``,
                 with nothing written, for turning off a mode a camera
                 without hardware auto-gain never had.
 
         Raises:
             CameraSettingUnsupportedError: Turning auto-gain on for a camera
                 without it. Nothing reaches the camera.
+            CameraSettingRejected: The write did not apply (``_camera_write``).
         """
 
         if not self._driver or not self._driver.active:
@@ -1712,8 +1736,6 @@ class ImagingAPI:
             force_invalidate=('gain', 'auto_gain') if arm_settle else ('gain',),
             force_clear=('gain',),
         )
-        if result is False:
-            return False
         with self._state_lock:
             self._auto_gain_arm = (
                 _AutoGainArm(dict(settings), resume_after_capture) if arm_settle else None
@@ -1763,8 +1785,10 @@ class ImagingAPI:
         settings = arm.settings
         floor = settings.get('min_exposure_ms') or None
         ceiling = settings.get('max_exposure_ms') or None
-        if self._set_auto_gain_impl(False, settings) is False:
-            self._report_refused_write(_mode_rejection('auto_gain', False, 'auto-gain'))
+        try:
+            self._set_auto_gain_impl(False, settings)
+        except CameraSettingRejected as rejected:
+            self._report_refused_write(rejected)
         chunks = self._get_latest_chunks() or {}
         exp_us = chunks.get('ExposureTime')
         gain = chunks.get('Gain')
@@ -1800,11 +1824,15 @@ class ImagingAPI:
         gain = float(gain)
         # The write-back pins the values auto-gain just reached, which the
         # camera already holds, so a refused write-back leaves the lock's
-        # state true; the refusal itself is reported.
-        if self._set_exposure_ms_impl(exp_ms) is False:
-            self._report_refused_write(_value_rejection('exposure_ms', exp_ms))
-        if self._set_gain_db_impl(gain) is False:
-            self._report_refused_write(_value_rejection('gain_db', gain))
+        # state true and the capture proceeds; the refusal itself is reported.
+        for write_back, value in (
+            (self._set_exposure_ms_impl, exp_ms),
+            (self._set_gain_db_impl, gain),
+        ):
+            try:
+                write_back(value)
+            except CameraSettingRejected as rejected:
+                self._report_refused_write(rejected)
         if ceiling is not None and exp_ms >= ceiling * 0.99:
             state = AutoGainConvergence.MAXED
         elif floor is not None and exp_ms <= floor:
@@ -1879,9 +1907,11 @@ class ImagingAPI:
             f'[AG ARM] exposure {current_ms:.3f} ms above the class ceiling '
             f'{ceiling_ms:g} ms; clamped to the ceiling before arming'
         )
-        if self._set_exposure_ms_impl(float(ceiling_ms)) is False:
+        try:
+            self._set_exposure_ms_impl(float(ceiling_ms))
+        except CameraSettingRejected as rejected:
             # The arm goes ahead at the exposure the camera holds.
-            self._report_refused_write(_value_rejection('exposure_ms', float(ceiling_ms)))
+            self._report_refused_write(rejected)
 
     def _report_refused_write(
         self, rejection: CameraSettingRejected | HardwareCommandRefusedError
@@ -1903,12 +1933,9 @@ class ImagingAPI:
         # Run after the capture's frame is in hand, often from its finally: a
         # camera found gone here is reported, never raised over that frame.
         try:
-            result = self._set_auto_gain_impl(True, lock.settings, resume_after_capture=True)
-        except HardwareCommandRefusedError as absent:
-            self._report_refused_write(absent)
-            return
-        if result is False:
-            self._report_refused_write(_mode_rejection('auto_gain', True, 'auto-gain'))
+            self._set_auto_gain_impl(True, lock.settings, resume_after_capture=True)
+        except (CameraSettingRejected, HardwareCommandRefusedError) as not_rearmed:
+            self._report_refused_write(not_rearmed)
 
     @api
     def set_auto_exposure_time(self, state: bool = True) -> bool | None:
@@ -1931,16 +1958,13 @@ class ImagingAPI:
                 or one removed during the write; turning it off is satisfied
                 either way.
         """
-        result = self._dispatch_camera(
+        return self._dispatch_camera(
             self._set_auto_exposure_time_impl,
             'set_auto_exposure_time',
             args=(state,),
             timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
             satisfied_when_absent=_REFUSED_WHEN_ABSENT if state else True,
         )
-        if result is False:
-            raise _mode_rejection('auto_exposure', state, 'auto-exposure')
-        return result
 
     def _set_auto_exposure_time_impl(self, state: bool = True) -> bool | None:
         """Enable or disable automatic exposure adjustment.
@@ -1949,14 +1973,15 @@ class ImagingAPI:
             state: True to enable auto exposure, False to disable.
 
         Returns:
-            bool | None: The driver's answer; ``False`` when it refused, and
-                then the cache is not resynced. ``None`` when no camera is
+            bool | None: The driver's answer. ``None`` when no camera is
                 active. ``True``, with nothing written, for turning off a mode
                 a camera without hardware auto-exposure never had.
 
         Raises:
             CameraSettingUnsupportedError: Turning auto-exposure on for a
                 camera without it. Nothing reaches the camera.
+            CameraSettingRejected: The write did not apply
+                (``_camera_write``); the cache is not resynced.
         """
 
         if not self._driver or not self._driver.active:
@@ -1983,8 +2008,6 @@ class ImagingAPI:
             force_invalidate=('exposure',),
             force_clear=('exposure',),
         )
-        if result is False:
-            return False
         # Hardware-truth wins over cache after the auto cycle ends.
         if not state:
             self._refresh_cache_from_hardware_after_auto()
@@ -2170,20 +2193,13 @@ class ImagingAPI:
         # applied it. A rejected write must not leave the requested
         # value where scale-bar / FOV math reads it -- the hardware
         # is still at the previous binning.
-        ok = self._camera_write(
+        self._camera_write(
             lambda: self._driver.set_binning_size(size=size),
             member='set_binning_size',
             refusal=_refused,
             invalidates=('binning',),
             cache_update={'binning': int(size)},
         )
-        # `is False` (not falsy): an explicit False is the driver's only
-        # rejection signal; a None return (drivers without a confirmation
-        # signal) counts as applied, matching _camera_write's own applied
-        # semantics -- treating None as rejection here would raise while
-        # the cache had already committed the factor.
-        if ok is False:
-            raise _refused()
         # Both cached geometries are binning-dependent: the sensor
         # minimum halves at 2x, and the delivered frame size halves
         # with it. Left stale, the UI's frame-size clamp reads the 1x
@@ -2260,15 +2276,13 @@ class ImagingAPI:
 
         # Format change reallocates geometry only when the driver applied
         # it, so invalidate + snapshot are gated on the driver result.
-        result = self._camera_write(
+        self._camera_write(
             lambda: self._driver.set_pixel_format(pixel_format),
             member='set_pixel_format',
             refusal=_refused,
             invalidates=('pixel_format',),
             cache_update={'pixel_format': pixel_format},
         )
-        if result is False:
-            raise _refused()
         return True
 
     def set_conversion_gain_mode(self, mode: str) -> None:
@@ -2337,14 +2351,12 @@ class ImagingAPI:
                 offered=('High', 'Low'),
                 message=f'There is no conversion gain mode {mode!r}: the modes are High and Low.',
             )
-        result = self._camera_write(
+        self._camera_write(
             lambda: self._driver.set_conversion_gain_mode(mode),
             member='set_conversion_gain_mode',
             refusal=lambda: _mode_rejection('conversion_gain_mode', mode, 'conversion gain mode'),
             invalidates=('conversion_gain_mode',),
         )
-        if result is False:
-            raise _mode_rejection('conversion_gain_mode', mode, 'conversion gain mode')
         return True
 
     def set_line_noise_reduction(self, enabled: bool) -> None:
@@ -2403,7 +2415,7 @@ class ImagingAPI:
                 offered=(False,),
                 consequence='Its readout stays unfiltered.',
             )
-        result = self._camera_write(
+        self._camera_write(
             lambda: self._driver.set_line_noise_reduction(enabled=enabled),
             member='set_line_noise_reduction',
             refusal=lambda: _mode_rejection(
@@ -2411,8 +2423,6 @@ class ImagingAPI:
             ),
             invalidates=('line_noise_reduction',),
         )
-        if result is False:
-            raise _mode_rejection('line_noise_reduction', enabled, 'line noise reduction')
         return True
 
     @api(reads=True)
@@ -2520,20 +2530,18 @@ class ImagingAPI:
             HardwareError: The camera's probe, range read or read-back
                 failed; the black level in effect is unknown.
         """
-        applied = self._dispatch_camera(
+        return self._dispatch_camera(
             self._set_black_level_impl,
             'set_black_level',
             args=(value,),
             timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
         )
-        if applied is False:
-            raise _value_rejection('black_level', value)
-        return applied
 
-    def _set_black_level_impl(self, value: float) -> float | bool | None:
+    def _set_black_level_impl(self, value: float) -> float | None:
         """Set the black level; the refusals of ``set_black_level`` are raised
         here, on the camera lane, because the support probe and the range are
-        live camera reads. A camera refusal is answered ``False``, not raised.
+        live camera reads. A write that did not apply raises
+        ``CameraSettingRejected`` (``_camera_write``).
         """
         driver = self._driver
         if not driver or not driver.active:
@@ -2553,13 +2561,12 @@ class ImagingAPI:
             with self._cam_lock:
                 return self._driver.set_black_level(float(value))
 
-        result = self._camera_write(
+        return self._camera_write(
             _write_black_level,
             member='set_black_level',
             refusal=lambda: _value_rejection('black_level', value),
             invalidates=('black_level',),
         )
-        return result
 
     # --- SDK-perf knobs (write-only by design) ---
     #
@@ -4781,21 +4788,26 @@ class ImagingAPI:
             f'{_describe_geometry(snapshot)}'
         )
         self._restore_camera_geometry(snapshot)
-        arm_result = None
+        writes = []
         if arm_action == 'disarmed':
-            arm_result = self._set_auto_gain_impl(False, dict(standing.settings))
-        if gain_known and self._set_gain_db_impl(gain_db) is False:
-            self._report_refused_write(_value_rejection('gain_db', gain_db))
-        if exposure_known and self._set_exposure_ms_impl(exposure_ms) is False:
-            self._report_refused_write(_value_rejection('exposure_ms', exposure_ms))
+            writes.append(lambda: self._set_auto_gain_impl(False, dict(standing.settings)))
+        if gain_known:
+            writes.append(lambda: self._set_gain_db_impl(gain_db))
+        if exposure_known:
+            writes.append(lambda: self._set_exposure_ms_impl(exposure_ms))
         if arm_action == 're-armed':
-            arm_result = self._set_auto_gain_impl(
-                True, dict(arm.settings), resume_after_capture=arm.resume_after_capture
+            writes.append(
+                lambda: self._set_auto_gain_impl(
+                    True, dict(arm.settings), resume_after_capture=arm.resume_after_capture
+                )
             )
-        if arm_result is False:
-            self._report_refused_write(
-                _mode_rejection('auto_gain', arm_action == 're-armed', 'auto-gain')
-            )
+        # Each refusal is reported and the restore goes on to its next write,
+        # so one setting the camera did not take leaves no other unrestored.
+        for write in writes:
+            try:
+                write()
+            except CameraSettingRejected as rejected:
+                self._report_refused_write(rejected)
 
     def _restore_camera_geometry(self, snapshot: dict) -> None:
         """Write back each of the snapshot's settings beyond gain and exposure
@@ -4819,8 +4831,11 @@ class ImagingAPI:
                 self._set_frame_size_impl(wanted['width'], wanted['height'])
             elif key == 'pixel_format':
                 self._set_pixel_format_impl(wanted)
-            elif self._set_black_level_impl(wanted) is False:
-                self._report_refused_write(_value_rejection('black_level', wanted))
+            else:
+                try:
+                    self._set_black_level_impl(wanted)
+                except CameraSettingRejected as rejected:
+                    self._report_refused_write(rejected)
 
     # --- Camera config orchestration ---
     @api
@@ -4916,11 +4931,11 @@ class ImagingAPI:
                 when no camera is active.
 
         Raises:
-            CameraSettingRejected: The camera refused the gain, the exposure
-                or the auto-gain change. When it refused more than one,
-                ``setting`` names each, comma-separated, ``requested`` holds
-                their values in that order, and the message carries each
-                sentence.
+            CameraSettingRejected: The camera did not take the gain, the
+                exposure or the auto-gain change. When more than one, ``setting``
+                names each, comma-separated, ``requested`` holds their values in
+                that order, the message carries each sentence, and the reason is
+                ``'camera_no_answer'`` when any of them got no answer.
         """
         if not self._driver or not self._driver.active:
             return None
@@ -4946,13 +4961,21 @@ class ImagingAPI:
         # loop's value. So a manual layer's values are written once the loop
         # is off, and an auto layer's seed values before it is armed (the
         # arm's ceiling clamp reads the exposure just written).
-        auto_gain_result = None
+        refused: list[CameraSettingRejected] = []
+
+        def _attempt(write):
+            try:
+                return write()
+            except CameraSettingRejected as rejected:
+                refused.append(rejected)
+                return None
+
         if auto_gain_settings is not None and not auto.applied:
-            auto_gain_result = _write_mode()
-        gain_result = self._set_gain_db_impl(gain.applied)
-        exposure_result = self._set_exposure_ms_impl(exposure.applied)
+            _attempt(_write_mode)
+        gain_result = _attempt(lambda: self._set_gain_db_impl(gain.applied))
+        exposure_result = _attempt(lambda: self._set_exposure_ms_impl(exposure.applied))
         if auto_gain_settings is not None and auto.applied:
-            auto_gain_result = _write_mode()
+            _attempt(_write_mode)
         # Both numbers when the camera held one down, so a bundle shows the
         # intent that was stored next to the value the sensor took; one
         # number would read as the user having chosen the lower one.
@@ -4965,21 +4988,21 @@ class ImagingAPI:
             f'apply_layer_camera_settings layer={layer} gain={gain.applied}dB '
             f'exp={exposure.applied}ms auto_gain={auto.applied}{capped_note}'
         )
-        refused = []
-        if gain_result is False:
-            refused.append(_value_rejection('gain_db', gain.applied))
-        if exposure_result is False:
-            refused.append(_value_rejection('exposure_ms', exposure.applied))
-        if auto_gain_result is False:
-            refused.append(_mode_rejection('auto_gain', auto.applied, 'auto-gain'))
         if len(refused) == 1:
             raise refused[0]
         if refused:
+            # Not answered when any part got no answer: what the camera holds
+            # is then not known, whatever the other parts said.
             raise CameraSettingRejected(
                 ','.join(r.setting for r in refused),
                 tuple(r.requested for r in refused),
                 message=' '.join(str(r) for r in refused),
-            )
+                reason=(
+                    'camera_no_answer'
+                    if any(r.reason == 'camera_no_answer' for r in refused)
+                    else 'camera_rejected'
+                ),
+            ) from refused[0]
         return {'gain_db': gain_result, 'exposure_ms': exposure_result}
 
     @api
@@ -5001,17 +5024,12 @@ class ImagingAPI:
                 camera, with none connected or one removed during the write.
         """
         refuse_unless_finite_number(target_brightness, 'target_brightness')
-        result = self._dispatch_camera(
+        return self._dispatch_camera(
             self._update_auto_gain_target_brightness_impl,
             'update_auto_gain_target_brightness',
             args=(target_brightness,),
             timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
         )
-        if result is False:
-            raise _mode_rejection(
-                'auto_gain_target_brightness', target_brightness, 'auto-gain target brightness'
-            )
-        return result
 
     def _update_auto_gain_target_brightness_impl(self, target_brightness: float) -> bool | None:
         """Set the auto-gain target brightness on the camera.
@@ -5020,8 +5038,11 @@ class ImagingAPI:
             target_brightness: Target brightness value (0.0 to 1.0).
 
         Returns:
-            bool | None: The driver's answer; ``False`` when it refused.
-                ``None`` when no camera is active.
+            bool | None: The driver's answer. ``None`` when no camera is
+                active.
+
+        Raises:
+            CameraSettingRejected: The write did not apply (``_camera_write``).
         """
         if not self._driver or not self._driver.active:
             return None
@@ -5069,15 +5090,13 @@ class ImagingAPI:
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera, with none connected or one removed during the write.
         """
-        result = self._dispatch_camera(
+        self._dispatch_camera(
             self._auto_gain_once_impl,
             'auto_gain_once',
             args=(state, target_brightness, min_gain_db, max_gain_db),
             kwargs={'ae_max_exposure_ms': ae_max_exposure_ms},
             timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
         )
-        if result is False:
-            raise _mode_rejection('auto_gain', state, 'one-shot auto-gain')
 
     def _auto_gain_once_impl(
         self,
@@ -5086,7 +5105,7 @@ class ImagingAPI:
         min_gain_db: float,
         max_gain_db: float,
         ae_max_exposure_ms: float | None = None,
-    ) -> bool | None:
+    ) -> None:
         """Run auto-gain for a single frame on the camera.
 
         Args:
@@ -5097,9 +5116,10 @@ class ImagingAPI:
             ae_max_exposure_ms: Optional per-channel-class upper bound (ms)
                 on the exposure auto-exposure may drive to.
 
-        Returns:
-            bool | None: ``False`` when the driver refused, and then the arm
-                and the cache are left as they were; otherwise ``None``.
+        Raises:
+            CameraSettingRejected: The write did not apply
+                (``_camera_write``); the arm and the cache are left as they
+                were.
         """
         if not self._driver or not self._driver.active:
             return
@@ -5120,7 +5140,7 @@ class ImagingAPI:
         # target and fall back to skip-frames settling. Both invalidations and
         # target-clears are forced -- one call, two sources, no value write the
         # authority could observe.
-        result = self._camera_write(
+        self._camera_write(
             lambda: self._driver.auto_gain_once(
                 state=state,
                 target_brightness=target_brightness,
@@ -5133,8 +5153,6 @@ class ImagingAPI:
             force_invalidate=('gain', 'exposure'),
             force_clear=('gain', 'exposure'),
         )
-        if result is False:
-            return False
         with self._state_lock:
             self._auto_gain_arm = None
         # One-shot AG always ends with the auto cycle complete and the

@@ -3876,18 +3876,27 @@ class CameraSettingRejected(Fault, Exception):  # noqa: N818 -- named for the ev
     notifies it.
 
     Attributes:
-        reason: ``'camera_rejected'``: the setting is in ``setting`` and in
-            the words, so one reason names the one condition.
+        reason: One of ``_TITLES``' keys. ``'camera_rejected'``: the camera
+            refused the write, or its driver raised from it.
+            ``'camera_no_answer'``: the camera did not answer the write,
+            sent twice, so whether it took it is not known. The setting is
+            in ``setting`` and in the words.
         setting: Machine-readable setting name (e.g. 'frame_size').
         requested: The value the caller asked for.
     """
 
     words_for_person = True
-    reason = 'camera_rejected'
-    title = 'Camera Setting Not Applied'
+    _TITLES: ClassVar[dict[str, str]] = {
+        'camera_rejected': 'Camera Setting Not Applied',
+        'camera_no_answer': 'Camera Did Not Answer',
+    }
 
-    def __init__(self, setting: str, requested, *, message: str):
+    def __init__(self, setting: str, requested, *, message: str, reason: str = 'camera_rejected'):
+        if reason not in self._TITLES:
+            raise TypeError(f'CameraSettingRejected has no reason {reason!r}')
         super().__init__(message)
+        self.reason = reason
+        self.title = self._TITLES[reason]
         self.setting = setting
         self.requested = requested
 

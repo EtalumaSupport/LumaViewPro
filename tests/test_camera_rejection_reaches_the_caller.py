@@ -1,25 +1,23 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""A confirmed camera rejection of gain or exposure reaches a non-GUI caller.
+"""A camera setting write that did not apply reaches its caller as one raise.
 
-Both setters detected the rejection, notified the user and returned nothing, so
-the failure existed only as a popup. An SDK, headless or REST caller received
-``None`` for a refusal exactly as it did for a success, and the published
-contract in ``docs/LumascopeSkills.md`` described these setters as returning
-True/False -- false in both directions.
+Both setters once detected a rejection, notified the user and returned
+nothing, so the failure existed only as a popup; later the setting bodies
+answered ``False`` while a raising driver raised, two channels for one
+failure, so a caller that handled one met the other unhandled.
 
-The raise lives on the PUBLIC setters, not on the ``_impl`` bodies. The impls
-are the composition primitive several other API methods build on -- the
-auto-gain lock, the exposure ceiling, the layer apply -- and are what the
-protocol step and the autofocus sweep bind directly. Raising from them would
-send a refused gain into the protocol scan loop, which classifies any exception
-raised with the boards still connected as transient and abandons the rest of
-the scan. The public setters are the L2 surface and have no in-run callers, so
-the contract is repaired where it is consumed.
+Now every setting write applied or raises ``CameraSettingRejected``, from
+``_camera_write``, the one path every write takes: ``'camera_rejected'``
+when the camera refused it (an explicit ``False``) or its driver raised,
+``'camera_no_answer'`` when the camera answered neither the write nor the
+write sent again at once. A refusal is not resent. The API's own callers
+that carry on with the camera as it is -- the auto-gain lock, the exposure
+clamp, the restore, the re-arm -- catch the one type and report it; the layer
+apply runs every write and raises one rejection at the end.
 
-Only an explicit ``False`` is a confirmed rejection. A driver with no
-confirmation signal answers ``None``, which is not a refusal and does not
-raise. A camera that is not there, before or during the write, is refused
-naming it (``tests/test_a_camera_command_with_no_camera_is_refused.py``).
+A driver with no confirmation signal answers ``None``, which is not a refusal
+and does not raise. A camera that is not there, before or during the write,
+is refused naming it (``tests/test_a_camera_command_with_no_camera_is_refused.py``).
 """
 
 import threading
@@ -167,31 +165,25 @@ class TestARefusalIsNotRecordedAsTruth:
         assert imaging.gain_db_cached == 9.0
 
 
-class TestTheImplsStayNonRaising:
-    """The in-run composition primitive must not throw into the scan loop.
+class TestOneChannel:
+    """A setting body raises a write that did not apply, unreported: the one
+    channel its callers catch, whichever way the driver failed."""
 
-    An exception here reaches protocol_run_loop's classifier, which sees the
-    boards still connected, calls the failure transient, and abandons the rest
-    of the scan -- so one refused gain on an early step would discard every
-    step after it. The refusal is reported and the caller continues at the
-    value the camera actually holds.
-    """
-
-    def test_the_gain_impl_reports_without_raising(self, sim_imaging, centre_posts, monkeypatch):
-        imaging, cam = sim_imaging
-        monkeypatch.setattr(cam, 'gain', lambda v: False)
-
-        assert imaging._set_gain_db_impl(7.0) is False
-        assert not _errors(centre_posts), 'the impl answers the refusal; its caller reports it'
-
-    def test_the_exposure_impl_reports_without_raising(
+    def test_the_value_bodies_raise_a_refusal_unreported(
         self, sim_imaging, centre_posts, monkeypatch
     ):
         imaging, cam = sim_imaging
+        monkeypatch.setattr(cam, 'gain', lambda v: False)
         monkeypatch.setattr(cam, 'exposure_t', lambda v: False)
 
-        assert imaging._set_exposure_ms_impl(25.0) is False
-        assert not _errors(centre_posts), 'the impl answers the refusal; its caller reports it'
+        for body, setting in (
+            (lambda: imaging._set_gain_db_impl(7.0), 'gain_db'),
+            (lambda: imaging._set_exposure_ms_impl(25.0), 'exposure_ms'),
+        ):
+            with pytest.raises(CameraSettingRejected) as rejected:
+                body()
+            assert (rejected.value.setting, rejected.value.reason) == (setting, 'camera_rejected')
+        assert not _errors(centre_posts), 'the body raises; its caller reports it'
 
     def test_an_auto_gain_lock_survives_a_refused_write(self, sim_imaging, monkeypatch):
         """The lock consumes the arm; a raise would strand it, disarmed."""
@@ -249,3 +241,153 @@ class TestARaisingWriteIsARejection:
             sim_scope.imaging.set_gain_db(9.0)
 
         assert validity.invalidation_counts.get('gain', 0) == before + 1
+
+
+class TestAWriteTheCameraDidNotAnswer:
+    """Sent once more, at once; not answered again, it is told as not answered."""
+
+    def test_one_unanswered_write_is_sent_again_and_applies(self, sim_scope):
+        sim_scope.simulation.refuse_camera_write('gain', 'no_answer')
+
+        assert sim_scope.imaging.set_gain_db(9.0) == 9.0
+        assert sim_scope.imaging.frame_validity.target('gain') == 9.0
+
+    def test_two_unanswered_raise_no_answer_and_clear_the_target(self, sim_scope, centre_posts):
+        imaging = sim_scope.imaging
+        imaging.set_gain_db(3.0)
+        sim_scope.simulation.refuse_camera_write('gain', 'no_answer', count=2)
+
+        with pytest.raises(CameraSettingRejected) as rejected:
+            imaging.set_gain_db(9.0)
+
+        assert (rejected.value.reason, rejected.value.title, rejected.value.setting) == (
+            'camera_no_answer',
+            'Camera Did Not Answer',
+            'gain_db',
+        )
+        assert str(rejected.value).startswith('The camera did not answer a gain change')
+        assert type(rejected.value.__cause__).__name__ == 'CameraNoAnswerError'
+        # Whether the camera took 9 dB is not known: no gain target is kept, so
+        # the next captures settle by frame count rather than match 3 dB.
+        assert imaging.frame_validity.target('gain') is None
+        assert not _errors(centre_posts), 'the raise is the report'
+
+    def test_a_refused_write_is_not_sent_again(self, sim_scope):
+        # One refusal injected: sent again, the write would meet the node and
+        # apply, and nothing would be raised.
+        sim_scope.simulation.refuse_camera_write('gain', 'false')
+
+        with pytest.raises(CameraSettingRejected) as rejected:
+            sim_scope.imaging.set_gain_db(9.0)
+
+        assert rejected.value.reason == 'camera_rejected'
+
+
+class TestTheCallersThatGoOn:
+    def test_a_capture_whose_lock_write_back_raises_returns_its_frame(
+        self, sim_scope, centre_posts
+    ):
+        """The lock pins the values auto-gain reached, which the camera
+        already holds: a write-back that fails is reported, and the capture
+        it belongs to goes on."""
+        sim_scope.imaging.set_auto_gain(True, _AUTO_GAIN)
+        sim_scope.simulation.refuse_camera_write('exposure', 'raise')
+
+        frame = sim_scope.imaging.capture_and_wait(timeout_s=5.0)
+
+        assert frame is not None
+        assert [(n.title, n.category) for n in _errors(centre_posts)] == [
+            ('Camera Setting Not Applied', 'Camera')
+        ]
+
+    def test_a_layer_apply_whose_gain_write_raises_still_writes_the_exposure(self, sim_scope):
+        imaging = sim_scope.imaging
+        sim_scope.simulation.refuse_camera_write('gain', 'raise')
+
+        with pytest.raises(CameraSettingRejected) as rejected:
+            imaging.apply_layer_camera_settings(4.0, 30.0, layer='BF')
+
+        assert (rejected.value.setting, rejected.value.reason) == ('gain_db', 'camera_rejected')
+        assert imaging.exposure_ms_cached == 30.0, 'the exposure was left at a previous layer'
+
+    def test_a_layer_apply_with_any_part_unanswered_is_not_answered(self, sim_scope):
+        imaging = sim_scope.imaging
+        sim_scope.simulation.refuse_camera_write('gain', 'no_answer', count=2)
+        sim_scope.simulation.refuse_camera_write('exposure', 'false')
+
+        with pytest.raises(CameraSettingRejected) as rejected:
+            imaging.apply_layer_camera_settings(4.0, 30.0, layer='BF')
+
+        assert (rejected.value.setting, rejected.value.reason, rejected.value.title) == (
+            'gain_db,exposure_ms',
+            'camera_no_answer',
+            'Camera Did Not Answer',
+        )
+
+
+def test_every_setter_raises_a_refusal_as_rejected(sim_scope):
+    """An explicit False from any setting write is the one raise, not an
+    answer a caller could forget to check."""
+    imaging = sim_scope.imaging
+    setters = {
+        'exposure': lambda: imaging.set_exposure_ms(20.0),
+        'auto_exposure': lambda: imaging.set_auto_exposure_time(True),
+        'binning': lambda: imaging.set_binning_size(2),
+        'pixel_format': lambda: imaging.set_pixel_format('Mono12'),
+        'black_level': lambda: imaging.set_black_level(10.0),
+        'auto_gain': lambda: imaging.set_auto_gain(True, _AUTO_GAIN),
+        'auto_gain_target_brightness': lambda: imaging.update_auto_gain_target_brightness(0.6),
+    }
+    answered = {}
+    for node, setter in setters.items():
+        sim_scope.simulation.refuse_camera_write(node, 'false')
+        try:
+            setter()
+        except CameraSettingRejected as rejected:
+            if rejected.reason != 'camera_rejected':
+                answered[node] = rejected.reason
+        else:
+            answered[node] = 'no raise'
+        sim_scope.simulation.clear()
+    assert not answered, f'a refused write was not raised as camera_rejected: {answered}'
+
+
+class TestTheRestTheApiCarriesOnFrom:
+    def test_a_capture_whose_disarm_and_re_arm_are_refused_returns_its_frame(
+        self, sim_scope, centre_posts
+    ):
+        sim_scope.imaging.set_auto_gain(True, _AUTO_GAIN)
+        # The lock's disarm and the re-arm after the frame are both auto-gain
+        # writes: each is refused once.
+        sim_scope.simulation.refuse_camera_write('auto_gain', 'raise', count=2)
+
+        frame = sim_scope.imaging.capture_and_wait(timeout_s=5.0)
+
+        assert frame is not None
+        assert [n.title for n in _errors(centre_posts)] == ['Camera Setting Not Applied'] * 2
+
+    def test_an_arm_whose_ceiling_clamp_is_refused_still_arms(self, sim_scope, centre_posts):
+        imaging = sim_scope.imaging
+        imaging.set_exposure_ms(100.0)
+        sim_scope.simulation.refuse_camera_write('exposure', 'raise')
+
+        imaging.set_auto_gain(True, {**_AUTO_GAIN, 'max_exposure_ms': 50.0})
+
+        assert imaging.lock_auto_gain().state is not None, 'the arm did not go ahead'
+        assert [n.title for n in _errors(centre_posts)] == ['Camera Setting Not Applied']
+
+    def test_a_restore_whose_gain_is_refused_still_restores_the_exposure(
+        self, sim_scope, centre_posts
+    ):
+        imaging = sim_scope.imaging
+        imaging.set_gain_db(2.0)
+        imaging.set_exposure_ms(20.0)
+        snapshot = imaging.save_camera_state('test')
+        imaging.set_gain_db(6.0)
+        imaging.set_exposure_ms(40.0)
+        sim_scope.simulation.refuse_camera_write('gain', 'raise')
+
+        imaging.restore_camera_state(snapshot)
+
+        assert imaging.exposure_ms_cached == 20.0
+        assert [n.title for n in _errors(centre_posts)] == ['Camera Setting Not Applied']
