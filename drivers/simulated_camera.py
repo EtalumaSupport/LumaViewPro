@@ -479,8 +479,8 @@ class SimulatedCamera(Camera):
         device is removed; its own reconnect brings it back."""
         self._mark_disconnected()
 
-    def refuse_write(self, node: str, answer: str) -> None:
-        """The next write of ``node`` answers ``answer`` and moves nothing.
+    def refuse_write(self, node: str, answer: str, count: int = 1) -> None:
+        """The next ``count`` writes of ``node`` answer ``answer`` and move nothing.
 
         Args:
             node: One of ``WRITABLE_NODES``.
@@ -491,6 +491,8 @@ class SimulatedCamera(Camera):
                 camera pulled during the write does; ``'no_answer'``
                 raises ``CameraNoAnswerError`` as a write the camera did
                 not answer in time, leaving it on the bus.
+            count: How many writes in a row meet it, 1 or more: a write
+                sent again at once meets the second.
 
         Raises:
             ValueError: ``node`` or ``answer`` is not one of those.
@@ -501,10 +503,15 @@ class SimulatedCamera(Camera):
             raise ValueError(f'{answer!r} is not one of {self.REFUSED_WRITE_ANSWERS}')
         setter = self.WRITABLE_NODES[node]
 
-        # The refusal stands in for the setter on this camera, once: the
-        # first write takes it away again, so the next reaches the node.
+        # The refusal stands in for the setter on this camera for ``count``
+        # writes: the last of them takes it away again, so the next reaches
+        # the node.
+        left = [count]
+
         def refused(*args, **kwargs):
-            vars(self).pop(setter, None)
+            left[0] -= 1
+            if left[0] <= 0:
+                vars(self).pop(setter, None)
             logger.warning(f'[CAM Sim   ] {node} write refused ({answer}, simulated)')
             if answer == 'raise':
                 raise RuntimeError(f'simulated {node} node write failed')

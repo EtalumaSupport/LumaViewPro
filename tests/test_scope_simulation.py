@@ -154,6 +154,15 @@ def test_a_refused_write_is_one_write(scope):
     assert scope.imaging.frame_validity.target('gain') == 9.0
 
 
+def test_a_refused_write_counted_twice_is_two_writes(scope):
+    scope.simulation.refuse_camera_write('gain', 'false', count=2)
+    for _ in range(2):
+        with pytest.raises(CameraSettingRejected):
+            scope.imaging.set_gain_db(9.0)
+    scope.imaging.set_gain_db(9.0)
+    assert scope.imaging.frame_validity.target('gain') == 9.0
+
+
 def test_the_fast_led_board_refuses_a_link_fault_by_name(scope):
     for member in (scope.simulation.drop_replies, scope.simulation.unplug):
         refused = _refused(member, 'led')
@@ -179,6 +188,7 @@ def test_the_fast_motor_board_cannot_fail_a_home(scope):
         ('fail_home', ('X', 'jammed'), 'fault_unknown', 'how'),
         ('refuse_camera_write', ('focus', 'false'), 'fault_unknown', 'node'),
         ('refuse_camera_write', ('gain', 'no'), 'fault_unknown', 'answer'),
+        ('refuse_camera_write', ('gain', 'false', 0), 'fault_bound', 'count'),
         ('stall_stream', (0.0, 0.0), 'fault_bound', 'for_s'),
         ('reboot', ('motor', -1.0), 'fault_bound', 'booting_for_s'),
     ],
@@ -193,7 +203,7 @@ def test_injected_lists_what_was_asked_and_clear_takes_it_all_back(scope):
     scope.simulation.refuse_camera_write('gain', 'none')
     assert scope.simulation.injected() == (
         InjectedFault('silence', {'board': 'motor'}),
-        InjectedFault('refuse_camera_write', {'node': 'gain', 'answer': 'none'}),
+        InjectedFault('refuse_camera_write', {'node': 'gain', 'answer': 'none', 'count': 1}),
     )
     scope.simulation.clear()
     assert scope.simulation.injected() == ()

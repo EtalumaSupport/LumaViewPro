@@ -438,8 +438,8 @@ class SimulationAPI:
         self._record('remove_camera', _does_not_resume)
 
     @api(in_process=True)
-    def refuse_camera_write(self, node: str, answer: str) -> None:
-        """The camera's next write of ``node`` answers ``answer`` and moves nothing.
+    def refuse_camera_write(self, node: str, answer: str, count: int = 1) -> None:
+        """The camera's next ``count`` writes of ``node`` answer ``answer`` and move nothing.
 
         Args:
             node: The setting written: ``'gain'``, ``'exposure'``,
@@ -453,10 +453,14 @@ class SimulationAPI:
                 session, as after ``remove_camera``), or ``'no_answer'``
                 (``CameraNoAnswerError``: the write timed out, and the
                 camera stays on the bus).
+            count: How many writes in a row meet it, 1 or more: the API
+                sends a write the camera did not answer once more, so a
+                second unanswered write takes 2.
 
         Raises:
             ArgumentRefusedError: ``'needs_simulated_scope'``;
                 ``'fault_unknown'`` for a node or an answer;
+                ``'fault_bound'`` for a count below 1;
                 ``'not_injectable_on_board'`` on the FX2 camera.
         """
         target = self._camera_board('refuse_camera_write')
@@ -470,9 +474,14 @@ class SimulationAPI:
                 raise ArgumentRefusedError(
                     'fault_unknown', argument=argument, value=value, offered=offered
                 )
-        target.refuse_write(node, answer)
+        self._bound('count', count, 'a number of writes, 1 or more', count >= 1)
+        target.refuse_write(node, answer, count)
         self._record(
-            'refuse_camera_write', lambda: target.allow_write(node), node=node, answer=answer
+            'refuse_camera_write',
+            lambda: target.allow_write(node),
+            node=node,
+            answer=answer,
+            count=count,
         )
 
     @api(in_process=True)
