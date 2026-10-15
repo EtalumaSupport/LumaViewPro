@@ -594,6 +594,25 @@ def _bad_rows() -> list[Bad]:
             ),
         ),
         Bad(
+            'save_protocol without .tsv',
+            'ScopeSession.save_protocol',
+            lambda s: s.session.save_protocol(s.protocol, s.live / 'plate1'),
+            LiveFolderPathRefusedError,
+            'wrong_extension',
+            (
+                '/api/v1/save_protocol',
+                lambda s: {'protocol': s.handle, 'file_path': 'plate1'},
+            ),
+        ),
+        Bad(
+            'to_file without .tsv',
+            'Protocol.to_file',
+            lambda s: s.protocol.to_file(s.live / 'plate1.txt'),
+            LiveFolderPathRefusedError,
+            'wrong_extension',
+            ('/api/v1/handles/Protocol/{handle}/to_file', lambda s: {'file_path': 'plate1.txt'}),
+        ),
+        Bad(
             'load_protocol missing',
             'ScopeSession.load_protocol',
             lambda s: s.session.load_protocol(s.live / 'nothing_here' / 'p.tsv'),

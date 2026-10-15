@@ -1133,12 +1133,13 @@ class Protocol:
 
         Raises:
             LiveFolderPathRefusedError: ``'not_a_file'``, a folder is at
-                ``file_path``; ``'not_a_folder'``, a file is where its
-                folder would be. Nothing is written.
+                ``file_path``; ``'wrong_extension'``, its name does not end
+                in ``.tsv`` (in any case), which is not added; ``'not_a_folder'``,
+                a file is where its folder would be. Nothing is written.
             ProtocolNotSavedError: the write failed (chained from its
                 ``OSError``); nothing at ``file_path`` changed.
         """
-        file_path = path_utils.file_to_write(file_path)
+        file_path = path_utils.file_to_write(file_path, extension='.tsv')
         tmp_loc = file_path.with_name(file_path.name + '.tmp')
         if layer_settings is None:
             layer_settings = self._config.get('layer_settings')

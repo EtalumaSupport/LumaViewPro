@@ -380,13 +380,14 @@ def save_cell_count_method(method: Mapping, path: str | os.PathLike) -> None:
 
     Raises:
         LiveFolderPathRefusedError: ``'not_a_file'``, a folder is at
-            *path*; ``'not_a_folder'``, a file is where its folder would
-            be. Nothing is written.
+            *path*; ``'wrong_extension'``, its name does not end in
+            ``.json`` (in any case), which is not added; ``'not_a_folder'``,
+            a file is where its folder would be. Nothing is written.
         PostProcessingRefusedError: the method cannot be used, and nothing
             is written.
     """
     check_cell_count_method(method)
-    path = path_utils.file_to_write(path)
+    path = path_utils.file_to_write(path, extension='.json')
     saved = python_values(copy.deepcopy({**method, 'metadata': dict(_CELL_COUNT_METHOD_METADATA)}))
     with open(path, 'w') as f:
         json.dump(saved, f, indent=4)

@@ -612,7 +612,7 @@ class SequencedCaptureRunner:
             self._sequence_name = 'unsaved_protocol'
 
         protocol_filename = self._sequence_name
-        if not protocol_filename.endswith('.tsv'):
+        if not protocol_filename.lower().endswith('.tsv'):
             protocol_filename += '.tsv'
 
         protocol_file_loc = self._run_dir / protocol_filename

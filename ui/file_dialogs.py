@@ -1,6 +1,5 @@
 # Copyright Etaluma, Inc.
 import logging
-import os
 import pathlib
 import subprocess
 import sys
@@ -654,7 +653,4 @@ class FileSaveBTN(HoverBehavior, Button):
 
         elif self.context == 'saveas_cell_count_method' and self.selection:
             logger.info('[LVP Main  ] Saving Cell Count Method to File:' + self.selection[0])
-            filename = self.selection[0]
-            if os.path.splitext(filename)[1] == '':
-                filename += '.json'
-            ctx.cell_count_content.save_method_as(file=filename)
+            ctx.cell_count_content.save_method_as(file=self.selection[0])

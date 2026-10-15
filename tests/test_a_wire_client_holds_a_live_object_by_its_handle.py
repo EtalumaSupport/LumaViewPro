@@ -97,7 +97,7 @@ def test_a_handle_is_passed_as_an_argument_by_its_id(client, live):
     protocol = client.post('/api/v1/create_empty_protocol').json()
 
     saved = client.post(
-        '/api/v1/save_protocol', json={'protocol': protocol['handle'], 'file_path': 'plate'}
+        '/api/v1/save_protocol', json={'protocol': protocol['handle'], 'file_path': 'plate.tsv'}
     )
 
     assert saved.json()['name'] == 'plate.tsv'

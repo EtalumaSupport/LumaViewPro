@@ -179,9 +179,9 @@ class TestSave:
         panel = self._panel()
         ctx.session.save_protocol.return_value = pathlib.Path('/data/other.tsv')
 
-        panel.save_protocol(filepath='/data/other')
+        panel.save_protocol(filepath='/data/other.tsv')
 
-        ctx.session.save_protocol.assert_called_once_with(panel._protocol, '/data/other')
+        ctx.session.save_protocol.assert_called_once_with(panel._protocol, '/data/other.tsv')
         assert ctx.settings['protocol']['filepath'] == '/data/other.tsv'
         assert panel.ids['protocol_filename'].text == 'other.tsv'
         assert own_popups == []
@@ -194,7 +194,7 @@ class TestSave:
             file='/data/other.tsv', cause=PermissionError(13, 'Permission denied')
         )
 
-        panel.save_protocol(filepath='/data/other')
+        panel.save_protocol(filepath='/data/other.tsv')
 
         assert own_popups == [], 'the outcome is shown by the one reporter'
         assert [n.title for n in centre_posts] == ['Protocol Not Saved']

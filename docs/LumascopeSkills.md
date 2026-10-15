@@ -529,11 +529,16 @@ nothing, and with reason `not_a_folder` when it is a file.
 **A path that cannot be used is refused as a request.** A member that
 reads or writes a path the caller gives refuses it before it starts, with
 `LiveFolderPathRefusedError`: reason `not_found` when nothing is there to
-read, `not_a_file` when a folder is where a file is expected, and
-`not_a_folder` when a file is where a folder is expected
-(`load_protocol('runs')` on a folder is `not_a_file`; `make_logs_zip`
-into a file is `not_a_folder`; every post-processing member given a
-missing folder is `not_found`). A writer (`save_protocol`,
+read, `not_a_file` when a folder is where a file is expected,
+`not_a_folder` when a file is where a folder is expected, and
+`wrong_extension` when a file to write is named without its kind's
+extension (`load_protocol('runs')` on a folder is `not_a_file`;
+`make_logs_zip` into a file is `not_a_folder`; every post-processing member
+given a missing folder is `not_found`; `save_protocol(protocol, 'plate1')`
+is `wrong_extension`). A writer given a file's name (`save_protocol`,
+`Protocol.to_file`) writes exactly that name and adds no extension to it, so
+the name a Save As dialog checked for a file to replace is the name
+replaced. A writer (`save_protocol`,
 `Protocol.to_file`, `make_logs_zip`, `make_support_report`) makes a
 missing folder where it was sent. Over REST each refusal is a 422. A fault
 (`ProtocolNotLoadedError`, `ProtocolNotSavedError`,
@@ -736,8 +741,10 @@ protocol = session.scope.protocols.create_protocol(input_config=config)
 # file and the OS reason, and a file already there is unchanged. A run saves its own
 # copy in its run folder; when that copy cannot be written the run ends failed_at_start
 # (reason run_dir_init_failed) before anything moves.
-written = session.save_protocol(protocol, 'my_protocol')   # -> Path('my_protocol.tsv')
-# save_protocol adds .tsv to a name without it and writes the protocol with the
+written = session.save_protocol(protocol, 'my_protocol.tsv')   # -> Path('my_protocol.tsv')
+# save_protocol writes exactly the name given, which ends in .tsv (in any case) --
+# a name without it is refused (LiveFolderPathRefusedError, wrong_extension) --
+# and writes the protocol with the
 # session's Layer Settings block (each layer set to acquire, with the values its
 # controls hold), which apply_layer_settings puts back; it returns the path written.
 # It does not change what LumaViewPro opens at its next start-up.

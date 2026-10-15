@@ -1742,7 +1742,8 @@ class ScopeSession:
     def save_protocol(self, protocol: 'Protocol', file_path: FilePath) -> pathlib.Path:
         """Write a protocol to a file, with this session's Layer Settings.
 
-        ``.tsv`` is added to a name that does not end in it. The block holds
+        The file is written under exactly ``file_path``, which ends in
+        ``.tsv`` (in any case); nothing is added to it. The block holds
         each layer set to acquire an image or a video, with the values its
         controls hold now; ``apply_layer_settings`` puts them back. What the
         GUI opens at its next start-up is not changed: a script's scratch
@@ -1753,14 +1754,13 @@ class ScopeSession:
 
         Raises:
             LiveFolderPathRefusedError: ``'not_a_file'``, a folder is at
-                ``file_path``; ``'not_a_folder'``, a file is where its folder
+                ``file_path``; ``'wrong_extension'``, its name does not end
+                in ``.tsv``; ``'not_a_folder'``, a file is where its folder
                 would be. As ``Protocol.to_file``.
             ProtocolNotSavedError: The file could not be written; a file
                 already at the path is unchanged.
         """
         path = pathlib.Path(file_path)
-        if path.suffix.lower() != '.tsv':
-            path = path.with_name(path.name + '.tsv')
         layer_settings = {}
         with self.settings_lock:
             for name in common_utils.get_layers():

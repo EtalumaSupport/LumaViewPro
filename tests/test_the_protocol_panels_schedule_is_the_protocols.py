@@ -207,10 +207,10 @@ class TestRunSaveAndNewTakeTheProtocolsSchedule:
     ):
         panel = _Panel(_protocol())
         ctx.session.save_protocol.side_effect = lambda protocol, file_path: (
-            protocol.to_file(file_path=f'{file_path}.tsv') or f'{file_path}.tsv'
+            protocol.to_file(file_path=file_path) or file_path
         )
 
-        panel.save_protocol(filepath=str(tmp_path / 'saved'))
+        panel.save_protocol(filepath=str(tmp_path / 'saved.tsv'))
 
         assert ctx.session.save_protocol.call_args.args[0] is panel._protocol
         assert (panel._protocol.period(), panel._protocol.duration()) == (PERIOD, DURATION)
@@ -281,7 +281,7 @@ class TestAClickAfterARefusedEdit:
         panel = _Panel(_protocol())
 
         self._refuse_an_edit(panel)
-        panel.save_protocol(filepath=str(tmp_path / 'saved'))
+        panel.save_protocol(filepath=str(tmp_path / 'saved.tsv'))
 
         assert not ctx.session.save_protocol.called
 

@@ -143,19 +143,33 @@ def folder_to_make(path: str | os.PathLike) -> pathlib.Path:
     return path
 
 
-def file_to_write(path: str | os.PathLike) -> pathlib.Path:
-    """``path`` as a path, if a file can be written there.
+def file_to_write(path: str | os.PathLike, *, extension: str) -> pathlib.Path:
+    """``path`` as a path, if a file of the kind ``extension`` names can be written there.
+
+    The name is written as given: a name that does not end in ``extension``
+    (in any case) is refused, never given it. A Save As dialog checks the
+    name it returns for a file to replace, so a name changed after it would
+    replace a file nobody was asked about.
 
     Its folder is not made here, as ``folder_to_make`` says.
 
     Raises:
         LiveFolderPathRefusedError: ``'not_a_file'``, a folder is at
-            ``path``; ``'not_a_folder'``, a file is where its folder would be.
+            ``path``; ``'wrong_extension'``, the name does not end in
+            ``extension``; ``'not_a_folder'``, a file is where its folder
+            would be.
     """
     path = pathlib.Path(path)
     if path.is_dir():
         raise LiveFolderPathRefusedError(
             'not_a_file', str(path), f'{path} is a folder, not a file. Give the path of a file.'
+        )
+    if not path.name.lower().endswith(extension.lower()):
+        raise LiveFolderPathRefusedError(
+            'wrong_extension',
+            str(path),
+            f'{path.name} does not end in {extension}. Name the file with it, '
+            f'as {path.name}{extension}.',
         )
     folder_to_make(path.parent)
     return path

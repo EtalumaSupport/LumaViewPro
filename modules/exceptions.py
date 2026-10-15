@@ -182,7 +182,10 @@ class LiveFolderPathRefusedError(Refusal, ValueError):
             -- the live folder itself is missing or not a folder.
             ``'not_found'`` -- nothing is at the path. ``'not_a_file'`` --
             a folder is where a file is expected. ``'not_a_folder'`` -- a
-            file is where a folder is expected.
+            file is where a folder is expected. ``'wrong_extension'`` -- a
+            file to write is named without its kind's extension (a
+            protocol's ``.tsv``); the name given is the name written, so
+            nothing adds it.
         name: The name or path that was given.
     """
 
@@ -196,6 +199,7 @@ class LiveFolderPathRefusedError(Refusal, ValueError):
         'not_found': RefusalCause.REQUEST,
         'not_a_file': RefusalCause.REQUEST,
         'not_a_folder': RefusalCause.REQUEST,
+        'wrong_extension': RefusalCause.REQUEST,
     }
 
     def __init__(self, reason: str, name: str, message: str):

@@ -246,7 +246,7 @@ class TestTheRefusals:
         slot = next(s for s, o in TEST_TURRET_OBJECTIVES.items() if o == objective)
         protocol = _protocol('6 well microplate', _step(30.0, 20.0, 4000.0, objective))
         live = turret_session.get_setting('live_folder')
-        turret_session.save_protocol(protocol, f'{live}/one_step')
+        turret_session.save_protocol(protocol, f'{live}/one_step.tsv')
         with TestClient(build_app(turret_session)) as client:
             loaded = client.post('/api/v1/load_protocol', json={'file_path': 'one_step.tsv'}).json()
             asked = {'protocol': loaded['handle'], 'step_idx': 0}

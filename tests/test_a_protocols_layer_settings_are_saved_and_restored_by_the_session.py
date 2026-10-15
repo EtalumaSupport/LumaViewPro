@@ -97,7 +97,7 @@ class TestSaveThenRestore:
         _only_bf_acquiring(session)
         saved_bf = _layer_fields(session, 'BF')
         protocol = session.new_protocol()
-        written = session.save_protocol(protocol, tmp_path / 'plate')
+        written = session.save_protocol(protocol, tmp_path / 'plate.tsv')
 
         _set_layer(session, 'BF', illumination_ma=99.0, sum=1)
         _set_layer(session, 'Green', acquire='image')
@@ -113,7 +113,7 @@ class TestSaveThenRestore:
 
     def test_the_load_alone_leaves_the_layer_controls_alone(self, session, tmp_path):
         _only_bf_acquiring(session)
-        written = session.save_protocol(session.new_protocol(), tmp_path / 'plate')
+        written = session.save_protocol(session.new_protocol(), tmp_path / 'plate.tsv')
         _set_layer(session, 'BF', illumination_ma=99.0)
         _set_layer(session, 'Green', acquire='image')
 
@@ -122,10 +122,10 @@ class TestSaveThenRestore:
         assert session.settings['BF']['illumination_ma'] == 99.0
         assert session.settings['Green']['acquire'] == 'image'
 
-    def test_save_adds_the_extension_and_returns_the_path_written(self, session, tmp_path):
+    def test_save_returns_the_path_written(self, session, tmp_path):
         _only_bf_acquiring(session)
 
-        written = session.save_protocol(session.new_protocol(), tmp_path / 'plate')
+        written = session.save_protocol(session.new_protocol(), tmp_path / 'plate.tsv')
 
         assert written == tmp_path / 'plate.tsv'
         assert written.exists()
@@ -134,7 +134,7 @@ class TestSaveThenRestore:
         _only_bf_acquiring(session)
         remembered = session.settings['protocol']['filepath']
 
-        session.save_protocol(session.new_protocol(), tmp_path / 'scratch')
+        session.save_protocol(session.new_protocol(), tmp_path / 'scratch.tsv')
 
         assert session.settings['protocol']['filepath'] == remembered
 
@@ -150,7 +150,7 @@ class TestSaveThenRestore:
 
         monkeypatch.setattr(protocol_module, 'open', failing_open, raising=False)
         with pytest.raises(ProtocolNotSavedError):
-            session.save_protocol(session.new_protocol(), tmp_path / 'plate')
+            session.save_protocol(session.new_protocol(), tmp_path / 'plate.tsv')
 
     def test_a_layer_this_scope_does_not_have_is_logged_and_dropped(
         self, session, tmp_path, monkeypatch
