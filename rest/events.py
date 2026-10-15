@@ -6,7 +6,8 @@ with their record (``@api(event=Record)``), each named for its member
 (``add_position_listener`` is ``position``), and the run events
 (``RunEvents``), which the server hears by filling each run member's
 ``events`` itself. An event's ``data`` is its record, wire-encoded, keys its
-field names; a run event adds ``run``, the handle of the run that sent it.
+field names; a run event adds ``run``, ``{"job": <id>}``, the job of the run
+that sent it.
 The frame events are the live view's, not the stream's.
 
 Each event's data is described in the OpenAPI description by a component

@@ -59,7 +59,10 @@ SERVER_SEGMENTS = frozenset({'handles', 'jobs', 'events', 'files', 'live', 'live
 # What any member answers when its call outlives what the client will wait.
 _ANSWERED_AS_JOB = {
     'model': Job,
-    'description': 'The call outlived the wait (`Prefer: wait`): its job, at `Location`.',
+    'description': (
+        'A running job, at `Location`: the operation the call started, or the '
+        'call itself when it outlived the wait (`Prefer: wait`).'
+    ),
 }
 
 
@@ -506,6 +509,12 @@ def _add(
     ) -> JSONResponse:
         """Run the call on its own thread; answer it, or hand out its job when it outlives the wait.
 
+        A call that hands back an operation is answered once it has
+        returned, whatever the client's wait, with the operation's job: it
+        returns once the operation is dispatched, within its own bounds, and
+        holding it as a job of its own would hand the client a second job
+        whose ``DELETE`` stops nothing.
+
         *act* is given the owner, the call's progress, and how to name the
         job a running call it hands back is.
         """
@@ -540,15 +549,27 @@ def _add(
         def future_answer(operation: Operation) -> Answer:
             return _answered(lambda: encoded(operation.result()), request_id)
 
+        # The job of the operation the call handed back, once it has.
+        handed: list[str] = []
+
         def work() -> object:
             owner = registry.get(handle_id, route.root) if on_handle else session
             for segment in route.segments:
                 owner = getattr(owner, segment)
                 if owner is None:
                     raise problems.not_found(f'{name}: this scope has no {segment}.')
-            return encoded(act(owner, progress, job_of))
+            value = act(owner, progress, job_of)
+            if isinstance(value, Operation):
+                handed.append(job_of(value)['id'])
+            return encoded(value)
 
         answered = jobs.run(lambda: _answered(work, request_id), name, request_id)
+        if member.returns_job:
+            await asyncio.wait({answered})
+            reply = answered.result()
+            if not handed:
+                return reply.response()
+            return JSONResponse(reply.body, status_code=202, headers=_job_headers(handed[0]))
         wait = Wait.of(request.headers.get('prefer'))
         await asyncio.wait({answered}, timeout=wait.seconds)
         if answered.done():
@@ -565,11 +586,7 @@ def _add(
         return JSONResponse(
             job.view(),
             status_code=202,
-            headers={
-                'Location': f'{PREFIX}/jobs/{job.id}',
-                'Retry-After': str(JOB_RETRY_AFTER_S),
-                **wait.headers(),
-            },
+            headers={**_job_headers(job.id), **wait.headers()},
         )
 
     if member.read:
@@ -622,6 +639,11 @@ def _add(
 
     _sign(call, on_handle, route)
     app.add_api_route(endpoint=call, methods=['POST'], **common)
+
+
+def _job_headers(job_id: str) -> dict[str, str]:
+    """Where a running job is read, and how soon to read it."""
+    return {'Location': f'{PREFIX}/jobs/{job_id}', 'Retry-After': str(JOB_RETRY_AFTER_S)}
 
 
 def _answered(work: Callable[[], object], request_id: str) -> Answer:

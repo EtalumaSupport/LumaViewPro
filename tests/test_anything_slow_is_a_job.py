@@ -8,7 +8,9 @@ is ``202 Accepted`` with the job's address, and the job, read with its
 own ``Prefer: wait``, ends ``completed`` with the result a 200 would have
 carried or ``failed`` with the problem; reading it is 200 either way. A
 member's own progress report is the job's ``progress``. A running call a
-member hands back is a job too, and ``DELETE`` on it while it runs is
+member hands back is a job too: the call is answered ``202`` with that
+job once it returns, whatever the client's wait, and makes no job of its
+own. ``DELETE`` on it while it runs is
 its operation's stop: ``202`` with the job, which ends as the stop leaves
 it -- a stopped run ``aborted``, a still, which has no stop, as it would
 have -- and a stop the scope refuses is the answer. A call adopted as a
@@ -214,12 +216,133 @@ def test_a_members_progress_is_its_jobs_progress(client, session, live, monkeypa
 def test_a_running_call_a_member_hands_back_is_a_job(client):
     started = client.post('/api/v1/scope/motion/start_home')
 
-    assert started.status_code == 200
+    assert started.status_code == 202
     job = started.json()
+    assert started.headers['Location'] == f'/api/v1/jobs/{job["id"]}'
+    assert started.headers['Retry-After'] == str(rest.jobs.RETRY_AFTER_S)
     assert job['member'] == 'scope/motion/start_home'
     ended = client.get(f'/api/v1/jobs/{job["id"]}', headers={'Prefer': 'wait=30'}).json()
     assert ended['status'] == 'completed'
     assert client.get('/api/v1/jobs').json()[0]['id'] == job['id']
+
+
+def _posted(client, path, **kwargs):
+    """POST *path* on a thread of its own; the thread, and a list its answer lands in."""
+    answers = []
+    poster = threading.Thread(target=lambda: answers.append(client.post(path, **kwargs)))
+    poster.start()
+    return poster, answers
+
+
+def test_a_start_that_outlives_the_clients_wait_is_one_job_its_operation(
+    client, session, monkeypatch
+):
+    """The client is handed the operation's own job, never a job of the call around it."""
+    home_sim_scope(session.scope)
+    reached, release = threading.Event(), threading.Event()
+    real = session.scope.motion.start_move_relative
+
+    def dispatched_once_released(*args, **kwargs):
+        reached.set()
+        assert release.wait(10)
+        return real(*args, **kwargs)
+
+    # a stand-in by design: holds the start past the client's wait; the
+    # simulated board dispatches a move at once.
+    monkeypatch.setattr(session.scope.motion, 'start_move_relative', dispatched_once_released)
+    poster, answers = _posted(
+        client,
+        '/api/v1/scope/motion/start_move_relative',
+        json={'axis': 'Z', 'distance': 10.0},
+        headers={'Prefer': 'wait=0'},
+    )
+    assert reached.wait(10)
+    release.set()
+    poster.join(10)
+
+    (started,) = answers
+    assert started.status_code == 202
+    job = started.json()
+    assert started.headers['Location'] == f'/api/v1/jobs/{job["id"]}'
+    # Listed once the answered job has ended: by then the call has returned
+    # whatever it hands back, so a job of its operation would be held too.
+    client.get(started.headers['Location'], headers={'Prefer': 'wait=30'})
+    assert [j['id'] for j in client.get('/api/v1/jobs').json()] == [job['id']]
+
+
+def test_a_run_started_past_the_clients_wait_is_stopped_by_the_job_it_answered(
+    client, session, monkeypatch
+):
+    home_sim_scope(session.scope)
+    session.settings['BF']['acquire'] = 'image'
+    reached, release = _scans_held_at_their_first_step(session, monkeypatch)
+    runner = session.create_protocol_runner()
+    held_start = runner.start_single_scan
+    dispatching, dispatch = threading.Event(), threading.Event()
+
+    def dispatched_once_released(*args, **kwargs):
+        dispatching.set()
+        assert dispatch.wait(10)
+        return held_start(*args, **kwargs)
+
+    # a stand-in by design: holds the run's start past the client's wait; a
+    # simulated run prepares inside it.
+    monkeypatch.setattr(runner, 'start_single_scan', dispatched_once_released)
+    protocol = client.post('/api/v1/create_empty_protocol').json()['handle']
+    assert client.post('/api/v1/add_step', json={'protocol': protocol}).status_code == 200
+    handle = client.post('/api/v1/create_protocol_runner').json()['handle']
+    try:
+        poster, answers = _posted(
+            client,
+            f'/api/v1/handles/ProtocolRunner/{handle}/start_single_scan',
+            json={'protocol': protocol, 'enable_image_saving': False},
+            headers={'Prefer': 'wait=0'},
+        )
+        assert dispatching.wait(10)
+        dispatch.set()
+        poster.join(10)
+        assert reached.wait(30)
+        (started,) = answers
+        location = started.headers['Location']
+
+        stopping = client.delete(location)
+
+        assert stopping.status_code == 202
+        assert stopping.json()['progress']['is_stopping'] is True
+    finally:
+        dispatch.set()
+        release.set()
+    ended = client.get(location, headers={'Prefer': 'wait=30'}).json()
+    assert (ended['result']['status'], ended['result']['reason']) == ('aborted', 'stopped')
+
+
+def test_a_start_is_answered_on_return_whatever_the_clients_wait(client, session, monkeypatch):
+    """``Prefer: wait`` is a blocking call's: a start answers its running job once dispatched."""
+    home_sim_scope(session.scope)
+    session.settings['BF']['acquire'] = 'image'
+    reached, release = _scans_held_at_their_first_step(session, monkeypatch)
+    protocol = client.post('/api/v1/create_empty_protocol').json()['handle']
+    assert client.post('/api/v1/add_step', json={'protocol': protocol}).status_code == 200
+    handle = client.post('/api/v1/create_protocol_runner').json()['handle']
+    try:
+        poster, answers = _posted(
+            client,
+            f'/api/v1/handles/ProtocolRunner/{handle}/start_single_scan',
+            json={'protocol': protocol, 'enable_image_saving': False},
+            headers={'Prefer': 'wait=60'},
+        )
+        assert reached.wait(30)
+        # Bounded far below the client's wait: a route that spent the wait on
+        # the run would still be waiting, since the run is held here.
+        poster.join(10)
+
+        (started,) = answers
+        assert started.status_code == 202
+        assert started.json()['status'] == 'running'
+    finally:
+        release.set()
+        poster.join(30)
+    client.get(started.headers['Location'], headers={'Prefer': 'wait=30'})
 
 
 def test_a_finished_job_is_forgotten_and_a_running_adopted_call_is_not_stopped(client, held):

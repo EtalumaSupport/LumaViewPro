@@ -154,9 +154,8 @@ def test_every_event_of_a_home_and_a_run_matches_its_component(session):
             client.post(
                 f'/api/v1/handles/ProtocolRunner/{runner}/start_single_scan',
                 json={'protocol': protocol, 'enable_image_saving': False},
-                headers={'Prefer': 'wait=60'},
             ).status_code
-            == 200
+            == 202
         )
         seen += stream.until('run_ended')
 
