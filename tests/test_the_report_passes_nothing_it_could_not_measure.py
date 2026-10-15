@@ -170,7 +170,7 @@ def test_a_scope_that_cannot_be_built_is_named_in_every_hardware_file(monkeypatc
     report = TechSupportReport()
     report.diag.connect_standalone()
 
-    sn = report._run_scope_steps(tmp_path, lambda pct, msg: None)
+    sn = report._run_scope_steps(tmp_path, lambda pct, msg: None, include_bw=False)
 
     assert sn == 'UNKNOWN'
     for rel in (

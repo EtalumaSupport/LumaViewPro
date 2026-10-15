@@ -63,7 +63,9 @@ def _without_text(monkeypatch, session):
 def _report(session, tmp_path):
     out = tmp_path / 'report'
     out.mkdir()
-    TechSupportReport(session=session)._run_scope_steps(out, lambda pct, msg: None)
+    TechSupportReport(session=session)._run_scope_steps(
+        out, lambda pct, msg: None, include_bw=False
+    )
     return out
 
 

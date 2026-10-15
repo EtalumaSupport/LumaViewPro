@@ -247,7 +247,7 @@ class TestTheSupportReportDuringARun:
         run = sim_session.activity_claim.try_claim('protocol', run=run_identity())
         try:
             with led_cmd, led_multi, motor_cmd, motor_multi:
-                sn = report._run_scope_steps(tmp_path, lambda pct, msg: None)
+                sn = report._run_scope_steps(tmp_path, lambda pct, msg: None, include_bw=False)
         finally:
             run.release()
 

@@ -587,7 +587,9 @@ class TestTheSupportReportUnderItsClaim:
 
         session = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
         try:
-            TechSupportReport(session=session)._run_scope_steps(tmp_path, lambda pct, msg: None)
+            TechSupportReport(session=session)._run_scope_steps(
+                tmp_path, lambda pct, msg: None, include_bw=False
+            )
         finally:
             session.shutdown()
         homing = (tmp_path / 'motion_tests' / 'homing_test.txt').read_text()

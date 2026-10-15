@@ -39,7 +39,9 @@ def _report(tmp_path, model, monkeypatch=None, unplug=False, held=False):
     out.mkdir()
     claim = session.activity_claim.try_claim('diagnostic') if held else None
     try:
-        TechSupportReport(session=session)._run_scope_steps(out, lambda pct, msg: None)
+        TechSupportReport(session=session)._run_scope_steps(
+            out, lambda pct, msg: None, include_bw=False
+        )
     finally:
         if claim is not None:
             claim.release()

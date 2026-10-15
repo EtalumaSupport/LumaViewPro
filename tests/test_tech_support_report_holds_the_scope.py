@@ -67,7 +67,7 @@ def report_and_calls(monkeypatch):
 def test_the_writing_steps_run_while_the_report_holds_the_scope(report_and_calls, tmp_path):
     session, report, calls = report_and_calls
 
-    sn = report._run_scope_steps(tmp_path, lambda pct, msg: None)
+    sn = report._run_scope_steps(tmp_path, lambda pct, msg: None, include_bw=False)
 
     assert sn == 'SN0000'
     held_during = dict(calls)
@@ -80,7 +80,7 @@ def test_during_a_recording_the_board_steps_are_skipped_and_say_so(report_and_ca
     session, report, calls = report_and_calls
     recording = session.activity_claim.try_claim('recording')
     try:
-        report._run_scope_steps(tmp_path, lambda pct, msg: None)
+        report._run_scope_steps(tmp_path, lambda pct, msg: None, include_bw=False)
     finally:
         recording.release()
 
@@ -101,3 +101,49 @@ def test_the_session_supplies_the_scope(tmp_path):
     session = _make_session()
     report = TechSupportReport(session=session)
     assert report.scope is session.scope
+
+
+def test_under_another_hold_the_bandwidth_test_is_skipped_and_the_report_saved(
+    tmp_path, monkeypatch
+):
+    """The bandwidth test reaches the camera through its lane, which refuses
+    a bystander while another activity holds the scope; run outside the
+    report's own claim it was refused at its first frame and the whole report
+    was lost. It runs under that claim with the other hardware steps, and is
+    skipped and says so when the claim is refused."""
+    import threading
+    import zipfile
+
+    from modules import tech_support_report
+    from modules.scope_session import ScopeSession
+    from tests.settings_fixtures import complete_settings
+
+    # The host's USB inventory lists this machine's real serial ports, which
+    # no test may touch; it is the one host read stood in for.
+    monkeypatch.setattr(tech_support_report, '_collect_usb_devices', lambda: [])
+    session = ScopeSession.create(
+        complete_settings(live_folder=str(tmp_path / 'live')), simulate=True
+    )
+    held, done = threading.Event(), threading.Event()
+
+    def _holder():
+        with session.diagnostic_claim():
+            held.set()
+            done.wait(60.0)
+
+    holder = threading.Thread(target=_holder)
+    holder.start()
+    try:
+        assert held.wait(10.0)
+        saved = session.make_support_report(
+            output_dir=tmp_path / 'reports', include_bandwidth_test=True
+        )
+    finally:
+        done.set()
+        holder.join(10.0)
+        session.shutdown()
+
+    with zipfile.ZipFile(saved.path) as report:
+        summary = next(n for n in report.namelist() if n.endswith('bandwidth_test/summary.txt'))
+        text = report.read(summary).decode()
+    assert 'SKIPPED' in text and 'diagnostic' in text, text

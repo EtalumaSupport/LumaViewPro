@@ -1683,8 +1683,8 @@ class TechSupportReport:
         with tempfile.TemporaryDirectory(prefix='lvp_report_') as tmp:
             tmp = pathlib.Path(tmp)
 
-            # 1-9. Firmware, board, motion and camera steps  (0-41%)
-            sn = self._run_scope_steps(tmp, cb)
+            # 1-10. Firmware, board, motion and camera steps  (0-48%)
+            sn = self._run_scope_steps(tmp, cb, include_bw=include_bw)
 
             # 11. System info  (48-52%)
             cb(49, 'Collecting system information...')
@@ -1720,11 +1720,6 @@ class TechSupportReport:
             # 17b. Video recording receipts  (71-72%)
             cb(71, 'Collecting video recording receipts...')
             self._step_video_receipts(tmp)
-
-            # 19. Bandwidth test (optional)  (80-94%)
-            if include_bw and self._camera_active():
-                cb(81, 'Running camera bandwidth test (this takes a while)...')
-                self._step_bandwidth(tmp, cb)
 
             # 20. Metadata + ZIP  (94-100%)
             cb(95, 'Writing metadata...')
@@ -1885,17 +1880,18 @@ class TechSupportReport:
                         if not validation['errors'] and not validation['warnings']:
                             f.write('All checks passed.\n')
 
-    def _run_scope_steps(self, tmp, cb):
-        """Steps 1-9: every step that talks to the scope. Returns the serial number.
+    def _run_scope_steps(self, tmp, cb, *, include_bw):
+        """Steps 1-10: every step that talks to the scope. Returns the serial number.
 
-        Every step that sends a board command runs under the session's
-        diagnostic claim. When another activity holds the scope the claim is
-        refused, and the lanes would refuse those commands too: each such
-        step records that it was skipped and why, in the file its result
-        would have gone to, so the report says what it did not do rather
-        than leaving a gap. What does not need the lanes still goes in --
-        the identity the drivers cached at connect, the typed driver-status
-        and fan reads, and the camera temperatures.
+        Every step that sends a board command or grabs a frame runs under
+        the session's diagnostic claim. When another activity holds the
+        scope the claim is refused, and the lanes would refuse those
+        commands too: each such step records that it was skipped and why,
+        in the file its result would have gone to, so the report says what
+        it did not do rather than leaving a gap. What does not need the
+        lanes still goes in -- the identity the drivers cached at connect,
+        the typed driver-status and fan reads, and the camera temperatures.
+        ``include_bw`` adds the camera bandwidth test, step 10.
         """
         with contextlib.ExitStack() as held:
             refusal = None
@@ -1996,6 +1992,16 @@ class TechSupportReport:
                 self._record_skipped(tmp / 'camera_info', 'camera_info.txt', 'Camera', skip)
             else:
                 self._step_camera_diagnostics(tmp)
+
+            # 10. Bandwidth test (optional)  (41-48%)
+            if include_bw:
+                cb(41, 'Running camera bandwidth test (this takes a while)...')
+                if skip is not None:
+                    self._record_skipped(
+                        tmp / 'bandwidth_test', 'summary.txt', 'Camera Bandwidth Test', skip
+                    )
+                elif self._camera_active():
+                    self._step_bandwidth(tmp, cb)
         return sn
 
     @staticmethod
@@ -2593,7 +2599,7 @@ class TechSupportReport:
         d.mkdir()
 
         def bw_cb(pct, msg):
-            cb(81 + int(pct * 0.13), f'Bandwidth: {msg}')
+            cb(41 + int(pct * 0.07), f'Bandwidth: {msg}')
 
         bw = CameraBandwidthTest(self.scope)
         results = bw.run(progress_callback=bw_cb)
