@@ -24,8 +24,10 @@ vacuously, which is precisely the blind spot being pinned.
 
 from __future__ import annotations
 
+import contextlib
 import datetime
 import pathlib
+import sys
 import threading
 import time
 
@@ -95,6 +97,22 @@ def _make_af_step_protocol():
         'tiling': '1x1',
     }
     return Protocol(tiling_configs_file_loc=TILING_CONFIGS, config=config)
+
+
+@contextlib.contextmanager
+def _reported(monkeypatch):
+    """Every outcome reported while the block runs."""
+    from modules.notification_center import notifications
+
+    reported = []
+    report = notifications.report_outcome
+
+    def recorded(outcome, *args, **kwargs):
+        reported.append(outcome)
+        return report(outcome, *args, **kwargs)
+
+    monkeypatch.setattr(notifications, 'report_outcome', recorded)
+    yield reported
 
 
 class _AfRig:
@@ -562,23 +580,78 @@ class TestTheOutcomeSaysWhetherAutofocusFoundFocus:
         assert outcome.af_focus_z_um is not None, 'a sweep that focused reported no focus'
         assert abs(outcome.af_focus_z_um - stage_z) < 1.0, (outcome.af_focus_z_um, stage_z)
 
-    def test_a_sweep_that_chose_nothing_reports_none_though_the_run_completed(
-        self, tmp_path, monkeypatch
-    ):
+    def test_a_flat_curve_ends_the_run_failed_told_once_by_autofocus(self, tmp_path, monkeypatch):
         import modules.autofocus_functions as autofocus_functions
+        from modules.exceptions import AutofocusFailedError, RunFailedError
 
         # Every frame scores zero: the flat-curve branch, where the sweep
         # chooses no focus and returns the stage to where it started.
         monkeypatch.setattr(autofocus_functions, 'focus_function', lambda **kwargs: 0.0)
         rig = _AfRig()
         try:
+            with _reported(monkeypatch) as reported:
+                outcome = rig.run_autofocus(tmp_path, save_data=False)
+        finally:
+            rig.close()
+        assert (outcome.status, outcome.reason, outcome.title) == (
+            'failed',
+            'autofocus_failed',
+            'Autofocus Failed',
+        ), outcome
+        assert outcome.message == str(AutofocusFailedError('flat_focus_curve'))
+        assert outcome.af_focus_z_um is None
+        assert [type(told) for told in reported] == [AutofocusFailedError], (
+            'autofocus tells its failure once, and the run ending does not tell it again'
+        )
+        assert not any(isinstance(told, RunFailedError) for told in reported)
+
+    def test_an_autofocus_refused_out_of_travel_ends_the_run_not_started(
+        self, tmp_path, monkeypatch
+    ):
+        from modules.exceptions import AutofocusOutOfTravelError
+
+        # The window is centred on where Z stands; a step a micrometre above
+        # the bottom of travel reaches past it before anything moves.
+        near_the_floor = _make_af_step_protocol()
+        near_the_floor.modify_step_z_height(step_idx=0, z=1.0)
+        monkeypatch.setattr(
+            sys.modules[__name__],
+            '_make_af_step_protocol',
+            lambda: near_the_floor,
+        )
+        rig = _AfRig()
+        try:
+            with _reported(monkeypatch) as reported:
+                outcome = rig.run_autofocus(tmp_path, save_data=False)
+        finally:
+            rig.close()
+        assert (outcome.status, outcome.reason, outcome.title) == (
+            'failed',
+            'autofocus_not_started',
+            'Autofocus Not Started',
+        ), outcome
+        assert [type(told) for told in reported] == [AutofocusOutOfTravelError]
+
+    def test_a_failed_autofocus_that_lost_z_ends_the_run_position_lost(self, tmp_path, monkeypatch):
+        import modules.autofocus_functions as autofocus_functions
+
+        rig = _AfRig()
+        lost = {}
+        real = rig.scope.motion.axes_without_position
+
+        def flat_and_losing_z(**kwargs):
+            # a stand-in by design: the simulator cannot yet lose Z on the
+            # failed sweep's restore, so the sweep's first score loses it.
+            lost['Z'] = 'UNKNOWN'
+            return 0.0
+
+        monkeypatch.setattr(autofocus_functions, 'focus_function', flat_and_losing_z)
+        monkeypatch.setattr(rig.scope.motion, 'axes_without_position', lambda: dict(lost) or real())
+        try:
             outcome = rig.run_autofocus(tmp_path, save_data=False)
         finally:
             rig.close()
-        assert outcome.status == 'completed', (
-            'precondition: a step whose autofocus gave up does not fail the run'
-        )
-        assert outcome.af_focus_z_um is None
+        assert (outcome.status, outcome.reason) == ('failed', 'position_lost'), outcome
 
 
 class TestEverySettlePathCarriesTheRecordedFocus:

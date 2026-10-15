@@ -15,12 +15,11 @@ resume.
 from __future__ import annotations
 
 import ast
-import contextlib
 import types
 
 import pytest
 
-from modules.exceptions import AutofocusAborted
+from modules.exceptions import AutofocusFailedError
 
 from tests import ast_seams
 from tests.test_auto_gain_lock import AG_SETTINGS_TRANSMITTED, _arm, _build
@@ -82,8 +81,8 @@ def test_the_lock_is_inside_the_bracket_and_the_camera_snapshot_precedes_it():
 
 def test_restore_re_arms_on_every_exit_of_the_bracket(monkeypatch):
     """The re-arm rides the camera-state restore in the bracket's finally,
-    so an abort exit puts a live-view arm back the same way a completion
-    does. The snapshot is taken at the top of the try and always carries
+    so a failure exit (here a flat curve) puts a live-view arm back the
+    same way a completion does. The snapshot is taken at the top of the try and always carries
     its tag, so once it has been taken the restore branch cannot be
     skipped on any exit. A preservation guard on the exit path; the
     re-arm itself is proven on the API in test_auto_gain_lock."""
@@ -100,7 +99,7 @@ def test_restore_re_arms_on_every_exit_of_the_bracket(monkeypatch):
         'auto_gain_arm': arm,
     }
     scope.imaging.lock_auto_gain.return_value = AutoGainLock(state=None)
-    with contextlib.suppress(AutofocusAborted):
+    with pytest.raises(AutofocusFailedError):
         drive_af(runner)
     restored = scope.imaging.restore_camera_state.call_args.args[0]
     assert restored['auto_gain_arm'] is arm

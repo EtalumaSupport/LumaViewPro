@@ -1168,27 +1168,6 @@ class TestG3_AutofocusFailureNotification:
             f'interactive AF failure must pop Autofocus Failed; got {captured}'
         )
 
-    def test_af_degenerate_curve_notifies_user(self, monkeypatch, centre_posts):
-        """A flat focus curve must pop 'Autofocus Failed' and report no
-        result: the sweep chose no focus, so there is no position to
-        report and the stage goes back where it started."""
-        from tests.af_drives import af_runner_and_scope, drive_af
-
-        monkeypatch.setattr('modules.autofocus_functions.focus_function', lambda image: 0.0)
-
-        runner, _scope = af_runner_and_scope()
-        result = drive_af(runner)
-        captured = _posted(centre_posts, Severity.ERROR)
-        assert captured and captured[0][1] == 'Autofocus Failed', (
-            f'degenerate curve must notify the user; got {captured}'
-        )
-        assert 'flat or invalid' in captured[0][2], (
-            f'popup must explain the flat/invalid curve; got {captured[0]}'
-        )
-        assert result is None, (
-            f'a degenerate curve found no focus and must report none; got {result}'
-        )
-
 
 # ---------------------------------------------------------------------------
 # SequencedCaptureRunner behavioral-test builders

@@ -1,47 +1,31 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """A flat or all-zero focus curve is a FAILURE, and reports like one.
 
-`AutofocusRunner.run()`'s docstring has always said it returns "None when
-the AF curve was degenerate". The code did not: the degenerate exit
-assigned the PRE-AUTOFOCUS Z into the result and set the completion
-event, so the curve that found nothing reported a float and claimed to
-have completed.
+The degenerate exit once assigned the PRE-AUTOFOCUS Z into the result and
+set the completion event, so a curve that found nothing reported a float
+and claimed to have completed; a step then captured wherever the sweep
+ended. Later it reported its own failure and returned None, a second exit
+beside ``run()``'s failure path, and a single-autofocus run read that None
+as a run that completed.
 
-That was load-bearing rather than merely wrong. The protocol step runner
-reads the result to place a z-stack group and move the stage, so the
-mislabeled value was the only thing putting the stage back after a failed
-sweep -- which is why it could not be deleted on its own.
+Now the flat curve raises ``AutofocusFailedError('flat_focus_curve')`` and
+leaves through ``run()``'s one failure path, like every other failure: it
+is reported once, the stage returns to where the sweep started,
+``complete()`` is False, and the channel LED is handed back rather than
+held, since the capture that follows is not the failed sweep's to light.
 
-The consequences it produced, worst first:
-
-* Nothing moves the stage between an autofocus and its capture. The
-  degenerate exit left the stage wherever the sweep ended, up to one
-  `AF_range` from the intended plane, and the step captured and SAVED
-  there. The operator was told the autofocus failed; nothing said the
-  image that followed was off-plane.
-* The reported focus was a position no autofocus had chosen.
-* `complete()` answered True for a run that completed nothing.
-
-Now: the stage returns to where it started, the result is None, and
-`complete()` is False. The channel LED keeps being held for the capture
-that follows, which is deliberate and separately covered -- the capture
-does still run, so darkening and re-lighting it would be a blink for
-nothing.
-
-What is NOT changed here: the detector itself. `:725` tests
-`scores.max() == 0 or scores.isna().all()`, so a genuinely FLAT non-zero
-curve is not detected at all, despite the comment and the popup both
-saying "flat". Widening it is separate work.
+What is NOT changed here: the detector itself. It tests
+``scores.max() == 0 or scores.isna().all()``, so a genuinely FLAT non-zero
+curve is not detected at all, despite the words saying "flat". Widening it
+is separate work.
 """
 
 from __future__ import annotations
 
-import threading
-
 import pytest
 
-
-from modules.exceptions import AutofocusAborted
+from modules.exceptions import AutofocusFailedError
+from modules.notification_center import Severity
 from tests.af_drives import AF_CENTER_Z, af_lease, af_runner_and_scope, drive_af
 
 
@@ -59,21 +43,30 @@ def _z_moves(scope):
     ]
 
 
+def _drive_flat(runner, **overrides):
+    """Drive a sweep over a flat curve; it raises the flat-curve failure."""
+    with pytest.raises(AutofocusFailedError) as raised:
+        drive_af(runner, **overrides)
+    assert raised.value.reason == 'flat_focus_curve'
+
+
 class TestDegenerateCurveReportsFailure:
-    def test_the_result_is_none(self, monkeypatch):
-        """D1: the value the docstring has always promised."""
+    def test_it_raises_and_is_reported_once(self, monkeypatch, centre_posts):
+        """The failure is raised, told once as 'Autofocus Failed' in the
+        flat curve's words, and no focus is stored."""
         _flat_curve(monkeypatch)
         runner, _scope = af_runner_and_scope()
 
-        result = drive_af(runner)
+        _drive_flat(runner)
 
-        assert result is None, f'a degenerate curve must report no result; got {result}'
-        assert runner.best_focus_position() is None, (
-            'and the stored result must agree with the returned one'
+        errors = [(n.title, n.message) for n in centre_posts if n.severity is Severity.ERROR]
+        assert errors == [('Autofocus Failed', str(AutofocusFailedError('flat_focus_curve')))], (
+            f'a flat curve must be told once, as itself; got {errors}'
         )
+        assert runner.best_focus_position() is None, 'a flat curve chose no focus'
 
     def test_complete_is_false(self, monkeypatch):
-        """D2: nothing completed, so complete() must not say it did.
+        """Nothing completed, so complete() must not say it did.
 
         This is also what re-points the Z readout: the step runner
         suppresses its own Z push only while complete() is True.
@@ -81,22 +74,19 @@ class TestDegenerateCurveReportsFailure:
         _flat_curve(monkeypatch)
         runner, _scope = af_runner_and_scope()
 
-        drive_af(runner)
+        _drive_flat(runner)
 
         assert runner.complete() is False, (
             'a degenerate curve completed nothing; complete() must be False'
         )
 
     def test_the_stage_returns_to_the_pre_autofocus_z(self, monkeypatch):
-        """D3: the whole point. A failed autofocus is a no-op in position.
-
-        Before this, the stage was left at the sweep end and a protocol
-        step captured there.
-        """
+        """The whole point: a failed autofocus is a no-op in position, so
+        a protocol step never captures at the sweep's end."""
         _flat_curve(monkeypatch)
         runner, scope = af_runner_and_scope()
 
-        drive_af(runner)
+        _drive_flat(runner)
 
         moves = _z_moves(scope)
         assert moves, 'the sweep must have moved the stage at all'
@@ -105,53 +95,25 @@ class TestDegenerateCurveReportsFailure:
             f'pre-autofocus position {AF_CENTER_Z}; got {moves[-1]} (all: {moves})'
         )
 
-    def test_the_channel_led_is_still_held_for_the_capture(self, monkeypatch):
-        """D5: the capture after a degenerate curve still runs, so the
-        LED must not be darkened and re-lit.
-
-        The rejected mechanism for this fix -- flipping
-        completed_successfully -- would have turned this off, because that
-        same flag gates the hold. It is the regression that mechanism
-        would have caused, and it is why the flag was left alone.
-        """
+    def test_the_channel_led_is_handed_back_not_held(self, monkeypatch):
+        """A failure, like every failure, restores the pre-autofocus LED
+        state even when the step asked to keep the channel lit: the
+        capture that follows is not the failed sweep's to light for, and
+        re-lights its own channel."""
         _flat_curve(monkeypatch)
         runner, scope = af_runner_and_scope()
 
-        drive_af(runner, keep_led_on=True, led_color='Green')
+        _drive_flat(runner, keep_led_on=True, led_color='Green')
 
         lease = af_lease(scope)
         assert lease.apply.called, 'the AF-end LED transition must be applied'
         ctx = lease.apply.call_args_list[-1].args[1]
-        assert ctx.keep_led_on is True, (
-            'a degenerate curve must still hold the channel for the capture '
-            f'that follows; got keep_led_on={ctx.keep_led_on}'
+        assert ctx.keep_led_on is False, (
+            f'a degenerate curve must not hold the channel; got keep_led_on={ctx.keep_led_on}'
         )
 
-    def test_an_abort_racing_a_degenerate_curve_reports_the_abort(self, monkeypatch):
-        """D7: a stated behaviour change, tested rather than discovered.
-
-        The degenerate exit no longer sets the completion event, so the
-        abort check at the top of the unwind now fires where it used to
-        be suppressed. The caller asked to stop; reporting the stop is
-        right.
-        """
-        _flat_curve(monkeypatch)
-        runner, _scope = af_runner_and_scope()
-        abort = threading.Event()
-
-        real_iterate = runner._iterate
-
-        def _iterate_then_abort():
-            real_iterate()
-            abort.set()
-
-        monkeypatch.setattr(runner, '_iterate', _iterate_then_abort)
-
-        with pytest.raises(AutofocusAborted):
-            drive_af(runner, abort_event=abort)
-
     def test_the_pre_autofocus_snapshot_field_is_gone(self):
-        """D8: one value, one store.
+        """One value, one store.
 
         The restore used to read `_saved_z_position`, a second snapshot of
         the same quantity taken fourteen lines after `_params['center']`,

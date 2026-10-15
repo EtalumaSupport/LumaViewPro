@@ -82,6 +82,8 @@ ENDING_TITLES: dict[str, str] = {
     'video_writer_died': 'Recording Failed',
     'led_channel_unavailable': 'Channel not available',
     'camera_failure': 'Camera Failure',
+    'autofocus_failed': 'Autofocus Failed',
+    'autofocus_not_started': 'Autofocus Not Started',
 }
 
 
@@ -260,6 +262,24 @@ class FailedCapture:
     cause: str
 
 
+@api_fields('scan', 'step_index', 'step_name', 'cause')
+@dataclasses.dataclass(frozen=True)
+class FocusFailure:
+    """One step whose autofocus did not focus; the run went on at its fallback Z.
+
+    Attributes:
+        scan: The scan it belonged to, counting from 0.
+        step_index: The step's row in the protocol, counting from 0.
+        step_name: The step's name, as the protocol has it.
+        cause: Why it did not focus, in the autofocus failure's words.
+    """
+
+    scan: int
+    step_index: int
+    step_name: str
+    cause: str
+
+
 @api_fields('asked', 'captured', 'failed')
 @dataclasses.dataclass(frozen=True)
 class CaptureTally:
@@ -297,6 +317,7 @@ class CaptureTally:
     'artifact_path',
     'captures',
     'cleanup_failures',
+    'focus_failures',
     'focus_written',
     'merge_reason',
     'merged',
@@ -313,9 +334,10 @@ class RunOutcome:
     RunEnding whatever ended the run recorded; the next three describe
     the merge, the next two the autofocus characterization data, then
     what the run captured, which steps putting the scope back after it
-    did not finish, and last whether a scan's focus was written into the
-    caller's protocol. A non-composite run carries merged=False and an empty
-    merge_reason under whatever status it ended in, and a run that saved
+    did not finish, whether a scan's focus was written into the caller's
+    protocol, and last which steps' autofocus did not focus. A
+    non-composite run carries merged=False and an empty merge_reason
+    under whatever status it ended in, and a run that saved
     no autofocus data carries af_data_saved=False, so a caller reads one
     shape for every run kind.
 
@@ -345,10 +367,11 @@ class RunOutcome:
         af_focus_z_um: The Z a standalone autofocus run chose as focus,
             where it left the stage; None when it chose none (a degenerate
             curve, an abort, an error), in which case the stage is back
-            where the run found it. A run that gave up still ends
-            'completed' -- a step's autofocus failing is not a run failure
-            -- so this, not the status, is how a caller tells "focused"
-            from "gave up". Set only by a standalone autofocus run: a run
+            where the run found it. A standalone autofocus run that chose
+            none ends 'failed' ('autofocus_failed', or
+            'autofocus_not_started' when its first window reached past Z's
+            travel), unless its restore lost Z ('position_lost'); a Stop
+            is a stop. Set only by a standalone autofocus run: a run
             that autofocuses at several steps has no one focus to report,
             and reads None.
         captures: What the run captured of what it was asked for. None
@@ -367,6 +390,12 @@ class RunOutcome:
             the scan did not complete, or the protocol's steps changed
             during it (reported once, as 'Focus Not Saved') -- and the
             protocol is unchanged.
+        focus_failures: Each step whose autofocus did not focus, a flat
+            curve included, in the order they failed: a capture protocol
+            captured it at its fallback focus, an autofocus scan left its
+            focus as it was. Counted once per scan and step, so a scan run
+            again that focuses the step clears it. Empty when every
+            autofocus focused, and for a run with none.
     """
 
     status: str
@@ -382,6 +411,7 @@ class RunOutcome:
     captures: CaptureTally | None
     cleanup_failures: tuple[str, ...] | None
     focus_written: bool | None
+    focus_failures: tuple[FocusFailure, ...]
 
     @classmethod
     def from_ending(
@@ -396,6 +426,7 @@ class RunOutcome:
         af_data_path: pathlib.Path | None = None,
         af_focus_z_um: float | None = None,
         focus_written: bool | None = None,
+        focus_failures: tuple[FocusFailure, ...] = (),
     ) -> RunOutcome:
         """Compose the caller's answer from the run's recorded ending.
 
@@ -423,6 +454,7 @@ class RunOutcome:
             captures=captures,
             cleanup_failures=cleanup_failures,
             focus_written=focus_written,
+            focus_failures=focus_failures,
         )
 
 
@@ -445,6 +477,7 @@ class PendingRunOutcome:
         self._captures: CaptureTally | None = None
         self._cleanup_failures: tuple[str, ...] | None = None
         self._focus_written: bool | None = None
+        self._focus_failures: tuple[FocusFailure, ...] = ()
         self._settled = threading.Event()
         # Told once the outcome settles, on the thread that settles it.
         self._on_settled: list[Callable[[RunOutcome], None]] = []
@@ -513,6 +546,15 @@ class PendingRunOutcome:
         with self._lock:
             self._focus_written = written
 
+    def record_focus_failures(self, failures: tuple[FocusFailure, ...]) -> None:
+        """Record which steps' autofocus did not focus.
+
+        Held here for the reason the captures are, and recorded beside them
+        where cleanup decides the ending.
+        """
+        with self._lock:
+            self._focus_failures = failures
+
     def arm(self, ending: RunEnding) -> str | None:
         """Claim the right to say how the merge went.
 
@@ -553,6 +595,7 @@ class PendingRunOutcome:
                 captures=self._captures,
                 cleanup_failures=self._cleanup_failures,
                 focus_written=self._focus_written,
+                focus_failures=self._focus_failures,
             )
             self._settled.set()
             told, self._on_settled = self._on_settled, []
@@ -590,6 +633,7 @@ class PendingRunOutcome:
                 captures=self._captures,
                 cleanup_failures=self._cleanup_failures,
                 focus_written=self._focus_written,
+                focus_failures=self._focus_failures,
             )
             self._settled.set()
             told, self._on_settled = self._on_settled, []
@@ -628,6 +672,7 @@ class PendingRunOutcome:
                 captures=self._captures,
                 cleanup_failures=self._cleanup_failures,
                 focus_written=self._focus_written,
+                focus_failures=self._focus_failures,
             )
             self._settled.set()
             told, self._on_settled = self._on_settled, []

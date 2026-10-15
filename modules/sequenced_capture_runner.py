@@ -1958,16 +1958,28 @@ class SequencedCaptureRunner:
         The person is told here, once: the unattended mute is already down.
         A composite is told by its merge instead, which knows whether the
         channels it has made a composite, so its one report says both.
+
+        The steps whose autofocus did not focus are recorded beside the
+        tally, and a run that would end 'completed' or 'incomplete' names
+        them in its words; the status is not changed for them. Each was
+        told by its autofocus.
         """
         writer = getattr(self, '_image_writer', None)
         outcome = getattr(self, '_run_outcome', None)
         if writer is None:
             return ending
         tally = writer.capture_tally
+        focus_failures = writer.focus_failures
         if outcome is not None:
             outcome.record_captures(tally)
-        if ending.status != 'completed' or tally.missing <= 0:
+            outcome.record_focus_failures(focus_failures)
+        if ending.status != 'completed':
             return ending
+        unfocused = self._unfocused_words(len(focus_failures))
+        if tally.missing <= 0:
+            if not unfocused:
+                return ending
+            return RunEnding('completed', 'completed', unfocused)
         incomplete = RunIncompleteError(
             asked=tally.asked,
             captured=tally.captured,
@@ -1977,7 +1989,25 @@ class SequencedCaptureRunner:
             from modules.notification_center import notifications
 
             notifications.report_outcome(incomplete, solicited=False, category='Protocol')
-        return RunEnding('incomplete', 'captures_failed', str(incomplete))
+        return RunEnding(
+            'incomplete', 'captures_failed', ' '.join(filter(None, (str(incomplete), unfocused)))
+        )
+
+    def _unfocused_words(self, count: int) -> str:
+        """The sentence naming ``count`` steps whose autofocus did not focus; '' for none."""
+        if not count:
+            return ''
+        steps = f'{count} step' if count == 1 else f'{count} steps'
+        if self._run_mode is SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN:
+            return (
+                f'The scan finished; autofocus did not focus {steps}, whose focus was not updated.'
+            )
+        captured = (
+            'which was captured at its fallback focus'
+            if count == 1
+            else 'which were captured at their fallback focus'
+        )
+        return f'The run finished; autofocus did not focus {steps}, {captured}.'
 
     def _settle_run_outcome(self, ending: RunEnding) -> None:
         """Arm the merge on a composite that reached its end; settle every other ending.

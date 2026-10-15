@@ -26,6 +26,7 @@ import modules.config_helpers as config_helpers
 import modules.image_mode as image_mode
 from modules.exceptions import (
     AutofocusAborted,
+    AutofocusOutOfTravelError,
     AxisStateUnknownError,
     CameraSettingRejected,
     HardwareCommandRefusedError,
@@ -38,12 +39,21 @@ from modules.lumascope_api.illumination import (
     resolve_end_state,
 )
 from modules.notification_center import notifications
+from modules.protocol_state_machine import SequencedCaptureRunMode
+from modules.run_outcome import RunEnding
 from modules.sequential_io_executor import IOTask, PROTOCOL_ENQUEUED
 
 if TYPE_CHECKING:
     from modules.sequenced_capture_runner import SequencedCaptureRunner
 
 from modules.run_events import deliver
+
+
+def _ending_of_a_failed_autofocus(failed: BaseException) -> RunEnding:
+    """How a single-autofocus run ends when its autofocus did not focus, in its words."""
+    if isinstance(failed, AutofocusOutOfTravelError):
+        return RunEnding('failed', 'autofocus_not_started', str(failed))
+    return RunEnding('failed', 'autofocus_failed', str(failed))
 
 
 class ProtocolStepRunner:
@@ -142,15 +152,35 @@ class ProtocolStepRunner:
             # fault, so it stays at debug.
             p._af_result_consumed = True
             _af_exc = p._af_future.exception()
+            _af_step = p._protocol.step(idx=p._curr_step)
             if isinstance(_af_exc, AutofocusAborted):
                 logger.debug(f'[PROTOCOL] Autofocus aborted at step {p._curr_step}')
-            elif _af_exc is not None:
-                _af_well = p._protocol.step(idx=p._curr_step).get('Well', '?')
+            else:
+                # On the run's record either way: a later scan that focuses
+                # the step clears an earlier failure.
+                p._image_writer.note_autofocus(
+                    step_name=str(_af_step.get('Name', '?')),
+                    curr_step=p._curr_step,
+                    scan_count=p._scan_count,
+                    failed=_af_exc,
+                )
+            if _af_exc is not None and not isinstance(_af_exc, AutofocusAborted):
+                _af_well = _af_step.get('Well', '?')
                 logger.warning(
                     f'[PROTOCOL] Autofocus failed at step {p._curr_step} '
                     f'(well {_af_well}) ({type(_af_exc).__name__}: {_af_exc}) -- '
                     f'capturing at fallback Z and continuing'
                 )
+                # A run whose only job was this autofocus ends on its failure:
+                # it did not focus. Recorded, not told -- the autofocus told it
+                # where its flight stopped. A position the failed restore lost
+                # is left to the step's position check, which ends the run
+                # 'position_lost' with its remedy.
+                if (
+                    p._run_mode is SequencedCaptureRunMode.SINGLE_AUTOFOCUS
+                    and not p._scope.motion.axes_without_position()
+                ):
+                    p._ending.set_if_unset(_ending_of_a_failed_autofocus(_af_exc))
             _cam_gain = p._scope.imaging.get_gain_db() if p._scope.imaging.active_cached else '?'
             _cam_exp = p._scope.imaging.get_exposure_ms() if p._scope.imaging.active_cached else '?'
             logger.info(

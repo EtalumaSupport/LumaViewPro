@@ -197,10 +197,13 @@ class AutofocusRunner:
                 writes and lands before the run says its files are written.
 
         Returns:
-            best_focus_position (float) on success, or None when the AF
-            curve was degenerate.
+            best_focus_position (float): the focus the sweep chose.
 
         Raises:
+            AutofocusFailedError: the sweep chose no focus -- a flat or
+                invalid curve ('flat_focus_curve'), a window past Z's travel
+                after the stage moved ('out_of_travel'), or an unexpected
+                error ('unexpected_error', its cause chained).
             AutofocusStopped: abort_event was set during the run.
             AutofocusRunEnded: the run it belongs to had ended before it
                 took its LEDs.
@@ -208,8 +211,12 @@ class AutofocusRunner:
                 the LEDs.
             AutofocusOutOfTravelError: the first window reaches past Z's
                 travel; nothing moved.
-            Exception: any other AF failure; logged + user-notified
-                before re-raising.
+            CaptureFailedError, HardwareCommandRefusedError: a capture that
+                got no frame after its retries, or a command the hardware
+                refused, raised as itself.
+
+            Every failure is reported once (only logged when its run had
+            already ended) and puts the stage back at the pre-AF Z.
         """
         if self._af_in_progress.is_set():
             raise RuntimeError('Autofocus already in progress')
@@ -845,17 +852,9 @@ class AutofocusRunner:
         scores = df['score']
         if scores.max() == 0 or scores.isna().all():
             _af_log.warning('--- AF ABORT: degenerate curve (all scores zero/NaN) ---')
-            notifications.report_outcome(
-                AutofocusFailedError('flat_focus_curve'), solicited=False, category='Autofocus'
-            )
-            # Restore Z precision ON before bailing so the pre-AF position
-            # the unwind restores is reached accurately.
-            self._scope.motion.set_precision_mode('Z', True)
-            self._is_focusing_event.clear()
-            # No result and no completion event: this sweep chose nothing.
-            # The unwind's restore reads exactly that and takes the stage
-            # back to where the run started.
-            return
+            # A failure like every other: run()'s failure path reports it
+            # once and takes the stage back to where the sweep started.
+            raise AutofocusFailedError('flat_focus_curve')
 
         best_focus_position = self._find_best(df=df)
 

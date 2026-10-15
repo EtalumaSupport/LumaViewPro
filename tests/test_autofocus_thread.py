@@ -173,6 +173,33 @@ class TestExceptionPropagation:
         finally:
             thread.stop(timeout=2.0)
 
+    def test_a_reported_failure_is_not_logged_again(self, afe, monkeypatch):
+        """The runner reports and logs its own failure where its flight
+        stops; the thread hands it to the future without a second log.
+        A raise the runner never reported (here a RuntimeError, as from
+        before the sweep began) is still logged by the thread."""
+        import modules.autofocus_thread as autofocus_thread
+        from modules.exceptions import AutofocusFailedError
+
+        logged = []
+        monkeypatch.setattr(
+            autofocus_thread.logger, 'exception', lambda msg, *a, **k: logged.append(str(msg))
+        )
+        thread = AutofocusThread(afe=afe)
+        thread.start()
+        try:
+            for raised in (AutofocusFailedError('flat_focus_curve'), RuntimeError('not reported')):
+                afe._raise_exception = raised
+                future = thread.run_autofocus(run=run_identity('autofocus'), objective_id='4x')
+                with pytest.raises(type(raised)):
+                    future.result(timeout=2.0)
+        finally:
+            thread.stop(timeout=2.0)
+
+        assert [m for m in logged if 'autofocus run raised' in m] == [
+            'autofocus run raised: RuntimeError: not reported'
+        ], logged
+
 
 class TestAbortLockingRace:
     """Regression: a concurrent abort() fired between the lock-protected

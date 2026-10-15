@@ -2276,7 +2276,7 @@ class AutofocusFailedError(Fault, CaptureError):
             ``'unexpected_error'`` (the sweep raised; its cause is chained).
     """
 
-    title = 'Autofocus Failed'
+    title = ENDING_TITLES['autofocus_failed']
     _WORDS: ClassVar[dict[str, str]] = {
         'flat_focus_curve': 'Focus curve is flat or invalid -- check sample and illumination',
         'out_of_travel': (
@@ -2302,7 +2302,7 @@ class AutofocusOutOfTravelError(Refusal, CaptureError):
     """
 
     cause = RefusalCause.STATE
-    title = 'Autofocus Not Started'
+    title = ENDING_TITLES['autofocus_not_started']
 
     def __init__(self):
         super().__init__(

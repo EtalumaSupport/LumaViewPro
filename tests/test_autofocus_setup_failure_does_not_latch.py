@@ -442,16 +442,11 @@ class TestTheRunsOwnOutcomeSurvivesACleanupFailure:
 
         from modules.exceptions import AutofocusAborted
 
-        monkeypatch.setattr('modules.autofocus_functions.focus_function', lambda image: 0.0)
         runner, scope = af_runner_and_scope()
         abort = threading.Event()
-        real_iterate = runner._iterate
-
-        def _iterate_then_abort():
-            real_iterate()
-            abort.set()
-
-        monkeypatch.setattr(runner, '_iterate', _iterate_then_abort)
+        # The caller stops the sweep during its first pass, before it chose
+        # any focus.
+        monkeypatch.setattr(runner, '_iterate', abort.set)
         scope.imaging.restore_camera_state.side_effect = SetupError('camera went away')
 
         with pytest.raises(AutofocusAborted):

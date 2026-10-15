@@ -47,6 +47,7 @@ from modules.run_outcome import (
     EndingLatch,
     FailedCapture,
     FatalTold,
+    FocusFailure,
     RunEnding,
     hardware_disconnected_ending,
 )
@@ -678,6 +679,10 @@ class ProtocolImageWriter:
         # read by cleanup on whichever thread ended the run.
         self._captures_asked = captures_asked
         self._capture_slots: dict[tuple[int, int], FailedCapture | None] = {}
+        # The same shape for a step's autofocus: None when it focused, its
+        # FocusFailure when it did not, so a scan run again that focuses the
+        # step clears it. Under the capture slots' lock.
+        self._focus_slots: dict[tuple[int, int], FocusFailure | None] = {}
         self._capture_slots_lock = threading.Lock()
 
     def _abort_run_fatal(self, reason: str, domain: str, message: str) -> None:
@@ -907,6 +912,26 @@ class ProtocolImageWriter:
             captured=sum(1 for slot in slots if slot is None),
             failed=tuple(slot for slot in slots if slot is not None),
         )
+
+    @property
+    def focus_failures(self) -> tuple[FocusFailure, ...]:
+        """Each step whose autofocus did not focus, so far."""
+        with self._capture_slots_lock:
+            return tuple(slot for slot in self._focus_slots.values() if slot is not None)
+
+    def note_autofocus(
+        self, *, step_name: str, curr_step: int, scan_count: int, failed: BaseException | None
+    ) -> None:
+        """Record how a step's autofocus resolved: focused, or ``failed`` in its words."""
+        slot = (
+            None
+            if failed is None
+            else FocusFailure(
+                scan=scan_count, step_index=curr_step, step_name=step_name, cause=str(failed)
+            )
+        )
+        with self._capture_slots_lock:
+            self._focus_slots[(scan_count, curr_step)] = slot
 
     def _note_captured(self, *, curr_step, scan_count) -> None:
         with self._capture_slots_lock:

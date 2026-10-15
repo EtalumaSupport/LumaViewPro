@@ -559,6 +559,19 @@ class TestAutofocusFailureDoesNotHaltProtocol:
         af_future.exception.return_value = RuntimeError('camera fault during AF')
         executor._af_future = af_future
 
+        class _RecordingWriter:
+            # a stand-in by design: the subject is the step runner's
+            # consumption of the resolved future; the run's writer, which
+            # every running scan has, is the collaborator it records into.
+            def __init__(self):
+                self.noted = []
+
+            def note_autofocus(self, **kwargs):
+                self.noted.append(kwargs)
+
+        writer = _RecordingWriter()
+        monkeypatch.setattr(executor, '_image_writer', writer)
+
         warnings = []
         monkeypatch.setattr(psr.logger, 'warning', lambda msg, *a, **k: warnings.append(str(msg)))
 
@@ -578,6 +591,9 @@ class TestAutofocusFailureDoesNotHaltProtocol:
             f'(consumed {af_future.exception.call_count} times)'
         )
         assert executor._af_result_consumed is True
+        assert [(n['curr_step'], str(n['failed'])) for n in writer.noted] == [
+            (0, 'camera fault during AF')
+        ], f'the failure must be on the run record once, not per poll: {writer.noted}'
 
 
 class TestSingleScanAutoGainAndAutoFocus:
