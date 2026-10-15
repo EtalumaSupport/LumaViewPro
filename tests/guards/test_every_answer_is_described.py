@@ -39,8 +39,11 @@ from tests import ratchets as _ratchets
 from rest import routes as rest_routes
 
 # Keyless objects, arrays of nothing said and values of no type, over every
-# route's 200 and 202 and every event, each component counted once.
-UNTYPED_PIN = 52
+# route's 200 and 202 and every event, each component counted once. An
+# equality, not a ceiling: a ceiling left two above the count let a new
+# untyped read (get_zstack_params, a dict) in unnoticed. A typed answer
+# lowers the pin in the same commit; get_zstack_params is W3's to type.
+UNTYPED_PIN = 50
 
 _SERVER_MODELS = ('Handle', 'Job', 'JobProgress', 'PathAnswer', 'Versions')
 # A JSON Schema keyword that says what a value is.
@@ -203,11 +206,13 @@ def test_the_servers_own_routes_declare_their_models(built):
 def test_the_untyped_places_in_answers_and_events_do_not_grow(built):
     described, _routes, events, _records = built
     untyped = _untyped(described, events)
-    _ratchets.observe('rest: untyped places in answers and events', len(untyped), UNTYPED_PIN)
-    assert len(untyped) <= UNTYPED_PIN, (
-        f'{len(untyped)} untyped places in answers and events, over the pin of '
-        f'{UNTYPED_PIN}: type the new one (a record, a typed array or mapping), or '
-        f'raise the pin in this commit and say why.\n  ' + '\n  '.join(untyped)
+    _ratchets.observe(
+        'rest: untyped places in answers and events', len(untyped), UNTYPED_PIN, rule='equal'
+    )
+    assert len(untyped) == UNTYPED_PIN, (
+        f'{len(untyped)} untyped places in answers and events, against the pin of '
+        f'{UNTYPED_PIN}: over it, type the new one (a record, a typed array or mapping); '
+        f'under it, lower the pin in this commit.\n  ' + '\n  '.join(untyped)
     )
 
 
