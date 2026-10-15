@@ -285,20 +285,19 @@ def _rejected_gain_words(gain_db: float) -> str:
 
     One home for every raise of a gain refusal: the public setter, the
     layer apply and the reports of refusals whose flight ends in the API.
+    It says what the camera holds, not what happens next: a live view goes
+    on at that gain, while a protocol step does not capture at all.
     """
     return (
         f'The camera rejected the gain change to {float(gain_db):.1f} dB. '
-        'Captures will continue at the previous gain. Check that '
-        'the value is within the camera limits.'
+        'It is still at its previous gain. Check that the value is '
+        'within the camera limits.'
     )
 
 
 def _rejected_mode_words(what: str) -> str:
     """The sentence for a mode change the camera refused."""
-    return (
-        f'The camera did not take the {what} change. Captures will continue '
-        'with the camera as it was.'
-    )
+    return f'The camera did not take the {what} change. It is still as it was.'
 
 
 def _rejected_black_level_words(black_level: float) -> str:
@@ -307,8 +306,8 @@ def _rejected_black_level_words(black_level: float) -> str:
     refuses a manual one, which the sentence names."""
     return (
         f'The camera did not accept the black level {float(black_level):g}. '
-        'Captures will continue at the previous black level. A camera that '
-        'sets its black level automatically takes no manual value.'
+        'It is still at its previous black level. A camera that sets its '
+        'black level automatically takes no manual value.'
     )
 
 
@@ -418,8 +417,8 @@ def _rejected_exposure_words(exposure_ms: float) -> str:
     ``_rejected_gain_words``."""
     return (
         f'The camera rejected the exposure change to {float(exposure_ms):g} ms. '
-        'Captures will continue at the previous exposure. Check '
-        'that the value is within the camera limits.'
+        'It is still at its previous exposure. Check that the value is '
+        'within the camera limits.'
     )
 
 
