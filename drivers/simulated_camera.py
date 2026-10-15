@@ -614,6 +614,14 @@ class SimulatedCamera(Camera):
             # the frame being made and the host having it.
             if self._grab_delay > 0:
                 time.sleep(self._grab_delay)
+            # A stall that began while this frame was being made holds it
+            # too: it had not reached the host, and nothing reaches the host
+            # during a stall. Without this, the one frame in the making when
+            # a stall is set arrives after it, so a stall set just before a
+            # single grab sometimes delivers that grab a frame.
+            held = self._held_window
+            if held is not None and held[0] <= time.monotonic() < held[1]:
+                continue
             # The simulated link is USB3 carrying the format unpacked, as a
             # Basler USB3 camera carries Mono12: the generated array is the
             # acquired window in its wire container.
