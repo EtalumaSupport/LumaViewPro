@@ -45,6 +45,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # Typed pypylon stand-in (real handler bases + exception types). Needs the
 # repo-root path insert above.
 from tests import pypylon_stub as _pypylon_stub
+from tests import usb_stub as _usb_stub
 from tests.scope_fakes import build_scope
 
 
@@ -130,11 +131,13 @@ def install_mock_deps():
         # or, gated the other way, mark every headless popup pre-mainloop.
         'kivy.base': MagicMock(EventLoop=MagicMock(status='started')),
         'kivy.app': MagicMock(),
-        # FX2 / libusb -- skipped when --run-fx2-hardware is set.
-        'usb': MagicMock(),
-        'usb.core': MagicMock(),
-        'usb.util': MagicMock(),
-        'usb1': MagicMock(),
+        # FX2 / libusb -- skipped when --run-fx2-hardware is set. A typed
+        # stub: the driver tells a timeout from a removal by these
+        # libraries' exception classes.
+        'usb': _usb_stub.usb,
+        'usb.core': _usb_stub.core,
+        'usb.util': _usb_stub.util,
+        'usb1': _usb_stub.usb1,
         # Camera SDKs -- skipped when their --run-*-hardware flag is set.
         # pypylon gets a typed stub (real subclassable handler bases +
         # exception types) instead of a blanket MagicMock so the driver's

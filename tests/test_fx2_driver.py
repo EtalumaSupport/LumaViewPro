@@ -821,3 +821,127 @@ def test_the_led_detector_stays_quiet_on_a_good_write():
         warned = ' '.join(str(c) for c in mock_logger.warning.call_args_list)
 
     assert 'short write' not in warned
+
+
+# ---------------------------------------------------------------------------
+# A setting write the camera does not answer
+# ---------------------------------------------------------------------------
+#
+# A USB timeout on the transfer that carries a setting is the camera not
+# answering, not the camera refusing and not the camera gone: the API sends
+# the write once more on that answer alone, so it has to arrive as its own
+# type, CameraNoAnswerError, whichever library the transfer ran through, and
+# it must not mark the camera removed. The FX2 reads nothing back, so every
+# transfer a writer makes decides whether its write happened.
+
+
+def _usb_timeouts():
+    """One timeout from each library an FX2 control transfer runs through."""
+    return {
+        'pyusb': fx2driver.usb.core.USBTimeoutError('[Errno 60] Operation timed out'),
+        'libusb1': fx2driver.usb1.USBErrorTimeout('LIBUSB_ERROR_TIMEOUT [-7]'),
+        # WinUSB's ERROR_SEM_TIMEOUT, as drivers/winusb_iso.py raises it.
+        'WinUSB': TimeoutError('ControlTransfer OUT (request=0xB3) timed out: 121'),
+    }
+
+
+@pytest.fixture
+def simulated_fx2_camera():
+    from drivers.simulated_fx2 import SimulatedFX2
+
+    sim = SimulatedFX2()
+    cam = fx2driver.FX2Camera(connection=sim.connection)
+    yield sim, cam
+    cam.disconnect()
+
+
+def _every_transfer_times_out(monkeypatch, sim, error, reached):
+    def no_answer(request, value, index, data, timeout):
+        reached.append(request)
+        raise error
+
+    monkeypatch.setattr(sim.transport, 'control_out', no_answer)
+
+
+def test_a_setting_write_the_fx2_does_not_answer_raises_no_answer(
+    simulated_fx2_camera, monkeypatch
+):
+    from drivers.exceptions import CameraNoAnswerError
+
+    sim, cam = simulated_fx2_camera
+    # The twelve setting writers the API reaches, with a value each accepts.
+    writers = {
+        'gain': lambda: cam.gain(12.0),
+        'exposure_t': lambda: cam.exposure_t(100.0),
+        'auto_gain': lambda: cam.auto_gain(True),
+        'auto_exposure_t': lambda: cam.auto_exposure_t(True),
+        'set_frame_size': lambda: cam.set_frame_size(1000, 996),
+        'set_binning_size': lambda: cam.set_binning_size(1),
+        'set_pixel_format': lambda: cam.set_pixel_format('Mono8'),
+        'set_conversion_gain_mode': lambda: cam.set_conversion_gain_mode('HCG'),
+        'set_line_noise_reduction': lambda: cam.set_line_noise_reduction(True),
+        'set_black_level': lambda: cam.set_black_level(0.0),
+        'update_auto_gain_target_brightness': lambda: cam.update_auto_gain_target_brightness(0.5),
+        'auto_gain_once': lambda: cam.auto_gain_once(True),
+    }
+    offenders = {}
+    on_the_bus = set()
+    for library, error in _usb_timeouts().items():
+        for setting, write in writers.items():
+            if not hasattr(cam, setting):
+                continue  # not offered by the FX2; the API refuses it first
+            reached = []
+            with monkeypatch.context() as patched:
+                _every_transfer_times_out(patched, sim, error, reached)
+                try:
+                    answer = write()
+                    raised = None
+                except Exception as e:
+                    answer = raised = e
+            name = f'{setting} ({library})'
+            if not reached:
+                if isinstance(raised, CameraNoAnswerError):
+                    offenders[name] = 'no transfer was made, yet it answered no-answer'
+                continue
+            on_the_bus.add(setting)
+            if not isinstance(raised, CameraNoAnswerError):
+                offenders[name] = f'answered {answer!r}, not CameraNoAnswerError'
+            elif raised.reason != 'camera_no_answer' or str(error) not in str(raised):
+                offenders[name] = f'words or reason wrong: {raised.reason}: {raised}'
+            if cam.is_device_removed() or sim.connection.removed:
+                offenders[name] = 'the timeout marked the camera removed'
+    assert not offenders, f'a setting write the FX2 did not answer: {offenders}'
+    # The writers that reach the bus at all; the rest answer without it.
+    assert on_the_bus == {'gain', 'exposure_t', 'set_frame_size'}
+
+
+def test_a_gain_write_the_fx2_does_not_answer_leaves_the_gain_it_had(
+    simulated_fx2_camera, monkeypatch
+):
+    from drivers.exceptions import CameraNoAnswerError
+
+    sim, cam = simulated_fx2_camera
+    before = cam.gain(6.0)
+    _every_transfer_times_out(monkeypatch, sim, _usb_timeouts()['libusb1'], [])
+
+    with pytest.raises(CameraNoAnswerError):
+        cam.gain(30.0)
+
+    assert cam.get_gain() == before
+
+
+def test_a_frame_size_the_fx2_does_not_answer_stores_frames_as_they_arrive(
+    simulated_fx2_camera, monkeypatch
+):
+    """Whether the window was applied is not known: the size reported is the
+    one the camera last took, and no crop to the new one is promised."""
+    from drivers.exceptions import CameraNoAnswerError
+
+    sim, cam = simulated_fx2_camera
+    cam.set_frame_size(1000, 996)
+    _every_transfer_times_out(monkeypatch, sim, _usb_timeouts()['pyusb'], [])
+
+    with pytest.raises(CameraNoAnswerError):
+        cam.set_frame_size(500, 500)
+
+    assert cam.get_frame_size() == {'width': 1000, 'height': 996}

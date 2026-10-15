@@ -111,3 +111,17 @@ def test_a_successful_in_transfer_returns_the_buffer_slice():
 
     assert isinstance(result, bytes)
     assert len(result) == 2
+
+
+@pytest.mark.parametrize('request_type, kwargs', [(0x40, {'data': b'\x01'}), (0xC0, {'length': 2})])
+def test_a_timed_out_transfer_raises_a_timeout_naming_the_code(request_type, kwargs):
+    """ERROR_SEM_TIMEOUT is the device not answering, which the FX2 driver
+    tells from every other failure by the type."""
+    from drivers import winusb_iso
+
+    with (
+        patch.object(winusb_iso, 'winusb', _fake_winusb(ok=0)),
+        patch.object(winusb_iso.kernel32, 'GetLastError', lambda: winusb_iso.ERROR_SEM_TIMEOUT),
+        pytest.raises(TimeoutError, match='121'),
+    ):
+        _device().control_transfer(request_type, 0xB3, 0, 0x42, **kwargs)

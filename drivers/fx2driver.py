@@ -99,7 +99,7 @@ except ImportError:
     # dependency, and dozens of call sites use _cam_log unguarded.
     _cam_log = logger
 from drivers.camera import Camera, FrameGrid, ImageHandlerBase, link_info, no_hardware_auto_mode
-from drivers.exceptions import CameraReadFailedError
+from drivers.exceptions import CameraNoAnswerError, CameraReadFailedError
 from drivers.registry import camera_registry, led_registry
 
 # Wire-level logging for the FX2 (LumaviewClassic LS560/620/720) USB
@@ -1013,6 +1013,42 @@ class _ByteStream:
 # ---------------------------------------------------------------------------
 # Transports -- every USB library call the driver makes
 # ---------------------------------------------------------------------------
+
+
+def _is_usb_timeout(error: BaseException) -> bool:
+    """Whether ``error`` is a control transfer the device did not answer in time.
+
+    A transfer runs through one of three libraries, each with its own
+    timeout: pyusb's ``USBTimeoutError``, python-libusb1's
+    ``USBErrorTimeout``, and WinUSB's ERROR_SEM_TIMEOUT, which
+    ``drivers/winusb_iso.py`` raises as the builtin ``TimeoutError``. A
+    device gone from the bus is none of them: pyusb reports it as a plain
+    ``USBError``, python-libusb1 as ``USBErrorNoDevice`` or
+    ``USBErrorNotFound``, siblings of its timeout. The library classes are
+    read here, at the failure, rather than captured at import.
+    """
+    timeouts: list[type[BaseException]] = [TimeoutError]
+    if _HAS_USB:
+        timeouts.append(usb.core.USBTimeoutError)
+    if _HAS_USB1:
+        timeouts.append(usb1.USBErrorTimeout)
+    return isinstance(error, tuple(timeouts))
+
+
+def _raise_if_no_answer(setting: str, error: BaseException) -> None:
+    """Raise ``CameraNoAnswerError`` for a failed ``setting`` write that timed out.
+
+    A timeout is the camera not answering: it is still on the bus and may
+    take the same write sent again, which a refusal or a removal would not.
+    Any other failure returns, for the caller's own handling.
+
+    Raises:
+        CameraNoAnswerError: ``error`` is a USB timeout (``_is_usb_timeout``).
+    """
+    if _is_usb_timeout(error):
+        raise CameraNoAnswerError(
+            f'The camera did not answer the {setting} write: {type(error).__name__}: {error}'
+        ) from error
 
 
 class _PyusbTransport:
@@ -2408,6 +2444,11 @@ class FX2Camera(Camera):
         implement, so the camera-write authority upstream sees one rejection
         signal from every driver.
 
+        Raises:
+            CameraNoAnswerError: A register write timed out. Nothing is read
+                back, so each of the five writes decides whether the window
+                was applied.
+
         The row time follows the window's width, so the same shutter width
         integrates a different time at each window. The shutter width is
         written again after the window, from the exposure asked for, so the
@@ -2455,6 +2496,7 @@ class FX2Camera(Camera):
             # known geometry and would desync the frame parser, so drop it on
             # the failure path too.
             self._fx2.stream.flush()
+            _raise_if_no_answer('frame size', e)
             return False
 
         self._width = w
@@ -2518,6 +2560,10 @@ class FX2Camera(Camera):
         exposure in output frames. Callers that depend on exact timing
         (autofocus, protocol captures) must wait >=2 frames after an
         exposure change before relying on the new value.
+
+        Raises:
+            CameraNoAnswerError: The register write timed out; the exposure
+                recorded stays the one before.
         """
         # Refused while disconnected, as the other drivers do: no register
         # write is attempted and nothing is recorded. connect() sets the
@@ -2530,7 +2576,11 @@ class FX2Camera(Camera):
             _cam_log.info(
                 f'fx2 sensor_reg_write(REG_EXPOSURE={REG_EXPOSURE:#x}, rows={rows}) (={target_ms}ms)'
             )
-        self._fx2.sensor_reg_write(REG_EXPOSURE, rows)
+        try:
+            self._fx2.sensor_reg_write(REG_EXPOSURE, rows)
+        except Exception as e:
+            _raise_if_no_answer('exposure', e)
+            raise
         self._exposure_ms = target_ms
         return self.get_exposure_t() * 1000.0
 
@@ -2573,23 +2623,32 @@ class FX2Camera(Camera):
         returning, so this never answers refused. It answers with the gain the
         register now encodes, which differs from the request by the
         quantization step, or is 0 dB or 128x (42.144 dB) for a request
-        outside them.
+        outside them. The register value is recorded only once the write has
+        gone out, so after a failed write ``get_gain`` still reports the gain
+        the camera last took.
 
         Returns:
             float | bool | None: See ``Camera.gain``. False while disconnected:
             refused, nothing written, as ``exposure_t`` answers -- a None there
             reads to the API as applied, and it would record a gain the camera
             never received.
+
+        Raises:
+            CameraNoAnswerError: The register write timed out.
         """
         if not self.is_connected():
             return False
         reg = _gain_db_to_register(g)
-        self._gain_reg = reg
         if _cam_log is not None:
             _cam_log.info(
                 f'fx2 sensor_reg_write(REG_GLOBAL_GAIN={REG_GLOBAL_GAIN:#x}, reg={reg:#x}) (={g}dB requested)'
             )
-        self._fx2.sensor_reg_write(REG_GLOBAL_GAIN, reg)
+        try:
+            self._fx2.sensor_reg_write(REG_GLOBAL_GAIN, reg)
+        except Exception as e:
+            _raise_if_no_answer('gain', e)
+            raise
+        self._gain_reg = reg
         return _register_to_gain_db(reg)[1]
 
     def get_gain(self):

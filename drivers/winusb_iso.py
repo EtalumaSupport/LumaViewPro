@@ -35,6 +35,8 @@ FILE_ATTRIBUTE_NORMAL = 0x80
 FILE_FLAG_OVERLAPPED = 0x40000000
 INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
 ERROR_IO_PENDING = 997
+# What GetLastError reports when a transfer's pipe timeout expires.
+ERROR_SEM_TIMEOUT = 121
 DIGCF_PRESENT = 0x02
 DIGCF_DEVICEINTERFACE = 0x10
 SPDRP_HARDWAREID = 1
@@ -179,6 +181,19 @@ def find_device_path(vid, pid):
     return None
 
 
+def _transfer_failed(transfer: str) -> Exception:
+    """The exception for a ``transfer`` WinUSB reported failed, by its last error.
+
+    A timeout is a ``TimeoutError``, the type the FX2 driver reads as a
+    device that did not answer, as it reads pyusb's and python-libusb1's
+    timeouts; any other failure is a ``RuntimeError``. Both name the code.
+    """
+    code = kernel32.GetLastError()
+    if code == ERROR_SEM_TIMEOUT:
+        return TimeoutError(f'{transfer} timed out: {code}')
+    return RuntimeError(f'{transfer} failed: {code}')
+
+
 # ---------------------------------------------------------------------------
 # WinUSB device wrapper
 # ---------------------------------------------------------------------------
@@ -268,10 +283,10 @@ class WinUsbDevice:
                 self._iface_handle, pkt, buf, length, byref(transferred), None
             )
             if not ok:
-                raise RuntimeError(
+                raise _transfer_failed(
                     f'ControlTransfer IN (request=0x{request:02X}, '
                     f'value=0x{value:04X}, index=0x{index:04X}, '
-                    f'length={length}) failed: {kernel32.GetLastError()}'
+                    f'length={length})'
                 )
             return bytes(buf[: transferred.value])
         else:  # OUT transfer
@@ -281,10 +296,10 @@ class WinUsbDevice:
                 self._iface_handle, pkt, buf if buf else None, len(data), byref(transferred), None
             )
             if not ok:
-                raise RuntimeError(
+                raise _transfer_failed(
                     f'ControlTransfer OUT (request=0x{request:02X}, '
                     f'value=0x{value:04X}, index=0x{index:04X}, '
-                    f'len={len(data)}) failed: {kernel32.GetLastError()}'
+                    f'len={len(data)})'
                 )
             # Bytes written, so the caller's `-> int` contract holds on this
             # transport too. Returning None here is what silently switched
