@@ -1131,7 +1131,9 @@ class SettingRefusedError(Refusal, ConfigError):
 
     Attributes:
         reason: ``'has_member'`` -- the setting is changed by its own
-            Session member, named in ``member``. ``'not_a_setting'`` -- no
+            Session member, named in ``member``. ``'host_only'`` -- that
+            member is in-process: only the application hosting the scope
+            changes the setting, and a REST client reads it. ``'not_a_setting'`` -- no
             setting has this path. ``'block'`` -- the path names a block of
             settings, which is written one setting at a time.
             ``'installation_only'`` -- the setting is read only from the
@@ -1139,8 +1141,8 @@ class SettingRefusedError(Refusal, ConfigError):
             not the kind the setting holds.
             ``'out_of_range'`` -- the value is outside the setting's range.
         path: The dotted path that was written.
-        member: The member that changes the setting, for ``'has_member'``;
-            otherwise None.
+        member: The member that changes the setting, for ``'has_member'``
+            and ``'host_only'``; otherwise None.
 
     ``path`` and ``member`` are published, so a REST problem names the
     setting refused, and the member to call instead, beside the words.

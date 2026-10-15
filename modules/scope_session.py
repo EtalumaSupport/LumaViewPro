@@ -91,7 +91,7 @@ from modules.python_values import python_values
 from modules.scheduler import Scheduler, ThreadingTimerScheduler
 from modules.settings_saver import SettingsSaver, write_whole
 from modules.sequential_io_executor import IOTask, refuse_blocking_on_a_worker, slow_task_budget
-from modules.api_surface import FilePath, ProgressCallback, api, api_fields
+from modules.api_surface import IN_PROCESS, FilePath, ProgressCallback, api, api_fields, mark_of
 
 # How long a diagnostic's end waits for a run it lent its claim to. The
 # window of one autofocus inside a characterization. Per
@@ -2738,7 +2738,10 @@ class ScopeSession:
 
         Raises:
             SettingRefusedError: ``'has_member'``, ``path`` is owned by a
-                Session member (named); ``'installation_only'``, it is set
+                Session member (named); ``'host_only'``, its member is
+                in-process, so only the application hosting the scope changes
+                it (``live_folder``, ``protocol.filepath``);
+                ``'installation_only'``, it is set
                 only by the installation; ``'not_a_setting'``, it is not a
                 setting; ``'block'``, it names a block; ``'wrong_kind'``,
                 ``value`` is not the setting's kind; ``'out_of_range'``, it
@@ -2760,6 +2763,18 @@ class ScopeSession:
         effect as they are written.
         """
         value = python_values(value)
+        member = settings_paths.member_for(path)
+        if member is not None and mark_of(getattr(ScopeSession, member)) == IN_PROCESS:
+            # The live folder confines every path a wire caller sends, so only
+            # the host moves it; advice naming the member alone sends a REST
+            # client to a route that does not exist.
+            raise SettingRefusedError(
+                'host_only',
+                path,
+                f'it is changed by ScopeSession.{member}, which only the application '
+                'hosting the scope can call; a REST client reads it and cannot move it',
+                member=member,
+            )
         settings_paths.check_write(
             self.scope.settings_template,
             path,

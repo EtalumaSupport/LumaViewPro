@@ -84,26 +84,28 @@ def test_a_refused_write_names_why_and_writes_nothing(session, path, value, reas
 
 
 @pytest.mark.parametrize(
-    ('path', 'member'),
+    ('path', 'member', 'reason'),
     [
-        ('microscope', 'select_model'),
-        ('live_folder', 'set_live_folder'),
-        ('protocol.filepath', 'set_protocol_filepath'),
-        ('objective_id', 'select_objective'),
-        ('turret_objectives.1', 'assign_turret_objective'),
-        ('protocol.labware', 'select_labware'),
-        ('image_mode', 'set_image_mode'),
-        ('binning.size', 'set_binning_size'),
-        ('frame.width', 'set_frame_size'),
-        ('Blue.acquire', 'set_layer_acquire'),
-        ('Blue.auto_gain', 'set_layer_auto_gain'),
-        ('Blue.focus', 'save_layer_focus'),
+        ('microscope', 'select_model', 'has_member'),
+        # In-process members: only the host moves the live folder, which
+        # confines every path a wire caller sends.
+        ('live_folder', 'set_live_folder', 'host_only'),
+        ('protocol.filepath', 'set_protocol_filepath', 'host_only'),
+        ('objective_id', 'select_objective', 'has_member'),
+        ('turret_objectives.1', 'assign_turret_objective', 'has_member'),
+        ('protocol.labware', 'select_labware', 'has_member'),
+        ('image_mode', 'set_image_mode', 'has_member'),
+        ('binning.size', 'set_binning_size', 'has_member'),
+        ('frame.width', 'set_frame_size', 'has_member'),
+        ('Blue.acquire', 'set_layer_acquire', 'has_member'),
+        ('Blue.auto_gain', 'set_layer_auto_gain', 'has_member'),
+        ('Blue.focus', 'save_layer_focus', 'has_member'),
     ],
 )
-def test_a_setting_with_a_member_is_refused_naming_it(session, path, member):
+def test_a_setting_with_a_member_is_refused_naming_it(session, path, member, reason):
     with pytest.raises(SettingRefusedError, match=f'ScopeSession.{member}') as refused:
         session.update_settings(path, None)
-    assert refused.value.reason == 'has_member'
+    assert refused.value.reason == reason
     assert refused.value.member == member
     # The name it gives is a member a caller can call.
     assert callable(getattr(ScopeSession, member))
