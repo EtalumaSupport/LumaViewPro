@@ -14,7 +14,9 @@ The walk posts every POST route of the OpenAPI document three times, each
 argument given a value of its schema's kind that is wrong for most members
 (empty, negative, huge, an unknown name, a path that leaves the live
 folder), against the simulated scope, and names every route that answers
-500 or ``about:blank``, a call answered 202 by the error its job ends in.
+500 or ``about:blank``. Each is asked with the longest wait, so a blocking
+call is answered its end; a 202 started an operation, so the request was
+accepted, and the operation is stopped.
 """
 
 from __future__ import annotations
@@ -68,19 +70,17 @@ def _wrong_value(schema: dict, document: dict, variant: int) -> object:
 
 
 def _ending(client, answer) -> tuple[int, dict]:
-    """The status and problem a call ended in, following a 202 to its job's end.
+    """The status and problem a call was answered.
 
-    A call still running when the route stops waiting is answered 202, and
-    judged by the error its job ends in, as a client reading the job is
-    told.
+    Each call is asked with the longest wait, so a blocking call is answered
+    its end. A 202 is a call that started an operation: the request was
+    accepted, and the operation, which may run until it is stopped (a
+    recording), is stopped rather than waited for.
     """
-    if answer.status_code != 202:
-        return answer.status_code, answer.json() if answer.status_code >= 400 else {}
-    job = answer.json()
-    while job['ended'] is None:
-        job = client.get(f'/api/v1/jobs/{job["id"]}', headers={'Prefer': 'wait=60'}).json()
-    error = job.get('error') or {}
-    return error.get('status', 200), error
+    if answer.status_code == 202:
+        client.delete(answer.headers['Location'])
+        return 202, {}
+    return answer.status_code, answer.json() if answer.status_code >= 400 else {}
 
 
 @pytest.fixture
@@ -127,7 +127,9 @@ def test_no_route_answers_a_bad_request_as_a_fault(session):
                     for name, field in fields.items()
                 }
                 answer = client.post(
-                    path, content=json.dumps(sent), headers={'content-type': 'application/json'}
+                    path,
+                    content=json.dumps(sent),
+                    headers={'content-type': 'application/json', 'Prefer': 'wait=60'},
                 )
                 status, problem = _ending(client, answer)
                 if status >= 500 or problem.get('type') == 'about:blank':
