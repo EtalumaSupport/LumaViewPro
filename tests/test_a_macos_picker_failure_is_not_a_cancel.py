@@ -68,7 +68,7 @@ def test_every_macos_picker_s_script_compiles(monkeypatch, tmp_path):
     for name, build in (
         ('open', lambda: file_dialogs._macos_open_file('/tmp', file_dialogs._IMAGE_FILETYPES)),
         ('folder', lambda: file_dialogs._macos_choose_folder('/tmp')),
-        ('save', lambda: file_dialogs._macos_save_file('/tmp', 'protocol.tsv')),
+        ('save', lambda: file_dialogs._macos_save_file('/tmp', '.tsv')),
     ):
         monkeypatch.setattr(
             file_dialogs, '_osascript_choice', lambda script, n=name: scripts.setdefault(n, script)

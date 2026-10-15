@@ -252,10 +252,14 @@ def _platform_native_open_file(initial_dir, filetypes):
 def _platform_native_save_file(initial_dir, filetypes):
     """Platform-native save-file picker (blocking). Returns path or None.
 
+    The picker is told the extension of the first file type, so it adds it
+    to a name typed without it and asks before replacing a file of that
+    full name: the writer writes the name returned and adds nothing.
     Call only from _run_native_dialog_async's worker.
     """
+    extension = filetypes[0][1]
     if sys.platform == 'darwin':
-        return _macos_save_file(initial_dir=initial_dir)
+        return _macos_save_file(initial_dir=initial_dir, extension=extension)
 
     from tkinter import filedialog
 
@@ -265,23 +269,44 @@ def _platform_native_save_file(initial_dir, filetypes):
             parent=root,
             initialdir=initial_dir,
             filetypes=filetypes,
+            defaultextension=extension,
         )
     finally:
         root.destroy()
     return path or None
 
 
-def _macos_save_file(initial_dir=None, default_name=None):
-    """Show a native macOS save-file dialog. Returns path string or None."""
-    script = 'set theFile to choose file name'
-    clauses = []
+def _macos_save_file(initial_dir, extension):
+    """Show a native macOS save panel for files of ``extension``. Returns path string or None.
+
+    AppleScript's ``choose file name`` takes no file type, so it returned a
+    name typed without the extension as typed, having asked about replacing
+    a file of that bare name only. An NSSavePanel restricted to the type
+    adds the extension and asks about the full name. A cancel is raised as
+    error -128, the cancel ``_osascript_choice`` reads.
+    """
+    script = (
+        'use framework "AppKit"\n'
+        'use framework "UniformTypeIdentifiers"\n'
+        'use scripting additions\n'
+        "set theApp to current application's NSApplication's sharedApplication()\n"
+        "theApp's setActivationPolicy:(current application's "
+        'NSApplicationActivationPolicyAccessory)\n'
+        "theApp's activateIgnoringOtherApps:true\n"
+        "set thePanel to current application's NSSavePanel's savePanel()\n"
+        "thePanel's setAllowedContentTypes:{current application's UTType's "
+        f'typeWithFilenameExtension:"{_escape_applescript(extension.lstrip("."))}"}}\n'
+    )
     if initial_dir:
-        clauses.append(f'default location POSIX file "{_escape_applescript(initial_dir)}"')
-    if default_name:
-        clauses.append(f'default name "{_escape_applescript(default_name)}"')
-    if clauses:
-        script += ' ' + ' '.join(clauses)
-    script += '\nPOSIX path of theFile'
+        script += (
+            "thePanel's setDirectoryURL:(current application's NSURL's "
+            f'fileURLWithPath:"{_escape_applescript(initial_dir)}")\n'
+        )
+    script += (
+        "if (thePanel's runModal()) is not (current application's NSModalResponseOK) then "
+        'error number -128\n'
+        "return (thePanel's |URL|()'s |path|()) as text"
+    )
     return _osascript_choice(script)
 
 
