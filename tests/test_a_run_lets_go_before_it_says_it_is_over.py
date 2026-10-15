@@ -6,10 +6,19 @@ released, so the subscriber can act on the scope at once. Both were sent
 from inside the run's cleanup, before the release -- inline on the
 cleanup's thread under REST, headless and in tests -- so a subscriber
 woken by either found the run still holding the scope.
+
+The next run is the one thing that also waits for the run's files: a run
+does not start over another's unwritten files, and a run that saves no
+images still writes its run record's rows. So a client chaining runs starts
+the next from ``files_written``; from ``run_ended`` it can be refused
+``files_writing`` while those writes land.
 """
 
 import threading
+import time
 
+import modules.protocol_image_writer as protocol_image_writer
+from modules.exceptions import ProtocolRunRefusedError
 from modules.protocol_state_machine import SequencedCaptureRunMode
 from modules.run_events import RunEvents
 from tests.test_run_refusal_contract import (  # noqa: F401 -- fixtures
@@ -95,10 +104,9 @@ def test_a_failed_start_says_so_after_it_let_go(executor, tmp_path, monkeypatch)
     assert seen == [(False, None)], 'the failed start still held the scope when it said so'
 
 
-def test_a_run_ended_subscriber_can_start_the_next_run(executor, tmp_path):
-    # Ready for the next thing: a run that saved nothing has no files to
-    # drain, so the next run starts from the subscriber, on the thread that
-    # told it, with no refusal.
+def test_a_files_written_subscriber_can_start_the_next_run(executor, tmp_path):
+    # Ready for the next run: the run's last write has landed, so the next run
+    # starts from the subscriber, on the thread that told it, with no refusal.
     started, refused = threading.Event(), []
     second_done = threading.Event()
 
@@ -116,12 +124,43 @@ def test_a_run_ended_subscriber_can_start_the_next_run(executor, tmp_path):
         started.set()
 
     first = _prepare(
-        executor, tmp_path, RunEvents(run_ended=start_the_next), enable_image_saving=False
+        executor, tmp_path, RunEvents(files_written=start_the_next), enable_image_saving=False
     )
     executor.start(first)
-    assert started.wait(COMPLETION_TIMEOUT), 'run_ended never came'
-    assert refused == [], f'the next run was refused from run_ended: {refused}'
+    assert started.wait(COMPLETION_TIMEOUT), 'files_written never came'
+    assert refused == [], f'the next run was refused from files_written: {refused}'
     assert second_done.wait(COMPLETION_TIMEOUT), 'the next run never finished'
+
+
+def test_a_run_started_from_run_ended_while_its_writes_land_is_refused(
+    executor, tmp_path, monkeypatch
+):
+    # A run that saves no images still writes its run record's rows. While
+    # one is still landing when run_ended comes, the next run is refused for
+    # it, by name, as a refusal the caller may retry.
+    original = protocol_image_writer.ProtocolImageWriter.write_capture
+
+    # a stand-in by design: a slow save drive, which the simulator cannot
+    # produce (its file lane writes as fast as the host's disk).
+    def slow(self, *args, **kwargs):
+        time.sleep(0.5)
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(protocol_image_writer.ProtocolImageWriter, 'write_capture', slow)
+    told, refused = threading.Event(), []
+
+    def start_the_next(*_args):
+        try:
+            executor.start(_prepare(executor, tmp_path, RunEvents(), enable_image_saving=False))
+        except ProtocolRunRefusedError as ex:
+            refused.append(ex.reason)
+        told.set()
+
+    executor.start(
+        _prepare(executor, tmp_path, RunEvents(run_ended=start_the_next), enable_image_saving=False)
+    )
+    assert told.wait(COMPLETION_TIMEOUT), 'run_ended never came'
+    assert refused == ['files_writing']
 
 
 def test_a_failed_starts_handle_keeps_no_folder_when_its_subscriber_starts_the_next(
