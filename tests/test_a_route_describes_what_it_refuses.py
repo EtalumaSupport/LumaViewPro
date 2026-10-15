@@ -11,9 +11,12 @@ section declares.
 
 from __future__ import annotations
 
+import gc
+
 import pytest
 from fastapi.testclient import TestClient
 
+from lib.lumascope_error import LumascopeError
 from modules.exceptions import HardwareCommandRefusedError, ProtocolRunRefusedError
 from modules.scope_session import ScopeSession
 from rest import problems
@@ -69,3 +72,23 @@ def test_the_ranges_stay_for_what_no_section_declares(described):
     responses = described['paths']['/api/v1/scope/motion/move_absolute']['post']['responses']
 
     assert {'4XX', '5XX'} <= set(responses)
+
+
+def test_two_outcome_classes_of_one_name_fail_the_build():
+    """A ``Raises:`` entry names its class by name, so a second class of that name is refused."""
+
+    def twin() -> type:
+        class TwinError(LumascopeError):
+            pass
+
+        return TwinError
+
+    pair = (twin(), twin())
+    try:
+        with pytest.raises(TypeError, match='TwinError'):
+            problems.outcome_classes()
+    finally:
+        # Held by weak reference in __subclasses__: gone once dropped.
+        del pair
+        gc.collect()
+    assert 'TwinError' not in problems.outcome_classes()
