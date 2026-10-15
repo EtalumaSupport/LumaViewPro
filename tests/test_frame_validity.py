@@ -9,6 +9,7 @@ import os
 # Add parent directory to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
+import numpy as np
 import pytest
 from modules.frame_validity import FrameValidity
 from tests.scope_fakes import bind_settings_like_a_session, build_scope
@@ -554,8 +555,10 @@ class TestAutoGainSettle:
 
 
 class TestCaptureTimeChunkVerification:
-    """get_image(verify_chunk_targets=True) rejects and re-grabs a frame whose
-    chunk metadata disagrees with the recorded gain / exposure target.
+    """The grab (``_get_image_impl``) with ``verify_chunk_targets=True`` rejects
+    and re-grabs a frame whose chunk metadata disagrees with the recorded gain
+    / exposure target. The grab is driven directly: its public member runs it
+    on the camera lane, which this shell has none of.
 
     Readiness is settled by frame count for every camera; the chunk check
     runs after it and may only REJECT a frame. A chunk reports the register
@@ -635,30 +638,27 @@ class TestCaptureTimeChunkVerification:
         imaging.frame_validity.set_target('gain', 0.0)
         imaging.frame_validity.set_target('exposure', 3730.0)
 
-        image = imaging.get_image(
+        image = imaging._get_image_impl(
             force_new_capture=True,
             verify_chunk_targets=True,
             timeout_s=5.0,
         )
-        assert image is not None
+        assert isinstance(image, np.ndarray)
         # Two stale frames rejected, third (matching) frame accepted.
         assert driver.grabs == 3
 
-    def test_persistent_stale_chunks_raise_chunk_rejected_naming_the_setting(self):
-        from modules.exceptions import CaptureFailedError
-
+    def test_persistent_stale_chunks_end_chunk_rejected_naming_the_setting(self):
         stale = {'Gain': 30.0, 'ExposureTime': 100000.0}
         driver = self._ChunkStubDriver([stale])
         imaging = self._make_imaging(driver)
         imaging.frame_validity.set_target('exposure', 3730.0)
 
-        with pytest.raises(CaptureFailedError) as failed:
-            imaging.get_image(
-                force_new_capture=True,
-                verify_chunk_targets=True,
-                timeout_s=0.01,
-            )
-        assert (failed.value.reason, failed.value.setting) == ('chunk_rejected', 'exposure')
+        failed = imaging._get_image_impl(
+            force_new_capture=True,
+            verify_chunk_targets=True,
+            timeout_s=0.01,
+        ).error('get_image')
+        assert (failed.reason, failed.setting) == ('chunk_rejected', 'exposure')
 
     def test_no_targets_means_no_verification(self):
         """Hardware auto-gain clears targets; chunk mismatch must not block."""
@@ -666,12 +666,12 @@ class TestCaptureTimeChunkVerification:
         driver = self._ChunkStubDriver([stale])
         imaging = self._make_imaging(driver)
 
-        image = imaging.get_image(
+        image = imaging._get_image_impl(
             force_new_capture=True,
             verify_chunk_targets=True,
             timeout_s=1.0,
         )
-        assert image is not None
+        assert isinstance(image, np.ndarray)
         assert driver.grabs == 1
 
     def test_chunkless_camera_skips_verification(self):
@@ -685,12 +685,12 @@ class TestCaptureTimeChunkVerification:
         imaging = self._make_imaging(driver)
         imaging.frame_validity.set_target('exposure', 3730.0)
 
-        image = imaging.get_image(
+        image = imaging._get_image_impl(
             force_new_capture=True,
             verify_chunk_targets=True,
             timeout_s=1.0,
         )
-        assert image is not None
+        assert isinstance(image, np.ndarray)
         assert driver.grabs == 1
 
     def test_default_get_image_unverified(self):
@@ -700,8 +700,8 @@ class TestCaptureTimeChunkVerification:
         imaging = self._make_imaging(driver)
         imaging.frame_validity.set_target('exposure', 3730.0)
 
-        image = imaging.get_image(force_new_capture=True, timeout_s=1.0)
-        assert image is not None
+        image = imaging._get_image_impl(force_new_capture=True, timeout_s=1.0)
+        assert isinstance(image, np.ndarray)
         assert driver.grabs == 1
 
 

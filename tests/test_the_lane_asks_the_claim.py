@@ -351,6 +351,45 @@ class TestTheSession:
         with sim_session.diagnostic_claim(), pytest.raises(HardwareCommandRefusedError):
             sim_session.recover_file_writer()
 
+    def test_a_grab_and_the_bandwidth_test_are_refused_a_bystander(self, sim_session):
+        """Both reach the camera only through its lane, so a diagnostic's hold
+        refuses them as it refuses ``capture_and_wait``: the bandwidth test's
+        first frame raises the refusal, never counted as a failed frame."""
+        scope = sim_session.scope
+        calls = {
+            'get_image': lambda: scope.imaging.get_image(force_new_capture=True),
+            'run_camera_bandwidth_test': lambda: scope.diagnostics.run_camera_bandwidth_test(5),
+        }
+        box = {}
+
+        def _bystander():
+            for name, call in calls.items():
+                try:
+                    box[name] = call()
+                except HardwareCommandRefusedError as exc:
+                    box[name] = exc
+
+        with sim_session.diagnostic_claim():
+            t = threading.Thread(target=_bystander)
+            t.start()
+            t.join(30.0)
+        for name in calls:
+            refused = box[name]
+            assert isinstance(refused, HardwareCommandRefusedError), (name, refused)
+            assert (refused.reason, refused.holder) == ('exclusive_activity_running', 'diagnostic')
+
+    def test_a_wire_clients_bandwidth_test_is_refused_under_a_hold(self, sim_session):
+        from fastapi.testclient import TestClient
+
+        from rest.app import build_app
+
+        with TestClient(build_app(sim_session)) as client, sim_session.diagnostic_claim():
+            answer = client.post(
+                '/api/v1/scope/diagnostics/run_camera_bandwidth_test', json={'num_frames': 5}
+            )
+        assert answer.status_code == 409, answer.text
+        assert answer.json()['reason'] == 'exclusive_activity_running'
+
 
 class TestEveryHolderThreadActsUnderItsTaking:
     def test_the_autofocus_sweep_acts_under_its_callers_taking(self, claim):

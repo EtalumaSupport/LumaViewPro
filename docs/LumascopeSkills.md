@@ -1772,6 +1772,9 @@ image = scope.imaging.get_image(force_to_8bit=False)   # keep native 12/16-bit
 # Returns numpy.ndarray, or raises: CaptureFailedError ('no_frame', or
 # 'chunk_rejected' with verify_chunk_targets) for no frame, and
 # HardwareCommandRefusedError ('not_connected') for a camera that is gone.
+# It runs on the camera lane, as capture_and_wait does: while a run, a
+# diagnostic or a home holds the scope it is refused
+# ('exclusive_activity_running') unless you are that holder.
 #
 # Shape is (H, W) 2D mono for mono-native cameras and (H, W, 3) RGB
 # for color-native cameras (see scope.capabilities.is_color_native).
@@ -2169,12 +2172,13 @@ link = scope.diagnostics.get_camera_link_info()
 # Throughput and latency characterization. Both run through the
 # PRODUCTION capture path, so what they measure is what a real run gets;
 # both take an optional progress_cb and return a dict of results. These
-# occupy the camera for their duration -- do not start one while a run
-# or recording is live.
+# occupy the camera for their duration. While a run, a diagnostic or a
+# home holds the scope they are refused (exclusive_activity_running),
+# raised; do not start one while a recording is live.
 results = scope.diagnostics.run_camera_bandwidth_test(num_frames=200, timeout_s=60.0)
 # num_frames_failed counts the grabs that raised CaptureFailedError, and
-# failed_by_reason counts them by reason; a camera removed mid-test is
-# refused (not_connected), raised, not counted.
+# failed_by_reason counts them by reason; a camera absent at the call or
+# removed mid-test is refused (not_connected), raised, not counted.
 results = scope.diagnostics.run_grab_lifecycle_benchmark(num_cycles=100, vary_settings=False)
 
 # Cross-host / cross-camera / cross-firmware diagnostic probe.

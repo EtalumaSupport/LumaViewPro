@@ -4058,7 +4058,9 @@ class ImagingAPI:
         pinned contract (introspected by tests), and a silent kwarg
         pass-through would re-open the door this split closed.
 
-        See ``_get_image_impl`` for the full argument contract.
+        See ``_get_image_impl`` for the full argument contract; this adds
+        only the dispatch described on ``_dispatch_camera``, so the grab runs
+        on the camera lane and ``sum_iteration_callback`` is called there.
 
         Raises:
             ArgumentRefusedError: ``'not_a_number'``, a time is not a finite
@@ -4067,7 +4069,9 @@ class ImagingAPI:
                 ``'chunk_rejected'``, frames came but none at the ``setting``
                 asked (``verify_chunk_targets``).
             HardwareCommandRefusedError: ``'not_connected'``, naming the
-                camera, absent at the call or removed during the grab.
+                camera, absent at the call or removed during the grab;
+                ``'exclusive_activity_running'``, a run, a diagnostic or a
+                home holds the scope and this call is not made under it.
         """
         for name, value in (
             ('timeout_s', timeout_s),
@@ -4075,16 +4079,26 @@ class ImagingAPI:
             ('new_capture_timeout_s', new_capture_timeout_s),
         ):
             refuse_unless_finite_number(value, name)
-        grabbed = self._get_image_impl(
-            force_to_8bit=force_to_8bit,
-            timeout_s=timeout_s,
-            all_ones_check=all_ones_check,
-            sum_count=sum_count,
-            sum_delay_s=sum_delay_s,
-            sum_iteration_callback=sum_iteration_callback,
-            force_new_capture=force_new_capture,
-            new_capture_timeout_s=new_capture_timeout_s,
-            verify_chunk_targets=verify_chunk_targets,
+        # A liveness bound, not a budget: each frame of a sum may wait out its
+        # retry window and then one last new-capture grab, plus its delay.
+        wait_s = self._CAPTURE_WAIT_TIMEOUT_S + sum_count * (
+            timeout_s + new_capture_timeout_s + sum_delay_s
+        )
+        grabbed = self._dispatch_camera(
+            self._get_image_impl,
+            'get_image',
+            kwargs={
+                'force_to_8bit': force_to_8bit,
+                'timeout_s': timeout_s,
+                'all_ones_check': all_ones_check,
+                'sum_count': sum_count,
+                'sum_delay_s': sum_delay_s,
+                'sum_iteration_callback': sum_iteration_callback,
+                'force_new_capture': force_new_capture,
+                'new_capture_timeout_s': new_capture_timeout_s,
+                'verify_chunk_targets': verify_chunk_targets,
+            },
+            timeout_s=wait_s,
         )
         if isinstance(grabbed, _NoFrame):
             raise grabbed.error('get_image')

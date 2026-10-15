@@ -315,10 +315,13 @@ class DiagnosticsAPI:
             ArgumentRefusedError: ``'not_a_number'``, ``timeout_s`` is not a finite
                 number. Nothing reached the camera.
             HardwareCommandRefusedError: ``'not_connected'``, naming the
-                camera, removed during the test. Only a capture failure is
+                camera, absent at the call or removed during the test;
+                ``'exclusive_activity_running'``, another activity holds the
+                scope, raised at the first frame. Only a capture failure is
                 counted: any other raise from a grab ends the test as itself.
         """
         refuse_unless_finite_number(timeout_s, 'timeout_s')
+        self._scope.imaging.refuse_camera_not_connected('run_camera_bandwidth_test')
         results = {
             'num_frames_requested': int(num_frames),
             'num_frames_received': 0,
@@ -340,11 +343,6 @@ class DiagnosticsAPI:
             for key in ('resolution', 'pixel_format'):
                 if key in cam_info:
                     results[key] = cam_info[key]
-
-        if not self._scope._camera_driver or not self._scope._camera_driver.active:
-            results['passed'] = False
-            results['errors'].append('Camera not active')
-            return results
 
         frame_size_set = set()
         start = time.monotonic()

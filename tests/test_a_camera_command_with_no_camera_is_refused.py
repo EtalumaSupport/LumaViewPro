@@ -82,6 +82,7 @@ SATISFIED = {
 DIAGNOSTIC_RUNNERS = {
     'run_grab_lifecycle_benchmark': lambda d: d.run_grab_lifecycle_benchmark(2),
     'run_pylon_diagnostic_probe': lambda d: d.run_pylon_diagnostic_probe(0.1),
+    'run_camera_bandwidth_test': lambda d: d.run_camera_bandwidth_test(2),
 }
 
 
