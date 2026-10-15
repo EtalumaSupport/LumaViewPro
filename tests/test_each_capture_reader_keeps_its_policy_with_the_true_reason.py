@@ -5,12 +5,14 @@ A capture that gets no frame raises ``CaptureFailedError``; a camera that is
 gone raises the ``not_connected`` refusal. A protocol run still counts a
 failure as a strike, now naming the capture's own reason on its row; a
 removal ends the run ``hardware_disconnected`` in words naming the camera.
-Autofocus retries a capture failure and then reports it as itself. The
-bandwidth test counts its failures by reason.
+Autofocus retries a capture failure and then reports it as itself, and
+keeps a dark frame whose retry gets none. The bandwidth test counts its
+failures by reason.
 """
 
 from __future__ import annotations
 
+import numpy as np
 import pytest
 
 from modules.exceptions import CaptureFailedError
@@ -18,6 +20,7 @@ from modules.run_events import RunEvents
 from tests.test_a_late_write_records_its_frame import _step
 from tests.test_a_run_reports_what_it_captured import _run
 from tests.test_an_autofocus_scores_a_frame_made_at_its_z import (
+    FOCAL_Z_UM,
     _autofocus,
     _session_over_the_focus_target,
 )
@@ -64,6 +67,31 @@ class TestAnAutofocus:
                 _autofocus(session)
 
         assert failed.value.reason == 'no_frame'
+
+    def test_a_dark_frame_whose_retry_gets_none_is_kept_and_the_sweep_focuses(self):
+        # The sweep's first capture, at z_min, far from the focus.
+        dark_at = 1
+        with _session_over_the_focus_target() as session:
+            imaging = session.scope.imaging
+            capture = imaging.capture_and_wait
+            calls = []
+
+            # A stand-in by design: the simulator cannot deliver a dark frame
+            # and then no frame on the next capture, in that order; its
+            # stall is timed, not counted.
+            def dark_then_none(*args, **kwargs):
+                calls.append(len(calls) + 1)
+                if len(calls) == dark_at:
+                    return np.zeros_like(capture(*args, **kwargs))
+                if len(calls) == dark_at + 1:
+                    raise CaptureFailedError('no_frame')
+                return capture(*args, **kwargs)
+
+            imaging.capture_and_wait = dark_then_none
+            focus = _autofocus(session)
+
+        assert len(calls) > dark_at + 1, 'the dark frame and its failed retry were never served'
+        assert focus == pytest.approx(FOCAL_Z_UM, abs=50.0)
 
 
 @pytest.mark.slow
