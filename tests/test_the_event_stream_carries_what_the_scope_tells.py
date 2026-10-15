@@ -397,10 +397,10 @@ def test_a_stream_resumed_from_closing_is_sent_closing_and_nothing_after(session
             loop.call_soon_threadsafe(app.state.closing.finish)
             closing = stream.until('closing')[-1]
         release.set()
-        assert (
-            client.get(f'/api/v1/jobs/{held["id"]}', headers={'Prefer': 'wait=10'}).json()['status']
-            == 'completed'
-        )
+        # Joined, not long-polled: once the close has finished, a wait on a
+        # job is answered at once. A call's thread ends after its job settles.
+        assert app.state.closing.join_jobs(10) == []
+        assert client.get(f'/api/v1/jobs/{held["id"]}').json()['status'] == 'completed'
 
         with _reading(client, **{'Last-Event-ID': closing['id']}) as resumed:
             only = resumed.next()

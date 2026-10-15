@@ -101,15 +101,26 @@ class Closing:
         self._jobs = jobs
         self._live = live
         self.begun = False
+        # Settled when the close finishes, so a client still waiting is answered then.
+        self._finished: asyncio.Future[None] | None = None
 
     def begin(self) -> None:
         """Refuse every member asked from now on."""
         self.begun = True
 
     def finish(self) -> None:
-        """Send ``closing`` on every stream and end it, and end every live view. Called on the server's loop."""
+        """Send ``closing`` on every stream and end it, end every live view, and answer every client waiting. Called on the server's loop."""
         self._stream.finish()
         self._live.finish()
+        finished = self.finished()
+        if not finished.done():
+            finished.set_result(None)
+
+    def finished(self) -> asyncio.Future[None]:
+        """What a wait for a job also waits on: settled once the close has finished. Called on the server's loop."""
+        if self._finished is None:
+            self._finished = asyncio.get_running_loop().create_future()
+        return self._finished
 
     def join_jobs(self, timeout_s: float) -> list[str]:
         """Wait up to *timeout_s* for the calls' threads; the names of those still running."""
@@ -178,7 +189,7 @@ def build_app(session: ScopeSession) -> fastapi.FastAPI:
     app.state.closing = closing
     app.state.live = live
     _add_handle_routes(app, registry, handed_out)
-    _add_job_routes(app, jobs)
+    _add_job_routes(app, jobs, closing)
     _add_event_route(app, stream, event_stream.published(session, handed_out))
     _add_live_routes(app, live, closing)
     _add_file_route(app, session)
@@ -639,7 +650,11 @@ def _add(
                 return reply.response()
             return JSONResponse(reply.body, status_code=202, headers=_job_headers(handed[0]))
         wait = Wait.of(request.headers.get('prefer'))
-        await asyncio.wait({answered}, timeout=wait.seconds)
+        await asyncio.wait(
+            {answered, closing.finished()},
+            timeout=wait.seconds,
+            return_when=asyncio.FIRST_COMPLETED,
+        )
         if answered.done():
             reply = answered.result()
             return dataclasses.replace(
@@ -728,7 +743,7 @@ def _answered(work: Callable[[], object], request_id: str) -> Answer:
         return problems.answered_by_member(e, request_id)
 
 
-def _add_job_routes(app: fastapi.FastAPI, jobs: JobRegistry) -> None:
+def _add_job_routes(app: fastapi.FastAPI, jobs: JobRegistry, closing: Closing) -> None:
     async def listing() -> list[dict[str, object]]:
         """Every job held, newest first."""
         # Off the loop: a run's progress is read under the run's lock.
@@ -752,7 +767,11 @@ def _add_job_routes(app: fastapi.FastAPI, jobs: JobRegistry) -> None:
         job = jobs.get(job_id)
         wait = Wait.of(request.headers.get('prefer'))
         if not job.finished:
-            await asyncio.wait({job.answered}, timeout=wait.seconds)
+            await asyncio.wait(
+                {job.answered, closing.finished()},
+                timeout=wait.seconds,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
         return JSONResponse(await asyncio.to_thread(job.view), headers=wait.headers())
 
     app.add_api_route(

@@ -4,7 +4,8 @@
 On SIGINT or SIGTERM a new connection is refused and a member asked on an
 open one is refused ``server_closing``, while jobs and the stream are still
 served; the session closes while the stream carries what the close reports;
-then ``closing`` ends every stream and the server stops. A later signal
+then ``closing`` ends every stream, a client still waiting on a job is
+answered what the job is then, and the server stops. A later signal
 changes nothing, and the calls' threads are joined with a bound, the ones
 still running named.
 
@@ -23,6 +24,7 @@ import httpx
 import pytest
 import uvicorn
 
+import rest.jobs
 from modules.scope_session import ScopeSession
 from rest.app import build_app
 from rest.server import Server
@@ -160,3 +162,55 @@ def test_the_close_names_a_call_still_running_and_joins_it_once_it_ends(session,
 
     assert running == ['rest scope/illumination/leds_off']
     assert ended == []
+
+
+def test_a_client_waiting_on_a_job_is_answered_when_the_close_finishes(session, monkeypatch):
+    """A long-poll open at the close is answered what its job is then; it does not hold the exit.
+
+    The job is a call the session's close does not wait for, as a call hung
+    in a driver would be: the close finishes the session's own work first.
+    """
+    release = threading.Event()
+    real = session.scope.imaging.get_gain_db
+
+    def hung():
+        assert release.wait(30)
+        return real()
+
+    # a stand-in by design: a call that outlives the close, of a member the
+    # close itself never calls; no simulated member hangs.
+    monkeypatch.setattr(session.scope.imaging, 'get_gain_db', hung)
+    waiting = threading.Event()
+    real_get = rest.jobs.JobRegistry.get
+
+    def got(self, job_id):
+        found = real_get(self, job_id)
+        waiting.set()
+        return found
+
+    # a stand-in by design: tells the test the long-poll has reached its
+    # wait, which the read begins right after this, on the server's loop.
+    monkeypatch.setattr(rest.jobs.JobRegistry, 'get', got)
+    answers = []
+    try:
+        with _serving(session) as (server, client, _closing):
+            job = client.post(
+                '/api/v1/scope/imaging/get_gain_db', headers={'Prefer': 'respond-async'}
+            ).json()
+            polling = threading.Thread(
+                target=lambda: answers.append(
+                    client.get(f'/api/v1/jobs/{job["id"]}', headers={'Prefer': 'wait=60'})
+                )
+            )
+            polling.start()
+            assert waiting.wait(10)
+
+            server.handle_exit(signal.SIGTERM, None)
+            # Far below the long-poll's 60 s: answered by the close, not by its wait.
+            polling.join(10)
+            assert not polling.is_alive()
+    finally:
+        release.set()
+
+    (answered,) = answers
+    assert (answered.status_code, answered.json()['status']) == (200, 'running')
