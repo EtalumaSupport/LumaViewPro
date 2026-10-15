@@ -854,6 +854,30 @@ class PylonCamera(Camera):
             f'{self._transport_layer_state(camera, self._TL_COUNTER_NODES)}',
         )
 
+    def _transport_layer_nodes(self, camera, errors: list) -> dict:
+        """Every node of the device transport layer's nodemap, name to value.
+
+        The register-access timeouts and retries are named differently by
+        camera and pylon release (a daA3840-45um under pylon 11.5 exposes
+        none of ``_TL_SETTING_NODES``), so the snapshot lists what this
+        camera has rather than asking for names it may not. A node with no
+        value reads as ``_safe_node``'s sentinel; a nodemap that cannot be
+        fetched or walked is named in ``errors`` and lists nothing.
+        """
+        try:
+            tl = camera.GetTLNodeMap()
+            names = []
+            for node in tl.GetNodes():
+                # pypylon hands back either the node or a wrapper holding it.
+                try:
+                    names.append(node.GetName())
+                except AttributeError:
+                    names.append(node.GetNode().GetName())
+        except Exception as e:
+            errors.append(f'transport layer nodemap failed: {type(e).__name__}: {e}')
+            return {}
+        return {name: self._safe_node(tl, name) for name in names}
+
     def _transport_layer_state(self, camera, names) -> str:
         """Read the named device transport-layer nodes for a stop's log line; never raises."""
         if camera is None:
@@ -4131,7 +4155,8 @@ class PylonCamera(Camera):
                 exposure_us, gain_db, black_level, dltl_mode/value,
                 acquisition_frame_rate*, resulting_frame_rate,
                 max_num_buffer/transfer_size/queued_urbs/buffer_size),
-                stats_pre, stats_post, deltas, derived
+                transport_layer (every node of the device transport
+                layer, name to value), stats_pre, stats_post, deltas, derived
                 (observed_fps, fail_rate_pct, failures_per_second,
                 resyncs_per_second), camera_side_errors, errors.
         """
@@ -4145,6 +4170,7 @@ class PylonCamera(Camera):
             'stats_post': {},
             'deltas': {},
             'derived': {},
+            'transport_layer': {},
             'camera_side_errors': None,
             'errors': [],
         }
@@ -4242,6 +4268,8 @@ class PylonCamera(Camera):
             ('SocketBufferSize', 'socket_buffer_size_kb'),
         ):
             result['config'][key] = self._safe_node(sg, name)
+
+        result['transport_layer'] = self._transport_layer_nodes(cam, result['errors'])
 
         # Stats pre
         for name in self._DIAG_STAT_NODES:
