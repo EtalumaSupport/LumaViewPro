@@ -32,6 +32,7 @@ import inspect
 import json
 import threading
 import types
+import typing
 from collections.abc import AsyncIterator, Callable, Mapping
 
 import pydantic
@@ -48,6 +49,8 @@ from rest.jobs import Job
 BUFFER = 1024
 # Seconds between comments on a quiet stream.
 KEEPALIVE_S = 15.0
+# How soon a client whose stream dropped should reconnect, sent as ``retry:``.
+RECONNECT_MS = 1000
 # The events the live view carries, not the stream: one per frame.
 _LIVE_VIEW = frozenset({'frame', 'frame_captured'})
 # The outcome ids already sent, kept so a muted outcome shown later is not sent twice.
@@ -200,8 +203,33 @@ class EventStream:
         self._wake.set()
         self._wake = asyncio.Event()
 
+    async def held(self, after: int | None) -> dict[str, object]:
+        """What a poll after event *after* is answered: the events held since, and the id to ask after next.
+
+        The same events a stream resumed from *after* is sent: with no
+        *after*, ``status``; once the buffer has moved past it, ``reset`` and
+        ``status``; once the server has closed, ending with ``closing``.
+        Called on the server's loop, where the events are kept.
+        """
+        closed = self._closing_seq is not None
+        if closed and (after is None or after >= self._closing_seq or not self._holds_after(after)):
+            events = [_Event(self._closing_seq, 'closing', '{}')]
+        elif after is None or not self._holds_after(after):
+            seq = self._seq
+            status = await asyncio.to_thread(lambda: self._session.status)
+            events = [_Event(seq, 'reset', '{}')] if after is not None else []
+            events.append(_Event(seq, 'status', json.dumps(self._encode(status), allow_nan=False)))
+        else:
+            events = [e for e in self._buffer if e.seq > after]
+        return {
+            'events': [{'id': e.seq, 'event': e.name, 'data': json.loads(e.data)} for e in events],
+            'next': events[-1].seq if events else after,
+        }
+
     async def read(self, last_event_id: str | None) -> AsyncIterator[str]:
         """The stream one client reads, from where *last_event_id* left it."""
+        # Its own field ahead of the first event's: it is that event's block.
+        yield f'retry: {RECONNECT_MS}\n'
         sent = _resume_from(last_event_id)
         resumed_past_closing = (
             sent is not None and self._closing_seq is not None and sent >= self._closing_seq
@@ -383,6 +411,26 @@ def published(
     found['reset'] = _event_model('reset')
     found['closing'] = _event_model('closing')
     return found
+
+
+def held_model(published: dict[str, type[pydantic.BaseModel]]) -> type[pydantic.BaseModel]:
+    """The model a poll of the held events is described by: each event's data one of *published*."""
+    data = typing.Union[tuple(published.values())]  # noqa: UP007
+    event = pydantic.create_model(
+        'HeldEvent',
+        __config__=routes.ANSWER_CONFIG,
+        __doc__='An event, as the stream sends it: its id, its name and its data.',
+        id=(int, ...),
+        event=(str, ...),
+        data=(data, ...),
+    )
+    return pydantic.create_model(
+        'HeldEvents',
+        __config__=routes.ANSWER_CONFIG,
+        __doc__='The events held after the id asked, and the id to ask after next.',
+        events=(list[event], ...),
+        next=(int, ...),
+    )
 
 
 def _event_model(name: str, /, **fields: object) -> type[pydantic.BaseModel]:

@@ -254,6 +254,25 @@ def _add_event_route(
         tags=['events'],
         **_not_json('text/event-stream', event_stream.described(published)),
     )
+
+    async def held(after: int | None = None) -> JSONResponse:
+        """The events the stream still holds after event *after*, for a client that polls.
+
+        What a stream resumed from *after* is sent, as JSON, with the id to
+        ask after next; with no *after*, ``status`` and its id.
+        """
+        return JSONResponse(await stream.held(after))
+
+    app.add_api_route(
+        f'{PREFIX}/events/held',
+        held,
+        methods=['GET'],
+        tags=['events'],
+        response_model=None,
+        responses={
+            200: {'model': event_stream.held_model(published), 'description': 'The events.'}
+        },
+    )
     built = app.openapi
 
     def openapi() -> dict:

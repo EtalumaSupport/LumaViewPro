@@ -12,7 +12,10 @@ when nobody asked for it, once per ``outcome_id``; a reconnect with
 ``Last-Event-ID`` is sent what it missed, or ``reset`` and ``status`` once
 that is no longer held; a quiet stream carries a comment; a stream that
 has closed hears nothing more; ``closing`` is the last event of every
-stream, and the only one of a stream begun or resumed after it.
+stream, and the only one of a stream begun or resumed after it; the first
+event says how soon to reconnect (``retry:``). A poll
+(``GET /api/v1/events/held?after=<id>``) answers what a stream resumed from
+that id is sent, as JSON, and the id to ask after next.
 
 Read from a real uvicorn server: a stream never ends, and only a socket
 lets a client stop reading one.
@@ -405,3 +408,61 @@ def test_a_stream_resumed_from_closing_is_sent_closing_and_nothing_after(session
                 resumed.next()
 
     assert (only['event'], only['id']) == ('closing', closing['id'])
+
+
+def test_the_first_event_says_how_soon_to_reconnect(client):
+    with _reading(client) as stream:
+        first = stream.next()
+
+    assert (first['event'], first['retry']) == ('status', str(rest.events.RECONNECT_MS))
+
+
+def test_a_poll_answers_the_events_held_after_an_id_and_the_id_to_ask_after_next(client):
+    begun = client.get('/api/v1/events/held')
+    assert begun.status_code == 200
+    (status,) = begun.json()['events']
+    assert status['event'] == 'status'
+    assert begun.json()['next'] == status['id']
+
+    client.post(
+        '/api/v1/scope/illumination/led_on', json={'channel': 'Blue', 'illumination_ma': 10.0}
+    )
+    polled = client.get('/api/v1/events/held', params={'after': begun.json()['next']}).json()
+
+    leds = [e for e in polled['events'] if e['event'] == 'led']
+    assert leds[-1]['data']['state'] == 'lit'
+    assert polled['next'] == polled['events'][-1]['id'] > status['id']
+    assert client.get('/api/v1/events/held', params={'after': polled['next']}).json() == {
+        'events': [],
+        'next': polled['next'],
+    }
+
+
+def test_a_poll_after_an_id_no_longer_held_answers_reset_then_status(session, monkeypatch):
+    monkeypatch.setattr(rest.events, 'BUFFER', 2)
+    with _serving(session) as client:
+        for _ in range(3):
+            client.post(
+                '/api/v1/scope/illumination/led_on',
+                json={'channel': 'Blue', 'illumination_ma': 10.0},
+            )
+            client.post('/api/v1/scope/illumination/led_off', json={'channel': 'Blue'})
+
+        polled = client.get('/api/v1/events/held', params={'after': 0}).json()
+
+    assert [e['event'] for e in polled['events']] == ['reset', 'status']
+    assert polled['next'] == polled['events'][-1]['id']
+
+
+def test_a_poll_once_the_server_closes_ends_with_closing(session):
+    app = build_app(session)
+    with _serving(session, app) as client:
+        before = client.get('/api/v1/events/held').json()['next']
+        loop = client.server.servers[0].get_loop()
+        # Run on the loop ahead of any request asked after it.
+        loop.call_soon_threadsafe(app.state.closing.finish)
+        polled = client.get('/api/v1/events/held', params={'after': before}).json()
+        after = client.get('/api/v1/events/held', params={'after': polled['next']}).json()
+
+    assert polled['events'][-1]['event'] == 'closing'
+    assert [e['event'] for e in after['events']] == ['closing']
