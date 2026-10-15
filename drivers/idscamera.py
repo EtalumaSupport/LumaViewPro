@@ -33,7 +33,12 @@ from drivers.camera import (
     link_info,
     no_hardware_auto_mode,
 )
-from drivers.exceptions import CameraReadFailedError, CameraWriteFailedError, PartAbsentError
+from drivers.exceptions import (
+    CameraNoAnswerError,
+    CameraReadFailedError,
+    CameraWriteFailedError,
+    PartAbsentError,
+)
 from drivers.registry import camera_registry
 
 # IDS Library.Close() shuts down the entire SDK (not per-device).
@@ -2262,6 +2267,7 @@ class IDSCamera(Camera):
             offset_step = (offset_x_node.Increment(), offset_y_node.Increment())
             bias = self._optical_center_bias()
         except Exception as e:
+            _raise_if_unanswered(e, 'read', 'Frame size (the Width/Height/Offset grid)')
             _cam_log.error(f'[CAM Class ] set_frame_size could not read the AOI nodes: {e}')
             return None
         # The live Width/Height node bounds: min is the grid phase, inc the
@@ -2286,6 +2292,9 @@ class IDSCamera(Camera):
         """Set the planned AOI and its centring offsets.
 
         Returns False when the camera is inactive or the apply fails.
+
+        Raises:
+            CameraNoAnswerError: the camera did not answer one of the writes.
         """
         if not self.active:
             return False
@@ -2306,6 +2315,12 @@ class IDSCamera(Camera):
             )
             return True
         except Exception as e:
+            _raise_if_unanswered(
+                e,
+                'write',
+                f'Frame size (Width x Height {plan.acq_width}x{plan.acq_height}, '
+                f'offset {plan.offset_x},{plan.offset_y})',
+            )
             _cam_log.error(f'[CAM Class ] set_frame_size failed: {e}')
             return False
 
@@ -2473,6 +2488,7 @@ class IDSCamera(Camera):
         Raises:
             HardwareError: SDK call failed. Marks the camera disconnected
                 before raising.
+            CameraNoAnswerError: the camera did not answer the write.
         """
         if not self.active:
             return False
@@ -2516,6 +2532,7 @@ class IDSCamera(Camera):
             # that drops the camera mid-resize over a recoverable fault.
             # set_binning_size (same update_camera_config machinery) handles it
             # this way; matching keeps the geometry setters consistent.
+            _raise_if_unanswered(e, 'write', f'PixelFormat {resolved}')
             _cam_log.error(f'[CAM Class ] set_pixel_format({resolved}) failed: {e}')
             raise CameraWriteFailedError(
                 f'set_pixel_format({resolved}) failed: {type(e).__name__}: {e}'
@@ -2584,7 +2601,13 @@ class IDSCamera(Camera):
         The applied value is returned rather than a bare success flag because
         the request is clamped up to the live node minimum below: a caller that
         recorded the REQUEST as its chunk-match target would reject every frame
-        the camera then stamped with the clamped value."""
+        the camera then stamped with the clamped value.
+
+        Raises:
+            CameraNoAnswerError: the camera did not answer the ExposureTime
+                write, so whether it was applied is not known; or did not
+                answer the read of the node's minimum the write is clamped
+                to, so nothing was written."""
         if not self.active:
             _cam_log.warning(f'[CAM Class ] Cannot set exposure {exposure_ms}ms: camera inactive')
             return False
@@ -2597,6 +2620,7 @@ class IDSCamera(Camera):
 
         # IDS allows changing exposure while acquisition is running --
         # no need for update_camera_config() stop/start cycle.
+        access = 'read'
         try:
             # Clamp UP to the live node minimum, mirroring the Pylon driver.
             # The live-view slider initializes to its 0.01ms default and is
@@ -2608,6 +2632,7 @@ class IDSCamera(Camera):
             # instead of erroring. The max bound stays a reject above.
             exp_node = self.remote_nodemap.FindNode('ExposureTime')
             us_value = max(float(exposure_ms) * 1000, exp_node.Minimum())
+            access = 'write'
             exp_node.SetValue(us_value)
             self._last_exposure_ms = us_value / 1000.0
             rate_note = ''
@@ -2629,6 +2654,7 @@ class IDSCamera(Camera):
             logger.debug(f'[CAM Class ] Exposure set to {exposure_ms}ms')
             return us_value
         except Exception as e:
+            _raise_if_unanswered(e, access, f'Exposure {exposure_ms} ms')
             if _cam_log is not None:
                 _cam_log.error(f'ids ExposureTime.SetValue({exposure_ms}ms) FAILED: {e}')
             _cam_log.error(f'[CAM Class ] Exposure set failed (likely out of bounds): {e}')
@@ -2910,6 +2936,7 @@ class IDSCamera(Camera):
 
         Raises:
             HardwareError: SDK call failed.
+            CameraNoAnswerError: the camera did not answer one of the writes.
         """
         if not self.active:
             return False
@@ -2940,6 +2967,7 @@ class IDSCamera(Camera):
             )
             return True
         except Exception as e:
+            _raise_if_unanswered(e, 'write', f'Binning {size}')
             _cam_log.error(f'[CAM Class ] set_binning_size failed: {e}')
             raise CameraWriteFailedError(
                 f'set_binning_size({size}) failed: {type(e).__name__}: {e}'
@@ -3037,13 +3065,20 @@ class IDSCamera(Camera):
         confirmed hardware rejection: per-frame chunk metadata is not yet
         wired, so a swallowed write failure here would stream frames at the
         stale gain with no downstream backstop; the caller needs the failure
-        signal."""
+        signal.
+
+        Raises:
+            CameraNoAnswerError: the camera did not answer the GainSelector or
+                Gain write, so whether the gain was applied is not known; or
+                did not answer the read of the Gain range the factor is
+                reconciled to, so Gain was not written."""
         if not self.active:
             if _cam_log is not None:
                 _cam_log.warning(f'ids Gain.SetValue({value}) SKIPPED: active=None')
             _cam_log.warning(f'[CAM Class ] Cannot set gain {value}: camera inactive')
             return False
 
+        access = 'write'
         try:
             factor = 10.0 ** (float(value) / 20.0)
             # Select the analog gain entry this body actually exposes (resolved
@@ -3060,6 +3095,7 @@ class IDSCamera(Camera):
                 return False
             self.remote_nodemap.FindNode('GainSelector').SetCurrentEntry(selector)
             gain_node = self.remote_nodemap.FindNode('Gain')
+            access = 'read'
             # Reconcile to the node's reported range: the dB->factor conversion
             # overshoots Gain.Maximum() by a float epsilon at the cap, so the
             # camera rejects its own reported maximum gain without this clamp.
@@ -3068,10 +3104,12 @@ class IDSCamera(Camera):
                 _cam_log.info(
                     f'ids GainSelector={selector} Gain.SetValue({factor:.3f}) (={value} dB)'
                 )
+            access = 'write'
             gain_node.SetValue(factor)
             logger.debug(f'[CAM Class ] Gain set to {value} dB ({factor:.3f}x)')
             return 20.0 * math.log10(factor)
         except Exception as e:
+            _raise_if_unanswered(e, access, f'Gain {value} dB')
             if _cam_log is not None:
                 _cam_log.error(f'ids Gain.SetValue({value} dB) FAILED: {e}')
             _cam_log.error(f'[CAM Class ] Gain set failed (likely out of bounds): {e}')
@@ -3162,10 +3200,18 @@ class IDSCamera(Camera):
 
         Refused while BlackLevelAuto is not Off: a camera holding its black
         level automatically would overwrite the value, so it is not written.
+
+        Raises:
+            CameraNoAnswerError: the camera did not answer the BlackLevel
+                write, so whether it was applied is not known; or did not
+                answer the BlackLevelAuto read the write waits on, so nothing
+                was written.
+            CameraWriteFailedError: any other SDK failure.
         """
         if not self.active or self.remote_nodemap is None:
             _cam_log.warning(f'[CAM Class ] Cannot set black level {value}: camera inactive')
             return None
+        access = 'read'
         try:
             if self.remote_nodemap.HasNode('BlackLevelAuto'):
                 auto = self.remote_nodemap.FindNode('BlackLevelAuto').CurrentEntry().SymbolicValue()
@@ -3177,9 +3223,19 @@ class IDSCamera(Camera):
             node = self.remote_nodemap.FindNode('BlackLevel')
             if _cam_log is not None:
                 _cam_log.info(f'ids BlackLevel.SetValue({float(value):g})')
+            access = 'write'
             node.SetValue(float(value))
+            access = 'read_back'
             return float(node.Value())
         except Exception as e:
+            if access == 'read_back' and _exc_is(e, 'TimeoutException', 'timeout'):
+                # The write was answered, so it was applied; only the camera's
+                # own rounding of it is unknown, and the value written stands.
+                _cam_log.warning(
+                    f'[CAM Class ] BlackLevel {value} written; its read-back was not answered: {e}'
+                )
+                return float(value)
+            _raise_if_unanswered(e, access, f'BlackLevel {value}')
             raise CameraWriteFailedError(
                 f'BlackLevel {value} write failed: {type(e).__name__}: {e}'
             ) from e
@@ -3242,6 +3298,28 @@ def _exc_is(exc: Exception, type_name: str, *substrings: str) -> bool:
         return True
     message = str(exc).lower()
     return any(s in message for s in substrings)
+
+
+def _raise_if_unanswered(exc: Exception, access: str, setting: str) -> None:
+    """Raise what a setting write's access the camera did not answer means.
+
+    ``access`` is the access ``exc`` came from, and only changes the words.
+    A timeout on a ``'write'`` leaves it unknown whether the value was
+    applied; a timeout on a ``'read'`` the write cannot be computed without
+    means nothing was written. Either way the camera is still on the bus, so
+    it is not a removal, and the caller may send the write again. Any other
+    exception returns, for the writer's own handling of a refusal.
+    """
+    if not _exc_is(exc, 'TimeoutException', 'timeout'):
+        return
+    if access == 'read':
+        raise CameraNoAnswerError(
+            f'{setting} not written: the camera did not answer the read the write needs: '
+            f'{type(exc).__name__}: {exc}'
+        ) from exc
+    raise CameraNoAnswerError(
+        f'{setting}: the camera did not answer the write: {type(exc).__name__}: {exc}'
+    ) from exc
 
 
 class _LatestBufferSlot:

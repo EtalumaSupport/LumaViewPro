@@ -1935,3 +1935,272 @@ class TestLiveExposureMinimum:
         cam.profile = SimpleNamespace(exposure_min_us=31.0)
 
         assert cam.get_min_exposure() == pytest.approx(0.031)
+
+
+def _unanswered() -> RuntimeError:
+    """What the driver's classifier reads as the camera not answering.
+
+    ``ids_peak`` is a MagicMock under test, so ``_exc_is`` classifies by the
+    message's text, the path an SDK build without the typed name takes.
+    """
+    # The node is not named, so a writer's words must name its setting themselves.
+    return RuntimeError('GC_ERR_TIMEOUT: timeout waiting for the device')
+
+
+class _SdkNode:
+    """One remote node: a value, its range, and the accesses the camera does
+    not answer.
+
+    ``unanswered`` names the methods that time out. ``unanswered_reads``
+    times the value reads out only ``'before'`` the node is first written or
+    only ``'after'`` it, to tell a read ahead of a write from a read-back.
+    """
+
+    def __init__(
+        self,
+        name,
+        value=1,
+        minimum=1,
+        maximum=4096,
+        increment=1,
+        entries=(),
+        unanswered=(),
+        unanswered_reads=None,
+    ):
+        self.name = name
+        self.value = value
+        self._range = {'Minimum': minimum, 'Maximum': maximum, 'Increment': increment}
+        self._entries = entries
+        self.unanswered = set(unanswered)
+        self.unanswered_reads = unanswered_reads
+        self.writes = []
+
+    def _ask(self, method):
+        if method in self.unanswered:
+            raise _unanswered()
+
+    def _read(self, method):
+        self._ask(method)
+        when = 'after' if self.writes else 'before'
+        if self.unanswered_reads == when:
+            raise _unanswered()
+
+    def Value(self):
+        self._read('Value')
+        return self.value
+
+    def CurrentEntry(self):
+        self._read('CurrentEntry')
+        return SimpleNamespace(SymbolicValue=lambda: self.value)
+
+    def AvailableEntries(self):
+        self._read('AvailableEntries')
+        return [SimpleNamespace(SymbolicValue=lambda e=e: e) for e in self._entries]
+
+    def Minimum(self):
+        self._read('Minimum')
+        return self._range['Minimum']
+
+    def Maximum(self):
+        self._read('Maximum')
+        return self._range['Maximum']
+
+    def Increment(self):
+        self._read('Increment')
+        return self._range['Increment']
+
+    def SetValue(self, v):
+        self._ask('SetValue')
+        self.writes.append(v)
+        self.value = v
+
+    def SetCurrentEntry(self, entry):
+        self._ask('SetCurrentEntry')
+        self.writes.append(entry)
+        self.value = entry
+
+
+class _SdkNodemap:
+    def __init__(self, nodes):
+        self.nodes = {node.name: node for node in nodes}
+
+    def FindNode(self, name):
+        return self.nodes[name]
+
+    def HasNode(self, name):
+        return name in self.nodes
+
+
+def _camera_answering_except(*overrides: _SdkNode):
+    """A connected IDS body whose nodes answer, but for the ones overridden."""
+    cam = bare_ids_camera()
+    cam.profile = CameraProfile()
+    cam._gain_selector = 'AnalogAll'
+    nodes = {
+        node.name: node
+        for node in (
+            _SdkNode('ExposureTime', value=10000.0, minimum=20.0, maximum=2e6),
+            _SdkNode('Gain', value=1.0, minimum=1.0, maximum=31.62),
+            _SdkNode('GainSelector', value='AnalogAll'),
+            _SdkNode('Width', value=3504, minimum=48, maximum=3504, increment=48),
+            _SdkNode('Height', value=3544, minimum=4, maximum=3544, increment=4),
+            _SdkNode('OffsetX', value=0, minimum=0, increment=8),
+            _SdkNode('OffsetY', value=0, minimum=0, increment=2),
+            _SdkNode('BinningVertical', value=1, maximum=2),
+            _SdkNode('BinningHorizontal', value=1, maximum=2),
+            _SdkNode('PixelFormat', value='Mono8', entries=('Mono8', 'Mono12')),
+            _SdkNode('BlackLevel', value=3.0, minimum=0.0, maximum=255.0),
+            _SdkNode('BlackLevelAuto', value='Off'),
+        )
+    }
+    nodes.update({node.name: node for node in overrides})
+    cam.remote_nodemap = _SdkNodemap(nodes.values())
+    return cam
+
+
+# writer: (the node whose write decides it, that write's method, the call,
+# the setting its words name)
+_DECIDING_WRITES = {
+    'gain': ('Gain', 'SetValue', lambda cam: cam.gain(6.0), 'Gain'),
+    'exposure_t': ('ExposureTime', 'SetValue', lambda cam: cam.exposure_t(10.0), 'Exposure'),
+    'set_frame_size': (
+        'Width',
+        'SetValue',
+        lambda cam: cam.set_frame_size(1900, 1900),
+        'Width',
+    ),
+    'set_binning_size': (
+        'BinningVertical',
+        'SetValue',
+        lambda cam: cam.set_binning_size(2),
+        'Binning',
+    ),
+    'set_pixel_format': (
+        'PixelFormat',
+        'SetCurrentEntry',
+        lambda cam: cam.set_pixel_format('Mono12'),
+        'PixelFormat',
+    ),
+    'set_black_level': (
+        'BlackLevel',
+        'SetValue',
+        lambda cam: cam.set_black_level(3.0),
+        'BlackLevel',
+    ),
+}
+
+
+class TestASettingWriteTheCameraDoesNotAnswer:
+    """A setting write the camera does not answer is told apart from one it
+    refused: the refusal returns False, the unanswered write raises
+    CameraNoAnswerError so the API can send it once more, and the camera is not
+    taken for removed (a timeout is a camera still on the bus).
+
+    A read the write cannot be computed without is a no-answer too: nothing
+    was written, and the write may be sent again. A read that is only a
+    short-cut ahead of the write, or a read-back after it, does not turn an
+    applied write into a failed one.
+
+    Of the setting writers the API reaches, the IDS driver writes six nodes.
+    Its auto-gain and auto-exposure members refuse before touching the
+    camera (no hardware auto mode), and it has no conversion-gain or
+    line-noise-reduction member.
+    """
+
+    def test_every_unanswered_deciding_write_raises_no_answer_and_keeps_the_camera(self):
+        from drivers.exceptions import CameraNoAnswerError
+
+        offenders = []
+        for writer, (node_name, method, write, setting) in _DECIDING_WRITES.items():
+            cam = _camera_answering_except()
+            cam.remote_nodemap.nodes[node_name].unanswered.add(method)
+            try:
+                result = write(cam)
+            except CameraNoAnswerError as e:
+                if e.reason != 'camera_no_answer':
+                    offenders.append(f'{writer}: reason {e.reason!r}')
+                if setting not in str(e):
+                    offenders.append(f'{writer}: words {str(e)!r} do not name {setting}')
+                if 'GC_ERR_TIMEOUT' not in str(e):
+                    offenders.append(f"{writer}: words {str(e)!r} drop the SDK's text")
+            except Exception as e:
+                offenders.append(f'{writer}: raised {type(e).__name__}({e})')
+            else:
+                offenders.append(f'{writer}: returned {result!r}')
+            if cam._mark_disconnected.called or cam._device_removed:
+                offenders.append(f'{writer}: took the camera for removed')
+        assert offenders == []
+
+    def test_an_unanswered_frame_size_leaves_no_window_the_camera_may_not_have(self):
+        from drivers.exceptions import CameraNoAnswerError
+
+        cam = _camera_answering_except()
+        cam.remote_nodemap.nodes['Height'].unanswered.add('SetValue')
+        with pytest.raises(CameraNoAnswerError):
+            cam.set_frame_size(1900, 1900)
+        assert cam._frame_window is None
+
+    def test_an_unanswered_read_the_write_needs_is_a_no_answer_and_writes_nothing(self):
+        from drivers.exceptions import CameraNoAnswerError
+
+        # writer: (the node read ahead of the write, that read, the call, the
+        # setting's own node). Gain's selector is written before its range is
+        # read, since the range is the selected amplifier's; Gain is not.
+        reads = {
+            'exposure_t': (
+                'ExposureTime',
+                'Minimum',
+                lambda cam: cam.exposure_t(10.0),
+                'ExposureTime',
+            ),
+            'gain': ('Gain', 'Maximum', lambda cam: cam.gain(6.0), 'Gain'),
+            'set_frame_size': (
+                'Width',
+                'Increment',
+                lambda cam: cam.set_frame_size(1900, 1900),
+                'Width',
+            ),
+            'set_black_level': (
+                'BlackLevelAuto',
+                'CurrentEntry',
+                lambda cam: cam.set_black_level(3.0),
+                'BlackLevel',
+            ),
+        }
+        offenders = []
+        for writer, (node_name, method, write, setting_node) in reads.items():
+            cam = _camera_answering_except()
+            cam.remote_nodemap.nodes[node_name].unanswered.add(method)
+            try:
+                result = write(cam)
+            except CameraNoAnswerError as e:
+                if 'not written' not in str(e):
+                    offenders.append(f'{writer}: words {str(e)!r} do not say nothing was written')
+            except Exception as e:
+                offenders.append(f'{writer}: raised {type(e).__name__}({e})')
+            else:
+                offenders.append(f'{writer}: returned {result!r}')
+            if cam.remote_nodemap.nodes[setting_node].writes:
+                offenders.append(f'{writer}: wrote {setting_node} after the read failed')
+        assert offenders == []
+
+    def test_a_short_cut_read_the_camera_does_not_answer_still_writes(self):
+        # Binning reads the current factor ahead of its write; a timeout there
+        # is tolerated and the write goes ahead.
+        cam = _camera_answering_except(
+            _SdkNode('BinningVertical', value=1, maximum=2, unanswered_reads='before')
+        )
+        assert cam.set_binning_size(2) is True
+        assert cam.remote_nodemap.nodes['BinningVertical'].writes == [2]
+
+    def test_a_read_back_the_camera_does_not_answer_is_the_write_applied(self):
+        cam = _camera_answering_except(
+            _SdkNode('BinningVertical', value=1, maximum=2, unanswered_reads='after')
+        )
+        assert cam.set_binning_size(2) is True
+
+        cam = _camera_answering_except(
+            _SdkNode('BlackLevel', value=0.0, minimum=0.0, maximum=255.0, unanswered_reads='after')
+        )
+        assert cam.set_black_level(3.0) == 3.0
+        assert cam.remote_nodemap.nodes['BlackLevel'].writes == [3.0]

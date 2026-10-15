@@ -818,6 +818,11 @@ class Camera(ABC):
             a caller records it without a read-back; ``False`` when the camera
             is inactive or the hardware refuses the window, in which case
             frames are stored as they arrive until a window is set.
+
+        Raises:
+            What the driver's window write raises (a camera that did not
+            answer it raises ``CameraNoAnswerError``); frames are then stored
+            as they arrive until a window is set.
         """
         grid = self._frame_grid()
         if grid is None:
@@ -835,7 +840,14 @@ class Camera(ABC):
         )
         window = FrameWindow.from_plan(plan)
         self._set_frame_window(window)
-        if not self._set_hardware_window(plan):
+        try:
+            applied = self._set_hardware_window(plan)
+        except Exception:
+            # A write that raised may have set some of the window or none of
+            # it, so the window recorded is not known to be the camera's.
+            self._set_frame_window(None)
+            raise
+        if not applied:
             self._set_frame_window(None)
             return False
         if (plan.crop_width, plan.crop_height) != target:
@@ -1289,9 +1301,20 @@ class Camera(ABC):
 
         Returns:
             bool: True on success.
+
+        Raises:
+            What the driver's binning write raises (a camera that did not
+            answer it raises ``CameraNoAnswerError``); frames are then stored
+            as they arrive until a frame size is set.
         """
         before = self.get_binning_size()
-        applied = self._set_hardware_binning(size)
+        try:
+            applied = self._set_hardware_binning(size)
+        except Exception:
+            # The camera may hold the new binning, the old, or one axis of
+            # each, so the window set before is not known to fit its frames.
+            self._set_frame_window(None)
+            raise
         if applied and size != before:
             self._set_frame_window(None)
         return applied
