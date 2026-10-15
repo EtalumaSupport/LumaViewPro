@@ -121,11 +121,22 @@ def test_a_job_read_as_finished_has_its_end_time_however_soon_it_is_read():
     assert view['ended'] == answer.ended.isoformat()
 
 
-@pytest.mark.parametrize('prefer', ['wait=3; note=x', 'wait="3"', 'respond-async, wait=3'])
+@pytest.mark.parametrize('prefer', ['wait=3; note=x', 'wait="3"', 'note=x, wait=3'])
 def test_a_wait_is_read_in_every_form_rfc_7240_writes(client, prefer):
     answered = client.get('/api/v1/app_version', headers={'Prefer': prefer})
 
     assert answered.headers['Preference-Applied'] == 'wait=3'
+
+
+@pytest.mark.parametrize('prefer', ['respond-async', 'respond-async, wait=30'])
+def test_a_call_asked_to_respond_async_is_answered_at_once_as_its_job(client, held, prefer):
+    """``respond-async`` is a wait of none, and wins over a ``wait`` beside it."""
+    accepted = client.post('/api/v1/scope/illumination/leds_off', headers={'Prefer': prefer})
+
+    assert accepted.status_code == 202
+    assert accepted.headers['Preference-Applied'] == 'respond-async'
+    held.set()
+    client.get(accepted.headers['Location'], headers={'Prefer': 'wait=10'})
 
 
 def test_a_call_inside_the_wait_is_answered_and_the_wait_is_capped(client):

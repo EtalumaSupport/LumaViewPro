@@ -48,31 +48,41 @@ FINISHED_AGE = datetime.timedelta(hours=24)
 
 @dataclasses.dataclass(frozen=True)
 class Wait:
-    """How long a client will wait, and whether it said so.
+    """How long a client will wait, and the preference it said so by.
 
     Attributes:
         seconds: The wait applied.
-        asked: Whether the client named one, which the answer acknowledges
-            (``Preference-Applied``).
+        applied: The preference the wait came from, which the answer
+            acknowledges (``Preference-Applied``); None when the client named
+            none.
     """
 
     seconds: float
-    asked: bool
+    applied: str | None
 
     @classmethod
     def of(cls, prefer: str | None) -> Wait:
-        """The wait a ``Prefer`` header asks for; a preference not understood is ignored (RFC 7240)."""
+        """The wait a ``Prefer`` header asks for; a preference not understood is ignored (RFC 7240).
+
+        ``respond-async`` asks for the answer as soon as it can be given, a
+        wait of none, and wins over a ``wait`` beside it.
+        """
+        asked: Wait | None = None
         for token in (prefer or '').split(','):
             # A preference's own parameters follow ';', and its value may be quoted.
             name, _, value = token.split(';')[0].strip().partition('=')
+            name = name.strip().lower()
             value = value.strip().strip('"')
-            if name.strip().lower() == 'wait' and value.isdigit():
-                return cls(min(float(value), WAIT_CAP_S), True)
-        return cls(WAIT_DEFAULT_S, False)
+            if name == 'respond-async':
+                return cls(0.0, 'respond-async')
+            if name == 'wait' and value.isdigit() and asked is None:
+                seconds = min(float(value), WAIT_CAP_S)
+                asked = cls(seconds, f'wait={int(seconds)}')
+        return asked or cls(WAIT_DEFAULT_S, None)
 
     def headers(self) -> dict[str, str]:
         """The ``Preference-Applied`` header, when the client asked."""
-        return {'Preference-Applied': f'wait={int(self.seconds)}'} if self.asked else {}
+        return {'Preference-Applied': self.applied} if self.applied else {}
 
 
 class Progress:

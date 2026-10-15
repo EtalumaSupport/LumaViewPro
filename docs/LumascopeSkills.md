@@ -2497,7 +2497,7 @@ A live object -- a protocol, a protocol runner -- crosses as a handle, `{"handle
 
 ### Anything slow is a job
 
-Every call runs on its own thread, and its route waits for it as long as the client says it will: `Prefer: wait=<seconds>` (RFC 7240), 2 s when it says nothing, at most 60 s; the wait applied is echoed in `Preference-Applied`. A call still running then answers `202 Accepted` with `Location: /api/v1/jobs/<id>`, `Retry-After`, and the job:
+Every call runs on its own thread, and its route waits for it as long as the client says it will: `Prefer: wait=<seconds>` (RFC 7240), 2 s when it says nothing, at most 60 s; the wait applied is echoed in `Preference-Applied`. `Prefer: respond-async` asks for the answer as soon as it can be given, a wait of none, and wins over a `wait` beside it (`Preference-Applied: respond-async`). A call still running then answers `202 Accepted` with `Location: /api/v1/jobs/<id>`, `Retry-After`, and the job:
 
 ```json
 {"id": "1", "member": "handles/ProtocolRunner/2/start_single_scan", "status": "running",
