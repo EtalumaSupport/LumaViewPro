@@ -498,6 +498,9 @@ class SequencedCaptureRunner:
         # Reset at each scan start in protocol_run_loop so each scan
         # arms once per step.
         self._auto_gain_armed_step = -1
+        # The rejection of the current Auto_Gain step's arm, None when it
+        # armed: written at each arm, read by that step's capture.
+        self._auto_gain_arm_refused: CameraSettingRejected | None = None
         self._grease_redistribution_event.set()
         self._captures_taken = 0
         self._protocol_execution_record = None

@@ -47,7 +47,6 @@ import modules.image_save as image_save
 import modules.image_utils as image_utils
 import modules.layer_record as layer_record
 from modules.exceptions import (
-    CameraSettingRejected,
     CaptureFailedError,
     FrameListenerNotRegisteredError,
     RecordingDetailsNotSavedError,
@@ -427,6 +426,9 @@ class ProtocolVideoStep:
             HardwareCommandRefusedError: ``'not_connected'``, the camera
                 left during the drain; it leaves the video step, and the run
                 loop ends the run on it.
+            CameraSettingRejected: The camera did not take the disarm or
+                the one-shot auto-gain; it leaves the video step, which the
+                writer counts a failed capture.
         """
         scope = self._scope
         exposure_s = float(step['Exposure']) / 1000.0
@@ -454,14 +456,11 @@ class ProtocolVideoStep:
         time.sleep(max(step['Exposure'] / 1000, 0.05))
 
         # A camera without hardware auto-gain records the step manual, as
-        # its layer apply did.
+        # its layer apply did. A disarm or a one-shot the camera did not take
+        # raises out of the step, which then records nothing: the writer
+        # counts it a failed capture.
         if scope.imaging.applied_auto_gain_for(step['Auto_Gain']).applied:
-            try:
-                scope.imaging.set_auto_gain(False, self._autogain_settings)
-            except CameraSettingRejected as rejected:
-                # The one-shot below runs either way; the refusal ends its
-                # flight here.
-                notifications.report_outcome(rejected, solicited=False, category='Camera')
+            scope.imaging.set_auto_gain(False, self._autogain_settings)
             scope.imaging.auto_gain_once(
                 state=True,
                 target_brightness=self._autogain_settings['target_brightness'],

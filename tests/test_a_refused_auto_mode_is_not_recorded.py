@@ -158,7 +158,10 @@ def test_the_step_end_disarm_reports_a_refusal_and_goes_on(reported):
     assert [exc for exc, _kw in reported] == [refusal]
 
 
-def test_the_video_steps_refused_disarm_is_reported_and_the_one_shot_runs(tmp_path, reported):
+def test_the_video_steps_refused_disarm_leaves_the_step_unreported(tmp_path, reported):
+    """The step records nothing at a setting it did not ask for: the refusal
+    leaves the prologue, before the one-shot, and the writer counts the step
+    a failed capture (tests/test_a_step_whose_setting_was_not_applied_is_not_captured.py)."""
     from tests.test_video_camera_lost_outcome import _make_recorder
 
     recorder = _make_recorder(tmp_path, {'t': 1000.0})
@@ -166,7 +169,9 @@ def test_the_video_steps_refused_disarm_is_reported_and_the_one_shot_runs(tmp_pa
     refusal = _refusal()
     recorder._scope.imaging.set_auto_gain.side_effect = refusal
 
-    recorder._prologue({'Exposure': 10.0, 'Auto_Gain': True})
+    with pytest.raises(CameraSettingRejected) as raised:
+        recorder._prologue({'Exposure': 10.0, 'Auto_Gain': True})
 
-    assert [exc for exc, _kw in reported] == [refusal]
-    recorder._scope.imaging.auto_gain_once.assert_called_once()
+    assert raised.value is refusal
+    assert reported == []
+    recorder._scope.imaging.auto_gain_once.assert_not_called()

@@ -337,11 +337,18 @@ class ProtocolStepRunner:
                     # capture re-armed and popped a notice.
                     resume_after_capture=False,
                 )
+                p._auto_gain_arm_refused = None
             except CameraSettingRejected as rejected:
-                # The apply ran every write before raising, so auto-gain is
-                # armed and the step goes on at the value the camera holds;
-                # the refusal ends its flight here.
-                notifications.report_outcome(rejected, solicited=False, category='Camera')
+                # The apply ran every write before raising. An arm that was
+                # not taken leaves the step at values nobody chose, so the
+                # capture tick does not capture it; a starting gain or
+                # exposure that was not taken only seeds what auto-gain then
+                # chooses, so it is told here and the step captures.
+                if 'auto_gain' in rejected.setting.split(','):
+                    p._auto_gain_arm_refused = rejected
+                else:
+                    p._auto_gain_arm_refused = None
+                    notifications.report_outcome(rejected, solicited=False, category='Camera')
             p._auto_gain_armed_step = p._curr_step
             # Return after arming; the next tick falls through to capture, where
             # the auto_gain settle drain runs against the now-lit scene.
@@ -467,6 +474,9 @@ class ProtocolStepRunner:
                     video_as_frames=p._video_as_frames,
                     separate_folder_per_channel=p._separate_folder_per_channel,
                     curr_step=p._curr_step,
+                    # Set by this step's own arm, the tick before; every
+                    # Auto_Gain step arms before it captures.
+                    arm_refused=p._auto_gain_arm_refused if step['Auto_Gain'] else None,
                 )
                 _t_capture_done = time.monotonic()
                 logger.debug(

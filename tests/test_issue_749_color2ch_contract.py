@@ -271,8 +271,8 @@ class TestCaptureAbortWording:
 
     def test_no_led_board_keeps_camera_wording(self, centre_posts):
         body = self._run_abort(centre_posts, color='BF', led_connected=False, channel=None)
-        assert 'Camera failed' in body
+        assert body.startswith('The camera failed 3 steps in a row; the last: '), body
 
     def test_drivable_colour_keeps_camera_wording(self, centre_posts):
         body = self._run_abort(centre_posts, color='BF', led_connected=True, channel=3)
-        assert 'Camera failed' in body
+        assert body.startswith('The camera failed 3 steps in a row; the last: '), body

@@ -1002,7 +1002,8 @@ class ProtocolImageWriter:
                 self._abort_run_fatal(
                     'camera_failure',
                     'Protocol',
-                    f'Camera failed {self._consecutive_capture_failures} consecutive captures. Aborting protocol.',
+                    f'The camera failed {self._consecutive_capture_failures} steps in a row; '
+                    f'the last: {cause}',
                 )
 
     def _submit_write(
@@ -1155,6 +1156,7 @@ class ProtocolImageWriter:
         video_as_frames: bool = False,
         separate_folder_per_channel: bool = False,
         curr_step: int = 0,
+        arm_refused: CameraSettingRejected | None = None,
     ) -> bool:
         """Orchestrate image/video acquisition for a single protocol step.
 
@@ -1163,6 +1165,20 @@ class ProtocolImageWriter:
         the one carrier for the run's capture/save intent -- so the values
         the camera captures with and the values the file-IO thread saves
         with cannot diverge for one run.
+
+        A step whose camera setting was not applied is not captured: no image
+        is saved at a setting the step did not ask for. A manual step's gain
+        or exposure write, an Auto_Gain step's arm (``arm_refused``, handed
+        over from the tick that armed it) and a video step's disarm or
+        one-shot each make the step a failed capture -- a strike, its
+        ``FailedCapture`` row naming the setting in the rejection's words. A
+        run that saves no images captures nothing to fail, so there each is
+        reported instead.
+
+        Args:
+            arm_refused: The rejection of this Auto_Gain step's arm, or None
+                when it armed; an Auto_Gain step's starting gain or exposure
+                that was not taken does not stop its capture.
 
         Returns:
             True if the capture completed normally and left the step channel
@@ -1229,6 +1245,7 @@ class ProtocolImageWriter:
                     f'camera_gain={_curr_gain} camera_exp={_curr_exp}'
                 )
 
+            not_applied: list[CameraSettingRejected] = []
             if not step['Auto_Gain']:
                 logger.debug(
                     f'[CAPTURE DIAG] Applying step camera settings: gain={step["Gain"]}, exp={step["Exposure"]}'
@@ -1253,9 +1270,9 @@ class ProtocolImageWriter:
                 # `requires_buffer_realloc=True` audit. Per Basler convention
                 # both should be live-changeable.
                 #
-                # A setting the camera rejects ends its flight here: it is
-                # reported once and the step captures at the value the camera
-                # holds -- one refused gain is not a reason to end a run.
+                # Both writes run even when one is not taken, so the camera is
+                # left at the step's other value; the step is then not
+                # captured (below).
                 imaging = self._scope.imaging
                 for setter, value in (
                     (imaging.set_gain_db, step['Gain']),
@@ -1264,7 +1281,7 @@ class ProtocolImageWriter:
                     try:
                         setter(value)
                     except CameraSettingRejected as rejected:
-                        notifications.report_outcome(rejected, solicited=False, category='Camera')
+                        not_applied.append(rejected)
             else:
                 # Auto_Gain step: scan_iterate already lit the LED and armed AG
                 # against the lit scene; the apply is skipped here to avoid
@@ -1275,6 +1292,8 @@ class ProtocolImageWriter:
                     f'with target gain={step["Gain"]}dB exp={step["Exposure"]}ms; '
                     f'settle drained in capture_and_wait'
                 )
+                if arm_refused is not None:
+                    not_applied.append(arm_refused)
 
             # The objective in the light path, read once: the file name and
             # the frame's scale both come from this one answer, so they cannot
@@ -1332,6 +1351,22 @@ class ProtocolImageWriter:
                     name,
                 )
 
+            if not_applied:
+                if enable_image_saving:
+                    self._note_capture_failure(
+                        step=step,
+                        curr_step=curr_step,
+                        scan_count=scan_count,
+                        name=name,
+                        enable_image_saving=enable_image_saving,
+                        separate_folder_per_channel=separate_folder_per_channel,
+                        cause=' '.join(str(rejected) for rejected in not_applied),
+                    )
+                    _proto_outcome = 'setting_not_applied'
+                    return False
+                for rejected in not_applied:
+                    notifications.report_outcome(rejected, solicited=False, category='Camera')
+
             # The step's channel is already lit and confirmed on by the runner's
             # STEP_LIGHT illuminate before this leaf is called; the leaf is a
             # pure grab+save and drives no LED on the success path (its failure /
@@ -1376,7 +1411,22 @@ class ProtocolImageWriter:
                         to_plate=self._to_plate,
                     )
                     self._video_steps.append(recorder)
-                    outcome = recorder.run_blocking()
+                    try:
+                        outcome = recorder.run_blocking()
+                    except CameraSettingRejected as rejected:
+                        # The disarm or the one-shot before the recording
+                        # starts was not applied: nothing was recorded.
+                        self._note_capture_failure(
+                            step=step,
+                            curr_step=curr_step,
+                            scan_count=scan_count,
+                            name=name,
+                            enable_image_saving=enable_image_saving,
+                            separate_folder_per_channel=separate_folder_per_channel,
+                            cause=str(rejected),
+                        )
+                        _proto_outcome = 'setting_not_applied'
+                        return False
                     self._leds_off()
 
                     if outcome == protocol_recording.NO_FRAMES:
