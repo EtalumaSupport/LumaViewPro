@@ -41,6 +41,7 @@ from modules.notification_center import Notification
 from modules.run_events import RunEvents
 from modules.scope_session import ScopeSession
 from rest import routes
+from rest.jobs import Job
 
 # The events a client missed that a reconnect is resent: about a minute of
 # a homing stage's position events, the busiest source.
@@ -93,6 +94,8 @@ class EventStream:
         self._removals: list[Callable[[], None]] = []
         # The id of the ``closing`` event, once the server has finished the stream.
         self._closing_seq: int | None = None
+        # Each job's end being read off the loop, until it is sent.
+        self._ending: set[asyncio.Task[None]] = set()
 
     def open(self, loop: asyncio.AbstractEventLoop) -> None:
         """Start hearing every listener member's events, on *loop*."""
@@ -121,6 +124,22 @@ class EventStream:
         """
         self._append('closing', '{}')
         self._closing_seq = self._seq
+
+    def job_ended(self, job: Job) -> None:
+        """Send ``job_ended`` with *job* as it ended. Called on the server's loop.
+
+        The job is read on a thread: a run's job reads the run's progress
+        under the run's own lock.
+        """
+
+        async def send() -> None:
+            view = await asyncio.to_thread(job.view)
+            if self._loop is not None:
+                self._append('job_ended', json.dumps(view, allow_nan=False))
+
+        task = asyncio.ensure_future(send())
+        self._ending.add(task)
+        task.add_done_callback(self._ending.discard)
 
     def run_events(self) -> RunTag:
         """The handlers a run call's ``events`` is filled with, tagged once its run is known."""
@@ -173,6 +192,9 @@ class EventStream:
             self._loop.call_soon_threadsafe(self._append, name, data)
 
     def _append(self, name: str, data: str) -> None:
+        if self._closing_seq is not None:
+            # A stream ends at ``closing``; nothing after it can be read.
+            return
         self._seq += 1
         self._buffer.append(_Event(self._seq, name, data))
         self._wake.set()
@@ -181,7 +203,10 @@ class EventStream:
     async def read(self, last_event_id: str | None) -> AsyncIterator[str]:
         """The stream one client reads, from where *last_event_id* left it."""
         sent = _resume_from(last_event_id)
-        if sent is None or not self._holds_after(sent):
+        resumed_past_closing = (
+            sent is not None and self._closing_seq is not None and sent >= self._closing_seq
+        )
+        if sent is None or resumed_past_closing or not self._holds_after(sent):
             if self._closing_seq is not None:
                 yield _frame('closing', '{}', self._closing_seq)
                 return
@@ -336,7 +361,8 @@ def published(
     ``status`` is the ``Status`` record, sent whole. Every other event is a
     model of its own, named for it: its record's fields as ``send`` sends
     them, a field that can hold a live object left out, and ``run`` added
-    to a run event. ``reset`` and ``closing`` carry nothing.
+    to a run event. ``job_ended`` is the job, as ``GET /jobs/<id>`` reads
+    it once it has ended; ``reset`` and ``closing`` carry nothing.
     """
     classes = wire_encoding.project_classes()
     aliases = wire_encoding.project_aliases()
@@ -353,6 +379,7 @@ def published(
         if name in run_events:
             fields['run'] = (routes.RunJob | None, ...)
         found[name] = _event_model(name, **fields)
+    found['job_ended'] = routes.Job
     found['reset'] = _event_model('reset')
     found['closing'] = _event_model('closing')
     return found

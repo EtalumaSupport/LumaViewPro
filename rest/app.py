@@ -168,7 +168,7 @@ def build_app(session: ScopeSession) -> fastapi.FastAPI:
     app.add_exception_handler(StarletteHTTPException, _routing_refused)
     app.add_exception_handler(Exception, _failed)
 
-    jobs = JobRegistry()
+    jobs = JobRegistry(ended=stream.job_ended)
     live = live_view.LiveView(session)
     closing = Closing(stream, jobs, live)
     app.state.closing = closing

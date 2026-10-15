@@ -2540,10 +2540,11 @@ Every answer that is not a result is an RFC 9457 problem, `application/problem+j
 | `run_state` | `LiveWork`, as `live_work` reads when the event is sent |
 | `outcome` | `Notification`: an outcome nobody asked for, once per `outcome_id` (one a request was refused with is its answer's problem) |
 | `scan_started`, `scan_ended`, `step_started`, `video_progress`, `run_ended`, `files_written` | The run event's record (`ScanStarted`, ...), with `run`, `{"job": "<id>"}`, the job of the run that sent it, as its call answered it (`null` for `run_composite`, which waits for its run and hands out no job). `run_ended` leaves out the run's own copy of its protocol. |
+| `job_ended` | The job, as `GET /api/v1/jobs/<id>` reads it once it has ended: every job, an operation's, a run's (after its `run_ended`) and a call's held as a job |
 
 Each event's data is a named schema in the description, the event's own (`PositionEvent`, `RunEndedEvent`, ...), and `status`'s is `Status`; the `/api/v1/events` route's description lists which is which. A client reads an event's keys there.
 
-A client that reconnects with `Last-Event-ID` is sent the events it missed. When the server no longer holds them -- more than 1024 events have passed, the id is not one this server sent (it has restarted since), or a slow reader has fallen that far behind on an open stream -- it is sent `reset` (data `{}`) and then `status`, both with the current `id:`; the events in between are gone, and `status` is where the client starts again. A comment is sent every 15 s on a quiet stream. When the server closes, the last event is `closing` (data `{}`) and the stream ends; a stream opened after it is sent only `closing`.
+A client that reconnects with `Last-Event-ID` is sent the events it missed. When the server no longer holds them -- more than 1024 events have passed, the id is not one this server sent (it has restarted since), or a slow reader has fallen that far behind on an open stream -- it is sent `reset` (data `{}`) and then `status`, both with the current `id:`; the events in between are gone, and `status` is where the client starts again. A comment is sent every 15 s on a quiet stream. When the server closes, the last event is `closing` (data `{}`) and the stream ends; a stream opened after it, or resumed from `closing`'s id, is sent only `closing`, and nothing is sent after it.
 
 ### The live view
 

@@ -165,7 +165,13 @@ class Job:
 class JobRegistry:
     """The calls running on their own threads, and the jobs clients were told of."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, ended: Callable[[Job], None]) -> None:
+        """Make a registry that holds no job yet.
+
+        Args:
+            ended: Told each job once it has ended, on the server's loop.
+        """
+        self._ended = ended
         self._lock = threading.Lock()
         self._jobs: dict[str, Job] = {}
         # The job each running call a member handed back is, so one running
@@ -310,6 +316,11 @@ class JobRegistry:
             job = Job(job_id, member, requested, answered, progress, operation)
             self._jobs[job_id] = job
             self._prune()
+        # A job is made on the loop or on its call's thread, and a future
+        # takes its callbacks only on its loop.
+        answered.get_loop().call_soon_threadsafe(
+            answered.add_done_callback, lambda _answered: self._ended(job)
+        )
         return job
 
     def _prune(self) -> None:

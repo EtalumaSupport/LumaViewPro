@@ -105,7 +105,7 @@ def test_a_job_read_as_finished_has_its_end_time_however_soon_it_is_read():
     # Read in the same loop pass its answer settles, before the loop runs
     # anything else: a reader on the loop can be scheduled there.
     async def read_as_it_settles():
-        jobs = rest.jobs.JobRegistry()
+        jobs = rest.jobs.JobRegistry(ended=lambda job: None)
         answered = asyncio.get_running_loop().create_future()
         job = jobs.adopt(
             answered, member='scope/illumination/leds_off', requested=problems.now(), progress=None

@@ -3,15 +3,16 @@
 
 ``GET /api/v1/events`` (``rest.events``): the first event is ``status``;
 each listener member's event follows as its declared record; a run's events
-each name the run by its handle, its first ones included, which can come
-before the call that started it returns; a field that can hold a live
+each name the run by its job, its first ones included, which can come
+before the call that started it returns; every job's end is ``job_ended``,
+with the job, a run's after its ``run_ended``; a field that can hold a live
 object is left out whatever it holds, as the stream's description says;
 an outcome is on the stream only
 when nobody asked for it, once per ``outcome_id``; a reconnect with
 ``Last-Event-ID`` is sent what it missed, or ``reset`` and ``status`` once
 that is no longer held; a quiet stream carries a comment; a stream that
 has closed hears nothing more; ``closing`` is the last event of every
-stream, and the only one of a stream begun after it.
+stream, and the only one of a stream begun or resumed after it.
 
 Read from a real uvicorn server: a stream never ends, and only a socket
 lets a client stop reading one.
@@ -175,11 +176,9 @@ def test_every_event_of_a_run_names_the_run_its_call_handed_out(client, session,
         run = client.post(
             f'/api/v1/handles/ProtocolRunner/{runner}/start_single_scan',
             json={'protocol': protocol, 'enable_image_saving': False},
-            # The call's answer, not its job: a loaded machine can take
-            # longer than the default wait to reach the first event.
-            headers={'Prefer': 'wait=60'},
         ).json()
         events = stream.until('run_ended')
+        ended = stream.until('job_ended')[-1]
 
     run_events = [e for e in events if e['event'] in {'scan_started', 'step_started', 'run_ended'}]
     assert run_events[0]['event'] == 'scan_started'
@@ -190,6 +189,9 @@ def test_every_event_of_a_run_names_the_run_its_call_handed_out(client, session,
     assert 'protocol' not in run_events[-1]['data']
     # A path crosses as its name in the live folder.
     assert run_events[-1]['data']['run_dir']['name'].startswith('ProtocolData/')
+    # The run's job ends after its run_ended, with the run's outcome.
+    assert (ended['data']['id'], ended['data']['status']) == (run['id'], 'completed')
+    assert ended['data']['result']['status'] == 'completed'
 
 
 @api_fields('outcome', 'protocol')
@@ -335,3 +337,71 @@ def test_closing_is_the_last_event_of_every_stream_and_of_one_begun_after(sessio
 
     assert last['data'] == {}
     assert (only['event'], only['id']) == ('closing', last['id'])
+
+
+def test_every_jobs_end_is_an_event_with_the_job(client, session, monkeypatch):
+    """A move's, a still's and a blocking call's held as a job: each one ``job_ended``."""
+    home_sim_scope(session.scope)
+    release = threading.Event()
+    real = session.scope.illumination.leds_off
+
+    def leds_off():
+        assert release.wait(10)
+        return real()
+
+    # a stand-in by design: holds the call past the client's wait so it is
+    # held as a job; the simulated board answers at once.
+    monkeypatch.setattr(session.scope.illumination, 'leds_off', leds_off)
+    with _reading(client) as stream:
+        stream.until('status')
+        move = client.post(
+            '/api/v1/scope/motion/start_move_relative', json={'axis': 'Z', 'distance': 10.0}
+        ).json()
+        still = client.post('/api/v1/manual_capture/capture', json={'false_color_on': False}).json()
+        held = client.post(
+            '/api/v1/scope/illumination/leds_off', headers={'Prefer': 'respond-async'}
+        ).json()
+        release.set()
+        ended = {}
+        while len(ended) < 3:
+            event = stream.until('job_ended')[-1]
+            ended[event['data']['id']] = event['data']
+
+    assert set(ended) == {move['id'], still['id'], held['id']}
+    assert {e['status'] for e in ended.values()} == {'completed'}
+    assert ended[held['id']]['member'] == 'scope/illumination/leds_off'
+
+
+def test_a_stream_resumed_from_closing_is_sent_closing_and_nothing_after(session, monkeypatch):
+    """A job that ends after ``closing`` sends nothing a reader could be sent."""
+    release = threading.Event()
+    real = session.scope.illumination.leds_off
+
+    def leds_off():
+        assert release.wait(10)
+        return real()
+
+    # a stand-in by design: holds the call so it ends after the close.
+    monkeypatch.setattr(session.scope.illumination, 'leds_off', leds_off)
+    app = build_app(session)
+    with _serving(session, app) as client:
+        held = client.post(
+            '/api/v1/scope/illumination/leds_off', headers={'Prefer': 'respond-async'}
+        ).json()
+        with _reading(client) as stream:
+            stream.until('status')
+            loop = client.server.servers[0].get_loop()
+            loop.call_soon_threadsafe(app.state.closing.finish)
+            closing = stream.until('closing')[-1]
+        release.set()
+        assert (
+            client.get(f'/api/v1/jobs/{held["id"]}', headers={'Prefer': 'wait=10'}).json()['status']
+            == 'completed'
+        )
+
+        with _reading(client, **{'Last-Event-ID': closing['id']}) as resumed:
+            only = resumed.next()
+            with pytest.raises(AssertionError, match='the stream ended'):
+                resumed.next()
+
+    assert (only['event'], only['id']) == ('closing', closing['id'])
