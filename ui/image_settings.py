@@ -369,34 +369,27 @@ class ImageSettings(BoxLayout):
         instead destroyed the setting silently -- the periodic current.json
         flush persisted the shrunken value and nothing recorded the original.
 
-        The divergence itself is the trigger. Firing for every layer would
-        drive each one's LED state through apply_settings, changing what
-        startup does to the illuminators. Only the shown layer is applied: the
-        camera holds one layer, and applying each capped layer in turn left it
-        on the last of them, not the one shown; another layer reaches the
+        The divergence itself is the trigger. Nothing is applied here: the
+        Session caps each value as it puts a layer on the camera, and bring-up
+        has already put the shown layer there; another layer reaches the
         camera, capped, when it is next shown.
 
         Runs BEFORE anything renders the store, on every path that reaches it,
         so the slider's pinned position and the box's stored value are in
         agreement the first time they are drawn.
 
-        The re-render and the apply are both explicit. They used to arrive as
-        side effects of writing the slider -- the layer's handler re-committed
-        the value (crediting the user with a drag it never made) and its
-        debounced trigger was what actually told the camera.
+        The re-render is explicit. It used to arrive as a side effect of
+        writing the slider -- the layer's handler re-committed the value
+        (crediting the user with a drag it never made).
         """
         ctx = _app_ctx.ctx
         settings = ctx.settings
         imaging = ctx.lumaview.scope.imaging
-        shown = ctx.session.shown_channel.layer
         for layer in common_utils.get_layers():
             gain = imaging.applied_gain_db_for(settings[layer]['gain_db'])
             exposure = imaging.applied_exposure_ms_for(settings[layer]['exposure_ms'])
             if gain.capped or exposure.capped:
-                layer_obj = self.layer_lookup(layer=layer)
-                layer_obj.render_layer_values_from_settings()
-                if layer == shown:
-                    layer_obj.apply_settings()
+                self.layer_lookup(layer=layer).render_layer_values_from_settings()
 
     # Hide (and unhide) main settings
     def toggle_settings(self):

@@ -276,3 +276,41 @@ def test_no_gui_module_puts_a_layer_on_the_camera_itself():
         if 'apply_layer_camera_settings(' in path.read_text()
     ]
     assert callers == []
+
+
+class TestAWriteToTheShownLayer:
+    """A write to the shown layer's camera or LED setting is on the hardware
+    when it returns; a hidden layer's, or one under a held scope, is stored."""
+
+    def test_the_shown_layers_exposure_is_on_the_camera_when_the_write_returns(self, session):
+        session.update_settings('BF.exposure_ms', 12.0)
+
+        assert _camera(session) == (12.0, _BF['gain_db'])
+
+    def test_a_hidden_layers_exposure_is_stored_only(self, session):
+        session.update_settings('Blue.exposure_ms', 33.0)
+
+        assert _camera(session) == (_BF['exposure_ms'], _BF['gain_db'])
+        assert session.settings['Blue']['exposure_ms'] == 33.0
+
+    def test_the_lit_shown_layers_illumination_is_on_its_led(self, session):
+        session.light_shown_channel(True)
+
+        session.update_settings('BF.illumination_ma', 7.0)
+
+        assert session.scope.illumination.get_led_state('BF').illumination_ma == 7.0
+
+    def test_a_write_while_the_scope_is_held_is_stored_only(self, session):
+        held = session.activity_claim.try_claim('diagnostic')
+        try:
+            session.update_settings('BF.exposure_ms', 12.0)
+        finally:
+            held.release()
+
+        assert session.settings['BF']['exposure_ms'] == 12.0
+        assert _camera(session) == (_BF['exposure_ms'], _BF['gain_db'])
+
+    def test_auto_gain_turned_on_for_the_shown_layer_arms_the_camera(self, session):
+        session.set_layer_auto_gain('BF', True)
+
+        assert session.scope.imaging.lock_auto_gain().state is not None

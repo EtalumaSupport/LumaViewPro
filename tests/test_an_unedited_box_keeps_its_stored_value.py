@@ -24,6 +24,7 @@ import pytest
 import modules.app_context as _app_ctx
 from modules.notification_center import notifications
 from ui.layer_control import LayerControl
+from tests.gesture_fakes import inline_submit_reported
 from tests.settings_fixtures import settings_writer
 
 
@@ -39,11 +40,21 @@ def _blue_layer(monkeypatch, *, exposure_ms, illumination_ma):
         'Blue': {'exposure_ms': exposure_ms, 'illumination_ma': illumination_ma},
         'fx2_debug_wire_enabled': False,
     }
+    writer = settings_writer(settings)
     monkeypatch.setattr(
         _app_ctx,
         'ctx',
-        SimpleNamespace(settings=settings, update_settings=settings_writer(settings)),
+        SimpleNamespace(
+            settings=settings,
+            update_settings=writer,
+            session=SimpleNamespace(update_settings=writer),
+            camera_executor=object(),
+            io_executor=object(),
+        ),
     )
+    import ui.layer_control as layer_control
+
+    monkeypatch.setattr(layer_control, 'submit_reported', inline_submit_reported)
     layer = LayerControl.__new__(LayerControl)
     layer.layer = 'Blue'
     layer._initializing = False
@@ -53,9 +64,9 @@ def _blue_layer(monkeypatch, *, exposure_ms, illumination_ma):
         'ill_slider': _Slider(0.0, 150.0, 150.0),
         'ill_text': SimpleNamespace(text=str(illumination_ma)),
     }
+    # The Session puts the write on the hardware; the box makes no apply of its own.
     applied = []
-    layer.apply_exp_slider = lambda: applied.append('exposure')
-    layer.apply_settings = lambda: applied.append('illumination')
+    layer.apply_settings = lambda: applied.append('show')
     return layer, settings, applied
 
 
@@ -76,15 +87,15 @@ def test_a_stored_value_above_the_bound_survives_a_click_in_and_out(
 
 
 @pytest.mark.parametrize(
-    ('handler', 'text_id', 'key', 'typed', 'committed', 'applies'),
+    ('handler', 'text_id', 'key', 'typed', 'committed'),
     [
         # Above the slider's 1000: stored as typed, the slider pins at its end.
-        ('exp_text', 'exp_text', 'exposure_ms', '1500', 1500.0, 'exposure'),
-        ('ill_text', 'ill_text', 'illumination_ma', '42.5', 42.5, 'illumination'),
+        ('exp_text', 'exp_text', 'exposure_ms', '1500', 1500.0),
+        ('ill_text', 'ill_text', 'illumination_ma', '42.5', 42.5),
     ],
 )
-def test_an_edit_is_committed_as_typed_and_applied(
-    monkeypatch, handler, text_id, key, typed, committed, applies
+def test_an_edit_is_committed_as_typed_with_no_apply_of_the_boxs_own(
+    monkeypatch, handler, text_id, key, typed, committed
 ):
     layer, settings, applied = _blue_layer(monkeypatch, exposure_ms=500.0, illumination_ma=100.0)
     layer.ids[text_id].text = typed
@@ -93,7 +104,7 @@ def test_an_edit_is_committed_as_typed_and_applied(
 
     assert settings['Blue'][key] == committed
     assert layer.ids[text_id].text == str(committed)
-    assert applied == [applies]
+    assert applied == []
 
 
 def test_an_edit_the_writer_refuses_is_not_stored_and_the_box_goes_back(monkeypatch):

@@ -233,19 +233,19 @@ class TestCrossPathConsistency:
 
 
 # ---------------------------------------------------------------------------
-# Sanity: apply_settings is still called (handler wiring unchanged)
+# A stimulation setting has no hardware half: the handler shows nothing again
 # ---------------------------------------------------------------------------
 
 
-class TestHandlerStillAppliesSettings:
-    def test_pulse_count_calls_apply(self, settings, pulse_count_handler):
+class TestAStimulationWriteShowsNothingAgain:
+    def test_pulse_count_writes_and_shows_nothing(self, settings, pulse_count_handler):
         fake = _make_fake_self('Blue')
         fake.ids['stim_pulse_count_slider'] = _make_slider_mock(3.0)
         pulse_count_handler(fake)
-        fake.apply_settings.assert_called_once()
+        fake.apply_settings.assert_not_called()
 
-    def test_pulse_width_calls_apply(self, settings, pulse_width_handler):
+    def test_pulse_width_writes_and_shows_nothing(self, settings, pulse_width_handler):
         fake = _make_fake_self('Blue')
         fake.ids['stim_pulse_width_slider'] = _make_slider_mock(12.0)
         pulse_width_handler(fake)
-        fake.apply_settings.assert_called_once()
+        fake.apply_settings.assert_not_called()

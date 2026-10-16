@@ -32,21 +32,38 @@ from modules.lumascope_api.imaging import (
     AutoGainLock,
     stored_exposure_after_lock,
 )
-from modules.scope_session import ScopeSession
+from modules.scope_session import ScopeSession, ShownChannel
 from tests.scope_fakes import identity_with_layers
 
-_MEMBERS = ('set_layer_auto_gain', '_layers_on_scope', '_store_setting')
+_MEMBERS = (
+    'set_layer_auto_gain',
+    '_layers_on_scope',
+    '_store_setting',
+    '_an_activity_holds_the_scope',
+)
 
 
-def _session(settings, lock=None, layers=('BF', 'PC', 'DF', 'Blue', 'Green', 'Red')):
-    imaging = SimpleNamespace(lock_auto_gain=MagicMock(return_value=lock))
+def _session(settings, lock=None, layers=('BF', 'PC', 'DF', 'Blue', 'Green', 'Red'), shown=None):
+    """A Session showing ``shown`` (the first layer in ``settings`` when
+    None), whose camera holds the shown layer's settings."""
+    shown = shown or next(iter(settings))
+    imaging = SimpleNamespace(
+        lock_auto_gain=MagicMock(return_value=lock), get_held_layer=lambda: shown
+    )
     scope = SimpleNamespace(
         imaging=imaging,
         layer_identity=identity_with_layers(layers, model='LS850'),
+        camera_connected=True,
     )
     # A session that names no settings file: its writes wake no saver.
     session = SimpleNamespace(
-        scope=scope, settings=settings, settings_lock=threading.Lock(), _settings_saver=None
+        scope=scope,
+        settings=settings,
+        settings_lock=threading.Lock(),
+        _settings_saver=None,
+        _shown_channel=ShownChannel(shown, lit=False),
+        activity_claim=SimpleNamespace(holder=None),
+        apply_layer_camera=MagicMock(),
     )
     for name in _MEMBERS:
         setattr(session, name, getattr(ScopeSession, name).__get__(session))
@@ -132,7 +149,7 @@ def test_turning_off_with_no_arm_standing_stores_only_the_preference():
     assert settings['BF'] == {'exposure_ms': 42.0, 'gain_db': 7.0, 'auto_gain': False}
 
 
-def test_turning_on_stores_only_the_preference_and_locks_nothing():
+def test_turning_the_shown_layer_on_stores_it_locks_nothing_and_arms_the_camera():
     settings = {'BF': {'exposure_ms': 42.0, 'gain_db': 7.0, 'auto_gain': False}}
     session = _session(settings)
 
@@ -140,6 +157,32 @@ def test_turning_on_stores_only_the_preference_and_locks_nothing():
 
     assert settings['BF'] == {'exposure_ms': 42.0, 'gain_db': 7.0, 'auto_gain': True}
     session.scope.imaging.lock_auto_gain.assert_not_called()
+    session.apply_layer_camera.assert_called_once_with('BF')
+
+
+def test_turning_off_the_shown_layer_leaves_the_camera_holding_it():
+    settings = _settings('BF')
+    session = _session(settings, _lock('BF', AutoGainConvergence.CONVERGED, 5.0, 2.0))
+
+    session.set_layer_auto_gain('BF', False)
+
+    session.apply_layer_camera.assert_called_once_with('BF')
+
+
+def test_turning_off_a_hidden_layer_stores_only_its_preference_and_locks_nothing():
+    """The camera's arm is the shown layer's: its values are not the hidden
+    layer's to take, and the shown layer stays armed."""
+    settings = {
+        'BF': {'exposure_ms': 2.0, 'gain_db': 1.0, 'auto_gain': True},
+        'Green': {'exposure_ms': 55.0, 'gain_db': 4.0, 'auto_gain': True},
+    }
+    session = _session(settings, _lock('BF', AutoGainConvergence.CONVERGED, 2.0, 10.0))
+
+    session.set_layer_auto_gain('Green', False)
+
+    session.scope.imaging.lock_auto_gain.assert_not_called()
+    session.apply_layer_camera.assert_not_called()
+    assert settings['Green'] == {'exposure_ms': 55.0, 'gain_db': 4.0, 'auto_gain': False}
 
 
 @pytest.mark.parametrize(
@@ -202,7 +245,7 @@ def test_the_toggle_submits_the_member_on_the_camera_lane_and_redraws(monkeypatc
         layer='BF',
         ids={'auto_gain': SimpleNamespace(state=state)},
         render_layer_values_from_settings=MagicMock(),
-        apply_settings=MagicMock(),
+        show_as_shown=MagicMock(),
     )
 
     layer_control.LayerControl.update_auto_gain(widget)
@@ -215,5 +258,5 @@ def test_the_toggle_submits_the_member_on_the_camera_lane_and_redraws(monkeypatc
     ctx.session.set_layer_auto_gain.assert_called_once_with('BF', enabled)
     submit.redraw()
     widget.render_layer_values_from_settings.assert_called_once_with()
-    widget.apply_settings.assert_called_once_with()
+    widget.show_as_shown.assert_called_once_with()
     layer_control.gui_logger.toggle.assert_called_once_with('AUTO_GAIN_BF', enabled)

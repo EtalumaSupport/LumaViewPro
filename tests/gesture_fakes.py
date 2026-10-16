@@ -41,3 +41,14 @@ def inline_submit_move(label, *, axes, call, lane=None, on_moved=None) -> None:
         return
     if on_moved is not None:
         on_moved()
+
+
+def inline_submit_reported(call, redraw, label, *, stop=False, lane=None, budget_of=None) -> None:
+    """A ``submit_reported`` stand-in: *call* and *redraw* here, as ``run_reported`` runs them.
+
+    For a test of a handler's decision, where the lane the call runs on is
+    not the subject; the real helper's contract is pinned by its own tests.
+    """
+    from ui.ui_helpers import run_reported
+
+    run_reported(call, redraw, label)

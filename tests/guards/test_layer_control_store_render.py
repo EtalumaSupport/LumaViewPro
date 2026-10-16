@@ -327,7 +327,7 @@ class TestTheRendererRendersTheStore:
         )
 
 
-class TestTheReconcileRendersAndAppliesWithoutTouchingTheStore:
+class TestTheReconcileRendersWithoutTouchingTheStore:
     def test_it_writes_neither_stored_value(self):
         # The store is the user's intent and outlives the attached camera;
         # the cap belongs on what is written to hardware, which the API owns.
@@ -343,13 +343,12 @@ class TestTheReconcileRendersAndAppliesWithoutTouchingTheStore:
         }
         assert written == set(), f'reconcile must not write the store; found {sorted(written)}'
 
-    def test_it_renders_and_applies_explicitly(self):
+    def test_it_renders_and_leaves_the_camera_to_the_session(self):
         fn = _func(IMAGE_SETTINGS_PATH, 'reconcile_layers_to_camera_caps')
         assert _calls(fn, RENDERER), 'The reconcile must re-render both widgets from the store.'
-        assert _calls(fn, 'apply_settings'), (
-            'The reconcile must deliver to the camera itself. It used to '
-            'arrive only as the debounced side effect of the slider write, which was the '
-            'only apply on the reconnect path.'
+        assert not _calls(fn, 'apply_settings'), (
+            'The Session caps each value as it puts a layer on the camera, and '
+            'bring-up has put the shown layer there: the reconcile applies nothing.'
         )
 
     def test_load_settings_reconciles_before_anything_renders(self):

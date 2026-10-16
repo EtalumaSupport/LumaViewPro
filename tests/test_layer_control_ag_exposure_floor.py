@@ -36,7 +36,7 @@ from modules.lumascope_api.imaging import (
     AutoGainLock,
     stored_exposure_after_lock,
 )
-from modules.scope_session import ScopeSession
+from modules.scope_session import ScopeSession, ShownChannel
 
 
 class TestExposureFloorSourceStructure:
@@ -75,13 +75,23 @@ def _leave(settings: dict, layer: str, lock: AutoGainLock) -> None:
     """Turn the layer's auto-gain off through the Session member, over a
     scope whose lock returns ``lock``."""
     session = SimpleNamespace(
-        scope=SimpleNamespace(imaging=SimpleNamespace(lock_auto_gain=lambda: lock)),
+        scope=SimpleNamespace(
+            imaging=SimpleNamespace(lock_auto_gain=lambda: lock, get_held_layer=lambda: layer),
+            camera_connected=True,
+        ),
         settings=settings,
         settings_lock=threading.Lock(),
         # A session that names no settings file: its writes wake no saver.
         _settings_saver=None,
+        # The layer is shown, and the camera holds it.
+        _shown_channel=ShownChannel(layer, lit=False),
+        activity_claim=SimpleNamespace(holder=None),
+        apply_layer_camera=lambda shown: None,
     )
     session._store_setting = ScopeSession._store_setting.__get__(session)
+    session._an_activity_holds_the_scope = ScopeSession._an_activity_holds_the_scope.__get__(
+        session
+    )
     ScopeSession.set_layer_auto_gain(session, layer, False)
 
 

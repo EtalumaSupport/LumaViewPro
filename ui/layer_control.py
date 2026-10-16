@@ -22,7 +22,6 @@ logger = logging.getLogger('LVP.ui.layer_control')
 # Brightfield's illumination bounds come from the resolver in
 # modules.config_helpers, beside the LED driver's cap; its exposure bounds
 # come from the camera, through the resolvers in modules.config_ui_getters.
-SLIDER_DEBOUNCE_S = 0.1
 INIT_MAX_RETRIES = 50
 
 # The three settings a layer shows twice -- once on a slider, once in a text
@@ -95,15 +94,6 @@ class LayerControl(BoxLayout):
         # Flag to prevent apply_settings during initialization
         self._initializing = True
 
-        self.apply_gain_slider = Clock.create_trigger(
-            lambda dt: self.apply_settings(), SLIDER_DEBOUNCE_S
-        )
-        self.apply_exp_slider = Clock.create_trigger(
-            lambda dt: self.apply_settings(), SLIDER_DEBOUNCE_S
-        )
-        self.apply_ill_slider = Clock.create_trigger(
-            lambda dt: self.apply_settings(), SLIDER_DEBOUNCE_S
-        )
         self._init_ui_retries = 0
         Clock.schedule_once(self._init_ui, 0)
         # Defer the depth-hint binding: scope_display (the image_mode owner) is
@@ -152,6 +142,7 @@ class LayerControl(BoxLayout):
         settings_key: str,
         cast=float,
         settings_path: str | None = None,
+        lane=None,
     ) -> bool:
         """Hand a typed layer value to the settings writer; True when the store changed.
 
@@ -170,6 +161,11 @@ class LayerControl(BoxLayout):
             cast: Type to cast the text value (float or int)
             settings_path: Dot-separated sub-path for nested settings
                           (e.g., 'video_config.duration' or 'stim_config.frequency')
+            lane: For a setting the Session puts on the hardware (gain and
+                exposure on the camera lane, illumination on the IO lane),
+                that lane: the write runs there and the box shows the store
+                once it has, and this answers False, the store not yet read.
+                None for a setting that is stored only, written here.
         """
         settings = _app_ctx.ctx.settings
 
@@ -220,6 +216,23 @@ class LayerControl(BoxLayout):
         # a box and out again arrives here with the untouched stored value.
         # No edit, no commit; the box already shows the stored value.
         if raw == val:
+            return False
+
+        if lane is not None:
+            gui_logger.text_input(record_name, typed_text)
+
+            def shown_once_written():
+                show_stored()
+                if raw != stored_value():
+                    gui_logger.text_input(f'{record_name}_APPLIED', stored_value())
+
+            session = _app_ctx.ctx.session
+            submit_reported(
+                lambda: session.update_settings(path, raw),
+                shown_once_written,
+                record_name,
+                lane=lane,
+            )
             return False
 
         run_reported(lambda: _app_ctx.ctx.update_settings(path, raw), show_stored, record_name)
@@ -295,6 +308,20 @@ class LayerControl(BoxLayout):
         self.show_camera_controls = False
         self.ids['acquire_none'].active = True
 
+    def _write_on_lane(self, key: str, value, name: str, lane) -> None:
+        """Write this layer's ``key`` on the lane its hardware is on.
+
+        The Session puts a write to the shown layer's gain, exposure or
+        illumination on the hardware before it returns, so a drag is live,
+        each tick in order on that one lane. The answer reaches the widgets
+        through the store and the listeners.
+        """
+        session = _app_ctx.ctx.session
+        path = f'{self.layer}.{key}'
+        submit_reported(
+            lambda: session.update_settings(path, value), None, f'{name}_{self.layer}', lane=lane
+        )
+
     def ill_slider(self):
         settings = _app_ctx.ctx.settings
         # Early return on programmatic updates (#617): when another code
@@ -323,39 +350,35 @@ class LayerControl(BoxLayout):
                 type(illumination).__name__,
             )
         gui_logger.slider(f'ILLUMINATION_{self.layer}', illumination)
-        _app_ctx.ctx.update_settings(f'{self.layer}.illumination_ma', illumination)
+        self._write_on_lane(
+            'illumination_ma', illumination, 'ILLUMINATION', _app_ctx.ctx.io_executor
+        )
 
         # Update text only if changed to reduce ScrollView recalculations
         new_text = str(illumination)
         if self.ids['ill_text'].text != new_text:
             self.ids['ill_text'].text = new_text
-        self.apply_ill_slider()
 
     def ill_text(self) -> None:
         settings = _app_ctx.ctx.settings
         logger.info('[LVP Main  ] LayerControl.ill_text()')
         typed_text = self.ids['ill_text'].text
-        if not self._validate_and_apply_text_input(
-            'ill_text',
-            'ill_slider',
-            'illumination_ma',
-        ):
-            return
         # Text-entry divergence trace for the > ~150 mA silent-fail
         # bench investigation. See _FX2_DEBUG_WIRE block at top of
         # this file. INFO level -- this is the other key divergence
         # point (float from text vs int from slider).
         if _fx2_wire_debug_enabled(settings):
-            illumination = settings[self.layer]['illumination_ma']
             logger.info(
-                '[FX2 LED diag] ill_text ENTRY layer=%s raw_text=%r '
-                '-> illumination=%r type=%s source=text',
+                '[FX2 LED diag] ill_text ENTRY layer=%s raw_text=%r source=text',
                 self.layer,
                 typed_text,
-                illumination,
-                type(illumination).__name__,
             )
-        self.apply_settings()
+        self._validate_and_apply_text_input(
+            'ill_text',
+            'ill_slider',
+            'illumination_ma',
+            lane=_app_ctx.ctx.io_executor,
+        )
 
     def sum_slider(self):
         logger.info('[LVP Main  ] LayerControl.sum_slider()')
@@ -363,49 +386,44 @@ class LayerControl(BoxLayout):
         gui_logger.slider(f'SUM_{self.layer}', total)
         _app_ctx.ctx.update_settings(f'{self.layer}.sum', total)
         self._refresh_sum_depth_hint()
-        self.apply_settings()
 
     def sum_text(self):
         logger.info('[LVP Main  ] LayerControl.sum_text()')
         if self._validate_and_apply_text_input('sum_text', 'sum_slider', 'sum', cast=int):
             self._refresh_sum_depth_hint()
-            self.apply_settings()
 
     def video_duration_slider(self):
         logger.info('[LVP Main  ] LayerControl.video_duration_slider()')
         duration = self.ids['video_duration_slider'].value
         gui_logger.slider(f'VIDEO_DURATION_{self.layer}', duration)
         _app_ctx.ctx.update_settings(f'{self.layer}.video_config.duration', duration)
-        self.apply_settings()
 
     def video_duration_text(self):
         logger.info('[LVP Main  ] LayerControl.video_duration_text()')
-        if self._validate_and_apply_text_input(
+        self._validate_and_apply_text_input(
             'video_duration_text',
             'video_duration_slider',
             'duration',
             cast=int,
             settings_path='video_config.duration',
-        ):
-            self.apply_settings()
+        )
 
     def update_auto_gain(self):
         logger.info('[LVP Main  ] LayerControl.update_auto_gain()')
         enabled = self.ids['auto_gain'].state == 'down'
         gui_logger.toggle(f'AUTO_GAIN_{self.layer}', enabled)
 
-        # Leaving auto-gain locks the camera's arm and stores what it reached;
-        # the Session does both, so a script leaving auto-gain stores the same
-        # thing. The lock waits on the camera, so it runs on the camera lane.
-        # The redraw shows whatever the store holds afterwards -- the reached
-        # values, or the old ones if the lock was refused -- and the apply
-        # re-syncs the box and arms the camera when auto-gain went on.
+        # The Session arms the camera, or locks its arm and stores what it
+        # reached, so a script turning auto-gain on or off does the same. It
+        # waits on the camera, so it runs on the camera lane. The redraw shows
+        # whatever the store holds afterwards -- the reached values, or the
+        # old ones if the lock was refused -- and re-syncs the box.
         ctx = _app_ctx.ctx
         layer = self.layer
 
         def redraw():
             self.render_layer_values_from_settings()
-            self.apply_settings()
+            self.show_as_shown()
 
         submit_reported(
             lambda: ctx.session.set_layer_auto_gain(layer, enabled),
@@ -421,19 +439,17 @@ class LayerControl(BoxLayout):
         logger.info('[LVP Main  ] LayerControl.gain_slider()')
         gain = round(self.ids['gain_slider'].value, 1)  # Round to 1 decimal (step=0.1)
         gui_logger.slider(f'GAIN_{self.layer}', gain)
-        _app_ctx.ctx.update_settings(f'{self.layer}.gain_db', gain)
+        self._write_on_lane('gain_db', gain, 'GAIN', _app_ctx.ctx.camera_executor)
         # Update text only if changed to reduce ScrollView recalculations
         new_text = str(gain)
         if self.ids['gain_text'].text != new_text:
             self.ids['gain_text'].text = new_text
-        if not self.ids['gain_slider'].disabled:
-            self.apply_gain_slider()
-        ####
 
     def gain_text(self):
         logger.info('[LVP Main  ] LayerControl.gain_text()')
-        if self._validate_and_apply_text_input('gain_text', 'gain_slider', 'gain_db'):
-            self.apply_gain_slider()
+        self._validate_and_apply_text_input(
+            'gain_text', 'gain_slider', 'gain_db', lane=_app_ctx.ctx.camera_executor
+        )
 
     def composite_threshold_slider(self):
         logger.info('[LVP Main  ] LayerControl.composite_threshold_slider()')
@@ -458,77 +474,69 @@ class LayerControl(BoxLayout):
         logger.info('[LVP Main  ] LayerControl.exp_slider()')
         exposure = round(self.ids['exp_slider'].value, 2)  # Round to 2 decimals (step=0.01)
         gui_logger.slider(f'EXPOSURE_{self.layer}', exposure)
-        # exposure = 10 ** self.ids['exp_slider'].value # slider is log_10(ms)
-        _app_ctx.ctx.update_settings(f'{self.layer}.exposure_ms', exposure)  # exposure in ms
+        self._write_on_lane('exposure_ms', exposure, 'EXPOSURE', _app_ctx.ctx.camera_executor)
         # Update text only if changed to reduce ScrollView recalculations
         new_text = str(exposure)
         if self.ids['exp_text'].text != new_text:
             self.ids['exp_text'].text = new_text
-        if not self.ids['exp_slider'].disabled:
-            self.apply_exp_slider()
 
     def exp_text(self) -> None:
         logger.info('[LVP Main  ] LayerControl.exp_text()')
         # The typed exposure is the layer's intent, stored as typed. The
         # sensor's ceiling is applied where the value reaches the camera
-        # (ImagingAPI.applied_exposure_ms_for, under apply_exp_slider), with
+        # (ImagingAPI.applied_exposure_ms_for, as the Session applies it), with
         # the intent kept, exactly as a value loaded from the file is; the
         # box no longer carries a second copy of that ceiling.
-        if self._validate_and_apply_text_input('exp_text', 'exp_slider', 'exposure_ms'):
-            self.apply_exp_slider()
+        self._validate_and_apply_text_input(
+            'exp_text', 'exp_slider', 'exposure_ms', lane=_app_ctx.ctx.camera_executor
+        )
 
     def stim_freq_slider(self):
         logger.info('[LVP Main  ] LayerControl.stim_freq_slider()')
         frequency = self.ids['stim_freq_slider'].value
         gui_logger.slider(f'STIM_FREQ_{self.layer}', frequency)
         _app_ctx.ctx.update_settings(f'{self.layer}.stim_config.frequency', frequency)
-        self.apply_settings()
 
     def stim_pulse_count_slider(self):
         logger.info('[LVP Main  ] LayerControl.stim_pulse_count_slider()')
         pulse_count = int(self.ids['stim_pulse_count_slider'].value)
         gui_logger.slider(f'STIM_PULSE_COUNT_{self.layer}', pulse_count)
         _app_ctx.ctx.update_settings(f'{self.layer}.stim_config.pulse_count', pulse_count)
-        self.apply_settings()
 
     def stim_pulse_width_slider(self):
         logger.info('[LVP Main  ] LayerControl.stim_pulse_width_slider()')
         pulse_width = int(self.ids['stim_pulse_width_slider'].value)
         gui_logger.slider(f'STIM_PULSE_WIDTH_{self.layer}', pulse_width)
         _app_ctx.ctx.update_settings(f'{self.layer}.stim_config.pulse_width', pulse_width)
-        self.apply_settings()
 
     def stim_freq_text(self):
         logger.info('[LVP Main  ] LayerControl.stim_freq_text()')
-        if self._validate_and_apply_text_input(
+        self._validate_and_apply_text_input(
             'stim_freq_text',
             'stim_freq_slider',
             'frequency',
             settings_path='stim_config.frequency',
-        ):
-            self.apply_settings()
+        )
 
     def stim_pulse_count_text(self):
         logger.info('[LVP Main  ] LayerControl.stim_pulse_count_text()')
-        if self._validate_and_apply_text_input(
+        self._validate_and_apply_text_input(
             'stim_pulse_count_text',
             'stim_pulse_count_slider',
             'pulse_count',
             cast=int,
             settings_path='stim_config.pulse_count',
-        ):
-            self.apply_settings()
+        )
 
     def stim_pulse_width_text(self):
         logger.info('[LVP Main  ] LayerControl.stim_pulse_width_text()')
-        if self._validate_and_apply_text_input(
+        self._validate_and_apply_text_input(
             'stim_pulse_width_text',
             'stim_pulse_width_slider',
             'pulse_width',
             cast=int,
             settings_path='stim_config.pulse_width',
-        ):
-            self.apply_settings()
+        )
 
     def stim_ill_slider(self):
         logger.info('[LVP Main  ] LayerControl.stim_ill_slider()')
@@ -538,25 +546,23 @@ class LayerControl(BoxLayout):
         new_text = str(illumination)
         if self.ids['stim_ill_text'].text != new_text:
             self.ids['stim_ill_text'].text = new_text
-        self.apply_settings()
 
     def stim_ill_text(self):
         logger.info('[LVP Main  ] LayerControl.stim_ill_text()')
-        if self._validate_and_apply_text_input(
+        self._validate_and_apply_text_input(
             'stim_ill_text',
             'stim_ill_slider',
             'illumination_ma',
             cast=int,
             settings_path='stim_config.illumination_ma',
-        ):
-            self.apply_settings()
+        )
 
     def false_color(self):
         logger.info('[LVP Main  ] LayerControl.false_color()')
         enabled = bool(self.ids['false_color'].active)
         gui_logger.toggle(f'FALSE_COLOR_{self.layer}', enabled)
         _app_ctx.ctx.update_settings(f'{self.layer}.false_color', enabled)
-        self.apply_settings()
+        self.show_as_shown()
 
     def log_histogram_scale(self) -> None:
         """Record the histogram log-scale checkbox.

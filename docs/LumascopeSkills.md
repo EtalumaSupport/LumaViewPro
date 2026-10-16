@@ -462,7 +462,13 @@ process as they are written: `logging.default.level`, the level of the
 main log on every host (applied when the session is created, before its
 scope comes up, and on each write; the installation's `debug_mode` puts it
 at DEBUG whatever it says), and `logging.autofocus`, whether each
-focus score is logged. The write is taken under the lock,
+focus score is logged. A write to the shown layer's `gain_db` or
+`exposure_ms` (or, while the shown layer is on auto-gain, to the
+`protocol.autogain` and `ag_ae_max_exposure_ms` bounds) is on the camera,
+and to its `illumination_ma` on its LED while it is lit, when the call
+returns; a hidden layer's, or one made while a run, a diagnostic or a home
+holds the scope, is stored only, and a run's end puts the layer shown
+before it back on the camera from the store. The write is taken under the lock,
 or refused with `SettingRefusedError` (from `modules.exceptions`) and
 nothing is written. It carries the refused setting's `path`, and for
 `has_member` the `member` to call instead; a REST problem carries both.
@@ -921,7 +927,7 @@ session.set_layer_acquire('BF', 'image')
 session.set_layer_acquire('Green', None)
 ```
 
-**Turning a layer's auto-gain on and off.** `session.set_layer_auto_gain(layer, enabled)` does what the GUI's Auto Gain/Exp box does. Turning it on (`True`) stores the preference only; the camera starts adjusting when the layer is next applied, so a script applies the layer afterwards (`session.apply_layer_camera(layer)`, as the GUI does). Turning it off (`False`) stops the camera adjusting and keeps what it reached: the gain becomes the layer's stored gain and the exposure its stored exposure, rounded to 0.1 dB and 0.01 ms. The stored exposure is never below the channel's usable floor (0.1 ms for brightfield, phase contrast and darkfield, 1 ms for fluorescence and luminescence), even when the camera went lower on a bright sample. A value the camera did not report is left as it was. Turning it off returns the lock result: its `state` says whether the camera converged, hit the exposure ceiling (`MAXED`), hit the floor (`AT_MINIMUM`), or reported nothing usable (`FAILED`); a `state` of None means auto-gain was not running. Turning it on returns None. Turning it off waits for the camera, and raises `HardwareCommandRefusedError` and stores nothing while a run or a diagnostic holds the scope. A name that is no layer raises `ArgumentRefusedError` (`layer_unknown`), and turning it on for a layer this scope does not have `HardwareCommandRefusedError` (`axis_absent`), each changing nothing; turning it off is always accepted.
+**Turning a layer's auto-gain on and off.** `session.set_layer_auto_gain(layer, enabled)` does what the GUI's Auto Gain/Exp box does. For the shown layer the camera follows before it returns: turning it on (`True`) starts the camera adjusting, and turning it off (`False`) stops it and keeps what it reached: the gain becomes the layer's stored gain and the exposure its stored exposure, rounded to 0.1 dB and 0.01 ms. The stored exposure is never below the channel's usable floor (0.1 ms for brightfield, phase contrast and darkfield, 1 ms for fluorescence and luminescence), even when the camera went lower on a bright sample. A value the camera did not report is left as it was. For a layer the camera does not hold, only the preference is stored: the camera's adjusting belongs to the layer it holds. Turning it off returns the lock result: its `state` says whether the camera converged, hit the exposure ceiling (`MAXED`), hit the floor (`AT_MINIMUM`), or reported nothing usable (`FAILED`); a `state` of None means auto-gain was not running. Turning it on returns None. Either waits for the camera. While a run, a diagnostic or a home holds the scope, turning it on is stored only, and turning the shown layer's off raises `HardwareCommandRefusedError` and stores nothing. A name that is no layer raises `ArgumentRefusedError` (`layer_unknown`), and turning it on for a layer this scope does not have `HardwareCommandRefusedError` (`axis_absent`), each changing nothing; turning it off is always accepted.
 
 ```python
 session.set_layer_auto_gain('BF', True)

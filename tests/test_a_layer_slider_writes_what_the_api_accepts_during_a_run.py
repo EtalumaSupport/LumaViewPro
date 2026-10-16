@@ -13,16 +13,16 @@ it still holds with the returns gone.
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import MagicMock
 
 import modules.app_context as _app_ctx
+from tests.gesture_fakes import inline_submit_reported
 from ui.layer_control import LayerControl
 
-# Each handler, the widgets it reads, its trigger, and the setting it writes.
+# Each handler, the widgets it reads, and the setting it writes.
 _HANDLERS = (
-    ('ill_slider', 'ill_text', 'apply_ill_slider', 'illumination_ma', 200.0),
-    ('gain_slider', 'gain_text', 'apply_gain_slider', 'gain_db', 6.0),
-    ('exp_slider', 'exp_text', 'apply_exp_slider', 'exposure_ms', 40.0),
+    ('ill_slider', 'ill_text', 'illumination_ma', 200.0),
+    ('gain_slider', 'gain_text', 'gain_db', 6.0),
+    ('exp_slider', 'exp_text', 'exposure_ms', 40.0),
 )
 
 
@@ -33,19 +33,24 @@ def _panel(monkeypatch, *, initializing):
         'ctx',
         SimpleNamespace(
             settings={'fx2_debug_wire_enabled': False},
-            session=SimpleNamespace(run_lockout=True),
-            update_settings=lambda path, value: writes.append((path, value)),
+            session=SimpleNamespace(
+                run_lockout=True, update_settings=lambda path, value: writes.append((path, value))
+            ),
+            camera_executor=object(),
+            io_executor=object(),
         ),
     )
+    import ui.layer_control as layer_control
+
+    monkeypatch.setattr(layer_control, 'submit_reported', inline_submit_reported)
     # a stand-in by design: Kivy is stubbed in the test process; the subject is the handler's decision
     panel = LayerControl.__new__(LayerControl)
     panel.layer = 'Blue'
     panel._initializing = initializing
     panel.ids = {}
-    for slider, text, trigger, _key, value in _HANDLERS:
+    for slider, text, _key, value in _HANDLERS:
         panel.ids[slider] = SimpleNamespace(value=value, disabled=False)
         panel.ids[text] = SimpleNamespace(text='')
-        setattr(panel, trigger, MagicMock())
     return panel, writes
 
 

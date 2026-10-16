@@ -78,7 +78,7 @@ class TestFixB1_SliderHandlerEarlyReturn:
         # We check this by finding the first occurrence of each and asserting
         # the early return is first in the function body order.
         init_check_pos = body.find('if self._initializing:')
-        settings_write_pos = body.find('update_settings(')
+        settings_write_pos = body.find('_write_on_lane(')
         assert init_check_pos != -1
         assert settings_write_pos != -1
         assert init_check_pos < settings_write_pos, (

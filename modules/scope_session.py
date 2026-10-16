@@ -1828,18 +1828,21 @@ class ScopeSession:
     def set_layer_auto_gain(self, layer: str, enabled: bool) -> 'AutoGainLock | None':
         """Turn a layer's auto-gain on or off, as the GUI's Auto Gain/Exp box does.
 
-        Turning it on stores the preference only: the camera arms when the
-        layer is next applied (``apply_layer_camera``). Turning it off locks a standing arm
-        (``scope.imaging.lock_auto_gain``) and stores what the camera reached
-        as the layer's manual setting: the lock's ``gain_db`` and its
-        ``stored_exposure_ms``, rounded to 0.1 dB and 0.01 ms, the resolution
-        the stored settings carry. Each is stored only when the camera
-        reported it; with no arm standing, or a lock that found nothing
-        usable, they are left as they were. Turning it off waits on the
-        camera lane.
+        For the shown layer the camera follows when this returns: turning it
+        on arms the camera's auto loop (``apply_layer_camera``); turning it
+        off locks the standing arm (``scope.imaging.lock_auto_gain``) and
+        stores what the camera reached as the layer's manual setting: the
+        lock's ``gain_db`` and its ``stored_exposure_ms``, rounded to 0.1 dB
+        and 0.01 ms, the resolution the stored settings carry, each only when
+        the camera reported it; with no arm standing, or a lock that found
+        nothing usable, they are left as they were. Either waits on the
+        camera lane. For a layer the camera does not hold, only the
+        preference is stored: the camera's arm is another layer's, and its
+        values are not this layer's to take. While a run, a diagnostic or a
+        home holds the scope, turning auto-gain on is stored only, and
+        turning the shown layer's off is refused.
 
-        Nothing is changed on any refusal. Turning auto-gain off is
-        always admitted, unless the scope is held.
+        Nothing is changed on any refusal.
 
         Returns:
             The lock when turning off (its ``state`` is None when no arm
@@ -1854,14 +1857,19 @@ class ScopeSession:
                 ``'exclusive_activity_running'``, when a run, a diagnostic
                 or a home holds the scope.
         """
+        from modules.lumascope_api.imaging import AutoGainLock
+
         refuse_unknown_layer(layer)
         lock = None
+        holds = self.scope.imaging.get_held_layer() == layer
         if enabled:
             self.scope.layer_identity.refuse_unless_on_scope(
                 layer, 'set_layer_auto_gain', then='run auto-gain'
             )
-        else:
+        elif holds:
             lock = self.scope.imaging.lock_auto_gain()
+        else:
+            lock = AutoGainLock(state=None)
         with self.settings_lock:
             if lock is not None and lock.state is not None:
                 if common_utils.is_valid_gain_db(lock.gain_db):
@@ -1869,6 +1877,15 @@ class ScopeSession:
                 if common_utils.is_valid_exposure_ms(lock.exposure_ms):
                     self._store_setting(f'{layer}.exposure_ms', round(lock.stored_exposure_ms, 2))
             self._store_setting(f'{layer}.auto_gain', enabled)
+        if (
+            layer == self._shown_channel.layer
+            and (enabled or holds)
+            and not self._an_activity_holds_the_scope()
+            and self.scope.camera_connected
+        ):
+            # Armed for the shown layer; or, after the lock, the camera
+            # recorded as holding the layer at the values just stored.
+            self.apply_layer_camera(layer)
         return lock
 
     @api
@@ -2821,6 +2838,12 @@ class ScopeSession:
         A layer's gain or exposure is stored as written, the person's
         intent; a camera that cannot reach it is driven at its own limit
         when the layer is applied (``ImagingAPI.applied_gain_db_for``).
+        A write to the shown layer's gain or exposure (or, while it is on
+        auto-gain, to the auto-gain bounds) is on the camera, and to its
+        illumination on its lit LED, when this returns; a write to a hidden
+        layer, or one made while a run, a diagnostic or a home holds the
+        scope, is stored only. Such a write waits on the camera or LED lane,
+        so a caller on the UI thread hands it to a worker.
         The log level and the autofocus score log (``'logging.*'``) take
         effect as they are written.
         """
@@ -2847,6 +2870,39 @@ class ScopeSession:
             self._store_setting(path, value)
             if path.startswith('logging.'):
                 _apply_logging(self.settings)
+        self._put_written_setting_on_the_hardware(path)
+
+    def _an_activity_holds_the_scope(self) -> bool:
+        """Whether a run, a diagnostic or a home holds the scope: a layer
+        write then is stored only (Eric's D3)."""
+        holder = self.activity_claim.holder
+        return holder is not None and holder.kind in SCOPE_HOLDING_KINDS
+
+    def _put_written_setting_on_the_hardware(self, path: str) -> None:
+        """Put a write to the shown layer's hardware settings on the hardware.
+
+        The shown layer's gain and exposure, and the auto-gain bounds while
+        it is on auto-gain, go on the camera; its illumination goes on its
+        LED while it is lit. Any other write, a hidden layer's included, is
+        stored only. While a run, a diagnostic or a home holds the scope the
+        write is stored only, and the run's end puts the shown layer back on
+        the camera from the store.
+        """
+        layer = self._shown_channel.layer
+        with self.settings_lock:
+            auto_gain = self.settings[layer]['auto_gain']
+        camera = path in (f'{layer}.gain_db', f'{layer}.exposure_ms') or (
+            auto_gain and path.startswith(('protocol.autogain.', 'ag_ae_max_exposure_ms'))
+        )
+        led = path == f'{layer}.illumination_ma' and self._shown_channel.lit
+        if not (camera or led):
+            return
+        if self._an_activity_holds_the_scope():
+            return
+        if led:
+            self._show_leds(layer, True)
+        if camera and self.scope.camera_connected:
+            self.apply_layer_camera(layer)
 
     @api(in_process=True)
     def set_live_folder(self, folder: str) -> None:

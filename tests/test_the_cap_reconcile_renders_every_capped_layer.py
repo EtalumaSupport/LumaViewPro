@@ -1,11 +1,13 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""The capped-layer reconcile re-renders every capped layer and applies only the shown one.
+"""The capped-layer reconcile re-renders every capped layer and applies none.
 
-The camera holds one layer. The reconcile applied each layer whose stored
-gain or exposure the attached camera cannot reach, one after another, so the
-camera ended on the last of them in catalogue order -- not the layer on
-screen, and not the BF that bring-up had just put on it. Another layer
-reaches the camera, capped, when it is next shown.
+The camera holds one layer. The reconcile once applied each layer whose
+stored gain or exposure the attached camera cannot reach, one after another,
+so the camera ended on the last of them in catalogue order -- not the layer
+on screen, and not the BF that bring-up had just put on it; then it applied
+the shown one, a second call for what bring-up had done. The Session caps
+each value as it puts a layer on the camera, so the reconcile only redraws;
+another layer reaches the camera, capped, when it is next shown.
 """
 
 from __future__ import annotations
@@ -52,13 +54,13 @@ def _reconcile(monkeypatch, *, shown, capped):
     return layer_objs
 
 
-def test_every_capped_layer_is_rendered_and_only_the_shown_one_applied(monkeypatch):
+def test_every_capped_layer_is_rendered_and_none_applied(monkeypatch):
     layer_objs = _reconcile(monkeypatch, shown='Blue', capped={'Blue', 'Red'})
 
     for layer in ('Blue', 'Red'):
         layer_objs[layer].render_layer_values_from_settings.assert_called_once_with()
-    layer_objs['Blue'].apply_settings.assert_called_once_with()
-    layer_objs['Red'].apply_settings.assert_not_called()
+    for layer_obj in layer_objs.values():
+        layer_obj.apply_settings.assert_not_called()
 
 
 def test_with_no_capped_layer_shown_nothing_is_applied(monkeypatch):
