@@ -104,6 +104,41 @@ def test_a_frame_the_preview_counted_names_the_preview(sim_scope, caplog):
     assert f'{gain.change.credits[0].seq}:preview' in line
 
 
+def test_frames_the_captures_drain_counted_name_the_drain(sim_scope, caplog):
+    """With nothing else counting, the capture's own drain meets the
+    change's count, and its record and its log line say so."""
+    imaging = sim_scope.imaging
+    imaging.set_gain_db(imaging.get_gain_db() + 1.0)
+
+    with caplog.at_level(logging.INFO, logger='LVP.api'):
+        imaging.capture_and_wait(accept_dark=True)
+
+    gain = _judgment(imaging.last_capture_info['frame_record'], 'gain')
+    assert gain.counts
+    assert [credit.by for credit in gain.change.credits] == [Counter.DRAIN] * gain.change.skip
+    line = next(r.getMessage() for r in caplog.records if 'capture_and_wait: frame' in r.message)
+    assert ','.join(f'{c.seq}:drain' for c in gain.change.credits) in line
+
+
+def test_frames_a_grab_counted_name_the_grab(sim_scope, caplog):
+    """An ungated grab after a change counts the frames it takes, so a
+    capture after enough of them waits on none, and its record and its log
+    line name the grab as what counted them."""
+    imaging = sim_scope.imaging
+    imaging.set_gain_db(imaging.get_gain_db() + 1.0)
+    for _ in range(imaging.frame_validity.changes()['gain'].skip):
+        imaging.get_image(force_new_capture=True)
+
+    with caplog.at_level(logging.INFO, logger='LVP.api'):
+        imaging.capture_and_wait(accept_dark=True)
+
+    gain = _judgment(imaging.last_capture_info['frame_record'], 'gain')
+    assert gain.counts
+    assert [credit.by for credit in gain.change.credits] == [Counter.GRAB] * gain.change.skip
+    line = next(r.getMessage() for r in caplog.records if 'capture_and_wait: frame' in r.message)
+    assert ','.join(f'{c.seq}:grab' for c in gain.change.credits) in line
+
+
 def test_a_move_is_in_force_when_its_axis_settles(sim_scope):
     motion = sim_scope.motion
     motion.home('Z')
