@@ -324,6 +324,7 @@ def show_blocking_progress_popup(
     message: str,
     action_text: str,
     on_action: typing.Callable,
+    action_shown: bool,
 ):
     """Modal progress popup: a live-updatable message + one action button.
 
@@ -337,10 +338,13 @@ def show_blocking_progress_popup(
         message: Initial progress text; update via the returned setter.
         action_text: The escape action's button label.
         on_action: Called with no args when the user clicks the action.
+        action_shown: Whether the action is on screen as the popup opens.
 
     Returns:
-        (popup, set_message) -- dismiss the popup from the caller's own
-        completion path; set_message(text) updates the progress line.
+        (popup, set_message, set_action_shown) -- dismiss the popup from
+        the caller's own completion path; set_message(text) updates the
+        progress line; set_action_shown(shown) shows or hides the action,
+        for an escape that applies only while there is something to escape.
     """
     content = BoxLayout(orientation='vertical', padding=10, spacing=10)
     label = _make_message_label(message)
@@ -348,7 +352,6 @@ def show_blocking_progress_popup(
 
     button_layout = BoxLayout(size_hint_y=None, height='40dp', spacing=10)
     action_button = Button(text=action_text)
-    button_layout.add_widget(action_button)
     content.add_widget(button_layout)
 
     popup = Popup(
@@ -365,9 +368,19 @@ def show_blocking_progress_popup(
     def _set_message(text: str):
         label.text = text
 
+    def _set_action_shown(shown: bool):
+        # Out of the tree, not just invisible, so the dialog's log line names
+        # only what is on screen; the row keeps its height, so the message
+        # does not move.
+        if shown and action_button.parent is None:
+            button_layout.add_widget(action_button)
+        elif not shown and action_button.parent is not None:
+            button_layout.remove_widget(action_button)
+
     action_button.bind(on_press=_on_action)
+    _set_action_shown(action_shown)
     popup.open()
-    return popup, _set_message
+    return popup, _set_message, _set_action_shown
 
 
 def show_confirmation_popup(

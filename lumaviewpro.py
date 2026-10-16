@@ -1300,11 +1300,12 @@ class LumaViewProApp(TooltipMixin, App):
         if self._close_thread is not None:
             return
         self._prepare_the_close()
-        popup, set_message = show_blocking_progress_popup(
+        popup, set_message, set_discard_shown = show_blocking_progress_popup(
             title='Closing',
             message='Closing LumaViewPro...',
             action_text='Discard Remaining Video Frames',
             on_action=ctx.session.discard_close_drain,
+            action_shown=any(item.discardable for item in ctx.session.live_work.work),
         )
         self._close_thread = threading.Thread(
             target=self._shut_the_session_down, name='session-close', daemon=True
@@ -1321,6 +1322,7 @@ class LumaViewProApp(TooltipMixin, App):
                     else 'Closing LumaViewPro...'
                 )
                 set_message(message)
+                set_discard_shown(any(item.discardable for item in work))
                 # The percent and count left are progress; the work still
                 # waited on is the stage.
                 gui_logger.display(
