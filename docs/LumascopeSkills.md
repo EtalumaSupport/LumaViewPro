@@ -685,7 +685,17 @@ shown layer is displayed in false colour and the overlays it wants; the
 channel (the lit LED, else the shown channel's layer, `session.shown_channel`;
 see "The shown channel"), the folder (`live_folder/Manual`, per channel when
 `separate_folder_per_channel`),
-the name, summing, format and encoding come from the session's settings. It
+the name, summing, format and encoding come from the session's settings. The
+channel is read as the frame is taken, and the camera holds that layer's
+stored exposure, gain and auto-gain for the frame, whatever came before: a
+run, a go-to, a written setting, an LED lit through `scope.illumination`.
+When the light changes while the frame is taken, the still is taken again on
+the new light's layer, within the first capture's budget. After a raw camera
+write (`scope.imaging.set_gain_db`, `set_exposure_ms` and the other raw
+doors) the written values stand, and the frame's record says so:
+`frame_record.held_layer` is None, the file's `camera_held_a_layer` False.
+`scope.imaging.get_held_layer()` answers which layer's settings the camera
+holds now, or None. It
 returns at once with an `Operation` of the paths written, the unmarked file
 first; an overlay adds a second file from the same frame. It is done once the
 still has let go of the camera, so a second still asked then is not refused
@@ -705,7 +715,11 @@ paths = session.manual_capture.capture(
 It raises `HardwareCommandRefusedError` with reason `'capture_in_flight'` while an
 earlier still is running, `'exclusive_activity_running'` while a run, a
 diagnostic or a home holds the scope, and `'scope_disconnected'` when the camera is
-closed. When it returns, the still is on the camera lane. The operation raises
+closed. While a manual recording runs, a still whose layer the camera does not
+hold is refused from its operation with `'exclusive_activity_running'`
+(`holder` `'recording'`) before anything is written, since changing the camera
+would change the recording's frames; a still on the layer the camera holds is
+taken. When it returns, the still is on the camera lane. The operation raises
 `ObjectiveUnknownError` when the objective in the light path is unknown
 (nothing captured), `CaptureFailedError` (the capture's own reason:
 `no_frame`, `deadline_expired`, `chunk_rejected`) when no frame passed, and
@@ -993,7 +1007,7 @@ session.go_to_step(protocol, 2)                       # turret, X, Y, Z, the lay
 going = session.start_go_to_step(protocol, 3)         # the same, started; going.result() is the moves' outcome
 ```
 
-**Putting a layer on the camera.** `session.apply_layer_camera(layer)` puts the layer's stored exposure, gain and auto-gain on the camera and waits; it returns the gain and exposure now in effect. A stored auto-gain arms the live auto loop, capped to the layer's channel class; a camera without hardware auto-gain applies the layer manually. Bring-up applies BF this way (skipped with no camera, or on a scope with no BF layer), and `go_to_step` the step's layer. Refused: a name that is no layer with `ArgumentRefusedError` (`layer_unknown`); a layer this scope lacks with `HardwareCommandRefusedError` (`axis_absent`, `MissingPart.layer`); a scope held by a run (an autofocus is one) or a diagnostic, or with no camera connected (`not_connected`), with `HardwareCommandRefusedError`; a setting the camera refuses raises `CameraSettingRejected` with the other settings applied.
+**Putting a layer on the camera.** `session.apply_layer_camera(layer)` puts the layer's stored exposure, gain and auto-gain on the camera and waits; it returns the gain and exposure now in effect. Nothing is written when the camera already holds the layer at its stored settings (`scope.imaging.get_held_layer()`), so a repeat costs no frames. A stored auto-gain arms the live auto loop, capped to the layer's channel class; a camera without hardware auto-gain applies the layer manually. Bring-up applies BF this way (skipped with no camera, or on a scope with no BF layer), and `go_to_step` the step's layer. Refused: a name that is no layer with `ArgumentRefusedError` (`layer_unknown`); a layer this scope lacks with `HardwareCommandRefusedError` (`axis_absent`, `MissingPart.layer`); a scope held by a run (an autofocus is one) or a diagnostic, or with no camera connected (`not_connected`), with `HardwareCommandRefusedError`; a setting the camera refuses raises `CameraSettingRejected` with the other settings applied.
 
 ```python
 session.apply_layer_camera('Blue')                   # {'gain_db': ..., 'exposure_ms': ...} now in effect
@@ -1364,6 +1378,7 @@ still states the major version.
 | level 15 | `capabilities.camera_has_clock_latch`, and a capture's `frame_record` carries `clock_mapping`: the camera's clock mapped onto the host's steady clock beside the grab (`ClockMapping`, `modules.lumascope_api.frame_record`), None on a camera without a latch. |
 | level 16 | A camera timing record (`data/camera_timing/<model>.json`) is schema 2: its `validity` group holds, per source and direction, an `apply_delay_us` or `delivered_frames` spread (`p50`, `p95`, `max`) over its `trials` with the `provenance` of the run that measured it, and `FrameValidity.check_timing_record(record)` (`modules.frame_validity`) refuses any other with `ValueError`, as bring-up does with `InstallationFileError`; `FrameValidity.load_camera_timing` is gone, and frame validity drains at its own counts. |
 | level 17 | A capture's `frame_record` carries `saturated_fraction` (measured when `all_ones_check` is asked) and `dark` (judged when an LED is lit and `accept_dark` is not), each None when not measured, and answers `blown`; `last_capture_info` no longer carries `dark_saved`. A blown or dark frame is not logged as a warning by the capture; a run's outcome counts them (`captures.saturated`, `captures.dark`, each a tuple of `TakenCapture`). |
+| level 18 | `imaging.get_held_layer()` answers which layer's stored settings the camera holds, None after a raw camera write; a capture's `frame_record` carries `held_layer`, and its saved file `camera_held_a_layer` (and `camera_held_layer` when one was). A manual still has the camera hold its name's layer for its frame, and is refused while a manual recording runs when that would change the camera. |
 
 ### Configuration queries
 
@@ -3197,6 +3212,7 @@ Reached through `session.scope.imaging`.
 - `get_delivered_rate`
 - `get_exposure_ms`
 - `get_gain_db`
+- `get_held_layer`
 - `get_image` (in-process)
 - `get_image_from_buffer` (in-process)
 - `get_live_camera_settings`
