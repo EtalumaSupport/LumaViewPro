@@ -646,7 +646,9 @@ image = session.scope.imaging.capture_and_wait()    # returns frame-valid grab
 # A blown frame is never refused either: with all_ones_check=True a frame
 # at least 98% saturated is grabbed again once and, blown again, RETURNED;
 # the record's saturated_fraction is the measured fraction and .blown says
-# whether it is blown (both None without the flag). Neither is logged as a
+# whether it is blown (both None without the flag); a saved file's metadata
+# carries 'saturated_fraction' and 'dark' where they were judged. Neither
+# is logged as a
 # warning by the capture: a run tells each step's first and counts the
 # rest (RunOutcome.captures.saturated / .dark), a still tells its own.
 # timeout_s is the retry budget for the content checks (dark floor,
@@ -1843,8 +1845,8 @@ image = scope.imaging.get_image(force_to_8bit=False)   # keep native 12/16-bit
 # any capture with nothing commanded. With a channel lit, a frame with
 # essentially no lit pixel is retried until timeout_s -- which heals a
 # stale pre-LED frame when a lit one is on its way -- and then RETURNED,
-# its record's .dark True (last_capture_info['frame_record']). It is
-# never refused:
+# its record's .dark True (last_capture_info['frame_record']), and its
+# saved file's metadata 'dark' True. It is never refused:
 # pixel content cannot distinguish an LED that failed from a genuinely
 # dark sample, so darkness is reported, not acted on. accept_dark=True
 # (keyword-only, default False) skips the measurement entirely for the

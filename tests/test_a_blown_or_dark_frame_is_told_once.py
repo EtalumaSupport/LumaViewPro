@@ -157,3 +157,17 @@ def test_a_blown_still_is_told_once_by_the_still(tmp_path, monkeypatch, caplog):
         '[ManualCapture] The still is 100% saturated -- likely over-exposure or a '
         'stale camera gain; the frame may be unusable.'
     ], told
+
+
+def test_a_saved_file_states_what_its_frame_was(tmp_path, monkeypatch):
+    from modules.image_utils import read_postproc_input_metadata
+    from tests.test_manual_capture_member import _capture, _open_session, _settings
+
+    with _open_session(_settings(tmp_path)) as session:
+        # The still's light is on, so a frame with no lit pixel is judged dark.
+        session.scope.illumination.led_on('BF', 50)
+        _frames_made(monkeypatch, session.scope._camera_driver, _dark)
+        paths = _capture(session)
+
+    saved = read_postproc_input_metadata(paths[0])
+    assert (saved.get('dark'), saved.get('saturated_fraction')) == (True, 0.0), saved

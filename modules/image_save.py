@@ -489,6 +489,12 @@ def generate_image_metadata(
     # Whether the frame counts for each change, and how long after it came.
     if frame_record.judgments:
         metadata['frame_validity'] = [j.fields() for j in frame_record.judgments]
+    # What the capture found the frame to be, where it judged: a dark file
+    # otherwise reads as any other black image, a blown one as a bright field.
+    if frame_record.saturated_fraction is not None:
+        metadata['saturated_fraction'] = frame_record.saturated_fraction
+    if frame_record.dark is not None:
+        metadata['dark'] = frame_record.dark
 
     return metadata
 
