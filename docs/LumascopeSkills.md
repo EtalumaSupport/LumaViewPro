@@ -1106,11 +1106,12 @@ session.motion_enabled           # user stage motion allowed right now
 session.manual_recording.is_recording  # a manual recording is LIVE (not its file drain)
 session.recording_active         # a manual recording holds the scope and is live (False in its drain)
 session.live_work                # everything the session is still doing, one read: .work is a tuple of
-                                 # WorkItem(kind, name, left, percent) -- what holds the scope, a run starting
+                                 # WorkItem(kind, name, left, percent, discardable) -- what holds the scope, a run starting
                                  # or ending, a recording's file, a run's video, a run's images, its post-run
                                  # builds, post-processing builds running and queued, a support report or logs
                                  # zip, a still being saved; left counts frames, images or builds still to
-                                 # finish, percent is a build's last progress; .closing while the close runs,
+                                 # finish, percent is a build's last progress, discardable marks the video
+                                 # frames discard_close_drain drops; .closing while the close runs,
                                  # .closed once the session shut down
 session.status                   # what the scope is doing, one read, the first a client makes: Status(live_work,
                                  # axes, parts, camera_streaming) -- live_work as above; axes as
@@ -4015,6 +4016,7 @@ Reached through returned by `scope.runtime_state.get_labware` and `scope.wellpla
 
 Reached through `LiveWork.work`.
 
+- `discardable`
 - `kind`
 - `left`
 - `name`

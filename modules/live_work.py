@@ -37,7 +37,7 @@ LOGS_ZIP = 'logs_zip'
 STILL = 'still'
 
 
-@api_fields('kind', 'name', 'left', 'percent')
+@api_fields('kind', 'name', 'left', 'percent', 'discardable')
 @dataclasses.dataclass(frozen=True)
 class WorkItem:
     """One piece of work the session is still doing.
@@ -49,12 +49,16 @@ class WorkItem:
             when it counts them; None when it does not.
         percent: How far a build has got, as its own progress last said;
             None before it has said, or for work that reports none.
+        discardable: True when ``ScopeSession.discard_close_drain`` drops
+            what this work has left; a host offers that discard only while
+            some item says so.
     """
 
     kind: str
     name: str
     left: int | None = None
     percent: float | None = None
+    discardable: bool = False
 
 
 @api_fields('work', 'closing', 'closed')

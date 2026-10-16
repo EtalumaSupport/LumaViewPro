@@ -734,6 +734,7 @@ class ScopeSession:
                     live_work.RECORDING_FINISH,
                     "A recording's file",
                     left=recording.pending_writes,
+                    discardable=True,
                 )
             )
         if runner.video_drain_busy:
@@ -742,6 +743,7 @@ class ScopeSession:
                     live_work.RUN_VIDEO_FINISH,
                     "A run's video",
                     left=runner.video_pending_writes,
+                    discardable=True,
                 )
             )
         if self.protocol_files_draining:

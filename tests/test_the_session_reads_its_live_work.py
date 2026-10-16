@@ -111,6 +111,30 @@ def test_a_runs_video_finish_counts_its_frames(sim_session, monkeypatch):
     assert _item(sim_session, live_work.RUN_VIDEO_FINISH).left == 7
 
 
+def test_only_the_video_finishes_are_discardable(sim_session, monkeypatch):
+    """The discard drops a recording's file and a run's video frames, and
+    those two items alone say so, so a host offers the discard only while
+    there is something for it to drop."""
+    held = sim_session.activity_claim.try_claim('diagnostic')
+    # Stand-ins by design: the simulator cannot yet hold a recording's or a
+    # run's video drain open, as the counting tests above.
+    sim_session.manual_recording._engine = MagicMock(
+        is_recording=False, is_draining=True, pending_writes=3
+    )
+    writer = MagicMock(video_busy=True, video_pending_writes=4)
+    monkeypatch.setattr(sim_session.sequenced_capture_runner, '_image_writer', writer)
+    try:
+        work = sim_session.live_work.work
+        assert {item.kind: item.discardable for item in work} == {
+            live_work.DIAGNOSTIC: False,
+            live_work.RECORDING_FINISH: True,
+            live_work.RUN_VIDEO_FINISH: True,
+        }
+    finally:
+        sim_session.manual_recording._engine = None
+        held.release()
+
+
 def test_a_finished_runs_images_count_down(sim_session):
     from modules.protocol_image_writer import RunWriteBatch
 
