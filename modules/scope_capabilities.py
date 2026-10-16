@@ -158,6 +158,7 @@ def _resolve_lens_focal_length_mm(motorconfig, optics: dict) -> float | None:
     'camera_analog_gain_max_db',
     'camera_binning_sizes',
     'buffer_bit_depth',
+    'camera_has_clock_latch',
     'camera_max_frame_size',
     'camera_max_significant_bits',
     'camera_model',
@@ -323,6 +324,13 @@ class ScopeCapabilities:
     horizontal stripe artifacts). Gates the UI toggle. Pylon Bsl feature;
     absent on cameras without it."""
 
+    camera_has_clock_latch: bool = False
+    """True if the host can latch the camera's timestamp clock and read it,
+    which maps the camera's clock onto the host's: each capture's
+    ``FrameRecord.clock_mapping``. False on a camera without a latch
+    (IDS, the FX2), or whose tick rate is unknown, whose frames carry no
+    mapping."""
+
     camera_supports_black_level: bool = False
     """True if the camera's black level can be set
     (``scope.imaging.set_black_level``). The black level is read with
@@ -421,6 +429,7 @@ class ScopeCapabilities:
         camera_supports_conversion_gain_mode = False
         camera_supports_line_noise_reduction = False
         camera_supports_black_level = False
+        camera_has_clock_latch = False
         if camera is not None:
             camera_model = camera.model_name or None
             camera_serial_number = camera.device_serial or None
@@ -467,6 +476,12 @@ class ScopeCapabilities:
                 lambda: bool(camera.supports_black_level()),
                 False,
             )
+            # A latch maps the camera's clock only at a known tick rate.
+            camera_has_clock_latch = camera_timestamp_tick_hz is not None and _probe(
+                'camera.supports_clock_latch',
+                lambda: bool(camera.supports_clock_latch()),
+                False,
+            )
             camera_reports_temperature = _probe(
                 'camera.supports_temperature',
                 lambda: bool(camera.supports_temperature()),
@@ -479,6 +494,7 @@ class ScopeCapabilities:
                 f'conversion_gain_mode={camera_supports_conversion_gain_mode} '
                 f'line_noise_reduction={camera_supports_line_noise_reduction} '
                 f'black_level={camera_supports_black_level} '
+                f'clock_latch={camera_has_clock_latch} '
                 f'temperature={camera_reports_temperature}'
             )
 
@@ -510,4 +526,5 @@ class ScopeCapabilities:
             camera_supports_conversion_gain_mode=camera_supports_conversion_gain_mode,
             camera_supports_line_noise_reduction=camera_supports_line_noise_reduction,
             camera_supports_black_level=camera_supports_black_level,
+            camera_has_clock_latch=camera_has_clock_latch,
         )

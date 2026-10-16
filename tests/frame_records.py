@@ -28,6 +28,7 @@ def frame_record(**overrides) -> FrameRecord:
         'frame_id': None,
         'binning_size': 1,
         'camera_model': None,
+        'clock_mapping': None,
         'judgments': (),
     }
     fields.update(overrides)

@@ -297,6 +297,9 @@ class SimulatedCamera(Camera):
         # The camera's clock: its own epoch, unrelated to the host's, so a
         # mapping between the two has to be measured, as on a real body.
         self._clock_offset_ns = random.randrange(10**12)
+        # What the last latch_clock latched; 0, as a body's value node
+        # reads before its first latch.
+        self._latched_ticks = 0
         # The camera's frame counter: one per exposure started.
         self._frames_started = 0
         # How many made frames wait on the way to the host before the
@@ -966,6 +969,17 @@ class SimulatedCamera(Camera):
 
     def supports_temperature(self) -> bool:
         return bool(self.active)
+
+    def supports_clock_latch(self) -> bool:
+        return bool(self.active)
+
+    def latch_clock(self) -> None:
+        with self._lock:
+            self._latched_ticks = self.camera_clock_ticks()
+
+    def latched_clock_ticks(self) -> int:
+        with self._lock:
+            return self._latched_ticks
 
     # ------------------------------------------------------------------
     # Frame rate

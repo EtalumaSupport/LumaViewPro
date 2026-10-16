@@ -65,6 +65,7 @@ def _record(illumination_ma=None):
         frame_id=7,
         binning_size=1,
         camera_model='simulated',
+        clock_mapping=None,
         judgments=(),
     )
 

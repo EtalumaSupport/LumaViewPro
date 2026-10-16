@@ -244,6 +244,32 @@ class TestPylon(unittest.TestCase):
             f'Errors: {result["errors"]}',
         )
 
+    def test_the_clock_latch_counts_the_host_s_time_at_the_stated_rate(self):
+        """Two latches of the camera's clock, while it grabs, are as far
+        apart in its ticks as the host's steady clock says, at the tick
+        rate the driver states. Each latch is bracketed alone, the read
+        after it outside the bracket; the brackets are printed, since half
+        of one is what a mapping of the two clocks can claim."""
+        self.assertTrue(self.camera.supports_clock_latch(), 'no TimestampLatch on this camera')
+        hz = self.camera.timestamp_tick_frequency_hz
+
+        def latch():
+            before = time.monotonic_ns()
+            self.camera.latch_clock()
+            after = time.monotonic_ns()
+            return (before + after) // 2, after - before, self.camera.latched_clock_ticks()
+
+        first_ns, first_bracket, first_ticks = latch()
+        time.sleep(0.5)
+        second_ns, second_bracket, second_ticks = latch()
+        print(f'\n  tick hz {hz}; brackets {first_bracket} ns, {second_bracket} ns')
+
+        host_s = (second_ns - first_ns) / 1e9
+        camera_s = (second_ticks - first_ticks) / hz
+        self.assertAlmostEqual(
+            camera_s, host_s, delta=(first_bracket + second_bracket) / 2e9 + 1e-4
+        )
+
     def test_worker_thread_alive_after_connect(self):
         """After PylonCamera.connect() returns, the Stage B worker thread
         must be alive (daemon, named 'PylonImageGrabWorker') so the SDK

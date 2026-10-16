@@ -659,6 +659,12 @@ image = session.scope.imaging.capture_and_wait(timeout_s=2.0)
 # carries counts, frames_after, ms_after_write, ms_after_in_force (motion:
 # from the axis settling) and the change's credits, each frame counted
 # toward its wait with who counted it (drain, grab or preview).
+# Beside each grab a capture maps the camera's timestamp clock onto the
+# host's steady clock (time.monotonic_ns): the record's clock_mapping, a
+# ClockMapping (host_ns, camera_ticks, tick_hz, uncertainty_ns, half the
+# latch's bracket), None on a camera without a latch
+# (capabilities.camera_has_clock_latch: Basler yes, IDS and the FX2 no).
+# mapping.camera_ticks_at(host_ns) is the camera's clock at a host time.
 for judgment in session.scope.imaging.judge_frame(frame):   # frame: from a listener
     print(judgment.change.source, judgment.counts)
 ```
@@ -1346,6 +1352,7 @@ still states the major version.
 | level 12 | A capture returns a frame or raises: `capture_and_wait` and `get_image` raise `CaptureFailedError` (`no_frame`, `deadline_expired`, `chunk_rejected` with its `setting`) for no frame and `HardwareCommandRefusedError` (`not_connected`, `camera_not_streaming`) for a camera gone or not streaming, and never answer None; `capture_failure_cause` and the failure flags of `last_capture_info` (`not_ready`, `drain_failed`, `deadline_expired`, `chunk_rejected`) are gone; `run_camera_bandwidth_test` answers `num_frames_failed` and `failed_by_reason` where it answered `num_frames_none` and `num_frames_error`. |
 | level 13 | A frame listener is called `cb(frame)` with the camera's read-only `Frame` record (`image`, `seq`, `timestamp`, `arrived_ns`, `significant_bits`, `chunks`), where it was called `cb(image, timestamp, chunks)`; the image a capture returns (`capture_and_wait`, `get_image`) is read-only. |
 | level 14 | `imaging.judge_frame(frame)` answers whether a frame counts for each source's last recorded change (a `Judgment` per change, carrying its `Change` and the `Credit` of each frame counted toward it), and `frame_validity.count_frame` takes who counted (`by=Counter`); a capture's `frame_record` carries `judgments`, and its saved file `frame_validity`. |
+| level 15 | `capabilities.camera_has_clock_latch`, and a capture's `frame_record` carries `clock_mapping`: the camera's clock mapped onto the host's steady clock beside the grab (`ClockMapping`, `modules.lumascope_api.frame_record`), None on a camera without a latch. |
 
 ### Configuration queries
 
@@ -2274,6 +2281,7 @@ caps.lens_focal_length_mm       # tube lens focal length mm, or None if unavaila
 caps.camera_model               # 'MT9P031-LS620', 'daA3840-45um', etc.; None if no camera or it did not say
 caps.camera_serial_number       # the camera's serial number, or None
 caps.camera_timestamp_tick_hz   # the camera's frame-timestamp clock in Hz, or None (no timestamps)
+caps.camera_has_clock_latch     # the host can latch that clock: each capture's frame_record.clock_mapping
 caps.is_color_native            # True for color-native sensors; False for mono-native (default)
 caps.buffer_bit_depth           # the buffers' width: 8 for an 8-bit-only camera (the FX2), else 16 (uint16; holds 10/12/16-bit data)
 caps.camera_max_significant_bits  # the deepest data depth the camera delivers, by its driver (12 for a Mono12 camera, Basler or IDS; 8 for the FX2); None with no camera
@@ -3286,6 +3294,7 @@ Reached through `session.scope.capabilities`.
 - `buffer_bit_depth`
 - `camera_analog_gain_max_db`
 - `camera_binning_sizes`
+- `camera_has_clock_latch`
 - `camera_max_frame_size`
 - `camera_max_significant_bits`
 - `camera_model`

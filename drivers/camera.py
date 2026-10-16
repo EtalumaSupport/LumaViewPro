@@ -1098,6 +1098,36 @@ class Camera(ABC):
         """
         return False
 
+    # The camera's own clock, the one its Timestamp chunk counts in
+    # (``timestamp_tick_frequency_hz``), read at a moment the host chooses.
+    # The latch and the read of what it latched are two members so a caller
+    # can time the latch alone: the read after it takes time of its own
+    # that is not part of the moment latched.
+
+    def supports_clock_latch(self) -> bool:
+        """Whether the camera can latch its clock for the host to read.
+
+        Raises:
+            HardwareError: The probe failed.
+        """
+        return False
+
+    def latch_clock(self) -> None:
+        """Latch the camera's clock now. Called only when ``supports_clock_latch`` is True.
+
+        Raises:
+            HardwareError: The camera did not take the latch.
+        """
+        raise NotImplementedError(f'{type(self).__name__} has no clock latch')
+
+    def latched_clock_ticks(self) -> int:
+        """The clock the last ``latch_clock`` latched, in the camera's ticks.
+
+        Raises:
+            HardwareError: The read failed.
+        """
+        raise NotImplementedError(f'{type(self).__name__} has no clock latch')
+
     def get_sdk_info(self) -> dict:
         """Return the camera SDK provenance label for diagnostic snapshots.
 

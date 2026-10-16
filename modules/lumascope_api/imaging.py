@@ -46,7 +46,7 @@ from modules.exceptions import (
     MissingPart,
 )
 from modules.frame_validity import Counter, FrameValidity, Judgment
-from modules.lumascope_api.frame_record import FrameRecord
+from modules.lumascope_api.frame_record import ClockMapping, FrameRecord
 from modules.lumascope_api.illumination import live_lit_pairs
 from modules.notification_center import notifications
 from modules.sequential_io_executor import IOTask
@@ -136,10 +136,10 @@ class _Grabbed:
     earliest: Frame
 
 
-def _capture_line(grabbed: _Grabbed, judgments: tuple[Judgment, ...]) -> str:
-    """The one line a successful capture leaves: the frame it returned, and
-    how long after each change it came, so a support bundle shows whether
-    the rule held."""
+def _capture_line(grabbed: _Grabbed, record: FrameRecord) -> str:
+    """The one line a successful capture leaves: the frame it returned, how
+    well the camera's clock was mapped beside it, and how long after each
+    change it came, so a support bundle shows whether the rule held."""
     frame = grabbed.earliest
     frame_id = (frame.chunks or {}).get('FrameID')
     parts = [
@@ -147,6 +147,11 @@ def _capture_line(grabbed: _Grabbed, judgments: tuple[Judgment, ...]) -> str:
     ]
     if grabbed.frame is not frame:
         parts[0] += f' (sum to seq={grabbed.frame.seq})'
+    mapping = record.clock_mapping
+    parts[0] += (
+        ' clock=none' if mapping is None else f' clock=+-{mapping.uncertainty_ns / 1000:.0f}us'
+    )
+    judgments = record.judgments
     for judgment in judgments:
         f = judgment.fields()
         in_force = f' in_force+{f["ms_after_in_force"]}ms' if 'ms_after_in_force' in f else ''
@@ -3538,7 +3543,7 @@ class ImagingAPI:
                     _record_capture_info()
                     raise _camera_not_connected('capture_and_wait') from unread
             if failed is None:
-                _api_log.info(_capture_line(grabbed, judgments))
+                _api_log.info(_capture_line(grabbed, extra['frame_record']))
             _record_capture_info(
                 chunk_exposure_us=chunks.get('ExposureTime'),
                 chunk_gain_db=chunks.get('Gain'),
@@ -3616,7 +3621,28 @@ class ImagingAPI:
             frame_id=int(frame_id) if frame_id is not None else None,
             binning_size=self._binning_size,
             camera_model=camera.camera_model,
+            clock_mapping=self._clock_mapping_for_record(),
             judgments=judgments,
+        )
+
+    def _clock_mapping_for_record(self) -> ClockMapping | None:
+        """The camera's clock mapped onto the host's, beside the grab: the
+        latch alone is bracketed by the host's steady clock, and the read of
+        what it latched follows outside the bracket. None for a camera
+        without a latch. A failed latch or read raises ``HardwareError`` and
+        fails the capture, as a failed black level read does.
+        """
+        camera = self._scope.capabilities
+        if not camera.camera_has_clock_latch:
+            return None
+        before = time.monotonic_ns()
+        self._driver.latch_clock()
+        after = time.monotonic_ns()
+        return ClockMapping(
+            host_ns=(before + after) // 2,
+            camera_ticks=self._driver.latched_clock_ticks(),
+            tick_hz=camera.camera_timestamp_tick_hz,
+            uncertainty_ns=(after - before + 1) // 2,
         )
 
     def _black_level_for_record(self) -> float | None:

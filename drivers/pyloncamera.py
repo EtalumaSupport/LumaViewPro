@@ -1521,6 +1521,39 @@ class PylonCamera(Camera):
             nodemap, 'DeviceTemperature'
         )
 
+    def supports_clock_latch(self) -> bool:
+        """True if the camera exposes the timestamp latch command and its value."""
+        if not self.active:
+            return False
+        try:
+            nodemap = self.active.GetNodeMap()
+            return self._has_node(nodemap, 'TimestampLatch') and self._has_node(
+                nodemap, 'TimestampLatchValue'
+            )
+        except Exception as e:
+            # No disconnect teardown, as in the probes above.
+            raise CameraReadFailedError(f'Clock latch probe failed: {type(e).__name__}: {e}') from e
+
+    def latch_clock(self) -> None:
+        """Execute ``TimestampLatch``. See ``Camera.latch_clock``.
+
+        A failure raises and does not tear the camera down, as a failed
+        read does not: a transient one must not latch a removal.
+        """
+        try:
+            self.active.TimestampLatch.Execute()
+        except Exception as e:
+            raise CameraReadFailedError(f'TimestampLatch failed: {type(e).__name__}: {e}') from e
+
+    def latched_clock_ticks(self) -> int:
+        """Read ``TimestampLatchValue``. See ``Camera.latched_clock_ticks``."""
+        try:
+            return int(self.active.TimestampLatchValue.GetValue())
+        except Exception as e:
+            raise CameraReadFailedError(
+                f'TimestampLatchValue read failed: {type(e).__name__}: {e}'
+            ) from e
+
     def get_sdk_info(self) -> dict:
         """Basler pylon SDK provenance (name + versions) for diagnostics.
 

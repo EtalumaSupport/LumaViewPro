@@ -544,6 +544,7 @@ def _metadata_scope_with_real_imaging(imaging: ImagingAPI, driver) -> SimpleName
             lens_focal_length_mm=None,
             camera_model='simcam',
             camera_timestamp_tick_hz=None,
+            camera_has_clock_latch=False,
         ),
         imaging=imaging,
         diagnostics=SimpleNamespace(
