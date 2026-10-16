@@ -21,7 +21,7 @@ The navigation tests drive the real go_to_step over the #733 stand.
 import ast
 import pathlib
 from types import SimpleNamespace
-from unittest.mock import MagicMock, call
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -88,21 +88,18 @@ def _run_nav(env, preview_on):
     return env.ctx.scope.illumination, env.layer_obj
 
 
-# The one settings apply: show_channel, which reads no button.
-_THE_APPLY = [call()]
-
-
 @pytest.mark.parametrize('preview_on', [True, False])
-def test_nav_applies_the_camera_once_and_drives_no_led_itself(stepnav_env, preview_on):
-    """Whatever the preview state, the GUI's part is one settings apply with
-    no LED intent read from the button, and no LED command of its own: the
-    preview is the Session's, inside its go_to_step
+def test_nav_drives_no_camera_and_no_led_itself(stepnav_env, preview_on):
+    """Whatever the preview state, the GUI's part is the one Session call,
+    with no LED intent read from the button, no LED command and no settings
+    apply of its own: the preview and the step's layer on the camera are the
+    Session's, inside its go_to_step
     (tests/test_going_to_a_step_is_the_sessions_move.py)."""
     ill, layer_obj = _run_nav(stepnav_env, preview_on=preview_on)
     assert ill.apply_transition.call_count == 0
     assert ill.led_off.call_count == 0, 'nav must not queue its own led_off'
     assert stepnav_env.ctx.session.start_go_to_step.call_count == 1
-    assert layer_obj.apply_settings.call_args_list == _THE_APPLY
+    layer_obj.apply_settings.assert_not_called()
     assert layer_obj.ids['enable_led_btn'].state == 'normal'
 
 

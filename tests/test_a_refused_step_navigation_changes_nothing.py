@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import threading
 from types import SimpleNamespace
-from unittest.mock import MagicMock, call
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -231,10 +231,11 @@ class TestAnAdmissibleNavigationStillWorks:
         assert nav_env.session_go_to_step.call_args.args[1] == -1
         assert nav_env.protocol_settings.curr_step == 3
 
-    def test_the_layer_is_applied_once_the_session_has_gone(self, nav_env):
+    def test_the_gui_makes_no_apply_of_its_own_once_the_session_has_gone(self, nav_env):
+        """The Session's go-to puts the step's layer on the camera itself."""
         _navigate(ON_TURRET, step_idx=1)
 
-        assert nav_env.layer_obj.apply_settings.call_args_list == [call()]
+        nav_env.layer_obj.apply_settings.assert_not_called()
 
 
 class TestARunNavigationOnlyDisplays:
