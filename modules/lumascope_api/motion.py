@@ -228,17 +228,13 @@ class MotionAPI:
 
         # TimedLock on the hot axis-state lock records contention to
         # lock_trace.csv when profile_trace_enabled is set in settings.json.
-        # The structural invariant
-        # "never hold _axis_state_lock across a serial call" is enforced
-        # at runtime via warn_hold_threshold_ms=1.0 -- any acquire-release
-        # cycle that holds the lock for more than 1 ms emits a warning
-        # log naming the lock + thread + duration, regardless of trace
-        # state. Catches future code-introducers who hold across a serial
-        # round-trip (typically 30-200 ms on the motor bus).
+        # Never hold it across a serial call (30-200 ms on the motor bus), a
+        # log line, a listener or a move's publish: every motion read waits
+        # behind it. Its bodies are read for that at build time
+        # (tests/guards/test_the_axis_state_lock_holds_only_state_work.py);
+        # a wall-clock hold time measures the scheduler, not the body.
         self._axis_state_lock = profile_trace.TimedLock(
-            threading.Lock(),
-            name='motion._axis_state_lock',
-            warn_hold_threshold_ms=1.0,
+            threading.Lock(), name='motion._axis_state_lock'
         )
 
         # Motion monitor wakeup -- set when any axis starts MOVING, cleared

@@ -472,15 +472,15 @@ class TestThreadSafety:
             assert len(line.split(',')) == 3
 
 
-class TestTimedLockInvariantThreshold:
-    """warn_hold_threshold_ms fires a logger.warning when a TimedLock is
-    held longer than the configured threshold. Runs regardless of the
-    trace-CSV feature flag -- the invariant is a structural guard, not
-    instrumentation. The LVP logger has propagate=False in production
-    so caplog can't observe it directly; tests mock the logger.warning
-    call instead."""
+class TestTimedLockLogsNothing:
+    """A TimedLock is instrumentation only: whatever its hold, it logs
+    nothing. What may run under a lock is read at build time (for the
+    axis-state lock, tests/guards/test_the_axis_state_lock_holds_only_state_work.py),
+    because a wall-clock hold measures the scheduler as much as the body.
+    The LVP logger has propagate=False in production so caplog can't
+    observe it directly; the test mocks the logger.warning call instead."""
 
-    def test_warns_when_hold_exceeds_threshold(self, monkeypatch):
+    def test_a_long_hold_logs_no_warning(self, monkeypatch):
         warnings_captured = []
         import lvp_logger
 
@@ -489,71 +489,10 @@ class TestTimedLockInvariantThreshold:
             'warning',
             lambda msg, *a, **kw: warnings_captured.append(msg),
         )
-        lock = profile_trace.TimedLock(
-            threading.Lock(),
-            name='test_invariant_lock',
-            warn_hold_threshold_ms=1.0,
-        )
+        lock = profile_trace.TimedLock(threading.Lock(), name='long_hold')
         with lock:
-            time.sleep(0.005)  # 5ms; well above 1ms threshold
-        assert any('test_invariant_lock' in m and 'exceeded' in m for m in warnings_captured), (
-            f'Expected hold-threshold warning; got: {warnings_captured}'
-        )
-
-    def test_no_warning_under_threshold(self, monkeypatch):
-        warnings_captured = []
-        import lvp_logger
-
-        monkeypatch.setattr(
-            lvp_logger.logger,
-            'warning',
-            lambda msg, *a, **kw: warnings_captured.append(msg),
-        )
-        lock = profile_trace.TimedLock(
-            threading.Lock(),
-            name='test_under_threshold',
-            warn_hold_threshold_ms=100.0,
-        )
-        with lock:
-            pass  # essentially zero hold
-        assert not any('test_under_threshold' in m for m in warnings_captured)
-
-    def test_default_no_threshold_no_warning(self, monkeypatch):
-        # No warn_hold_threshold_ms means no invariant check; the TimedLock
-        # is pure instrumentation (off when profile_trace_enabled is false).
-        warnings_captured = []
-        import lvp_logger
-
-        monkeypatch.setattr(
-            lvp_logger.logger,
-            'warning',
-            lambda msg, *a, **kw: warnings_captured.append(msg),
-        )
-        lock = profile_trace.TimedLock(threading.Lock(), name='no_threshold')
-        with lock:
-            time.sleep(0.01)  # 10ms; would exceed any reasonable threshold
-        assert not any('no_threshold' in m for m in warnings_captured)
-
-    def test_warning_active_when_trace_off(self, monkeypatch):
-        """Threshold check fires regardless of ENABLE_PROFILE_TRACE state."""
-        # _reset_profile_trace fixture leaves trace OFF.
-        assert profile_trace.ENABLE_PROFILE_TRACE is False
-        warnings_captured = []
-        import lvp_logger
-
-        monkeypatch.setattr(
-            lvp_logger.logger,
-            'warning',
-            lambda msg, *a, **kw: warnings_captured.append(msg),
-        )
-        lock = profile_trace.TimedLock(
-            threading.Lock(),
-            name='trace_off_threshold_check',
-            warn_hold_threshold_ms=0.5,
-        )
-        with lock:
-            time.sleep(0.003)
-        assert any('trace_off_threshold_check' in m for m in warnings_captured)
+            time.sleep(0.01)
+        assert not any('long_hold' in m for m in warnings_captured)
 
 
 class TestSettingsActivation:
