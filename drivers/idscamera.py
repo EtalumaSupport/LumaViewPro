@@ -1296,86 +1296,105 @@ class IDSCamera(Camera):
         except Exception as e:
             _cam_log.warning(f'[CAM Class ] _query_dynamic_capabilities failed: {e}')
 
-    def init_camera_config(self):
+    def init_camera_config(self) -> None:
+        """Apply Etaluma's canonical camera configuration once on connect.
+
+        Each step runs whatever an earlier one did: a step the camera did
+        not take is logged and named in ``config_not_applied``, which
+        bring-up reports, and the camera stays connected with the rest
+        applied.
+        """
         if not self.active:
             return
+        self.config_not_applied = ()
 
+        def load_default_user_set():
+            self.remote_nodemap.FindNode('UserSetSelector').SetCurrentEntry('Default')
+            self.remote_nodemap.FindNode('UserSetLoad').Execute()
+            self.remote_nodemap.FindNode('UserSetLoad').WaitUntilDone()
+            # UserSetLoad reset the hardware PixelFormat to the user-set
+            # default; drop the cache so the set_pixel_format() below
+            # actually applies -- its same-value short-circuit must not
+            # match a stale cached value against freshly-reset hardware.
+            self._pixel_format_cache = None
+
+        def pixel_format():
+            # Log the camera's actual PixelFormat options once at init --
+            # the supported list is camera-specific (IDS uses names like
+            # Mono10g40IDS / Mono12g24IDS, and not all sensors expose
+            # Mono8). Operators need this in the log to diagnose any future
+            # logical-to-camera mismatch.
+            supported = self.get_supported_pixel_formats()
+            logger.info(f'[CAM Class ] Supported PixelFormat entries: {list(supported)}')
+            # Couple to the live nodemap, not a model-keyed static profile:
+            # any IDS body is driven by what its PixelFormat node actually
+            # advertises, the same way gain / exposure / AOI are read live.
+            # Record the real formats on the profile so a body whose model
+            # string matched no static profile entry still reports hardware
+            # truth downstream and selects a valid format here.
+            if supported:
+                self.profile.pixel_formats = list(supported)
+                preferred = self._select_default_pixel_format(supported)
+            else:
+                # The live AvailableEntries read returned nothing (transient
+                # SDK error). Fall back to the curated profile's formats
+                # rather than leaving the format unset -- an unset format
+                # streams at the UserSet default depth and would feed the
+                # unpack pipeline the wrong bit depth.
+                _cam_log.warning(
+                    '[CAM Class ] Live PixelFormat read empty; falling back to the profile formats'
+                )
+                preferred = self._select_default_pixel_format(self.profile.pixel_formats)
+            if not preferred:
+                _cam_log.error(
+                    '[CAM Class ] No usable mono PixelFormat available; leaving the format unset'
+                )
+                return False
+            return self.set_pixel_format(preferred)
+
+        def orientation():
+            # Apply the horizontal flip only when this body advertises
+            # ReverseX as writable -- a capability check via the node's
+            # access status, not an assumption every body has it. Orientation
+            # nodes vary by body/mount.
+            _reverse_x = self._diag_probe_node(self.remote_nodemap, 'ReverseX')
+            if _reverse_x.get('access') in ('ReadWrite', 'WriteOnly'):
+                self.remote_nodemap.FindNode('ReverseX').SetValue(True)
+            else:
+                logger.info(
+                    f'[CAM Class ] ReverseX not writable on this body '
+                    f'({_reverse_x.get("access", "absent")}); leaving default orientation'
+                )
+
+        def trigger_off():
+            # Ensure freerun mode (no external trigger)
+            try:
+                self.remote_nodemap.FindNode('TriggerMode').SetCurrentEntry('Off')
+            except Exception:
+                pass
+
+        steps = [
+            ('the Default user set', load_default_user_set),
+            ('the pixel format', pixel_format),
+            ('the image orientation (ReverseX)', orientation),
+            ('free-run trigger off', trigger_off),
+            # Set geometry and exposure BEFORE configuring the rate -- the
+            # throughput ceiling and the AcquisitionFrameRate max both
+            # depend on the active resolution, so the rate config has to
+            # follow the ROI set. 1900x1900 is the standard LVP camera
+            # resolution (the Pylon driver sets the same), matching the
+            # scope's centered square field; the prior 1920x1528 was an
+            # arbitrary driver-local divergence.
+            ('exposure 10 ms', lambda: self.exposure_t(10)),
+            ('the 1900x1900 frame', lambda: self.set_frame_size(1900, 1900)),
+            ('free-run acquisition', self._configure_free_run),
+            # One-shot diagnostic so a bundle shows why the free-run rate is
+            # what it is (esp. whether the Component=Link keystone applied).
+            ('the free-run state log', self._log_free_run_state),
+        ]
         try:
             with self.update_camera_config():
-                self.remote_nodemap.FindNode('UserSetSelector').SetCurrentEntry('Default')
-                self.remote_nodemap.FindNode('UserSetLoad').Execute()
-                self.remote_nodemap.FindNode('UserSetLoad').WaitUntilDone()
-                # UserSetLoad reset the hardware PixelFormat to the user-set
-                # default; drop the cache so the set_pixel_format() below
-                # actually applies -- its same-value short-circuit must not
-                # match a stale cached value against freshly-reset hardware.
-                self._pixel_format_cache = None
-                # Log the camera's actual PixelFormat options once at init --
-                # the supported list is camera-specific (IDS uses names like
-                # Mono10g40IDS / Mono12g24IDS, and not all sensors expose
-                # Mono8). Operators need this in the log to diagnose any future
-                # logical-to-camera mismatch.
-                supported = self.get_supported_pixel_formats()
-                logger.info(f'[CAM Class ] Supported PixelFormat entries: {list(supported)}')
-                # Couple to the live nodemap, not a model-keyed static profile:
-                # any IDS body is driven by what its PixelFormat node actually
-                # advertises, the same way gain / exposure / AOI are read live.
-                # Record the real formats on the profile so a body whose model
-                # string matched no static profile entry still reports hardware
-                # truth downstream and selects a valid format here.
-                if supported:
-                    self.profile.pixel_formats = list(supported)
-                    preferred = self._select_default_pixel_format(supported)
-                else:
-                    # The live AvailableEntries read returned nothing (transient
-                    # SDK error). Fall back to the curated profile's formats
-                    # rather than leaving the format unset -- an unset format
-                    # streams at the UserSet default depth and would feed the
-                    # unpack pipeline the wrong bit depth.
-                    _cam_log.warning(
-                        '[CAM Class ] Live PixelFormat read empty; falling back '
-                        'to the profile formats'
-                    )
-                    preferred = self._select_default_pixel_format(self.profile.pixel_formats)
-                if preferred:
-                    self.set_pixel_format(preferred)
-                else:
-                    _cam_log.error(
-                        '[CAM Class ] No usable mono PixelFormat available; '
-                        'leaving the format unset'
-                    )
-                # Apply the horizontal flip only when this body advertises
-                # ReverseX as writable -- a capability check via the node's
-                # access status, not an assumption every body has it. Orientation
-                # nodes vary by body/mount; gating here keeps a body without a
-                # writable ReverseX from skipping the rest of init (TriggerMode,
-                # exposure, set_frame_size, free-run config all follow).
-                _reverse_x = self._diag_probe_node(self.remote_nodemap, 'ReverseX')
-                if _reverse_x.get('access') in ('ReadWrite', 'WriteOnly'):
-                    self.remote_nodemap.FindNode('ReverseX').SetValue(True)
-                else:
-                    logger.info(
-                        f'[CAM Class ] ReverseX not writable on this body '
-                        f'({_reverse_x.get("access", "absent")}); leaving default orientation'
-                    )
-                # Ensure freerun mode (no external trigger)
-                try:
-                    self.remote_nodemap.FindNode('TriggerMode').SetCurrentEntry('Off')
-                except Exception:
-                    pass
-                # Set geometry and exposure BEFORE configuring the rate -- the
-                # throughput ceiling and the AcquisitionFrameRate max both
-                # depend on the active resolution, so the rate config has to
-                # follow the ROI set. 1900x1900 is the standard LVP camera
-                # resolution (the Pylon driver sets the same), matching the
-                # scope's centered square field; the prior 1920x1528 was an
-                # arbitrary driver-local divergence.
-                self.exposure_t(10)
-                self.set_frame_size(1900, 1900)
-                self._configure_free_run()
-                # One-shot diagnostic so a bundle shows why the free-run rate is
-                # what it is (esp. whether the Component=Link keystone applied).
-                self._log_free_run_state()
+                self.config_not_applied = self._apply_config_steps(steps)
         except Exception as e:
             _cam_log.error(f'[CAM Class ] init_camera_config failed: {e}')
 

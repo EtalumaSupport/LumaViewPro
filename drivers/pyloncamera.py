@@ -1592,89 +1592,104 @@ class PylonCamera(Camera):
         Wrapped in `update_camera_config()` so the caller does not
         need a separate stop/start cycle.
 
-        Exception-tolerant: SDK failures are logged but not raised --
-        the camera remains connected with whatever subset of settings
-        applied successfully.
+        Each step runs whatever an earlier one did: a step the camera did
+        not take is logged and named in ``config_not_applied``, which
+        bring-up reports, and the camera stays connected with the rest
+        applied. A RuntimeException is the camera gone: it is marked
+        disconnected and nothing more is tried.
         """
         camera = self.active
         if camera is None:
             return
+        self.config_not_applied = ()
 
+        def load_default_user_set():
+            # Per Basler doc user-sets.html: "Loading a user set is
+            # only possible when the camera is idle, i.e., not
+            # acquiring images." update_camera_config() stops the
+            # grab loop, but on slow hosts SDK StopGrabbing may not
+            # have fully settled by the time we arrive here. Bounded
+            # poll surfaces the condition in logs (warning, not
+            # silent failure inside the outer try/except).
+            for _ in range(20):
+                if not self.is_grabbing():
+                    break
+                time.sleep(0.05)
+            else:
+                _cam_log.warning(
+                    '[CAM Class ] init_camera_config: camera still '
+                    'grabbing 1 s after update_camera_config stop; '
+                    'UserSetLoad may fail'
+                )
+            camera.UserSetSelector.SetValue('Default')
+            camera.UserSetLoad.Execute()
+
+        def free_run():
+            # Defense in depth -- 'Default' user set is documented to
+            # leave AcquisitionMode=Continuous + TriggerMode=Off
+            # (free-run is the Basler default). Re-assert explicitly
+            # so a firmware bug, factory misconfig, or future user-set
+            # change that leaks a different default surfaces here
+            # rather than silently breaking free-run acquisition.
+            # Per-write try/except: tolerate node-not-available on
+            # camera models that don't expose the parameter.
+            try:
+                camera.AcquisitionMode.SetValue('Continuous')
+            except Exception as e:
+                logger.debug(f'[CAM Class ] AcquisitionMode set skipped: {e}')
+            try:
+                # Per Basler doc free-run-image-acquisition.html:
+                # "Repeat the steps above for all available trigger
+                # types." A camera that exposes AcquisitionStart /
+                # FrameBurstStart / etc. needs all of them off, not
+                # just FrameStart, or a stray non-Off type leaks
+                # through and blocks free-run.
+                for entry in camera.TriggerSelector.GetEntries():
+                    try:
+                        if not entry.IsAvailable():
+                            continue
+                        camera.TriggerSelector.SetValue(entry.GetSymbolic())
+                        camera.TriggerMode.SetValue('Off')
+                    except Exception as e_inner:
+                        logger.debug(
+                            f'[CAM Class ] TriggerMode=Off skipped for one trigger type: {e_inner}'
+                        )
+            except Exception as e:
+                logger.debug(f'[CAM Class ] TriggerMode set skipped: {e}')
+
+        steps = [
+            ('the Default user set', load_default_user_set),
+            ('free-run acquisition', free_run),
+            # Enable per-frame chunks for gain/exposure/identity/timestamp.
+            # Must happen here -- ChunkModeActive is locked while grabbing
+            # (genicam.AccessException). Settings persist across
+            # subsequent stop/start cycles.
+            ('the validity chunks', self._enable_validity_chunks),
+            ('the timestamp tick frequency', self._read_timestamp_tick_frequency),
+            ('the Mono8 pixel format', lambda: self.set_pixel_format(pixel_format='Mono8')),
+            ('auto-gain off', lambda: self.auto_gain(state=False)),
+            # Set explicit gain -- camera default after UserSetLoad is undefined
+            ('gain 0 dB', lambda: self.gain(0.0)),
+            ('the image orientation (ReverseX)', lambda: camera.ReverseX.SetValue(True)),
+        ]
+        if not self._use_camera_emulation:
+            steps.append(('the auto-gain and focus defaults', self.init_auto_gain_focus))
+        steps += [
+            ('exposure 10 ms', lambda: self.exposure_t(exposure_ms=10)),
+            # 1900x1900: bench-witnessed driver-init default. Both
+            # production cameras (a2A3536 ace 2 and daA3840 dart)
+            # support this size; the 2100x2100 production-max ROI
+            # lives at the UI input layer (data/scopes.json driven)
+            # not at the driver default. Falsify: if a future
+            # camera body's sensor doesn't reach 1900 in either
+            # axis, the SetValue will clamp + warn from set_frame_size.
+            ('the 1900x1900 frame', lambda: self.set_frame_size(w=1900, h=1900)),
+        ]
         try:
             with self.update_camera_config():
-                # Per Basler doc user-sets.html: "Loading a user set is
-                # only possible when the camera is idle, i.e., not
-                # acquiring images." update_camera_config() stops the
-                # grab loop, but on slow hosts SDK StopGrabbing may not
-                # have fully settled by the time we arrive here. Bounded
-                # poll surfaces the condition in logs (warning, not
-                # silent failure inside the outer try/except).
-                for _ in range(20):
-                    if not self.is_grabbing():
-                        break
-                    time.sleep(0.05)
-                else:
-                    _cam_log.warning(
-                        '[CAM Class ] init_camera_config: camera still '
-                        'grabbing 1 s after update_camera_config stop; '
-                        'UserSetLoad may fail'
-                    )
-                camera.UserSetSelector.SetValue('Default')
-                camera.UserSetLoad.Execute()
-                # Defense in depth -- 'Default' user set is documented to
-                # leave AcquisitionMode=Continuous + TriggerMode=Off
-                # (free-run is the Basler default). Re-assert explicitly
-                # so a firmware bug, factory misconfig, or future user-set
-                # change that leaks a different default surfaces here
-                # rather than silently breaking free-run acquisition.
-                # Per-write try/except: tolerate node-not-available on
-                # camera models that don't expose the parameter.
-                try:
-                    camera.AcquisitionMode.SetValue('Continuous')
-                except Exception as e:
-                    logger.debug(f'[CAM Class ] AcquisitionMode set skipped: {e}')
-                try:
-                    # Per Basler doc free-run-image-acquisition.html:
-                    # "Repeat the steps above for all available trigger
-                    # types." A camera that exposes AcquisitionStart /
-                    # FrameBurstStart / etc. needs all of them off, not
-                    # just FrameStart, or a stray non-Off type leaks
-                    # through and blocks free-run.
-                    for entry in camera.TriggerSelector.GetEntries():
-                        try:
-                            if not entry.IsAvailable():
-                                continue
-                            camera.TriggerSelector.SetValue(entry.GetSymbolic())
-                            camera.TriggerMode.SetValue('Off')
-                        except Exception as e_inner:
-                            logger.debug(
-                                f'[CAM Class ] TriggerMode=Off skipped for '
-                                f'one trigger type: {e_inner}'
-                            )
-                except Exception as e:
-                    logger.debug(f'[CAM Class ] TriggerMode set skipped: {e}')
-                # Enable per-frame chunks for gain/exposure/identity/timestamp.
-                # Must happen here -- ChunkModeActive is locked while grabbing
-                # (genicam.AccessException). Settings persist across
-                # subsequent stop/start cycles.
-                self._enable_validity_chunks()
-                self._read_timestamp_tick_frequency()
-                self.set_pixel_format(pixel_format='Mono8')
-                self.auto_gain(state=False)
-                # Set explicit gain -- camera default after UserSetLoad is undefined
-                self.gain(0.0)
-                camera.ReverseX.SetValue(True)
-                if not self._use_camera_emulation:
-                    self.init_auto_gain_focus()
-                self.exposure_t(exposure_ms=10)
-                # 1900x1900: bench-witnessed driver-init default. Both
-                # production cameras (a2A3536 ace 2 and daA3840 dart)
-                # support this size; the 2100x2100 production-max ROI
-                # lives at the UI input layer (data/scopes.json driven)
-                # not at the driver default. Falsify: if a future
-                # camera body's sensor doesn't reach 1900 in either
-                # axis, the SetValue will clamp + warn from set_frame_size.
-                self.set_frame_size(w=1900, h=1900)
+                self.config_not_applied = self._apply_config_steps(
+                    steps, stop_on=(genicam.RuntimeException,)
+                )
         except genicam.RuntimeException as e:
             _cam_log.error(
                 f'[CAM Class ] Camera communication error during init_camera_config: {e}'

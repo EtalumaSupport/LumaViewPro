@@ -49,6 +49,7 @@ import modules.binning as binning
 from modules.exceptions import (
     ArgumentRefusedError,
     BinningSubstitutedNotice,
+    CameraConfigNotAppliedNotice,
     CameraNotAvailableError,
     CameraSettingRejected,
     ConfigurationDefectError,
@@ -1025,6 +1026,12 @@ class Lumascope:
         # capability values must not masquerade as a camera's answer.
         frame_width, frame_height = config.frame_width, config.frame_height
         binning_size = config.binning_size
+        if self.camera_connected and self._camera_driver.config_not_applied:
+            notifications.report_outcome(
+                CameraConfigNotAppliedNotice(self._camera_driver.config_not_applied),
+                solicited=False,
+                category='Camera',
+            )
         if self.camera_connected:
             available_binning = self.capabilities.camera_binning_sizes
             if binning_size not in available_binning:

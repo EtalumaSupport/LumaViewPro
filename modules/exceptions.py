@@ -510,6 +510,28 @@ class BinningSubstitutedNotice(Notice, Exception):  # noqa: N818 -- a notice, no
         )
 
 
+class CameraConfigNotAppliedNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error
+    """The camera came up without some of its connect-time configuration.
+
+    Each step of the configuration is tried whatever an earlier one did, so
+    the camera runs with the rest applied; the ones it did not take are
+    named, the image orientation among them when it is one.
+
+    Attributes:
+        not_applied: The configuration steps the camera did not take, by name.
+    """
+
+    title = 'Camera configuration incomplete'
+    reason = 'camera_config_not_applied'
+
+    def __init__(self, not_applied: tuple[str, ...]):
+        self.not_applied = tuple(not_applied)
+        super().__init__(
+            f'The camera came up without {", ".join(self.not_applied)}; the rest of its '
+            f'configuration was applied. Reconnect the camera, then restart LumaViewPro.'
+        )
+
+
 class FrameRefittedNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error
     """The saved frame is larger than this scope delivers; bring-up ran at the largest it does.
 
