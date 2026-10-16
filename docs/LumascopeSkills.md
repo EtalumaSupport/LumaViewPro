@@ -1353,6 +1353,7 @@ still states the major version.
 | level 13 | A frame listener is called `cb(frame)` with the camera's read-only `Frame` record (`image`, `seq`, `timestamp`, `arrived_ns`, `significant_bits`, `chunks`), where it was called `cb(image, timestamp, chunks)`; the image a capture returns (`capture_and_wait`, `get_image`) is read-only. |
 | level 14 | `imaging.judge_frame(frame)` answers whether a frame counts for each source's last recorded change (a `Judgment` per change, carrying its `Change` and the `Credit` of each frame counted toward it), and `frame_validity.count_frame` takes who counted (`by=Counter`); a capture's `frame_record` carries `judgments`, and its saved file `frame_validity`. |
 | level 15 | `capabilities.camera_has_clock_latch`, and a capture's `frame_record` carries `clock_mapping`: the camera's clock mapped onto the host's steady clock beside the grab (`ClockMapping`, `modules.lumascope_api.frame_record`), None on a camera without a latch. |
+| level 16 | A camera timing record (`data/camera_timing/<model>.json`) is schema 2: its `validity` group holds, per source and direction, an `apply_delay_us` or `delivered_frames` spread (`p50`, `p95`, `max`) over its `trials` with the `provenance` of the run that measured it, and `FrameValidity.check_timing_record(record)` (`modules.frame_validity`) refuses any other with `ValueError`, as bring-up does with `InstallationFileError`; `FrameValidity.load_camera_timing` is gone, and frame validity drains at its own counts. |
 
 ### Configuration queries
 
