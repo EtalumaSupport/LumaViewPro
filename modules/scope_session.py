@@ -2607,10 +2607,13 @@ class ScopeSession:
 
     @api
     def light_shown_channel(self, lit: bool) -> ShownChannel:
-        """Light the shown channel's LED at its stored current, or darken it.
+        """Light the shown channel's LED at its stored current, or darken it,
+        then put its stored camera settings on the camera.
 
         Every other LED is dark either way. A layer this unit gives no LED
-        has nothing to light, and stays dark.
+        has nothing to light, and stays dark. The camera is left on the
+        layer's stored settings (``apply_layer_camera``; nothing is written
+        when it holds them already), unless no camera is connected.
 
         Returns:
             The shown channel now.
@@ -2626,6 +2629,8 @@ class ScopeSession:
                 home holds the scope.
             ConfigurationDefectError: ``'layers_unresolved'``, this scope's
                 layers could not be resolved.
+            CameraSettingRejected: the camera refused a setting of the
+                layer; its LED is already lit or dark.
         """
         layer = self._shown_channel.layer
         self.scope.layer_identity.refuse_unless_on_scope(
@@ -2633,6 +2638,8 @@ class ScopeSession:
         )
         self._show_leds(layer, lit)
         self._set_shown_channel(ShownChannel(layer, lit))
+        if self.scope.camera_connected:
+            self.apply_layer_camera(layer)
         return self._shown_channel
 
     @api(in_process=True, event=ShownChannel)
@@ -3313,9 +3320,10 @@ class ScopeSession:
         )
 
     def _apply_bring_up_layer(self) -> None:
-        """Put BF's stored camera settings on the camera, as the GUI opens on BF.
+        """Show BF dark and put its stored camera settings on the camera, as the GUI opens on BF.
 
-        Skipped, and said so once, when there is no camera to set (bring-up
+        Bring-up has darkened every LED, so BF is shown dark whatever was
+        shown before. The camera half is skipped, and said so once, when there is no camera to set (bring-up
         has already reported it missing; a second report would only repeat
         it) or this scope has no BF layer (a newer unit whose layers this
         release cannot resolve still comes up). The values are capped to the
@@ -3324,6 +3332,7 @@ class ScopeSession:
         up.
         """
         layer = common_utils.DEFAULT_LAYER
+        self._set_shown_channel(ShownChannel(layer, lit=False))
         if not self.scope.camera_connected:
             logger.info(f'[Session  ] bring-up: no camera, so {layer} is not applied to it')
             return

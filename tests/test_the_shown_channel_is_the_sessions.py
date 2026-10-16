@@ -102,3 +102,27 @@ def test_a_runs_step_shows_its_layer_lit_only_when_its_led_is(tmp_path):
         assert heard[:2] == [('Lumi', False), ('BF', True)]
     finally:
         built.shutdown()
+
+
+def test_lighting_the_shown_channel_leaves_the_camera_on_its_layer(session):
+    """A still held another layer (a raw LED named it); lighting the shown
+    layer afterwards puts the camera back on the shown layer's settings."""
+    imaging = session.scope.imaging
+    session.update_settings('Blue.exposure_ms', 88.0)
+    session.scope.illumination.led_on('Blue', 100.0)
+    session.manual_capture.capture(false_color_on=False).result(timeout=30)
+    session.scope.illumination.led_off('Blue')
+
+    session.light_shown_channel(True)
+
+    assert imaging.get_held_layer() == 'BF'
+    assert round(imaging.get_exposure_ms(), 3) == session.settings['BF']['exposure_ms']
+
+
+def test_bring_up_again_shows_bf_dark(session):
+    session.show_channel('Blue')
+    session.light_shown_channel(True)
+
+    session.configure_scope()
+
+    assert session.shown_channel == ShownChannel('BF', lit=False)
