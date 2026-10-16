@@ -70,6 +70,8 @@ def _record(imaging, chunks):
         lit=frozenset({(3, 50.0)}),
         captured_at=GRABBED_AT,
         judgments=(),
+        saturated_fraction=None,
+        dark=None,
     )
 
 

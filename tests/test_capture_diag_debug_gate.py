@@ -18,7 +18,7 @@ from unittest.mock import MagicMock
 import numpy as np
 
 from tests.protocol_drives import lent_run_claim
-from tests.frame_records import plate
+from tests.frame_records import frame_record, plate
 from modules.protocol_image_writer import RunWriteBatch
 from modules.image_mode import ImageCaptureConfig
 from modules.protocol_image_writer import ProtocolImageWriter
@@ -58,6 +58,9 @@ def _drive_capture(monkeypatch, debug_enabled):
     scope.capabilities.has_turret = False
     scope.led_connected = False
     scope.imaging.capture_and_wait.return_value = np.zeros((4, 4), dtype=np.uint8)
+    # A capture hands on its frame's record; a stub's would answer every fact
+    # it carries (blown, dark) with a truthy stand-in.
+    scope.imaging.last_capture_info = {'frame_record': frame_record()}
 
     def quiet(*args, **kwargs):
         return None

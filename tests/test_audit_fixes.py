@@ -2310,6 +2310,9 @@ def _bare_protocol_writer(**overrides):
         writer._scope.runtime_state.resolve_current_objective.return_value = ('4x Oly', {})
         # A brought-up scope's camera is present; a failed capture asks.
         writer._scope.imaging.camera_removed = False
+        # A capture hands on its frame's record; a stub's would answer every
+        # fact it carries (blown, dark) with a truthy stand-in.
+        writer._scope.imaging.last_capture_info = {'frame_record': frame_record()}
     return writer
 
 

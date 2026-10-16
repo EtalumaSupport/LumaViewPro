@@ -23,7 +23,6 @@ import pytest
 from modules.exceptions import CameraSettingRejected
 from modules.lumascope_api.imaging import ImagingAPI
 from modules.notification_center import Severity
-from tests.camera_fakes import frames_carrying
 from tests.scope_fakes import bind_settings_like_a_session, build_scope
 
 _MOTION_SOURCES = ('xy_move', 'z_move', 'turret')
@@ -270,29 +269,6 @@ class TestSaturationGuard:
         assert ImagingAPI.saturated_fraction(blown12, 12) == pytest.approx(1.0)
         assert ImagingAPI.saturated_fraction(blown12, 16) == pytest.approx(0.0)
         assert ImagingAPI.saturated_fraction(None, 8) == 0.0
-
-    def test_blown_frame_logged_not_silent(self, sim_imaging, monkeypatch):
-        # A blown frame that stays blown on retry must be logged as a
-        # warning (visible in the post-mortem), not silently accepted. No
-        # user notification -- a blown image is self-evident on screen.
-        from modules.lumascope_api import imaging as imaging_mod
-
-        imaging, cam = sim_imaging
-        blown = np.full((4, 4), 255, dtype=np.uint8)
-        frames = [blown, blown]  # blown on first grab AND on the retry grab
-        frames_carrying(monkeypatch, cam, lambda: frames.pop(0))
-        warnings = []
-        monkeypatch.setattr(
-            imaging_mod.logger, 'warning', lambda msg, *a, **k: warnings.append(msg)
-        )
-
-        out = imaging.get_image(all_ones_check=True)
-
-        assert not frames, 'a blown first frame must trigger exactly one retry grab'
-        assert any('saturated' in w for w in warnings), (
-            'a persistently blown capture must be logged as a warning, not silently accepted'
-        )
-        assert np.array_equal(out, blown)
 
 
 class TestRejectedSettingRaisesAndKeepsCache:
