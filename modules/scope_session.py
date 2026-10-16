@@ -3368,10 +3368,11 @@ class ScopeSession:
         """Show BF dark and put its stored camera settings on the camera, as the GUI opens on BF.
 
         Bring-up has darkened every LED, so BF is shown dark whatever was
-        shown before. The camera half is skipped, and said so once, when there is no camera to set (bring-up
-        has already reported it missing; a second report would only repeat
-        it) or this scope has no BF layer (a newer unit whose layers this
-        release cannot resolve still comes up). The values are capped to the
+        shown before. The camera half is skipped, and said so once, when
+        there is no camera to set (bring-up has already reported it missing;
+        a second report would only repeat it) or this scope has no BF layer
+        (a newer unit whose layers this release cannot resolve still comes
+        up). The values are capped to the
         camera's range first, so a refusal here is the camera failing a
         write, and it fails bring-up like any other part that does not come
         up.
