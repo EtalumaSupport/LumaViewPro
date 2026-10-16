@@ -264,6 +264,10 @@ def test_inactive_driver_returns_absent_default():
 # each with the reason it is exempt. A future getter added to ImagingAPI must
 # land in CONVERTED_GETTERS (with sweep coverage) or here (with a reason).
 EXCLUDED = {
+    'get_held_layer': (
+        "the API's own record of which layer it put on the camera; no camera read, "
+        'so no sentinel to contain'
+    ),
     'get_image': 'capture path; documented None-on-failure contract, not a cached value read',
     'get_image_from_buffer': 'capture path; returns the latest buffered frame, no SDK value read',
     'capture_and_wait': 'capture path; documented None-on-failure contract',
@@ -810,6 +814,7 @@ def test_save_camera_state_omits_never_read_fields_and_warns(monkeypatch):
     assert snapshot == {
         'tag': 't',
         'auto_gain_arm': None,
+        'held_layer': None,
         'frame_size': {'width': 1936, 'height': 1216},
         'pixel_format': 'Mono12',
     }
@@ -831,6 +836,7 @@ def test_save_camera_state_carries_both_fields_without_warning(monkeypatch):
         'gain_db': 12.5,
         'exposure_ms': 50.0,
         'auto_gain_arm': None,
+        'held_layer': None,
         'frame_size': {'width': 1936, 'height': 1216},
         'pixel_format': 'Mono12',
     }

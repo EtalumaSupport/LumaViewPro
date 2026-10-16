@@ -116,7 +116,16 @@ def _dispatches(path: Path):
                     and call.func.attr == '_dispatch_camera'
                 ):
                     timeout = next(k.value for k in call.keywords if k.arg == 'timeout_s')
-                    yield cls.name, fn, call.args[0], timeout
+                    impl = call.args[0]
+                    # A raw door hands its body over through _no_layers_write,
+                    # which runs the same body.
+                    if (
+                        isinstance(impl, ast.Call)
+                        and isinstance(impl.func, ast.Attribute)
+                        and impl.func.attr == '_no_layers_write'
+                    ):
+                        impl = impl.args[0]
+                    yield cls.name, fn, impl, timeout
 
 
 def _impl_names(cls_methods, fn: ast.FunctionDef, impl: ast.expr) -> list[str]:
