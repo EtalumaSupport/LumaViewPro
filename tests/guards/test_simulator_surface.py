@@ -97,7 +97,10 @@ _BOARD_PAIRS = (
 #
 # What the current entries cover: timing-mode controls and TIMING_*
 # constants (test-harness affordances, on every simulator),
-# `load_specimen` plus the camera's virtual-specimen focus modeling
+# `load_specimen` plus the camera's virtual-specimen focus modeling, the
+# camera's sensor pipeline depth and clock (`SENSOR_PIPELINE_FRAMES`,
+# `TIMESTAMP_TICK_HZ`, `camera_clock_ticks`, which the Pylon driver gains
+# as a latch of its body's clock),
 # (`set_focal_z`, `get_nominal_focal_z`, ...), the camera's `hold_frames` (a
 # stalled stream, set from the --sim-camera-stall launch argument), the
 # motor's `hold_travel` (a move held part of the way, so a test acts on a
@@ -114,7 +117,7 @@ _BOARD_PAIRS = (
 _SIM_ONLY_NAME_BUDGET = {
     'LEDBoard': 4,
     'MotorBoard': 17,
-    'Camera': 19,
+    'Camera': 22,
 }
 
 # Parameter divergences that stay until the simulators gain a shared

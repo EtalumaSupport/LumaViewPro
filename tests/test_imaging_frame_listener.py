@@ -164,8 +164,8 @@ def test_integration_basic_fanout_via_simulated_camera():
         scope.imaging.remove_frame_listener(listener)
         _stop_sim_pump(scope)
 
-    # Sim has no chunk surface; chunks should always be None.
-    assert all(r.chunks is None for r in received)
+    # The simulated camera stamps chunks as a Basler body does.
+    assert all({'FrameID', 'Timestamp'} <= set(r.chunks) for r in received)
     # Payload shape: image is a numpy array, ts is a datetime.
     import datetime
     import numpy as np

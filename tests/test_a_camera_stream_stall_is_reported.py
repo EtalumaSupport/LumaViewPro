@@ -22,7 +22,7 @@ import time
 
 import pytest
 
-from drivers.camera_profiles import simulated_exposure_delay_frames
+from drivers.simulated_camera import SimulatedCamera
 import modules.video_cadence as video_cadence
 from modules.exceptions import CameraStreamStalledError
 from modules.lumascope_api.imaging import ImagingAPI
@@ -120,7 +120,7 @@ class TestWhatIsNotAStall:
         imaging.set_exposure_ms(800.0)
         assert imaging.exposure_ms_cached == 800.0, 'precondition: the long exposure took'
         # The frames the camera had started come at the old, short exposure.
-        in_flight = simulated_exposure_delay_frames()
+        in_flight = SimulatedCamera.SENSOR_PIPELINE_FRAMES
         assert _wait_for(lambda: imaging._frames_delivered() > at_change + in_flight, 3.0)
         started = time.monotonic()
         before = imaging._frames_delivered()
@@ -153,7 +153,7 @@ class TestWhatIsNotAStall:
         with caplog.at_level(logging.INFO):
             at_drop = imaging._frames_delivered()
             imaging.set_exposure_ms(5.0)
-            in_flight = simulated_exposure_delay_frames()
+            in_flight = SimulatedCamera.SENSOR_PIPELINE_FRAMES
             # The frames in flight, and one at the short exposure behind them.
             assert _wait_for(lambda: imaging._frames_delivered() > at_drop + in_flight + 1, 5.0)
             assert shown == [], 'the frames in the pipeline were reported as a stall'

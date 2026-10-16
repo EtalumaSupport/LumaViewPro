@@ -1,7 +1,8 @@
 """The protocol capture line logs the exposure and gain the saved file records.
 
-The line read only the camera's chunk values, which only Pylon stamps, so on
-the FX2, IDS and the simulator it said ``exp_ms=na gain_db=na`` while the
+The line read only the camera's chunk values, which only a Basler body (and
+the simulated camera, which stamps as one) carries, so on the FX2 and IDS it
+said ``exp_ms=na gain_db=na`` while the
 saved file carried the applied values from the frame record. It now reads the
 frame record, and marks a value that is not the frame's own chunk
 ``(applied)``.
@@ -28,11 +29,9 @@ def _writer_over(scope_like):
 
 @pytest.fixture
 def live_scope():
-    scope = build_scope(simulate=True)
+    # A Classic scope: its FX2 camera stamps no chunks.
+    scope = build_scope(simulate=True, sim_model='LS620')
     bind_settings_like_a_session(scope)
-    scope._led_driver.set_timing_mode('fast')
-    scope._motion_driver.set_timing_mode('fast')
-    scope._camera_driver.set_timing_mode('fast')
     scope.imaging.enable_streaming()
     yield scope
     scope.imaging.disable_streaming()
@@ -45,7 +44,7 @@ def test_a_camera_without_chunks_logs_the_applied_values_marked_applied(live_sco
     image = live_scope.imaging._capture_and_wait_impl(accept_dark=True, timeout_s=1.0)
     assert image is not None
     info = live_scope.imaging.last_capture_info
-    assert info['chunk_exposure_us'] is None, 'the simulator stamps no chunks'
+    assert info['chunk_exposure_us'] is None, 'the FX2 stamps no chunks'
 
     evidence = _writer_over(live_scope)._capture_evidence(image, 255)
 

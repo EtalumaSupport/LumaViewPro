@@ -435,7 +435,6 @@ class TestLoadCameraTimingLumascope:
     def test_a_scope_waits_the_counts_its_cameras_timing_file_measured(self, tmp_path, monkeypatch):
         """The record sets the counts its scope's invalidations wait; sources
         the record leaves out keep the shipped ones."""
-        import drivers.simulated_camera as simulated_camera
         from drivers import camera_profiles
 
         record = tmp_path / 'measured.json'
@@ -443,9 +442,6 @@ class TestLoadCameraTimingLumascope:
         # The record's location is the installation's; pointing it at a test's
         # file is the one seam that does not write into the data folder.
         monkeypatch.setattr(camera_profiles, 'timing_record_path', lambda profile: record)
-        # A stand-in by design: the simulated camera reads the same record for
-        # its frame pipeline's exposure count, which this one leaves out.
-        monkeypatch.setattr(simulated_camera, 'simulated_exposure_delay_frames', lambda: 2)
 
         scope = build_scope(simulate=True)
         fv = scope.imaging.frame_validity

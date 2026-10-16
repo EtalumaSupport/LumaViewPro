@@ -3562,9 +3562,9 @@ class ImagingAPI:
         """The instrument's account of the frame just grabbed, on the grab's lane.
 
         Exposure and gain come from the frame's own chunk values where the
-        camera stamps them (Pylon ace 2 / dart), which are what frame
-        validity checked the frame against. A camera without chunks (IDS,
-        the simulator) answers from a live read here, beside the grab -- the
+        camera stamps them (Pylon ace 2 / dart, the simulated camera), which
+        are what frame validity checked the frame against. A camera without
+        chunks (IDS, FX2) answers from a live read here, beside the grab -- the
         nearest the frame has to its own account, and nothing queued behind
         the grab on this lane can reach it. The live-confirmed surface, not
         the value getters: those answer last-known-good after a failed read,

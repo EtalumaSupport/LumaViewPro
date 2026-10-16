@@ -8,6 +8,7 @@ supports the full Camera ABC interface.
 """
 
 import collections
+import dataclasses
 import datetime
 import pathlib
 from dataclasses import dataclass
@@ -22,7 +23,7 @@ import numpy as np
 
 from lvp_logger import logger
 from drivers.camera import Camera, Frame, FrameGrid, ImageHandlerBase, link_info
-from drivers.camera_profiles import simulated_exposure_delay_frames, simulated_profile
+from drivers.camera_profiles import simulated_profile
 from drivers.exceptions import CameraNoAnswerError, PartAbsentError
 from drivers.registry import camera_registry
 from drivers.simulated_specimen import drift_frames, specimen_field
@@ -62,6 +63,45 @@ class SimulatedStall:
                 f'a stall starts at 0 s or later and lasts more than 0 s; got '
                 f'after_s={self.after_s}, for_s={self.for_s}'
             )
+
+
+@dataclass(frozen=True)
+class SensorExposure:
+    """What one simulated frame was exposed under: the settings the sensor
+    applied when its exposure started, which is what its pixels show.
+
+    A write reaches the camera's register at once -- the frame's chunk
+    reports the register -- but a frame already started comes out under the
+    settings it started with. This record is that difference made
+    readable: a frame's chunk can name the new gain while this names the
+    gain its pixels were made at.
+
+    Attributes:
+        frame_id: The camera's frame counter, as the frame's ``FrameID``
+            chunk carries it.
+        started_ticks: The camera's clock when the exposure started, as the
+            frame's ``Timestamp`` chunk carries it.
+        exposure_us: The exposure applied.
+        gain_db: The gain applied.
+        black_level: The black level applied.
+        illumination_ma: The LED current lighting the sample, summed over
+            the lit addresses; 0 for an unlit field.
+        z_um: Z when the exposure started; None on a scope with no focus axis.
+        z_end_um: Z when the exposure ended (the next frame's start); None
+            until then, and on a scope with no focus axis.
+        depth_of_field_um: The objective's depth of field the frame was
+            focused through; None when no objective is known.
+    """
+
+    frame_id: int
+    started_ticks: int
+    exposure_us: float
+    gain_db: float
+    black_level: float
+    illumination_ma: float
+    z_um: float | None
+    z_end_um: float | None
+    depth_of_field_um: float | None
 
 
 class _SimImageHandler(ImageHandlerBase):
@@ -134,6 +174,18 @@ class SimulatedCamera(Camera):
     TIMING_FAST: ClassVar[dict] = {'grab_delay': 0.0}
     TIMING_REALISTIC: ClassVar[dict] = {'grab_delay': 0.005}  # ~5ms USB transfer overhead
 
+    # How many frames the sensor has started, and not yet delivered, when a
+    # setting is written: they come out under the settings they started
+    # with. The simulated camera's own constant, never the gate's skip count
+    # or the timing record (b) runs on: coupled to either, a test of the gate
+    # passes by construction. Two is the depth of a frame exposing and a
+    # frame reading out; frames held on the way to the host are the
+    # simulated backlog's.
+    SENSOR_PIPELINE_FRAMES = 2
+
+    # The camera's own clock: nanosecond ticks, as a Basler USB3 body's.
+    TIMESTAMP_TICK_HZ = 1_000_000_000
+
     # Free-run delivery ceiling in frames per second. A real camera's
     # sensor readout and link bandwidth bound its frame rate however
     # short the exposure; without a ceiling the simulator free-runs at
@@ -205,9 +257,6 @@ class SimulatedCamera(Camera):
         self._grab_delay = grab_delay
 
         self._exposure_us = 10_000.0  # 10 ms in microseconds
-        # The frames the sensor has started when the exposure changes, which
-        # still come out at the old exposure (see _acquisition_loop).
-        self._exposure_delay_frames = simulated_exposure_delay_frames()
         self._gain = 1.0
         self._black_level = 0.0
         self._pixel_format = 'Mono8'
@@ -222,6 +271,12 @@ class SimulatedCamera(Camera):
         self._frame_rate_target = 30.0
 
         self._lock = threading.RLock()
+
+        # The camera's clock: its own epoch, unrelated to the host's, so a
+        # mapping between the two has to be measured, as on a real body.
+        self._clock_offset_ns = random.randrange(10**12)
+        # The camera's frame counter: one per exposure started.
+        self._frames_started = 0
 
         # A real camera free-runs: while it is grabbing, frames arrive on the
         # SDK's own thread whether or not anyone reads them, and a reader gets
@@ -360,6 +415,9 @@ class SimulatedCamera(Camera):
 
             self._load_profile()
             self.init_camera_config()
+            # The camera stamps each frame on its own clock, read at connect
+            # as the Pylon driver reads its body's tick rate.
+            self.timestamp_tick_frequency_hz = self.TIMESTAMP_TICK_HZ
             # A fresh handler per connection, as the real drivers build one:
             # its frame count starts over, and the durable callback registry
             # is pushed onto it so a listener registered before a reconnect
@@ -584,20 +642,25 @@ class SimulatedCamera(Camera):
 
         Each frame goes through the image handler's ``_store_frame``, which
         counts it, buffers it with its depth and fires the per-frame
-        callbacks. SimulatedCamera has no chunk surface, so chunks is always
-        None -- recording callers already treat None as "skip chunk-derived
-        metadata."
+        callbacks.
 
-        A frame is exposed at the exposure in force when it starts, and the
-        sensor has the dart's measured count of frames started when the
-        exposure changes; those come out at the old exposure, timed and lit
-        by it, and the new one reaches the output after them, as it does on
+        A frame is exposed under the settings in force when it starts
+        (``SensorExposure``), and the sensor has ``SENSOR_PIPELINE_FRAMES``
+        frames started when a setting is written; those come out under the
+        old settings, timed and rendered by them, and the new ones reach the
+        output after them. Each frame carries the chunks a Basler body
+        stamps: its counter and its exposure start on the camera's clock
+        from the snapshot, and the exposure and gain from the register as
+        the frame is tagged, so the chunk leads the content as it does on
         the bench.
         """
         next_due = time.monotonic()
         stalled = False
-        # The exposures of the frames started and not yet delivered, oldest first.
-        in_flight = collections.deque([self._exposure_us] * self._exposure_delay_frames)
+        # The frames started and not yet delivered, oldest first.
+        with self._lock:
+            in_flight = collections.deque(
+                self._start_exposure() for _ in range(self.SENSOR_PIPELINE_FRAMES)
+            )
         while not self._acquisition_stop.is_set():
             handler = self.cam_image_handler
             if handler is None or not self._grabbing:
@@ -620,10 +683,21 @@ class SimulatedCamera(Camera):
                 stalled = False
                 logger.info('[CAM Sim   ] simulated stall: frames resumed')
             with self._lock:
-                in_flight.append(self._exposure_us)
-                image = self._generate_image(in_flight.popleft())
+                started = self._start_exposure()
+                # The newest frame's exposure ends as this one starts.
+                if in_flight:
+                    in_flight[-1] = dataclasses.replace(in_flight[-1], z_end_um=started.z_um)
+                in_flight.append(started)
+                exposure = in_flight.popleft()
+                image = self._generate_image(exposure)
                 bits = self.significant_bits
-                next_exposure_us = in_flight[0] if in_flight else self._exposure_us
+                chunks = {
+                    'FrameID': exposure.frame_id,
+                    'Timestamp': exposure.started_ticks,
+                    'ExposureTime': self._exposure_us,
+                    'Gain': self._gain,
+                }
+                next_exposure_us = in_flight[0].exposure_us
             # The transfer from a real camera to the host takes time after the
             # frame is exposed; the realistic preset charges it here, between
             # the frame being made and the host having it.
@@ -643,6 +717,7 @@ class SimulatedCamera(Camera):
             handler._store_frame(
                 image,
                 datetime.datetime.now(),
+                chunks,
                 arrived_ns=time.monotonic_ns(),
                 significant_bits=bits,
                 wire_bytes=image.nbytes,
@@ -991,29 +1066,57 @@ class SimulatedCamera(Camera):
         self._drift_index += 1
         return self._specimen_cut[1][step], f'specimen {step}'
 
-    def _blur_sigma_px(self) -> float:
-        """The defocus blur at the current Z and objective, as a sigma in pixels."""
+    def camera_clock_ticks(self) -> int:
+        """The camera's clock now, in ``TIMESTAMP_TICK_HZ`` ticks: what a latch of it answers."""
+        return time.monotonic_ns() + self._clock_offset_ns
+
+    def _start_exposure(self) -> SensorExposure:
+        """Start a frame's exposure under the settings in force now. Call with ``_lock`` held.
+
+        Z and the objective are asked here, as the frame starts; a Z the
+        scope cannot read (no focus axis) and an unknown objective are
+        None, which render in focus. Unwired, the camera stands at its own
+        Z with a nominal depth of field, as a camera built with no scope
+        around it must.
+        """
         if self._z_position_func is not None:
             z = self._z_position_func()
-            if z is None:
-                # No focus axis to read: a manual scope is focused by hand,
-                # so its sample is rendered in focus.
-                return 0.0
-            self._z_position = z
+            if z is not None:
+                self._z_position = z
+        else:
+            z = self._z_position
         if self._depth_of_field_func is None:
             dof = self._UNWIRED_DOF_UM
         else:
             dof = self._depth_of_field_func()
-            if dof is None:
-                # No objective is known, so there is no focus to model.
-                return 0.0
-        defocus = abs(self._z_position - self._focal_z)
+        lit_ma = 1.0 if self._illumination_func is None else float(self._illumination_func())
+        self._frames_started += 1
+        return SensorExposure(
+            frame_id=self._frames_started,
+            started_ticks=self.camera_clock_ticks(),
+            exposure_us=self._exposure_us,
+            gain_db=self._gain,
+            black_level=self._black_level,
+            illumination_ma=lit_ma,
+            z_um=z,
+            z_end_um=None,
+            depth_of_field_um=dof,
+        )
+
+    def _blur_sigma_px(self, exposure: SensorExposure) -> float:
+        """The defocus blur ``exposure`` was made with, as a sigma in pixels."""
+        if exposure.z_um is None or exposure.depth_of_field_um is None:
+            # No focus axis to read (a manual scope is focused by hand), or
+            # no objective known: there is no focus to model.
+            return 0.0
+        dof = exposure.depth_of_field_um
+        defocus = abs(exposure.z_um - self._focal_z)
         # A binned pixel is larger, so the same blur spans fewer of them.
         return self._BLUR_PX_PER_DOF * defocus / dof / self._binning
 
-    def _defocus(self, sharp: np.ndarray, source: str) -> np.ndarray:
-        """``sharp`` as the objective images it at the current Z."""
-        sigma = self._blur_sigma_px()
+    def _defocus(self, sharp: np.ndarray, source: str, exposure: SensorExposure) -> np.ndarray:
+        """``sharp`` as the objective imaged it for ``exposure``."""
+        sigma = self._blur_sigma_px(exposure)
         if sigma < 0.3:
             return sharp
         key = (sharp.shape, self._binning, round(sigma, 2))
@@ -1031,6 +1134,7 @@ class SimulatedCamera(Camera):
         dtype,
         max_val: int,
         brightness: float,
+        exposure: SensorExposure,
         *,
         specimen: bool,
     ) -> np.ndarray:
@@ -1047,7 +1151,7 @@ class SimulatedCamera(Camera):
             return np.zeros(sharp.shape, dtype=dtype)
         if specimen:
             brightness = max(0.5, brightness)
-        img = self._defocus(sharp, source)
+        img = self._defocus(sharp, source, exposure)
         if dtype == np.uint16:
             return (img.astype(np.float32) * (max_val / 255.0 * brightness)).astype(dtype)
         if brightness != 1.0:
@@ -1056,8 +1160,9 @@ class SimulatedCamera(Camera):
         # frame after it, and a reader may write into what it was handed.
         return np.array(img)
 
-    def _illumination_scale(self) -> float:
-        """1.0 when the sample is lit, 0.0 when nothing is.
+    @staticmethod
+    def _illumination_scale(exposure: SensorExposure) -> float:
+        """1.0 when the sample was lit for ``exposure``, 0.0 when nothing was.
 
         A camera sees what the illumination gives it, so an unlit field is
         black however long the exposure or however high the gain. Without
@@ -1066,21 +1171,20 @@ class SimulatedCamera(Camera):
         on, a channel left dark through a run -- was reproducible only on
         a bench.
 
-        Unwired, the answer is 1.0: a camera built with no scope around it
-        has no illumination to ask about, and rendering it black would
-        make every standalone camera test describe a fault.
+        Unwired, the sample is lit (``_start_exposure``): a camera built
+        with no scope around it has no illumination to ask about, and
+        rendering it black would make every standalone camera test describe
+        a fault.
 
         Intensity is deliberately not modelled. The question this answers
         is whether there is light, which is what distinguishes a failure
         from a capture; how bright a lit field looks already follows
         exposure and gain.
         """
-        if self._illumination_func is None:
-            return 1.0
-        return 1.0 if self._illumination_func() > 0.0 else 0.0
+        return 1.0 if exposure.illumination_ma > 0.0 else 0.0
 
-    def _generate_image(self, exposure_us: float) -> np.ndarray:
-        """Generate a synthetic image exposed for ``exposure_us``, at the other current settings."""
+    def _generate_image(self, exposure: SensorExposure) -> np.ndarray:
+        """Generate a synthetic image as ``exposure`` made it, at the current geometry and pattern."""
         h = self._height
         w = self._width
 
@@ -1093,8 +1197,8 @@ class SimulatedCamera(Camera):
 
         # Scale brightness by exposure and gain; the gain is held in dB, so it
         # multiplies the signal by 10^(dB/20)
-        raw = (exposure_us / 1_000_000.0) * 10.0 ** (self._gain / 20.0) * 10.0
-        brightness = min(1.0, raw) * self._illumination_scale()
+        raw = (exposure.exposure_us / 1_000_000.0) * 10.0 ** (exposure.gain_db / 20.0) * 10.0
+        brightness = min(1.0, raw) * self._illumination_scale(exposure)
         if self._test_pattern == 'black':
             img = np.zeros((h, w), dtype=dtype)
         elif self._test_pattern == 'white':
@@ -1108,6 +1212,7 @@ class SimulatedCamera(Camera):
                 dtype,
                 max_val,
                 brightness,
+                exposure,
                 specimen=False,
             )
         else:
@@ -1120,13 +1225,15 @@ class SimulatedCamera(Camera):
                     f'{self._test_pattern!r} -- rendering the specimen field'
                 )
             frame, source = self._specimen_frame(h, w)
-            img = self._render_sample(frame, source, dtype, max_val, brightness, specimen=True)
+            img = self._render_sample(
+                frame, source, dtype, max_val, brightness, exposure, specimen=True
+            )
 
-        if self._black_level:
+        if exposure.black_level:
             # The offset lifts every pixel, and a pixel lifted past full scale
             # saturates there, as a sensor's output does; the integer cast
             # would otherwise wrap a bright pixel to near zero.
-            img = np.minimum(np.rint(img.astype(np.float32) + self._black_level), max_val)
+            img = np.minimum(np.rint(img.astype(np.float32) + exposure.black_level), max_val)
             img = img.astype(dtype)
         return img
 

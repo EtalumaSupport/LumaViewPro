@@ -20,7 +20,6 @@ from types import MappingProxyType
 from unittest.mock import MagicMock
 
 from drivers.camera import Frame
-from drivers.camera_profiles import simulated_exposure_delay_frames
 
 
 def bare_pylon_camera():
@@ -450,12 +449,11 @@ def grab_a_frame_made_after_now(cam, timeout_s: float = 5.0) -> Frame:
 
     A camera that streams hands back the latest frame it has, and the frames
     it had started when a setting changed come out under the old setting:
-    the one being made, and the simulated camera's exposure pipeline behind
-    it. So those first stores after the call may predate a change made just
+    the one being made, and the simulated camera's pipeline behind it. So those first stores after the call may predate a change made just
     before it; the one after them cannot. Returns that ``Frame``.
     """
     handler = cam.cam_image_handler
-    since = handler.frames_delivered + simulated_exposure_delay_frames()
+    since = handler.frames_delivered + cam.SENSOR_PIPELINE_FRAMES
     assert handler.wait_for_frame_after(since + 1, timeout_s), (
         f'the camera stored no new frame within {timeout_s} s'
     )

@@ -364,16 +364,6 @@ def timing_record(profile: CameraProfile) -> dict | None:
         return json.load(f)
 
 
-def simulated_exposure_delay_frames() -> int:
-    """How many frames the simulated camera delivers at the old exposure after a change.
-
-    The dart's measured count, from its timing record, the one store of it:
-    a sensor finishes the frames it started, so they come out at the
-    exposure they were started with.
-    """
-    return int(timing_record(_simulated)['skip_frames']['exposure'])
-
-
 def ids_default_profile(model_name: str) -> CameraProfile:
     """Generic IDS profile for a body whose model name matched no static entry.
 

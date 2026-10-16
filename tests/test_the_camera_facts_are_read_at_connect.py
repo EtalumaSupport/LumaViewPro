@@ -60,17 +60,17 @@ def test_a_camera_whose_maximum_is_unknown_has_no_maximum():
 
 def test_the_camera_identity_is_what_the_camera_reported():
     camera = SimulatedCamera()
-    camera.timestamp_tick_frequency_hz = 1_000_000_000
     caps = _capabilities(camera)
     assert caps.camera_model == SimulatedCamera.MODEL_NAME
     assert caps.camera_serial_number == SimulatedCamera.SERIAL_NUMBER
-    assert caps.camera_timestamp_tick_hz == 1_000_000_000
+    assert caps.camera_timestamp_tick_hz == SimulatedCamera.TIMESTAMP_TICK_HZ
 
 
 def test_a_camera_that_did_not_say_what_it_is_is_unnamed():
     camera = SimulatedCamera()
     camera.model_name = None
     camera._device_serial = None
+    camera.timestamp_tick_frequency_hz = None
     caps = _capabilities(camera)
     assert caps.camera_model is None
     assert caps.camera_serial_number is None

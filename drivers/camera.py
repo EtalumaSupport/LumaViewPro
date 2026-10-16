@@ -101,7 +101,7 @@ class Frame:
             uint16 container), from the frame's own format.
         chunks: The camera's per-frame metadata (``ExposureTime``, ``Gain``,
             ``FrameID``, ``Timestamp`` on a Basler), or None for a camera
-            that stamps none (IDS, FX2, the simulator).
+            that stamps none (IDS, FX2).
     """
 
     image: np.ndarray
