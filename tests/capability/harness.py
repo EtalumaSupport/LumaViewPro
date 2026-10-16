@@ -16,8 +16,11 @@ the reach proxies. Without the second verb a probe that correctly documents a
 hole can only ever be red, which is why the census that produced these probes
 had to leave them outside the suite.
 
-Probes run as SUBPROCESSES (see `test_capability_probes.py`). That is not a
-style choice: `tests/conftest.py` installs Kivy mocks at import time, and the
+Each probe runs as its own process, by hand: the suite never collects one
+(a probe defines no `test_` function), and only
+`tests/test_a_probe_reaches_hardware_only_through_its_door.py` runs two as
+subprocesses. A process of its own is not a style choice:
+`tests/conftest.py` installs Kivy mocks at import time, and the
 load-bearing assertion here is that Kivy is ABSENT from `sys.modules`.
 
 THE TARGET. A probe asks its question of the simulator unless it is run with
@@ -157,11 +160,16 @@ def report():
 
 
 def _write_verdict(failed):
-    """Leave the hardware run's verdict where the reader can find it.
+    """Leave the hardware run's verdict in the log folder, beside the run's logs.
 
     Stamped with the build and the scope it ran on, so the file answers on
-    its own which code asked which instrument.
+    its own which code asked which instrument. It goes under
+    ``<log folder>/bench_results/``, one file per run, so the support zip
+    carries every bench run's result with the logs; the probe's scratch
+    folder is temporary and nobody collects it.
     """
+    import datetime
+
     import lvp_logger
 
     verdict = {
@@ -174,7 +182,11 @@ def _write_verdict(failed):
         'figures': FIGURES,
         'log_folder': lvp_logger.log_dir,
     }
-    path = SCRATCH / f'{PROBE}_verdict.json'
+    from tests.bench_results import bench_results_dir
+
+    folder = bench_results_dir()
+    stamp = datetime.datetime.now(datetime.UTC).strftime('%Y%m%dT%H%M%SZ')
+    path = folder / f'{PROBE}_{stamp}_verdict.json'
     path.write_text(json.dumps(verdict, indent=2, default=str))
     print(f'VERDICT FILE: {path}', flush=True)
     print(f'LOG FOLDER: {lvp_logger.log_dir}', flush=True)

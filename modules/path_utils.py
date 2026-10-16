@@ -435,6 +435,16 @@ def get_source_root(
     return documents_dir / data_folder_name(version)
 
 
+def get_log_dir(source_path: str | pathlib.Path | None = None) -> pathlib.Path:
+    """The one log folder: ``logs/LVP_Log`` under the data root.
+
+    Every log the app writes goes here, and so does every bench result
+    (a probe's verdict, a hardware test's record), so the support zip
+    carries them together.
+    """
+    return get_source_root(source_path) / 'logs' / 'LVP_Log'
+
+
 def desktop_folder() -> pathlib.Path:
     """The user's Desktop, where a person expects a support ZIP; the home folder when there is none.
 

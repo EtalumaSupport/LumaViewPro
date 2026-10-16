@@ -37,6 +37,7 @@ _paused_threads = threading.local()
 # import cannot reach back into it.
 from modules.path_utils import (
     app_runtime,
+    get_log_dir,
     get_script_root,
     get_source_root,
     launch_root,
@@ -61,7 +62,7 @@ except Exception as e:
     debug = False
 
 
-log_dir = os.path.join(lvp_appdata, 'logs', 'LVP_Log')
+log_dir = str(get_log_dir())
 os.makedirs(log_dir, exist_ok=True)
 
 # files to which messages are logged

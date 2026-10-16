@@ -46,6 +46,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # repo-root path insert above.
 from tests import pypylon_stub as _pypylon_stub
 from tests import usb_stub as _usb_stub
+from tests.bench_results import bench_results_dir
 from tests.scope_fakes import build_scope
 
 
@@ -81,6 +82,21 @@ _skip_mocks = set()
 for _flag, _mods in _HARDWARE_FLAG_MOCKS.items():
     if _flag_in_argv(_flag):
         _skip_mocks.update(_mods)
+
+# A run with any hardware flag is a bench run. It runs on the real logger, as
+# it runs on the real SDK, so every log it writes, its driver log and its
+# results file go to the one log folder, which the support zip carries. Any
+# other run is the simulator suite, whose writes stay in temporary folders.
+_BENCH_FLAGS = (
+    '--run-hardware',
+    '--run-ids-hardware',
+    '--run-pylon-hardware',
+    '--run-fx2-hardware',
+    '--run-tmcm6110-hardware',
+)
+BENCH_RUN = any(_flag_in_argv(f) for f in _BENCH_FLAGS)
+if BENCH_RUN:
+    _skip_mocks.add('lvp_logger')
 
 
 # ---------------------------------------------------------------------------
@@ -768,11 +784,9 @@ def _enable_driver_logging(config):
     real.propagate = False
     real.handlers.clear()
 
-    # Under logs/, which is gitignored -- writing to the repo root left these
-    # sitting beside the source tree, one per --driver-log run, forever.
-    log_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'logs')
-    os.makedirs(log_dir, exist_ok=True)
-    log_path = os.path.join(log_dir, f'driver_test_{time.strftime("%Y-%m-%d_%H-%M-%S")}.log')
+    # In the one log folder, beside the bench run's results file, so the
+    # support zip carries the driver's narrative with the run it explains.
+    log_path = str(bench_results_dir() / f'driver_test_{time.strftime("%Y-%m-%d_%H-%M-%S")}.log')
     file_handler = logging.FileHandler(log_path, mode='w')
     file_handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(message)s'))
     real.addHandler(file_handler)
@@ -807,13 +821,67 @@ def pytest_unconfigure(config):
     print(f'\n[--driver-log] driver log written to {config._driver_log_path}')
 
 
+_bench_reports = []
+
+
+def pytest_runtest_logreport(report):
+    """A bench run keeps each test's outcome and what it printed, for its results file."""
+    if not BENCH_RUN:
+        return
+    if report.when != 'call' and report.passed:
+        return
+    _bench_reports.append(
+        {
+            'test': report.nodeid,
+            'phase': report.when,
+            'outcome': report.outcome,
+            'seconds': round(report.duration, 3),
+            'failure': str(report.longrepr) if report.failed else None,
+            'stdout': report.capstdout,
+            'stderr': report.capstderr,
+        }
+    )
+
+
+def _write_bench_results(exitstatus):
+    """One file per bench run in the log folder: what ran, on which build, and each result.
+
+    Output printed with ``-s`` goes to the console, not here: a bench run
+    is run without it so its figures reach the file.
+    """
+    import datetime
+    import json
+
+    import lvp_logger
+
+    stamp = datetime.datetime.now(datetime.UTC).strftime('%Y%m%dT%H%M%SZ')
+    path = bench_results_dir() / f'pytest_{stamp}_results.json'
+    path.write_text(
+        json.dumps(
+            {
+                'command': sys.argv,
+                'exit_status': int(exitstatus),
+                'lvp_version': lvp_logger.version,
+                'lvp_commit': lvp_logger.git_revision(),
+                'log_folder': lvp_logger.log_dir,
+                'results': _bench_reports,
+            },
+            indent=2,
+        )
+    )
+    print(f'\nBENCH RESULTS: {path}', flush=True)
+
+
 def pytest_sessionfinish(session, exitstatus):
-    """A worker ships its ratchet observations to the controller (tests/ratchets.py)."""
+    """A worker ships its ratchet observations to the controller (tests/ratchets.py);
+    a bench run leaves its results file in the log folder."""
     workeroutput = getattr(session.config, 'workeroutput', None)
     if workeroutput is not None:
         from tests import ratchets
 
         workeroutput['ratchets'] = ratchets.ship()
+    elif BENCH_RUN:
+        _write_bench_results(exitstatus)
 
 
 @pytest.hookimpl(optionalhook=True)
