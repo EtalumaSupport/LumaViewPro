@@ -88,8 +88,8 @@ class FrameRecord:
         judgments: The frame judged against each source's last change
             (``FrameValidity.judgments``): for a summed capture, the first
             frame summed. Empty when no change has been recorded.
-        saturated_fraction: The fraction of the frame's pixels at full
-            scale (``ImagingAPI.saturated_fraction``), measured when the
+        saturated_fraction: The fraction of the frame's pixels at or near
+            full scale (``ImagingAPI.saturated_fraction``), measured when the
             capture asked for the check (``all_ones_check``); for a summed
             capture, its most saturated frame. None when it did not ask.
         dark: True when the frame was kept with no pixel above the dark

@@ -3967,9 +3967,9 @@ class ImagingAPI:
                             )
                             # Carried out as a FACT about the frame, never a
                             # failure cause: it rides the frame's record, so
-                            # the writer, the saved file and an L2/REST caller
-                            # can tell a dark frame from a lit one without
-                            # anyone re-measuring pixels downstream.
+                            # the writer, the saved file and an in-process
+                            # caller can tell a dark frame from a lit one
+                            # without anyone re-measuring pixels downstream.
                             frame_dark = True
                             # No break/continue: the dark frame is this
                             # capture, so it falls through the remaining
