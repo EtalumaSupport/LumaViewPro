@@ -1461,12 +1461,19 @@ class Camera(ABC):
     @abstractmethod
     def update_auto_gain_min_max(
         self, min_gain_db: float | None, max_gain_db: float | None
-    ) -> None:
+    ) -> bool | None:
         """Update the auto-gain bounds.
 
         Args:
             min_gain_db: Minimum gain in dB, or None to leave unchanged.
             max_gain_db: Maximum gain in dB, or None to leave unchanged.
+
+        Returns:
+            True when the bounds are in effect, False when the camera did not
+            take them; None when the camera is inactive.
+
+        Raises:
+            CameraNoAnswerError: The camera did not answer a bound's write.
         """
         pass
 

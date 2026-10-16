@@ -3053,7 +3053,7 @@ class PylonCamera(Camera):
         self,
         min_gain_db: float | None,
         max_gain_db: float | None,
-    ) -> None:
+    ) -> bool | None:
         """Update auto-gain min/max bounds without an over-stop cycle.
 
         Live-writable per Basler. ``None`` for either bound is treated
@@ -3063,9 +3063,18 @@ class PylonCamera(Camera):
         Args:
             min_gain_db: Lower bound in dB, or ``None`` to leave unchanged.
             max_gain_db: Upper bound in dB, or ``None`` to leave unchanged.
+
+        Returns:
+            True when the bounds are in effect, False when the camera did
+            not take them; None when the camera is inactive.
+
+        Raises:
+            CameraNoAnswerError: A limit write, or the read of a limit's
+                range it needs, timed out; the camera is not marked
+                disconnected.
         """
         if not self.active:
-            return
+            return None
 
         # Basler runtime-modifiable parameters -- AutoGainLowerLimit /
         # AutoGainUpperLimit can be changed while StartGrabbing is
@@ -3082,7 +3091,16 @@ class PylonCamera(Camera):
 
             if max_gain_db is None:
                 max_gain_db = self.active.AutoGainUpperLimit.Max
-
+        except genicam.TimeoutException as e:
+            raise _no_answer(
+                f'update_auto_gain_min_max({min_gain_db}, {max_gain_db})',
+                e,
+                read="the AutoGain limits' range",
+            ) from e
+        except Exception as e:
+            _cam_log.error(f"[CAM Class ] Could not read the AutoGain limits' range: {e}")
+            return False
+        try:
             # Short-circuit when both bounds already at target. Matches
             # the e042c7f pattern on gain / exposure_t.
             try:
@@ -3097,7 +3115,7 @@ class PylonCamera(Camera):
                             f'pylon AutoGainLowerLimit/UpperLimit.SetValue'
                             f'({min_gain_db}, {max_gain_db}) short-circuited'
                         )
-                    return
+                    return True
             except (genicam.RuntimeException, genicam.TimeoutException) as e:
                 logger.debug(
                     f'[CAM Class ] AutoGain min/max short-circuit read failed; '
@@ -3111,16 +3129,21 @@ class PylonCamera(Camera):
                 )
             self.active.AutoGainLowerLimit.SetValue(min_gain_db)
             self.active.AutoGainUpperLimit.SetValue(max_gain_db)
+            return True
+        except genicam.TimeoutException as e:
+            raise _no_answer(f'update_auto_gain_min_max({min_gain_db}, {max_gain_db})', e) from e
         except genicam.RuntimeException as e:
             _cam_log.error(
                 '[CAM Class ] Camera communication error during '
                 f'update_auto_gain_min_max(min_db={min_gain_db}, max_db={max_gain_db}): {e}'
             )
             self._mark_disconnected()
+            return False
         except Exception as e:
             _cam_log.exception(f'[CAM Class ] Unexpected error in update_auto_gain_min_max: {e}')
+            return False
 
-    def _set_auto_exposure_time_bounds(self, max_exposure_ms: float | None = None) -> None:
+    def _set_auto_exposure_time_bounds(self, max_exposure_ms: float | None = None) -> bool | None:
         """Set AutoExposureTime bounds for the auto-exposure loop.
 
         Lower bound is opened to the sensor minimum so AG can drop
@@ -3135,12 +3158,28 @@ class PylonCamera(Camera):
         do not supply a ceiling).
 
         Pylon AutoExposureTime nodes are in microseconds. Live-writable
-        per Basler; no stop_grabbing wrap needed. Soft-fails on sensors
-        that don't expose these nodes (logs and continues; AG still
-        works on the gain axis).
+        per Basler; no stop_grabbing wrap needed. A sensor without these
+        nodes has no exposure bound to set: AG works on the gain axis.
+
+        Returns:
+            True when the bounds are in effect or the sensor has none, False
+            when the camera did not take them; None when it is inactive.
+
+        Raises:
+            CameraNoAnswerError: A bound write, the node probe or the read
+                of a bound's range timed out; the camera is not marked
+                disconnected.
         """
         if not self.active:
-            return
+            return None
+        write = f'_set_auto_exposure_time_bounds({max_exposure_ms})'
+        try:
+            has_bounds = self._has_node(self.active.GetNodeMap(), 'AutoExposureTimeUpperLimit')
+        except genicam.TimeoutException as e:
+            raise _no_answer(write, e, read='the AutoExposureTime limit nodes') from e
+        if not has_bounds:
+            _cam_log.info('[CAM Class ] No AutoExposureTime limits on this sensor; none set')
+            return True
         try:
             exp_min = self.active.AutoExposureTimeLowerLimit.Min
             node_max = self.active.AutoExposureTimeUpperLimit.Max
@@ -3158,15 +3197,17 @@ class PylonCamera(Camera):
                     f'AutoExposureTimeUpperLimit.SetValue({exp_max}) '
                     f'(cap={max_exposure_ms}ms)'
                 )
-        except (genicam.RuntimeException, genicam.TimeoutException) as e:
-            _cam_log.warning(
-                '[CAM Class ] Could not set AutoExposureTime bounds; '
-                f'AG will be limited to the cached exposure ceiling: {e}'
-            )
+            return True
+        except genicam.TimeoutException as e:
+            raise _no_answer(write, e) from e
+        except genicam.RuntimeException as e:
+            _cam_log.error(f'[CAM Class ] The camera did not take the AutoExposureTime bounds: {e}')
+            return False
         except Exception as e:
             _cam_log.exception(
                 f'[CAM Class ] Unexpected error in _set_auto_exposure_time_bounds: {e}'
             )
+            return False
 
     # grab() inherited from Camera base class
 
@@ -3550,6 +3591,31 @@ class PylonCamera(Camera):
             _cam_log.exception(f'[CAM Class ] Unexpected error in gain: {e}')
             return False
 
+    def _arm_limits_applied(
+        self,
+        target_brightness: float,
+        min_gain_db: float | None,
+        max_gain_db: float | None,
+        ae_max_exposure_ms: float | None,
+    ) -> bool:
+        """Write an arm's target and limits; True when the camera took all three.
+
+        Raises:
+            CameraNoAnswerError: One of the writes, or a read it needs, was
+                not answered.
+        """
+        if not self.update_auto_gain_target_brightness(auto_target_brightness=target_brightness):
+            return False
+        if not self.update_auto_gain_min_max(min_gain_db=min_gain_db, max_gain_db=max_gain_db):
+            return False
+        # Bound AutoExposureTime before enabling AG. Upper bound is the
+        # per-class AG/AE ceiling, not the sensor max -- an uncapped bound
+        # lets AG drive exposure to the sensor maximum on dim scenes, washing
+        # out brightfield and making the live auto loop hunt (issue #655).
+        # Lower bound opened so AG can still drop exposure on saturating
+        # scenes.
+        return bool(self._set_auto_exposure_time_bounds(max_exposure_ms=ae_max_exposure_ms))
+
     def auto_gain(
         self,
         state: bool = True,
@@ -3580,10 +3646,15 @@ class PylonCamera(Camera):
                 bound to the sensor max. Caller (which knows the layer)
                 supplies the class cap.
 
+        Returns:
+            True when the camera took the mode; False when it did not take
+            the mode, or the target or a limit written before it (the mode
+            is then not set); None when the camera is inactive.
+
         Raises:
-            CameraNoAnswerError: The GainAuto / ExposureAuto write, or the
-                AutoTargetBrightness write before it, timed out; the camera
-                is not marked disconnected.
+            CameraNoAnswerError: The GainAuto / ExposureAuto write, or a
+                target or limit write before it, timed out; the camera is
+                not marked disconnected.
         """
 
         if self.active is None:
@@ -3598,15 +3669,13 @@ class PylonCamera(Camera):
                     f'ae_max_exp_ms={ae_max_exposure_ms})'
                 )
             if state:
-                self.update_auto_gain_target_brightness(auto_target_brightness=target_brightness)
-                self.update_auto_gain_min_max(min_gain_db=min_gain_db, max_gain_db=max_gain_db)
-                # Bound AutoExposureTime before enabling AG. Upper bound is
-                # the per-class AG/AE ceiling, not the sensor max -- an
-                # uncapped bound lets AG drive exposure to the sensor
-                # maximum on dim scenes, washing out brightfield and making
-                # the live auto loop hunt (issue #655). Lower bound opened
-                # so AG can still drop exposure on saturating scenes.
-                self._set_auto_exposure_time_bounds(max_exposure_ms=ae_max_exposure_ms)
+                # The arm is what its target and limits make it: one the camera
+                # did not take leaves an arm it would not have chosen, so the
+                # arm is not made (the caller is told it was refused).
+                if not self._arm_limits_applied(
+                    target_brightness, min_gain_db, max_gain_db, ae_max_exposure_ms
+                ):
+                    return False
                 self.active.GainAuto.SetValue('Continuous')  # 'Off' 'Once' 'Continuous'
                 self.active.ExposureAuto.SetValue('Continuous')  # 'Off' 'Once' 'Continuous'
                 if _cam_log is not None:
@@ -3659,10 +3728,15 @@ class PylonCamera(Camera):
                 exposure AG/AE may drive to, or ``None`` for the sensor
                 max.
 
+        Returns:
+            True when the camera took the mode; False when it did not take
+            the mode, or the target or a limit written before it (the mode
+            is then not set); None when the camera is inactive.
+
         Raises:
-            CameraNoAnswerError: The GainAuto / ExposureAuto write, or the
-                AutoTargetBrightness write before it, timed out; the camera
-                is not marked disconnected.
+            CameraNoAnswerError: The GainAuto / ExposureAuto write, or a
+                target or limit write before it, timed out; the camera is
+                not marked disconnected.
         """
 
         if self.active is None:
@@ -3671,12 +3745,13 @@ class PylonCamera(Camera):
 
         try:
             if state:
-                self.update_auto_gain_target_brightness(auto_target_brightness=target_brightness)
-                self.update_auto_gain_min_max(min_gain_db=min_gain_db, max_gain_db=max_gain_db)
-                # Bound exposure to the per-class AG/AE ceiling so the
-                # one-shot AG can move exposure within it (issue #655 --
-                # see auto_gain()).
-                self._set_auto_exposure_time_bounds(max_exposure_ms=ae_max_exposure_ms)
+                # The arm is what its target and limits make it: one the camera
+                # did not take leaves an arm it would not have chosen, so the
+                # arm is not made (the caller is told it was refused).
+                if not self._arm_limits_applied(
+                    target_brightness, min_gain_db, max_gain_db, ae_max_exposure_ms
+                ):
+                    return False
                 self.active.GainAuto.SetValue('Once')  # 'Off' 'Once' 'Continuous'
                 self.active.ExposureAuto.SetValue('Once')  # 'Off' 'Once' 'Continuous'
             else:

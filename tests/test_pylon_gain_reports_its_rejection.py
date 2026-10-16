@@ -363,6 +363,65 @@ class TestAWriteTheCameraDidNotAnswer:
         pylon_cam._mark_disconnected.assert_not_called()
 
 
+def _refused(node):
+    return genicam.OutOfRangeException(f'{node}.SetValue refused')
+
+
+# An arm's nested write the camera refused: the node, and the arm's own call.
+ARM_NESTED_WRITES = {
+    'the target': 'AutoTargetBrightness',
+    'the lower gain limit': 'AutoGainLowerLimit',
+    'the upper gain limit': 'AutoGainUpperLimit',
+    'the lower exposure bound': 'AutoExposureTimeLowerLimit',
+    'the upper exposure bound': 'AutoExposureTimeUpperLimit',
+}
+ARMS = {
+    'auto_gain': lambda cam: cam.auto_gain(state=True, min_gain_db=1.0, max_gain_db=20.0),
+    'auto_gain_once': lambda cam: cam.auto_gain_once(state=True, min_gain_db=1.0, max_gain_db=20.0),
+}
+
+
+class TestAnArmWhoseTargetOrLimitsWereNotTakenIsRefused:
+    """An auto-gain arm is its target and its limits: one the camera refused
+    leaves an arm it would not have chosen, so the arm answers False and the
+    mode is never set (Eric 2026-10-16: a failed limit write refuses the arm,
+    so a step using auto-gain is not captured)."""
+
+    def test_each_refused_nested_write_refuses_the_arm_before_its_mode(self):
+        offenders = []
+        for arm, call in ARMS.items():
+            for what, node in ARM_NESTED_WRITES.items():
+                cam = bare_pylon_camera()
+                _no_answer_on_write(cam, node)
+                getattr(cam.active, node).SetValue.side_effect = _refused(node)
+                result = call(cam)
+                if result is not False:
+                    offenders.append(f'{arm} with {what} refused returned {result!r}')
+                if cam.active.GainAuto.SetValue.called:
+                    offenders.append(f'{arm} with {what} refused set the mode')
+        assert offenders == []
+
+    def test_an_unanswered_limit_write_is_the_arms_no_answer(self):
+        offenders = []
+        for arm, call in ARMS.items():
+            for what, node in ARM_NESTED_WRITES.items():
+                cam = bare_pylon_camera()
+                _no_answer_on_write(cam, node)
+                outcome = _outcome(cam, call)
+                if outcome is not None:
+                    offenders.append(f'{arm} with {what} unanswered {outcome}')
+        assert offenders == []
+
+    def test_a_sensor_without_exposure_bounds_still_arms(self):
+        cam = bare_pylon_camera()
+        nodemap = cam.active.GetNodeMap.return_value
+        nodemap.GetNode.side_effect = genicam.LogicalErrorException('no such node')
+
+        assert cam.auto_gain(state=True) is True
+        cam.active.AutoExposureTimeUpperLimit.SetValue.assert_not_called()
+        cam.active.GainAuto.SetValue.assert_called_with('Continuous')
+
+
 def _exposure_min_unread(cam):
     cam.profile = None  # the default exposure ceiling, well above the 10 ms asked for
     type(cam.active.ExposureTime).Min = PropertyMock(side_effect=_timeout('ExposureTime.Min'))
