@@ -604,39 +604,6 @@ class TestTechSupportPrivacyNotice:
 # ===========================================================================
 
 
-class TestAddTimestampInPlace:
-    """Verify add_timestamp in-place optimization."""
-
-    def test_in_place_modifies_original(self):
-        import numpy as np
-        from modules.image_utils import add_timestamp
-
-        img = np.zeros((100, 200), dtype=np.uint8)
-        result = add_timestamp(img, '2026-01-01', in_place=True)
-        # Should return the same array object
-        assert result is img
-
-    def test_copy_does_not_modify_original(self):
-        import numpy as np
-        from modules.image_utils import add_timestamp
-
-        img = np.zeros((100, 200), dtype=np.uint8)
-        original_sum = img.sum()
-        result = add_timestamp(img, '2026-01-01', in_place=False)
-        # Original should be unchanged
-        assert img.sum() == original_sum
-        # Result should be a different object
-        assert result is not img
-
-    def test_default_is_in_place(self):
-        import numpy as np
-        from modules.image_utils import add_timestamp
-
-        img = np.zeros((100, 200), dtype=np.uint8)
-        result = add_timestamp(img, 'test')
-        assert result is img
-
-
 class TestPyprojectConfig:
     """Verify pyproject.toml configuration."""
 

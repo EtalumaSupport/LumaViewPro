@@ -4117,11 +4117,13 @@ class ImagingAPI:
         """Grab the latest buffered frame from the camera without forcing a new capture.
 
         Copy budget (per frame):
-          - grab_latest(): 0 copies (returns reference from ImageHandler)
-          - add_scale_bar(): 0 copies (modifies array in-place)
+          - grab_latest(): 0 copies (returns the read-only stored frame)
+          - add_scale_bar(): 1 copy when the bar is drawn (the stored frame
+            is shared with every other consumer and is never written)
           - convert_to_8bit(): 1 copy (LUT indexing creates new array),
             or 0 fresh allocations when the caller supplies out_8bit.
-          - Total: 0 copies (8-bit) or 1 copy (12-bit with force_to_8bit)
+          - Total without the bar: 0 copies (8-bit) or 1 copy (12-bit with
+            force_to_8bit); the bar adds 1
           The caller adds 1 more copy via tobytes() for GPU blit.
 
         Args:
@@ -5631,10 +5633,10 @@ class ImagingAPI:
                   over-budget / auto-removal. Defaults to the handler's
                   qualname.
 
-        The ``image`` array is shared across all listeners (don't-mutate
-        contract); write to your own output buffer if you need to keep
-        results. Mutating the supplied array affects later listeners
-        plus downstream display / capture consumers.
+        The ``image`` array is shared across all listeners, the preview
+        and a capture, and is read-only: a write into it raises
+        ``ValueError``. Never set it writeable again: every other holder
+        would see the change. Draw on or keep your own copy.
 
         Registration is idempotent for the same callable -- a second
         call with the same ``cb`` is a no-op (the original wrapper +

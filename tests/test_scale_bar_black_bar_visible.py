@@ -99,3 +99,15 @@ def test_white_bar_value_tracks_significant_bits():
 def test_uint8_bar_value_unchanged():
     r = _add_depth(np.zeros((400, 400), dtype=np.uint8), color='Red', significant_bits=8)
     assert int(r.max()) == 255
+
+
+def test_the_bar_is_drawn_on_a_copy_of_a_read_only_frame():
+    # A camera's delivered frame is read-only and shared with every other
+    # consumer: the bar is drawn on a copy, and the frame keeps its pixels.
+    image = np.zeros((400, 400), dtype=np.uint8)
+    image.flags.writeable = False
+
+    result = _add(image, color='Red')
+
+    assert (result == 255).any(), 'no bar was drawn'
+    assert not image.any(), 'the frame the bar was drawn from was changed'

@@ -2678,6 +2678,12 @@ def add_scale_bar(
     significant_bits: int,
     capabilities: 'ScopeCapabilities',
 ) -> np.ndarray:
+    """``image`` with the scale bar drawn, on a copy; ``image`` is never written.
+
+    The image is often a camera's delivered frame, which every consumer
+    shares and the camera marks read-only. Returned unchanged when no bar
+    can be drawn (an image too narrow, or no known pixel size).
+    """
     global _scale_bar_cache
 
     height, width = image.shape[0], image.shape[1]
@@ -2734,23 +2740,24 @@ def add_scale_bar(
     # Write the bar's pixel value at the masked geometry. Works for black
     # (value 0, BF/PC) and white (the payload max) alike -- the mask carries
     # the location, so the value can be 0 without erasing the bar.
-    image[mask] = cached['value']
+    drawn = image.copy()
+    drawn[mask] = cached['value']
 
-    return image
+    return drawn
 
 
-def add_timestamp(image, timestamp_str: str, in_place: bool = True):
-    """Draw a timestamp on the image.
+def add_timestamp(image: np.ndarray, timestamp_str: str) -> np.ndarray:
+    """Draw a timestamp on a copy of the image; ``image`` is never written.
+
+    The image can be a camera's delivered frame, which every consumer
+    shares and the camera marks read-only.
 
     Args:
-        image: Input image array (modified in place by default).
+        image: Input image array.
         timestamp_str: Text to draw.
-        in_place: If True, modify image directly (no copy). If False,
-                  work on a copy and return it. Default True to avoid
-                  allocating a full-frame copy.
 
     Returns:
-        The image with timestamp drawn.
+        A C-contiguous copy of the image with the timestamp drawn.
     """
     height, width = image.shape[0], image.shape[1]
 
@@ -2776,12 +2783,9 @@ def add_timestamp(image, timestamp_str: str, in_place: bool = True):
     else:  # 16-bit
         text_intensity = 2**16 - 1
 
-    if not in_place:
-        image = image.copy()
-    # Ensure array is C-contiguous -- np.flip() produces non-contiguous
-    # views that OpenCV rejects with "Layout incompatible with cv::Mat"
-    if not image.flags['C_CONTIGUOUS']:
-        image = np.ascontiguousarray(image)
+    # A C-contiguous copy: np.flip() produces non-contiguous views that
+    # OpenCV rejects with "Layout incompatible with cv::Mat".
+    image = np.array(image, order='C', copy=True)
     cv2.rectangle(
         image,
         (left_offset, top_offset),

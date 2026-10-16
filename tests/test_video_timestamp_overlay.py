@@ -123,3 +123,19 @@ def test_grayscale_stream_encodes_grey(tmp_path, monkeypatch):
 def test_false_color_stream_carries_the_layer(tmp_path, monkeypatch):
     captured = _video_step(monkeypatch, tmp_path, timestamp_overlay=True, false_color=True)
     assert captured['color'] == release_color('Blue')
+
+
+def test_the_timestamp_is_drawn_on_a_copy_of_a_read_only_frame():
+    """A camera's delivered frame is read-only and shared with every other
+    consumer: the timestamp is drawn on a copy, and the frame keeps its pixels."""
+    import numpy as np
+
+    from modules.image_utils import add_timestamp
+
+    image = np.zeros((100, 200), dtype=np.uint8)
+    image.flags.writeable = False
+
+    result = add_timestamp(image, '2026-01-01 00:00:00')
+
+    assert result.any(), 'no timestamp was drawn'
+    assert not image.any(), 'the frame the timestamp was drawn from was changed'

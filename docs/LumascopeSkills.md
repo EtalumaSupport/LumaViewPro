@@ -2039,7 +2039,7 @@ scope.imaging.add_frame_listener(on_frame, name='my_recorder')
 scope.imaging.remove_frame_listener(on_frame)
 ```
 
-- **Don't-mutate contract.** The `image` array is shared across all listeners. Write to your own output buffer if you need to keep results; mutating the array affects later listeners + downstream display / capture consumers.
+- **Read-only frame.** The `image` array is the one the camera delivered, shared across all listeners, the live view and a capture, and it is read-only: a write into it raises `ValueError`. Never set it writeable again (`flags.writeable = True`): every other holder would see the change. Draw on, or keep, your own copy (`image.copy()`).
 - **Budget.** Each handler must complete within ~24 ms (anchored to a 30 fps target, half the inter-frame window). Over-budget invocations log a WARNING. After 30 consecutive over-budget hits, the handler is auto-removed and reported once as a `FrameHandlerRemovedError` warning (reason `over_budget`).
 - **A handler that raises.** The first error of a run of failures is logged with its traceback; the rest are counted. A handler that raises on 30 consecutive frames is removed the same way (reason `raised`). A frame it handles without raising resets the count.
 - **With no camera connected** `add_frame_listener` raises `HardwareCommandRefusedError` (`not_connected`, `MissingPart.CAMERA`; `scope_disconnected` after the session's `shutdown()`) and registers nothing.
@@ -2063,7 +2063,7 @@ The six listener families each pass a different callback signature -- register a
 
 Each event declares its record, published in the reference below: its fields name the callback's arguments in order, so a host that carries an event elsewhere (the REST server's stream) builds the record from the arguments rather than keeping its own table of signatures. A run's events do the same: `RunEvents.scan_started` delivers `ScanStarted(scan_number, scans_remaining, interval)`, `scan_ended` `ScanEnded(...)`, `step_started` `StepStarted(step_idx)`, `frame_captured` `FrameCaptured(image, frames_summed, frame_significant_bits)`, `video_progress` the `VideoProgress` it passes, `run_ended` `RunEnded(outcome, run_dir, protocol)`, `files_written` `FilesWritten(run_dir, files)`. Callbacks keep their signatures; a Python caller need not build any record.
 
-The four `scope.*` listeners each have a matching `remove_*_listener(callback)`. The frame listener additionally takes a `name=` kwarg and carries the don't-mutate + 24 ms budget contract documented above; the other three are lightweight state-change notifications.
+The four `scope.*` listeners each have a matching `remove_*_listener(callback)`. The frame listener additionally takes a `name=` kwarg and carries the read-only frame + 24 ms budget contract documented above; the other three are lightweight state-change notifications.
 
 The last two rows are not registered on the scope. **Run state** is registered on the **session**: it takes no payload and is level-synced -- registering calls it once immediately, so a subscriber never misses a transition that happened before it subscribed, and `session.remove_run_state_listener(callback)` removes it (a callback never added is a no-op). **Outcomes** are registered on the session, or given to the factory to hear bring-up, and have a matching `session.remove_outcome_listener(callback)`.
 

@@ -236,6 +236,33 @@ class TestPyavEncoderThreadCap:
         assert fake_stream.thread_count == 1, 'never below 1 thread on a 1-2 core box'
 
 
+class TestTimestampOverlay:
+    """The timestamp is drawn on the writer's own copy of a frame: the
+    encoded frame carries it, and the frame the caller handed in -- a
+    camera's delivered frame, shared with the preview and a capture --
+    keeps the pixels it had."""
+
+    def test_an_8bit_grey_frame_is_encoded_with_the_timestamp_and_left_unchanged(self, tmp_path):
+        captured = []
+        fake_av, _ = _make_fake_av(captured)
+        frame = np.full((240, 320), 128, dtype=np.uint8)
+        as_handed_in = frame.copy()
+        with mock.patch.object(video_writer_module, 'av', fake_av):
+            writer = VideoWriter(
+                output_path=tmp_path / 'ts.mp4',
+                fps=10,
+                width=320,
+                height=240,
+                include_timestamp_overlay=True,
+            )
+            writer.add_frame(image=frame, timestamp=1.5)
+
+        np.testing.assert_array_equal(frame, as_handed_in)
+        ((encoded, fmt),) = captured
+        assert fmt == 'gray'
+        assert np.count_nonzero(encoded != as_handed_in) > 0, 'no timestamp was drawn'
+
+
 class TestVideoWriterDropAccounting:
     """A frame the encoder fails to write is a dropped frame: it must be
     counted as dropped and must NOT inflate the written-frame count."""

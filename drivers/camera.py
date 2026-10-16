@@ -177,7 +177,8 @@ class ImageHandlerBase:
         No copy needed here -- the stored frame is already a copy from the SDK
         callback (GetArray().copy() in Pylon, copy() in IDS). _store_frame()
         replaces the reference (not in-place), so the returned array remains
-        valid even after the next frame arrives.
+        valid even after the next frame arrives. It is read-only: a caller
+        that draws on it draws on its own copy.
 
         The depth is returned WITH the frame (the value stamped at store time) so
         a caller scales the buffered frame by the depth it was captured under, not
@@ -304,14 +305,24 @@ class ImageHandlerBase:
         The frame is cropped to the camera's window here, the one place every
         driver's frames are stored; a frame of another size than the window
         acquires was made under a window no longer set and is not stored.
+
+        The stored frame is read-only: one array reaches every listener, the
+        preview and a capture, so a write by any of them would change the
+        pixels the others hold. The mark is set on the delivered array before
+        the crop, so the crop, a view of it, is read-only too. numpy lets the
+        array that owns the data be made writeable again, so no production
+        code does (tests/guards/test_no_frame_is_made_writeable_again.py).
         """
         window = self.frame_window
-        if window is not None:
-            if image.shape[:2] != (window.acquired_height, window.acquired_width):
-                self._skip_frame_of_another_window(image, window)
-                return
-            if window.crop is not None:
-                image = center_crop(image, *window.crop)
+        if window is not None and image.shape[:2] != (
+            window.acquired_height,
+            window.acquired_width,
+        ):
+            self._skip_frame_of_another_window(image, window)
+            return
+        image.flags.writeable = False
+        if window is not None and window.crop is not None:
+            image = center_crop(image, *window.crop)
         _tracing = profile_trace.ENABLE_PROFILE_TRACE
         if _tracing:
             _arrive_t = time.perf_counter()
@@ -1439,8 +1450,8 @@ class Camera(ABC):
             # self.array feeds get_array(); nothing else reads it. Stored
             # and returned arrays are the SAME object (copied once at the
             # SDK callback; reference replaced per frame) -- safe against
-            # overwrite by the next frame, but not a private copy: caller
-            # in-place mutation would leak into get_array() of this frame.
+            # overwrite by the next frame, and read-only, so no caller can
+            # change what get_array() copies.
             with self._array_lock:
                 self.array = image
             return True, image, image_ts, image_significant_bits, image_seq
