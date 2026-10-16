@@ -37,6 +37,7 @@ _DOOR_NAMES = frozenset(
         'stop_dropping',
         'hold_travel',
         'hold_frames',
+        'delay_delivery',
         'release_frames',
         'leave_bus',
         'refuse_write',

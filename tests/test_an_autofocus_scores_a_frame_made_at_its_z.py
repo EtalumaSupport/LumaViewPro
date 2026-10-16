@@ -4,13 +4,13 @@
 The sweep's captures told frame validity to ignore Z motion, so a frame
 already on its way when a step's move went out was scored and recorded at
 the new Z: every point of the curve could carry the previous step's score.
-Here the simulated camera delivers each frame a while after it reads Z, as
-a real camera's pipeline does, so every move finds a frame in flight; a
-sweep that scores it finds its focus a step away from the true one.
+The simulated camera takes Z when a frame's exposure starts and has frames
+in its pipeline when a move goes out, as a real camera does, so every move
+finds a frame in flight; a sweep that scores it finds its focus a step
+away from the true one.
 """
 
 import contextlib
-import time
 
 import pytest
 
@@ -22,9 +22,6 @@ from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
 
 FOCAL_Z_UM = 2000.0
-# How long a frame takes to arrive after the camera has read Z: long next to
-# a simulated Z step, so a move always finds a frame in flight.
-FRAME_DELIVERY_DELAY_S = 0.06
 
 
 def _autofocus(session) -> float:
@@ -67,16 +64,6 @@ def _session_over_the_focus_target():
 @pytest.mark.slow
 def test_the_sweep_finds_the_focus_with_a_frame_in_flight_at_every_move():
     with _session_over_the_focus_target() as session:
-        camera = session.scope._camera_driver
-        render = camera._generate_image
-
-        def delivered_late(exposure_us):
-            image = render(exposure_us)
-            time.sleep(FRAME_DELIVERY_DELAY_S)
-            return image
-
-        camera._generate_image = delivered_late
-
         focus = _autofocus(session)
 
     assert focus == pytest.approx(FOCAL_Z_UM, abs=50.0)

@@ -2868,8 +2868,11 @@ Which board answers a member depends on how the model is simulated. The **fast**
 | `remove_camera()` | the camera leaves the bus, for the session | camera | camera | FX2 |
 | `refuse_camera_write(node, answer, count=1)` | the next `count` writes of `node` (`'gain'`, `'exposure'`, `'auto_exposure'`, `'frame_size'`, `'binning'`, `'pixel_format'`, `'black_level'`, `'auto_gain'`, `'auto_gain_once'`, `'auto_gain_target_brightness'`) answer `'false'`, `'none'`, `'true'` or `'raise'`; with `'removed'` False as the camera leaves the bus during the write; with `'no_answer'` `CameraNoAnswerError`, the camera still on the bus. The API sends an unanswered write once more, so `count=2` makes one go unanswered | camera | camera | refused |
 | `stall_stream(after_s, for_s)` | no frame for `for_s` s, starting in `after_s` s | camera | camera | refused (`silence('led')`) |
+| `delay_delivery(frames)` | each frame reaches the host once `frames` more have been made after it, as through a link or driver queue that has fallen behind | camera | camera | refused |
 
 The fast LED board refuses every link fault: the API reads nothing from its missing reply. The fast motor board runs no firmware, so its home cannot fail; the firmware's axis reaches its target whatever is injected, so a move cannot be held there. `injected()` lists the faults injected since the last `clear()` as `InjectedFault` records (`member`, `arguments`), one-shot faults included after they are spent. `clear()` takes every fault back: drops, holds, refused writes and stalls lifted, boards plugged in and answering, hardware faults removed; a board that found its cable pulled stays disconnected until it is reconnected, as a real one does. A removed camera, an FX2 unplugged or silenced, and a reboot under way stay as they are, as on a real scope.
+
+The simulated camera is made like a Basler body: a written setting reaches its register at once, and the `SENSOR_PIPELINE_FRAMES` frames it had started come out under the old settings. Each frame carries the chunks a Basler stamps (`FrameID`, `Timestamp` on the camera's 1 GHz clock at its exposure start, and `ExposureTime` and `Gain` from the register as it is tagged, so a stale frame's chunk already names the new value). `exposed_under(frame)` answers what a delivered frame was made under, a `SensorExposure` (`frame_id`, `started_ticks`, `exposure_us`, `gain_db`, `black_level`, `illumination_ma`, `x_um`, `y_um`, `z_um`, `z_end_um`, `depth_of_field_um`), so a test judges a frame by what its pixels show; it refuses a frame it holds no record for (`exposure_not_recorded`) and the FX2. The light scales with the LED current, and the specimen field follows the stage's X and Y.
 
 The two stalls a launch can ask for are `create`'s `sim_camera_stall` (which calls `stall_stream`) and `sim_file_stall` (above); the GUI's `--sim-camera-stall` and `--sim-file-stall` pass them.
 
@@ -3259,7 +3262,9 @@ Reached through `session.scope.runtime_state`.
 Reached through `session.scope.simulation`.
 
 - `clear` (in-process)
+- `delay_delivery` (in-process)
 - `drop_replies` (in-process)
+- `exposed_under` (in-process)
 - `fail_home` (in-process)
 - `hold_axis` (in-process)
 - `injected` (in-process)

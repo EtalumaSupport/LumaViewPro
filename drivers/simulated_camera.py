@@ -199,6 +199,11 @@ class SimulatedCamera(Camera):
     # before a move shows the old field.
     _SPECIMEN_PX_PER_UM = 0.5
 
+    # How many delivered frames' exposure records the camera keeps for
+    # ``exposed_under``: a bound on memory, far more than a capture's wait
+    # or a test's look back covers.
+    EXPOSURE_RECORDS_KEPT = 256
+
     # The camera's own clock: nanosecond ticks, as a Basler USB3 body's.
     TIMESTAMP_TICK_HZ = 1_000_000_000
 
@@ -294,6 +299,15 @@ class SimulatedCamera(Camera):
         self._clock_offset_ns = random.randrange(10**12)
         # The camera's frame counter: one per exposure started.
         self._frames_started = 0
+        # How many made frames wait on the way to the host before the
+        # oldest reaches it: a host backlog (``delay_delivery``). 0 delivers
+        # each frame as it is made.
+        self._backlog_frames = 0
+        # What each recently delivered frame was exposed under, by its
+        # FrameID, oldest first (``exposed_under``).
+        self._exposure_records: collections.OrderedDict[int, SensorExposure] = (
+            collections.OrderedDict()
+        )
 
         # A real camera free-runs: while it is grabbing, frames arrive on the
         # SDK's own thread whether or not anyone reads them, and a reader gets
@@ -631,6 +645,23 @@ class SimulatedCamera(Camera):
         """End a stall set by ``hold_frames``, or take back one not yet begun."""
         self._held_window = None
 
+    def delay_delivery(self, frames: int) -> None:
+        """Hold ``frames`` made frames on the way to the host from now on.
+
+        A frame reaches the host only once ``frames`` more have been made
+        behind it, as a frame waits in a link or a driver queue that has
+        fallen behind: it arrives later than it was made, numbered and
+        timed at its arrival. 0 delivers each frame as it is made, and the
+        frames still held arrive at once.
+        """
+        self._backlog_frames = frames
+
+    def exposed_under(self, frame_id: int) -> SensorExposure | None:
+        """What the delivered frame ``frame_id`` was exposed under; None for
+        one this camera did not deliver or no longer keeps a record of."""
+        with self._lock:
+            return self._exposure_records.get(frame_id)
+
     def _frame_interval_s(self, exposure_us: float) -> float:
         """The free-run frame period at ``exposure_us``: the exposure, never
         shorter than the delivery ceiling's period. The pacing and the
@@ -675,6 +706,8 @@ class SimulatedCamera(Camera):
         """
         next_due = time.monotonic()
         stalled = False
+        # Made frames on their way to the host, oldest first (delay_delivery).
+        on_the_way: collections.deque = collections.deque()
         # The frames started and not yet delivered, oldest first.
         with self._lock:
             in_flight = collections.deque(
@@ -730,17 +763,12 @@ class SimulatedCamera(Camera):
             held = self._held_window
             if held is not None and held[0] <= time.monotonic() < held[1]:
                 continue
-            # The simulated link is USB3 carrying the format unpacked, as a
-            # Basler USB3 camera carries Mono12: the generated array is the
-            # acquired window in its wire container.
-            handler._store_frame(
-                image,
-                datetime.datetime.now(),
-                chunks,
-                arrived_ns=time.monotonic_ns(),
-                significant_bits=bits,
-                wire_bytes=image.nbytes,
-            )
+            # A frame reaches the host once the backlog behind it is made;
+            # with none it goes at once, and a backlog taken back releases
+            # every frame it held.
+            on_the_way.append((image, bits, chunks, exposure))
+            while len(on_the_way) > self._backlog_frames:
+                self._deliver(handler, *on_the_way.popleft())
             # The next frame's own exposure is the inter-frame interval,
             # bounded below by the delivery ceiling.
             next_due = max(next_due + self._frame_interval_s(next_exposure_us), time.monotonic())
@@ -750,6 +778,31 @@ class SimulatedCamera(Camera):
     # ------------------------------------------------------------------
     # Frame size
     # ------------------------------------------------------------------
+    def _deliver(
+        self,
+        handler: _SimImageHandler,
+        image: np.ndarray,
+        bits: int,
+        chunks: dict,
+        exposure: SensorExposure,
+    ) -> None:
+        """Hand one made frame to the host, and keep what it was exposed under."""
+        with self._lock:
+            self._exposure_records[exposure.frame_id] = exposure
+            while len(self._exposure_records) > self.EXPOSURE_RECORDS_KEPT:
+                self._exposure_records.popitem(last=False)
+        # The simulated link is USB3 carrying the format unpacked, as a
+        # Basler USB3 camera carries Mono12: the generated array is the
+        # acquired window in its wire container.
+        handler._store_frame(
+            image,
+            datetime.datetime.now(),
+            chunks,
+            arrived_ns=time.monotonic_ns(),
+            significant_bits=bits,
+            wire_bytes=image.nbytes,
+        )
+
     def _frame_grid(self) -> FrameGrid:
         """Windows of 4 x 4 steps, up to the sensor at the current binning.
 

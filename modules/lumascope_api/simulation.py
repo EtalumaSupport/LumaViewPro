@@ -26,7 +26,8 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from drivers.sim_wire.port import EmulatedBoard
-from drivers.simulated_camera import SimulatedCamera, SimulatedStall
+from drivers.camera import Frame
+from drivers.simulated_camera import SensorExposure, SimulatedCamera, SimulatedStall
 from drivers.simulated_fx2 import SimulatedFX2
 from drivers.simulated_ledboard import SimulatedLEDBoard
 from drivers.simulated_motorboard import SimulatedMotorBoard
@@ -503,6 +504,63 @@ class SimulationAPI:
             raise self._not_injectable('stall_stream', target)
         target.hold_frames(SimulatedStall(after_s, for_s))
         self._record('stall_stream', target.release_frames, after_s=after_s, for_s=for_s)
+
+    @api(in_process=True)
+    def delay_delivery(self, frames: int) -> None:
+        """The camera's frames reach the host ``frames`` behind the camera from
+        now on, as through a link or a driver queue that has fallen behind.
+
+        Each frame arrives once ``frames`` more have been made after it, so
+        a frame made before a change can arrive well after it, numbered and
+        timed at its arrival. The backlog builds over the next ``frames``
+        frames, in which none arrives; the first frame to arrive after this
+        call says it stands. ``clear`` takes it back and the held frames
+        arrive at once.
+
+        Raises:
+            ArgumentRefusedError: ``'needs_simulated_scope'``;
+                ``'not_a_number'`` or ``'fault_bound'`` for fewer than 1
+                frame; ``'not_injectable_on_board'`` on the FX2, whose
+                frames come over its own link.
+        """
+        target = self._camera_board('delay_delivery')
+        self._bound('frames', frames, 'a number of frames, 1 or more', frames >= 1)
+        if not isinstance(target, SimulatedCamera):
+            raise self._not_injectable('delay_delivery', target)
+        target.delay_delivery(int(frames))
+        self._record('delay_delivery', lambda: target.delay_delivery(0), frames=frames)
+
+    @api(in_process=True, reads=True)
+    def exposed_under(self, frame: Frame) -> SensorExposure:
+        """What a frame the simulated camera delivered was exposed under:
+        the settings its sensor applied when its exposure started, and Z
+        when it ended.
+
+        A frame's chunks name the register when it was tagged, which a
+        change reaches before the frames already started show it; this is
+        what the pixels show, so a test can judge a frame by what it was
+        made under, never by its pixels or by the gate's own answer.
+
+        Raises:
+            ArgumentRefusedError: ``'needs_simulated_scope'``;
+                ``'not_injectable_on_board'`` on the FX2, which keeps no
+                record; ``'exposure_not_recorded'`` for a frame this camera
+                did not deliver, or one older than the records it keeps
+                (``SimulatedCamera.EXPOSURE_RECORDS_KEPT``).
+        """
+        target = self._camera_board('exposed_under')
+        if not isinstance(target, SimulatedCamera):
+            raise self._not_injectable('exposed_under', target)
+        frame_id = (frame.chunks or {}).get('FrameID')
+        exposure = None if frame_id is None else target.exposed_under(frame_id)
+        if exposure is None:
+            raise ArgumentRefusedError(
+                'exposure_not_recorded',
+                argument='frame',
+                value=frame.seq,
+                kind=f'it kept the last {SimulatedCamera.EXPOSURE_RECORDS_KEPT} it delivered',
+            )
+        return exposure
 
     # --- what is injected ---
 

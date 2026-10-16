@@ -3034,6 +3034,9 @@ class ArgumentRefusedError(Refusal, ValueError):
             - ``'needs_simulated_camera'`` -- an argument that exists only
               on the simulated camera, given for a model simulated with
               an FX2.
+            - ``'exposure_not_recorded'`` -- a frame the simulated camera
+              holds no exposure record for: one it did not deliver, or one
+              older than the records it keeps.
             - ``'not_an_installation'`` -- a folder that holds neither
               settings file, so it is not an LVP installation root.
             - ``'part_unknown'`` -- a part name that is not one of
@@ -3168,6 +3171,10 @@ class ArgumentRefusedError(Refusal, ValueError):
         'needs_simulated_camera': (
             'Needs the Simulated Camera',
             '{argument} needs the simulated camera; this model is simulated with an FX2.',
+        ),
+        'exposure_not_recorded': (
+            'No Exposure Record',
+            '{argument} is not a frame the simulated camera holds a record for: {kind}.',
         ),
         'not_an_installation': (
             'Not an Installation',

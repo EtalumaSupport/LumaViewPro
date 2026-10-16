@@ -101,7 +101,9 @@ _BOARD_PAIRS = (
 # camera's sensor pipeline depth and clock (`SENSOR_PIPELINE_FRAMES`,
 # `TIMESTAMP_TICK_HZ`, `camera_clock_ticks`, which the Pylon driver gains
 # as a latch of its body's clock), the camera's reference LED current
-# (`REFERENCE_ILLUMINATION_MA`, the current a lit field renders at),
+# (`REFERENCE_ILLUMINATION_MA`, the current a lit field renders at), the
+# camera's host backlog and exposure records behind the doors
+# `delay_delivery` and `exposed_under` (with `EXPOSURE_RECORDS_KEPT`),
 # (`set_focal_z`, `get_nominal_focal_z`, ...), the camera's `hold_frames` (a
 # stalled stream, set from the --sim-camera-stall launch argument), the
 # motor's `hold_travel` (a move held part of the way, so a test acts on a
@@ -118,7 +120,7 @@ _BOARD_PAIRS = (
 _SIM_ONLY_NAME_BUDGET = {
     'LEDBoard': 4,
     'MotorBoard': 17,
-    'Camera': 23,
+    'Camera': 26,
 }
 
 # Parameter divergences that stay until the simulators gain a shared
@@ -154,6 +156,9 @@ _SIM_ONLY_CALL_ALLOWLIST = {
     (_SIMULATION, 'allow_write'),
     (_SIMULATION, 'hold_frames'),
     (_SIMULATION, 'release_frames'),
+    (_SIMULATION, 'delay_delivery'),
+    (_SIMULATION, 'exposed_under'),
+    (_SIMULATION, 'EXPOSURE_RECORDS_KEPT'),
     (_SIMULATION, 'WRITABLE_NODES'),
     (_SIMULATION, 'REFUSED_WRITE_ANSWERS'),
 }
