@@ -47,6 +47,7 @@ from modules.activity_claim import (
     ActivityClaim,
     HeldClaim,
     acting,
+    current_taking,
     the_holder_named,
 )
 from modules.exceptions import (
@@ -2355,13 +2356,14 @@ class ScopeSession:
         # Read before the start, as the start reads it: the step this call
         # was made for, whatever the list holds once the lane has run.
         layer = protocol.step(idx=step_idx)['Color']
-        going = self._start_moving_to_step(protocol, step_idx)
-        try:
-            self.apply_layer_camera(layer)
-        finally:
-            # A refused apply still waits out the travel it started, so the
-            # caller is never handed a raise with the stage still moving.
-            going.result()
+        with self._a_layer_change(layer, 'go_to_step'):
+            going = self._start_moving_to_step(protocol, step_idx)
+            try:
+                self.apply_layer_camera(layer)
+            finally:
+                # A refused apply still waits out the travel it started, so
+                # the caller is never handed a raise with the stage still moving.
+                going.result()
 
     @api(stop='Operation.stop')
     def start_go_to_step(self, protocol: 'Protocol', step_idx: int) -> Operation:
@@ -2418,7 +2420,8 @@ class ScopeSession:
                 controller is not and the step's preview would light;
                 ``'scope_disconnected'``
                 after ``disconnect()``; or a run, a diagnostic or a home holds the
-                scope. Nothing changes.
+                scope, or a manual recording runs and the step's layer is not
+                the shown one. Nothing changes.
             PositionOutOfRangeError: the step lies outside an axis's travel;
                 the axes before it have moved, nothing else changes.
             MoveNotCompletedError: the turret did not reach the step's slot,
@@ -2431,8 +2434,9 @@ class ScopeSession:
         """
         refuse_waiting_on_ui_thread('start_go_to_step')
         layer = protocol.step(idx=step_idx)['Color']
-        going = self._start_moving_to_step(protocol, step_idx)
-        self.apply_layer_camera(layer)
+        with self._a_layer_change(layer, 'start_go_to_step'):
+            going = self._start_moving_to_step(protocol, step_idx)
+            self.apply_layer_camera(layer)
         return going
 
     def _start_moving_to_step(self, protocol: 'Protocol', step_idx: int) -> Operation:
@@ -2654,18 +2658,49 @@ class ScopeSession:
                 no ``layer``; ``'not_connected'``, naming the LED
                 controller the light needs or the camera; or
                 ``'exclusive_activity_running'``, a run, a diagnostic or a
-                home holds the scope.
+                home holds the scope, or a manual recording runs and
+                ``layer`` is not the shown one (a recording keeps one
+                layer; nothing is changed).
             ConfigurationDefectError: ``'layers_unresolved'``, this scope's
                 layers could not be resolved.
             CameraSettingRejected: the camera refused a setting of the
                 layer; its LEDs are already shown.
         """
         self.scope.layer_identity.refuse_unless_on_scope(layer, 'show_channel', then='be shown')
-        lit = self._shown_channel.lit
-        self._show_leds(layer, lit)
-        self._set_shown_channel(ShownChannel(layer, lit))
-        self.apply_layer_camera(layer)
+        with self._a_layer_change(layer, 'show_channel'):
+            lit = self._shown_channel.lit
+            self._show_leds(layer, lit)
+            self._set_shown_channel(ShownChannel(layer, lit))
+            self.apply_layer_camera(layer)
         return self._shown_channel
+
+    @contextlib.contextmanager
+    def _a_layer_change(self, layer: str, member: str):
+        """Change the shown layer to ``layer`` with no recording running.
+
+        A manual recording's frames are named for one layer, so a change of
+        it would falsify them: it is refused while one runs, before anything
+        is changed, and a recording cannot start while it is under way (the
+        claim's falsifying-change count). Showing the layer already shown is
+        no change. Any other holder of the scope refuses the change itself,
+        on the lane it reaches.
+
+        Raises:
+            HardwareCommandRefusedError: ``'exclusive_activity_running'``,
+                naming the recording.
+        """
+        if layer == self._shown_channel.layer:
+            yield
+            return
+        claim = self.activity_claim
+        holder = claim.enter_falsifying_change(current_taking())
+        if holder is not None and holder.kind == 'recording':
+            raise HardwareCommandRefusedError('exclusive_activity_running', member, holder.kind)
+        try:
+            yield
+        finally:
+            if holder is None:
+                claim.leave_falsifying_change()
 
     @api
     def light_shown_channel(self, lit: bool) -> ShownChannel:

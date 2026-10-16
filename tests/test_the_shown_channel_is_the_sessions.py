@@ -184,3 +184,31 @@ def test_a_write_during_a_run_to_the_layer_shown_before_it_is_on_the_camera_afte
     finally:
         built.remove_shown_channel_listener(write_while_the_step_is_lit)
         built.shutdown()
+
+
+def test_showing_another_layer_during_a_recording_is_refused_and_changes_nothing(session):
+    from modules.exceptions import HardwareCommandRefusedError
+
+    session.light_shown_channel(True)
+    recording = session.manual_recording.start(false_color_on=False)
+    try:
+        with pytest.raises(HardwareCommandRefusedError) as refused:
+            session.show_channel('Blue')
+        assert (refused.value.reason, refused.value.holder) == (
+            'exclusive_activity_running',
+            'recording',
+        )
+        assert session.shown_channel == ShownChannel('BF', lit=True)
+        assert _lit(session) == {'BF'}
+    finally:
+        recording.stop()
+        recording.result(timeout=60)
+
+
+def test_showing_the_shown_layer_during_a_recording_is_no_change(session):
+    recording = session.manual_recording.start(false_color_on=False)
+    try:
+        assert session.show_channel('BF') == ShownChannel('BF', lit=False)
+    finally:
+        recording.stop()
+        recording.result(timeout=60)

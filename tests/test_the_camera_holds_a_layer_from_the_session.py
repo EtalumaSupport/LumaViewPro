@@ -126,6 +126,21 @@ class TestGoingToAStep:
         assert session.shown_channel.layer == 'Blue'
         assert _camera(session) == (_BLUE['exposure_ms'], _BLUE['gain_db'])
 
+    def test_going_to_another_layers_step_during_a_recording_is_refused(self, session):
+        protocol, _bf_idx, blue_idx = _two_step_protocol(session)
+        recording = session.manual_recording.start(false_color_on=False)
+        try:
+            with pytest.raises(HardwareCommandRefusedError) as refused:
+                session.go_to_step(protocol, blue_idx)
+            assert (refused.value.reason, refused.value.holder) == (
+                'exclusive_activity_running',
+                'recording',
+            )
+            assert session.shown_channel.layer == 'BF'
+        finally:
+            recording.stop()
+            recording.result(timeout=60)
+
     def test_a_manual_step_after_an_auto_gain_step_holds_its_own_gain(self, session):
         """Going back to a manual step from an auto-gain one puts the manual
         step's gain on the camera, and the capture gate expects it (#840).
