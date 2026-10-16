@@ -110,7 +110,8 @@ _BOARD_PAIRS = (
 # move that is provably travelling), the fault doors `scope.simulation`
 # drives (the motor's `unplug`, `replug`, `drop_replies`, `stop_dropping`;
 # the camera's `leave_bus`, `refuse_write`, `allow_write`, `release_frames`
-# and the two vocabularies `WRITABLE_NODES` and `REFUSED_WRITE_ANSWERS`),
+# the two vocabularies `WRITABLE_NODES` and `REFUSED_WRITE_ANSWERS`, and
+# `answers_for`, the answers each node's write gives),
 # and six firmware-update
 # methods on the motor simulator that anticipate the firmware-updating
 # work landing on the FW branch. Those six have no caller yet; when that
@@ -120,7 +121,7 @@ _BOARD_PAIRS = (
 _SIM_ONLY_NAME_BUDGET = {
     'LEDBoard': 4,
     'MotorBoard': 17,
-    'Camera': 26,
+    'Camera': 27,
 }
 
 # Parameter divergences that stay until the simulators gain a shared
@@ -161,6 +162,7 @@ _SIM_ONLY_CALL_ALLOWLIST = {
     (_SIMULATION, 'EXPOSURE_RECORDS_KEPT'),
     (_SIMULATION, 'WRITABLE_NODES'),
     (_SIMULATION, 'REFUSED_WRITE_ANSWERS'),
+    (_SIMULATION, 'answers_for'),
 }
 
 

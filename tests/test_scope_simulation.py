@@ -188,6 +188,8 @@ def test_the_fast_motor_board_cannot_fail_a_home(scope):
         ('fail_home', ('X', 'jammed'), 'fault_unknown', 'how'),
         ('refuse_camera_write', ('focus', 'false'), 'fault_unknown', 'node'),
         ('refuse_camera_write', ('gain', 'no'), 'fault_unknown', 'answer'),
+        # A frame-size write answers the window it delivers, never a bare True.
+        ('refuse_camera_write', ('frame_size', 'true'), 'fault_unknown', 'answer'),
         ('refuse_camera_write', ('gain', 'false', 0), 'fault_bound', 'count'),
         ('stall_stream', (0.0, 0.0), 'fault_bound', 'for_s'),
         ('reboot', ('motor', -1.0), 'fault_bound', 'booting_for_s'),

@@ -253,6 +253,11 @@ class SimulatedCamera(Camera):
         'removed',
         'no_answer',
     )
+    # The answers no real driver gives for a node: a frame-size write answers
+    # the window it delivers or False, never a bare True.
+    _ANSWERS_NO_DRIVER_GIVES: ClassVar[dict[str, frozenset[str]]] = {
+        'frame_size': frozenset({'true'}),
+    }
 
     def __init__(
         self,
@@ -581,6 +586,12 @@ class SimulatedCamera(Camera):
         device is removed; its own reconnect brings it back."""
         self._mark_disconnected()
 
+    @classmethod
+    def answers_for(cls, node: str) -> tuple[str, ...]:
+        """The refused-write answers ``node`` can be given: those a real driver gives for it."""
+        never = cls._ANSWERS_NO_DRIVER_GIVES.get(node, frozenset())
+        return tuple(a for a in cls.REFUSED_WRITE_ANSWERS if a not in never)
+
     def refuse_write(self, node: str, answer: str, count: int = 1) -> None:
         """The next ``count`` writes of ``node`` answer ``answer`` and move nothing.
 
@@ -597,12 +608,14 @@ class SimulatedCamera(Camera):
                 sent again at once meets the second.
 
         Raises:
-            ValueError: ``node`` or ``answer`` is not one of those.
+            ValueError: ``node`` or ``answer`` is not one of those, or the
+                answer is one no real driver gives for that node.
         """
         if node not in self.WRITABLE_NODES:
             raise ValueError(f'{node!r} is not one of {tuple(self.WRITABLE_NODES)}')
-        if answer not in self.REFUSED_WRITE_ANSWERS:
-            raise ValueError(f'{answer!r} is not one of {self.REFUSED_WRITE_ANSWERS}')
+        taken = self.answers_for(node)
+        if answer not in taken:
+            raise ValueError(f'{answer!r} is not one of {taken} for {node!r}')
         setter = self.WRITABLE_NODES[node]
 
         # The refusal stands in for the setter on this camera for ``count``

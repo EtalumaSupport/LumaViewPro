@@ -449,7 +449,8 @@ class SimulationAPI:
                 ``'auto_gain_once'`` or ``'auto_gain_target_brightness'``.
             answer: What the node write answers: ``'false'``, ``'none'``
                 (no confirmation), ``'true'`` (a bare True that confirms no
-                value), ``'raise'``, or ``'removed'`` (False, with the camera
+                value; not for ``'frame_size'``, whose write answers the
+                window it delivers), ``'raise'``, or ``'removed'`` (False, with the camera
                 gone from the bus during the write; it stays removed for the
                 session, as after ``remove_camera``), or ``'no_answer'``
                 (``CameraNoAnswerError``: the write timed out, and the
@@ -460,7 +461,8 @@ class SimulationAPI:
 
         Raises:
             ArgumentRefusedError: ``'needs_simulated_scope'``;
-                ``'fault_unknown'`` for a node or an answer;
+                ``'fault_unknown'`` for a node, or an answer that node's
+                write does not give;
                 ``'fault_bound'`` for a count below 1;
                 ``'not_injectable_on_board'`` on the FX2 camera.
         """
@@ -469,7 +471,7 @@ class SimulationAPI:
             raise self._not_injectable('refuse_camera_write', target)
         for argument, value, offered in (
             ('node', node, tuple(SimulatedCamera.WRITABLE_NODES)),
-            ('answer', answer, SimulatedCamera.REFUSED_WRITE_ANSWERS),
+            ('answer', answer, SimulatedCamera.answers_for(node)),
         ):
             if value not in offered:
                 raise ArgumentRefusedError(
