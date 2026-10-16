@@ -1507,7 +1507,7 @@ class TestSetBinningSizeAnswersByRaising:
         from drivers.exceptions import HardwareError
 
         cam = _bare_pylon_camera()
-        cam.get_supported_pixel_formats = lambda: ['Mono12']
+        cam.active.PixelFormat.GetSymbolics.return_value = ('Mono12',)
         cam.active.PixelFormat.GetValue.return_value = 'Mono8'
         cam.active.PixelFormat.SetValue.side_effect = genicam.RuntimeException('usb gone')
         with pytest.raises(HardwareError):
@@ -1515,7 +1515,7 @@ class TestSetBinningSizeAnswersByRaising:
         cam._mark_disconnected.assert_called_once()
 
         cam = _bare_pylon_camera()
-        cam.get_supported_pixel_formats = lambda: ['Mono12']
+        cam.active.PixelFormat.GetSymbolics.return_value = ('Mono12',)
         cam.active.PixelFormat.GetValue.return_value = 'Mono8'
         cam.active.PixelFormat.SetValue.side_effect = ValueError('unexpected')
         with pytest.raises(HardwareError):
