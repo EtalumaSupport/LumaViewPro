@@ -49,9 +49,23 @@ import tempfile
 REPO = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 
+from tests import ast_seams as _seams
+from tests.guards import test_a_scope_is_the_simulator_not_a_stand_in as _stand_ins
 from tests.guards import test_architecture_fixes as _guards
+from tests.guards import test_source_pin_ratchet as _source_pins
+
+
+def _scope_stand_in_counts():
+    """{'tests': scope-shaped stand-ins with no by-design mark}, the allowlist's count."""
+    return {'tests': len(_stand_ins._entries_with_a_site())}
+
 
 # (column label, detector). Each returns a dict whose values are summed.
+# The two test ratchets read the tree as the GUI ones do, by AST, so they
+# run against any sampled tree. The REST untyped-places ratchet and the
+# simulator-only-names ratchets are not here: each imports the tree's own
+# code (the served app; the driver classes), and an old tree's code cannot
+# be imported beside today's, so their history is read from pytest logs.
 DETECTORS = (
     ('answers below API', _guards._ui_answerer_call_counts),
     ('private reaches', _guards._ui_private_reach_counts),
@@ -61,6 +75,19 @@ DETECTORS = (
     ('.ids[ reads', _guards._modules_widget_read_counts),
     ('ui imports below', _guards._lower_layer_ui_import_counts),
     ('twin answerers', _guards._twin_answerer_names),
+    ('fragile src pins', _source_pins._fragile_pin_counts),
+    ('scope stand-ins', _scope_stand_in_counts),
+)
+
+# Every module whose repository root a measurement points at the sampled
+# tree. The GUI guard keeps a str; the AST seams and the guards that import
+# their root from it keep a Path, each as its own module-level name bound at
+# import, so each is redirected by name.
+ROOTS = (
+    (_guards, 'REPO_ROOT', str),
+    (_seams, 'REPO_ROOT', pathlib.Path),
+    (_source_pins, 'REPO_ROOT', pathlib.Path),
+    (_stand_ins, 'REPO_ROOT', pathlib.Path),
 )
 
 
@@ -100,10 +127,10 @@ def sample_points(since, until, every_days, branch):
 
 
 def tree_size(root):
-    """Lines and files under ui/ and modules/ -- the denominators."""
+    """Lines and files under ui/, modules/ and tests/ -- the denominators."""
     out = {}
-    for sub in ('ui', 'modules'):
-        files = sorted(pathlib.Path(root, sub).glob('*.py'))
+    for sub in ('ui', 'modules', 'tests'):
+        files = sorted(pathlib.Path(root, sub).rglob('*.py'))
         out[f'{sub}_files'] = len(files)
         out[f'{sub}_lines'] = sum(len(p.read_text(errors='replace').splitlines()) for p in files)
     return out
@@ -112,15 +139,17 @@ def tree_size(root):
 def measure_tree(worktree):
     """Run every detector against `worktree`, today's instrument throughout.
 
-    The redirection is undone before returning. The detectors read the guard
-    module's `REPO_ROOT` at call time, which is what lets one instrument be
-    pointed at many trees -- and that global belongs to a module the test
-    suite also imports, so leaving it redirected would make every guard in
-    the same process measure whichever tree was sampled last.
+    The redirection is undone before returning. The detectors read their
+    module's `REPO_ROOT` at call time (ROOTS), which is what lets one
+    instrument be pointed at many trees -- and those globals belong to
+    modules the test suite also imports, so leaving one redirected would
+    make every guard in the same process measure whichever tree was
+    sampled last.
     """
     row = {}
-    previous = _guards.REPO_ROOT
-    _guards.REPO_ROOT = str(worktree)
+    previous = [(module, name, getattr(module, name)) for module, name, _kind in ROOTS]
+    for module, name, kind in ROOTS:
+        setattr(module, name, kind(worktree))
     try:
         for label, fn in DETECTORS:
             try:
@@ -129,7 +158,8 @@ def measure_tree(worktree):
                 row[label] = None
                 row[f'{label} (why)'] = f'{type(exc).__name__}: {exc}'[:150]
     finally:
-        _guards.REPO_ROOT = previous
+        for module, name, value in previous:
+            setattr(module, name, value)
     with contextlib.suppress(Exception):
         row.update(tree_size(worktree))
     return row
@@ -166,7 +196,7 @@ def render(rows):
             for lab in labels
         )
         lines += ['-' * len(head), f'{"net":<12}{"":<10}{deltas}']
-        for sub in ('ui', 'modules'):
+        for sub in ('ui', 'modules', 'tests'):
             a, b = first.get(f'{sub}_lines'), last.get(f'{sub}_lines')
             if a and b:
                 lines.append(f'{sub}/ lines {a} -> {b}  ({(b / a - 1) * 100:+.0f}%)')

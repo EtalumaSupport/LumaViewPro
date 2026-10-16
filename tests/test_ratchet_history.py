@@ -86,10 +86,56 @@ def test_every_guard_detector_has_a_history_column():
         if callable(obj) and detector_name.fullmatch(name)
     }
     in_history = {detector.__name__ for _label, detector in rh.DETECTORS}
-    assert in_guards == in_history, (
-        f'pinned in the guard file but not replayed: {sorted(in_guards - in_history)}; '
-        f'replayed but not a guard detector: {sorted(in_history - in_guards)}'
+    # The two test ratchets (fragile source pins; scope-shaped stand-ins) are
+    # replayed from their own guard modules, by AST like the GUI ones.
+    test_ratchets = {'_fragile_pin_counts', '_scope_stand_in_counts'}
+    assert in_guards <= in_history, (
+        f'pinned in the guard file but not replayed: {sorted(in_guards - in_history)}'
     )
+    assert in_history - in_guards == test_ratchets, (
+        f'replayed but not a guard detector: {sorted(in_history - in_guards - test_ratchets)}'
+    )
+
+
+def test_measuring_a_tree_points_every_root_at_it_and_restores_each(monkeypatch, tmp_path):
+    """The test ratchets read a root of their own (a Path bound at import from
+    the AST seams), not the GUI guard's str; a measurement that redirected
+    the GUI root alone would count the checkout's tests under every sampled
+    tree's date and read as a migration that never moves."""
+    seen = {}
+
+    def _record():
+        seen.update({name: getattr(module, name) for module, name, _k in rh.ROOTS})
+        return {}
+
+    before = [(module, name, getattr(module, name)) for module, name, _k in rh.ROOTS]
+    monkeypatch.setattr(rh, 'DETECTORS', (('record', _record),))
+    rh.measure_tree(tmp_path)
+    assert all(str(value) == str(tmp_path) for value in seen.values()), seen
+    for module, name, value in before:
+        assert getattr(module, name) == value
+
+
+def test_the_test_ratchets_measure_the_sampled_tree(tmp_path):
+    """One literal .py read and one unmarked scope-shaped stand-in in a sampled
+    tree's tests/ count as 1 and 1 there, whatever the checkout holds."""
+    tests = tmp_path / 'tests'
+    tests.mkdir()
+    (tests / '__init__.py').write_text('')
+    (tests / 'test_sampled.py').write_text(
+        'from pathlib import Path\n'
+        'from unittest.mock import MagicMock\n'
+        '\n'
+        'def test_a():\n'
+        "    assert 'x' in Path('modules/x.py').read_text()\n"
+        '\n'
+        'def test_b():\n'
+        '    scope = MagicMock()\n'
+        '    assert scope\n'
+    )
+    row = rh.measure_tree(tmp_path)
+    assert row['fragile src pins'] == 1, row.get('fragile src pins (why)')
+    assert row['scope stand-ins'] == 1, row.get('scope stand-ins (why)')
 
 
 def _commit(repo, message, date, *parents_to_merge):
