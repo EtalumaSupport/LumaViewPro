@@ -40,7 +40,10 @@ import tempfile
 import time
 import traceback
 
-REPO = pathlib.Path(__file__).resolve().parents[2]
+# Links are not followed, as the app's launch_root does not follow them: a
+# probe run from a scratch folder of links into a clone imports, reads and
+# logs in that folder, not the clone's.
+REPO = pathlib.Path(os.path.abspath(__file__)).parents[2]
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 # Probes resolve their relative paths (data/, output folders) against the repo root.
