@@ -624,3 +624,27 @@ def test_apply_layer_camera_settings_names_the_layer_it_applied_to():
     assert 'Red' in applied[0] and 'Lumi' in applied[1], (
         f'each line must name its own layer: {applied}'
     )
+
+
+def test_a_lock_right_after_the_arm_reads_a_frame_taken_under_it():
+    """A lock asked at once after the arm waits for a frame the camera took
+    under it: the values the loop started from (BF's 1.0 dB) are not what it
+    reached, and were stored as CONVERGED."""
+    from modules.scope_session import ScopeSession
+    from tests.scope_fakes import home_sim_scope
+    from tests.settings_fixtures import complete_settings
+
+    session = ScopeSession.create(
+        complete_settings(BF={'exposure_ms': 2.0, 'gain_db': 1.0, 'auto_gain': False}),
+        simulate=True,
+    )
+    try:
+        home_sim_scope(session.scope)
+        session.set_layer_auto_gain('BF', True)
+
+        lock = session.scope.imaging.lock_auto_gain()
+
+        assert lock.state is not None
+        assert lock.gain_db != 1.0
+    finally:
+        session.shutdown()

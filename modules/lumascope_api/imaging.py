@@ -1044,20 +1044,33 @@ class ImagingAPI:
             listeners = list(self._camera_listeners)
         notifications.tell_listeners(listeners, param, value, category='Camera')
 
-    def _get_latest_chunks(self) -> Mapping[str, Any] | None:
-        """The chunks of the camera's newest frame, for the auto-gain lock.
+    def _frame_under_the_arm(self) -> Frame | None:
+        """The camera's newest frame taken under the standing auto-gain arm.
 
-        The lock wants what the camera's auto loop has reached NOW, so a
-        newer frame is the better answer. Nothing that judges or records a
-        particular frame reads this: those read the chunks of the frame they
-        hold (``Frame.chunks``). None when no camera is attached, no frame
-        is stored, or the camera stores frames without chunks (IDS, FX2, the
-        simulator).
+        The lock wants what the camera's auto loop has reached NOW, so the
+        newest frame is the answer, but only one that arrived after the arm
+        did (its ``auto_gain`` change): a frame from before the arm holds
+        the values the loop started from, not what it reached. When the
+        newest is older, a newer one is waited for, within a grab's bound.
+        Nothing that judges or records a particular frame reads this: those
+        read the chunks of the frame they hold (``Frame.chunks``).
+
+        Returns:
+            The frame, or None when no camera is attached or none arrived
+            under the arm within the bound.
         """
-        if self._driver is None:
+        driver = self._driver
+        if driver is None:
             return None
-        frame = self._driver.grab()
-        return frame.chunks if frame is not None else None
+        armed = self.frame_validity.changes().get('auto_gain')
+        frame = driver.grab()
+        deadline = time.monotonic() + max(self._grab_sizing_exposure_s() * 3, 1.0)
+        while armed is not None and (frame is None or frame.seq <= armed.at_seq):
+            left = deadline - time.monotonic()
+            if left <= 0:
+                return None
+            frame = driver.grab_new_capture(timeout_s=left)
+        return frame
 
     def _chunk_target_mismatch(self, chunks: Mapping[str, Any] | None) -> str | None:
         """Name the first chunk-validatable source whose value in ``chunks``
@@ -1866,9 +1879,10 @@ class ImagingAPI:
         lock writes the achieved values back as manual values through the
         ordinary setters, which re-targets the gate; the next frame must
         then prove them like any manual setting. The achieved values come
-        from the last stored frame's chunks when the camera has them (the
-        same node and unit the gate compares), else from the cache the
-        disarm just resynced from hardware.
+        from the chunks of the newest frame taken under the arm when the
+        camera has them (the same node and unit the gate compares), else
+        from the cache the disarm just resynced from hardware; with no frame
+        under the arm within a grab's bound, the lock found nothing usable.
 
         Returns an AutoGainLock; ``state`` is None when no arm was
         recorded, and nothing was written.
@@ -1880,15 +1894,22 @@ class ImagingAPI:
         settings = arm.settings
         floor = settings.get('min_exposure_ms') or None
         ceiling = settings.get('max_exposure_ms') or None
+        # Read under the arm, before the disarm: a frame from before the arm
+        # carries the values the loop started from.
+        frame = self._frame_under_the_arm()
         try:
             self._set_auto_gain_impl(False, settings)
         except CameraSettingRejected as rejected:
             self._report_refused_write(rejected)
-        chunks = self._get_latest_chunks() or {}
+        chunks = (frame.chunks if frame is not None else None) or {}
         exp_us = chunks.get('ExposureTime')
         gain = chunks.get('Gain')
-        if isinstance(exp_us, (int, float)) and isinstance(gain, (int, float)):
-            exp_ms: object = exp_us / 1000.0
+        if frame is None:
+            # No frame came under the arm: what the loop reached is not known.
+            exp_ms: object = None
+            gain = None
+        elif isinstance(exp_us, (int, float)) and isinstance(gain, (int, float)):
+            exp_ms = exp_us / 1000.0
         else:
             exp_ms = self.exposure_ms_cached
             gain = self.gain_db_cached
