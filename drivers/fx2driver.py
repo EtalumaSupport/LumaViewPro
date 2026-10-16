@@ -379,6 +379,11 @@ VR_CODE_VERSION = 0xBC
 VR_START_STREAMING = 0xBD
 VR_STOP_STREAMING = 0xBE
 
+# How long a vendor control write may take before it is a timeout, in ms.
+# Every control write passes it: libusb1's own default, 0, waits forever,
+# and the stream's stop runs at close and in the exit hook.
+CONTROL_TIMEOUT_MS = 5000
+
 # Populate _VR_NAMES once constants are defined (used by serial.log
 # emission below for human-readable trace lines).
 _VR_NAMES.update(
@@ -1212,7 +1217,7 @@ class _LibusbTransport(_PyusbTransport):
         self._event_thread.start()
 
         # Now start streaming -- transfers are ready to receive data.
-        handle.controlWrite(0x40, VR_START_STREAMING, 0, 0, b'')
+        handle.controlWrite(0x40, VR_START_STREAMING, 0, 0, b'', timeout=CONTROL_TIMEOUT_MS)
 
         logger.info(
             '[FX2 Conn  ] streaming started (ISO alt %d, EP 0x82, %d transfers x %d packets)',
@@ -1247,9 +1252,13 @@ class _LibusbTransport(_PyusbTransport):
             self._event_thread = None
 
         try:
-            self._handle.controlWrite(0x40, VR_STOP_STREAMING, 0, 0, b'')
-        except Exception:
-            pass
+            self._handle.controlWrite(
+                0x40, VR_STOP_STREAMING, 0, 0, b'', timeout=CONTROL_TIMEOUT_MS
+            )
+        except Exception as e:
+            # The handle is closed below whatever the camera answered; the
+            # camera may still be streaming until it is reopened.
+            logger.warning('[FX2 Conn  ] VR_STOP_STREAMING not taken: %s', e)
         try:
             self._handle.releaseInterface(0)
             self._handle.close()
@@ -1383,8 +1392,10 @@ class _WinUsbTransport(_PyusbTransport):
         if self._reader is not None:
             try:
                 self._reader.device.control_transfer(0x40, VR_STOP_STREAMING, 0, 0)
-            except Exception:
-                pass
+            except Exception as e:
+                # The reader is stopped below whatever the camera answered; the
+                # camera may still be streaming until it is reopened.
+                logger.warning('[FX2 Conn  ] VR_STOP_STREAMING not taken: %s', e)
             self._reader.stop()
             self._reader = None
         self._reopen_idle()
@@ -1654,7 +1665,7 @@ class _FX2Connection:
         value: int = 0,
         index: int = 0,
         data: bytes = b'',
-        timeout: int = 5000,
+        timeout: int = CONTROL_TIMEOUT_MS,
     ) -> int:
         """Thread-safe vendor OUT control transfer.
 
@@ -2234,8 +2245,11 @@ class FX2Camera(Camera):
         if _cam_log is not None:
             _cam_log.info('fx2 start_grabbing')
         self.stream_stats.reset()
-        self._grabbing = True  # set BEFORE starting threads that check it
         self._fx2.start_stream()
+        # After the stream started, so a start that raised leaves the camera
+        # not grabbing and the next start tries again; before the grab thread
+        # that checks it.
+        self._grabbing = True
         self._grab_thread = threading.Thread(target=self._grab_loop, daemon=True)
         self._grab_thread.start()
 

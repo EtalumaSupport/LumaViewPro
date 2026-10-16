@@ -19,6 +19,8 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from drivers import fx2driver
 
 DRIVER = Path(__file__).resolve().parent.parent / 'drivers' / 'fx2driver.py'
@@ -314,3 +316,81 @@ def test_neither_fx2_driver_reaches_the_connections_private_state():
             ):
                 found.append(f'{name}:{node.lineno} _fx2.{node.attr}')
     assert found == []
+
+
+# ---------------------------------------------------------------------------
+# The stream's start and stop are bounded, and a stop not taken is said
+# ---------------------------------------------------------------------------
+
+
+class _TimedIsoHandle(_IsoHandle):
+    """An ``_IsoHandle`` that records the timeout each control write was given."""
+
+    def __init__(self, events):
+        super().__init__(events)
+        self.timeouts = {}
+
+    def controlWrite(self, request_type, request, value, index, data, timeout=0):
+        self.timeouts[request] = timeout
+        return super().controlWrite(request_type, request, value, index, data, timeout)
+
+
+def test_the_streams_start_and_stop_wait_no_longer_than_any_control_write(monkeypatch):
+    # libusb1's default, 0, waits forever, and the stop runs at the close.
+    events = []
+    conn = _connection_on_libusb(monkeypatch, events)
+    handle = _TimedIsoHandle(events)
+    monkeypatch.setattr(fx2driver.usb1, 'USBContext', lambda: _Context(handle), raising=False)
+
+    conn.start_stream()
+    conn.stop_stream()
+
+    assert handle.timeouts == {
+        fx2driver.VR_START_STREAMING: fx2driver.CONTROL_TIMEOUT_MS,
+        fx2driver.VR_STOP_STREAMING: fx2driver.CONTROL_TIMEOUT_MS,
+    }
+
+
+def test_a_stop_the_camera_did_not_take_is_said(monkeypatch):
+    events = []
+    conn = _connection_on_libusb(monkeypatch, events)
+    handle = _IsoHandle(events)
+
+    def refuse_the_stop(request_type, request, value, index, data, timeout=0):
+        if request == fx2driver.VR_STOP_STREAMING:
+            raise OSError('LIBUSB_ERROR_TIMEOUT')
+        return len(data)
+
+    handle.controlWrite = refuse_the_stop
+    monkeypatch.setattr(fx2driver.usb1, 'USBContext', lambda: _Context(handle), raising=False)
+    said = []
+    monkeypatch.setattr(fx2driver.logger, 'warning', lambda msg, *a: said.append(msg % a))
+
+    conn.start_stream()
+    conn.stop_stream()
+
+    assert [line for line in said if 'VR_STOP_STREAMING' in line] == [
+        '[FX2 Conn  ] VR_STOP_STREAMING not taken: LIBUSB_ERROR_TIMEOUT'
+    ]
+
+
+def test_a_start_that_raised_is_tried_again_by_the_next_start():
+    cam = object.__new__(fx2driver.FX2Camera)
+    cam._grabbing = False
+    cam._grab_thread = None
+    cam.stream_stats = fx2driver.StreamStats()
+    cam._grab_loop = lambda: None
+    starts = []
+
+    def start_stream():
+        starts.append(len(starts))
+        if len(starts) == 1:
+            raise OSError('the start was not answered')
+
+    cam._fx2 = SimpleNamespace(start_stream=start_stream)
+
+    with pytest.raises(OSError):
+        cam.start_grabbing()
+    cam.start_grabbing()
+
+    assert starts == [0, 1], 'the second start was skipped as already grabbing'
