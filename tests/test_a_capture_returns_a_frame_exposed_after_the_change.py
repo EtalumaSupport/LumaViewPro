@@ -16,8 +16,8 @@ stale-frame capture plan, where the camera's clock decides. Black level, the
 LED and the three moves return a frame made before the change; exposure and
 gain give up instead, on the first frame whose chunk names the old value,
 while the frame the capture waited for is still on its way. Conversion gain
-mode and line noise reduction are members too; the simulated camera has
-neither, and their cases join when it does.
+mode and line noise reduction have no case: the simulated camera is the
+dart's, which has neither, and they are not simulated (Eric, 2026-10-11).
 """
 
 from __future__ import annotations
