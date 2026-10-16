@@ -86,6 +86,9 @@ class SensorExposure:
         black_level: The black level applied.
         illumination_ma: The LED current lighting the sample, summed over
             the lit addresses; 0 for an unlit field.
+        x_um: The stage's X when the exposure started; None on a scope
+            with no X axis.
+        y_um: The stage's Y, likewise.
         z_um: Z when the exposure started; None on a scope with no focus axis.
         z_end_um: Z when the exposure ended (the next frame's start); None
             until then, and on a scope with no focus axis.
@@ -99,6 +102,8 @@ class SensorExposure:
     gain_db: float
     black_level: float
     illumination_ma: float
+    x_um: float | None
+    y_um: float | None
     z_um: float | None
     z_end_um: float | None
     depth_of_field_um: float | None
@@ -183,6 +188,17 @@ class SimulatedCamera(Camera):
     # simulated backlog's.
     SENSOR_PIPELINE_FRAMES = 2
 
+    # The LED current at which a lit field renders at the brightness the
+    # exposure and gain give it; the light scales in proportion to the
+    # current. A camera built with no scope around it is lit at this.
+    REFERENCE_ILLUMINATION_MA = 10.0
+
+    # How far the specimen moves on the sensor per micrometre of stage
+    # travel, in pixels at binning 1. The specimen is a pattern, not a
+    # calibrated slide: this makes the field follow X and Y, so a frame made
+    # before a move shows the old field.
+    _SPECIMEN_PX_PER_UM = 0.5
+
     # The camera's own clock: nanosecond ticks, as a Basler USB3 body's.
     TIMESTAMP_TICK_HZ = 1_000_000_000
 
@@ -239,6 +255,7 @@ class SimulatedCamera(Camera):
         height: int = _SENSOR['height'],
         grab_delay: float = 0.0,
         z_position_func: Callable[[], float | None] | None = None,
+        xy_position_func: Callable[[], tuple[float | None, float | None]] | None = None,
         illumination_func: Callable[[], float] | None = None,
         depth_of_field_func: Callable[[], float | None] | None = None,
         focal_spread_um: float = 0.0,
@@ -318,6 +335,8 @@ class SimulatedCamera(Camera):
         self._focal_z = self._NOMINAL_FOCAL_Z_UM + random.uniform(-focal_spread_um, focal_spread_um)
         logger.info(f'[SimCamera ] The simulated sample is in focus at Z {self._focal_z:.1f} um')
         self._z_position_func = z_position_func  # Optional: auto-query Z from motor
+        # Optional: auto-query the stage's X and Y, so the field follows them.
+        self._xy_position_func = xy_position_func
         # Optional: auto-query how much light is on the sample. Unwired, the
         # camera renders as though the field were lit, which is what a camera
         # constructed on its own with no scope around it has to assume.
@@ -1089,7 +1108,11 @@ class SimulatedCamera(Camera):
             dof = self._UNWIRED_DOF_UM
         else:
             dof = self._depth_of_field_func()
-        lit_ma = 1.0 if self._illumination_func is None else float(self._illumination_func())
+        if self._illumination_func is None:
+            lit_ma = self.REFERENCE_ILLUMINATION_MA
+        else:
+            lit_ma = float(self._illumination_func())
+        x, y = (None, None) if self._xy_position_func is None else self._xy_position_func()
         self._frames_started += 1
         return SensorExposure(
             frame_id=self._frames_started,
@@ -1098,6 +1121,8 @@ class SimulatedCamera(Camera):
             gain_db=self._gain,
             black_level=self._black_level,
             illumination_ma=lit_ma,
+            x_um=x,
+            y_um=y,
             z_um=z,
             z_end_um=None,
             depth_of_field_um=dof,
@@ -1162,7 +1187,8 @@ class SimulatedCamera(Camera):
 
     @staticmethod
     def _illumination_scale(exposure: SensorExposure) -> float:
-        """1.0 when the sample was lit for ``exposure``, 0.0 when nothing was.
+        """How much light reached the sample for ``exposure``: the LED current
+        against ``REFERENCE_ILLUMINATION_MA``, and 0.0 when nothing was lit.
 
         A camera sees what the illumination gives it, so an unlit field is
         black however long the exposure or however high the gain. Without
@@ -1176,12 +1202,25 @@ class SimulatedCamera(Camera):
         rendering it black would make every standalone camera test describe
         a fault.
 
-        Intensity is deliberately not modelled. The question this answers
-        is whether there is light, which is what distinguishes a failure
-        from a capture; how bright a lit field looks already follows
-        exposure and gain.
+        The light scales with the current, so a change of current reaches
+        the image as a change of exposure or gain does, and a long exposure
+        can be kept off full scale by lighting it less.
         """
-        return 1.0 if exposure.illumination_ma > 0.0 else 0.0
+        return exposure.illumination_ma / SimulatedCamera.REFERENCE_ILLUMINATION_MA
+
+    def _at_stage_xy(self, img: np.ndarray, exposure: SensorExposure) -> np.ndarray:
+        """The specimen field ``img`` as seen with the stage where ``exposure`` started.
+
+        The field moves across the sensor against the stage's travel, and
+        what leaves one edge comes back at the other: the specimen is a
+        repeating pattern. A scope without X or Y holds that axis still.
+        """
+        px_per_um = self._SPECIMEN_PX_PER_UM / self._binning
+        dx = round((exposure.x_um or 0.0) * px_per_um)
+        dy = round((exposure.y_um or 0.0) * px_per_um)
+        if not dx and not dy:
+            return img
+        return np.roll(img, (-dy, -dx), axis=(0, 1))
 
     def _generate_image(self, exposure: SensorExposure) -> np.ndarray:
         """Generate a synthetic image as ``exposure`` made it, at the current geometry and pattern."""
@@ -1198,7 +1237,7 @@ class SimulatedCamera(Camera):
         # Scale brightness by exposure and gain; the gain is held in dB, so it
         # multiplies the signal by 10^(dB/20)
         raw = (exposure.exposure_us / 1_000_000.0) * 10.0 ** (exposure.gain_db / 20.0) * 10.0
-        brightness = min(1.0, raw) * self._illumination_scale(exposure)
+        brightness = min(1.0, raw * self._illumination_scale(exposure))
         if self._test_pattern == 'black':
             img = np.zeros((h, w), dtype=dtype)
         elif self._test_pattern == 'white':
@@ -1225,8 +1264,11 @@ class SimulatedCamera(Camera):
                     f'{self._test_pattern!r} -- rendering the specimen field'
                 )
             frame, source = self._specimen_frame(h, w)
-            img = self._render_sample(
-                frame, source, dtype, max_val, brightness, exposure, specimen=True
+            img = self._at_stage_xy(
+                self._render_sample(
+                    frame, source, dtype, max_val, brightness, exposure, specimen=True
+                ),
+                exposure,
             )
 
         if exposure.black_level:

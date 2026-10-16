@@ -731,6 +731,12 @@ class Lumascope:
         camera_kwargs: dict = {}
         if simulate and sim_fx2 is None:
             camera_kwargs['z_position_func'] = lambda: self.motion.get_current_position('Z')
+            # The field follows the stage the same way; an axis the scope
+            # lacks answers None and holds still.
+            camera_kwargs['xy_position_func'] = lambda: (
+                self.motion.get_current_position('X'),
+                self.motion.get_current_position('Y'),
+            )
             # Light reaches the simulated sensor the same way Z does: the
             # composition root hands it over, because it is the only object
             # holding both halves and no driver may reach into a peer. The
