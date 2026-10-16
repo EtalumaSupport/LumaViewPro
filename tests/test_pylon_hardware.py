@@ -272,54 +272,6 @@ class TestPylon(unittest.TestCase):
         after = time.monotonic_ns()
         return (before + after) // 2, after - before, self.camera.latched_clock_ticks()
 
-    @pytest.mark.slow
-    def test_the_clock_mapping_figures(self):
-        """Figures for step 7 and the mapping's claims, printed, not judged:
-        the latch bracket over 200 latches; the drift between the clocks
-        over 60 s; and each delivered frame's time from its exposure start
-        (its Timestamp chunk, mapped) to its arrival on the host, less its
-        exposure, over 10 s: where a frame waits between camera and host.
-        A Mac's figures are a hypothesis for the Windows host."""
-        self.assertTrue(self.camera.supports_clock_latch(), 'no TimestampLatch on this camera')
-        hz = self.camera.timestamp_tick_frequency_hz
-        brackets = sorted(self._latch()[1] for _ in range(200))
-        print(
-            f'\n  bracket ns: min {brackets[0]} median {brackets[100]} '
-            f'p95 {brackets[190]} max {brackets[-1]}'
-        )
-
-        start_ns, start_bracket, start_ticks = self._latch()
-        mapping_ns, mapping_bracket, mapping_ticks = start_ns, start_bracket, start_ticks
-        handler = self.camera.cam_image_handler
-        exposure_ns = self.camera.get_exposure_t() * 1e6
-        delays = {}
-        deadline = time.monotonic() + 10.0
-        while time.monotonic() < deadline:
-            frame = handler.get_last_image()
-            ticks = (frame.chunks or {}).get('Timestamp') if frame is not None else None
-            if ticks is not None and frame.seq not in delays:
-                began_ns = mapping_ns + (ticks - mapping_ticks) * 1e9 / hz
-                delays[frame.seq] = (frame.arrived_ns - began_ns - exposure_ns) / 1e6
-            time.sleep(0.002)
-        ms = sorted(delays.values())
-        self.assertGreater(len(ms), 10, 'too few frames read')
-        print(
-            f'  exposure {exposure_ns / 1e6:.3f} ms; {len(ms)} frames; arrival after '
-            f'exposure end, ms: min {ms[0]:.3f} median {ms[len(ms) // 2]:.3f} '
-            f'p95 {ms[int(len(ms) * 0.95)]:.3f} max {ms[-1]:.3f} '
-            f'(mapping +-{mapping_bracket / 2e6:.3f} ms)'
-        )
-
-        time.sleep(max(0.0, 60.0 - (time.monotonic_ns() - start_ns) / 1e9))
-        end_ns, end_bracket, end_ticks = self._latch()
-        host_s = (end_ns - start_ns) / 1e9
-        camera_s = (end_ticks - start_ticks) / hz
-        print(
-            f'  drift over {host_s:.1f} s: camera - host {(camera_s - host_s) * 1e6:.1f} us '
-            f'({(camera_s - host_s) / host_s * 1e6:.2f} ppm; brackets +-'
-            f'{(start_bracket + end_bracket) / 4e3:.0f} us)'
-        )
-
     def test_worker_thread_alive_after_connect(self):
         """After PylonCamera.connect() returns, the Stage B worker thread
         must be alive (daemon, named 'PylonImageGrabWorker') so the SDK
