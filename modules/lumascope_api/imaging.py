@@ -831,32 +831,32 @@ class ImagingAPI:
         """
         return self._driver.frames_delivered if self._driver else 0
 
-    def _load_camera_timing(self) -> None:
-        """Take frame validity's drains from the camera's measured timing record, if it has one.
+    def _check_camera_timing(self) -> None:
+        """Refuse the camera's measured timing record at bring-up if it is not one this release reads.
 
         The record is the one its profile names (``timing_model``); a camera
-        with none drains at frame validity's shipped counts.
+        with none has nothing to check. Frame validity drains at its own
+        counts either way; the record's measured delays are checked here
+        (``FrameValidity.check_timing_record``) so a record written wrong is
+        refused where the installation is read, not where it is used.
 
         Raises:
-            InstallationFileError: the profile names a record that is missing
-                or unreadable, so the camera would drain at counts nobody
-                measured for it.
+            InstallationFileError: the profile names a record that is
+                missing, unreadable, of another schema, or holds a value
+                that is not a measurement.
         """
         if not self._driver or not self._driver.active:
             return
         profile = self._driver.profile
+        path = camera_profiles.timing_record_path(profile)
         try:
-            config = camera_profiles.timing_record(profile)
+            record = camera_profiles.timing_record(profile)
+            if record is None:
+                return
+            self.frame_validity.check_timing_record(record)
         except (OSError, ValueError) as e:
-            raise InstallationFileError(
-                camera_profiles.timing_record_path(profile), f'could not be read ({e})'
-            ) from e
-        if config is None:
-            return
-        self.frame_validity.load_camera_timing(config)
-        logger.info(
-            f'[SCOPE API ] Loaded camera timing config from {camera_profiles.timing_record_path(profile)}'
-        )
+            raise InstallationFileError(path, f'could not be read ({e})') from e
+        logger.info(f'[SCOPE API ] Camera timing record {path} checked')
 
     def _populate_camera_cache(self) -> None:
         """Populate camera cache from hardware. Called at init and on reconnect.

@@ -877,7 +877,7 @@ class Lumascope:
         # _camera_listeners/_frame_buffer/_focusing_event/
         # _suppress_value_warnings/
         # _camera_temp_event init live on ImagingAPI.__init__.
-        # _load_camera_timing + _populate_camera_cache are ImagingAPI
+        # _check_camera_timing + _populate_camera_cache are ImagingAPI
         # methods and run automatically during ImagingAPI.__init__.
         # Lumascope wires up the motion-settle check against the
         # frame_validity instance below.
@@ -898,9 +898,9 @@ class Lumascope:
             return True
 
         self.imaging.frame_validity.set_settle_check(_motion_settle_check)
-        # _load_camera_timing relocated to ImagingAPI; called during
+        # _check_camera_timing relocated to ImagingAPI; called during
         # ImagingAPI.__init__ via the settle-check setup completion.
-        self.imaging._load_camera_timing()
+        self.imaging._check_camera_timing()
 
         # Populate position cache from firmware so get_current_position()
         # returns correct values immediately (not 0.0 from empty cache).

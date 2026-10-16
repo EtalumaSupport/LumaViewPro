@@ -1,41 +1,8 @@
 {
+  "schema": 2,
   "camera_model": "daA3840-45um",
   "measured_date": "2026-05-08",
-  "skip_frames": {
-    "led_off_to_on": {
-      "p50": 1,
-      "p95": 2,
-      "max": 2
-    },
-    "led_on_to_off": {
-      "p50": 1,
-      "p95": 2,
-      "max": 2
-    },
-    "gain_up": {
-      "p50": 2,
-      "p95": 3,
-      "max": 3
-    },
-    "gain_down": {
-      "p50": 2,
-      "p95": 3,
-      "max": 3
-    },
-    "exposure_short_to_long": {
-      "p50": 2,
-      "p95": 2,
-      "max": 2
-    },
-    "exposure_long_to_short": {
-      "p50": 1,
-      "p95": 2,
-      "max": 2
-    },
-    "led": 2,
-    "gain": 3,
-    "exposure": 2
-  },
+  "validity": {},
   "frame_intervals_ms": {
     "1": 56.59,
     "5": 56.59,

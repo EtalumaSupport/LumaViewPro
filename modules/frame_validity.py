@@ -48,6 +48,12 @@ from drivers.camera import Frame
 from lib import profile_trace
 from modules.api_surface import api_fields
 
+# The camera timing record's version this release reads, and what its
+# validity group's values must carry (``FrameValidity.check_timing_record``).
+TIMING_RECORD_SCHEMA = 2
+TIMING_MEASURES = ('apply_delay_us', 'delivered_frames')
+TIMING_PROVENANCE = ('run_id', 'host', 'os', 'lvp_version', 'plugin_version', 'measured_date')
+
 
 class Counter(enum.Enum):
     """Who counted a frame toward a change: the capture's drain, a grab
@@ -682,21 +688,69 @@ class FrameValidity:
                 and not self._settle_check_fn(s)
             )
 
-    def load_camera_timing(self, config: dict):
-        """Override SKIP_FRAMES from measured per-camera timing config.
+    @classmethod
+    def check_timing_record(cls, record: dict) -> None:
+        """Refuse a camera timing record this gate cannot take as measured.
 
-        Args:
-            config: dict with 'skip_frames' key mapping source names to
-                    measured frame counts. Only sources present in the config
-                    are overridden; others keep their defaults.
+        A record (``data/camera_timing/<model>.json``) states, in its
+        ``validity`` group, how late each change reaches a frame: per source
+        and direction, either the delay on the camera's clock from the write
+        to the first frame exposed under it (``apply_delay_us``) or, for a
+        camera without a clock, the frames delivered after the change's
+        arrival position before the first that shows it
+        (``delivered_frames``), each as ``{'p50', 'p95', 'max'}`` over
+        ``trials``, and each with the ``provenance`` of the run that measured
+        it. A value with no run behind it is not a measurement. The gate's
+        own counts are ``SKIP_FRAMES``; nothing here changes them.
 
-        Typically called after camera connects with data loaded from
-        data/camera_timing/<model>.json.
+        Raises:
+            ValueError: the record is not ``TIMING_RECORD_SCHEMA``, names a
+                source this gate has no change for, or holds a value without
+                exactly one measure, its trials or its provenance.
         """
-        measured = config.get('skip_frames', {})
-        for source, count in measured.items():
-            if isinstance(count, int) and count >= 0:
-                self.SKIP_FRAMES[source] = count
+        if record.get('schema') != TIMING_RECORD_SCHEMA:
+            raise ValueError(
+                f'schema {record.get("schema")!r}, not {TIMING_RECORD_SCHEMA}: '
+                'a record this release cannot read'
+            )
+        validity = record.get('validity')
+        if not isinstance(validity, dict):
+            raise ValueError('no validity group')
+        for source, directions in validity.items():
+            if source not in cls.SKIP_FRAMES:
+                raise ValueError(f'validity names {source!r}, a source with no change')
+            if not isinstance(directions, dict):
+                raise ValueError(f'validity.{source} is not a group of directions')
+            for direction, value in directions.items():
+                where = f'validity.{source}.{direction}'
+                if not isinstance(value, dict):
+                    raise ValueError(f'{where} is not a measured value')
+                measures = [m for m in TIMING_MEASURES if m in value]
+                if len(measures) != 1:
+                    raise ValueError(
+                        f'{where} holds {measures or "no measure"}, not one of {TIMING_MEASURES}'
+                    )
+                spread = value[measures[0]]
+                if not (
+                    isinstance(spread, dict)
+                    and set(spread) == {'p50', 'p95', 'max'}
+                    and all(
+                        isinstance(v, int | float) and not isinstance(v, bool) and v >= 0
+                        for v in spread.values()
+                    )
+                ):
+                    raise ValueError(
+                        f'{where}.{measures[0]} is not p50, p95 and max, each 0 or more'
+                    )
+                trials = value.get('trials')
+                if not (isinstance(trials, int) and not isinstance(trials, bool) and trials > 0):
+                    raise ValueError(f'{where} states no trials')
+                provenance = value.get('provenance')
+                if not isinstance(provenance, dict):
+                    raise ValueError(f'{where} has no provenance')
+                missing = [k for k in TIMING_PROVENANCE if not provenance.get(k)]
+                if missing:
+                    raise ValueError(f'{where} has no provenance for {missing}')
 
     def reset(self) -> None:
         """Clear all pending invalidations and reset frame counter.

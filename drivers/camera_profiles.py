@@ -355,8 +355,8 @@ def timing_record(profile: CameraProfile) -> dict | None:
     """``profile``'s measured timing record, or None when it names none.
 
     A record the profile names is shipped with the installation, so a
-    missing or unreadable one raises (``OSError``, ``ValueError``): the
-    camera would otherwise drain at counts nobody measured for it.
+    missing or unreadable one raises (``OSError``, ``ValueError``): a
+    measurement the installation claims to carry is not silently absent.
     """
     if not profile.timing_model:
         return None

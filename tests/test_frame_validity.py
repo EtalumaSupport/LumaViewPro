@@ -1,7 +1,6 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """Tests for FrameValidity module."""
 
-import json
 import threading
 import sys
 import os
@@ -13,7 +12,7 @@ import numpy as np
 import pytest
 from modules.frame_validity import Counter, FrameValidity
 from tests.camera_fakes import delivered_frame
-from tests.scope_fakes import bind_settings_like_a_session, build_scope
+from tests.scope_fakes import bind_settings_like_a_session
 
 
 class _Frames:
@@ -323,136 +322,6 @@ class TestThreadSafety:
 
         assert errors == []
         assert fv.frame_counter > 0  # the writer ran
-
-
-class TestLoadCameraTiming:
-    """Tests for load_camera_timing() config loading."""
-
-    @pytest.fixture(autouse=True)
-    def _restore_skip_frames(self):
-        """Save and restore SKIP_FRAMES so tests don't leak state."""
-        original = dict(FrameValidity.SKIP_FRAMES)
-        yield
-        FrameValidity.SKIP_FRAMES.clear()
-        FrameValidity.SKIP_FRAMES.update(original)
-
-    def test_one_cameras_counts_do_not_outlive_it(self):
-        """A second scope in the process starts from the shipped defaults.
-
-        The loader wrote the class-level dict, so the first camera's measured
-        counts became every later instance's defaults: two cameras' loads
-        printed 3 2 2 in the FX2 plan's skeptic pass.
-        """
-        shipped = dict(FrameValidity.SKIP_FRAMES)
-        first = FrameValidity(_frames)
-        first.load_camera_timing({'skip_frames': {'led': 9, 'exposure': 7}})
-        second = FrameValidity(_frames)
-
-        assert first.SKIP_FRAMES['led'] == 9
-        assert shipped == second.SKIP_FRAMES
-        assert shipped == FrameValidity.SKIP_FRAMES
-        second.invalidate('led')
-        assert second.frames_until_valid() == shipped['led']
-
-    def test_overridden_values_used_by_invalidate(self):
-        """After loading config, invalidate() uses the new skip counts."""
-        fv = FrameValidity(_frames)
-        fv.load_camera_timing({'skip_frames': {'led': 4}})
-        fv.invalidate('led')
-        assert fv.frames_until_valid() == 4
-        for _ in range(3):
-            fv.count_frame(_f(), by=Counter.GRAB)
-        assert not fv.is_valid
-        fv.count_frame(_f(), by=Counter.GRAB)
-        assert fv.is_valid
-
-    def test_partial_config_only_overrides_specified(self):
-        """Sources not in config keep their default values."""
-        fv = FrameValidity(_frames)
-        original_exposure = fv.SKIP_FRAMES['exposure']
-        original_xy = fv.SKIP_FRAMES['xy_move']
-        fv.load_camera_timing({'skip_frames': {'led': 7}})
-        assert fv.SKIP_FRAMES['led'] == 7
-        assert fv.SKIP_FRAMES['exposure'] == original_exposure
-        assert fv.SKIP_FRAMES['xy_move'] == original_xy
-
-    def test_zero_count_accepted(self):
-        """Zero is a valid skip count (no frames to skip)."""
-        fv = FrameValidity(_frames)
-        fv.load_camera_timing({'skip_frames': {'led': 0}})
-        assert fv.SKIP_FRAMES['led'] == 0
-        fv.invalidate('led')
-        assert fv.is_valid  # zero skip means immediately valid
-
-    def test_does_not_affect_pending_state(self):
-        """Loading config should not clear or modify pending invalidations."""
-        fv = FrameValidity(_frames)
-        fv.invalidate('led')
-        fv.count_frame(_f(), by=Counter.GRAB)
-        pending_before = fv.pending_sources.copy()
-        fv.load_camera_timing({'skip_frames': {'led': 10}})
-        # Pending state unchanged -- the already-queued invalidation keeps
-        # its original threshold
-        assert fv.pending_sources == pending_before
-
-    def test_unknown_source_in_config(self):
-        """Config can add skip counts for custom/unknown sources."""
-        fv = FrameValidity(_frames)
-        fv.load_camera_timing({'skip_frames': {'custom_thing': 8}})
-        assert fv.SKIP_FRAMES['custom_thing'] == 8
-        fv.invalidate('custom_thing')
-        assert fv.frames_until_valid() == 8
-
-    def test_mixed_valid_and_invalid_values(self):
-        """Valid values are applied; a count that is not a whole number of
-        frames (negative, float, string, None) is dropped and the source keeps
-        its shipped count."""
-        fv = FrameValidity(_frames)
-        fv.load_camera_timing(
-            {
-                'skip_frames': {
-                    'led': 5,  # valid
-                    'gain': -1,  # invalid (negative)
-                    'exposure': 3.0,  # invalid (float)
-                    'xy_move': 'three',  # invalid (string)
-                    'turret': None,  # invalid (None)
-                    'z_move': 0,  # valid (zero)
-                }
-            }
-        )
-        assert fv.SKIP_FRAMES['led'] == 5
-        assert fv.SKIP_FRAMES['gain'] == 2  # unchanged default
-        assert fv.SKIP_FRAMES['exposure'] == 3  # unchanged default (measured: 3 on a2A3536)
-        assert fv.SKIP_FRAMES['xy_move'] == 2  # unchanged default
-        assert fv.SKIP_FRAMES['turret'] == 2  # unchanged default
-        assert fv.SKIP_FRAMES['z_move'] == 0
-
-
-class TestLoadCameraTimingLumascope:
-    """A scope takes its camera's measured counts from the timing record its
-    camera's profile names, when it is constructed."""
-
-    def test_a_scope_waits_the_counts_its_cameras_timing_file_measured(self, tmp_path, monkeypatch):
-        """The record sets the counts its scope's invalidations wait; sources
-        the record leaves out keep the shipped ones."""
-        from drivers import camera_profiles
-
-        record = tmp_path / 'measured.json'
-        record.write_text(json.dumps({'skip_frames': {'led': 7, 'gain': 4}}))
-        # The record's location is the installation's; pointing it at a test's
-        # file is the one seam that does not write into the data folder.
-        monkeypatch.setattr(camera_profiles, 'timing_record_path', lambda profile: record)
-
-        scope = build_scope(simulate=True)
-        fv = scope.imaging.frame_validity
-        fv.invalidate('led')
-        fv.invalidate('gain')
-        fv.invalidate('exposure')
-
-        pending = fv.pending_sources
-        assert pending['led'] == 7
-        assert pending['gain'] == 4
-        assert pending['exposure'] == FrameValidity.SKIP_FRAMES['exposure']
 
 
 class TestSetTarget:
