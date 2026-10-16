@@ -647,6 +647,20 @@ image = session.scope.imaging.capture_and_wait()    # returns frame-valid grab
 # saturation, chunk verify); leave it 0.0 to judge the first grab only.
 # The executor wait is bounded internally.
 image = session.scope.imaging.capture_and_wait(timeout_s=2.0)
+
+# Whether a frame counts for a change. Every gain, exposure, black level,
+# LED, Z, XY and turret change is recorded, and one function decides
+# whether a frame counts for it: judge_frame(frame) asks it against every
+# source's last change.
+# A capture judges the frame it returns (a sum's first frame) against each
+# source's last change; the answers ride its record
+# (last_capture_info['frame_record'].judgments), its saved file
+# ('frame_validity' in the metadata) and one line in api.log. A Judgment
+# carries counts, frames_after, ms_after_write, ms_after_in_force (motion:
+# from the axis settling) and the change's credits, each frame counted
+# toward its wait with who counted it (drain, grab or preview).
+for judgment in session.scope.imaging.judge_frame(frame):   # frame: from a listener
+    print(judgment.change.source, judgment.counts)
 ```
 
 ### Capture
@@ -1331,6 +1345,7 @@ still states the major version.
 | level 11 | A run returns its `Operation` (`start_move_absolute`, `start_move_relative` and `start_home` return one too), and `ProtocolRunner`'s run members start it: `run_single_scan`, `run_protocol`, `run_autofocus`, `run_autofocus_all_steps` and `run_zstack` are `start_single_scan`, `start_protocol`, `start_autofocus`, `start_autofocus_all_steps` and `start_zstack`. |
 | level 12 | A capture returns a frame or raises: `capture_and_wait` and `get_image` raise `CaptureFailedError` (`no_frame`, `deadline_expired`, `chunk_rejected` with its `setting`) for no frame and `HardwareCommandRefusedError` (`not_connected`, `camera_not_streaming`) for a camera gone or not streaming, and never answer None; `capture_failure_cause` and the failure flags of `last_capture_info` (`not_ready`, `drain_failed`, `deadline_expired`, `chunk_rejected`) are gone; `run_camera_bandwidth_test` answers `num_frames_failed` and `failed_by_reason` where it answered `num_frames_none` and `num_frames_error`. |
 | level 13 | A frame listener is called `cb(frame)` with the camera's read-only `Frame` record (`image`, `seq`, `timestamp`, `arrived_ns`, `significant_bits`, `chunks`), where it was called `cb(image, timestamp, chunks)`; the image a capture returns (`capture_and_wait`, `get_image`) is read-only. |
+| level 14 | `imaging.judge_frame(frame)` answers whether a frame counts for each source's last recorded change (a `Judgment` per change, carrying its `Change` and the `Credit` of each frame counted toward it), and `frame_validity.count_frame` takes who counted (`by=Counter`); a capture's `frame_record` carries `judgments`, and its saved file `frame_validity`. |
 
 ### Configuration queries
 
@@ -3165,6 +3180,7 @@ Reached through `session.scope.imaging`.
 - `get_pixel_alignment`
 - `get_resulting_frame_rate`
 - `is_streaming`
+- `judge_frame` (in-process)
 - `lock_auto_gain`
 - `longest_exposure_ms`
 - `max_exposure_ms_cached`
@@ -3548,6 +3564,26 @@ Reached through returned by `session.post_processing.count_cells`.
 - `message`
 - `results_path`
 
+### Change
+
+Reached through each `Judgment`'s `change`, from `scope.imaging.judge_frame`.
+
+- `at_seq`
+- `credits`
+- `in_force_ns`
+- `needs_in_force`
+- `skip`
+- `source`
+- `written_at`
+- `written_ns`
+
+### Credit
+
+Reached through each value of a `Change`'s `credits`.
+
+- `by`
+- `seq`
+
 ### DegradedOutput
 
 Reached through each item of `BuildResult.degraded_outputs`.
@@ -3645,6 +3681,17 @@ Reached through returned by `scope.simulation.injected`.
 
 - `arguments`
 - `member`
+
+### Judgment
+
+Reached through each value of `scope.imaging.judge_frame(frame)`.
+
+- `change`
+- `counts`
+- `frame_seq`
+- `frames_after`
+- `ms_after_in_force`
+- `ms_after_write`
 
 ### LayerRecord
 

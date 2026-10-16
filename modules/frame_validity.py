@@ -38,34 +38,142 @@ step's score would be the previous step's):
 """
 
 import dataclasses
+import datetime
+import enum
 import threading
 import time
 from typing import ClassVar
 
+from drivers.camera import Frame
 from lib import profile_trace
+from modules.api_surface import api_fields
 
 
-@dataclasses.dataclass
-class _PendingSource:
-    """One unsettled state change: how many more frames it needs, and which
-    frame the camera had already delivered when the write went out.
+class Counter(enum.Enum):
+    """Who counted a frame toward a change: the capture's drain, a grab
+    (a capture's own, or an ungated ``get_image``), or the live preview.
 
-    That ordinal is what makes the count honest. A frame already in the
-    camera's pipeline when the register was written cannot show the new
-    state, so crediting it would retire the skip count against frames that
-    predate the change -- and the capture then returns a frame from before
-    the write.
-
-    An ordinal rather than a clock reading, because the comparison has to
-    survive the clock moving. Wall time runs backwards across a DST
-    fall-back, an NTP correction or a host resume, and a settle count
-    measured against a timestamp that jumped forward never completes: every
-    later frame looks older than the write, the source never clears, and
-    captures fail out for the whole window. Frame numbers only go up.
+    A capture's wait can be met by frames another consumer counted, so the
+    record of a wait names who counted each frame.
     """
 
-    remaining: int
+    DRAIN = 'drain'
+    GRAB = 'grab'
+    PREVIEW = 'preview'
+
+
+@api_fields('seq', 'by')
+@dataclasses.dataclass(frozen=True)
+class Credit:
+    """One frame counted toward a change, and who counted it."""
+
+    seq: int
+    by: Counter
+
+
+@api_fields(
+    'source',
+    'at_seq',
+    'written_ns',
+    'written_at',
+    'skip',
+    'credits',
+    'needs_in_force',
+    'in_force_ns',
+)
+@dataclasses.dataclass(frozen=True)
+class Change:
+    """The last recorded change of one source, and the facts a frame is judged against.
+
+    Frames do not consume it: it stays the source's change until the next
+    ``invalidate`` replaces it, so a capture long after can still say how
+    long after the change its frame came.
+
+    Attributes:
+        source: What changed, a key of ``FrameValidity.SKIP_FRAMES``.
+        at_seq: The frame the camera had already delivered when the change
+            was recorded. A frame already in the camera's pipeline when the
+            register was written cannot show the new state, so crediting it
+            would retire the skip count against frames that predate the
+            change -- and the capture then returns a frame from before the
+            write. An ordinal rather than a clock reading, because the
+            comparison has to survive the clock moving: wall time runs
+            backwards across a DST fall-back, an NTP correction or a host
+            resume, and a settle count measured against a timestamp that
+            jumped forward never completes. Frame numbers only go up.
+        written_ns: Host ``time.monotonic_ns()`` when the change was
+            recorded. Every recorder calls ``invalidate`` after a camera
+            register or LED write returns, and before a move starts.
+        written_at: Host wall-clock time of the same moment, for a reader.
+        skip: The frames the change needed, as the count stood when it was
+            recorded.
+        credits: The frames counted toward it, in the order counted, until
+            ``skip`` was met.
+        needs_in_force: A motion source the axis must also settle for: the
+            frame count alone does not end its wait.
+        in_force_ns: Host ``time.monotonic_ns()`` when the axis state the
+            settle check reads became settled, stamped by the motion API
+            (``FrameValidity.motion_settled``); None until then, and for a
+            change that does not wait on an axis.
+    """
+
+    source: str
     at_seq: int
+    written_ns: int
+    written_at: datetime.datetime
+    skip: int
+    credits: tuple[Credit, ...]
+    needs_in_force: bool
+    in_force_ns: int | None
+
+    @property
+    def remaining(self) -> int:
+        """Frames the change still needs counted; 0 once the count is met."""
+        return max(0, self.skip - len(self.credits))
+
+
+@api_fields('change', 'frame_seq', 'frames_after', 'ms_after_write', 'ms_after_in_force', 'counts')
+@dataclasses.dataclass(frozen=True)
+class Judgment:
+    """Whether one frame counts for one change, and the facts that decided it.
+
+    Attributes:
+        change: The change judged against, as it stood when judged.
+        frame_seq: The frame's arrival ordinal.
+        frames_after: Frames delivered after the change was recorded, up to
+            and including this one.
+        ms_after_write: Milliseconds from the change's recording to the
+            frame's arrival.
+        ms_after_in_force: Milliseconds from the change's in-force time to
+            the frame's arrival; None when it has none.
+        counts: The frame counts for the change under the gate's rule: it
+            arrived after the change, the change's count was met by frames
+            before it, and an axis the change waits on had settled before it
+            arrived.
+    """
+
+    change: Change
+    frame_seq: int
+    frames_after: int
+    ms_after_write: float
+    ms_after_in_force: float | None
+    counts: bool
+
+    def fields(self) -> dict:
+        """The judgment as plain fields, the one shape a saved file and the
+        capture's log line both carry. A time the judgment has none of is
+        absent, never a stand-in."""
+        out = {
+            'source': self.change.source,
+            'counts': self.counts,
+            'frames_after': self.frames_after,
+            'ms_after_write': round(self.ms_after_write, 3),
+            'skip': self.change.skip,
+            'counted_by': [f'{credit.seq}:{credit.by.value}' for credit in self.change.credits],
+        }
+        if self.ms_after_in_force is not None:
+            out['ms_after_in_force'] = round(self.ms_after_in_force, 3)
+        return out
 
 
 class FrameValidity:
@@ -84,7 +192,9 @@ class FrameValidity:
     SKIP_FRAMES: ClassVar[dict] = {
         'led': 2,  # LED on/off or current change (measured: 2 on a2A3536)
         'gain': 2,  # Camera gain change (measured: 2 on a2A3536)
-        'exposure': 3,  # Camera exposure time change (measured: 3 on a2A3536)
+        # Camera exposure time change. Not a measurement: the a2A3536 timing
+        # record's value that once stood beside it has no surviving source run.
+        'exposure': 3,
         'xy_move': 2,  # X or Y axis movement
         'z_move': 2,  # Z axis movement
         'turret': 2,  # Turret rotation
@@ -171,7 +281,10 @@ class FrameValidity:
         self._frames_delivered = frames_delivered
         self._frame_counter = 0
         self.SKIP_FRAMES = dict(FrameValidity.SKIP_FRAMES)
-        self._pending = {}  # source -> _PendingSource
+        # Each source's last change, kept after it settles so a capture can be
+        # judged against it; and the sources whose last change has not.
+        self._changes: dict[str, Change] = {}
+        self._pending: set[str] = set()
         self._settle_check_fn = None  # Optional: (source) -> bool
         self._target_values = {}  # source -> requested value (for chunk-match)
         self._last_counted_seq = None  # ordinal of the last counted frame
@@ -200,11 +313,14 @@ class FrameValidity:
         """
         self._settle_check_fn = fn
 
-    def invalidate(self, source: str) -> None:
+    def invalidate(self, source: str) -> Change:
         """Record that hardware state changed and frames need to settle.
 
         Args:
             source: What changed: a key of SKIP_FRAMES.
+
+        Returns:
+            Change: The change as recorded, now the source's last change.
 
         Raises:
             ValueError: ``source`` has no skip count. A source that settled
@@ -217,8 +333,18 @@ class FrameValidity:
             # Read INSIDE the lock: two threads invalidating the same source
             # can otherwise store the earlier ordinal for the later write,
             # which is this whole class of bug reintroduced by a race.
-            entry = _PendingSource(remaining=skip, at_seq=self._frames_delivered())
-            self._pending[source] = entry
+            entry = Change(
+                source=source,
+                at_seq=self._frames_delivered(),
+                written_ns=time.monotonic_ns(),
+                written_at=datetime.datetime.now(),
+                skip=skip,
+                credits=(),
+                needs_in_force=source in self.MOTION_SOURCES and self._settle_check_fn is not None,
+                in_force_ns=None,
+            )
+            self._changes[source] = entry
+            self._pending.add(source)
             self._invalidation_counts[source] = self._invalidation_counts.get(source, 0) + 1
             # Snapshot for the trace while the lock is still held. Reading any
             # of this back afterwards lets another thread's invalidate supply
@@ -227,8 +353,9 @@ class FrameValidity:
             pending_count = len(self._pending)
         if profile_trace.ENABLE_PROFILE_TRACE:
             self._trace_rows([('invalidate', source, '', at_seq, skip, pending_count)])
+        return entry
 
-    def count_frame(self, frame_seq: int) -> None:
+    def count_frame(self, frame_seq: int, *, by: Counter) -> None:
         """Record that a frame was grabbed from the camera.
 
         Call this after every successful camera grab (grab() or grab_new_capture()).
@@ -245,6 +372,7 @@ class FrameValidity:
                 dedupe those polls retire the skip counts with zero new
                 frames, and a capture can then accept a frame exposed under
                 the previous gain/exposure/LED state.
+            by: Who counted it, recorded on each change it credits.
         """
         tracing = profile_trace.ENABLE_PROFILE_TRACE
         rows = []
@@ -263,7 +391,8 @@ class FrameValidity:
                 self._frame_counter += 1
                 settled = []
                 events = []
-                for source, pending in self._pending.items():
+                for source in self._pending:
+                    pending = self._changes[source]
                     # A source still pending at zero is a motion source waiting on
                     # its axis: the frame count is met, the physical move is not.
                     # It goes on seeing frames for the length of the move, and what
@@ -271,7 +400,10 @@ class FrameValidity:
                     # zero rather than running down one per frame into nonsense.
                     credited = frame_seq > pending.at_seq and pending.remaining > 0
                     if credited:
-                        pending.remaining -= 1
+                        pending = dataclasses.replace(
+                            pending, credits=(*pending.credits, Credit(frame_seq, by))
+                        )
+                        self._changes[source] = pending
                     if self._is_source_settled_unlocked(source, pending):
                         settled.append(source)
                         events.append(('settled', source, pending.at_seq, pending.remaining))
@@ -285,7 +417,7 @@ class FrameValidity:
                             )
                         )
                 for s in settled:
-                    del self._pending[s]
+                    self._pending.discard(s)
                 pending_count = len(self._pending)
                 # One row per source, never a joined one: the bench pass
                 # criterion pairs each settled row with its own invalidate row
@@ -320,7 +452,7 @@ class FrameValidity:
                 recording_id=profile_trace.NO_RECORDING,
             )
 
-    def _is_source_settled_unlocked(self, source: str, pending: '_PendingSource') -> bool:
+    def _is_source_settled_unlocked(self, source: str, pending: Change) -> bool:
         """Check if a source has settled. Must be called with _lock held."""
         if pending.remaining > 0:
             return False
@@ -390,7 +522,7 @@ class FrameValidity:
     def is_valid(self) -> bool:
         """True if all pending state changes have settled."""
         with self._lock:
-            return all(self._is_source_settled_unlocked(s, p) for s, p in self._pending.items())
+            return all(self._is_source_settled_unlocked(s, self._changes[s]) for s in self._pending)
 
     def is_valid_for(self, exclude_sources: tuple = ()) -> bool:
         """True if valid, ignoring specified sources.
@@ -400,8 +532,8 @@ class FrameValidity:
         """
         with self._lock:
             return all(
-                self._is_source_settled_unlocked(s, p)
-                for s, p in self._pending.items()
+                self._is_source_settled_unlocked(s, self._changes[s])
+                for s in self._pending
                 if s not in exclude_sources
             )
 
@@ -413,9 +545,10 @@ class FrameValidity:
         """
         with self._lock:
             max_remaining = 0
-            for source, pending in self._pending.items():
+            for source in self._pending:
                 if source in exclude_sources:
                     continue
+                pending = self._changes[source]
                 if pending.remaining > 0:
                     max_remaining = max(max_remaining, pending.remaining)
                 elif source in self.MOTION_SOURCES and self._settle_check_fn is not None:  # noqa: SIM102
@@ -434,7 +567,7 @@ class FrameValidity:
         settledness.
         """
         with self._lock:
-            return {s: p.remaining for s, p in self._pending.items()}
+            return {s: self._changes[s].remaining for s in self._pending}
 
     @property
     def frame_counter(self) -> int:
@@ -454,6 +587,80 @@ class FrameValidity:
         """
         with self._lock:
             return dict(self._invalidation_counts)
+
+    def changes(self) -> dict[str, Change]:
+        """Each source's last recorded change, settled or not, by source."""
+        with self._lock:
+            return dict(self._changes)
+
+    @staticmethod
+    def judge(frame: Frame, change: Change) -> Judgment:
+        """Whether ``frame`` counts for ``change``: the one place that decides it.
+
+        A function of facts the frame and the change both carry, so a
+        capture, the characterization tool and a test ask the same question
+        of any frame and get the gate's own answer. The frame counts when it
+        arrived after the change was recorded, the change's count was met by
+        frames that arrived before it, and, for a change that waits on an
+        axis, the axis had settled before it arrived.
+
+        Args:
+            frame: The camera's frame record; its ``seq`` and ``arrived_ns``
+                are read.
+            change: The change to judge it against (``changes()``, or what
+                ``invalidate`` returned).
+        """
+        counted_before = sum(1 for credit in change.credits if credit.seq < frame.seq)
+        in_force = change.in_force_ns
+        counts = (
+            frame.seq > change.at_seq
+            and counted_before >= change.skip
+            and (
+                not change.needs_in_force or (in_force is not None and in_force <= frame.arrived_ns)
+            )
+        )
+        return Judgment(
+            change=change,
+            frame_seq=frame.seq,
+            frames_after=frame.seq - change.at_seq,
+            ms_after_write=(frame.arrived_ns - change.written_ns) / 1e6,
+            ms_after_in_force=(frame.arrived_ns - in_force) / 1e6 if in_force is not None else None,
+            counts=counts,
+        )
+
+    def judgments(self, frame: Frame) -> tuple[Judgment, ...]:
+        """``frame`` judged against every source's last change, by source name."""
+        changes = self.changes()
+        return tuple(self.judge(frame, changes[source]) for source in sorted(changes))
+
+    def motion_settled(self, source: str, at_ns: int) -> None:
+        """Stamp ``at_ns`` as the in-force time of ``source``'s change, if the settle check now passes.
+
+        The motion API calls this after every write of an axis state the
+        settle check reads, naming the source that axis belongs to, with the
+        time it took in that write's hold, once that hold is released: the
+        settle check takes the axis-state lock inside this class's, so
+        calling in from under the axis-state lock would take the two in the
+        opposite order. A change keeps the latest stamp it is given, since a
+        change waiting on two axes (X and Y) is in force only once the later
+        of them settles, and each axis's stamp can land after the other's
+        write; a stamp older than the change is not its own.
+
+        Args:
+            source: The motion source of the axis whose state was written.
+            at_ns: Host ``time.monotonic_ns()`` taken where it was written.
+        """
+        with self._lock:
+            change = self._changes.get(source)
+            if (
+                change is None
+                or not change.needs_in_force
+                or at_ns < change.written_ns
+                or (change.in_force_ns is not None and change.in_force_ns >= at_ns)
+                or not self._settle_check_fn(source)
+            ):
+                return
+            self._changes[source] = dataclasses.replace(change, in_force_ns=at_ns)
 
     def unsettled_motion_sources(self, exclude_sources: tuple = ()) -> tuple:
         """Pending motion sources whose settle-check says still moving.
@@ -494,7 +701,9 @@ class FrameValidity:
     def reset(self) -> None:
         """Clear all pending invalidations and reset frame counter.
 
-        Deliberately leaves invalidation_counts untouched: the counts are
+        Deliberately leaves invalidation_counts and each source's last change
+        untouched: the change is what a later frame is judged against, and
+        the counts are
         a monotone history, not pending state, and a capture comparing
         snapshots across a reset must still see any invalidation the reset
         would otherwise erase. Clearing them here would let an

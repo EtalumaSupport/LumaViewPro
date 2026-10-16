@@ -27,7 +27,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 import pytest
 
 from lib import profile_trace
-from modules.frame_validity import FrameValidity
+from modules.frame_validity import Counter, FrameValidity
 
 
 @pytest.fixture(autouse=True)
@@ -93,7 +93,7 @@ class TestAFrameThatCreditsNothingLeavesARow:
         cam.delivered = 10
         fv = FrameValidity(cam)
         fv.invalidate('gain')
-        fv.count_frame(4)  # in flight before the write; must not credit
+        fv.count_frame(4, by=Counter.GRAB)  # in flight before the write; must not credit
         rows = [r for r in _rows(tmp_path) if r['event'] == 'nocredit']
         assert len(rows) == 1
         assert rows[0]['source'] == 'gain'
@@ -107,7 +107,7 @@ class TestAFrameThatCreditsNothingLeavesARow:
         cam.delivered = 10
         fv = FrameValidity(cam)
         fv.invalidate('gain')
-        fv.count_frame(11)
+        fv.count_frame(11, by=Counter.GRAB)
         row = next(r for r in _rows(tmp_path) if r['event'] == 'credit')
         assert row['frame_seq'] == '11'
         assert row['remaining'] == str(FrameValidity.SKIP_FRAMES['gain'] - 1)
@@ -123,7 +123,7 @@ class TestASettledRowNamesOneSource:
         seq = 1
         while fv._pending and seq < 50:
             seq += 1
-            fv.count_frame(seq)
+            fv.count_frame(seq, by=Counter.GRAB)
         settled = [r for r in _rows(tmp_path) if r['event'] == 'settled']
         assert {r['source'] for r in settled} == {'gain', 'exposure'}
         assert all('+' not in r['source'] for r in settled), 'a joined row cannot be paired'
@@ -136,7 +136,7 @@ class TestASettledRowNamesOneSource:
         seq = 0
         while fv._pending and seq < 50:
             seq += 1
-            fv.count_frame(seq)
+            fv.count_frame(seq, by=Counter.GRAB)
         rows = _rows(tmp_path)
         invalidated = [r['source'] for r in rows if r['event'] == 'invalidate']
         for row in (r for r in rows if r['event'] == 'settled'):
@@ -149,17 +149,17 @@ class TestTheDedupeRowIsBoundedButPresent:
         profile_trace.enable(output_dir=tmp_path)
         fv = FrameValidity(_Camera())
         fv.invalidate('gain')
-        fv.count_frame(5)
-        fv.count_frame(5)  # the same frame polled twice
+        fv.count_frame(5, by=Counter.GRAB)
+        fv.count_frame(5, by=Counter.GRAB)  # the same frame polled twice
         assert [r for r in _rows(tmp_path) if r['event'] == 'dedupe']
 
     def test_an_idle_poller_writes_nothing(self, tmp_path):
         """A camera whose ordinal never advances must not fill the file."""
         profile_trace.enable(output_dir=tmp_path)
         fv = FrameValidity(_Camera())
-        fv.count_frame(1)
+        fv.count_frame(1, by=Counter.GRAB)
         for _ in range(200):
-            fv.count_frame(1)
+            fv.count_frame(1, by=Counter.GRAB)
         rows = [r for r in _rows(tmp_path) if r['event'] == 'dedupe']
         assert rows == []
 
@@ -172,11 +172,11 @@ class TestEveryRowMatchesTheHeader:
         fv = FrameValidity(cam)
         fv.invalidate('gain')
         fv.invalidate('z_move')
-        fv.count_frame(1)
-        fv.count_frame(1)
+        fv.count_frame(1, by=Counter.GRAB)
+        fv.count_frame(1, by=Counter.GRAB)
         cam.delivered = 5
         for seq in range(2, 20):
-            fv.count_frame(seq)
+            fv.count_frame(seq, by=Counter.GRAB)
         with open(_run_dir(tmp_path) / 'frame_validity_trace.csv', newline='') as fh:
             rows = list(csv.reader(fh))
         width = len(rows[0])

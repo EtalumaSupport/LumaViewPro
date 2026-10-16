@@ -486,6 +486,9 @@ def generate_image_metadata(
         metadata['timestamp_camera_tick_hz'] = frame_record.camera_tick_hz
     if frame_record.frame_id is not None:
         metadata['frame_id'] = frame_record.frame_id
+    # Whether the frame counts for each change, and how long after it came.
+    if frame_record.judgments:
+        metadata['frame_validity'] = [j.fields() for j in frame_record.judgments]
 
     return metadata
 

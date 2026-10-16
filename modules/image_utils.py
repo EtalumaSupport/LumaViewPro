@@ -1013,6 +1013,8 @@ def read_postproc_input_metadata(path: pathlib.Path) -> dict | None:
         flat['timestamp_camera_tick_hz'] = plane['TimestampCameraTickHz']
     if 'FrameID' in plane:
         flat['frame_id'] = plane['FrameID']
+    if 'FrameValidity' in plane:
+        flat['frame_validity'] = plane['FrameValidity']
 
     if 'Instrument' in structured:
         inst = structured['Instrument']
@@ -1184,6 +1186,7 @@ def build_postproc_output_metadata(
             'timestamp_camera_ticks',
             'timestamp_camera_tick_hz',
             'frame_id',
+            'frame_validity',
         ):
             metadata.pop(per_capture_field, None)
 
@@ -2305,6 +2308,11 @@ def generate_tiff_data(
         plane['TimestampCameraTickHz'] = metadata['timestamp_camera_tick_hz']
     if 'frame_id' in metadata:
         plane['FrameID'] = metadata['frame_id']
+    # Each change the frame was judged against: whether it counts, how many
+    # frames and milliseconds after the change it came, and who counted
+    # the frames that met the change's count.
+    if 'frame_validity' in metadata:
+        plane['FrameValidity'] = metadata['frame_validity']
 
     # Spectral identity rides in the Channel block. ExcitationWavelength
     # is a schema OME Channel attribute, so the OME container serializes

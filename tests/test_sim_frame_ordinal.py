@@ -208,7 +208,7 @@ class TestThePreviewPollCanRetireASettleCount:
     frames and a hardware write can actually settle in sim."""
 
     def test_preview_polls_settle_a_write(self):
-        from modules.frame_validity import FrameValidity
+        from modules.frame_validity import Counter, FrameValidity
 
         cam = _cam()
         try:
@@ -217,7 +217,7 @@ class TestThePreviewPollCanRetireASettleCount:
             assert not fv.is_valid
             for _ in range(12):
                 grab_a_frame_made_after_now(cam)
-                fv.count_frame(cam.grab().seq)
+                fv.count_frame(cam.grab().seq, by=Counter.GRAB)
                 if fv.is_valid:
                     break
         finally:

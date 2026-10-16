@@ -15,6 +15,8 @@ import datetime
 import types
 from collections.abc import Mapping
 
+from modules.frame_validity import Judgment
+
 
 @dataclasses.dataclass(frozen=True)
 class FrameRecord:
@@ -44,6 +46,9 @@ class FrameRecord:
         frame_id: The camera's frame counter for the frame.
         binning_size: Binning the frame was delivered at.
         camera_model: The camera that took it.
+        judgments: The frame judged against each source's last change
+            (``FrameValidity.judgments``): for a summed capture, the first
+            frame summed. Empty when no change has been recorded.
     """
 
     captured_at: datetime.datetime
@@ -58,6 +63,7 @@ class FrameRecord:
     frame_id: int | None
     binning_size: int
     camera_model: str | None
+    judgments: tuple[Judgment, ...]
 
     def __post_init__(self):
         # Frozen all the way down: the record travels to another thread and

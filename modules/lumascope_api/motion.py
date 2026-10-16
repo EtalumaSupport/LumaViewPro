@@ -2703,6 +2703,9 @@ class MotionAPI:
                 # must unblock rather than hang on a cleared event until the
                 # 120s motion timeout.
                 self._arrival_events[axis].set()
+                # Taken in the hold, so it is the moment the settle check
+                # began to see this state, not when the stamp lands.
+                settled_ns = time.monotonic_ns()
         # The ended move's operation is the only thing that ends its waiters,
         # so it settles on every exit from here.
         try:
@@ -2717,6 +2720,10 @@ class MotionAPI:
             if state in (AxisState.MOVING, AxisState.HOMING):
                 # Wake the motion monitor to start polling
                 self._motion_wake.set()
+            else:
+                self._scope.imaging.frame_validity.motion_settled(
+                    self._AXIS_VALIDITY_SOURCE.get(axis, 'xy_move'), settled_ns
+                )
 
             self._fire_position_listeners(axis)
         finally:

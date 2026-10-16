@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 import numpy as np
 import pytest
-from modules.frame_validity import FrameValidity
+from modules.frame_validity import Counter, FrameValidity
 from tests.camera_fakes import delivered_frame
 from tests.scope_fakes import bind_settings_like_a_session, build_scope
 
@@ -73,17 +73,17 @@ class TestBasicInvalidation:
     def test_counting_frames_restores_validity(self):
         fv = FrameValidity(_frames)
         fv.invalidate('led')
-        fv.count_frame(_f())
+        fv.count_frame(_f(), by=Counter.GRAB)
         assert not fv.is_valid
         assert fv.frames_until_valid() == 1
-        fv.count_frame(_f())
+        fv.count_frame(_f(), by=Counter.GRAB)
         assert fv.is_valid
         assert fv.frames_until_valid() == 0
 
     def test_reset_clears_state(self):
         fv = FrameValidity(_frames)
         fv.invalidate('led')
-        fv.count_frame(_f())
+        fv.count_frame(_f(), by=Counter.GRAB)
         fv.reset()
         assert fv.is_valid
         assert fv.frame_counter == 0
@@ -96,23 +96,23 @@ class TestMultipleSources:
     def test_sources_at_different_times(self):
         fv = FrameValidity(_frames)
         fv.invalidate('led')  # needs 2 more frames from frame 0
-        fv.count_frame(_f())  # frame 1
+        fv.count_frame(_f(), by=Counter.GRAB)  # frame 1
         fv.invalidate('gain')  # needs 2 more frames from frame 1
         # led needs 1 more (target=2), gain needs 2 more (target=3)
         assert fv.frames_until_valid() == 2
-        fv.count_frame(_f())  # frame 2 -- led settles
+        fv.count_frame(_f(), by=Counter.GRAB)  # frame 2 -- led settles
         assert fv.frames_until_valid() == 1
-        fv.count_frame(_f())  # frame 3 -- gain settles
+        fv.count_frame(_f(), by=Counter.GRAB)  # frame 3 -- gain settles
         assert fv.is_valid
 
     def test_reinvalidate_same_source(self):
         fv = FrameValidity(_frames)
         fv.invalidate('led')
-        fv.count_frame(_f())
+        fv.count_frame(_f(), by=Counter.GRAB)
         fv.invalidate('led')  # re-invalidate resets the skip count
         assert fv.frames_until_valid() == 2
-        fv.count_frame(_f())
-        fv.count_frame(_f())
+        fv.count_frame(_f(), by=Counter.GRAB)
+        fv.count_frame(_f(), by=Counter.GRAB)
         assert fv.is_valid
 
     def test_all_known_sources(self):
@@ -122,7 +122,7 @@ class TestMultipleSources:
         max_skip = max(FrameValidity.SKIP_FRAMES.values())
         assert fv.frames_until_valid() == max_skip
         for _ in range(max_skip):
-            fv.count_frame(_f())
+            fv.count_frame(_f(), by=Counter.GRAB)
         assert fv.is_valid
         assert fv.pending_sources == {}
 
@@ -146,15 +146,15 @@ class TestExcludeSources:
     def test_exclude_z_move_with_other_pending(self):
         fv = FrameValidity(_frames)
         fv.invalidate('led')
-        fv.count_frame(_f())
+        fv.count_frame(_f(), by=Counter.GRAB)
         fv.invalidate('z_move')  # z_move invalidated 1 frame later than led
         assert not fv.is_valid_for(exclude_sources=('z_move',))
         assert fv.frames_until_valid(exclude_sources=('z_move',)) == 1
-        fv.count_frame(_f())
+        fv.count_frame(_f(), by=Counter.GRAB)
         # LED settled (target=2, counter=2), z_move still pending (target=3)
         assert fv.is_valid_for(exclude_sources=('z_move',))
         assert not fv.is_valid  # z_move still pending overall
-        fv.count_frame(_f())
+        fv.count_frame(_f(), by=Counter.GRAB)
         assert fv.is_valid  # now everything settled
 
 
@@ -183,9 +183,9 @@ class TestPendingSourcesDebug:
     def test_frame_counter_tracks_grabs(self):
         fv = FrameValidity(_frames)
         assert fv.frame_counter == 0
-        fv.count_frame(_f())
-        fv.count_frame(_f())
-        fv.count_frame(_f())
+        fv.count_frame(_f(), by=Counter.GRAB)
+        fv.count_frame(_f(), by=Counter.GRAB)
+        fv.count_frame(_f(), by=Counter.GRAB)
         assert fv.frame_counter == 3
 
     def test_a_long_move_never_reports_a_negative_count(self):
@@ -199,7 +199,7 @@ class TestPendingSourcesDebug:
         fv.set_settle_check(lambda source: not moving)
         fv.invalidate('z_move')
         for _ in range(500):
-            fv.count_frame(_f())
+            fv.count_frame(_f(), by=Counter.GRAB)
         assert fv.pending_sources == {'z_move': 0}
         # Zero frames needed is not settled: the axis is still moving, so the
         # drain continues and the source stays pending.
@@ -229,7 +229,7 @@ class TestPendingSourcesDebug:
                 moving = not moving
             if step % 101 == 0:
                 fv.reset()
-            fv.count_frame(_f())
+            fv.count_frame(_f(), by=Counter.GRAB)
             assert all(v >= 0 for v in fv.pending_sources.values())
             assert fv.frames_until_valid() >= 0
 
@@ -251,7 +251,7 @@ class TestThreadSafety:
         def counter():
             try:
                 for _ in range(1000):
-                    fv.count_frame(_f())
+                    fv.count_frame(_f(), by=Counter.GRAB)
             except Exception as e:
                 errors.append(e)
 
@@ -287,7 +287,7 @@ class TestThreadSafety:
                 i = 0
                 while not readers_done.is_set():
                     fv.invalidate(sources[i % len(sources)])
-                    fv.count_frame(_f())
+                    fv.count_frame(_f(), by=Counter.GRAB)
                     i += 1
             except Exception as e:
                 errors.append(e)
@@ -361,9 +361,9 @@ class TestLoadCameraTiming:
         fv.invalidate('led')
         assert fv.frames_until_valid() == 4
         for _ in range(3):
-            fv.count_frame(_f())
+            fv.count_frame(_f(), by=Counter.GRAB)
         assert not fv.is_valid
-        fv.count_frame(_f())
+        fv.count_frame(_f(), by=Counter.GRAB)
         assert fv.is_valid
 
     def test_partial_config_only_overrides_specified(self):
@@ -388,7 +388,7 @@ class TestLoadCameraTiming:
         """Loading config should not clear or modify pending invalidations."""
         fv = FrameValidity(_frames)
         fv.invalidate('led')
-        fv.count_frame(_f())
+        fv.count_frame(_f(), by=Counter.GRAB)
         pending_before = fv.pending_sources.copy()
         fv.load_camera_timing({'skip_frames': {'led': 10}})
         # Pending state unchanged -- the already-queued invalidation keeps
@@ -547,7 +547,7 @@ class TestAutoGainSettle:
         fv.invalidate('auto_gain')
         for _ in range(skip):
             assert fv.frames_until_valid() > 0
-            fv.count_frame(_f())
+            fv.count_frame(_f(), by=Counter.GRAB)
         assert fv.frames_until_valid() == 0
 
     def test_not_a_motion_source(self):
@@ -717,7 +717,7 @@ class TestInvalidationCounts:
         fv.invalidate('led')
         before = fv.invalidation_counts
         for _ in range(5):
-            fv.count_frame(_f())
+            fv.count_frame(_f(), by=Counter.GRAB)
         assert fv.frames_until_valid() == 0  # pending fully settled
         assert fv.invalidation_counts == before  # history intact
 
@@ -730,8 +730,8 @@ class TestInvalidationCounts:
         counts_snap = fv.invalidation_counts
 
         fv.invalidate('led')  # skip = 2
-        fv.count_frame(_f())
-        fv.count_frame(_f())
+        fv.count_frame(_f(), by=Counter.GRAB)
+        fv.count_frame(_f(), by=Counter.GRAB)
 
         assert fv.pending_sources == pending_snap  # old API: blind
         assert fv.frames_until_valid() == 0
@@ -821,7 +821,7 @@ class TestFramesOlderThanTheWriteDoNotCount:
         fv = FrameValidity(_frames)
         already_delivered = _f()
         fv.invalidate('led')
-        fv.count_frame(already_delivered)
+        fv.count_frame(already_delivered, by=Counter.GRAB)
         assert fv.frames_until_valid() == 2
         assert not fv.is_valid
 
@@ -829,9 +829,9 @@ class TestFramesOlderThanTheWriteDoNotCount:
         fv = FrameValidity(_frames)
         already_delivered = _f()
         fv.invalidate('led')
-        fv.count_frame(already_delivered)
-        fv.count_frame(_f())
-        fv.count_frame(_f())
+        fv.count_frame(already_delivered, by=Counter.GRAB)
+        fv.count_frame(_f(), by=Counter.GRAB)
+        fv.count_frame(_f(), by=Counter.GRAB)
         assert fv.is_valid
 
     def test_each_source_is_judged_against_its_own_write(self):
@@ -841,7 +841,7 @@ class TestFramesOlderThanTheWriteDoNotCount:
         fv.invalidate('led')
         between = _f()
         fv.invalidate('gain')
-        fv.count_frame(between)
+        fv.count_frame(between, by=Counter.GRAB)
         assert fv.pending_sources == {'led': 1, 'gain': 2}
 
     def test_an_ordinal_is_required(self):
@@ -850,7 +850,15 @@ class TestFramesOlderThanTheWriteDoNotCount:
         fv = FrameValidity(_frames)
         fv.invalidate('led')
         with pytest.raises(TypeError):
-            fv.count_frame()
+            fv.count_frame(by=Counter.GRAB)
+
+    def test_who_counted_is_required(self):
+        """A frame counted with no counter named could be the preview's, and a
+        capture's record of its wait would then misname who met it."""
+        fv = FrameValidity(_frames)
+        fv.invalidate('led')
+        with pytest.raises(TypeError):
+            fv.count_frame(1)
 
     def test_a_frame_source_is_required(self):
         """Without one, a write cannot be placed in the frame stream and

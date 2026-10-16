@@ -45,7 +45,7 @@ from modules.exceptions import (
     InstallationFileError,
     MissingPart,
 )
-from modules.frame_validity import FrameValidity
+from modules.frame_validity import Counter, FrameValidity, Judgment
 from modules.lumascope_api.frame_record import FrameRecord
 from modules.lumascope_api.illumination import live_lit_pairs
 from modules.notification_center import notifications
@@ -126,11 +126,36 @@ class _Grabbed:
     an 8-bit rendering or a scale-bar copy -- read-only in every case.
     ``frame`` is the camera's record of the frame the image was made from
     (the last one, for a sum), so the capture's record and its log describe
-    that frame and no later one.
+    that frame and no later one. ``earliest`` is the first frame the image
+    was made from (``frame`` itself, but for a sum): the one a change could
+    have reached last, so the one the capture is judged by.
     """
 
     image: np.ndarray
     frame: Frame
+    earliest: Frame
+
+
+def _capture_line(grabbed: _Grabbed, judgments: tuple[Judgment, ...]) -> str:
+    """The one line a successful capture leaves: the frame it returned, and
+    how long after each change it came, so a support bundle shows whether
+    the rule held."""
+    frame = grabbed.earliest
+    frame_id = (frame.chunks or {}).get('FrameID')
+    parts = [
+        f'capture_and_wait: frame seq={frame.seq} id={frame_id if frame_id is not None else "na"}'
+    ]
+    if grabbed.frame is not frame:
+        parts[0] += f' (sum to seq={grabbed.frame.seq})'
+    for judgment in judgments:
+        f = judgment.fields()
+        in_force = f' in_force+{f["ms_after_in_force"]}ms' if 'ms_after_in_force' in f else ''
+        parts.append(
+            f'{f["source"]} {"counts" if f["counts"] else "DOES NOT COUNT"} '
+            f'+{f["frames_after"]}fr +{f["ms_after_write"]}ms{in_force} '
+            f'skip={f["skip"]} by={",".join(f["counted_by"]) or "none"}'
+        )
+    return ' | '.join(parts)
 
 
 def _no_camera_cache() -> dict:
@@ -3391,7 +3416,7 @@ class ImagingAPI:
                     raise _deadline_expired_error('drain-loop')
                 drained = self._driver.grab_new_capture(timeout_s=grab_timeout_s)
                 if drained is not None:
-                    self.frame_validity.count_frame(drained.seq)
+                    self.frame_validity.count_frame(drained.seq, by=Counter.DRAIN)
                     drain_iterations += 1
                 else:
                     remaining = self.frame_validity.frames_until_valid(
@@ -3501,9 +3526,10 @@ class ImagingAPI:
                 # The record's black level read raises on a failed read and
                 # fails the capture; one that failed because the camera left
                 # between the grab and the read is that removal.
+                judgments = self.frame_validity.judgments(grabbed.earliest)
                 try:
                     extra['frame_record'] = self._build_frame_record(
-                        chunks=chunks, lit=lit, captured_at=grabbed_at
+                        chunks=chunks, lit=lit, captured_at=grabbed_at, judgments=judgments
                     )
                 except CameraReadFailedError as unread:
                     if not self.camera_removed:
@@ -3511,6 +3537,8 @@ class ImagingAPI:
                     removed = True
                     _record_capture_info()
                     raise _camera_not_connected('capture_and_wait') from unread
+            if failed is None:
+                _api_log.info(_capture_line(grabbed, judgments))
             _record_capture_info(
                 chunk_exposure_us=chunks.get('ExposureTime'),
                 chunk_gain_db=chunks.get('Gain'),
@@ -3529,6 +3557,7 @@ class ImagingAPI:
         chunks: dict,
         lit: frozenset[tuple[int, float]],
         captured_at: datetime.datetime,
+        judgments: tuple[Judgment, ...],
     ) -> FrameRecord:
         """The instrument's account of the frame just grabbed, on the grab's lane.
 
@@ -3587,6 +3616,7 @@ class ImagingAPI:
             frame_id=int(frame_id) if frame_id is not None else None,
             binning_size=self._binning_size,
             camera_model=camera.camera_model,
+            judgments=judgments,
         )
 
     def _black_level_for_record(self) -> float | None:
@@ -3816,7 +3846,7 @@ class ImagingAPI:
                         else self._driver.grab()
                     )
                     if frame is not None:
-                        self.frame_validity.count_frame(frame.seq)
+                        self.frame_validity.count_frame(frame.seq, by=Counter.GRAB)
 
                 if frame is None:
                     # A camera that is gone will not deliver; don't retry for
@@ -3852,7 +3882,7 @@ class ImagingAPI:
                             else self._driver.grab()
                         )
                         if retry is not None:
-                            self.frame_validity.count_frame(retry.seq)
+                            self.frame_validity.count_frame(retry.seq, by=Counter.GRAB)
                     # Saturation walk is outside cam_lock -- no camera state needed,
                     # and the walk would otherwise block concurrent set_gain_db/set_exposure.
                     if retry is not None and (
@@ -4047,7 +4077,28 @@ class ImagingAPI:
         # Read-only whichever path made it, as the camera's own frame is: the
         # capture's image is the instrument's account, not a scratch buffer.
         image.flags.writeable = False
-        return _Grabbed(image=image, frame=frames[-1])
+        return _Grabbed(image=image, frame=frames[-1], earliest=frames[0])
+
+    @api(in_process=True)
+    def judge_frame(self, frame: Frame) -> tuple[Judgment, ...]:
+        """Whether ``frame`` counts for each source's last change, by the rule a capture waits on.
+
+        The one decision (``FrameValidity.judge``), asked of every change
+        recorded so far (gain, exposure, black level, LED, a move, ...): a
+        capture's record carries it for the frame it returns, and a frame
+        listener can ask it of any frame it receives. Each ``Judgment``
+        carries the change it was judged against: the frame the camera had
+        delivered when it was recorded, when it was recorded, the frames it
+        needed and who counted them, and for a move when its axis settled.
+
+        Args:
+            frame: A frame the camera delivered (a frame listener's ``Frame``).
+
+        Raises:
+            ArgumentTypeRefusedError: ``'wrong_argument_type'``, ``frame`` is
+                not a ``Frame``; the API's door refuses it before the body.
+        """
+        return self.frame_validity.judgments(frame)
 
     @api(in_process=True)
     def get_image(
@@ -4165,7 +4216,7 @@ class ImagingAPI:
         # capture accept a frame exposed under the previous gain/exposure/LED
         # state. The ordinal also keeps a frame this path grabbed before a
         # write from retiring any of that write's wait.
-        self.frame_validity.count_frame(frame.seq)
+        self.frame_validity.count_frame(frame.seq, by=Counter.PREVIEW)
         tmp = frame.image
 
         # Snapshot both fields together; see get_image for why.

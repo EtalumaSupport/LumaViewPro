@@ -62,7 +62,10 @@ def _imaging(live=None, chunk_reads=None):
 
 def _record(imaging, chunks):
     return imaging._build_frame_record(
-        chunks=chunks or {}, lit=frozenset({(3, 50.0)}), captured_at=GRABBED_AT
+        chunks=chunks or {},
+        lit=frozenset({(3, 50.0)}),
+        captured_at=GRABBED_AT,
+        judgments=(),
     )
 
 

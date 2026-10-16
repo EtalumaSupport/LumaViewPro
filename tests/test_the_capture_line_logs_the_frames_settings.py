@@ -68,6 +68,7 @@ def test_a_camera_with_chunks_logs_the_frames_own_values_unmarked():
         frame_id=None,
         binning_size=1,
         camera_model='a camera that stamps chunks',
+        judgments=(),
     )
     info = {'chunk_exposure_us': 62003.0, 'chunk_gain_db': 3.5, 'frame_record': record}
     writer = _writer_over(SimpleNamespace(imaging=SimpleNamespace(last_capture_info=info)))

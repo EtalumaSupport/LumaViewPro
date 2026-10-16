@@ -573,7 +573,7 @@ def test_chunkless_metadata_omits_keys_when_live_reads_fail():
     # The reducer's account of the frame just made: one frame, 12 bits.
     imaging._last_frame_summing = (1, 12)
     record = imaging._build_frame_record(
-        chunks={}, lit=frozenset(), captured_at=datetime.datetime.now()
+        chunks={}, lit=frozenset(), captured_at=datetime.datetime.now(), judgments=()
     )
 
     metadata = generate_image_metadata(
