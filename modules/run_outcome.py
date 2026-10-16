@@ -262,6 +262,29 @@ class FailedCapture:
     cause: str
 
 
+@api_fields('scan', 'step_index', 'step_name', 'blown', 'dark')
+@dataclasses.dataclass(frozen=True)
+class TakenCapture:
+    """One capture a run was asked for that produced an image, and what its frame was.
+
+    Attributes:
+        scan: The scan it belonged to, counting from 0.
+        step_index: The step's row in the protocol, counting from 0.
+        step_name: The step's name, as the protocol has it.
+        blown: Whether the frame's record found it blown
+            (``FrameRecord.blown``); None when nothing judged it: a video
+            step, which has no one frame.
+        dark: Whether the frame's record found it dark (``FrameRecord.dark``);
+            None when nothing judged it: no LED on, or a video step.
+    """
+
+    scan: int
+    step_index: int
+    step_name: str
+    blown: bool | None
+    dark: bool | None
+
+
 @api_fields('scan', 'step_index', 'step_name', 'cause')
 @dataclasses.dataclass(frozen=True)
 class FocusFailure:
@@ -280,15 +303,16 @@ class FocusFailure:
     cause: str
 
 
-@api_fields('asked', 'captured', 'failed')
+@api_fields('asked', 'captured', 'failed', 'saturated', 'dark')
 @dataclasses.dataclass(frozen=True)
 class CaptureTally:
     """The captures a run was asked for, and what became of each.
 
     Counted once per (scan, step): a scan that is run again after a
     transient failure re-captures its earlier steps into the same slots,
-    so a retry never counts a capture twice. A dark frame is captured --
-    the camera delivered it -- and its row says it was dark.
+    so a retry never counts a capture twice. A blown or a dark frame is
+    captured -- the camera delivered it -- and is counted again among
+    ``saturated`` or ``dark``.
 
     Attributes:
         asked: Captures the run was asked for: scans times steps for a run
@@ -297,11 +321,16 @@ class CaptureTally:
         captured: Captures that produced an image.
         failed: Captures that produced none, in the order they failed.
             ``asked - captured - len(failed)`` were never reached.
+        saturated: The captures whose frame was blown, in the order their
+            (scan, step) was first taken.
+        dark: The captures whose frame was dark, in the same order.
     """
 
     asked: int
     captured: int
     failed: tuple[FailedCapture, ...]
+    saturated: tuple[TakenCapture, ...]
+    dark: tuple[TakenCapture, ...]
 
     @api
     @property

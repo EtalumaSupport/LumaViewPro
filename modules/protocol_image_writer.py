@@ -49,6 +49,7 @@ from modules.run_outcome import (
     FatalTold,
     FocusFailure,
     RunEnding,
+    TakenCapture,
     hardware_disconnected_ending,
 )
 from modules.sequential_io_executor import IOTask
@@ -672,13 +673,13 @@ class ProtocolImageWriter:
         self._video_steps: list[ProtocolVideoStep] = []
         self._consecutive_capture_failures = 0
         self._MAX_CONSECUTIVE_CAPTURE_FAILURES = 3
-        # One entry per (scan, step) slot: None when it produced an image,
-        # its FailedCapture when it did not. A slot, not a count, so a scan
-        # run again after a transient failure overwrites its earlier steps
-        # instead of counting them twice. Written on the protocol thread,
-        # read by cleanup on whichever thread ended the run.
+        # One entry per (scan, step) slot: its TakenCapture when it produced
+        # an image, its FailedCapture when it did not. A slot, not a count, so
+        # a scan run again after a transient failure overwrites its earlier
+        # steps instead of counting them twice. Written on the protocol
+        # thread, read by cleanup on whichever thread ended the run.
         self._captures_asked = captures_asked
-        self._capture_slots: dict[tuple[int, int], FailedCapture | None] = {}
+        self._capture_slots: dict[tuple[int, int], TakenCapture | FailedCapture] = {}
         # The same shape for a step's autofocus: None when it focused, its
         # FocusFailure when it did not, so a scan run again that focuses the
         # step clears it. Under the capture slots' lock.
@@ -907,10 +908,13 @@ class ProtocolImageWriter:
         """What this run captured of what it was asked for, so far."""
         with self._capture_slots_lock:
             slots = list(self._capture_slots.values())
+        captured = [slot for slot in slots if isinstance(slot, TakenCapture)]
         return CaptureTally(
             asked=self._captures_asked,
-            captured=sum(1 for slot in slots if slot is None),
-            failed=tuple(slot for slot in slots if slot is not None),
+            captured=len(captured),
+            failed=tuple(slot for slot in slots if isinstance(slot, FailedCapture)),
+            saturated=tuple(slot for slot in captured if slot.blown is True),
+            dark=tuple(slot for slot in captured if slot.dark is True),
         )
 
     @property
@@ -933,9 +937,47 @@ class ProtocolImageWriter:
         with self._capture_slots_lock:
             self._focus_slots[(scan_count, curr_step)] = slot
 
-    def _note_captured(self, *, curr_step, scan_count) -> None:
+    def _note_captured(self, *, step, curr_step, scan_count, record: FrameRecord | None) -> None:
+        """Record the capture in its slot, and tell the first blown and the
+        first dark frame of each step in this run. ``record`` is the
+        frame's, or None for a video step, which has no one frame.
+
+        A blown or dark frame is kept and saved, so it is a fact to count,
+        not a failure; one line per step says so, and the run's end gives
+        the count. Which is first is read from the slots, so a scan run
+        again does not tell its step twice.
+        """
+        key = (scan_count, curr_step)
+        captured = TakenCapture(
+            scan=scan_count,
+            step_index=curr_step,
+            step_name=str(step.get('Name', '?')),
+            blown=record.blown if record is not None else None,
+            dark=record.dark if record is not None else None,
+        )
         with self._capture_slots_lock:
-            self._capture_slots[(scan_count, curr_step)] = None
+            # Read before the write: the slot this capture takes over, from a
+            # scan run again, is among the earlier ones.
+            earlier = [
+                slot
+                for slot in self._capture_slots.values()
+                if isinstance(slot, TakenCapture) and slot.step_index == curr_step
+            ]
+            self._capture_slots[key] = captured
+        where = f'Step {curr_step} ({captured.step_name}), scan {scan_count}'
+        if captured.blown and not any(slot.blown for slot in earlier):
+            logger.warning(
+                f'[PROTOCOL] {where}: the frame is {record.saturated_fraction * 100.0:.0f}% '
+                f'saturated -- likely over-exposure or a stale camera gain; the frame may '
+                f'be unusable. Later saturated frames of this step in this run are '
+                f'counted, not told.'
+            )
+        if captured.dark and not any(slot.dark for slot in earlier):
+            logger.warning(
+                f'[PROTOCOL] {where}: the frame is dark -- no pixel above the dark floor '
+                f'with illumination on -- and was saved. Later dark frames of this step '
+                f'in this run are counted, not told.'
+            )
 
     def _note_capture_strike(self, *, step, curr_step, scan_count, cause: str) -> None:
         """The strike counter + the 3-strike fatal abort, row-free.
@@ -1128,7 +1170,7 @@ class ProtocolImageWriter:
                 parts.append(f'drained={info["drained"]}')
             if info.get('auto_gain') is not None:
                 parts.append(f'auto_gain={info["auto_gain"]}')
-            if info.get('dark_saved'):
+            if record is not None and record.dark:
                 # The frame was delivered and saved with no pixel above the
                 # dark floor while illumination was commanded on. Stated on
                 # the row because the file itself looks like any other black
@@ -1460,7 +1502,9 @@ class ProtocolImageWriter:
                         return False
 
                     self._consecutive_capture_failures = 0
-                    self._note_captured(curr_step=curr_step, scan_count=scan_count)
+                    self._note_captured(
+                        step=step, curr_step=curr_step, scan_count=scan_count, record=None
+                    )
                     # The drain and the execution-record row finish on the
                     # step's own thread; the run moves on. Video always
                     # extinguishes -- leds_off called above.
@@ -1530,19 +1574,21 @@ class ProtocolImageWriter:
                     frame_position = frame_fact(
                         self._scope, channel_tiebreak=step['Color'], to_plate=self._to_plate
                     )
-                    capture_info = self._scope.imaging.last_capture_info or {}
-                    if not capture_info.get('dark_saved'):
-                        self._consecutive_capture_failures = 0
-                    self._note_captured(curr_step=curr_step, scan_count=scan_count)
                     # The instrument's account of this frame, taken with it on
                     # the camera lane; read here, on the thread that captured,
                     # before anything can capture again.
+                    capture_info = self._scope.imaging.last_capture_info or {}
                     frame_record = capture_info.get('frame_record')
                     if frame_record is None:
                         raise RuntimeError(
                             'the capture returned a frame without its record; the file '
                             'would record the scope at write time, not the frame'
                         )
+                    if not frame_record.dark:
+                        self._consecutive_capture_failures = 0
+                    self._note_captured(
+                        step=step, curr_step=curr_step, scan_count=scan_count, record=frame_record
+                    )
 
                     # Depth travels with the frame so the evidence line's
                     # saturation threshold AND the eventual file save scale

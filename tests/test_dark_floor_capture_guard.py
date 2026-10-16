@@ -14,10 +14,10 @@ What survives is the measurement. A capture whose illumination is
 commanded lit (a channel counts as lit only at strictly positive
 current) retries until its budget expires -- which still heals the
 stale pre-LED frame that issue #671 defect B reported -- and then
-returns the frame it has, with a warning and a ``dark_saved`` fact on
-``last_capture_info`` so a writer, an L2 caller or REST can tell a dark
-capture from a lit one without re-measuring pixels. A nothing-commanded
-capture is dark by design and is not measured at all.
+returns the frame it has, its record's ``dark`` True, so a writer, an L2
+caller or REST can tell a dark capture from a lit one without re-measuring
+pixels; the capture tells no one, whoever took it does. A nothing-commanded
+capture is dark by design and is not measured at all: ``dark`` is None.
 ``accept_dark=True`` skips the measurement for callers that expect dark
 frames (autofocus sweeps, benchmark probes). Public ``get_image`` is the
 ungated primitive.
@@ -76,9 +76,9 @@ class TestDarkFrameDelivery:
         Destroying it would destroy a real observation -- a dim
         transmitted setting or a genuinely dark sample looks exactly like
         this, and the operator can see the dark image for themselves. The
-        darkness is not silent: it is carried on last_capture_info as
-        ``dark_saved`` so a writer, an L2 caller or REST can tell a dark
-        frame from a lit one without re-measuring pixels."""
+        darkness is not silent: it is carried on the frame's record as
+        ``dark`` so a writer, an L2 caller or REST can tell a dark frame
+        from a lit one without re-measuring pixels."""
         dark_scope.illumination.led_on('BF', 100)
         frames_carrying(monkeypatch, dark_scope._camera_driver, lambda: _DARK)
 
@@ -88,8 +88,8 @@ class TestDarkFrameDelivery:
 
         assert out is not None, 'a dark frame under a lit channel must still be delivered'
         assert out.max() == _DARK.max(), 'the dark frame itself must come back untouched'
-        assert dark_scope.imaging.last_capture_info.get('dark_saved') is True, (
-            'a dark frame must be recorded as dark_saved, or no caller can tell'
+        assert dark_scope.imaging.last_capture_info['frame_record'].dark is True, (
+            'a dark frame must be recorded dark on its record, or no caller can tell'
         )
 
     def test_sparse_fluorescence_accepted(self, dark_scope, monkeypatch):
@@ -113,6 +113,9 @@ class TestDarkFrameDelivery:
         out = dark_scope.imaging._capture_and_wait_impl(timeout_s=0.5)
         assert out is not None
         assert out.max() == 6, 'the dark frame itself must be returned untouched'
+        assert dark_scope.imaging.last_capture_info['frame_record'].dark is None, (
+            'with nothing commanded the frame is not judged, so its record says so'
+        )
 
     def test_zero_current_channel_is_dark_by_design(self, dark_scope, monkeypatch):
         """A channel commanded ON at 0 mA lights nothing: the derivation
@@ -129,8 +132,8 @@ class TestDarkFrameDelivery:
         """``accept_dark`` no longer overrides a rejection -- there is no
         rejection to override. What it still does is skip the measurement
         entirely, so an autofocus sweep (which expects dark planes by
-        construction) neither pays for the scan nor files a dark_saved
-        fact on every frame of the sweep.
+        construction) neither pays for the scan nor records a judgment of
+        darkness on every frame of the sweep: its records say None.
 
         Both calls return the frame; only the recorded fact differs, and
         that difference is the whole remaining meaning of the argument."""
@@ -139,14 +142,14 @@ class TestDarkFrameDelivery:
 
         measured = dark_scope.imaging._capture_and_wait_impl(timeout_s=0.3)
         assert measured is not None, 'a dark frame is delivered with or without the override'
-        assert dark_scope.imaging.last_capture_info.get('dark_saved') is True, (
+        assert dark_scope.imaging.last_capture_info['frame_record'].dark is True, (
             'without the override the darkness must be measured and recorded'
         )
 
         out = dark_scope.imaging._capture_and_wait_impl(timeout_s=0.5, accept_dark=True)
         assert out is not None, 'accept_dark must still admit the dark frame'
-        assert dark_scope.imaging.last_capture_info.get('dark_saved') is None, (
-            'accept_dark skips the measurement, so no dark_saved fact is filed'
+        assert dark_scope.imaging.last_capture_info['frame_record'].dark is None, (
+            'accept_dark skips the measurement, so the record judges nothing'
         )
 
     def test_lit_peer_records_a_dark_luminescence_capture(self, dark_scope, monkeypatch):
@@ -159,7 +162,7 @@ class TestDarkFrameDelivery:
 
         out = dark_scope.imaging._capture_and_wait_impl(timeout_s=0.3)
         assert out is not None, 'a black frame under a lit peer is delivered, not refused'
-        assert dark_scope.imaging.last_capture_info.get('dark_saved') is True, (
+        assert dark_scope.imaging.last_capture_info['frame_record'].dark is True, (
             'a lit peer makes the darkness worth recording on the capture'
         )
 

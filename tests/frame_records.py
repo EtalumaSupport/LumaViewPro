@@ -30,6 +30,8 @@ def frame_record(**overrides) -> FrameRecord:
         'camera_model': None,
         'clock_mapping': None,
         'judgments': (),
+        'saturated_fraction': None,
+        'dark': None,
     }
     fields.update(overrides)
     return FrameRecord(**fields)

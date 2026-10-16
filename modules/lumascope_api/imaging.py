@@ -46,7 +46,7 @@ from modules.exceptions import (
     MissingPart,
 )
 from modules.frame_validity import Counter, FrameValidity, Judgment
-from modules.lumascope_api.frame_record import ClockMapping, FrameRecord
+from modules.lumascope_api.frame_record import BLOWN_FRACTION, ClockMapping, FrameRecord
 from modules.lumascope_api.illumination import live_lit_pairs
 from modules.notification_center import notifications
 from modules.sequential_io_executor import IOTask
@@ -129,11 +129,16 @@ class _Grabbed:
     that frame and no later one. ``earliest`` is the first frame the image
     was made from (``frame`` itself, but for a sum): the one a change could
     have reached last, so the one the capture is judged by.
+    ``saturated_fraction`` and ``dark`` are what the grab found of the frames
+    it kept, for the capture's record (``FrameRecord``): None when it was not
+    asked to look.
     """
 
     image: np.ndarray
     frame: Frame
     earliest: Frame
+    saturated_fraction: float | None
+    dark: bool | None
 
 
 def _capture_line(grabbed: _Grabbed, record: FrameRecord) -> str:
@@ -708,11 +713,6 @@ class ImagingAPI:
         # drained frame count, chunk-verified exposure / gain). Read via
         # last_capture_info by callers that log per-capture provenance.
         self._last_capture_info = None
-        # Set by the dark-floor guard when it rejects, read by capture_and_wait
-        # so the failure names darkness rather than falling through to the
-        # cause ladder's camera-inactive default. Cleared at the start of every
-        # capture -- a stale True would misattribute the NEXT failure.
-        self._dark_saved = False
         # (frames summed, each frame's delivered depth) of the frame the last
         # capture produced, set by the reducer that summed it, or None before
         # the first. The one account of a capture's sum: its record and
@@ -3244,17 +3244,21 @@ class ImagingAPI:
             exclude_sources: Sources to ignore for validity, e.g. ('z_move',).
                 The frame returned can predate an excluded change, so a
                 frame that is measured or recorded never excludes one.
-            all_ones_check: Reject all-max-value frames (camera hardware issue).
+            all_ones_check: Measure the frame's saturation. A blown frame
+                is grabbed again once and, blown again, kept; the record
+                carries the fraction either way (``FrameRecord``
+                ``saturated_fraction``, ``blown``). Without it both are None.
             accept_dark: Caller-intent override for the derived dark-floor
                 expectation. The capture derives whether illumination is
                 commanded ON from the illumination API itself (a channel
                 counts as lit only at strictly positive current, so an
                 enabled 0 mA channel is dark by design); when a channel is
-                lit, a frame with essentially no lit pixel is retried then
-                rejected loudly. accept_dark=True admits the dark frame
-                anyway -- for callers whose dark frames are legitimate
-                while lit: autofocus sweeps (an out-of-focus fluorescence
-                plane can carry no signal) and benchmark probes.
+                lit, a frame with essentially no lit pixel is retried until
+                ``timeout_s`` and then kept, its record's ``dark`` True.
+                accept_dark=True skips the judgment, the record's ``dark``
+                None -- for callers whose dark frames are legitimate while
+                lit: autofocus sweeps (an out-of-focus fluorescence plane can
+                carry no signal) and benchmark probes.
             timeout_s: Timeout (seconds) for the final get_image call.
             sum_count: Number of frames to sum for noise reduction.
             sum_delay_s: Delay between summed frames.
@@ -3465,8 +3469,6 @@ class ImagingAPI:
             lit = live_lit_pairs(self._scope.illumination)
             expected_lit = bool(lit)
 
-            with self._state_lock:
-                self._dark_saved = False
             grabbed = self._get_image_impl(
                 force_to_8bit=force_to_8bit,
                 all_ones_check=all_ones_check,
@@ -3516,12 +3518,6 @@ class ImagingAPI:
                 f'[SCOPE API ] capture_and_wait: no frame -- {failed.reason} at the '
                 f'{failed.leg} (drained={drain_iterations}, rechecks={recheck_cycles})'
             )
-        # A dark frame is delivered, not refused, so this fact rides a
-        # SUCCESSFUL capture. It is the only way a caller that did not
-        # measure the pixels itself can tell a dark frame from a lit one.
-        with self._state_lock:
-            if self._dark_saved:
-                extra['dark_saved'] = True
         # A camera found gone is refused, and its refusal is the report: a
         # locked auto-gain arm is re-armed on every other exit, and on that
         # one there is nothing to re-arm.
@@ -3534,7 +3530,12 @@ class ImagingAPI:
                 judgments = self.frame_validity.judgments(grabbed.earliest)
                 try:
                     extra['frame_record'] = self._build_frame_record(
-                        chunks=chunks, lit=lit, captured_at=grabbed_at, judgments=judgments
+                        chunks=chunks,
+                        lit=lit,
+                        captured_at=grabbed_at,
+                        judgments=judgments,
+                        saturated_fraction=grabbed.saturated_fraction,
+                        dark=grabbed.dark,
                     )
                 except CameraReadFailedError as unread:
                     if not self.camera_removed:
@@ -3563,6 +3564,8 @@ class ImagingAPI:
         lit: frozenset[tuple[int, float]],
         captured_at: datetime.datetime,
         judgments: tuple[Judgment, ...],
+        saturated_fraction: float | None,
+        dark: bool | None,
     ) -> FrameRecord:
         """The instrument's account of the frame just grabbed, on the grab's lane.
 
@@ -3623,6 +3626,8 @@ class ImagingAPI:
             camera_model=camera.camera_model,
             clock_mapping=self._clock_mapping_for_record(),
             judgments=judgments,
+            saturated_fraction=saturated_fraction,
+            dark=dark,
         )
 
     def _clock_mapping_for_record(self) -> ClockMapping | None:
@@ -3720,12 +3725,9 @@ class ImagingAPI:
             timeout_s=wait_s,
         )
 
-    # A frame at least this saturated is treated as blown -- a stale-gain
-    # or over-exposure symptom. Set high so a legitimately bright field
-    # does not trip it; a true blown-white frame saturates essentially
-    # every pixel. Surfaced (warn + notify) rather than saved silently.
-    _SATURATION_NEAR_MAX_FRACTION = 0.99  # pixel >= 99% of full scale = saturated
-    _SATURATION_BLOWN_FRACTION = 0.98  # >= 98% of pixels saturated = blown frame
+    # A pixel at or above this fraction of full scale is saturated; how many
+    # of them make a frame blown is the record's (``BLOWN_FRACTION``).
+    _SATURATION_NEAR_MAX_FRACTION = 0.99
 
     @staticmethod
     def saturated_fraction(arr: np.ndarray | None, significant_bits: int) -> float:
@@ -3801,10 +3803,12 @@ class ImagingAPI:
         Args:
             force_to_8bit: Convert 12-bit images to 8-bit output.
             timeout_s: Max seconds to wait for a valid frame.
-            all_ones_check: Reject saturated (all-max-value) frames.
-            dark_floor_check: Reject frames with essentially no pixel above
-                the dark floor, retrying until a lit frame arrives or
-                timeout_s expires. Internal transport of the value
+            all_ones_check: Measure each kept frame's saturation; a blown one
+                is grabbed again once, then kept (``_Grabbed.saturated_fraction``).
+            dark_floor_check: Pass over frames with essentially no pixel
+                above the dark floor until a lit frame arrives, and when
+                timeout_s expires keep the dark one (``_Grabbed.dark``).
+                Internal transport of the value
                 capture_and_wait derives from commanded LED state; the
                 public get_image never sets it (probes and diagnostics
                 must see what the camera sees, dark or not).
@@ -3851,6 +3855,11 @@ class ImagingAPI:
             return _NoFrame('removed', 'entry')
 
         frames: list[Frame] = []
+        # What the kept frames were found to be, for the capture's record:
+        # the most saturated of them, and whether any was kept dark. None
+        # where the check was not asked.
+        kept_saturation = 0.0 if all_ones_check else None
+        kept_dark = False if dark_floor_check else None
         # Arrival ordinal of the frame most recently taken into the sum; None
         # until the first one lands. Local by construction: a bound that
         # outlived one capture would reject the next capture's frames.
@@ -3892,11 +3901,13 @@ class ImagingAPI:
                 # Saturation measures against the frame's own payload depth,
                 # never the container dtype -- a 12-bit frame in a uint16
                 # container is blown at 4095, not 65535.
-                if (
-                    all_ones_check
-                    and self.saturated_fraction(frame.image, frame.significant_bits)
-                    >= self._SATURATION_BLOWN_FRACTION
-                ):
+                frame_saturation = (
+                    self.saturated_fraction(frame.image, frame.significant_bits)
+                    if all_ones_check
+                    else None
+                )
+                frame_dark = False
+                if frame_saturation is not None and frame_saturation >= BLOWN_FRACTION:
                     # Near-fully-saturated frame -- retry once in case it was a
                     # transient blip, then surface it. A blown frame is usually
                     # an over-exposure or stale-camera-gain symptom; accepting it
@@ -3911,22 +3922,20 @@ class ImagingAPI:
                             self.frame_validity.count_frame(retry.seq, by=Counter.GRAB)
                     # Saturation walk is outside cam_lock -- no camera state needed,
                     # and the walk would otherwise block concurrent set_gain_db/set_exposure.
-                    if retry is not None and (
+                    retry_saturation = (
                         self.saturated_fraction(retry.image, retry.significant_bits)
-                        < self._SATURATION_BLOWN_FRACTION
-                    ):
-                        frame = retry  # retry was clean, use it
+                        if retry is not None
+                        else None
+                    )
+                    if retry_saturation is not None and retry_saturation < BLOWN_FRACTION:
+                        frame, frame_saturation = retry, retry_saturation
                     else:
-                        # Log (not notify): a blown frame is self-evident on
-                        # screen and in the saved file, so a popup adds nothing.
-                        # The log line is for the post-mortem / log-analysis pass.
-                        sat_pct = (
-                            self.saturated_fraction(frame.image, frame.significant_bits) * 100.0
-                        )
-                        logger.warning(
-                            f'[SCOPE API ] get_image: captured frame is {sat_pct:.0f}% '
-                            f'saturated -- likely over-exposure or a stale camera gain; '
-                            f'the frame may be unusable.'
+                        # Kept, and recorded as blown on the capture's record;
+                        # whoever took the capture tells it (a run once per
+                        # step, a still once), so it is not told here.
+                        logger.debug(
+                            f'[SCOPE API ] get_image: kept a frame '
+                            f'{frame_saturation * 100.0:.0f}% saturated'
                         )
 
                 if dark_floor_check:
@@ -3945,7 +3954,10 @@ class ImagingAPI:
                         # illumination state does -- so it decides nothing
                         # here beyond what gets logged and recorded.
                         if datetime.datetime.now() > stop_time:
-                            logger.warning(
+                            # Recorded as dark on the capture's record, and
+                            # told by whoever took the capture, as a blown
+                            # frame is.
+                            logger.debug(
                                 f'[SCOPE API ] get_image: frame is dark -- '
                                 f'{lit_fraction:.6f} of pixels above '
                                 f'{self._DARK_FLOOR_FRACTION:.0%} of full scale '
@@ -3954,13 +3966,11 @@ class ImagingAPI:
                                 f'{timeout_s:.1f}s. Saving the dark frame.'
                             )
                             # Carried out as a FACT about the frame, never a
-                            # failure cause: the writer records it on the run
-                            # row and an L2/REST caller reads it off
-                            # last_capture_info, so a dark frame stays
-                            # distinguishable from a lit one without anyone
-                            # re-measuring pixels downstream.
-                            with self._state_lock:
-                                self._dark_saved = True
+                            # failure cause: it rides the frame's record, so
+                            # the writer, the saved file and an L2/REST caller
+                            # can tell a dark frame from a lit one without
+                            # anyone re-measuring pixels downstream.
+                            frame_dark = True
                             # No break/continue: the dark frame is this
                             # capture, so it falls through the remaining
                             # gates (chunk targets, sum accumulation) on
@@ -4023,6 +4033,10 @@ class ImagingAPI:
                 # sum has nothing to be newer than.
                 if earliest_seq is None or frame.seq > earliest_seq:
                     frames.append(frame)
+                    if frame_saturation is not None:
+                        kept_saturation = max(kept_saturation, frame_saturation)
+                    if frame_dark:
+                        kept_dark = True
                     break
 
                 # The expected path for a buffered camera, not a fault: the
@@ -4103,7 +4117,13 @@ class ImagingAPI:
         # Read-only whichever path made it, as the camera's own frame is: the
         # capture's image is the instrument's account, not a scratch buffer.
         image.flags.writeable = False
-        return _Grabbed(image=image, frame=frames[-1], earliest=frames[0])
+        return _Grabbed(
+            image=image,
+            frame=frames[-1],
+            earliest=frames[0],
+            saturated_fraction=kept_saturation,
+            dark=kept_dark,
+        )
 
     @api(in_process=True)
     def judge_frame(self, frame: Frame) -> tuple[Judgment, ...]:

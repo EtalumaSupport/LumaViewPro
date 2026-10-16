@@ -130,7 +130,7 @@ class TestMidWindowInvalidationHonored:
         assert landed.is_set(), 'the mid-window write never landed'
         info = live_scope.imaging.last_capture_info
         assert info['rechecks'] >= 1
-        assert 'dark_saved' not in info, (
+        assert info['frame_record'].dark is None, (
             'the expectation must re-derive lit -> dark; the capture was '
             'judged against the LED it no longer commands'
         )
@@ -214,7 +214,7 @@ class TestDrainDeadline:
         assert info['n_entry'] == 0, 'precondition: nothing owed at entry'
         assert info['rechecks'] >= 1, 'the dirtied window must be re-run'
         assert out is not None, 'the grab waited out its own retry window and was refused'
-        assert info.get('dark_saved') is True
+        assert info['frame_record'].dark is True
 
     def test_healthy_capture_records_telemetry(self, live_scope):
         """The per-capture evidence a support bundle reads: present on

@@ -4,7 +4,7 @@
 ``get_image(all_ones_check=True)`` measures the frame it grabbed against its
 own depth. A frame at or above the blown fraction is retried with one more
 grab: a clean retry is returned, a blown one or a failed grab leaves the
-first frame, logged. The measure needs no camera state, so it runs with the
+first frame, kept and recorded blown on the capture's record, not told. The measure needs no camera state, so it runs with the
 camera lock released, where a concurrent gain or exposure write can proceed.
 Moved from tests/test_audit_fixes.py (AOC-1, AOC-2) onto the simulated scope.
 """
@@ -86,3 +86,30 @@ def test_a_failed_retry_grab_keeps_the_first_frame(sim_scope, monkeypatch):
     out = sim_scope.imaging.get_image(all_ones_check=True)
 
     assert np.array_equal(out, blown), 'a failed retry grab must fall back to the original frame'
+
+
+def test_a_kept_blown_frame_is_on_its_record_and_not_told(sim_scope, monkeypatch):
+    """The capture records a blown frame and leaves the telling to whoever
+    took it: a run once per step, a still once."""
+    import lvp_logger
+
+    blown = np.full((4, 4), 255, dtype=np.uint8)
+    frames_carrying(monkeypatch, sim_scope._camera_driver, lambda: blown)
+    told = []
+    monkeypatch.setattr(lvp_logger.logger, 'warning', lambda msg, *a, **kw: told.append(msg))
+
+    sim_scope.imaging.capture_and_wait(all_ones_check=True)
+
+    record = sim_scope.imaging.last_capture_info['frame_record']
+    assert (record.saturated_fraction, record.blown) == (1.0, True)
+    assert [line for line in told if 'saturated' in line] == [], told
+
+
+def test_a_capture_that_does_not_ask_records_no_saturation(sim_scope, monkeypatch):
+    blown = np.full((4, 4), 255, dtype=np.uint8)
+    frames_carrying(monkeypatch, sim_scope._camera_driver, lambda: blown)
+
+    sim_scope.imaging.capture_and_wait()
+
+    record = sim_scope.imaging.last_capture_info['frame_record']
+    assert (record.saturated_fraction, record.blown) == (None, None)

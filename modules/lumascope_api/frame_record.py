@@ -17,6 +17,13 @@ from collections.abc import Mapping
 
 from modules.frame_validity import Judgment
 
+# A frame with at least this fraction of its pixels saturated is blown -- a
+# stale-gain or over-exposure symptom. Set high so a legitimately bright
+# field does not trip it; a true blown-white frame saturates essentially
+# every pixel. The capture retries a blown frame once against it, and a
+# record answers ``blown`` by it.
+BLOWN_FRACTION = 0.98
+
 
 @dataclasses.dataclass(frozen=True)
 class ClockMapping:
@@ -81,6 +88,15 @@ class FrameRecord:
         judgments: The frame judged against each source's last change
             (``FrameValidity.judgments``): for a summed capture, the first
             frame summed. Empty when no change has been recorded.
+        saturated_fraction: The fraction of the frame's pixels at full
+            scale (``ImagingAPI.saturated_fraction``), measured when the
+            capture asked for the check (``all_ones_check``); for a summed
+            capture, its most saturated frame. None when it did not ask.
+        dark: True when the frame was kept with no pixel above the dark
+            floor while illumination was commanded on, after the capture
+            waited out its budget for a lit one; for a summed capture, when
+            any frame was. None when the capture did not judge it (no LED
+            on, or ``accept_dark``).
     """
 
     captured_at: datetime.datetime
@@ -97,6 +113,8 @@ class FrameRecord:
     camera_model: str | None
     clock_mapping: ClockMapping | None
     judgments: tuple[Judgment, ...]
+    saturated_fraction: float | None
+    dark: bool | None
 
     def __post_init__(self):
         # Frozen all the way down: the record travels to another thread and
@@ -104,3 +122,11 @@ class FrameRecord:
         object.__setattr__(
             self, 'illumination_ma', types.MappingProxyType(dict(self.illumination_ma))
         )
+
+    @property
+    def blown(self) -> bool | None:
+        """Whether the frame is blown (``BLOWN_FRACTION``); None when its
+        saturation was not measured."""
+        if self.saturated_fraction is None:
+            return None
+        return self.saturated_fraction >= BLOWN_FRACTION

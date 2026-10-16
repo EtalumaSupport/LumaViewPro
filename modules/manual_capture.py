@@ -238,6 +238,19 @@ class ManualCaptureController:
         # The instrument's account of this frame, taken with it; read before
         # anything on this lane can capture again.
         frame_record = scope.imaging.last_capture_info['frame_record']
+        # A blown or dark still is kept and saved, and told here, once: the
+        # capture records it and leaves the telling to whoever took it.
+        if frame_record.blown:
+            logger.warning(
+                f'[ManualCapture] The still is {frame_record.saturated_fraction * 100.0:.0f}% '
+                f'saturated -- likely over-exposure or a stale camera gain; the frame may '
+                f'be unusable.'
+            )
+        if frame_record.dark:
+            logger.warning(
+                '[ManualCapture] The still is dark -- no pixel above the dark floor with '
+                'illumination on -- and was saved.'
+            )
         labware = scope.runtime_state.get_labware()
         # The frame's own depth (8 for uint8, a sum's the bits it can reach,
         # else the per-frame delivery stamp), taken now, before any later grab

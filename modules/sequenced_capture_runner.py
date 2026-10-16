@@ -57,6 +57,7 @@ import modules.path_utils as path_utils
 from modules.protocol_execution_record import ProtocolExecutionRecord
 from modules.run_outcome import (
     FILES_LOST_ENDINGS,
+    CaptureTally,
     EndingLatch,
     PendingRunOutcome,
     RunEnding,
@@ -1973,6 +1974,7 @@ class SequencedCaptureRunner:
             return ending
         tally = writer.capture_tally
         focus_failures = writer.focus_failures
+        self._log_kept_exposure_faults(tally)
         if outcome is not None:
             outcome.record_captures(tally)
             outcome.record_focus_failures(focus_failures)
@@ -1995,6 +1997,18 @@ class SequencedCaptureRunner:
         return RunEnding(
             'incomplete', 'captures_failed', ' '.join(filter(None, (str(incomplete), unfocused)))
         )
+
+    @staticmethod
+    def _log_kept_exposure_faults(tally: CaptureTally) -> None:
+        """The run's one count of the blown and dark frames it kept, with
+        their steps; each step's first was told as it was taken."""
+        counts = []
+        for kind, captures in (('saturated', tally.saturated), ('dark', tally.dark)):
+            if captures:
+                steps = ', '.join(dict.fromkeys(capture.step_name for capture in captures))
+                counts.append(f'{len(captures)} {kind} (steps: {steps})')
+        if counts:
+            logger.warning(f'[PROTOCOL] The run kept frames that were {"; ".join(counts)}')
 
     def _unfocused_words(self, count: int) -> str:
         """The sentence naming ``count`` steps whose autofocus did not focus; '' for none."""

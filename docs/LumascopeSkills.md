@@ -636,13 +636,19 @@ image = session.scope.imaging.capture_and_wait()    # returns frame-valid grab
 
 # A dark frame is never refused. With a channel lit (strictly positive
 # current), a frame with no lit pixel is retried until timeout_s in case a
-# lit one is coming, then RETURNED with 'dark_saved': True on
-# last_capture_info. Read that key to tell a dark capture from a lit one;
-# do not re-measure pixels. With nothing commanded -- or a channel at
-# 0 mA -- a dark frame is by design and is not measured at all.
-# accept_dark=True skips the measurement for callers whose dark frames
-# are expected (custom focus sweeps, benchmark probes), so no dark_saved
-# fact is filed.
+# lit one is coming, then RETURNED, its record saying so:
+# last_capture_info['frame_record'].dark is True. Read that to tell a dark
+# capture from a lit one; do not re-measure pixels. With nothing
+# commanded -- or a channel at 0 mA -- a dark frame is by design and is
+# not measured at all (.dark is None). accept_dark=True skips the
+# measurement for callers whose dark frames are expected (custom focus
+# sweeps, benchmark probes), so .dark is None.
+# A blown frame is never refused either: with all_ones_check=True a frame
+# at least 98% saturated is grabbed again once and, blown again, RETURNED;
+# the record's saturated_fraction is the measured fraction and .blown says
+# whether it is blown (both None without the flag). Neither is logged as a
+# warning by the capture: a run tells each step's first and counts the
+# rest (RunOutcome.captures.saturated / .dark), a still tells its own.
 # timeout_s is the retry budget for the content checks (dark floor,
 # saturation, chunk verify); leave it 0.0 to judge the first grab only.
 # The executor wait is bounded internally.
@@ -1355,6 +1361,7 @@ still states the major version.
 | level 14 | `imaging.judge_frame(frame)` answers whether a frame counts for each source's last recorded change (a `Judgment` per change, carrying its `Change` and the `Credit` of each frame counted toward it), and `frame_validity.count_frame` takes who counted (`by=Counter`); a capture's `frame_record` carries `judgments`, and its saved file `frame_validity`. |
 | level 15 | `capabilities.camera_has_clock_latch`, and a capture's `frame_record` carries `clock_mapping`: the camera's clock mapped onto the host's steady clock beside the grab (`ClockMapping`, `modules.lumascope_api.frame_record`), None on a camera without a latch. |
 | level 16 | A camera timing record (`data/camera_timing/<model>.json`) is schema 2: its `validity` group holds, per source and direction, an `apply_delay_us` or `delivered_frames` spread (`p50`, `p95`, `max`) over its `trials` with the `provenance` of the run that measured it, and `FrameValidity.check_timing_record(record)` (`modules.frame_validity`) refuses any other with `ValueError`, as bring-up does with `InstallationFileError`; `FrameValidity.load_camera_timing` is gone, and frame validity drains at its own counts. |
+| level 17 | A capture's `frame_record` carries `saturated_fraction` (measured when `all_ones_check` is asked) and `dark` (judged when an LED is lit and `accept_dark` is not), each None when not measured, and answers `blown`; `last_capture_info` no longer carries `dark_saved`. A blown or dark frame is not logged as a warning by the capture; a run's outcome counts them (`captures.saturated`, `captures.dark`, each a tuple of `TakenCapture`). |
 
 ### Configuration queries
 
@@ -1836,18 +1843,19 @@ image = scope.imaging.get_image(force_to_8bit=False)   # keep native 12/16-bit
 # any capture with nothing commanded. With a channel lit, a frame with
 # essentially no lit pixel is retried until timeout_s -- which heals a
 # stale pre-LED frame when a lit one is on its way -- and then RETURNED,
-# carrying 'dark_saved': True on last_capture_info. It is never refused:
+# its record's .dark True (last_capture_info['frame_record']). It is
+# never refused:
 # pixel content cannot distinguish an LED that failed from a genuinely
 # dark sample, so darkness is reported, not acted on. accept_dark=True
 # (keyword-only, default False) skips the measurement entirely for the
 # callers whose dark frames are expected: custom focus sweeps (an
 # out-of-focus fluorescence plane can carry no signal) and benchmark
-# probes; those captures file no dark_saved fact.
+# probes; those captures' records carry dark None.
 image = scope.imaging.capture_and_wait()
 image = scope.imaging.capture_and_wait(
     force_to_8bit=True,
     accept_dark=False,                     # True skips the darkness measurement
-    all_ones_check=True,                   # detect saturated frames
+    all_ones_check=True,                   # measure saturation (frame_record.blown)
     sum_count=4,                           # SUM 4 frames (not an average); a
                                            # sum is uint16 on every camera and
                                            # saturates at 65535
@@ -3562,8 +3570,10 @@ Reached through `RunOutcome.captures`.
 
 - `asked`
 - `captured`
+- `dark`
 - `failed`
 - `missing`
+- `saturated`
 
 ### CatalogueNameRefusedError
 
@@ -3950,6 +3960,16 @@ Reached through returned by `scope.protocols.step_targets`.
 - `x`
 - `y`
 - `z`
+
+### TakenCapture
+
+Reached through each item of `CaptureTally.saturated` and `CaptureTally.dark`.
+
+- `blown`
+- `dark`
+- `scan`
+- `step_index`
+- `step_name`
 
 ### TurretSlotQuestion
 
