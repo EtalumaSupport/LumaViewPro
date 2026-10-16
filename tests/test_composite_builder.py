@@ -277,24 +277,46 @@ def test_the_builds_peak_memory_does_not_grow_with_the_channel_count():
 
     The 16-bit total it replaced, with every channel converted up front,
     peaked at 16 bytes a pixel for three channels and grew with each one.
+
+    The peak is measured in a Python of its own: tracemalloc counts every
+    thread's allocations, so in a test worker a simulated camera another
+    test left streaming added one frame (3.61 bytes a pixel) to the build's
+    peak whenever a frame landed during it.
     """
-    import tracemalloc
+    import pathlib
+    import subprocess
+    import sys
 
-    rng = np.random.default_rng(0)
-    side = 1000
-
-    def peak_per_pixel(keys):
-        channels = _in_release_colours(
-            {key: rng.integers(0, 4096, (side, side), dtype=np.uint16) for key in keys}
-        )
-        tracemalloc.start()
-        try:
-            build_composite(channels=channels, significant_bits=12)
-            return tracemalloc.get_traced_memory()[1] / side / side
-        finally:
-            tracemalloc.stop()
-
-    three = peak_per_pixel(('Red', 'Green', 'Blue'))
-    five = peak_per_pixel(('Red', 'Green', 'Blue', 'Lumi', 'BF'))
+    script = (
+        'import tracemalloc, numpy as np\n'
+        'import modules.layer_record as layer_record\n'
+        'from modules.composite_builder import CompositeChannel, build_composite\n'
+        'rng = np.random.default_rng(0)\n'
+        'side = 1000\n'
+        'def peak_per_pixel(keys):\n'
+        '    channels = {\n'
+        '        key: CompositeChannel(\n'
+        '            rng.integers(0, 4096, (side, side), dtype=np.uint16),\n'
+        '            layer_record.release_color(key),\n'
+        '        )\n'
+        '        for key in keys\n'
+        '    }\n'
+        '    tracemalloc.start()\n'
+        '    try:\n'
+        '        build_composite(channels=channels, significant_bits=12)\n'
+        '        return tracemalloc.get_traced_memory()[1] / side / side\n'
+        '    finally:\n'
+        '        tracemalloc.stop()\n'
+        "print(peak_per_pixel(('Red', 'Green', 'Blue')),\n"
+        "      peak_per_pixel(('Red', 'Green', 'Blue', 'Lumi', 'BF')))\n"
+    )
+    measured = subprocess.run(
+        [sys.executable, '-c', script],
+        capture_output=True,
+        text=True,
+        cwd=pathlib.Path(__file__).resolve().parents[1],
+    )
+    assert measured.returncode == 0, measured.stderr
+    three, five = (float(peak) for peak in measured.stdout.split())
     assert five < 10, five
     assert five - three < 1, (three, five)
