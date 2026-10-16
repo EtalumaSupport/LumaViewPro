@@ -66,7 +66,6 @@ NAME_MEMBERS = {
     'set_layer_auto_gain': lambda s, v: s.set_layer_auto_gain(v, True),
     'saved_focus': lambda s, v: s.saved_focus(v),
     'save_layer_focus': lambda s, v: s.save_layer_focus(v, 0.0),
-    'apply_layer_camera': lambda s, v: s.apply_layer_camera(v),
     'get_layer_configs': lambda s, v: s.get_layer_configs([v]),
     'show_channel': lambda s, v: s.show_channel(v),
     'update_step': lambda s, v: s.update_step(s.create_empty_protocol(), 0, layer=v),
@@ -77,7 +76,6 @@ ABSENT_MEMBERS = (
     'set_layer_acquire',
     'set_layer_auto_gain',
     'save_layer_focus',
-    'apply_layer_camera',
     'show_channel',
     'update_step',
 )

@@ -212,3 +212,18 @@ def test_showing_the_shown_layer_during_a_recording_is_no_change(session):
     finally:
         recording.stop()
         recording.result(timeout=60)
+
+
+def test_putting_a_layer_on_the_camera_is_not_a_rest_route():
+    """``show_channel`` is the one public way a layer's settings reach the
+    camera; the Session's own apply is in-process."""
+    from modules import wire_encoding
+    from rest import routes as rest_routes
+
+    handed_out = wire_encoding.handed_out(
+        ScopeSession, wire_encoding.project_classes(), wire_encoding.project_aliases()
+    )
+    names = {route.member.name for route in rest_routes.routes(ScopeSession, handed_out=handed_out)}
+
+    assert 'show_channel' in names
+    assert 'apply_layer_camera' not in names

@@ -1889,16 +1889,16 @@ class ScopeSession:
             self.apply_layer_camera(layer)
         return lock
 
-    @api
     def apply_layer_camera(self, layer: str) -> dict | None:
         """Put ``layer``'s stored exposure, gain and auto-gain on the camera, and wait.
 
         Nothing is written when the camera already holds ``layer`` at its
         stored settings (``scope.imaging.hold_layer``).
 
-        The one way a layer's settings reach the camera outside a run:
-        bring-up applies BF, ``go_to_step`` applies the step's layer, and
-        the GUI applies the layer whose control changed. A stored auto-gain
+        The one way a layer's settings reach the camera outside a run,
+        in-process: ``show_channel`` (the public way), bring-up's BF,
+        ``go_to_step``'s step layer, a write to the shown layer and a run's
+        end each call it. A stored auto-gain
         arms the live auto loop, capped to the layer's channel class and the
         installation's override, as the GUI's Auto Gain/Exp box does; a
         camera without hardware auto-gain applies the layer manually.
