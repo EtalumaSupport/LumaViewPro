@@ -133,6 +133,14 @@ _SIMULATED_LED_BOARDS = ('EL-0940', 'FX2')
 _SIMULATED_MOTOR_BOARDS = ('EL-0940', 'TMCM-6110')
 
 
+def _camera_timing(sim_tier: str) -> str:
+    """How the simulated camera delivers on a tier: with a real camera's
+    transfer time on the realistic tier, the tier the shipped settings
+    choose, so the app and REST simulate a camera's timing; at once on the
+    others, which tests run."""
+    return 'realistic' if sim_tier == 'realistic' else 'fast'
+
+
 def _wire_timing(sim_tier: str) -> str:
     """How the firmware emulator's motors move on a firmware-backed tier: at
     the bench-fitted ramp on the realistic tier, at once on the firmware tier."""
@@ -558,7 +566,8 @@ class Lumascope:
                 ``'realistic'`` is the firmware tier with its motors moving
                 at the ramp fitted to bench moves, so a move or a home takes
                 seconds rather than none; a home starts mid-travel, so it is
-                shorter than a stage's.
+                shorter than a stage's, and the simulated camera takes a
+                real camera's transfer time to deliver each frame.
                 Ignored when simulate is False.
             warn_pre_release: Whether this construction should fire the
                 PRE-RELEASE FutureWarning. The warning tells a caller its
@@ -730,6 +739,7 @@ class Lumascope:
         # overrides it on a successful connect.
         camera_kwargs: dict = {}
         if simulate and sim_fx2 is None:
+            camera_kwargs['timing'] = _camera_timing(sim_tier)
             camera_kwargs['z_position_func'] = lambda: self.motion.get_current_position('Z')
             # The field follows the stage the same way; an axis the scope
             # lacks answers None and holds still.
