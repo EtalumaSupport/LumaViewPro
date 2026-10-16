@@ -446,7 +446,7 @@ def submit_gesture(
             _app_ctx.ctx.scope.motion.refuse_unknown_positions(axes, recording=False, then=then)
         moves()
 
-    submit_move(label, axes=axes, call=call, on_moved=on_moved)
+    submit_move(label, axes=axes, call=call, lane=_app_ctx.ctx.io_executor, on_moved=on_moved)
 
 
 def submit_move(
@@ -454,19 +454,20 @@ def submit_move(
     *,
     axes: typing.Iterable[str],
     call: typing.Callable[[], None],
+    lane: 'SequentialIOExecutor | None',
     on_moved: typing.Callable[[], None] | None = None,
 ) -> None:
-    """Run a person's move on the IO lane, redraw its axes, then its GUI work.
+    """Run a person's move, redraw its axes, then its GUI work.
 
     The lane half of ``submit_gesture``, for a move an API member composes
     itself (asking about its axes included): the control-surface lock is
-    enforced here, *call* runs as one task on the IO lane, the axes are
-    redrawn once the task has ended whatever its outcome, and *on_moved*
-    runs on the GUI thread only when *call* returned. A gesture's moves are
-    started, never waited on, so the task holds the lane only for the
-    commands.
+    enforced here, *call* runs as one task on *lane* (``submit_reported``'s:
+    the IO lane for a call of motion members alone, None for the worker pool
+    when the call also waits on another lane), the axes are redrawn once the
+    task has ended whatever its outcome, and *on_moved* runs on the GUI
+    thread only when *call* returned. A gesture's moves are started, never
+    waited on, so the task holds the lane only for the commands.
     """
-    ctx = _app_ctx.ctx
     axes = tuple(axes)
     if _user_motion_locked(label):
         return
@@ -485,7 +486,7 @@ def submit_move(
         if moved and on_moved is not None:
             on_moved()
 
-    submit_reported(moving, redraw, label, lane=ctx.io_executor)
+    submit_reported(moving, redraw, label, lane=lane)
 
 
 def _redraw_gesture_axes(axes: tuple[str, ...]) -> None:

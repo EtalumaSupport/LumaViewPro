@@ -109,12 +109,12 @@ class TestRunNavigationLeavesLayerSettingsAlone:
 
 
 class TestManualNavigationWritesNothingInTheGui:
-    def test_the_write_is_the_sessions_and_the_apply_follows_it(self, stepnav_env):
-        """A person's navigation writes the step into its layer inside
-        ``ScopeSession.go_to_step`` (every key, the config dicts as copies:
+    def test_the_write_and_the_apply_are_the_sessions_alone(self, stepnav_env):
+        """A person's navigation writes the step into its layer and puts the
+        layer on the camera inside ``ScopeSession.start_go_to_step`` (every
+        key, the config dicts as copies:
         tests/test_going_to_a_step_is_the_sessions_move.py); the GUI writes
-        no setting itself and applies the layer only once the Session has
-        gone, so the apply reads the step's values."""
+        no setting and makes no second call to apply the layer."""
         env = stepnav_env
         before = copy.deepcopy(env.ctx.settings['Green'])
         order = []
@@ -126,7 +126,7 @@ class TestManualNavigationWritesNothingInTheGui:
         _go_to_step(_make_step())
 
         assert env.ctx.settings['Green'] == before, 'the GUI wrote a setting itself'
-        assert order == ['session', 'apply']
+        assert order == ['session']
 
 
 # Every widget id set_step_state writes, with the attribute it writes.

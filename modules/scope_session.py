@@ -2309,10 +2309,10 @@ class ScopeSession:
     def go_to_step(self, protocol: 'Protocol', step_idx: int) -> None:
         """Go to step ``step_idx`` of ``protocol``; return once the camera holds the step's layer and the stage has arrived.
 
-        ``start_go_to_step``, then ``apply_layer_camera`` for the step's
-        layer while the stage travels, then the started operation's
-        ``result()``;
-        see ``start_go_to_step`` for what going to a step does and refuses.
+        What ``start_go_to_step`` does, then the started operation's
+        ``result()``: the step's layer goes on the camera while the stage
+        travels; see ``start_go_to_step`` for what going to a step does and
+        refuses.
         Both waits run in this caller's thread, so the IO lane takes other
         work meanwhile.
 
@@ -2333,7 +2333,7 @@ class ScopeSession:
         # Read before the start, as the start reads it: the step this call
         # was made for, whatever the list holds once the lane has run.
         layer = protocol.step(idx=step_idx)['Color']
-        going = self.start_go_to_step(protocol, step_idx)
+        going = self._start_moving_to_step(protocol, step_idx)
         try:
             self.apply_layer_camera(layer)
         finally:
@@ -2366,10 +2366,14 @@ class ScopeSession:
 
         A repeat of the step this session last went to (a re-click, a
         re-typed number) does everything but the preview: a channel the
-        person lit or put out in between stays as they left it.
+        person lit or put out in between stays as they left it, and when
+        another layer was shown meanwhile the step's layer is shown again,
+        lit or dark as the shown channel was.
 
-        The camera is not set to the step's layer here: a click's caller
-        applies it (``apply_layer_camera``), and ``go_to_step`` does.
+        Once that task has run, the step's layer goes on the camera
+        (``apply_layer_camera``) before this returns, so a still asked after
+        it is taken at the step's settings. It waits on the camera lane, so
+        it is refused on the UI thread; a click calls it from a worker.
 
         Raises:
             StepNotFoundError: ``step_idx`` is not a step of ``protocol``.
@@ -2397,7 +2401,20 @@ class ScopeSession:
                 the axes before it have moved, nothing else changes.
             MoveNotCompletedError: the turret did not reach the step's slot,
                 or the board did not take an axis's command.
+            CameraSettingRejected: the camera refused a setting of the
+                step's layer; the moves are under way, and the layer and the
+                preview are the step's.
+            BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on
+                the UI thread. Nothing was started.
         """
+        refuse_waiting_on_ui_thread('start_go_to_step')
+        layer = protocol.step(idx=step_idx)['Color']
+        going = self._start_moving_to_step(protocol, step_idx)
+        self.apply_layer_camera(layer)
+        return going
+
+    def _start_moving_to_step(self, protocol: 'Protocol', step_idx: int) -> Operation:
+        """The IO-lane task of going to a step, and the operation of its moves."""
         step = protocol.step(idx=step_idx)
         # Converted here, from the step read above, so the lane moves to the
         # step this call was made for whatever the list holds by then; the
@@ -2444,8 +2461,12 @@ class ScopeSession:
         self.scope.imaging.refuse_camera_not_connected('go_to_step')
         last = self._last_step_gone_to
         shows = last is None or last[0] is not protocol or last[1] != step_idx
-        lit = self.settings['protocol_led_on']
-        if shows and lit and self._led_address(step['Color']) is not None:
+        # A first visit is the step's preview. A repeat leaves the LEDs as the
+        # person left them while the step's layer is shown, and moves the shown
+        # channel, lit or dark as it was, back to it when another was shown.
+        moves_light = shows or self._shown_channel.layer != step['Color']
+        lit = self.settings['protocol_led_on'] if shows else self._shown_channel.lit
+        if moves_light and lit and self._led_address(step['Color']) is not None:
             # A preview that would light needs the LED controller, asked
             # before anything moves; a dark one needs no board.
             self.scope.illumination.refuse_controller_not_connected('go_to_step')
@@ -2464,7 +2485,7 @@ class ScopeSession:
         )
         self._load_step_into_layer(step)
         self._last_step_gone_to = (protocol, step_idx)
-        if not shows:
+        if not moves_light:
             return moves
         # After the step's moves are started, in the same task: a toggle the
         # person makes while the stage travels lands after the step's preview.

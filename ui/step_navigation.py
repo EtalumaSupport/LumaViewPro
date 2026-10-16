@@ -29,9 +29,9 @@ def go_to_step(
     the run moves the scope itself, so this only moves the step pointer.
     ``include_move=True`` is a person going to a step: the Session goes to
     it (``ScopeSession.start_go_to_step``: the moves started, the step's
-    settings into its layer, the LED preview, one task on the IO lane); the
-    pointer, the step panel, the camera and the layer's widgets follow only
-    once that task has run without a refusal. A click is a gesture: it does
+    settings into its layer, the LED preview and the step's layer on the
+    camera); the pointer, the step panel and the layer's widgets follow only
+    once it has returned without a refusal. A click is a gesture: it does
     not wait for the stage to arrive.
     """
     # Deferred import: ui_helpers imports the display modules, and
@@ -83,19 +83,17 @@ def go_to_step(
         protocol_settings.curr_step = step_idx
         protocol_settings.generate_step_name_input()
         protocol_settings.update_step_ui()
-        # The layer's settings now hold the step; showing the layer puts
-        # them on the camera. Its LEDs are already the step's preview, which
-        # the show leaves as they are; a repeat of the step shows its layer
-        # lit or dark as the person left the shown channel.
-        ctx.image_settings.layer_lookup(layer=step['Color']).apply_settings()
         go_to_step_update_ui(step)
 
     # The axes redrawn once the task has ended, whatever its outcome: every
     # axis the scope has, which a refused or partial go-to may have moved.
+    # On the worker pool: the go-to waits on the IO lane and then the camera
+    # lane, and a lane's worker never waits on another lane.
     submit_move(
         'GO_TO_STEP',
         axes=ctx.scope.capabilities.axes,
         call=call,
+        lane=None,
         on_moved=on_moved,
     )
 

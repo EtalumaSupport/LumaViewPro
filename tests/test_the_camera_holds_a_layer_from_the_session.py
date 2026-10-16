@@ -77,6 +77,7 @@ class TestBringUp:
         stand_in = SimpleNamespace(
             scope=SimpleNamespace(camera_connected=False),
             apply_layer_camera=applied,
+            _set_shown_channel=lambda shown: None,
         )
         said = _said(monkeypatch)
         ScopeSession._apply_bring_up_layer(stand_in)
@@ -88,6 +89,7 @@ class TestBringUp:
         stand_in = SimpleNamespace(
             scope=SimpleNamespace(camera_connected=True),
             apply_layer_camera=applied,
+            _set_shown_channel=lambda shown: None,
             _layers_on_scope=lambda: set(),
         )
         said = _said(monkeypatch)
@@ -105,6 +107,24 @@ class TestGoingToAStep:
 
         session.go_to_step(protocol, bf_idx)
         assert _camera(session) == (_BF['exposure_ms'], _BF['gain_db'])
+
+    def test_a_started_go_returns_with_the_camera_on_its_steps_layer(self, session):
+        protocol, _bf_idx, blue_idx = _two_step_protocol(session)
+
+        going = session.start_go_to_step(protocol, blue_idx)
+
+        assert _camera(session) == (_BLUE['exposure_ms'], _BLUE['gain_db'])
+        going.result(timeout=30)
+
+    def test_a_repeat_after_another_layer_was_shown_shows_the_steps_layer(self, session):
+        protocol, _bf_idx, blue_idx = _two_step_protocol(session)
+        session.go_to_step(protocol, blue_idx)
+        session.show_channel('BF')
+
+        session.go_to_step(protocol, blue_idx)
+
+        assert session.shown_channel.layer == 'Blue'
+        assert _camera(session) == (_BLUE['exposure_ms'], _BLUE['gain_db'])
 
     def test_a_manual_step_after_an_auto_gain_step_holds_its_own_gain(self, session):
         """Going back to a manual step from an auto-gain one puts the manual
