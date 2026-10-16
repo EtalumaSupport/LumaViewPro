@@ -43,7 +43,7 @@ def _delivered_fps(imaging):
     arrivals = []
     lock = threading.Lock()
 
-    def arrived(image, timestamp, chunks):
+    def arrived(frame):
         with lock:
             arrivals.append(time.monotonic())
 

@@ -26,16 +26,15 @@ def test_the_frames_in_flight_at_a_change_are_lit_by_the_old_exposure():
     cam.exposure_t(1.0)  # both exposures inside the delivery ceiling's period
     cam.open_and_start()
     try:
-        grab_a_frame_made_after_now(cam)
-        dim = float(cam.array.mean())
+        dim = float(grab_a_frame_made_after_now(cam).image.mean())
 
         changed = threading.Event()
         means = []
         collected = threading.Event()
 
-        def _collect(image, _timestamp, _chunks):
+        def _collect(frame):
             if changed.is_set() and len(means) < wanted:
-                means.append(float(image.mean()))
+                means.append(float(frame.image.mean()))
                 if len(means) == wanted:
                     collected.set()
 

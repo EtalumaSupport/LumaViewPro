@@ -69,7 +69,7 @@ def _record_rows(run_parent):
 
 
 def _no_frame(timeout_s):
-    return (False, None, 0)
+    return None
 
 
 class TestARunWhoseCameraIsGoneEndsAtOnce:

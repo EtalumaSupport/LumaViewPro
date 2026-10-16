@@ -110,6 +110,7 @@ Methods on the L2 surface follow one of two contracts; if a method's docstring h
 - **`camera_connected` is an instantaneous, non-latching poll.** A `False` can be transient (a single flaky connectivity query on an otherwise healthy camera). Consumers may skip work on `False` and re-poll on their next cycle; they must never latch, self-cancel, or tear anything down on it -- one transient `False` on a multi-day run should cost one skipped cycle, not the rest of the session.
 - **`scope.imaging.camera_removed` is the latched answer.** It is True once the camera's driver has declared it removed (unplugged, off the bus), and stays True until the camera connects again. Unlike a `False` from `camera_connected`, it is never transient, so it is safe to act on. A capture that meets a removed camera is refused `HardwareCommandRefusedError` (`not_connected`), and a run that meets it ends at once, `status='failed'`, `reason='hardware_disconnected'`, in words naming the part gone. False on a scope with no camera at all.
 - **Captures return a frame or raise.** `capture_and_wait` and `get_image` never answer None. A capture that got no frame raises `CaptureFailedError` (`modules.exceptions`, a `CaptureError` fault), its `reason` one of `no_frame` (the camera delivered no new frame within its grab window), `deadline_expired` (the scope's state kept changing for longer than the capture's budget) or `chunk_rejected` (frames came, none exposed at the `setting` asked, `'exposure'` or `'gain'`), its title and words the reason's. A camera that is not there, absent at the call or removed during it, is refused `HardwareCommandRefusedError` (`not_connected`), and one connected but not streaming `camera_not_streaming`. Nothing inside the API reports either: the raise is the report, yours to show.
+- **A captured image is read-only.** The array `capture_and_wait` and `get_image` return refuses a write (`ValueError`), whichever path made it: the camera's own frame, a sum, an 8-bit rendering or a scale-bar copy. It is the instrument's account of the frame; to process it in place, work on `image.copy()`.
 
 If you are writing a new wrapper, the `Raises:` section is the canonical declaration of which contract applies.
 
@@ -1329,6 +1330,7 @@ still states the major version.
 | level 10 | LED state is by address: `get_led_state` (a layer name or an address) answers an `LedReading` (`address`, `name`, `state`, `illumination_ma`), `get_led_states` a tuple of them for every address of the board, `save_led_state` an `LedSnapshot`; the LED listener is called with `(address, name, state, illumination_ma)`; `get_led_state` of a layer the identity gives no LED raises `axis_absent`; the drivers' `ch2color`, `color2ch`, `available_colors` and `led_ma` are gone, and the EL-0940 board addresses 0-7; an LED write the active lease does not permit raises `exclusive_activity_running`, and `led_on` always returns the commanded current. |
 | level 11 | A run returns its `Operation` (`start_move_absolute`, `start_move_relative` and `start_home` return one too), and `ProtocolRunner`'s run members start it: `run_single_scan`, `run_protocol`, `run_autofocus`, `run_autofocus_all_steps` and `run_zstack` are `start_single_scan`, `start_protocol`, `start_autofocus`, `start_autofocus_all_steps` and `start_zstack`. |
 | level 12 | A capture returns a frame or raises: `capture_and_wait` and `get_image` raise `CaptureFailedError` (`no_frame`, `deadline_expired`, `chunk_rejected` with its `setting`) for no frame and `HardwareCommandRefusedError` (`not_connected`, `camera_not_streaming`) for a camera gone or not streaming, and never answer None; `capture_failure_cause` and the failure flags of `last_capture_info` (`not_ready`, `drain_failed`, `deadline_expired`, `chunk_rejected`) are gone; `run_camera_bandwidth_test` answers `num_frames_failed` and `failed_by_reason` where it answered `num_frames_none` and `num_frames_error`. |
+| level 13 | A frame listener is called `cb(frame)` with the camera's read-only `Frame` record (`image`, `seq`, `timestamp`, `arrived_ns`, `significant_bits`, `chunks`), where it was called `cb(image, timestamp, chunks)`; the image a capture returns (`capture_and_wait`, `get_image`) is read-only. |
 
 ### Configuration queries
 
@@ -2029,17 +2031,24 @@ scope.imaging.remove_camera_listener(on_camera)
 Sync per-frame handlers fire on every successful camera grab (Pylon `PylonImageGrab` thread / IDS grab loop / simulated pump). This is the canonical entry point for live image-processing plugins (see `ctx.plugins.live_processing`) and the manual-record path.
 
 ```python
-def on_frame(image, timestamp, chunks):
+def on_frame(frame):
     # Runs on the SDK callback thread. MUST NOT block. Heavy work
     # belongs on an executor.
-    queue_write(image)
+    queue_write(frame.image, frame.timestamp)
 
 scope.imaging.add_frame_listener(on_frame, name='my_recorder')
 # ...
 scope.imaging.remove_frame_listener(on_frame)
 ```
 
-- **Read-only frame.** The `image` array is the one the camera delivered, shared across all listeners, the live view and a capture, and it is read-only: a write into it raises `ValueError`. Never set it writeable again (`flags.writeable = True`): every other holder would see the change. Draw on, or keep, your own copy (`image.copy()`).
+- **The frame record.** A listener is called with one argument, the camera's `Frame` (`modules.lumascope_api.Frame`), the record its frame store built, shared with every other reader:
+  - `image`: the pixels, cropped to the camera's window;
+  - `seq`: the arrival number, which only goes up (order frames by it, not by a clock);
+  - `timestamp`: the host's wall-clock time at arrival, for what a person reads;
+  - `arrived_ns`: the host's `time.monotonic_ns()` at arrival, a steady time;
+  - `significant_bits`: the payload depth of these pixels (12 for Mono12 in a uint16 container);
+  - `chunks`: the camera's per-frame metadata (`ExposureTime`, `Gain`, `FrameID`, `Timestamp` on a Basler), or `None` for a camera that stamps none (IDS, FX2, the simulator).
+- **Read-only frame.** The record is read-only: `frame.image` refuses a write (`ValueError`) and `frame.chunks` is a read-only mapping. Never set the image writeable again (`flags.writeable = True`): every other holder would see the change. Draw on your own copy (`frame.image.copy()`). Keeping the record is safe: no later frame changes it.
 - **Budget.** Each handler must complete within ~24 ms (anchored to a 30 fps target, half the inter-frame window). Over-budget invocations log a WARNING. After 30 consecutive over-budget hits, the handler is auto-removed and reported once as a `FrameHandlerRemovedError` warning (reason `over_budget`).
 - **A handler that raises.** The first error of a run of failures is logged with its traceback; the rest are counted. A handler that raises on 30 consecutive frames is removed the same way (reason `raised`). A frame it handles without raising resets the count.
 - **With no camera connected** `add_frame_listener` raises `HardwareCommandRefusedError` (`not_connected`, `MissingPart.CAMERA`; `scope_disconnected` after the session's `shutdown()`) and registers nothing.
@@ -2057,7 +2066,7 @@ The six listener families each pass a different callback signature -- register a
 | Motion / position | `scope.motion.add_position_listener` | `on_position(axis: str, at: AxisPosition)` | `PositionChanged(axis, at)` |
 | LED / illumination | `scope.illumination.add_led_listener` | `on_led(address: int, name: str \| None, state: LedState, illumination_ma: float \| None)` | `LedReading(address, name, state, illumination_ma)` |
 | Camera params | `scope.imaging.add_camera_listener` | `on_camera(param: str, value: float)` | `CameraChanged(setting, value)` |
-| Live frame | `scope.imaging.add_frame_listener` | `on_frame(image, timestamp, chunks)` | `FrameDelivered(image, timestamp, chunks)` |
+| Live frame | `scope.imaging.add_frame_listener` | `on_frame(frame: Frame)` | `FrameDelivered(frame)` |
 | Run state | `session.add_run_state_listener` | `on_run_state()` -- no payload; re-read the session derivations (see Run state and locks above) | `LiveWork`, read as the event is sent |
 | Outcomes | `ScopeSession.create(outcome_listener=...)` or `session.add_outcome_listener` | `on_outcome(n)` -- one `Notification` (see Outcomes above) | `Notification` itself |
 
@@ -3622,9 +3631,7 @@ Reached through the event `RunEvents.frame_captured` delivers.
 
 Reached through the event `scope.imaging.add_frame_listener` delivers.
 
-- `chunks`
-- `image`
-- `timestamp`
+- `frame`
 
 ### HeldClaim
 

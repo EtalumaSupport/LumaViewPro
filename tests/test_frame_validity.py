@@ -12,6 +12,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 import numpy as np
 import pytest
 from modules.frame_validity import FrameValidity
+from tests.camera_fakes import delivered_frame
 from tests.scope_fakes import bind_settings_like_a_session, build_scope
 
 
@@ -568,46 +569,33 @@ class TestCaptureTimeChunkVerification:
     """
 
     class _ChunkStubDriver:
-        """Stub camera delivering a scripted sequence of (image, chunks).
+        """Stub camera delivering a scripted sequence of frames, each with its chunks.
 
-        Doubles as its own image handler: _get_latest_chunks resolves
-        cam_image_handler then get_last_chunks on it.
+        Each grab hands back the next scripted frame (the last repeats), as a
+        ``Frame`` carrying that frame's own chunks; None scripts a camera
+        that stamps none.
         """
 
         def __init__(self, frames):
-            import numpy as np
-
             self.active = True
-            self.cam_image_handler = self
-            self._np = np
             self._frames = frames
             self._i = -1
             self.grabs = 0
-
-        def get_last_chunks(self):
-            if self._i < 0:
-                return None
-            return self._frames[min(self._i, len(self._frames) - 1)]
 
         @property
         def frames_delivered(self):
             return self.grabs
 
         def grab_new_capture(self, timeout_s):
-            import datetime
-
             self.grabs += 1
             if self._i < len(self._frames) - 1:
                 self._i += 1
-            return True, datetime.datetime.now(), self.grabs
-
-        def get_array(self):
-            return self._np.full((4, 4), 128, dtype=self._np.uint8)
-
-        def last_stamped_significant_bits(self):
-            # The depth each delivered frame is stamped with: 8, as the
-            # uint8 frames above are.
-            return 8
+            return delivered_frame(
+                np.full((4, 4), 128, dtype=np.uint8),
+                chunks=self._frames[self._i],
+                seq=self.grabs,
+                significant_bits=8,
+            )
 
         def is_device_removed(self):
             return False
@@ -642,7 +630,7 @@ class TestCaptureTimeChunkVerification:
             force_new_capture=True,
             verify_chunk_targets=True,
             timeout_s=5.0,
-        )
+        ).image
         assert isinstance(image, np.ndarray)
         # Two stale frames rejected, third (matching) frame accepted.
         assert driver.grabs == 3
@@ -670,18 +658,13 @@ class TestCaptureTimeChunkVerification:
             force_new_capture=True,
             verify_chunk_targets=True,
             timeout_s=1.0,
-        )
+        ).image
         assert isinstance(image, np.ndarray)
         assert driver.grabs == 1
 
     def test_chunkless_camera_skips_verification(self):
         """Cameras without chunk support rely on skip-count settling alone."""
-
-        class _NoChunksDriver(self._ChunkStubDriver):
-            def get_last_chunks(self):
-                return None
-
-        driver = _NoChunksDriver([{}])
+        driver = self._ChunkStubDriver([None])
         imaging = self._make_imaging(driver)
         imaging.frame_validity.set_target('exposure', 3730.0)
 
@@ -689,7 +672,7 @@ class TestCaptureTimeChunkVerification:
             force_new_capture=True,
             verify_chunk_targets=True,
             timeout_s=1.0,
-        )
+        ).image
         assert isinstance(image, np.ndarray)
         assert driver.grabs == 1
 
@@ -700,7 +683,7 @@ class TestCaptureTimeChunkVerification:
         imaging = self._make_imaging(driver)
         imaging.frame_validity.set_target('exposure', 3730.0)
 
-        image = imaging._get_image_impl(force_new_capture=True, timeout_s=1.0)
+        image = imaging._get_image_impl(force_new_capture=True, timeout_s=1.0).image
         assert isinstance(image, np.ndarray)
         assert driver.grabs == 1
 

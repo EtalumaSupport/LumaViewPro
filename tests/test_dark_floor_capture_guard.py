@@ -32,6 +32,7 @@ import numpy as np
 import pytest
 
 from modules.lumascope_api.imaging import ImagingAPI
+from tests.camera_fakes import frames_carrying
 from tests.scope_fakes import build_scope, bind_settings_like_a_session
 
 
@@ -63,10 +64,9 @@ class TestDarkFrameDelivery:
         """The #671-B symptom: the first frame integrated before the LED
         lit; the very next frame is good. Retry must heal the capture."""
         frames = [_DARK, _LIT, _LIT]
-        monkeypatch.setattr(dark_scope._camera_driver, 'get_array', lambda: frames.pop(0))
+        frames_carrying(monkeypatch, dark_scope._camera_driver, lambda: frames.pop(0))
 
-        out = dark_scope.imaging._get_image_impl(dark_floor_check=True, timeout_s=2.0)
-        assert out is not None, 'retry must heal a transient dark frame'
+        out = dark_scope.imaging._get_image_impl(dark_floor_check=True, timeout_s=2.0).image
         assert out.max() >= 120, 'the LIT retry frame must be returned, not the dark one'
 
     def test_persistent_dark_frames_are_saved_and_recorded(self, dark_scope, monkeypatch):
@@ -80,7 +80,7 @@ class TestDarkFrameDelivery:
         ``dark_saved`` so a writer, an L2 caller or REST can tell a dark
         frame from a lit one without re-measuring pixels."""
         dark_scope.illumination.led_on('BF', 100)
-        monkeypatch.setattr(dark_scope._camera_driver, 'get_array', lambda: _DARK)
+        frames_carrying(monkeypatch, dark_scope._camera_driver, lambda: _DARK)
 
         # The shortest retry budget that still takes the save branch: the
         # branch is reached once the budget is past, however short.
@@ -100,7 +100,7 @@ class TestDarkFrameDelivery:
         sparse = np.zeros((100, 100), dtype=np.uint8)
         sparse.flat[:4] = 200  # 4e-4 lit fraction, just above the minimum
         dark_scope.illumination.led_on('Blue', 100)
-        monkeypatch.setattr(dark_scope._camera_driver, 'get_array', lambda: sparse)
+        frames_carrying(monkeypatch, dark_scope._camera_driver, lambda: sparse)
 
         out = dark_scope.imaging._capture_and_wait_impl(timeout_s=0.5)
         assert out is not None, 'sparse fluorescence must not be rejected as dark'
@@ -108,7 +108,7 @@ class TestDarkFrameDelivery:
     def test_dark_by_design_accepted_when_nothing_commanded(self, dark_scope, monkeypatch):
         """Nothing commanded -> the derivation reads not-lit and a dark
         frame is what the caller asked for: accepted unchanged."""
-        monkeypatch.setattr(dark_scope._camera_driver, 'get_array', lambda: _DARK)
+        frames_carrying(monkeypatch, dark_scope._camera_driver, lambda: _DARK)
 
         out = dark_scope.imaging._capture_and_wait_impl(timeout_s=0.5)
         assert out is not None
@@ -120,7 +120,7 @@ class TestDarkFrameDelivery:
         as lit and rejects the by-design black frame -- the defect that
         killed the first draft of this fold."""
         dark_scope.illumination.led_on('BF', 0)
-        monkeypatch.setattr(dark_scope._camera_driver, 'get_array', lambda: _DARK)
+        frames_carrying(monkeypatch, dark_scope._camera_driver, lambda: _DARK)
 
         out = dark_scope.imaging._capture_and_wait_impl(timeout_s=0.5)
         assert out is not None, 'a 0 mA channel must derive as dark by design'
@@ -135,7 +135,7 @@ class TestDarkFrameDelivery:
         Both calls return the frame; only the recorded fact differs, and
         that difference is the whole remaining meaning of the argument."""
         dark_scope.illumination.led_on('Blue', 100)
-        monkeypatch.setattr(dark_scope._camera_driver, 'get_array', lambda: _DARK)
+        frames_carrying(monkeypatch, dark_scope._camera_driver, lambda: _DARK)
 
         measured = dark_scope.imaging._capture_and_wait_impl(timeout_s=0.3)
         assert measured is not None, 'a dark frame is delivered with or without the override'
@@ -155,7 +155,7 @@ class TestDarkFrameDelivery:
         something was commanded to emit and the frame carries no signal --
         but that is a fact about the frame, not grounds to destroy it."""
         dark_scope.illumination.led_on('Red', 150)
-        monkeypatch.setattr(dark_scope._camera_driver, 'get_array', lambda: _DARK)
+        frames_carrying(monkeypatch, dark_scope._camera_driver, lambda: _DARK)
 
         out = dark_scope.imaging._capture_and_wait_impl(timeout_s=0.3)
         assert out is not None, 'a black frame under a lit peer is delivered, not refused'
@@ -169,7 +169,7 @@ class TestDarkFrameDelivery:
         a channel is lit. (The recording prologue counts arrivals through
         it; a dark-rejection there reads as feed-dead.)"""
         dark_scope.illumination.led_on('BF', 100)
-        monkeypatch.setattr(dark_scope._camera_driver, 'get_array', lambda: _DARK)
+        frames_carrying(monkeypatch, dark_scope._camera_driver, lambda: _DARK)
 
         out = dark_scope.imaging.get_image(timeout_s=0.5)
         assert out is not None, 'the ungated primitive must return the dark frame'

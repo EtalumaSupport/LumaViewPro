@@ -17,7 +17,7 @@ WINDOW_S = 5.0
 
 
 def _busy(ms):
-    def handler(image, timestamp, chunks):
+    def handler(frame):
         end = time.perf_counter() + ms / 1000.0
         while time.perf_counter() < end:
             pass
@@ -33,7 +33,7 @@ def body(session):
     counter = {'n': 0}
     lock = threading.Lock()
 
-    def count(image, timestamp, chunks):
+    def count(frame):
         with lock:
             counter['n'] += 1
 

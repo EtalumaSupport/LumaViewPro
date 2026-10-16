@@ -69,7 +69,10 @@ def _writer(events):
     scope.runtime_state.resolve_current_objective.return_value = ('4x Oly', {})
     scope.capabilities.has_turret = False
     scope.led_connected = False
-    scope.imaging.capture_and_wait.return_value = np.zeros((4, 4), dtype=np.uint8)
+    # Read-only, as capture_and_wait returns every image.
+    captured = np.zeros((4, 4), dtype=np.uint8)
+    captured.flags.writeable = False
+    scope.imaging.capture_and_wait.return_value = captured
     scope.imaging.capture_frame_depth.return_value = 8
     scope.imaging.capture_frame_full_scale.return_value = 255
     scope.imaging.last_capture_info = {'frame_record': frame_record()}
@@ -128,20 +131,20 @@ class TestFrameCapturedCarriesTheSavedFrame:
         assert (frames_summed, bits) == (1, 8)
         assert submitted, 'frame_captured must follow the write being handed to the batch'
 
-    def test_the_frame_cannot_be_changed_through_a_view_or_its_base(self, no_context):
-        """The handler holds the array the file is written from; neither it,
-        a view of it, nor its base can be made writeable again."""
+    def test_the_handler_holds_the_captures_own_read_only_frame(self, no_context):
+        """The handler holds the array the file is written from: the
+        capture's own image, read-only (capture_and_wait makes every image
+        it returns read-only), never a writeable copy a handler could
+        change."""
         seen = []
         writer = _writer(RunEvents(frame_captured=lambda image, *_: seen.append(image)))
 
         _capture_one_still(writer)
 
         (image,) = seen
-        assert not image.flags.writeable
+        assert image is writer._scope.imaging.capture_and_wait.return_value
         with pytest.raises(ValueError):
-            image.view().flags.writeable = True
-        base = image.base if image.base is not None else image
-        assert not base.flags.writeable
+            image[0, 0] = 1
 
     def test_no_handler_no_event_and_no_error(self, no_context):
         """A headless run subscribes nothing; the writer saves and moves on."""

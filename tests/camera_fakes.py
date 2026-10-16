@@ -11,10 +11,15 @@ constructible in the first place.
 
 from __future__ import annotations
 
+import dataclasses
+import datetime
 import queue as _queue_mod
 import threading
+import time
+from types import MappingProxyType
 from unittest.mock import MagicMock
 
+from drivers.camera import Frame
 from drivers.camera_profiles import simulated_exposure_delay_frames
 
 
@@ -36,7 +41,6 @@ def bare_pylon_camera():
 
     cam = pyloncamera.PylonCamera.__new__(pyloncamera.PylonCamera)
     cam._state_lock = threading.Lock()
-    cam._array_lock = threading.Lock()
     cam._lifecycle_lock = threading.RLock()
     cam._update_config_depth = 0
     cam._grab_gate_open = False
@@ -346,7 +350,6 @@ def bare_ids_camera():
 
     cam = idscamera.IDSCamera.__new__(idscamera.IDSCamera)
     cam._state_lock = threading.Lock()
-    cam._array_lock = threading.Lock()
     cam._lifecycle_lock = threading.RLock()
     cam._update_config_depth = 0
     cam._grab_gate_open = False
@@ -442,19 +445,76 @@ def bare_grab_worker():
     return worker, base
 
 
-def grab_a_frame_made_after_now(cam, timeout_s: float = 5.0) -> tuple:
+def grab_a_frame_made_after_now(cam, timeout_s: float = 5.0) -> Frame:
     """Read a frame a free-running simulated camera made after this call, the way frame validity drains.
 
     A camera that streams hands back the latest frame it has, and the frames
     it had started when a setting changed come out under the old setting:
     the one being made, and the simulated camera's exposure pipeline behind
     it. So those first stores after the call may predate a change made just
-    before it; the one after them cannot. Returns ``cam.grab()``'s answer for
-    that frame.
+    before it; the one after them cannot. Returns that ``Frame``.
     """
     handler = cam.cam_image_handler
     since = handler.frames_delivered + simulated_exposure_delay_frames()
     assert handler.wait_for_frame_after(since + 1, timeout_s), (
         f'the camera stored no new frame within {timeout_s} s'
     )
-    return cam.grab()
+    frame = cam.grab()
+    assert frame is not None, 'the camera stopped before its frame could be read'
+    return frame
+
+
+def delivered_frame(
+    image,
+    timestamp=None,
+    chunks=None,
+    *,
+    seq: int = 1,
+    significant_bits: int | None = None,
+    arrived_ns: int | None = None,
+) -> Frame:
+    """A ``Frame`` as the camera's store hands it to a listener, for a test that delivers by hand.
+
+    Built the way ``ImageHandlerBase._store_frame`` builds one: read-only
+    pixels (a read-only view, so the caller's array stays its own) and
+    read-only chunks. ``significant_bits`` defaults to the container width.
+    """
+    view = image.view()
+    view.flags.writeable = False
+    return Frame(
+        image=view,
+        seq=seq,
+        timestamp=timestamp if timestamp is not None else datetime.datetime.now(),
+        arrived_ns=arrived_ns if arrived_ns is not None else time.monotonic_ns(),
+        significant_bits=(
+            significant_bits if significant_bits is not None else image.dtype.itemsize * 8
+        ),
+        chunks=MappingProxyType(dict(chunks)) if chunks is not None else None,
+    )
+
+
+def frames_carrying(monkeypatch, driver, pixels) -> None:
+    """Every frame ``driver`` hands a grab carries the pixels ``pixels()`` returns.
+
+    A stand-in by design for content the simulator cannot be told to make (a
+    dark frame, a blown one, a sequence): the frame is still the camera's own
+    -- its arrival number, times, depth and chunks -- with only its image
+    swapped, read-only as a stored image is. Both grab paths are covered, the
+    capture's ``grab_new_capture`` and the buffered ``grab``; a test that
+    runs the preview or an auto-gain lock beside it would draw from
+    ``pixels`` too.
+    """
+    real_new_capture = driver.grab_new_capture
+    real_grab = driver.grab
+
+    def carrying(frame):
+        if frame is None:
+            return None
+        image = pixels().view()
+        image.flags.writeable = False
+        return dataclasses.replace(frame, image=image)
+
+    monkeypatch.setattr(
+        driver, 'grab_new_capture', lambda timeout_s: carrying(real_new_capture(timeout_s))
+    )
+    monkeypatch.setattr(driver, 'grab', lambda: carrying(real_grab()))

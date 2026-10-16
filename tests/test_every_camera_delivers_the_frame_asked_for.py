@@ -24,7 +24,11 @@ from tests.camera_fakes import bare_pylon_camera, grab_a_frame_made_after_now
 
 def _store(handler, w, h):
     handler._store_frame(
-        np.zeros((h, w), dtype=np.uint8), datetime.datetime.now(), significant_bits=8, wire_bytes=0
+        np.zeros((h, w), dtype=np.uint8),
+        datetime.datetime.now(),
+        arrived_ns=0,
+        significant_bits=8,
+        wire_bytes=0,
     )
 
 
@@ -41,9 +45,8 @@ def test_the_simulated_camera_delivers_a_size_off_its_grid(sim_camera):
     # The simulator's grid is 48 wide and 4 tall: neither side is on it.
     assert sim_camera.set_frame_size(1897, 1101) == {'width': 1897, 'height': 1101}
     assert sim_camera.get_frame_size() == {'width': 1897, 'height': 1101}
-    ok, *_ = grab_a_frame_made_after_now(sim_camera)
-    assert ok
-    assert sim_camera.array.shape[:2] == (1101, 1897)
+    frame = grab_a_frame_made_after_now(sim_camera)
+    assert frame.image.shape[:2] == (1101, 1897)
 
 
 def test_the_fx2_delivers_a_size_off_its_grid():
@@ -60,9 +63,7 @@ def test_the_fx2_delivers_a_size_off_its_grid():
         assert registers[REG_COL_SIZE] == 1900 + 3
         assert registers[REG_ROW_SIZE] == 1900 + 1
         _store(cam.cam_image_handler, 1900, 1900)
-        ok, image, *_ = cam.cam_image_handler.get_last_image()
-        assert ok
-        assert image.shape == (1898, 1897)
+        assert cam.cam_image_handler.get_last_image().image.shape == (1898, 1897)
     finally:
         cam.disconnect()
 
@@ -91,9 +92,7 @@ def test_a_pylon_camera_delivers_a_size_off_its_grid():
     cam.active.Width.SetValue.assert_called_with(1900)
     cam.active.Height.SetValue.assert_called_with(1102)
     _store(cam.cam_image_handler, 1900, 1102)
-    ok, image, *_ = cam.cam_image_handler.get_last_image()
-    assert ok
-    assert image.shape == (1101, 1897)
+    assert cam.cam_image_handler.get_last_image().image.shape == (1101, 1897)
 
 
 def test_a_frame_from_a_window_no_longer_set_is_not_stored():
@@ -109,13 +108,11 @@ def test_a_frame_from_a_window_no_longer_set_is_not_stored():
 def test_a_binning_change_lets_the_new_frame_through_until_a_window_is_set(sim_camera):
     sim_camera.set_frame_size(1897, 1101)
     assert sim_camera.set_binning_size(2)
-    ok, *_ = grab_a_frame_made_after_now(sim_camera)
-    assert ok
+    frame = grab_a_frame_made_after_now(sim_camera)
     # The window set at 1x no longer fits; frames pass as the camera makes them.
-    assert sim_camera.array.shape[:2] != (1101, 1897)
+    assert frame.image.shape[:2] != (1101, 1897)
     sim_camera.set_frame_size(901, 501)
-    grab_a_frame_made_after_now(sim_camera)
-    assert sim_camera.array.shape[:2] == (501, 901)
+    assert grab_a_frame_made_after_now(sim_camera).image.shape[:2] == (501, 901)
 
 
 def test_a_window_survives_a_rebuilt_frame_handler():
@@ -124,8 +121,7 @@ def test_a_window_survives_a_rebuilt_frame_handler():
     cam.cam_image_handler = ImageHandlerBase()
     cam._reapply_frame_callbacks()
     _store(cam.cam_image_handler, 1900, 1102)
-    _, image, *_ = cam.cam_image_handler.get_last_image()
-    assert image.shape == (1101, 1897)
+    assert cam.cam_image_handler.get_last_image().image.shape == (1101, 1897)
 
 
 @pytest.mark.parametrize('member', ['set_frame_size', 'get_frame_size', 'set_binning_size'])

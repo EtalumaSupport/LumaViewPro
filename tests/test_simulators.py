@@ -777,12 +777,11 @@ class TestSimulatedCamera:
     def test_grab_returns_image(self):
         cam = SimulatedCamera()
         cam.open_and_start()
-        result, ts, _seq = grab_a_frame_made_after_now(cam)
-        assert result is True
-        assert ts is not None
-        assert isinstance(cam.array, np.ndarray)
-        assert cam.array.shape == (2160, 3840)
-        assert cam.array.dtype == np.uint8
+        frame = grab_a_frame_made_after_now(cam)
+        assert frame.timestamp is not None
+        assert isinstance(frame.image, np.ndarray)
+        assert frame.image.shape == (2160, 3840)
+        assert frame.image.dtype == np.uint8
 
     def test_grab_new_capture(self):
         cam = SimulatedCamera()
@@ -790,17 +789,17 @@ class TestSimulatedCamera:
         # drivers). `timeout=1000` here would have been 1000 seconds and
         # passed only because the simulator doesn't honor the timeout.
         cam.open_and_start()
-        result, ts, _seq = cam.grab_new_capture(timeout_s=5.0)
-        assert result is True
-        assert ts is not None
-        assert isinstance(cam.array, np.ndarray)
+        frame = cam.grab_new_capture(timeout_s=5.0)
+        assert frame is not None
+        assert frame.timestamp is not None
+        assert isinstance(frame.image, np.ndarray)
 
     def test_grab_respects_binning(self):
         cam = SimulatedCamera()
         cam.open_and_start()
         cam.set_binning_size(2)
-        grab_a_frame_made_after_now(cam)
-        assert cam.array.shape == (1080, 1920)
+        frame = grab_a_frame_made_after_now(cam)
+        assert frame.image.shape == (1080, 1920)
 
     def test_a_format_change_stores_no_frame_made_under_the_old_format(self):
         """A pixel-format change stops the stream, applies and restarts it, as
@@ -815,9 +814,9 @@ class TestSimulatedCamera:
         cam.open_and_start()
         grab_a_frame_made_after_now(cam)
         assert cam.set_pixel_format('Mono12') is True
-        ok, _ts, _seq = cam.grab_new_capture(timeout_s=5.0)
-        assert ok is True
-        assert cam.array.dtype == np.uint16, (
+        frame = cam.grab_new_capture(timeout_s=5.0)
+        assert frame is not None
+        assert frame.image.dtype == np.uint16, (
             'a frame made under the old format was stored after the change'
         )
 
@@ -825,25 +824,24 @@ class TestSimulatedCamera:
         cam = SimulatedCamera()
         cam.open_and_start()
         cam.set_pixel_format('Mono12')
-        grab_a_frame_made_after_now(cam)
-        assert cam.array.dtype == np.uint16
+        frame = grab_a_frame_made_after_now(cam)
+        assert frame.image.dtype == np.uint16
 
     def test_grab_not_grabbing_returns_false(self):
         cam = SimulatedCamera()
         cam.stop_grabbing()
-        result, _ts, _seq = cam.grab()
-        assert result is False
+        assert cam.grab() is None
 
     def test_image_brightness_varies_with_exposure(self):
         cam = SimulatedCamera()
         cam.open_and_start()
         cam.exposure_t(1.0)  # 1ms -- dim
-        grab_a_frame_made_after_now(cam)
-        dim = cam.array.mean()
+        frame = grab_a_frame_made_after_now(cam)
+        dim = frame.image.mean()
 
         cam.exposure_t(100.0)  # 100ms -- bright
-        grab_a_frame_made_after_now(cam)
-        bright = cam.array.mean()
+        frame = grab_a_frame_made_after_now(cam)
+        bright = frame.image.mean()
 
         assert bright > dim
 
@@ -851,12 +849,12 @@ class TestSimulatedCamera:
         cam = SimulatedCamera()
         cam.open_and_start()
         cam.gain(0.1)
-        grab_a_frame_made_after_now(cam)
-        low = cam.array.mean()
+        frame = grab_a_frame_made_after_now(cam)
+        low = frame.image.mean()
 
         cam.gain(20.0)
-        grab_a_frame_made_after_now(cam)
-        high = cam.array.mean()
+        frame = grab_a_frame_made_after_now(cam)
+        high = frame.image.mean()
 
         assert high > low
 
@@ -868,12 +866,12 @@ class TestSimulatedCamera:
         cam.set_test_pattern(enabled=True, pattern='focus_target')
         cam.exposure_t(1.0)
         cam.gain(0.0)
-        grab_a_frame_made_after_now(cam)
-        unity = cam.array.mean()
+        frame = grab_a_frame_made_after_now(cam)
+        unity = frame.image.mean()
 
         cam.gain(20.0)
-        grab_a_frame_made_after_now(cam)
-        amplified = cam.array.mean()
+        frame = grab_a_frame_made_after_now(cam)
+        amplified = frame.image.mean()
 
         assert amplified / unity == pytest.approx(10.0, rel=0.05)
 
@@ -883,32 +881,32 @@ class TestSimulatedCamera:
         cam = SimulatedCamera()
         cam.open_and_start()
         cam.set_test_pattern(enabled=True, pattern='Black')
-        grab_a_frame_made_after_now(cam)
-        assert cam.array.max() == 0
+        frame = grab_a_frame_made_after_now(cam)
+        assert frame.image.max() == 0
 
     def test_white_pattern(self):
         cam = SimulatedCamera()
         cam.open_and_start()
         cam.set_test_pattern(enabled=True, pattern='White')
-        grab_a_frame_made_after_now(cam)
-        assert cam.array.max() == 255
+        frame = grab_a_frame_made_after_now(cam)
+        assert frame.image.max() == 255
 
     def test_noise_pattern(self):
         cam = SimulatedCamera()
         cam.open_and_start()
         cam.set_test_pattern(enabled=True, pattern='Noise')
-        grab_a_frame_made_after_now(cam)
+        frame = grab_a_frame_made_after_now(cam)
         # Noise should have some variance
-        assert cam.array.std() > 0
+        assert frame.image.std() > 0
 
     def test_disable_pattern_returns_the_specimen(self):
         cam = SimulatedCamera()
         cam.open_and_start()
         cam.set_test_pattern(enabled=True, pattern='Black')
         cam.set_test_pattern(enabled=False)
-        grab_a_frame_made_after_now(cam)
+        frame = grab_a_frame_made_after_now(cam)
         # The specimen field has variation; the black pattern it replaced does not
-        assert cam.array.std() > 0
+        assert frame.image.std() > 0
 
 
 class TestNoPatternRequestedRendersTheSpecimen:
@@ -1042,9 +1040,9 @@ class TestNoPatternRequestedRendersTheSpecimen:
         cam = SimulatedCamera(width=480, height=300, grab_delay=0)
         cam.open_and_start()
         cam.set_test_pattern(enabled=True, pattern='focus_target')
-        grab_a_frame_made_after_now(cam)
+        frame = grab_a_frame_made_after_now(cam)
         # Focus target should have features -- not uniform
-        assert cam.array.std() > 5
+        assert frame.image.std() > 5
 
     def test_set_get_z_position(self):
         cam = SimulatedCamera(grab_delay=0)
@@ -1068,8 +1066,8 @@ class TestNoPatternRequestedRendersTheSpecimen:
         scores = {}
         for z in [3000, 4000, 4500, 4800, 5000, 5200, 5500, 6000, 7000]:
             cam.set_z_position(float(z))
-            grab_a_frame_made_after_now(cam)
-            scores[z] = focus_vollath4_original(image=cam.array)
+            frame = grab_a_frame_made_after_now(cam)
+            scores[z] = focus_vollath4_original(image=frame.image)
 
         # Best score should be at z=5000 (focal point)
         best_z = max(scores, key=scores.get)
@@ -1087,16 +1085,16 @@ class TestNoPatternRequestedRendersTheSpecimen:
         # Get scores at increasing distances from focus, in depths of field
         # (a camera built on its own renders with a 10 um depth of field)
         cam.set_z_position(5000.0)
-        grab_a_frame_made_after_now(cam)
-        score_at_focus = focus_vollath4_original(image=cam.array)
+        frame = grab_a_frame_made_after_now(cam)
+        score_at_focus = focus_vollath4_original(image=frame.image)
 
         cam.set_z_position(5010.0)
-        grab_a_frame_made_after_now(cam)
-        score_near = focus_vollath4_original(image=cam.array)
+        frame = grab_a_frame_made_after_now(cam)
+        score_near = focus_vollath4_original(image=frame.image)
 
         cam.set_z_position(5040.0)
-        grab_a_frame_made_after_now(cam)
-        score_far = focus_vollath4_original(image=cam.array)
+        frame = grab_a_frame_made_after_now(cam)
+        score_far = focus_vollath4_original(image=frame.image)
 
         assert score_at_focus > score_near > score_far, (
             f'Scores should decrease: focus={score_at_focus}, near={score_near}, far={score_far}'
@@ -1112,12 +1110,12 @@ class TestNoPatternRequestedRendersTheSpecimen:
         cam.set_focal_z(5000.0)
 
         cam.set_z_position(4980.0)
-        grab_a_frame_made_after_now(cam)
-        score_below = focus_vollath4_original(image=cam.array)
+        frame = grab_a_frame_made_after_now(cam)
+        score_below = focus_vollath4_original(image=frame.image)
 
         cam.set_z_position(5020.0)
-        grab_a_frame_made_after_now(cam)
-        score_above = focus_vollath4_original(image=cam.array)
+        frame = grab_a_frame_made_after_now(cam)
+        score_above = focus_vollath4_original(image=frame.image)
 
         # Within 20% of each other (both 20 um, two depths of field, from focus)
         ratio = score_below / score_above if score_above != 0 else float('inf')
@@ -1153,8 +1151,8 @@ class TestNoPatternRequestedRendersTheSpecimen:
         scores = {}
         for z in [4995.0, 4999.0, 5003.0, 5005.0, 5007.0, 5009.0, 5011.0, 5015.0, 5019.0]:
             cam.set_z_position(z)
-            grab_a_frame_made_after_now(cam)
-            scores[z] = focus_vollath4_original(image=cam.array)
+            frame = grab_a_frame_made_after_now(cam)
+            scores[z] = focus_vollath4_original(image=frame.image)
 
         best_z = max(scores, key=scores.get)
         assert best_z == 5007.0, f'best focus at {best_z}, not the focal plane. Scores: {scores}'
@@ -1168,8 +1166,8 @@ class TestNoPatternRequestedRendersTheSpecimen:
             cam.open_and_start()
             cam.set_focal_z(5000.0)
             cam.set_z_position(5010.0)
-            grab_a_frame_made_after_now(cam)
-            return focus_vollath4_original(image=cam.array)
+            frame = grab_a_frame_made_after_now(cam)
+            return focus_vollath4_original(image=frame.image)
 
         assert score_10_um_off(dof=55.5) > score_10_um_off(dof=1.7)
 
@@ -1181,13 +1179,13 @@ class TestNoPatternRequestedRendersTheSpecimen:
         cam.set_focal_z(5000.0)
 
         cam.set_z_position(5000.0)
-        grab_a_frame_made_after_now(cam)
-        sharp = cam.array.copy()
+        frame = grab_a_frame_made_after_now(cam)
+        sharp = frame.image.copy()
 
         # Defocused image should differ
         cam.set_z_position(7000.0)
-        grab_a_frame_made_after_now(cam)
-        blurred = cam.array
+        frame = grab_a_frame_made_after_now(cam)
+        blurred = frame.image
 
         assert not np.array_equal(sharp, blurred)
         # Blurred image should have lower variance (smoother)
@@ -1804,12 +1802,12 @@ class TestAnUnlitFieldIsDark:
         cam = SimulatedCamera(illumination_func=lambda: 50.0 if lit['on'] else 0.0)
         cam.open_and_start()
 
-        grab_a_frame_made_after_now(cam)
-        dark = cam.array.max()
+        frame = grab_a_frame_made_after_now(cam)
+        dark = frame.image.max()
 
         lit['on'] = True
-        grab_a_frame_made_after_now(cam)
-        bright = cam.array.max()
+        frame = grab_a_frame_made_after_now(cam)
+        bright = frame.image.max()
 
         assert dark == 0, f'an unlit field must be black, peaked at {dark}'
         assert bright > 0, 'a lit field must show the specimen'
@@ -1820,6 +1818,6 @@ class TestAnUnlitFieldIsDark:
         cam = SimulatedCamera()
         cam.open_and_start()
 
-        grab_a_frame_made_after_now(cam)
+        frame = grab_a_frame_made_after_now(cam)
 
-        assert cam.array.max() > 0
+        assert frame.image.max() > 0

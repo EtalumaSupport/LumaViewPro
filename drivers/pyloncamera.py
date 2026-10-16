@@ -14,6 +14,7 @@ from pypylon import genicam, pylon
 
 from drivers.camera import (
     Camera,
+    Frame,
     FrameGrid,
     ImageHandlerBase,
     declared_speed,
@@ -3113,7 +3114,7 @@ class PylonCamera(Camera):
 
     # grab() inherited from Camera base class
 
-    def grab_new_capture(self, timeout_s: float) -> tuple:
+    def grab_new_capture(self, timeout_s: float) -> Frame | None:
         """Drain queued frames, then block for a genuinely new one.
 
         Drops every frame already queued in the image handler, then
@@ -3128,13 +3129,8 @@ class PylonCamera(Camera):
                 draining queued frames.
 
         Returns:
-            tuple: ``(success: bool, timestamp: datetime | None,
-                seq: int | None)``.
-                ``success=False`` if the camera is inactive, the handler
-                is missing, or no frame arrived within ``timeout_s``.
-                ``timestamp`` is the host-side capture time on success
-                and ``seq`` the frame's arrival ordinal; both ``None``
-                otherwise.
+            The stored ``Frame`` that arrived after the call, or None if
+            the handler is missing or no frame arrived within ``timeout_s``.
         """
         # Per-grab duration trace; zero overhead when
         # ENABLE_PROFILE_TRACE is unset (production builds).
@@ -3145,7 +3141,7 @@ class PylonCamera(Camera):
         try:
             if not self.cam_image_handler:
                 _outcome = 'no_handler'
-                return False, None, None
+                return None
 
             try:
                 # Drain all frames captured before this call -- we only want
@@ -3159,16 +3155,9 @@ class PylonCamera(Camera):
                 if dropped > 1:
                     logger.debug(f'[CAM Class ] grab_new_capture drained {dropped} stale frames')
 
-                result, image, image_ts, image_seq = self.cam_image_handler._frame_queue.get(
-                    block=True, timeout=timeout_s
-                )
-                if result is False:
-                    _outcome = 'result_false'
-                    return False, None, None
-
-                self.array = image
+                frame = self.cam_image_handler._frame_queue.get(block=True, timeout=timeout_s)
                 _outcome = 'success'
-                return True, image_ts, image_seq
+                return frame
 
             except queue.Empty:
                 # Expected outcome when no frame arrives within `timeout_s`.
@@ -3179,13 +3168,13 @@ class PylonCamera(Camera):
                     f'[CAM Class ] grab_new_capture timed out after '
                     f'{timeout_s:.1f}s (no frame queued; dropped {dropped} stale)'
                 )
-                return False, None, None
+                return None
             except Exception as ex:
                 _outcome = 'exception'
                 _cam_log.exception(
                     f'[CAM Class ] grab_new_capture raised {type(ex).__name__}: {ex}'
                 )
-                return False, None, None
+                return None
         finally:
             if _trace_enabled and _t0 is not None:
                 _dt_ms = (time.perf_counter() - _t0) * 1000.0
@@ -3854,7 +3843,7 @@ class PylonCamera(Camera):
         enabled: bool = False,
         pattern: str = 'Black',
     ) -> None:
-        """Apply a Pylon ``TestPattern`` and immediately grab one frame.
+        """Apply a Pylon ``TestPattern``; the frames delivered after it carry it.
 
         Per-camera supported patterns include ``'Black'``, ``'White'``,
         ``'GreyHorizontalRamp'``, ``'GreyVerticalRamp'``,
@@ -3872,7 +3861,6 @@ class PylonCamera(Camera):
 
         try:
             self.active.TestPattern.SetValue(pattern)
-            self.grab()
         except genicam.RuntimeException as e:
             _cam_log.error(
                 f'[CAM Class ] Camera communication error during set_test_pattern({pattern}): {e}'
@@ -4418,7 +4406,7 @@ class ImageHandler(pylon.ImageEventHandler, ImageHandlerBase):
         # the SDK contract requires.
         self._worker = _PylonImageGrabWorker(parent_cam, self, self._frame_queue)
 
-    def OnImagesSkipped(self, camera, countOfSkippedImages) -> None:
+    def OnImagesSkipped(self, camera: pylon.InstantCamera, countOfSkippedImages: int) -> None:
         """Pylon SDK callback fired when the grab strategy drops frames.
 
         Per `class_pylon_1_1_c_image_event_handler.html`: fires when
@@ -4430,7 +4418,7 @@ class ImageHandler(pylon.ImageEventHandler, ImageHandlerBase):
         Logged at info so the skip distribution is visible in camera.log
         post-R12 (correlate with worker-queue-full count if applicable).
         Today (pre-R12) skips fire when the consumer reads
-        ImageHandlerBase.last_img slower than the SDK grabs; cause
+        the handler's last stored frame slower than the SDK grabs; cause
         distribution stays in the log without raising the noise floor.
         """
         try:
@@ -4451,7 +4439,7 @@ class ImageHandler(pylon.ImageEventHandler, ImageHandlerBase):
         except BaseException as e:
             _log_safely(f'OnImagesSkipped BaseException guard caught {type(e).__name__}: {e}')
 
-    def OnImageGrabbed(self, camera, grabResult) -> None:
+    def OnImageGrabbed(self, camera: pylon.InstantCamera, grabResult: pylon.GrabResult) -> None:
         """Stage A native-thread fast-path: state checks + enqueue to worker.
 
         Heavy work (16 MB GetArray copy, chunk reads, _store_frame,
@@ -4514,6 +4502,7 @@ class ImageHandler(pylon.ImageEventHandler, ImageHandlerBase):
                 return
 
             ts = datetime.datetime.now()
+            arrived_ns = time.monotonic_ns()
 
             # H2/H3 diagnostic: Stage A is otherwise silent on the success
             # enqueue path. Log the GrabSucceeded value + grabResult identity
@@ -4556,7 +4545,7 @@ class ImageHandler(pylon.ImageEventHandler, ImageHandlerBase):
                     # CGrabResultPtrImpl refcount); the result is an owning
                     # wrapper that survives cross-thread handoff.
                     owned = pylon.GrabResult(grabResult)
-                    self._worker.enqueue('frame', owned, ts)
+                    self._worker.enqueue('frame', owned, ts, arrived_ns)
                     _outcome = 'success_enqueued_frame'
                 except queue.Full:
                     # Stage B is wedged; drop this frame rather than
@@ -4593,7 +4582,7 @@ class ImageHandler(pylon.ImageEventHandler, ImageHandlerBase):
                     # GetErrorDescription / GetBlockID across threads.
                     try:
                         owned = pylon.GrabResult(grabResult)
-                        self._worker.enqueue('fail', owned, ts)
+                        self._worker.enqueue('fail', owned, ts, arrived_ns)
                         _outcome = 'failure_enqueued'
                     except queue.Full:
                         _outcome = 'queue_full_dropped_failure'
@@ -4745,7 +4734,9 @@ class _PylonImageGrabWorker:
         )
         self._thread.start()
 
-    def enqueue(self, kind: str, grabResult, ts) -> None:
+    def enqueue(
+        self, kind: str, grabResult: pylon.GrabResult, ts: datetime.datetime, arrived_ns: int
+    ) -> None:
         """Hand a Stage A item off to Stage B.
 
         Raises `queue.Full` if the worker queue is at capacity -- Stage A
@@ -4761,10 +4752,12 @@ class _PylonImageGrabWorker:
                 NOT access it after this returns (single-thread invariant
                 on CGrabResultData).
             ts: Capture timestamp from Stage A's `datetime.now()`.
+            arrived_ns: Stage A's `time.monotonic_ns()`, taken beside `ts`:
+                the frame's steady arrival time.
         """
         if self._stop_event.is_set():
             return
-        self._worker_queue.put_nowait((kind, grabResult, ts))
+        self._worker_queue.put_nowait((kind, grabResult, ts, arrived_ns))
 
     def stop(self, timeout: float = 1.0) -> None:
         """Signal stop, post sentinel, join with bounded timeout.
@@ -4785,7 +4778,7 @@ class _PylonImageGrabWorker:
         """
         self._stop_event.set()
         try:
-            self._worker_queue.put_nowait(('stop', None, None))
+            self._worker_queue.put_nowait(('stop', None, None, None))
         except queue.Full:
             # Sentinel doesn't fit; the event flag plus the
             # _GET_POLL_TIMEOUT_S inside _run ensures exit within one
@@ -4810,7 +4803,9 @@ class _PylonImageGrabWorker:
         # released." Only consult the event when get() comes back empty.
         while True:
             try:
-                kind, grabResult, ts = self._worker_queue.get(timeout=self._GET_POLL_TIMEOUT_S)
+                kind, grabResult, ts, arrived_ns = self._worker_queue.get(
+                    timeout=self._GET_POLL_TIMEOUT_S
+                )
             except queue.Empty:
                 if self._stop_event.is_set():
                     # Sentinel was dropped (queue.Full at stop time) or
@@ -4828,7 +4823,7 @@ class _PylonImageGrabWorker:
                     # smart pointer so the SDK can reclaim the buffer.
                     continue
                 if kind == 'frame':
-                    self._process_frame(grabResult, ts)
+                    self._process_frame(grabResult, ts, arrived_ns)
                 elif kind == 'fail':
                     self._process_failure(grabResult, ts)
             except Exception as e:
@@ -4840,7 +4835,7 @@ class _PylonImageGrabWorker:
                 # when the grab results are never released."
                 del grabResult
 
-    def _process_frame(self, grabResult, ts) -> None:
+    def _process_frame(self, grabResult, ts, arrived_ns: int) -> None:
         """Stage B success path: 16 MB memcpy + chunks + store + legacy queue.
 
         Preserves the defensive behavior of the pre-cutover OnImageGrabbed
@@ -4901,21 +4896,24 @@ class _PylonImageGrabWorker:
         # switch cannot make this buffered frame downconvert at the wrong depth,
         # because the depth came from the frame, not the camera's current state.
         significant_bits = pylon.BitDepth(grabResult.GetPixelType())
-        self._base._store_frame(
+        frame = self._base._store_frame(
             img,
             ts,
             chunks=chunks,
+            arrived_ns=arrived_ns,
             significant_bits=significant_bits,
             wire_bytes=grabResult.GetPayloadSize(),
         )
-        # Read back the ordinal the store just assigned, so the queued copy
-        # and the buffered one describe the same frame by the same number.
-        seq = self._base.last_img_seq
+        # The capture's queue carries the record the store built: the stored,
+        # cropped frame, never the delivered array beside it, and nothing for
+        # a frame the store refused (made under another window).
+        if frame is None:
+            return
         try:
             if not self._frame_queue.empty():
                 with contextlib.suppress(queue.Empty):
                     self._frame_queue.get_nowait()
-            self._frame_queue.put_nowait((True, img, ts, seq))
+            self._frame_queue.put_nowait(frame)
         except queue.Full:
             # latest-wins; older drop is intended (legacy consumer can
             # only hold one frame). Log at debug so the cause stays in
@@ -5000,7 +4998,7 @@ class _PylonImageGrabWorker:
         """
         while True:
             try:
-                _, gr, _ = self._worker_queue.get_nowait()
+                _, gr, _, _ = self._worker_queue.get_nowait()
                 del gr
             except queue.Empty:
                 return

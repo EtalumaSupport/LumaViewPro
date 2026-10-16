@@ -1,11 +1,13 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 from abc import ABC, abstractmethod
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 import contextlib
 from dataclasses import dataclass
+import datetime
 import re
 import threading
 import time
+from types import MappingProxyType
 from typing import Any
 
 import numpy as np
@@ -75,6 +77,41 @@ class FrameWindow:
         return cls(plan.acq_width, plan.acq_height, crop)
 
 
+@dataclass(frozen=True, slots=True, eq=False)
+class Frame:
+    """One delivered frame and the facts known when it was stored.
+
+    The camera's frame store builds it once (``ImageHandlerBase._store_frame``)
+    and every reader -- a grab, a capture, the preview, each frame listener --
+    holds that one record, so the pixels, the arrival number, the depth and
+    the chunks it carries are always the same frame's. Read-only throughout:
+    the pixels refuse a write and the chunks are a read-only mapping. Two
+    records are equal only when they are the same delivery (identity).
+
+    Attributes:
+        image: The pixels, cropped to the camera's window, read-only.
+        seq: Arrival ordinal: how many frames this camera had delivered when
+            it was stored. Only goes up, whatever the clocks do.
+        timestamp: Host wall-clock time at arrival, for what a person reads
+            (file names, logs). It can step backwards; order by ``seq``.
+        arrived_ns: Host ``time.monotonic_ns()`` at arrival, taken where the
+            driver first had the frame: a steady time to set against when a
+            change was made.
+        significant_bits: Payload depth of these pixels (12 for Mono12 in a
+            uint16 container), from the frame's own format.
+        chunks: The camera's per-frame metadata (``ExposureTime``, ``Gain``,
+            ``FrameID``, ``Timestamp`` on a Basler), or None for a camera
+            that stamps none (IDS, FX2, the simulator).
+    """
+
+    image: np.ndarray
+    seq: int
+    timestamp: datetime.datetime
+    arrived_ns: int
+    significant_bits: int
+    chunks: Mapping[str, Any] | None
+
+
 class ImageHandlerBase:
     """Base class for camera image handlers (IDS and Pylon).
 
@@ -84,23 +121,13 @@ class ImageHandlerBase:
 
     MAX_CONSECUTIVE_FAILURES = 128
 
-    # The no-frame answer of get_last_image(), in the delivered-frame shape.
-    # One owner: every reader unpacks this tuple positionally, and a second
-    # copy of it went short each time this one grew.
-    NO_FRAME = (False, None, None, None, None)
-
     def __init__(self):
         self._frame_lock = threading.Lock()
-        self.last_result = False
-        self.last_img = None
-        self.last_img_ts = None
-        # Payload depth of the buffered frame, captured WITH it at store time so a
-        # consumer reads the depth this frame was acquired under -- not whatever
-        # the camera's pixel format reports later. A format switch leaves a prior
-        # frame in this buffer; pairing it with a freshly-queried depth is what
-        # mis-scaled (and crashed) the downconvert.
-        self.last_img_significant_bits = None
-        self.last_chunks = None  # per-frame chunk metadata dict (None when unsupported)
+        # The last stored frame, whole: its pixels, depth, chunks and number
+        # travel together, so no reader can pair one frame's pixels with
+        # another's facts. None until a frame is stored, and after a failed
+        # grab or a reset.
+        self._last_frame: Frame | None = None
         # Arrival ordinal: how many frames this handler has delivered, and the
         # ordinal of the buffered one. Frame validity decides whether a frame
         # predates a hardware write by comparing these, so the value must be
@@ -111,7 +138,6 @@ class ImageHandlerBase:
         # The bytes those frames took on the link, counted beside them so the
         # wire rate is measured over the same frames as the frame rate.
         self._bytes_delivered = 0
-        self.last_img_seq = None
         self._failed_grabs = 0
         # The camera's window, pushed here by the camera (set_frame_size, a
         # binning change, a rebuilt handler). None stores every frame as it
@@ -171,18 +197,12 @@ class ImageHandlerBase:
         """
         return False
 
-    def get_last_image(self) -> tuple:
-        """Return (success, image, timestamp, significant_bits, seq). Thread-safe.
+    def get_last_image(self) -> Frame | None:
+        """The last stored frame, or None when there is none. Thread-safe.
 
-        No copy needed here -- the stored frame is already a copy from the SDK
-        callback (GetArray().copy() in Pylon, copy() in IDS). _store_frame()
-        replaces the reference (not in-place), so the returned array remains
-        valid even after the next frame arrives. It is read-only: a caller
-        that draws on it draws on its own copy.
-
-        The depth is returned WITH the frame (the value stamped at store time) so
-        a caller scales the buffered frame by the depth it was captured under, not
-        a depth queried separately afterward.
+        The record is the one the store built, shared with every other reader;
+        its pixels are read-only, so a caller that draws on them draws on its
+        own copy. The next frame replaces the record, never changes it.
 
         On a stalled stream this keeps returning the last stored frame, so a
         live preview can freeze without an error surfacing here. Capture and
@@ -192,38 +212,9 @@ class ImageHandlerBase:
         frame's arrival ordinal to exceed the one before it.
         """
         if self._detached():
-            return self.NO_FRAME
-        with self._frame_lock:
-            if not self.last_result:
-                return self.NO_FRAME
-            return (
-                True,
-                self.last_img,
-                self.last_img_ts,
-                self.last_img_significant_bits,
-                self.last_img_seq,
-            )
-
-    def get_last_chunks(self) -> dict | None:
-        """Return per-frame chunk metadata for the most recent successful grab.
-
-        Cameras that support GenICam chunk data populate this dict in their
-        ImageHandler grab callback. Cameras without chunk support return
-        None (default).
-
-        Returned dict keys are GenICam attribute symbolic names
-        ('ExposureTime', 'Gain', 'FrameID' on Basler USB3). Values are
-        floats / ints as reported by the camera. Returns None when no
-        successful grab has occurred yet. Only the Pylon driver currently
-        populates chunks; the IDS driver stores frames without them, so
-        IDS consumers always see None and fall back to live read-back.
-        """
-        if self._detached():
             return None
         with self._frame_lock:
-            if not self.last_result:
-                return None
-            return self.last_chunks
+            return self._last_frame
 
     def reset(self) -> None:
         """Clear frame buffer and failure counter.
@@ -235,18 +226,13 @@ class ImageHandlerBase:
         frame's own ordinal clears with the frame it describes.
         """
         with self._frame_lock:
-            self.last_result = False
-            self.last_img = None
-            self.last_img_ts = None
-            self.last_img_significant_bits = None
-            self.last_chunks = None
-            self.last_img_seq = None
+            self._last_frame = None
         self._failed_grabs = 0
 
-    def register_frame_callback(self, cb: Callable[[Any, Any, Any], None]) -> None:
+    def register_frame_callback(self, cb: Callable[[Frame], None]) -> None:
         """Register a per-frame callback fired after every successful grab.
 
-        Callback signature: ``cb(image, timestamp, chunks)``. Runs on the
+        Callback signature: ``cb(frame)``, the stored ``Frame``. Runs on the
         worker thread that processes SDK callbacks (Pylon
         ``PylonImageGrabWorker`` for Stage B of the OnImageGrabbed split
         / IDS grab loop / simulated acquisition thread). The Pylon SDK's native grab
@@ -273,20 +259,24 @@ class ImageHandlerBase:
     def _store_frame(
         self,
         image,
-        timestamp,
+        timestamp: datetime.datetime,
         chunks: dict | None = None,
         *,
+        arrived_ns: int,
         significant_bits: int,
         wire_bytes: int,
-    ):
+    ) -> Frame | None:
         """Called by subclass when a new frame is successfully grabbed.
 
         Args:
             image: numpy array (already copied from SDK buffer).
             timestamp: datetime when the frame arrived host-side.
             chunks: optional per-frame chunk metadata dict. None for cameras
-                without chunk support; backward-compatible with callers that
-                don't pass it.
+                without chunk support.
+            arrived_ns: ``time.monotonic_ns()`` where the driver first had
+                the frame, taken beside ``timestamp`` -- REQUIRED, so no
+                frame is stored without a steady time a change can be set
+                against.
             significant_bits: payload depth of THIS frame -- REQUIRED, so a frame
                 can never be buffered without the depth needed to interpret it.
                 The subclass derives it from the frame itself (the grab result's
@@ -312,6 +302,10 @@ class ImageHandlerBase:
         the crop, so the crop, a view of it, is read-only too. numpy lets the
         array that owns the data be made writeable again, so no production
         code does (tests/guards/test_no_frame_is_made_writeable_again.py).
+
+        Returns:
+            The stored ``Frame``, the record every reader is handed; None when
+            the frame was made under another window and is not stored.
         """
         window = self.frame_window
         if window is not None and image.shape[:2] != (
@@ -319,7 +313,7 @@ class ImageHandlerBase:
             window.acquired_width,
         ):
             self._skip_frame_of_another_window(image, window)
-            return
+            return None
         image.flags.writeable = False
         if window is not None and window.crop is not None:
             image = center_crop(image, *window.crop)
@@ -332,15 +326,19 @@ class ImageHandlerBase:
                 else (_arrive_t - self._last_arrival_t) * 1000.0
             )
             self._last_arrival_t = _arrive_t
+        chunks = MappingProxyType(dict(chunks)) if chunks is not None else None
         with self._frame_lock:
-            self.last_result = True
-            self.last_img = image
-            self.last_img_ts = timestamp
-            self.last_img_significant_bits = significant_bits
-            self.last_chunks = chunks
             self._frames_delivered += 1
             self._bytes_delivered += wire_bytes
-            self.last_img_seq = self._frames_delivered
+            frame = Frame(
+                image=image,
+                seq=self._frames_delivered,
+                timestamp=timestamp,
+                arrived_ns=arrived_ns,
+                significant_bits=significant_bits,
+                chunks=chunks,
+            )
+            self._last_frame = frame
             cbs = list(self._frame_callbacks)
         self._failed_grabs = 0
         # Snapshot under lock + invoke outside: a callback that takes >0
@@ -349,7 +347,7 @@ class ImageHandlerBase:
         _fanout_t = time.perf_counter() if _tracing else None
         for cb in cbs:
             try:
-                cb(image, timestamp, chunks)
+                cb(frame)
             except Exception as e:
                 _cam_log.exception(f'[CAM Class ] frame callback raised: {e}')
         if _tracing:
@@ -363,6 +361,7 @@ class ImageHandlerBase:
                     getattr(image, 'nbytes', 0),
                 ]
             )
+        return frame
 
     def _skip_frame_of_another_window(self, image, window: FrameWindow) -> None:
         """Count a frame made under another window, said once per window."""
@@ -382,7 +381,7 @@ class ImageHandlerBase:
         indicating the caller should stop grabbing.
         """
         with self._frame_lock:
-            self.last_result = False
+            self._last_frame = None
         self._failed_grabs += 1
         if self._failed_grabs % 5 == 1:
             _cam_log.warning(f'[CAM Class ] Grab failed ({self._failed_grabs} consecutive)')
@@ -463,7 +462,6 @@ class Camera(ABC):
 
     def __init__(self):
         self._state_lock = threading.Lock()
-        self._array_lock = threading.Lock()
         # CAM-3: serializes the entire stop/yield/start critical section
         # of update_camera_config() so two threads can't both be inside it
         # at once. update_camera_config() can yield arbitrarily long
@@ -473,7 +471,6 @@ class Camera(ABC):
         # hold for seconds.
         self._lifecycle_lock = threading.RLock()
         self._active = False
-        self.array = np.array([])
         self.cam_image_handler: ImageHandlerBase | None = None
         self.model_name = None
         self._device_removed = False
@@ -566,19 +563,19 @@ class Camera(ABC):
         Called by each driver's disconnect() so a reconnect that REUSES the same
         instance starts clean. Resets only the genuine mutable state that would
         otherwise persist: the start gate (else open_and_start() sees it already
-        OPEN and never restarts grabbing) and the last-frame buffer (else
-        get_array() returns the pre-disconnect image until the first new grab).
+        OPEN and never restarts grabbing) and the handler's last frame (else a
+        grab returns the pre-disconnect frame until the first new one arrives).
         `found` needs no reset -- it is a property derived from `active`, which
-        the driver has already nulled by disconnect time. Each field is written
-        under its own documented lock (the gate under _lifecycle_lock, coherent
-        with open_and_start's stop/start; the buffer under _array_lock). Callers
-        must NOT hold a lock that either of these is ever acquired-after, to keep
-        the acquisition order consistent.
+        the driver has already nulled by disconnect time. The gate is written
+        under _lifecycle_lock, coherent with open_and_start's stop/start, and
+        the frame under the handler's own lock; callers must NOT hold a lock
+        that either is ever acquired-after.
         """
         with self._lifecycle_lock:
             self._grab_gate_open = False
-        with self._array_lock:
-            self.array = np.array([])
+        handler = self.cam_image_handler
+        if handler is not None:
+            handler.reset()
 
     def __del__(self):
         # Subclass __init__ may raise before super().__init__() runs, leaving
@@ -996,28 +993,6 @@ class Camera(ABC):
         """
         return self.format_significant_bits(pixel_format, self.native_bit_depth)
 
-    def last_stamped_significant_bits(self) -> int | None:
-        """Per-frame delivery stamp of the most recently buffered frame.
-
-        Returns None when no frame has been stored (or the handler recorded
-        no stamp) -- deliberately NO fallback, so callers choose their own
-        no-frame depth source: the driver property below falls back to its
-        live format read; the API layer falls back to its validated
-        last-known-good format instead, keeping a transient format-read
-        failure from turning into a wrong depth.
-
-        Read through the handler's get_last_image() method, not the raw
-        last_img_significant_bits attribute: the tuple is read atomically
-        under the handler's frame lock, so the stamp cannot describe a
-        different frame than the one returned beside it.
-        """
-        handler = self.cam_image_handler
-        if handler is not None:
-            success, _image, _ts, significant_bits, _seq = handler.get_last_image()
-            if success and significant_bits is not None:
-                return significant_bits
-        return None
-
     @property
     def significant_bits(self) -> int:
         """Meaningful low bits of a delivered frame (payload, not container).
@@ -1034,23 +1009,6 @@ class Camera(ABC):
         to the container width when the format name carries no bit count.
         """
         return self.significant_bits_for_format(self.get_pixel_format())
-
-    @property
-    def last_significant_bits(self):
-        """Payload depth of the most recently buffered frame (stamped at store).
-
-        The grab() + get_array() capture path (unlike grab_latest) hands back a
-        bare array, so this exposes the depth recorded WITH that frame. A caller
-        downconverting the just-grabbed frame uses this rather than the live
-        ``significant_bits``, which can already reflect a newer pixel format than
-        the buffered frame was captured under. Falls back to the live depth when
-        no frame has been stored yet.
-
-        Reads the stamp via ``last_stamped_significant_bits`` (see its
-        docstring for the handler-method contract).
-        """
-        stamped = self.last_stamped_significant_bits()
-        return stamped if stamped is not None else self.significant_bits
 
     @abstractmethod
     def exposure_t(self, exposure_ms: float) -> float | bool | None:
@@ -1373,94 +1331,25 @@ class Camera(ABC):
         handler = self.cam_image_handler
         return handler.delivered_counts if handler is not None else (0, 0)
 
-    def grab(self) -> tuple:
-        """Grab the most recent frame from the image handler.
+    def grab(self) -> Frame | None:
+        """The camera's last stored frame, or None when there is none.
 
-        On success, the image is also stored in ``self.array``.
-
-        Returns:
-            tuple: ``(success: bool, timestamp: datetime | None,
-                seq: int | None)``. The arrival ordinal travels WITH the
-                frame: read separately afterwards it could describe a newer
-                frame than the one returned here, and frame validity uses it
-                to decide whether this frame predates a hardware write.
+        The record the store built, whole: pixels, arrival ordinal, depth and
+        chunks are one frame's, so frame validity, the depth checks and a
+        capture's record all describe the frame returned here. On a stalled
+        stream this keeps returning the last frame; a capture that needs a
+        frame made after it asked goes through ``grab_new_capture``.
         """
         with self._state_lock:
             if self._active is None or self._device_removed:
-                return False, None, None
+                return None
+        handler = self.cam_image_handler
+        if handler is None:
+            return None
+        return handler.get_last_image()
 
-        if not self.cam_image_handler:
-            return False, None, None
-
-        try:
-            result, image, image_ts, _significant_bits, image_seq = (
-                self.cam_image_handler.get_last_image()
-            )
-            if not result:
-                return False, None, None
-
-            with self._array_lock:
-                self.array = image
-            return True, image_ts, image_seq
-        except Exception as ex:
-            _cam_log.exception(f'[CAM Class ] grab() - get_last_image() failed: {ex}')
-            return False, None, None
-
-    def get_array(self) -> np.ndarray:
-        """Return a copy of the last grabbed image. Thread-safe.
-
-        Returns:
-            np.ndarray: Copy of the most recent frame, or an empty
-                array when no frame has been grabbed yet.
-        """
-        with self._array_lock:
-            return self.array.copy() if self.array.size > 0 else self.array
-
-    def grab_latest(self) -> tuple:
-        """Grab the latest frame and return it in one operation (single copy).
-
-        Combines grab() + get_array() but avoids the second copy.
-        The returned image is already a copy from the image handler,
-        safe to use without further copying.
-
-        Returns:
-            tuple: ``(success: bool, image: np.ndarray | None,
-                timestamp: datetime | None, significant_bits: int | None,
-                seq: int | None)``.
-                The depth is carried with the frame so the caller scales it by
-                the depth it was captured under, not a separately-queried one.
-                The arrival ordinal rides along for the same reason: the live
-                preview counts these frames toward settle counts, and a frame
-                read back separately could be a newer one.
-        """
-        with self._state_lock:
-            if self._active is None or self._device_removed:
-                return False, None, None, None, None
-
-        if not self.cam_image_handler:
-            return False, None, None, None, None
-
-        try:
-            result, image, image_ts, image_significant_bits, image_seq = (
-                self.cam_image_handler.get_last_image()
-            )
-            if not result or image is None:
-                return False, None, None, None, None
-
-            # self.array feeds get_array(); nothing else reads it. Stored
-            # and returned arrays are the SAME object (copied once at the
-            # SDK callback; reference replaced per frame) -- safe against
-            # overwrite by the next frame, and read-only, so no caller can
-            # change what get_array() copies.
-            with self._array_lock:
-                self.array = image
-            return True, image, image_ts, image_significant_bits, image_seq
-        except Exception as ex:
-            _cam_log.exception(f'[CAM Class ] grab_latest() failed: {ex}')
-            return False, None, None, None, None
-
-    def register_frame_callback(self, cb: Callable[[Any, Any, Any], None]) -> None:
-        """Register a per-frame callback.
+    def register_frame_callback(self, cb: Callable[[Frame], None]) -> None:
+        """Register a per-frame callback, called ``cb(frame)``.
 
         Records the callback in the Camera's durable registry (so it survives a
         handler rebuild) AND applies it to the current handler for immediate
@@ -1506,7 +1395,7 @@ class Camera(ABC):
                 handler.register_frame_callback(cb)
 
     @abstractmethod
-    def grab_new_capture(self, timeout_s: float) -> tuple:
+    def grab_new_capture(self, timeout_s: float) -> Frame | None:
         """Grab a fresh capture-quality frame, waiting if necessary.
 
         Used by the still-capture path to guarantee the returned frame
@@ -1520,10 +1409,8 @@ class Camera(ABC):
             timeout_s: Maximum wait in seconds.
 
         Returns:
-            tuple: ``(success: bool, timestamp: datetime | None,
-                seq: int | None)``. The frame itself is read back with
-                ``get_array()``; the arrival ordinal travels with the
-                grab for the same reason as in ``grab()``.
+            The stored ``Frame`` that arrived after the call, or None when
+            none arrived within ``timeout_s`` or the camera is gone.
         """
         pass
 

@@ -21,7 +21,7 @@ import cv2
 import numpy as np
 
 from lvp_logger import logger
-from drivers.camera import Camera, FrameGrid, ImageHandlerBase, link_info
+from drivers.camera import Camera, Frame, FrameGrid, ImageHandlerBase, link_info
 from drivers.camera_profiles import simulated_exposure_delay_frames, simulated_profile
 from drivers.exceptions import CameraNoAnswerError, PartAbsentError
 from drivers.registry import camera_registry
@@ -78,12 +78,20 @@ class _SimImageHandler(ImageHandlerBase):
         super().__init__()
         self._stored = threading.Condition()
 
-    def _store_frame(self, image, timestamp, chunks=None, *, significant_bits, wire_bytes):
-        super()._store_frame(
-            image, timestamp, chunks, significant_bits=significant_bits, wire_bytes=wire_bytes
+    def _store_frame(
+        self, image, timestamp, chunks=None, *, arrived_ns, significant_bits, wire_bytes
+    ) -> Frame | None:
+        frame = super()._store_frame(
+            image,
+            timestamp,
+            chunks,
+            arrived_ns=arrived_ns,
+            significant_bits=significant_bits,
+            wire_bytes=wire_bytes,
         )
         with self._stored:
             self._stored.notify_all()
+        return frame
 
     def wait_for_frame_after(self, since: int, timeout_s: float) -> bool:
         """True once a frame later than ordinal ``since`` is stored; False on timeout."""
@@ -633,7 +641,11 @@ class SimulatedCamera(Camera):
             # Basler USB3 camera carries Mono12: the generated array is the
             # acquired window in its wire container.
             handler._store_frame(
-                image, datetime.datetime.now(), significant_bits=bits, wire_bytes=image.nbytes
+                image,
+                datetime.datetime.now(),
+                arrived_ns=time.monotonic_ns(),
+                significant_bits=bits,
+                wire_bytes=image.nbytes,
             )
             # The next frame's own exposure is the inter-frame interval,
             # bounded below by the delivery ceiling.
@@ -1118,7 +1130,7 @@ class SimulatedCamera(Camera):
             img = img.astype(dtype)
         return img
 
-    def grab_new_capture(self, timeout_s: float) -> tuple:
+    def grab_new_capture(self, timeout_s: float) -> Frame | None:
         """Wait for a frame stored after this call, then return it.
 
         The acquisition thread is the only producer, as a real camera's SDK
@@ -1130,15 +1142,14 @@ class SimulatedCamera(Camera):
             timeout_s: Wall-clock seconds to wait for the next frame.
 
         Returns:
-            tuple: ``(success: bool, timestamp: datetime | None,
-                seq: int | None)``. ``success=False`` when the camera is not
-                grabbing or no frame arrived within ``timeout_s``.
+            The stored ``Frame``, or None when the camera is not grabbing or
+            no frame arrived within ``timeout_s``.
         """
         handler = self.cam_image_handler
         if not self._grabbing or handler is None:
-            return False, None, None
+            return None
         if not handler.wait_for_frame_after(handler.frames_delivered, timeout_s):
-            return False, None, None
+            return None
         return self.grab()
 
     # ------------------------------------------------------------------

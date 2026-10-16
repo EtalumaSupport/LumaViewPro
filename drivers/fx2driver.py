@@ -98,7 +98,14 @@ except ImportError:
     # safe -- the dedicated camera log is an enhancement, not a
     # dependency, and dozens of call sites use _cam_log unguarded.
     _cam_log = logger
-from drivers.camera import Camera, FrameGrid, ImageHandlerBase, link_info, no_hardware_auto_mode
+from drivers.camera import (
+    Camera,
+    Frame,
+    FrameGrid,
+    ImageHandlerBase,
+    link_info,
+    no_hardware_auto_mode,
+)
 from drivers.exceptions import CameraNoAnswerError, CameraReadFailedError
 from drivers.registry import camera_registry, led_registry
 
@@ -2327,6 +2334,7 @@ class FX2Camera(Camera):
                     self.cam_image_handler._store_frame(
                         image,
                         datetime.now(),
+                        arrived_ns=time.monotonic_ns(),
                         significant_bits=image.dtype.itemsize * 8,
                         wire_bytes=len(FRAME_DELIM) + len(frame_data),
                     )
@@ -2401,18 +2409,16 @@ class FX2Camera(Camera):
 
     # -- Grab API (mostly inherits from Camera; override for clarity) ------
 
-    def grab_new_capture(self, timeout_s: float = 5.0) -> tuple:
+    def grab_new_capture(self, timeout_s: float = 5.0) -> Frame | None:
         """Block until a NEW frame arrives. Used by autofocus / protocols."""
         self.cam_image_handler.reset()
         deadline = time.monotonic() + timeout_s
         while time.monotonic() < deadline:
-            ok, img, ts, _significant_bits, seq = self.cam_image_handler.get_last_image()
-            if ok:
-                with self._array_lock:
-                    self.array = img
-                return True, ts, seq
+            frame = self.cam_image_handler.get_last_image()
+            if frame is not None:
+                return frame
             time.sleep(0.01)
-        return False, None, None
+        return None
 
     # -- Frame size --------------------------------------------------------
 

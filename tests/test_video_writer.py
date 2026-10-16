@@ -16,6 +16,7 @@ from modules.run_events import RunEvents
 import modules.video_writer as video_writer_module
 from modules.video_writer import VideoWriter
 from tests.scope_fakes import answer_auto_gain_like_the_api
+from tests.camera_fakes import delivered_frame
 from modules.layer_record import GREY, release_color
 from modules.layer_record import release_colors
 
@@ -375,7 +376,7 @@ class TestProtocolVideoDropNotification:
         deadline = _time.monotonic() + 5.0
         while 'cb' not in listeners and _time.monotonic() < deadline:
             _time.sleep(0.01)
-        listeners['cb'](np.zeros((8, 8), dtype=np.uint8), 1000.3, None)
+        listeners['cb'](delivered_frame(np.zeros((8, 8), dtype=np.uint8), 1000.3))
         clock['t'] = 1002.0
         worker.join(timeout=10.0)
         assert recorder.wait_until_finished(timeout=10.0)

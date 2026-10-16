@@ -54,7 +54,7 @@ ENTRY_POINT_GROUP = 'lvp.plugins'
 # fail mid-use. A host change the plugin must follow raises the value
 # here, in the same commit, to the plugin version that follows it.
 MINIMUM_PLUGIN_VERSIONS = {
-    'etaluma_engineering': '1.0.64',
+    'etaluma_engineering': '1.0.66',
 }
 
 # Etaluma's bench tool. Once installed it cannot be disabled any other way,
@@ -70,7 +70,7 @@ ENGINEERING_PLUGIN = 'etaluma_engineering'
 # reads it at its own entry through session.plugin_api_level and refuses
 # below what it needs; a host older than the level has no such member,
 # which the plugin reads as 0.
-PLUGIN_API_LEVEL = 12
+PLUGIN_API_LEVEL = 13
 
 # Mount points are locked to the set the host knows how to attach.
 # Additional names are added when a real consumer needs them, paired
@@ -372,10 +372,9 @@ class LiveProcessingRegistry(_BaseNamespace):
         ctx.plugins.live_processing.register(spec, handler)
         ctx.plugins.live_processing.unregister(spec.name)
 
-    Handler signature is cb(image, timestamp, chunks). It runs on the
-    camera SDK thread; see imaging.add_frame_listener docstring +
-    docs/LIVE_PROCESSING_TUTORIAL.md for the budget + don't-mutate
-    contract.
+    Handler signature is cb(frame), the camera's ``Frame`` record. It runs
+    on the camera SDK thread; see the imaging.add_frame_listener docstring
+    for the budget and the read-only frame contract.
     """
 
     NAMESPACE = 'live_processing'

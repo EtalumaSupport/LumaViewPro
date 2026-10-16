@@ -48,6 +48,7 @@ from tests.test_validate_steps import (
     _valid_step,
 )
 from modules.layer_record import release_colors
+from tests.camera_fakes import delivered_frame
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 TILING_CONFIGS = REPO / 'data' / 'tiling.json'
@@ -505,7 +506,7 @@ def test_video_step_row_records_writers_actual_path(tmp_path, monkeypatch):
     assert 'cb' in listeners, 'the step must register a frame listener'
     # One frame past the first cadence slot (start 1000.0, 5 fps -> 1000.2),
     # then advance the clock past the duration so the wait loop closes.
-    listeners['cb'](np.zeros((8, 8), dtype=np.uint8), 1000.3, None)
+    listeners['cb'](delivered_frame(np.zeros((8, 8), dtype=np.uint8), 1000.3))
     clock['t'] = 1002.0
     worker.join(timeout=10.0)
     assert not worker.is_alive(), 'run_blocking must return after the duration'

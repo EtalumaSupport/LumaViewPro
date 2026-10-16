@@ -13,6 +13,7 @@ extension routing.
 
 from __future__ import annotations
 
+import dataclasses
 import pathlib
 import sys
 import threading
@@ -150,7 +151,6 @@ def _scope_with_depth(significant_bits: int = _CAMERA_DEPTH, frame=None):
 
     imaging = SimpleNamespace(
         significant_bits=significant_bits,
-        last_significant_bits=significant_bits,
         _binning_size=1,
         _capture_and_wait_impl=lambda **kwargs: frame,
         _state_lock=threading.Lock(),
@@ -171,17 +171,26 @@ def test_manual_capture_log_reports_captured_depth(monkeypatch, tmp_path):
     # (non-summed) wide frame it must log the depth resolved at capture.
     import modules.image_mode as image_mode
     from modules import manual_capture
-    from modules.lumascope_api.imaging import ImagingAPI
     from tests.test_manual_capture_member import _capture, _open_session, _settings
 
     messages = []
     monkeypatch.setattr(manual_capture.logger, 'info', lambda msg: messages.append(msg))
-    # The camera's per-frame stamp, read by the real shared depth rule.
-    monkeypatch.setattr(ImagingAPI, 'last_significant_bits', property(lambda self: _CAMERA_DEPTH))
 
     settings = _settings(tmp_path)
     settings['image_mode'] = image_mode.IMAGE_MODE_12BIT_SCIENTIFIC
     with _open_session(settings) as session:
+        # Each frame carries a depth no image mode gives, so the log can only
+        # have it from the captured frame itself.
+        camera = session.scope._camera_driver
+        real_grab_new_capture = camera.grab_new_capture
+
+        def a_frame_of_its_own_depth(timeout_s):
+            frame = real_grab_new_capture(timeout_s)
+            if frame is None:
+                return None
+            return dataclasses.replace(frame, significant_bits=_CAMERA_DEPTH)
+
+        monkeypatch.setattr(camera, 'grab_new_capture', a_frame_of_its_own_depth)
         _capture(session)
 
     assert any(f'capture_bits={_CAMERA_DEPTH}' in m for m in messages), messages

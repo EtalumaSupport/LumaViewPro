@@ -300,7 +300,7 @@ def test_live_processing_register_forwards_to_imaging(harness_ctx):
     with the plugin name attached."""
     spec = _make_spec(name='live_demo')
 
-    def handler(image, ts, chunks):
+    def handler(frame):
         return None
 
     harness_ctx.plugins.live_processing.register(spec, handler)
@@ -313,7 +313,7 @@ def test_live_processing_unregister_forwards_to_imaging(harness_ctx):
     with the original handler."""
     spec = _make_spec(name='live_demo')
 
-    def handler(image, ts, chunks):
+    def handler(frame):
         return None
 
     harness_ctx.plugins.live_processing.register(spec, handler)

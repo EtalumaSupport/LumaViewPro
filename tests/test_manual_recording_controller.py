@@ -27,6 +27,7 @@ from modules.recording_frames import MANUAL_HYPERSTACK_FILENAME
 from tests.scope_fakes import identity_with_layers
 from tests.settings_fixtures import complete_settings
 from tests.video_engine_harness import FakeClock, ManualFireScheduler, NotifyRecorder
+from tests.camera_fakes import delivered_frame
 from modules.lumascope_api import AxisPosition, AxisState
 from modules.layer_record import release_colors
 
@@ -222,7 +223,7 @@ def feed_frames(scope, clock, n, *, fps=10.0, width=32, height=24, jitter=None):
         host_ts = clock() + (jitter[i % len(jitter)] if jitter else 0.0)
         chunks = {'Timestamp': int(clock() * TICK_HZ), 'FrameID': i}
         image = np.full((height, width), i % 256, dtype=np.uint8)
-        listener(image, host_ts, chunks)
+        listener(delivered_frame(image, host_ts, chunks, seq=i + 1))
 
 
 def finish(controller, timeout=15.0):

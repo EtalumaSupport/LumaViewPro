@@ -7,7 +7,8 @@ are display -- 8-bit grey, lossy, no metadata; data is a capture, a file
 in the live folder.
 
 One frame listener serves every watcher, attached while anyone watches. It
-keeps a copy of the newest frame and returns, on the camera's thread; each
+keeps the newest frame (the camera's read-only record, so no copy) and
+returns, on the camera's thread; each
 client encodes the newest frame when it is ready for one, so a slow client
 skips frames rather than falling behind, and the camera is never held up.
 Each part carries ``X-Frame-Ordinal``, a count of the frames received
@@ -29,6 +30,7 @@ from starlette.responses import StreamingResponse
 from starlette.types import Receive, Scope, Send
 
 from modules import image_utils
+from modules.lumascope_api import Frame as CameraFrame
 from modules.scope_session import ScopeSession
 
 # How long a snapshot nobody else is watching waits for the camera's next frame.
@@ -41,7 +43,7 @@ MEDIA_TYPE = f'multipart/x-mixed-replace; boundary={BOUNDARY}'
 
 @dataclasses.dataclass(frozen=True)
 class Frame:
-    """A frame the view holds: its own copy, and what it needs to be shown."""
+    """A frame the view holds -- the camera's read-only pixels -- and what it needs to be shown."""
 
     ordinal: int
     image: np.ndarray
@@ -168,14 +170,14 @@ class LiveView:
                 return newest
             await wake.wait()
 
-    def _on_frame(self, image: np.ndarray, timestamp: datetime.datetime, chunks: object) -> None:
-        # On the camera's thread: copy and return. The depth is stamped
-        # with the frame on this thread before its listeners are called.
-        bits = self._imaging.last_significant_bits
-        copy = image.copy()
+    def _on_frame(self, frame: CameraFrame) -> None:
+        # On the camera's thread: keep the record and return. Its pixels are
+        # read-only and no later frame changes them, so holding it is safe.
         with self._lock:
             self._ordinal += 1
-            self._newest = Frame(self._ordinal, copy, bits, timestamp)
+            self._newest = Frame(
+                self._ordinal, frame.image, frame.significant_bits, frame.timestamp
+            )
         self._loop.call_soon_threadsafe(self._woken)
 
     def _woken(self) -> None:

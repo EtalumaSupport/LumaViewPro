@@ -157,7 +157,7 @@ class TestAFailingHandlerIsBounded:
         w = _BudgetedHandler(imaging, raises, name='bad_plugin')
         with patch.object(imaging_mod, 'logger') as log:
             for _ in range(HANDLER_DROP_K + 5):
-                w(None, None, None)
+                w(None)
 
         assert len(calls) == HANDLER_DROP_K, 'no call reaches the handler once it is removed'
         assert log.exception.call_count == 1, 'the first failure is logged; the rest counted'
@@ -178,7 +178,7 @@ class TestAFailingHandlerIsBounded:
         w = _BudgetedHandler(imaging, flaky, name='flaky')
         with patch.object(imaging_mod, 'logger'):
             for _ in range(HANDLER_DROP_K + 2):
-                w(None, None, None)
+                w(None)
 
         imaging._remove_wrapper.assert_not_called()
         assert w._consecutive_raised == 0
@@ -245,7 +245,7 @@ class TestARemovalIsReportedAndStopsCalls:
 
         w = _BudgetedHandler(imaging, slow, name='slow_plugin')
         for _ in range(HANDLER_DROP_K + 2):
-            w(None, None, None)
+            w(None)
 
         assert len(calls) == HANDLER_DROP_K
         assert [(n.severity, n.title) for n in centre_posts] == [
@@ -270,7 +270,7 @@ class TestARemovalIsReportedAndStopsCalls:
 
         # The driver still holds the wrapper; a frame it delivers does not
         # reach the handler.
-        wrapper(None, None, None)
+        wrapper(None)
         assert calls == []
         log.warning.assert_called_once()
         log.exception.assert_not_called()
@@ -293,7 +293,7 @@ class TestTheUnwindAndRemovalEdges:
         monkeypatch.setattr(sim_scope._camera_driver, 'unregister_frame_callback', _refuse)
         with patch.object(imaging_mod, 'logger') as log:
             for _ in range(HANDLER_DROP_K + 3):
-                wrapper(None, None, None)
+                wrapper(None)
 
         assert len(calls) == HANDLER_DROP_K
         assert bad not in sim_scope.imaging._frame_listener_wrappers
@@ -315,7 +315,7 @@ class TestTheUnwindAndRemovalEdges:
             sim_scope.imaging.remove_frame_listener(handler)
         finally:
             sim_scope._camera_driver = driver
-        wrapper(None, None, None)
+        wrapper(None)
         assert calls == []
         assert handler not in sim_scope.imaging._frame_listener_wrappers
         driver.unregister_frame_callback(wrapper)

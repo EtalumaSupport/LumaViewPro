@@ -1,7 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """ImagingAPI -- sub-API for camera capture / image acquisition.
 
-ImagingAPI owns _camera_cache, _frame_buffer, _scale_bar_color,
+ImagingAPI owns _camera_cache, _scale_bar_color,
 _focusing_event, _camera_listeners, _camera_temp_event,
 _suppress_value_warnings, and the frame_validity instance.
 """
@@ -16,7 +16,7 @@ import functools
 import logging as _logging
 import threading
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -26,6 +26,7 @@ from modules.finite_number import refuse_unless_finite_number
 from modules.request_fields import key_path, refuse_unless_kind, required
 import modules.image_utils as image_utils
 from drivers import camera_profiles
+from drivers.camera import Frame
 from drivers.exceptions import CameraNoAnswerError, CameraReadFailedError, HardwareError
 from lib import profile_trace
 from lvp_logger import logger
@@ -115,6 +116,21 @@ class _NoFrame:
         if self.removed:
             return _camera_not_connected(member)
         return CaptureFailedError(self.reason, setting=self.setting)
+
+
+@dataclasses.dataclass(frozen=True)
+class _Grabbed:
+    """A grab that got its frame: the image it returns, and the frame it came from.
+
+    ``image`` is what the caller is handed -- the frame's own pixels, a sum,
+    an 8-bit rendering or a scale-bar copy -- read-only in every case.
+    ``frame`` is the camera's record of the frame the image was made from
+    (the last one, for a sum), so the capture's record and its log describe
+    that frame and no later one.
+    """
+
+    image: np.ndarray
+    frame: Frame
 
 
 def _no_camera_cache() -> dict:
@@ -519,12 +535,12 @@ class _BudgetedHandler:
             profile_trace.NO_RECORDING,
         )
 
-    def __call__(self, image, timestamp, chunks) -> None:
+    def __call__(self, frame: Frame) -> None:
         if self._removed:
             return
         t0 = time.perf_counter()
         try:
-            self._handler(image, timestamp, chunks)
+            self._handler(frame)
         except Exception as e:
             # A handler that raises on every frame would otherwise log a
             # traceback per frame for as long as the camera streams. The
@@ -596,19 +612,19 @@ class CameraChanged:
     value: float
 
 
-@api_fields('image', 'timestamp', 'chunks')
+@api_fields('frame')
 @dataclasses.dataclass(frozen=True)
 class FrameDelivered:
-    """A frame the camera delivered: the image, when it arrived, its chunk data when the camera sends any."""
+    """A frame the camera delivered: its ``Frame`` record -- the read-only
+    image, its arrival number and times, its depth, and its chunk data when
+    the camera sends any."""
 
-    image: np.ndarray
-    timestamp: datetime.datetime
-    chunks: dict | None
+    frame: Frame
 
 
 class ImagingAPI:
     """Imaging sub-API. Owns camera setters/getters/orchestration plus
-    camera state slots (cache, frame_buffer, scale_bar, listeners,
+    camera state slots (cache, scale_bar, listeners,
     capture/focus events) and the frame_validity instance.
     """
 
@@ -650,9 +666,6 @@ class ImagingAPI:
         # this dict.
         self._frame_listener_lock = threading.Lock()
         self._frame_listener_wrappers: dict = {}
-
-        # Latest captured frame; populated by get_image_from_buffer.
-        self._frame_buffer = None
 
         # Boolean operation flags -- threading.Event for wait/signal.
         self._focusing_event = threading.Event()  # set => autofocus in progress
@@ -949,29 +962,30 @@ class ImagingAPI:
             listeners = list(self._camera_listeners)
         notifications.tell_listeners(listeners, param, value, category='Camera')
 
-    def _get_latest_chunks(self) -> dict | None:
-        """Per-frame chunk metadata for the most recent successful grab.
+    def _get_latest_chunks(self) -> Mapping[str, Any] | None:
+        """The chunks of the camera's newest frame, for the auto-gain lock.
 
-        None when no camera is attached or the camera stores frames without
-        chunks (IDS, FX2, the simulator); frame_validity then falls back to
-        skip-frames calibration.
+        The lock wants what the camera's auto loop has reached NOW, so a
+        newer frame is the better answer. Nothing that judges or records a
+        particular frame reads this: those read the chunks of the frame they
+        hold (``Frame.chunks``). None when no camera is attached, no frame
+        is stored, or the camera stores frames without chunks (IDS, FX2, the
+        simulator).
         """
         if self._driver is None:
             return None
-        handler = getattr(self._driver, 'cam_image_handler', None)
-        if handler is None:
-            return None
-        return handler.get_last_chunks()
+        frame = self._driver.grab()
+        return frame.chunks if frame is not None else None
 
-    def _chunk_target_mismatch(self) -> str | None:
-        """Name the first chunk-validatable source whose latest frame chunk
+    def _chunk_target_mismatch(self, chunks: Mapping[str, Any] | None) -> str | None:
+        """Name the first chunk-validatable source whose value in ``chunks``
         does not match its recorded target, or None if all match.
 
-        None also covers every can't-verify case (no chunk support, chunk
-        key absent, no target recorded) -- absence of evidence is not a
-        mismatch, and cameras without chunks rely on skip-count settling.
+        ``chunks`` are the frame's own, the frame being judged. None also
+        covers every can't-verify case (no chunk support, chunk key absent,
+        no target recorded) -- absence of evidence is not a mismatch, and
+        cameras without chunks rely on skip-count settling.
         """
-        chunks = self._get_latest_chunks()
         if not chunks:
             return None
         fv = self.frame_validity
@@ -3375,11 +3389,9 @@ class ImagingAPI:
             while self.frame_validity.frames_until_valid(exclude_sources=exclude_sources) > 0:
                 if _deadline_expired():
                     raise _deadline_expired_error('drain-loop')
-                status, _drain_frame_ts, drain_seq = self._driver.grab_new_capture(
-                    timeout_s=grab_timeout_s
-                )
-                if status:
-                    self.frame_validity.count_frame(drain_seq)
+                drained = self._driver.grab_new_capture(timeout_s=grab_timeout_s)
+                if drained is not None:
+                    self.frame_validity.count_frame(drained.seq)
                     drain_iterations += 1
                 else:
                     remaining = self.frame_validity.frames_until_valid(
@@ -3460,7 +3472,9 @@ class ImagingAPI:
         # Record per-capture evidence for the caller's log line (protocol
         # captures log brightness + the chunk-verified settings per frame so
         # a support bundle shows what each saved frame was exposed with).
-        chunks = self._get_latest_chunks() or {}
+        # The chunks are the returned frame's own; a capture that got no
+        # frame has none.
+        chunks = dict(grabbed.frame.chunks or {}) if isinstance(grabbed, _Grabbed) else {}
         extra: dict[str, object] = {}
         if lock is not None and lock.state is not None:
             extra['auto_gain'] = lock.state.value
@@ -3507,7 +3521,7 @@ class ImagingAPI:
                 self._resume_auto_gain_impl(lock)
         if failed is not None:
             raise failed.error('capture_and_wait')
-        return grabbed
+        return grabbed.image
 
     def _build_frame_record(
         self,
@@ -3780,7 +3794,7 @@ class ImagingAPI:
         if not self._driver or not self._driver.active:
             return _NoFrame('removed', 'entry')
 
-        tmp_buffer = []
+        frames: list[Frame] = []
         # Arrival ordinal of the frame most recently taken into the sum; None
         # until the first one lands. Local by construction: a bound that
         # outlived one capture would reject the next capture's frames.
@@ -3796,18 +3810,15 @@ class ImagingAPI:
                 # Acquire cam_lock for camera grab -- prevents concurrent
                 # set_gain_db/set_exposure from another thread mid-frame.
                 with self._cam_lock:
-                    if force_new_capture:
-                        grab_status, _grab_image_ts, grab_seq = self._driver.grab_new_capture(
-                            new_capture_timeout_s
-                        )
-                    else:
-                        grab_status, _grab_image_ts, grab_seq = self._driver.grab()
+                    frame = (
+                        self._driver.grab_new_capture(new_capture_timeout_s)
+                        if force_new_capture
+                        else self._driver.grab()
+                    )
+                    if frame is not None:
+                        self.frame_validity.count_frame(frame.seq)
 
-                    if grab_status:
-                        self.frame_validity.count_frame(grab_seq)
-                        tmp = self._driver.get_array()  # thread-safe copy
-
-                if not grab_status:
+                if frame is None:
                     # A camera that is gone will not deliver; don't retry for
                     # the whole timeout. The removal latch is set the moment a
                     # removal is seen; ``active`` is released later, off-thread,
@@ -3822,44 +3833,40 @@ class ImagingAPI:
                     time.sleep(0.05)
                     continue
 
-                # Saturation measures against the just-grabbed frame's own
-                # payload depth (the delivery stamp), never the container
-                # dtype -- a 12-bit frame in a uint16 container is blown at
-                # 4095, not 65535. Read only on the checking path: the stamp
-                # read takes the handler's frame lock, which the streaming
-                # thread contends on every delivery.
-                if all_ones_check:
-                    frame_depth = self.last_significant_bits
+                # Saturation measures against the frame's own payload depth,
+                # never the container dtype -- a 12-bit frame in a uint16
+                # container is blown at 4095, not 65535.
                 if (
                     all_ones_check
-                    and self.saturated_fraction(tmp, frame_depth) >= self._SATURATION_BLOWN_FRACTION
+                    and self.saturated_fraction(frame.image, frame.significant_bits)
+                    >= self._SATURATION_BLOWN_FRACTION
                 ):
                     # Near-fully-saturated frame -- retry once in case it was a
                     # transient blip, then surface it. A blown frame is usually
                     # an over-exposure or stale-camera-gain symptom; accepting it
                     # silently (the prior behavior) hid real data corruption.
-                    retry_frame = None
                     with self._cam_lock:
-                        retry_status, _retry_image_ts, retry_seq = (
+                        retry = (
                             self._driver.grab_new_capture(new_capture_timeout_s)
                             if force_new_capture
                             else self._driver.grab()
                         )
-                        if retry_status:
-                            self.frame_validity.count_frame(retry_seq)
-                            retry_frame = self._driver.get_array()
+                        if retry is not None:
+                            self.frame_validity.count_frame(retry.seq)
                     # Saturation walk is outside cam_lock -- no camera state needed,
                     # and the walk would otherwise block concurrent set_gain_db/set_exposure.
-                    if retry_frame is not None and (
-                        self.saturated_fraction(retry_frame, self.last_significant_bits)
+                    if retry is not None and (
+                        self.saturated_fraction(retry.image, retry.significant_bits)
                         < self._SATURATION_BLOWN_FRACTION
                     ):
-                        tmp = retry_frame  # retry was clean, use it
+                        frame = retry  # retry was clean, use it
                     else:
                         # Log (not notify): a blown frame is self-evident on
                         # screen and in the saved file, so a popup adds nothing.
                         # The log line is for the post-mortem / log-analysis pass.
-                        sat_pct = self.saturated_fraction(tmp, frame_depth) * 100.0
+                        sat_pct = (
+                            self.saturated_fraction(frame.image, frame.significant_bits) * 100.0
+                        )
                         logger.warning(
                             f'[SCOPE API ] get_image: captured frame is {sat_pct:.0f}% '
                             f'saturated -- likely over-exposure or a stale camera gain; '
@@ -3867,7 +3874,7 @@ class ImagingAPI:
                         )
 
                 if dark_floor_check:
-                    lit_fraction = self._lit_fraction(tmp, self.last_significant_bits)
+                    lit_fraction = self._lit_fraction(frame.image, frame.significant_bits)
                     if lit_fraction < self._DARK_MIN_LIT_FRACTION:
                         # The caller declared illumination ON, yet no pixel
                         # clears the floor: the frame integrated before the
@@ -3924,10 +3931,10 @@ class ImagingAPI:
                     # stable for the duration of this call -- a newer frame
                     # racing in here was exposed under the same settings and
                     # is equally acceptable.
-                    stale_source = self._chunk_target_mismatch()
+                    stale_source = self._chunk_target_mismatch(frame.chunks)
                     if stale_source is not None:
                         if datetime.datetime.now() > stop_time:
-                            chunks = self._get_latest_chunks() or {}
+                            chunks = frame.chunks or {}
                             chunk_key = self.frame_validity.CHUNK_KEY_FOR_SOURCE.get(stale_source)
                             logger.warning(
                                 f'[SCOPE API ] get_image: frame chunk for '
@@ -3958,14 +3965,14 @@ class ImagingAPI:
                 # clock that jumped forward rejects every genuinely new frame
                 # until it times out, losing the capture. The first frame of a
                 # sum has nothing to be newer than.
-                if earliest_seq is None or grab_seq > earliest_seq:
-                    tmp_buffer.append(tmp)
+                if earliest_seq is None or frame.seq > earliest_seq:
+                    frames.append(frame)
                     break
 
                 # The expected path for a buffered camera, not a fault: the
                 # driver returned the frame we already summed, so poll again.
                 logger.debug(
-                    f'[SCOPE API ] get_image: frame {grab_seq} already summed '
+                    f'[SCOPE API ] get_image: frame {frame.seq} already summed '
                     f'(need > {earliest_seq}); waiting for the next arrival'
                 )
 
@@ -3976,7 +3983,7 @@ class ImagingAPI:
                 time.sleep(0.05)
 
             if sum_count > 1:
-                earliest_seq = grab_seq
+                earliest_seq = frame.seq
                 if sum_iteration_callback is not None:
                     sum_iteration_callback()
 
@@ -3988,23 +3995,23 @@ class ImagingAPI:
         # frame indefinitely between calls. The _state_lock around per-write
         # didn't actually serialize concurrent get_image calls anyway (chained
         # writes from different threads could still interleave).
-        # The depth each frame was delivered at, read beside the grabs that
-        # produced them: with the count, it is the sum's whole account.
-        frame_bits = self.last_significant_bits
+        # The depth the frames were delivered at, carried by the frames
+        # themselves: with the count, it is the sum's whole account.
+        frame_bits = frames[0].significant_bits
         with self._state_lock:
             self._last_frame_summing = (sum_count, frame_bits)
 
         if sum_count == 1:
-            image = tmp if len(tmp_buffer) < 1 else tmp_buffer[0]
+            image = frames[0].image
         else:
             # A sum is stored in a 16-bit container on every camera, an 8-bit
             # one included: its counts pass any one frame's range, and the
             # container is where they saturate.
             container_max = np.iinfo(np.uint16).max
 
-            combined = np.zeros_like(tmp_buffer[0], dtype=np.uint32)
-            for img in tmp_buffer:
-                combined += img
+            combined = np.zeros_like(frames[0].image, dtype=np.uint32)
+            for summed in frames:
+                combined += summed.image
 
             image = np.minimum(combined, container_max).astype(np.uint16)
 
@@ -4037,7 +4044,10 @@ class ImagingAPI:
         if need_8bit:
             image = image_utils.convert_sum_to_8bit(image, sum_count, frame_bits)
 
-        return image
+        # Read-only whichever path made it, as the camera's own frame is: the
+        # capture's image is the instrument's account, not a scratch buffer.
+        image.flags.writeable = False
+        return _Grabbed(image=image, frame=frames[-1])
 
     @api(in_process=True)
     def get_image(
@@ -4108,7 +4118,7 @@ class ImagingAPI:
         )
         if isinstance(grabbed, _NoFrame):
             raise grabbed.error('get_image')
-        return grabbed
+        return grabbed.image
 
     @api(in_process=True)
     def get_image_from_buffer(
@@ -4117,7 +4127,7 @@ class ImagingAPI:
         """Grab the latest buffered frame from the camera without forcing a new capture.
 
         Copy budget (per frame):
-          - grab_latest(): 0 copies (returns the read-only stored frame)
+          - grab(): 0 copies (returns the read-only stored frame)
           - add_scale_bar(): 1 copy when the bar is drawn (the stored frame
             is shared with every other consumer and is never written)
           - convert_to_8bit(): 1 copy (LUT indexing creates new array),
@@ -4145,25 +4155,18 @@ class ImagingAPI:
         if not self._driver or not self._driver.active:
             return None, None
 
-        # Single-copy grab: grab_latest() returns the image directly,
-        # avoiding the extra copy that grab() + get_array() would make.
-        # This saves ~2.3MB copy + 1 lock acquisition per frame.
-        grab_status, tmp, grab_image_ts, frame_significant_bits, grab_seq = (
-            self._driver.grab_latest()
-        )
-        if not grab_status or tmp is None:
+        frame = self._driver.grab()
+        if frame is None:
             return None, None
-        # grab_latest() returns the same buffered frame on every poll, and
+        # grab() returns the same buffered frame on every poll, and
         # this preview path can poll faster than the camera delivers. The
         # frame's arrival ordinal dedupes the count so validity skip counts
         # retire against real frames, not poll rate -- counting polls let a
         # capture accept a frame exposed under the previous gain/exposure/LED
         # state. The ordinal also keeps a frame this path grabbed before a
         # write from retiring any of that write's wait.
-        self.frame_validity.count_frame(grab_seq)
-
-        with self._state_lock:
-            self._frame_buffer = tmp
+        self.frame_validity.count_frame(frame.seq)
+        tmp = frame.image
 
         # Snapshot both fields together; see get_image for why.
         scale_bar = self.scale_bar_config
@@ -4176,14 +4179,14 @@ class ImagingAPI:
                 objective=objective,
                 binning_size=self._binning_size,
                 color=scale_bar.get('color'),
-                significant_bits=frame_significant_bits,
+                significant_bits=frame.significant_bits,
                 capabilities=self._scope.capabilities,
             )
 
         if force_to_8bit and tmp.dtype != np.uint8:
-            tmp = image_utils.convert_to_8bit(tmp, frame_significant_bits, out=out_8bit)
+            tmp = image_utils.convert_to_8bit(tmp, frame.significant_bits, out=out_8bit)
 
-        return tmp, grab_image_ts
+        return tmp, frame.timestamp
 
     @api
     @property
@@ -4202,8 +4205,8 @@ class ImagingAPI:
         driver read: a transient format-read failure once made a 12-bit
         camera report depth 16 here, so a fully blown frame passed the
         saturation evidence check at 0.0% and files were stamped at the
-        wrong depth. For the depth of a frame you are HOLDING, prefer
-        ``last_significant_bits`` -- the per-frame stamp.
+        wrong depth. A frame you are HOLDING carries its own depth
+        (``Frame.significant_bits``; ``capture_frame_depth`` for a capture).
 
         Raises:
             HardwareCommandRefusedError: ``'not_connected'``, the scope has no
@@ -4213,28 +4216,6 @@ class ImagingAPI:
         if driver is None:
             raise _camera_not_connected('significant_bits')
         return driver.significant_bits_for_format(self._get_pixel_format())
-
-    @property
-    def last_significant_bits(self) -> int:
-        """Payload depth of the most recently delivered frame (per-frame stamp).
-
-        The depth to save, evidence-check, or downconvert a just-captured
-        frame at: every driver stamps the depth WITH the frame at delivery,
-        so it cannot fail a live read and always describes a frame the
-        camera actually produced. Read it as closely as possible to the
-        grab that produced the frame you hold -- a later read can describe
-        a newer frame. The stamp is an in-memory read (no SDK node touch),
-        so it has no transient-failure mode. Falls back to
-        ``significant_bits`` (the validated cached-format depth -- NOT the
-        driver's live-read fallback, which a transient format failure
-        could turn into a wrong container-width answer) when no frame has
-        been stored yet; 16 when no camera is attached.
-        """
-        driver = self._driver
-        if driver is None:
-            return 16
-        stamped = driver.last_stamped_significant_bits()
-        return int(stamped) if stamped is not None else self.significant_bits
 
     @api(in_process=True, reads=True)
     def capture_frame_depth(self, array: np.ndarray | None) -> int:
@@ -4256,7 +4237,7 @@ class ImagingAPI:
         with self._state_lock:
             summing = self._last_frame_summing
         if summing is None:
-            return self.last_significant_bits
+            return self.significant_bits
         return image_utils.summed_significant_bits(*summing)
 
     @api(in_process=True, reads=True)
@@ -4274,7 +4255,7 @@ class ImagingAPI:
         with self._state_lock:
             summing = self._last_frame_summing
         if summing is None:
-            return (1 << self.last_significant_bits) - 1
+            return (1 << self.significant_bits) - 1
         return image_utils.summed_full_scale(*summing)
 
     # --- Streaming control ---
@@ -5611,7 +5592,7 @@ class ImagingAPI:
     @api(in_process=True, event=FrameDelivered)
     def add_frame_listener(
         self,
-        cb: Callable[[np.ndarray, datetime.datetime, dict | None], None],
+        cb: Callable[[Frame], None],
         name: str | None = None,
     ) -> None:
         """Register a per-frame listener fired on every successful grab.
@@ -5622,21 +5603,26 @@ class ImagingAPI:
         (``HANDLER_BUDGET_MS`` per call; ``HANDLER_DROP_K`` consecutive
         over-budget or raising invocations remove it, reported once as a
         ``FrameHandlerRemovedError`` warning). Callback
-        signature is ``cb(image, timestamp, chunks)``; runs on the SDK
+        signature is ``cb(frame)``, the camera's ``Frame`` record
+        (``modules.lumascope_api.Frame``: ``image``, ``seq``,
+        ``timestamp``, ``arrived_ns``, ``significant_bits``, ``chunks``);
+        runs on the SDK
         callback thread (Pylon ``PylonImageGrab`` / IDS grab loop /
         simulated acquisition thread). Listeners MUST NOT block -- heavy work belongs
         on an executor.
 
         Args:
-            cb: Per-frame handler. Signature ``cb(image, timestamp, chunks)``.
+            cb: Per-frame handler. Signature ``cb(frame)``.
             name: Display name for log + notification messages on
                   over-budget / auto-removal. Defaults to the handler's
                   qualname.
 
-        The ``image`` array is shared across all listeners, the preview
-        and a capture, and is read-only: a write into it raises
-        ``ValueError``. Never set it writeable again: every other holder
-        would see the change. Draw on or keep your own copy.
+        The record is shared across all listeners, the preview and a
+        capture, and is read-only: ``frame.image`` refuses a write
+        (``ValueError``) and ``frame.chunks`` is a read-only mapping. Never
+        set the image writeable again: every other holder would see the
+        change. Draw on your own copy. Keeping the record is safe: no later
+        frame changes it.
 
         Registration is idempotent for the same callable -- a second
         call with the same ``cb`` is a no-op (the original wrapper +

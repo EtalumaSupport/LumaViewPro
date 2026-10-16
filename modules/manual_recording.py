@@ -32,6 +32,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from drivers.camera import Frame
 import modules.image_mode as image_mode
 import modules.image_save as image_save
 import modules.image_utils as image_utils
@@ -699,7 +700,7 @@ class ManualRecordingController:
     # Camera-thread ingest
     # ------------------------------------------------------------------
 
-    def _on_camera_frame(self, image, timestamp, chunks) -> None:
+    def _on_camera_frame(self, frame: Frame) -> None:
         """SDK-thread listener: rebase the timestamp, offer to the engine.
 
         The frame's fact is read HERE, when the frame arrives, and rides
@@ -716,7 +717,10 @@ class ManualRecordingController:
             if plan.video_as_frames
             else None
         )
-        engine.ingest_frame(image, self._rebaser.frame_time_s(timestamp, chunks), chunks, fact=fact)
+        chunks = dict(frame.chunks) if frame.chunks is not None else None
+        engine.ingest_frame(
+            frame.image, self._rebaser.frame_time_s(frame.timestamp, chunks), chunks, fact=fact
+        )
 
     # ------------------------------------------------------------------
     # Writer-lane edge

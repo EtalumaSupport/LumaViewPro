@@ -176,7 +176,7 @@ def test_a_client_ready_for_a_frame_gets_the_newest_skipping_the_rest(session):
     skipped_by = 10
     delivered = threading.Semaphore(0)
 
-    def counted(image, timestamp, chunks):
+    def counted(frame):
         delivered.release()
 
     async def watch() -> tuple[int, int]:

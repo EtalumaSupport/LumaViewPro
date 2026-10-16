@@ -22,27 +22,20 @@ import pathlib
 import sys
 
 import numpy as np
+from tests.camera_fakes import delivered_frame
 from tests.scope_fakes import bind_settings_like_a_session
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 
 
-class TestImageHandlerBaseCouplesDepth:
-    """The frame buffer that Pylon/IDS use stores depth WITH the frame, so a
-    buffered frame keeps its own depth even after the camera's format changes."""
-
-    def test_store_frame_returns_its_significant_bits(self):
-        from drivers.camera import ImageHandlerBase
-
-        h = ImageHandlerBase()
-        img = np.zeros((4, 4), dtype=np.uint16)
-        h._store_frame(img, timestamp=1.0, chunks=None, significant_bits=12, wire_bytes=0)
-        result, _out_img, _out_ts, sig, _seq = h.get_last_image()
-        assert result is True
-        assert sig == 12
+class TestABufferedFrameKeepsItsDepth:
+    """The frame buffer stores depth WITH the frame, so a buffered frame keeps
+    its own depth even after the camera's format changes."""
 
     def test_buffered_frame_keeps_depth_when_format_later_changes(self):
+        import datetime
+
         from drivers.camera import ImageHandlerBase
 
         # A 12-bit frame is buffered; the camera then switches to Mono8. The
@@ -50,17 +43,20 @@ class TestImageHandlerBaseCouplesDepth:
         # from whatever the camera reports now.
         h = ImageHandlerBase()
         h._store_frame(
-            np.zeros((4, 4), dtype=np.uint16), timestamp=1.0, significant_bits=12, wire_bytes=0
+            np.zeros((4, 4), dtype=np.uint16),
+            datetime.datetime.now(),
+            arrived_ns=0,
+            significant_bits=12,
+            wire_bytes=0,
         )
         # (no new frame stored under the new format)
-        _, _, _, sig, _seq = h.get_last_image()
-        assert sig == 12
+        assert h.get_last_image().significant_bits == 12
 
 
-class TestGrabLatestCarriesDepth:
-    """grab_latest returns the frame's depth alongside the frame."""
+class TestAGrabCarriesDepth:
+    """A grab returns the frame with the depth it was delivered at."""
 
-    def test_sim_grab_latest_returns_format_depth(self):
+    def test_sim_grab_returns_format_depth(self):
         from drivers.simulated_camera import SimulatedCamera
         from tests.camera_fakes import grab_a_frame_made_after_now
 
@@ -68,15 +64,10 @@ class TestGrabLatestCarriesDepth:
         cam.connect()
         assert cam.set_pixel_format('Mono12')
         cam.start_grabbing()
-        grab_a_frame_made_after_now(cam)
-        result, _img, _ts, sig, _seq = cam.grab_latest()
-        assert result is True
-        assert sig == 12
+        assert grab_a_frame_made_after_now(cam).significant_bits == 12
 
         assert cam.set_pixel_format('Mono8')
-        grab_a_frame_made_after_now(cam)
-        result, _img, _ts, sig, _seq = cam.grab_latest()
-        assert sig == 8
+        assert grab_a_frame_made_after_now(cam).significant_bits == 8
 
 
 class TestGetImageFromBufferUsesFrameDepth:
@@ -95,10 +86,12 @@ class TestGetImageFromBufferUsesFrameDepth:
 
         # The switch race: the buffered frame is a 12-bit white frame (stamped 12
         # at capture), but the driver's LIVE significant_bits has already flipped
-        # to 8. grab_latest hands back the frame WITH its own depth (12); the live
+        # to 8. grab hands back the frame WITH its own depth (12); the live
         # query (8) is the stale value the consumer must NOT use.
-        mono12_white = np.full((64, 64), 4095, dtype=np.uint16)
-        monkeypatch.setattr(cam, 'grab_latest', lambda: (True, mono12_white, 1.0, 12, 1))
+        mono12_white = delivered_frame(
+            np.full((64, 64), 4095, dtype=np.uint16), significant_bits=12
+        )
+        monkeypatch.setattr(cam, 'grab', lambda: mono12_white)
         monkeypatch.setattr(SimulatedCamera, 'significant_bits', property(lambda self: 8))
 
         scope = Lumascope.__new__(Lumascope)
@@ -115,40 +108,3 @@ class TestGetImageFromBufferUsesFrameDepth:
         # by the live 8-bit value would index a 256-entry LUT with 4095 and crash
         # (the original bug).
         assert int(img.max()) == 255
-
-
-class TestLastSignificantBitsViaMethodContract:
-    """Camera.last_significant_bits must read the buffered frame's depth through
-    the handler's get_last_image() method, not the raw last_img_significant_bits
-    attribute. The Pylon handler composes ImageHandlerBase (no raw attribute
-    exposed), so reaching the attribute directly AttributeErrors on the Pylon
-    camera; every other handler consumer already uses the method contract.
-    """
-
-    def test_reads_depth_from_composition_handler(self):
-        from types import SimpleNamespace
-
-        from drivers.camera import Camera
-
-        # A composition-style handler (the Pylon shape): exposes get_last_image
-        # but NOT the raw last_img_significant_bits attribute.
-        handler = SimpleNamespace(get_last_image=lambda: (True, None, None, 12, 1))
-        assert not hasattr(handler, 'last_img_significant_bits')
-
-        # The property reads the stamp via last_stamped_significant_bits;
-        # wire the real base-class method so the whole chain is exercised.
-        cam = SimpleNamespace(cam_image_handler=handler, significant_bits=16)
-        cam.last_stamped_significant_bits = lambda: Camera.last_stamped_significant_bits(cam)
-        # Reaching the raw attribute (the bug) would raise AttributeError here.
-        assert Camera.last_significant_bits.fget(cam) == 12
-
-    def test_falls_back_to_live_depth_when_no_buffered_frame(self):
-        from types import SimpleNamespace
-
-        from drivers.camera import Camera
-
-        # No frame stored yet -> get_last_image reports failure -> live depth.
-        handler = SimpleNamespace(get_last_image=lambda: (False, None, None, None, None))
-        cam = SimpleNamespace(cam_image_handler=handler, significant_bits=16)
-        cam.last_stamped_significant_bits = lambda: Camera.last_stamped_significant_bits(cam)
-        assert Camera.last_significant_bits.fget(cam) == 16

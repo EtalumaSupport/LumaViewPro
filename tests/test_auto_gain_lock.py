@@ -35,6 +35,7 @@ from modules.lumascope_api import Lumascope
 from modules.lumascope_api.imaging import ImagingAPI
 from modules.notification_center import OutcomeKind
 from tests import ast_seams
+from tests.camera_fakes import grab_a_frame_made_after_now
 from tests.scope_fakes import (
     bind_settings_like_a_session,
     give_camera_capabilities,
@@ -58,19 +59,22 @@ AG_SETTINGS_TRANSMITTED = {
 
 
 class _ChunkHandler(_SimImageHandler):
-    """The simulator's own frame handler, whose get_last_chunks() reports
-    the exposure (us) and gain (dB) the last stored frame was taken with --
-    the shape ImagingAPI._get_latest_chunks reaches. Everything else (the
-    frame count frame validity reads, the buffer) is the real handler's."""
+    """The simulator's own frame handler, stamping each stored frame with the
+    exposure (us) and gain (dB) the camera holds when it is stored, as a
+    Basler's chunks do (the simulator stamps none of its own yet).
+    Everything else (the frame count frame validity reads, the record) is
+    the real handler's."""
 
     def __init__(self, cam):
         super().__init__()
         self._cam = cam
 
-    def get_last_chunks(self):
+    def _store_frame(self, image, timestamp, chunks=None, **kwargs):
         if self._cam.chunks_absent:
-            return {}
-        return {'ExposureTime': self._cam._exposure_us, 'Gain': self._cam._gain}
+            chunks = {}
+        else:
+            chunks = {'ExposureTime': self._cam._exposure_us, 'Gain': self._cam._gain}
+        return super()._store_frame(image, timestamp, chunks, **kwargs)
 
 
 class _ChunkAeSim(SimulatedCamera):
@@ -219,12 +223,14 @@ def test_lock_result_carries_the_value_to_store():
     GUI and a REST caller store the same value."""
     imaging, _cam = _build(ae_lands_on_ms=0.4)
     _arm(imaging, AG_SETTINGS_FLUORESCENCE, resume_after_capture=False)
+    grab_a_frame_made_after_now(_cam)  # the lock reads the newest frame's chunks
     lock = imaging._lock_auto_gain_impl()
     assert lock.exposure_ms == 0.4
     assert lock.stored_exposure_ms == 1.0
 
     imaging, _cam = _build(ae_lands_on_ms=62.003)
     _arm(imaging, AG_SETTINGS_FLUORESCENCE, resume_after_capture=False)
+    grab_a_frame_made_after_now(_cam)  # the lock reads the newest frame's chunks
     assert imaging._lock_auto_gain_impl().stored_exposure_ms == 62.003
 
 
@@ -284,6 +290,7 @@ def test_live_view_lock_tells_the_user_and_a_protocol_lock_does_not(centre_posts
     unattended and gets the log line only."""
     imaging, _cam = _build(ae_lands_on_ms=0.4)
     _arm(imaging, AG_SETTINGS_FLUORESCENCE, resume_after_capture=True)
+    grab_a_frame_made_after_now(_cam)  # the lock reads the newest frame's chunks
     lock = imaging._lock_auto_gain_impl()
     assert lock.state.value == 'AT_MINIMUM'
     assert [(n.kind, n.reason) for n in centre_posts] == [
@@ -294,6 +301,7 @@ def test_live_view_lock_tells_the_user_and_a_protocol_lock_does_not(centre_posts
     centre_posts.clear()
     imaging, _cam = _build(ae_lands_on_ms=0.4)
     _arm(imaging, AG_SETTINGS_FLUORESCENCE, resume_after_capture=False)
+    grab_a_frame_made_after_now(_cam)  # the lock reads the newest frame's chunks
     assert imaging._lock_auto_gain_impl().state.value == 'AT_MINIMUM'
     assert centre_posts == []
 
@@ -315,6 +323,7 @@ def test_public_lock_runs_the_impl_without_an_executor():
     the toggle-off path uses this member, never the impl."""
     imaging, cam = _build(ae_lands_on_ms=8.0)
     _arm(imaging, AG_SETTINGS_TRANSMITTED, resume_after_capture=True)
+    grab_a_frame_made_after_now(cam)  # the lock reads the newest frame's chunks
     lock = imaging.lock_auto_gain()
     assert lock.state.value == 'CONVERGED'
     assert lock.stored_exposure_ms == 8.0
@@ -408,6 +417,7 @@ def test_arm_clamps_exposure_above_the_class_cap():
     clamp_lines = [m for m in _logged('info') if '[AG ARM]' in m]
     assert len(clamp_lines) == 1, _logged('info')
     assert '100' in clamp_lines[0] and '50' in clamp_lines[0]
+    grab_a_frame_made_after_now(cam)  # the lock reads the newest frame's chunks
     lock = imaging._lock_auto_gain_impl()
     assert lock.exposure_ms == 50.0
     assert lock.state.value == 'MAXED'

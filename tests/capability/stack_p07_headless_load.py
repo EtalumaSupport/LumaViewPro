@@ -28,7 +28,7 @@ def body(session):
     n = {'frames': 0}
     lock = threading.Lock()
 
-    def count(image, timestamp, chunks):
+    def count(frame):
         with lock:
             n['frames'] += 1
 

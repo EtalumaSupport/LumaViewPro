@@ -1962,7 +1962,7 @@ class TestCameraStateLock:
                 return 1
 
             def grab_new_capture(self, timeout):
-                return True, None
+                return None
 
             def update_auto_gain_target_brightness(self, v):
                 pass
@@ -2073,7 +2073,7 @@ class TestCameraStateLock:
                 return 1
 
             def grab_new_capture(self, timeout):
-                return True, None
+                return None
 
             def update_auto_gain_target_brightness(self, v):
                 pass
@@ -2099,14 +2099,12 @@ class TestCameraStateLock:
         cam = StubCamera()
         assert cam.active is True
 
-        # Normal grab without image handler should return False (no handler)
-        result, _ts, _seq = cam.grab()
-        assert result is False
+        # Normal grab without image handler answers no frame (no handler)
+        assert cam.grab() is None
 
-        # After disconnect, grab should return False immediately
+        # After disconnect, grab answers no frame immediately
         cam._mark_disconnected()
-        result, _ts, _seq = cam.grab()
-        assert result is False
+        assert cam.grab() is None
 
     def test_concurrent_mark_disconnected(self):
         """Multiple threads calling _mark_disconnected should not raise."""
@@ -2181,7 +2179,7 @@ class TestCameraStateLock:
                 return 1
 
             def grab_new_capture(self, timeout):
-                return True, None
+                return None
 
             def update_auto_gain_target_brightness(self, v):
                 pass

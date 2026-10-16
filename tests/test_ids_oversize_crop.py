@@ -22,7 +22,7 @@ import numpy as np
 
 from drivers.camera import FrameWindow, ImageHandlerBase
 from drivers.camera_profiles import CameraProfile
-from tests.camera_fakes import bare_ids_camera
+from tests.camera_fakes import bare_ids_camera, delivered_frame
 
 # Bench-confirmed IMX676 AOI maxima (binned-space probe, 2026-06-25): 3504x3544.
 SENSOR_W, SENSOR_H = 3504, 3544
@@ -343,11 +343,9 @@ def test_an_unpacked_frame_is_cropped_to_the_window_where_it_is_stored(monkeypat
 
     store = ImageHandlerBase()
     store.frame_window = FrameWindow(1920, 1900, (10, 0, 1900, 1900))
-    store._store_frame(array, 'TS', significant_bits=significant_bits, wire_bytes=0)
-    ok, stored, *_ = store.get_last_image()
-    assert ok
+    store._store_frame(array, 'TS', arrived_ns=0, significant_bits=significant_bits, wire_bytes=0)
     # Exactly the centered 1900-wide window of the 1920 frame.
-    assert np.array_equal(stored, full[0:1900, 10:1910])
+    assert np.array_equal(store.get_last_image().image, full[0:1900, 10:1910])
 
 
 def test_grab_new_capture_returns_worker_stored_frame():
@@ -360,16 +358,12 @@ def test_grab_new_capture_returns_worker_stored_frame():
     handler = MagicMock()
     handler.frame_generation.return_value = 7
     handler.wait_for_new_frame.return_value = True
-    cropped = np.zeros((1900, 1900), dtype=np.uint16)
-    handler.get_last_image.return_value = (True, cropped, 'TS', 12, 3)
+    stored = delivered_frame(np.zeros((1900, 1900), dtype=np.uint16), significant_bits=12, seq=3)
+    handler.get_last_image.return_value = stored
     cam.cam_image_handler = handler
 
-    ok, ts, _seq = cam.grab_new_capture(1.0)
-
-    assert ok is True
-    assert ts == 'TS'
+    assert cam.grab_new_capture(1.0) is stored
     handler.wait_for_new_frame.assert_called_once_with(7, 1.0)  # gated on a NEW frame
-    assert np.array_equal(cam.get_array(), cropped)
     # Never drove the data stream directly (the worker owns it).
     cam.data_stream.WaitForFinishedBuffer.assert_not_called()
     cam.data_stream.QueueBuffer.assert_not_called()
@@ -377,17 +371,14 @@ def test_grab_new_capture_returns_worker_stored_frame():
 
 def test_grab_new_capture_times_out_without_touching_stream():
     """When no new frame is stored within the timeout, grab_new_capture returns
-    (False, None) and still never drives the data stream."""
+    None and still never drives the data stream."""
     cam = bare_ids_camera()
     handler = MagicMock()
     handler.frame_generation.return_value = 3
     handler.wait_for_new_frame.return_value = False  # no new frame in time
     cam.cam_image_handler = handler
 
-    ok, ts, _seq = cam.grab_new_capture(0.01)
-
-    assert ok is False
-    assert ts is None
+    assert cam.grab_new_capture(0.01) is None
     cam.data_stream.WaitForFinishedBuffer.assert_not_called()
     cam.data_stream.QueueBuffer.assert_not_called()
 

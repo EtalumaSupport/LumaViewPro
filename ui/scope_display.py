@@ -4,9 +4,9 @@ ScopeDisplay -- pull-based image display loop.
 
 Image Pipeline (sensor -> screen):
   1. Camera SDK callback -> ImageHandler._store_frame()     [1 copy: SDK buffer -> numpy]
-  2. grab_latest() -> returns stored reference               [0 copies]
+  2. grab() -> returns the stored read-only frame           [0 copies]
   3. get_image_from_buffer():
-     - scale bar overlay (in-place on the reference)        [0 copies]
+     - scale bar overlay, on its own copy                   [1 copy, bar on]
      - 12->8 bit LUT conversion (if force_to_8bit)           [1 copy: LUT indexing]
   4. Worker thread: contrast stretch / bullseye LUT          [1 copy: LUT indexing]
   5. image.tobytes() -> blit_buffer() to GPU texture          [1 copy: tobytes]
@@ -14,6 +14,7 @@ Image Pipeline (sensor -> screen):
 Copy budget:
   8-bit path:  SDK(1) + tobytes(1)                    = 2 copies
   12-bit path: SDK(1) + 12->8 LUT(1) + tobytes(1)     = 3 copies
+  The scale bar, when on, adds 1 to either.
 
 Threading model (Stage B1):
   - Main thread (Kivy): create_and_set_texture() / create_and_set_bullseye_texture()

@@ -13,9 +13,8 @@ disconnect / same-instance reconnect starts clean. Exercised with
 SimulatedCamera (no hardware).
 """
 
-import numpy as np
-
 from drivers.simulated_camera import SimulatedCamera
+from tests.camera_fakes import grab_a_frame_made_after_now
 
 
 def test_found_is_derived_from_active():
@@ -34,11 +33,12 @@ def test_disconnect_resets_start_gate_and_frame_buffer():
     """disconnect() closes the start gate and clears the last-frame buffer so a
     same-instance reconnect re-grabs and never serves the pre-disconnect image."""
     cam = SimulatedCamera()
-    # Simulate a live session: gate opened + a frame buffered.
-    cam._grab_gate_open = True
-    cam.array = np.array([[1, 2], [3, 4]])
+    # A live session: gate opened and a frame buffered.
+    cam.open_and_start()
+    grab_a_frame_made_after_now(cam)
+    handler = cam.cam_image_handler
 
     assert cam.disconnect() is True
     assert cam._grab_gate_open is False  # gate CLOSED for the next open_and_start
-    assert cam.array.size == 0  # stale frame cleared
+    assert handler.get_last_image() is None  # stale frame cleared
     assert cam.found is False  # active nulled -> found derives False

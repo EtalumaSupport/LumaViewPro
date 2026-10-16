@@ -2226,35 +2226,6 @@ class TestAOC1_SaturationCheckShortCircuit:
     saturated / non-saturated / single-pixel-different / all-zero arrays.
     """
 
-    def test_blown_frame_triggers_retry_grab(self, monkeypatch):
-        """A first frame at/above the blown fraction must trigger exactly
-        one retry grab, and a clean retry frame must be the one returned.
-        The fraction guard catches real blown frames (a handful of sub-max
-        pixels) that the old all-pixels-exactly-max check saved silently."""
-        import numpy as np
-
-        imaging, cam = _sim_backed_imaging()
-        blown = np.full((4, 4), 255, dtype=np.uint8)
-        clean = np.zeros((4, 4), dtype=np.uint8)
-        arrays = [blown, clean]
-        monkeypatch.setattr(cam, 'get_array', lambda: arrays.pop(0))
-        out = imaging.get_image(all_ones_check=True)
-        assert not arrays, 'the blown first frame must trigger one retry grab'
-        assert np.array_equal(out, clean), 'the clean retry frame must be returned'
-
-    def test_below_threshold_frame_does_not_retry(self, monkeypatch):
-        """A half-saturated frame is a normal image -- no retry grab."""
-        import numpy as np
-
-        imaging, cam = _sim_backed_imaging()
-        partial = np.zeros((4, 4), dtype=np.uint8)
-        partial[:2, :] = 255  # 50% saturated, well below the blown fraction
-        arrays = [partial]
-        monkeypatch.setattr(cam, 'get_array', lambda: arrays.pop(0))
-        out = imaging.get_image(all_ones_check=True)
-        assert not arrays, 'a below-threshold frame must not trigger a retry'
-        assert np.array_equal(out, partial)
-
     def test_old_exact_max_forms_absent(self):
         # Absence guard: the all-pixels-exactly-max forms missed real blown
         # frames; the fraction guard replaced them.
@@ -2299,77 +2270,6 @@ class TestAOC1_SaturationCheckShortCircuit:
             old = bool(np.all(arr == np.iinfo(arr.dtype).max))
             new = not np.any(arr != np.iinfo(arr.dtype).max)
             assert old == new, f'Logical mismatch on uint16 case: old={old}, new={new}'
-
-
-class TestAOC2_RetrySaturationCheckOutsideCamLock:
-    """AOC-2: lumascope_api.get_image saturation-retry path used to hold
-    cam_lock across the np.all validation walk on the retry frame. The walk
-    doesn't need camera state -- only the buffer returned from get_array().
-    Holding cam_lock across the walk blocked concurrent set_gain_db/set_exposure
-    from other threads for ~50-150 ms per saturated retry.
-
-    Fix: move the saturation walk outside the cam_lock block. Retry frame
-    is captured under the lock; the walk runs after the lock is released.
-    Also applies the AOC-1 short-circuit pattern at the retry site
-    (feedback_default_to_expanding_scope -- fix the cluster).
-    """
-
-    def test_retry_saturation_walk_runs_outside_cam_lock(self, monkeypatch):
-        """The saturation walk needs no camera state; it must run with
-        cam_lock RELEASED so concurrent set_gain_db/set_exposure are not
-        blocked. Proven by probing the lock from a helper thread inside
-        every fraction call: each must find the lock acquirable."""
-        import numpy as np
-
-        imaging, cam = _sim_backed_imaging()
-        blown = np.full((4, 4), 255, dtype=np.uint8)
-        arrays = [blown, blown]  # initial + retry both blown -> full walk runs
-        monkeypatch.setattr(cam, 'get_array', lambda: arrays.pop(0))
-
-        orig_fraction = ImagingAPI.saturated_fraction
-        lock_was_free = []
-
-        def probing_fraction(frame, significant_bits):
-            seen = {}
-
-            def try_acquire():
-                got = imaging._cam_lock.acquire(blocking=False)
-                if got:
-                    imaging._cam_lock.release()
-                seen['free'] = got
-
-            probe = threading.Thread(target=try_acquire)
-            probe.start()
-            probe.join()
-            lock_was_free.append(seen['free'])
-            return orig_fraction(frame, significant_bits)
-
-        monkeypatch.setattr(ImagingAPI, 'saturated_fraction', staticmethod(probing_fraction))
-        out = imaging.get_image(all_ones_check=True)
-        assert out is not None
-        assert len(lock_was_free) >= 2, 'gate + retry walk must both run'
-        assert all(lock_was_free), (
-            'every saturation-fraction walk must run with cam_lock released; '
-            f'probe results: {lock_was_free}'
-        )
-
-    def test_failed_retry_grab_degrades_gracefully(self, monkeypatch):
-        """When the retry grab fails, get_image must still return the
-        original (blown) frame -- never crash on an uninitialized retry
-        buffer."""
-        import datetime as _dt
-
-        import numpy as np
-
-        imaging, cam = _sim_backed_imaging()
-        blown = np.full((4, 4), 255, dtype=np.uint8)
-        monkeypatch.setattr(cam, 'get_array', lambda: blown)
-        grab_results = iter([(True, _dt.datetime.now(), 1), (False, None, None)])
-        monkeypatch.setattr(cam, 'grab', lambda: next(grab_results))
-        out = imaging.get_image(all_ones_check=True)
-        assert np.array_equal(out, blown), (
-            'a failed retry grab must fall back to the original frame'
-        )
 
 
 def _bare_protocol_writer(**overrides):
@@ -3311,114 +3211,6 @@ def _sim_backed_imaging():
     imaging = ImagingAPI(scope, cam)
     scope.imaging = imaging
     return imaging, cam
-
-
-class TestImageHandlerBaseChunkSlot:
-    """ImageHandlerBase extends frame storage to carry per-frame chunk
-    metadata. Backward-compatible: cameras that don't pass chunks (FX2,
-    simulators) get None and existing consumers continue to work."""
-
-    def _make_base(self):
-        from drivers.camera import ImageHandlerBase
-
-        return ImageHandlerBase()
-
-    def test_initial_chunks_none(self):
-        b = self._make_base()
-        assert b.last_chunks is None
-        assert b.get_last_chunks() is None
-
-    def test_store_frame_without_chunks_keeps_none(self):
-        """Backward compat: existing _store_frame(image, ts) call site."""
-        import datetime
-        import numpy as np
-
-        b = self._make_base()
-        b._store_frame(
-            np.zeros((4, 4), dtype=np.uint8),
-            datetime.datetime.now(),
-            significant_bits=8,
-            wire_bytes=0,
-        )
-        assert b.last_chunks is None
-        assert b.get_last_chunks() is None
-
-    def test_store_frame_with_chunks_sets_dict(self):
-        import datetime
-        import numpy as np
-
-        b = self._make_base()
-        chunks = {'ExposureTime': 14530.0, 'Gain': 1.0, 'FrameID': 12345}
-        b._store_frame(
-            np.zeros((4, 4), dtype=np.uint8),
-            datetime.datetime.now(),
-            chunks=chunks,
-            significant_bits=8,
-            wire_bytes=0,
-        )
-        assert b.last_chunks == chunks
-        assert b.get_last_chunks() == chunks
-
-    def test_get_last_chunks_returns_none_before_first_grab(self):
-        b = self._make_base()
-        # last_result is False from __init__ -> get_last_chunks returns None
-        assert b.get_last_chunks() is None
-
-    def test_get_last_chunks_returns_none_after_failed_grab(self):
-        """If the last grab failed, get_last_chunks returns None even if
-        a previous grab populated chunks."""
-        import datetime
-        import numpy as np
-
-        b = self._make_base()
-        b._store_frame(
-            np.zeros((4, 4), dtype=np.uint8),
-            datetime.datetime.now(),
-            chunks={'ExposureTime': 14530.0},
-            significant_bits=8,
-            wire_bytes=0,
-        )
-        b._record_failure()  # last_result becomes False
-        assert b.get_last_chunks() is None
-
-    def test_reset_clears_chunks(self):
-        import datetime
-        import numpy as np
-
-        b = self._make_base()
-        b._store_frame(
-            np.zeros((4, 4), dtype=np.uint8),
-            datetime.datetime.now(),
-            chunks={'ExposureTime': 14530.0},
-            significant_bits=8,
-            wire_bytes=0,
-        )
-        b.reset()
-        assert b.last_chunks is None
-        assert b.get_last_chunks() is None
-
-    def test_chunks_replace_not_merge(self):
-        """Each successful grab replaces the chunks dict; we don't merge."""
-        import datetime
-        import numpy as np
-
-        b = self._make_base()
-        b._store_frame(
-            np.zeros((4, 4), dtype=np.uint8),
-            datetime.datetime.now(),
-            chunks={'ExposureTime': 14530.0, 'Gain': 1.0},
-            significant_bits=8,
-            wire_bytes=0,
-        )
-        b._store_frame(
-            np.zeros((4, 4), dtype=np.uint8),
-            datetime.datetime.now(),
-            chunks={'ExposureTime': 30000.0},
-            significant_bits=8,
-            wire_bytes=0,
-        )
-        assert b.get_last_chunks() == {'ExposureTime': 30000.0}
-        assert 'Gain' not in b.get_last_chunks()
 
 
 class TestSessionManifestHelpers:
@@ -8886,7 +8678,7 @@ class TestLumascopeSkillsApiPluginDocBatch:
             'on_position(axis',
             'on_led(address',
             'on_camera(param',
-            'on_frame(image',
+            'on_frame(frame',
         ):
             assert sig in doc, f'listener overview missing {sig!r}'
 

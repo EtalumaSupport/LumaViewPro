@@ -37,7 +37,7 @@ def test_in_budget_handler_does_not_count_toward_drop():
     handler = MagicMock()
     w = _BudgetedHandler(imaging, handler, name='fast')
     for _ in range(10):
-        w(None, None, None)
+        w(None)
     assert handler.call_count == 10
     assert w._consecutive_over == 0
     imaging._remove_wrapper.assert_not_called()
@@ -51,8 +51,8 @@ def test_over_budget_increments_consecutive_counter():
         time.sleep((HANDLER_BUDGET_MS + 5) / 1000.0)
 
     w = _BudgetedHandler(imaging, slow, name='slow')
-    w(None, None, None)
-    w(None, None, None)
+    w(None)
+    w(None)
     assert w._consecutive_over == 2
     imaging._remove_wrapper.assert_not_called()
 
@@ -69,9 +69,9 @@ def test_one_in_budget_call_resets_counter():
             time.sleep(d / 1000.0)
 
     w = _BudgetedHandler(imaging, variable, name='variable')
-    w(None, None, None)
-    w(None, None, None)
-    w(None, None, None)
+    w(None)
+    w(None)
+    w(None)
     assert w._consecutive_over == 0
     imaging._remove_wrapper.assert_not_called()
 
@@ -91,7 +91,7 @@ def test_handler_exception_does_not_count_toward_budget():
 
     w = _BudgetedHandler(imaging, raises, name='raises')
     for _ in range(5):
-        w(None, None, None)
+        w(None)
     assert w._consecutive_over == 0
     imaging._remove_wrapper.assert_not_called()
 
@@ -102,7 +102,7 @@ def test_removed_wrapper_short_circuits():
     handler = MagicMock()
     w = _BudgetedHandler(imaging, handler, name='dead')
     w._removed = True
-    w(None, None, None)
+    w(None)
     handler.assert_not_called()
 
 
@@ -149,8 +149,8 @@ def test_integration_basic_fanout_via_simulated_camera():
     received = []
     done = threading.Event()
 
-    def listener(image, ts, chunks):
-        received.append((image, ts, chunks))
+    def listener(frame):
+        received.append(frame)
         if len(received) >= 5:
             done.set()
 
@@ -165,13 +165,13 @@ def test_integration_basic_fanout_via_simulated_camera():
         _stop_sim_pump(scope)
 
     # Sim has no chunk surface; chunks should always be None.
-    assert all(r[2] is None for r in received)
+    assert all(r.chunks is None for r in received)
     # Payload shape: image is a numpy array, ts is a datetime.
     import datetime
     import numpy as np
 
-    assert isinstance(received[0][0], np.ndarray)
-    assert isinstance(received[0][1], datetime.datetime)
+    assert isinstance(received[0].image, np.ndarray)
+    assert isinstance(received[0].timestamp, datetime.datetime)
 
 
 def test_integration_drop_policy_via_simulated_camera():
@@ -183,7 +183,7 @@ def test_integration_drop_policy_via_simulated_camera():
     removed = threading.Event()
     slow_ms = HANDLER_BUDGET_MS + 5
 
-    def slow_listener(image, ts, chunks):
+    def slow_listener(frame):
         call_count[0] += 1
         time.sleep(slow_ms / 1000.0)
 
@@ -260,8 +260,8 @@ def test_integration_plugin_namespace_fanout_via_simulated_camera():
     received = []
     done = threading.Event()
 
-    def handler(image, ts, chunks):
-        received.append((image, ts, chunks))
+    def handler(frame):
+        received.append(frame)
         if len(received) >= 3:
             done.set()
 
@@ -301,7 +301,7 @@ def test_a_driver_registration_failure_is_raised_to_the_registrant(monkeypatch):
 
     monkeypatch.setattr(scope._camera_driver, 'register_frame_callback', boom)
 
-    def handler(_image, _ts, _chunks):
+    def handler(_frame):
         pass
 
     with pytest.raises(FrameListenerNotRegisteredError) as raised:

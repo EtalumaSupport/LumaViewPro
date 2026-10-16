@@ -110,7 +110,7 @@ def _fail_these_channels(camera, step_colors, failing):
     def step_started(step_idx):
         color = step_colors[step_idx]
         if color in failing:
-            camera.grab_new_capture = lambda timeout_s: (False, None, 0)
+            camera.grab_new_capture = lambda timeout_s: None
         else:
             camera.grab_new_capture = real_grab
 
@@ -283,11 +283,7 @@ class TestTheThreeStrikeFatalAbort:
             # used to stand in for this, but a dark frame is now
             # delivered and saved, so only a grab that returns nothing
             # still produces the failures this abort counts.
-            session.scope._camera_driver.grab_new_capture = lambda timeout_s: (
-                False,
-                None,
-                0,
-            )
+            session.scope._camera_driver.grab_new_capture = lambda timeout_s: None
 
             outcome = runner.start_composite(sequence_name='fatal', parent_dir=str(tmp_path))
             settled = outcome.result(timeout=120)
@@ -330,11 +326,7 @@ class TestTheThreeStrikeFatalAbort:
             # used to stand in for this, but a dark frame is now
             # delivered and saved, so only a grab that returns nothing
             # still produces the failures this abort counts.
-            session.scope._camera_driver.grab_new_capture = lambda timeout_s: (
-                False,
-                None,
-                0,
-            )
+            session.scope._camera_driver.grab_new_capture = lambda timeout_s: None
 
             runner.start_composite(sequence_name='released', parent_dir=str(tmp_path)).result(
                 timeout=120
@@ -366,11 +358,7 @@ class TestTheThreeStrikeFatalAbort:
             # used to stand in for this, but a dark frame is now
             # delivered and saved, so only a grab that returns nothing
             # still produces the failures this abort counts.
-            session.scope._camera_driver.grab_new_capture = lambda timeout_s: (
-                False,
-                None,
-                0,
-            )
+            session.scope._camera_driver.grab_new_capture = lambda timeout_s: None
             runner.start_composite(sequence_name='dark', parent_dir=str(tmp_path)).result(
                 timeout=120
             )

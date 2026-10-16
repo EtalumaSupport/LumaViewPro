@@ -244,7 +244,7 @@ def test_with_no_camera_a_restore_of_a_cameraless_snapshot_is_satisfied_and_any_
 def test_with_no_camera_a_frame_listener_is_refused(make_session, monkeypatch):
     im = _camera_less(make_session, monkeypatch, 'LS850').scope.imaging
 
-    def listener(image, timestamp, chunks):
+    def listener(frame):
         pass
 
     _assert_names_the_camera(_refused(lambda: im.add_frame_listener(listener)))

@@ -24,6 +24,7 @@ end over the simulated LED board; stubbing either would let an inert
 derivation pass (the defect shape that killed two plan drafts).
 """
 
+import dataclasses
 import threading
 
 import numpy as np
@@ -57,30 +58,36 @@ def live_scope():
 def _during_the_first_grab(scope, monkeypatch, action, frame=None):
     """Land ``action`` inside the first grab window, from another caller.
 
-    The camera driver's ``get_array`` is read only by the grab that becomes
-    the capture, after the drain has settled and the LED state has been
-    read, so its first call is the seam the pre-fix capture could not see.
-    The action runs on a thread of its own, as a write from another caller
-    does (a lane worker never dispatches onto another lane), and the grab
-    waits for it to land. Returns an Event set once it has; the driver's
-    frame is returned, or ``frame`` when one is given.
+    The grab that becomes the capture is the first ``grab_new_capture`` made
+    with nothing left to drain, after the LED state has been read, so it is
+    the seam the pre-fix capture could not see. The action runs on a thread
+    of its own, as a write from another caller does (a lane worker never
+    dispatches onto another lane), and the grab waits for it to land.
+    Returns an Event set once it has; the driver's frame is returned, with
+    ``frame``'s pixels when one is given.
     """
     driver = scope._camera_driver
-    real_get_array = driver.get_array
+    real_grab_new_capture = driver.grab_new_capture
+    validity = scope.imaging.frame_validity
     landed = threading.Event()
 
     def write():
         action()
         landed.set()
 
-    def get_array():
-        if not landed.is_set():
+    def grab_new_capture(timeout_s):
+        if not landed.is_set() and validity.frames_until_valid() == 0:
             writer = threading.Thread(target=write, name='mid-window-write')
             writer.start()
             writer.join(5.0)
-        return real_get_array() if frame is None else frame
+        grabbed = real_grab_new_capture(timeout_s)
+        if grabbed is None or frame is None:
+            return grabbed
+        image = frame.view()
+        image.flags.writeable = False
+        return dataclasses.replace(grabbed, image=image)
 
-    monkeypatch.setattr(driver, 'get_array', get_array)
+    monkeypatch.setattr(driver, 'grab_new_capture', grab_new_capture)
     return landed
 
 
@@ -160,13 +167,13 @@ class TestDrainDeadline:
         Slow: the budget's floor is 3 s of wall time, and the timing is the
         subject."""
         fv = live_scope.imaging.frame_validity
-        real_get_array = live_scope._camera_driver.get_array
+        real_grab_new_capture = live_scope._camera_driver.grab_new_capture
 
-        def streaming_interference():
+        def streaming_interference(timeout_s):
             fv.invalidate('led')  # each drained frame is answered by another change
-            return real_get_array()
+            return real_grab_new_capture(timeout_s)
 
-        monkeypatch.setattr(live_scope._camera_driver, 'get_array', streaming_interference)
+        monkeypatch.setattr(live_scope._camera_driver, 'grab_new_capture', streaming_interference)
         fv.invalidate('led')
 
         with pytest.raises(CaptureFailedError) as failed:

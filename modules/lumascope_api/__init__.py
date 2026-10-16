@@ -8,9 +8,10 @@ ProtocolsAPI) live in sibling modules in this package.
 
 Existing imports `from modules.lumascope_api import Lumascope` and
 `from modules.lumascope_api import AxisState` keep working via the
-re-exports below.
+re-exports below. ``Frame`` is the record a frame listener receives.
 """
 
+from drivers.camera import Frame
 from modules.lumascope_api._constants import AxisPosition
 from modules.lumascope_api._lumascope import (
     AxisState,
@@ -29,6 +30,7 @@ __all__ = [
     'AxisState',
     'Capabilities',
     'DiagnosticsAPI',
+    'Frame',
     'IlluminationAPI',
     'ImagingAPI',
     'Lumascope',

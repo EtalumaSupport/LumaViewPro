@@ -25,6 +25,7 @@ from modules.activity_claim import ActivityClaim
 from modules.protocol_recording import ProtocolVideoStep
 from tests.scope_fakes import answer_auto_gain_like_the_api, spec_scope
 from tests.protocol_drives import run_identity
+from tests.camera_fakes import delivered_frame
 from modules.layer_record import release_colors
 
 WAIT_S = 10.0
@@ -107,7 +108,7 @@ def test_the_finish_end_is_announced_and_reads_not_busy(tmp_path, monkeypatch):
     deadline = time.monotonic() + WAIT_S
     while 'cb' not in listeners and time.monotonic() < deadline:
         time.sleep(0.01)
-    listeners['cb'](np.zeros((8, 8), dtype=np.uint8), 1000.3, None)
+    listeners['cb'](delivered_frame(np.zeros((8, 8), dtype=np.uint8), 1000.3))
     clock['t'] = 1002.0
     worker.join(timeout=WAIT_S)
 

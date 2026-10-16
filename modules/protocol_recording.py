@@ -34,6 +34,7 @@ from typing import Any
 
 import numpy as np
 
+from drivers.camera import Frame
 from lvp_logger import logger, version as lvp_version
 from modules.activity_claim import BorrowedClaim
 from modules.common_utils import (
@@ -531,7 +532,7 @@ class ProtocolVideoStep:
     # Camera-thread ingest
     # ------------------------------------------------------------------
 
-    def _on_camera_frame(self, image, timestamp, chunks) -> None:
+    def _on_camera_frame(self, frame: Frame) -> None:
         """SDK-thread listener: rebase the timestamp, offer to the engine.
 
         The frame's fact is read HERE, when the frame arrives, and rides
@@ -548,7 +549,10 @@ class ProtocolVideoStep:
             if self._video_as_frames
             else None
         )
-        engine.ingest_frame(image, self._rebaser.frame_time_s(timestamp, chunks), chunks, fact=fact)
+        chunks = dict(frame.chunks) if frame.chunks is not None else None
+        engine.ingest_frame(
+            frame.image, self._rebaser.frame_time_s(frame.timestamp, chunks), chunks, fact=fact
+        )
 
     # ------------------------------------------------------------------
     # Writer-lane edge

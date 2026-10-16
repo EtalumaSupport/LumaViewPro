@@ -1557,11 +1557,9 @@ class ProtocolImageWriter:
                         f'{self._capture_evidence(captured_image, full_scale)}'
                     )
 
-                    # Read-only from here: the write job and frame_captured's
-                    # handler hold this one array, and no view of it can be
-                    # made writeable again, so no handler can change the
-                    # file's pixels. Nothing downstream writes it in place.
-                    captured_image.flags.writeable = False
+                    # The capture's image is read-only (capture_and_wait), and
+                    # the write job and frame_captured's handler hold this one
+                    # array, so no handler can change the file's pixels.
                     _success_capture_time = datetime.datetime.now()
                     if not self._submit_write(
                         kwargs={

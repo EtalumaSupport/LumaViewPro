@@ -22,9 +22,9 @@ def _next_delivered_frame(scope):
     seen = []
     arrived = threading.Event()
 
-    def _listener(image, timestamp, chunks):
+    def _listener(frame):
         if not seen:
-            seen.append(image)
+            seen.append(frame.image)
             arrived.set()
 
     scope.imaging.add_frame_listener(_listener, name='delivered-frame probe')
@@ -53,8 +53,8 @@ def test_the_preview_draws_its_scale_bar_on_its_own_copy(sim_scope):
     sim_scope.imaging.set_scale_bar_color('Green')
     delivered = []
 
-    def _listener(image, timestamp, chunks):
-        delivered.append(image)
+    def _listener(frame):
+        delivered.append(frame.image)
 
     sim_scope.imaging.add_frame_listener(_listener, name='delivered-frame probe')
     _next_delivered_frame(sim_scope)

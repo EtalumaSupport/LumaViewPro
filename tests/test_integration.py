@@ -370,14 +370,12 @@ class TestIntegrationSingleStep:
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
 
-        # After a successful protocol run, the camera should have grabbed at least one image
-        # The array is populated by grab() calls during the capture sequence
-        arr = scope._camera_driver.array
-        assert arr is not None
-        assert isinstance(arr, np.ndarray)
-        # If grab was called, array should have 2D shape (height, width)
-        if arr.ndim == 2:
-            assert arr.shape[0] > 0 and arr.shape[1] > 0
+        # After a successful protocol run the camera has delivered frames
+        frame = scope._camera_driver.grab()
+        assert frame is not None
+        assert isinstance(frame.image, np.ndarray)
+        if frame.image.ndim == 2:
+            assert frame.image.shape[0] > 0 and frame.image.shape[1] > 0
 
 
 class TestIntegrationAutoGain:

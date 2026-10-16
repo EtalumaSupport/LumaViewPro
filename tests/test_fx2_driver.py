@@ -481,7 +481,7 @@ class TestFX2FrameCallbackAdoption:
     def test_reconnect_preserves_frame_callback(self, fake_fx2_conn):
         cam = fx2driver.FX2Camera()
 
-        def _cb(image, ts, chunks):
+        def _cb(frame):
             pass
 
         cam.register_frame_callback(_cb)

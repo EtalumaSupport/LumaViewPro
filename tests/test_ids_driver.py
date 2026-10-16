@@ -1733,7 +1733,7 @@ class TestPipelineLifecycle:
         h = _ids_handler(ds)
         stored = []
         h._unpack = lambda buf: (buf.tag, 12)
-        h._store_frame = lambda img, ts, *, significant_bits, wire_bytes: stored.append(
+        h._store_frame = lambda img, ts, *, arrived_ns, significant_bits, wire_bytes: stored.append(
             (img, significant_bits, wire_bytes)
         )
         h.start()
@@ -1786,7 +1786,9 @@ class TestPipelineLifecycle:
             return buf.tag, 12
 
         h._unpack = slow_unpack
-        h._store_frame = lambda img, ts, *, significant_bits, wire_bytes: stored.append(img)
+        h._store_frame = lambda img, ts, *, arrived_ns, significant_bits, wire_bytes: stored.append(
+            img
+        )
         h.start()
         time.sleep(0.3)  # all three drain while the worker is held on b0
         release.set()
@@ -1815,7 +1817,9 @@ class TestPipelineLifecycle:
             return buf.tag, 12
 
         h._unpack = flaky_unpack
-        h._store_frame = lambda img, ts, *, significant_bits, wire_bytes: stored.append(img)
+        h._store_frame = lambda img, ts, *, arrived_ns, significant_bits, wire_bytes: stored.append(
+            img
+        )
         h.start()
         self._wait_until(lambda: 'good' in stored)
         h.stop()

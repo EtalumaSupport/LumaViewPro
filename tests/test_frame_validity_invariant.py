@@ -23,6 +23,7 @@ import pytest
 from modules.exceptions import CameraSettingRejected
 from modules.lumascope_api.imaging import ImagingAPI
 from modules.notification_center import Severity
+from tests.camera_fakes import frames_carrying
 from tests.scope_fakes import bind_settings_like_a_session, build_scope
 
 _MOTION_SOURCES = ('xy_move', 'z_move', 'turret')
@@ -279,7 +280,7 @@ class TestSaturationGuard:
         imaging, cam = sim_imaging
         blown = np.full((4, 4), 255, dtype=np.uint8)
         frames = [blown, blown]  # blown on first grab AND on the retry grab
-        monkeypatch.setattr(cam, 'get_array', lambda: frames.pop(0))
+        frames_carrying(monkeypatch, cam, lambda: frames.pop(0))
         warnings = []
         monkeypatch.setattr(
             imaging_mod.logger, 'warning', lambda msg, *a, **k: warnings.append(msg)

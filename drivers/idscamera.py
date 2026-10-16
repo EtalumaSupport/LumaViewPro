@@ -27,6 +27,7 @@ except ImportError:
     _cam_log = logger
 from drivers.camera import (
     Camera,
+    Frame,
     FrameGrid,
     ImageHandlerBase,
     declared_speed,
@@ -3000,7 +3001,7 @@ class IDSCamera(Camera):
 
     # grab() inherited from Camera base class
 
-    def grab_new_capture(self, timeout_s: float) -> tuple:
+    def grab_new_capture(self, timeout_s: float) -> Frame | None:
         """Return a frame captured AFTER this call, via the shared latest-frame
         path -- never by driving the data stream directly.
 
@@ -3011,16 +3012,16 @@ class IDSCamera(Camera):
         re-queueing outside _requeue_lock, which the SDK does not promise is
         concurrency-safe. Instead, snapshot the worker's frame-generation, wait for
         it to advance (a genuinely new frame, unpacked + cropped + depth-stamped by
-        the worker), then read that frame through grab() -- which stores it under
-        _array_lock with its paired significant_bits. This mirrors the Pylon
-        driver, which also consumes the handler's frame rather than the stream.
+        the worker), then read that frame's record through grab(). This mirrors
+        the Pylon driver, which also consumes the handler's frame rather than
+        the stream.
         """
         handler = self.cam_image_handler
         if not handler:
-            return False, None, None
+            return None
         since = handler.frame_generation()
         if not handler.wait_for_new_frame(since, timeout_s):
-            return False, None, None
+            return None
         return self.grab()
 
     def update_auto_gain_target_brightness(self, auto_target_brightness: float) -> NoReturn:
@@ -3887,6 +3888,7 @@ class ImageHandler(ImageHandlerBase):
                 self._store_frame(
                     array,
                     datetime.datetime.now(),
+                    arrived_ns=time.monotonic_ns(),
                     significant_bits=significant_bits,
                     wire_bytes=buffer.DeliveredDataSize(),
                 )
