@@ -111,6 +111,9 @@ def run_cleanup(
     leds_state_at_end: str,
     original_led_states: tuple[LedReading, ...] | None,
     saved_camera_state: dict,
+    # Shows the layer shown before the run at its stored settings, once the
+    # camera is restored; None when no session composes the run.
+    show_pre_run_layer_fn: Callable[[], None] | None,
     return_to_position: dict | None,
     # Dependencies
     scope: Lumascope,
@@ -289,6 +292,16 @@ def run_cleanup(
             scope.imaging.restore_camera_state(saved_camera_state)
     except Exception as ex:
         cleanup_errors.append(('Restore camera gain/exposure', f'{type(ex).__name__}: {ex}'))
+
+    # --- Show the layer shown before the run ---
+    # The run's steps moved the shown channel to the last step's layer while
+    # the restore put the camera back to the pre-run state: a still after the
+    # run would be named for one and taken at the other.
+    try:
+        if show_pre_run_layer_fn is not None:
+            show_pre_run_layer_fn()
+    except Exception as ex:
+        cleanup_errors.append(('Show the layer shown before the run', f'{type(ex).__name__}: {ex}'))
 
     # --- Return to position ---
     try:

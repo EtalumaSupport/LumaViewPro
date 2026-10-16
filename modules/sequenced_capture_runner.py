@@ -324,6 +324,7 @@ class SequencedCaptureRunner:
         on_protocol_files_written: typing.Callable[[pathlib.Path, str, str, str], None]
         | None = None,
         on_step_lit: typing.Callable[[str], None] | None = None,
+        on_run_ending: typing.Callable[[], None] | None = None,
     ):
         # Told the layer each step has lit, once its light is on: the
         # session's shown channel follows the run.
@@ -344,6 +345,10 @@ class SequencedCaptureRunner:
         # alone can still read the run as live; this is the edge after
         # which is_live_run says it has ended.
         self._on_run_idle = on_run_idle
+        # Called by the run's cleanup once the camera is restored, on the
+        # protocol thread under the run's taking: the session shows the layer
+        # it showed before the run, at its stored settings.
+        self._on_run_ending = on_run_ending
         # Stateless, so the run keeps its own. The labware catalogue is the
         # scope's, read where a run needs a plate.
         # The offset a run converts plate positions with; prepare() snapshots
@@ -2628,6 +2633,7 @@ class SequencedCaptureRunner:
                 leds_state_at_end=self._run_mode.leds_state_at_end,
                 original_led_states=self._original_led_states,
                 saved_camera_state=getattr(self, '_saved_camera_state', None),
+                show_pre_run_layer_fn=self._on_run_ending,
                 return_to_position=self._return_to_position,
                 scope=self._scope,
                 apply_led_transition_fn=self._step_executor.apply_led_transition,

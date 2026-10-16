@@ -1304,6 +1304,7 @@ def _run_cleanup_kwargs(**overrides):
         'leds_state_at_end': 'off',
         'original_led_states': {},
         'saved_camera_state': {},
+        'show_pre_run_layer_fn': None,
         'return_to_position': None,
         'scope': MagicMock(),
         'apply_led_transition_fn': MagicMock(),

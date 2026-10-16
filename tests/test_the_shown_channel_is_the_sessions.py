@@ -126,3 +126,61 @@ def test_bring_up_again_shows_bf_dark(session):
     session.configure_scope()
 
     assert session.shown_channel == ShownChannel('BF', lit=False)
+
+
+def _run_one_blue_step(built, tmp_path):
+    from tests.test_a_run_needs_every_axis_position import COMPLETION_TIMEOUT
+    from tests.test_run_refusal_contract import _build_real_protocol, _make_single_step_protocol
+
+    blue = dict(_make_single_step_protocol(color='Blue').step(idx=0))
+    run = built.create_protocol_runner().start_single_scan(
+        protocol=_build_real_protocol([blue]), parent_dir=str(tmp_path)
+    )
+    assert run.result(timeout=COMPLETION_TIMEOUT).status == 'completed'
+
+
+def _session_showing_bf(tmp_path):
+    from tests.scope_fakes import home_sim_scope
+    from tests.test_a_run_needs_every_axis_position import _settings
+
+    built = ScopeSession.create(
+        complete_settings(
+            **_settings(tmp_path),
+            BF={'exposure_ms': 2.0, 'gain_db': 1.0, 'auto_gain': False},
+        ),
+        simulate=True,
+    )
+    home_sim_scope(built.scope)
+    built.show_channel('BF')
+    return built
+
+
+def test_a_runs_end_shows_the_layer_shown_before_it(tmp_path):
+    """BF shown before a Blue step's run: after it BF is shown again and the
+    camera holds BF's stored settings, so a still is named and set for BF."""
+    built = _session_showing_bf(tmp_path)
+    try:
+        _run_one_blue_step(built, tmp_path)
+
+        assert built.shown_channel.layer == 'BF'
+        assert built.scope.imaging.get_held_layer() == 'BF'
+        assert round(built.scope.imaging.get_exposure_ms(), 3) == 2.0
+    finally:
+        built.shutdown()
+
+
+def test_a_write_during_a_run_to_the_layer_shown_before_it_is_on_the_camera_after(tmp_path):
+    built = _session_showing_bf(tmp_path)
+
+    def write_while_the_step_is_lit(layer, _lit):
+        if layer == 'Blue':
+            built.update_settings('BF.exposure_ms', 7.0)
+
+    built.add_shown_channel_listener(write_while_the_step_is_lit)
+    try:
+        _run_one_blue_step(built, tmp_path)
+
+        assert round(built.scope.imaging.get_exposure_ms(), 3) == 7.0
+    finally:
+        built.remove_shown_channel_listener(write_while_the_step_is_lit)
+        built.shutdown()

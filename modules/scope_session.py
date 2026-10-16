@@ -450,6 +450,10 @@ class ScopeSession:
         # GUI opens on BF with every LED dark, and so does the store.
         self._shown_channel = ShownChannel(common_utils.DEFAULT_LAYER, lit=False)
         self._shown_channel_listeners: list = []
+        # The shown channel as a run's first lit step found it, shown again
+        # once the run's cleanup has restored the camera; None outside a run
+        # whose steps have lit. Written and read on the protocol thread.
+        self._shown_before_run: ShownChannel | None = None
         # The step the last go_to_step previewed, as (protocol, index): a
         # repeat of it is a re-click, whose preview would put out a channel
         # the person lit in between. Forgotten at every run transition, so
@@ -536,6 +540,7 @@ class ScopeSession:
             on_run_idle=self._run_went_idle,
             on_protocol_files_written=self._run_protocol_complete_processors,
             on_step_lit=self._step_lit_by_run,
+            on_run_ending=self._show_the_layer_shown_before_the_run,
         )
         self._protocol_runner = None
 
@@ -2584,7 +2589,26 @@ class ScopeSession:
     def _step_lit_by_run(self, layer: str) -> None:
         """A run's step has shown ``layer``: it is the shown channel, lit as
         its LED reads -- a layer with no LED is shown dark."""
+        if self._shown_before_run is None:
+            self._shown_before_run = self._shown_channel
         self._set_shown_channel(ShownChannel(layer, lit=self._layer_lit(layer)))
+
+    def _show_the_layer_shown_before_the_run(self) -> None:
+        """The run's cleanup has restored the camera: show the layer shown
+        before the run again, at its stored settings.
+
+        A write made to it during the run was stored only, and goes on the
+        camera here; with none, the camera already holds it and nothing is
+        written. Its LED is what the run's end policy left, so it is shown
+        lit as its LED reads. Called on the protocol thread, under the run's
+        taking, so the camera half is admitted.
+        """
+        before, self._shown_before_run = self._shown_before_run, None
+        if before is None:
+            return
+        self._set_shown_channel(ShownChannel(before.layer, lit=self._layer_lit(before.layer)))
+        if self.scope.camera_connected:
+            self.apply_layer_camera(before.layer)
 
     @api(reads=True)
     @property

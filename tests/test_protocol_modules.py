@@ -344,6 +344,7 @@ class TestRunCleanup:
             'leds_state_at_end': 'off',
             'original_led_states': (),
             'saved_camera_state': None,
+            'show_pre_run_layer_fn': None,
             'return_to_position': None,
             'scope': MagicMock(),
             'apply_led_transition_fn': lambda transition, ctx: None,

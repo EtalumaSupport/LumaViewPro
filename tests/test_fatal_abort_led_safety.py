@@ -169,6 +169,7 @@ def _run_cleanup_capture_led_ctx(*, forced_dark, leds_state_at_end):
         leds_state_at_end=leds_state_at_end,
         original_led_states=(LedReading(2, 'Blue', LedState.LIT, 42.0),),
         saved_camera_state=None,
+        show_pre_run_layer_fn=None,
         return_to_position=None,
         scope=scope,
         apply_led_transition_fn=lambda transition, ctx: applied.append((transition, ctx)),
