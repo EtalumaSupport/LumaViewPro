@@ -108,6 +108,11 @@ def install_mock_deps():
     mock_lvp_logger = MagicMock()
     mock_lvp_logger.logger = mock_logger
     mock_lvp_logger.version = 'test'
+    # The build identity as the real module answers it for a source tree with
+    # no commit to name: a record that writes it into JSON gets a string or
+    # None, never a MagicMock that cannot be serialized.
+    mock_lvp_logger.build_timestamp = ''
+    mock_lvp_logger.git_revision = MagicMock(return_value=None)
     # Real writable path: production code (e.g. diagnostics probes) now reads
     # log_dir to place output under the log folder. Without this it would be an
     # auto-MagicMock, and Path(mock) -> Path('MagicMock/mock.log_dir/<id>'),
