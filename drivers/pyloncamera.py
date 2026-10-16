@@ -2329,15 +2329,22 @@ class PylonCamera(Camera):
                 guards). Hardware-level failure raises HardwareError.
 
         Raises:
-            CameraNoAnswerError: The PixelFormat write timed out; the camera
-                is not marked disconnected, and the caller may send it again.
+            CameraNoAnswerError: The PixelFormat write, or the read of the
+                supported formats it needs, timed out; the camera is not
+                marked disconnected, and the caller may send it again.
             HardwareError: Any other SDK failure (CameraWriteFailedError).
                 Camera is marked disconnected on RuntimeException.
         """
         if not self.active:
             return False
 
-        if pixel_format not in self.get_supported_pixel_formats():
+        try:
+            supported = self._read_supported_pixel_formats()
+        except genicam.TimeoutException as e:
+            raise _no_answer(
+                f'set_pixel_format({pixel_format})', e, read='the supported pixel formats'
+            ) from e
+        if pixel_format not in supported:
             _cam_log.error(f'[CAM Class ] Unsupported pixel format: {pixel_format}')
             return False
 
@@ -2428,7 +2435,23 @@ class PylonCamera(Camera):
     def get_supported_pixel_formats(self) -> tuple:
         """Return every PixelFormat the camera advertises; () on inactive / read failure."""
         try:
+            return self._read_supported_pixel_formats()
+        except genicam.TimeoutException as e:
+            _cam_log.error(f'[CAM Class ] The camera did not answer the pixel formats read: {e}')
+            return ()
+
+    def _read_supported_pixel_formats(self) -> tuple:
+        """Every PixelFormat the camera advertises; () on a failed read.
+
+        Raises:
+            genicam.TimeoutException: The camera did not answer the read. A
+                write that needs the list answers it as no answer; a reader
+                that only lists the formats answers ().
+        """
+        try:
             return self.active.PixelFormat.GetSymbolics()
+        except genicam.TimeoutException:
+            raise
         except genicam.RuntimeException as e:
             # Intentionally NO disconnect teardown (latching device-removed on
             # a transient node read killed the stream); removal is owned by

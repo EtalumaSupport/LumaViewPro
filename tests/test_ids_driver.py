@@ -2170,6 +2170,19 @@ class TestASettingWriteTheCameraDoesNotAnswer:
                 lambda cam: cam.set_black_level(3.0),
                 'BlackLevel',
             ),
+            'set_pixel_format': (
+                'PixelFormat',
+                'AvailableEntries',
+                lambda cam: cam.set_pixel_format('Mono12'),
+                'PixelFormat',
+            ),
+            # The selector left unresolved at connect is resolved by the write.
+            'gain (its selector)': (
+                'GainSelector',
+                'AvailableEntries',
+                lambda cam: (setattr(cam, '_gain_selector', None), cam.gain(6.0))[1],
+                'Gain',
+            ),
         }
         offenders = []
         for writer, (node_name, method, write, setting_node) in reads.items():

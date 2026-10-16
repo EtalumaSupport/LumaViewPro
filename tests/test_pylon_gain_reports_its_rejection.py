@@ -389,6 +389,11 @@ def _black_level_probe_unread(cam):
     return cam.set_black_level(5.0)
 
 
+def _pixel_formats_unread(cam):
+    cam.active.PixelFormat.GetSymbolics.side_effect = _timeout('PixelFormat.GetSymbolics')
+    return cam.set_pixel_format('Mono8')
+
+
 # Reads a setter must make before it can send its write at all: the value is
 # computed from them, or the node they probe is the one written.
 READS_BEFORE_THE_WRITE = {
@@ -397,6 +402,7 @@ READS_BEFORE_THE_WRITE = {
     'set_conversion_gain_mode (the node probe)': _conversion_gain_probe_unread,
     'set_line_noise_reduction (the node probe)': _line_noise_probe_unread,
     'set_black_level (the selector probe)': _black_level_probe_unread,
+    'set_pixel_format (the supported formats)': _pixel_formats_unread,
 }
 
 

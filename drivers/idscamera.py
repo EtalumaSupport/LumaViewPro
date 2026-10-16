@@ -1151,7 +1151,13 @@ class IDSCamera(Camera):
 
     def _resolve_gain_selector(self):
         """Resolve the analog GainSelector entry from the live nodemap enum, or
-        None if the body has no GainSelector / the read fails."""
+        None if the body has no GainSelector / the read fails.
+
+        Raises:
+            The SDK's exception when the camera did not answer the read
+            (``_exc_is`` timeout): a gain write that needs the selector
+            answers it as no answer, not as a body without one.
+        """
         try:
             entries = tuple(
                 e.SymbolicValue()
@@ -1163,6 +1169,8 @@ class IDSCamera(Camera):
                 preferred = gain.gain_selector
             return self._select_gain_selector_name(entries, preferred)
         except Exception as e:
+            if _exc_is(e, 'TimeoutException', 'timeout'):
+                raise
             _cam_log.debug(f'[CAM Class ] Could not resolve GainSelector: {e}')
             return None
 
@@ -1174,8 +1182,15 @@ class IDSCamera(Camera):
         try:
             # Resolve the analog GainSelector entry this body exposes (cached
             # for gain()), and select it BEFORE reading the Gain range so the
-            # range reflects the selector the setter will use.
-            self._gain_selector = self._resolve_gain_selector()
+            # range reflects the selector the setter will use. Unanswered here,
+            # it is left for gain() to resolve, whose write needs it.
+            try:
+                self._gain_selector = self._resolve_gain_selector()
+            except Exception as e:
+                _cam_log.warning(
+                    f'[CAM Class ] The camera did not answer the GainSelector read: {e}'
+                )
+                self._gain_selector = None
             if self._gain_selector:
                 try:
                     self.remote_nodemap.FindNode('GainSelector').SetCurrentEntry(
@@ -2471,8 +2486,12 @@ class IDSCamera(Camera):
         "Mono12g24IDS". Pylon accepts "Mono8" / "Mono12" as wire names
         directly. To keep callers (UI, characterization tool) driver-agnostic
         we accept the same logical names on both and map per-driver here.
+
+        Raises:
+            The SDK's exception when the camera did not answer the read of the
+            supported formats (``_read_supported_pixel_formats``).
         """
-        return self._resolve_logical_format_name(logical, self.get_supported_pixel_formats())
+        return self._resolve_logical_format_name(logical, self._read_supported_pixel_formats())
 
     def set_pixel_format(self, pixel_format: str) -> bool:
         """Set the camera pixel format.
@@ -2487,14 +2506,20 @@ class IDSCamera(Camera):
                 guards). Hardware-level failure raises HardwareError.
 
         Raises:
-            HardwareError: SDK call failed. Marks the camera disconnected
-                before raising.
-            CameraNoAnswerError: the camera did not answer the write.
+            HardwareError: SDK call failed (CameraWriteFailedError). The
+                camera is not marked disconnected: removal is the DeviceLost
+                callback's.
+            CameraNoAnswerError: the camera did not answer the write, or the
+                read of the supported formats it needs.
         """
         if not self.active:
             return False
 
-        resolved = self._resolve_logical_format(pixel_format)
+        try:
+            resolved = self._resolve_logical_format(pixel_format)
+        except Exception as e:
+            _raise_if_unanswered(e, 'read', f'PixelFormat {pixel_format}')
+            raise
         if resolved is None:
             supported = self.get_supported_pixel_formats()
             # Caller-correctable (returns False; callers fall back to a
@@ -2563,7 +2588,24 @@ class IDSCamera(Camera):
             _cam_log.error(f'[CAM Class ] get_pixel_format failed: {e}')
             return None
 
-    def get_supported_pixel_formats(self):
+    def get_supported_pixel_formats(self) -> tuple:
+        """Every PixelFormat the camera advertises; () on inactive / read failure."""
+        try:
+            return self._read_supported_pixel_formats()
+        except Exception as e:
+            _cam_log.error(
+                f'[CAM Class ] get_supported_pixel_formats: the camera did not answer ({e})'
+            )
+            return ()
+
+    def _read_supported_pixel_formats(self) -> tuple:
+        """Every PixelFormat the camera advertises; () on a failed read.
+
+        Raises:
+            The SDK's exception when the camera did not answer the read
+            (``_exc_is`` timeout). A write that needs the list answers it as no
+            answer; a reader that only lists the formats answers ().
+        """
         # Guard on _device_removed, not just active: _mark_disconnected() sets the
         # removed flag but deliberately leaves active set (the handle release is
         # deferred to disconnect()), so a live AvailableEntries() read on a removed
@@ -2577,6 +2619,8 @@ class IDSCamera(Camera):
                 for pf in self.remote_nodemap.FindNode('PixelFormat').AvailableEntries()
             )
         except Exception as e:
+            if _exc_is(e, 'TimeoutException', 'timeout'):
+                raise
             # An empty tuple is indistinguishable from "no formats" at the call
             # site -- a caller doing formats[0] then raises IndexError far from the
             # real cause. Name a removal or a wedged nodemap distinctly so the log
@@ -3088,7 +3132,9 @@ class IDSCamera(Camera):
             # can be resolved, fail loud rather than write the factor against
             # whatever selector is currently active (that would land analog gain
             # on the wrong amplifier and still report success).
+            access = 'read'
             selector = self._gain_selector or self._resolve_gain_selector()
+            access = 'write'
             if not selector:
                 _cam_log.error(
                     '[CAM Class ] Cannot set gain: no GainSelector entry resolved on this body'
