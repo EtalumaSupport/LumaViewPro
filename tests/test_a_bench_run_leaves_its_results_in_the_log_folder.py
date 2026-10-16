@@ -14,31 +14,17 @@ into the scratch folder and never into the checkout's own logs.
 from __future__ import annotations
 
 import json
-import pathlib
 import subprocess
 import sys
 
 import pytest
 
-REPO = pathlib.Path(__file__).resolve().parent.parent
+from tests.bench_results import linked_checkout
 
 
 @pytest.fixture
 def folder(tmp_path):
-    folder = tmp_path / 'checkout'
-    folder.mkdir()
-    for item in (
-        'lvp_logger.py',
-        'version.txt',
-        'pyproject.toml',
-        'modules',
-        'drivers',
-        'lib',
-        'tests',
-        'data',
-    ):
-        (folder / item).symlink_to(REPO / item)
-    return folder
+    return linked_checkout(tmp_path)
 
 
 def _pytest(folder, *flags):
