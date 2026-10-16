@@ -507,6 +507,7 @@ class ScopeSession:
             scope=scope,
             settings_snapshot=self.get_settings_snapshot,
             shown_layer=lambda: self._shown_channel.layer,
+            layer_camera_request=self._layer_camera_request,
             engineering_mode=lambda: self.engineering_mode,
             channel_colors=self.channel_colors,
         )

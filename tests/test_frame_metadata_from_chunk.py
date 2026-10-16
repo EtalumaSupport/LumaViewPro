@@ -59,6 +59,7 @@ def _imaging(live=None, chunk_reads=None):
     # The reducer's account of the frame just made: one frame, 12 bits.
     imaging._state_lock = threading.Lock()
     imaging._last_frame_summing = (1, 12)
+    imaging._held_layer = None
     answer = {'gain_db': LIVE_GAIN_DB, 'exposure_ms': LIVE_EXPOSURE_MS} if live is None else live
     imaging.get_live_camera_settings = lambda: answer
     return imaging

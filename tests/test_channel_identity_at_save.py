@@ -118,6 +118,8 @@ def _run_manual_capture(tmp_path, scope, *, false_color_active, use_crosshairs):
         scope=scope,
         settings_snapshot=lambda: settings,
         shown_layer=lambda: LAYER,
+        # No layer is put on this camera, so the still's hold writes nothing.
+        layer_camera_request=lambda layer: None,
         engineering_mode=lambda: False,
         channel_colors=release_colors,
     )

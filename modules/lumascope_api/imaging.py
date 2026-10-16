@@ -45,6 +45,7 @@ from modules.exceptions import (
     InstallationFileError,
     MissingPart,
 )
+from modules.activity_claim import current_taking
 from modules.frame_validity import Counter, FrameValidity, Judgment
 from modules.lumascope_api.frame_record import BLOWN_FRACTION, ClockMapping, FrameRecord
 from modules.lumascope_api.illumination import live_lit_pairs
@@ -3679,6 +3680,7 @@ class ImagingAPI:
             judgments=judgments,
             saturated_fraction=saturated_fraction,
             dark=dark,
+            held_layer=self.get_held_layer(),
         )
 
     def _clock_mapping_for_record(self) -> ClockMapping | None:
@@ -5011,6 +5013,48 @@ class ImagingAPI:
             return None
         return held.layer
 
+    def _holding(self, layer: str, request: LayerCameraRequest) -> _HeldLayer | None:
+        """The record, when the camera holds ``layer`` at ``request``; else None."""
+        with self._state_lock:
+            held = self._held_layer
+        if held is not None and held.layer == layer and held.request == request:
+            return held
+        return None
+
+    def _hold_layer_for_capture(self, layer: str, request: LayerCameraRequest, member: str) -> None:
+        """``_hold_layer_impl`` from inside a capture's own camera-lane task.
+
+        The capture is already the task its taking admitted, so this is not
+        admitted again against whatever holds the scope now: a run that took
+        the scope after the capture was put on the lane would otherwise
+        refuse the capture it waits for. A write falsifies a recording, so
+        one needed while a recording runs is refused; a layer the camera
+        already holds needs none and is never refused. With the camera
+        holding no layer's settings (a raw camera write came last) nothing
+        is written: the raw values stand, and the frame's record says so.
+
+        Raises:
+            HardwareCommandRefusedError: ``'exclusive_activity_running'``,
+                naming the recording, when a write is needed while one runs;
+                nothing was written.
+            CameraSettingRejected: as ``_hold_layer_impl`` says.
+        """
+        with self._state_lock:
+            held = self._held_layer
+        if held is None or self._holding(layer, request) is not None:
+            return
+        claim = self._scope._activity_claim
+        holder = claim.enter_falsifying_change(current_taking()) if claim is not None else None
+        if holder is not None and holder.kind == 'recording':
+            raise HardwareCommandRefusedError('exclusive_activity_running', member, holder.kind)
+        # Any other holder took the scope after this capture was admitted;
+        # while it holds, no recording can start, so the write is not counted.
+        try:
+            self._hold_layer_impl(layer, request)
+        finally:
+            if claim is not None and holder is None:
+                claim.leave_falsifying_change()
+
     def _hold_layer_impl(self, layer: str, request: LayerCameraRequest) -> dict | None:
         """Put ``layer``'s stored settings on the camera unless it holds them.
 
@@ -5029,9 +5073,8 @@ class ImagingAPI:
                 says. The camera is recorded as holding ``layer`` at what it
                 took, with no request, so the next ask writes again.
         """
-        with self._state_lock:
-            held = self._held_layer
-        if held is not None and held.layer == layer and held.request == request:
+        held = self._holding(layer, request)
+        if held is not None:
             return held.taken
         self._forget_held_layer()
         try:

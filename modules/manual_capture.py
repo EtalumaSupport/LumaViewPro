@@ -12,6 +12,7 @@ import concurrent.futures
 import logging
 import pathlib
 import threading
+import time
 from collections.abc import Callable
 from typing import Any
 
@@ -20,12 +21,14 @@ import modules.config_helpers as config_helpers
 import modules.image_utils as image_utils
 from modules import capture_overlays, path_utils
 from modules.exceptions import (
+    CaptureFailedError,
     CapturePositionNotRecordedNotice,
     HardwareCommandRefusedError,
     LiveFolderPathRefusedError,
 )
 from modules.image_save import save_image
 from modules.layer_record import ChannelColors
+from modules.lumascope_api.imaging import LayerCameraRequest
 from modules.recording_frames import frame_fact
 from modules.api_surface import api
 from modules.operation import Operation
@@ -47,9 +50,11 @@ class ManualCaptureController:
         scope: The Lumascope instance.
         settings_snapshot: Returns a private copy of the session's settings;
             one is taken per capture, when the capture is asked for.
-        shown_layer: Reads the layer of the session's shown channel, once
-            per capture, when the capture is asked for: it names the
-            channel when no LED is lit.
+        shown_layer: Reads the layer of the session's shown channel, on the
+            camera lane as the frame is taken: it names the channel when no
+            LED is lit.
+        layer_camera_request: Reads a layer's stored camera settings from
+            the session's store, on the camera lane, for the camera to hold.
         engineering_mode: Reads the session's engineering mode, once per
             capture, when the capture is asked for: a plugin may turn it on
             after the controller is built.
@@ -63,12 +68,14 @@ class ManualCaptureController:
         scope: Any,
         settings_snapshot: Callable[[], dict],
         shown_layer: Callable[[], str],
+        layer_camera_request: Callable[[str], LayerCameraRequest],
         engineering_mode: Callable[[], bool],
         channel_colors: Callable[[], ChannelColors],
     ):
         self._scope = scope
         self._settings_snapshot = settings_snapshot
         self._shown_layer = shown_layer
+        self._layer_camera_request = layer_camera_request
         self._engineering_mode = engineering_mode
         self._channel_colors = channel_colors
         # Held from the call until the camera-lane body has finished, so a
@@ -102,7 +109,10 @@ class ManualCaptureController:
                 frame, beside the unmarked one.
 
         The still is named for the lit LED's channel, else the shown
-        channel's layer (``session.show_channel``). In the session's
+        channel's layer (``session.show_channel``), read as its frame is
+        taken, and the camera holds that layer's stored settings for the
+        frame; after a raw camera write it keeps the written values, and
+        the frame's record says no layer was held. In the session's
         engineering mode the name carries the turret slot.
 
         Returns:
@@ -124,7 +134,9 @@ class ManualCaptureController:
             ``'camera_not_streaming'`` when its feed is stopped, and
             ``'exclusive_activity_running'`` when a run took the scope
             while the still was queued behind other camera work, waiting or
-            running when it was put on the lane; ``CancelledError`` when the lane dropped it unrun (the
+            running when it was put on the lane, or when a recording runs and
+            the camera would have to change layers for the still (nothing is
+            written then, and the recording is unchanged); ``CancelledError`` when the lane dropped it unrun (the
             scope disconnected). It sets no timeout: its caller bounds its
             own wait.
 
@@ -142,7 +154,6 @@ class ManualCaptureController:
             request = _StillRequest(
                 scope=self._scope,
                 settings=self._settings_snapshot(),
-                shown_layer=self._shown_layer(),
                 false_color_on=false_color_on,
                 bullseye=bullseye,
                 crosshairs=crosshairs,
@@ -186,55 +197,86 @@ class ManualCaptureController:
         finally:
             self._in_flight.release()
 
+    def _grab_named(self, scope, capture_config) -> tuple[str, str, Any]:
+        """The frame, the channel it was taken under, and the shown layer then.
+
+        The channel is the light -- the lit LED, else the shown layer -- the
+        rule a manual recording uses too, read on the lane, and the camera
+        holds that layer's stored settings for the grab
+        (``_hold_layer_for_capture``). The light is read again once the
+        frame has passed: an LED change during the drain re-drains the
+        capture, so that read is the light the frame was taken under. A
+        change means the frame is taken again on the new light's layer, and
+        every retake shares the first capture's budget.
+
+        Raises:
+            CaptureFailedError: ``'deadline_expired'``, the light kept
+                changing past the first capture's budget; and whatever the
+                capture raises.
+        """
+        started = time.monotonic()
+        first_capture = None
+        shown_layer = self._shown_layer()
+        channel = common_utils.resolve_channel_identity(scope.illumination, shown_layer)
+        while True:
+            scope.imaging._hold_layer_for_capture(
+                channel, self._layer_camera_request(channel), _MEMBER
+            )
+            # The summing row is the imaged channel's, from the store the camera
+            # was just made to hold; the delay is a settle between summed frames.
+            layer_config = config_helpers.get_layer_configs(self._settings_snapshot(), [channel])[
+                channel
+            ]
+            # The capture's body, not its public member: this still is already
+            # the lane task its taking admitted, and the public member would be
+            # admitted again, inline, against whatever holds the scope now -- a
+            # run that took it after the still was put on the lane would refuse
+            # the still it waits for.
+            array = scope.imaging._capture_and_wait_impl(
+                force_to_8bit=capture_config.capture_depth == 8,
+                all_ones_check=True,
+                timeout_s=_CAPTURE_RETRY_BUDGET_S,
+                sum_count=layer_config['sum'],
+                sum_delay_s=layer_config['exposure_ms'] / 1000,
+            )
+            if first_capture is None:
+                first_capture = scope.imaging.last_capture_info
+            shown_layer = self._shown_layer()
+            light = common_utils.resolve_channel_identity(scope.illumination, shown_layer)
+            if light == channel:
+                return channel, shown_layer, array
+            if time.monotonic() - started > first_capture['deadline_s']:
+                raise CaptureFailedError('deadline_expired')
+            logger.info(
+                f'[ManualCapture] The light changed from {channel} to {light} while the '
+                f'still was taken; it is taken again on {light}.'
+            )
+            channel = light
+
     def _capture_and_save(self, request: '_StillRequest') -> list[pathlib.Path]:
         scope = request.scope
         settings = request.settings
         capture_config = config_helpers.get_image_capture_config_from_settings(settings)
 
-        # What was imaged: the lit channel, else the shown channel -- the
-        # rule a manual recording uses too.
-        channel = common_utils.resolve_channel_identity(scope.illumination, request.shown_layer)
-
-        # The live folder is asked of the location owner, and only the levels
-        # inside it are created here.
+        # The live folder is asked of the location owner before anything is
+        # captured, and only the levels inside it are created here.
         try:
-            save_folder = path_utils.require_capture_location(settings['live_folder']) / 'Manual'
-            if settings['separate_folder_per_channel']:
-                save_folder = save_folder / channel
-            save_folder.mkdir(parents=True, exist_ok=True)
+            manual_folder = path_utils.require_capture_location(settings['live_folder']) / 'Manual'
         except path_utils.CaptureLocationError as exc:
             raise LiveFolderPathRefusedError(
                 'capture_location_unusable', str(settings['live_folder']), str(exc)
             ) from exc
-        except OSError as exc:
-            raise LiveFolderPathRefusedError(
-                'capture_location_unusable',
-                str(settings['live_folder']),
-                f'{save_folder.parent} is not an accessible save location. Check that it '
-                'exists and any external drive is connected, then try again.',
-            ) from exc
-
-        # The summing row is the imaged channel's; the delay is a settle
-        # between summed frames.
-        layer_config = config_helpers.get_layer_configs(settings, [channel])[channel]
-        sum_count = layer_config['sum']
-        sum_delay_s = layer_config['exposure_ms'] / 1000
+        _make_folder(settings, manual_folder)
 
         # Read beside the grab: the file records the objective the frame was
         # taken with, and an unknown one refuses before anything is captured.
         objective_id, _ = scope.runtime_state.resolve_current_objective()
-        # The capture's body, not its public member: this still is already the
-        # lane task its taking admitted, and the public member would be
-        # admitted again, inline, against whatever holds the scope now -- a
-        # run that took it after the still was put on the lane would refuse
-        # the still it waits for.
-        array = scope.imaging._capture_and_wait_impl(
-            force_to_8bit=capture_config.capture_depth == 8,
-            all_ones_check=True,
-            timeout_s=_CAPTURE_RETRY_BUDGET_S,
-            sum_count=sum_count,
-            sum_delay_s=sum_delay_s,
-        )
+        channel, shown_layer, array = self._grab_named(scope, capture_config)
+        save_folder = manual_folder
+        if settings['separate_folder_per_channel']:
+            save_folder = manual_folder / channel
+            _make_folder(settings, save_folder)
+
         # The instrument's account of this frame, taken with it; read before
         # anything on this lane can capture again.
         frame_record = scope.imaging.last_capture_info['frame_record']
@@ -261,7 +303,7 @@ class ManualCaptureController:
         # answers no position, and the file then states none for it.
         fact = frame_fact(
             scope,
-            channel_tiebreak=request.shown_layer,
+            channel_tiebreak=shown_layer,
             to_plate=scope.runtime_state.plate_transform(),
         )
 
@@ -372,6 +414,23 @@ class ManualCaptureController:
         return paths
 
 
+def _make_folder(settings: dict, folder: pathlib.Path) -> None:
+    """Create ``folder`` inside the live folder, or refuse the still.
+
+    Raises:
+        LiveFolderPathRefusedError: ``'capture_location_unusable'``.
+    """
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise LiveFolderPathRefusedError(
+            'capture_location_unusable',
+            str(settings['live_folder']),
+            f'{folder.parent} is not an accessible save location. Check that it '
+            'exists and any external drive is connected, then try again.',
+        ) from exc
+
+
 class _StillRequest:
     """Everything one still is decided from, fixed when it is asked for."""
 
@@ -380,7 +439,6 @@ class _StillRequest:
         *,
         scope: Any,
         settings: dict,
-        shown_layer: str,
         false_color_on: bool,
         bullseye: bool,
         crosshairs: bool,
@@ -389,7 +447,6 @@ class _StillRequest:
     ):
         self.scope = scope
         self.settings = settings
-        self.shown_layer = shown_layer
         self.false_color_on = false_color_on
         self.bullseye = bullseye
         self.crosshairs = crosshairs

@@ -495,6 +495,12 @@ def generate_image_metadata(
         metadata['saturated_fraction'] = frame_record.saturated_fraction
     if frame_record.dark is not None:
         metadata['dark'] = frame_record.dark
+    # Whether the camera held a layer's stored settings for the frame, and
+    # which: a frame taken after a script's raw gain or exposure write says
+    # it held none, rather than leaving the reader to guess.
+    metadata['camera_held_a_layer'] = frame_record.held_layer is not None
+    if frame_record.held_layer is not None:
+        metadata['camera_held_layer'] = frame_record.held_layer
 
     return metadata
 
