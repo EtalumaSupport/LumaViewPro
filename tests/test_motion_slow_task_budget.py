@@ -102,3 +102,56 @@ class TestBudgetTravelsWithTheCommand:
 
     def test_undeclared_command_does_not_move_the_stall_bar(self):
         assert IOTask(action=lambda: None).declared_slow_task_budget() is None
+
+
+class TestABudgetRunInsideAnotherTask:
+    """A member called on its own lane's worker runs inline, inside the task
+    that called it: the objective pick and the turret buttons submit a GUI
+    task that calls ``move_turret`` on the IO lane. The lane times the outer
+    task, so the member's budget is raised onto it, never lowered."""
+
+    def test_a_turret_move_inside_a_gui_task_gives_that_task_its_budget(self, tmp_path):
+        from modules.scope_session import ScopeSession
+        from tests.scope_fakes import home_sim_scope
+        from tests.settings_fixtures import complete_settings
+
+        session = ScopeSession.create(
+            complete_settings(
+                live_folder=str(tmp_path),
+                microscope='LS850T',
+                objective_confirmed=True,
+                turret_objectives={1: '10x Oly', 2: '4x Oly', 3: None, 4: None},
+            ),
+            simulate=True,
+        )
+        try:
+            home_sim_scope(session.scope)
+            task = IOTask(action=lambda: session.scope.motion.move_turret(2))
+            session.io_executor.put(task, return_future=True).result(timeout=30.0)
+        finally:
+            session.shutdown()
+
+        assert (
+            task.resolve_slow_task_threshold()
+            == IOTask(action=MotionAPI._move_turret_impl).resolve_slow_task_threshold()
+        )
+
+    def test_an_inline_budget_never_lowers_the_running_tasks(self):
+        from modules.sequential_io_executor import SequentialIOExecutor, slow_task_budget
+
+        @slow_task_budget(15.0)
+        def _member():
+            return None
+
+        lane = SequentialIOExecutor(name='TEST_IO')
+        lane.start()
+        try:
+            longer = IOTask(
+                action=lambda: lane.call(IOTask(action=_member), 'member', 5.0),
+                slow_task_threshold_sec=99.0,
+            )
+            lane.put(longer, return_future=True).result(timeout=5.0)
+        finally:
+            lane.shutdown()
+
+        assert longer.resolve_slow_task_threshold() == 99.0

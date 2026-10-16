@@ -617,6 +617,20 @@ class SequentialIOExecutor:
         with self._running_task_lock:
             return self._running_task
 
+    def _raise_running_budget(self, inner: 'IOTask') -> None:
+        """Give the running task ``inner``'s declared budget when it is larger.
+
+        ``inner`` runs inline inside the running task, so its cost is that
+        task's: a GUI task that turns the turret is as slow as the turn. A
+        budget is only ever raised, never lowered.
+        """
+        running = self.running_task
+        declared = inner.declared_slow_task_budget()
+        if running is None or declared is None:
+            return
+        if declared > (running.declared_slow_task_budget() or 0.0):
+            running.slow_task_threshold_sec = declared
+
     @property
     def worker_alive(self) -> bool:
         """Whether this lane's worker thread is running.
@@ -800,7 +814,9 @@ class SequentialIOExecutor:
         itself, because the caller that waits is the one to report it.
 
         Called on this lane's own worker -- from a task it is running -- the
-        work runs inline on that worker, under the claim the same way.
+        work runs inline on that worker, under the claim the same way, and
+        its declared slow-task budget is raised onto the running task, which
+        is the one the lane times.
 
         ``override`` is the key ``ask_claim`` returned, for a member the API
         admits whatever holds the scope: a read that has to touch the device
@@ -823,6 +839,7 @@ class SequentialIOExecutor:
             refusal, counted = self._admit(task)
             if refusal is not None:
                 raise refusal
+            self._raise_running_budget(task)
             try:
                 return task.action(*task.args, **task.kwargs)
             finally:
