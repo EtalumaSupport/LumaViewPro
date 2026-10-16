@@ -4995,7 +4995,6 @@ class ImagingAPI:
             timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
         )
 
-    @api(reads=True)
     def get_held_layer(self) -> str | None:
         """The layer whose stored settings the camera holds, read from the record.
 
