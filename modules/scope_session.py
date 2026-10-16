@@ -79,6 +79,7 @@ from modules.lumascope_api import AxisPosition
 from modules.lumascope_api._constants import refuse_unless_turret_slot
 from modules.lumascope_api.bring_up import PartStatus
 from modules.lumascope_api.illumination import LedState, LedTransition, LedTransitionCtx
+from modules.lumascope_api.imaging import LayerCameraRequest
 from modules.lumascope_api.runtime_state import slots_holding
 from modules.manual_capture import ManualCaptureController
 from modules.notification_center import Notification
@@ -1868,17 +1869,19 @@ class ScopeSession:
     def apply_layer_camera(self, layer: str) -> dict | None:
         """Put ``layer``'s stored exposure, gain and auto-gain on the camera, and wait.
 
+        Nothing is written when the camera already holds ``layer`` at its
+        stored settings (``scope.imaging.hold_layer``).
+
         The one way a layer's settings reach the camera outside a run:
         bring-up applies BF, ``go_to_step`` applies the step's layer, and
         the GUI applies the layer whose control changed. A stored auto-gain
         arms the live auto loop, capped to the layer's channel class and the
         installation's override, as the GUI's Auto Gain/Exp box does; a
-        camera without hardware auto-gain applies the layer manually
-        (``scope.imaging.apply_layer_camera_settings``).
+        camera without hardware auto-gain applies the layer manually.
 
         Returns:
-            What ``scope.imaging.apply_layer_camera_settings`` returns: the
-            gain and exposure now in effect.
+            What ``scope.imaging.hold_layer`` returns: the gain and exposure
+            now in effect.
 
         Raises:
             ArgumentRefusedError: ``'layer_unknown'``, ``layer`` is not a layer.
@@ -1891,11 +1894,16 @@ class ScopeSession:
             CameraSettingRejected: the camera refused a setting; the others
                 were applied.
         """
-        import modules.config_helpers as config_helpers
-
         self.scope.layer_identity.refuse_unless_on_scope(
             layer, 'apply_layer_camera', then='be applied to the camera'
         )
+        return self.scope.imaging.hold_layer(layer, self._layer_camera_request(layer))
+
+    def _layer_camera_request(self, layer: str) -> LayerCameraRequest:
+        """``layer``'s stored gain, exposure and auto-gain, with the auto-gain
+        bounds its channel class and the installation's override give it."""
+        import modules.config_helpers as config_helpers
+
         with self.settings_lock:
             stored = self.settings[layer]
             gain_db = stored['gain_db']
@@ -1909,8 +1917,7 @@ class ScopeSession:
         # The floor rides beside the ceiling so an auto-gain lock can say
         # whether exposure bottomed out of the usable range (AT_MINIMUM).
         auto_gain_settings['min_exposure_ms'] = config_helpers.get_ag_ae_min_exposure_ms(layer)
-        return self.scope.imaging.apply_layer_camera_settings(
-            layer=layer,
+        return LayerCameraRequest(
             gain_db=gain_db,
             exposure_ms=exposure_ms,
             auto_gain=auto_gain,

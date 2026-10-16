@@ -206,6 +206,32 @@ class _AutoGainArm:
     resume_after_capture: bool
 
 
+@dataclasses.dataclass(frozen=True)
+class LayerCameraRequest:
+    """A layer's stored camera settings, read from its store, for the camera to take."""
+
+    gain_db: float
+    exposure_ms: float
+    auto_gain: bool
+    auto_gain_settings: dict
+
+
+@dataclasses.dataclass(frozen=True)
+class _HeldLayer:
+    """The layer whose stored settings the camera holds.
+
+    ``request`` is what the layer's store asked for: the comparison that
+    decides whether a layer must be put on the camera again. It is None
+    when the camera refused part of it, so the next ask writes again.
+    ``taken`` is what the camera took, which differs from the request when
+    a value above the camera's range was capped.
+    """
+
+    layer: str
+    request: LayerCameraRequest | None
+    taken: dict | None
+
+
 @api_fields(
     'ceiling_ms',
     'exposure_ms',
@@ -725,6 +751,11 @@ class ImagingAPI:
         # by the capture that locks it (under _state_lock).
         self._auto_gain_arm: _AutoGainArm | None = None
 
+        # The layer whose stored settings the camera holds, or None when it
+        # holds no layer's: only ``_hold_layer_impl`` sets a layer, and every
+        # raw camera door clears it (``_no_layers_write``). Under _state_lock.
+        self._held_layer: _HeldLayer | None = None
+
         # When True, programmatic value-range warnings (sub-0.1ms exposure,
         # future similar setters) are silenced. Internal callers that sweep
         # full ranges (camera characterization, dynamic-range tests) enter
@@ -985,6 +1016,26 @@ class ImagingAPI:
         the camera that left.
         """
         self._commit_camera_writes(_no_camera_cache())
+        self._forget_held_layer()
+
+    def _forget_held_layer(self) -> None:
+        """Record that the camera holds no layer's stored settings."""
+        with self._state_lock:
+            self._held_layer = None
+
+    def _no_layers_write(self, impl):
+        """``impl``, run once the camera is recorded as holding no layer.
+
+        A raw door writes numbers that are no layer's, so after it the camera
+        holds none, whatever the write did; cleared before the write, since a
+        write that raises may have changed the camera all the same.
+        """
+
+        def write(*args, **kwargs):
+            self._forget_held_layer()
+            return impl(*args, **kwargs)
+
+        return write
 
     def _fire_camera_listeners(self, param: str, value: float) -> None:
         """Notify all camera listeners of a setting change."""
@@ -1625,7 +1676,7 @@ class ImagingAPI:
             unit='dB',
         )
         return self._dispatch_camera(
-            self._set_gain_db_impl,
+            self._no_layers_write(self._set_gain_db_impl),
             'set_gain_db',
             args=(gain_db,),
             timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
@@ -1666,7 +1717,7 @@ class ImagingAPI:
             unit='ms',
         )
         return self._dispatch_camera(
-            self._set_exposure_ms_impl,
+            self._no_layers_write(self._set_exposure_ms_impl),
             'set_exposure_ms',
             args=(exposure_ms,),
             timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
@@ -1698,7 +1749,7 @@ class ImagingAPI:
         """
         _refuse_unless_auto_gain_settings(settings, 'settings')
         return self._dispatch_camera(
-            self._set_auto_gain_impl,
+            self._no_layers_write(self._set_auto_gain_impl),
             'set_auto_gain',
             args=(state, settings),
             kwargs={'resume_after_capture': resume_after_capture},
@@ -1800,7 +1851,7 @@ class ImagingAPI:
         that is the answer.
         """
         return self._dispatch_camera(
-            self._lock_auto_gain_impl,
+            self._no_layers_write(self._lock_auto_gain_impl),
             'lock_auto_gain',
             timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
             satisfied_when_absent=AutoGainLock(state=None),
@@ -2002,7 +2053,7 @@ class ImagingAPI:
                 either way.
         """
         return self._dispatch_camera(
-            self._set_auto_exposure_time_impl,
+            self._no_layers_write(self._set_auto_exposure_time_impl),
             'set_auto_exposure_time',
             args=(state,),
             timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
@@ -4717,6 +4768,7 @@ class ImagingAPI:
             )
         with self._state_lock:
             snapshot['auto_gain_arm'] = self._auto_gain_arm
+            snapshot['held_layer'] = self._held_layer
         _api_log.info(
             f'save_camera_state tag={tag}: '
             f'gain={snapshot.get("gain_db", "never-read")} '
@@ -4866,6 +4918,10 @@ class ImagingAPI:
             f'arm={arm_action} '
             f'{_describe_geometry(snapshot)}'
         )
+        # The camera holds the snapshot's layer only once every one of its
+        # settings is back; until then, and after a trimmed or refused restore,
+        # it holds none.
+        self._forget_held_layer()
         self._restore_camera_geometry(snapshot)
         writes = []
         if arm_action == 'disarmed':
@@ -4882,11 +4938,16 @@ class ImagingAPI:
             )
         # Each refusal is reported and the restore goes on to its next write,
         # so one setting the camera did not take leaves no other unrestored.
+        refused = False
         for write in writes:
             try:
                 write()
             except CameraSettingRejected as rejected:
+                refused = True
                 self._report_refused_write(rejected)
+        if gain_known and exposure_known and arm_recorded and not refused:
+            with self._state_lock:
+                self._held_layer = snapshot.get('held_layer')
 
     def _restore_camera_geometry(self, snapshot: dict) -> None:
         """Write back each of the snapshot's settings beyond gain and exposure
@@ -4917,6 +4978,80 @@ class ImagingAPI:
                     self._report_refused_write(rejected)
 
     # --- Camera config orchestration ---
+    def hold_layer(self, layer: str, request: LayerCameraRequest) -> dict | None:
+        """Put ``layer``'s stored settings on the camera unless it holds them, and wait.
+
+        See ``_hold_layer_impl``; this adds the dispatch described on
+        ``_dispatch_camera``. In-process only: the Session reads the layer's
+        store and hands it in.
+        """
+        _refuse_unless_auto_gain_settings(request.auto_gain_settings, 'auto_gain_settings')
+        return self._dispatch_camera(
+            self._hold_layer_impl,
+            'hold_layer',
+            args=(layer, request),
+            timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
+        )
+
+    @api(reads=True)
+    def get_held_layer(self) -> str | None:
+        """The layer whose stored settings the camera holds, read from the record.
+
+        Returns:
+            str | None: The layer the Session last put on the camera whole;
+                None when the camera holds no layer's settings: a raw camera
+                write came after it (``set_gain_db``, ``set_exposure_ms``,
+                ``apply_layer_camera_settings`` and the other raw doors), a
+                restore was trimmed or refused, the camera refused part of the
+                layer, or no camera is connected.
+        """
+        with self._state_lock:
+            held = self._held_layer
+        if held is None or held.request is None:
+            return None
+        return held.layer
+
+    def _hold_layer_impl(self, layer: str, request: LayerCameraRequest) -> dict | None:
+        """Put ``layer``'s stored settings on the camera unless it holds them.
+
+        The one writer of the camera's held layer. Nothing is written when
+        the camera already holds ``layer`` at this request: every camera
+        write invalidates the frames, so a needless one costs the next
+        capture a drain.
+
+        Returns:
+            The gain and exposure in effect, as
+            ``_apply_layer_camera_settings_impl`` returns them; None when no
+            camera is active.
+
+        Raises:
+            CameraSettingRejected: as ``_apply_layer_camera_settings_impl``
+                says. The camera is recorded as holding ``layer`` at what it
+                took, with no request, so the next ask writes again.
+        """
+        with self._state_lock:
+            held = self._held_layer
+        if held is not None and held.layer == layer and held.request == request:
+            return held.taken
+        self._forget_held_layer()
+        try:
+            taken = self._apply_layer_camera_settings_impl(
+                request.gain_db,
+                request.exposure_ms,
+                layer=layer,
+                auto_gain=request.auto_gain,
+                auto_gain_settings=request.auto_gain_settings,
+            )
+        except CameraSettingRejected:
+            now = {'gain_db': self.get_gain_db(), 'exposure_ms': self.get_exposure_ms()}
+            with self._state_lock:
+                self._held_layer = _HeldLayer(layer, None, now)
+            raise
+        if taken is not None:
+            with self._state_lock:
+                self._held_layer = _HeldLayer(layer, request, taken)
+        return taken
+
     @api
     def apply_layer_camera_settings(
         self,
@@ -4954,7 +5089,7 @@ class ImagingAPI:
         if auto_gain_settings is not None:
             _refuse_unless_auto_gain_settings(auto_gain_settings, 'auto_gain_settings')
         return self._dispatch_camera(
-            self._apply_layer_camera_settings_impl,
+            self._no_layers_write(self._apply_layer_camera_settings_impl),
             'apply_layer_camera_settings',
             args=(gain_db, exposure_ms),
             kwargs={
@@ -5104,7 +5239,7 @@ class ImagingAPI:
         """
         refuse_unless_finite_number(target_brightness, 'target_brightness')
         return self._dispatch_camera(
-            self._update_auto_gain_target_brightness_impl,
+            self._no_layers_write(self._update_auto_gain_target_brightness_impl),
             'update_auto_gain_target_brightness',
             args=(target_brightness,),
             timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
@@ -5170,7 +5305,7 @@ class ImagingAPI:
                 camera, with none connected or one removed during the write.
         """
         self._dispatch_camera(
-            self._auto_gain_once_impl,
+            self._no_layers_write(self._auto_gain_once_impl),
             'auto_gain_once',
             args=(state, target_brightness, min_gain_db, max_gain_db),
             kwargs={'ae_max_exposure_ms': ae_max_exposure_ms},
