@@ -188,7 +188,15 @@ def make_settings(tmp_path, *, video_as_frames=True, max_fps=0, duration_s=60, h
 
 
 def make_controller(
-    tmp_path, *, scope=None, clock=None, lit=None, shown='BF', claim=None, **settings_kwargs
+    tmp_path,
+    *,
+    scope=None,
+    clock=None,
+    elapsed_clock=None,
+    lit=None,
+    shown='BF',
+    claim=None,
+    **settings_kwargs,
 ):
     scope = scope or _FakeScope(lit=lit)
     clock = clock or FakeClock()
@@ -199,6 +207,7 @@ def make_controller(
         activity_claim=claim or ActivityClaim(),
         scheduler=ManualFireScheduler(),
         clock=clock,
+        elapsed_clock=elapsed_clock or clock,
         channel_colors=release_colors,
     )
     return controller, scope, clock
@@ -793,6 +802,19 @@ class TestDurationCap:
         feed_frames(scope, clock, 3, fps=10.0)
         assert controller.is_recording
         clock.advance(2.0)
+        controller._scheduler.fire()
+        assert not controller.is_recording
+        finish(controller)
+
+    def test_a_wall_clock_step_does_not_end_it(self, tmp_path):
+        elapsed = FakeClock()
+        controller, scope, wall = make_controller(tmp_path, duration_s=2, elapsed_clock=elapsed)
+        controller.start()
+        feed_frames(scope, wall, 3, fps=10.0)
+        wall.advance(3600.0)  # an NTP correction or a host resume
+        controller._scheduler.fire()
+        assert controller.is_recording
+        elapsed.advance(2.0)
         controller._scheduler.fire()
         assert not controller.is_recording
         finish(controller)

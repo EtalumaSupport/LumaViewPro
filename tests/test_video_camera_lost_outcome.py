@@ -52,6 +52,7 @@ def _make_recorder(tmp_path, clock, active_cached=True):
         record_step_row=MagicMock(),
         record_dropped_capture=MagicMock(),
         clock=lambda: clock['t'],
+        elapsed_clock=lambda: clock['t'],
         run_claim=lent_run_claim(),
         to_plate=None,
         channel_colors=release_colors(),
@@ -77,8 +78,8 @@ class TestWaitForRecordingOutcome:
 
     def test_duration_elapsed_still_completes(self, tmp_path):
         # Each clock read advances 5.5 s: start at 1005.5, then 1011.0
-        # (elapsed 5.5), then 1016.5 (elapsed 11 > duration) -> the wall
-        # cap closes the loop with the camera alive the whole time.
+        # (elapsed 5.5), then 1016.5 (elapsed 11 > duration) -> the
+        # duration closes the loop with the camera alive the whole time.
         clock = {'t': 1000.0}
 
         def _advancing():
@@ -86,7 +87,7 @@ class TestWaitForRecordingOutcome:
             return clock['t']
 
         recorder = _make_recorder(tmp_path, clock, active_cached=True)
-        recorder._clock = _advancing
+        recorder._elapsed_clock = _advancing
         engine = MagicMock(is_recording=True)
         outcome, _ = recorder._wait_for_recording(engine, 10.0, stall_threshold=1000.0)
         assert outcome == protocol_recording.COMPLETED
@@ -231,11 +232,11 @@ class TestWaitLoopFeedStall:
             return clock['t']
 
         recorder = _make_recorder(tmp_path, clock, active_cached=True)
-        recorder._clock = _advancing
+        recorder._elapsed_clock = _advancing
         return recorder
 
     def test_frozen_ingest_counter_ends_as_stalled(self, tmp_path):
-        # duration 60 s >> threshold 5 s so the wall cap cannot mask the
+        # duration 60 s >> threshold 5 s so the duration cannot mask the
         # stall verdict; _frames_seen never advances.
         recorder = self._advancing_recorder(tmp_path)
         engine = MagicMock(is_recording=True)
@@ -245,19 +246,19 @@ class TestWaitLoopFeedStall:
 
     def test_advancing_ingest_counter_never_stalls(self, tmp_path):
         # Preservation guard: frames arriving (counter advancing every
-        # tick) run the step to the wall cap exactly as before.
+        # tick) run the step to its duration exactly as before.
         recorder = self._advancing_recorder(tmp_path)
         engine = MagicMock(is_recording=True)
 
         counter = {'n': 0}
-        original_clock = recorder._clock
+        original_clock = recorder._elapsed_clock
 
         def _clock_and_frame():
             counter['n'] += 1
             recorder._frames_seen = counter['n']
             return original_clock()
 
-        recorder._clock = _clock_and_frame
+        recorder._elapsed_clock = _clock_and_frame
         outcome, reason = recorder._wait_for_recording(engine, 20.0, stall_threshold=5.0)
         assert outcome == protocol_recording.COMPLETED
         assert reason == 'duration_elapsed'

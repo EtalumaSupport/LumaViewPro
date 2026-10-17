@@ -129,7 +129,15 @@ class ProtocolVideoStep:
             offset the run started with, bound at run start, so every frame
             states its position in the frame the run moved in. None on a
             scope with no X/Y stage, whose frames state no plate position.
-        clock: Injectable time source (seconds); tests drive it.
+        clock: Wall-time source (seconds) for what is measured against
+            frame timestamps: the engine's cadence and the camera tick
+            rebaser. Tests drive it.
+        elapsed_clock: Elapsed-time source (seconds) for the step's
+            bounds: the pre-recording stall watch, the duration, the
+            stall watch and the disk probe's interval. Monotonic, because
+            wall time steps (an NTP correction, a host resume) and a step
+            would end a good recording early or let one run past its
+            duration. Tests drive it.
     """
 
     def __init__(
@@ -154,6 +162,7 @@ class ProtocolVideoStep:
         run_claim: BorrowedClaim,
         to_plate: Callable[[float, float], tuple[float, float]] | None,
         clock: Callable[[], float] = time.time,
+        elapsed_clock: Callable[[], float] = time.monotonic,
     ):
         self._scope = scope
         self._step = step
@@ -178,6 +187,7 @@ class ProtocolVideoStep:
         self._run_claim = run_claim
         self._to_plate = to_plate
         self._clock = clock
+        self._elapsed_clock = elapsed_clock
 
         self._engine: VideoRecordingEngine | None = None
         self._writer: VideoWriter | None = None
@@ -438,7 +448,7 @@ class ProtocolVideoStep:
         while scope.imaging.frames_until_valid() > 0:
             if self._stop_requested():
                 return CANCELLED
-            if watch.stalled(arrivals, self._clock()):
+            if watch.stalled(arrivals, self._elapsed_clock()):
                 logger.error(
                     '[PROTOCOL-VIDEO] No camera frames arrived during the '
                     'pre-recording drain (stall threshold '
@@ -490,12 +500,12 @@ class ProtocolVideoStep:
         feed that dies without an event -- delivery just stops while
         ``active_cached`` stays True.
         """
-        start_ts = self._clock()
+        start_ts = self._elapsed_clock()
         last_progress_ts = 0.0
         outcome, end_reason = COMPLETED, 'duration_elapsed'
         watch = StallWatch(stall_threshold)
         while engine.is_recording:
-            now = self._clock()
+            now = self._elapsed_clock()
             elapsed = now - start_ts
             if self._stop_requested():
                 outcome, end_reason = CANCELLED, 'run_stop'
@@ -599,7 +609,7 @@ class ProtocolVideoStep:
         aborts the whole run loudly rather than letting later steps fail
         one by one. Frames already on disk stay.
         """
-        now = self._clock()
+        now = self._elapsed_clock()
         if now - self._last_disk_check_ts < DISK_FLOOR_CHECK_INTERVAL_S:
             return
         self._last_disk_check_ts = now

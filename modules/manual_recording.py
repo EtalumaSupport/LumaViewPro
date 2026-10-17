@@ -6,7 +6,7 @@ button today, REST/SDK callers tomorrow). The controller owns everything
 caller-shaped the engine deliberately does not: reading settings into
 the immutable ``RecordingConfig`` snapshot, building the per-leg write
 edge (TIFF-per-frame or VFR MP4), registering the camera frame listener,
-the rolling disk-floor stop, the wall-clock duration cap, and the
+the rolling disk-floor stop, the elapsed-time duration cap, and the
 post-drain finish (MP4 close, optional hyperstack, drop notification).
 
 GUI-agnostic by construction: no Kivy imports; the caller polls status
@@ -142,7 +142,14 @@ class ManualRecordingController:
             finish. Required: a controller that can start a recording
             but has no armed health bound is the trap this parameter
             exists to make unconstructible.
-        clock: Injectable time source (seconds); tests drive it.
+        clock: Wall-time source (seconds) for what is measured against
+            frame timestamps: the engine's cadence and the camera tick
+            rebaser. Tests drive it.
+        elapsed_clock: Elapsed-time source (seconds) for the recording's
+            bounds: its elapsed time, the duration cap, the stall watch and
+            the disk probe's interval. Monotonic, because wall time steps
+            (an NTP correction, a host resume) and a step would end a good
+            recording early or let one run past its cap. Tests drive it.
     """
 
     def __init__(
@@ -155,6 +162,7 @@ class ManualRecordingController:
         activity_claim: Any,
         scheduler: Scheduler,
         clock: Callable[[], float] = time.time,
+        elapsed_clock: Callable[[], float] = time.monotonic,
     ):
         self._scope = scope
         self._settings = settings
@@ -163,6 +171,7 @@ class ManualRecordingController:
         self._claim = activity_claim
         self._scheduler = scheduler
         self._clock = clock
+        self._elapsed_clock = elapsed_clock
         self._engine: VideoRecordingEngine | None = None
         self._config: RecordingConfig | None = None
         self._plan: _RecordingPlan | None = None
@@ -229,7 +238,7 @@ class ManualRecordingController:
         """Seconds since the recording started; 0.0 when idle."""
         if self._start_ts is None or not self.is_recording:
             return 0.0
-        return self._clock() - self._start_ts
+        return self._elapsed_clock() - self._start_ts
 
     @api
     @property
@@ -507,7 +516,7 @@ class ManualRecordingController:
                 self._config = config
                 self._plan = plan
                 self._writer = writer
-                self._start_ts = self._clock()
+                self._start_ts = self._elapsed_clock()
                 self._effective_fps = effective_fps
                 self._stall_watch = StallWatch(self._stall_threshold_now(effective_fps, exposure))
                 self._rebaser = CameraTickRebaser(camera.camera_timestamp_tick_hz, self._clock)
@@ -639,7 +648,7 @@ class ManualRecordingController:
     def _health_check(self) -> None:
         """Watch the recording's health; armed by the controller itself.
 
-        Owns the wall-clock duration cap (the engine's frame budget is
+        Owns the elapsed-time duration cap (the engine's frame budget is
         frame-driven, so a dead feed would never fill it) and both
         camera-death checks: the disconnect latch, and the stall watch
         for a feed that dies without an event -- delivery stops while
@@ -657,7 +666,7 @@ class ManualRecordingController:
             effective_fps = self._effective_fps
         if engine is None or not engine.is_recording or start_ts is None or config is None:
             return
-        if self._clock() - start_ts >= config.duration_s:
+        if self._elapsed_clock() - start_ts >= config.duration_s:
             self.stop(reason='duration_elapsed')
             return
         if not self._scope.imaging.active_cached:
@@ -668,7 +677,7 @@ class ManualRecordingController:
         # Exposure and gain stay open during a recording, so the interval
         # between frames can grow after start: the bound follows it.
         stall_watch.raise_threshold(self._stall_threshold_now(effective_fps))
-        if stall_watch.stalled(engine.frames_selected, self._clock()):
+        if stall_watch.stalled(engine.frames_selected, self._elapsed_clock()):
             self._stop_for_camera_loss(reason='camera_stalled')
 
     def _stall_threshold_now(self, effective_fps: float | None, floor_ms: float = 0.0) -> float:
@@ -800,7 +809,7 @@ class ManualRecordingController:
         probe needs no scheduler and works headless. Stopping selection
         yields an honest short delivery; frames already on disk stay.
         """
-        now = self._clock()
+        now = self._elapsed_clock()
         if now - self._last_disk_check_ts < DISK_FLOOR_CHECK_INTERVAL_S:
             return
         self._last_disk_check_ts = now
