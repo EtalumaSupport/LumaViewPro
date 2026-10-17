@@ -114,3 +114,23 @@ def test_a_post_processing_build_is_not_refused(sim_session, tmp_path):
         return built
 
     assert sim_session.post_processing._run(build, 'stitch', tmp_path) is built
+
+
+def test_a_run_state_listener_hears_the_close_begin_and_end(tmp_path):
+    """The close's start and end are told as every claim edge is, so a client
+    that subscribes -- the LiveWork event over REST, a GUI of its own -- can
+    stop its listeners when the close begins, not after the scope has gone."""
+    from modules.scope_session import ScopeSession
+    from tests.settings_fixtures import complete_settings
+
+    session = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
+    heard = []
+    session.add_run_state_listener(
+        lambda: heard.append((session.live_work.closing, session.live_work.closed))
+    )
+    heard.clear()
+
+    session.shutdown()
+
+    assert (True, False) in heard, heard
+    assert heard[-1] == (False, True), heard

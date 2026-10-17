@@ -337,10 +337,11 @@ class ActivityClaim:
 
         A taking already held keeps its claim and ends through its owner;
         a borrowing lent from it is still granted, because it is that
-        activity's own work.
+        activity's own work. Announced, so a listener hears the close begin.
         """
         with self._lock:
             self._closing = True
+        self.announce()
 
     def end_closing(self, *, closed: bool) -> None:
         """The session's close has ended.
@@ -350,10 +351,13 @@ class ActivityClaim:
                 refused for good; False when it raised part-way, so
                 ``begin_closing``'s refusal ends with it until the close is
                 called again.
+
+        Announced, so a listener hears the close end.
         """
         with self._lock:
             self._closing = False
             self._closed = self._closed or closed
+        self.announce()
 
     @property
     def holder(self) -> ActivityHolder | None:

@@ -1147,7 +1147,9 @@ session.discard_close_drain()    # the escape from a wait on video frames: drop 
 def on_run_state():              # called on EVERY run-state transition: an activity taking
     print(session.run_lockout)   # or releasing the scope, a manual recording going live, going
                                  # to its drain and finishing, a run's video step finishing,
-                                 # a run's files all landing;
+                                 # a run's files all landing, the close beginning
+                                 # (live_work.closing) and ending (live_work.closed): stop
+                                 # your own listeners when it begins;
                                  # re-read the derivations (level semantics, no payload)
 session.add_run_state_listener(on_run_state)
 session.remove_run_state_listener(on_run_state)   # stop being told
