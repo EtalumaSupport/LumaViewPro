@@ -242,7 +242,7 @@ class TestALidOpenedDuringAMove:
             ls720.motion.home()
             limits = ls720.motion.get_axis_limits('X')
             start = ls720.motion.get_current_position()['X']
-            far = limits['min'] if start - limits['min'] > limits['max'] - start else limits['max']
+            far = limits.min_um if start - limits.min_um > limits.max_um - start else limits.max_um
             driver = ls720._motion_driver
             polled = driver.target_status
 

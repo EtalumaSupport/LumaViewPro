@@ -35,11 +35,12 @@ from __future__ import annotations
 import ast
 import pathlib
 
+from modules.coord_transformations import AxisLimits
 from tests.test_protocol_roundtrip import _build_protocol, _make_step
 from tests.scope_fakes import swap_lanes
 
 
-_WIDE_Z = {'Z': {'min': 0.0, 'max': 100_000.0}}
+_WIDE_Z = {'Z': AxisLimits(min_um=0.0, max_um=100_000.0)}
 # center reference at Z=5000, range 10, step 5 -> 4995 / 5000 / 5005
 _ZSTACK = {'range': 10.0, 'step_size': 5.0, 'z_reference': 'center'}
 _LAYER_FOCUS = 5000.0

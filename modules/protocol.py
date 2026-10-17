@@ -45,6 +45,7 @@ from modules.api_surface import FilePath, api, api_fields
 
 if TYPE_CHECKING:
     import modules.labware as labware_module
+    from modules.coord_transformations import AxisLimits
     from modules.objectives_loader import Objective, ObjectiveLoader
     from modules.scope_capabilities import ScopeCapabilities
 
@@ -304,7 +305,7 @@ def _refuse_unless_zstack_has_extent(zstack_params: dict) -> None:
 
 def axes_outside_travel(
     position: dict,
-    axis_limits: dict,
+    axis_limits: 'Mapping[str, AxisLimits]',
     *,
     labware: 'labware_module.WellPlate | None' = None,
     stage_offset: dict | None = None,
@@ -317,7 +318,7 @@ def axes_outside_travel(
     Args:
         position: Any of 'X' and 'Y' in plate millimetres, and 'Z' in stage
             micrometres -- the frames a step stores them in.
-        axis_limits: Axis name to ``{'min', 'max'}`` in stage micrometres. Only
+        axis_limits: Axis name to its travel in stage micrometres. Only
             the axes present in both this and *position* are judged.
         labware: The plate X/Y are measured on; required when X or Y is judged.
         stage_offset: ``{'x', 'y'}`` in micrometres; required when X or Y is
@@ -341,7 +342,7 @@ def axes_outside_travel(
         for axis in ('X', 'Y', 'Z')
         if axis in stage
         and axis in axis_limits
-        and not (axis_limits[axis]['min'] <= stage[axis] <= axis_limits[axis]['max'])
+        and not (axis_limits[axis].min_um <= stage[axis] <= axis_limits[axis].max_um)
     ]
 
 
@@ -368,7 +369,9 @@ def _refuse_positions_outside_travel(
     )
 
 
-def _axis_limits_or_refuse(axis_limits: dict, axes: tuple[str, ...], *, what: str) -> dict:
+def _axis_limits_or_refuse(
+    axis_limits: 'Mapping[str, AxisLimits]', axes: tuple[str, ...], *, what: str
+) -> 'dict[str, AxisLimits]':
     """The travel limits of each of *axes*, or a refusal naming the missing ones.
 
     *axis_limits* maps each axis the scope has a motor for to its travel
@@ -2131,7 +2134,7 @@ class Protocol:
         tiling: str,
         frame_dimensions: dict,
         binning_size: int,
-        axis_limits: dict,
+        axis_limits: 'Mapping[str, AxisLimits]',
         labware: 'labware_module.WellPlate',
         stage_offset: dict,
         overlap_percent: float = 0.0,
@@ -2327,7 +2330,9 @@ class Protocol:
 
     @staticmethod
     def refuse_unbuildable_zstack(
-        zstack_params: dict, axis_limits: dict, stacks: list[tuple[str, float]]
+        zstack_params: dict,
+        axis_limits: 'Mapping[str, AxisLimits]',
+        stacks: list[tuple[str, float]],
     ) -> None:
         """Refuse a z-stack around each of *stacks* that cannot be built whole.
 
@@ -2379,7 +2384,7 @@ class Protocol:
     def apply_zstacking(
         self,
         zstack_params: dict,
-        axis_limits: dict,
+        axis_limits: 'Mapping[str, AxisLimits]',
         *,
         only: range | None = None,
     ) -> None:

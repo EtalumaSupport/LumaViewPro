@@ -261,7 +261,7 @@ class TestNewStacksAsApplyDoes:
         assert flagged['Z'].tolist() == pytest.approx([5000.0] * wells)
 
     def test_a_stack_past_the_z_travel_is_refused(self, session):
-        z_max = session.scope.motion.get_axis_limits('Z')['max']
+        z_max = session.scope.motion.get_axis_limits('Z').max_um
 
         with pytest.raises(ProtocolRunRefusedError) as refused:
             _new_bf_and_blue(session, bf_focus=z_max - 1.0, blue_focus=z_max - 1.0)

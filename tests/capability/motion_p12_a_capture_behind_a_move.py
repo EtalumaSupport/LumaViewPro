@@ -130,7 +130,7 @@ def main():
             moved, captured, answer = _capture_behind_a_move(session, axis)
             span = Z_SPAN_UM if axis == 'Z' else 2 * SPAN_UM
             speed = span / moved
-            full_s = (limits['max'] - limits['min']) / speed
+            full_s = (limits.max_um - limits.min_um) / speed
             _judge(axis, moved, captured, answer, bound_s)
             figure(f'{axis} um/s over the span', round(speed))
             figure(f'{axis} whole range s (derived)', round(full_s, 1))

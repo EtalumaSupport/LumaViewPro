@@ -104,7 +104,7 @@ def test_a_move_that_keeps_moving_is_never_given_up(session, monkeypatch, centre
     motion = session.scope.motion
     monkeypatch.setattr(motion, '_MOVE_STALL_WINDOW_S', 0.5)
     start = time.monotonic()
-    motion.move_absolute('Z', motion.get_axis_limits('Z')['max'])
+    motion.move_absolute('Z', motion.get_axis_limits('Z').max_um)
     motion.move_absolute('Z', 0.0)
     assert time.monotonic() - start > 2 * 0.5, 'the moves were too short to show anything'
     motion.move_turret(2)

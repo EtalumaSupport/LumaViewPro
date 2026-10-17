@@ -21,7 +21,7 @@ from unittest.mock import patch
 import pandas as pd
 import pytest
 
-from modules.coord_transformations import CoordinateTransformer
+from modules.coord_transformations import AxisLimits, CoordinateTransformer
 from modules.exceptions import ProtocolRunRefusedError
 from modules.labware_loader import WellPlateLoader
 from modules.objectives_loader import ObjectiveLoader
@@ -76,7 +76,7 @@ def test_a_grid_with_a_tile_outside_the_travel_is_refused(scale_capabilities):
     )
     assert len(stage_x) == 2
     narrow = {
-        'X': {'min': -1_000_000.0, 'max': sum(stage_x) / 2},
+        'X': AxisLimits(min_um=-1_000_000.0, max_um=sum(stage_x) / 2),
         'Y': _WIDE_XY['Y'],
     }
 
@@ -93,7 +93,7 @@ def test_a_stack_with_a_slice_outside_the_travel_is_refused():
     refusal = _refused(
         proto,
         lambda: proto.apply_zstacking(
-            zstack_params=_STACK, axis_limits={'Z': {'min': 4960.0, 'max': 10_000.0}}
+            zstack_params=_STACK, axis_limits={'Z': AxisLimits(min_um=4960.0, max_um=10_000.0)}
         ),
     )
 
@@ -111,7 +111,7 @@ def test_a_stack_with_no_extent_is_refused(range_um, step_um):
     refusal = _refused(
         proto,
         lambda: proto.apply_zstacking(
-            zstack_params=params, axis_limits={'Z': {'min': 0.0, 'max': 10_000.0}}
+            zstack_params=params, axis_limits={'Z': AxisLimits(min_um=0.0, max_um=10_000.0)}
         ),
     )
 

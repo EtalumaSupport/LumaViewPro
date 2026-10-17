@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import pandas as pd
 
+from modules.coord_transformations import AxisLimits
 from modules.protocol import Protocol
 from tests.test_protocol_roundtrip import _build_protocol, _make_step
 
@@ -59,7 +60,7 @@ def test_empty_replacement_frame_regains_schema_and_dtypes():
 def test_populated_frame_is_passed_through_untouched():
     """The schema restore must not rewrite or reorder real rows."""
     proto = _proto()
-    axis_limits = {'Z': {'min': 0.0, 'max': 10000.0}}
+    axis_limits = {'Z': AxisLimits(min_um=0.0, max_um=10000.0)}
 
     proto.apply_zstacking(zstack_params=_ZSTACK, axis_limits=axis_limits)
 

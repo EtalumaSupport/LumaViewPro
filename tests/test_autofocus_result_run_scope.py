@@ -169,7 +169,7 @@ def test_start_autofocus_reports_the_focus_and_writes_none(tmp_path):
         motion = session.scope.motion
         limits = motion.get_axis_limits('Z')
         # Mid-travel, so the sweep's window fits inside Z's travel.
-        motion.move_absolute('Z', (limits['min'] + limits['max']) / 2.0)
+        motion.move_absolute('Z', (limits.min_um + limits.max_um) / 2.0)
 
         outcome = runner.start_autofocus(layer='BF').result(timeout=60)
 

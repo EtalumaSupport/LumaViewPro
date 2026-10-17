@@ -29,6 +29,7 @@ import pandas as pd
 import pytest
 
 from modules.common_utils import PostFunction, build_step_name, recover_step_label, step_components
+from modules.coord_transformations import AxisLimits
 from modules.exceptions import ProtocolError
 from modules.protocol import Protocol, ProtocolFormatError
 from modules.protocol_post_record import ProtocolPostRecord
@@ -191,7 +192,7 @@ def test_pre_v7_compose_and_compare_recovers_flag_per_row(tmp_path):
 # ---------------------------------------------------------------------------
 
 _ZSTACK = {'range': 100.0, 'step_size': 20.0, 'z_reference': 'center'}
-_WIDE_Z = {'Z': {'min': 0.0, 'max': 10000.0}}
+_WIDE_Z = {'Z': AxisLimits(min_um=0.0, max_um=10000.0)}
 
 
 def _labeled_step(label='Treatment_10x', **kwargs):
@@ -224,8 +225,8 @@ def test_tiling_children_keep_parent_label(scale_capabilities):
 
     labware = WellPlateLoader().get_plate('6 well microplate')
     axis_limits = {
-        'X': {'min': -1_000_000.0, 'max': 1_000_000.0},
-        'Y': {'min': -1_000_000.0, 'max': 1_000_000.0},
+        'X': AxisLimits(min_um=-1_000_000.0, max_um=1_000_000.0),
+        'Y': AxisLimits(min_um=-1_000_000.0, max_um=1_000_000.0),
     }
     proto = _build_protocol([_labeled_step(x=60.0, y=40.0)])
     proto.apply_tiling(

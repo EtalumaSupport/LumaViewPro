@@ -36,7 +36,7 @@ from typing import TYPE_CHECKING
 import modules.common_utils as common_utils
 import modules.path_utils as path_utils
 from modules.finite_number import refuse_unless_finite_number
-from modules.coord_transformations import CoordinateTransformer, stage_offset_axes
+from modules.coord_transformations import AxisLimits, CoordinateTransformer, stage_offset_axes
 from modules.exceptions import (
     ArgumentRefusedError,
     PositionOutOfRangeError,
@@ -543,7 +543,7 @@ class ProtocolsAPI:
         refuse_unless_finite_number(z_um, 'z_um')
         z = float(z_um)
         limits = self._scope.motion.get_axis_limits('Z')
-        low, high = (-math.inf, math.inf) if limits is None else (limits['min'], limits['max'])
+        low, high = (-math.inf, math.inf) if limits is None else (limits.min_um, limits.max_um)
         if not low <= z <= high:
             raise PositionOutOfRangeError('Z', z, low, high)
         return z
@@ -850,7 +850,7 @@ class ProtocolsAPI:
         )
         return StepTargets(turret_slot=turret_slot, x=x, y=y, z=z)
 
-    def _travel_limits(self) -> dict:
+    def _travel_limits(self) -> dict[str, AxisLimits]:
         """The travel limits of each axis this scope has a motor for, by axis.
 
         The one read the run gate and the tile and z-stack builds judge

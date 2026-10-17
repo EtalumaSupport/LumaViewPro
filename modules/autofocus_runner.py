@@ -148,11 +148,11 @@ class AutofocusRunner:
         sweep that has.
         """
         limits = self._scope.motion.get_axis_limits('Z')
-        if limits is None or (limits['min'] <= low and high <= limits['max']):
+        if limits is None or (limits.min_um <= low and high <= limits.max_um):
             return False
         _af_log.warning(
             f'--- AF REFUSED: {what} [{low:.1f}, {high:.1f}] reaches past '
-            f'Z travel [{limits["min"]:.1f}, {limits["max"]:.1f}] ---'
+            f'Z travel [{limits.min_um:.1f}, {limits.max_um:.1f}] ---'
         )
         return True
 

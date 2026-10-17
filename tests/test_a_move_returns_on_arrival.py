@@ -80,7 +80,7 @@ def _far_x(motion) -> float:
     """An X target across most of the travel: seconds of motion in realistic timing."""
     limits = motion.get_axis_limits('X')
     here = motion.get_current_position('X')
-    far = limits['max'] * 0.9 if here < (limits['min'] + limits['max']) / 2 else limits['min']
+    far = limits.max_um * 0.9 if here < (limits.min_um + limits.max_um) / 2 else limits.min_um
     return far
 
 
@@ -226,7 +226,7 @@ class TestWaitingForMotionTheCallerDidNotStart:
         session.scope.simulation.drop_replies('motor', count=None, command='STATUS_RY')
         session.scope.simulation.hold_axis('Y')
         limits = motion.get_axis_limits('Y')
-        motion.start_move_absolute('Y', limits['max'] * 0.9)
+        motion.start_move_absolute('Y', limits.max_um * 0.9)
         x_move = motion.start_move_absolute('X', motion.get_current_position('X') + 2000.0)
         closer = threading.Thread(
             target=lambda: (x_move.result(timeout=_TRAVEL_WAIT_S), session.scope.disconnect()),

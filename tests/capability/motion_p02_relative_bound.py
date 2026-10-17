@@ -17,7 +17,7 @@ def body(s):
     print('Z travel limits =', m.get_axis_limits('Z'), flush=True)
 
     m.move_absolute('Z', 2000.0)
-    zmax = m.get_axis_limits('Z')['max']
+    zmax = m.get_axis_limits('Z').max_um
 
     # a jog well past the travel ceiling but inside the safety limit
     over = zmax + 5000.0

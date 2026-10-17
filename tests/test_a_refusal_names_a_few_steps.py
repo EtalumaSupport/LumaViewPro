@@ -20,6 +20,7 @@ from unittest.mock import patch
 import pytest
 
 import modules.protocol as protocol_module
+from modules.coord_transformations import AxisLimits
 from modules.exceptions import ProtocolRunRefusedError
 from modules.labware_loader import WellPlateLoader
 from modules.objectives_loader import ObjectiveLoader
@@ -53,7 +54,7 @@ def _stack_refusal(proto):
         pytest.raises(ProtocolRunRefusedError) as refusal,
     ):
         proto.apply_zstacking(
-            zstack_params=_STACK, axis_limits={'Z': {'min': 4960.0, 'max': 10_000.0}}
+            zstack_params=_STACK, axis_limits={'Z': AxisLimits(min_um=4960.0, max_um=10_000.0)}
         )
     return str(refusal.value)
 
@@ -94,7 +95,9 @@ def protocol_log(monkeypatch, caplog):
 
 def test_a_stack_that_is_built_says_how_many_steps_it_made(protocol_log):
     proto = _build_protocol([_labeled_step(z=5000.0)])
-    proto.apply_zstacking(zstack_params=_STACK, axis_limits={'Z': {'min': 0.0, 'max': 10_000.0}})
+    proto.apply_zstacking(
+        zstack_params=_STACK, axis_limits={'Z': AxisLimits(min_um=0.0, max_um=10_000.0)}
+    )
 
     assert [r.getMessage() for r in protocol_log.records] == [
         '[Protocol] Z-stack applied (range 100.0 um, step 20.0 um): 1 -> 6 steps'

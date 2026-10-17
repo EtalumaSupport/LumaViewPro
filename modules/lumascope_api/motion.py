@@ -117,6 +117,7 @@ from modules.lumascope_api._constants import (
     refuse_unless_turret_slot,
 )
 from modules.api_surface import api, api_fields
+from modules.coord_transformations import AxisLimits
 
 if TYPE_CHECKING:
     from modules.lumascope_api._lumascope import Lumascope
@@ -1562,18 +1563,16 @@ class MotionAPI:
             return any(s in (AxisState.MOVING, AxisState.HOMING) for s in self._axis_state.values())
 
     @api(reads=True)
-    def get_axis_limits(self, axis: str) -> Mapping[str, float] | None:
+    def get_axis_limits(self, axis: str) -> AxisLimits | None:
         """Get the travel limits for an axis, in um.
 
         Args:
             axis: Axis name ("X", "Y", "Z", or "T").
 
         Returns:
-            A read-only mapping with 'min' and 'max' positions in um
-            (an edit raises ``TypeError``: it is the bound moves are
-            refused against), or ``None`` if the axis has no configured
-            limits (typical for the turret T axis). Callers must handle
-            the None case.
+            The travel moves are refused against, or ``None`` if the axis
+            has no configured limits (typical for the turret T axis).
+            Callers must handle the None case.
 
         Raises:
             ArgumentRefusedError: ``'axis_unknown'``, ``axis`` is no axis
@@ -1585,7 +1584,10 @@ class MotionAPI:
         """
         refuse_unknown_axis(axis)
         self._refuse_absent('get_axis_limits', axis)
-        return self._driver.get_axis_limits(axis=axis)
+        limits = self._driver.get_axis_limits(axis=axis)
+        if limits is None:
+            return None
+        return AxisLimits(min_um=float(limits['min']), max_um=float(limits['max']))
 
     @slow_task_budget(_HOMING_SLOW_TASK_S)
     def _zhome_impl(self) -> None:
@@ -1906,8 +1908,8 @@ class MotionAPI:
             # Inverting sx = (dimension - offset - px) * 1000: the map
             # decreases in px, so the travel MAXIMUM yields the plate
             # minimum and vice versa.
-            band_low = round(dimension - offset_mm - limits['max'] / 1000, 2)
-            band_high = round(dimension - offset_mm - limits['min'] / 1000, 2)
+            band_low = round(dimension - offset_mm - limits.max_um / 1000, 2)
+            band_high = round(dimension - offset_mm - limits.min_um / 1000, 2)
             if not (band_low <= plate_mm <= band_high):
                 raise PositionOutOfRangeError(
                     axis,
@@ -1981,8 +1983,8 @@ class MotionAPI:
         # checked below, against its slots.
         if not ignore_limits:
             limits = self.get_axis_limits(axis)
-            if limits is not None and not (limits['min'] <= position <= limits['max']):
-                raise PositionOutOfRangeError(axis, position, limits['min'], limits['max'])
+            if limits is not None and not (limits.min_um <= position <= limits.max_um):
+                raise PositionOutOfRangeError(axis, position, limits.min_um, limits.max_um)
 
         # The turret's bound, which the travel check above cannot express: a
         # slot is not a distance, so get_axis_limits returns None for T and
@@ -2133,8 +2135,8 @@ class MotionAPI:
         # so a jog past a limit reported success from wherever the stage
         # stopped.
         limits = self.get_axis_limits(axis)
-        if limits is not None and not (limits['min'] <= target_pos <= limits['max']):
-            raise PositionOutOfRangeError(axis, target_pos, limits['min'], limits['max'])
+        if limits is not None and not (limits.min_um <= target_pos <= limits.max_um):
+            raise PositionOutOfRangeError(axis, target_pos, limits.min_um, limits.max_um)
 
         leg = self._backlash_leg(axis, target_pos, overshoot_enabled, 'move_relative')
         stop_generation = self._stop_generation

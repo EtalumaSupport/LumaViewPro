@@ -22,6 +22,7 @@ import pytest
 import modules.autofocus_runner as autofocus_runner_module
 from modules.autofocus_runner import AutofocusRunner
 from modules.autofocus_thread import AutofocusThread
+from modules.coord_transformations import AxisLimits
 from modules.exceptions import AutofocusFailedError, CaptureError, RefusalCause
 from modules.notification_center import OutcomeKind, outcome_of
 from tests.af_drives import AF_CENTER_Z, af_runner_and_scope, drive_af
@@ -64,12 +65,12 @@ def _autofocus_from(scope, z, monkeypatch, peak):
         thread.stop(timeout=2.0)
 
 
-@pytest.mark.parametrize('edge', ['min', 'max'])
+@pytest.mark.parametrize('edge', ['min_um', 'max_um'])
 def test_a_first_window_past_travel_is_refused_before_the_stage_moves(scope, monkeypatch, edge):
     # Started at a travel limit, the first window reaches past it. The
     # bottom used to be clamped to 0 and the top ran on until a sweep
     # move was refused as an unexpected error.
-    limit = scope.motion.get_axis_limits('Z')[edge]
+    limit = getattr(scope.motion.get_axis_limits('Z'), edge)
     with pytest.raises(CaptureError) as refused:
         _autofocus_from(scope, limit, monkeypatch, peak=limit)
 
@@ -84,15 +85,15 @@ def test_a_first_window_past_travel_is_refused_before_the_stage_moves(scope, mon
     assert scope.motion.get_current_position('Z') == pytest.approx(limit)
 
 
-@pytest.mark.parametrize('edge', ['min', 'max'])
+@pytest.mark.parametrize('edge', ['min_um', 'max_um'])
 def test_a_sweep_led_past_travel_is_refused_and_z_goes_back(scope, monkeypatch, edge):
     # The first window fits, but the curve peaks at the travel limit: at
     # the bottom the refined window opens below it, at the top the
     # extension runs past it. Either is refused before the stage moves
     # there, and Z returns to where the autofocus started.
-    limit = scope.motion.get_axis_limits('Z')[edge]
+    limit = getattr(scope.motion.get_axis_limits('Z'), edge)
     af_range = scope.objectives['10x Oly'].autofocus_half_range_um
-    start = limit + (af_range + 5.0) * (1 if edge == 'min' else -1)
+    start = limit + (af_range + 5.0) * (1 if edge == 'min_um' else -1)
     with pytest.raises(AutofocusFailedError) as refused:
         _autofocus_from(scope, start, monkeypatch, peak=limit)
 
@@ -130,7 +131,7 @@ def test_a_final_approach_past_the_travel_minimum_is_refused(monkeypatch, report
     monkeypatch.setattr('modules.autofocus_functions.focus_function', lambda image: 1.0)
     runner, scope = af_runner_and_scope()
     floor = AF_CENTER_Z - 30.0  # the refined window's floor: centre - AF_max
-    scope.motion.get_axis_limits.return_value = {'min': floor, 'max': 14000.0}
+    scope.motion.get_axis_limits.return_value = AxisLimits(min_um=floor, max_um=14000.0)
     bests = iter([AF_CENTER_Z, floor])
     runner._find_best = lambda df: next(bests)
 
@@ -150,7 +151,7 @@ def test_a_refusal_is_reported_once_as_itself(monkeypatch, reported):
     monkeypatch.setattr('modules.autofocus_functions.focus_function', lambda image: 1.0)
     runner, scope = af_runner_and_scope()
     # The first window (centre +- AF_range) reaches below this minimum.
-    scope.motion.get_axis_limits.return_value = {'min': AF_CENTER_Z - 5.0, 'max': 14000.0}
+    scope.motion.get_axis_limits.return_value = AxisLimits(min_um=AF_CENTER_Z - 5.0, max_um=14000.0)
 
     with pytest.raises(CaptureError) as raised:
         drive_af(runner)

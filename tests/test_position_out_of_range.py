@@ -37,7 +37,7 @@ def motion(sim_turreted_session):
 
 def test_the_simulated_scope_publishes_the_travel_these_cases_assume(motion):
     published = {
-        axis: (limits['min'], limits['max'])
+        axis: (limits.min_um, limits.max_um)
         for axis, limits in ((axis, motion.get_axis_limits(axis)) for axis in TRAVEL)
     }
     assert published == TRAVEL

@@ -8,6 +8,7 @@ no error anywhere. Every door onto the limits must hand out something
 that refuses the edit, loudly, at the line that tries it.
 """
 
+import dataclasses
 from unittest.mock import patch
 
 import pytest
@@ -26,14 +27,14 @@ def motion():
 
 
 def test_an_edit_through_the_apis_read_is_refused_and_the_bound_holds(motion):
-    """The API's one door is ``get_axis_limits``; what it hands out refuses
-    the edit, and the move refusal still reads the bound it had."""
-    travel_max = motion.get_axis_limits('Z')['max']
+    """The API's one door is ``get_axis_limits``; the record it hands out is
+    frozen, and the move refusal still reads the bound it had."""
+    travel_max = motion.get_axis_limits('Z').max_um
 
-    with pytest.raises(TypeError):
-        motion.get_axis_limits('Z')['max'] = 114000.0
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        motion.get_axis_limits('Z').max_um = 114000.0
 
-    assert motion.get_axis_limits('Z')['max'] == travel_max
+    assert motion.get_axis_limits('Z').max_um == travel_max
     with pytest.raises(PositionOutOfRangeError):
         motion.move_absolute('Z', travel_max + 10000)
 

@@ -34,7 +34,7 @@ def ui():
 def _far_x(motion) -> float:
     limits = motion.get_axis_limits('X')
     here = motion.get_current_position('X')
-    return limits['max'] * 0.9 if here < (limits['min'] + limits['max']) / 2 else limits['min']
+    return limits.max_um * 0.9 if here < (limits.min_um + limits.max_um) / 2 else limits.min_um
 
 
 def _far_step(session):

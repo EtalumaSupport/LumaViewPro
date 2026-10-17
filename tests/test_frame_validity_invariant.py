@@ -164,7 +164,7 @@ class TestMotionValiditySources:
     @staticmethod
     def _middle_of_travel(motion, axis):
         limits = motion.get_axis_limits(axis)
-        return (limits['min'] + limits['max']) / 2
+        return (limits.min_um + limits.max_um) / 2
 
     @pytest.mark.parametrize(
         ('axis', 'source'),

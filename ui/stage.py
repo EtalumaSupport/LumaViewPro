@@ -100,7 +100,7 @@ class Stage(Widget):
         ctx = _app_ctx.ctx
         if self._xy_stage_present():
             motion = ctx.scope.motion
-            return (motion.get_axis_limits('X')['max'], motion.get_axis_limits('Y')['max'])
+            return (motion.get_axis_limits('X').max_um, motion.get_axis_limits('Y').max_um)
         from modules.common_utils import DEFAULT_STAGE_TRAVEL_UM
 
         return (DEFAULT_STAGE_TRAVEL_UM['x'], DEFAULT_STAGE_TRAVEL_UM['y'])

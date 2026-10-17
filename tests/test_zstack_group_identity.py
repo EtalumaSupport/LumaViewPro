@@ -23,6 +23,7 @@ button order.
 
 from __future__ import annotations
 
+from modules.coord_transformations import AxisLimits
 from modules.labware_loader import WellPlateLoader
 from modules.objectives_loader import ObjectiveLoader
 from tests.test_step_label_ssot import (
@@ -34,8 +35,8 @@ from tests.test_step_label_ssot import (
 
 
 _WIDE_XY = {
-    'X': {'min': -1_000_000.0, 'max': 1_000_000.0},
-    'Y': {'min': -1_000_000.0, 'max': 1_000_000.0},
+    'X': AxisLimits(min_um=-1_000_000.0, max_um=1_000_000.0),
+    'Y': AxisLimits(min_um=-1_000_000.0, max_um=1_000_000.0),
 }
 
 

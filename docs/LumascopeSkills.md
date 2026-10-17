@@ -1674,12 +1674,12 @@ scope.motion.get_turret_slot()                   # slot in the light path, or No
 # two steps naming one objective in two slots each go to their own.
 
 # Stage
-scope.motion.get_axis_limits('Z')                # {'min': 0, 'max': 14000}, read-only
+scope.motion.get_axis_limits('Z')                # AxisLimits(min_um=0.0, max_um=14000.0), frozen
 ```
 
-The limits are a read-only mapping: they are the bound a move is refused
-against, so an edit raises `TypeError`. Take `dict(...)` of it for a
-working copy.
+The limits are a frozen `AxisLimits` record: they are the bound a move is
+refused against, so an edit raises `dataclasses.FrozenInstanceError`.
+`to_dict()` gives a working copy.
 
 **Axes: ask which axes the scope has before asking their limits.**
 `scope.capabilities.axes` names the axes this scope has a motor for.
@@ -3549,6 +3549,13 @@ Reached through returned by `session.set_layer_auto_gain` and `scope.imaging.loc
 - `settings`
 - `state`
 - `stored_exposure_ms`
+
+### AxisLimits
+
+Reached through returned by `session.scope.motion.get_axis_limits`.
+
+- `max_um`
+- `min_um`
 
 ### AxisPosition
 

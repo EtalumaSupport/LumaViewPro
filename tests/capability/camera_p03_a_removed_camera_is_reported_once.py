@@ -131,7 +131,7 @@ def _autofocus(session, runner):
     # to search; from the middle each run sweeps, capturing as it goes.
     motion = session.scope.motion
     z = motion.get_axis_limits('Z')
-    motion.start_move_absolute('Z', (z['min'] + z['max']) / 2).result(timeout=60)
+    motion.start_move_absolute('Z', (z.min_um + z.max_um) / 2).result(timeout=60)
     _arm(session)
     runs = 0
     outcome, met = None, 'no removal in the window'

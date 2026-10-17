@@ -21,7 +21,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from modules.coord_transformations import CoordinateTransformer
+from modules.coord_transformations import AxisLimits, CoordinateTransformer
 from modules.exceptions import PositionOutOfRangeError
 from tests.ast_seams import REPO_ROOT
 
@@ -31,7 +31,10 @@ from tests.ast_seams import REPO_ROOT
 # defaults change should fail this file loudly, not silently retarget it.
 PLATE_DIMENSIONS = {'x': 127.76, 'y': 85.48}
 STAGE_OFFSET = {'x': 5500.0, 'y': 4000.0}
-AXIS_TRAVEL = {'X': {'min': 0.0, 'max': 120000.0}, 'Y': {'min': 0.0, 'max': 80000.0}}
+AXIS_TRAVEL = {
+    'X': AxisLimits(min_um=0.0, max_um=120000.0),
+    'Y': AxisLimits(min_um=0.0, max_um=80000.0),
+}
 
 REACHABLE = {'X': (2.26, 122.26), 'Y': (1.48, 81.48)}
 
@@ -49,9 +52,7 @@ class TestTheScopeCarriesTheGeometryTheBandsAssume:
         dimensions = scope.runtime_state.get_labware().get_dimensions()
         assert {key: dimensions[key] for key in PLATE_DIMENSIONS} == PLATE_DIMENSIONS
         assert scope.runtime_state.get_stage_offset() == STAGE_OFFSET
-        assert {axis: dict(scope.motion.get_axis_limits(axis)) for axis in AXIS_TRAVEL} == (
-            AXIS_TRAVEL
-        )
+        assert {axis: scope.motion.get_axis_limits(axis) for axis in AXIS_TRAVEL} == (AXIS_TRAVEL)
 
 
 class TestRefusalNamesWhatTheUserTyped:

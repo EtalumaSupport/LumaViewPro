@@ -303,7 +303,7 @@ class TestAnAddCanBeAZStack:
     def test_a_stack_past_the_z_travel_adds_nothing(self, session):
         _only_acquiring(session, 'BF', 'Blue')
         _stack_settings(session, range_um=10.0, step_size_um=5.0)
-        z_max = session.scope.motion.get_axis_limits('Z')['max']
+        z_max = session.scope.motion.get_axis_limits('Z').max_um
         session.scope.motion.move_absolute('Z', z_max - 1.0)
         protocol = session.scope.protocols.create_protocol(
             empty_config=session.get_sequenced_capture_config()

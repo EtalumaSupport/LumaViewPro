@@ -10,9 +10,21 @@ All transforms use the labware dimensions and stage_offset (um) for
 the current plate mounting position.
 """
 
+import dataclasses
+
+from modules.api_surface import api_fields
 from modules.finite_number import refuse_unless_finite_number
 from modules.request_fields import key_path, refuse_unless_kind, required
 import modules.labware as lw
+
+
+@api_fields('min_um', 'max_um')
+@dataclasses.dataclass(frozen=True)
+class AxisLimits:
+    """An axis's travel, in um: a move outside it is refused."""
+
+    min_um: float
+    max_um: float
 
 
 def stage_offset_axes(stage_offset: dict[str, float]) -> tuple[float, float]:

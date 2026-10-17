@@ -47,7 +47,7 @@ def body(session, runner):
     figure('objective', session.scope.runtime_state.get_current_objective_id())
     figure('autofocus_half_range_um', half_range)
 
-    for name, start in (('top', limits['max']), ('bottom', limits['min'])):
+    for name, start in (('top', limits.max_um), ('bottom', limits.min_um)):
         outcome, refused, z_after = _autofocus_from(session, runner, start, heard)
         figure(f'{name}: status', outcome.status)
         figure(f'{name}: focus', outcome.af_focus_z_um)
@@ -65,7 +65,7 @@ def body(session, runner):
             f'start {start}, after {z_after}',
         )
 
-    mid = (limits['min'] + limits['max']) / 2.0
+    mid = (limits.min_um + limits.max_um) / 2.0
     outcome, refused, _ = _autofocus_from(session, runner, mid, heard)
     figure('mid: status', outcome.status)
     figure('mid: focus', outcome.af_focus_z_um)

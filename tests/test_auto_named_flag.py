@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import pathlib
 
+from modules.coord_transformations import AxisLimits
 from modules.protocol import Protocol
 from tests.test_issue_524_extra_z_step_on_objective_change import (
     _add_layer_config,
@@ -24,7 +25,7 @@ REPO = pathlib.Path(__file__).resolve().parent.parent
 TILING_CONFIGS = REPO / 'data' / 'tiling.json'
 
 _ZSTACK = {'range': 100.0, 'step_size': 20.0, 'z_reference': 'center'}
-_WIDE_Z = {'Z': {'min': 0.0, 'max': 10000.0}}
+_WIDE_Z = {'Z': AxisLimits(min_um=0.0, max_um=10000.0)}
 
 
 def _insert_step(proto, *, step_name):

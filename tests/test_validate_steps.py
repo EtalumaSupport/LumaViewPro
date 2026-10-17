@@ -12,6 +12,7 @@ import pathlib
 import pandas as pd
 import pytest
 
+from modules.coord_transformations import AxisLimits
 from modules.labware_loader import WellPlateLoader
 from modules.layer_record import release_catalogue
 from modules.objectives_loader import ObjectiveLoader
@@ -271,9 +272,9 @@ class TestMultipleErrors:
 # ---------------------------------------------------------------------------
 
 _DEFAULT_AXIS_LIMITS = {
-    'X': {'min': 0, 'max': 120000},
-    'Y': {'min': 0, 'max': 80000},
-    'Z': {'min': 0, 'max': 14000},
+    'X': AxisLimits(min_um=0, max_um=120000),
+    'Y': AxisLimits(min_um=0, max_um=80000),
+    'Z': AxisLimits(min_um=0, max_um=14000),
 }
 
 _STAGE_OFFSET = {'x': 0.0, 'y': 0.0}
@@ -331,7 +332,7 @@ class TestAxesOutsideTravel:
 
     def test_only_the_axes_with_limits_are_judged(self):
         """Only Z limits provided -- X and Y are not judged."""
-        limits = {'Z': {'min': 0, 'max': 14000}}
+        limits = {'Z': AxisLimits(min_um=0, max_um=14000)}
         assert _outside({'X': 999999, 'Y': 0.0, 'Z': 15000}, limits) == ['Z']
 
     def test_no_limits_judges_nothing(self):

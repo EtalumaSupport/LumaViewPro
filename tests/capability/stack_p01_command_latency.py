@@ -74,7 +74,7 @@ def body(session):
     z0 = m.get_target_position('Z')
     zl = m.get_axis_limits('Z')
     step = 100.0
-    lo, hi = z0, min(zl['max'], z0 + step)
+    lo, hi = z0, min(zl.max_um, z0 + step)
     targets = [hi, lo]
 
     # S1a: Z moves at rest, alternating +100 um / back.
@@ -96,7 +96,7 @@ def body(session):
     if has_x:
         xl = m.get_axis_limits('X')
         x0 = m.get_target_position('X')
-        far = xl['max'] if (xl['max'] - x0) > (x0 - xl['min']) else xl['min']
+        far = xl.max_um if (xl.max_um - x0) > (x0 - xl.min_um) else xl.min_um
         t = time.perf_counter()
         m.move_absolute('X', far)
         figure('S1.x_full_travel_s', round(time.perf_counter() - t, 2))

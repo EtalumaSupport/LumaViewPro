@@ -37,7 +37,7 @@ OUTSIDE = 'positions_outside_travel'
 
 
 def _past_z(scope) -> float:
-    return scope.motion.get_axis_limits('Z')['max'] + 500.0
+    return scope.motion.get_axis_limits('Z').max_um + 500.0
 
 
 def _refusal(executor, protocol, tmp_path) -> ProtocolRunRefusedError:

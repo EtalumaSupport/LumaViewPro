@@ -8,6 +8,7 @@ projected as if whole (#431).
 Reuses the Protocol builders from test_protocol_roundtrip.
 """
 
+from modules.coord_transformations import AxisLimits
 from tests.test_protocol_roundtrip import _build_protocol, _make_step
 
 
@@ -23,7 +24,7 @@ def _proto():
 
 def test_all_in_range_zslices_kept_no_skips():
     proto = _proto()
-    axis_limits = {'Z': {'min': 0.0, 'max': 10000.0}}
+    axis_limits = {'Z': AxisLimits(min_um=0.0, max_um=10000.0)}
 
     proto.apply_zstacking(zstack_params=_ZSTACK, axis_limits=axis_limits)
 

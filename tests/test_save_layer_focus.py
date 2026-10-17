@@ -37,7 +37,7 @@ def session(tmp_path_factory):
 
 def _z_limits(session):
     limits = session.scope.motion.get_axis_limits('Z')
-    return limits['min'], limits['max']
+    return limits.min_um, limits.max_um
 
 
 def test_a_z_inside_the_travel_is_stored_as_the_layers_focus(session):
