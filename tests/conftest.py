@@ -269,9 +269,10 @@ def _install_host_absent_production_modules():
 
     ``drivers/winusb_iso.py`` imports ``ctypes.WinDLL`` at module scope, so on
     macOS and Linux the import raises; ``drivers/fx2driver.py`` reaches it
-    only on Windows. A test of the WinUSB transport patches the one class the
-    transport asks for, ``WinUsbIsoReader``, on the module, the same call on
-    every host; here the module exists to be patched. The guard
+    only on Windows. A test of the WinUSB transport patches what the
+    transport asks for, ``WinUsbIsoReader`` and ``device_bindings``, on the
+    module, the same call on every host; here the module exists to be
+    patched. The guard
     ``tests/guards/test_no_test_installs_a_module_stand_in.py`` keeps this
     the one place.
     """
@@ -282,6 +283,7 @@ def _install_host_absent_production_modules():
 
         shell = ModuleType('drivers.winusb_iso')
         shell.WinUsbIsoReader = None
+        shell.device_bindings = None
         sys.modules.setdefault('drivers.winusb_iso', shell)
         # The dotted form of monkeypatch.setattr walks the package's attributes.
         drivers.winusb_iso = sys.modules['drivers.winusb_iso']

@@ -19,8 +19,23 @@ import os
 import re
 from dataclasses import dataclass
 
+from drivers.exceptions import CameraUsbDriverUnusableError
+
 FX2_BOOTLOADER = 'USB\\VID_04B4&PID_8613'
 FX2_FIRMWARE = 'USB\\VID_04B4&PID_EA17'
+# The names our INF gives each identity in Device Manager.
+DEVICE_NAMES = {
+    FX2_BOOTLOADER: 'Lumascope Classic (Bootloader)',
+    FX2_FIRMWARE: 'Lumascope Classic',
+}
+# The drivers each identity can be bound to, by what LumaViewPro does with
+# it, never by whose package it is: the firmware upload reaches the
+# bootloader through libusb, which drives a device on any of the three; the
+# stream reads the running firmware through WinUSB itself.
+USABLE_SERVICES = {
+    FX2_BOOTLOADER: frozenset({'winusb', 'libusbk', 'libusb0'}),
+    FX2_FIRMWARE: frozenset({'winusb'}),
+}
 # Ours is named by its catalog as well as its provider: an older Etaluma
 # package (LumaView Classic's, or the unsigned LumaScope_WinUSB.inf the
 # installer once carried) is another package to replace.
@@ -76,6 +91,38 @@ class StorePackage:
     @property
     def ours(self) -> bool:
         return self.provider == OUR_PROVIDER and self.catalog.lower() == OUR_CATALOG.lower()
+
+
+def unusable(identity: str, bindings: list[DeviceBinding]) -> list[DeviceBinding]:
+    """The present devices of ``identity`` bound to a driver LumaViewPro cannot use.
+
+    A device with no driver is one. A past device is not: it is matched
+    afresh when it is plugged in.
+    """
+    usable = USABLE_SERVICES[identity]
+    return [b for b in bindings if b.present and (b.service or '').lower() not in usable]
+
+
+def refuse_unusable(bindings: dict[str, list[DeviceBinding]]) -> None:
+    """Refuse the FX2 when a present device of either identity cannot be driven.
+
+    Args:
+        bindings: Each identity's devices, as ``device_bindings`` reads them.
+
+    Raises:
+        CameraUsbDriverUnusableError: Naming each such device, the driver it
+            is bound to, what it needs, and the fix.
+    """
+    refused = [
+        f'{DEVICE_NAMES[identity]} {b.describe()} needs one of: '
+        f'{", ".join(sorted(USABLE_SERVICES[identity]))}'
+        for identity, devices in bindings.items()
+        for b in unusable(identity, devices)
+    ]
+    if refused:
+        raise CameraUsbDriverUnusableError(
+            '; '.join(refused) + '; run the LumaViewPro installer as an administrator to bind it'
+        )
 
 
 def store_inf_folder() -> str:

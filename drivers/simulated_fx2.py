@@ -58,6 +58,12 @@ from drivers.fx2driver import (
     parse_intel_hex,
 )
 from drivers.simulated_specimen import drift_frames, specimen_field
+from drivers.usb_driver_binding import (
+    FX2_BOOTLOADER,
+    FX2_FIRMWARE,
+    DeviceBinding,
+    refuse_unusable,
+)
 
 TIMINGS = ('instant', 'realistic')
 
@@ -467,6 +473,27 @@ class SimulatedFX2Transport:
         self.device = device
         self._stream: _ByteStream | None = None
         self._on_gone: Callable[[], None] | None = None
+        # The driver each identity is bound to, as Windows would bind it
+        # with LumaViewPro's package installed.
+        self.services = {FX2_BOOTLOADER: 'WinUSB', FX2_FIRMWARE: 'WinUSB'}
+
+    def check_bindings(self) -> None:
+        """The Windows transport's check, on the simulated device's binding."""
+        if self.device.pid is None:
+            return  # off the bus: nothing bound to check
+        identity = FX2_BOOTLOADER if self.device.pid == PID_BOOT else FX2_FIRMWARE
+        service = self.services[identity]
+        binding = DeviceBinding(
+            instance_id=f'{identity}\\SIMULATED',
+            present=True,
+            service=service,
+            provider=None if service is None else 'simulated',
+            inf=None,
+            version=None,
+            date=None,
+            problem_code=None if service is not None else 28,
+        )
+        refuse_unusable({identity: [binding]})
 
     def find(self, pid: int) -> SimulatedFX2Device | None:
         return self.device if self.device.pid == pid else None
@@ -524,6 +551,10 @@ class SimulatedFX2Transport:
     def go_silent(self) -> None:
         """The stream stops while the device stays on the bus."""
         self.device.halt()
+
+    def bind(self, identity: str, service: str | None) -> None:
+        """Bind ``identity`` to the driver ``service`` (None: no driver)."""
+        self.services[identity] = service
 
     def refuse_start(self, count: int) -> None:
         """The next ``count`` STARTs are refused; the device stays on the bus."""

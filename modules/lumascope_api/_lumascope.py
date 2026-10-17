@@ -29,7 +29,11 @@ except ImportError as _fx2_exc:
     # line a Classic scope's missing camera has no named cause anywhere.
     logger.warning(f'[SCOPE API ] FX2 (Classic) drivers unavailable: {_fx2_exc}')
 from drivers.camera import Camera
-from drivers.exceptions import CameraFirmwareMissingError, HardwareError
+from drivers.exceptions import (
+    CameraFirmwareMissingError,
+    CameraUsbDriverUnusableError,
+    HardwareError,
+)
 
 # Registration-only imports: loading each driver module fires its
 # @*_registry.register(...) decorator so the registry can instantiate it
@@ -224,6 +228,8 @@ def _camera_failure_cause(exc: BaseException) -> str:
         return 'camera_not_initialized'
     if isinstance(exc, CameraFirmwareMissingError):
         return 'camera_firmware_missing'
+    if isinstance(exc, CameraUsbDriverUnusableError):
+        return 'camera_driver_unusable'
     if type(exc).__name__ in ('RuntimeException', 'GenericException', 'LogicalErrorException'):
         return 'camera_in_use'
     if isinstance(exc, PermissionError):

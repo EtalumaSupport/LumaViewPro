@@ -227,6 +227,9 @@ def test_a_connection_that_cannot_connect_closes_its_transport_and_raises_its_ow
     class NoDevice:
         closed = False
 
+        def check_bindings(self):
+            pass
+
         def find(self, pid):
             raise RuntimeError('no FX2 on the bus')
 
@@ -315,6 +318,8 @@ def test_a_windows_start_that_fails_leaves_no_reader_and_the_next_runs_one(monke
             self.running = False
 
     monkeypatch.setattr('drivers.winusb_iso.WinUsbIsoReader', Reader)
+    # a stand-in by design: SetupAPI, absent off Windows; no device to refuse.
+    monkeypatch.setattr('drivers.winusb_iso.device_bindings', lambda identity: [])
     monkeypatch.setattr(
         fx2driver,
         'usb',
@@ -362,6 +367,8 @@ def test_a_stream_start_the_fx2_does_not_answer_is_no_answer(monkeypatch):
             pass
 
     monkeypatch.setattr('drivers.winusb_iso.WinUsbIsoReader', Reader)
+    # a stand-in by design: SetupAPI, absent off Windows; no device to refuse.
+    monkeypatch.setattr('drivers.winusb_iso.device_bindings', lambda identity: [])
     monkeypatch.setattr(
         fx2driver,
         'usb',

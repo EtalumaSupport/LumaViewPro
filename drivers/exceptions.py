@@ -209,6 +209,21 @@ class CameraUsbLookupFailedError(Fault, HardwareError):
     words_for_person = False
 
 
+class CameraUsbDriverUnusableError(Fault, HardwareError):
+    """The camera's USB device is bound to a driver LumaViewPro cannot use.
+
+    Windows binds each of the Lumascope Classic's two USB identities to a
+    driver on its own; a device with none, or one the firmware upload or
+    the stream cannot drive, cannot come up however it is cabled. The words
+    name the device, the driver it is bound to and what it needs.
+    """
+
+    reason = 'camera_usb_driver_unusable'
+    title = 'Camera Driver Not Usable'
+
+    words_for_person = False
+
+
 class CameraUsbOpenFailedError(Fault, HardwareError):
     """The camera's USB device was found and could not be opened or set up
     for streaming. The words name the call and its error code.

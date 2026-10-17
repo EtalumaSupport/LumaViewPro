@@ -1233,7 +1233,9 @@ record.part('led').cause                   # ArgumentRefusedError (part_unknown)
                                            # 'camera_port_in_use', 'camera_not_detected', 'camera_driver_unavailable'
                                            # (none found, and a camera driver did not load on this installation; the
                                            # detail names it and why), 'camera_firmware_missing' (a Classic's firmware
-                                           # file is not installed), 'camera_not_initialized';
+                                           # file is not installed), 'camera_driver_unusable' (on Windows, a Classic is
+                                           # bound to no driver or one LumaViewPro cannot use; the detail names the
+                                           # device and its driver), 'camera_not_initialized';
                                            # on an LED board that came up, 'safety_off_failed'; on a camera that came up
                                            # and whose stream did not start, 'stream_not_started' (it stays after a
                                            # later enable_streaming() that streams)

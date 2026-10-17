@@ -116,6 +116,12 @@ from drivers.exceptions import (
     CameraUsbNotFoundError,
     CameraWriteFailedError,
 )
+from drivers.usb_driver_binding import (
+    DEVICE_NAMES,
+    FX2_BOOTLOADER,
+    FX2_FIRMWARE,
+    refuse_unusable,
+)
 from drivers.registry import camera_registry, led_registry
 
 # Wire-level logging for the FX2 (LumaviewClassic LS560/620/720) USB
@@ -1123,6 +1129,13 @@ class _PyusbTransport:
     def __init__(self):
         self._dev = None
 
+    def check_bindings(self) -> None:
+        """Refuse a device bound to a driver this transport cannot use.
+
+        On macOS and Linux libusb reaches any USB device, so there is
+        nothing to check.
+        """
+
     def find(self, pid: int) -> Any:
         """The FX2 enumerated under ``pid``, or None."""
         return usb.core.find(idVendor=VID, idProduct=pid)
@@ -1401,6 +1414,29 @@ class _WinUsbTransport(_PyusbTransport):
         super().__init__()
         self._reader = None
 
+    def check_bindings(self) -> None:
+        """Log which driver each of the FX2's identities is bound to; refuse
+        one that cannot work.
+
+        Windows binds each identity on its own, and pyusb sees a device only
+        through a driver libusb can drive, so a device on no driver or the
+        wrong one would otherwise read as no camera at all.
+
+        Raises:
+            CameraUsbDriverUnusableError: A present device's driver cannot
+                serve what LumaViewPro does with it, naming each such device.
+            CameraUsbLookupFailedError: The bindings could not be read.
+        """
+        from drivers.winusb_iso import device_bindings
+
+        bindings = {
+            identity: device_bindings(identity) for identity in (FX2_BOOTLOADER, FX2_FIRMWARE)
+        }
+        for identity, devices in bindings.items():
+            for binding in devices:
+                logger.info('[FX2 Conn  ] %s: %s', DEVICE_NAMES[identity], binding.describe())
+        refuse_unusable(bindings)
+
     def control_out(self, request: int, value: int, index: int, data: bytes, timeout: int) -> int:
         if self._reader is not None:
             return self._reader.device.control_transfer(0x40, request, value, index, data=data)
@@ -1608,6 +1644,7 @@ class _FX2Connection:
     def _connect(self):
         """Find the device, upload firmware if needed, open it."""
         transport = self._transport
+        transport.check_bindings()
         dev = transport.find(PID_APP)
         if dev is not None:
             logger.info('[FX2 Conn  ] device: %s', transport.describe(dev))
@@ -1637,6 +1674,8 @@ class _FX2Connection:
             dev = transport.find(PID_APP)
             if dev is not None:
                 logger.info('[FX2 Conn  ] device: %s', transport.describe(dev))
+                # The running firmware is a new device, bound on its own.
+                transport.check_bindings()
                 transport.open(dev)
                 logger.info(
                     '[FX2 Conn  ] firmware loaded, re-enumerated as PID 0x%04X',
