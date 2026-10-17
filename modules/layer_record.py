@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import os
 import re
+import types
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, fields
 
@@ -42,6 +43,7 @@ from modules.exceptions import (
 )
 from modules.path_utils import read_installation_file, resolve_data_file
 from modules.api_surface import api, api_fields
+from modules.scope_capabilities import FrameSize
 
 
 # The values a catalogue record's `modality` and `background` take. The
@@ -364,30 +366,77 @@ def shown_color(name: object, false_color_on: bool, colors: ChannelColors) -> Co
     return color if false_color_on else GREY
 
 
-# Row fields the resolver requires. Extra keys are tolerated so a config
-# authored by a newer wizard still resolves on this release; a row
-# MISSING one of these is unusable and is skipped loudly instead.
+# The keys a model's layer row may carry; each but the colour is required.
+# A row's colour is optional: without one the layer takes the release's.
 _REQUIRED_ROW_FIELDS = ('key_name', 'display_name', 'led_channel', 'excitation_nm')
+_ROW_FIELDS = frozenset(_REQUIRED_ROW_FIELDS) | {'display_color'}
 
 
-# The fields every model entry states, with their types. A missing or
-# mistyped one is a warning, not a refusal: `entry_axes` reads a missing
-# flag as absent and a mistyped one by its truth, so the warning is where
-# such an entry shows. `LEDBoard` names the board that drives the model's
-# LEDs; production reads it nowhere, since the bring-up finds the board it
-# has, and only the simulator builds from it. `MotorBoard` is not listed:
-# a manual model has no motor board to name.
-_MODEL_ENTRY_FIELDS = {
-    'Focus': bool,
-    'XYStage': bool,
-    'Turret': bool,
-    'Layers': list,
-    'LEDBoard': str,
+@api_fields(
+    'id',
+    'has_focus',
+    'has_xy_stage',
+    'has_turret',
+    'led_board',
+    'motor_board',
+    'layers',
+    'filterset',
+    'pixel_size_um',
+    'lens_focal_length_mm',
+    'max_frame',
+)
+@dataclass(frozen=True)
+class ScopeModel:
+    """One model of the installation's catalogue (``scopes.json``'s ``Models``), read once at bring-up.
+
+    ``id`` is the model's name, the key the operator selects and a board
+    reports. ``has_focus``, ``has_xy_stage`` and ``has_turret`` are the motor
+    axes the model is built with: Z, X and Y, T. ``layers`` are the model's
+    layer rows, resolved against the release's layer vocabulary: what a unit
+    of the model has when its board carries no Channels block of its own.
+    ``led_board`` and ``motor_board`` name the model's boards, ``motor_board``
+    None for a model with no motor axes; production finds the boards it has
+    and reads neither, and the simulator builds from them. ``filterset`` is
+    None where the row names none. ``pixel_size_um`` (the sensor's pixel
+    pitch) and ``lens_focal_length_mm`` (the tube lens) are a Classic
+    model's optics, which no motorconfig carries; ``max_frame`` is the
+    largest frame, unbinned, of a model whose lens images less than its
+    sensor. Each is None where the row declares none.
+    """
+
+    id: str
+    has_focus: bool
+    has_xy_stage: bool
+    has_turret: bool
+    led_board: str
+    motor_board: str | None
+    layers: tuple[LayerRecord, ...]
+    filterset: str | None
+    pixel_size_um: float | None
+    lens_focal_length_mm: float | None
+    max_frame: FrameSize | None
+
+
+# Each flag's key in scopes.json and the motor axes it stands for: a focus
+# drive is Z, a stage is X and Y, a turret is T.
+_FLAG_KEYS = {'has_focus': 'Focus', 'has_xy_stage': 'XYStage', 'has_turret': 'Turret'}
+_AXES_BY_FLAG = (('has_focus', 'Z'), ('has_xy_stage', 'XY'), ('has_turret', 'T'))
+# The keys of a model entry: the flags, ``LEDBoard`` and ``Layers`` required,
+# the rest stated only by the models that have them.
+_MODEL_KEYS = frozenset(_FLAG_KEYS.values()) | {
+    'LEDBoard',
+    'Layers',
+    'MotorBoard',
+    'Filterset',
+    'Optics',
+    'MaxFrame',
 }
+# An Optics block's keys and the field each fills.
+_OPTICS_KEYS = {'PixelSize': 'pixel_size_um', 'LensFocalLength': 'lens_focal_length_mm'}
 
 
-def load_scope_models(data_file: str | None = None) -> Mapping:
-    """The model catalogue -- scopes.json's `Models` section -- or a refusal.
+def load_scope_models(data_file: str | None = None) -> Mapping[str, ScopeModel]:
+    """The model catalogue -- scopes.json's `Models` section -- as records, or a refusal.
 
     The scope reads it once, from the folder it was started on, before
     anything is started, and everything else reads the scope's copy. With
@@ -395,45 +444,103 @@ def load_scope_models(data_file: str | None = None) -> Mapping:
     answers False, and a turret scope whose board is not talking is
     configured as turretless -- answering with its stored objective
     instead of the one in the light path. So an unusable file or a
-    missing section refuses, naming the file.
+    missing section refuses, naming the file. Each model's layer rows are
+    resolved against the release's layer vocabulary (``release_layers``).
 
     ``data_file`` None reads the installation's own folder.
 
     Raises:
-        InstallationFileError: the file is unusable, has no Models section,
-            or has a model entry that is not an object.
+        InstallationFileError: as ``read_scope_models``, or the release's
+            vocabulary is unusable (``release_layers``).
     """
     path = data_file if data_file is not None else resolve_data_file('scopes.json')
-    models = read_installation_file(path).get('Models')
+    return read_scope_models(read_installation_file(path), path, release_layers())
+
+
+def read_scope_models(
+    scopes_data: dict, path: str | os.PathLike, catalogue: tuple[CatalogueLayer, ...]
+) -> Mapping[str, ScopeModel]:
+    """``scopes_data``'s models as a read-only mapping of records by name, or a refusal naming ``path``.
+
+    Every row is whole or the catalogue is refused: the file ships with the
+    release, so a row it cannot read is the release's defect, and read in
+    part it would build a scope unlike the hardware (a missing ``Turret``
+    makes a turret scope turretless).
+
+    Raises:
+        InstallationFileError: there is no Models section, or an entry is
+            not an object, misses a required key, carries an undeclared
+            one, or gives a key a value it cannot hold; a layer row as
+            ``_model_layers`` refuses it. Each names the model and the key.
+    """
+    models = scopes_data.get('Models')
     if not isinstance(models, dict):
         raise InstallationFileError(
             path, f'has no usable Models section (found {type(models).__name__})'
         )
-    for model, entry in models.items():
-        # Every reader of an entry asks it for its fields, so one that is
-        # not an object would fail wherever it was first read.
-        if not isinstance(entry, dict):
-            raise InstallationFileError(
-                path,
-                f'has a model {model!r} whose entry is a {type(entry).__name__}, not an object',
-            )
-        for field, expected_type in _MODEL_ENTRY_FIELDS.items():
-            if field not in entry:
-                logger.warning(f"[LAYER_RECORD] model '{model}' missing '{field}' in {path}")
-            elif not isinstance(entry[field], expected_type):
-                logger.warning(
-                    f"[LAYER_RECORD] model '{model}'.'{field}' should be "
-                    f'{expected_type.__name__}, got {type(entry[field]).__name__} in {path}'
-                )
-    return models
+    return types.MappingProxyType(
+        {model: _scope_model(model, entry, path, catalogue) for model, entry in models.items()}
+    )
 
 
-# The catalogue's three hardware flags and the motor axes each one stands
-# for: a focus drive is Z, a stage is X and Y, a turret is T.
-_AXES_BY_FLAG = (('Focus', 'Z'), ('XYStage', 'XY'), ('Turret', 'T'))
+def _scope_model(
+    model: str, entry: object, path: str | os.PathLike, catalogue: tuple[CatalogueLayer, ...]
+) -> ScopeModel:
+    """The record for one model entry, or a refusal naming the file, the model and the key."""
+
+    def refuse(problem: str) -> InstallationFileError:
+        return InstallationFileError(path, f'gives model {model!r} {problem}')
+
+    if not isinstance(entry, dict):
+        raise InstallationFileError(
+            path, f'has a model {model!r} whose entry is a {type(entry).__name__}, not an object'
+        )
+    undeclared = sorted(set(entry) - _MODEL_KEYS)
+    if undeclared:
+        raise refuse(f'the undeclared key {undeclared[0]!r}')
+    flags = {}
+    for field, key in _FLAG_KEYS.items():
+        if not isinstance(entry.get(key), bool):
+            raise refuse(f'a {key!r} that is not true or false')
+        flags[field] = entry[key]
+    text = {}
+    for key in ('LEDBoard', 'MotorBoard', 'Filterset'):
+        value = entry.get(key)
+        if (key == 'LEDBoard' or key in entry) and not (isinstance(value, str) and value):
+            raise refuse(f'a {key!r} that is not a name')
+        text[key] = value
+    optics = entry.get('Optics', {})
+    if not isinstance(optics, dict) or set(optics) - set(_OPTICS_KEYS):
+        raise refuse(f"an 'Optics' that holds other than {sorted(_OPTICS_KEYS)}")
+    for key, value in optics.items():
+        if not _is_number(value) or value <= 0:
+            raise refuse(f'an Optics {key!r} that is not a positive number')
+    max_frame = None
+    if 'MaxFrame' in entry:
+        raw = entry['MaxFrame']
+        if not (
+            isinstance(raw, dict)
+            and set(raw) == {'width', 'height'}
+            and all(isinstance(v, int) and not isinstance(v, bool) and v > 0 for v in raw.values())
+        ):
+            raise refuse("a 'MaxFrame' that is not a positive width and height in pixels")
+        max_frame = FrameSize(width=raw['width'], height=raw['height'])
+    return ScopeModel(
+        id=model,
+        **flags,
+        led_board=text['LEDBoard'],
+        motor_board=text['MotorBoard'],
+        layers=_model_layers(entry.get('Layers'), catalogue, refuse),
+        filterset=text['Filterset'],
+        **{
+            field: float(optics[key]) if key in optics else None
+            for key, field in _OPTICS_KEYS.items()
+        },
+        max_frame=max_frame,
+    )
 
 
-def model_axes(models: dict, model: str) -> frozenset[str]:
+def model_axes(models: Mapping[str, ScopeModel], model: str) -> frozenset[str]:
     """The motor axes the catalogue says a model has, or a refusal.
 
     A model the catalogue does not list is refused rather than answered
@@ -441,18 +548,18 @@ def model_axes(models: dict, model: str) -> frozenset[str]:
     the model name would then look like a scope with no motor board.
     """
     entry = models.get(model)
-    if not isinstance(entry, dict):
+    if entry is None:
         raise ScopeModelUnknownError(model, sorted(models))
     return entry_axes(entry)
 
 
-def entry_axes(entry: dict) -> frozenset[str]:
+def entry_axes(entry: ScopeModel) -> frozenset[str]:
     """The motor axes one catalogue entry declares. Empty for a manual
     scope, which has no motor board at all."""
-    return frozenset(axis for flag, axes in _AXES_BY_FLAG if entry.get(flag) for axis in axes)
+    return frozenset(axis for flag, axes in _AXES_BY_FLAG if getattr(entry, flag) for axis in axes)
 
 
-def entry_expects_motion(entry: dict | None) -> bool:
+def entry_expects_motion(entry: ScopeModel | None) -> bool:
     """Whether a scope with this catalogue entry has a motor board.
 
     No entry expects one: only the catalogue can say a scope is manual,
@@ -614,54 +721,43 @@ def _shared_address(records: list[LayerRecord]) -> str | None:
     return None
 
 
-def _parse_rows(
-    rows: object, catalogue: tuple[CatalogueLayer, ...], origin: str
+def _model_layers(
+    rows: object,
+    catalogue: tuple[CatalogueLayer, ...],
+    refuse: Callable[[str], InstallationFileError],
 ) -> tuple[LayerRecord, ...]:
-    """Parse a model's identity rows, skipping each unusable row loudly.
+    """A model's layer rows as records, in id order, or ``refuse``'s refusal.
 
-    A bad row costs that row, never the scope: the surviving layers keep
-    working and the skipped one is absent from identity (so its LED use
-    is a loud, named error downstream). Falling back to another data
-    source instead would silently describe hardware the unit does not
-    have. Skipped-loudly cases: a row shape this release cannot read
-    (the same forward-looking posture that lets an old release ignore a
-    newer block), a key name outside the catalogue (an OEM/custom layer
-    this release has no seat for), any row `_record` cannot read. Two
-    rows on one LED address leave the model no layers: which of them is
-    the LED's cannot be told.
-
-    Each record takes its key's catalogue fields from ``catalogue``.
+    Every row is whole or the model is refused, as its entry is: a row
+    whose key is not in the release's vocabulary, that misses a field or
+    carries an undeclared one, that ``_record`` cannot read, or that shares
+    an LED address with another. Each record takes its key's catalogue
+    fields from ``catalogue``.
     """
     by_key = {layer.key: (position, layer) for position, layer in enumerate(catalogue)}
     if not isinstance(rows, list):
-        logger.error(f'[LAYER_RECORD] {origin}: Layers is not a list: {rows!r}')
-        return ()
+        raise refuse("a 'Layers' that is not a list of rows")
     records = []
     for row in rows:
         if not isinstance(row, dict):
-            logger.error(f'[LAYER_RECORD] {origin}: row is not a mapping: {row!r}')
-            continue
+            raise refuse(f'a layer row that is not an object: {row!r}')
+        key_name = row.get('key_name')
+        if not isinstance(key_name, str) or key_name not in by_key:
+            raise refuse(f'the layer {key_name!r}, not one of this release {tuple(by_key)}')
         missing = [k for k in _REQUIRED_ROW_FIELDS if k not in row]
         if missing:
-            logger.error(f'[LAYER_RECORD] {origin}: row {row!r} missing {missing}; skipped')
-            continue
-        key_name = row['key_name']
-        if not isinstance(key_name, str) or key_name not in by_key:
-            logger.error(
-                f'[LAYER_RECORD] {origin}: layer {key_name!r} is not in this '
-                f'release catalogue {tuple(by_key)}; skipped'
-            )
-            continue
+            raise refuse(f'a {key_name} layer row with no {missing[0]!r}')
+        undeclared = sorted(set(row) - _ROW_FIELDS)
+        if undeclared:
+            raise refuse(f'a {key_name} layer row with the undeclared key {undeclared[0]!r}')
         position, release = by_key[key_name]
         record = _record(key_name, row, release, position)
         if isinstance(record, str):
-            logger.error(f'[LAYER_RECORD] {origin}: layer {key_name!r} {record}; skipped')
-            continue
+            raise refuse(f'a {key_name} layer row that {record}')
         records.append(record)
     shared = _shared_address(records)
     if shared is not None:
-        logger.error(f'[LAYER_RECORD] {origin}: {shared}; no layers')
-        return ()
+        raise refuse(f'layer rows where {shared}')
     return tuple(sorted(records, key=lambda r: r.id))
 
 
@@ -670,8 +766,9 @@ def _parse_channel_block(
 ) -> tuple[LayerRecord, ...]:
     """Parse a board's Channels block: a mapping from catalogue key to its row.
 
-    A row this release cannot read costs that row, as a model's does, and
-    every such row is reported in one notice. A block that is not a mapping,
+    A row this release cannot read costs that row, and every such row is
+    reported in one notice: a block is the unit's, written by a release
+    that may be newer than this one. A block that is not a mapping,
     or that names one LED address twice, describes no assembly that can be
     trusted in part: the unit has no channels, reported.
     """
@@ -708,7 +805,7 @@ def resolve_layer_identity(
     board_config_read_ok: bool,
     motor_model: str | None,
     configured_model: str | None,
-    models: Mapping,
+    models: Mapping[str, ScopeModel],
     catalogue: tuple[CatalogueLayer, ...],
     report: Callable[[Notice], None],
     override_model: str | None = None,
@@ -744,13 +841,11 @@ def resolve_layer_identity(
 
     def _from_model(model: str) -> LayerIdentity:
         entry = models.get(model)
-        if not isinstance(entry, dict):
+        if entry is None:
             return LayerIdentity(layers=(), filterset='', source='unresolved', model=model)
-        layers = _parse_rows(entry.get('Layers', []), catalogue, f'scopes[{model}]')
-        filterset = entry.get('Filterset', '')
-        if not isinstance(filterset, str):
-            filterset = ''
-        return LayerIdentity(layers=layers, filterset=filterset, source='scopes', model=model)
+        return LayerIdentity(
+            layers=entry.layers, filterset=entry.filterset or '', source='scopes', model=model
+        )
 
     if override_model is not None:
         logger.warning(

@@ -28,12 +28,13 @@ def test_a_plate_refuses_a_change(scope):
     assert scope.wellplate_loader.get_plate('96 well microplate').spacing_x_mm == 9
 
 
-def test_a_changed_scope_model_leaves_the_next_read_unchanged(scope):
-    model = next(iter(scope.scope_models))
-    entry = scope.scope_models[model]
-    shipped = dict(entry)
-    entry['changed by a caller'] = True
-    assert dict(scope.scope_models[model]) == shipped
+def test_the_scope_models_refuse_a_change(scope):
+    models = scope.scope_models
+    with pytest.raises(TypeError):
+        models['LS850T'] = models['LS620']
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        models['LS850T'].has_turret = False
+    assert scope.scope_models['LS850T'].has_turret is True
 
 
 def test_the_objectives_refuse_a_change(scope):

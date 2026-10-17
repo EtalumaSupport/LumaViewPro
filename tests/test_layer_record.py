@@ -4,8 +4,9 @@
 
 Pins the resolution contract: wholesale block-or-model (never a field
 merge), motor-first model precedence with the configured model only
-where hardware reports none, the explicit override, per-row loud skip
-(scope survives), catalogue-positional ids, and the source tags that
+where hardware reports none, the explicit override, a board block's
+per-row loud skip (scope survives), a model row the catalogue cannot
+read refused, catalogue-positional ids, and the source tags that
 make degraded states visible instead of silent.
 """
 
@@ -24,6 +25,7 @@ from modules.layer_record import (
     format_display_color,
     load_layer_catalogue,
     output_color,
+    read_scope_models,
     parse_display_color,
     release_color,
     resolve_layer_identity,
@@ -32,6 +34,7 @@ from modules.layer_record import (
 from modules.exceptions import ArgumentRefusedError, InstallationFileError
 from modules.path_utils import read_installation_file, resolve_data_file
 from modules.layer_record import release_colors
+from tests.case_walk import failing_cases
 
 # The shipped catalogue's records, as scopes.json states them.
 CATALOGUE = read_installation_file(resolve_data_file('scopes.json'))['LayerOrder']
@@ -48,7 +51,19 @@ def row(key, display=None, channel=None, nm=None, **extra):
     return d
 
 
+# What every model entry states besides its layers: a motorized EL-0940 model.
+MODEL_KEYS = {
+    'Focus': True,
+    'XYStage': True,
+    'Turret': False,
+    'LEDBoard': 'EL-0940',
+    'MotorBoard': 'EL-0940',
+}
+
+
 def write_scopes(tmp_path, models, catalogue=CATALOGUE):
+    """A scopes.json holding ``models``, each entry completed with ``MODEL_KEYS``."""
+    models = {name: {**MODEL_KEYS, **entry} for name, entry in models.items()}
     data = {'LayerOrder': catalogue, 'Models': models}
     path = tmp_path / 'scopes_fixture.json'
     path.write_text(json.dumps(data), encoding='utf-8')
@@ -101,9 +116,10 @@ def resolve(data_file, **kwargs):
     }
     defaults.update(kwargs)
     data = read_installation_file(data_file)
+    catalogue = load_layer_catalogue(data, data_file)
     return resolve_layer_identity(
-        models=data['Models'],
-        catalogue=load_layer_catalogue(data, data_file),
+        models=read_scope_models(data, data_file, catalogue),
+        catalogue=catalogue,
         report=REPORTED.append,
         **defaults,
     )
@@ -327,34 +343,97 @@ class TestOverride:
         assert 'LS9999' in errors_logged()
 
 
+def _without(key):
+    return lambda entry: entry.pop(key)
+
+
+def _with(key, value):
+    return lambda entry: entry.update({key: value})
+
+
+def _rows(*rows):
+    return _with('Layers', list(rows))
+
+
 class TestRowParsing:
-    def test_multi_channel_row_is_skipped_loudly_and_scope_survives(self, tmp_path):
-        rows = [row('BF', 'BF', 3), dict(row('Green', 'Green'), led_channel=[1, 2])]
-        path = write_scopes(tmp_path, {'M': {'Layers': rows}})
-        identity = resolve(path, motor_model='M')
-        assert [r.key_name for r in identity.layers] == ['BF']
-        assert 'multiple' in errors_logged()
+    def test_a_model_entry_it_cannot_read_refuses_the_catalogue_naming_the_model_and_the_key(
+        self, tmp_path
+    ):
+        # The catalogue ships with the release: a row it cannot read is the
+        # release's defect, refused whole rather than read in part.
+        cases = [
+            pytest.param(_without('Turret'), "'Turret'", id='a missing flag'),
+            pytest.param(_with('Focus', 'yes'), "'Focus'", id='a flag that is not a bool'),
+            pytest.param(_with('Turet', True), "'Turet'", id='an undeclared key'),
+            pytest.param(_without('LEDBoard'), "'LEDBoard'", id='no LED board'),
+            pytest.param(_with('Filterset', 405), "'Filterset'", id='a filterset not a name'),
+            pytest.param(
+                _with('Optics', {'PixelSize': '2.2'}), "'PixelSize'", id='optics not a number'
+            ),
+            pytest.param(_with('Optics', {'Zoom': 2.0}), "'Optics'", id='an undeclared optic'),
+            pytest.param(_with('MaxFrame', {'width': 1700}), "'MaxFrame'", id='half a frame'),
+            pytest.param(_with('Layers', {}), "'Layers'", id='layers not a list'),
+            pytest.param(
+                _rows(row('BF', 'BF', 3), dict(row('Green', 'Green'), led_channel=[1, 2])),
+                'multiple',
+                id='a multi-channel row',
+            ),
+            pytest.param(
+                _rows(row('Skylight', 'Skylight', 6)), "'Skylight'", id='an unknown layer'
+            ),
+            pytest.param(
+                _rows(row(['Green'], 'Green', 1, 488)), "['Green']", id='a key not a name'
+            ),
+            pytest.param(
+                _rows({'key_name': 'Green', 'display_name': 'Green'}),
+                "'led_channel'",
+                id='a row missing a field',
+            ),
+            pytest.param(
+                _rows(row('BF', 'BF', 3, None, future_field='anything')),
+                "'future_field'",
+                id='a row with an undeclared key',
+            ),
+            pytest.param(
+                _rows(row('Green', 'Green', 1, None)), 'no excitation_nm', id='no excitation'
+            ),
+            pytest.param(
+                _rows(row('BF', 'BF', 3), row('PC', 'PC', 3)),
+                'BF and PC both name LED address 3',
+                id='two rows on one LED address',
+            ),
+        ]
 
-    def test_uncatalogued_key_is_skipped_loudly(self, tmp_path):
-        rows = [row('BF', 'BF', 3), row('Skylight', 'Skylight', 6)]
-        path = write_scopes(tmp_path, {'M': {'Layers': rows}})
-        identity = resolve(path, motor_model='M')
-        assert [r.key_name for r in identity.layers] == ['BF']
-        assert 'Skylight' in errors_logged()
+        def check(mutate, words):
+            entry = {**MODEL_KEYS, 'Layers': [row('BF', 'BF', 3)]}
+            mutate(entry)
+            data = {'LayerOrder': CATALOGUE, 'Models': {'M': entry}}
+            catalogue = load_layer_catalogue(data, 'scopes.json')
+            with pytest.raises(InstallationFileError) as refused:
+                read_scope_models(data, 'scopes.json', catalogue)
+            assert "model 'M'" in str(refused.value) and words in str(refused.value)
 
-    def test_a_key_that_is_not_a_name_is_skipped_loudly(self, tmp_path):
-        rows = [row('BF', 'BF', 3), row(['Green'], 'Green', 1, 488)]
-        path = write_scopes(tmp_path, {'M': {'Layers': rows}})
-        identity = resolve(path, motor_model='M')
-        assert [r.key_name for r in identity.layers] == ['BF']
-        assert "['Green']" in errors_logged()
+        failed = failing_cases(cases, check)
+        assert not failed, failed
 
-    def test_missing_field_is_skipped_loudly(self, tmp_path):
-        rows = [row('BF', 'BF', 3), {'key_name': 'Green', 'display_name': 'Green'}]
-        path = write_scopes(tmp_path, {'M': {'Layers': rows}})
-        identity = resolve(path, motor_model='M')
-        assert [r.key_name for r in identity.layers] == ['BF']
-        assert 'missing' in errors_logged()
+    def test_a_model_states_what_it_is_built_with(self):
+        entry = {
+            'Focus': False,
+            'XYStage': False,
+            'Turret': False,
+            'LEDBoard': 'FX2',
+            'Layers': LS560_ROWS,
+            'Optics': {'PixelSize': 2.2, 'LensFocalLength': 32.3},
+            'MaxFrame': {'width': 1700, 'height': 1700},
+        }
+        data = {'LayerOrder': CATALOGUE, 'Models': {'M': entry}}
+        catalogue = load_layer_catalogue(data, 'scopes.json')
+        model = read_scope_models(data, 'scopes.json', catalogue)['M']
+        assert (model.has_focus, model.has_xy_stage, model.has_turret) == (False, False, False)
+        assert (model.led_board, model.motor_board, model.filterset) == ('FX2', None, None)
+        assert (model.pixel_size_um, model.lens_focal_length_mm) == (2.2, 32.3)
+        assert (model.max_frame.width, model.max_frame.height) == (1700, 1700)
+        assert [layer.key_name for layer in model.layers] == ['BF', 'Green']
 
     def test_every_row_unusable_is_a_zero_layer_identity_not_a_fallback(self, tmp_path):
         path = write_scopes(tmp_path, {'LS850T': {'Layers': LS850T_ROWS, 'Filterset': 'Stock'}})
@@ -367,12 +446,6 @@ class TestRowParsing:
         assert identity.layers == ()
         assert identity.filterset == 'Broken'
 
-    def test_extra_fields_are_tolerated(self, tmp_path):
-        rows = [row('BF', 'BF', 3, None, future_field='anything')]
-        path = write_scopes(tmp_path, {'M': {'Layers': rows}})
-        identity = resolve(path, motor_model='M')
-        assert identity.find('BF') is not None
-
     def test_ledless_layer_is_a_valid_record(self, tmp_path):
         path = write_scopes(tmp_path, {'M': {'Layers': [row('Lumi', 'Lumi', None)]}})
         identity = resolve(path, motor_model='M')
@@ -380,13 +453,6 @@ class TestRowParsing:
         assert lumi is not None
         assert lumi.led_channel == ()
         assert lumi.excitation_nm is None
-
-    def test_a_fluorescence_row_with_no_excitation_is_skipped_loudly(self, tmp_path):
-        rows = [row('BF', 'BF', 3), row('Green', 'Green', 1, None)]
-        path = write_scopes(tmp_path, {'M': {'Layers': rows}})
-        identity = resolve(path, motor_model='M')
-        assert [r.key_name for r in identity.layers] == ['BF']
-        assert 'no excitation_nm' in errors_logged()
 
     def test_a_fluorescence_layer_is_labelled_by_its_excitation(self, tmp_path):
         path = write_scopes(tmp_path, {'LS620': {'Layers': LS620_ROWS}})
@@ -508,13 +574,6 @@ class TestTheBoardsChannelBlock:
             session.shutdown()
         assert (identity.source, identity.model) == ('scopes', 'LS850')
         assert [getattr(n, 'reason', None) for n in heard] == ['channel_block_superseded']
-
-    def test_two_model_rows_on_one_led_address_leave_the_model_no_layers(self, tmp_path):
-        rows = [row('BF', 'BF', 3), row('PC', 'PC', 3)]
-        path = write_scopes(tmp_path, {'M': {'Layers': rows}})
-        identity = resolve(path, motor_model='M')
-        assert identity.layers == ()
-        assert 'BF and PC both name LED address 3' in errors_logged()
 
 
 class TestSnapshotSemantics:

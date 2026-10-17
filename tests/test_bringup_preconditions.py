@@ -30,8 +30,7 @@ class TestScopeModelsCatalogue:
         from modules.layer_record import load_scope_models
 
         models = load_scope_models()
-        assert isinstance(models, dict) and 'LS850T' in models
-        assert models['LS850T']['Turret'] is True
+        assert models['LS850T'].has_turret is True
 
     def test_a_file_without_a_models_section_refuses_by_name(self, tmp_path):
         from modules.layer_record import load_scope_models

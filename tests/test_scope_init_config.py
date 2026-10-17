@@ -11,6 +11,7 @@ those expectations is pinned in `tests/test_bring_up_is_a_record.py`.
 
 import pytest
 
+from modules.layer_record import load_scope_models
 from modules.scope_init_config import ScopeInitConfig
 from modules.lumascope_api._constants import ACCELERATION_PCT_MAX
 from tests.scope_fakes import build_scope, identity_with_layers
@@ -31,43 +32,11 @@ _BASE_SETTINGS = {
     'microscope': 'LS820',
 }
 
-_LS620_CONFIG = {
-    'Focus': False,
-    'XYStage': False,
-    'Turret': False,
-    'Layers': {
-        'Lumi': False,
-        'Fluorescence': True,
-        'Darkfield': False,
-        'Brightfield': True,
-        'PhaseContrast': True,
-    },
-}
-_LS820_CONFIG = {
-    'Focus': True,
-    'XYStage': False,
-    'Turret': False,
-    'Layers': {
-        'Lumi': False,
-        'Fluorescence': True,
-        'Darkfield': True,
-        'Brightfield': True,
-        'PhaseContrast': True,
-    },
-}
-_LS850T_CONFIG = {
-    'Focus': True,
-    'XYStage': True,
-    'Turret': True,
-    'Layers': {
-        'Lumi': False,
-        'Fluorescence': True,
-        'Darkfield': True,
-        'Brightfield': True,
-        'PhaseContrast': True,
-    },
-}
-
+# The shipped catalogue's records for the three models the table walks.
+_MODELS = load_scope_models()
+_LS620_CONFIG = _MODELS['LS620']
+_LS820_CONFIG = _MODELS['LS820']
+_LS850T_CONFIG = _MODELS['LS850T']
 
 # The truth-table fixtures used to carry scopes.json category booleans;
 # expects_led derives from the scope's resolved layer identity, so the
@@ -125,11 +94,10 @@ class TestFromSettings:
         assert config.expects_led is True
 
     def test_no_led_driving_layer_means_no_led_expected(self):
-        scope_config = {'Focus': True, 'XYStage': False, 'Turret': False}
         config = ScopeInitConfig.from_settings(
             _BASE_SETTINGS,
             turreted=False,
-            scope_config=scope_config,
+            scope_config=_LS820_CONFIG,
             layer_identity=_NO_LED_IDENTITY,
         )
         assert config.expects_led is False

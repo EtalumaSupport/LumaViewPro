@@ -41,11 +41,13 @@ if not (sys.platform == 'darwin' or sys.platform.startswith('linux')):
     )
 
 MODELS = load_scope_models()
-_AXES_OF = {'Focus': 'Z', 'XYStage': 'XY', 'Turret': 'T'}
+_AXES_OF = {'has_focus': 'Z', 'has_xy_stage': 'XY', 'has_turret': 'T'}
 
 
 def _catalogue_axes(model: str) -> set[str]:
-    return {axis for flag, axes in _AXES_OF.items() if MODELS[model].get(flag) for axis in axes}
+    return {
+        axis for flag, axes in _AXES_OF.items() if getattr(MODELS[model], flag) for axis in axes
+    }
 
 
 def _scope(**kwargs) -> Lumascope:
@@ -63,7 +65,7 @@ def test_the_firmware_tier_reports_every_catalogue_models_axes(model):
     scope = _scope(sim_tier='firmware', sim_model=model)
     try:
         assert set(scope.capabilities.axes) == _catalogue_axes(model)
-        motor_board = MODELS[model].get('MotorBoard')
+        motor_board = MODELS[model].motor_board
         if motor_board == 'TMCM-6110':
             assert isinstance(scope._motion_driver, Tmcm6110Board)
         elif motor_board == 'EL-0940':
@@ -113,7 +115,7 @@ def test_an_emulator_that_does_not_come_up_raises_naming_the_driver(monkeypatch)
 def test_the_firmware_tier_runs_the_led_firmware_on_every_el0940_model(model):
     scope = _scope(sim_tier='firmware', sim_model=model)
     try:
-        if MODELS[model]['LEDBoard'] == 'EL-0940':
+        if MODELS[model].led_board == 'EL-0940':
             assert isinstance(scope._led_driver, LEDBoard)
             assert scope._led_driver.firmware_date == '2024-06-05'
         else:

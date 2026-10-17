@@ -28,7 +28,10 @@ if typing.TYPE_CHECKING:
     # Import-time only: modules.protocol imports this module's siblings, so
     # a runtime import here would close a cycle.
     from modules.coord_transformations import CoordinateTransformer
+    from collections.abc import Mapping
+
     from modules.executor_registry import ExecutorBundle
+    from modules.layer_record import ScopeModel
     from modules.lumascope_api._lumascope import Lumascope
     from modules.lumascope_api.imaging import ImagingAPI
     from modules.protocol import Protocol
@@ -300,7 +303,7 @@ def _ag_ae_channel_class(layer: str) -> str:
     return 'fluorescence'
 
 
-def model_has_turret(scopes: dict, model: str | None) -> bool:
+def model_has_turret(scopes: 'Mapping[str, ScopeModel]', model: str | None) -> bool:
     """Does the DECLARED microscope model have a turret?
 
     Declared -- the model the scope runs as, looked up in the scopes
@@ -310,8 +313,8 @@ def model_has_turret(scopes: dict, model: str | None) -> bool:
     running scope's model, not the stored selection, which may name a
     model saved for the next start.
     """
-    scope_config = scopes.get(model)
-    return bool(scope_config and scope_config.get('Turret'))
+    entry = scopes.get(model)
+    return entry is not None and entry.has_turret
 
 
 # ---------------------------------------------------------------------------

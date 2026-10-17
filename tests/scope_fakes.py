@@ -518,9 +518,16 @@ def identity_with_layers(keys, *, model=None, filterset=''):
 
     shipped = {}
     for entry in layer_record.load_scope_models().values():
-        for row in entry.get('Layers', []):
-            shipped.setdefault(row['key_name'], row)
-    channels = {key: {k: v for k, v in shipped[key].items() if k != 'key_name'} for key in keys}
+        for record in entry.layers:
+            shipped.setdefault(record.key_name, record)
+    channels = {
+        key: {
+            'display_name': shipped[key].display_name,
+            'led_channel': list(shipped[key].led_channel) or None,
+            'excitation_nm': shipped[key].excitation_nm,
+        }
+        for key in keys
+    }
     return layer_record.resolve_layer_identity(
         board_block={'Channels': channels, 'Filterset': filterset},
         board_config_read_ok=True,

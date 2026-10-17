@@ -135,8 +135,8 @@ scope = session.scope
 scope.wellplate_loader                    # the labware catalogue, read from it once
 scope.objective_helper                    # the objective catalogue, read from it once
 scope.objectives                          # every objective, by id: Objective records, read-only
-scope.scope_models                        # the model catalogue (scopes.json Models), read from it once
-scope.scope_models['LS850T']['Turret']    # one model's entry: True, the LS850T has a turret
+scope.scope_models                        # every model, by name: ScopeModel records, read-only
+scope.scope_models['LS850T'].has_turret   # one model's record: True, the LS850T has a turret
 ```
 
 A scope acts on configuration it does not hold: the labware, the stage offset, the turret map, the objective selected on a scope with no turret, and whether the scale bar is drawn are its session's settings, read whenever it acts on them. A `ScopeSession` binds the scope it builds to its settings.
@@ -150,13 +150,15 @@ scope.wellplate_loader.resolve_plate_key(name)      # the catalogue's spelling; 
 scope.wellplate_loader.get_plate(plate_key=name)    # the plate's WellPlate record: rows, columns, spacing_x_mm, ..., read-only
 ```
 
-Each catalogue read -- `scope_models`, `settings_template` -- hands out the caller's own copy, `objectives` a read-only mapping of frozen records, and `get_plate()` a frozen record: changing what you were given changes nothing the scope or any other reader sees, and an `Objective` or a `WellPlate` refuses a change outright. A plate's positions are in mm on the plate: `offset_x_mm` / `offset_y_mm` is the first well's centre and `spacing_x_mm` / `spacing_y_mm` the pitch between centres; `well_diameter_mm` is None where the catalogue states none.
+`settings_template` hands out the caller's own copy, `objectives` and `scope_models` each a read-only mapping of frozen records, and `get_plate()` a frozen record: changing what you were given changes nothing the scope or any other reader sees, and an `Objective`, a `WellPlate` or a `ScopeModel` refuses a change outright. A plate's positions are in mm on the plate: `offset_x_mm` / `offset_y_mm` is the first well's centre and `spacing_x_mm` / `spacing_y_mm` the pitch between centres; `well_diameter_mm` is None where the catalogue states none.
 
 An `Objective` names each field with its unit. Autofocus starts at `autofocus_step_max_um` and refines down to `autofocus_step_min_um` across `autofocus_half_range_um` either side of where it starts; a jog moves `jog_z_fine_um` / `jog_z_coarse_um` on Z and `jog_xy_fine_um` / `jog_xy_coarse_um` on X and Y; `focal_length_mm` sets the image scale; `short_name` is the token step and file names carry. `focus_peak_fwhm_dense_um` is None until the engineering plugin's characterization has measured the objective. The installation's `objectives.json` keeps its own keys (`focal_length`, `DOF`, `AF_min`, ...), and a capture's metadata carries the objective under those keys. An entry missing a field, carrying a key no field declares, or giving a number as anything else refuses bring-up with `InstallationFileError`, naming the file, the objective and the key.
 
+A `ScopeModel` says what a model is built with: `has_focus`, `has_xy_stage` and `has_turret` (the Z, X and Y, and T axes), its boards (`led_board`; `motor_board`, None on a model with no motor axes), its `filterset`, and its `layers`, `LayerRecord`s resolved against the release's layer vocabulary, which a unit has when its board carries no Channels block of its own. A Classic model, which has no motorconfig, also declares its optics, `pixel_size_um` and `lens_focal_length_mm`, and one whose lens images less than its sensor its `max_frame`; each is None where the model declares none. The installation's `scopes.json` keeps its own keys (`Focus`, `XYStage`, `Turret`, `LEDBoard`, ...). A model entry or layer row missing a key, carrying a key no field declares, or giving a key a value it cannot hold refuses bring-up with `InstallationFileError`, naming the file, the model and the key.
+
 Slides and Petri dishes are in `labware.json` but are not labware the API publishes yet: the labware catalogue is the multi-well plates.
 
-`source_path` is the folder holding `data/`; without one the scope uses the installation's own. The scope reads `data/labware.json`, `data/objectives.json`, `data/scopes.json` and `data/motorconfig_defaults.json` from it once, first, before anything starts, and everything that asks about plates, objectives or models reads the scope's copy: the scope's runtime state, protocol construction and validation, autofocus, the run, the session and the GUI. The model catalogue (`scopes.json`'s `Models`) is `scope.scope_models`, a read-only mapping of model name to its entry. A file that is missing, unreadable or not the shape its reader needs (for `scopes.json`, one with no `Models` section) raises `InstallationFileError` (`modules.exceptions`) naming the file and its folder, and nothing is left running. A simulated scope's `sim_model` that the folder's catalogue does not list raises `ScopeModelUnknownError` (reason `model_unknown`, a refusal) before anything starts. The release's layer vocabulary (`scopes.json`'s `LayerOrder`) is the one exception: it is process-wide, read from the installation's own folder the first time any code asks for the layers, and a scope's layers are resolved against it. It is not a `ConfigError`: the installation is at fault, not your settings.
+`source_path` is the folder holding `data/`; without one the scope uses the installation's own. The scope reads `data/labware.json`, `data/objectives.json`, `data/scopes.json` and `data/motorconfig_defaults.json` from it once, first, before anything starts, and everything that asks about plates, objectives or models reads the scope's copy: the scope's runtime state, protocol construction and validation, autofocus, the run, the session and the GUI. The model catalogue (`scopes.json`'s `Models`) is `scope.scope_models`, a read-only mapping of model name to its `ScopeModel`. A file that is missing, unreadable or not the shape its reader needs (for `scopes.json`, one with no `Models` section) raises `InstallationFileError` (`modules.exceptions`) naming the file and its folder, and nothing is left running. A simulated scope's `sim_model` that the folder's catalogue does not list raises `ScopeModelUnknownError` (reason `model_unknown`, a refusal) before anything starts. The release's layer vocabulary (`scopes.json`'s `LayerOrder`) is the one exception: it is process-wide, read from the installation's own folder the first time any code asks for the layers, and a scope's layers are resolved against it. It is not a `ConfigError`: the installation is at fault, not your settings.
 
 The scope builds and starts its own IO and CAMERA lanes at construction and shuts them when its session shuts down (`session.shutdown()`). A lane hands a finished command's callback to the process's one UI dispatcher (`ScopeSession.set_ui_dispatcher`, below); with none set, the default, callbacks run on the lane's worker.
 
@@ -3996,6 +3998,22 @@ Reached through the event `RunEvents.scan_started` delivers.
 - `interval`
 - `scan_number`
 - `scans_remaining`
+
+### ScopeModel
+
+Reached through `session.scope.scope_models`.
+
+- `filterset`
+- `has_focus`
+- `has_turret`
+- `has_xy_stage`
+- `id`
+- `layers`
+- `led_board`
+- `lens_focal_length_mm`
+- `max_frame`
+- `motor_board`
+- `pixel_size_um`
 
 ### SettingRefusedError
 

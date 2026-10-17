@@ -59,10 +59,9 @@ class ScopeInitConfig:
         assignment, derived when asked. It is never carried: the scope
         reads the selected objective from the settings.
 
-        scope_config: the entry for the active scope from scopes.json
-        (e.g. ``{"Focus": false, "XYStage": false, "Turret": false, ...}``).
-        When provided, drives expects_motion for the partial-hardware
-        notification filter.
+        scope_config: the active scope's model record (``ScopeModel``),
+        None for a model the catalogue does not list. Drives
+        expects_motion for the partial-hardware notification filter.
 
         layer_identity: the scope's resolved layer identity snapshot.
         When provided, drives expects_led: identity carrying at least one

@@ -85,7 +85,7 @@ if TYPE_CHECKING:
 
     from drivers.simulated_camera import SimulatedStall
     from modules.labware_loader import WellPlateLoader
-    from modules.layer_record import LayerIdentity
+    from modules.layer_record import LayerIdentity, ScopeModel
     from modules.lumascope_api.diagnostics import DiagnosticsAPI
     from modules.lumascope_api.illumination import IlluminationAPI
     from modules.lumascope_api.imaging import ImagingAPI
@@ -470,8 +470,8 @@ class Lumascope:
                 the simulator has no stand-in for, naming the catalogue.
         """
         entry = self._scope_models[model]
-        led_board = entry.get('LEDBoard')
-        motor_board = entry.get('MotorBoard')
+        led_board = entry.led_board
+        motor_board = entry.motor_board
         if led_board not in _SIMULATED_LED_BOARDS:
             problem = f'names LEDBoard {led_board!r}; the simulator has {_SIMULATED_LED_BOARDS}'
         elif axes and motor_board not in _SIMULATED_MOTOR_BOARDS:
@@ -479,7 +479,7 @@ class Lumascope:
                 f'gives motor axes and names MotorBoard {motor_board!r}; '
                 f'the simulator has {_SIMULATED_MOTOR_BOARDS}'
             )
-        elif not axes and 'MotorBoard' in entry:
+        elif not axes and motor_board is not None:
             problem = f'gives no motor axes but names MotorBoard {motor_board!r}'
         else:
             return led_board, motor_board
@@ -1361,20 +1361,21 @@ class Lumascope:
 
     @api
     @property
-    def scope_models(self) -> dict:
-        """The model catalogue (scopes.json's ``Models``), as the caller's own copy.
+    def scope_models(self) -> 'Mapping[str, ScopeModel]':
+        """The model catalogue (scopes.json's ``Models``): a read-only mapping of model name to its ``ScopeModel``.
 
-        A copy because the scope reads its own: a caller that changed what
-        it was given would otherwise change every later reader's catalogue.
+        Read-only, as each record is: no caller can change what another
+        reads.
         """
-        return copy.deepcopy(self._scope_models)
+        return self._scope_models
 
     @api
     @property
     def settings_template(self) -> dict:
         """The shipped settings template: which settings exist, and their shipped values.
 
-        The caller's own copy, for the reason ``scope_models`` gives.
+        The caller's own copy: a caller that changed what it was given
+        would otherwise change every later reader's template.
         """
         return copy.deepcopy(self._settings_template)
 

@@ -43,7 +43,7 @@ from rest import routes as rest_routes
 # equality, not a ceiling: a ceiling left two above the count let a new
 # untyped read (get_zstack_params, a dict) in unnoticed. A typed answer
 # lowers the pin in the same commit; get_zstack_params is W3's to type.
-UNTYPED_PIN = 46
+UNTYPED_PIN = 45
 
 _SERVER_MODELS = ('Handle', 'Job', 'JobProgress', 'PathAnswer', 'Versions')
 # A JSON Schema keyword that says what a value is.

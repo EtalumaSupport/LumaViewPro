@@ -42,7 +42,7 @@ from modules.api_surface import api_fields
 
 if TYPE_CHECKING:
     from drivers.protocols import LEDBoardProtocol, MotorBoardProtocol
-    from modules.layer_record import LayerIdentity
+    from modules.layer_record import LayerIdentity, ScopeModel
 
 
 def _probe(label: str, fn: Callable[[], Any], fallback: Any) -> Any:
@@ -65,43 +65,37 @@ def _probe(label: str, fn: Callable[[], Any], fallback: Any) -> Any:
         return fallback
 
 
-def _declared_optics(scope_models: Mapping, model: str) -> dict[str, float]:
-    """Return the numeric Optics block the model catalogue declares for `model`.
+def _declared_optics(scope_models: Mapping[str, ScopeModel], model: str) -> dict[str, float]:
+    """Return the Optics the model catalogue declares for `model`, under motorconfig's keys.
 
     The Lumascope Classic line has no motorconfig, so the catalogue is its
     declared optics source (keyed by scope model). A model with no entry,
     or an entry with no Optics block, is a legitimate resolution-order
     branch (the LS850T sources optics from motorconfig; an unknown scope
     has none): an empty mapping tells the caller to fall through to the
-    next source. A non-numeric entry is logged and treated as absent so a
-    bad value degrades the scale rather than aborting scope bring-up.
+    next source.
     """
     entry = scope_models.get(model) if model else None
-    raw = entry.get('Optics', {}) if entry is not None else {}
-    try:
-        return {key: float(raw[key]) for key in ('PixelSize', 'LensFocalLength') if key in raw}
-    except (ValueError, TypeError, AttributeError) as e:
-        logger.warning(f'[CAPABILITIES] catalogue Optics unusable for {model!r}: {e}')
+    if entry is None:
         return {}
+    declared = {'PixelSize': entry.pixel_size_um, 'LensFocalLength': entry.lens_focal_length_mm}
+    return {key: value for key, value in declared.items() if value is not None}
 
 
-def _declared_max_frame(scope_models: Mapping, model: str) -> tuple[int, int] | None:
+def _declared_max_frame(
+    scope_models: Mapping[str, ScopeModel], model: str
+) -> tuple[int, int] | None:
     """Return the frame maximum the model catalogue declares for `model`, or None.
 
     A model whose lens images less than its sensor declares the largest frame
     it delivers (``MaxFrame``, unbinned pixels); the LS560's lens is why its
     frame ends at 1700. Most models declare none, and the camera's own maximum
-    is the scope's. A malformed entry is logged and treated as absent.
+    is the scope's.
     """
     entry = scope_models.get(model) if model else None
-    raw = entry.get('MaxFrame') if entry is not None else None
-    if raw is None:
+    if entry is None or entry.max_frame is None:
         return None
-    try:
-        return (int(raw['width']), int(raw['height']))
-    except (KeyError, ValueError, TypeError) as e:
-        logger.warning(f'[CAPABILITIES] catalogue MaxFrame unusable for {model!r}: {e}')
-        return None
+    return (entry.max_frame.width, entry.max_frame.height)
 
 
 def _smallest_frame(*sizes: tuple[int, int] | None) -> tuple[int, int] | None:
@@ -428,7 +422,7 @@ class ScopeCapabilities:
         led: LEDBoardProtocol,
         camera: object | None,
         layer_identity: LayerIdentity,
-        scope_models: Mapping,
+        scope_models: Mapping[str, ScopeModel],
     ) -> ScopeCapabilities:
         """Build a ScopeCapabilities snapshot from the three drivers.
 

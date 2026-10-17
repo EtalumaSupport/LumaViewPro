@@ -264,23 +264,6 @@ def test_a_model_entry_that_is_not_an_object_is_refused_by_name(tmp_path):
     assert refused.value.file_path == root / 'data' / 'scopes.json'
 
 
-def test_an_entry_missing_a_field_is_warned_about_by_name(tmp_path):
-    from lvp_logger import logger as mock_logger
-
-    def no_turret_flag(data):
-        contents = _scopes(data)
-        del contents['Models']['LS620']['Turret']
-        _write_scopes(data, contents)
-
-    root = _folder(tmp_path, no_turret_flag)
-    mock_logger.reset_mock()
-
-    layer_record.load_scope_models(root / 'data' / 'scopes.json')
-
-    warned = ' | '.join(str(c) for c in mock_logger.warning.call_args_list)
-    assert "'LS620' missing 'Turret'" in warned
-
-
 def test_the_motor_driver_takes_the_folders_defaults(tmp_path):
     def longer_z_travel(data):
         path = data / 'motorconfig_defaults.json'
