@@ -42,10 +42,10 @@ def body(session, runner):
     session.add_outcome_listener(heard.append)
     limits = session.scope.motion.get_axis_limits('Z')
     objective = session.scope.runtime_state.get_current_objective()
-    af_range = objective['AF_range']
+    half_range = objective.autofocus_half_range_um
     figure('Z travel', limits)
     figure('objective', session.scope.runtime_state.get_current_objective_id())
-    figure('AF_range', af_range)
+    figure('autofocus_half_range_um', half_range)
 
     for name, start in (('top', limits['max']), ('bottom', limits['min'])):
         outcome, refused, z_after = _autofocus_from(session, runner, start, heard)

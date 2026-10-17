@@ -67,7 +67,7 @@ def _step(name, objective, slot, index, position, layer):
 def _expected_pixel_size(session, objective_id):
     import modules.common_utils as common_utils
 
-    focal_length = session.objective_helper.get_objective_info(objective_id)['focal_length']
+    focal_length = session.scope.objectives[objective_id].focal_length_mm
     return round(
         common_utils.get_pixel_size(
             focal_length=focal_length,

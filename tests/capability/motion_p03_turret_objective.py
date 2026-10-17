@@ -55,10 +55,11 @@ def main():
             and s.settings['turret_objectives'] == slots_before,
             f'{first} -> {now_id} at slot {m.get_turret_slot()}',
         )
+        jogs = ('jog_z_coarse_um', 'jog_z_fine_um', 'jog_xy_coarse_um', 'jog_xy_fine_um')
         check(
-            'objective info carries the jog steps the GUI jog reads',
-            all(k in info for k in ('z_coarse', 'z_fine', 'xy_coarse', 'xy_fine')),
-            str(sorted(k for k in info if 'coarse' in k or 'fine' in k)),
+            'the answer is the selected objective, with the jog steps the GUI jog reads',
+            info is s.scope.objectives[other] and all(getattr(info, f) > 0 for f in jogs),
+            str({f: getattr(info, f) for f in jogs}),
         )
 
         # --- assign an objective to a turret slot, then select that slot ---
