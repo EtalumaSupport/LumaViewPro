@@ -108,7 +108,7 @@ class TestTheResolver:
             assert CATALOGUE.is_known_plate(old_name)
             resolved = CATALOGUE.get_plate(plate_key=old_name)
             canonical = CATALOGUE.get_plate(plate_key=key)
-            assert resolved.config == canonical.config
+            assert resolved == canonical
         assert not CATALOGUE.is_known_plate(UNKNOWN_PLATE)
 
 

@@ -41,11 +41,11 @@ def session():
 
 
 def _scope_plate(session):
-    return session.scope.runtime_state.get_labware().config
+    return session.scope.runtime_state.get_labware()
 
 
 def _catalogue_plate(session, name):
-    return session.wellplate_loader.get_plate(plate_key=name).config
+    return session.wellplate_loader.get_plate(plate_key=name)
 
 
 class TestTheSessionLoad:
@@ -70,7 +70,7 @@ class TestTheSessionLoad:
 
         assert refused.value.holder == 'recording'
         assert session.settings['protocol']['labware'] == plate_before
-        assert session.scope.runtime_state.get_labware().config == runtime_before.config
+        assert session.scope.runtime_state.get_labware() == runtime_before
 
     def test_a_held_scope_loads_a_protocol_on_the_plate_in_place(self, tmp_path, session):
         in_place = session.settings['protocol']['labware']

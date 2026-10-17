@@ -34,8 +34,8 @@ class TestAWriteIsWhatTheScopeActsOn:
             if name != session.settings['protocol']['labware']
         )
         session.select_labware(other)
-        assert session.scope.runtime_state.get_labware().config == (
-            session.wellplate_loader.get_plate(plate_key=other).config
+        assert session.scope.runtime_state.get_labware() == (
+            session.wellplate_loader.get_plate(plate_key=other)
         )
 
     def test_the_stage_offset(self, session):

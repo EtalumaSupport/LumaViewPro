@@ -21,11 +21,11 @@ def scope():
     return build_scope(simulate=True)
 
 
-def test_a_changed_plate_leaves_the_next_read_unchanged(scope):
+def test_a_plate_refuses_a_change(scope):
     plate = scope.wellplate_loader.get_plate('96 well microplate')
-    shipped = plate.config['spacing']['x']
-    plate.config['spacing']['x'] = shipped + 1
-    assert scope.wellplate_loader.get_plate('96 well microplate').config['spacing']['x'] == shipped
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        plate.spacing_x_mm = 10.0
+    assert scope.wellplate_loader.get_plate('96 well microplate').spacing_x_mm == 9
 
 
 def test_a_changed_scope_model_leaves_the_next_read_unchanged(scope):

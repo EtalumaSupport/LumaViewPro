@@ -2610,9 +2610,9 @@ class Protocol:
             actual_positions = positions
             position_source = 'from_manual'
         else:
-            labware_obj = wellplate_loader.get_plate(plate_key=labware_id)
-            labware_obj.set_positions()
-            well_positions = labware_obj.get_positions_with_labels()
+            well_positions = wellplate_loader.get_plate(
+                plate_key=labware_id
+            ).get_positions_with_labels()
 
             tmp = []
             for well_position in well_positions:

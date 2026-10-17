@@ -1,12 +1,13 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
-import copy
 import logging
 import pathlib
+import types
 import typing
+from collections.abc import Mapping
 
 import modules.labware as labware
-from modules.exceptions import CatalogueNameRefusedError, ConfigError
+from modules.exceptions import CatalogueNameRefusedError, ConfigError, InstallationFileError
 from modules.path_utils import read_installation_file, resolve_data_file
 from modules.api_surface import api
 
@@ -14,16 +15,6 @@ if typing.TYPE_CHECKING:
     from modules.settings_init import SettingValue
 
 logger = logging.getLogger('LVP.modules.labware_loader')
-
-_REQUIRED_WELLPLATE_FIELDS = {
-    'columns': int,
-    'rows': int,
-    'dimensions': dict,
-    'spacing': dict,
-    'offset': dict,
-}
-
-_REQUIRED_DIMENSION_FIELDS = {'x': (int, float), 'y': (int, float)}
 
 # The plate of a scope with no XY stage: one field, at the centre, with no
 # wells to move between.
@@ -54,70 +45,74 @@ def canonical_plate_name(plate_key: object) -> object:
     return _LABWARE_ALIASES.get(plate_key, plate_key)
 
 
-def _validate_labware(labware: dict, filepath: pathlib.Path) -> None:
-    """Validate labware.json: check structure and required fields per entry.
+def _number(entry: dict, path: tuple[str, ...], name: str, filepath: pathlib.Path) -> float:
+    value = entry
+    for key in path:
+        if not isinstance(value, dict) or key not in value:
+            raise InstallationFileError(filepath, f'gives plate {name!r} no {".".join(path)!r}')
+        value = value[key]
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise InstallationFileError(
+            filepath, f'gives plate {name!r} a {".".join(path)!r} that is not a number'
+        )
+    return value
 
-    Only 'Wellplate' entries require the full columns/rows/dimensions/spacing/
-    offset schema. Slide and Petri dish have simpler structures and are not
-    validated beyond type.
+
+def _read_plate(name: str, entry: object, filepath: pathlib.Path) -> labware.WellPlate:
+    """The record for one plate of the catalogue, or a refusal naming the file, the plate and the key."""
+    if not isinstance(entry, dict):
+        raise InstallationFileError(filepath, f'has a plate {name!r} that is not a plate')
+    counts = {}
+    for key in ('rows', 'columns'):
+        if isinstance(entry.get(key), bool) or not isinstance(entry.get(key), int):
+            raise InstallationFileError(filepath, f'gives plate {name!r} no whole-number {key!r}')
+        counts[key] = entry[key]
+    standard = entry.get('standard')
+    if not isinstance(standard, str):
+        raise InstallationFileError(filepath, f"gives plate {name!r} no 'standard'")
+    diameter = _number(entry, ('diameter',), name, filepath)
+    return labware.WellPlate(
+        name=name,
+        **counts,
+        spacing_x_mm=_number(entry, ('spacing', 'x'), name, filepath),
+        spacing_y_mm=_number(entry, ('spacing', 'y'), name, filepath),
+        offset_x_mm=_number(entry, ('offset', 'x'), name, filepath),
+        offset_y_mm=_number(entry, ('offset', 'y'), name, filepath),
+        width_mm=_number(entry, ('dimensions', 'x'), name, filepath),
+        height_mm=_number(entry, ('dimensions', 'y'), name, filepath),
+        # The file's -1 is its word for a diameter it does not state.
+        well_diameter_mm=None if diameter == -1 else diameter,
+        standard=standard,
+    )
+
+
+class WellPlateLoader:
+    """The installation's plates (labware.json's ``Wellplate``), read once.
+
+    Slides and Petri dishes are in the file but are not labware the program
+    offers yet, so they are not read.
     """
-    for category, items in labware.items():
-        if not isinstance(items, dict):
-            logger.warning(f"[Labware   ] category '{category}' should be dict in {filepath}")
-            continue
-        # Only Wellplate category has the full schema -- others have different shapes
-        if category != 'Wellplate':
-            continue
-        for name, entry in items.items():
-            if not isinstance(entry, dict):
-                logger.warning(f"[Labware   ] '{category}/{name}' should be dict in {filepath}")
-                continue
-            for field, expected_type in _REQUIRED_WELLPLATE_FIELDS.items():
-                if field not in entry:
-                    logger.warning(
-                        f"[Labware   ] '{category}/{name}' missing '{field}' in {filepath}"
-                    )
-                elif not isinstance(entry[field], expected_type):
-                    logger.warning(
-                        f"[Labware   ] '{category}/{name}'.'{field}' should be "
-                        f'{expected_type.__name__}, got {type(entry[field]).__name__} in {filepath}'
-                    )
-            # Check nested dimension/spacing/offset dicts
-            for subfield in ('dimensions', 'spacing', 'offset'):
-                sub = entry.get(subfield)
-                if isinstance(sub, dict):
-                    for coord, _coord_type in _REQUIRED_DIMENSION_FIELDS.items():
-                        if coord not in sub:
-                            logger.warning(
-                                f"[Labware   ] '{category}/{name}'.'{subfield}' "
-                                f"missing '{coord}' in {filepath}"
-                            )
-
-
-class LabwareLoader:
-    """A class that stores and computes actions for objective labware"""
 
     def __init__(self, *arg, source_path: str | pathlib.Path | None = None):
-        self.x = 75
-        self.y = 25
-        self.z = 1
-
-        # Load all Possible Labware from JSON
         filepath = resolve_data_file('labware.json', source_path=source_path)
-        self.labware = read_installation_file(filepath)
+        catalogue = read_installation_file(filepath)
+        if not isinstance(catalogue, dict) or not isinstance(catalogue.get('Wellplate'), dict):
+            raise InstallationFileError(filepath, "has no 'Wellplate' table of plates")
+        self._plates = types.MappingProxyType(
+            {
+                name: _read_plate(name, entry, filepath)
+                for name, entry in catalogue['Wellplate'].items()
+            }
+        )
 
-        _validate_labware(self.labware, filepath)
-
-
-class WellPlateLoader(LabwareLoader):
-    """A class that stores and computes actions for wellplate labware"""
-
-    def __init__(self, *arg, source_path: str | pathlib.Path | None = None):
-        super().__init__(*arg, source_path=source_path)
+    @property
+    def plates(self) -> Mapping[str, labware.WellPlate]:
+        """The catalogue, by name; read-only, as each record is."""
+        return self._plates
 
     @api(reads=True)
     def get_plate_list(self) -> list[str]:
-        return list(self.labware['Wellplate'].keys())
+        return list(self._plates)
 
     @api(reads=True)
     def resolve_plate_key(self, plate_key: str) -> str:
@@ -129,7 +124,7 @@ class WellPlateLoader(LabwareLoader):
                 carries the plates it has.
         """
         resolved_key = canonical_plate_name(plate_key)
-        if resolved_key not in self.labware['Wellplate']:
+        if resolved_key not in self._plates:
             raise CatalogueNameRefusedError(
                 'labware_unknown',
                 argument='plate_key',
@@ -158,8 +153,10 @@ class WellPlateLoader(LabwareLoader):
 
     @api(reads=True)
     def get_plate(self, plate_key: str) -> labware.WellPlate:
-        # The caller's own copy of the row: a changed plate would otherwise
-        # change the catalogue every later reader gets.
-        return labware.WellPlate(
-            config=copy.deepcopy(self.labware['Wellplate'][self.resolve_plate_key(plate_key)])
-        )
+        """The plate ``plate_key`` names, under any spelling ``resolve_plate_key`` takes.
+
+        Raises:
+            CatalogueNameRefusedError: ``'labware_unknown'``, as
+                ``resolve_plate_key``.
+        """
+        return self._plates[self.resolve_plate_key(plate_key)]

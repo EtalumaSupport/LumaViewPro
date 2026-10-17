@@ -531,7 +531,7 @@ def _metadata_scope_with_real_imaging(imaging: ImagingAPI, driver) -> SimpleName
     ImagingAPI wired in so generate_image_metadata exercises the production
     get_live_camera_settings path. The scripted driver has no
     cam_image_handler, so the chunk-less fallback is what runs."""
-    labware = SimpleNamespace(config={'rows': 8, 'columns': 12, 'standard': 'SBS'})
+    labware = plate()
     runtime_state = SimpleNamespace(
         get_current_objective=lambda: objective(focal_length_mm=9.0),
         # The metadata stamps the objective the frame was taken with, by id.

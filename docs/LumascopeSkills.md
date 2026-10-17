@@ -147,10 +147,10 @@ scope.objectives['10x Oly'].focal_length_mm         # one objective's record; ev
 scope.wellplate_loader.get_plate_list()             # every plate name in the catalogue
 scope.wellplate_loader.is_known_plate(name)         # True for a catalogue name or a retired alias
 scope.wellplate_loader.resolve_plate_key(name)      # the catalogue's spelling; CatalogueNameRefusedError if unknown
-scope.wellplate_loader.get_plate(plate_key=name)    # a WellPlate built from the catalogue entry
+scope.wellplate_loader.get_plate(plate_key=name)    # the plate's WellPlate record: rows, columns, spacing_x_mm, ..., read-only
 ```
 
-Each catalogue read -- `scope_models`, `settings_template`, `get_plate()` -- hands out the caller's own copy, and `objectives` a read-only mapping of frozen records: changing what you were given changes nothing the scope or any other reader sees, and an `Objective` refuses a change outright.
+Each catalogue read -- `scope_models`, `settings_template` -- hands out the caller's own copy, `objectives` a read-only mapping of frozen records, and `get_plate()` a frozen record: changing what you were given changes nothing the scope or any other reader sees, and an `Objective` or a `WellPlate` refuses a change outright. A plate's positions are in mm on the plate: `offset_x_mm` / `offset_y_mm` is the first well's centre and `spacing_x_mm` / `spacing_y_mm` the pitch between centres; `well_diameter_mm` is None where the catalogue states none.
 
 An `Objective` names each field with its unit. Autofocus starts at `autofocus_step_max_um` and refines down to `autofocus_step_min_um` across `autofocus_half_range_um` either side of where it starts; a jog moves `jog_z_fine_um` / `jog_z_coarse_um` on Z and `jog_xy_fine_um` / `jog_xy_coarse_um` on X and Y; `focal_length_mm` sets the image scale; `short_name` is the token step and file names carry. `focus_peak_fwhm_dense_um` is None until the engineering plugin's characterization has measured the objective. The installation's `objectives.json` keeps its own keys (`focal_length`, `DOF`, `AF_min`, ...), and a capture's metadata carries the objective under those keys. An entry missing a field, carrying a key no field declares, or giving a number as anything else refuses bring-up with `InstallationFileError`, naming the file, the objective and the key.
 
@@ -4107,11 +4107,21 @@ Reached through delivered to `RunEvents.video_progress`'s handler.
 
 Reached through returned by `scope.runtime_state.get_labware` and `scope.wellplate_loader.get_plate`.
 
-- `config`
+- `columns`
 - `get_dimensions` (in-process)
 - `get_well_index` (in-process)
 - `get_well_position` (in-process)
 - `has_wells` (in-process)
+- `height_mm`
+- `name`
+- `offset_x_mm`
+- `offset_y_mm`
+- `rows`
+- `spacing_x_mm`
+- `spacing_y_mm`
+- `standard`
+- `well_diameter_mm`
+- `width_mm`
 
 ### WorkItem
 

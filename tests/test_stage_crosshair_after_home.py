@@ -73,7 +73,9 @@ def test_after_the_position_was_unknown_the_same_position_is_drawn(stage_and_mot
 
 class _Plate:
     def __init__(self):
-        self.config = {'spacing': {'x': 9, 'y': 9}, 'diameter': 6}
+        self.spacing_x_mm = 9
+        self.spacing_y_mm = 9
+        self.well_diameter_mm = 6
 
     def get_dimensions(self):
         return {'x': 127.76, 'y': 85.48}

@@ -124,3 +124,27 @@ def test_an_objective_entry_off_its_declared_shape_names_the_objective_and_key(
 
     with pytest.raises(InstallationFileError, match=f"objective '4x Oly' {words}"):
         ObjectiveLoader(source_path=root)
+
+
+def _labware_with(change) -> str:
+    catalogue = _shipped('labware.json')
+    change(catalogue['Wellplate']['96 well microplate'])
+    return json.dumps(catalogue)
+
+
+@pytest.mark.parametrize(
+    ('change', 'words'),
+    [
+        (lambda entry: entry['spacing'].pop('x'), "no 'spacing.x'"),
+        (lambda entry: entry.update(rows='8'), "no whole-number 'rows'"),
+        (lambda entry: entry['offset'].update(y=None), "a 'offset.y' that is not a number"),
+    ],
+    ids=['missing-key', 'rows-not-whole', 'not-a-number'],
+)
+def test_a_plate_entry_the_record_cannot_be_built_from_names_the_plate_and_key(
+    tmp_path, change, words
+):
+    root = _install(tmp_path, 'labware.json', _labware_with(change))
+
+    with pytest.raises(InstallationFileError, match=f"plate '96 well microplate' {words}"):
+        WellPlateLoader(source_path=root)

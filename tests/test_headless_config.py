@@ -114,7 +114,7 @@ class TestGetSelectedLabware:
         settings = {'protocol': {'labware': '24 well microplate'}}
         labware_id, obj = get_selected_labware_from_settings(settings, loader)
         assert labware_id == '24 well microplate'
-        assert obj.config == loader.get_plate('24 well microplate').config
+        assert obj == loader.get_plate('24 well microplate')
 
     def test_a_retired_spelling_answers_under_the_catalogue_key(self):
         loader = _wellplate_loader()

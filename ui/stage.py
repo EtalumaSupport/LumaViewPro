@@ -339,14 +339,14 @@ class Stage(Widget):
                 )
 
             # Draw all wells
-            cols = labware.config['columns']
-            rows = labware.config['rows']
+            cols = labware.columns
+            rows = labware.rows
 
-            well_spacing_x = labware.config['spacing']['x']
-            well_spacing_y = labware.config['spacing']['y']
+            well_spacing_x = labware.spacing_x_mm
+            well_spacing_y = labware.spacing_y_mm
 
-            well_diameter = labware.config['diameter']
-            if well_diameter == -1:
+            well_diameter = labware.well_diameter_mm
+            if well_diameter is None:
                 well_radius_pixel_x = well_spacing_x
                 well_radius_pixel_y = well_spacing_y
             else:
@@ -547,14 +547,14 @@ class Stage(Widget):
         scale_x = w / dim_max['x']
         scale_y = h / dim_max['y']
 
-        well_spacing_x = labware.config['spacing']['x']
-        well_spacing_y = labware.config['spacing']['y']
+        well_spacing_x = labware.spacing_x_mm
+        well_spacing_y = labware.spacing_y_mm
 
         well_spacing_pixel_x = well_spacing_x
         well_spacing_pixel_y = well_spacing_y
 
-        well_diameter = labware.config['diameter']
-        if well_diameter == -1:
+        well_diameter = labware.well_diameter_mm
+        if well_diameter is None:
             well_radius_pixel_x = well_spacing_pixel_x
             well_radius_pixel_y = well_spacing_pixel_y
         else:

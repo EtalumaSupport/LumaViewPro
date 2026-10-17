@@ -66,8 +66,8 @@ class TestBringUp:
         session = _session(tmp_path, 'LS820')
         try:
             assert session.settings['protocol']['labware'] == CENTER_PLATE
-            assert session.scope.runtime_state.get_labware().config == (
-                session.wellplate_loader.get_plate(plate_key=CENTER_PLATE).config
+            assert session.scope.runtime_state.get_labware() == (
+                session.wellplate_loader.get_plate(plate_key=CENTER_PLATE)
             )
             assert any(
                 f'stored plate {STORED_PLATE!r} replaced by {CENTER_PLATE!r}' in line

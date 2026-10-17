@@ -248,7 +248,7 @@ class TestTheSessionConfiguration:
             held.release()
         assert refused.value.holder == kind
         assert sim_session.settings['protocol']['labware'] == current
-        assert sim_session.scope.runtime_state.get_labware().config == plate_before.config
+        assert sim_session.scope.runtime_state.get_labware() == plate_before
 
     def test_an_objective_change_is_refused_under_a_recording(self, sim_session, recording):
         current = sim_session.scope.runtime_state.get_current_objective_id()

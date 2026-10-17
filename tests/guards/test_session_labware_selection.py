@@ -57,23 +57,13 @@ def sessions():
             )
 
 
-def _runtime_plate_shape(session):
-    """Which plate the scope is actually on, as its well grid.
-
-    The stored ``WellPlate`` carries no name, so the question has to be put
-    to something the object exposes -- and it must be something that TELLS
-    PLATES APART. ``get_dimensions()`` does not: nine of the ten plates in
-    ``data/labware.json`` are the same SBS footprint, so assertions written
-    against it pass whether or not the runtime store was ever written. The
-    well grid does discriminate: 96-well is 8x12, 384-well is 16x24.
-    """
-    plate = session.scope.runtime_state.get_labware()
-    return (plate.config['rows'], plate.config['columns'])
+def _runtime_plate(session):
+    """Which plate the scope is actually on, by its catalogue name."""
+    return session.scope.runtime_state.get_labware().name
 
 
-def _expected_plate_shape(plate_name):
-    plate = labware_loader.WellPlateLoader(source_path='.').get_plate(plate_key=plate_name)
-    return (plate.config['rows'], plate.config['columns'])
+def _expected_plate(plate_name):
+    return labware_loader.WellPlateLoader(source_path='.').get_plate(plate_key=plate_name).name
 
 
 class TestSelectingAPlate:
@@ -83,7 +73,7 @@ class TestSelectingAPlate:
         assert session.select_labware(OTHER_PLATE) is True
 
         assert session.settings['protocol']['labware'] == OTHER_PLATE
-        assert _runtime_plate_shape(session) == _expected_plate_shape(OTHER_PLATE)
+        assert _runtime_plate(session) == _expected_plate(OTHER_PLATE)
 
     def test_selecting_the_held_plate_is_a_no_op(self, sessions):
         session = sessions()
@@ -107,7 +97,7 @@ class TestSelectingAPlate:
         assert session.select_labware(RENAMED_PLATE_OLD_NAME) is True
 
         assert session.settings['protocol']['labware'] == OTHER_PLATE
-        assert _runtime_plate_shape(session) == _expected_plate_shape(OTHER_PLATE)
+        assert _runtime_plate(session) == _expected_plate(OTHER_PLATE)
 
     def test_the_old_name_of_the_held_plate_is_a_no_op(self, sessions):
         # "Changed" is decided on the key, not the spelling handed in.
@@ -131,13 +121,13 @@ class TestTheSettingsStoreIsNotAProxyForTheScope:
 
     def test_a_settings_write_that_beats_the_member_does_not_silence_it(self, sessions):
         session = sessions()
-        assert _runtime_plate_shape(session) == _expected_plate_shape(STARTING_PLATE)
+        assert _runtime_plate(session) == _expected_plate(STARTING_PLATE)
 
         # Exactly what the out-of-band writer did, one line ahead of the call.
         session.settings['protocol']['labware'] = OTHER_PLATE
         session.select_labware(OTHER_PLATE)
 
-        assert _runtime_plate_shape(session) == _expected_plate_shape(OTHER_PLATE), (
+        assert _runtime_plate(session) == _expected_plate(OTHER_PLATE), (
             'the scope is still on the old plate while settings name the new one'
         )
 
@@ -145,13 +135,13 @@ class TestTheSettingsStoreIsNotAProxyForTheScope:
 class TestRefusals:
     def test_an_unknown_plate_is_refused_and_moves_nothing(self, sessions):
         session = sessions()
-        before = _runtime_plate_shape(session)
+        before = _runtime_plate(session)
 
         with pytest.raises(CatalogueNameRefusedError, match='labware catalogue'):
             session.select_labware('Acme 1536 Ultra Plate')
 
         assert session.settings['protocol']['labware'] == STARTING_PLATE
-        assert _runtime_plate_shape(session) == before
+        assert _runtime_plate(session) == before
 
     def test_a_non_string_is_refused_at_the_door_and_nothing_stored(self, sessions):
         """A wire payload decodes to whatever it decodes to.

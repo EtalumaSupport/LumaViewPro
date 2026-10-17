@@ -29,7 +29,7 @@ _OWNERS = {
         'scopes.json',
         'motorconfig_defaults.json',
     },
-    ('modules/labware_loader.py', 'LabwareLoader.__init__'): {'labware.json'},
+    ('modules/labware_loader.py', 'WellPlateLoader.__init__'): {'labware.json'},
     ('modules/objectives_loader.py', 'ObjectiveLoader.__init__'): {'objectives.json'},
     ('modules/layer_record.py', 'release_layers'): {'scopes.json'},
     ('modules/layer_record.py', 'load_scope_models'): {'scopes.json'},

@@ -39,7 +39,7 @@ from modules.exceptions import (
 )
 
 if TYPE_CHECKING:
-    from modules.labware import LabWare
+    from modules.labware import WellPlate
     from modules.lumascope_api._lumascope import Lumascope
     from modules.lumascope_api.frame_record import FrameRecord
 
@@ -291,7 +291,7 @@ def generate_image_metadata(
     *,
     objective_id: str,
     frame_record: FrameRecord,
-    labware: LabWare | None,
+    labware: WellPlate | None,
     well_label: str | None,
 ) -> dict:
     """Build TIFF metadata dict for the current capture settings and position.
@@ -389,8 +389,6 @@ def generate_image_metadata(
         motor_info = scope.diagnostics.get_motor_info()
     except Exception:
         motor_info = {'serial_number': None}
-    plate_config = getattr(labware, 'config', None) or {}
-
     # The frame's own exposure and gain, from its record: the capture took
     # them from the frame's chunks, or beside the grab on a camera without
     # chunks, and left out a value it could not read -- so an absent key
@@ -467,9 +465,9 @@ def generate_image_metadata(
         },
         'plate': {
             'name': microscope_model or 'Plate',
-            'rows': plate_config.get('rows'),
-            'columns': plate_config.get('columns'),
-            'standard': plate_config.get('standard'),
+            'rows': labware.rows,
+            'columns': labware.columns,
+            'standard': labware.standard,
         },
     }
 
@@ -528,7 +526,7 @@ def prepare_image_for_saving(
     significant_bits: int,
     objective_id: str,
     frame_record: FrameRecord,
-    labware: LabWare | None,
+    labware: WellPlate | None,
     well_label: str | None,
 ) -> dict:
     """Prepare an image array and metadata for saving to disk.
@@ -631,7 +629,7 @@ def save_image(
     significant_bits: int,
     objective_id: str,
     frame_record: FrameRecord,
-    labware: LabWare | None,
+    labware: WellPlate | None,
     well_label: str | None,
 ) -> pathlib.Path:
     """Save an image array to a TIFF file with metadata.
