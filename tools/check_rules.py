@@ -71,6 +71,8 @@ Firmware-only (doc_status family):
                 outside Branch tips / Next / Rulings, and a new one has
                 Branch tips and Next, Rulings only when there is one
                 (WARN, diff-aware)
+    handover_length -- a live docs/SESSION_HANDOVER_*.md a commit grows is
+                at most 350 words (WARN, diff-aware)
 
 Severities: 'block' fails the commit (exit 1); 'warn' prints to stderr
 but does not affect exit code.
@@ -1155,6 +1157,40 @@ def _check_handover_shape(content: str, path: str, added: set[int] | None) -> li
     return violations
 
 
+# The shape the 2026-10-05 and 10-13 closes produced was 212 to 375 words; the
+# 10-16 round reached 500 by carrying every answered question as a ruling, three
+# days after the template's words against it had been tightened for the second
+# time (Eric, 2026-10-16: "i think handovers are getting long again").
+_HANDOVER_MAX_WORDS = 350
+
+
+def _check_handover_length(content: str, path: str, added: set[int] | None) -> list[Violation]:
+    """WARN when a commit grows a live handover past ``_HANDOVER_MAX_WORDS``.
+
+    Diff-aware like the shape check: a handover this commit does not touch
+    stays silent, so an old long one is not re-reported at every commit.
+    WARN, not BLOCK, so the close commit lands and the writer trims it in
+    the same session; the drift is prose, never a broken build.
+    """
+    if not _is_handover(path) or not added:
+        return []
+    words = len(content.split())
+    if words <= _HANDOVER_MAX_WORDS:
+        return []
+    return [
+        Violation(
+            path,
+            1,
+            0,
+            'handover_length',
+            f'handover is {words} words; the shape fits in {_HANDOVER_MAX_WORDS}: '
+            'the plan paragraph, Branch tips as SHAs, the Next pointer, and a '
+            'ruling only when the next session must obey one that has no home yet',
+            severity='warn',
+        )
+    ]
+
+
 def _check_daily_log_ordering(content: str, path: str) -> list[Violation]:
     """BLOCK a DAILY_LOG or RETROSPECTIVES shard whose entry dates are not newest-first.
 
@@ -1386,6 +1422,7 @@ def check_doc(
     violations.extend(_check_daily_log_ordering(content, path))
     violations.extend(_check_daily_log_entries_kept(content, path, previous))
     violations.extend(_check_handover_shape(content, path, added))
+    violations.extend(_check_handover_length(content, path, added))
     return violations
 
 
