@@ -477,11 +477,10 @@ class SimulatedFX2Transport:
         # with LumaViewPro's package installed.
         self.services = {FX2_BOOTLOADER: 'WinUSB', FX2_FIRMWARE: 'WinUSB'}
 
-    def check_bindings(self) -> None:
+    def check_bindings(self, identity: str) -> None:
         """The Windows transport's check, on the simulated device's binding."""
-        if self.device.pid is None:
-            return  # off the bus: nothing bound to check
-        identity = FX2_BOOTLOADER if self.device.pid == PID_BOOT else FX2_FIRMWARE
+        if self.device.pid != (PID_BOOT if identity == FX2_BOOTLOADER else PID_APP):
+            return  # no device of this identity on the bus: nothing to check
         service = self.services[identity]
         binding = DeviceBinding(
             instance_id=f'{identity}\\SIMULATED',

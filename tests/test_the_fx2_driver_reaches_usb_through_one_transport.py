@@ -227,7 +227,7 @@ def test_a_connection_that_cannot_connect_closes_its_transport_and_raises_its_ow
     class NoDevice:
         closed = False
 
-        def check_bindings(self):
+        def check_bindings(self, identity):
             pass
 
         def find(self, pid):

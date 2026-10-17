@@ -1129,8 +1129,8 @@ class _PyusbTransport:
     def __init__(self):
         self._dev = None
 
-    def check_bindings(self) -> None:
-        """Refuse a device bound to a driver this transport cannot use.
+    def check_bindings(self, identity: str) -> None:
+        """Refuse a device of ``identity`` bound to a driver this transport cannot use.
 
         On macOS and Linux libusb reaches any USB device, so there is
         nothing to check.
@@ -1414,8 +1414,8 @@ class _WinUsbTransport(_PyusbTransport):
         super().__init__()
         self._reader = None
 
-    def check_bindings(self) -> None:
-        """Log which driver each of the FX2's identities is bound to; refuse
+    def check_bindings(self, identity: str) -> None:
+        """Log which driver each device of ``identity`` is bound to; refuse
         one that cannot work.
 
         Windows binds each identity on its own, and pyusb sees a device only
@@ -1429,13 +1429,10 @@ class _WinUsbTransport(_PyusbTransport):
         """
         from drivers.winusb_iso import device_bindings
 
-        bindings = {
-            identity: device_bindings(identity) for identity in (FX2_BOOTLOADER, FX2_FIRMWARE)
-        }
-        for identity, devices in bindings.items():
-            for binding in devices:
-                logger.info('[FX2 Conn  ] %s: %s', DEVICE_NAMES[identity], binding.describe())
-        refuse_unusable(bindings)
+        devices = device_bindings(identity)
+        for binding in devices:
+            logger.info('[FX2 Conn  ] %s: %s', DEVICE_NAMES[identity], binding.describe())
+        refuse_unusable({identity: devices})
 
     def control_out(self, request: int, value: int, index: int, data: bytes, timeout: int) -> int:
         if self._reader is not None:
@@ -1642,9 +1639,15 @@ class _FX2Connection:
     # -- connection ---------------------------------------------------------
 
     def _connect(self):
-        """Find the device, upload firmware if needed, open it."""
+        """Find the device, upload firmware if needed, open it.
+
+        Each identity's binding is checked before that identity is used,
+        never the other's: the bootloader's identity is every EEPROM-less
+        Cypress FX2's, so another vendor's board unbound there says nothing
+        about a Lumascope already running its firmware.
+        """
         transport = self._transport
-        transport.check_bindings()
+        transport.check_bindings(FX2_FIRMWARE)
         dev = transport.find(PID_APP)
         if dev is not None:
             logger.info('[FX2 Conn  ] device: %s', transport.describe(dev))
@@ -1655,6 +1658,7 @@ class _FX2Connection:
             )
             return
 
+        transport.check_bindings(FX2_BOOTLOADER)
         dev = transport.find(PID_BOOT)
         if dev is None:
             raise _FX2AbsentError(
@@ -1675,7 +1679,7 @@ class _FX2Connection:
             if dev is not None:
                 logger.info('[FX2 Conn  ] device: %s', transport.describe(dev))
                 # The running firmware is a new device, bound on its own.
-                transport.check_bindings()
+                transport.check_bindings(FX2_FIRMWARE)
                 transport.open(dev)
                 logger.info(
                     '[FX2 Conn  ] firmware loaded, re-enumerated as PID 0x%04X',

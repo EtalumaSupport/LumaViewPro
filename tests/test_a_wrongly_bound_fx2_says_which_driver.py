@@ -123,3 +123,44 @@ def test_the_windows_transport_refuses_a_present_device_and_not_a_past_one(monke
 
     assert 'Lumascope Classic USB\\VID_04B4&PID_EA17' in str(refused.value)
     assert 'Bootloader' not in str(refused.value)
+
+
+class _RunningFirmware:
+    """A pyusb device: the FX2 running its firmware, on WinUSB."""
+
+    def is_kernel_driver_active(self, interface):
+        return False
+
+    def set_configuration(self):
+        pass
+
+
+def test_a_running_scope_is_not_refused_for_an_unbound_bootloader_identity(monkeypatch):
+    # 8613 is every EEPROM-less Cypress FX2's bootloader: an unbound one may
+    # be another vendor's board, and says nothing about a Lumascope already
+    # running its firmware, as it is after an earlier launch.
+    seen = {
+        FX2_BOOTLOADER: [_binding(FX2_BOOTLOADER, present=True, service=None)],
+        FX2_FIRMWARE: [_binding(FX2_FIRMWARE, present=True, service='WinUSB')],
+    }
+    # a stand-in by design: SetupAPI, absent off Windows.
+    monkeypatch.setattr('drivers.winusb_iso.device_bindings', lambda identity: seen[identity])
+    # a stand-in by design: the USB bus, holding the running firmware.
+    monkeypatch.setattr(
+        fx2driver,
+        'usb',
+        SimpleNamespace(
+            core=SimpleNamespace(
+                find=lambda idVendor, idProduct: (
+                    _RunningFirmware() if idProduct == fx2driver.PID_APP else None
+                ),
+                USBError=OSError,
+            ),
+            util=SimpleNamespace(
+                claim_interface=lambda dev, i: None, dispose_resources=lambda dev: None
+            ),
+        ),
+        raising=False,
+    )
+
+    fx2driver._FX2Connection(fx2driver._WinUsbTransport())
