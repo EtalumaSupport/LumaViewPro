@@ -57,6 +57,8 @@ _DOOR_NAMES = frozenset(
         'ignore_stop',
         'break_right_switch',
         'go_silent',
+        'refuse_start',
+        'allow_start',
     }
 )
 

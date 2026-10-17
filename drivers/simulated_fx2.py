@@ -230,6 +230,9 @@ class SimulatedFX2Device:
         self.lost_delimiter_every = 0
         self.wrong_delimiter_every = 0
         self._frames_sent = 0
+        # How many STARTs from now the firmware refuses, as the Windows
+        # bench's device refused the control transfer.
+        self.refused_starts = 0
 
     # -- the wire ------------------------------------------------------------
 
@@ -253,6 +256,9 @@ class SimulatedFX2Device:
                 raise ValueError(f'the simulated FX2 models no I2C device at 0x{index:02X}')
             return len(written)
         if request == VR_START_STREAMING:
+            if self.refused_starts:
+                self.refused_starts -= 1
+                raise RuntimeError('VR_START_STREAMING refused: the control pipe stalled')
             self._start()
             return 0
         if request == VR_STOP_STREAMING:
@@ -512,6 +518,13 @@ class SimulatedFX2Transport:
     def go_silent(self) -> None:
         """The stream stops while the device stays on the bus."""
         self.device.halt()
+
+    def refuse_start(self, count: int) -> None:
+        """The next ``count`` STARTs are refused; the device stays on the bus."""
+        self.device.refused_starts = count
+
+    def allow_start(self) -> None:
+        self.device.refused_starts = 0
 
     def misalign(self, rows: int = 1) -> None:
         """Every frame from the next one carries ``rows`` rows too many; 0 realigns.

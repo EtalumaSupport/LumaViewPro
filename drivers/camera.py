@@ -823,9 +823,9 @@ class Camera(ABC):
         The gate is opened BEFORE the start, so even if the start fails the
         camera is RELEASED -- a later restart can recover it instead of the
         gate stranding CLOSED (a permanently blank live view). The start
-        itself is not wrapped here: every ``start_grabbing()`` is already
-        exception-tolerant by contract (SDK failures are logged, not
-        raised), so callers in a ``finally`` need no guard.
+        itself is not wrapped here: the FX2's start raises its fault when it
+        fails, and the caller reports it; Pylon's and IDS's log theirs and
+        return.
 
         Returns:
             bool: True when this call released the gate and fired the
@@ -856,11 +856,19 @@ class Camera(ABC):
         """Begin acquiring frames into the image handler.
 
         Records the grab as wanted before the driver starts it, so a start
-        that does not take reads as a grab that stopped on its own.
+        that does not take reads as a grab that stopped on its own. A start
+        that raises did not start: the grab is no longer wanted and the
+        fault goes to the caller, who reports it, so the stream check does
+        not report the same failure again as a stall.
         """
         with self._state_lock:
             self._grab_wanted = True
-        self._start_grabbing()
+        try:
+            self._start_grabbing()
+        except BaseException:
+            with self._state_lock:
+                self._grab_wanted = False
+            raise
 
     def stop_grabbing(self) -> None:
         """Stop acquiring frames and release any pending buffers.

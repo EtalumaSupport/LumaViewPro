@@ -1821,7 +1821,9 @@ reference.
 # Session factories release the gate at bring-up, after initialize; a bare
 # Lumascope you constructed yourself needs the explicit call.
 scope.imaging.enable_streaming()  # start the live feed and return; it does not wait for a
-                                  # frame (idempotent; restarts a stopped feed)
+                                  # frame (idempotent; restarts a stopped feed); a start the
+                                  # FX2 refuses raises CameraStreamStartFailedError, the
+                                  # camera left connected and not streaming
 scope.imaging.disable_streaming() # stop the feed; capture_and_wait is then refused
                                   # camera_not_streaming
 image = scope.imaging.capture_and_wait()  # the first frame after a start: a frame that
@@ -2919,6 +2921,7 @@ Which board answers a member depends on how the model is simulated. The **fast**
 | `refuse_camera_write(node, answer, count=1)` | the next `count` writes of `node` (`'gain'`, `'exposure'`, `'auto_exposure'`, `'frame_size'`, `'binning'`, `'pixel_format'`, `'black_level'`, `'auto_gain'`, `'auto_gain_once'`, `'auto_gain_target_brightness'`) answer `'false'`, `'none'`, `'true'` (not for `'frame_size'`, whose write answers the window it delivers) or `'raise'`; with `'removed'` False as the camera leaves the bus during the write; with `'no_answer'` `CameraNoAnswerError`, the camera still on the bus. The API sends an unanswered write once more, so `count=2` makes one go unanswered | camera | camera | refused |
 | `stall_stream(after_s, for_s)` | no frame for `for_s` s, starting in `after_s` s | camera | camera | refused (`silence('led')`) |
 | `delay_delivery(frames)` | each frame reaches the host once `frames` more have been made after it, as through a link or driver queue that has fallen behind | camera | camera | refused |
+| `refuse_stream_start(count=1)` | the next `count` stream starts are refused, the camera staying on the bus; the start raises `CameraStreamStartFailedError` (`camera_stream_start_failed`) to its caller | refused (the simulated camera is made like a Pylon body, whose driver logs a start that fails) | refused | FX2 |
 
 The fast LED board refuses every link fault: the API reads nothing from its missing reply. The fast motor board runs no firmware, so its home cannot fail; the firmware's axis reaches its target whatever is injected, so a move cannot be held there. `injected()` lists the faults injected since the last `clear()` as `InjectedFault` records (`member`, `arguments`), one-shot faults included after they are spent. `clear()` takes every fault back: drops, holds, refused writes and stalls lifted, boards plugged in and answering, hardware faults removed; a board that found its cable pulled stays disconnected until it is reconnected, as a real one does. A removed camera, an FX2 unplugged or silenced, and a reboot under way stay as they are, as on a real scope.
 
@@ -3320,6 +3323,7 @@ Reached through `session.scope.simulation`.
 - `interlock` (in-process)
 - `reboot` (in-process)
 - `refuse_camera_write` (in-process)
+- `refuse_stream_start` (in-process)
 - `remove_camera` (in-process)
 - `replug` (in-process)
 - `silence` (in-process)

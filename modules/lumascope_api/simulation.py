@@ -532,6 +532,27 @@ class SimulationAPI:
         target.delay_delivery(int(frames))
         self._record('delay_delivery', lambda: target.delay_delivery(0), frames=frames)
 
+    @api(in_process=True)
+    def refuse_stream_start(self, count: int = 1) -> None:
+        """The camera refuses its next ``count`` stream starts and stays on the bus.
+
+        A start the camera refuses raises its fault to whoever started the
+        stream, and the camera is left connected and not streaming.
+
+        Raises:
+            ArgumentRefusedError: ``'needs_simulated_scope'``;
+                ``'not_a_number'`` or ``'fault_bound'`` for fewer than 1
+                start; ``'not_injectable_on_board'`` on the simulated
+                camera, made like a Pylon body, whose driver logs a start
+                that fails.
+        """
+        target = self._camera_board('refuse_stream_start')
+        self._bound('count', count, 'a number of starts, 1 or more', count >= 1)
+        if not isinstance(target, SimulatedFX2):
+            raise self._not_injectable('refuse_stream_start', target)
+        target.transport.refuse_start(int(count))
+        self._record('refuse_stream_start', target.transport.allow_start, count=count)
+
     @api(in_process=True, reads=True)
     def exposed_under(self, frame: Frame) -> SensorExposure:
         """What a frame the simulated camera delivered was exposed under:

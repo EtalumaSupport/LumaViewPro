@@ -4411,7 +4411,10 @@ class ImagingAPI:
         camera-lifecycle split); ``Lumascope.initialize`` makes the one-time
         bring-up start. This restarts a feed that was deliberately stopped,
         and is idempotent on a feed already running. Refused, naming the camera,
-        when none is connected. See ``_enable_streaming_impl``; this adds the dispatch
+        when none is connected. A start the FX2 does not take raises its fault
+        (``CameraStreamStartFailedError`` for a START the device refused), the
+        camera left connected and not streaming; a later call tries again.
+        See ``_enable_streaming_impl``; this adds the dispatch
         described on ``_dispatch_camera``, on the geometry timeout (a stop
         or start of the grab has been measured near 11 s on a Pylon body).
         """
