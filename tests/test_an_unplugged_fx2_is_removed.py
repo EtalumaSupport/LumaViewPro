@@ -23,6 +23,7 @@ from types import SimpleNamespace
 import pytest
 
 from drivers import fx2driver
+from drivers.exceptions import CameraWriteFailedError
 from drivers.fx2driver import _ByteStream
 from modules.exceptions import CaptureFailedError, HardwareCommandRefusedError, MissingPart
 from modules.scope_session import ScopeSession
@@ -141,6 +142,65 @@ def test_a_write_to_a_camera_removed_while_it_is_not_streaming_is_refused_not_co
         assert scope.imaging.gain_db_cached == before
     finally:
         session.shutdown()
+
+
+def _ls620_not_streaming_then_unplugged():
+    settings = complete_settings()
+    settings['microscope'] = 'LS620'
+    settings['simulator_tier'] = 'fast'
+    session = ScopeSession.create(settings, simulate=True)
+    session.scope.imaging.disable_streaming()
+    assert session.scope.imaging.is_streaming() is False
+    session.scope.simulation.remove_camera()
+    return session
+
+
+def test_a_stream_start_on_a_camera_removed_while_it_is_not_streaming_is_refused_not_connected():
+    # The start is the first transfer since the pull, so it is what finds
+    # the device gone; its fault is not the answer for a camera not there.
+    session = _ls620_not_streaming_then_unplugged()
+    scope = session.scope
+    try:
+        with pytest.raises(HardwareCommandRefusedError) as refused:
+            scope.imaging.enable_streaming()
+
+        assert refused.value.reason == 'not_connected'
+        assert refused.value.missing == MissingPart.CAMERA
+        assert scope.camera_connected is False
+    finally:
+        session.shutdown()
+
+
+def test_the_grab_benchmark_on_a_camera_removed_under_it_is_refused_not_connected():
+    # The benchmark keeps cycling past a failed cycle, so a pull it finds
+    # must still end it, not be returned as one cycle's error.
+    session = _ls620_not_streaming_then_unplugged()
+    scope = session.scope
+    try:
+        with pytest.raises(HardwareCommandRefusedError) as refused:
+            scope.diagnostics.run_grab_lifecycle_benchmark(num_cycles=2)
+
+        assert refused.value.reason == 'not_connected'
+        assert refused.value.missing == MissingPart.CAMERA
+    finally:
+        session.shutdown()
+
+
+def test_a_stream_stop_that_finds_its_camera_removed_is_satisfied(session, monkeypatch):
+    # An off holds without a camera, so finding the camera gone satisfies it.
+    scope = session.scope
+    driver = scope._camera_driver
+
+    def stop_that_finds_the_device_gone():
+        # a stand-in by design: the simulated FX2's stop never fails, so
+        # the transfer that finds the device gone is staged here.
+        driver._fx2.report_removed('off the bus during the stop')
+        raise CameraWriteFailedError('The camera did not take the stop')
+
+    monkeypatch.setattr(driver, 'stop_grabbing', stop_that_finds_the_device_gone)
+
+    assert scope.imaging.disable_streaming() is None
+    assert scope.imaging.camera_removed is True
 
 
 def test_a_gain_written_before_the_teardown_ends_is_not_recorded(session):

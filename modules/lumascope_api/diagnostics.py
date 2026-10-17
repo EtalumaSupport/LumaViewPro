@@ -421,7 +421,7 @@ class DiagnosticsAPI:
 
         Raises:
             HardwareCommandRefusedError: ``'not_connected'``, naming the
-                camera, with none connected.
+                camera, with none connected or once a cycle finds it removed.
             ArgumentRefusedError: ``'not_a_number'``, a time is not a finite
                 number; ``'out_of_range'``, ``num_cycles`` is outside 1 to
                 10,000, ``inter_cycle_delay_ms`` outside 0 to 60,000 or
@@ -561,6 +561,9 @@ class DiagnosticsAPI:
                 self._scope._camera_driver.start_grabbing()
                 start_s = time.monotonic() - t1
             except Exception as e:
+                # A camera gone ends the benchmark; the lane answers for it.
+                if self._scope.imaging.camera_removed:
+                    raise
                 results['errors'].append(f'Cycle {i}: {type(e).__name__}: {e}')
                 # Try to leave the camera grabbing for the next iteration;
                 # if it fails, the next stop_grabbing will surface it too.

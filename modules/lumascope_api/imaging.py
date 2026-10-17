@@ -29,6 +29,7 @@ from drivers import camera_profiles
 from drivers.camera import Frame
 from drivers.exceptions import CameraNoAnswerError, CameraReadFailedError, HardwareError
 from lib import profile_trace
+from lib.lumascope_error import Fault
 from lvp_logger import logger
 from modules.exceptions import (
     AutoGainNotSettledError,
@@ -1478,9 +1479,10 @@ class ImagingAPI:
         the lane is closed, or a run, a diagnostic or a home holds the scope and this
         call is not made under its taking, or ``falsifies_recording`` is set
         and a recording holds the scope. Once admitted, the task asks for the
-        camera before the body runs (``_asking_for_the_camera``), so after
-        ``disconnect()`` the lane's own ``scope_disconnected`` is what the
-        caller hears.
+        camera before the body runs, and again when the body raises a fault
+        (``_asking_for_the_camera``), so a camera the command finds removed
+        is refused as one already gone; after ``disconnect()`` the lane's
+        own ``scope_disconnected`` is what the caller hears.
 
         ``override`` admits the task whatever holds the scope, on the key the
         session registered: only for a read that must touch the camera from
@@ -1525,29 +1527,38 @@ class ImagingAPI:
         The camera's one presence question for an outside command, asked
         after the lane admits it and before the body writes: with no camera
         connected the command is refused naming it, or answers
-        ``satisfied_when_absent`` when its dispatch names one. A camera the
-        body's write finds removed (``_camera_write``) is answered the same
-        way, so an off is satisfied whenever the camera went. Bring-up's
+        ``satisfied_when_absent`` when its dispatch names one. A body that
+        is what finds the camera gone is answered the same way: its refusal
+        naming the camera (``_camera_write``'s), or any fault it raises with
+        the camera declared removed by then (``camera_removed``), since a
+        camera that is not there has no fault of its own to report; the
+        fault is the refusal's cause. So an off is satisfied whenever the
+        camera went. A refusal or defect of any other kind keeps its type.
+        A body handed ``_DECIDED_IN_BODY`` asks for the camera itself, and
+        a camera it finds removed is refused, never satisfied. Bring-up's
         direct ``_impl`` calls do not pass through here and ask for
-        themselves. A body handed ``_DECIDED_IN_BODY`` is run as it is.
+        themselves.
         """
-        if satisfied_when_absent is _DECIDED_IN_BODY:
-            return impl
+        decided_in_body = satisfied_when_absent is _DECIDED_IN_BODY
+        refused_when_absent = decided_in_body or satisfied_when_absent is _REFUSED_WHEN_ABSENT
 
         @functools.wraps(impl)
         def ask_then_run(*args, **kwargs):
-            if not self._scope.camera_connected:
-                if satisfied_when_absent is _REFUSED_WHEN_ABSENT:
+            if not decided_in_body and not self._scope.camera_connected:
+                if refused_when_absent:
                     raise _camera_not_connected(member)
                 return satisfied_when_absent
             try:
                 return impl(*args, **kwargs)
             except HardwareCommandRefusedError as refusal:
-                if (
-                    satisfied_when_absent is _REFUSED_WHEN_ABSENT
-                    or refusal.missing is not MissingPart.CAMERA
-                ):
+                if refused_when_absent or refusal.missing is not MissingPart.CAMERA:
                     raise
+                return satisfied_when_absent
+            except Fault as fault:
+                if not self.camera_removed:
+                    raise
+                if refused_when_absent:
+                    raise _camera_not_connected(member) from fault
                 return satisfied_when_absent
 
         return ask_then_run
@@ -4411,7 +4422,8 @@ class ImagingAPI:
         camera-lifecycle split); ``Lumascope.initialize`` makes the one-time
         bring-up start. This restarts a feed that was deliberately stopped,
         and is idempotent on a feed already running. Refused, naming the camera,
-        when none is connected. A start the FX2 does not take raises its fault
+        when none is connected, or when the start finds it removed. A start
+        the FX2 does not take with the device still present raises its fault
         (``CameraStreamStartFailedError`` for a START the device refused), the
         camera left connected and not streaming; a later call tries again.
         See ``_enable_streaming_impl``; this adds the dispatch
@@ -4793,7 +4805,9 @@ class ImagingAPI:
         See ``_restore_camera_state_impl`` for the contract; this adds the
         dispatch described on ``_dispatch_camera``, so the restore is one
         task on the camera lane and its writes cannot interleave with
-        another caller's.
+        another caller's. A camera already declared removed when the restore
+        starts has nothing to put back: it returns with nothing written, its
+        removal already told by whatever noticed it.
 
         Args:
             snapshot: Return value from ``save_camera_state``.
@@ -4801,7 +4815,7 @@ class ImagingAPI:
         Raises:
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera: none is connected and the snapshot holds a setting
-                to restore, or it was removed during the restore.
+                to restore, or the restore found it removed.
         """
         return self._dispatch_camera(
             self._restore_camera_state_impl,
