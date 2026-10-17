@@ -23,7 +23,7 @@ from types import SimpleNamespace
 import pytest
 
 from drivers import fx2driver
-from drivers.exceptions import CameraWriteFailedError
+from drivers.exceptions import BoardPortFailedError, CameraWriteFailedError
 from drivers.fx2driver import _ByteStream
 from modules.exceptions import CaptureFailedError, HardwareCommandRefusedError, MissingPart
 from modules.lumascope_api.illumination import LedState, LedTransition, LedTransitionCtx
@@ -278,6 +278,19 @@ def test_a_lease_release_that_finds_the_device_unplugged_is_refused_and_its_led_
         assert scope.illumination.get_led_state('BF').state is LedState.LIT
     finally:
         session.shutdown()
+
+
+def test_an_led_write_refused_with_the_device_still_present_keeps_its_fault(session):
+    # Only a controller gone turns a fault into not_connected: one still
+    # on the bus refused this write, and that is what the caller hears.
+    scope = session.scope
+    scope.simulation.refuse_led_write(1)
+
+    with pytest.raises(BoardPortFailedError) as failed:
+        scope.illumination.led_on('BF', 10.0)
+
+    assert failed.value.reason == 'board_port_failed'
+    assert scope.led_connected is True
 
 
 def test_a_gain_written_before_the_teardown_ends_is_not_recorded(session):
