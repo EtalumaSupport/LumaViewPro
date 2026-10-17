@@ -302,27 +302,19 @@ if ($ids_files) {
     }
 }
 
-# FX2 WinUSB INF + native libusb-1.0.dll for LVC (LS560/LS620/LS720)
-# cameras. Two files needed for end-to-end FX2 support:
-#   1. LumaScope_WinUSB.inf — binds inbox WinUSB.sys to the FX2 VID/PID;
-#      installed by pnputil custom action in Package.wxs.
-#   2. libusb-1.0.dll — pyusb's libusb1 backend on Windows; loaded by
-#      ctypes inside the bundled LVP exe. Without it, pyusb fails to
-#      find a USB backend and the FX2 driver silently no-ops.
+# FX2 WinUSB INF for LVC (LS560/LS620/LS720) cameras: binds inbox
+# WinUSB.sys to the FX2 VID/PID; installed by pnputil custom action in
+# Package.wxs. The FX2's libusb library is not a dependency here: the
+# release spec takes it from the libusb-package wheel, with the firmware
+# hex, and refuses a build without either.
 # See BUILD_INSTRUCTIONS.md > Optional Dependencies.
 $fx2_inf = ""
-$fx2_libusb_dll = ""
 $fx2_dir = Join-Path $deps "fx2"
 if (Test-Path $fx2_dir) {
     $fx2_files = Get-ChildItem -Path $fx2_dir -Filter "*WinUSB*.inf" -ErrorAction SilentlyContinue
     if ($fx2_files) {
         $fx2_inf = $fx2_files[0].FullName
         Write-Host "Found FX2 WinUSB INF: $fx2_inf"
-    }
-    $fx2_dll_files = Get-ChildItem -Path $fx2_dir -Filter "libusb-1.0.dll" -ErrorAction SilentlyContinue
-    if ($fx2_dll_files) {
-        $fx2_libusb_dll = $fx2_dll_files[0].FullName
-        Write-Host "Found FX2 libusb-1.0.dll: $fx2_libusb_dll"
     }
 }
 
@@ -369,11 +361,17 @@ if ($ids_files -and -not $ids_peak_iss) {
         $near_misses += "dependencies\$($f.Name) is a response file but the IDS silent install requires it to be named exactly 'setup.iss'"
     }
 }
-# FX2 pair lives in dependencies\fx2\, not the dependencies\ root. Dropping
-# them one level too high is the same silent-miss shape.
+# The FX2 INF lives in dependencies\fx2\, not the dependencies\ root.
+# Dropping it one level too high is the same silent-miss shape.
 foreach ($f in @(Get-ChildItem -Path $deps -File -ErrorAction SilentlyContinue |
-                 Where-Object { $_.Name -match '(?i)(winusb.*\.inf|^libusb.*\.dll)$' })) {
+                 Where-Object { $_.Name -match '(?i)winusb.*\.inf$' })) {
     $near_misses += "dependencies\$($f.Name) is an FX2 dependency but belongs in dependencies\fx2\, not the dependencies\ root"
+}
+# A libusb DLL in either place was the old route and is now read by nothing:
+# the build takes the library from the libusb-package wheel.
+foreach ($f in @(Get-ChildItem -Path @($deps, $fx2_dir) -File -ErrorAction SilentlyContinue |
+                 Where-Object { $_.Name -match '(?i)^libusb.*\.dll$' })) {
+    $near_misses += "$($f.FullName) is no longer bundled: the FX2's libusb comes from the libusb-package wheel (requirements.txt). Remove the file"
 }
 
 if ($near_misses.Count -gt 0) {
@@ -391,7 +389,6 @@ if (-not $pylon_msi) { Write-Host "No Pylon MSI in dependencies\ - bundle will b
 if (-not $vc_redist_exe) { Write-Host "No vc_redist.x64.exe in dependencies\ - bundle will NOT be built (the app does not ship msvcp140; the installer must chain the redistributable)" }
 if (-not $ids_peak_exe) { Write-Host "No IDS Peak runtime in dependencies\ - IDS cameras will need manual driver install on customer machines" }
 if (-not $fx2_inf) { Write-Host "No FX2 WinUSB INF in dependencies\fx2\ - LVC FX2 driver will need manual install (Zadig)" }
-if (-not $fx2_libusb_dll) { Write-Host "No FX2 libusb-1.0.dll in dependencies\fx2\ - bundled LVP will not be able to talk to FX2 cameras even if WinUSB driver is installed" }
 
 # ---------------------------------------------------------------------------
 # Check tools
@@ -726,16 +723,6 @@ if ($spec_contents -notmatch 'contents_directory\s*=\s*[''"]\.[''"]') {
 Copy-Item $spec ".\lumaviewpro.spec"
 
 Write-Host "Building executable..."
-# Hand the FX2 libusb DLL path to the PyInstaller spec via env var. The
-# spec checks $env:FX2_LIBUSB_DLL and conditionally adds the binary to
-# the Analysis. Empty/unset -> spec skips bundling, FX2 stays unsupported
-# in the resulting exe.
-if ($fx2_libusb_dll) {
-    $env:FX2_LIBUSB_DLL = $fx2_libusb_dll
-    Write-Host "Bundling FX2 libusb-1.0.dll: $fx2_libusb_dll"
-} else {
-    $env:FX2_LIBUSB_DLL = ""
-}
 # DEBUG level so the record names PyInstaller's binary-dependency search
 # directories -- WHERE each collected DLL came from. At WARN those lines are
 # suppressed and a bad collected binary (e.g. a stale C runtime scavenged
@@ -762,7 +749,6 @@ try {
     $pyi_writer.Close()
 }
 Write-Host "PyInstaller log: $pyi_log"
-$env:FX2_LIBUSB_DLL = $null
 if ($pyi_exit -ne 0) { Write-Host "ERROR: PyInstaller failed"; Set-Location $build_dir; Exit 1 }
 
 # Only the output folder survives the _tmp cleanup, so every freeze
@@ -1088,7 +1074,6 @@ $dep_receipt = @(
     "VCRedist=$(if ($vc_redist_exe) {'bundled'} else {'NOT BUNDLED'})"
     "IDS=$(if ($ids_peak_exe -and $ids_peak_iss) {'bundled'} else {'NOT BUNDLED'})"
     "FX2-INF=$(if ($fx2_inf) {'bundled'} else {'NOT BUNDLED'})"
-    "FX2-DLL=$(if ($fx2_libusb_dll) {'bundled'} else {'NOT BUNDLED'})"
 ) -join '  '
 Write-Host "  Drivers:  $dep_receipt"
 Write-Host "  Log:      $build_log"

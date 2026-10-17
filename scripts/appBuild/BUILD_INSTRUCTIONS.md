@@ -98,8 +98,7 @@ dependencies\
 |-- ids_peak_<version>.exe               # optional — IDS cameras
 |-- setup.iss                            # optional — paired with ids_peak EXE
 `-- fx2\
-    |-- LumaScope_WinUSB.inf             # optional — LVC FX2 driver bind
-    `-- libusb-1.0.dll                   # optional — pyusb backend on Windows
+    `-- LumaScope_WinUSB.inf             # optional — LVC FX2 driver bind
 ```
 
 #### Where each dependency comes from
@@ -111,7 +110,6 @@ dependencies\
 | `ids_peak_<version>.exe` | [en.ids-imaging.com/download-peak.html](https://en.ids-imaging.com/download-peak.html) → Runtime variant | Free MyIDS account required. **The download is a package; extract it and use the inner `ids_peak_<version>.exe` (underscores). The hyphenated outer file cannot be driven silently.** Chaining IDS is not currently supported — see the IDS Peak section below before using these two rows. |
 | `setup.iss` | Generated locally, once per IDS Peak runtime version | Run the **inner** `ids_peak_<version>.exe /r`; it records your interactive choices into `%WINDIR%\setup.iss`. The choices matter — the USB3 Vision Transport Layer must be selected. See the IDS Peak section below. |
 | `fx2\LumaScope_WinUSB.inf` | Firmware repo, `fx2_firmware/build_deps/LumaScope_WinUSB.inf` | ~2 KB text file. Copy as-is. |
-| `fx2\libusb-1.0.dll` | Firmware repo, `fx2_firmware/build_deps/libusb-1.0.dll` | x64 build, ~150 KB. Pinned to libusb v1.0.29 (VS2019/MS64). To upgrade, replace the file in the Firmware repo and update `fx2_firmware/build_deps/README.md`. |
 
 Keep a local mirror of every account-gated download (Pylon, IDS Peak) in
 your build artefact store. Do not depend on being logged into MyBasler /
@@ -231,35 +229,25 @@ guidance predates the change and cannot be compared numerically.
 
 ```text
 dependencies\fx2\
-|-- LumaScope_WinUSB.inf            # ~2 KB text file
-`-- libusb-1.0.dll                  # ~150 KB native library
+`-- LumaScope_WinUSB.inf            # ~2 KB text file
 ```
-
-Two files together enable end-to-end FX2 support. Both are
-build-time-optional and runtime-decoupled — `drivers/fx2driver.py` gates
-its imports with `_FX2_AVAILABLE`, so absence degrades to "FX2 not
-supported" rather than a crash.
 
 - **`LumaScope_WinUSB.inf`** — binds inbox `WinUSB.sys` to the FX2 VID/PID
   `0x04B4:0x8613` / `0x04B4:0xEA17` so `pyusb` can open the device without
   Zadig. When present, the LVP MSI installs it to
   `<InstallFolder>\drivers\fx2\` and runs `pnputil /add-driver <inf> /install`
-  during `InstallFiles` (deferred, runs as SYSTEM, errors ignored).
+  during `InstallFiles` (deferred, runs as SYSTEM, errors ignored). Without
+  it the build still succeeds, and the customer must bind the driver with
+  Zadig.
 
-- **`libusb-1.0.dll`** — the native USB library that pyusb's `libusb1`
-  backend loads via `ctypes` on Windows. PyInstaller bundles it next to
-  `lumaviewpro.exe` so `ctypes.cdll.LoadLibrary("libusb-1.0.dll")` finds
-  it inside the installed app.
-
-When either file is absent, the build still succeeds but FX2 cameras
-won't work on the resulting installer:
-
-| INF | DLL | Result |
-|---|---|---|
-| ✓ | ✓ | Full FX2 support — driver auto-installed, app can talk to camera |
-| ✗ | ✓ | App has FX2 libraries but customer must install driver via Zadig |
-| ✓ | ✗ | Driver installed but bundled app fails at first FX2 access |
-| ✗ | ✗ | FX2 unsupported (current 4.0.0-beta default) |
+The rest of what the FX2 needs is not a dependency to drop in: the release
+spec ships the firmware hex from the clone's `firmware\` folder and the
+native libusb library from the `libusb-package` wheel (`requirements.txt`),
+inside the bundle's `libusb_package\` folder where the driver looks for it.
+The build is refused, naming the file, when either is missing, before
+PyInstaller runs and again in the built tree. A `libusb*.dll` left in
+`dependencies\` or `dependencies\fx2\` from the old route also refuses the
+build: nothing reads it any more.
 
 ### 4. Copy The Build Script
 

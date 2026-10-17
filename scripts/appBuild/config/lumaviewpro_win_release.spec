@@ -55,18 +55,20 @@ hiddenimports = [
     'usb1',
 ]
 
-# Optional libusb-1.0.dll (FX2 USB I/O on Windows). Sourced by
-# build.ps1 from dependencies\fx2\libusb-1.0.dll and passed via the
-# FX2_LIBUSB_DLL env var. When unset/missing, FX2 cameras silently
-# stay unsupported on the installed app — pyusb can't load its
-# libusb1 backend without the native DLL on Windows. Bundling at the
-# install root puts it in PyInstaller's _MEIPASS search path so
-# ctypes.cdll.LoadLibrary("libusb-1.0.dll") inside pyusb finds it.
+# The FX2's firmware hex and libusb-package's library, each where the
+# frozen app looks for it; the build is refused without either
+# (fx2_bundle.py says where and why).
 import os as _os
-binaries = []
-_fx2_dll = _os.environ.get('FX2_LIBUSB_DLL', '').strip()
-if _fx2_dll and _os.path.exists(_fx2_dll):
-    binaries.append((_fx2_dll, '.'))
+import sys as _sys
+
+import libusb_package
+
+_sys.path.insert(0, _os.path.join(SPECPATH, 'scripts', 'appBuild', 'config'))
+from fx2_bundle import check_fx2_dist, fx2_bundle_entries
+
+_libusb_path = libusb_package.get_library_path()
+_fx2_datas, binaries = fx2_bundle_entries(SPECPATH, _libusb_path)
+datas += _fx2_datas
 
 # The build ID lives in its own file, never in version.txt. version.txt
 # line 1 names the user's Documents data folder and is stamped into the
@@ -319,3 +321,5 @@ if _loose_py:
         f'FATAL: source-folder gate: {len(_loose_py)} loose .py file(s) under the app root, '
         f'first {_loose_py[0]}; the Python ships only in the frozen archive.'
     )
+
+check_fx2_dist(_dist_root, _os.path.basename(str(_libusb_path)))
