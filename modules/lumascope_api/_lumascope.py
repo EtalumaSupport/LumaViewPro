@@ -5,6 +5,7 @@ import copy
 import dataclasses
 import pathlib
 import sys
+import threading
 import warnings
 
 from lvp_logger import logger
@@ -252,6 +253,12 @@ class Lumascope:
     _VALID_AXIS_NAMES = _api_constants._VALID_AXIS_NAMES
     _MOTOR_POSITION_LIMIT = _api_constants.MOTOR_POSITION_LIMIT
 
+    # How long the exit hook waits for a disconnect already in flight -- the
+    # session's close, on its own thread -- before the process exits without
+    # it. Past the 11 s a Basler StopGrabbing has taken on the bench, short
+    # of hanging an exit that has no window to show why.
+    _EXIT_WAIT_S = 15.0
+
     # What the scope holds, set during construction.
     capabilities: 'ScopeCapabilities'
     diagnostics: 'DiagnosticsAPI'
@@ -328,6 +335,9 @@ class Lumascope:
         instances second-class. Centralizing here makes the slot list
         the single point of truth.
         """
+        # One disconnect() at a time. Re-entrant: the exit hook holds it
+        # while it calls disconnect().
+        self._disconnect_lock = threading.RLock()
         self._simulated = simulated
         # Whether this scope's model has a motor board. Until initialize()
         # reads the model's catalogue entry, a missing board counts as
@@ -1406,6 +1416,8 @@ class Lumascope:
         to the Null variants and `_invalidate_camera_cache` always runs, so
         a partial failure cannot leave the API holding a stale connected
         driver. Repeatable: a second call finds nothing left to tear down.
+        One runs at a time: a call on another thread while one runs waits
+        for it, then finds nothing left.
 
         Raises:
             ScopeDisconnectError: after every step has run, naming each part
@@ -1414,6 +1426,11 @@ class Lumascope:
                 part's error. Nothing is logged or shown here; the caller
                 reports it where it stops.
         """
+        with self._disconnect_lock:
+            self._disconnect()
+
+    def _disconnect(self) -> None:
+        """disconnect()'s teardown, run under its lock."""
         logger.info('[SCOPE API ] Disconnecting from microscope...')
 
         # Stop watching the stream first: the teardown below stops it on
@@ -1562,11 +1579,27 @@ class Lumascope:
         its first step, using the same bounded acquire, so there is one
         place that darkens the channels on the way down rather than two
         that have to be kept in agreement.
+
+        A disconnect already in flight -- the session's close, on its own
+        thread when the process ended -- is waited for up to `_EXIT_WAIT_S`,
+        and then nothing is left to tear down; past the bound the process
+        exits without it.
         """
+        if not self._disconnect_lock.acquire(timeout=self._EXIT_WAIT_S):
+            try:
+                logger.warning(
+                    f'[SCOPE API ] _emergency_shutdown: a disconnect still in flight after '
+                    f'{self._EXIT_WAIT_S:.0f} s; exiting without it'
+                )
+            except Exception:
+                pass
+            return
         try:
             self.disconnect()
         except Exception:
             pass
+        finally:
+            self._disconnect_lock.release()
         try:
             logger.info('[SCOPE API ] _emergency_shutdown complete (LEDs off, disconnected)')
         except Exception:

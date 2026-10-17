@@ -781,6 +781,8 @@ def test_disconnect_tears_down_temp_logging_schedule():
     # A motor board with nothing connected: teardown has nothing to stop.
     scope._motion_driver = SimpleNamespace(disconnect=lambda: None, is_connected=lambda: False)
     scope.diagnostics = SimpleNamespace(get_camera_temperatures_degc=lambda: None)
+    # The constructor's disconnect lock, which a built scope carries.
+    scope._disconnect_lock = threading.RLock()
 
     unschedule_calls = []
     imaging.start_camera_temp_logging(
