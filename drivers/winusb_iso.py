@@ -412,8 +412,12 @@ class IsoSlot:
         self.packets = (USBD_ISO_PACKET_DESCRIPTOR * packet_count)()
         self.submitted = False
 
-        # Create manual-reset event
+        # Create manual-reset event. A NULL event would wait on nothing:
+        # every overlapped read would look complete at once.
+        self.isoch_handle = None
         self.event = kernel32.CreateEventW(None, True, False, None)
+        if not self.event:
+            raise RuntimeError(f'CreateEventW failed: {ctypes.get_last_error()}')
         self.overlapped = OVERLAPPED()
         self.overlapped.hEvent = self.event
 
@@ -428,7 +432,10 @@ class IsoSlot:
         )
 
         if not ok:
-            raise RuntimeError(f'WinUsb_RegisterIsochBuffer failed: {ctypes.get_last_error()}')
+            code = ctypes.get_last_error()
+            self.isoch_handle = None
+            self.dispose()
+            raise RuntimeError(f'WinUsb_RegisterIsochBuffer failed: {code}')
 
     def dispose(self):
         if self.isoch_handle:
@@ -479,6 +486,7 @@ class WinUsbIsoReader:
         self._dev = None
         self._running = False
         self._thread = None
+        self._slots = []
 
     def start(self) -> None:
         """Open device, configure for ISO, start streaming thread.
@@ -498,11 +506,23 @@ class WinUsbIsoReader:
                 pipe_info.MaximumPacketSize,
             )
 
+            # The slots are built here, not on the thread: a reader that
+            # cannot register its buffers fails the start, instead of dying
+            # on its thread while the stream is reported started.
+            buffer_size = self._max_packet_size * self.packets_per_xfer
+            for _ in range(self.num_slots):
+                self._slots.append(
+                    IsoSlot(self._dev.handle, self.pipe_id, buffer_size, self.packets_per_xfer)
+                )
+
             self._running = True
             self._thread = threading.Thread(target=self._read_loop, daemon=True)
             self._thread.start()
         except BaseException:
             self._running = False
+            for slot in self._slots:
+                slot.dispose()
+            self._slots = []
             self._dev.close()
             self._dev = None
             raise
@@ -529,12 +549,8 @@ class WinUsbIsoReader:
         buffer_size = self._max_packet_size * self.packets_per_xfer
         n_packets = self.packets_per_xfer
 
-        # Allocate slots
-        slots = []
+        slots = self._slots
         try:
-            for _ in range(self.num_slots):
-                slots.append(IsoSlot(iface, self.pipe_id, buffer_size, n_packets))
-
             # Prime: submit all slots
             continue_stream = False
             for slot in slots:
@@ -582,6 +598,7 @@ class WinUsbIsoReader:
                     )
             for slot in slots:
                 slot.dispose()
+            self._slots = []
 
     def _submit_read(self, slot, length, packet_count, continue_stream):
         ok = winusb.WinUsb_ReadIsochPipeAsap(

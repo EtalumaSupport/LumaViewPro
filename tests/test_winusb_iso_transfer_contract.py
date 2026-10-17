@@ -157,3 +157,79 @@ def test_a_reader_whose_pipe_query_fails_closes_the_device_it_opened():
 
     assert closed == [True]
     assert reader.device is None
+
+
+def _slot_device(closed):
+    """A WinUSB device class whose pipe answers, for a reader's start; each
+    close is appended to ``closed``."""
+
+    class Device:
+        def __init__(self, vid, pid):
+            self.handle = ctypes.c_void_p(1)
+
+        def set_alt_interface(self, setting):
+            pass
+
+        def query_pipe(self, alt, index):
+            return type('Pipe', (), {'MaximumPacketSize': 1024, 'PipeId': 0x82})()
+
+        def close(self):
+            closed.append(True)
+
+    return Device
+
+
+def test_a_reader_whose_buffer_registration_fails_fails_its_start():
+    """The slots were built on the reader's thread, so a buffer WinUSB
+    refused to register raised there, after the start had returned and the
+    stream was reported started: the camera then saw only silence. Built
+    in the start, the refusal is the start's, and what was opened is
+    released."""
+    from drivers import winusb_iso
+
+    closed_devices, registered, closed_events = [], [], []
+
+    class Kernel32:
+        def CreateEventW(self, *args):
+            return 7
+
+        def CloseHandle(self, handle):
+            closed_events.append(handle)
+
+    class WinUsb:
+        def WinUsb_RegisterIsochBuffer(self, *args):
+            registered.append(True)
+            return len(registered) < 3  # the third buffer is refused
+
+        def WinUsb_UnregisterIsochBuffer(self, handle):
+            pass
+
+    reader = winusb_iso.WinUsbIsoReader(0x04B4, 0xEA17, on_data=None, on_error=None, num_slots=4)
+    with (
+        patch.object(winusb_iso, 'WinUsbDevice', _slot_device(closed_devices)),
+        patch.object(winusb_iso, 'kernel32', Kernel32()),
+        patch.object(winusb_iso, 'winusb', WinUsb()),
+        patch.object(winusb_iso.ctypes, 'get_last_error', lambda: 8),
+        pytest.raises(RuntimeError, match='RegisterIsochBuffer failed: 8'),
+    ):
+        reader.start()
+
+    assert closed_devices == [True]
+    assert closed_events == [7, 7, 7], 'each slot built, and the refused one, closes its event'
+    assert reader.device is None
+
+
+def test_a_slot_whose_event_cannot_be_made_is_refused():
+    """A NULL event makes every overlapped read look complete at once."""
+    from drivers import winusb_iso
+
+    class Kernel32:
+        def CreateEventW(self, *args):
+            return None
+
+    with (
+        patch.object(winusb_iso, 'kernel32', Kernel32()),
+        patch.object(winusb_iso.ctypes, 'get_last_error', lambda: 1450),
+        pytest.raises(RuntimeError, match='CreateEventW failed: 1450'),
+    ):
+        winusb_iso.IsoSlot(ctypes.c_void_p(1), 0x82, 1024, 8)
