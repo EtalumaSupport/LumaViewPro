@@ -6,6 +6,9 @@ must use only the last `window_len` samples; old samples must be
 dropped automatically when the window is full. Pre-deque code used a
 list with .pop(0) -- fine functionally but O(n) per drop, and it's
 easy to break the rolling-window invariant when refactoring.
+
+And the gain cap: the live view's stretch multiplies an image by at most
+x10, so a near-flat frame's sensor noise is not blown up into flicker.
 """
 
 import numpy as np
@@ -54,18 +57,65 @@ class TestUpdateReturnsArray:
         assert out.shape == img.shape
         assert out.dtype == np.uint8
 
-    def test_zero_range_returns_input(self):
-        """When range_val_avg == 0 (all-uniform image), .update() returns
-        the original array (not a transformed copy)."""
-        cs = ContrastStretcher(window_len=3, bottom_pct=0, top_pct=0)
-        img = np.full((50, 50), 128, dtype=np.uint8)
-        out = cs.update(img)
-        # First call seeds with min=128, range=0; rolling avg range = (255+0)/2 nonzero
-        # so this WILL transform. Second call: avg drops the seed 255,
-        # range -> 0/0 = 0, returns input.
-        out = cs.update(img)
-        out = cs.update(img)
-        assert out is img
+
+def _display_stretcher() -> ContrastStretcher:
+    """The live view's own stretcher (``ui/scope_display.py``)."""
+    return ContrastStretcher(window_len=3, bottom_pct=0.3, top_pct=0.3)
+
+
+def _shown(levels: tuple[int, int], frames: int = 3) -> tuple[np.ndarray, np.ndarray]:
+    """(the last frame, what the display shows of it) after ``frames`` frames
+    spread evenly over ``levels``, enough to fill the 3-frame window."""
+    lo, hi = levels
+    rng = np.random.default_rng(0)
+    cs = _display_stretcher()
+    for _ in range(frames):
+        frame = rng.integers(lo, hi + 1, (200, 200), dtype=np.uint8)
+        shown = cs.update(frame).copy()
+    return frame, shown
+
+
+def _gain(frame: np.ndarray, shown: np.ndarray) -> float:
+    """The display levels per input level across the frame's spread."""
+    lo, hi = int(frame.min()), int(frame.max())
+    return (float(shown[frame == hi].mean()) - float(shown[frame == lo].mean())) / (hi - lo)
+
+
+class TestGainCap:
+    """The stretch multiplies by at most x10; a capped window sits on the
+    frame's centre, held inside 0-255."""
+
+    def test_a_near_flat_frame_is_stretched_by_at_most_ten(self):
+        # The field report's frame: BF 2 mA / 1 ms, pixels 58-67, stretched
+        # x28 before the cap.
+        frame, shown = _shown((58, 67))
+        assert _gain(frame, shown) <= 10.2
+
+    def test_a_capped_frame_keeps_its_brightness_at_the_ends(self):
+        # Mirror images of each other about mid-grey, shown mirrored.
+        _, dark = _shown((0, 6))
+        _, bright = _shown((249, 255))
+        assert dark.mean() < 64
+        assert bright.mean() > 191
+
+    def test_a_capped_mid_grey_frame_is_shown_mid_grey(self):
+        _, shown = _shown((58, 67))
+        assert abs(float(shown.mean()) - 127.5) < 8
+
+    def test_a_flat_frame_is_shown_through_the_capped_window(self):
+        cs = _display_stretcher()
+        frame = np.full((50, 50), 128, dtype=np.uint8)
+        for _ in range(3):
+            shown = cs.update(frame)
+        assert shown is not frame
+        assert set(np.unique(shown)) <= {127, 128}
+
+    def test_a_frame_with_content_fills_the_display(self):
+        # 33-199: a 4x BF capture, x1.5, far under the cap.
+        frame, shown = _shown((33, 199))
+        assert shown[frame <= 33].max() <= 1
+        assert shown[frame >= 199].min() >= 254
+        assert _gain(frame, shown) > 1.5
 
 
 class TestLutApplyBufferReuse:

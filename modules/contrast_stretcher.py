@@ -4,6 +4,12 @@ from collections import deque
 
 import numpy as np
 
+# The most the stretch multiplies an image by. A near-flat frame (a field
+# report's BF at 58-67) was stretched x28 and its sensor noise shown as
+# flicker and moving bands; captures with content measure up to about x13.
+MAX_GAIN = 10.0
+_MIN_RANGE = 255.0 / MAX_GAIN
+
 
 class ContrastStretcher:
     def __init__(
@@ -45,8 +51,12 @@ class ContrastStretcher:
 
         min_val_avg = np.average(self._data['min'])
         range_val_avg = np.average(self._data['range'])
-        if range_val_avg == 0:
-            return image
+        if range_val_avg < _MIN_RANGE:
+            # Capped: the window sits on the frame's centre, held inside
+            # 0-255, so a dark frame stays dark and a saturated one bright.
+            centre = min_val_avg + range_val_avg / 2
+            min_val_avg = min(max(centre - _MIN_RANGE / 2, 0.0), 255.0 - _MIN_RANGE)
+            range_val_avg = _MIN_RANGE
 
         # Build a 256-entry uint8 LUT: avoids all per-pixel float math and
         # eliminates the float32 buffer + astype allocation entirely.
