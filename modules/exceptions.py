@@ -932,9 +932,109 @@ class CameraNotAvailableError(BringUpError):
         ),
     }
 
-    def __init__(self, reason: str):
+    # Offered on 'camera_driver_unusable' where the Session can take it: an
+    # installed build on Windows (``fx2_driver_step.repair_refusal``).
+    REPAIR: ClassVar[Remedy] = Remedy(
+        member='repair_camera_driver',
+        confirm_text='Repair the driver (needs an administrator)',
+        cancel_text='Not now',
+    )
+
+    def __init__(self, reason: str, *, repairable: bool = False):
+        """Build the notice for ``reason``.
+
+        Args:
+            reason: One of ``_WORDS``' keys.
+            repairable: Offer Repair (``REPAIR``) as the answer; only for
+                ``'camera_driver_unusable'``.
+        """
+        if repairable and reason != 'camera_driver_unusable':
+            raise TypeError(f'Repair answers camera_driver_unusable, not {reason!r}')
         self.title, message = self._WORDS[reason]
         super().__init__(message, reason)
+        self.remedy = self.REPAIR if repairable else None
+
+
+class CameraDriverRepairRefusedError(Refusal, Exception):
+    """Repair of the Lumascope Classic's driver binding was asked for and cannot run.
+
+    Repair runs the installed driver step as an administrator, so it needs
+    Windows, an installed build that carries the signed package, an
+    administrator who approves the prompt, and a binding that needs it.
+
+    Attributes:
+        reason: ``'repair_needs_windows'``, ``'repair_needs_installed_build'``
+            (a source run or a build run from ``dist``), ``'repair_declined'``
+            (the administrator's prompt was not approved) or
+            ``'driver_already_usable'``.
+    """
+
+    title = 'Camera Driver Not Repaired'
+    # Declined is the one a person can answer by asking again; the others
+    # are answered the same until the host, the build or the binding changes.
+    causes: ClassVar[dict[str, RefusalCause]] = {
+        'repair_needs_windows': RefusalCause.REQUEST,
+        'repair_needs_installed_build': RefusalCause.REQUEST,
+        'repair_declined': RefusalCause.STATE,
+        'driver_already_usable': RefusalCause.STATE,
+    }
+    _WORDS: ClassVar[dict[str, str]] = {
+        'repair_needs_windows': (
+            "Repairing the camera's driver is for Windows, which binds each USB device to a "
+            'driver; this computer binds none.'
+        ),
+        'repair_needs_installed_build': (
+            "LumaViewPro repairs the camera's driver only from an installed build, which carries "
+            'the signed driver package. Run the LumaViewPro installer as an administrator on the '
+            "scope's PC."
+        ),
+        'repair_declined': (
+            "Windows asked for an administrator's approval to install the camera's driver, and it "
+            'was not given. Repair again and approve it (a standard account needs an '
+            "administrator's password), or run the LumaViewPro installer as an administrator."
+        ),
+        'driver_already_usable': (
+            "The camera's USB devices are already on drivers LumaViewPro can use; there is "
+            'nothing to repair.'
+        ),
+    }
+
+    def __init__(self, reason: str):
+        reason = self._declared(reason)
+        super().__init__(self._WORDS[reason])
+        self.reason = reason
+
+
+class CameraDriverRepairFailedError(Fault, Exception):
+    """The driver step Repair ran as an administrator did not bind the camera.
+
+    The step logs every action and every Windows answer, so the words name
+    its log folder.
+    """
+
+    reason = 'camera_driver_repair_failed'
+    title = 'Camera Driver Repair Failed'
+
+    words_for_person = True
+
+    def __init__(self, what: str, logs: pathlib.Path):
+        super().__init__(
+            f"The camera's driver was not repaired: {what}. The driver step's log is in {logs}. "
+            'Run the LumaViewPro installer as an administrator, or send that log to Etaluma '
+            'support.'
+        )
+
+
+class CameraDriverRepairedNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error
+    """Repair bound the Lumascope Classic to LumaViewPro's driver; the camera connects at the next start."""
+
+    reason = 'camera_driver_repaired'
+    title = 'Camera Driver Repaired'
+
+    def __init__(self):
+        super().__init__(
+            "The camera is on LumaViewPro's driver now. Restart LumaViewPro so the camera connects."
+        )
 
 
 class LedBoardUnavailableError(BringUpError):

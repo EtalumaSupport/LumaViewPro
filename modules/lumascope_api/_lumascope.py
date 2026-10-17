@@ -1326,7 +1326,12 @@ class Lumascope:
         if camera.up:
             reported = failure
         else:
-            reported = CameraNotAvailableError(camera.cause)
+            from modules.fx2_driver_step import repair_refusal  # local-import: Windows-only use
+
+            reported = CameraNotAvailableError(
+                camera.cause,
+                repairable=camera.cause == 'camera_driver_unusable' and repair_refusal() is None,
+            )
             reported.__cause__ = failure
         notifications.report_outcome(reported, solicited=False, category='Camera')
 

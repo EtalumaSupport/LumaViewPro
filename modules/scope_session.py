@@ -54,6 +54,9 @@ from modules.exceptions import (
     AlreadyStartedError,
     ArgumentRefusedError,
     ClaimStillLentError,
+    CameraDriverRepairedNotice,
+    CameraDriverRepairFailedError,
+    CameraDriverRepairRefusedError,
     CameraSettingUnsupportedError,
     ConfigError,
     DiagnosticRefusedError,
@@ -137,6 +140,7 @@ if TYPE_CHECKING:
     from modules.labware_loader import WellPlateLoader
     from modules.lumascope_api import Lumascope
     from modules.lumascope_api.bring_up import BringUpRecord
+    from modules.lumascope_api.diagnostics import UsbIdentityBindings
     from modules.lumascope_api.imaging import AutoGainLock
     from modules.objectives_loader import ObjectiveLoader
     from modules.protocol import Protocol, ProtocolSizeAdvisory
@@ -1465,7 +1469,66 @@ class ScopeSession:
         return abandoned
 
     @api
-    def apply_remedy(self, remedy: Remedy) -> int:
+    def repair_camera_driver(self) -> 'tuple[UsbIdentityBindings, ...]':
+        """Bind a Lumascope Classic's USB identities to LumaViewPro's driver, as the installer does.
+
+        Offered as the remedy of the bring-up's ``camera_driver_unusable``
+        on an installed Windows build, and callable by name from any client.
+        It runs the installed driver step as an administrator: Windows asks
+        once, on the scope PC's desktop, so someone at the scope approves it
+        whoever asked. The step logs every action to the install folder's
+        ``logs``. The camera already up is never touched: Repair runs only
+        while a present device is on a driver LumaViewPro cannot use, and
+        the camera connects on its new driver at the next start, which the
+        notice it reports says.
+
+        Returns:
+            tuple[UsbIdentityBindings, ...]: The bindings read after the
+                step, as ``scope.diagnostics.get_camera_usb_bindings``.
+
+        Raises:
+            CameraDriverRepairRefusedError: ``'repair_needs_windows'``,
+                ``'repair_needs_installed_build'``,
+                ``'driver_already_usable'``, or ``'repair_declined'`` when
+                the administrator's approval was not given.
+            CameraDriverRepairFailedError: The step could not start, did not
+                finish, ended unsuccessfully, or left a present device on a
+                driver LumaViewPro cannot use; the words name its log.
+            CameraUsbLookupFailedError: The bindings could not be read.
+        """
+        from modules import fx2_driver_step
+        from modules.notification_center import notifications
+        from modules.path_utils import launch_root
+
+        reason = fx2_driver_step.repair_refusal()
+        if reason is not None:
+            raise CameraDriverRepairRefusedError(reason)
+        if all(identity.usable for identity in self.scope.diagnostics.get_camera_usb_bindings()):
+            raise CameraDriverRepairRefusedError('driver_already_usable')
+        step = launch_root() / fx2_driver_step.DRIVER_STEP_EXE
+        exit_code = fx2_driver_step.run_as_administrator(
+            step, 'install', fx2_driver_step.REPAIR_WAIT_S
+        )
+        if exit_code is None:
+            raise CameraDriverRepairRefusedError('repair_declined')
+        logs = step.parent / 'logs'
+        if exit_code != 0:
+            raise CameraDriverRepairFailedError(
+                f'the driver step ended with exit code {exit_code}', logs
+            )
+        after = self.scope.diagnostics.get_camera_usb_bindings()
+        if not all(identity.usable for identity in after):
+            raise CameraDriverRepairFailedError(
+                'the driver step finished and a device is still on a driver LumaViewPro cannot use',
+                logs,
+            )
+        notifications.report_outcome(
+            CameraDriverRepairedNotice(), solicited=True, category='Camera'
+        )
+        return after
+
+    @api
+    def apply_remedy(self, remedy: Remedy) -> 'int | tuple[UsbIdentityBindings, ...]':
         """Take the action a refusal named as its remedy, and return its answer.
 
         The one place a remedy's name becomes an action: the GUI's offer and
@@ -1476,15 +1539,16 @@ class ScopeSession:
         whether the remedy applies now, and refuses if not.
 
         Returns:
-            The remedy's own answer. The one remedy offered,
-            ``recover_file_writer``, answers how many of the run's images
-            it gave up on.
+            The remedy's own answer: ``recover_file_writer`` answers how many
+            of the run's images it gave up on, ``repair_camera_driver`` the
+            bindings after the repair.
 
         Raises:
             RemedyUnknownError: the remedy names a member not offered as one.
         """
-        remedies: dict[str, Callable[[], int]] = {
+        remedies: dict[str, Callable[[], int | tuple[UsbIdentityBindings, ...]]] = {
             'recover_file_writer': self.recover_file_writer,
+            'repair_camera_driver': self.repair_camera_driver,
         }
         action = remedies.get(remedy.member)
         if action is None:

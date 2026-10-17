@@ -27,6 +27,10 @@ Install, in order:
 
 Uninstall removes our packages, restores what install exported, removes the
 certificates install trusted, and logs what it did and what it left.
+
+The app's Repair runs the same install, as an administrator, from the
+installed build (``run_as_administrator``); ``repair_refusal`` says where it
+cannot.
 """
 
 from __future__ import annotations
@@ -51,7 +55,8 @@ from drivers.usb_driver_binding import (
     store_inf_folder,
     store_packages,
 )
-from modules.path_utils import read_version
+from modules.exceptions import CameraDriverRepairFailedError
+from modules.path_utils import AppRuntime, app_runtime, read_version
 
 log = logging.getLogger('LVP.fx2_driver_step')
 
@@ -62,6 +67,14 @@ SIGNING_CERTIFICATE = 'Etaluma_TrustedPublisher.cer'
 # line, so uninstall removes those and no other: each renewal adds one.
 TRUSTED_RECORD = 'trusted_publishers.txt'
 REMOVED_FOLDER = 'removed'
+# The installed name of this step's executable, beside the app's; the build
+# names it in scripts/appBuild/config/fx2_bundle.py, and a test holds the two
+# equal.
+DRIVER_STEP_EXE = 'lvp_fx2_driver_step.exe'
+# How long Repair waits for the step: its pnputil adds, exports and removals
+# for two identities take seconds; the wait bounds a step held on a Windows
+# prompt nobody can see.
+REPAIR_WAIT_S = 300.0
 
 
 class Machine(Protocol):
@@ -299,6 +312,107 @@ def _restore_removed(machine: Machine, removed_dir: pathlib.Path) -> bool:
     if not any(removed_dir.iterdir()):
         removed_dir.rmdir()
     return complete
+
+
+def repair_refusal() -> str | None:
+    """Why this process cannot run Repair, as ``CameraDriverRepairRefusedError``'s
+    reason; None where it can.
+
+    Repair needs Windows, which binds a driver to each USB device, and an
+    installed build, which carries this step's executable and the signed
+    package beside it; a source run or a build run from ``dist`` has neither.
+    """
+    if sys.platform != 'win32':
+        return 'repair_needs_windows'
+    if app_runtime() is not AppRuntime.INSTALLED:
+        return 'repair_needs_installed_build'
+    return None
+
+
+def run_as_administrator(executable: pathlib.Path, argument: str, wait_s: float) -> int | None:
+    """Run ``executable argument`` as an administrator and wait for it.
+
+    Windows asks for an administrator's approval once (UAC), on the desktop
+    of the PC this runs on.
+
+    Returns:
+        int | None: The step's exit code; None when the approval was not
+            given.
+
+    Raises:
+        CameraDriverRepairFailedError: Windows could not start it, or it did
+            not finish within ``wait_s``.
+    """
+    import ctypes
+    from ctypes import wintypes
+
+    class _ShellExecuteInfo(ctypes.Structure):
+        _fields_ = [
+            ('cbSize', wintypes.DWORD),
+            ('fMask', wintypes.ULONG),
+            ('hwnd', wintypes.HWND),
+            ('lpVerb', wintypes.LPCWSTR),
+            ('lpFile', wintypes.LPCWSTR),
+            ('lpParameters', wintypes.LPCWSTR),
+            ('lpDirectory', wintypes.LPCWSTR),
+            ('nShow', ctypes.c_int),
+            ('hInstApp', wintypes.HINSTANCE),
+            ('lpIDList', ctypes.c_void_p),
+            ('lpClass', wintypes.LPCWSTR),
+            ('hkeyClass', wintypes.HKEY),
+            ('dwHotKey', wintypes.DWORD),
+            ('hIconOrMonitor', wintypes.HANDLE),
+            ('hProcess', wintypes.HANDLE),
+        ]
+
+    see_mask_nocloseprocess = 0x40
+    see_mask_noasync = 0x100
+    sw_hide = 0
+    error_cancelled = 1223
+    wait_object_0 = 0
+
+    shell32 = ctypes.WinDLL('shell32', use_last_error=True)
+    kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+    # Every call is declared: an undeclared return is a C int, which cuts a
+    # 64-bit process handle short.
+    shell32.ShellExecuteExW.argtypes = [ctypes.POINTER(_ShellExecuteInfo)]
+    shell32.ShellExecuteExW.restype = wintypes.BOOL
+    kernel32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+    kernel32.WaitForSingleObject.restype = wintypes.DWORD
+    kernel32.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+    kernel32.GetExitCodeProcess.restype = wintypes.BOOL
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+
+    logs = executable.parent / 'logs'
+    info = _ShellExecuteInfo()
+    info.cbSize = ctypes.sizeof(info)
+    info.fMask = see_mask_nocloseprocess | see_mask_noasync
+    info.lpVerb = 'runas'
+    info.lpFile = str(executable)
+    info.lpParameters = argument
+    info.lpDirectory = str(executable.parent)
+    info.nShow = sw_hide
+    if not shell32.ShellExecuteExW(ctypes.byref(info)):
+        code = ctypes.get_last_error()
+        if code == error_cancelled:
+            return None
+        raise CameraDriverRepairFailedError(
+            f'Windows could not start {executable.name} (error {code})', logs
+        )
+    try:
+        if kernel32.WaitForSingleObject(info.hProcess, int(wait_s * 1000)) != wait_object_0:
+            raise CameraDriverRepairFailedError(
+                f'{executable.name} did not finish within {wait_s:.0f} s', logs
+            )
+        exit_code = wintypes.DWORD()
+        if not kernel32.GetExitCodeProcess(info.hProcess, ctypes.byref(exit_code)):
+            raise CameraDriverRepairFailedError(
+                f'its exit code could not be read (error {ctypes.get_last_error()})', logs
+            )
+        return exit_code.value
+    finally:
+        kernel32.CloseHandle(info.hProcess)
 
 
 def main(argv: list[str]) -> int:

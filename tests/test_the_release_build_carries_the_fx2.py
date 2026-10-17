@@ -140,6 +140,12 @@ def test_a_built_tree_without_the_driver_step_is_refused(tmp_path):
         fx2_bundle.check_fx2_dist(str(dist), library.name)
 
 
+def test_repair_runs_the_driver_step_the_build_ships():
+    from modules import fx2_driver_step
+
+    assert fx2_driver_step.DRIVER_STEP_EXE == fx2_bundle.DRIVER_STEP_EXE
+
+
 def test_the_frozen_driver_finds_the_hex_where_the_build_puts_it(tmp_path, monkeypatch):
     library = _library(tmp_path)
     root = _source_tree(tmp_path, fx2_bundle.FX2_HEX_FILES)

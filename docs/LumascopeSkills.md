@@ -912,7 +912,9 @@ session.apply_remedy(refusal.remedy)   # takes the remedy a refusal named
 session.recover_file_writer()          # the same recovery, called by name
 ```
 
-`session.apply_remedy(remedy)` is the one door from a remedy's name to an action, and returns that action's answer. It takes only the members the Session offers as remedies (today `recover_file_writer`, whose answer is how many of the run's images it gave up on); any other name is refused with `RemedyUnknownError` (reason `remedy_unknown`), before anything runs.
+`session.apply_remedy(remedy)` is the one door from a remedy's name to an action, and returns that action's answer. It takes only the members the Session offers as remedies (`recover_file_writer`, whose answer is how many of the run's images it gave up on, and `repair_camera_driver`, below); any other name is refused with `RemedyUnknownError` (reason `remedy_unknown`), before anything runs.
+
+A Lumascope Classic on Windows that came up on no driver, or on one LumaViewPro cannot use, is reported at bring-up as `CameraNotAvailableError` with reason `camera_driver_unusable`; on an installed Windows build it carries `remedy.member == 'repair_camera_driver'`. `session.repair_camera_driver()` runs the installed driver step as an administrator, the same install the installer runs: Windows asks for an administrator's approval once, on the scope PC's desktop, so someone at the scope approves it whoever called. It returns the bindings after the step (`scope.diagnostics.get_camera_usb_bindings`), reports `CameraDriverRepairedNotice` (reason `camera_driver_repaired`, a notice: restart LumaViewPro so the camera connects), and never touches a camera that is up. Refused with `CameraDriverRepairRefusedError`: `repair_needs_windows`, `repair_needs_installed_build` (a source run, or a build run from `dist`; run the installer as an administrator), `driver_already_usable`, or `repair_declined` (the approval was not given; ask again). `CameraDriverRepairFailedError` (a fault, reason `camera_driver_repair_failed`) when the step could not start, did not finish in 300 s, ended unsuccessfully, or left a present device on a driver LumaViewPro cannot use; its words name the step's log folder.
 
 Recovery is deliberate data loss: the finished run's outstanding images are given up on (they were never going to finish), and a partial file from the stuck write may remain on disk. Returns how many images were given up on. It is refused with `FileWriterNotStuckError` (reason `file_writer_not_stuck`) while the writer is still making progress -- those files finish on their own -- and with `HardwareCommandRefusedError` while a run or a diagnostic holds the scope.
 
@@ -1235,7 +1237,8 @@ record.part('led').cause                   # ArgumentRefusedError (part_unknown)
                                            # detail names it and why), 'camera_firmware_missing' (a Classic's firmware
                                            # file is not installed), 'camera_driver_unusable' (on Windows, a Classic is
                                            # bound to no driver or one LumaViewPro cannot use; the detail names the
-                                           # device and its driver), 'camera_not_initialized';
+                                           # device and its driver; its report carries the remedy
+                                           # repair_camera_driver on an installed Windows build), 'camera_not_initialized';
                                            # on an LED board that came up, 'safety_off_failed'; on a camera that came up
                                            # and whose stream did not start, 'stream_not_started' (it stays after a
                                            # later enable_streaming() that streams)
@@ -3100,6 +3103,7 @@ Reached through `ScopeSession.create(settings, ...)`; every L2 caller starts her
 - `remove_run_state_listener` (in-process)
 - `remove_shown_channel_listener` (in-process)
 - `rename_step`
+- `repair_camera_driver`
 - `retire_rejected_settings`
 - `run_application_session` (in-process)
 - `run_in_progress`
