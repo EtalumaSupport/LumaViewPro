@@ -9,7 +9,6 @@ from collections.abc import Mapping
 import modules.labware as labware
 from modules.exceptions import CatalogueNameRefusedError, ConfigError, InstallationFileError
 from modules.path_utils import read_installation_file, resolve_data_file
-from modules.api_surface import api
 
 if typing.TYPE_CHECKING:
     from modules.settings_init import SettingValue
@@ -110,11 +109,9 @@ class WellPlateLoader:
         """The catalogue, by name; read-only, as each record is."""
         return self._plates
 
-    @api(reads=True)
     def get_plate_list(self) -> list[str]:
         return list(self._plates)
 
-    @api(reads=True)
     def resolve_plate_key(self, plate_key: str) -> str:
         """The catalogue key for ``plate_key``, whatever spelling it arrived in.
 
@@ -133,7 +130,6 @@ class WellPlateLoader:
             )
         return resolved_key
 
-    @api(reads=True)
     def is_known_plate(self, plate_key: 'SettingValue') -> bool:
         """Whether ``plate_key`` resolves to a plate, directly or under a retired spelling.
 
@@ -151,7 +147,6 @@ class WellPlateLoader:
             return False
         return True
 
-    @api(reads=True)
     def get_plate(self, plate_key: str) -> labware.WellPlate:
         """The plate ``plate_key`` names, under any spelling ``resolve_plate_key`` takes.
 

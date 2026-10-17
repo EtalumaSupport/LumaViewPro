@@ -132,8 +132,7 @@ session = ScopeSession.create(settings, simulate=True)     # simulated: the mode
 session = ScopeSession.create(settings, source_path='/path/to/lvp')  # another data folder
 scope = session.scope
 
-scope.wellplate_loader                    # the labware catalogue, read from it once
-scope.objective_helper                    # the objective catalogue, read from it once
+scope.labware                             # every plate, by name: WellPlate records, read-only
 scope.objectives                          # every objective, by id: Objective records, read-only
 scope.scope_models                        # every model, by name: ScopeModel records, read-only
 scope.scope_models['LS850T'].has_turret   # one model's record: True, the LS850T has a turret
@@ -142,15 +141,14 @@ scope.scope_models['LS850T'].has_turret   # one model's record: True, the LS850T
 A scope acts on configuration it does not hold: the labware, the stage offset, the turret map, the objective selected on a scope with no turret, and whether the scale bar is drawn are its session's settings, read whenever it acts on them. A `ScopeSession` binds the scope it builds to its settings.
 
 ```python
-scope.objective_helper.get_objectives_list()        # every objective id in the catalogue
+list(scope.objectives)                              # every objective id in the catalogue
 scope.objectives['10x Oly'].focal_length_mm         # one objective's record; every field is named with its unit
-scope.wellplate_loader.get_plate_list()             # every plate name in the catalogue
-scope.wellplate_loader.is_known_plate(name)         # True for a catalogue name or a retired alias
-scope.wellplate_loader.resolve_plate_key(name)      # the catalogue's spelling; CatalogueNameRefusedError if unknown
-scope.wellplate_loader.get_plate(plate_key=name)    # the plate's WellPlate record: rows, columns, spacing_x_mm, ..., read-only
+list(scope.labware)                                 # every plate name in the catalogue
+scope.labware['96 well microplate'].spacing_x_mm    # one plate's record: rows, columns, spacing_x_mm, ...
+scope.runtime_state.get_labware()                   # the selected plate's record
 ```
 
-`settings_template` hands out the caller's own copy, `objectives` and `scope_models` each a read-only mapping of frozen records, and `get_plate()` a frozen record: changing what you were given changes nothing the scope or any other reader sees, and an `Objective`, a `WellPlate` or a `ScopeModel` refuses a change outright. A plate's positions are in mm on the plate: `offset_x_mm` / `offset_y_mm` is the first well's centre and `spacing_x_mm` / `spacing_y_mm` the pitch between centres; `well_diameter_mm` is None where the catalogue states none.
+`settings_template` hands out the caller's own copy, and `labware`, `objectives` and `scope_models` each a read-only mapping of frozen records: changing what you were given changes nothing the scope or any other reader sees, and an `Objective`, a `WellPlate` or a `ScopeModel` refuses a change outright. A plate's positions are in mm on the plate: `offset_x_mm` / `offset_y_mm` is the first well's centre and `spacing_x_mm` / `spacing_y_mm` the pitch between centres; `well_diameter_mm` is None where the catalogue states none.
 
 An `Objective` names each field with its unit. Autofocus starts at `autofocus_step_max_um` and refines down to `autofocus_step_min_um` across `autofocus_half_range_um` either side of where it starts; a jog moves `jog_z_fine_um` / `jog_z_coarse_um` on Z and `jog_xy_fine_um` / `jog_xy_coarse_um` on X and Y; `focal_length_mm` sets the image scale; `short_name` is the token step and file names carry. `focus_peak_fwhm_dense_um` is None until the engineering plugin's characterization has measured the objective. The installation's `objectives.json` keeps its own keys (`focal_length`, `DOF`, `AF_min`, ...), and a capture's metadata carries the objective under those keys. An entry missing a field, carrying a key no field declares, or giving a number as anything else refuses bring-up with `InstallationFileError`, naming the file, the objective and the key.
 
@@ -323,8 +321,8 @@ settings = ScopeSession.load_user_settings('.')
 session = ScopeSession.create(settings=settings, source_path='.')
 
 session.source_path                       # the scope's data folder (source_path above), a pathlib.Path
-session.scope.wellplate_loader            # the scope's labware catalogue
-session.scope.objective_helper            # the scope's objective catalogue
+session.scope.labware                     # the scope's labware catalogue
+session.scope.objectives                  # the scope's objective catalogue
 ```
 
 `source_path` is the data folder `create` builds the scope on; leave it out and the scope uses the installation's own folder. The session's folder and catalogues are always its scope's, never copies, so nothing in one session can disagree about which plates or objectives exist.
@@ -1219,7 +1217,7 @@ A number you pass is a finite number: NaN or an infinity is refused with `Argume
 
 An axis is named exactly `'X'`, `'Y'`, `'Z'` or `'T'`, in capitals. Every member that takes an axis -- the moves, the position and state reads, `get_axis_limits`, the limit switches, the precision mode, `jog_step` and `read_motor_drv_status` -- refuses any other name (`'x'`, `'Q'`) with `ArgumentRefusedError` reason `axis_unknown`, its `offered` holding the names the member takes, before the scope's hardware is asked. A home takes `'Z'`, `'T'` or `'ALL'`; `jog_step` takes `'X'`, `'Y'` or `'Z'`. An axis this model lacks is a name: a command for it is refused as absent hardware, and a read answers as for a missing axis (`get_axis_state` `'unknown'`, a position None). The generic movers refuse `'T'` with reason `turret_moves_by_slot`: the turret moves only through `move_turret(slot)`. A frame other than `'stage'` or `'plate'` is `frame_unknown`, and a plate target for Z is `plate_frame_axis`, refused by the plate's owner once the move is on the lane. `set_motor_fan_duty` takes a whole percentage and refuses one outside 0 to 100 (`fan_duty_out_of_range`), with nothing sent. The camera diagnostics refuse a count or time outside what they take (`out_of_range`, its `limits` the ends, which are included): `run_grab_lifecycle_benchmark` takes 1 to 10,000 cycles, 0 to 60,000 ms between them and a slow threshold of 0 to 600 s; `run_pylon_diagnostic_probe` takes 0 to 3,600 s. A stage offset handed to `protocols.plate_to_stage`, `stage_targets`, `step_targets` or `plate_transform`, and the auto-gain settings handed to `set_auto_gain` or `apply_layer_camera_settings`, are read before the member acts: a key left out is `missing_key` and a value that is no number `not_a_number`, each naming the key (`stage_offset['x']`). Each is the request's (`cause` `REQUEST`): it fails the same way until the caller changes it.
 
-A plate or an objective is named by its catalogue key (`scope.wellplate_loader.get_plate_list()`, `scope.objective_helper.get_objectives_list()`); a plate renamed since a file named it is still found under its old name and stored under its key. Every member that takes one -- `select_labware`, `set_protocol_labware`, `create_protocol`, `select_objective`, `confirm_objective`, `assign_turret_objective` -- refuses a name the catalogue does not hold with `CatalogueNameRefusedError` (`modules.exceptions`, a `ConfigError`), reason `labware_unknown` or `objective_not_in_catalogue`, its `argument` naming the catalogue owner's parameter (`plate_key`, `objective_id`) and its `offered` holding the catalogue's keys, before anything is stored. The run's `ProtocolRunRefusedError` uses the same reason, `objective_not_in_catalogue`, for a protocol step's objective; `argument` is on the catalogue refusal only. A turret slot that is not a whole number 1 to 4 is refused with `PositionOutOfRangeError` by every member that takes one. Each is the request's (`cause` `REQUEST`).
+A plate or an objective is named by its catalogue key (`list(scope.labware)`, `list(scope.objectives)`); a plate renamed since a file named it is still found under its old name and stored under its key. Every member that takes one -- `select_labware`, `set_protocol_labware`, `create_protocol`, `select_objective`, `confirm_objective`, `assign_turret_objective` -- refuses a name the catalogue does not hold with `CatalogueNameRefusedError` (`modules.exceptions`, a `ConfigError`), reason `labware_unknown` or `objective_not_in_catalogue`, its `argument` naming the catalogue owner's parameter (`plate_key`, `objective_id`) and its `offered` holding the catalogue's keys, before anything is stored. The run's `ProtocolRunRefusedError` uses the same reason, `objective_not_in_catalogue`, for a protocol step's objective; `argument` is on the catalogue refusal only. A turret slot that is not a whole number 1 to 4 is refused with `PositionOutOfRangeError` by every member that takes one. Each is the request's (`cause` `REQUEST`).
 
 `scope.protocols.create_protocol(input_config=... | empty_config=...)` judges the configuration whole before anything is built: every key the build reads, present and of its kind, whichever of them this build happens to reach. A key left out is `ArgumentRefusedError` reason `missing_key`, a value of the wrong kind `wrong_kind` (its words name the kind) or, for a number, `not_a_number` (`True` and NaN included), a layer's `acquire` that is neither None nor `'image'` / `'video'` `acquire_mode_unknown`, a layer name that is no layer `layer_unknown` (`no_layer_selected` for None), and a z-stack reference other than `'top'`, `'center'` or `'bottom'` `zstack_reference_unknown`; each names the key's path as you wrote it in `argument` (`input_config['layer_configs']['BF']['gain_db']`). A layer that acquires nothing is read for its `acquire` only, and the z-stack's keys only when `use_zstacking` is set. Passing neither source, or both, is `protocol_source_ambiguous`. What only the build can see is `ProtocolRunRefusedError`, raised to you and posted to no listener (over REST, answered 422 and shown to no one): steps or a grid with no `objective_id` (`objective_not_given`), an acquiring layer with no focus and no `current_z` (`focus_not_given`), and a `tiling_overlap_percent` outside 0 to 50 (`overlap_out_of_range`, here and in `apply_tiling`). Each is the request's.
 
@@ -2488,7 +2486,7 @@ stage_x, stage_y = ct.plate_to_stage(
 )
 ```
 
-`labware` is a `LabWare` object loaded from `data/labware.json` via `WellPlateLoader`, not a raw dict. `stage_offset` is a dict like `{'x': 0.0, 'y': 0.0}`.
+`labware` is a `WellPlate` record (`scope.labware[name]`), not a raw dict. `stage_offset` is a dict like `{'x': 0.0, 'y': 0.0}`.
 
 ### Optical calculations (`modules.common_utils`)
 
@@ -3147,13 +3145,13 @@ Reached through `session.scope`.
 - `diagnostics`
 - `illumination`
 - `imaging`
+- `labware`
 - `layer_identity`
 - `led_connected`
 - `motion`
 - `motion_expected`
 - `motor_connected`
 - `no_hardware`
-- `objective_helper`
 - `objectives`
 - `protocols`
 - `runtime_state`
@@ -3161,7 +3159,6 @@ Reached through `session.scope`.
 - `settings_template`
 - `simulation` (in-process)
 - `unconnected_parts`
-- `wellplate_loader`
 
 ### MotionAPI
 
@@ -3381,21 +3378,6 @@ Reached through `session.scope.layer_identity`.
 - `model`
 - `refuse_unless_on_scope` (in-process)
 - `source`
-
-### ObjectiveLoader
-
-Reached through `session.scope.objective_helper`.
-
-- `get_objectives_list`
-
-### WellPlateLoader
-
-Reached through `session.scope.wellplate_loader`.
-
-- `get_plate`
-- `get_plate_list`
-- `is_known_plate`
-- `resolve_plate_key`
 
 ### PostProcessingAPI
 
@@ -4123,7 +4105,7 @@ Reached through delivered to `RunEvents.video_progress`'s handler.
 
 ### WellPlate
 
-Reached through returned by `scope.runtime_state.get_labware` and `scope.wellplate_loader.get_plate`.
+Reached through `session.scope.labware`, and returned by `session.scope.runtime_state.get_labware`.
 
 - `columns`
 - `get_dimensions` (in-process)

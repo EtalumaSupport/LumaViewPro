@@ -164,14 +164,14 @@ def test_an_optional_live_object_no_member_hands_out_is_not_sent():
     assert sent['takes_given'] == ['given']
 
 
-def test_validate_steps_put_back_on_the_wire_is_caught(classes, aliases, monkeypatch):
+def test_a_member_taking_a_loader_put_on_the_wire_is_caught(classes, aliases, monkeypatch):
     from modules.protocol import Protocol
     from modules.scope_session import ScopeSession
 
-    monkeypatch.setattr(Protocol.validate_steps, MARK_ATTRIBUTE, 'api')
+    monkeypatch.setattr(Protocol.validate_for_run, MARK_ATTRIBUTE, 'api', raising=False)
 
     gaps = wire_encoding.wire_gaps(ScopeSession, classes, aliases)
-    assert any('validate_steps' in g and 'ObjectiveLoader' in g for g in gaps), gaps
+    assert any('validate_for_run' in g and 'ObjectiveLoader' in g for g in gaps), gaps
 
 
 class _Pending(Operation):

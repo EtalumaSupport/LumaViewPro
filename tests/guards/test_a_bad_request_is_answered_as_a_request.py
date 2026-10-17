@@ -140,5 +140,5 @@ def test_no_route_answers_a_bad_request_as_a_fault(session):
             # A run a route started is ended before the next route is posted,
             # so no route is refused for an activity the walk itself left.
             session.create_protocol_runner().sequenced_capture_runner.wait_for_run_idle(1)
-    assert walked >= 190, f'the walk reached only {walked} routes'
+    assert walked >= 180, f'the walk reached only {walked} routes'
     assert not wrong, '\n'.join(wrong)

@@ -43,7 +43,7 @@ from rest import routes as rest_routes
 # equality, not a ceiling: a ceiling left two above the count let a new
 # untyped read (get_zstack_params, a dict) in unnoticed. A typed answer
 # lowers the pin in the same commit; get_zstack_params is W3's to type.
-UNTYPED_PIN = 45
+UNTYPED_PIN = 44
 
 _SERVER_MODELS = ('Handle', 'Job', 'JobProgress', 'PathAnswer', 'Versions')
 # A JSON Schema keyword that says what a value is.
@@ -165,7 +165,7 @@ def test_every_member_route_declares_its_answer_and_its_job(built):
             wrong.append(f'{_url(route)}: 200 {json.dumps(answer)} for {route.member.returns}')
         if _json(responses['202']) != {'$ref': '#/components/schemas/Job'}:
             wrong.append(f'{_url(route)}: 202 is not the job')
-    assert len(member_routes) > 250
+    assert len(member_routes) > 200
     assert not wrong, '\n'.join(wrong)
 
 

@@ -3,10 +3,10 @@
 Tests for UI-dependent config getters in modules/config_ui_getters.py.
 
 Headless equivalents in modules/config_helpers.py are tested in
-tests/test_headless_config.py. get_selected_labware() answers the stored
-plate as a (labware_id, plate) tuple, never None, or raises ConfigError
-naming a plate the catalogue does not have. It never substitutes a
-different plate.
+tests/test_headless_config.py. get_selected_labware() answers the live
+scope's selected plate as a (labware_id, plate) tuple, never None, or
+raises ConfigError naming a plate the catalogue does not have. It never
+substitutes a different plate.
 """
 
 from unittest.mock import MagicMock
@@ -14,129 +14,49 @@ from unittest.mock import MagicMock
 import pytest
 
 
-def _patch_ctx(monkeypatch, *, spinner_text: str, settings: dict, loader):
-    """Build a MagicMock app context shaped like the real one."""
-    ctx = MagicMock()
-    spinner = MagicMock()
-    spinner.text = spinner_text
-    protocol_settings = MagicMock()
-    protocol_settings.ids = {'labware_spinner': spinner}
-    ctx.motion_settings.ids = {'protocol_settings_id': protocol_settings}
-    ctx.settings = settings
-    ctx.wellplate_loader = loader
+@pytest.fixture
+def gui_on_a_scope(monkeypatch):
+    """The GUI's context attached to a simulated LS850 bound to the template's settings.
 
+    Yields the scope and the settings it reads; a test names its plate there.
+    """
     import modules.app_context as app_context
+    from tests.scope_fakes import bind_settings_like_a_session, build_scope
 
+    scope = build_scope(simulate=True, sim_model='LS850', register_atexit=False)
+    settings = bind_settings_like_a_session(scope)
+    # A stand-in by design: the GUI's context, whose one read here is its live scope.
+    ctx = MagicMock()
+    ctx.lumaview.scope = scope
     monkeypatch.setattr(app_context, 'ctx', ctx)
-    return ctx
+    yield scope, settings
+    scope.disconnect()
 
 
 class TestGetSelectedLabware:
-    """UI variant -- the stored plate, or the catalogue's refusal; never another plate."""
+    """The GUI's selected plate is the scope's answer; a plate it lacks is refused, never replaced."""
 
-    def test_settings_is_the_single_store(self, monkeypatch):
-        # Settings owns the selection: the spinner writes through on
-        # every user pick, so a stale spinner text (a settings write
-        # that bypassed it, e.g. a protocol load) must NOT shadow the
-        # stored value -- the divergence the spinner-first read used to
-        # open between the GUI and headless paths.
-        loader = MagicMock()
-        plate = MagicMock()
-        loader.resolve_plate_key.side_effect = lambda name: name
-        loader.get_plate.return_value = plate
-        _patch_ctx(
-            monkeypatch,
-            spinner_text='stale spinner text',
-            settings={'protocol': {'labware': '96 well microplate'}},
-            loader=loader,
-        )
-
+    def test_the_answer_is_the_plate_the_scope_has_selected(self, gui_on_a_scope):
         from modules.config_ui_getters import get_selected_labware
 
-        labware_id, obj = get_selected_labware()
-        assert labware_id == '96 well microplate'
-        assert obj is plate
+        scope, settings = gui_on_a_scope
+        settings['protocol']['labware'] = '6 well microplate'
 
-    def test_spinner_empty_falls_back_to_settings(self, monkeypatch):
-        loader = MagicMock()
-        plate = MagicMock()
-        loader.resolve_plate_key.side_effect = lambda name: name
-        loader.get_plate.return_value = plate
-        _patch_ctx(
-            monkeypatch,
-            spinner_text='',
-            settings={'protocol': {'labware': '96 well microplate'}},
-            loader=loader,
-        )
+        assert get_selected_labware() == ('6 well microplate', scope.labware['6 well microplate'])
 
+    def test_a_stored_plate_the_catalogue_lacks_is_refused_by_name(self, gui_on_a_scope):
+        # 'New' was the old KV spinner default that leaked into settings. A
+        # plate the catalogue does not have is refused, never replaced by
+        # another: that plate's geometry would move every well.
         from modules.config_ui_getters import get_selected_labware
-
-        labware_id, obj = get_selected_labware()
-        assert labware_id == '96 well microplate'
-        assert obj is plate
-
-    def test_invalid_stored_labware_is_refused_by_name(self, monkeypatch):
-        # 'New' was the old KV spinner default that leaked into settings.
-        # A plate the catalogue does not have is refused, never replaced
-        # by the default: the default's geometry would move every well.
-        from modules.exceptions import CatalogueNameRefusedError
-        from modules.labware_loader import WellPlateLoader
-
-        _patch_ctx(
-            monkeypatch,
-            spinner_text='New',
-            settings={'protocol': {'labware': 'New'}},
-            loader=WellPlateLoader(),
-        )
-
-        from modules.config_ui_getters import get_selected_labware
-
-        with pytest.raises(CatalogueNameRefusedError, match=r"labware catalogue.*'New' is not one"):
-            get_selected_labware()
-
-    def test_no_first_available_plate_is_substituted(self, monkeypatch):
         from modules.exceptions import CatalogueNameRefusedError
 
-        loader = MagicMock()
-        # The refusal the real loader raises for a plate its catalogue lacks.
-        loader.resolve_plate_key.side_effect = CatalogueNameRefusedError(
-            'labware_unknown',
-            argument='plate_key',
-            value='nonexistent plate',
-            offered=('some-other-plate',),
-        )
-        loader.get_plate_list.return_value = ['some-other-plate']
-        _patch_ctx(
-            monkeypatch,
-            spinner_text='nonexistent plate',
-            settings={'protocol': {'labware': 'nonexistent plate'}},
-            loader=loader,
-        )
+        _, settings = gui_on_a_scope
+        settings['protocol']['labware'] = 'New'
 
-        from modules.config_ui_getters import get_selected_labware
-
-        with pytest.raises(CatalogueNameRefusedError, match='nonexistent plate'):
+        with pytest.raises(CatalogueNameRefusedError) as refused:
             get_selected_labware()
-        loader.get_plate.assert_not_called()
-
-    def test_caller_tuple_unpack_gets_a_string_or_a_raise(self, monkeypatch):
-        # The original crash chain was `labware_id, _ = get_selected_labware()`
-        # blowing up on TypeError from a None. The answer is a non-empty
-        # string or a ConfigError the caller can report -- never None.
-        from modules.labware_loader import WellPlateLoader
-
-        _patch_ctx(
-            monkeypatch,
-            spinner_text='',
-            settings={'protocol': {'labware': '6 well microplate'}},
-            loader=WellPlateLoader(),
-        )
-
-        from modules.config_ui_getters import get_selected_labware
-
-        labware_id, _ = get_selected_labware()
-        assert isinstance(labware_id, str)
-        assert labware_id == '6 well microplate'
+        assert (refused.value.reason, refused.value.value) == ('labware_unknown', 'New')
 
 
 class TestTimingAndBinningParseNotifies:

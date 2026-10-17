@@ -101,7 +101,7 @@ _REASON_UNNAMED_PINNED = frozenset(
 # ScopeSession.shown_channel and its listener pair, a read and an add and
 # remove that raise nothing (Eric, 2026-10-13); the count does not yet tell
 # a member that raises nothing from one that has not said.
-_WITHOUT_A_SECTION_CEILING = 161
+_WITHOUT_A_SECTION_CEILING = 159
 
 
 def _sections():

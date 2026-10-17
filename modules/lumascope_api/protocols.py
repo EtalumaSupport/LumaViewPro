@@ -196,7 +196,7 @@ class ProtocolsAPI:
         from modules.notification_center import notifications
 
         errors = protocol.validate_steps(
-            self._scope.objective_helper, led_max_ma=self._scope.capabilities.led_max_ma
+            self._scope.objectives, led_max_ma=self._scope.capabilities.led_max_ma
         )
         if errors:
             notifications.report_outcome(

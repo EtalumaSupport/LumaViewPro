@@ -66,9 +66,7 @@ class AppContext:
     worker_pool: object = None
 
     # Helpers
-    wellplate_loader: object = None
     coordinate_transformer: object = None
-    objective_helper: object = None
 
     # UI components (set after widget tree builds in build())
     viewer: object = None  # Viewer widget (update_shader, black, white)

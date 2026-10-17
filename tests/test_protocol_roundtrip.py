@@ -498,7 +498,7 @@ class TestRoundTripBasic:
         assert 'fps' in vc, 'loader must merge default fps when missing'
         assert vc['fps'] > 0, 'defaulted fps must satisfy validate_steps'
 
-        errors = proto.validate_steps(ObjectiveLoader(), led_max_ma=1000)
+        errors = proto.validate_steps(ObjectiveLoader().objectives, led_max_ma=1000)
         fps_errors = [e for e in errors if 'Video Config fps' in e]
         assert fps_errors == [], (
             f'legacy-format Video Config must not produce fps errors; got {fps_errors}'
@@ -1592,7 +1592,7 @@ class TestProtocolValidation:
 
     def test_sum_one_valid(self):
         proto = _build_protocol([_make_step(sum_count=1)])
-        errors = proto.validate_steps(ObjectiveLoader(), led_max_ma=1000)
+        errors = proto.validate_steps(ObjectiveLoader().objectives, led_max_ma=1000)
         sum_errors = [e for e in errors if 'Sum' in e]
         assert sum_errors == []
 

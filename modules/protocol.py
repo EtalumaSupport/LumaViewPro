@@ -13,6 +13,7 @@ import pathlib
 import re
 import contextlib
 import copy
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, ClassVar, NoReturn
 
 from lvp_logger import logger
@@ -44,7 +45,7 @@ from modules.api_surface import FilePath, api, api_fields
 
 if TYPE_CHECKING:
     import modules.labware as labware_module
-    from modules.objectives_loader import ObjectiveLoader
+    from modules.objectives_loader import Objective, ObjectiveLoader
     from modules.scope_capabilities import ScopeCapabilities
 
 coordinate_transformer = CoordinateTransformer()
@@ -1358,17 +1359,17 @@ class Protocol:
 
     @api(in_process=True, reads=True)
     def validate_steps(
-        self, objective_helper: 'ObjectiveLoader', *, led_max_ma: int | None
+        self, objectives: 'Mapping[str, Objective]', *, led_max_ma: int | None
     ) -> list:
         """Validate all step fields and return a list of error strings.
 
-        In-process: a wire client holds no objective catalogue to pass. It is
-        told of a loaded protocol's invalid steps when the protocol loads,
-        and a run start refuses them.
+        In-process: a wire client needs no call of its own. It is told of a
+        loaded protocol's invalid steps when the protocol loads, and a run
+        start refuses them.
 
         Args:
-            objective_helper: The scope's objective catalogue; a step naming
-                an objective it lacks is an error.
+            objectives: The scope's objectives (``scope.objectives``); a step
+                naming an objective they lack is an error.
             led_max_ma: The connected scope's LED current cap
                 (``capabilities.led_max_ma``). Asked of the caller, not
                 carried on the protocol: a copy made for a run would not
@@ -1389,7 +1390,7 @@ class Protocol:
         # objective check for every step, and an empty catalogue skipped it
         # the same way -- so the one protocol that most needed refusing
         # validated clean.
-        valid_objectives = set(objective_helper.get_objectives_list())
+        valid_objectives = set(objectives)
 
         for idx, step in steps.iterrows():
             label = f'Step {idx + 1} ({step.get("Name", "?")})'
@@ -1481,7 +1482,7 @@ class Protocol:
             return errors
 
         # Validate step field values first
-        errors.extend(self.validate_steps(objective_helper, led_max_ma=led_max_ma))
+        errors.extend(self.validate_steps(objective_helper.objectives, led_max_ma=led_max_ma))
 
         # Refuse a run whose steps would write identical files. Collisions
         # are caught here, loudly, before any hardware moves -- never left
@@ -2758,7 +2759,7 @@ class Protocol:
 
         # Validate step fields -- reject protocol if any errors found
         validation_errors = protocol.validate_steps(
-            objective_helper, led_max_ma=capabilities.led_max_ma
+            objective_helper.objectives, led_max_ma=capabilities.led_max_ma
         )
         if validation_errors:
             raise ProtocolFormatError(

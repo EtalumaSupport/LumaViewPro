@@ -322,7 +322,7 @@ class TestTheLabwarePanelReportsARefusal:
             _app_ctx,
             'ctx',
             types.SimpleNamespace(
-                wellplate_loader=types.SimpleNamespace(get_plate_list=lambda: ['A', 'B']),
+                scope=types.SimpleNamespace(labware={'A': None, 'B': None}),
                 session=types.SimpleNamespace(
                     select_labware=_refuse,
                     set_protocol_labware=lambda protocol, key: protocol_plates.append(key),

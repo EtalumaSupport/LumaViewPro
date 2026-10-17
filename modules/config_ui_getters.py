@@ -171,7 +171,5 @@ def get_selected_labware() -> tuple[str, labware.WellPlate]:
     Returns (labware_id, wellplate_obj). A stored plate the catalogue
     does not have raises ConfigError; no other plate is substituted.
     """
-    return config_helpers.get_selected_labware_from_settings(
-        _app_ctx.ctx.settings,
-        _app_ctx.ctx.wellplate_loader,
-    )
+    plate = _live_scope().runtime_state.get_labware()
+    return plate.name, plate

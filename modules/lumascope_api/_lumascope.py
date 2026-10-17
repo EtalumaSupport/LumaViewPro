@@ -84,6 +84,7 @@ if TYPE_CHECKING:
     import os
 
     from drivers.simulated_camera import SimulatedStall
+    from modules.labware import WellPlate
     from modules.labware_loader import WellPlateLoader
     from modules.layer_record import LayerIdentity, ScopeModel
     from modules.lumascope_api.diagnostics import DiagnosticsAPI
@@ -236,10 +237,8 @@ def _board_status(part: str, board, fallback) -> 'PartStatus':
     'imaging',
     'layer_identity',
     'motion',
-    'objective_helper',
     'protocols',
     'runtime_state',
-    'wellplate_loader',
 )
 class Lumascope:
     # --- Input validation constants ---
@@ -267,9 +266,11 @@ class Lumascope:
     imaging: 'ImagingAPI'
     layer_identity: 'LayerIdentity'
     motion: 'MotionAPI'
-    objective_helper: 'ObjectiveLoader'
     protocols: 'ProtocolsAPI'
     runtime_state: 'RuntimeState'
+    # The catalogues' readers: the scope's own, not published. A caller reads
+    # the records, ``labware`` and ``objectives``.
+    objective_helper: 'ObjectiveLoader'
     wellplate_loader: 'WellPlateLoader'
 
     def _read_catalogues(self, source_path: 'str | os.PathLike') -> dict:
@@ -1358,6 +1359,17 @@ class Lumascope:
         ``runtime_state.resolve_current_objective``'s answer.
         """
         return self.objective_helper.objectives
+
+    @api
+    @property
+    def labware(self) -> 'Mapping[str, WellPlate]':
+        """The installation's plates, by name, read once at bring-up.
+
+        Read-only, as each record is: no caller can change what another
+        reads. Which one is selected is ``runtime_state.get_labware``'s
+        answer. Slides and Petri dishes are not offered yet.
+        """
+        return self.wellplate_loader.plates
 
     @api
     @property

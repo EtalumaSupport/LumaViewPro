@@ -234,7 +234,7 @@ def cold_start(tmp_path, monkeypatch, caplog):
         settings=session.settings,
         update_settings=session.update_settings,
         lumaview=SimpleNamespace(scope=session.scope),
-        wellplate_loader=session.wellplate_loader,
+        scope=session.scope,
         initializing=True,
         camera_executor=None,
         source_path=str(tmp_path),

@@ -246,7 +246,7 @@ class VerticalControl(BoxLayout):
         ctx = _app_ctx.ctx
         logger.info('[LVP Main  ] VerticalControl.load_objectives()')
         spinner = self.ids['objective_spinner2']
-        spinner.values = ctx.objective_helper.get_objectives_list()
+        spinner.values = list(ctx.scope.objectives)
 
     def pick_objective(self, objective_id):
         """A person picked an objective from the spinner; the Session decides.

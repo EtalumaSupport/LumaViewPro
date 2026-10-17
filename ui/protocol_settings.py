@@ -374,7 +374,7 @@ class ProtocolSettings(FloatLayout):
         ctx = _app_ctx.ctx
         logger.info('[LVP Main  ] ProtocolSettings.select_labware()')
         spinner = self.ids['labware_spinner']
-        spinner.values = ctx.wellplate_loader.get_plate_list()
+        spinner.values = list(ctx.scope.labware)
 
         def _show_the_sessions_plate():
             # The write dispatches this handler again, which re-selects the
@@ -425,8 +425,7 @@ class ProtocolSettings(FloatLayout):
             # restore the full plate list and the saved labware.
             ctx = _app_ctx.ctx
             saved_labware = ctx.settings['protocol']['labware']
-            wellplate_loader = ctx.wellplate_loader
-            labware_spinner.values = wellplate_loader.get_plate_list()
+            labware_spinner.values = list(ctx.scope.labware)
             if saved_labware and saved_labware in labware_spinner.values:
                 labware_spinner.text = saved_labware
 

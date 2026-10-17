@@ -136,6 +136,6 @@ def test_every_session_parameter_has_an_inbound_form(classes, aliases):
             if member.segment is not None:
                 queue.append(member.segment)
 
-    # Thirteen live objects, the Session's sub-objects among them.
-    assert len(seen) == 13
+    # Eleven live objects, the Session's sub-objects among them.
+    assert len(seen) == 11
     assert parameters > 100

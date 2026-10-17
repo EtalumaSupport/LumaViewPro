@@ -149,7 +149,7 @@ def _protocol_with(illumination) -> Protocol:
     return p
 
 
-_CATALOGUE = ObjectiveLoader()
+_CATALOGUE = ObjectiveLoader().objectives
 
 
 def test_a_step_above_the_cap_given_is_refused():
