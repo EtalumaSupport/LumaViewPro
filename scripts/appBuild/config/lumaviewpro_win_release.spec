@@ -196,12 +196,50 @@ exe = EXE(
     icon=['data\\icons\\icon.ico'],
 )
 
+# The FX2 driver step (modules/fx2_driver_step.py), which the installer runs
+# elevated at install and uninstall: its own small executable, without the
+# app's splash, in the same folder so it shares the app's binaries.
+driver_step = Analysis(
+    ['lvp_fx2_driver_step.py'],
+    pathex=['.'],
+    binaries=[],
+    datas=[],
+    hiddenimports=[],
+    hookspath=[],
+    hooksconfig={},
+    runtime_hooks=[],
+    excludes=[],
+    noarchive=False,
+)
+driver_step_exe = EXE(
+    PYZ(driver_step.pure, driver_step.zipped_data),
+    driver_step.scripts,
+    [],
+    exclude_binaries=True,
+    name='lvp_fx2_driver_step',
+    contents_directory='.',
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=True,
+    console=False,
+    disable_windowed_traceback=True,
+    argv_emulation=False,
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None,
+    icon=['data\\icons\\icon.ico'],
+)
+
 coll = COLLECT(
     exe,
     splash.binaries,
     a.binaries,
     a.zipfiles,
     a.datas,
+    driver_step_exe,
+    driver_step.binaries,
+    driver_step.datas,
     *[Tree(p) for p in (sdl2.dep_bins + glew.dep_bins)],
     strip=False,
     upx=True,

@@ -232,12 +232,21 @@ Classic (Bootloader)" and "Lumascope Classic" in Device Manager. The build
 stamps its `DriverVer` with the build's date and the installer version
 (`scripts\appBuild\config\fx2_driver_package.py`), writes the stamped copy to
 the output folder's `fx2_driver\`, and the MSI installs it to
-`<InstallFolder>\drivers\fx2\` and runs `pnputil /add-driver <inf> /install`
-during `InstallFiles` (deferred, runs as SYSTEM, errors ignored). Windows
-ranks equally signed packages for one device by that date, so the stamp is
-what lets ours outrank an older Zadig binding. Until the package's catalog is
-signed, `pnputil` refuses it and the customer must still bind the driver with
-Zadig.
+`<InstallFolder>\drivers\fx2\`. Windows ranks equally signed packages for one
+device by that date, so the stamp is what lets ours outrank an older Zadig
+binding.
+
+The MSI then runs the driver step, `lvp_fx2_driver_step.exe install` (a second
+executable the release spec builds from `lvp_fx2_driver_step.py`, deferred, as
+SYSTEM, its result ignored): it adds our package to the driver store, and only
+once it is there exports and removes every other vendor's package for the
+running firmware (`0xEA17`), binds the present devices to ours, removes our
+older packages and the past devices of both identities, and logs every step
+to `<InstallFolder>\logs\driver_install_<version>_<time>.log`. Uninstall runs
+`lvp_fx2_driver_step.exe uninstall`, which removes our package and restores
+what install exported. Until the package's catalog is signed, it does not
+enter the store, the step removes nothing, and the customer must still bind
+the driver with Zadig.
 
 The rest of what the FX2 needs is not a dependency to drop in either: the release
 spec ships the firmware hex from the clone's `firmware\` folder and the
@@ -316,7 +325,7 @@ The script then:
 3. Builds the app folder with PyInstaller, with the FX2's firmware hex and
    `libusb-package`'s library.
 4. Stamps the FX2 driver package and builds `LumaViewPro-<version>.msi`,
-   which carries it and its driver-install custom action.
+   which carries it and runs the FX2 driver step at install and uninstall.
 5. Builds `LumaViewPro-<version>-setup.exe` if the Pylon MSI is present.
    Chains the IDS Peak runtime EXE if its files are present.
 6. Removes temporary clone/build files.

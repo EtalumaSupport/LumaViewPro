@@ -66,12 +66,14 @@ def _source_tree(tmp_path, hex_names) -> pathlib.Path:
 
 
 def _dist(tmp_path, datas, binaries) -> pathlib.Path:
-    """A dist tree laid out as PyInstaller lays out the entries."""
+    """A dist tree laid out as PyInstaller lays out the entries and the
+    spec's two executables."""
     dist = tmp_path / 'dist'
     for source, dest in [*datas, *binaries]:
         target = dist / dest / pathlib.Path(source).name
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(pathlib.Path(source).read_bytes())
+    (dist / fx2_bundle.DRIVER_STEP_EXE).write_bytes(b'exe')
     return dist
 
 
@@ -127,6 +129,17 @@ def test_a_built_tree_laid_out_from_the_entries_passes(tmp_path):
     fx2_bundle.check_fx2_dist(str(_dist(tmp_path, datas, binaries)), library.name)
 
 
+def test_a_built_tree_without_the_driver_step_is_refused(tmp_path):
+    library = _library(tmp_path)
+    root = _source_tree(tmp_path, fx2_bundle.FX2_HEX_FILES)
+    datas, binaries = fx2_bundle.fx2_bundle_entries(str(root), library)
+    dist = _dist(tmp_path, datas, binaries)
+    (dist / fx2_bundle.DRIVER_STEP_EXE).unlink()
+
+    with pytest.raises(SystemExit, match=r'lvp_fx2_driver_step\.exe'):
+        fx2_bundle.check_fx2_dist(str(dist), library.name)
+
+
 def test_the_frozen_driver_finds_the_hex_where_the_build_puts_it(tmp_path, monkeypatch):
     library = _library(tmp_path)
     root = _source_tree(tmp_path, fx2_bundle.FX2_HEX_FILES)
@@ -147,6 +160,8 @@ def test_the_spec_runs_the_gate_and_reads_no_dll_from_the_environment():
     assert 'fx2_bundle_entries(SPECPATH, _libusb_path)' in spec
     assert 'check_fx2_dist(_dist_root,' in spec
     assert 'FX2_LIBUSB_DLL' not in spec
+    assert "['lvp_fx2_driver_step.py']" in spec
+    assert "name='lvp_fx2_driver_step'" in spec
 
 
 def _read_inf(path) -> configparser.ConfigParser:
@@ -204,7 +219,7 @@ def test_an_inf_without_its_placeholder_refuses_the_stamp(tmp_path):
         )
 
 
-def test_every_build_stamps_the_repos_inf_and_hands_the_installer_that_copy():
+def test_every_build_stamps_the_repos_inf_and_the_installer_runs_the_driver_step():
     # pin-justified: build.ps1 runs on the Windows build box, not here.
     build = (REPO_ROOT / 'scripts' / 'appBuild' / 'build.ps1').read_text(encoding='utf-8')
     package = (BUILD_EXE / 'wix' / 'Package.wxs').read_text(encoding='utf-8-sig')
@@ -214,3 +229,6 @@ def test_every_build_stamps_the_repos_inf_and_hands_the_installer_that_copy():
     assert build.index('"Fx2InfPath=$fx2_inf"') > stamp
     assert 'if ($fx2_inf)' not in build
     assert '<?ifdef Fx2InfPath ?>' not in package
+    assert '[INSTALLFOLDER]lvp_fx2_driver_step.exe&quot; install' in package
+    assert '[INSTALLFOLDER]lvp_fx2_driver_step.exe&quot; uninstall' in package
+    assert 'NOT UPGRADINGPRODUCTCODE' in package
