@@ -83,7 +83,7 @@ import time
 import weakref
 from typing import Any, NamedTuple, NoReturn
 from collections import deque
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from datetime import datetime
 
 import numpy as np
@@ -107,6 +107,8 @@ from drivers.camera import (
     no_hardware_auto_mode,
 )
 from drivers.exceptions import (
+    BoardNoReplyError,
+    BoardPortFailedError,
     CameraFirmwareMissingError,
     CameraNoAnswerError,
     CameraReadFailedError,
@@ -1067,8 +1069,8 @@ def _is_usb_timeout(error: BaseException) -> bool:
     return isinstance(error, tuple(timeouts))
 
 
-def _control_write_failed(request: int, error: BaseException) -> Exception:
-    """The fault for a vendor write ``request`` the transport raised ``error`` on.
+def _camera_write_failed(request: int, error: BaseException) -> Exception:
+    """The fault for a camera vendor write ``request`` the transport raised ``error`` on.
 
     A timeout is the camera not answering: it is still on the bus and may
     take the same write sent again, which a refusal or a removal would not.
@@ -1081,6 +1083,19 @@ def _control_write_failed(request: int, error: BaseException) -> Exception:
     return CameraWriteFailedError(f'The camera did not take the {words}')
 
 
+def _led_write_failed(request: int, error: BaseException) -> Exception:
+    """The fault for an LED vendor write ``request`` the transport raised ``error`` on.
+
+    The LED shares the camera's USB path, and its failures are the faults
+    every LED board raises: a timeout is the board not answering, anything
+    else a write that did not reach it.
+    """
+    words = f'{_vr_name(request)} write: {type(error).__name__}: {error}'
+    if _is_usb_timeout(error):
+        return BoardNoReplyError(f'The LED board did not answer the {words}')
+    return BoardPortFailedError(f'The LED board did not take the {words}')
+
+
 def _raise_if_no_answer(setting: str, error: BaseException) -> None:
     """Raise ``CameraNoAnswerError`` naming ``setting`` for a write that was not answered.
 
@@ -1088,7 +1103,7 @@ def _raise_if_no_answer(setting: str, error: BaseException) -> None:
 
     Raises:
         CameraNoAnswerError: ``error`` is the funnel's no-answer
-            (``_control_write_failed``).
+            (``_camera_write_failed``).
     """
     if isinstance(error, CameraNoAnswerError):
         raise CameraNoAnswerError(
@@ -1716,6 +1731,8 @@ class _FX2Connection:
         index: int = 0,
         data: bytes = b'',
         timeout: int = CONTROL_TIMEOUT_MS,
+        *,
+        fault_for: Callable[[int, BaseException], Exception],
     ) -> int:
         """Thread-safe vendor OUT control transfer.
 
@@ -1731,6 +1748,10 @@ class _FX2Connection:
             index: 16-bit ``wIndex`` field.
             data: Payload bytes.
             timeout: Timeout in milliseconds.
+            fault_for: The fault of the part that wrote, for a write the
+                transport raised on (``_camera_write_failed``,
+                ``_led_write_failed``): the camera and the LED share this
+                path, and a failure names the one whose write it was.
 
         Returns:
             int: Bytes written, as reported by the underlying USB layer.
@@ -1747,7 +1768,7 @@ class _FX2Connection:
                     f'index=0x{index:04X} len={len(data)} -> EXCEPTION: '
                     f'{type(e).__name__}: {e} ({elapsed_ms:.1f}ms)'
                 )
-            self._raise_failed(_control_write_failed(request, e), e, f'{_vr_name(request)} write')
+            self._raise_failed(fault_for(request, e), e, f'{_vr_name(request)} write')
         elapsed_ms = (time.monotonic() - t_start) * 1000
         # Skip log emission for I2C ops -- the i2c_write wrapper logs
         # with richer detail (addr + data bytes).
@@ -1759,8 +1780,12 @@ class _FX2Connection:
             )
         return result
 
-    def i2c_write(self, addr: int, data) -> int:
-        """Write bytes to the I2C bus via vendor request 0xB3.
+    def i2c_write(self, addr: int, data: Iterable[int] | bytes) -> int:
+        """Write the LED's bytes to the I2C bus via vendor request 0xB3.
+
+        The LED's write: a failure raises the LED board's fault
+        (``_led_write_failed``). The sensor writes through
+        ``sensor_reg_write``, with the camera's.
 
         Returns the result of the underlying control transfer (number of
         bytes written from pyusb / libusb1). Callers that want to detect
@@ -1777,7 +1802,9 @@ class _FX2Connection:
         """
         t_start = time.monotonic()
         try:
-            result = self.control_transfer_out(VR_I2C_WRITE, value=0, index=addr, data=bytes(data))
+            result = self.control_transfer_out(
+                VR_I2C_WRITE, value=0, index=addr, data=bytes(data), fault_for=_led_write_failed
+            )
         except Exception as e:
             elapsed_ms = (time.monotonic() - t_start) * 1000
             _serial_log.error(
@@ -1820,7 +1847,9 @@ class _FX2Connection:
         high = (value >> 8) & 0xFF
         low = value & 0xFF
         data = bytes([reg, high, low])
-        self.control_transfer_out(VR_I2C_WRITE, value=0, index=I2C_SENSOR, data=data)
+        self.control_transfer_out(
+            VR_I2C_WRITE, value=0, index=I2C_SENSOR, data=data, fault_for=_camera_write_failed
+        )
 
     # -- the stream ---------------------------------------------------------
 

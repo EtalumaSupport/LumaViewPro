@@ -785,17 +785,17 @@ def test_a_failed_winusb_out_transfer_reaches_the_caller_as_a_write_fault():
 
     conn = _conn_on_winusb(SimpleNamespace(control_transfer=refuse))
     with pytest.raises(CameraWriteFailedError, match=r'VR_I2C_WRITE.*failed: 31') as raised:
-        conn.control_transfer_out(fx2driver.VR_I2C_WRITE, index=0x42, data=b'\x01')
+        conn.sensor_reg_write(0x42, 1)
 
     assert raised.value.reason == 'camera_write_failed'
 
 
 @pytest.mark.parametrize('library', ['pyusb', 'libusb1', 'WinUSB'])
 def test_a_vendor_write_the_fx2_does_not_answer_is_no_answer_on_every_path(library):
-    """Every vendor write funnels through one place, so the LED's writes and
-    the sensor's set-up writes are told as the setting writes are: a timeout
-    from any of the three libraries is the camera not answering."""
-    from drivers.exceptions import CameraNoAnswerError
+    """Every vendor write funnels through one place, and a timeout from any of
+    the three libraries is the writer not answering: the camera's for a
+    sensor write, the LED board's for an LED write."""
+    from drivers.exceptions import BoardNoReplyError, CameraNoAnswerError
 
     error = _usb_timeouts()[library]
 
@@ -803,18 +803,21 @@ def test_a_vendor_write_the_fx2_does_not_answer_is_no_answer_on_every_path(libra
         raise error
 
     conn = _conn_on_winusb(SimpleNamespace(control_transfer=no_answer))
-    with pytest.raises(CameraNoAnswerError) as raised:
+    with pytest.raises(CameraNoAnswerError) as camera:
+        conn.sensor_reg_write(0x42, 1)
+    with pytest.raises(BoardNoReplyError) as led:
         conn.i2c_write(fx2driver.I2C_LED, [0xFF])
 
-    assert raised.value.reason == 'camera_no_answer'
-    assert str(error) in str(raised.value)
+    assert (camera.value.reason, led.value.reason) == ('camera_no_answer', 'board_no_reply')
+    assert str(error) in str(camera.value)
+    assert str(error) in str(led.value)
 
 
 def test_a_successful_winusb_out_transfer_returns_a_count_not_none():
     """`control_transfer_out` is declared `-> int` and its docstring promises
     bytes written. Returning None is what switched off the detector below."""
     conn = _conn_on_winusb(SimpleNamespace(control_transfer=lambda *a, **kw: 1))
-    result = conn.control_transfer_out(fx2driver.VR_I2C_WRITE, index=0x42, data=b'\x01')
+    result = conn.i2c_write(fx2driver.I2C_LED, [0x01])
     assert result == 1
     assert result is not None
 

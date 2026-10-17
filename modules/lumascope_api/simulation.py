@@ -553,6 +553,28 @@ class SimulationAPI:
         target.transport.refuse_start(int(count))
         self._record('refuse_stream_start', target.transport.allow_start, count=count)
 
+    @api(in_process=True)
+    def refuse_led_write(self, count: int = 1) -> None:
+        """The LED board refuses its next ``count`` writes and stays on the bus.
+
+        An LED command whose write is refused raises the LED board's
+        ``BoardPortFailedError`` to its caller, and the LED stays connected
+        for the next command. On the FX2 each LED command is three writes.
+
+        Raises:
+            ArgumentRefusedError: ``'needs_simulated_scope'``;
+                ``'fault_unknown'`` on a scope with no LED board;
+                ``'not_a_number'`` or ``'fault_bound'`` for fewer than 1
+                write; ``'not_injectable_on_board'`` on any LED board but
+                the FX2.
+        """
+        target = self._board('refuse_led_write', LED)
+        self._bound('count', count, 'a number of writes, 1 or more', count >= 1)
+        if not isinstance(target, SimulatedFX2):
+            raise self._not_injectable('refuse_led_write', target)
+        target.transport.refuse_led_write(int(count))
+        self._record('refuse_led_write', target.transport.allow_led_write, count=count)
+
     @api(in_process=True, reads=True)
     def exposed_under(self, frame: Frame) -> SensorExposure:
         """What a frame the simulated camera delivered was exposed under:

@@ -2930,6 +2930,7 @@ Which board answers a member depends on how the model is simulated. The **fast**
 | `stall_stream(after_s, for_s)` | no frame for `for_s` s, starting in `after_s` s | camera | camera | refused (`silence('led')`) |
 | `delay_delivery(frames)` | each frame reaches the host once `frames` more have been made after it, as through a link or driver queue that has fallen behind | camera | camera | refused |
 | `refuse_stream_start(count=1)` | the next `count` stream starts are refused, the camera staying on the bus; the start raises `CameraStreamStartFailedError` (`camera_stream_start_failed`) to its caller | refused (the simulated camera is made like a Pylon body, whose driver logs a start that fails) | refused | FX2 |
+| `refuse_led_write(count=1)` | the LED board's next `count` writes are refused, the board staying on the bus (an FX2 LED command is three writes); the command raises the LED board's `BoardPortFailedError` (`board_port_failed`) to its caller, and the LED stays connected | refused | refused | FX2 |
 
 The fast LED board refuses every link fault: the API reads nothing from its missing reply. The fast motor board runs no firmware, so its home cannot fail; the firmware's axis reaches its target whatever is injected, so a move cannot be held there. `injected()` lists the faults injected since the last `clear()` as `InjectedFault` records (`member`, `arguments`), one-shot faults included after they are spent. `clear()` takes every fault back: drops, holds, refused writes and stalls lifted, boards plugged in and answering, hardware faults removed; a board that found its cable pulled stays disconnected until it is reconnected, as a real one does. A removed camera, an FX2 unplugged or silenced, and a reboot under way stay as they are, as on a real scope.
 
@@ -3330,6 +3331,7 @@ Reached through `session.scope.simulation`.
 - `reboot` (in-process)
 - `refuse_camera_write` (in-process)
 - `refuse_stream_start` (in-process)
+- `refuse_led_write` (in-process)
 - `remove_camera` (in-process)
 - `replug` (in-process)
 - `silence` (in-process)

@@ -233,6 +233,9 @@ class SimulatedFX2Device:
         # How many STARTs from now the firmware refuses, as the Windows
         # bench's device refused the control transfer.
         self.refused_starts = 0
+        # How many LED bytes from now the firmware refuses, the device
+        # staying on the bus.
+        self.refused_led_writes = 0
 
     # -- the wire ------------------------------------------------------------
 
@@ -250,6 +253,9 @@ class SimulatedFX2Device:
             if index == I2C_SENSOR:
                 self.sensor.write(written)
             elif index == I2C_LED:
+                if self.refused_led_writes:
+                    self.refused_led_writes -= 1
+                    raise RuntimeError('VR_I2C_WRITE refused: the control pipe stalled')
                 for byte in written:
                     self.leds.receive(byte)
             else:
@@ -525,6 +531,13 @@ class SimulatedFX2Transport:
 
     def allow_start(self) -> None:
         self.device.refused_starts = 0
+
+    def refuse_led_write(self, count: int) -> None:
+        """The next ``count`` LED writes are refused; the device stays on the bus."""
+        self.device.refused_led_writes = count
+
+    def allow_led_write(self) -> None:
+        self.device.refused_led_writes = 0
 
     def misalign(self, rows: int = 1) -> None:
         """Every frame from the next one carries ``rows`` rows too many; 0 realigns.
