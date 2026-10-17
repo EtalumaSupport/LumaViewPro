@@ -213,3 +213,40 @@ def test_the_apps_stop_ends_the_loop_and_leaves_on_stop_to_run():
         'run() dispatches it when the loop returns, and a second dispatch repeats '
         'the whole shutdown.'
     )
+
+
+def test_the_close_stops_the_window_listening_before_the_scope_goes():
+    """The window's listeners and position redraws end in _prepare_the_close,
+    on the Kivy thread before the session's close, not in on_stop: a crash
+    skips on_stop, and a redraw that runs while the scope is torn down reads
+    a scope that is going (the LS850T close crash, 2026-10-15)."""
+    class_node = _app_class(_module_tree())
+    prepare = _method(class_node, '_prepare_the_close')
+    calls = [node for node in ast.walk(prepare) if isinstance(node, ast.Call)]
+    called = {ast.unparse(node.func) for node in calls}
+    unscheduled = {
+        ast.unparse(node.args[0])
+        for node in calls
+        if isinstance(node.func, ast.Attribute) and node.func.attr == 'unschedule' and node.args
+    }
+
+    assert 'ctx.ui_listener_bridge.unregister_all' in called
+    assert {'ctx.stage.draw_labware', 'ctx.motion_settings.update_xy_stage_control_gui'} <= (
+        unscheduled
+    ), unscheduled
+
+    def listener_handed_to(method, member):
+        handed = [
+            ast.unparse(node.args[0])
+            for node in ast.walk(method)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == member
+            and node.args
+        ]
+        assert len(handed) == 1, f'{method.name} calls {member} {len(handed)} times'
+        return handed[0]
+
+    assert listener_handed_to(prepare, 'remove_run_state_listener') == listener_handed_to(
+        _method(class_node, 'on_start'), 'add_run_state_listener'
+    ), 'the close removes a different run-state listener from the one the window added'

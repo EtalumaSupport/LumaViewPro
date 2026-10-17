@@ -79,9 +79,10 @@ def window(tmp_path, monkeypatch):
         image_settings=SimpleNamespace(draw_shown_channel=lambda: None),
     )
     monkeypatch.setattr(_app_ctx, 'ctx', ctx)
-    UIListenerBridge(scope=session.scope, ctx=ctx, stage=stage).register_all()
+    bridge = UIListenerBridge(scope=session.scope, ctx=ctx, stage=stage)
+    bridge.register_all()
     try:
-        yield session, scheduled
+        yield SimpleNamespace(session=session, scheduled=scheduled, bridge=bridge)
     finally:
         ScopeSession.set_ui_dispatcher(None)
         session.shutdown()
@@ -102,7 +103,7 @@ def _drain(scheduled, raised):
 
 
 def test_the_redraws_the_close_schedules_raise_nothing(window):
-    session, scheduled = window
+    session, scheduled = window.session, window.scheduled
     _drain(scheduled, [])
     board = session.scope._motion_driver
     disconnect_board = board.disconnect
@@ -126,3 +127,27 @@ def test_the_redraws_the_close_schedules_raise_nothing(window):
 
     assert not closing.is_alive()
     assert raised == []
+
+
+def test_once_the_bridge_unregisters_the_scopes_events_schedule_nothing(window):
+    """The host's close drops the bridge before the scope goes away, so a
+    move, an LED and a shown-channel change reach no window redraw; asked
+    twice (a close that raised, then on_stop), it raises nothing."""
+    session, scheduled = window.session, window.scheduled
+
+    def tell(x_um, ma, layer):
+        # Started, not waited on: this thread is the dispatcher's UI thread,
+        # and the move's start already tells the position listeners.
+        session.scope.motion.start_move_absolute('X', x_um)
+        session.scope.illumination.led_on('BF', ma)
+        session.show_channel(layer)
+
+    tell(10000.0, 10.0, 'Blue')
+    assert not scheduled.empty(), 'registered, the events schedule redraws'
+    window.bridge.unregister_all()
+    window.bridge.unregister_all()
+    _drain(scheduled, [])
+
+    tell(20000.0, 20.0, 'BF')
+
+    assert scheduled.empty()

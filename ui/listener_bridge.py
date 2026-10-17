@@ -197,3 +197,15 @@ class UIListenerBridge:
         self._scope.illumination.add_led_listener(self._on_led_state_changed)
         self._ctx.session.add_shown_channel_listener(self._on_shown_channel_changed)
         logger.info('[UIListenerBridge] registered position, LED and shown-channel listeners')
+
+    def unregister_all(self):
+        """Remove every listener register_all added; a second call removes nothing.
+
+        The window's close calls it before the scope is torn down, so the
+        teardown's own position and LED events schedule no redraw of a scope
+        that is going.
+        """
+        self._scope.motion.remove_position_listener(self._on_position_change)
+        self._scope.illumination.remove_led_listener(self._on_led_state_changed)
+        self._ctx.session.remove_shown_channel_listener(self._on_shown_channel_changed)
+        logger.info('[UIListenerBridge] removed position, LED and shown-channel listeners')

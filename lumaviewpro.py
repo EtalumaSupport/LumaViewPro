@@ -524,6 +524,20 @@ class LumaViewProApp(TooltipMixin, App):
     # forgets.
     _close_thread = None
 
+    def _on_run_state(self) -> None:
+        """The window's one run-state listener: draw the edge on the clock.
+
+        Session transitions (claim grant/release, file-drain exit, scope
+        rebind) schedule a single main-thread closure that re-reads the
+        derivations at fire time and writes the kv mirrors. Level-read at
+        fire time means out-of-order delivery degrades to bounded staleness,
+        never a permanently wrong publish; registration itself level-syncs
+        the mirrors to current truth. The draw is contained: a raise out of a
+        clock callback closes the application. A member, not a lambda, so the
+        close can remove it.
+        """
+        Clock.schedule_once(lambda dt: run_unasked(self.publish_run_state, 'RUN_STATE'), 0)
+
     def publish_run_state(self, dt: float = 0) -> None:
         """Write the kv mirrors from the session derivations.
 
@@ -586,19 +600,7 @@ class LumaViewProApp(TooltipMixin, App):
         )
         ctx.ui_listener_bridge.register_all()
 
-        # The ONE run-state listener: session transitions (claim
-        # grant/release, file-drain exit, scope rebind) schedule a
-        # single main-thread closure that re-reads the derivations at
-        # fire time and writes the kv mirrors. Level-read at
-        # fire time means out-of-order delivery degrades to bounded
-        # staleness, never a permanently wrong publish; registration
-        # itself level-syncs the mirrors to current truth. The draw is
-        # contained: a raise out of a clock callback closes the application.
-        ctx.session.add_run_state_listener(
-            lambda: Clock.schedule_once(
-                lambda dt: run_unasked(self.publish_run_state, 'RUN_STATE'), 0
-            )
-        )
+        ctx.session.add_run_state_listener(self._on_run_state)
 
         # Slow idle refresh (1Hz) for display elements that may change without motion
         # (e.g., labware selection, stage offset changes)
@@ -1361,6 +1363,15 @@ class LumaViewProApp(TooltipMixin, App):
         except Exception as e:  # grain: ignore NAKED_EXCEPT
             logger.warning(f'[LVP Main  ] Failed to suppress notifications on shutdown: {e}')
 
+        # The window stops listening to the scope and redrawing its position
+        # before the scope is torn down: the teardown's own events would
+        # schedule redraws that read a scope that is going. Here and not in
+        # on_stop, which a crash skips.
+        ctx.ui_listener_bridge.unregister_all()
+        ctx.session.remove_run_state_listener(self._on_run_state)
+        Clock.unschedule(ctx.stage.draw_labware)
+        Clock.unschedule(ctx.motion_settings.update_xy_stage_control_gui)
+
         # Plugins released first, here on the Kivy thread their widgets live
         # on: an unregister stops its own work, and their listener
         # subscriptions and file handles need to drop before hardware
@@ -1382,15 +1393,8 @@ class LumaViewProApp(TooltipMixin, App):
             notifications.report_outcome(e, solicited=False, category='Hardware')
 
     def on_stop(self) -> None:
-        """Kivy lifecycle hook: end the window's own timers; close the session if no close did."""
+        """Kivy lifecycle hook: close the session if no close did."""
         logger.info('[LVP Main  ] LumaViewProApp.on_stop()')
-
-        # Unschedule all recurring interval callbacks to prevent orphaned events
-        try:
-            Clock.unschedule(ctx.stage.draw_labware)
-            Clock.unschedule(ctx.motion_settings.update_xy_stage_control_gui)
-        except Exception as e:  # grain: ignore NAKED_EXCEPT
-            logger.debug(f'[LVP Main  ] Clock.unschedule during shutdown raised: {e}')
 
         if profiling_helper is not None:
             profiling_helper.stop()

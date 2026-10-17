@@ -65,6 +65,13 @@ def test_the_apps_run_state_listener_draws_through_run_unasked():
     ]
     assert len(listeners) == 1, 'the App registers one run-state listener'
     registered = ast.unparse(listeners[0])
+    # Handed over as the App's own member, so the close can remove it: what
+    # it runs is that member's body.
+    handed = listeners[0].args[0]
+    if isinstance(handed, ast.Attribute) and ast.unparse(handed.value) == 'self':
+        member = find_def('lumaviewpro.py', handed.attr, class_name='LumaViewProApp')
+        assert member is not None, f'the listener LumaViewProApp.{handed.attr} is gone'
+        registered = ast.unparse(member)
     assert 'publish_run_state' in registered
     assert 'run_unasked' in registered, (
         'publish_run_state runs bare on the clock: a raise in it closes the application'
