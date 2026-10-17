@@ -12,7 +12,7 @@ import pathlib
 import pandas as pd
 import pytest
 
-from modules.coord_transformations import AxisLimits
+from modules.coord_transformations import AxisLimits, StageOffset
 from modules.labware_loader import WellPlateLoader
 from modules.layer_record import release_catalogue
 from modules.objectives_loader import ObjectiveLoader
@@ -277,7 +277,7 @@ _DEFAULT_AXIS_LIMITS = {
     'Z': AxisLimits(min_um=0, max_um=14000),
 }
 
-_STAGE_OFFSET = {'x': 0.0, 'y': 0.0}
+_STAGE_OFFSET = StageOffset(x_um=0.0, y_um=0.0)
 
 
 def _outside(position, limits=_DEFAULT_AXIS_LIMITS, labware_id='96 well microplate'):

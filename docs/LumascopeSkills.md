@@ -270,20 +270,21 @@ scope.motion.is_current_turret_position_objective_set()        # False when the 
 
 # Labware + stage offset -- the plate-coordinate inputs
 scope.runtime_state.get_labware()                      # the plate the settings select, from the catalogue
-scope.runtime_state.get_stage_offset()                 # {'x': ..., 'y': ...} in um, a copy
+scope.runtime_state.get_stage_offset()                 # StageOffset(x_um, y_um): where the plate is mounted on the stage
 scope.runtime_state.get_well_label()                   # 'A1' for the current stage XY; '' when the labware has no wells or XY is off its wells
 
-# Stage µm → plate mm using the selected labware + stage offset
-# (the bound form of CoordinateTransformer.stage_to_plate; raises
-# ConfigError on a scope no session bound)
-px, py = scope.runtime_state.stage_to_plate(sx=60000, sy=40000)
+# Stage µm ↔ plate mm, one symmetric pair, on the selected plate at the
+# live stage offset; labware_id= and stage_offset= state another (a
+# protocol's positions are on its own plate, a run keeps the offset it
+# started with). Raises ConfigError on a scope no session bound.
+plate = scope.runtime_state.stage_to_plate(60000, 40000)      # PlatePosition(x_mm, y_mm)
+stage = scope.runtime_state.plate_to_stage(50.0, 30.0)        # StagePosition(x_um, y_um)
+stage = scope.runtime_state.plate_to_stage(50.0, 30.0, labware_id=protocol.labware())
 
-# The same transform bound to copies of the labware and offset selected
-# now: a later change moves none of the positions it converts.
+# stage_to_plate bound to the plate and offset of this call (the same two
+# arguments): a later change moves none of the positions it converts.
 to_plate = scope.runtime_state.plate_transform()
-
-# Plate mm → stage µm, one axis. The completing half of stage_to_plate.
-sx = scope.runtime_state.plate_to_stage_axis(axis='X', plate_mm=50.0)
+plate = to_plate(60000, 40000)                                # PlatePosition
 ```
 
 To MOVE to a plate coordinate, pass it to the motion API in that frame
@@ -1001,13 +1002,12 @@ scope.protocols.set_step_z(protocol, 0, z)
 ```python
 for q in scope.protocols.turret_slot_questions(protocol):   # [] on a scope without a turret
     scope.protocols.point_steps_at_turret_slot(protocol, q.objective_id, q.choices[0])
-``` `scope.protocols.plate_to_stage(protocol, px, py)` is the plate-to-stage conversion under it, on the protocol's plate, whatever axes the scope has; all three take a `stage_offset=` to convert with a snapshot instead of the live offset, as a run does. `scope.protocols.plate_transform(protocol, stage_offset=offset)` is the inverse, bound when called: a function of `(sx_um, sy_um)` answering `(px_mm, py_mm)` on the protocol's plate with that offset, or None when `stage_offset` is None (a scope with no X/Y stage). A run states every frame it saves through it, stills and recorded frames alike: the position the stage was read at beside the grab, never the step's planned one, in the frame the run's steps were driven in, whatever plate is selected meanwhile; an axis the scope lacks or has lost its reference on states none.
+``` `step_targets` converts X and Y with `scope.runtime_state.plate_to_stage(px, py, labware_id=protocol.labware())`, on the protocol's plate whatever plate is selected; it takes a `stage_offset=` (a `StageOffset`) to convert with a snapshot instead of the live offset, as a run does. A run binds `scope.runtime_state.plate_transform(labware_id=protocol.labware(), stage_offset=offset)` when it starts and states every frame it saves through it, stills and recorded frames alike: the position the stage was read at beside the grab, never the step's planned one, in the frame the run's steps were driven in, whatever plate is selected meanwhile; an axis the scope lacks or has lost its reference on states none.
 
 ```python
 targets = scope.protocols.step_targets(protocol, 2)   # StepTargets(turret_slot=1, x=..., y=..., z=...)
-sx, sy = scope.protocols.plate_to_stage(protocol, 60.0, 40.0)
-x, y, z = scope.protocols.stage_targets(protocol, 60.0, 40.0, 5000.0)   # None for each axis the scope has no motor for
-to_plate = scope.protocols.plate_transform(protocol, stage_offset=offset)   # stage um -> the protocol's plate mm, bound now
+stage = scope.runtime_state.plate_to_stage(60.0, 40.0, labware_id=protocol.labware())
+to_plate = scope.runtime_state.plate_transform(labware_id=protocol.labware(), stage_offset=offset)   # bound now
 ```
 
 **Going to a step.** `session.go_to_step(protocol, step_idx)` does what a click on a step does, as one task on the scope's IO lane: it asks every axis once whether it knows its position, turns the turret to the step's own slot (above), starts X, Y and Z towards the step's targets together (`scope.protocols.step_targets`, above), puts the step's values into its layer's live settings (the layer acquiring as the step does, its stimulation from the step's; the layer's saved focus is left as it is, since `new_protocol` starts from it), and applies the step's LED preview: the step's channel at its current when `protocol_led_on` is set, every channel dark when not. While the stage travels it puts the step's layer on the camera (see "Putting a layer on the camera", below), and it returns once the camera holds that layer's exposure, gain and auto-gain and X, Y and Z have arrived, waiting off the IO lane so the lane takes other work meanwhile; a move that does not arrive raises `MoveNotCompletedError`, with the layer and the preview already the step's, and a setting the camera refuses raises `CameraSettingRejected` once the stage has arrived. `session.start_go_to_step(protocol, step_idx)` does the same, the step's layer on the camera before it returns, but returns without waiting for the stage, with one `Operation` for the X, Y and Z moves it started: done once every one has ended, its `result()` None when all arrived and the first `MoveNotCompletedError` in X, Y, Z order when one did not, its `stop()` the moves' stop. It is the form for a click, where a second click re-targets the stage at once; it waits on the camera, so on the UI thread it is refused `wait_on_ui_thread` and a GUI calls it from a worker. A setting the camera refuses raises `CameraSettingRejected` with the moves under way. Only the axes the scope has are moved: a manual scope moves nothing, does the rest and returns an operation already done; a motorized scope whose motor controller is not connected is refused with `HardwareCommandRefusedError` (`not_connected`) before anything changes, and so is a scope with no camera connected (`MissingPart.CAMERA`), and a step whose preview would light on a scope with no LED controller connected (a dark preview needs none, so with `protocol_led_on` off the stage still moves); once `session.shutdown()` has shut the lanes it raises `scope_disconnected`. A repeat of the step the session last went to (a re-click) does everything but the preview, so a channel lit or put out in between stays as it was; when another layer was shown in between, the step's layer is shown again, lit or dark as the shown channel was. A run transition forgets it. It is refused before anything changes: a `step_idx` that is not a step of `protocol` with `StepNotFoundError`; a step whose objective this scope cannot put in the light path with `ProtocolRunRefusedError`; a step whose colour is no layer with `ArgumentRefusedError` (`layer_unknown`); a step on a layer this scope lacks with `HardwareCommandRefusedError` (`axis_absent`); a stimulation naming no layer with `ArgumentRefusedError` (`layer_unknown`); an axis that does not know its position with `AxisStateUnknownError` (raised to you and posted to no listener); a scope held by a run or a diagnostic with `HardwareCommandRefusedError`; a step on another layer than the shown one while a manual recording runs with `HardwareCommandRefusedError` (`exclusive_activity_running`, `holder` `'recording'`), since a recording keeps one layer. A step outside an axis's travel raises `PositionOutOfRangeError` from that axis's move; the axes before it have moved and nothing else changes.
@@ -1215,7 +1215,7 @@ Every argument you pass to an API member is first held to the type the member's 
 
 A number you pass is a finite number: NaN or an infinity is refused with `ArgumentRefusedError` (`modules.exceptions`, a `ValueError`), reason `not_a_number`, its `argument` naming the parameter and `value` holding what you gave, before any range is checked and before anything is commanded or stored. This holds for the camera's gain, exposure, frame size, black level and auto-gain target, a stored gain or exposure asked through `applied_gain_db_for` / `applied_exposure_ms_for`, an LED current, a move's position or distance (`ignore_limits=True` included), plate and stage coordinates, a well position, a z-stack's range and step size, a focus Z, and the capture and wait times. A finite number outside a range is refused by the range's owner as before. `modules.finite_number.is_finite_number(value)` asks the same question.
 
-An axis is named exactly `'X'`, `'Y'`, `'Z'` or `'T'`, in capitals. Every member that takes an axis -- the moves, the position and state reads, `get_axis_limits`, the limit switches, the precision mode, `jog_step` and `read_motor_drv_status` -- refuses any other name (`'x'`, `'Q'`) with `ArgumentRefusedError` reason `axis_unknown`, its `offered` holding the names the member takes, before the scope's hardware is asked. A home takes `'Z'`, `'T'` or `'ALL'`; `jog_step` takes `'X'`, `'Y'` or `'Z'`. An axis this model lacks is a name: a command for it is refused as absent hardware, and a read answers as for a missing axis (`get_axis_state` `'unknown'`, a position None). The generic movers refuse `'T'` with reason `turret_moves_by_slot`: the turret moves only through `move_turret(slot)`. A frame other than `'stage'` or `'plate'` is `frame_unknown`, and a plate target for Z is `plate_frame_axis`, refused by the plate's owner once the move is on the lane. `set_motor_fan_duty` takes a whole percentage and refuses one outside 0 to 100 (`fan_duty_out_of_range`), with nothing sent. The camera diagnostics refuse a count or time outside what they take (`out_of_range`, its `limits` the ends, which are included): `run_grab_lifecycle_benchmark` takes 1 to 10,000 cycles, 0 to 60,000 ms between them and a slow threshold of 0 to 600 s; `run_pylon_diagnostic_probe` takes 0 to 3,600 s. A stage offset handed to `protocols.plate_to_stage`, `stage_targets`, `step_targets` or `plate_transform`, and the auto-gain settings handed to `set_auto_gain` or `apply_layer_camera_settings`, are read before the member acts: a key left out is `missing_key` and a value that is no number `not_a_number`, each naming the key (`stage_offset['x']`). Each is the request's (`cause` `REQUEST`): it fails the same way until the caller changes it.
+An axis is named exactly `'X'`, `'Y'`, `'Z'` or `'T'`, in capitals. Every member that takes an axis -- the moves, the position and state reads, `get_axis_limits`, the limit switches, the precision mode, `jog_step` and `read_motor_drv_status` -- refuses any other name (`'x'`, `'Q'`) with `ArgumentRefusedError` reason `axis_unknown`, its `offered` holding the names the member takes, before the scope's hardware is asked. A home takes `'Z'`, `'T'` or `'ALL'`; `jog_step` takes `'X'`, `'Y'` or `'Z'`. An axis this model lacks is a name: a command for it is refused as absent hardware, and a read answers as for a missing axis (`get_axis_state` `'unknown'`, a position None). The generic movers refuse `'T'` with reason `turret_moves_by_slot`: the turret moves only through `move_turret(slot)`. A frame other than `'stage'` or `'plate'` is `frame_unknown`, and a plate target for Z is `plate_frame_axis`, refused by the plate's owner once the move is on the lane. `set_motor_fan_duty` takes a whole percentage and refuses one outside 0 to 100 (`fan_duty_out_of_range`), with nothing sent. The camera diagnostics refuse a count or time outside what they take (`out_of_range`, its `limits` the ends, which are included): `run_grab_lifecycle_benchmark` takes 1 to 10,000 cycles, 0 to 60,000 ms between them and a slow threshold of 0 to 600 s; `run_pylon_diagnostic_probe` takes 0 to 3,600 s. A stage offset handed to `stage_to_plate`, `plate_to_stage`, `plate_transform` or `step_targets` is a `StageOffset`, and an axis of it that is no finite number is `not_a_number`, naming it (`stage_offset.x_um`). The auto-gain settings handed to `set_auto_gain` or `apply_layer_camera_settings` are read before the member acts: a key left out is `missing_key` and a value that is no number `not_a_number`, each naming the key. Each is the request's (`cause` `REQUEST`): it fails the same way until the caller changes it.
 
 A plate or an objective is named by its catalogue key (`list(scope.labware)`, `list(scope.objectives)`); a plate renamed since a file named it is still found under its old name and stored under its key. Every member that takes one -- `select_labware`, `set_protocol_labware`, `create_protocol`, `select_objective`, `confirm_objective`, `assign_turret_objective` -- refuses a name the catalogue does not hold with `CatalogueNameRefusedError` (`modules.exceptions`, a `ConfigError`), reason `labware_unknown` or `objective_not_in_catalogue`, its `argument` naming the catalogue owner's parameter (`plate_key`, `objective_id`) and its `offered` holding the catalogue's keys, before anything is stored. The run's `ProtocolRunRefusedError` uses the same reason, `objective_not_in_catalogue`, for a protocol step's objective; `argument` is on the catalogue refusal only. A turret slot that is not a whole number 1 to 4 is refused with `PositionOutOfRangeError` by every member that takes one. Each is the request's (`cause` `REQUEST`).
 
@@ -1550,7 +1550,7 @@ scope.motion.axes_without_position()             # {axis: 'unknown' | 'homing'};
 
 # Position queries (µm for XYZ, 1–4 for turret). Read cache, no serial I/O.
 scope.motion.axis_positions()                    # {axis: AxisPosition(state, position)} in ONE snapshot; position is None unless the axis is IDLE or MOVING -- the read for a caller writing a position into a file
-scope.runtime_state.plate_transform()            # (sx_um, sy_um) -> (px_mm, py_mm), BOUND to the labware and offset registered now; None when either is unset. For a caller converting many positions over time (a recording, one per frame): every frame is stated in one frame of reference, and it cannot raise
+scope.runtime_state.plate_transform()            # (x_um, y_um) -> PlatePosition, BOUND to the plate and offset of this call. For a caller converting many positions over time (a recording, one per frame): every frame is stated in one frame of reference
 scope.motion.get_target_position('Z')            # the commanded target, moving or arrived; the polled position when none was reached (before a first move, after a home, a STOP or a fault)
 scope.motion.get_target_positions()              # {axis: target} for every axis the scope has a position for
 scope.motion.get_actual_position('Z')            # hardware position via serial (slow; use sparingly)
@@ -2475,24 +2475,9 @@ render a 12-bit frame ~16x too dark. A sum's tag is the bits it can reach
 returns the tag (falling back to the container width for older files that were
 left-justified into the 16-bit range and carry no payload-depth tag).
 
-### Coordinate transformations (`modules.coord_transformations`)
+### Coordinate transformations
 
-```python
-from modules.coord_transformations import CoordinateTransformer
-ct = CoordinateTransformer()
-
-# Stage µm → plate mm (top-left origin)
-plate_x, plate_y = ct.stage_to_plate(
-    labware=labware_obj, stage_offset=offset, sx=60000, sy=40000,
-)
-
-# Plate mm → stage µm
-stage_x, stage_y = ct.plate_to_stage(
-    labware=labware_obj, stage_offset=offset, px=50.0, py=30.0,
-)
-```
-
-`labware` is a `WellPlate` record (`scope.labware[name]`), not a raw dict. `stage_offset` is a dict like `{'x': 0.0, 'y': 0.0}`.
+Stage and plate positions convert through `scope.runtime_state.stage_to_plate` and `plate_to_stage` (above): plate millimetres from the plate's top-left, stage micrometres, on the selected plate and live offset unless `labware_id=` or `stage_offset=` names another.
 
 ### Optical calculations (`modules.common_utils`)
 
@@ -2851,17 +2836,15 @@ scope.illumination.leds_off()
 ### Well-plate scan
 
 ```python
-from modules.coord_transformations import CoordinateTransformer
 from modules.image_save import save_image
-ct = CoordinateTransformer()
 
 wells = [('A1', 10.0, 20.0), ('A2', 19.0, 20.0), ('A3', 28.0, 20.0)]
 
 scope.illumination.led_on('BF', 100)
 for well_name, px, py in wells:
-    sx, sy = ct.plate_to_stage(labware=labware_obj, stage_offset=offset, px=px, py=py)
-    scope.motion.move_absolute('X', sx)
-    scope.motion.move_absolute('Y', sy)
+    stage = scope.runtime_state.plate_to_stage(px, py)
+    scope.motion.move_absolute('X', stage.x_um)
+    scope.motion.move_absolute('Y', stage.y_um)
 
     objective_id, _ = scope.runtime_state.resolve_current_objective()  # the objective this frame is taken with
     image = scope.imaging.capture_and_wait()
@@ -3297,11 +3280,8 @@ Reached through `session.scope.protocols`.
 
 - `create_protocol`
 - `focus_z`
-- `plate_to_stage`
-- `plate_transform` (in-process)
 - `point_steps_at_turret_slot`
 - `set_step_z`
-- `stage_targets`
 - `step_targets`
 - `tiling_config`
 - `turret_slot_questions`
@@ -3315,7 +3295,7 @@ Reached through `session.scope.runtime_state`.
 - `get_turret_config`
 - `get_well_label`
 - `is_turreted`
-- `plate_to_stage_axis`
+- `plate_to_stage`
 - `plate_transform` (in-process)
 - `resolve_current_objective`
 - `stage_to_plate`
@@ -3902,6 +3882,13 @@ Reached through `session.plugin_health`.
 - `namespaces`
 - `not_loaded`
 
+### PlatePosition
+
+Reached through returned by `session.scope.runtime_state.stage_to_plate`.
+
+- `x_mm`
+- `y_mm`
+
 ### PluginNotLoaded
 
 Reached through `PluginHealth.not_loaded`.
@@ -4033,6 +4020,20 @@ Reached through `session.shown_channel`, returned by `session.show_channel` and 
 
 - `layer`
 - `lit`
+
+### StageOffset
+
+Reached through returned by `session.scope.runtime_state.get_stage_offset`.
+
+- `x_um`
+- `y_um`
+
+### StagePosition
+
+Reached through returned by `session.scope.runtime_state.plate_to_stage`.
+
+- `x_um`
+- `y_um`
 
 ### Status
 

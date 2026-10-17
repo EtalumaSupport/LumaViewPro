@@ -99,6 +99,8 @@ OVERSHOOT_LEG_TIMEOUT_S = 15.0
 # The frames an absolute target is given in: stage microns, or plate mm
 # from the plate's top-left (``MotionAPI._plate_target_to_stage``).
 POSITION_FRAMES = ('stage', 'plate')
+# The axes a plate coordinate is defined for: the plate lies in X and Y.
+_PLATE_AXES = ('X', 'Y')
 
 # What a home takes: Z, the turret, or every axis the board has. X and Y
 # home only with the rest.
@@ -1902,13 +1904,21 @@ class MotionAPI:
         does: it is one bound expressed in two units, and a hatch that
         stopped working when the caller changed frames would be a trap.
         """
+        if axis not in _PLATE_AXES:
+            raise ArgumentRefusedError(
+                'plate_frame_axis', argument='axis', value=axis, offered=_PLATE_AXES
+            )
         key = axis.lower()
-        stage_position = self._scope.runtime_state.plate_to_stage_axis(axis=axis, plate_mm=plate_mm)
+        # Each stage axis depends only on its own plate axis, so the one
+        # coordinate stands for both and the other half is not read.
+        converted = self._scope.runtime_state.plate_to_stage(plate_mm, plate_mm)
+        stage_position = converted.x_um if axis == 'X' else converted.y_um
 
         limits = self.get_axis_limits(axis)
         if limits is not None and not ignore_limits:
             dimension = self._scope.runtime_state.get_labware().get_dimensions()[key]
-            offset_mm = self._scope.runtime_state.get_stage_offset()[key] / 1000
+            offset = self._scope.runtime_state.get_stage_offset()
+            offset_mm = (offset.x_um if axis == 'X' else offset.y_um) / 1000
             # Inverting sx = (dimension - offset - px) * 1000: the map
             # decreases in px, so the travel MAXIMUM yields the plate
             # minimum and vice versa.

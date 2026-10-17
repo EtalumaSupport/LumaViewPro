@@ -74,8 +74,9 @@ def over_the_first_well(session) -> str:
     """
     scope = session.scope
     x_mm, y_mm = scope.runtime_state.get_labware().get_well_position(0, 0)
-    for axis, plate_mm in (('X', x_mm), ('Y', y_mm)):
-        scope.motion.move_absolute(axis, scope.runtime_state.plate_to_stage_axis(axis, plate_mm))
+    stage = scope.runtime_state.plate_to_stage(x_mm, y_mm)
+    scope.motion.move_absolute('X', stage.x_um)
+    scope.motion.move_absolute('Y', stage.y_um)
     label = scope.runtime_state.get_well_label()
     assert label, 'the stage was moved over a well'
     return label

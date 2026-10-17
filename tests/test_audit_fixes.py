@@ -7334,67 +7334,6 @@ class TestModSliderAwareScrollView:
         )
 
 
-# ---------------------------------------------------------------------------
-# stage_offset value-semantics at run() start
-# ---------------------------------------------------------------------------
-
-
-class TestStageOffsetSnapshot:
-    """SequencedCaptureRunner must snapshot the scope's stage offset at run
-    start (prepare() deepcopies the runtime store's into the plan; start()
-    adopts the plan's copy) so a change to the store mid-protocol does not
-    change the in-flight coordinate transforms. A change between runs is
-    seen by the next run.
-    """
-
-    def _make_executor(self, stage_offset):
-        exc = _bare_capture_runner()
-        exc._scope.runtime_state.get_stage_offset.return_value = stage_offset
-        return exc
-
-    def _snapshot_via_run_start(self, exc):
-        """Drive the snapshot the way a run takes it: prepare deepcopies
-        the scope's offset, start adopts the plan's copy."""
-        exc.start(exc.prepare(**_scr_run_kwargs()))
-
-    def test_snapshot_deepcopies_stage_offset(self):
-        src = {'x': 100.0, 'y': 50.0, 'z': 0.0}
-        exc = self._make_executor(src)
-        self._snapshot_via_run_start(exc)
-        assert exc._stage_offset is not src, (
-            'the run-start snapshot must produce a new dict, not share the ref.'
-        )
-        assert exc._stage_offset == src
-
-    def test_mid_run_source_mutation_does_not_affect_snapshot(self):
-        """Core race: source mutated mid-protocol must not leak in."""
-        src = {'x': 100.0, 'y': 50.0, 'z': 0.0}
-        exc = self._make_executor(src)
-        self._snapshot_via_run_start(exc)
-        src['x'] = 999.0
-        src['y'] = -50.0
-        assert exc._stage_offset['x'] == 100.0
-        assert exc._stage_offset['y'] == 50.0
-
-    def test_next_snapshot_picks_up_between_run_mutations(self):
-        """Between runs, the next snapshot reflects source updates."""
-        src = {'x': 100.0, 'y': 50.0, 'z': 0.0}
-        exc = self._make_executor(src)
-        self._snapshot_via_run_start(exc)
-        assert exc._stage_offset['x'] == 100.0
-        src['x'] = 200.0
-        self._snapshot_via_run_start(exc)
-        assert exc._stage_offset['x'] == 200.0
-
-    def test_nested_dict_mutation_does_not_affect_snapshot(self):
-        """Deep copy: nested dicts must also be private to the run."""
-        src = {'x': 100.0, 'y': {'sub': 1.0}, 'z': 0.0}
-        exc = self._make_executor(src)
-        self._snapshot_via_run_start(exc)
-        src['y']['sub'] = 99.0
-        assert exc._stage_offset['y']['sub'] == 1.0
-
-
 class TestReusableTaskWaiter:
     """_ReusableTaskWaiter replaces concurrent.futures.Future on the
     SequentialIOExecutor return_future=True path so Lock kernel handles
@@ -8312,27 +8251,6 @@ class TestLedSentinelReturnsAreNone:
         assert sim_scope.illumination.get_led_state('Blue').illumination_ma == 50.0
         sim_scope.illumination.led_off('Blue')
         assert sim_scope.illumination.get_led_state('Blue').illumination_ma is None
-
-
-class TestGetterSetterSymmetry:
-    """Freeze audit Finding #36 -- the L2 surface had set_X methods
-    without matching get_X across several sub-APIs. The widest gaps
-    were on the composition root (set_stage_offset) and ImagingAPI
-    (set_scale_bar). Added: get_stage_offset, get_scale_bar.
-
-    The Pylon / GEV / USB SDK-perf knob cluster (set_acquisition_stop_mode,
-    set_bandwidth_reserve_mode, set_device_link_throughput_limit,
-    set_max_transfer_size, set_num_max_queued_urbs, set_gev_packet_size,
-    set_gev_inter_packet_delay, set_max_acquisition_frame_rate) is
-    deliberately write-only -- see the in-source Rule 33 decision
-    comment above set_acquisition_stop_mode."""
-
-    def test_lumascope_get_stage_offset_exists(self, sim_scope):
-        # Canonical home post-Wave-7-Phase-8 is scope.runtime_state.
-        assert callable(getattr(sim_scope.runtime_state, 'get_stage_offset', None))
-        # It answers the settings' offset; the settings are its one store.
-        bind_settings_like_a_session(sim_scope, stage_offset={'x': 1.0, 'y': 2.0})
-        assert sim_scope.runtime_state.get_stage_offset() == {'x': 1.0, 'y': 2.0}
 
 
 class TestCameraMaxFrameSizeOnCapabilities:

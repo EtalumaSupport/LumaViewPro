@@ -69,7 +69,6 @@ def window(tmp_path, monkeypatch):
         scope=session.scope,
         session=session,
         settings={'stage_offset': {'x': 0, 'y': 0}},
-        coordinate_transformer=None,
         ready=True,
         motion_settings=SimpleNamespace(
             update_xy_stage_control_gui=xy.get_xy_targets,

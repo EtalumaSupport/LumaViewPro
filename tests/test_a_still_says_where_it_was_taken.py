@@ -34,7 +34,8 @@ def _where_the_stage_is(scope):
     positions = scope.motion.axis_positions()
     to_plate = scope.runtime_state.plate_transform()
     x, y, z = (positions[ax].position for ax in ('X', 'Y', 'Z'))
-    return to_plate(x, y), z
+    plate = to_plate(x, y)
+    return (plate.x_mm, plate.y_mm), z
 
 
 class TestAnXYZScope:

@@ -75,8 +75,6 @@ _REASON_UNNAMED_PINNED = frozenset(
         ('ProtocolsAPI.create_protocol', 'CatalogueNameRefusedError'),
         ('ProtocolsAPI.create_protocol', 'ProtocolRunRefusedError'),
         ('ProtocolsAPI.focus_z', 'ProtocolRunRefusedError'),
-        ('ProtocolsAPI.plate_transform', 'ArgumentRefusedError'),
-        ('ProtocolsAPI.stage_targets', 'CatalogueNameRefusedError'),
         ('ProtocolsAPI.step_targets', 'CatalogueNameRefusedError'),
         ('ScopeSession.apply_focus_to_layer_steps', 'ProtocolRunRefusedError'),
         ('ScopeSession.apply_tiling', 'ProtocolRunRefusedError'),

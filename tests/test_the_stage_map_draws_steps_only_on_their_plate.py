@@ -32,7 +32,7 @@ def _protocol(plate):
 @pytest.fixture
 def stage(monkeypatch):
     monkeypatch.setattr(stage_module, 'get_selected_labware', lambda: ('96 well microplate', None))
-    monkeypatch.setattr(_app_ctx, 'ctx', types.SimpleNamespace(coordinate_transformer=None))
+    monkeypatch.setattr(_app_ctx, 'ctx', types.SimpleNamespace())
     built = Stage.__new__(Stage)
     built._protocol_step_locations_show = True
     return built

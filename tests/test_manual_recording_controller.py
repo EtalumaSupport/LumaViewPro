@@ -18,6 +18,7 @@ import pytest
 
 from modules.activity_claim import ActivityClaim
 import modules.manual_recording as manual_recording_module
+from modules.coord_transformations import PlatePosition
 from modules.exceptions import RecordingRefusedError
 from modules.layer_record import release_catalogue
 from modules.lumascope_api.illumination import LedReading, LedState
@@ -143,10 +144,10 @@ class _FakeRuntimeState:
     def resolve_current_objective(self):
         return 'fake', self._objective
 
-    def stage_to_plate(self, sx, sy):
+    def stage_to_plate(self, x_um, y_um):
         # A stand-in transform, distinct from the identity so a stage number
         # recorded as a plate one shows.
-        return sx / 1000.0 + 0.5, sy / 1000.0 + 0.5
+        return PlatePosition(x_mm=x_um / 1000.0 + 0.5, y_mm=y_um / 1000.0 + 0.5)
 
     def plate_transform(self):
         return self.stage_to_plate

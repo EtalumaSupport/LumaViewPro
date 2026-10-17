@@ -365,13 +365,7 @@ class TestGetCurrentPlatePosition:
         # Not disconnected: the lanes are open.
         scope._io_executor.pending_shutdown = False
         with pytest.raises(HardwareCommandRefusedError) as refused:
-            config_helpers.get_current_plate_position(
-                scope,
-                _make_settings(),
-                MagicMock(),
-                MagicMock(),
-                '96 well microplate',
-            )
+            config_helpers.get_current_plate_position(scope, '96 well microplate')
         assert refused.value.reason == 'not_connected'
 
     def test_a_manual_scope_still_answers_the_origin(self):
@@ -381,50 +375,34 @@ class TestGetCurrentPlatePosition:
         scope = MagicMock()
         type(scope).motor_connected = PropertyMock(return_value=False)
         type(scope).motion_expected = PropertyMock(return_value=False)
-        result = config_helpers.get_current_plate_position(
-            scope,
-            _make_settings(),
-            MagicMock(),
-            MagicMock(),
-            '96 well microplate',
-        )
+        result = config_helpers.get_current_plate_position(scope, '96 well microplate')
         assert result == {'x': 0, 'y': 0, 'z': 0}
 
-    def test_an_unknown_plate_is_refused_not_answered_in_stage_coordinates(self):
+    def test_an_unknown_plate_is_refused_not_answered_in_stage_coordinates(self, tmp_path):
         from modules.exceptions import CatalogueNameRefusedError
-        from modules.labware_loader import WellPlateLoader
+        from tests.test_manual_capture_member import _open_session, _settings
 
-        transformer = MagicMock()
-        with pytest.raises(
-            CatalogueNameRefusedError, match=r"labware catalogue.*'nonexistent' is not one"
+        with (
+            _open_session(_settings(tmp_path)) as session,
+            pytest.raises(CatalogueNameRefusedError) as refused,
         ):
-            config_helpers.get_current_plate_position(
-                _make_mock_scope(),
-                _make_settings(),
-                transformer,
-                WellPlateLoader(),
-                'nonexistent',
-            )
-        transformer.stage_to_plate.assert_not_called()
+            session.plate_position_on('nonexistent')
+        assert refused.value.reason == 'labware_unknown'
 
-    def test_zonly_scope_missing_xy_does_not_raise(self):
+    def test_zonly_scope_missing_xy_does_not_raise(self, tmp_path):
         # A scope with no XY stage reports position without X/Y keys; the
-        # plate-coordinate (labware-loaded) branch must tolerate that instead
-        # of raising KeyError when authoring/modifying a step or a z-stack.
-        scope = _make_mock_scope()
-        scope.motion.get_current_position = MagicMock(return_value={'Z': 500})
-        transformer = MagicMock()
-        transformer.stage_to_plate.return_value = (0, 0)
-        loader = MagicMock()  # valid labware -> success branch, not fallback
-        result = config_helpers.get_current_plate_position(
-            scope,
-            _make_settings(),
-            transformer,
-            loader,
-            '96 well microplate',
-        )
+        # plate position must tolerate that instead of raising KeyError when
+        # authoring/modifying a step or a z-stack.
+        from tests.test_manual_capture_member import _open_session, _settings
+
+        settings = _settings(tmp_path)
+        settings['microscope'] = 'LS820'
+        with _open_session(settings) as session:
+            session.scope.motion.move_absolute('Z', 500.0)
+            result = session.get_current_plate_position()
+            z = session.scope.motion.get_current_position('Z')
         assert set(result) == {'x', 'y', 'z'}
-        assert result['z'] != 0  # Z=500 preserved on a Z-only scope
+        assert result['z'] == pytest.approx(z, abs=0.01)
 
 
 class TestLogSystemMetrics:

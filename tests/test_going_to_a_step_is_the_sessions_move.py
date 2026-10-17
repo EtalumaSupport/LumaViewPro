@@ -163,15 +163,14 @@ class TestTheMove:
         session.go_to_step(protocol, 0)
 
         arrived = _settled_position(session)
-        on_protocol_plate = session.scope.protocols.plate_to_stage(protocol, 60.0, 40.0)
+        stage = session.scope.runtime_state.plate_to_stage(60.0, 40.0, labware_id=_PLATE)
+        on_protocol_plate = (stage.x_um, stage.y_um)
         assert (arrived['X'], arrived['Y']) == pytest.approx(on_protocol_plate, abs=1.0)
         assert arrived['Z'] == pytest.approx(5000.0, abs=1.0)
         # The two plates differ, so a move on the selected one would have
         # landed elsewhere: the assertion above is not vacuous.
-        on_selected_plate = session.scope.protocols.plate_to_stage(
-            _protocol(_OTHER_PLATE, _step(60.0, 40.0, 5000.0, _objective_of(session))), 60.0, 40.0
-        )
-        assert abs(on_selected_plate[0] - on_protocol_plate[0]) > 100.0
+        on_selected_plate = session.scope.runtime_state.plate_to_stage(60.0, 40.0)
+        assert abs(on_selected_plate.x_um - on_protocol_plate[0]) > 100.0
 
     def test_the_turret_turns_to_the_slot_carrying_the_steps_objective(self, turret_session):
         slots = {obj: slot for slot, obj in TEST_TURRET_OBJECTIVES.items() if obj}
@@ -296,7 +295,8 @@ class TestOneTargetComputation:
     def test_only_the_one_conversion_converts_a_step_position(self):
         # stage_targets decides which axes a step move drives; a step mover
         # converting through plate_to_stage itself would drive X and Y on a
-        # scope without them, as default_move did.
+        # scope without them, as default_move did. The plate-frame move
+        # converts the one axis it was asked to drive.
         callers = [
             f'{rel}::{qualname}'
             for rel, tree in production_modules()
@@ -306,13 +306,17 @@ class TestOneTargetComputation:
             and isinstance(node.func, ast.Attribute)
             and node.func.attr == 'plate_to_stage'
             and (
-                (isinstance(node.func.value, ast.Attribute) and node.func.value.attr == 'protocols')
+                (
+                    isinstance(node.func.value, ast.Attribute)
+                    and node.func.value.attr in ('protocols', 'runtime_state')
+                )
                 or (isinstance(node.func.value, ast.Name) and node.func.value.id == 'self')
             )
         ]
-        assert set(callers) == {'modules/lumascope_api/protocols.py::ProtocolsAPI.stage_targets'}, (
-            callers
-        )
+        assert set(callers) == {
+            'modules/lumascope_api/protocols.py::ProtocolsAPI.stage_targets',
+            'modules/lumascope_api/motion.py::MotionAPI._plate_target_to_stage',
+        }, callers
 
     def test_the_gui_navigation_moves_no_axis_itself(self):
         called = self._called_attrs(parse_module('ui/step_navigation.py'))

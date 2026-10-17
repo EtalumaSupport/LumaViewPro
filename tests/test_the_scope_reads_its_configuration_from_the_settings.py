@@ -9,8 +9,11 @@ act on one value while the settings say another; a reader gets a copy, and
 a plate transform keeps the frame it was bound in.
 """
 
+import dataclasses
+
 import pytest
 
+from modules.coord_transformations import StageOffset
 from modules.exceptions import ConfigError
 from modules.lumascope_api import Lumascope
 from modules.scope_session import ScopeSession
@@ -38,7 +41,7 @@ class TestAWriteIsWhatTheScopeActsOn:
 
     def test_the_stage_offset(self, session):
         session.update_settings('stage_offset.x', 11000.0)
-        assert session.scope.runtime_state.get_stage_offset()['x'] == 11000.0
+        assert session.scope.runtime_state.get_stage_offset().x_um == 11000.0
 
     def test_the_turret_map(self, tmp_path):
         session = ScopeSession.create(
@@ -83,7 +86,8 @@ def test_the_live_views_colour_write_never_changes_whether_the_bar_is_drawn(sess
 def test_changing_what_a_getter_returned_changes_no_setting(session):
     state = session.scope.runtime_state
     state.get_turret_config()[1] = 'NOT_IN_CATALOGUE'
-    state.get_stage_offset()['x'] = 0.0
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        state.get_stage_offset().x_um = 0.0
     assert session.settings['turret_objectives'][1] != 'NOT_IN_CATALOGUE'
     assert session.settings['stage_offset']['x'] != 0.0
 
@@ -116,4 +120,7 @@ def test_a_second_session_leaves_the_scope_reading_the_first(session):
     other['stage_offset'] = {'x': 1.0, 'y': 2.0}
     with pytest.raises(RuntimeError, match='already asks an activity claim'):
         ScopeSession.create(other, scope=session.scope)
-    assert session.scope.runtime_state.get_stage_offset() == session.settings['stage_offset']
+    stored = session.settings['stage_offset']
+    assert session.scope.runtime_state.get_stage_offset() == StageOffset(
+        x_um=stored['x'], y_um=stored['y']
+    )

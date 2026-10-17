@@ -23,7 +23,7 @@ button order.
 
 from __future__ import annotations
 
-from modules.coord_transformations import AxisLimits
+from modules.coord_transformations import AxisLimits, StageOffset
 from modules.labware_loader import WellPlateLoader
 from modules.objectives_loader import ObjectiveLoader
 from tests.test_step_label_ssot import (
@@ -47,7 +47,7 @@ def _tile_2x2(proto, capabilities):
         binning_size=1,
         axis_limits=_WIDE_XY,
         labware=WellPlateLoader().get_plate('6 well microplate'),
-        stage_offset={'x': 0, 'y': 0},
+        stage_offset=StageOffset(x_um=0.0, y_um=0.0),
         overlap_percent=0.0,
         capabilities=capabilities,
         objective_helper=ObjectiveLoader(),

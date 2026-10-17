@@ -19,7 +19,6 @@ import numpy as np
 import pytest
 
 from modules.finite_number import is_finite_number
-from modules.coord_transformations import CoordinateTransformer
 from modules.exceptions import ArgumentRefusedError, RefusalCause
 from modules.labware_loader import WellPlateLoader
 from modules.lumascope_api.illumination import LedState
@@ -143,13 +142,12 @@ def test_a_capture_refuses_a_time(session, value):
 
 
 @pytest.mark.parametrize('value', NOT_FINITE)
-def test_plate_coordinates_and_a_well_are_refused(value):
+def test_plate_coordinates_and_a_well_are_refused(session, value):
+    runtime_state = session.scope.runtime_state
     plate = WellPlateLoader().get_plate('96 well microplate')
-    transformer = CoordinateTransformer()
-    offset = {'x': 0.0, 'y': 0.0}
 
-    _refused(lambda: transformer.plate_to_stage(plate, offset, value, 10.0), 'px')
-    _refused(lambda: transformer.stage_to_plate(plate, offset, 10.0, value), 'sy')
+    _refused(lambda: runtime_state.plate_to_stage(value, 10.0), 'x_mm')
+    _refused(lambda: runtime_state.stage_to_plate(10.0, value), 'y_um')
     _refused(lambda: plate.get_well_index(value, 10.0), 'x')
 
 

@@ -101,9 +101,6 @@ def stepnav_env(monkeypatch):
             'Green': dict(GREEN_LAYER_SETTINGS),
         },
         settings_lock=threading.Lock(),
-        coordinate_transformer=SimpleNamespace(
-            plate_to_stage=MagicMock(return_value=(1.0, 2.0)),
-        ),
         motion_settings=SimpleNamespace(
             ids={'protocol_settings_id': protocol_settings},
             update_xy_stage_control_gui=MagicMock(),

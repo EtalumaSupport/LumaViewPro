@@ -27,7 +27,6 @@ from modules.tiling_config import TilingConfig
 if typing.TYPE_CHECKING:
     # Import-time only: modules.protocol imports this module's siblings, so
     # a runtime import here would close a cycle.
-    from modules.coord_transformations import CoordinateTransformer
     from collections.abc import Mapping
 
     from modules.executor_registry import ExecutorBundle
@@ -322,13 +321,7 @@ def model_has_turret(scopes: 'Mapping[str, ScopeModel]', model: str | None) -> b
 # ---------------------------------------------------------------------------
 
 
-def get_current_plate_position(
-    scope: 'Lumascope',
-    settings: dict,
-    coordinate_transformer: 'CoordinateTransformer',
-    wellplate_loader: WellPlateLoader,
-    labware_id: str,
-) -> dict:
+def get_current_plate_position(scope: 'Lumascope', labware_id: str) -> dict:
     """Get current plate position in plate coordinates.
 
     Args:
@@ -360,21 +353,17 @@ def get_current_plate_position(
         return {'x': 0, 'y': 0, 'z': 0}
 
     pos = scope.motion.get_current_positions()
-    labware = wellplate_loader.get_plate(plate_key=wellplate_loader.resolve_plate_key(labware_id))
 
     # Z-only scopes (no XY stage) report position without X/Y keys; tolerate
     # missing axes so adding/modifying a step (and z-stack capture) does not
     # raise on them.
-    px, py = coordinate_transformer.stage_to_plate(
-        labware=labware,
-        stage_offset=settings['stage_offset'],
-        sx=pos.get('X', 0),
-        sy=pos.get('Y', 0),
+    plate = scope.runtime_state.stage_to_plate(
+        pos.get('X', 0), pos.get('Y', 0), labware_id=labware_id
     )
 
     return {
-        'x': round(px, common_utils.max_decimal_precision('x')),
-        'y': round(py, common_utils.max_decimal_precision('y')),
+        'x': round(plate.x_mm, common_utils.max_decimal_precision('x')),
+        'y': round(plate.y_mm, common_utils.max_decimal_precision('y')),
         'z': round(pos.get('Z', 0), common_utils.max_decimal_precision('z')),
     }
 

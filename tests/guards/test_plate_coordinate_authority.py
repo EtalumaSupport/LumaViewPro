@@ -21,7 +21,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from modules.coord_transformations import AxisLimits, CoordinateTransformer
+from modules.coord_transformations import AxisLimits, CoordinateTransformer, StageOffset
 from modules.exceptions import PositionOutOfRangeError
 from tests.ast_seams import REPO_ROOT
 
@@ -30,7 +30,7 @@ from tests.ast_seams import REPO_ROOT
 # quantity under test, so these are written out rather than read back: a
 # defaults change should fail this file loudly, not silently retarget it.
 PLATE_DIMENSIONS = {'x': 127.76, 'y': 85.48}
-STAGE_OFFSET = {'x': 5500.0, 'y': 4000.0}
+STAGE_OFFSET = StageOffset(x_um=5500.0, y_um=4000.0)
 AXIS_TRAVEL = {
     'X': AxisLimits(min_um=0.0, max_um=120000.0),
     'Y': AxisLimits(min_um=0.0, max_um=80000.0),
@@ -103,7 +103,8 @@ class TestEquivalentToTheTravelCheck:
         motion = scope.motion
 
         for plate_mm in (low - 0.5, low, low + 0.5, high - 0.5, high, high + 0.5):
-            stage_um = scope.runtime_state.plate_to_stage_axis(axis=axis, plate_mm=plate_mm)
+            stage = scope.runtime_state.plate_to_stage(plate_mm, plate_mm)
+            stage_um = stage.x_um if axis == 'X' else stage.y_um
             travel_refused = _refuses(motion.move_absolute, axis, stage_um)
             plate_refused = _refuses(motion.move_absolute, axis, plate_mm, frame='plate')
 
@@ -152,10 +153,10 @@ class TestEnumeratorsKeepTheirValue:
         labware = MagicMock()
         labware.get_dimensions.return_value = PLATE_DIMENSIONS
 
-        _, sy = transformer.plate_to_stage(
-            labware=labware, stage_offset=STAGE_OFFSET, px=0, py=180.0
+        stage = transformer.plate_to_stage(
+            labware=labware, stage_offset=STAGE_OFFSET, x_mm=0, y_mm=180.0
         )
-        assert sy == pytest.approx(-98520.0)
+        assert stage.y_um == pytest.approx(-98520.0)
 
 
 class TestTheConversionLeftTheCallers:
@@ -167,25 +168,30 @@ class TestTheConversionLeftTheCallers:
     saw the result. A new caller that converts for itself re-creates the
     defect exactly, and would be invisible to every other test here.
 
-    Three callers are exempt, for two different reasons.
+    Four modules are exempt, each for its own reason.
+
+    ``modules/lumascope_api/runtime_state.py`` owns the pair, and
+    ``modules/lumascope_api/motion.py``'s plate-frame move is the bound
+    itself, converting after it has checked the typed number.
 
     ``modules/protocol.py`` ENUMERATES rather than commands -- protocol
     validation and tile generation convert in order to test each
     candidate and report them all -- so it legitimately wants the value.
 
-    ``ProtocolsAPI.plate_to_stage`` converts against the labware the
+    ``ProtocolsAPI.stage_targets`` converts against the labware the
     PROTOCOL stores, while the motion API's plate frame resolves labware
     from the session. Those are different stores: a run, and a person's
     navigation to a step, must image the plate the protocol was written
     for even if the operator has since selected a different one. Routing
     that caller through the plate frame silently retargets the run, which
-    is a worse defect than the message it would improve. Closing it means
-    one store, not one more frame argument. The run engine and the Session
-    take their targets from that member and are not callers here.
+    is a worse defect than the message it would improve. The run engine
+    and the Session take their targets from that member and are not
+    callers here.
     """
 
     SANCTIONED: ClassVar[set[str]] = {
         'modules/protocol.py',
+        'modules/lumascope_api/motion.py',
         'modules/lumascope_api/protocols.py',
         'modules/lumascope_api/runtime_state.py',
     }
@@ -193,9 +199,9 @@ class TestTheConversionLeftTheCallers:
     def test_only_the_enumerators_call_the_raw_transform(self):
         import re
 
-        # The transformer's own member, not the protocols API's of the
-        # same name, which converts on the protocol's plate for its callers.
-        call = re.compile(r'coordinate_transformer\.plate_to_stage\s*\(')
+        # The pair's plate-to-stage half, whoever holds it: the API's member
+        # and the transformer under it.
+        call = re.compile(r'\.plate_to_stage\s*\(')
 
         offenders = []
         for path in sorted([*REPO_ROOT.glob('ui/**/*.py'), *REPO_ROOT.glob('modules/**/*.py')]):

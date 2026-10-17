@@ -210,9 +210,6 @@ def stand_in_step_targets(scope, *, plate_to_stage=(0.0, 0.0)):
     """
     from modules.lumascope_api.protocols import StepTargets
 
-    scope.protocols.plate_to_stage.side_effect = lambda protocol, px, py, stage_offset=None: (
-        plate_to_stage
-    )
     scope.protocols.step_targets.side_effect = lambda protocol, step_idx, stage_offset=None: (
         StepTargets(
             turret_slot=None,

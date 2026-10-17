@@ -20,7 +20,7 @@ from unittest.mock import patch
 import pytest
 
 import modules.protocol as protocol_module
-from modules.coord_transformations import AxisLimits
+from modules.coord_transformations import AxisLimits, StageOffset
 from modules.exceptions import ProtocolRunRefusedError
 from modules.labware_loader import WellPlateLoader
 from modules.objectives_loader import ObjectiveLoader
@@ -112,7 +112,7 @@ def test_a_grid_that_is_built_says_how_many_steps_it_made(protocol_log, scale_ca
         binning_size=1,
         axis_limits=_WIDE_XY,
         labware=WellPlateLoader().get_plate('6 well microplate'),
-        stage_offset={'x': 0, 'y': 0},
+        stage_offset=StageOffset(x_um=0.0, y_um=0.0),
         overlap_percent=0.0,
         capabilities=scale_capabilities,
         objective_helper=ObjectiveLoader(),

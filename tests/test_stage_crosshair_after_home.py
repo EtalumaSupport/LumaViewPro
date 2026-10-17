@@ -43,7 +43,6 @@ def stage_and_motion(monkeypatch):
         'ctx',
         SimpleNamespace(
             settings={},
-            coordinate_transformer=None,
             scope=SimpleNamespace(motion=motion, capabilities=SimpleNamespace(has_xy_stage=True)),
         ),
     )
@@ -87,15 +86,11 @@ def test_a_homed_stage_whose_position_the_api_no_longer_answers_draws_none(
     """The close swaps in the null board between the redraw's has_homed() and
     its position reads: the reads answer None, and the whole redraw runs,
     hiding the crosshair, rather than raising on the Kivy clock."""
-    from modules.coord_transformations import CoordinateTransformer
-
     stage, motion = stage_and_motion
     motion.get_target_position = lambda axis: None
     motion.get_current_position = lambda axis: None
     monkeypatch.setattr(stage_module, 'get_selected_labware', lambda: ('plate', _Plate()))
     monkeypatch.setattr(stage_module, 'Clock', SimpleNamespace(schedule_once=lambda *a, **k: None))
-    _app_ctx.ctx.coordinate_transformer = CoordinateTransformer()
-    _app_ctx.ctx.settings = {'stage_offset': {'x': 0, 'y': 0}}
     stage._cached_labware_name = 'plate'
     stage.width = stage.height = 100
     stage.x = stage.y = 0

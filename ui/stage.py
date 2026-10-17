@@ -15,6 +15,11 @@ from ui.ui_helpers import find_nearest_step, run_unasked, submit_gesture
 logger = logging.getLogger('LVP.ui.stage')
 
 
+def _plate_to_pixel(labware, x_mm: float, y_mm: float, scale_x: float, scale_y: float):
+    """A plate position (mm) as a pixel on the stage map: the plate's Y runs down the plate, the map's up."""
+    return x_mm * scale_x, (labware.get_dimensions()['y'] - y_mm) * scale_y
+
+
 class Stage(Widget):
     def _triggered_full_redraw(self, *args):
         """Triggered version of full_redraw to debounce rapid events."""
@@ -265,8 +270,9 @@ class Stage(Widget):
 
         fbo.release()
 
-        settings = _app_ctx.ctx.settings
-        coordinate_transformer = _app_ctx.ctx.coordinate_transformer
+        runtime_state = _app_ctx.ctx.scope.runtime_state
+        stage_offset = runtime_state.get_stage_offset()
+        to_plate = runtime_state.plate_transform()
 
         # Now draw to the FBO
         with fbo:
@@ -288,8 +294,8 @@ class Stage(Widget):
             stage_w = x_max / 1000.0
             stage_h = y_max / 1000.0
 
-            stage_x = settings['stage_offset']['x'] / 1000
-            stage_y = settings['stage_offset']['y'] / 1000
+            stage_x = stage_offset.x_um / 1000
+            stage_y = stage_offset.y_um / 1000
 
             # Draw stage area outline
             Color(0.2, 0.2, 0.2, 0.5)
@@ -309,22 +315,13 @@ class Stage(Widget):
 
             # Draw ROI rectangle if set
             if self.ROI_max[0] > self.ROI_min[0]:
-                roi_min_x, roi_min_y = coordinate_transformer.stage_to_pixel(
-                    labware=labware,
-                    stage_offset=settings['stage_offset'],
-                    sx=self.ROI_min[0],
-                    sy=self.ROI_min[1],
-                    scale_x=scale_x,
-                    scale_y=scale_y,
+                roi_min = to_plate(self.ROI_min[0], self.ROI_min[1])
+                roi_min_x, roi_min_y = _plate_to_pixel(
+                    labware, roi_min.x_mm, roi_min.y_mm, scale_x, scale_y
                 )
-
-                roi_max_x, roi_max_y = coordinate_transformer.stage_to_pixel(
-                    labware=labware,
-                    stage_offset=settings['stage_offset'],
-                    sx=self.ROI_max[0],
-                    sy=self.ROI_max[1],
-                    scale_x=scale_x,
-                    scale_y=scale_y,
+                roi_max = to_plate(self.ROI_max[0], self.ROI_max[1])
+                roi_max_x, roi_max_y = _plate_to_pixel(
+                    labware, roi_max.x_mm, roi_max.y_mm, scale_x, scale_y
                 )
 
                 Color(50 / 255, 164 / 255, 206 / 255, 1.0)
@@ -358,12 +355,8 @@ class Stage(Widget):
             for i in range(cols):
                 for j in range(rows):
                     well_plate_x, well_plate_y = labware.get_well_position(i, j)
-                    well_pixel_x, well_pixel_y = coordinate_transformer.plate_to_pixel(
-                        labware=labware,
-                        px=well_plate_x,
-                        py=well_plate_y,
-                        scale_x=scale_x,
-                        scale_y=scale_y,
+                    well_pixel_x, well_pixel_y = _plate_to_pixel(
+                        labware, well_plate_x, well_plate_y, scale_x, scale_y
                     )
                     # Use float for precise positioning to avoid rounding errors
                     x_center = x + well_pixel_x
@@ -388,7 +381,6 @@ class Stage(Widget):
         This optimizes performance by pre-rendering step markers.
         """
         labware_name, labware = get_selected_labware()
-        coordinate_transformer = _app_ctx.ctx.coordinate_transformer
 
         # Check if we need to regenerate the FBO
         if self._protocol_step_locations_df is None or not self._protocol_step_locations_show:
@@ -446,9 +438,7 @@ class Stage(Widget):
             Color(1.0, 1.0, 0.0, 1.0)  # Yellow color for step markers
 
             for _, step in self._protocol_step_locations_df.iterrows():
-                pixel_x, pixel_y = coordinate_transformer.plate_to_pixel(
-                    labware=labware, px=step['X'], py=step['Y'], scale_x=scale_x, scale_y=scale_y
-                )
+                pixel_x, pixel_y = _plate_to_pixel(labware, step['X'], step['Y'], scale_x, scale_y)
 
                 x_center = x + pixel_x
                 y_center = y + pixel_y
@@ -472,8 +462,6 @@ class Stage(Widget):
 
     def draw_labware_io_calculations(self, full_redraw: bool = False):
         ctx = _app_ctx.ctx
-        settings = ctx.settings
-        coordinate_transformer = ctx.coordinate_transformer
         scope = ctx.scope
 
         # Until the stage is homed there is no position to show, and a scope
@@ -581,15 +569,13 @@ class Stage(Widget):
 
         # Only draw crosshairs and selected well if position is available (after homing)
         if position_available:
-            target_plate_x, target_plate_y = coordinate_transformer.stage_to_plate(
-                labware=labware,
-                stage_offset=settings['stage_offset'],
-                sx=x_target,
-                sy=y_target,
-            )
-            target_well = labware.get_well_index(target_plate_x, target_plate_y)
+            # Bound once, so the target and the crosshair are drawn in one
+            # frame of reference.
+            to_plate = scope.runtime_state.plate_transform()
+            target = to_plate(x_target, y_target)
+            target_well = labware.get_well_index(target.x_mm, target.y_mm)
             gui_logger.display(
-                'TARGET_WELL', labware.get_well_label(target_plate_x, target_plate_y) or None
+                'TARGET_WELL', labware.get_well_label(target.x_mm, target.y_mm) or None
             )
             if target_well is not None:
                 # Draw selected well (updates when target changes)
@@ -597,12 +583,8 @@ class Stage(Widget):
                 target_well_plate_x, target_well_plate_y = labware.get_well_position(
                     target_i, target_j
                 )
-                target_well_pixel_x, target_well_pixel_y = coordinate_transformer.plate_to_pixel(
-                    labware=labware,
-                    px=target_well_plate_x,
-                    py=target_well_plate_y,
-                    scale_x=scale_x,
-                    scale_y=scale_y,
+                target_well_pixel_x, target_well_pixel_y = _plate_to_pixel(
+                    labware, target_well_plate_x, target_well_plate_y, scale_x, scale_y
                 )
                 target_well_center_x = int(x + target_well_pixel_x)  # on screen center
                 target_well_center_y = int(y + target_well_pixel_y)  # on screen center
@@ -625,13 +607,9 @@ class Stage(Widget):
                 Clock.schedule_once(self._hide_selected_well, 0)
 
             # Draw crosshairs (updates every frame - but only 2 lines!).
-            pixel_x, pixel_y = coordinate_transformer.stage_to_pixel(
-                labware=labware,
-                stage_offset=settings['stage_offset'],
-                sx=x_current,
-                sy=y_current,
-                scale_x=scale_x,
-                scale_y=scale_y,
+            current = to_plate(x_current, y_current)
+            pixel_x, pixel_y = _plate_to_pixel(
+                labware, current.x_mm, current.y_mm, scale_x, scale_y
             )
 
             x_center = x + pixel_x

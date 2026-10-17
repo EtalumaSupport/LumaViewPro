@@ -177,9 +177,6 @@ def executor(scope, executors):
         autofocus_runner=mock_af,
         channel_colors=release_colors,
     )
-    mock_transformer = MagicMock()
-    mock_transformer.plate_to_stage = MagicMock(return_value=(0.0, 0.0))
-    exc._coordinate_transformer = mock_transformer
     return exc
 
 

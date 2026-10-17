@@ -24,6 +24,7 @@ import modules.image_utils as image_utils
 from modules.lumascope_api._constants import AxisState
 
 if TYPE_CHECKING:
+    from modules.coord_transformations import PlatePosition
     from modules.labware import WellPlate
     from modules.lumascope_api import Lumascope
 
@@ -254,7 +255,7 @@ def frame_fact(
     scope: 'Lumascope',
     *,
     channel_tiebreak: str,
-    to_plate: Callable[[float, float], tuple[float, float]] | None,
+    to_plate: Callable[[float, float], 'PlatePosition'] | None,
 ) -> FrameFact:
     """The fact for the frame arriving now; called on the camera callback.
 
@@ -272,8 +273,8 @@ def frame_fact(
             one the recording started on, or the still's shown layer -- so
             luminescence frames are named.
         to_plate: The plate transform bound when the recording started
-            (``runtime_state.plate_transform()``), or None when the scope
-            had no labware or offset then; X and Y are then unknown.
+            (``runtime_state.plate_transform()``), or None when the caller
+            states no plate position; X and Y are then unknown.
     """
     positions = scope.motion.axis_positions()
     moving = any(p.state in (AxisState.MOVING, AxisState.HOMING) for p in positions.values())
@@ -288,7 +289,8 @@ def frame_fact(
         and x.position is not None
         and y.position is not None
     ):
-        plate_x_mm, plate_y_mm = to_plate(x.position, y.position)
+        plate = to_plate(x.position, y.position)
+        plate_x_mm, plate_y_mm = plate.x_mm, plate.y_mm
     return FrameFact(
         plate_x_mm=plate_x_mm,
         plate_y_mm=plate_y_mm,

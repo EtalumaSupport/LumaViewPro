@@ -1,12 +1,11 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
-"""Coordinate transformations between stage, plate, and pixel spaces.
+"""Coordinate transformations between stage and plate spaces.
 
 Stage coordinates: um from bottom-right origin (motor units).
 Plate coordinates: mm from top-left origin (labware/well positions).
-Pixel coordinates: px from bottom-left origin (screen display).
 
-All transforms use the labware dimensions and stage_offset (um) for
+Both transforms use the labware dimensions and the stage offset (um) for
 the current plate mounting position.
 """
 
@@ -14,7 +13,6 @@ import dataclasses
 
 from modules.api_surface import api_fields
 from modules.finite_number import refuse_unless_finite_number
-from modules.request_fields import key_path, refuse_unless_kind, required
 import modules.labware as lw
 
 
@@ -27,78 +25,76 @@ class AxisLimits:
     max_um: float
 
 
-def stage_offset_axes(stage_offset: dict[str, float]) -> tuple[float, float]:
-    """The X and Y of ``stage_offset``, each a finite number of um.
+@api_fields('x_um', 'y_um')
+@dataclasses.dataclass(frozen=True)
+class StagePosition:
+    """A stage X/Y position, in um."""
 
-    A caller may hand its own offset (a run keeps the one it started
-    with), so it is read as a request: a missing or non-numeric axis would
-    otherwise convert to a ``KeyError`` or a NaN position.
+    x_um: float
+    y_um: float
 
-    Raises:
-        ArgumentRefusedError: ``'missing_key'`` or ``'not_a_number'``,
-            naming ``stage_offset['x']`` or ``stage_offset['y']``.
-    """
-    refuse_unless_kind(stage_offset, 'dict', 'stage_offset')
-    axes = []
-    for axis in ('x', 'y'):
-        value = required(stage_offset, axis, 'stage_offset')
-        refuse_unless_kind(value, 'number', key_path('stage_offset', axis))
-        axes.append(value)
-    return axes[0], axes[1]
+
+@api_fields('x_mm', 'y_mm')
+@dataclasses.dataclass(frozen=True)
+class PlatePosition:
+    """A position on a plate, in mm from the plate's top-left corner."""
+
+    x_mm: float
+    y_mm: float
+
+
+@api_fields('x_um', 'y_um')
+@dataclasses.dataclass(frozen=True)
+class StageOffset:
+    """Where the plate is mounted on the stage, in um: the offset the two conversions apply."""
+
+    x_um: float
+    y_um: float
+
+
+def offset_axes(stage_offset: StageOffset) -> tuple[float, float]:
+    """The offset's X and Y, each refused unless a finite number: a NaN would convert to a NaN position."""
+    refuse_unless_finite_number(stage_offset.x_um, 'stage_offset.x_um')
+    refuse_unless_finite_number(stage_offset.y_um, 'stage_offset.y_um')
+    return stage_offset.x_um, stage_offset.y_um
 
 
 class CoordinateTransformer:
     def stage_to_plate(
         self,
         labware: lw.WellPlate,
-        stage_offset: dict[str, float],
-        sx: float,
-        sy: float,
-    ) -> tuple[float, float]:
-        """Convert stage coordinates (um) to plate coordinates (mm).
-
-        Args:
-            labware: Labware object with get_dimensions().
-            stage_offset: {'x': float, 'y': float} in um.
-            sx, sy: Stage position in um.
-
-        Returns:
-            (px, py): Plate position in mm.
+        stage_offset: StageOffset,
+        x_um: float,
+        y_um: float,
+    ) -> PlatePosition:
+        """Convert a stage position (um) to a plate position (mm).
 
         Raises:
-            ArgumentRefusedError: ``'not_a_number'``, ``sx`` or ``sy`` is not
-                a finite number; as ``stage_offset_axes`` refuses ``stage_offset``.
+            ArgumentRefusedError: ``'not_a_number'``, ``x_um``, ``y_um`` or
+                an offset axis is not a finite number.
         """
-        for name, value in (('sx', sx), ('sy', sy)):
+        for name, value in (('x_um', x_um), ('y_um', y_um)):
             refuse_unless_finite_number(value, name)
-        offset_x, offset_y = stage_offset_axes(stage_offset)
+        offset_x, offset_y = offset_axes(stage_offset)
         dim_max = labware.get_dimensions()
 
-        px = dim_max['x'] - (offset_x + sx) / 1000
-        py = dim_max['y'] - (offset_y + sy) / 1000
-
-        return px, py
+        return PlatePosition(
+            x_mm=dim_max['x'] - (offset_x + x_um) / 1000,
+            y_mm=dim_max['y'] - (offset_y + y_um) / 1000,
+        )
 
     def plate_to_stage(
         self,
         labware: lw.WellPlate,
-        stage_offset: dict[str, float],
-        px: float,
-        py: float,
-    ) -> tuple[float, float]:
-        """Convert plate coordinates (mm) to stage coordinates (um).
-
-        Args:
-            labware: Labware object with get_dimensions().
-            stage_offset: {'x': float, 'y': float} in um.
-            px, py: Plate position in mm.
-
-        Returns:
-            (sx, sy): Stage position in um.
+        stage_offset: StageOffset,
+        x_mm: float,
+        y_mm: float,
+    ) -> StagePosition:
+        """Convert a plate position (mm) to a stage position (um).
 
         Raises:
-            ArgumentRefusedError: ``'not_a_number'``, ``px`` or ``py`` is not
-                a finite number; as ``stage_offset_axes`` refuses ``stage_offset``.
+            ArgumentRefusedError: ``'not_a_number'``, ``x_mm``, ``y_mm`` or
+                an offset axis is not a finite number.
 
         This is a pure transform and does NOT bound its input: callers
         that ENUMERATE candidate positions -- protocol validation, tile
@@ -109,63 +105,13 @@ class CoordinateTransformer:
         and refuses in this frame. A warning logged here served neither:
         the enumerators do their own checking, and no user reads it.
         """
-        for name, value in (('px', px), ('py', py)):
+        for name, value in (('x_mm', x_mm), ('y_mm', y_mm)):
             refuse_unless_finite_number(value, name)
-        offset_x, offset_y = stage_offset_axes(stage_offset)
+        offset_x, offset_y = offset_axes(stage_offset)
 
         dim_max = labware.get_dimensions()
 
-        sx = (dim_max['x'] - offset_x / 1000 - px) * 1000  # mm -> um
-        sy = (dim_max['y'] - offset_y / 1000 - py) * 1000
-
-        return sx, sy
-
-    def plate_to_pixel(
-        self,
-        labware: lw.WellPlate,
-        px: float,
-        py: float,
-        scale_x: float,
-        scale_y: float,
-    ) -> tuple[float, float]:
-        """Convert plate coordinates (mm) to pixel coordinates (px).
-
-        Args:
-            labware: Labware object with get_dimensions().
-            px, py: Plate position in mm.
-            scale_x, scale_y: Pixels per mm.
-
-        Returns:
-            (pixel_x, pixel_y): Screen position in pixels.
-        """
-        dim_max = labware.get_dimensions()
-
-        pixel_x = px * scale_x
-        pixel_y = (dim_max['y'] - py) * scale_y
-
-        return pixel_x, pixel_y
-
-    def stage_to_pixel(
-        self,
-        labware: lw.WellPlate,
-        stage_offset: dict[str, float],
-        sx: float,
-        sy: float,
-        scale_x: float,
-        scale_y: float,
-    ) -> tuple[float, float]:
-        """Convert stage coordinates (um) to pixel coordinates (px)."""
-        px, py = self.stage_to_plate(
-            labware=labware,
-            stage_offset=stage_offset,
-            sx=sx,
-            sy=sy,
+        return StagePosition(
+            x_um=(dim_max['x'] - offset_x / 1000 - x_mm) * 1000,  # mm -> um
+            y_um=(dim_max['y'] - offset_y / 1000 - y_mm) * 1000,
         )
-        pixel_x, pixel_y = self.plate_to_pixel(
-            labware=labware,
-            px=px,
-            py=py,
-            scale_x=scale_x,
-            scale_y=scale_y,
-        )
-        return pixel_x, pixel_y

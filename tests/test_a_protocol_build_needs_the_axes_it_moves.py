@@ -15,7 +15,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from modules.coord_transformations import AxisLimits
+from modules.coord_transformations import AxisLimits, StageOffset
 from modules.exceptions import ProtocolRunRefusedError
 from modules.labware_loader import WellPlateLoader
 from modules.objectives_loader import ObjectiveLoader
@@ -40,7 +40,7 @@ def _tile_2x2(proto, axis_limits):
         binning_size=1,
         axis_limits=axis_limits,
         labware=WellPlateLoader().get_plate('6 well microplate'),
-        stage_offset={'x': 0, 'y': 0},
+        stage_offset=StageOffset(x_um=0.0, y_um=0.0),
         overlap_percent=0.0,
         # Refused before the scale is read, so no real optics are needed.
         capabilities=SimpleNamespace(),

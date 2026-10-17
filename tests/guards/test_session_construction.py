@@ -347,7 +347,6 @@ class TestTheGuiTakesTheFactory:
             'autofocus_thread',
             'autofocus_runner',
             'sequenced_capture_runner',
-            'coordinate_transformer',
         }
         wrong = [
             (kw.arg, ast.unparse(kw.value))

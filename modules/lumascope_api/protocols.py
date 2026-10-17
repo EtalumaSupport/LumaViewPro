@@ -30,13 +30,13 @@ import logging
 import math
 import pathlib
 import typing
-from collections.abc import Callable, Iterable
+from collections.abc import Iterable
 from typing import TYPE_CHECKING
 
 import modules.common_utils as common_utils
 import modules.path_utils as path_utils
 from modules.finite_number import refuse_unless_finite_number
-from modules.coord_transformations import AxisLimits, CoordinateTransformer, stage_offset_axes
+from modules.coord_transformations import AxisLimits, StageOffset
 from modules.exceptions import (
     ArgumentRefusedError,
     PositionOutOfRangeError,
@@ -56,7 +56,6 @@ if TYPE_CHECKING:
     from modules.tiling_config import TilingConfig
 
 _api_log = logging.getLogger('LVP.api')
-_coordinate_transformer = CoordinateTransformer()
 
 
 @api_fields('turret_slot', 'x', 'y', 'z')
@@ -701,80 +700,6 @@ class ProtocolsAPI:
         )
         self._report_invalid_steps(protocol, solicited=True)
 
-    @api(reads=True)
-    def plate_to_stage(
-        self, protocol: Protocol, px: float, py: float, *, stage_offset: dict | None = None
-    ) -> tuple[float, float]:
-        """A plate position of ``protocol``, as stage micrometres.
-
-        Converted against the plate the PROTOCOL stores, not the one the
-        session has selected: a step is driven in the frame it was written
-        in, whatever plate the operator has since picked. ``stage_offset``
-        is the live one unless a caller supplies the snapshot it took (a
-        run keeps the offset it started with).
-
-        Raises:
-            ArgumentRefusedError: ``px`` or ``py`` is not a finite number;
-                ``stage_offset`` lacks a numeric ``'x'`` or ``'y'``.
-            CatalogueNameRefusedError: the protocol's plate is not in the
-                catalogue (``'labware_unknown'``).
-            ConfigError: no session has bound the scope, so it has no stage
-                offset.
-        """
-        if stage_offset is None:
-            stage_offset = self._scope.runtime_state.get_stage_offset()
-        return _coordinate_transformer.plate_to_stage(
-            labware=self._scope.wellplate_loader.get_plate(plate_key=protocol.labware()),
-            stage_offset=stage_offset,
-            px=px,
-            py=py,
-        )
-
-    @api(in_process=True, reads=True)
-    def plate_transform(
-        self, protocol: Protocol, *, stage_offset: dict | None
-    ) -> Callable[[float, float], tuple[float, float]] | None:
-        """The stage-to-plate transform of ``protocol``'s frame: ``plate_to_stage`` inverted.
-
-        What a run states a frame's position in: the plate the protocol
-        stores and the offset the run started with, the frame its steps
-        were driven in. The selected plate and the live offset are the
-        frame of a capture made outside a run
-        (``runtime_state.plate_transform``); a run converted through them
-        would state its positions in a frame it never moved in once the
-        operator picked another plate. Both are bound when this is called,
-        so a later change moves no position it converts, and it cannot
-        raise.
-
-        Args:
-            protocol: The protocol whose plate the positions are stated on.
-            stage_offset: The offset the run started with; None on a scope
-                with no X/Y stage, which has no plate position to state.
-
-        Returns:
-            A function of ``(sx_um, sy_um)`` answering ``(px_mm, py_mm)``,
-            or None when ``stage_offset`` is.
-
-        Raises:
-            CatalogueNameRefusedError: the protocol's plate is not in the
-                catalogue (``'labware_unknown'``).
-            ArgumentRefusedError: as ``stage_offset_axes`` refuses
-                ``stage_offset``; asked here, so the function cannot.
-        """
-        if stage_offset is None:
-            return None
-        labware = self._scope.wellplate_loader.get_plate(plate_key=protocol.labware())
-        stage_offset_axes(stage_offset)
-        stage_offset = dict(stage_offset)
-
-        def to_plate(sx: float, sy: float) -> tuple[float, float]:
-            return _coordinate_transformer.stage_to_plate(
-                labware=labware, stage_offset=stage_offset, sx=sx, sy=sy
-            )
-
-        return to_plate
-
-    @api(reads=True)
     def stage_targets(
         self,
         protocol: Protocol,
@@ -782,7 +707,7 @@ class ProtocolsAPI:
         py: float | None,
         z: float | None,
         *,
-        stage_offset: dict | None = None,
+        stage_offset: StageOffset | None = None,
     ) -> tuple[float | None, float | None, float | None]:
         """A plate position and Z of ``protocol`` as the stage targets this scope drives.
 
@@ -790,24 +715,32 @@ class ProtocolsAPI:
         steps, its return between scans and after a z-stack, a person's Go
         To Step -- so none drives an axis the scope lacks: an axis with no
         motor is None, and so are X and Y when ``px`` or ``py`` is. X and Y
-        are converted as ``plate_to_stage`` converts them.
+        are converted on the plate the PROTOCOL stores, not the one the
+        session has selected: a step is driven in the frame it was written
+        in, whatever plate the operator has since picked. ``stage_offset``
+        is the live one unless a caller supplies the one it took (a run
+        keeps the offset it started with).
 
         Returns:
             ``(x, y, z)`` in stage micrometres, each None where nothing is
             driven.
 
         Raises:
-            CatalogueNameRefusedError: as ``plate_to_stage``.
+            CatalogueNameRefusedError: the protocol's plate is not in the
+                catalogue (``'labware_unknown'``).
         """
         axes = self._scope.capabilities.axes
         x = y = None
         if 'X' in axes and 'Y' in axes and px is not None and py is not None:
-            x, y = self.plate_to_stage(protocol, px, py, stage_offset=stage_offset)
+            stage = self._scope.runtime_state.plate_to_stage(
+                px, py, labware_id=protocol.labware(), stage_offset=stage_offset
+            )
+            x, y = stage.x_um, stage.y_um
         return x, y, (z if 'Z' in axes else None)
 
     @api(reads=True)
     def step_targets(
-        self, protocol: Protocol, step_idx: int, *, stage_offset: dict | None = None
+        self, protocol: Protocol, step_idx: int, *, stage_offset: StageOffset | None = None
     ) -> StepTargets:
         """The motor targets of step ``step_idx``: the one conversion a run and a person's navigation share.
 

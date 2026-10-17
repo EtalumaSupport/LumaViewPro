@@ -65,9 +65,6 @@ class AppContext:
     autofocus_thread: object = None
     worker_pool: object = None
 
-    # Helpers
-    coordinate_transformer: object = None
-
     # UI components (set after widget tree builds in build())
     viewer: object = None  # Viewer widget (update_shader, black, white)
     scope_display: object = None  # ScopeDisplay widget

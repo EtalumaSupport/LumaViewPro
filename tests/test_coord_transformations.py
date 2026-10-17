@@ -1,42 +1,46 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""Tests for `modules/coord_transformations.py`: valid labware round-trips."""
-
-from unittest.mock import MagicMock
+"""stage_to_plate and plate_to_stage are one symmetric pair, on the selected plate or a named one."""
 
 import pytest
 
-from modules.coord_transformations import CoordinateTransformer
+from modules.coord_transformations import StageOffset
+from modules.scope_session import ScopeSession
+from tests.settings_fixtures import complete_settings
+
+STAGE = (50_000.0, 30_000.0)
 
 
-@pytest.fixture
-def transformer():
-    return CoordinateTransformer()
+@pytest.fixture(scope='module')
+def runtime_state(tmp_path_factory):
+    session = ScopeSession.create(
+        complete_settings(live_folder=str(tmp_path_factory.mktemp('live'))), simulate=True
+    )
+    try:
+        yield session.scope.runtime_state
+    finally:
+        session.shutdown()
+        session.scope.disconnect()
 
 
-@pytest.fixture
-def labware():
-    plate = MagicMock()
-    plate.get_dimensions.return_value = {'x': 127.76, 'y': 85.48}  # 96-well plate
-    return plate
+def _round_trip(runtime_state, **frame):
+    plate = runtime_state.stage_to_plate(*STAGE, **frame)
+    stage = runtime_state.plate_to_stage(plate.x_mm, plate.y_mm, **frame)
+    return plate, (stage.x_um, stage.y_um)
 
 
-@pytest.fixture
-def stage_offset():
-    return {'x': 1000.0, 'y': 1000.0}
+def test_a_stage_position_round_trips_on_the_selected_plate(runtime_state):
+    _, stage = _round_trip(runtime_state)
+    assert stage == pytest.approx(STAGE, abs=1e-6)
 
 
-class TestHappyPathStillWorks:
-    """Labware round-trips through the transforms."""
+def test_a_stage_position_round_trips_on_another_plate_and_offset(runtime_state):
+    """A protocol's own plate and a run's offset are a frame of their own:
+    the pair is stated in it, not in the selection."""
+    other = '6 well microplate'
+    assert runtime_state.get_labware().name != other
+    offset = StageOffset(x_um=1234.0, y_um=-567.0)
 
-    def test_round_trip_preserves_values(self, transformer, labware, stage_offset):
-        # stage -> plate -> stage should give back the original (within
-        # floating-point precision).
-        sx, sy = 50000.0, 30000.0
-        px, py = transformer.stage_to_plate(
-            labware=labware, stage_offset=stage_offset, sx=sx, sy=sy
-        )
-        sx2, sy2 = transformer.plate_to_stage(
-            labware=labware, stage_offset=stage_offset, px=px, py=py
-        )
-        assert abs(sx2 - sx) < 0.001
-        assert abs(sy2 - sy) < 0.001
+    plate, stage = _round_trip(runtime_state, labware_id=other, stage_offset=offset)
+
+    assert stage == pytest.approx(STAGE, abs=1e-6)
+    assert plate != runtime_state.stage_to_plate(*STAGE)

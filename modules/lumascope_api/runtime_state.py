@@ -36,7 +36,6 @@ from typing import TYPE_CHECKING
 import modules.coord_transformations as coord_transformations
 from lvp_logger import logger
 from modules.exceptions import (
-    ArgumentRefusedError,
     ConfigurationDefectError,
     ObjectiveUnknownError,
 )
@@ -46,10 +45,6 @@ if TYPE_CHECKING:
     from modules.labware import WellPlate
     from modules.lumascope_api._lumascope import Lumascope
     from modules.objectives_loader import Objective
-
-
-# The axes a plate coordinate is defined for: the plate lies in X and Y.
-_PLATE_AXES = ('X', 'Y')
 
 
 def slots_holding(objective_id: object, turret_config: dict) -> tuple[int, ...]:
@@ -241,99 +236,124 @@ class RuntimeState:
         return self._scope.read_setting('turret_objectives')
 
     @api(reads=True)
-    def get_stage_offset(self) -> dict:
+    def get_stage_offset(self) -> coord_transformations.StageOffset:
         """The stage offset for coordinate transformations, from the settings.
 
         Returns:
-            dict: The offset per axis, in um. A copy: changing it changes
-                no setting.
+            Where the plate is mounted on the stage, in um.
 
         Raises:
             ConfigError: No session has bound this scope.
         """
-        return self._scope.read_setting('stage_offset')
+        stored = self._scope.read_setting('stage_offset')
+        return coord_transformations.StageOffset(x_um=float(stored['x']), y_um=float(stored['y']))
+
+    def _frame(
+        self,
+        labware_id: str | None,
+        stage_offset: coord_transformations.StageOffset | None,
+    ) -> tuple[WellPlate, coord_transformations.StageOffset]:
+        """The plate and offset a conversion is stated in: the ones given, else the selected plate and the live offset."""
+        labware = (
+            self.get_labware()
+            if labware_id is None
+            else self._scope.wellplate_loader.get_plate(plate_key=labware_id)
+        )
+        return labware, self.get_stage_offset() if stage_offset is None else stage_offset
 
     @api(reads=True)
-    def stage_to_plate(self, sx: float, sy: float) -> tuple[float, float]:
-        """Convert a stage position (um) to plate coordinates (mm).
+    def stage_to_plate(
+        self,
+        x_um: float,
+        y_um: float,
+        *,
+        labware_id: str | None = None,
+        stage_offset: coord_transformations.StageOffset | None = None,
+    ) -> coord_transformations.PlatePosition:
+        """Convert a stage position (um) to a plate position (mm).
 
-        Uses the selected labware and stage offset -- the same
-        transform ``get_well_label`` performs before its label lookup,
-        exposed for consumers that need the coordinates themselves
-        (e.g. image metadata).
-
-        Args:
-            sx: Stage X position in um.
-            sy: Stage Y position in um.
-
-        Returns:
-            (px, py): Plate position in mm.
+        ``plate_to_stage`` inverts it. Stated on the selected plate at the
+        live stage offset unless ``labware_id`` or ``stage_offset`` names
+        another: a protocol's positions are on the plate it stores, and a
+        run keeps the offset it started with.
 
         Raises:
+            ArgumentRefusedError: ``'not_a_number'``, a coordinate or an
+                offset axis is not a finite number.
+            CatalogueNameRefusedError: ``'labware_unknown'``, ``labware_id``
+                is not a plate the catalogue has.
             ConfigError: No session has bound this scope.
         """
+        labware, offset = self._frame(labware_id, stage_offset)
         return self._coordinate_transformer.stage_to_plate(
-            labware=self.get_labware(),
-            stage_offset=self.get_stage_offset(),
-            sx=sx,
-            sy=sy,
+            labware=labware, stage_offset=offset, x_um=x_um, y_um=y_um
+        )
+
+    @api(reads=True)
+    def plate_to_stage(
+        self,
+        x_mm: float,
+        y_mm: float,
+        *,
+        labware_id: str | None = None,
+        stage_offset: coord_transformations.StageOffset | None = None,
+    ) -> coord_transformations.StagePosition:
+        """Convert a plate position (mm) to a stage position (um), as ``stage_to_plate`` inverted.
+
+        The plate and offset are ``stage_to_plate``'s. Not bounded: a
+        position off the stage's travel converts, and the move to it is
+        refused.
+
+        Raises:
+            ArgumentRefusedError: ``'not_a_number'``, a coordinate or an
+                offset axis is not a finite number.
+            CatalogueNameRefusedError: ``'labware_unknown'``, ``labware_id``
+                is not a plate the catalogue has.
+            ConfigError: No session has bound this scope.
+        """
+        labware, offset = self._frame(labware_id, stage_offset)
+        return self._coordinate_transformer.plate_to_stage(
+            labware=labware, stage_offset=offset, x_mm=x_mm, y_mm=y_mm
         )
 
     @api(in_process=True, reads=True)
-    def plate_transform(self) -> Callable[[float, float], tuple[float, float]]:
-        """The stage-to-plate transform bound to the labware and offset selected now.
+    def plate_transform(
+        self,
+        *,
+        labware_id: str | None = None,
+        stage_offset: coord_transformations.StageOffset | None = None,
+    ) -> Callable[[float, float], coord_transformations.PlatePosition]:
+        """``stage_to_plate`` bound to one plate and offset, taken when this is called.
 
-        ``stage_to_plate`` reads the selected labware and stage offset on
-        every call, so a caller converting many positions over time -- a
-        recording writing one per frame -- would record its later frames
-        against a labware or offset changed mid-way. The transform returned
-        here is bound to copies of both taken at the moment of the call, so
-        every position it converts is stated in one frame of reference, a
-        later change moves none of them, and it cannot raise.
+        ``stage_to_plate`` reads the selected plate and live offset on every
+        call, so a caller converting many positions over time -- a recording
+        writing one per frame, a run, a redraw -- would state its later ones
+        against a plate or offset changed mid-way. The function returned is
+        bound to the plate and offset of this call (the arguments are
+        ``stage_to_plate``'s), so every position it converts is stated in one
+        frame of reference and a later change moves none of them.
 
         Returns:
-            A function of ``(sx_um, sy_um)`` answering ``(px_mm, py_mm)``.
+            A function of ``(x_um, y_um)`` answering their ``PlatePosition``;
+            it raises only as the transform refuses a non-finite coordinate.
 
         Raises:
+            ArgumentRefusedError: ``'not_a_number'``, an offset axis is not a
+                finite number; asked here, so the function does not.
+            CatalogueNameRefusedError: ``'labware_unknown'``, ``labware_id``
+                is not a plate the catalogue has.
             ConfigError: No session has bound this scope.
         """
-        labware = self.get_labware()
-        stage_offset = self.get_stage_offset()
+        labware, offset = self._frame(labware_id, stage_offset)
         transformer = self._coordinate_transformer
+        coord_transformations.offset_axes(offset)
 
-        def to_plate(sx: float, sy: float) -> tuple[float, float]:
+        def to_plate(x_um: float, y_um: float) -> coord_transformations.PlatePosition:
             return transformer.stage_to_plate(
-                labware=labware, stage_offset=stage_offset, sx=sx, sy=sy
+                labware=labware, stage_offset=offset, x_um=x_um, y_um=y_um
             )
 
         return to_plate
-
-    @api(reads=True)
-    def plate_to_stage_axis(self, axis: str, plate_mm: float) -> float:
-        """Convert one axis of a plate coordinate (mm) to a stage target (um).
-
-        The completing half of ``stage_to_plate``. Per-axis because the
-        callers that need it are commanding a single axis, and because
-        each stage coordinate depends only on its own plate coordinate --
-        so the unused argument below is inert, not a placeholder standing
-        in for a value the caller should have supplied.
-
-        Raises:
-            ArgumentRefusedError: ``'plate_frame_axis'``, ``axis`` is not
-                'X' or 'Y'.
-        """
-        if axis not in _PLATE_AXES:
-            raise ArgumentRefusedError(
-                'plate_frame_axis', argument='axis', value=axis, offered=_PLATE_AXES
-            )
-
-        sx, sy = self._coordinate_transformer.plate_to_stage(
-            labware=self.get_labware(),
-            stage_offset=self.get_stage_offset(),
-            px=plate_mm if axis == 'X' else 0,
-            py=plate_mm if axis == 'Y' else 0,
-        )
-        return sx if axis == 'X' else sy
 
     @api(reads=True)
     def get_well_label(self) -> str | None:
@@ -370,6 +390,6 @@ class RuntimeState:
         if 'X' not in targets or 'Y' not in targets:
             return None
 
-        x_target, y_target = self.stage_to_plate(sx=targets['X'], sy=targets['Y'])
+        target = self.stage_to_plate(targets['X'], targets['Y'])
 
-        return labware.get_well_label(x=x_target, y=y_target)
+        return labware.get_well_label(x=target.x_mm, y=target.y_mm)

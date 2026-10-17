@@ -1084,7 +1084,6 @@ class LumaViewProApp(TooltipMixin, App):
             autofocus_thread=scope_session.autofocus_thread,
             scope_display_thread=scope_session.executor_bundle.scope_display_thread,
             worker_pool=scope_session.executor_bundle.worker_pool,
-            coordinate_transformer=scope_session.coordinate_transformer,
             stage=stage,
             cell_count_content=cell_count_content,
             graphing_controls=graphing_controls,

@@ -12,6 +12,7 @@ from kivy.uix.scatter import Scatter
 import modules.app_context as _app_ctx
 import modules.config_ui_getters as config_ui_getters
 from modules import gui_logger
+from modules.coord_transformations import PlatePosition
 from modules.layer_record import Color, format_display_color
 from ui.ui_helpers import fixed_number, run_unasked
 
@@ -76,7 +77,7 @@ def frame_rate_title(capture_fps: float, display_fps: float, *, engineering: boo
     return f'Capture: {capture} | Display: {display} FPS'
 
 
-def cursor_title(pixel: tuple[int, int] | None, plate: tuple[float, float] | None) -> str:
+def cursor_title(pixel: tuple[int, int] | None, plate: PlatePosition | None) -> str:
     """The status line's cursor part: empty off the image.
 
     ``pixel`` is the sensor pixel under the cursor, None off the image;
@@ -91,7 +92,7 @@ def cursor_title(pixel: tuple[int, int] | None, plate: tuple[float, float] | Non
         f'{fixed_number(py, whole_digits=4, decimals=0)})'
     )
     if plate is not None:
-        sx, sy = plate
+        sx, sy = plate.x_mm, plate.y_mm
         text += (
             f' | Plate: ({fixed_number(sx, whole_digits=3, decimals=2, signed=True)}, '
             f'{fixed_number(sy, whole_digits=3, decimals=2, signed=True)}) mm'
@@ -339,7 +340,6 @@ void main (void) {
             pixel = plate = None
             if self._mouse_over_image:
                 pixel = (self._mouse_pixel_x, self._mouse_pixel_y)
-                from modules.config_ui_getters import get_selected_labware
 
                 # The plate (um) readout converts a cursor offset into a
                 # stage distance; it needs a connected XY stage, a known
@@ -365,12 +365,8 @@ void main (void) {
                         dx_um = (self._mouse_pixel_x - frame_w / 2) * pixel_size_um
                         dy_um = (self._mouse_pixel_y - frame_h / 2) * pixel_size_um
                         pos = ctx.lumaview.scope.motion.get_current_positions()
-                        _, labware = get_selected_labware()
-                        plate = ctx.coordinate_transformer.stage_to_plate(
-                            labware=labware,
-                            stage_offset=ctx.settings['stage_offset'],
-                            sx=pos['X'] + dx_um,
-                            sy=pos['Y'] - dy_um,
+                        plate = ctx.lumaview.scope.runtime_state.stage_to_plate(
+                            pos['X'] + dx_um, pos['Y'] - dy_um
                         )
             self.status_text = status + cursor_title(pixel, plate)
 

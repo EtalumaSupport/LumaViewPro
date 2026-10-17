@@ -47,6 +47,7 @@ from modules.common_utils import (
 import modules.image_save as image_save
 import modules.image_utils as image_utils
 import modules.layer_record as layer_record
+from modules.coord_transformations import PlatePosition
 from modules.exceptions import (
     CaptureFailedError,
     FrameListenerNotRegisteredError,
@@ -125,10 +126,11 @@ class ProtocolVideoStep:
             recording acts under it, and the step's end leaves it held:
             the run releases its claim at run end, never per step.
         to_plate: The run's stage-to-plate transform
-            (``protocols.plate_transform``): the protocol's plate and the
+            (``runtime_state.plate_transform``): the protocol's plate and the
             offset the run started with, bound at run start, so every frame
-            states its position in the frame the run moved in. None on a
-            scope with no X/Y stage, whose frames state no plate position.
+            states its position in the frame the run moved in. A scope with
+            no X/Y stage has no X/Y position to convert, so its frames state
+            no plate position.
         clock: Wall-time source (seconds) for what is measured against
             frame timestamps: the engine's cadence and the camera tick
             rebaser. Tests drive it.
@@ -160,7 +162,7 @@ class ProtocolVideoStep:
         record_step_row: Callable[..., None],
         record_dropped_capture: Callable[..., None],
         run_claim: BorrowedClaim,
-        to_plate: Callable[[float, float], tuple[float, float]] | None,
+        to_plate: Callable[[float, float], PlatePosition] | None,
         clock: Callable[[], float] = time.time,
         elapsed_clock: Callable[[], float] = time.monotonic,
     ):

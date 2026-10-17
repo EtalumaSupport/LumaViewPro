@@ -2,7 +2,7 @@
 """An argument a member cannot use is refused at the member, as the request it is.
 
 Each member here read its argument where it was first used: a stage offset
-with no ``'x'`` raised ``KeyError``, auto-gain settings with no target were
+with a NaN axis converted to a NaN position, auto-gain settings with no target were
 reported as the camera's rejection of a change it was never sent, a binning
 of 0 divided by zero, and a diagnostic's duration of 10^12 s overflowed the
 camera lane's wait. Each is now refused before the member acts, with the
@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import pytest
 
+from modules.coord_transformations import StageOffset
 from modules.exceptions import ArgumentRefusedError, CameraSettingUnsupportedError
 from modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
@@ -33,6 +34,9 @@ def session(tmp_path):
     s.shutdown()
 
 
+_NAN_OFFSET = StageOffset(x_um=float('nan'), y_um=0.0)
+
+
 def _rows(session):
     """Each member and argument, by the refusal and reason it answers."""
     scope = session.scope
@@ -40,30 +44,22 @@ def _rows(session):
     diagnostics = scope.diagnostics
     return [
         (
-            'plate_to_stage, no x',
-            ArgumentRefusedError,
-            'missing_key',
-            lambda: scope.protocols.plate_to_stage(protocol, 1.0, 1.0, stage_offset={'y': 0}),
-        ),
-        (
-            'plate_to_stage, NaN x',
+            'plate_to_stage, NaN offset x',
             ArgumentRefusedError,
             'not_a_number',
-            lambda: scope.protocols.plate_to_stage(
-                protocol, 1.0, 1.0, stage_offset={'x': float('nan'), 'y': 0}
-            ),
+            lambda: scope.runtime_state.plate_to_stage(1.0, 1.0, stage_offset=_NAN_OFFSET),
         ),
         (
-            'step_targets, empty offset',
+            'step_targets, NaN offset x',
             ArgumentRefusedError,
-            'missing_key',
-            lambda: scope.protocols.step_targets(protocol, 0, stage_offset={}),
+            'not_a_number',
+            lambda: scope.protocols.step_targets(protocol, 0, stage_offset=_NAN_OFFSET),
         ),
         (
-            'plate_transform, empty offset',
+            'plate_transform, NaN offset x',
             ArgumentRefusedError,
-            'missing_key',
-            lambda: scope.protocols.plate_transform(protocol, stage_offset={}),
+            'not_a_number',
+            lambda: scope.runtime_state.plate_transform(stage_offset=_NAN_OFFSET),
         ),
         (
             'set_auto_gain, no target',

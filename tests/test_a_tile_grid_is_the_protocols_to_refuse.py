@@ -19,6 +19,7 @@ from unittest.mock import patch
 import pandas as pd
 import pytest
 
+from modules.coord_transformations import StageOffset
 from modules.exceptions import ProtocolRunRefusedError, RefusalCause
 from modules.labware_loader import WellPlateLoader
 from modules.objectives_loader import ObjectiveLoader
@@ -40,7 +41,7 @@ def _tile(proto, capabilities, tiling, *, frame_dimensions=None):
         binning_size=1,
         axis_limits=_WIDE_XY,
         labware=WellPlateLoader().get_plate('6 well microplate'),
-        stage_offset={'x': 0, 'y': 0},
+        stage_offset=StageOffset(x_um=0.0, y_um=0.0),
         overlap_percent=0.0,
         capabilities=capabilities,
         objective_helper=ObjectiveLoader(),

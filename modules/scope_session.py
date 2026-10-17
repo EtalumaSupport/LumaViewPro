@@ -400,11 +400,6 @@ class ScopeSession:
         # The reasons a save was withheld that the session has told,
         # so each is said once (_save_settings_file).
         self._unsaved_told: set[str] = set()
-        from modules import coord_transformations
-
-        # Stateless: several instances are not several stores, so the
-        # session keeps its own for the plate<->stage conversions it serves.
-        self.coordinate_transformer = coord_transformations.CoordinateTransformer()
         # The one store for engineering mode. Set from what the host was
         # built in; the engineering plugin turns it on when it loads.
         # no_engineering is the host's word that the engineering plugin is
@@ -4207,13 +4202,7 @@ class ScopeSession:
         """
         import modules.config_helpers as config_helpers
 
-        return config_helpers.get_current_plate_position(
-            self.scope,
-            self.settings,
-            self.coordinate_transformer,
-            self.wellplate_loader,
-            labware_id,
-        )
+        return config_helpers.get_current_plate_position(self.scope, labware_id)
 
     # ------------------------------------------------------------------
     # The camera's capture settings: applied, then stored

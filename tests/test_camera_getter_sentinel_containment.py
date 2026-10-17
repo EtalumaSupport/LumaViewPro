@@ -37,6 +37,7 @@ import pytest
 
 from tests.protocol_drives import lent_run_claim
 from tests.frame_records import frame_record, plate, unpositioned
+from modules.coord_transformations import PlatePosition, StageOffset
 from modules.protocol_image_writer import RunWriteBatch
 from drivers.camera import Camera
 from modules import layer_record
@@ -537,8 +538,8 @@ def _metadata_scope_with_real_imaging(imaging: ImagingAPI, driver) -> SimpleName
         # The metadata stamps the objective the frame was taken with, by id.
         get_current_objective_id=lambda: '4x Oly',
         get_labware=lambda: labware,
-        get_stage_offset=lambda: {'x': 0, 'y': 0},
-        stage_to_plate=lambda **kwargs: (1.0, 2.0),
+        get_stage_offset=lambda: StageOffset(x_um=0.0, y_um=0.0),
+        stage_to_plate=lambda *args, **kwargs: PlatePosition(x_mm=1.0, y_mm=2.0),
         get_well_label=lambda: 'A1',
     )
     return SimpleNamespace(

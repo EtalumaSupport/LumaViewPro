@@ -45,7 +45,7 @@ from modules.api_surface import FilePath, api, api_fields
 
 if TYPE_CHECKING:
     import modules.labware as labware_module
-    from modules.coord_transformations import AxisLimits
+    from modules.coord_transformations import AxisLimits, StageOffset
     from modules.objectives_loader import Objective, ObjectiveLoader
     from modules.scope_capabilities import ScopeCapabilities
 
@@ -308,7 +308,7 @@ def axes_outside_travel(
     axis_limits: 'Mapping[str, AxisLimits]',
     *,
     labware: 'labware_module.WellPlate | None' = None,
-    stage_offset: dict | None = None,
+    stage_offset: 'StageOffset | None' = None,
 ) -> list[str]:
     """The axes on which one position lies outside the stage's travel.
 
@@ -321,7 +321,7 @@ def axes_outside_travel(
         axis_limits: Axis name to its travel in stage micrometres. Only
             the axes present in both this and *position* are judged.
         labware: The plate X/Y are measured on; required when X or Y is judged.
-        stage_offset: ``{'x', 'y'}`` in micrometres; required when X or Y is
+        stage_offset: Where the plate is mounted; required when X or Y is
             judged.
 
     Returns:
@@ -331,12 +331,13 @@ def axes_outside_travel(
     if 'Z' in position:
         stage['Z'] = float(position['Z'])
     if ({'X', 'Y'} & set(axis_limits)) and {'X', 'Y'} <= set(position):
-        stage['X'], stage['Y'] = coordinate_transformer.plate_to_stage(
+        converted = coordinate_transformer.plate_to_stage(
             labware=labware,
             stage_offset=stage_offset,
-            px=float(position['X']),
-            py=float(position['Y']),
+            x_mm=float(position['X']),
+            y_mm=float(position['Y']),
         )
+        stage['X'], stage['Y'] = converted.x_um, converted.y_um
     return [
         axis
         for axis in ('X', 'Y', 'Z')
@@ -2136,7 +2137,7 @@ class Protocol:
         binning_size: int,
         axis_limits: 'Mapping[str, AxisLimits]',
         labware: 'labware_module.WellPlate',
-        stage_offset: dict,
+        stage_offset: 'StageOffset',
         overlap_percent: float = 0.0,
         *,
         capabilities: 'ScopeCapabilities',

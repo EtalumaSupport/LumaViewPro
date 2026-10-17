@@ -17,6 +17,7 @@ slot is the same width class whatever the value.
 
 import pytest
 
+from modules.coord_transformations import PlatePosition
 from ui.shader import cursor_title, frame_rate_title
 from ui.ui_helpers import FIGURE_SPACE, MINUS, fixed_number
 
@@ -57,10 +58,10 @@ class TestTheStatusLineHoldsItsWidth:
 
     def test_the_cursor_part_holds_its_width_over_the_image(self):
         positions = [
-            ((0, 0), (0.0, 0.0)),
-            ((87, 5), (-0.5, 3.0)),
-            ((1203, 1877), (-12.34, 127.76)),
-            ((3839, 3839), (-999.99, 999.99)),
+            ((0, 0), PlatePosition(x_mm=0.0, y_mm=0.0)),
+            ((87, 5), PlatePosition(x_mm=-0.5, y_mm=3.0)),
+            ((1203, 1877), PlatePosition(x_mm=-12.34, y_mm=127.76)),
+            ((3839, 3839), PlatePosition(x_mm=-999.99, y_mm=999.99)),
         ]
         _one_width([cursor_title(pixel, plate) for pixel, plate in positions])
 

@@ -29,7 +29,7 @@ import pandas as pd
 import pytest
 
 from modules.common_utils import PostFunction, build_step_name, recover_step_label, step_components
-from modules.coord_transformations import AxisLimits
+from modules.coord_transformations import AxisLimits, StageOffset
 from modules.exceptions import ProtocolError
 from modules.protocol import Protocol, ProtocolFormatError
 from modules.protocol_post_record import ProtocolPostRecord
@@ -235,7 +235,7 @@ def test_tiling_children_keep_parent_label(scale_capabilities):
         binning_size=1,
         axis_limits=axis_limits,
         labware=labware,
-        stage_offset={'x': 0, 'y': 0},
+        stage_offset=StageOffset(x_um=0.0, y_um=0.0),
         overlap_percent=0.0,
         capabilities=scale_capabilities,
         objective_helper=ObjectiveLoader(),

@@ -17,6 +17,7 @@ import numpy as np
 import pytest
 import tifffile as tf
 
+from modules.coord_transformations import PlatePosition, StageOffset
 from modules.image_save import write_video_frame
 from modules.lumascope_api import AxisPosition, AxisState
 from modules.lumascope_api.illumination import LedReading, LedState
@@ -43,8 +44,8 @@ def _fake_scope(positions, lit=None):
     )
 
 
-def _to_plate(sx, sy):
-    return sx / 1000.0 + 0.5, sy / 1000.0 + 0.5
+def _to_plate(x_um, y_um):
+    return PlatePosition(x_mm=x_um / 1000.0 + 0.5, y_mm=y_um / 1000.0 + 0.5)
 
 
 class TestTheFactRidesWithItsFrame:
@@ -226,13 +227,12 @@ class TestTheBoundPlateTransform:
         settings['protocol.labware'] = 'narrow'
         settings['stage_offset']['x'] = 5000.0
         assert to_plate(1000.0, 2000.0) == before
-        assert before == (99.0, 48.0)
+        assert before == PlatePosition(x_mm=99.0, y_mm=48.0)
 
     def test_a_runs_transform_is_its_protocols_plate_and_the_offset_it_started_with(self):
         """A run states its frames in the frame its steps were driven in:
         the protocol's plate, whatever the scope has selected, and the
         offset the run started with, whatever is edited later."""
-        from modules.lumascope_api.protocols import ProtocolsAPI
         from tests.test_run_refusal_contract import _make_single_step_protocol
 
         protocol = _make_single_step_protocol()
@@ -240,22 +240,19 @@ class TestTheBoundPlateTransform:
             protocol.labware(): SimpleNamespace(get_dimensions=lambda: {'x': 100.0, 'y': 50.0}),
             'narrow': SimpleNamespace(get_dimensions=lambda: {'x': 10.0, 'y': 5.0}),
         }
-        scope = SimpleNamespace(
-            wellplate_loader=SimpleNamespace(get_plate=lambda plate_key: plates[plate_key]),
-            # The selected plate: never read for a run's frames.
-            read_setting=lambda path: 'narrow',
+        settings = {'protocol.labware': 'narrow', 'stage_offset': {'x': 5000.0, 'y': 0.0}}
+        state = RuntimeState(
+            SimpleNamespace(
+                read_setting=lambda path: copy.deepcopy(settings[path]),
+                wellplate_loader=SimpleNamespace(get_plate=lambda plate_key: plates[plate_key]),
+            )
         )
-        offset = {'x': 0.0, 'y': 0.0}
-        to_plate = ProtocolsAPI(scope).plate_transform(protocol, stage_offset=offset)
-        offset['x'] = 5000.0
-        assert to_plate(1000.0, 2000.0) == (99.0, 48.0)
-
-    def test_a_scope_with_no_offset_has_no_plate_position_to_state(self):
-        from modules.lumascope_api.protocols import ProtocolsAPI
-        from tests.test_run_refusal_contract import _make_single_step_protocol
-
-        protocol = _make_single_step_protocol()
-        assert ProtocolsAPI(SimpleNamespace()).plate_transform(protocol, stage_offset=None) is None
+        # The selected plate and the live offset are never read for a
+        # run's frames.
+        to_plate = state.plate_transform(
+            labware_id=protocol.labware(), stage_offset=StageOffset(x_um=0.0, y_um=0.0)
+        )
+        assert to_plate(1000.0, 2000.0) == PlatePosition(x_mm=99.0, y_mm=48.0)
 
 
 def _engine(writer, clock):

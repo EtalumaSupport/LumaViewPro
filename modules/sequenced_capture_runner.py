@@ -37,6 +37,7 @@ from modules.activity_claim import (
 )
 from modules.autofocus_runner import AutofocusRunner
 from modules.layer_record import ChannelColors
+from modules.coord_transformations import StageOffset
 from modules.exceptions import (
     CameraSettingRejected,
     CompositeFailedError,
@@ -276,9 +277,7 @@ class RunPlan:
     video_as_frames: bool
     keep_led_between_steps: bool
     return_to_position: dict | None
-    # None only on a scope never initialized, which the run gate admits only
-    # when it has no X/Y stage to convert plate positions for.
-    stage_offset: dict | None
+    stage_offset: StageOffset
     # The per-class AG/AE exposure ceilings ({'fluorescence': 200.0, ...}),
     # read from the scope's settings at prepare as the offset is, so no
     # caller can leave them out.
@@ -353,7 +352,7 @@ class SequencedCaptureRunner:
         # scope's, read where a run needs a plate.
         # The offset a run converts plate positions with; prepare() snapshots
         # the scope's into the RunPlan, and start() sets it from there.
-        self._stage_offset: dict | None = None
+        self._stage_offset: StageOffset | None = None
         self.protocol_thread = protocol_thread
         self.file_io_executor = file_io_executor
         # The last run's write batch: created with each run and kept until
@@ -1221,7 +1220,7 @@ class SequencedCaptureRunner:
         # one the gate judges X/Y with, snapshotted so the run converts with
         # the offset it was admitted at.
         self._scope.protocols.refuse_positions_outside_travel(protocol.steps(), protocol.labware())
-        stage_offset = copy.deepcopy(self._scope.runtime_state.get_stage_offset())
+        stage_offset = self._scope.runtime_state.get_stage_offset()
         ag_ae_max_exposure_ms = self._scope.read_setting('ag_ae_max_exposure_ms')
 
         # The last gate, and the only one about where the run SAVES rather
@@ -1599,8 +1598,8 @@ class SequencedCaptureRunner:
                 channel_colors=self._channel_colors,
                 run_claim=self._held_claim.lend(),
                 labware=self._scope.wellplate_loader.get_plate(plate_key=self._protocol.labware()),
-                to_plate=self._scope.protocols.plate_transform(
-                    self._protocol, stage_offset=self._stage_offset
+                to_plate=self._scope.runtime_state.plate_transform(
+                    labware_id=self._protocol.labware(), stage_offset=self._stage_offset
                 ),
                 captures_asked=(
                     plan.n_scans * self._protocol.num_steps()

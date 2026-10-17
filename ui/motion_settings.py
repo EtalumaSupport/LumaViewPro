@@ -7,7 +7,6 @@ from kivy.uix.boxlayout import BoxLayout
 
 import modules.app_context as _app_ctx
 from modules import gui_logger
-from modules.config_ui_getters import get_selected_labware
 from modules.debounce import debounce
 from ui.image_settings import AccordionItemXyStageControl
 from ui.ui_helpers import (
@@ -257,13 +256,9 @@ class XYStageControl(BoxLayout):
             x_target = result[0]
             y_target = result[1]
 
-            # Convert from plate position to stage position
-            _, labware = get_selected_labware()
-            settings = ctx.settings
-            coordinate_transformer = ctx.coordinate_transformer
-            plate_x, plate_y = coordinate_transformer.stage_to_plate(
-                labware=labware, stage_offset=settings['stage_offset'], sx=x_target, sy=y_target
-            )
+            # The stage targets as plate positions on the selected plate.
+            plate = ctx.lumaview.scope.runtime_state.stage_to_plate(x_target, y_target)
+            plate_x, plate_y = plate.x_mm, plate.y_mm
 
             if not self.ids['x_pos_id'].focus:
                 # Cache text to prevent redundant ScrollView updates

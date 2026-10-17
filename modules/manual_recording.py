@@ -45,6 +45,7 @@ from modules.common_utils import (
     check_disk_space_ok,
     resolve_channel_identity,
 )
+from modules.coord_transformations import PlatePosition
 from modules.config_helpers import (
     get_image_capture_config_from_settings,
     get_manual_video_max_duration,
@@ -1039,6 +1040,6 @@ class _RecordingPlan:
     # that disagree about their own scale.
     pixel_size_um: float | None
     # The plate transform bound at start(), so every frame is stated in the
-    # frame of reference the recording began in; None when the scope had
-    # no labware or offset then, and frames record no plate position.
-    to_plate: Callable[[float, float], tuple[float, float]] | None
+    # frame of reference the recording began in; None when the recording
+    # saves no frame files, and frames record no plate position.
+    to_plate: Callable[[float, float], PlatePosition] | None
