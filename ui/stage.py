@@ -2,8 +2,6 @@
 import logging
 from functools import partial
 
-import numpy as np
-
 from kivy.clock import Clock
 from kivy.graphics import Color, Line, Rectangle, Ellipse, Fbo
 from kivy.uix.widget import Widget
@@ -492,10 +490,11 @@ class Stage(Widget):
             # Position cache auto-refreshes on first read if stale (>80ms)
             x_target = scope.motion.get_target_position('X')
             y_target = scope.motion.get_target_position('Y')
-            x_max, y_max = self._stage_limits_um()
-            x_current = np.clip(scope.motion.get_current_position('X'), 0, x_max)
-            y_current = np.clip(scope.motion.get_current_position('Y'), 0, y_max)
-            position_available = True
+            x_current = scope.motion.get_current_position('X')
+            y_current = scope.motion.get_current_position('Y')
+            # Each read answers for itself: the close can install the null
+            # board after has_homed() answered, and its reads answer None.
+            position_available = None not in (x_target, y_target, x_current, y_current)
         gui_logger.display('STAGE_POSITION_SHOWN', position_available)
 
         if not position_available:

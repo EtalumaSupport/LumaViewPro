@@ -75,15 +75,6 @@ def test_writer_updates_an_unfocused_box(control, name, call):
     assert control.ids['z_position_id'].text == '3774.00'
 
 
-def test_negative_readback_is_floored_not_shown_negative(control):
-    """The box has never shown a negative Z; the floor lives in one place now."""
-    control.ids['z_position_id'].focus = False
-
-    control._write_z_text(-5.0)
-
-    assert control.ids['z_position_id'].text == '0.00'
-
-
 def test_redundant_write_leaves_the_text_object_alone(control):
     """Rewriting the same string would churn the enclosing ScrollView."""
     box = control.ids['z_position_id']

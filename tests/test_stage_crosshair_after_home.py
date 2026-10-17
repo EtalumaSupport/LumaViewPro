@@ -50,7 +50,6 @@ def stage_and_motion(monkeypatch):
     monkeypatch.setattr(stage_module, 'get_selected_labware', _refuse_to_draw)
     stage = Stage.__new__(Stage)
     stage._protocol_step_redraw = False
-    stage._stage_limits_um = lambda: (1e9, 1e9)
     # The crosshair was last drawn at the centre.
     stage._prev_x_target, stage._prev_y_target = CENTRE
     stage._prev_x_current, stage._prev_y_current = CENTRE
@@ -70,3 +69,80 @@ def test_after_the_position_was_unknown_the_same_position_is_drawn(stage_and_mot
     motion.homed = True  # the home ended where the crosshair was last drawn
     with pytest.raises(_DrawnError):
         stage.draw_labware_io_calculations()
+
+
+class _Plate:
+    def __init__(self):
+        self.config = {'spacing': {'x': 9, 'y': 9}, 'diameter': 6}
+
+    def get_dimensions(self):
+        return {'x': 127.76, 'y': 85.48}
+
+
+def test_a_homed_stage_whose_position_the_api_no_longer_answers_draws_none(
+    stage_and_motion, monkeypatch
+):
+    """The close swaps in the null board between the redraw's has_homed() and
+    its position reads: the reads answer None, and the whole redraw runs,
+    hiding the crosshair, rather than raising on the Kivy clock."""
+    from modules.coord_transformations import CoordinateTransformer
+
+    stage, motion = stage_and_motion
+    motion.get_target_position = lambda axis: None
+    motion.get_current_position = lambda axis: None
+    monkeypatch.setattr(stage_module, 'get_selected_labware', lambda: ('plate', _Plate()))
+    monkeypatch.setattr(stage_module, 'Clock', SimpleNamespace(schedule_once=lambda *a, **k: None))
+    _app_ctx.ctx.coordinate_transformer = CoordinateTransformer()
+    _app_ctx.ctx.settings = {'stage_offset': {'x': 0, 'y': 0}}
+    stage._cached_labware_name = 'plate'
+    stage.width = stage.height = 100
+    stage.x = stage.y = 0
+
+    stage.draw_labware_io_calculations()
+
+
+def test_the_crosshair_is_gated_on_the_scopes_xy_capability():
+    """The plate graphic shows no crosshair on a scope with no XY stage --
+    there is no live XY position to indicate (#710). What this pins is where
+    the gate's truth comes from: the driver capability, read live. A gate fed
+    from a copy is how a scope-model change once put a crosshair on a
+    stage-less scope."""
+    import ast
+
+    from tests.ast_seams import parse_module
+
+    tree = parse_module('ui/stage.py')
+    # The crosshair sits inside an outer `if position_available:`, so every
+    # enclosing If also contains the body markers -- collect them all and
+    # require that ONE of the nested gates is the capability check.
+    gates = [
+        ast.unparse(node.test)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.If)
+        and '_crosshair_h_line' in '\n'.join(ast.unparse(s) for s in node.body)
+        and 'h_line_points' in '\n'.join(ast.unparse(s) for s in node.body)
+    ]
+    assert gates, 'the per-frame crosshair update is no longer a gated If'
+    # The gate may sit where the position is first decided available.
+    gates += [
+        ast.unparse(node.test)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.If)
+        and any(
+            isinstance(s, ast.Assign) and ast.unparse(s.targets[0]) == 'position_available'
+            for s in node.body
+        )
+    ]
+    assert any('_xy_stage_present()' in gate for gate in gates), (
+        f'the crosshair gate must derive from the scope XY capability; found {gates!r}'
+    )
+
+    helper = next(
+        n
+        for n in ast.walk(tree)
+        if isinstance(n, ast.FunctionDef) and n.name == '_xy_stage_present'
+    )
+    assert 'capabilities.has_xy_stage' in ast.unparse(helper), (
+        '_xy_stage_present must read the capability off the live scope, so a '
+        'reconnect onto different hardware cannot leave a stale answer behind'
+    )

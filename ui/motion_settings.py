@@ -1,7 +1,6 @@
 # Copyright Etaluma, Inc.
 import logging
 
-import numpy as np
 from kivy.clock import Clock
 from kivy.metrics import dp
 from kivy.uix.boxlayout import BoxLayout
@@ -250,8 +249,6 @@ class XYStageControl(BoxLayout):
         # target to show; a position listener can still tick here then.
         if x_target is None or y_target is None:
             return None
-        x_target = np.clip(x_target, 0, scope.motion.get_axis_limits('X')['max'])
-        y_target = np.clip(y_target, 0, scope.motion.get_axis_limits('Y')['max'])
         return (x_target, y_target)
 
     def get_targets_ui_callback(self, result=None, exception=None):

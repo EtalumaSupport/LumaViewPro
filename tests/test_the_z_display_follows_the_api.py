@@ -79,6 +79,17 @@ def test_no_target_leaves_the_slider_where_it_is(control):
     assert control.ids['obj_position'].value == 900.0
 
 
+def test_the_display_shows_the_apis_z_as_it_answers_it(control):
+    """No floor: a negative target or reading is shown as the API gives it,
+    never as a plausible 0."""
+    control.target['Z'] = -3.5
+
+    control.show_z(-2.0)
+
+    assert control.ids['obj_position'].value == -3.5
+    assert control.ids['z_position_id'].text == '-2.00'
+
+
 def test_a_run_does_not_silence_the_z_display(control, monkeypatch):
     # The run gate dropped every engine Z update; the display now has none.
     _app_ctx.ctx.session = SimpleNamespace(run_in_progress=True)

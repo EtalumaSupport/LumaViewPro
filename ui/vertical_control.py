@@ -82,7 +82,7 @@ class VerticalControl(BoxLayout):
             return
         # The figures are a readout; whether the API knows Z is the change.
         gui_logger.display('Z_POSITION_KNOWN', pos is not None)
-        new_text = '--' if pos is None else format(max(0, pos), '.2f')
+        new_text = '--' if pos is None else format(pos, '.2f')
         # Cache text to prevent redundant ScrollView updates
         if box.text != new_text:
             box.text = new_text
@@ -103,7 +103,7 @@ class VerticalControl(BoxLayout):
         matching XY behavior. Without this, the text shows current
         position during motion then snaps to target -- confusing.
         """
-        self.ids['obj_position'].value = max(0, pos)
+        self.ids['obj_position'].value = pos
         self._write_z_text(pos)
 
     def show_z(self, polled):
@@ -121,7 +121,7 @@ class VerticalControl(BoxLayout):
         slider = self.ids['obj_position']
         target = _app_ctx.ctx.lumaview.scope.motion.get_target_position('Z')
         if target is not None and not slider.user_interacting:
-            slider.value = max(0, target)
+            slider.value = target
         self._write_z_text(polled)
 
     def _z_jog(self, direction: int, coarse: bool, overshoot_enabled: bool = False):
