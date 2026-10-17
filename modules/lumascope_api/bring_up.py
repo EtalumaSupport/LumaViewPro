@@ -38,6 +38,7 @@ CAUSE_PHRASES = {
     'camera_not_detected': 'not detected',
     'camera_not_initialized': 'not initialized',
     'safety_off_failed': 'safety LEDs-off not confirmed',
+    'stream_not_started': 'stream did not start',
 }
 
 
@@ -53,8 +54,10 @@ class PartStatus:
             motor board, so its absence is not a failure; until the model is
             known every part is expected.
         cause: Why it is not up, as a code from ``CAUSE_PHRASES``; or, on a
-            part that is up, a problem it reported while connecting (the LED
-            board's safety LEDs-off not confirmed). None when nothing is wrong.
+            part that is up, a problem it met coming up (the LED board's
+            safety LEDs-off not confirmed; the camera's stream that did not
+            start, which a later start that succeeds does not clear). None
+            when nothing is wrong.
         detail: The driver's or the error's own words, for the log and the
             record; empty when there are none.
     """

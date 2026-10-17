@@ -29,6 +29,7 @@ except ImportError as _fx2_exc:
     # line a Classic scope's missing camera has no named cause anywhere.
     logger.warning(f'[SCOPE API ] FX2 (Classic) drivers unavailable: {_fx2_exc}')
 from drivers.camera import Camera
+from drivers.exceptions import HardwareError
 
 # Registration-only imports: loading each driver module fires its
 # @*_registry.register(...) decorator so the registry can instantiate it
@@ -994,7 +995,10 @@ class Lumascope:
         for the active layer.
 
         Ends by releasing the camera start gate, so the live feed starts
-        once the capture pixel format is on the camera.
+        once the capture pixel format is on the camera. A start that fails
+        is recorded on the camera's part (cause ``'stream_not_started'``)
+        and reported once; the scope is initialized all the same, its camera
+        connected and not streaming.
 
         Args:
             config: ScopeInitConfig instance with all scope-level settings.
@@ -1167,7 +1171,18 @@ class Lumascope:
             self.motion._set_acceleration_limit_impl(val_pct=config.acceleration_pct)
         # Last: the one-time release of the camera start gate, once the
         # capture pixel format above has been applied with the gate closed.
-        self.imaging._enable_streaming_impl()
+        # A start that fails is what bring-up found about the camera, kept
+        # on its part as a connect failure is.
+        try:
+            self.imaging._enable_streaming_impl()
+        except HardwareError as fault:
+            self._camera_failure = fault
+            self._bring_up_parts[CAMERA] = dataclasses.replace(
+                self._bring_up_parts[CAMERA],
+                cause='stream_not_started',
+                detail=f'{type(fault).__name__}: {fault}',
+            )
+        self._report_camera()
         logger.info('[SCOPE API ] Scope initialized')
 
     def bind_settings(self, reader: 'Callable[[str], Any]') -> None:
@@ -1220,24 +1235,21 @@ class Lumascope:
         The model's expectations arrive with the config: an LS620 with no
         motor board is the manual scope it is, not a failure, so only a part
         the model has is missing. A camera that failed is reported whatever
-        the model, with the backend's own traceback behind it. When nothing
-        came up the person is told once, not once per part. A simulated part
-        is never reported: the simulator is what it stands in for.
+        the model (``_report_camera``). When nothing came up the person is
+        told once, not once per part. A simulated part is never reported:
+        the simulator is what it stands in for.
         """
         parts = self._bring_up_parts
         parts[MOTOR] = dataclasses.replace(parts[MOTOR], expected=config.expects_motion)
         parts[LED] = dataclasses.replace(parts[LED], expected=config.expects_led)
         if self._no_hardware:
+            # The one notice says the camera too.
+            self._camera_failure = None
             notifications.report_outcome(
                 NoHardwareDetectedNotice(), solicited=False, category='Hardware'
             )
             return
-        camera = parts[CAMERA]
-        if not camera.up:
-            failed = CameraNotAvailableError(camera.cause)
-            failed.__cause__ = self._camera_failure
-            self._camera_failure = None
-            notifications.report_outcome(failed, solicited=False, category='Camera')
+        self._report_camera()
         if self._simulated:
             return
         led = parts[LED]
@@ -1256,6 +1268,28 @@ class Lumascope:
                 solicited=False,
                 category='Hardware',
             )
+
+    def _report_camera(self) -> None:
+        """Report, once, the camera failure bring-up kept beside its part.
+
+        A camera that did not come up is reported as unavailable, with the
+        backend's own error behind it; one that came up and whose stream did
+        not start is reported as the start's own fault. The kept failure is
+        cleared as it is reported, so each is told once: bring-up asks at
+        its start, for the connect, and after the gate release, for the
+        stream.
+        """
+        failure = self._camera_failure
+        if failure is None:
+            return
+        self._camera_failure = None
+        camera = self._bring_up_parts[CAMERA]
+        if camera.up:
+            reported = failure
+        else:
+            reported = CameraNotAvailableError(camera.cause)
+            reported.__cause__ = failure
+        notifications.report_outcome(reported, solicited=False, category='Camera')
 
     # --- The scope's lanes, for the session that composes around it ---
 
