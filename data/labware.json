@@ -205,7 +205,7 @@
 
 "Petri dish": {
     "35 mm dish": {
-        "diameter": 100,
+        "diameter": 35,
         "inner": 34,
         "outer": 42,
         "depth": 13
