@@ -2255,6 +2255,19 @@ temps = scope.diagnostics.get_camera_temperatures_degc()
 # raises HardwareError.
 link = scope.diagnostics.get_camera_link_info()
 
+# Which driver Windows has bound to each USB identity of a Lumascope Classic,
+# the read the camera's connect checks, so it answers when the camera did not
+# come up ('camera_driver_unusable' in the bring-up record). A tuple of
+# UsbIdentityBindings, the bootloader's (USB\VID_04B4&PID_8613) then the
+# running firmware's (USB\VID_04B4&PID_EA17): hardware_id, name, needs (the
+# drivers LumaViewPro can use it on), usable (False when a present device is
+# on none of them) and devices, each a UsbDeviceBinding (instance_id,
+# present, service -- None for no driver -- provider, inf, version, date,
+# problem_code). None on macOS and Linux, which bind no driver to a USB
+# device, and on a simulated scope with no FX2. A failed read raises
+# CameraUsbLookupFailedError.
+bindings = scope.diagnostics.get_camera_usb_bindings()
+
 # Throughput and latency characterization. Both run through the
 # PRODUCTION capture path, so what they measure is what a real run gets;
 # both take an optional progress_cb and return a dict of results. These
@@ -2916,6 +2929,7 @@ Which board answers a member depends on how the model is simulated. The **fast**
 | `stall_stream(after_s, for_s)` | no frame for `for_s` s, starting in `after_s` s | camera | camera | refused (`silence('led')`) |
 | `delay_delivery(frames)` | each frame reaches the host once `frames` more have been made after it, as through a link or driver queue that has fallen behind | camera | camera | refused |
 | `refuse_stream_start(count=1)` | the next `count` stream starts are refused, the camera staying on the bus; the start raises `CameraStreamStartFailedError` (`camera_stream_start_failed`) to its caller | refused (the simulated camera is made like a Pylon body, whose driver logs a start that fails) | refused | FX2 |
+| `bind_camera_usb_driver(hardware_id, service)` | Windows binds one USB identity of the FX2 (`USB\VID_04B4&PID_8613` or `USB\VID_04B4&PID_EA17`) to `service` (`'libusbK'`; None for no driver), as a Zadig run would; the camera already up keeps running, `diagnostics.get_camera_usb_bindings` reads the new binding, and the next connect checks it | refused | refused | FX2 |
 | `refuse_led_write(count=1)` | the LED board's next `count` writes are refused, the board staying on the bus (an FX2 LED command is three writes); the command raises the LED board's `BoardPortFailedError` (`board_port_failed`) to its caller, and the LED stays connected | refused | refused | FX2 |
 
 The fast LED board refuses every link fault: the API reads nothing from its missing reply. The fast motor board runs no firmware, so its home cannot fail; the firmware's axis reaches its target whatever is injected, so a move cannot be held there. `injected()` lists the faults injected since the last `clear()` as `InjectedFault` records (`member`, `arguments`), one-shot faults included after they are spent. `clear()` takes every fault back: drops, holds, refused writes and stalls lifted, boards plugged in and answering, hardware faults removed; a board that found its cable pulled stays disconnected until it is reconnected, as a real one does. A removed camera, an FX2 unplugged or silenced, and a reboot under way stay as they are, as on a real scope.
@@ -3262,6 +3276,7 @@ Reached through `session.scope.diagnostics`.
 - `get_camera_link_info`
 - `get_camera_profile_info`
 - `get_camera_temperatures_degc`
+- `get_camera_usb_bindings`
 - `get_led_info`
 - `get_motor_info`
 - `get_system_info`
@@ -3304,6 +3319,7 @@ Reached through `session.scope.runtime_state`.
 
 Reached through `session.scope.simulation`.
 
+- `bind_camera_usb_driver` (in-process)
 - `clear` (in-process)
 - `delay_delivery` (in-process)
 - `drop_replies` (in-process)
@@ -4110,6 +4126,29 @@ Reached through built by a GUI host and passed to `ScopeSession.set_ui_dispatche
 
 - `schedule`
 - `thread`
+
+### UsbDeviceBinding
+
+Reached through `UsbIdentityBindings.devices`.
+
+- `date`
+- `inf`
+- `instance_id`
+- `present`
+- `problem_code`
+- `provider`
+- `service`
+- `version`
+
+### UsbIdentityBindings
+
+Reached through returned by `session.scope.diagnostics.get_camera_usb_bindings`.
+
+- `devices`
+- `hardware_id`
+- `name`
+- `needs`
+- `usable`
 
 ### VideoProgress
 

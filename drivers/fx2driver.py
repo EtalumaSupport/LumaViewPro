@@ -120,6 +120,7 @@ from drivers.usb_driver_binding import (
     DEVICE_NAMES,
     FX2_BOOTLOADER,
     FX2_FIRMWARE,
+    DeviceBinding,
     refuse_unusable,
 )
 from drivers.registry import camera_registry, led_registry
@@ -1129,12 +1130,14 @@ class _PyusbTransport:
     def __init__(self):
         self._dev = None
 
-    def check_bindings(self, identity: str) -> None:
-        """Refuse a device of ``identity`` bound to a driver this transport cannot use.
+    @staticmethod
+    def bindings(identity: str) -> list[DeviceBinding] | None:
+        """Each device of ``identity`` and the driver the host has bound to it.
 
-        On macOS and Linux libusb reaches any USB device, so there is
-        nothing to check.
+        None on macOS and Linux: libusb reaches any USB device there, and
+        the host binds no driver to one.
         """
+        return None
 
     def find(self, pid: int) -> Any:
         """The FX2 enumerated under ``pid``, or None."""
@@ -1414,25 +1417,16 @@ class _WinUsbTransport(_PyusbTransport):
         super().__init__()
         self._reader = None
 
-    def check_bindings(self, identity: str) -> None:
-        """Log which driver each device of ``identity`` is bound to; refuse
-        one that cannot work.
-
-        Windows binds each identity on its own, and pyusb sees a device only
-        through a driver libusb can drive, so a device on no driver or the
-        wrong one would otherwise read as no camera at all.
+    @staticmethod
+    def bindings(identity: str) -> list[DeviceBinding]:
+        """Each device of ``identity``, present or seen before, and its driver, through SetupAPI.
 
         Raises:
-            CameraUsbDriverUnusableError: A present device's driver cannot
-                serve what LumaViewPro does with it, naming each such device.
-            CameraUsbLookupFailedError: The bindings could not be read.
+            CameraUsbLookupFailedError: A SetupAPI call failed.
         """
         from drivers.winusb_iso import device_bindings
 
-        devices = device_bindings(identity)
-        for binding in devices:
-            logger.info('[FX2 Conn  ] %s: %s', DEVICE_NAMES[identity], binding.describe())
-        refuse_unusable({identity: devices})
+        return device_bindings(identity)
 
     def control_out(self, request: int, value: int, index: int, data: bytes, timeout: int) -> int:
         if self._reader is not None:
@@ -1494,8 +1488,13 @@ class _WinUsbTransport(_PyusbTransport):
         self._reopen_idle()
 
 
+def _platform_transport_class() -> type[_PyusbTransport]:
+    """The transport class for this host. The platform is decided here and nowhere else."""
+    return _WinUsbTransport if sys.platform == 'win32' else _LibusbTransport
+
+
 def _platform_transport() -> _PyusbTransport:
-    """The transport for this host. The platform is decided here and nowhere else.
+    """The transport for this host, with the USB libraries it needs.
 
     Raises:
         ImportError: pyusb, or python-libusb1 off Windows, is not installed.
@@ -1504,7 +1503,7 @@ def _platform_transport() -> _PyusbTransport:
         raise ImportError(
             'pyusb is required for FX2 hardware access. Install with: pip install pyusb'
         )
-    if sys.platform == 'win32':
+    if _platform_transport_class() is _WinUsbTransport:
         return _WinUsbTransport()
     # libusb1 is needed for ISO streaming on macOS/Linux. Fail fast so an
     # LS620 user on macOS without libusb1 gets a clear install hint, not a
@@ -1515,6 +1514,19 @@ def _platform_transport() -> _PyusbTransport:
             'on macOS / Linux. Install with: pip install -r requirements.txt'
         )
     return _LibusbTransport()
+
+
+def host_bindings(identity: str) -> list[DeviceBinding] | None:
+    """Each device of ``identity`` and the driver this host has bound to it.
+
+    Read through the host's transport class, so it answers whether or not
+    an FX2 came up, and needs no USB library: None where the host binds no
+    driver to a device (macOS, Linux).
+
+    Raises:
+        CameraUsbLookupFailedError: The bindings could not be read.
+    """
+    return _platform_transport_class().bindings(identity)
 
 
 # ---------------------------------------------------------------------------
@@ -1647,7 +1659,7 @@ class _FX2Connection:
         about a Lumascope already running its firmware.
         """
         transport = self._transport
-        transport.check_bindings(FX2_FIRMWARE)
+        self._check_bindings(FX2_FIRMWARE)
         dev = transport.find(PID_APP)
         if dev is not None:
             logger.info('[FX2 Conn  ] device: %s', transport.describe(dev))
@@ -1658,7 +1670,7 @@ class _FX2Connection:
             )
             return
 
-        transport.check_bindings(FX2_BOOTLOADER)
+        self._check_bindings(FX2_BOOTLOADER)
         dev = transport.find(PID_BOOT)
         if dev is None:
             raise _FX2AbsentError(
@@ -1679,7 +1691,7 @@ class _FX2Connection:
             if dev is not None:
                 logger.info('[FX2 Conn  ] device: %s', transport.describe(dev))
                 # The running firmware is a new device, bound on its own.
-                transport.check_bindings(FX2_FIRMWARE)
+                self._check_bindings(FX2_FIRMWARE)
                 transport.open(dev)
                 logger.info(
                     '[FX2 Conn  ] firmware loaded, re-enumerated as PID 0x%04X',
@@ -1691,6 +1703,26 @@ class _FX2Connection:
             f'FX2 did not re-enumerate after firmware upload '
             f'(waited {self.FIRMWARE_RE_ENUM_TIMEOUT:.0f}s)'
         )
+
+    def _check_bindings(self, identity: str) -> None:
+        """Log which driver each device of ``identity`` is bound to; refuse
+        one that cannot work.
+
+        Windows binds each identity on its own, and pyusb sees a device only
+        through a driver libusb can drive, so a device on no driver or the
+        wrong one would otherwise read as no camera at all.
+
+        Raises:
+            CameraUsbDriverUnusableError: A present device's driver cannot
+                serve what LumaViewPro does with it, naming each such device.
+            CameraUsbLookupFailedError: The bindings could not be read.
+        """
+        devices = self._transport.bindings(identity)
+        if devices is None:
+            return
+        for binding in devices:
+            logger.info('[FX2 Conn  ] %s: %s', DEVICE_NAMES[identity], binding.describe())
+        refuse_unusable({identity: devices})
 
     @staticmethod
     def find_firmware_path() -> str:

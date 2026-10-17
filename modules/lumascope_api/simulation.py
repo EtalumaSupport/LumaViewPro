@@ -554,6 +554,49 @@ class SimulationAPI:
         self._record('refuse_stream_start', target.transport.allow_start, count=count)
 
     @api(in_process=True)
+    def bind_camera_usb_driver(self, hardware_id: str, service: str | None) -> None:
+        """Windows binds a USB identity of the simulated FX2 to ``service``.
+
+        The simulated FX2 comes up on WinUSB, as Windows binds it with
+        LumaViewPro's package installed; this rebinds one identity, as a
+        Zadig run or LumaView Classic's package would. The camera already up
+        keeps running: the binding is read by
+        ``diagnostics.get_camera_usb_bindings`` and checked at the next
+        connect.
+
+        Args:
+            hardware_id: ``USB\\VID_04B4&PID_8613`` (the bootloader) or
+                ``USB\\VID_04B4&PID_EA17`` (the running firmware).
+            service: The driver's service, as Windows names it
+                (``'libusbK'``); None for no driver.
+
+        Raises:
+            ArgumentRefusedError: ``'needs_simulated_scope'``;
+                ``'fault_unknown'`` for any other hardware ID;
+                ``'not_injectable_on_board'`` on any camera but the FX2.
+        """
+        from drivers.usb_driver_binding import DEVICE_NAMES
+
+        target = self._camera_board('bind_camera_usb_driver')
+        if not isinstance(target, SimulatedFX2):
+            raise self._not_injectable('bind_camera_usb_driver', target)
+        if hardware_id not in DEVICE_NAMES:
+            raise ArgumentRefusedError(
+                'fault_unknown',
+                argument='hardware_id',
+                value=hardware_id,
+                offered=tuple(DEVICE_NAMES),
+            )
+        was = target.transport.services[hardware_id]
+        target.transport.bind(hardware_id, service)
+        self._record(
+            'bind_camera_usb_driver',
+            lambda: target.transport.bind(hardware_id, was),
+            hardware_id=hardware_id,
+            service=service,
+        )
+
+    @api(in_process=True)
     def refuse_led_write(self, count: int = 1) -> None:
         """The LED board refuses its next ``count`` writes and stays on the bus.
 

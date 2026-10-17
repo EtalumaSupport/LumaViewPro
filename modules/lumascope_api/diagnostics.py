@@ -7,17 +7,19 @@ state -- per-call probes.
 
 from __future__ import annotations
 
+import dataclasses
 import datetime
 import pathlib
 import re
 import time
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import numpy as np
 
 from lvp_logger import log_dir, logger, version
 from modules.finite_number import refuse_unless_finite_number
-from modules.api_surface import ProgressCallback, api
+from modules.api_surface import ProgressCallback, api, api_fields
 from modules.exceptions import (
     ArgumentRefusedError,
     CaptureFailedError,
@@ -54,6 +56,61 @@ _BANDWIDTH_FRAMES = (1, 100_000)
 _BENCHMARK_DELAY_MS = (0, 60_000)
 _BENCHMARK_SLOW_S = (0, 600)
 _PROBE_DURATION_S = (0, 3_600)
+
+
+@api_fields(
+    'instance_id', 'present', 'service', 'provider', 'inf', 'version', 'date', 'problem_code'
+)
+@dataclass(frozen=True)
+class UsbDeviceBinding:
+    """One device of a USB identity and the driver Windows has bound to it.
+
+    Attributes:
+        instance_id: Windows' instance ID: the identity, a backslash, then
+            the device's serial or port.
+        present: False for a device seen before on another port or at
+            another time, which keeps its binding until it is matched afresh.
+        service: The bound driver's service (``WinUSB``, ``libusbK``,
+            ``libusb0``); None when no driver is bound, and the package
+            fields with it.
+        provider: The bound package's provider.
+        inf: The bound package's published INF (``oem12.inf``).
+        version: The bound package's version.
+        date: The bound package's date.
+        problem_code: Device Manager's problem code; None for none.
+    """
+
+    instance_id: str
+    present: bool
+    service: str | None
+    provider: str | None
+    inf: str | None
+    version: str | None
+    date: str | None
+    problem_code: int | None
+
+
+@api_fields('hardware_id', 'name', 'needs', 'usable', 'devices')
+@dataclass(frozen=True)
+class UsbIdentityBindings:
+    """A USB identity of a Lumascope Classic and each of its devices' drivers.
+
+    Attributes:
+        hardware_id: ``USB\\VID_04B4&PID_8613`` (the bootloader) or
+            ``USB\\VID_04B4&PID_EA17`` (the running firmware).
+        name: Its name in Device Manager.
+        needs: The drivers LumaViewPro can use it on, lower case.
+        usable: False when a present device is on none of them; a device
+            seen before does not count, since it is matched afresh when
+            plugged.
+        devices: Every device of it, present or seen before.
+    """
+
+    hardware_id: str
+    name: str
+    needs: tuple[str, ...]
+    usable: bool
+    devices: tuple[UsbDeviceBinding, ...]
 
 
 def _refuse_outside(value: object, argument: str, limits: tuple[float, float]) -> None:
@@ -230,6 +287,50 @@ class DiagnosticsAPI:
         if not driver or not driver.active:
             return None
         return driver.get_link_info()
+
+    @api(reads=True)
+    def get_camera_usb_bindings(self) -> tuple[UsbIdentityBindings, ...] | None:
+        """Which driver Windows has bound to each USB identity of a Lumascope Classic.
+
+        The FX2 is two USB devices in turn, the bootloader and the running
+        firmware, and Windows binds each on its own. Read without elevation,
+        the same read the camera's connect checks, so it answers whether or
+        not the camera came up -- the case it is for. Takes no lane: it asks
+        the host's device list, not the scope.
+
+        Returns:
+            tuple[UsbIdentityBindings, ...] | None: The bootloader's, then the
+                running firmware's. None where the host binds no driver to a
+                USB device (macOS, Linux) and on a simulated scope with no FX2.
+
+        Raises:
+            CameraUsbLookupFailedError: Windows' device list could not be read.
+        """
+        from drivers.usb_driver_binding import (
+            DEVICE_NAMES,
+            FX2_BOOTLOADER,
+            FX2_FIRMWARE,
+            USABLE_SERVICES,
+            unusable,
+        )
+
+        answer = []
+        for identity in (FX2_BOOTLOADER, FX2_FIRMWARE):
+            devices = self._scope._read_fx2_bindings(identity)
+            if devices is None:
+                return None
+            answer.append(
+                UsbIdentityBindings(
+                    hardware_id=identity,
+                    name=DEVICE_NAMES[identity],
+                    needs=tuple(sorted(USABLE_SERVICES[identity])),
+                    usable=not unusable(identity, devices),
+                    # Built field by field, so a field the driver's record
+                    # gains or loses fails here rather than going unpublished.
+                    devices=tuple(UsbDeviceBinding(**dataclasses.asdict(d)) for d in devices),
+                )
+            )
+        return tuple(answer)
 
     @api(reads=True)
     def get_camera_diagnostic_info(self) -> dict:

@@ -62,7 +62,6 @@ from drivers.usb_driver_binding import (
     FX2_BOOTLOADER,
     FX2_FIRMWARE,
     DeviceBinding,
-    refuse_unusable,
 )
 
 TIMINGS = ('instant', 'realistic')
@@ -477,10 +476,10 @@ class SimulatedFX2Transport:
         # with LumaViewPro's package installed.
         self.services = {FX2_BOOTLOADER: 'WinUSB', FX2_FIRMWARE: 'WinUSB'}
 
-    def check_bindings(self, identity: str) -> None:
-        """The Windows transport's check, on the simulated device's binding."""
+    def bindings(self, identity: str) -> list[DeviceBinding]:
+        """The device on the bus, when it is of ``identity``, and its driver, as Windows reports it."""
         if self.device.pid != (PID_BOOT if identity == FX2_BOOTLOADER else PID_APP):
-            return  # no device of this identity on the bus: nothing to check
+            return []
         service = self.services[identity]
         binding = DeviceBinding(
             instance_id=f'{identity}\\SIMULATED',
@@ -492,7 +491,7 @@ class SimulatedFX2Transport:
             date=None,
             problem_code=None if service is not None else 28,
         )
-        refuse_unusable({identity: [binding]})
+        return [binding]
 
     def find(self, pid: int) -> SimulatedFX2Device | None:
         return self.device if self.device.pid == pid else None

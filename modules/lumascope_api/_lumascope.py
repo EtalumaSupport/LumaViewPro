@@ -237,6 +237,16 @@ def _camera_failure_cause(exc: BaseException) -> str:
     return 'camera_not_initialized'
 
 
+def _host_fx2_bindings(identity: str) -> list | None:
+    from drivers.fx2driver import host_bindings  # local-import: loaded where it is read
+
+    return host_bindings(identity)
+
+
+def _no_fx2_bindings(identity: str) -> None:
+    return None
+
+
 def _board_status(part: str, board, fallback) -> 'PartStatus':
     """The record of a board the registry built, real or null.
 
@@ -374,6 +384,9 @@ class Lumascope:
         # the real driver; create_diagnostic leaves it None.
         self._camera_driver = None
         self._settings_reader: Callable[[str], Any] | None = None
+        # Where the FX2's USB bindings are read, whether or not an FX2 came
+        # up: the host's, unless bring-up simulates the scope.
+        self._read_fx2_bindings: Callable[[str], list | None] = _host_fx2_bindings
 
         # The labware, stage offset, turret map, selected objective and
         # whether the scale bar is drawn are the session's settings, held
@@ -755,9 +768,12 @@ class Lumascope:
             logger.info(f'[SCOPE API ] Using the FX2 LED driver on a SIMULATED FX2 (model={model})')
             parts[LED] = PartStatus(LED, up=True)
             simulated_led = simulated_camera = sim_fx2
+            self._read_fx2_bindings = sim_fx2.transport.bindings
         elif simulate:
             self._led_driver, simulated_led = self._build_simulated_led_board(model, sim_tier)
             parts[LED] = PartStatus(LED, up=True)
+            # A simulated scope never reads the host's bus.
+            self._read_fx2_bindings = _no_fx2_bindings
         else:
             self._led_driver, fallback = led_registry.create_with_fallback(
                 'auto', debug_wire=fx2_debug_wire

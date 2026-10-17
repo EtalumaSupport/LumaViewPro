@@ -227,8 +227,9 @@ def test_a_connection_that_cannot_connect_closes_its_transport_and_raises_its_ow
     class NoDevice:
         closed = False
 
-        def check_bindings(self, identity):
-            pass
+        @staticmethod
+        def bindings(identity):
+            return None
 
         def find(self, pid):
             raise RuntimeError('no FX2 on the bus')
