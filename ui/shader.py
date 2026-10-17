@@ -364,7 +364,7 @@ void main (void) {
                         frame_w, frame_h = scope_display.full_resolution_frame_size()
                         dx_um = (self._mouse_pixel_x - frame_w / 2) * pixel_size_um
                         dy_um = (self._mouse_pixel_y - frame_h / 2) * pixel_size_um
-                        pos = ctx.lumaview.scope.motion.get_current_position(axis=None)
+                        pos = ctx.lumaview.scope.motion.get_current_positions()
                         _, labware = get_selected_labware()
                         plate = ctx.coordinate_transformer.stage_to_plate(
                             labware=labware,

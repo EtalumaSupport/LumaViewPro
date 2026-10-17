@@ -61,7 +61,7 @@ def test_the_ls720_runs_the_6110_driver_and_starts_unknown(scope):
 
 def test_a_home_makes_every_axis_known_at_its_index_position(homed):
     assert homed.motion.has_homed()
-    assert homed.motion.get_current_position() == {'X': 117_690.0, 'Y': 950.0, 'Z': 0.0}
+    assert homed.motion.get_current_positions() == {'X': 117_690.0, 'Y': 950.0, 'Z': 0.0}
 
 
 # Where the bench LS720's board stood with A1 and H12 centred by eye

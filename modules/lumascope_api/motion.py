@@ -1773,19 +1773,14 @@ class MotionAPI:
             self._fire_position_listeners(ax)
         return set(positions)
 
-    def _read_position_cache(self, axis: str | None) -> float | dict:
+    def _read_position_cache(self, axis: str) -> float:
         """Shared cache-read primitive for the position-query methods.
 
         Pure cache access -- no T-axis policy here; callers decide their
         own sentinel for the "axis requested but not present" case (see
-        get_target_position's None for no-turret-T).
-
-        axis=None -> dict copy of all cached axis positions
-        axis=<name> -> float (0.0 if axis missing from cache)
+        get_target_position's None for no-turret-T). 0.0 if the axis is
+        missing from the cache.
         """
-        if axis is None:
-            with self._pos_cache_lock:
-                return dict(self._pos_cache)
         with self._pos_cache_lock:
             return self._pos_cache.get(axis, 0.0)
 
@@ -1844,7 +1839,7 @@ class MotionAPI:
             if self._has_position(ax)
         }
 
-    def get_current_position(self, axis: str | None = None) -> float | dict | None:
+    def get_current_position(self, axis: str) -> float | None:
         """Get the current position for an axis; um for X/Y/Z, turret slot (1-4) for T.
 
         Reads from the in-memory position cache. During MOVING the cache
@@ -1853,28 +1848,32 @@ class MotionAPI:
         holds the last confirmed position.
 
         Args:
-            axis: Axis name ("X", "Y", "Z", "T"), or None for all axes.
+            axis: Axis name ("X", "Y", "Z", "T").
 
         Returns:
-            float | dict | None: Position in um for a single axis, or a dict
-                of the axes that have one. None for an axis with no hardware
-                behind it (see ``_has_position``); a present axis keeps its
-                number, its reference lost or not.
+            float | None: The position in um, or None for an axis with no
+                hardware behind it (see ``_has_position``); a present axis
+                keeps its number, its reference lost or not.
 
         Raises:
-            ArgumentRefusedError: ``'axis_unknown'``, ``axis`` is neither
-                None nor an axis name.
+            ArgumentRefusedError: ``'axis_unknown'``, ``axis`` is no axis
+                name.
         """
-        if axis is None:
-            return {
-                ax: self.get_current_position(ax)
-                for ax in self._scope.capabilities.axes
-                if self._has_position(ax)
-            }
         refuse_unknown_axis(axis)
         if not self._has_position(axis):
             return None
         return self._read_position_cache(axis)
+
+    def get_current_positions(self) -> dict[str, float]:
+        """The position of every axis the scope has a position for, by axis name, as ``get_current_position`` answers each.
+
+        An axis with no hardware behind it is left out. No serial I/O.
+        """
+        return {
+            ax: self.get_current_position(ax)
+            for ax in self._scope.capabilities.axes
+            if self._has_position(ax)
+        }
 
     def _plate_target_to_stage(self, axis: str, plate_mm: float, ignore_limits: bool) -> float:
         """Check a plate-frame target against what this stage can reach, then convert.

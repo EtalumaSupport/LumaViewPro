@@ -67,7 +67,7 @@ def _press_stop_during_the_apis_switch_read(scope, monkeypatch):
 def test_a_stop_before_the_driver_homes_ends_the_home_with_nothing_moved(homed, monkeypatch, axis):
     if axis != 'ALL' and axis not in homed.capabilities.axes:
         pytest.skip(f'this scope has no {axis}')
-    before = homed.motion.get_current_position()
+    before = homed.motion.get_current_positions()
     _press_stop_during_the_apis_switch_read(homed, monkeypatch)
 
     with pytest.raises(HomingStoppedError) as ended:
@@ -78,7 +78,7 @@ def test_a_stop_before_the_driver_homes_ends_the_home_with_nothing_moved(homed, 
     assert ended.value.axes == ()
     assert 'before it began' in str(ended.value)
     assert homed.motion.axes_without_position() == {}
-    assert homed.motion.get_current_position() == before
+    assert homed.motion.get_current_positions() == before
 
 
 # Whether the model's motor board can take a STOP while it homes.

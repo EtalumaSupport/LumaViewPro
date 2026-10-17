@@ -13,9 +13,9 @@ The properties under test:
     ui/scope_display.py:578-580)
   - Lumascope.pixel_format_cached (str; called per-frame from
     ui/scope_display.py:578-580)
-  - Lumascope.get_target_position(axis) (float/dict; called at 10Hz
+  - Lumascope.get_target_position(axis) and get_target_positions() (called at 10Hz
     from ui/motion_settings.py:228 update_gui)
-  - Lumascope.get_current_position(axis) (float/dict; called at
+  - Lumascope.get_current_position(axis) and get_current_positions() (called at
     similar cadence)
 
 Implementation: wraps `self.motion.exchange_command`,
@@ -126,9 +126,9 @@ class TestPositionAccessorsCacheOnly:
         MOVING and the position cache during IDLE -- both cache-only."""
         scope_with_io_traps.motion.get_current_position('X')
 
-    def test_get_current_position_all_axes_no_io(self, scope_with_io_traps):
-        """get_current_position(None) returns a dict snapshot -- cache-only."""
-        result = scope_with_io_traps.motion.get_current_position()
+    def test_get_current_positions_no_io(self, scope_with_io_traps):
+        """get_current_positions returns a dict snapshot -- cache-only."""
+        result = scope_with_io_traps.motion.get_current_positions()
         assert isinstance(result, dict)
 
     def test_position_repeated_reads_no_io(self, scope_with_io_traps):

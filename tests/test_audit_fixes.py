@@ -1076,21 +1076,6 @@ class TestB6_WriteMotorRegisterRemoved:
         )
 
 
-class TestB5_GetCurrentPositionUsesAxesPresent:
-    """B5: get_current_position(axis=None) should use axes_present(), not
-    a hardcoded 4-axis list."""
-
-    def test_returns_only_present_axes(self):
-        """get_current_position(None) should return dict keyed by present axes only."""
-
-        scope = build_scope(simulate=True)
-        bind_settings_like_a_session(scope)
-        result = scope.motion.get_current_position(axis=None)
-        assert set(result.keys()) == set(scope.capabilities.axes), (
-            'get_current_position(None) should use scope.capabilities.axes, not a hardcoded axis list'
-        )
-
-
 class TestG3_AutofocusFailureNotification:
     """G3: AF failures must notify the user (Rule 14). An unattended run's
     mute, not autofocus, keeps them off the screen during a run

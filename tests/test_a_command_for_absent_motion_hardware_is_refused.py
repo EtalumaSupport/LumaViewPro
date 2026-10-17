@@ -254,7 +254,7 @@ def test_a_position_read_of_an_absent_axis_answers_none(make_session, model, abs
         assert scope.motion.get_current_position(axis) is None
         assert scope.motion.get_target_position(axis) is None
         assert scope.motion.get_actual_position(axis) is None
-    assert set(scope.motion.get_current_position()) == set(scope.capabilities.axes) - set(absent)
+    assert set(scope.motion.get_current_positions()) == set(scope.capabilities.axes) - set(absent)
     assert set(scope.motion.get_target_positions()) == set(scope.capabilities.axes) - set(absent)
 
 
@@ -265,7 +265,7 @@ def test_after_disconnect_every_read_answers_none(make_session):
     for axis in 'XYZT':
         assert motion.get_current_position(axis) is None
         assert motion.get_target_position(axis) is None
-    assert motion.get_current_position() == {}
+    assert motion.get_current_positions() == {}
     assert motion.get_target_positions() == {}
 
 

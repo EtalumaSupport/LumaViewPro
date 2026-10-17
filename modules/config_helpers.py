@@ -359,7 +359,7 @@ def get_current_plate_position(
         logger.error('Cannot retrieve current plate position')
         return {'x': 0, 'y': 0, 'z': 0}
 
-    pos = scope.motion.get_current_position(axis=None)
+    pos = scope.motion.get_current_positions()
     labware = wellplate_loader.get_plate(plate_key=wellplate_loader.resolve_plate_key(labware_id))
 
     # Z-only scopes (no XY stage) report position without X/Y keys; tolerate

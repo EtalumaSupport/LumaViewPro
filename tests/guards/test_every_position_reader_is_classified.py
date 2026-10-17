@@ -20,6 +20,7 @@ from tests.ast_seams import production_modules, walk_defs
 _READERS = frozenset(
     {
         'get_current_position',
+        'get_current_positions',
         'get_target_position',
         'get_target_positions',
         'get_actual_position',

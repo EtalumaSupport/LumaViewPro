@@ -241,7 +241,7 @@ class TestALidOpenedDuringAMove:
         try:
             ls720.motion.home()
             limits = ls720.motion.get_axis_limits('X')
-            start = ls720.motion.get_current_position()['X']
+            start = ls720.motion.get_current_position('X')
             far = limits.min_um if start - limits.min_um > limits.max_um - start else limits.max_um
             driver = ls720._motion_driver
             polled = driver.target_status
@@ -259,7 +259,7 @@ class TestALidOpenedDuringAMove:
                 move.result()
 
             assert ended.value.reason == 'stopped'
-            stopped_at = ls720.motion.get_current_position()['X']
+            stopped_at = ls720.motion.get_current_position('X')
             assert abs(stopped_at - far) > 10_000
             assert ls720.motion.get_axis_state('X') == AxisState.IDLE
         finally:
