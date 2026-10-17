@@ -116,11 +116,31 @@ class TestEverySwallowedRejectionIsReported:
 
         pylon_cam._mark_disconnected.assert_not_called()
 
-    def test_a_communication_failure_answers_refused_and_marks_the_camera_gone(self, pylon_cam):
-        pylon_cam.active.Gain.SetValue.side_effect = genicam.RuntimeException('comms lost')
 
-        assert pylon_cam.gain(30.0) is False
-        pylon_cam._mark_disconnected.assert_called_once()
+class TestACommunicationFailureIsTheWritesFailure:
+    """One RuntimeException on the write is that write's failure, not a removal.
+
+    The camera is marked removed only on a definite signal (the SDK's removal
+    callback, DEVICE_NOT_FOUND, the failed-grab cascade), and a removal refuses
+    every later command; the driver-level answer for every writer is
+    ``test_pylon_setter_transient_writes``.
+    """
+
+    def test_the_write_is_rejected_and_the_next_one_is_sent(self, pylon_imaging):
+        imaging, cam = pylon_imaging
+        # The real latch: the fixture's MagicMock would let a removal pass unseen.
+        del cam._mark_disconnected
+        takes_the_write = cam.active.Gain.SetValue.side_effect
+        cam.active.Gain.SetValue.side_effect = genicam.RuntimeException('comms lost')
+
+        with pytest.raises(CameraSettingRejected) as excinfo:
+            imaging.set_gain_db(30.0)
+
+        assert excinfo.value.reason == 'camera_rejected'
+        assert not imaging.camera_removed
+        cam.active.Gain.SetValue.side_effect = takes_the_write
+        assert imaging.set_gain_db(12.0) == pytest.approx(12.0)
+        cam.active.Gain.SetValue.assert_called_with(12.0)
 
 
 class TestTheAppliedPathsSayApplied:

@@ -274,6 +274,8 @@ class TestProcessFailure(unittest.TestCase):
         worker._process_failure(gr, 0.0)
         parent.stop_grabbing.assert_called_once()
         parent._mark_disconnected.assert_called_once()
+        # Torn down like every other definite removal, off this thread.
+        parent._schedule_async_teardown.assert_called_once()
 
     def test_grabresult_introspection_failure_is_tolerated(self):
         """err_code / desc readers may themselves raise on a dead handle."""

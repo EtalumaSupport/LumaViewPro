@@ -674,23 +674,18 @@ class Camera(ABC):
     def _apply_config_steps(
         self,
         steps: list[tuple[str, Callable[[], object]]],
-        *,
-        stop_on: tuple[type[BaseException], ...] = (),
     ) -> tuple[str, ...]:
         """Run each connect-time configuration step; the names of those not applied.
 
         A step not applied -- it raised, or answered False -- is logged and
         named, and the next step still runs: one failed write must not leave
-        every later setting at the camera's own default. An exception of a
-        ``stop_on`` type is the camera gone, and propagates: nothing after it
-        can be applied.
+        every later setting at the camera's own default, and is not evidence
+        the camera is gone (only a definite removal signal marks it so).
         """
         failed = []
         for name, step in steps:
             try:
                 applied = step()
-            except stop_on:
-                raise
             except Exception as e:
                 _cam_log.error(f'[CAM Class ] init_camera_config: {name} not applied: {e}')
                 failed.append(name)

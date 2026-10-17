@@ -1467,17 +1467,12 @@ class TestSetBinningSizeAnswersByRaising:
 
     def test_pyloncamera_set_binning_size_raises_hardware_error(self):
         """Tier 3a / C2: PylonCamera.set_binning_size must raise HardwareError
-        on every SDK failure, not return False (Rule 29). RuntimeException
-        marks the camera disconnected; a transient timeout does not."""
+        on every SDK failure, not return False (Rule 29), and none marks the
+        camera removed (a RuntimeException's answer for every writer is
+        test_pylon_setter_transient_writes)."""
         from pypylon import genicam
 
         from drivers.exceptions import HardwareError
-
-        cam = _bare_pylon_camera()
-        cam.active.BinningVertical.SetValue.side_effect = genicam.RuntimeException('usb gone')
-        with pytest.raises(HardwareError):
-            cam.set_binning_size(2)
-        cam._mark_disconnected.assert_called_once()
 
         cam = _bare_pylon_camera()
         cam.active.BinningVertical.SetValue.side_effect = genicam.TimeoutException('slow bus')
@@ -1501,19 +1496,10 @@ class TestSetBinningSizeAnswersByRaising:
         assert cam.set_binning_size(2) is False
 
     def test_pyloncamera_set_pixel_format_raises_hardware_error(self):
-        """Tier 3a / C1: SDK failure surfaces as HardwareError;
-        RuntimeException marks the camera disconnected."""
-        from pypylon import genicam
-
+        """Tier 3a / C1: SDK failure surfaces as HardwareError (a
+        RuntimeException's answer for every writer is
+        test_pylon_setter_transient_writes)."""
         from drivers.exceptions import HardwareError
-
-        cam = _bare_pylon_camera()
-        cam.active.PixelFormat.GetSymbolics.return_value = ('Mono12',)
-        cam.active.PixelFormat.GetValue.return_value = 'Mono8'
-        cam.active.PixelFormat.SetValue.side_effect = genicam.RuntimeException('usb gone')
-        with pytest.raises(HardwareError):
-            cam.set_pixel_format('Mono12')
-        cam._mark_disconnected.assert_called_once()
 
         cam = _bare_pylon_camera()
         cam.active.PixelFormat.GetSymbolics.return_value = ('Mono12',)
@@ -3507,21 +3493,6 @@ class TestPylonCancelHandlingDefensive:
             'race the OR protects against.'
         )
 
-    def test_normal_failure_branch_still_calls_record_failure(self):
-        """The non-cancel non-removal failure path must still increment
-        the consecutive-failure counter. Without this, real failures
-        (incomplete buffers 0xE2000212, transport errors 0xE2000011,
-        etc.) would never trip MAX_CONSECUTIVE_FAILURES auto-disconnect.
-
-        Post-R12 this lives in `_PylonImageGrabWorker._process_failure`.
-        """
-        src = self._pyloncamera_source()
-        body = _function_source(src, '_process_failure')
-        assert 'self._base._record_failure()' in body, (
-            '_process_failure non-cancel branch must still call '
-            '_record_failure to increment the consecutive-failure counter.'
-        )
-
 
 class TestPylonPayloadDiscardedClassification:
     """Payload-discarded (camera-side FIFO overflow) classification in
@@ -4295,41 +4266,9 @@ class TestPylonStateMutationViaMarkDisconnected:
     design (Camera._mark_disconnected docstring: "Safe to call from any
     thread including SDK callbacks"). Comment retired in the same fix.
 
-    Locks the structural shape of the unified call path so a future
-    "while-I'm-here" patch that re-introduces a direct boolean write
-    fires the regression.
+    The rule that no driver writes the flag directly is
+    tests/guards/test_a_camera_is_marked_removed_only_on_definite_evidence.py.
     """
-
-    def _pyloncamera_source(self):
-        from pathlib import Path
-
-        return (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
-
-    def test_no_direct_mark_disconnected_assignment(self):
-        """No direct `_device_removed = True` write in pyloncamera.py.
-
-        The canonical mark-disconnected write path is
-        Camera._mark_disconnected (acquires _state_lock + sets
-        _active=None atomically + emits boundary log). Setting the bool
-        to True bypasses all three invariants.
-
-        The inverse case (`_device_removed = False`) IS allowed -- the
-        reconnect path in connect() resets the flag for a fresh
-        session. There is no canonical _mark_connected helper today;
-        if one is added, this test grows to cover both directions.
-        """
-        src = self._pyloncamera_source()
-        forbidden = (
-            'self._parent._device_removed = True',
-            'self._device_removed = True',
-        )
-        offenders = [phrase for phrase in forbidden if phrase in src]
-        assert not offenders, (
-            'pyloncamera.py contains direct write(s) marking the camera '
-            f'removed: {offenders}. Use Camera._mark_disconnected '
-            '(acquires _state_lock + sets _active=None + emits '
-            'boundary log) instead.'
-        )
 
     def test_on_image_grabbed_inactive_branch_uses_mark_disconnected(self):
         """When the callback fires but parent.active has been reset
@@ -6337,21 +6276,10 @@ class TestAcquisitionStopModeSetter:
             'force a stop/start cycle on every call.'
         )
 
-    def test_pylon_driver_raises_hardware_error_on_runtime_exception(self):
-        """Rule 29 typed-exception contract; matches DLTL setter.
-        RuntimeException marks the camera disconnected; a missing node
-        is a documented no-op returning False."""
-        from pypylon import genicam
-
-        from drivers.exceptions import HardwareError
-
-        cam = _bare_pylon_camera()
-        node = cam.active.GetNodeMap.return_value.GetNode.return_value
-        node.SetValue.side_effect = genicam.RuntimeException('usb gone')
-        with pytest.raises(HardwareError):
-            cam.set_acquisition_stop_mode('Complete')
-        cam._mark_disconnected.assert_called_once()
-
+    def test_pylon_driver_answers_false_for_a_missing_node(self):
+        """A missing node is a documented no-op returning False (a
+        RuntimeException's answer for every writer is
+        test_pylon_setter_transient_writes)."""
         cam = _bare_pylon_camera()
         cam.active.GetNodeMap.return_value.GetNode.return_value = None
         assert cam.set_acquisition_stop_mode('Complete') is False

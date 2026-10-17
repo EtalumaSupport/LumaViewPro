@@ -174,13 +174,6 @@ def test_pylon_without_the_selector_writes_the_value_alone():
     cam.active.BlackLevelSelector.SetValue.assert_not_called()
 
 
-def test_pylon_lost_comms_on_the_write_is_a_refusal_and_a_disconnect():
-    cam = _pylon()
-    cam.active.BlackLevel.SetValue.side_effect = genicam.RuntimeException('gone')
-    assert cam.set_black_level(2.0) is False
-    cam._mark_disconnected.assert_called_once()
-
-
 def test_pylon_failed_write_raises_and_keeps_the_camera():
     cam = _pylon()
     cam.active.BlackLevel.SetValue.side_effect = genicam.OutOfRangeException('refused')

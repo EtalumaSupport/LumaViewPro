@@ -850,7 +850,9 @@ class IDSCamera(Camera):
 
     def is_connected(self) -> bool:
         if self.active in (False, None):
-            self._device_removed = True
+            # A released handle; the flag is set only through the helper,
+            # which takes the state lock and logs the edge once.
+            self._mark_disconnected()
             return False
         return not self._device_removed
 

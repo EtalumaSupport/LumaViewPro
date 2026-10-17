@@ -36,6 +36,33 @@ def test_a_pylon_step_not_taken_is_named_and_the_rest_run():
     cam._mark_disconnected.assert_not_called()
 
 
+def test_a_pylon_step_that_loses_comms_is_named_and_the_rest_run():
+    """One RuntimeException is that step's failure, not the camera's removal.
+
+    The camera is marked removed only on a definite signal (the SDK's removal
+    callback, DEVICE_NOT_FOUND, the failed-grab cascade); bring-up used to stop
+    every later step on this exception and mark the camera removed.
+    """
+    from pypylon import genicam
+
+    cam = init_configurable_pylon_camera()
+    del cam._mark_disconnected  # the real latch
+    cam._device_removed = False
+    cam._use_camera_emulation = False  # a real camera runs the auto-gain step
+    cam.active.ReverseX.SetValue.side_effect = genicam.RuntimeException('comms lost')
+    cam.init_auto_gain_focus = MagicMock(side_effect=genicam.RuntimeException('comms lost'))
+
+    cam.init_camera_config()
+
+    assert cam.config_not_applied == (
+        'the image orientation (ReverseX)',
+        'the auto-gain and focus defaults',
+    )
+    cam.exposure_t.assert_called_once_with(exposure_ms=10)
+    cam.set_frame_size.assert_called_once_with(w=1900, h=1900)
+    assert not cam.is_device_removed()
+
+
 def test_an_ids_step_not_taken_is_named_and_the_rest_run():
     cam = bare_ids_camera()
     cam.profile = MagicMock(pixel_formats=['Mono8'])

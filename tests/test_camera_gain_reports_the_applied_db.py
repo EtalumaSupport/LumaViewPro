@@ -78,12 +78,16 @@ class TestPylonReadBack:
         assert cam.gain(12.5) is True
         cam._mark_disconnected.assert_not_called()
 
-    def test_lost_comms_on_the_read_back_still_marks_the_camera_gone(self, cam):
+    def test_lost_comms_on_the_read_back_is_the_write_applied_unconfirmed(self, cam):
+        """The node took the write; one RuntimeException reading it back is not
+        the camera's removal, which only a definite signal decides."""
         from drivers.pyloncamera import genicam
 
+        del cam._mark_disconnected  # the real latch
+        cam._device_removed = False
         cam._read_back_error = genicam.RuntimeException('comms lost')
-        assert cam.gain(12.5) is False
-        cam._mark_disconnected.assert_called_once()
+        assert cam.gain(12.5) is True
+        assert not cam.is_device_removed()
 
 
 class TestIDS:

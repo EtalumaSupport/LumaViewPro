@@ -1595,8 +1595,9 @@ class PylonCamera(Camera):
         Each step runs whatever an earlier one did: a step the camera did
         not take is logged and named in ``config_not_applied``, which
         bring-up reports, and the camera stays connected with the rest
-        applied. A RuntimeException is the camera gone: it is marked
-        disconnected and nothing more is tried.
+        applied. A RuntimeException is one such step: one failed node access
+        is not evidence the camera is gone, and a camera really removed is
+        marked so by the SDK's removal callback.
         """
         camera = self.active
         if camera is None:
@@ -1687,14 +1688,7 @@ class PylonCamera(Camera):
         ]
         try:
             with self.update_camera_config():
-                self.config_not_applied = self._apply_config_steps(
-                    steps, stop_on=(genicam.RuntimeException,)
-                )
-        except genicam.RuntimeException as e:
-            _cam_log.error(
-                f'[CAM Class ] Camera communication error during init_camera_config: {e}'
-            )
-            self._mark_disconnected()
+                self.config_not_applied = self._apply_config_steps(steps)
         except Exception as e:
             _cam_log.exception(f'[CAM Class ] Unexpected error in init_camera_config: {e}')
 
@@ -1897,11 +1891,6 @@ class PylonCamera(Camera):
             self.active.AcquisitionFrameRateEnable.Value = enabled
             if enabled:
                 self.active.AcquisitionFrameRate.Value = fps
-        except genicam.RuntimeException as e:
-            _cam_log.error(
-                f'[CAM Class ] Camera communication error in set_max_acquisition_frame_rate: {e}'
-            )
-            self._mark_disconnected()
         except Exception as e:
             _cam_log.exception(
                 f'[CAM Class ] Unexpected error in set_max_acquisition_frame_rate: {e}'
@@ -1973,8 +1962,8 @@ class PylonCamera(Camera):
 
         Raises:
             HardwareError: Underlying SDK call failed
-                (RuntimeException). Camera is marked disconnected on
-                RuntimeException.
+                (RuntimeException). The camera is not marked removed: one
+                failed write is not evidence it is gone.
         """
         if not self.active:
             return False
@@ -2002,7 +1991,6 @@ class PylonCamera(Camera):
             _cam_log.error(
                 f'[CAM Class ] Camera communication error in set_device_link_throughput_limit: {e}'
             )
-            self._mark_disconnected()
             raise CameraWriteFailedError(
                 f'set_device_link_throughput_limit({mode}, {value_bps}) failed: {e}'
             ) from e
@@ -2165,7 +2153,6 @@ class PylonCamera(Camera):
             if _cam_log is not None:
                 _cam_log.error(f'pylon {method_label}({value}) FAILED: {e}')
             _cam_log.error(f'[CAM Class ] Camera communication error in {method_label}: {e}')
-            self._mark_disconnected()
             raise CameraWriteFailedError(f'{method_label}({value}) failed: {e}') from e
         except Exception as e:
             _cam_log.exception(f'[CAM Class ] Unexpected error in {method_label}: {e}')
@@ -2212,7 +2199,6 @@ class PylonCamera(Camera):
             _cam_log.error(
                 f'[CAM Class ] Camera communication error in set_acquisition_stop_mode: {e}'
             )
-            self._mark_disconnected()
             raise CameraWriteFailedError(f'set_acquisition_stop_mode({mode!r}) failed: {e}') from e
         except Exception as e:
             _cam_log.exception(f'[CAM Class ] Unexpected error in set_acquisition_stop_mode: {e}')
@@ -2253,7 +2239,6 @@ class PylonCamera(Camera):
             _cam_log.error(
                 f'[CAM Class ] Camera communication error in set_bandwidth_reserve_mode: {e}'
             )
-            self._mark_disconnected()
             raise CameraWriteFailedError(f'set_bandwidth_reserve_mode({mode!r}) failed: {e}') from e
         except Exception as e:
             _cam_log.exception(f'[CAM Class ] Unexpected error in set_bandwidth_reserve_mode: {e}')
@@ -2288,7 +2273,6 @@ class PylonCamera(Camera):
             if _cam_log is not None:
                 _cam_log.error(f'pylon set_gev_packet_size({size_bytes}) FAILED: {e}')
             _cam_log.error(f'[CAM Class ] Camera communication error in set_gev_packet_size: {e}')
-            self._mark_disconnected()
             raise CameraWriteFailedError(f'set_gev_packet_size({size_bytes}) failed: {e}') from e
         except Exception as e:
             _cam_log.exception(f'[CAM Class ] Unexpected error in set_gev_packet_size: {e}')
@@ -2324,7 +2308,6 @@ class PylonCamera(Camera):
             _cam_log.error(
                 f'[CAM Class ] Camera communication error in set_gev_inter_packet_delay: {e}'
             )
-            self._mark_disconnected()
             raise CameraWriteFailedError(
                 f'set_gev_inter_packet_delay({delay_ticks}) failed: {e}'
             ) from e
@@ -2348,7 +2331,8 @@ class PylonCamera(Camera):
                 supported formats it needs, timed out; the camera is not
                 marked disconnected, and the caller may send it again.
             HardwareError: Any other SDK failure (CameraWriteFailedError).
-                Camera is marked disconnected on RuntimeException.
+                The camera is not marked removed: one failed write is not
+                evidence it is gone.
         """
         if not self.active:
             return False
@@ -2398,7 +2382,6 @@ class PylonCamera(Camera):
                 '[CAM Class ] Camera communication error during '
                 f'set_pixel_format({pixel_format}): {e}'
             )
-            self._mark_disconnected()
             raise CameraWriteFailedError(
                 f'set_pixel_format({pixel_format}) failed: {type(e).__name__}: {e}'
             ) from e
@@ -2492,8 +2475,9 @@ class PylonCamera(Camera):
             CameraNoAnswerError: A binning write timed out. Transient: the
                 camera is not marked disconnected, and the caller may send
                 it again.
-            HardwareError: Any other SDK failure (CameraWriteFailedError);
-                RuntimeException marks disconnected before raising.
+            HardwareError: Any other SDK failure (CameraWriteFailedError).
+                The camera is not marked removed: one failed write is not
+                evidence it is gone.
         """
         if not self.active:
             return False
@@ -2531,7 +2515,6 @@ class PylonCamera(Camera):
             _cam_log.error(
                 f'[CAM Class ] Camera communication error during set_binning_size({size}): {e}'
             )
-            self._mark_disconnected()
             raise CameraWriteFailedError(
                 f'set_binning_size({size}) failed: {type(e).__name__}: {e}'
             ) from e
@@ -2603,7 +2586,8 @@ class PylonCamera(Camera):
                 timed out (after the probe nothing was written); the camera
                 is not marked disconnected, and the caller may send it again.
             HardwareError: Any other SDK failure (CameraWriteFailedError).
-                RuntimeException marks the camera disconnected before raising.
+                The camera is not marked removed: one failed write is not
+                evidence it is gone.
         """
         if not self.active:
             return False
@@ -2629,7 +2613,6 @@ class PylonCamera(Camera):
                 '[CAM Class ] Camera communication error during '
                 f'set_conversion_gain_mode({mode}): {e}'
             )
-            self._mark_disconnected()
             raise CameraWriteFailedError(
                 f'set_conversion_gain_mode({mode}) failed: {type(e).__name__}: {e}'
             ) from e
@@ -2663,7 +2646,8 @@ class PylonCamera(Camera):
                 timed out (after the probe nothing was written); the camera
                 is not marked disconnected, and the caller may send it again.
             HardwareError: Any other SDK failure (CameraWriteFailedError).
-                RuntimeException marks the camera disconnected before raising.
+                The camera is not marked removed: one failed write is not
+                evidence it is gone.
         """
         if not self.active:
             return False
@@ -2693,7 +2677,6 @@ class PylonCamera(Camera):
                 '[CAM Class ] Camera communication error during '
                 f'set_line_noise_reduction({enabled}): {e}'
             )
-            self._mark_disconnected()
             raise CameraWriteFailedError(
                 f'set_line_noise_reduction({enabled}) failed: {type(e).__name__}: {e}'
             ) from e
@@ -2827,7 +2810,6 @@ class PylonCamera(Camera):
             _cam_log.error(
                 f'[CAM Class ] Camera communication error setting BlackLevel {value}: {e}'
             )
-            self._mark_disconnected()
             return False
         except Exception as e:
             raise CameraWriteFailedError(
@@ -2904,6 +2886,12 @@ class PylonCamera(Camera):
                 or ``None`` to use the camera's reported minimum.
             max_gain: Upper bound in dB, or ``None`` to use the
                 camera's reported maximum.
+
+        Raises:
+            CameraWriteFailedError: A write the camera did not take, so the
+                connect-time step that runs this is named as not applied.
+                The camera is not marked removed: one failed write is not
+                evidence it is gone.
         """
         try:
             # AG/AE BF stability fix (#551): shrink AutoFunction ROI to
@@ -2985,13 +2973,10 @@ class PylonCamera(Camera):
             # caused gain to track noise and bounce, especially on Red BF
             # where the customer reported the instability.
             self.active.AutoFunctionProfile.SetValue('MinimizeGain')
-        except genicam.RuntimeException as e:
-            _cam_log.error(
-                f'[CAM Class ] Camera communication error during init_auto_gain_focus: {e}'
-            )
-            self._mark_disconnected()
         except Exception as e:
-            _cam_log.exception(f'[CAM Class ] Unexpected error in init_auto_gain_focus: {e}')
+            raise CameraWriteFailedError(
+                f'init_auto_gain_focus failed: {type(e).__name__}: {e}'
+            ) from e
 
     def update_auto_gain_target_brightness(
         self,
@@ -3048,7 +3033,6 @@ class PylonCamera(Camera):
                 '[CAM Class ] Camera communication error during '
                 f'update_auto_gain_target_brightness({auto_target_brightness}): {e}'
             )
-            self._mark_disconnected()
             return False
         except genicam.TimeoutException as e:
             raise _no_answer(
@@ -3152,7 +3136,6 @@ class PylonCamera(Camera):
                 '[CAM Class ] Camera communication error during '
                 f'update_auto_gain_min_max(min_db={min_gain_db}, max_db={max_gain_db}): {e}'
             )
-            self._mark_disconnected()
             return False
         except Exception as e:
             _cam_log.exception(f'[CAM Class ] Unexpected error in update_auto_gain_min_max: {e}')
@@ -3392,9 +3375,8 @@ class PylonCamera(Camera):
             _cam_log.error(
                 f'[CAM Class ] Camera communication error during set_frame_size({w}x{h}): {e}'
             )
-            self._mark_disconnected()
-            # These handlers pre-date the return contract and already log +
-            # mark the disconnect; the explicit False (instead of an implicit
+            # One failed write is not the camera gone; only a definite signal
+            # marks it removed. The explicit False (instead of an implicit
             # None) is load-bearing: the camera-write authority upstream reads
             # False as the rejection signal, while None counts as applied and
             # would cache geometry the hardware never took.
@@ -3509,9 +3491,9 @@ class PylonCamera(Camera):
         Asks the SDK nothing. A grab stop holds the camera's SDK lock for as
         long as the camera takes to stop, which has been 11 s, and this is
         asked from the UI thread and per displayed frame; any SDK call here
-        would wait that out. A removal is marked by the removal handler
-        connect() requires, and by a write or a grab that fails on a gone
-        camera.
+        would wait that out. A removal is marked only on definite evidence:
+        the removal handler connect() requires, a grab result of
+        DEVICE_NOT_FOUND, and the consecutive failed-grab cascade.
         """
         if self._device_removed:
             self._mark_disconnected()
@@ -3533,7 +3515,14 @@ class PylonCamera(Camera):
         handler below with the camera still live and streaming. That
         handler reports the refusal rather than falling through it.
 
-        A timeout on the short-circuit read falls through to the write, and
+        A RuntimeException on the write is that write not taken, answered
+        False, and the camera is not marked removed: one failed node access
+        is not evidence the camera is gone, and a removal refuses every later
+        command until a reconnect. Removal is decided only by the definite
+        signals (the SDK's removal callback, a grab result of
+        DEVICE_NOT_FOUND, the consecutive failed-grab cascade).
+
+        A failure on the short-circuit read falls through to the write, and
         one on the read-back after the write answers applied-unconfirmed:
         neither is the access that decides whether the write happened.
 
@@ -3578,12 +3567,9 @@ class PylonCamera(Camera):
             # increment snap an off-increment value, and the caller records
             # this answer as the gain in effect. A read that fails after the
             # write succeeded is not a refusal -- the node took the write --
-            # so it answers applied-unconfirmed; lost comms still reach the
-            # disconnect handler below.
+            # so it answers applied-unconfirmed.
             try:
                 applied = float(self.active.Gain.GetValue())
-            except genicam.RuntimeException:
-                raise
             except Exception as e:
                 _cam_log.warning(
                     f'[CAM Class ] Gain {value} written but the read-back failed; '
@@ -3596,7 +3582,6 @@ class PylonCamera(Camera):
             if _cam_log is not None:
                 _cam_log.error(f'pylon Gain.SetValue({value}) FAILED: {e}')
             _cam_log.error(f'[CAM Class ] Camera communication error during gain({value}): {e}')
-            self._mark_disconnected()
             return False
         except genicam.TimeoutException as e:
             raise _no_answer(f'gain({value})', e) from e
@@ -3710,7 +3695,6 @@ class PylonCamera(Camera):
             raise _no_answer(f'auto_gain({state})', e) from e
         except genicam.RuntimeException as e:
             _cam_log.error(f'[CAM Class ] Auto gain({state}) failed: {e}')
-            self._mark_disconnected()
             return False
         except Exception as e:
             _cam_log.exception(f'[CAM Class ] Unexpected error in auto_gain: {e}')
@@ -3780,7 +3764,6 @@ class PylonCamera(Camera):
             raise _no_answer(f'auto_gain_once({state})', e) from e
         except genicam.RuntimeException as e:
             _cam_log.error(f'[CAM Class ] Auto gain once({state}) failed: {e}')
-            self._mark_disconnected()
             return False
         except Exception as e:
             _cam_log.exception(f'[CAM Class ] Unexpected error in auto_gain_once: {e}')
@@ -3871,7 +3854,6 @@ class PylonCamera(Camera):
             _cam_log.error(
                 f'[CAM Class ] Camera communication error during exposure_t({exposure_ms}ms): {e}'
             )
-            self._mark_disconnected()
             return False
         except Exception as e:
             _cam_log.exception(f'[CAM Class ] Unexpected error in exposure_t: {e}')
@@ -3978,7 +3960,6 @@ class PylonCamera(Camera):
             raise _no_answer(f'auto_exposure_t({state})', e) from e
         except genicam.RuntimeException as e:
             _cam_log.error(f'[CAM Class ] Auto exposure({state}) failed: {e}')
-            self._mark_disconnected()
             return False
         except Exception as e:
             _cam_log.exception(f'[CAM Class ] Unexpected error in auto_exposure_t: {e}')
@@ -4007,11 +3988,6 @@ class PylonCamera(Camera):
 
         try:
             self.active.TestPattern.SetValue(pattern)
-        except genicam.RuntimeException as e:
-            _cam_log.error(
-                f'[CAM Class ] Camera communication error during set_test_pattern({pattern}): {e}'
-            )
-            self._mark_disconnected()
         except Exception as e:
             _cam_log.exception(f'[CAM Class ] Unexpected error in set_test_pattern: {e}')
 
@@ -4166,9 +4142,9 @@ class PylonCamera(Camera):
         is not in the map -- it does not return None. An absent optional node
         is the EXPECTED case for cameras that do not implement the feature
         (Basler darts lack the Bsl* nodes; other vendors lack them entirely),
-        so a missing node is a quiet False, not an error. Genuine comms
-        failures (RuntimeException) and any other error propagate to the
-        caller, which decides whether to mark the camera disconnected.
+        so a missing node is a quiet False, not an error. Comms failures
+        (RuntimeException) and any other error propagate to the caller,
+        which answers them as its own failure.
         """
         try:
             return nodemap.GetNode(name) is not None
@@ -4634,17 +4610,28 @@ class ImageHandler(pylon.ImageEventHandler, ImageHandlerBase):
                 return
 
             # GrabSucceeded() can leak native exceptions in cancel /
-            # teardown paths; trapping here classifies as disconnect
-            # rather than letting the exception escape into Pylon's grab
-            # thread.
+            # teardown paths. Trapped here so nothing escapes into Pylon's
+            # grab thread, and handed to Stage B as a failed grab: one
+            # unreadable result is not evidence the camera is gone, and the
+            # failed-grab cascade, counted on Stage B's thread alone, is
+            # what decides that. A result the copy cannot own is handed on
+            # as no result, which Stage B classifies as a generic failure.
             try:
                 grab_succeeded = grabResult.GrabSucceeded()
             except Exception as e:
-                _cam_log.warning(
-                    f'[CAM Class ] GrabSucceeded() failed: {e}, assuming device removed'
-                )
-                self._parent._mark_disconnected()
-                _outcome = 'exception_grabsucceeded'
+                _cam_log.warning(f'[CAM Class ] GrabSucceeded() failed: {e}; a failed grab')
+                try:
+                    owned = pylon.GrabResult(grabResult)
+                except Exception:
+                    owned = None
+                try:
+                    self._worker.enqueue(
+                        'fail', owned, datetime.datetime.now(), time.monotonic_ns()
+                    )
+                    _outcome = 'exception_grabsucceeded'
+                except queue.Full:
+                    _outcome = 'queue_full_dropped_failure'
+                    _log_safely('Stage A: worker queue full on failure -- dropping')
                 return
 
             ts = datetime.datetime.now()
@@ -4984,10 +4971,9 @@ class _PylonImageGrabWorker:
     def _process_frame(self, grabResult, ts, arrived_ns: int) -> None:
         """Stage B success path: 16 MB memcpy + chunks + store + legacy queue.
 
-        Preserves the defensive behavior of the pre-cutover OnImageGrabbed
-        for GetArray() failure: mark the device removed (so future Stage A
-        callbacks early-return) and record a grab failure (so the cascade
-        counter triggers if multiple frames fail in a row). Cross-thread
+        A GetArray() failure is one failed grab, counted toward the
+        consecutive-failure cascade: one unreadable buffer is not evidence the
+        camera is gone, and the cascade is what decides that. Cross-thread
         smart-pointer access is officially supported per
         `class_pylon_1_1_c_grab_result_ptr.html` provided GetArray succeeds;
         a raised exception here means the underlying buffer is gone.
@@ -5030,10 +5016,9 @@ class _PylonImageGrabWorker:
                 f'(Stage B re-check: GrabSucceeded={_gs_now} '
                 f'err_code={_err_code} err_desc={_err_desc!r} '
                 f'BlockID={_bid} GrabID={_gid}), '
-                f'marking device as removed',
+                f'a failed grab',
             )
-            self._parent._mark_disconnected()
-            self._base._record_failure()
+            self._count_failed_grab()
             return
         chunks = _read_validity_chunks(grabResult)
         # Read the depth from the frame's OWN pixel type -- the format the SDK
@@ -5119,20 +5104,32 @@ class _PylonImageGrabWorker:
                     f'[CAM Class ] grabResult.GrabSucceeded()=False '
                     f'err_code={err_code} desc={err_desc!r}'
                 )
-            # Returns True after MAX_CONSECUTIVE_FAILURES (128 frames at
-            # 30 fps ~= 4.3s) consecutive failures.
-            if self._base._record_failure():
-                try:
-                    if _cam_log is not None:
-                        _cam_log.error('[CAM Class ] Too many grab failures; stopping acquisition')
-                    if self._parent.active and self._parent.is_grabbing():
-                        self._parent.stop_grabbing()
-                    self._parent._mark_disconnected()
-                except Exception as e:
-                    if _cam_log is not None:
-                        _cam_log.warning(
-                            f'[CAM Class ] worker could not stop grabbing after max failures: {e}'
-                        )
+            self._count_failed_grab()
+
+    def _count_failed_grab(self) -> None:
+        """Count one failed grab; at the cascade's limit the camera is gone.
+
+        MAX_CONSECUTIVE_FAILURES (128 frames at 30 fps ~= 4.3 s) failed grabs
+        with no delivered frame between them are the grab path's definite
+        evidence of a removal: the grab stops, the camera is marked removed
+        and torn down off this thread, as every definite removal is. One
+        owner, run on this worker's thread alone, because the count it keeps
+        is not locked.
+        """
+        if not self._base._record_failure():
+            return
+        if _cam_log is not None:
+            _cam_log.error('[CAM Class ] Too many grab failures; stopping acquisition')
+        try:
+            if self._parent.active and self._parent.is_grabbing():
+                self._parent.stop_grabbing()
+        except Exception as e:
+            if _cam_log is not None:
+                _cam_log.warning(
+                    f'[CAM Class ] worker could not stop grabbing after max failures: {e}'
+                )
+        self._parent._mark_disconnected()
+        self._parent._schedule_async_teardown()
 
     def _drain_and_release(self) -> None:
         """Drain the worker queue and release each grabResult.
