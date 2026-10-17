@@ -6,6 +6,7 @@ Windows only -- uses winusb.dll, setupapi.dll, kernel32.dll directly.
 """
 
 import ctypes
+import datetime
 import logging
 import threading
 from ctypes import (
@@ -32,6 +33,7 @@ from drivers.exceptions import (
     CameraUsbNotFoundError,
     CameraUsbOpenFailedError,
 )
+from drivers.usb_driver_binding import DeviceBinding
 
 log = logging.getLogger(__name__)
 
@@ -52,7 +54,15 @@ ERROR_SEM_TIMEOUT = 121
 # What SetupDiEnumDeviceInterfaces reports past the last interface.
 ERROR_NO_MORE_ITEMS = 259
 DIGCF_PRESENT = 0x02
+DIGCF_ALLCLASSES = 0x04
 DIGCF_DEVICEINTERFACE = 0x10
+# What SetupDiGetDevicePropertyW reports for a property the device lacks
+# (no driver bound: no service, provider or INF).
+ERROR_NOT_FOUND = 1168
+DEVPROP_TYPE_UINT32 = 0x07
+DEVPROP_TYPE_FILETIME = 0x10
+DEVPROP_TYPE_BOOLEAN = 0x11
+DEVPROP_TYPE_STRING = 0x12
 SPDRP_HARDWAREID = 1
 
 # WinUSB GUID (standard for WinUSB devices)
@@ -99,6 +109,34 @@ class SP_DEVINFO_DATA(Structure):
         ('DevInst', c_ulong),
         ('Reserved', c_void_p),
     ]
+
+
+class DEVPROPKEY(Structure):
+    _fields_ = [
+        ('fmtid', GUID),
+        ('pid', c_ulong),
+    ]
+
+
+def _devpropkey(data1, data2, data3, data4, pid) -> DEVPROPKEY:
+    return DEVPROPKEY(GUID(data1, data2, data3, (c_ubyte * 8)(*data4)), pid)
+
+
+# devpkey.h
+_DRIVER_FMTID = (0xA8B865DD, 0x2E3D, 0x4094, (0xAD, 0x97, 0xE5, 0x93, 0xA7, 0x0C, 0x75, 0xD6))
+DEVPKEY_Device_DriverDate = _devpropkey(*_DRIVER_FMTID, 2)
+DEVPKEY_Device_DriverVersion = _devpropkey(*_DRIVER_FMTID, 3)
+DEVPKEY_Device_DriverInfPath = _devpropkey(*_DRIVER_FMTID, 5)
+DEVPKEY_Device_DriverProvider = _devpropkey(*_DRIVER_FMTID, 9)
+DEVPKEY_Device_Service = _devpropkey(
+    0xA45C254E, 0xDF1C, 0x4EFD, (0x80, 0x20, 0x67, 0xD1, 0x46, 0xA8, 0x50, 0xE0), 6
+)
+DEVPKEY_Device_ProblemCode = _devpropkey(
+    0x4340A6C5, 0x93FA, 0x4706, (0x97, 0x2C, 0x7B, 0x64, 0x80, 0x08, 0xA5, 0xA7), 3
+)
+DEVPKEY_Device_IsPresent = _devpropkey(
+    0x540B947E, 0x8B40, 0x45BC, (0xA8, 0xA2, 0x6A, 0x0B, 0x89, 0x4C, 0xBD, 0xA2), 5
+)
 
 
 class OVERLAPPED(Structure):
@@ -181,6 +219,22 @@ _declare(
     _POINTER,
 )
 _declare(setupapi.SetupDiDestroyDeviceInfoList, _BOOL, _HANDLE)
+_declare(setupapi.SetupDiEnumDeviceInfo, _BOOL, _HANDLE, c_ulong, _POINTER)
+_declare(
+    setupapi.SetupDiGetDeviceInstanceIdW, _BOOL, _HANDLE, _POINTER, _POINTER, c_ulong, _POINTER
+)
+_declare(
+    setupapi.SetupDiGetDevicePropertyW,
+    _BOOL,
+    _HANDLE,
+    _POINTER,
+    _POINTER,
+    _POINTER,
+    _POINTER,
+    c_ulong,
+    _POINTER,
+    c_ulong,
+)
 _declare(
     kernel32.CreateFileW, _HANDLE, c_wchar_p, c_ulong, c_ulong, _POINTER, c_ulong, c_ulong, _HANDLE
 )
@@ -276,6 +330,108 @@ def find_device_path(vid: int, pid: int) -> str | None:
                 return path
     finally:
         setupapi.SetupDiDestroyDeviceInfoList(dev_info)
+
+
+def device_bindings(hardware_id: str) -> list[DeviceBinding]:
+    """Every device of ``hardware_id``, present or seen before, and its driver.
+
+    Read without elevation. A device seen before on another port keeps the
+    binding it had there until it is matched afresh, so the past ones are
+    read too.
+
+    Args:
+        hardware_id: ``USB\\VID_xxxx&PID_xxxx``; a device's instance ID is
+            the identity, a backslash, then its serial or port.
+
+    Raises:
+        CameraUsbLookupFailedError: A SetupAPI call failed, naming it and its
+            last error; whether the devices are there is then not known.
+    """
+    dev_info = setupapi.SetupDiGetClassDevsW(None, 'USB', None, DIGCF_ALLCLASSES)
+    if dev_info == INVALID_HANDLE_VALUE:
+        raise CameraUsbLookupFailedError(f'SetupDiGetClassDevsW failed: {ctypes.get_last_error()}')
+    prefix = hardware_id.upper() + '\\'
+    bindings = []
+    try:
+        index = 0
+        while True:
+            devinfo = SP_DEVINFO_DATA()
+            devinfo.cbSize = sizeof(SP_DEVINFO_DATA)
+            if not setupapi.SetupDiEnumDeviceInfo(dev_info, index, byref(devinfo)):
+                code = ctypes.get_last_error()
+                if code == ERROR_NO_MORE_ITEMS:
+                    return bindings
+                raise CameraUsbLookupFailedError(f'SetupDiEnumDeviceInfo({index}) failed: {code}')
+            index += 1
+            instance_id = _instance_id(dev_info, devinfo)
+            if not instance_id.upper().startswith(prefix):
+                continue
+            service = _device_property(dev_info, devinfo, DEVPKEY_Device_Service)
+            bindings.append(
+                DeviceBinding(
+                    instance_id=instance_id,
+                    present=bool(_device_property(dev_info, devinfo, DEVPKEY_Device_IsPresent)),
+                    service=service,
+                    provider=_device_property(dev_info, devinfo, DEVPKEY_Device_DriverProvider),
+                    inf=_device_property(dev_info, devinfo, DEVPKEY_Device_DriverInfPath),
+                    version=_device_property(dev_info, devinfo, DEVPKEY_Device_DriverVersion),
+                    date=_device_property(dev_info, devinfo, DEVPKEY_Device_DriverDate),
+                    problem_code=_device_property(dev_info, devinfo, DEVPKEY_Device_ProblemCode),
+                )
+            )
+    finally:
+        setupapi.SetupDiDestroyDeviceInfoList(dev_info)
+
+
+def _instance_id(dev_info, devinfo) -> str:
+    buffer = ctypes.create_unicode_buffer(512)
+    if not setupapi.SetupDiGetDeviceInstanceIdW(
+        dev_info, byref(devinfo), buffer, len(buffer), None
+    ):
+        raise CameraUsbLookupFailedError(
+            f'SetupDiGetDeviceInstanceIdW failed: {ctypes.get_last_error()}'
+        )
+    return buffer.value
+
+
+def _device_property(dev_info, devinfo, key: DEVPROPKEY):
+    """A device property as Python: a string, an int, a bool, an ISO date.
+
+    None when the device lacks it, as a device with no driver lacks its
+    service and package.
+    """
+    prop_type = c_ulong(0)
+    required = c_ulong(0)
+    buffer = create_string_buffer(1024)
+    if not setupapi.SetupDiGetDevicePropertyW(
+        dev_info,
+        byref(devinfo),
+        byref(key),
+        byref(prop_type),
+        buffer,
+        sizeof(buffer),
+        byref(required),
+        0,
+    ):
+        code = ctypes.get_last_error()
+        if code == ERROR_NOT_FOUND:
+            return None
+        raise CameraUsbLookupFailedError(f'SetupDiGetDevicePropertyW failed: {code}')
+    raw = buffer.raw[: required.value]
+    if prop_type.value == DEVPROP_TYPE_STRING:
+        return raw.decode('utf-16-le').rstrip('\x00')
+    if prop_type.value == DEVPROP_TYPE_UINT32:
+        return int.from_bytes(raw[:4], 'little')
+    if prop_type.value == DEVPROP_TYPE_BOOLEAN:
+        return raw[:1] != b'\x00'
+    if prop_type.value == DEVPROP_TYPE_FILETIME:
+        # 100 ns ticks since 1601-01-01.
+        ticks = int.from_bytes(raw[:8], 'little')
+        moment = datetime.datetime(1601, 1, 1) + datetime.timedelta(microseconds=ticks // 10)
+        return moment.date().isoformat()
+    raise CameraUsbLookupFailedError(
+        f'SetupDiGetDevicePropertyW returned type {prop_type.value:#x}, not one this reads'
+    )
 
 
 def _transfer_failed(transfer: str) -> Exception:
