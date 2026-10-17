@@ -731,7 +731,8 @@ class SimulatedCamera(Camera):
             )
         while not self._acquisition_stop.is_set():
             handler = self.cam_image_handler
-            if handler is None or not self._grabbing:
+            # A camera off the bus delivers nothing, as a removed one does.
+            if handler is None or not self._grabbing or self.is_device_removed():
                 return
             held = self._held_window
             now = time.monotonic()

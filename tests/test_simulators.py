@@ -1790,6 +1790,20 @@ class TestTheCamerasFaultDoors:
         cam.leave_bus()
         assert cam.is_device_removed()
 
+    def test_a_camera_that_leaves_the_bus_delivers_no_more_frames(self):
+        """A removed camera's stream ends, so a recording on it is lost, not completed."""
+        cam = SimulatedCamera()
+        cam.open_and_start()
+        try:
+            handler = cam.cam_image_handler
+            assert handler.wait_for_frame_after(handler.frames_delivered, 2.0)
+            cam.leave_bus()
+            # A frame already on its way when the camera left may still land.
+            handler.wait_for_frame_after(handler.frames_delivered, 0.1)
+            assert not handler.wait_for_frame_after(handler.frames_delivered, 0.5)
+        finally:
+            cam.stop_grabbing()
+
 
 class TestAnUnlitFieldIsDark:
     """The simulated camera answers to light.
