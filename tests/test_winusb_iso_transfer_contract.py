@@ -125,3 +125,35 @@ def test_a_timed_out_transfer_raises_a_timeout_naming_the_code(request_type, kwa
         pytest.raises(TimeoutError, match='121'),
     ):
         _device().control_transfer(request_type, 0xB3, 0, 0x42, **kwargs)
+
+
+def test_a_reader_whose_pipe_query_fails_closes_the_device_it_opened():
+    """The reader is held by no one until its start returns, so a start that
+    raised after opening the device left the WinUSB handle open with nothing
+    to close it, and the next start could not open the device."""
+    from drivers import winusb_iso
+
+    closed = []
+
+    class Device:
+        def __init__(self, vid, pid):
+            pass
+
+        def set_alt_interface(self, setting):
+            pass
+
+        def query_pipe(self, alt, index):
+            raise RuntimeError('QueryPipe failed: 31')
+
+        def close(self):
+            closed.append(True)
+
+    reader = winusb_iso.WinUsbIsoReader(0x04B4, 0xEA17, on_data=None, on_error=None)
+    with (
+        patch.object(winusb_iso, 'WinUsbDevice', Device),
+        pytest.raises(RuntimeError, match='QueryPipe failed'),
+    ):
+        reader.start()
+
+    assert closed == [True]
+    assert reader.device is None

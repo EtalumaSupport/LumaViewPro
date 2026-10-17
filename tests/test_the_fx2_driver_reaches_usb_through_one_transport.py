@@ -277,6 +277,110 @@ def test_a_windows_start_that_fails_leaves_its_reader_where_the_stop_stops_it(mo
     assert readers[0].running is False
 
 
+# ---------------------------------------------------------------------------
+# A start that fails leaves nothing open, whatever step it failed at
+# ---------------------------------------------------------------------------
+
+
+def test_a_windows_start_that_fails_leaves_no_reader_and_the_next_runs_one(monkeypatch):
+    """The camera stops only what it started, so a connection whose start
+    raised and stayed marked streaming kept its WinUSB reader running where
+    no stop reached it; the next start then opened a second reader beside
+    it, which on real WinUSB fails to open the device the first one holds."""
+    readers = []
+
+    class Device:
+        def __init__(self, refuses_start):
+            self._refuses_start = refuses_start
+
+        def control_transfer(self, request_type, request, value, index, data=b''):
+            if request == fx2driver.VR_START_STREAMING and self._refuses_start:
+                raise RuntimeError('ControlTransfer OUT failed: 31')
+            return len(data)
+
+    class Reader:
+        def __init__(self, vid, pid, **kwargs):
+            self.device = Device(refuses_start=not readers)
+            self.running = False
+            readers.append(self)
+
+        def start(self):
+            self.running = True
+
+        def stop(self):
+            self.running = False
+
+    monkeypatch.setattr('drivers.winusb_iso.WinUsbIsoReader', Reader)
+    monkeypatch.setattr(
+        fx2driver,
+        'usb',
+        SimpleNamespace(
+            core=SimpleNamespace(find=lambda **kw: _PyusbDevice([], 'idle'), USBError=OSError),
+            util=SimpleNamespace(
+                claim_interface=lambda dev, i: None, dispose_resources=lambda dev: None
+            ),
+        ),
+    )
+    conn = fx2driver._FX2Connection(fx2driver._WinUsbTransport())
+
+    with pytest.raises(RuntimeError, match='failed: 31'):
+        conn.start_stream()
+    running_after_the_failure = [r.running for r in readers]
+    conn.start_stream()
+    running_after_the_retry = [r.running for r in readers]
+    conn.stop_stream()
+
+    assert running_after_the_failure == [False]
+    assert running_after_the_retry == [False, True]
+    assert [r.running for r in readers] == [False, False]
+
+
+def test_a_libusb_start_whose_claim_fails_closes_the_handle_and_context_it_opened(monkeypatch):
+    """A claim that raised left the opened handle unstored and the context
+    open, so nothing ever closed either. The interface was never claimed, so
+    its release is refused, as libusb refuses it; the handle closes anyway."""
+    events = []
+    conn = _connection_on_libusb(monkeypatch, events)
+    handle = _IsoHandle(events)
+    closed = []
+
+    def refuse_claim(interface):
+        raise OSError('LIBUSB_ERROR_BUSY')
+
+    def refuse_release(interface):
+        raise OSError('LIBUSB_ERROR_NOT_FOUND')
+
+    handle.claimInterface = refuse_claim
+    handle.releaseInterface = refuse_release
+    handle.close = lambda: closed.append('handle')
+
+    class Context(_Context):
+        def close(self):
+            closed.append('context')
+
+    monkeypatch.setattr(fx2driver.usb1, 'USBContext', lambda: Context(handle))
+
+    with pytest.raises(OSError, match='BUSY'):
+        conn.start_stream()
+
+    assert sorted(closed) == ['context', 'handle']
+
+
+def test_a_libusb_start_whose_context_does_not_open_raises_its_own_error(monkeypatch):
+    """With no context opened, the stop that undoes the start has nothing
+    to close; it used to raise AttributeError on the missing context in
+    place of the start's own error."""
+    conn = _connection_on_libusb(monkeypatch, [])
+
+    def no_context():
+        raise OSError('LIBUSB_ERROR_NO_MEM')
+
+    monkeypatch.setattr(fx2driver.usb1, 'USBContext', no_context)
+
+    with pytest.raises(OSError, match='NO_MEM'):
+        conn.start_stream()
+
+
 _USB_NAMES = {'usb', 'usb1', 'WinUsbIsoReader', 'winusb_iso'}
 
 

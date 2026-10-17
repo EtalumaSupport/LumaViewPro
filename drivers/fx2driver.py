@@ -1180,6 +1180,10 @@ class _LibusbTransport(_PyusbTransport):
         handle = self._ctx.openByVendorIDAndProductID(VID, PID_APP)
         if handle is None:
             raise RuntimeError('FX2 USB device disappeared before ISO streaming could start')
+        # Held as soon as it is opened, so a step below that raises leaves
+        # it where stop_stream closes it. Control goes through this handle
+        # while streaming -- the pyusb handle is released.
+        self._handle = handle
         try:
             if handle.kernelDriverActive(0):
                 handle.detachKernelDriver(0)
@@ -1188,9 +1192,6 @@ class _LibusbTransport(_PyusbTransport):
         handle.claimInterface(0)
         handle.setInterfaceAltSetting(0, ISO_ALT_INTERFACE)
 
-        # Control goes through this handle while streaming -- the pyusb
-        # handle is released.
-        self._handle = handle
         self._stream = stream
         self._on_gone = on_gone
         self._streaming = True
@@ -1230,7 +1231,8 @@ class _LibusbTransport(_PyusbTransport):
         """Stop the ISO stream and give control back to a reopened pyusb handle.
 
         Matches the LVC reference: cancel transfers, drain events for ~2s,
-        join the event thread, send STOP, close the handle.
+        join the event thread, send STOP, close the handle. Also undoes a
+        start that raised part way, so each step runs only on what was opened.
         """
         self._streaming = False
         for xfer in self._transfers:
@@ -1240,36 +1242,44 @@ class _LibusbTransport(_PyusbTransport):
                 pass
 
         # Drain cancelled transfers.
-        deadline = time.monotonic() + 2.0
-        while time.monotonic() < deadline:
-            try:
-                self._ctx.handleEventsTimeout(tv=0.1)
-            except Exception:
-                break
+        if self._ctx is not None:
+            deadline = time.monotonic() + 2.0
+            while time.monotonic() < deadline:
+                try:
+                    self._ctx.handleEventsTimeout(tv=0.1)
+                except Exception:
+                    break
 
         if self._event_thread is not None:
             self._event_thread.join(timeout=3.0)
             self._event_thread = None
 
-        try:
-            self._handle.controlWrite(
-                0x40, VR_STOP_STREAMING, 0, 0, b'', timeout=CONTROL_TIMEOUT_MS
-            )
-        except Exception as e:
-            # The handle is closed below whatever the camera answered; the
-            # camera may still be streaming until it is reopened.
-            logger.warning('[FX2 Conn  ] VR_STOP_STREAMING not taken: %s', e)
-        try:
-            self._handle.releaseInterface(0)
-            self._handle.close()
-        except Exception:
-            pass
+        if self._handle is not None:
+            try:
+                self._handle.controlWrite(
+                    0x40, VR_STOP_STREAMING, 0, 0, b'', timeout=CONTROL_TIMEOUT_MS
+                )
+            except Exception as e:
+                # The handle is closed below whatever the camera answered; the
+                # camera may still be streaming until it is reopened.
+                logger.warning('[FX2 Conn  ] VR_STOP_STREAMING not taken: %s', e)
+            # Released and closed apart: an interface whose claim failed
+            # refuses the release, and its handle is closed all the same.
+            try:
+                self._handle.releaseInterface(0)
+            except Exception:
+                pass
+            try:
+                self._handle.close()
+            except Exception:
+                pass
         self._transfers = []
         # Paired with the explicit open() at stream start: dropping the
         # reference without close() leaks the libusb context until GC. The
         # transfers are cancelled and the handle closed above, so close()
         # is safe here.
-        self._ctx.close()
+        if self._ctx is not None:
+            self._ctx.close()
         self._ctx = None
         self._handle = None
         self._stream = None
@@ -1779,10 +1789,16 @@ class _FX2Connection:
         with self._lock:
             self.stream.restart()
             self._gone_reported.clear()
-            # Marked before the transport starts: a start that raises part
-            # way leaves what it opened for stop_stream to release.
+            try:
+                self._transport.start_stream(self.stream, self._gone_reported.set)
+            except BaseException:
+                # A start that raised part way is undone here, by the one
+                # that began it: the camera stops only a stream it started,
+                # so a reader left running would be reached by no stop, and
+                # the next start would open a second beside it.
+                self._transport.stop_stream()
+                raise
             self._streaming = True
-            self._transport.start_stream(self.stream, self._gone_reported.set)
 
     def stop_stream(self) -> None:
         """Stop the stream; control returns to the idle handle. Does nothing when stopped."""

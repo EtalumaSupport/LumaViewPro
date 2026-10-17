@@ -480,22 +480,32 @@ class WinUsbIsoReader:
         self._running = False
         self._thread = None
 
-    def start(self):
-        """Open device, configure for ISO, start streaming thread."""
+    def start(self) -> None:
+        """Open device, configure for ISO, start streaming thread.
+
+        A step that raises closes the device it opened: the reader is not
+        yet held by anyone who would stop it.
+        """
         self._dev = WinUsbDevice(self.vid, self.pid)
-        self._dev.set_alt_interface(self.alt_interface)
+        try:
+            self._dev.set_alt_interface(self.alt_interface)
 
-        pipe_info = self._dev.query_pipe(self.alt_interface, 0)
-        self._max_packet_size = pipe_info.MaximumPacketSize
-        log.info(
-            'ISO pipe: PipeId=0x%02X, MaxPacketSize=%d',
-            pipe_info.PipeId,
-            pipe_info.MaximumPacketSize,
-        )
+            pipe_info = self._dev.query_pipe(self.alt_interface, 0)
+            self._max_packet_size = pipe_info.MaximumPacketSize
+            log.info(
+                'ISO pipe: PipeId=0x%02X, MaxPacketSize=%d',
+                pipe_info.PipeId,
+                pipe_info.MaximumPacketSize,
+            )
 
-        self._running = True
-        self._thread = threading.Thread(target=self._read_loop, daemon=True)
-        self._thread.start()
+            self._running = True
+            self._thread = threading.Thread(target=self._read_loop, daemon=True)
+            self._thread.start()
+        except BaseException:
+            self._running = False
+            self._dev.close()
+            self._dev = None
+            raise
 
     def stop(self):
         """Stop streaming and close device."""
