@@ -47,6 +47,7 @@ from drivers.usb_driver_binding import (
     FX2_FIRMWARE,
     DeviceBinding,
     StorePackage,
+    read_package,
     store_inf_folder,
     store_packages,
 )
@@ -95,7 +96,7 @@ def install(machine: Machine, package_dir: pathlib.Path) -> bool:
     """Bind both identities to our package. True when every step did.
 
     Args:
-        machine: A ``WindowsMachine``.
+        machine: The PC (``WindowsMachine``).
         package_dir: ``<install>\\drivers\\fx2``: the stamped INF, its catalog,
             and the signing certificate when the build carries one.
     """
@@ -172,19 +173,11 @@ def _our_packages(machine: Machine) -> list[StorePackage]:
 
 def _our_current_package(machine: Machine, inf: pathlib.Path) -> StorePackage | None:
     """Our package in the store with this build's ``DriverVer``, or None."""
-    stamped = _driver_ver(inf)
+    stamped = read_package(str(inf)).driver_ver
     for package in _our_packages(machine):
         if package.driver_ver == stamped:
             return package
     return None
-
-
-def _driver_ver(inf: pathlib.Path) -> str:
-    for line in inf.read_text(encoding='ascii').splitlines():
-        key, _, value = line.partition('=')
-        if key.strip().lower() == 'driverver':
-            return value.split(';', 1)[0].strip()
-    raise ValueError(f'{inf} has no DriverVer line')
 
 
 def _trust(machine: Machine, package_dir: pathlib.Path) -> bool:
@@ -324,10 +317,21 @@ def main(argv: list[str]) -> int:
     handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(message)s'))
     log.addHandler(handler)
     log.setLevel(logging.INFO)
-    log.info(
-        f'LumaViewPro {version} FX2 driver step: {argv[0]}, from {install_dir}, PID {os.getpid()}'
-    )
-    step = install if argv[0] == 'install' else uninstall
-    complete = step(WindowsMachine(), install_dir / 'drivers' / 'fx2')
-    log.info(f'{argv[0]} {"complete" if complete else "incomplete: see the errors above"}')
-    return 0 if complete else 1
+    try:
+        log.info(
+            f'LumaViewPro {version} FX2 driver step: {argv[0]}, from {install_dir}, '
+            f'PID {os.getpid()}'
+        )
+        step = install if argv[0] == 'install' else uninstall
+        try:
+            complete = step(WindowsMachine(), install_dir / 'drivers' / 'fx2')
+        except Exception:
+            # The top of the step: the installer ignores the exit code and this
+            # executable has no console, so the log is the only place it is told.
+            log.exception(f'{argv[0]} stopped on an unexpected error')
+            return 1
+        log.info(f'{argv[0]} {"complete" if complete else "incomplete: see the errors above"}')
+        return 0 if complete else 1
+    finally:
+        log.removeHandler(handler)
+        handler.close()

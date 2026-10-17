@@ -96,20 +96,26 @@ def store_packages(hardware_id: str, inf_folder: str) -> list[StorePackage]:
         if not re.fullmatch(r'oem\d+\.inf', name, re.IGNORECASE):
             continue
         sections = _inf_sections(_read_inf_text(os.path.join(inf_folder, name)))
-        if not _names_hardware_id(sections, wanted):
-            continue
-        version = _first_values(sections.get('version', []))
-        packages.append(
-            StorePackage(
-                inf=name,
-                provider=_resolve(
-                    version.get('provider', ''), _first_values(sections.get('strings', []))
-                ),
-                catalog=version.get('catalogfile', version.get('catalogfile.ntamd64', '')),
-                driver_ver=version.get('driverver', ''),
-            )
-        )
+        if _names_hardware_id(sections, wanted):
+            packages.append(_package(name, sections))
     return packages
+
+
+def read_package(path: str) -> StorePackage:
+    """The package an INF file describes, named for its file."""
+    return _package(os.path.basename(path), _inf_sections(_read_inf_text(path)))
+
+
+def _package(name: str, sections: dict[str, list[tuple[str, str]]]) -> StorePackage:
+    version = _first_values(sections.get('version', []))
+    strings = _first_values(sections.get('strings', []))
+    catalog = version.get('catalogfile', version.get('catalogfile.ntamd64', ''))
+    return StorePackage(
+        inf=name,
+        provider=_resolve(version.get('provider', ''), strings),
+        catalog=catalog.strip('"'),
+        driver_ver=version.get('driverver', ''),
+    )
 
 
 def _read_inf_text(path: str) -> str:

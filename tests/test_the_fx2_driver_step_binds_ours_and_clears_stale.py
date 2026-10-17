@@ -19,6 +19,7 @@ import hashlib
 import importlib.util
 import pathlib
 import shutil
+import sys
 
 from drivers.usb_driver_binding import (
     FX2_BOOTLOADER,
@@ -267,3 +268,40 @@ def test_the_signing_certificate_is_trusted_once_and_removed_at_uninstall(tmp_pa
     assert len(recorded) == 1
     assert machine.trusted == []
     assert not (package_dir / fx2_driver_step.TRUSTED_RECORD).exists()
+
+
+def test_the_step_logs_to_its_install_folder_and_exits_1_when_incomplete(tmp_path, monkeypatch):
+    package_dir = _package_dir(tmp_path)
+    install_dir = package_dir.parent.parent
+    (install_dir / 'version.txt').write_text('4.0.0-beta38\n', encoding='ascii')
+    machine = _machine(tmp_path, accepts_ours=False)
+    monkeypatch.setattr(sys, 'executable', str(install_dir / 'lvp_fx2_driver_step.exe'))
+    monkeypatch.setattr(fx2_driver_step, 'WindowsMachine', lambda: machine)
+
+    code = fx2_driver_step.main(['install'])
+
+    (log_file,) = (install_dir / 'logs').glob('driver_install_4.0.0-beta38_*.log')
+    text = log_file.read_text(encoding='utf-8')
+    assert code == 1
+    assert 'did not enter the driver store' in text
+    assert text.rstrip().endswith('install incomplete: see the errors above')
+
+
+def test_an_unexpected_error_is_logged_with_its_traceback_and_exits_1(tmp_path, monkeypatch):
+    package_dir = _package_dir(tmp_path)
+    install_dir = package_dir.parent.parent
+    monkeypatch.setattr(sys, 'executable', str(install_dir / 'lvp_fx2_driver_step.exe'))
+
+    class _Unreadable(_Machine):
+        def store_packages(self, hardware_id):
+            raise PermissionError('INF folder unreadable')
+
+    monkeypatch.setattr(fx2_driver_step, 'WindowsMachine', lambda: _Unreadable(tmp_path))
+
+    code = fx2_driver_step.main(['uninstall'])
+
+    (log_file,) = (install_dir / 'logs').glob('driver_uninstall_*.log')
+    text = log_file.read_text(encoding='utf-8')
+    assert code == 1
+    assert 'uninstall stopped on an unexpected error' in text
+    assert 'PermissionError: INF folder unreadable' in text

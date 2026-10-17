@@ -102,3 +102,18 @@ def test_an_older_etaluma_package_with_another_catalog_is_not_ours(tmp_path):
     (package,) = store_packages(FX2_FIRMWARE, str(store))
 
     assert (package.provider, package.ours) == ('Etaluma', False)
+
+
+def test_a_quoted_catalog_name_is_read_without_its_quotes(tmp_path):
+    store = tmp_path / 'INF'
+    store.mkdir()
+    quoted = (
+        _stamped_shipped_inf(tmp_path)
+        .read_text(encoding='ascii')
+        .replace('CatalogFile = Lumascope_Classic.cat', 'CatalogFile = "Lumascope_Classic.cat"')
+    )
+    (store / 'oem4.inf').write_text(quoted, encoding='ascii')
+
+    (package,) = store_packages(FX2_FIRMWARE, str(store))
+
+    assert (package.catalog, package.ours) == ('Lumascope_Classic.cat', True)
