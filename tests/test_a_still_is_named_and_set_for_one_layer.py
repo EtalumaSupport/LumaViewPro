@@ -141,6 +141,29 @@ def test_a_raw_camera_write_stands_and_the_record_says_no_layer(session):
     assert record.held_layer is None
 
 
+def test_the_saved_file_states_the_layer_the_camera_held(session):
+    """The file, not only the frame's record: a reader of the image knows
+    whether its settings were a layer's, and whose."""
+    from modules.image_utils import read_postproc_input_metadata
+
+    session.scope.illumination.led_on('Blue', 100.0)
+    held = session.manual_capture.capture(false_color_on=False).result(timeout=30)[0]
+    session.scope.illumination.leds_off()
+    session.scope.imaging.set_exposure_ms(30.0)
+    raw = session.manual_capture.capture(false_color_on=False).result(timeout=30)[0]
+
+    held_saved = read_postproc_input_metadata(held)
+    raw_saved = read_postproc_input_metadata(raw)
+    assert (held_saved.get('camera_held_a_layer'), held_saved.get('camera_held_layer')) == (
+        True,
+        'Blue',
+    ), held_saved
+    assert (raw_saved.get('camera_held_a_layer'), 'camera_held_layer' in raw_saved) == (
+        False,
+        False,
+    ), raw_saved
+
+
 def test_a_still_that_would_change_a_recordings_layer_is_refused(session):
     recording = session.manual_recording.start(false_color_on=False)
     try:

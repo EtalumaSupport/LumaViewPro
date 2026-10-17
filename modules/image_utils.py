@@ -989,6 +989,8 @@ def read_postproc_input_metadata(path: pathlib.Path) -> dict | None:
         flat['black_level'] = plane['BlackLevel']
     if 'FramesSummed' in plane:
         flat['frames_summed'] = plane['FramesSummed']
+    if 'Binning' in plane:
+        flat['binning_size'] = plane['Binning']
     if datetime_value is not None:
         flat['datetime'] = datetime_value
 
@@ -1019,6 +1021,10 @@ def read_postproc_input_metadata(path: pathlib.Path) -> dict | None:
         flat['saturated_fraction'] = plane['SaturatedFraction']
     if 'Dark' in plane:
         flat['dark'] = plane['Dark']
+    if 'CameraHeldALayer' in plane:
+        flat['camera_held_a_layer'] = plane['CameraHeldALayer']
+    if 'CameraHeldLayer' in plane:
+        flat['camera_held_layer'] = plane['CameraHeldLayer']
 
     if 'Instrument' in structured:
         inst = structured['Instrument']
@@ -1193,6 +1199,8 @@ def build_postproc_output_metadata(
             'frame_validity',
             'saturated_fraction',
             'dark',
+            'camera_held_a_layer',
+            'camera_held_layer',
         ):
             metadata.pop(per_capture_field, None)
 
@@ -2296,6 +2304,10 @@ def generate_tiff_data(
     # and without the count the file's exposure understates its integration.
     if 'frames_summed' in metadata:
         plane['FramesSummed'] = metadata['frames_summed']
+    # The pixel size already folds the binning in, so without it a reader
+    # cannot tell a binned frame from a finer objective.
+    if 'binning_size' in metadata:
+        plane['Binning'] = metadata['binning_size']
 
     # Per-frame timestamps. Each is optional -- callers that don't capture
     # them (older static metadata builders, Stage 2-pending paths) simply
@@ -2325,6 +2337,13 @@ def generate_tiff_data(
         plane['SaturatedFraction'] = metadata['saturated_fraction']
     if 'dark' in metadata:
         plane['Dark'] = metadata['dark']
+    # Whether the camera held a layer's stored settings for the frame, and
+    # which: a frame taken after a script's raw gain or exposure write says
+    # it held none.
+    if 'camera_held_a_layer' in metadata:
+        plane['CameraHeldALayer'] = metadata['camera_held_a_layer']
+    if 'camera_held_layer' in metadata:
+        plane['CameraHeldLayer'] = metadata['camera_held_layer']
 
     # Spectral identity rides in the Channel block. ExcitationWavelength
     # is a schema OME Channel attribute, so the OME container serializes

@@ -1285,3 +1285,89 @@ class TestPostprocMetadataRoundTrip:
         )
         ts = image_utils.read_frame_timestamp(path)
         assert ts == datetime.datetime.fromisoformat('2026-03-16T12:00:00')
+
+
+# ---------------------------------------------------------------------------
+# Every key a save records reads back from the file
+# ---------------------------------------------------------------------------
+
+# Recorded keys the file carries in another form, so the reader returns them
+# under no key of their own; each names where it is.
+_IN_THE_FILE_AS = {
+    'software': 'the Software tag',
+    'sub_sec_time': "the Timestamp's microseconds",
+    'x_pos': 'plate_pos_mm (PositionX)',
+    'y_pos': 'plate_pos_mm (PositionY)',
+    'focal_length': "the objective's focal_length",
+    'camera_make': 'Instrument.Microscope.Manufacturer',
+    'microscope': 'Instrument.Microscope.Model',
+    'microscope_model': 'Instrument.Microscope.Model',
+}
+
+
+@pytest.mark.parametrize(
+    ('save_encoding', 'significant_bits', 'dtype'),
+    # parametrize-justified: the shaped-JSON and the ImageJ containers are two
+    # writers with two readers.
+    [('8bit', 8, np.uint8), ('right_aligned', 12, np.uint16)],
+)
+def test_every_key_a_save_records_reads_back_from_the_file(
+    sim_scope, tmp_path, save_encoding, significant_bits, dtype
+):
+    """The writer copies the record into the file key by key, so a key the save
+    records and the writer does not copy is lost without a word (the held
+    layer and the binning were). Every key of a record with every field set
+    is read back, in both containers."""
+    from modules import image_save
+    from modules.layer_record import release_colors
+    from tests.frame_records import frame_record, plate
+    from tests.scope_fakes import bind_settings_like_a_session
+
+    bind_settings_like_a_session(
+        sim_scope, objective_id='4x Oly', protocol={'labware': '96 well microplate'}
+    )
+    record = frame_record(
+        black_level=0.0,
+        frame_significant_bits=significant_bits,
+        camera_timestamp_ticks=123,
+        camera_tick_hz=1_000_000_000,
+        frame_id=7,
+        binning_size=2,
+        camera_model='daA3840-45um',
+        saturated_fraction=0.25,
+        dark=False,
+        held_layer='BF',
+    )
+    where = {'plate_x_mm': 10.0, 'plate_y_mm': 20.0, 'stage_z_um': 5000.0}
+    common = {
+        'objective_id': '4x Oly',
+        'frame_record': record,
+        'labware': plate(),
+        'well_label': 'A1',
+    }
+    recorded = image_save.generate_image_metadata(sim_scope, 'BF', **where, **common)
+    path = image_save.save_image(
+        sim_scope,
+        np.zeros((8, 8), dtype=dtype),
+        save_folder=str(tmp_path),
+        file_root='rt_',
+        append='a',
+        tail_id_mode=None,
+        channel='BF',
+        false_color_on=False,
+        output_format='TIFF',
+        save_encoding=save_encoding,
+        significant_bits=significant_bits,
+        channel_colors=release_colors(),
+        **where,
+        **common,
+    )
+
+    read = image_utils.read_postproc_input_metadata(path)
+    lost = sorted(set(recorded) - set(read) - set(_IN_THE_FILE_AS))
+    assert lost == [], f'recorded but not in the file: {lost}'
+    assert (read['binning_size'], read['camera_held_a_layer'], read['camera_held_layer']) == (
+        2,
+        True,
+        'BF',
+    )
