@@ -1,7 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """The WinUSB control-transfer failure contract -- WINDOWS ONLY.
 
-`drivers/winusb_iso.py` does ``from ctypes import windll`` at module scope, so
+`drivers/winusb_iso.py` loads its DLLs with ``ctypes.WinDLL`` at module scope, so
 it cannot be imported on macOS or Linux at all. This whole module is skipped
 there, which means the defect these tests cover is NOT guarded by any CI run
 on a dev machine -- only by running this file on a Windows box.
@@ -27,7 +27,7 @@ import pytest
 
 pytestmark = pytest.mark.skipif(
     sys.platform != 'win32',
-    reason='winusb_iso imports ctypes.windll, which exists only on Windows',
+    reason='winusb_iso loads its DLLs with ctypes.WinDLL, which exists only on Windows',
 )
 
 
@@ -62,7 +62,7 @@ def test_a_failed_out_transfer_raises_and_names_the_error_code():
 
     with (
         patch.object(winusb_iso, 'winusb', _fake_winusb(ok=0)),
-        patch.object(winusb_iso.kernel32, 'GetLastError', lambda: 31),
+        patch.object(winusb_iso.ctypes, 'get_last_error', lambda: 31),
         pytest.raises(RuntimeError, match='31'),
     ):
         _device().control_transfer(0x40, 0xB3, 0, 0x42, data=b'\x01')
@@ -75,7 +75,7 @@ def test_a_failed_in_transfer_raises_instead_of_returning_empty_bytes():
 
     with (
         patch.object(winusb_iso, 'winusb', _fake_winusb(ok=0)),
-        patch.object(winusb_iso.kernel32, 'GetLastError', lambda: 31),
+        patch.object(winusb_iso.ctypes, 'get_last_error', lambda: 31),
         pytest.raises(RuntimeError, match='31'),
     ):
         _device().control_transfer(0xC0, 0xB2, 0, 0x42, length=2)
@@ -121,7 +121,7 @@ def test_a_timed_out_transfer_raises_a_timeout_naming_the_code(request_type, kwa
 
     with (
         patch.object(winusb_iso, 'winusb', _fake_winusb(ok=0)),
-        patch.object(winusb_iso.kernel32, 'GetLastError', lambda: winusb_iso.ERROR_SEM_TIMEOUT),
+        patch.object(winusb_iso.ctypes, 'get_last_error', lambda: winusb_iso.ERROR_SEM_TIMEOUT),
         pytest.raises(TimeoutError, match='121'),
     ):
         _device().control_transfer(request_type, 0xB3, 0, 0x42, **kwargs)

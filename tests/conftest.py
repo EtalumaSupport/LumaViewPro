@@ -267,7 +267,7 @@ install_mock_deps()
 def _install_host_absent_production_modules():
     """A production module this host cannot import gets an importable shell.
 
-    ``drivers/winusb_iso.py`` imports ``ctypes.windll`` at module scope, so on
+    ``drivers/winusb_iso.py`` imports ``ctypes.WinDLL`` at module scope, so on
     macOS and Linux the import raises; ``drivers/fx2driver.py`` reaches it
     only on Windows. A test of the WinUSB transport patches the one class the
     transport asks for, ``WinUsbIsoReader``, on the module, the same call on

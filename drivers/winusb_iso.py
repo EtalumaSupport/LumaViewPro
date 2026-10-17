@@ -12,14 +12,20 @@ from ctypes import (
     Structure,
     byref,
     c_bool,
+    c_int,
     c_ubyte,
     c_ulong,
     c_ushort,
     c_void_p,
+    c_wchar_p,
     create_string_buffer,
     sizeof,
-    windll,
 )
+
+# Windows only: off Windows this import raises ImportError, which the test
+# conftest's host-absent stand-in relies on.
+from ctypes import WinDLL
+
 
 log = logging.getLogger(__name__)
 
@@ -37,6 +43,8 @@ INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
 ERROR_IO_PENDING = 997
 # What GetLastError reports when a transfer's pipe timeout expires.
 ERROR_SEM_TIMEOUT = 121
+# What SetupDiEnumDeviceInterfaces reports past the last interface.
+ERROR_NO_MORE_ITEMS = 259
 DIGCF_PRESENT = 0x02
 DIGCF_DEVICEINTERFACE = 0x10
 SPDRP_HARDWAREID = 1
@@ -131,54 +139,135 @@ class USBD_ISO_PACKET_DESCRIPTOR(Structure):
 # ---------------------------------------------------------------------------
 # DLL loading
 # ---------------------------------------------------------------------------
-kernel32 = windll.kernel32
-setupapi = windll.setupapi
-winusb = windll.winusb
+# use_last_error: each call's last error is saved as it returns, and
+# ctypes.get_last_error() reads that copy; GetLastError read later sees
+# whatever the interpreter set in between.
+kernel32 = WinDLL('kernel32', use_last_error=True)
+setupapi = WinDLL('setupapi', use_last_error=True)
+winusb = WinDLL('winusb', use_last_error=True)
+
+# Every function declares its types. Undeclared, ctypes passes and returns
+# C ints, so a 64-bit handle (a device-information set, a file, an event)
+# is cut to 32 bits both ways and INVALID_HANDLE_VALUE never compares equal.
+# Pointers are declared c_void_p, which takes byref(), an array or None.
+_BOOL = c_int
+_HANDLE = c_void_p
+_POINTER = c_void_p
+
+
+def _declare(function, restype, *argtypes):
+    function.restype = restype
+    function.argtypes = list(argtypes)
+
+
+_declare(setupapi.SetupDiGetClassDevsW, _HANDLE, _POINTER, c_wchar_p, _HANDLE, c_ulong)
+_declare(
+    setupapi.SetupDiEnumDeviceInterfaces, _BOOL, _HANDLE, _POINTER, _POINTER, c_ulong, _POINTER
+)
+_declare(
+    setupapi.SetupDiGetDeviceInterfaceDetailW,
+    _BOOL,
+    _HANDLE,
+    _POINTER,
+    _POINTER,
+    c_ulong,
+    _POINTER,
+    _POINTER,
+)
+_declare(setupapi.SetupDiDestroyDeviceInfoList, _BOOL, _HANDLE)
+_declare(
+    kernel32.CreateFileW, _HANDLE, c_wchar_p, c_ulong, c_ulong, _POINTER, c_ulong, c_ulong, _HANDLE
+)
+_declare(kernel32.CloseHandle, _BOOL, _HANDLE)
+_declare(kernel32.CreateEventW, _HANDLE, _POINTER, _BOOL, _BOOL, c_wchar_p)
+_declare(kernel32.ResetEvent, _BOOL, _HANDLE)
+_declare(winusb.WinUsb_Initialize, _BOOL, _HANDLE, _POINTER)
+_declare(winusb.WinUsb_Free, _BOOL, _HANDLE)
+_declare(winusb.WinUsb_SetCurrentAlternateSetting, _BOOL, _HANDLE, c_ubyte)
+_declare(winusb.WinUsb_QueryPipe, _BOOL, _HANDLE, c_ubyte, c_ubyte, _POINTER)
+_declare(
+    winusb.WinUsb_ControlTransfer,
+    _BOOL,
+    _HANDLE,
+    WINUSB_SETUP_PACKET,
+    _POINTER,
+    c_ulong,
+    _POINTER,
+    _POINTER,
+)
+_declare(winusb.WinUsb_AbortPipe, _BOOL, _HANDLE, c_ubyte)
+_declare(winusb.WinUsb_GetOverlappedResult, _BOOL, _HANDLE, _POINTER, _POINTER, _BOOL)
+_declare(winusb.WinUsb_RegisterIsochBuffer, _BOOL, _HANDLE, c_ubyte, _POINTER, c_ulong, _POINTER)
+_declare(winusb.WinUsb_UnregisterIsochBuffer, _BOOL, _HANDLE)
+_declare(
+    winusb.WinUsb_ReadIsochPipeAsap,
+    _BOOL,
+    _HANDLE,
+    c_ulong,
+    c_ulong,
+    _BOOL,
+    c_ulong,
+    _POINTER,
+    _POINTER,
+)
 
 
 # ---------------------------------------------------------------------------
 # Device enumeration
 # ---------------------------------------------------------------------------
-def find_device_path(vid, pid):
-    """Find the WinUSB device path for a given VID/PID."""
+def find_device_path(vid: int, pid: int) -> str | None:
+    """Find the WinUSB device path for a given VID/PID.
+
+    Returns None when no present device interface names it. A lookup that
+    failed is not an absence: it raises, naming the call and its last error.
+    """
     guid = GUID(*GUID_DEVINTERFACE_USB_DEVICE)
     dev_info = setupapi.SetupDiGetClassDevsW(
         byref(guid), None, None, DIGCF_PRESENT | DIGCF_DEVICEINTERFACE
     )
 
     if dev_info == INVALID_HANDLE_VALUE:
-        return None
+        raise RuntimeError(f'SetupDiGetClassDevsW failed: {ctypes.get_last_error()}')
 
     vid_pid = f'vid_{vid:04x}&pid_{pid:04x}'
     iface_data = SP_DEVICE_INTERFACE_DATA()
     iface_data.cbSize = sizeof(SP_DEVICE_INTERFACE_DATA)
     idx = 0
 
-    while setupapi.SetupDiEnumDeviceInterfaces(dev_info, None, byref(guid), idx, byref(iface_data)):
-        idx += 1
+    try:
+        while True:
+            if not setupapi.SetupDiEnumDeviceInterfaces(
+                dev_info, None, byref(guid), idx, byref(iface_data)
+            ):
+                code = ctypes.get_last_error()
+                if code == ERROR_NO_MORE_ITEMS:
+                    return None
+                raise RuntimeError(f'SetupDiEnumDeviceInterfaces({idx}) failed: {code}')
+            idx += 1
 
-        detail = SP_DEVICE_INTERFACE_DETAIL_DATA()
-        detail.cbSize = 8 if sizeof(c_void_p) == 8 else 6  # 64-bit vs 32-bit
-        devinfo = SP_DEVINFO_DATA()
-        devinfo.cbSize = sizeof(SP_DEVINFO_DATA)
-        required = c_ulong(0)
+            detail = SP_DEVICE_INTERFACE_DETAIL_DATA()
+            detail.cbSize = 8 if sizeof(c_void_p) == 8 else 6  # 64-bit vs 32-bit
+            devinfo = SP_DEVINFO_DATA()
+            devinfo.cbSize = sizeof(SP_DEVINFO_DATA)
+            required = c_ulong(0)
 
-        setupapi.SetupDiGetDeviceInterfaceDetailW(
-            dev_info,
-            byref(iface_data),
-            byref(detail),
-            sizeof(detail),
-            byref(required),
-            byref(devinfo),
-        )
+            if not setupapi.SetupDiGetDeviceInterfaceDetailW(
+                dev_info,
+                byref(iface_data),
+                byref(detail),
+                sizeof(detail),
+                byref(required),
+                byref(devinfo),
+            ):
+                raise RuntimeError(
+                    f'SetupDiGetDeviceInterfaceDetailW({idx - 1}) failed: {ctypes.get_last_error()}'
+                )
 
-        path = detail.DevicePath
-        if vid_pid in path.lower():
-            setupapi.SetupDiDestroyDeviceInfoList(dev_info)
-            return path
-
-    setupapi.SetupDiDestroyDeviceInfoList(dev_info)
-    return None
+            path = detail.DevicePath
+            if vid_pid in path.lower():
+                return path
+    finally:
+        setupapi.SetupDiDestroyDeviceInfoList(dev_info)
 
 
 def _transfer_failed(transfer: str) -> Exception:
@@ -188,7 +277,7 @@ def _transfer_failed(transfer: str) -> Exception:
     device that did not answer, as it reads pyusb's and python-libusb1's
     timeouts; any other failure is a ``RuntimeError``. Both name the code.
     """
-    code = kernel32.GetLastError()
+    code = ctypes.get_last_error()
     if code == ERROR_SEM_TIMEOUT:
         return TimeoutError(f'{transfer} timed out: {code}')
     return RuntimeError(f'{transfer} failed: {code}')
@@ -217,13 +306,13 @@ class WinUsbDevice:
         )
 
         if self._file_handle == INVALID_HANDLE_VALUE:
-            raise RuntimeError(f'CreateFile failed: {kernel32.GetLastError()}')
+            raise RuntimeError(f'CreateFile failed: {ctypes.get_last_error()}')
 
         # Initialize WinUSB
         self._iface_handle = c_void_p()
         if not winusb.WinUsb_Initialize(self._file_handle, byref(self._iface_handle)):
             kernel32.CloseHandle(self._file_handle)
-            raise RuntimeError(f'WinUsb_Initialize failed: {kernel32.GetLastError()}')
+            raise RuntimeError(f'WinUsb_Initialize failed: {ctypes.get_last_error()}')
 
         log.info('WinUSB device opened: %s', self.path)
 
@@ -239,16 +328,16 @@ class WinUsbDevice:
     def handle(self):
         return self._iface_handle
 
-    def set_alt_interface(self, setting):
+    def set_alt_interface(self, setting: int) -> None:
         if not winusb.WinUsb_SetCurrentAlternateSetting(self._iface_handle, c_ubyte(setting)):
-            raise RuntimeError(f'SetAlternateSetting({setting}) failed: {kernel32.GetLastError()}')
+            raise RuntimeError(f'SetAlternateSetting({setting}) failed: {ctypes.get_last_error()}')
 
-    def query_pipe(self, alt, index):
+    def query_pipe(self, alt: int, index: int) -> WINUSB_PIPE_INFORMATION:
         pipe_info = WINUSB_PIPE_INFORMATION()
         if not winusb.WinUsb_QueryPipe(
             self._iface_handle, c_ubyte(alt), c_ubyte(index), byref(pipe_info)
         ):
-            raise RuntimeError(f'QueryPipe failed: {kernel32.GetLastError()}')
+            raise RuntimeError(f'QueryPipe failed: {ctypes.get_last_error()}')
         return pipe_info
 
     def control_transfer(
@@ -339,7 +428,7 @@ class IsoSlot:
         )
 
         if not ok:
-            raise RuntimeError(f'WinUsb_RegisterIsochBuffer failed: {kernel32.GetLastError()}')
+            raise RuntimeError(f'WinUsb_RegisterIsochBuffer failed: {ctypes.get_last_error()}')
 
     def dispose(self):
         if self.isoch_handle:
@@ -496,7 +585,7 @@ class WinUsbIsoReader:
         )
 
         if not ok:
-            err = kernel32.GetLastError()
+            err = ctypes.get_last_error()
             if err != ERROR_IO_PENDING:
                 log.warning('WinUsb_ReadIsochPipeAsap failed: %d', err)
                 slot.submitted = False
