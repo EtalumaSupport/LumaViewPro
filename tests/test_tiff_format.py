@@ -14,6 +14,7 @@ Key requirements:
 """
 
 import datetime
+import errno
 from unittest import mock
 
 import numpy as np
@@ -1371,3 +1372,44 @@ def test_every_key_a_save_records_reads_back_from_the_file(
         True,
         'BF',
     )
+
+
+# ---------------------------------------------------------------------------
+# A write cut short
+# ---------------------------------------------------------------------------
+
+
+def _write_16bit(path, img_16bit, metadata):
+    image_utils.write_tiff(
+        data=img_16bit,
+        file_loc=path,
+        metadata=metadata,
+        ome=False,
+        color=release_color('BF'),
+        significant_bits=12,
+        save_encoding='right_aligned',
+    )
+
+
+def test_a_write_cut_short_leaves_nothing_under_the_name(img_16bit, metadata, tmp_tiff):
+    """A truncated file under the real name reads later as an unreadable frame."""
+    path = tmp_tiff()
+
+    def full_disk(self, *args, **kwargs):
+        # A stand-in by design: a full disk the suite cannot make. The file is
+        # open, as it is when the disk fills, and the write raises.
+        raise OSError(errno.ENOSPC, 'No space left on device')
+
+    with mock.patch.object(tf.TiffWriter, 'write', full_disk), pytest.raises(OSError):
+        _write_16bit(path, img_16bit, metadata)
+
+    assert list(path.parent.iterdir()) == []
+
+
+def test_a_whole_write_leaves_only_the_file(img_16bit, metadata, tmp_tiff):
+    path = tmp_tiff()
+
+    _write_16bit(path, img_16bit, metadata)
+
+    assert list(path.parent.iterdir()) == [path]
+    assert _read_tiff(path)['shape'] == img_16bit.shape

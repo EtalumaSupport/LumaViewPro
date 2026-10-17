@@ -1909,6 +1909,25 @@ def maybe_apply_false_color(
     return data
 
 
+@contextlib.contextmanager
+def _written_whole(file_loc: pathlib.Path | str) -> Iterator[pathlib.Path]:
+    """Yield a name beside ``file_loc`` to write to, moved onto it once whole.
+
+    A writer opened on the target itself leaves a truncated file under the
+    real name when the write stops part-way (a full disk, a crash), and a
+    later build reads it as an unreadable frame. A write that raises leaves
+    nothing at the target and no temporary behind; a crash leaves only the
+    temporary. A '.tmp' name is one no image search picks up.
+    """
+    file_loc = pathlib.Path(file_loc)
+    tmp_loc = file_loc.with_name(file_loc.name + '.tmp')
+    try:
+        yield tmp_loc
+        os.replace(tmp_loc, file_loc)
+    finally:
+        tmp_loc.unlink(missing_ok=True)
+
+
 def write_hyperstack_tiff(
     planes: Iterator[np.ndarray],
     file_loc: pathlib.Path,
@@ -1969,31 +1988,25 @@ def write_hyperstack_tiff(
     )
     caller_extratags = list(write_options.pop('extratags', []) or [])
     caller_extratags.append(sidecar_extratag)
-    # Written beside the target and moved onto it once whole: the planes
-    # stream from the caller, which can refuse one mid-write, and a writer
-    # opened on the target itself left a stub there under the real name. A
-    # '.tmp' name is one no image search picks up.
-    file_loc = pathlib.Path(file_loc)
-    tmp_loc = file_loc.with_name(file_loc.name + '.tmp')
-    try:
-        with tf.TiffWriter(
+    # The planes stream from the caller, which can refuse one mid-write.
+    with (
+        _written_whole(file_loc) as tmp_loc,
+        tf.TiffWriter(
             str(tmp_loc),
             ome=True,
             bigtiff=use_bigtiff,
-        ) as tif:
-            tif.write(
-                planes,
-                shape=shape,
-                dtype=np.dtype(dtype),
-                resolution=hyperstack_resolution,
-                metadata=hyperstack_metadata,
-                software=f'LumaViewPro {version}',
-                extratags=caller_extratags,
-                **write_options,
-            )
-        os.replace(tmp_loc, file_loc)
-    finally:
-        tmp_loc.unlink(missing_ok=True)
+        ) as tif,
+    ):
+        tif.write(
+            planes,
+            shape=shape,
+            dtype=np.dtype(dtype),
+            resolution=hyperstack_resolution,
+            metadata=hyperstack_metadata,
+            software=f'LumaViewPro {version}',
+            extratags=caller_extratags,
+            **write_options,
+        )
 
 
 def _msb_align_to_container(data: np.ndarray, significant_bits: int) -> tuple[np.ndarray, int]:
@@ -2137,7 +2150,7 @@ def write_tiff(
         data=data, metadata=metadata, image_type=image_type, color=color
     )
 
-    with tf.TiffWriter(str(file_loc), **kwargs) as tif:
+    with _written_whole(file_loc) as tmp_loc, tf.TiffWriter(str(tmp_loc), **kwargs) as tif:
         if image_type == 'video_frame':
             tif.write(
                 data,
