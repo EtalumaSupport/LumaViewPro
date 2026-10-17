@@ -99,7 +99,7 @@ def test_a_move_landing_inside_the_arrival_read_is_not_stamped_by_it(session, mo
     motion = session.scope.motion
     driver = motion._driver
     motion.move_absolute('X', 10000.0)
-    real_status = motion.get_target_status
+    real_status = motion._read_target_status
     b = {}
     fired = threading.Event()
     b_started = threading.Event()
@@ -115,7 +115,7 @@ def test_a_move_landing_inside_the_arrival_read_is_not_stamped_by_it(session, mo
             _start_in_thread(start_b).join()
         return reached
 
-    monkeypatch.setattr(motion, 'get_target_status', start_b_inside_the_read)
+    monkeypatch.setattr(motion, '_read_target_status', start_b_inside_the_read)
     a = motion.start_move_absolute('X', 10200.0)
     # A is answered at B's MOVING write, before B's start has returned.
     a_out = _outcome(a)
@@ -136,7 +136,7 @@ def test_the_previous_targets_bit_read_during_the_send_is_no_arrival(session, mo
     driver = motion._driver
     motion.move_absolute('X', 10000.0)
     real_drive = driver.move_abs_pos
-    real_status = motion.get_target_status
+    real_status = motion._read_target_status
     b_in_driver = threading.Event()
     status_seen = threading.Event()
     b_started = threading.Event()
@@ -162,7 +162,7 @@ def test_the_previous_targets_bit_read_during_the_send_is_no_arrival(session, mo
         return reached
 
     monkeypatch.setattr(driver, 'move_abs_pos', drive_held_until_the_monitor_read)
-    monkeypatch.setattr(motion, 'get_target_status', status_held_until_b_is_marked_moving)
+    monkeypatch.setattr(motion, '_read_target_status', status_held_until_b_is_marked_moving)
 
     # A stands part of the way until B is inside its driver call, so A
     # arrives only then, however late any thread runs.
@@ -244,9 +244,9 @@ def test_a_retargeted_move_is_timed_by_its_own_clock(session, monkeypatch):
     thread late out of its sleep still starts move 2 before move 1 is
     given up."""
     motion = session.scope.motion
-    real_status = motion.get_target_status
+    real_status = motion._read_target_status
     monkeypatch.setattr(
-        motion, 'get_target_status', lambda ax: False if ax == 'X' else real_status(ax)
+        motion, '_read_target_status', lambda ax: False if ax == 'X' else real_status(ax)
     )
     monkeypatch.setattr(motion, '_MOVE_STALL_WINDOW_S', 2.0)
 

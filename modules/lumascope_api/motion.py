@@ -51,6 +51,7 @@ from modules.exceptions import (
     MissingPart,
     MotorStopFailedError,
     MoveFaultError,
+    MoveNotCompletedError,
     MoveStoppedError,
     MoveWaitExpiredError,
     PositionOutOfRangeError,
@@ -175,11 +176,18 @@ class _Move:
         Called outside ``_axis_state_lock``: a done-callback, or a waiter
         woken here, reads the motion state through that lock.
         """
-        if self.outcome == 'arrived':
+        error = self.error()
+        if error is None:
             self.operation.set_result(None)
         else:
-            # Only a fault carries its object; the other endings are stops.
-            self.operation.set_exception(self.fault or MoveStoppedError(self.axis, self.outcome))
+            self.operation.set_exception(error)
+
+    def error(self) -> MoveNotCompletedError | None:
+        """What ended the move: None on arrival or while unsettled, else its error."""
+        if self.outcome in (None, 'arrived'):
+            return None
+        # Only a fault carries its object; the other endings are stops.
+        return self.fault or MoveStoppedError(self.axis, self.outcome)
 
 
 @api_fields('axis', 'at')
@@ -382,9 +390,12 @@ class MotionAPI:
     def _disconnect(self) -> None:
         """Stop the motion monitor and reset axis states.
 
-        Called from Lumascope.disconnect() before the motor driver is
-        swapped to NullMotionBoard. Sets all arrival events so any blocked
-        waiters unblock cleanly.
+        Called from Lumascope.disconnect() after its STOP and before the
+        motor driver is swapped to NullMotionBoard. Until the monitor stops
+        here it reads the board, so a move that arrived or that the STOP
+        halted ends as such; one still moving now ends ``'stopped'`` at the
+        UNKNOWN, as the STOP ended it. Sets all arrival events so any
+        blocked waiters unblock cleanly.
         """
         self._motion_monitor_stop.set()
         self._motion_wake.set()  # unblock if sleeping
@@ -1321,6 +1332,20 @@ class MotionAPI:
         """
         refuse_unknown_axis(axis)
         self._refuse_absent('get_target_status', axis)
+        return self._read_target_status(axis)
+
+    def _read_target_status(self, axis: str) -> bool:
+        """The board's answer to ``get_target_status``, with no refusal.
+
+        The motion monitor's arrival read. Its reads are the scope watching
+        its own board, through the close too: the lane-shut gate refuses a
+        client's command, and refusing the monitor's read during the close
+        blinded it, so a move that arrived or a STOP halted was given up as
+        unread.
+
+        Raises:
+            HardwareError: the board did not answer the read.
+        """
         try:
             return self._driver.target_status(axis)
         except MotionInterlockError as e:
@@ -1715,7 +1740,8 @@ class MotionAPI:
         Called after a home, and once at construction, to sync the cache
         with the hardware; during normal operation the cache is updated
         by move commands and the motion monitor. An axis whose read fails
-        is set UNKNOWN and its cache entry is left alone:
+        is set UNKNOWN, a move it ends ending ``'position_unread'``, and its
+        cache entry is left alone:
         a number nobody read is not a position, and a caller that writes
         positions into a file would otherwise record it as one.
 
@@ -1728,7 +1754,9 @@ class MotionAPI:
                 positions[ax] = self._driver.target_pos(axis=ax)
             except HardwareError as e:
                 _api_log.warning(f'position read on {ax} failed ({e}); axis UNKNOWN')
-                self._set_axis_state(ax, AxisState.UNKNOWN)
+                self._set_axis_state(
+                    ax, AxisState.UNKNOWN, fault=MoveFaultError(ax, 'position_unread')
+                )
 
         with self._pos_cache_lock:
             self._pos_cache.update(positions)
@@ -2582,6 +2610,9 @@ class MotionAPI:
                 monitor's own object when it gave the axis up: ``'stalled'``,
                 ``'board_lost'``, ``'position_unread'`` or ``'status_unread'``;
                 else ``'faulted'``).
+            MoveStoppedError: An axis it waited for ended UNKNOWN after a
+                STOP ended its move, as the close's does: ``'stopped'``, or
+                ``'superseded'``.
             MoveWaitExpiredError: ``'still_moving'``, a ``TimeoutError``: an
                 axis was still moving when ``timeout_s`` ran out; its state
                 is left to its own move.
@@ -2603,9 +2634,11 @@ class MotionAPI:
             with self._axis_state_lock:
                 unknown = self._axis_state.get(ax) == AxisState.UNKNOWN
                 move = self._current_move.get(ax)
-            fault = move.fault if move is not None else None
+            ended = move.error() if move is not None else None
             if unknown:
-                raise fault if fault is not None else MoveFaultError(ax, 'faulted')
+                # A move that arrived before the axis was found UNKNOWN, or
+                # none (a home's), still did not stop with a known position.
+                raise ended if ended is not None else MoveFaultError(ax, 'faulted')
 
     def _set_axis_state(
         self,
@@ -2638,6 +2671,7 @@ class MotionAPI:
         IDLE settles it arrived, or 'stopped' when ``stop_generation`` -- the
         generation the monitor read once the board said reached -- is not
         the one the move began under; UNKNOWN settles it with ``fault``, or
+        with none 'stopped' when a STOP was taken since the move began, else
         'faulted'; MOVING or HOMING settles it 'superseded', or 'stopped'
         when a STOP was taken since the move began. MOVING is
         written only with the new ``move`` (``_begin_move``), which becomes
@@ -2672,6 +2706,14 @@ class MotionAPI:
                         stop_generation != current.stop_generation
                     )
                     settled = current.settle('stopped' if stopped else 'arrived')
+                elif (
+                    state == AxisState.UNKNOWN
+                    and fault is None
+                    and (self._stop_generation != current.stop_generation)
+                ):
+                    # An UNKNOWN with no fault of its own after a STOP, as the
+                    # close writes after its STOP: the STOP ended the move.
+                    settled = current.settle('stopped')
                 elif state == AxisState.UNKNOWN:
                     settled = current.settle('faulted', fault or MoveFaultError(axis, 'faulted'))
                 else:
@@ -2960,8 +3002,10 @@ class MotionAPI:
         """Poll firmware for axis arrival, ``_MOTION_POLL_INTERVAL`` apart.
 
         Sleeps on ``_motion_wake`` when all axes are IDLE. Wakes when any
-        axis transitions to MOVING. Polls ``get_target_status()`` per
-        MOVING axis and transitions them to IDLE on arrival. This is the
+        axis transitions to MOVING. Polls ``_read_target_status()`` per
+        MOVING axis -- the board's answer, refused by nothing, so it reads
+        through the close until ``_disconnect`` stops it -- and transitions
+        them to IDLE on arrival. This is the
         single place where firmware target-status queries happen during
         normal operation -- all other code reads the in-memory axis state.
 
@@ -3045,7 +3089,7 @@ class MotionAPI:
                         # given up as unread.
                         arrived: bool | None = None
                         try:
-                            arrived = self.get_target_status(ax)
+                            arrived = self._read_target_status(ax)
                         except Exception as e:
                             if self._status_unread_warned.get(ax) is not noted:
                                 self._status_unread_warned[ax] = noted

@@ -198,10 +198,10 @@ class TestT8ObjectiveQuestion:
         )
         motion = session.scope.motion
         released = threading.Event()
-        real_status = motion.get_target_status
+        real_status = motion._read_target_status
         monkeypatch.setattr(
             motion,
-            'get_target_status',
+            '_read_target_status',
             lambda ax: released.is_set() if ax == 'T' else real_status(ax),
         )
         outcome = {}

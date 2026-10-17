@@ -63,9 +63,9 @@ def _the_caller_reports(call):
 
 
 def _z_never_arrives(motion, monkeypatch):
-    real_status = motion.get_target_status
+    real_status = motion._read_target_status
     monkeypatch.setattr(
-        motion, 'get_target_status', lambda ax: False if ax == 'Z' else real_status(ax)
+        motion, '_read_target_status', lambda ax: False if ax == 'Z' else real_status(ax)
     )
 
 

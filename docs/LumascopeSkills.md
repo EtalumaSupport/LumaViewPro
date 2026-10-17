@@ -1596,11 +1596,17 @@ scope.motion.start_move_relative('Z', 100).result()
 # halted; a move of any length that keeps moving is never given up;
 # 'position_unread' when the board said it arrived but never said where,
 # 'status_unread' when it never said whether it arrived, each for the same 2 s;
-# the move raises the very object the monitor reported), 'monitor_ended' (the
+# the move raises the very object the monitor reported; 'position_unread' also
+# when a home, which reads every axis's position, could not read a moving
+# axis's), 'monitor_ended' (the
 # monitor itself stopped while the axis moved; every later move is refused,
 # HardwareCommandRefusedError 'monitor_ended', until a new session is brought up),
-# 'faulted' (set UNKNOWN by something else while it moved), 'stopped' (a stop landed on it: stop_motion, or the
-# stage's own stop in refusing a move), 'superseded'
+# 'faulted' (set UNKNOWN by something else while it moved, with no stop before
+# it), 'stopped' (a stop landed on it: stop_motion, the
+# stage's own stop in refusing a move, or the close's: a move in flight when
+# the scope is closed ends arrived if it got there first, else 'stopped', its
+# position then unknown; a close whose STOP the board did not take ends it
+# 'stopped' too, and the failed STOP is the close's ScopeDisconnectError), 'superseded'
 # (another move or a home took the axis before it arrived; the axis keeps
 # what that command gives it). The outcome is fixed when the move ends: a
 # move that arrived reads arrived however late result() is called, whatever
@@ -1629,7 +1635,8 @@ scope.motion.move_relative('Z', -step)
 # Status
 scope.motion.is_moving()                         # any axis moving?
 scope.motion.wait_until_finished_moving()        # block until the axes moving now stop; raises MoveFaultError
-                                                 # if one ended UNKNOWN, or MoveWaitExpiredError ('still_moving',
+                                                 # if one ended UNKNOWN (MoveStoppedError when a stop
+                                                 # ended its move, as the close's does), or MoveWaitExpiredError ('still_moving',
                                                  # a TimeoutError, quiet) if timeout_s ran out first
 scope.motion.position_is_known('Z')              # False until homed: an absolute move would refuse
 

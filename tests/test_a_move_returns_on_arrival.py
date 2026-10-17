@@ -27,7 +27,12 @@ import time
 
 import pytest
 
-from modules.exceptions import HardwareCommandRefusedError, MoveNotCompletedError
+from modules.exceptions import (
+    HardwareCommandRefusedError,
+    MoveFaultError,
+    MoveNotCompletedError,
+    MoveStoppedError,
+)
 from modules.notification_center import OutcomeKind, outcome_of
 from modules.lumascope_api.motion import AxisState, MotionAPI
 from modules.scope_session import ScopeSession
@@ -181,6 +186,61 @@ class TestWaitingForMotionTheCallerDidNotStart:
 
         assert exc.value.axis == 'Z'
         assert exc.value.reason == 'faulted'
+
+    def test_an_axis_a_stop_halted_then_the_close_left_unknown_raises_stopped(
+        self, session, monkeypatch
+    ):
+        """It raised 'faulted', a fault inferred from the state, for a move
+        the close's STOP ended. X's arrival reads go unanswered, so the move
+        is still in flight when the close writes UNKNOWN; the stall window is
+        lengthened so the unanswered reads do not give it up first."""
+        motion = session.scope.motion
+        motion._driver.set_timing_mode('realistic')
+        monkeypatch.setattr(motion, '_MOVE_STALL_WINDOW_S', _TRAVEL_WAIT_S)
+        session.scope.simulation.drop_replies('motor', count=None, command='STATUS_RX')
+        held = session.scope.simulation.hold_axis('X')
+        motion.start_move_absolute('X', _far_x(motion))
+        closer = threading.Thread(
+            target=lambda: held.wait(_TRAVEL_WAIT_S) and session.scope.disconnect(),
+            name='close',
+            daemon=True,
+        )
+        closer.start()
+
+        with pytest.raises(MoveNotCompletedError) as exc:
+            motion.wait_until_finished_moving(timeout_s=_TRAVEL_WAIT_S)
+        closer.join(_TRAVEL_WAIT_S)
+
+        assert type(exc.value) is MoveStoppedError
+        assert (exc.value.axis, exc.value.reason) == ('X', 'stopped')
+
+    def test_an_axis_that_arrived_then_was_left_unknown_still_raises(self, session, monkeypatch):
+        """The wait returns only when each axis stopped with a known
+        position: X arrived, then the close left it UNKNOWN while the wait
+        was still on Y, so the wait raises for X, 'faulted', though X's
+        move reads arrived. Y's arrival reads go unanswered so it is in
+        flight until the close."""
+        motion = session.scope.motion
+        motion._driver.set_timing_mode('realistic')
+        monkeypatch.setattr(motion, '_MOVE_STALL_WINDOW_S', _TRAVEL_WAIT_S)
+        session.scope.simulation.drop_replies('motor', count=None, command='STATUS_RY')
+        session.scope.simulation.hold_axis('Y')
+        limits = motion.get_axis_limits('Y')
+        motion.start_move_absolute('Y', limits['max'] * 0.9)
+        x_move = motion.start_move_absolute('X', motion.get_current_position('X') + 2000.0)
+        closer = threading.Thread(
+            target=lambda: (x_move.result(timeout=_TRAVEL_WAIT_S), session.scope.disconnect()),
+            name='close',
+            daemon=True,
+        )
+        closer.start()
+
+        with pytest.raises(MoveNotCompletedError) as exc:
+            motion.wait_until_finished_moving(timeout_s=_TRAVEL_WAIT_S)
+        closer.join(_TRAVEL_WAIT_S)
+
+        assert type(exc.value) is MoveFaultError
+        assert (exc.value.axis, exc.value.reason) == ('X', 'faulted')
 
     def test_a_wait_that_runs_out_raises_and_leaves_the_axis_to_its_move(self, session):
         """The caller's own wait ran out: a TimeoutError, quiet, its words and

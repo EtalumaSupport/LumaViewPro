@@ -47,9 +47,9 @@ def test_a_waited_move_that_arrives_returns_idle(session):
 
 def test_a_stalled_waited_move_raises_and_the_axis_stays_unknown(session, monkeypatch):
     motion = session.scope.motion
-    real_status = motion.get_target_status
+    real_status = motion._read_target_status
     monkeypatch.setattr(
-        motion, 'get_target_status', lambda ax: False if ax == 'Z' else real_status(ax)
+        motion, '_read_target_status', lambda ax: False if ax == 'Z' else real_status(ax)
     )
     monkeypatch.setattr(motion, '_MOVE_STALL_WINDOW_S', 0.3)
 

@@ -3556,11 +3556,13 @@ class MoveFaultError(Fault, MoveNotCompletedError):
             moved, so nothing could judge the move. ``'board_lost'`` -- the
             monitor lost the motor board while the axis moved.
             ``'faulted'`` -- something else set the axis UNKNOWN during
-            the wait (a disconnect, a home). ``'position_unread'`` -- the
-            board reported the axis arrived but not where, within the
-            stall window. ``'status_unread'`` -- the board did not report
-            whether the axis arrived, within the stall window. Each leaves
-            the axis UNKNOWN.
+            the move, carrying no fault of its own, with no stop before it.
+            ``'position_unread'`` -- the board did not report where the
+            axis is: within the stall window after it reported the axis
+            arrived, or when a home read every axis's position.
+            ``'status_unread'`` -- the board did not report whether the
+            axis arrived, within the stall window. Each leaves the axis
+            UNKNOWN.
         title: The heading shown with the sentence, which follows the reason.
     """
 
@@ -3616,14 +3618,17 @@ class MoveStoppedError(Notice, MoveNotCompletedError):
 
     A notice: the person whose move someone else stopped is told so, as
     information, and a REST caller is answered 409. The axis is where the
-    stop or the later command left it, which its position reports.
+    stop or the later command left it, which its position reports; after
+    the scope is closed its position is unknown.
 
     Attributes:
-        reason: ``'stopped'`` -- a stop the board took while it moved
-            halted it, ``stop_motion`` or the stage's own stop in refusing
-            a move; a turret is then in no known slot. ``'superseded'`` --
-            another move or a home took the axis before this one arrived;
-            that command's own outcome says where the axis went.
+        reason: ``'stopped'`` -- a stop sent while it moved ended it:
+            ``stop_motion``, the stage's own stop in refusing a move, or
+            the close's, even one the board did not take (that failure is
+            reported once, as itself); a turret is then in no known slot.
+            ``'superseded'`` -- another move or a home took the axis before
+            this one arrived; that command's own outcome says where the axis
+            went.
     """
 
     title = 'Move Stopped'

@@ -81,9 +81,9 @@ class TestTheCommandedSlot:
 
     def test_a_stalled_turret_move_leaves_no_slot(self, session, monkeypatch):
         motion = session.scope.motion
-        real_status = motion.get_target_status
+        real_status = motion._read_target_status
         monkeypatch.setattr(
-            motion, 'get_target_status', lambda ax: False if ax == 'T' else real_status(ax)
+            motion, '_read_target_status', lambda ax: False if ax == 'T' else real_status(ax)
         )
         monkeypatch.setattr(motion, '_MOVE_STALL_WINDOW_S', 0.3)
 
@@ -105,10 +105,10 @@ class TestAStopIsNotAnArrival:
         """The sim's STOP is a no-op; stand in for the firmware's, which
         sets target = actual so the next status poll reports "reached"."""
         stopped = threading.Event()
-        real_status = motion.get_target_status
+        real_status = motion._read_target_status
         monkeypatch.setattr(
             motion,
-            'get_target_status',
+            '_read_target_status',
             lambda ax: stopped.is_set() if ax == 'T' else real_status(ax),
         )
 
