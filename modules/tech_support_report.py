@@ -55,7 +55,8 @@ from collections.abc import Callable
 
 import platformdirs
 
-from drivers.exceptions import HardwareError
+from drivers.exceptions import CameraUsbLookupFailedError, HardwareError
+from drivers.usb_driver_binding import DeviceBinding
 from lvp_logger import collect_installed_packages
 from modules import recording_frames, settings_init
 from modules.exceptions import (
@@ -1696,6 +1697,7 @@ class TechSupportReport:
             # 12. USB devices  (52-55%)
             cb(53, 'Scanning USB devices...')
             self._step_usb_devices(tmp)
+            self._step_camera_usb_bindings(tmp)
 
             # 13. Disk speed test  (55-60%)
             cb(56, 'Testing disk write speed...')
@@ -2458,6 +2460,41 @@ class TechSupportReport:
         if devmgr and 'Error' not in str(devmgr)[:20]:
             with open(d / 'device_manager_full.csv', 'w') as f:
                 f.write(devmgr)
+
+    def _step_camera_usb_bindings(self, tmp):
+        """Which driver Windows has bound to each USB identity of a Lumascope Classic.
+
+        The read the camera's connect makes, so the report shows why a
+        Classic did not come up on a wrong or missing driver.
+        """
+        if self.scope is None:
+            return
+        d = tmp / 'camera_usb_bindings'
+        d.mkdir()
+        lines = ['Lumascope Classic USB driver bindings', '=' * 40, '']
+        try:
+            bindings = self.scope.diagnostics.get_camera_usb_bindings()
+        except CameraUsbLookupFailedError as e:
+            lines.append(f'The bindings could not be read: {e}')
+            bindings = None
+        else:
+            if bindings is None:
+                lines.append('Not read: this host binds no driver to a USB device.')
+        for identity in bindings or ():
+            usable = 'usable' if identity.usable else 'NOT USABLE'
+            lines.append(
+                f'{identity.name} ({identity.hardware_id}): {usable}; '
+                f'needs one of {", ".join(identity.needs)}'
+            )
+            for device in identity.devices:
+                described = DeviceBinding(**dataclasses.asdict(device)).describe()
+                lines.append(f'  {described}')
+            if not identity.devices:
+                lines.append('  no device of this identity seen')
+        (d / 'camera_usb_bindings.txt').write_text('\n'.join(lines) + '\n')
+        if bindings is not None:
+            with open(d / 'camera_usb_bindings.json', 'w') as f:
+                json.dump([identity.to_dict() for identity in bindings], f, indent=2)
 
     def _step_data_folder(self, tmp):
         data_dir = _get_lvp_data_dir()
