@@ -801,7 +801,7 @@ class PylonCamera(Camera):
             except Exception as e:
                 logger.debug(f'[INSTR PYLON ] thread-count poll error: {e}')
 
-    def stop_grabbing(self) -> None:
+    def _stop_grabbing(self) -> None:
         """Stop the camera's grab loop.
 
         Idempotent and exception-tolerant: if the SDK is already
@@ -1034,7 +1034,7 @@ class PylonCamera(Camera):
         except Exception as e:
             _cam_log.warning(f'pylon StreamGrabber.Status [{label}] read failed: {e}')
 
-    def start_grabbing(self) -> None:
+    def _start_grabbing(self) -> None:
         """Start the camera's grab loop with the configured grab strategy.
 
         Idempotent: if grabbing already started (pypylon 26.4.x's
@@ -5178,7 +5178,7 @@ class _CameraRemovalHandler(pylon.ConfigurationEventHandler):
         except BaseException as e:
             _log_safely(f'OnCameraDeviceRemoved guard caught {type(e).__name__}: {e}')
 
-    def OnGrabError(self, camera, errorMessage) -> None:
+    def OnGrabError(self, camera: pylon.InstantCamera, errorMessage: str) -> None:
         """Pylon SDK callback fired when an exception happens in the grab thread.
 
         Per `class_pylon_1_1_c_configuration_event_handler.html`:
@@ -5209,6 +5209,8 @@ class _CameraRemovalHandler(pylon.ConfigurationEventHandler):
             # SetValue) is not evidence the device was removed, and latching on
             # the first one dropped a working camera. Definitive removal is
             # owned elsewhere: OnCameraDeviceRemoved, the DEVICE_NOT_FOUND grab
-            # path, and the consecutive-failure cascade.
+            # path, and the consecutive-failure cascade. The grab the SDK
+            # stops after this callback is still wanted (grab_wanted), so the
+            # imaging API's stream check reports it as a stall.
         except BaseException as e:
             _log_safely(f'OnGrabError guard caught {type(e).__name__}: {e}')

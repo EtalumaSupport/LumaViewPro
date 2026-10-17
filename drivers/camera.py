@@ -524,6 +524,10 @@ class Camera(ABC):
         # under _lifecycle_lock so gate checks stay coherent with the grab
         # loop's stop/start. CLOSED at construction; OPEN after release.
         self._grab_gate_open = False
+        # Whether the grab is wanted: set by start_grabbing, cleared by
+        # stop_grabbing, so a camera that is wanted and not grabbing stopped
+        # when nobody asked (see grab_wanted).
+        self._grab_wanted = False
 
         self.connect()
         # `found` is a derived property (below) that reads `active`, so it
@@ -586,6 +590,8 @@ class Camera(ABC):
         """
         with self._lifecycle_lock:
             self._grab_gate_open = False
+        with self._state_lock:
+            self._grab_wanted = False
         handler = self.cam_image_handler
         if handler is not None:
             handler.reset()
@@ -846,14 +852,46 @@ class Camera(ABC):
         """
         pass
 
-    @abstractmethod
     def start_grabbing(self) -> None:
-        """Begin acquiring frames into the image handler."""
+        """Begin acquiring frames into the image handler.
+
+        Records the grab as wanted before the driver starts it, so a start
+        that does not take reads as a grab that stopped on its own.
+        """
+        with self._state_lock:
+            self._grab_wanted = True
+        self._start_grabbing()
+
+    def stop_grabbing(self) -> None:
+        """Stop acquiring frames and release any pending buffers.
+
+        Records the grab as not wanted before the driver stops it, so the
+        stop -- a caller's, or a frame-size or binning change's for its whole
+        length -- never reads as one the camera made itself.
+        """
+        with self._state_lock:
+            self._grab_wanted = False
+        self._stop_grabbing()
+
+    @property
+    def grab_wanted(self) -> bool:
+        """Whether the grab was started and not since asked to stop.
+
+        A camera whose grab is wanted and not running stopped when nobody
+        asked: Pylon's SDK after ``OnGrabError``, a grab thread that died, a
+        start that did not take.
+        """
+        with self._state_lock:
+            return self._grab_wanted
+
+    @abstractmethod
+    def _start_grabbing(self) -> None:
+        """The driver's own start, run by start_grabbing()."""
         pass
 
     @abstractmethod
-    def stop_grabbing(self) -> None:
-        """Stop acquiring frames and release any pending buffers."""
+    def _stop_grabbing(self) -> None:
+        """The driver's own stop, run by stop_grabbing()."""
         pass
 
     @abstractmethod

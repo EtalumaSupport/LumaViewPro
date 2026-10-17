@@ -2237,7 +2237,7 @@ class FX2Camera(Camera):
 
     # -- Streaming start / stop --------------------------------------------
 
-    def start_grabbing(self) -> None:
+    def _start_grabbing(self) -> None:
         if self._grabbing:
             if _cam_log is not None:
                 _cam_log.info('fx2 start_grabbing SKIPPED: already grabbing')
@@ -2253,7 +2253,7 @@ class FX2Camera(Camera):
         self._grab_thread = threading.Thread(target=self._grab_loop, daemon=True)
         self._grab_thread.start()
 
-    def stop_grabbing(self) -> None:
+    def _stop_grabbing(self) -> None:
         if not self._grabbing:
             if _cam_log is not None:
                 _cam_log.info('fx2 stop_grabbing SKIPPED: not grabbing')

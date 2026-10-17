@@ -85,6 +85,8 @@ def test_a_stop_counts_what_arrived_after_the_grab_loops_last_pass():
     stream = fx2driver._ByteStream()
     cam = object.__new__(fx2driver.FX2Camera)
     cam._fx2 = SimpleNamespace(stream=stream, stop_stream=lambda: None)
+    cam._state_lock = threading.Lock()
+    cam._grab_wanted = True
     cam._grabbing = True
     cam._grab_thread = None
     cam.stream_stats = fx2driver.StreamStats()

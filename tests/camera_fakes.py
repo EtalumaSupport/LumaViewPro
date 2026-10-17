@@ -47,6 +47,7 @@ def bare_pylon_camera():
     cam._async_teardown_started = False
     cam._update_config_depth = 0
     cam._grab_gate_open = False
+    cam._grab_wanted = False
     # Durable frame-callback registry (base Camera.__init__ seeds these; connect
     # re-applies the registry onto a rebuilt handler).
     cam._frame_callback_lock = threading.Lock()
@@ -356,6 +357,7 @@ def bare_ids_camera():
     cam._lifecycle_lock = threading.RLock()
     cam._update_config_depth = 0
     cam._grab_gate_open = False
+    cam._grab_wanted = False
     # Durable frame-callback registry (base Camera.__init__ seeds these;
     # connect() re-applies the registry onto each freshly built handler).
     cam._frame_callback_lock = threading.Lock()
@@ -404,6 +406,7 @@ def bare_fx2_camera():
     cam._lifecycle_lock = threading.RLock()
     cam._update_config_depth = 0
     cam._grab_gate_open = False
+    cam._grab_wanted = False
     cam._frame_window = None
     cam.cam_image_handler = None
     cam.active = MagicMock()

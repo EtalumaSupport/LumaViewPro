@@ -1907,10 +1907,10 @@ class TestCameraStateLock:
             def init_camera_config(self):
                 pass
 
-            def start_grabbing(self):
+            def _start_grabbing(self):
                 pass
 
-            def stop_grabbing(self):
+            def _stop_grabbing(self):
                 pass
 
             def is_grabbing(self):
@@ -2018,10 +2018,10 @@ class TestCameraStateLock:
             def init_camera_config(self):
                 pass
 
-            def start_grabbing(self):
+            def _start_grabbing(self):
                 pass
 
-            def stop_grabbing(self):
+            def _stop_grabbing(self):
                 pass
 
             def is_grabbing(self):
@@ -2124,10 +2124,10 @@ class TestCameraStateLock:
             def init_camera_config(self):
                 pass
 
-            def start_grabbing(self):
+            def _start_grabbing(self):
                 pass
 
-            def stop_grabbing(self):
+            def _stop_grabbing(self):
                 pass
 
             def is_grabbing(self):

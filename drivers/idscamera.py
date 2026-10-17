@@ -1402,7 +1402,7 @@ class IDSCamera(Camera):
         timeout_s = (handler.timeout_ms / 1000.0) if handler is not None else 0.0
         return max(_TEARDOWN_ASSUME_DEAD_STALL_S, 3.0 * timeout_s)
 
-    def stop_grabbing(self):
+    def _stop_grabbing(self):
         # Same owner-side connected-device precondition as start_grabbing:
         # multiple independent callers may stop a camera whose connect failed,
         # and the None handles below would otherwise surface as a spurious
@@ -1543,7 +1543,7 @@ class IDSCamera(Camera):
             )
         return True
 
-    def start_grabbing(self):
+    def _start_grabbing(self):
         # Connected-device precondition, owned HERE because this is a public
         # restartable primitive with several independent call sites (the
         # bring-up start gate, the API-layer streaming restart, diagnostics)

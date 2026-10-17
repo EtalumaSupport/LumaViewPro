@@ -112,6 +112,25 @@ class TestAStallIsReported:
             )
 
 
+class TestAGrabThatStoppedUnaskedIsReported:
+    def test_a_grab_the_camera_stopped_itself_is_reported_once(self, session, shown, caplog):
+        """A grab that stopped when nobody asked -- Pylon's SDK after
+        OnGrabError, an FX2 grab thread that died -- left the camera
+        connected and not grabbing, which the check took for a deliberate
+        stop: no stall was ever reported, and every capture was refused
+        camera_not_streaming with nothing saying why."""
+        driver = session.scope._camera_driver
+        with caplog.at_level(logging.INFO):
+            # A stand-in by design: the simulator cannot yet stop its own
+            # grab, so the SDK's stop is made here, past stop_grabbing.
+            driver._grabbing = False
+            driver._stop_acquisition()
+            assert _wait_for(lambda: shown, 3.0), 'a grab stopped unasked was not reported'
+            time.sleep(0.6)
+        assert len(shown) == 1
+        assert len(_stall_lines(caplog)) == 1
+
+
 class TestWhatIsNotAStall:
     def test_a_long_exposure_is_not_a_stall(self, session, shown, caplog):
         # 800 ms between frames is past the 0.5 s floor; ten of them is the bound.

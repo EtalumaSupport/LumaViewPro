@@ -5710,10 +5710,12 @@ class ImagingAPI:
         so the imaging API watches its own frame count on the session's
         scheduler, in every host, and reports ``CameraStreamStalledError``
         unsolicited once per stall. A stall is the count standing still
-        while the camera is connected and streaming, for longer than a frame
-        at the current exposure can take (``prologue_stall_threshold_s``).
-        Any stop of the stream -- a frame-size, format or binning change
-        restarts it -- starts the watch again from the next frame.
+        while the camera is connected and streaming, or its grab is wanted
+        and has stopped on its own (the driver's ``grab_wanted``), for longer
+        than a frame at the current exposure can take
+        (``prologue_stall_threshold_s``). A stop someone asked for -- a
+        frame-size, format or binning change restarts it -- starts the watch
+        again from the next frame.
 
         Internal scheduling -- the session arms it at bring-up and the
         scope's disconnect stops it; not part of the L2 API surface.
@@ -5798,7 +5800,12 @@ class ImagingAPI:
         )
 
     def _check_stream(self) -> None:
-        streaming = self._scope.camera_connected and self.is_streaming()
+        # A grab that is wanted and not running stopped when nobody asked,
+        # and is watched as a stall like a grab that delivers nothing.
+        driver = self._driver
+        streaming = self._scope.camera_connected and (
+            self.is_streaming() or (driver is not None and driver.grab_wanted)
+        )
         self._sample_delivery(streaming)
         if not streaming:
             # A camera that is not streaming delivers nothing by design; the

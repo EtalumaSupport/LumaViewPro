@@ -538,7 +538,7 @@ class SimulatedCamera(Camera):
         """
         return self._grabbing
 
-    def start_grabbing(self) -> None:
+    def _start_grabbing(self) -> None:
         """Begin acquiring frames in the simulator."""
         with self._lock:
             self._grabbing = True
@@ -547,7 +547,7 @@ class SimulatedCamera(Camera):
             logger.info('[CAM Sim   ] start_grabbing')
         self._start_acquisition()
 
-    def stop_grabbing(self) -> None:
+    def _stop_grabbing(self) -> None:
         """Stop acquiring frames in the simulator."""
         with self._lock:
             self._grabbing = False

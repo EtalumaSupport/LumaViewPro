@@ -376,6 +376,8 @@ def test_a_stop_the_camera_did_not_take_is_said(monkeypatch):
 
 def test_a_start_that_raised_is_tried_again_by_the_next_start():
     cam = object.__new__(fx2driver.FX2Camera)
+    cam._state_lock = threading.Lock()
+    cam._grab_wanted = False
     cam._grabbing = False
     cam._grab_thread = None
     cam.stream_stats = fx2driver.StreamStats()
