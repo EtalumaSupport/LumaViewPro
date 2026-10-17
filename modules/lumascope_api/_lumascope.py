@@ -29,7 +29,7 @@ except ImportError as _fx2_exc:
     # line a Classic scope's missing camera has no named cause anywhere.
     logger.warning(f'[SCOPE API ] FX2 (Classic) drivers unavailable: {_fx2_exc}')
 from drivers.camera import Camera
-from drivers.exceptions import HardwareError
+from drivers.exceptions import CameraFirmwareMissingError, HardwareError
 
 # Registration-only imports: loading each driver module fires its
 # @*_registry.register(...) decorator so the registry can instantiate it
@@ -46,7 +46,13 @@ from drivers.simulated_ledboard import SimulatedLEDBoard  # noqa: F401
 from drivers.null_motorboard import NullMotionBoard
 from drivers.null_ledboard import NullLEDBoard
 from drivers.protocols import MotorBoardProtocol, LEDBoardProtocol
-from drivers.registry import DriverNotLiveError, motor_registry, led_registry, camera_registry
+from drivers.registry import (
+    DriverNotLiveError,
+    NoLiveDriverError,
+    camera_registry,
+    led_registry,
+    motor_registry,
+)
 import modules.binning as binning
 from modules.exceptions import (
     ArgumentRefusedError,
@@ -203,14 +209,25 @@ def _camera_failure_cause(exc: BaseException) -> str:
     ids_peak, FX2, simulated). pypylon's RuntimeException for "camera already
     open in another application" is the frequent case -- Pylon Viewer or a
     second LVP -- and gets its own cause. Matched by type name so pypylon is
-    not imported on a host without it.
+    not imported on a host without it. When no driver raised, the registry
+    raises the cause it found: no camera, or a port held, with any driver
+    that did not load on this installation beside it.
     """
+    if isinstance(exc, NoLiveDriverError):
+        fallback = exc.fallback
+        if fallback.cause == 'port_in_use':
+            return 'camera_port_in_use'
+        if fallback.cause in ('not_detected', 'no_driver') and fallback.declined:
+            return 'camera_driver_unavailable'
+        if fallback.cause == 'not_detected':
+            return 'camera_not_detected'
+        return 'camera_not_initialized'
+    if isinstance(exc, CameraFirmwareMissingError):
+        return 'camera_firmware_missing'
     if type(exc).__name__ in ('RuntimeException', 'GenericException', 'LogicalErrorException'):
         return 'camera_in_use'
     if isinstance(exc, PermissionError):
         return 'camera_port_in_use'
-    if isinstance(exc, FileNotFoundError):
-        return 'camera_not_detected'
     return 'camera_not_initialized'
 
 

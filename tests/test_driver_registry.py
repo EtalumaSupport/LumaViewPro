@@ -21,8 +21,10 @@ import threading
 import pytest
 
 from drivers.registry import (
+    DriverFallback,
     DriverNotLiveError,
     DriverRegistry,
+    NoLiveDriverError,
     motor_registry,
     led_registry,
     camera_registry,
@@ -700,3 +702,43 @@ class TestTheRegistryNamePath:
 
         with pytest.raises(DriverNotLiveError, match='found=False'):
             reg.create('absent')
+
+
+class TestAKindWithNoNullDriverThatFindsNothing:
+    """With no null driver to hand back (the camera), 'auto' raises the same
+    cause the null path records, typed, instead of a ValueError saying no
+    driver is registered."""
+
+    def test_every_driver_finding_nothing_is_raised_as_not_detected(self):
+        reg = DriverRegistry('fake')
+
+        @reg.register('alpha', priority=100)
+        class Alpha:
+            found = False
+
+        @reg.register('beta', priority=80)
+        class Beta:
+            found = False
+
+        with pytest.raises(NoLiveDriverError) as caught:
+            reg.create('auto')
+
+        assert caught.value.fallback == DriverFallback('not_detected', ('Alpha', 'Beta'))
+
+    def test_a_driver_that_could_not_load_is_carried_with_its_reason(self):
+        reg = DriverRegistry('fake')
+
+        @reg.register('alpha', priority=100)
+        class Alpha:
+            found = False
+
+        @reg.decline('gamma', 'pyusb is not installed')
+        class Gamma:
+            pass
+
+        with pytest.raises(NoLiveDriverError) as caught:
+            reg.create('auto')
+
+        assert caught.value.fallback.cause == 'not_detected'
+        assert caught.value.fallback.declined == ('gamma: pyusb is not installed',)
+        assert 'gamma' not in reg.registered_names()

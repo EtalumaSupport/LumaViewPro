@@ -231,6 +231,23 @@ class CameraStreamStartFailedError(Fault, HardwareError):
     words_for_person = False
 
 
+class CameraFirmwareMissingError(Fault, Exception):
+    """The firmware file the camera's driver uploads is not in the installation.
+
+    The installation is at fault, not the hardware or its cable, so this is
+    not a ``HardwareError``. The words name each place the driver looked.
+    """
+
+    reason = 'camera_firmware_missing'
+    title = 'Camera Firmware File Missing'
+
+    words_for_person = False
+
+    def __init__(self, searched):
+        super().__init__(f'camera firmware file not found; searched: {", ".join(searched)}')
+        self.searched = tuple(searched)
+
+
 class PartAbsentError(Fault, HardwareError):
     """A driver was asked for a part it does not have: an axis, a turret, a
     board, an active camera or an SDK node.

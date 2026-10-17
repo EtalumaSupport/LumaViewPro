@@ -36,6 +36,8 @@ CAUSE_PHRASES = {
     'camera_in_use': 'in use by another application',
     'camera_port_in_use': 'port in use',
     'camera_not_detected': 'not detected',
+    'camera_driver_unavailable': 'not detected; a driver did not load',
+    'camera_firmware_missing': 'firmware file missing',
     'camera_not_initialized': 'not initialized',
     'safety_off_failed': 'safety LEDs-off not confirmed',
     'stream_not_started': 'stream did not start',

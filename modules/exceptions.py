@@ -887,8 +887,11 @@ class CameraNotAvailableError(BringUpError):
 
     Attributes:
         reason: ``'camera_in_use'`` (another application holds it),
-            ``'camera_port_in_use'``, ``'camera_not_detected'`` or
-            ``'camera_not_initialized'`` (anything else).
+            ``'camera_port_in_use'``, ``'camera_not_detected'``,
+            ``'camera_driver_unavailable'`` (none found, and a camera driver
+            did not load on this installation), ``'camera_firmware_missing'``
+            (the firmware file a Classic's driver uploads is not installed)
+            or ``'camera_not_initialized'`` (anything else).
     """
 
     _WORDS: ClassVar[dict[str, tuple[str, str]]] = {
@@ -904,6 +907,16 @@ class CameraNotAvailableError(BringUpError):
         'camera_not_detected': (
             'Camera not detected',
             'Camera not found. Check USB cable and power.',
+        ),
+        'camera_driver_unavailable': (
+            'Camera not detected',
+            'Camera not found, and a camera driver did not load on this installation '
+            '(the log names it and why). Reinstall LumaViewPro if this scope needs that '
+            'driver; otherwise check USB cable and power.',
+        ),
+        'camera_firmware_missing': (
+            'Camera firmware missing',
+            "The camera's firmware file is missing from this installation. Reinstall LumaViewPro.",
         ),
         'camera_not_initialized': (
             'Camera not initialized',

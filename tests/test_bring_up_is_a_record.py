@@ -23,7 +23,7 @@ import modules.lumascope_api._lumascope as lumascope_module
 import modules.settings_init as settings_init
 from drivers.null_ledboard import NullLEDBoard
 from drivers.null_motorboard import NullMotionBoard
-from drivers.registry import DriverFallback
+from drivers.registry import DriverFallback, NoLiveDriverError
 from drivers.simulated_camera import SimulatedCamera
 from modules.exceptions import (
     ArgumentRefusedError,
@@ -36,6 +36,7 @@ from modules.exceptions import (
 )
 from modules.lumascope_api.bring_up import (
     CAMERA,
+    CAUSE_PHRASES,
     LED,
     MOTOR,
     BringUpRecord,
@@ -97,6 +98,15 @@ def _outcomes(posts, kind):
 
 
 class TestEachPartNamesItsCause:
+    def test_every_camera_cause_has_its_words_in_a_list_of_parts(self):
+        # A part's label reads its cause's phrase; a camera reason without
+        # one would raise where bring-up reports the camera that failed.
+        missing = sorted(set(CameraNotAvailableError._WORDS) - set(CAUSE_PHRASES))
+        assert missing == []
+        assert PartStatus(CAMERA, up=False, cause='camera_firmware_missing').describe() == (
+            'Camera (firmware file missing)'
+        )
+
     def test_a_motor_board_whose_port_is_held_is_on_the_record_and_in_the_one_report(
         self, monkeypatch, tmp_path, centre_posts
     ):
@@ -189,7 +199,9 @@ class TestEachPartNamesItsCause:
             'report_outcome',
             lambda exc, **kw: reported.append(exc),
         )
-        backend_error = FileNotFoundError('/dev/video0 missing')
+        backend_error = NoLiveDriverError(
+            'camera', DriverFallback('not_detected', ('PylonCamera', 'IDSCamera'))
+        )
         s = _bring_up(monkeypatch, tmp_path, camera=backend_error, microscope='LS850T')
         try:
             failed = [e for e in reported if isinstance(e, CameraNotAvailableError)]
@@ -260,7 +272,7 @@ class TestNothingCameUp:
             tmp_path,
             motor=DriverFallback('not_detected', ('MotorBoard',)),
             led=DriverFallback('not_detected', ('LEDBoard',)),
-            camera=FileNotFoundError('no camera'),
+            camera=NoLiveDriverError('camera', DriverFallback('not_detected', ('PylonCamera',))),
             microscope='LS850T',
         )
         try:

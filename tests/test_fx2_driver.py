@@ -38,7 +38,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from drivers import fx2driver
-from drivers.registry import camera_registry, led_registry
+from drivers.registry import DriverRegistry, NoLiveDriverError, camera_registry, led_registry
 from drivers.protocols import LEDBoardProtocol
 from drivers.camera_profiles import lookup_profile
 
@@ -142,19 +142,21 @@ class TestRegistryGatedOnPrereqs:
         )
         assert expected == fx2driver._FX2_AVAILABLE
 
-    def test_register_helper_returns_identity_when_unavailable(self, monkeypatch):
-        # Force the unavailable path and verify the helper is a no-op.
+    def test_an_unavailable_fx2_is_declined_with_its_reason(self, monkeypatch):
+        # Not registered, so the registry never tries it; declined, so a
+        # camera that is not found says which driver did not load and why.
         monkeypatch.setattr(fx2driver, '_FX2_AVAILABLE', False)
-        sentinel_registry = MagicMock()
-
-        decorator = fx2driver._register_if_fx2_available(sentinel_registry, 'fx2', priority=80)
+        monkeypatch.setattr(fx2driver, '_FX2_UNAVAILABLE_REASON', 'pyusb is not installed')
+        registry = DriverRegistry('camera')
 
         class Dummy:
             pass
 
-        result = decorator(Dummy)
-        assert result is Dummy
-        sentinel_registry.register.assert_not_called()
+        assert fx2driver._register_if_fx2_available(registry, 'fx2', priority=80)(Dummy) is Dummy
+        assert registry.registered_names() == []
+        with pytest.raises(NoLiveDriverError) as caught:
+            registry.create('auto')
+        assert caught.value.fallback.declined == ('fx2: pyusb is not installed',)
 
     def test_register_helper_uses_real_registry_when_available(self, monkeypatch):
         monkeypatch.setattr(fx2driver, '_FX2_AVAILABLE', True)
@@ -1103,8 +1105,14 @@ class TestFx2DriverLibusbBackendProbe:
             registered.append(name)
             return lambda cls: cls
 
+        def _decline(name, reason):
+            # Kept off the process's registries, which the real import fed.
+            return lambda cls: cls
+
         monkeypatch.setattr(registry.camera_registry, 'register', _record)
         monkeypatch.setattr(registry.led_registry, 'register', _record)
+        monkeypatch.setattr(registry.camera_registry, 'decline', _decline)
+        monkeypatch.setattr(registry.led_registry, 'decline', _decline)
 
         spec = importlib.util.spec_from_file_location(
             'fx2driver_backend_probe_under_test', 'drivers/fx2driver.py'

@@ -107,6 +107,7 @@ from drivers.camera import (
     no_hardware_auto_mode,
 )
 from drivers.exceptions import (
+    CameraFirmwareMissingError,
     CameraNoAnswerError,
     CameraReadFailedError,
     CameraStreamStartFailedError,
@@ -291,6 +292,18 @@ _HAS_USB_BACKEND = _LIBUSB_PATH is not None
 # don't have LVC hardware. Skip-with-INFO-log is the right
 # classification: this driver class isn't applicable to this install.
 _FX2_AVAILABLE = _HAS_USB and _HAS_USB_BACKEND and (sys.platform == 'win32' or _HAS_USB1)
+# Why, in a few words, for the registry to carry beside the drivers it
+# declines: an LS560 / LS620 / LS720 whose camera is not found then says
+# which driver did not load.
+_FX2_UNAVAILABLE_REASON = (
+    None
+    if _FX2_AVAILABLE
+    else 'pyusb is not installed'
+    if not _HAS_USB
+    else f'bundled libusb not in use: {_LIBUSB_REFUSAL}'
+    if not _HAS_USB_BACKEND
+    else 'libusb1 is not installed'
+)
 if not _FX2_AVAILABLE:
     if not _HAS_USB:
         logger.info(
@@ -349,12 +362,13 @@ def fx2_readiness_line() -> str:
 def _register_if_fx2_available(registry, name, **kwargs):
     """Register the decorated class only if FX2 prerequisites are met.
 
-    No-op (returns identity decorator) when pyusb/libusb1 unavailable so
-    the registry never sees FX2 as a candidate on non-LVC installs.
+    Declined, with the reason, when pyusb/libusb1 is unavailable: the
+    registry never tries the FX2 on such an install, and a part it does not
+    find is told beside the driver that did not load.
     """
     if _FX2_AVAILABLE:
         return registry.register(name, **kwargs)
-    return lambda cls: cls
+    return registry.decline(name, _FX2_UNAVAILABLE_REASON)
 
 
 # ---------------------------------------------------------------------------
@@ -1668,9 +1682,7 @@ class _FX2Connection:
             if os.path.isfile(path):
                 return path
 
-        raise FileNotFoundError(
-            f'FX2 firmware hex file not found. Searched: {", ".join(candidates)}'
-        )
+        raise CameraFirmwareMissingError(candidates)
 
     def _upload_firmware(self, dev, hex_path: str):
         """Upload Intel HEX firmware to FX2 via vendor request 0xA0."""
