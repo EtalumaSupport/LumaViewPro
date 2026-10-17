@@ -12,8 +12,6 @@
     "100": 100.76,
     "200": 200.97
   },
-  "af_z_move_drain_needed": false,
-  "af_min_drain_frames": 0,
   "af_focus_score_noise_pct": 0.08,
   "af_min_useful_exposure_ms": 50,
   "af_max_useful_exposure_ms": 100,
