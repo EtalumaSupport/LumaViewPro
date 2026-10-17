@@ -1500,6 +1500,9 @@ class _FX2Connection:
 
     FIRMWARE_RE_ENUM_TIMEOUT = 15.0  # seconds to wait for re-enumeration
     FIRMWARE_CHUNK_SIZE = 0x800  # vendor req 0xA0 upload chunk
+    # The gap between the two bus probes that call the device unplugged: one
+    # enumeration can miss a device that is there.
+    CONFIRM_GAP_S = 0.5
 
     @classmethod
     def get(cls) -> _FX2Connection:
@@ -1553,10 +1556,14 @@ class _FX2Connection:
         # teardown and the application's own shutdown can both stop it, and
         # a transport stopped twice fails on state its first stop released.
         self._streaming = False
-        # The device has left the bus. Written once, by the camera's grab
-        # loop when it concludes an unplug; read by the LED, which shares
-        # the device. Never cleared: a replugged scope is a new process.
+        # The device has left the bus. Written once, by report_removed();
+        # read by the LED, which shares the device. Never cleared: a
+        # replugged scope is a new process.
         self.removed = False
+        self._removed_lock = threading.Lock()
+        # Told the reason once when the device is found gone; the camera
+        # sets it, so its own removal follows the connection's.
+        self.on_removed: Callable[[str], None] | None = None
         # Set from the transport's event thread when a transfer finds the
         # device gone; taken by the grab loop, which confirms it on the bus.
         self._gone_reported = threading.Event()
@@ -1728,7 +1735,7 @@ class _FX2Connection:
                     f'index=0x{index:04X} len={len(data)} -> EXCEPTION: '
                     f'{type(e).__name__}: {e} ({elapsed_ms:.1f}ms)'
                 )
-            raise _control_write_failed(request, e) from e
+            self._raise_failed(_control_write_failed(request, e), e, f'{_vr_name(request)} write')
         elapsed_ms = (time.monotonic() - t_start) * 1000
         # Skip log emission for I2C ops -- the i2c_write wrapper logs
         # with richer detail (addr + data bytes).
@@ -1820,14 +1827,16 @@ class _FX2Connection:
                 self._transport.stop_stream()
                 if not isinstance(error, Exception) or isinstance(error, Fault):
                     raise
+                words = f'{type(error).__name__}: {error}'
                 if _is_usb_timeout(error):
-                    raise CameraNoAnswerError(
-                        f'The camera did not answer the stream start: '
-                        f'{type(error).__name__}: {error}'
-                    ) from error
-                raise CameraStreamStartFailedError(
-                    f'The camera stream did not start: {type(error).__name__}: {error}',
-                ) from error
+                    fault = CameraNoAnswerError(
+                        f'The camera did not answer the stream start: {words}'
+                    )
+                else:
+                    fault = CameraStreamStartFailedError(
+                        f'The camera stream did not start: {words}'
+                    )
+                self._raise_failed(fault, error, 'stream start')
             self._streaming = True
 
     def stop_stream(self) -> None:
@@ -1861,6 +1870,40 @@ class _FX2Connection:
         except Exception as e:
             logger.warning('[FX2 Conn  ] bus enumeration failed: %s: %s', type(e).__name__, e)
             return None
+
+    def off_the_bus(self) -> bool:
+        """Whether the device is absent on two bus probes ``CONFIRM_GAP_S`` apart.
+
+        The one test of an unplug, for the grab loop's silence and for a
+        transfer that failed. A device found present, or a bus that could not
+        be read, on the first probe answers False at once.
+        """
+        if self.device_present() is not False:
+            return False
+        time.sleep(self.CONFIRM_GAP_S)
+        return self.device_present() is False
+
+    def report_removed(self, reason: str) -> None:
+        """Record that the device has left the bus, and tell ``on_removed`` once."""
+        with self._removed_lock:
+            if self.removed:
+                return
+            self.removed = True
+        if self.on_removed is not None:
+            self.on_removed(reason)
+
+    def _raise_failed(self, fault: Exception, cause: BaseException, what: str) -> NoReturn:
+        """Raise ``fault`` from ``cause``, a transfer the device did not take.
+
+        The libraries say a gone device in words of their own, and the
+        simulated FX2 in none of theirs, so the bus is asked instead: a
+        device no longer on it is reported removed before the fault is
+        raised, and its caller finds the camera removed rather than a
+        refusal. Without a stream nothing else would notice.
+        """
+        if self.off_the_bus():
+            self.report_removed(f'off the bus on two probes after a failed {what}')
+        raise fault from cause
 
     # -- teardown ----------------------------------------------------------
 
@@ -1925,12 +1968,11 @@ class _UnplugWatch:
 
     An unplug sends the driver no error: the bytes stop. Two things raise a
     suspicion -- no byte for ``SILENCE_S``, or a transfer that found the
-    device gone -- and the bus decides it: absent on two probes
-    ``CONFIRM_GAP_S`` apart is an unplug. A device still enumerated is
-    probed at most every ``PROBE_INTERVAL_S`` while the silence lasts, and a
-    stream silent for ``CEILING_S`` is dead whatever the bus says, since an
-    enumeration can keep listing a device that has gone; it is not called
-    unplugged, since the bus did not say so.
+    device gone -- and the bus decides it (``_FX2Connection.off_the_bus``).
+    A device still enumerated is probed at most every ``PROBE_INTERVAL_S``
+    while the silence lasts, and a stream silent for ``CEILING_S`` is dead
+    whatever the bus says, since an enumeration can keep listing a device
+    that has gone; it is not called unplugged, since the bus did not say so.
 
     Silence, not missing frames: a device whose frames all misalign stores
     none but keeps sending bytes, and it is not unplugged.
@@ -1940,14 +1982,12 @@ class _UnplugWatch:
     # arrives 0.3-0.5 s after a start, and a window change drops buffered
     # bytes without stopping their arrival.
     SILENCE_S = 2.0
-    CONFIRM_GAP_S = 0.5
     PROBE_INTERVAL_S = 1.0
     CEILING_S = 30.0
 
     def __init__(self, connection: _FX2Connection):
         self._connection = connection
         self._suspected = False
-        self._absences = 0
         self._last_probe: float | None = None
 
     def verdict(self, now: float) -> _StreamEnd | None:
@@ -1963,21 +2003,15 @@ class _UnplugWatch:
             return _StreamEnd(
                 gone=False, reason=f'no byte for {silent_s:.0f} s, still listed on the bus'
             )
-        wait_s = self.CONFIRM_GAP_S if self._absences else self.PROBE_INTERVAL_S
-        if self._last_probe is not None and now - self._last_probe < wait_s:
+        if self._last_probe is not None and now - self._last_probe < self.PROBE_INTERVAL_S:
             return None
         self._last_probe = now
-        present = self._connection.device_present()
-        if present is False:
-            self._absences += 1
-            if self._absences >= 2:
-                return _StreamEnd(
-                    gone=True,
-                    reason=f'off the bus on two probes, {silent_s:.1f} s after the last byte',
-                )
-        elif present is True:
-            self._absences = 0
-            self._suspected = silent_s >= self.SILENCE_S
+        if self._connection.off_the_bus():
+            return _StreamEnd(
+                gone=True,
+                reason=f'off the bus on two probes, {silent_s:.1f} s after the last byte',
+            )
+        self._suspected = silent_s >= self.SILENCE_S
         return None
 
 
@@ -2145,6 +2179,11 @@ class FX2Camera(Camera):
             except _FX2AbsentError as e:
                 logger.debug('[FX2 Cam   ] %s', e)
                 return False
+        # Before the first transfer, so a device gone during bring-up is
+        # this camera's removal too.
+        self._fx2.on_removed = lambda reason: self._on_stream_ended(
+            _StreamEnd(gone=True, reason=reason)
+        )
         self.model_name = 'MT9P031-LS620'
         self._init_sensor()
         self.cam_image_handler = _FX2ImageHandler(self)
@@ -2372,7 +2411,10 @@ class FX2Camera(Camera):
         while self._grabbing:
             ended = watch.verdict(time.monotonic())
             if ended is not None:
-                self._on_stream_ended(ended)
+                if ended.gone:
+                    self._fx2.report_removed(ended.reason)
+                else:
+                    self._on_stream_ended(ended)
                 return
 
             # Re-read dimensions every iteration -- the UI can call
@@ -2471,17 +2513,18 @@ class FX2Camera(Camera):
                 )
 
     def _on_stream_ended(self, ended: _StreamEnd) -> None:
-        """The stream has ended: record an unplug where it is read, then tear down.
+        """The stream has ended: mark the camera removed, then tear down.
 
-        Runs on the grab loop, which returns right after. The teardown runs
-        on the base Camera's thread, because stopping the stream joins this
-        one. Only an unplug is recorded on the connection, which the LED, on
-        the same device, reads: a device the bus still lists is not gone. It
-        is recorded before the camera reads disconnected, so whoever waits on
-        the camera finds the LED's answer already given.
+        Run by the grab loop for a stream silent past the ceiling, and, for
+        an unplug, as the connection's ``on_removed`` by whichever thread
+        found the device gone: the grab loop, which returns right after, or
+        the caller of a transfer that failed. The teardown runs on the base
+        Camera's thread, because stopping the stream joins the grab loop.
+        Only an unplug is recorded on the connection, which the LED, on the
+        same device, reads: a device the bus still lists is not gone. The
+        connection records it before it calls here, so whoever waits on the
+        camera finds the LED's answer already given.
         """
-        if ended.gone:
-            self._fx2.removed = True
         self._mark_disconnected()
         if ended.gone:
             logger.warning(

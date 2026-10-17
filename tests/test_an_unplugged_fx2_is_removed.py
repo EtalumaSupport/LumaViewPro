@@ -117,6 +117,32 @@ def test_a_gain_written_after_the_removal_is_not_recorded(session):
     assert scope.imaging.gain_db_cached == before
 
 
+def test_a_write_to_a_camera_removed_while_it_is_not_streaming_is_refused_not_connected():
+    # No stream, so no grab loop hears the silence: the failed write is the
+    # driver's only word that the device is gone, and the bus decides it.
+    settings = complete_settings()
+    settings['microscope'] = 'LS620'
+    settings['simulator_tier'] = 'fast'
+    session = ScopeSession.create(settings, simulate=True)
+    scope = session.scope
+    try:
+        scope.imaging.disable_streaming()
+        assert scope.imaging.is_streaming() is False
+        before = scope.imaging.gain_db_cached
+        scope.simulation.remove_camera()
+
+        with pytest.raises(HardwareCommandRefusedError) as refused:
+            scope.imaging.set_gain_db(before + 6.0)
+
+        assert refused.value.reason == 'not_connected'
+        assert refused.value.missing == MissingPart.CAMERA
+        assert scope.camera_connected is False
+        assert scope.led_connected is False
+        assert scope.imaging.gain_db_cached == before
+    finally:
+        session.shutdown()
+
+
 def test_a_gain_written_before_the_teardown_ends_is_not_recorded(session):
     # Between the camera marking itself removed and its teardown releasing
     # it, the camera is still active, but it no longer answers connected:

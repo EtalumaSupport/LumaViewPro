@@ -112,7 +112,7 @@ def test_the_stored_pixels_are_the_first_w_a_row_carries():
 
     cam = object.__new__(FX2Camera)
     cam._fx2 = SimpleNamespace(
-        stream=stream, take_gone_report=lambda: False, device_present=lambda: True
+        stream=stream, take_gone_report=lambda: False, off_the_bus=lambda: False
     )
     cam._grabbing = True
     cam._width, cam._height = w, h

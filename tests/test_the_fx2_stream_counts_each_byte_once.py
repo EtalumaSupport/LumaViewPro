@@ -39,7 +39,7 @@ def test_the_grab_loop_counts_a_frame_it_waited_on_once():
     stream = fx2driver._ByteStream()
     cam = object.__new__(fx2driver.FX2Camera)
     cam._fx2 = SimpleNamespace(
-        stream=stream, take_gone_report=lambda: False, device_present=lambda: True
+        stream=stream, take_gone_report=lambda: False, off_the_bus=lambda: False
     )
     cam._grabbing = True
     cam._width, cam._height = W, H

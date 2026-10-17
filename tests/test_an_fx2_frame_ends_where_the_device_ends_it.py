@@ -217,7 +217,7 @@ def test_a_flush_mid_frame_drops_what_was_assembled():
 def _grab_loop_on(stream, w, h):
     cam = object.__new__(fx2driver.FX2Camera)
     cam._fx2 = SimpleNamespace(
-        stream=stream, take_gone_report=lambda: False, device_present=lambda: True
+        stream=stream, take_gone_report=lambda: False, off_the_bus=lambda: False
     )
     cam._grabbing = True
     cam._width, cam._height = w, h
