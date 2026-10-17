@@ -13,7 +13,7 @@ import time
 
 import pytest
 
-from drivers.exceptions import BoardNoReplyError
+from drivers.exceptions import BoardNoReplyError, BoardReplyUnreadableError
 from drivers.motorboard import MotorBoard
 from drivers.sim_wire.backend import DEFAULT_DIALECT, MotorBoardSpec, SimWireBackend
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
@@ -88,6 +88,18 @@ class TestMovesInInstantMode:
                 board.wait_for_position('X', timeout=0.3)
         finally:
             port.disarm_reply()
+
+
+def test_a_garbled_status_reply_is_unreadable_for_the_switch_and_arrival_reads(board):
+    """A reply that is not a number is the board's unreadable-reply fault, for
+    both reads, which share the one STATUS_R read."""
+    port = board._backend.motor_board
+    port.garble_next_reply()
+    with pytest.raises(BoardReplyUnreadableError):
+        board.limit_switch_status('Z')
+    port.garble_next_reply()
+    with pytest.raises(BoardReplyUnreadableError):
+        board.target_status('Z')
 
 
 @pytest.mark.parametrize('board', [('LS850T', 'XYZT', 'realistic')], indirect=True)

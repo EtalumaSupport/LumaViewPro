@@ -22,7 +22,7 @@ import logging
 
 import pytest
 
-from drivers.exceptions import BoardNoReplyError, BoardReplyUnreadableError, HardwareError
+from drivers.exceptions import BoardNoReplyError, HardwareError
 from modules.exceptions import HardwareCommandRefusedError, MissingPart, MoveNotCompletedError
 from modules.lumascope_api._constants import AxisState
 from tests.test_a_command_for_absent_motion_hardware_is_refused import _session
@@ -122,22 +122,6 @@ def test_a_firmware_board_that_drops_the_switch_reply_raises_no_reply(make_sessi
 
     with pytest.raises(BoardNoReplyError):
         scope.motion.get_limit_switch_status('Z')
-
-
-def test_a_firmware_board_whose_status_reply_is_garbled_raises_unreadable(make_session):
-    """A reply that is not a number is the board's unreadable-reply fault, for
-    the switch read and the arrival read alike, which share the one STATUS_R read."""
-    scope = make_session('LS850', homed=False, simulator_tier='firmware').scope
-    # A stand-in by design: the simulation API drops replies but cannot yet
-    # garble one, so the wire's own port is armed (a simulator gap).
-    port = scope._motion_driver._backend.motor_board
-
-    port.garble_next_reply()
-    with pytest.raises(BoardReplyUnreadableError):
-        scope.motion.get_limit_switch_status('Z')
-    port.garble_next_reply()
-    with pytest.raises(BoardReplyUnreadableError):
-        scope.motion.get_target_status('Z')
 
 
 def test_a_present_axis_answers_its_read(make_session):

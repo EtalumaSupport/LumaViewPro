@@ -46,6 +46,9 @@ _DOOR_NAMES = frozenset(
         'replug',
         'reboot',
         'drop_next_reply',
+        'garble_next_reply',
+        'delay_next_reply',
+        'disarm_reply',
         'inject',
         'silent',
         'plugged',
@@ -120,6 +123,9 @@ def private_fault_reaches() -> dict[str, list[str]]:
 # file's tests onto scope.simulation; never raise one.
 _PRIVATE_REACH_PIN: dict[str, int] = {
     'tests/test_an_unplugged_fx2_is_removed.py': 1,
+    # Pinned when the port's garble, delay and disarm joined the doors
+    # (2026-10-16): scope.simulation cannot garble a reply yet.
+    'tests/test_sim_wire_led_link.py': 1,
 }
 
 
