@@ -20,7 +20,6 @@ from types import SimpleNamespace
 
 from modules.image_save import generate_image_metadata
 from modules.lumascope_api.imaging import ImagingAPI
-from modules import layer_record
 from tests.frame_records import frame_record, plate
 from modules.layer_record import release_color
 
@@ -117,7 +116,7 @@ def test_inactive_camera_zero_exposure_omitted():
     assert record.gain_db is None
 
 
-def test_tiff_write_path_tolerates_omitted_gain_exposure():
+def test_tiff_write_path_tolerates_omitted_gain_exposure(sim_scope):
     """The structured TIFF writer must treat the omitted keys as optional
     fields (same contract as the per-frame timestamps): a frame whose
     exposure/gain is unknown still SAVES, with those TIFF fields absent --
@@ -126,18 +125,8 @@ def test_tiff_write_path_tolerates_omitted_gain_exposure():
 
     from modules.image_utils import generate_tiff_data
 
-    scope = SimpleNamespace(
-        runtime_state=SimpleNamespace(
-            get_objective_info=lambda objective_id: {'focal_length': 9.0}
-        ),
-        capabilities=SimpleNamespace(pixel_size_um=None, lens_focal_length_mm=None),
-        diagnostics=SimpleNamespace(
-            get_motor_info=lambda: {'serial_number': 'SN1', 'firmware_version': 'fw'}
-        ),
-        layer_identity=layer_record.UNRESOLVED,
-    )
     metadata = generate_image_metadata(
-        scope,
+        sim_scope,
         channel='BF',
         plate_x_mm=0,
         plate_y_mm=0,

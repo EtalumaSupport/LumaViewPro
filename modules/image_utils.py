@@ -27,6 +27,7 @@ from fractions import Fraction
 from lvp_logger import logger, version
 
 if TYPE_CHECKING:
+    from modules.objectives_loader import Objective
     from modules.scope_capabilities import ScopeCapabilities
 
 
@@ -2689,7 +2690,7 @@ def _compute_scale_bar_overlay(
     font_face = cv2.FONT_HERSHEY_SIMPLEX
     font_thickness = 1
 
-    scale_bar_text = f'{scale_bar_length_um}um, {objective["magnification"]}x'
+    scale_bar_text = f'{scale_bar_length_um}um, {objective.magnification}x'
 
     while True:
         text_size, _ = cv2.getTextSize(
@@ -2723,7 +2724,7 @@ def _compute_scale_bar_overlay(
 
 def add_scale_bar(
     image: np.ndarray,
-    objective: dict,
+    objective: 'Objective',
     binning_size: int,
     color: str | None = None,
     *,
@@ -2747,7 +2748,7 @@ def add_scale_bar(
     # A scale bar is a measurement claim; without a known pixel size there is
     # nothing to claim. Draw nothing rather than a bar of invented length.
     pixel_size_um = common_utils.get_pixel_size(
-        focal_length=objective['focal_length'],
+        focal_length=objective.focal_length_mm,
         binning_size=binning_size,
         capabilities=capabilities,
     )
@@ -2762,8 +2763,8 @@ def add_scale_bar(
         width,
         dtype,
         is_color,
-        objective['focal_length'],
-        objective['magnification'],
+        objective.focal_length_mm,
+        objective.magnification,
         binning_size,
         color,
         # The white bar's value is the payload max for this depth, so two frames

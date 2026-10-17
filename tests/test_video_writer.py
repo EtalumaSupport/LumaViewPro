@@ -19,6 +19,7 @@ from tests.scope_fakes import answer_auto_gain_like_the_api
 from tests.camera_fakes import delivered_frame
 from modules.layer_record import GREY, release_color
 from modules.layer_record import release_colors
+from tests.objective_records import objective
 
 
 class _FakeStream:
@@ -328,7 +329,7 @@ class TestProtocolVideoDropNotification:
         answer_auto_gain_like_the_api(scope.imaging)
         scope.runtime_state.resolve_current_objective.return_value = (
             '4x Oly',
-            {'focal_length': 45.0},
+            objective(focal_length_mm=45.0),
         )
         # The frames leg reads the scope's tracked state per frame; a
         # MagicMock answers a MagicMock, which is not a position.

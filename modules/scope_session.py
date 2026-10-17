@@ -3746,15 +3746,6 @@ class ScopeSession:
         )
         return snapshot
 
-    def get_objective_info(self, objective_id: str) -> dict:
-        """Objective metadata for an EXPLICIT id.
-
-        Candidate lookups (turret assignment, settings load, FOV
-        refresh) read objectives the current selection does not name,
-        so a current-only getter cannot serve them.
-        """
-        return self.objective_helper.get_objective_info(objective_id=objective_id)
-
     # ------------------------------------------------------------------
     # The objective: the question, the answer and the plain writers
     # ------------------------------------------------------------------

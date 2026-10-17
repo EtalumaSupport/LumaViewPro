@@ -18,6 +18,7 @@ import time
 from unittest.mock import MagicMock
 
 import numpy as np
+from tests.objective_records import objective
 
 AF_CENTER_Z = 500.0
 
@@ -72,11 +73,9 @@ def af_runner_and_scope():
     runner = AutofocusRunner(
         scope=scope,
     )
-    scope.objective_helper.get_objective_info.return_value = {
-        'AF_range': 10.0,
-        'AF_max': 30.0,
-        'AF_min': 10.0,
-    }
+    scope.objective_helper.get_objective_info.return_value = objective(
+        autofocus_half_range_um=10.0, autofocus_step_max_um=30.0, autofocus_step_min_um=10.0
+    )
     # The Gaussian fit needs a dense real curve; these drives feed 1-2
     # samples per pass, so pin the fit result to the scan center.
     runner._find_best = lambda df: AF_CENTER_Z

@@ -68,7 +68,6 @@ LABWARE_MEMBERS = {
 
 OBJECTIVE_MEMBERS = {
     'get_objective_info': lambda s, v: s.objective_helper.get_objective_info(objective_id=v),
-    'runtime_state.get_objective_info': lambda s, v: s.scope.runtime_state.get_objective_info(v),
     'select_objective': lambda s, v: s.select_objective(v),
     'confirm_objective': lambda s, v: s.confirm_objective(v),
     'confirm_objective at a slot': lambda s, v: s.confirm_objective(v, turret_position=2),
@@ -106,11 +105,10 @@ def test_an_objective_the_catalogue_lacks_is_refused_offering_its_keys(request, 
     assert _selection(session) == before
 
 
-@pytest.mark.parametrize('member', ['get_objective_info', 'runtime_state.get_objective_info'])
-def test_no_objective_is_none_selected_where_a_stored_one_is_read(session, member):
+def test_no_objective_is_none_selected_where_a_stored_one_is_read(session):
     before = _selection(session)
     with pytest.raises(ObjectiveUnknownError) as refused:
-        OBJECTIVE_MEMBERS[member](session, None)
+        OBJECTIVE_MEMBERS['get_objective_info'](session, None)
     assert refused.value.reason == 'none_selected'
     assert refused.value.cause == RefusalCause.STATE
     assert _selection(session) == before
@@ -154,12 +152,6 @@ def test_a_retired_plate_name_resolves_and_is_stored_under_its_key(session):
         (
             'select_objective',
             {'objective_id': '10xOly'},
-            'objective_not_in_catalogue',
-            'objective_id',
-        ),
-        (
-            'scope/runtime_state/get_objective_info',
-            {'objective_id': 'zzz'},
             'objective_not_in_catalogue',
             'objective_id',
         ),

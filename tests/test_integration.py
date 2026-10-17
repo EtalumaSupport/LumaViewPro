@@ -978,11 +978,10 @@ class TestRestAPIPrep:
     def test_get_current_objective_after_set(self):
         """get_current_objective() should return info after select_objective()."""
         session = ScopeSession.create(complete_settings(), simulate=True)
-        objectives = session.scope.runtime_state.get_available_objectives()
+        objectives = list(session.scope.objectives)
         session.select_objective(objectives[0])
         current = session.scope.runtime_state.get_current_objective()
-        assert current is not None
-        assert isinstance(current, dict)
+        assert current is session.scope.objectives[objectives[0]]
 
     def test_autofocus_runner_get_status_idle(self):
         """AutofocusRunner.get_status() should return idle state initially."""
@@ -1040,7 +1039,7 @@ class TestRestAPIPrep:
             thread = AutofocusThread(afe=af)
             thread.start()
             try:
-                objectives = session.scope.runtime_state.get_available_objectives()
+                objectives = list(session.scope.objectives)
                 future = thread.run_autofocus(
                     run=run_identity('autofocus'),
                     objective_id=objectives[0],
@@ -1081,7 +1080,7 @@ class TestRestAPIPrep:
             thread = AutofocusThread(afe=af)
             thread.start()
             try:
-                objectives = session.scope.runtime_state.get_available_objectives()
+                objectives = list(session.scope.objectives)
                 future = thread.run_autofocus(
                     run=run_identity('autofocus'),
                     objective_id=objectives[0],

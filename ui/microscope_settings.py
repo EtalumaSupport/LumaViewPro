@@ -760,7 +760,7 @@ class MicroscopeSettings(BoxLayout):
             self.ids['field_of_view_height_id'].text = ''
             return
         fov_size = config_ui_getters.get_field_of_view(
-            focal_length=objective['focal_length'],
+            focal_length=objective.focal_length_mm,
             frame_size=settings['frame'],
             binning_size=ctx.session.get_binning_size(),
         )

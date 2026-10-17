@@ -208,7 +208,7 @@ def resolve_recording_pixel_size(scope: 'Lumascope') -> float | None:
     """
     _, objective = scope.runtime_state.resolve_current_objective()
     pixel_size_um = common_utils.get_pixel_size(
-        focal_length=objective['focal_length'],
+        focal_length=objective.focal_length_mm,
         binning_size=scope.imaging._binning_size,
         capabilities=scope.capabilities,
     )

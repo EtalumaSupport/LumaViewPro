@@ -8083,7 +8083,7 @@ class TestRuntimeStateSetObjective:
 
         session = ScopeSession.create(complete_settings(), simulate=True)
         try:
-            available = session.scope.runtime_state.get_available_objectives()
+            available = list(session.scope.objectives)
             assert available, 'the fixture scope loaded no objectives'
             target = available[0]
 

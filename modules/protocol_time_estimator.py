@@ -12,7 +12,7 @@ from datetime import timedelta
 from lvp_logger import logger
 from modules import common_utils
 from modules.exceptions import ConfigError
-from modules.objectives_loader import ObjectiveLoader
+from modules.objectives_loader import Objective, ObjectiveLoader
 
 
 # ---------------------------------------------------------------------------
@@ -182,7 +182,7 @@ class ProtocolTimeEstimator:
         idx: int,
         step,
         prev_step,
-        objective_info: dict | None,
+        objective_info: Objective | None,
     ) -> StepTimeEstimate:
         """Estimate time for a single protocol step."""
         name = str(step.get('Name', f'Step {idx + 1}'))
@@ -252,13 +252,13 @@ class ProtocolTimeEstimator:
 
     def _estimate_autofocus(
         self,
-        objective_info: dict,
+        objective_info: Objective,
         exposure_s: float,
     ) -> float:
         """Estimate autofocus duration in seconds."""
-        af_range = float(objective_info.get('AF_range', 75))
-        af_max = float(objective_info.get('AF_max', 36))
-        af_min = float(objective_info.get('AF_min', 8))
+        af_range = float(objective_info.autofocus_half_range_um)
+        af_max = float(objective_info.autofocus_step_max_um)
+        af_min = float(objective_info.autofocus_step_min_um)
 
         if af_max <= 0 or af_min <= 0:
             return 0.0
@@ -287,7 +287,7 @@ class ProtocolTimeEstimator:
 
         return total_steps * time_per_step + 2 * initial_move_time
 
-    def _get_objective_info(self, objective_id: str) -> dict | None:
+    def _get_objective_info(self, objective_id: str) -> Objective | None:
         """Look up objective parameters."""
         if not objective_id:
             return None

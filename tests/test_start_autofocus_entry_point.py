@@ -22,6 +22,7 @@ from modules.labware_loader import WellPlateLoader
 from modules.protocol_state_machine import SequencedCaptureRunMode
 from tests.scope_fakes import build_scope
 from tests.test_composite_run_config import _settings
+from tests.objective_records import objective
 
 
 def _runner(acquiring=('BF',)):
@@ -37,7 +38,7 @@ def _runner(acquiring=('BF',)):
     session.capture_settings_snapshot.return_value = session.settings
     session.get_settings_snapshot.return_value = session.settings
     session.plate_position_on.return_value = {'x': 1.0, 'y': 2.0, 'z': 3.0}
-    session.objective_helper.get_objective_info.return_value = {'magnification': 10}
+    session.objective_helper.get_objective_info.return_value = objective(magnification=10)
     return ProtocolRunner(session)
 
 
@@ -258,7 +259,7 @@ class TestTheSelectorAndTheGuiStarterAgree:
         }
         kwargs.update(overrides)
         objective_helper = MagicMock()
-        objective_helper.get_objective_info.return_value = {'magnification': 10}
+        objective_helper.get_objective_info.return_value = objective(magnification=10)
         wellplate_loader = WellPlateLoader()
         return config_helpers.get_standalone_capture_config_from_settings(
             _settings(acquiring=('BF',)),
@@ -345,7 +346,7 @@ class TestTheConfigActuallyBuildsTheIntendedStep:
         kwargs.update(overrides)
 
         objective_helper = MagicMock()
-        objective_helper.get_objective_info.return_value = {'magnification': 10}
+        objective_helper.get_objective_info.return_value = objective(magnification=10)
         wellplate_loader = WellPlateLoader()
 
         config = config_helpers.get_standalone_capture_config_from_settings(

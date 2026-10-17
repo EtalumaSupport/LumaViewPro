@@ -20,6 +20,7 @@ from modules.protocol_time_estimator import (
     STEP_OVERHEAD_S,
     AUTOGAIN_MAX_DURATION_S,
 )
+from tests.objective_records import objective
 
 
 # ---------------------------------------------------------------------------
@@ -64,13 +65,13 @@ def _valid_step(**overrides) -> dict:
     return step
 
 
-OBJ_10X = {
-    'magnification': 10,
-    'focal_length': 18.0,
-    'AF_min': 8.0,
-    'AF_max': 36.0,
-    'AF_range': 75.0,
-}
+OBJ_10X = objective(
+    magnification=10,
+    focal_length_mm=18.0,
+    autofocus_step_min_um=8.0,
+    autofocus_step_max_um=36.0,
+    autofocus_half_range_um=75.0,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -175,7 +176,7 @@ class TestAutofocusEstimation:
 
     def test_af_zero_range_returns_zero(self):
         estimator = ProtocolTimeEstimator(ObjectiveLoader())
-        obj = {'AF_range': 0, 'AF_max': 0, 'AF_min': 0}
+        obj = objective(autofocus_half_range_um=0, autofocus_step_max_um=0, autofocus_step_min_um=0)
         t = estimator._estimate_autofocus(obj, exposure_s=0.05)
         assert t == 0.0
 

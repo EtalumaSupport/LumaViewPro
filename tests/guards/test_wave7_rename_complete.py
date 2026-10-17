@@ -789,8 +789,6 @@ RUNTIME_STATE_ONLY_METHODS = frozenset(
     {
         'get_labware',
         'get_current_objective_id',
-        'get_objective_info',
-        'get_available_objectives',
         'get_current_objective',
         'get_turret_config',
         'get_stage_offset',

@@ -20,8 +20,9 @@ import numpy as np
 import pytest
 
 import modules.image_utils as image_utils
+from tests.objective_records import objective
 
-_OBJECTIVE = {'focal_length': 10.0, 'magnification': 20}
+_OBJECTIVE = objective(focal_length_mm=10.0, magnification=20)
 
 
 _OPTICS = None

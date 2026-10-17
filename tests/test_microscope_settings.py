@@ -25,6 +25,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from modules.config_helpers import DEFAULT_MAX_EXPOSURE_MS, camera_max_exposure_for_ui
+from tests.objective_records import objective as objective_record
 
 
 class TestTheSliderRangeWithNoCamera:
@@ -327,11 +328,11 @@ class TestTheFramingRedrawShowsTheStore:
     def testrefresh_fov_labels_computes_from_settings_frame(self, scale_capabilities, monkeypatch):
         import modules.common_utils as common_utils_real
 
-        objective = {'focal_length': 9.0}
+        objective = objective_record(focal_length_mm=9.0)
         width, height = self._refresh_fov(scale_capabilities, monkeypatch, objective)
 
         expected_fov = common_utils_real.get_field_of_view(
-            focal_length=objective['focal_length'],
+            focal_length=objective.focal_length_mm,
             frame_size={'width': 1896, 'height': 1900},
             binning_size=1,
             capabilities=scale_capabilities,

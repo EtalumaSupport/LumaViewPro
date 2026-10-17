@@ -300,13 +300,6 @@ def _ag_ae_channel_class(layer: str) -> str:
     return 'fluorescence'
 
 
-def get_current_objective_info(settings: dict, objective_helper) -> tuple[str, dict]:
-    """Return (objective_id, objective_info_dict) from current settings."""
-    objective_id = settings['objective_id']
-    objective = objective_helper.get_objective_info(objective_id=objective_id)
-    return objective_id, objective
-
-
 def model_has_turret(scopes: dict, model: str | None) -> bool:
     """Does the DECLARED microscope model have a turret?
 
@@ -1222,7 +1215,8 @@ def get_composite_capture_config_from_settings(
 
     """
     channels = get_composite_channels(settings)
-    objective_id, _ = get_current_objective_info(settings, objective_helper)
+    objective_id = settings['objective_id']
+    objective_helper.get_objective_info(objective_id=objective_id)
 
     composite_position = {
         'x': position['x'],
@@ -1312,7 +1306,8 @@ def get_standalone_capture_config_from_settings(
     -- and the run would be refused several steps later as "Protocol has
     no steps", naming a cause that has nothing to do with the mistake.
     """
-    objective_id, _ = get_current_objective_info(settings, objective_helper)
+    objective_id = settings['objective_id']
+    objective_helper.get_objective_info(objective_id=objective_id)
     labware_id, _ = get_selected_labware_from_settings(settings, wellplate_loader)
 
     layer_configs = get_layer_configs(settings, specific_layers=[layer])
@@ -1396,7 +1391,8 @@ def get_sequenced_capture_config_from_settings(
     GUI's resolve a missing or unloadable plate the same way instead of
     handing a bare '' to the protocol.
     """
-    objective_id, _ = get_current_objective_info(settings, objective_helper)
+    objective_id = settings['objective_id']
+    objective_helper.get_objective_info(objective_id=objective_id)
     time_params = get_protocol_time_params_from_settings(settings)
     labware_id, _ = get_selected_labware_from_settings(settings, wellplate_loader)
 

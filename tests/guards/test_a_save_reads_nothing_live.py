@@ -34,22 +34,6 @@ class _Unreachable:
         )
 
 
-class _ObjectiveCatalogueOnly:
-    """The runtime state, with only the objective catalogue reachable."""
-
-    def __init__(self, runtime_state):
-        self._runtime_state = runtime_state
-
-    def get_objective_info(self, objective_id):
-        return self._runtime_state.get_objective_info(objective_id)
-
-    def __getattr__(self, attr):
-        raise AssertionError(
-            f'the metadata builder read scope.runtime_state.{attr} at write time; '
-            'the plate, well and stage position travel with the frame'
-        )
-
-
 def _record(illumination_ma=None):
     """A frame's record; ``illumination_ma`` maps LED address to mA."""
     return FrameRecord(
@@ -78,9 +62,7 @@ def test_the_builder_records_its_frame_with_the_live_scope_unreachable(sim_scope
     # The frame's current is keyed by the address that lit it; the builder
     # names it through the unit's layer identity, which is not live state.
     bf_address = sim_scope.layer_identity.find('BF').led_channel[0]
-    runtime_state = sim_scope.runtime_state
-    monkeypatch.setattr(sim_scope, 'runtime_state', _ObjectiveCatalogueOnly(runtime_state))
-    for part in ('imaging', 'illumination', 'motion', '_camera_driver'):
+    for part in ('runtime_state', 'imaging', 'illumination', 'motion', '_camera_driver'):
         monkeypatch.setattr(sim_scope, part, _Unreachable(part))
 
     metadata = image_save.generate_image_metadata(

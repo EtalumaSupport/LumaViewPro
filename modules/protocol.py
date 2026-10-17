@@ -2184,8 +2184,8 @@ class Protocol:
         # A copy: the focal-length column is working data for this build, and
         # the stored frame is the protocol's own.
         orig_steps_df = self._config['steps'].copy()
-        objectives = objective_helper.get_objectives_dataframe()['focal_length']
-        orig_steps_df['focal_length'] = orig_steps_df['Objective'].map(objectives)
+        focal_lengths = {o.id: o.focal_length_mm for o in objective_helper.objectives.values()}
+        orig_steps_df['focal_length'] = orig_steps_df['Objective'].map(focal_lengths)
 
         # A step whose objective the catalogue does not know has no focal
         # length, and its tiles would land at NaN positions.
@@ -2582,8 +2582,9 @@ class Protocol:
                 )
             focal_length = None
         else:
-            objective = objective_helper.get_objective_info(objective_id=objective_id)
-            focal_length = objective['focal_length']
+            focal_length = objective_helper.get_objective_info(
+                objective_id=objective_id
+            ).focal_length_mm
 
         fill_factor = _fill_factor_or_refuse(tiling_overlap_percent)
         tiles = tiling_config.get_tile_centers(

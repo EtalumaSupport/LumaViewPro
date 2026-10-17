@@ -31,6 +31,7 @@ from modules.image_mode import (
 import modules.config_helpers as config_helpers
 from modules.layer_record import release_catalogue
 from tests.settings_fixtures import complete_settings
+from tests.objective_records import objective
 
 # The plate position a composite starts from; every channel step shares
 # it, so only the name and the deferred z carry meaning here.
@@ -90,7 +91,7 @@ def _settings(acquiring=(), sequenced_format=OUTPUT_FORMAT_TIFF, focus_by_layer=
 
 def _objective_helper():
     helper = MagicMock()
-    helper.get_objective_info.return_value = {'magnification': 10}
+    helper.get_objective_info.return_value = objective(magnification=10)
     return helper
 
 

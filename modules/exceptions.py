@@ -815,7 +815,6 @@ class ConfigurationDefectError(Fault, ConfigError):
         'composite_threshold_out_of_range': 'Configuration Fault',
         'capture_config_inconsistent': 'Configuration Fault',
         'tail_id_mode_unknown': 'Configuration Fault',
-        'objective_entry_incomplete': 'Configuration Fault',
         'labware_not_given': 'Configuration Fault',
         'layers_unresolved': 'Scope Model Not Known',
         'scope_not_composed': 'Configuration Fault',

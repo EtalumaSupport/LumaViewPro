@@ -67,7 +67,7 @@ def test_every_part_of_the_session_reads_the_scopes_catalogues(tmp_path):
     try:
         scope = session.scope
         assert EXTRA_OBJECTIVE in session.objective_helper.get_objectives_list()
-        assert EXTRA_OBJECTIVE in scope.runtime_state.get_available_objectives()
+        assert EXTRA_OBJECTIVE in scope.objectives
         assert EXTRA_PLATE in session.wellplate_loader.get_plate_list()
         # One object each, the scope's, wherever the session reaches one.
         assert session.objective_helper is scope.objective_helper

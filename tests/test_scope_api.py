@@ -313,17 +313,6 @@ class TestGetAutoGainSettings:
         assert 'max_duration_seconds' in settings['protocol']['autogain']
 
 
-class TestGetCurrentObjectiveInfo:
-    def test_returns_id_and_info(self):
-        settings = _make_settings()
-        helper = MagicMock()
-        helper.get_objective_info.return_value = {'magnification': 4, 'focal_length': 10}
-        obj_id, obj = config_helpers.get_current_objective_info(settings, helper)
-        assert obj_id == '4x Oly'
-        assert obj['magnification'] == 4
-        helper.get_objective_info.assert_called_once_with(objective_id='4x Oly')
-
-
 class TestFindNearestStep:
     def test_returns_minus_one_for_none_protocol(self):
         assert config_helpers.find_nearest_step(0, 0, None) == -1
@@ -618,7 +607,7 @@ class TestScopeSession:
         session.scope.motion.move_turret(1)
         obj_id, obj = session.scope.runtime_state.resolve_current_objective()
         assert obj_id == '10x Oly'
-        assert obj == session.scope.runtime_state.get_objective_info('10x Oly')
+        assert obj is session.scope.objectives['10x Oly']
 
     def test_the_current_objective_raises_when_nothing_is_known(self):
         from modules.exceptions import ObjectiveUnknownError

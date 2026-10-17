@@ -15,8 +15,9 @@ import numpy as np
 import pytest
 
 from modules.image_utils import _compute_scale_bar_overlay
+from tests.objective_records import objective
 
-_OBJECTIVE = {'focal_length': 45.0, 'magnification': 20}
+_OBJECTIVE = objective(focal_length_mm=45.0, magnification=20)
 
 
 @pytest.mark.parametrize(

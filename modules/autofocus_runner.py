@@ -115,7 +115,7 @@ class AutofocusRunner:
     def _calculate_params(self):
         center = self._scope.motion.get_current_position('Z')
 
-        range = self._objective['AF_range']
+        range = self._objective.autofocus_half_range_um
 
         if range <= 0:
             raise ValueError(f'AF_range must be positive, got {range}')
@@ -124,7 +124,7 @@ class AutofocusRunner:
         z_max = center + range
         if self._past_travel(z_min, z_max, 'the first window'):
             raise AutofocusOutOfTravelError()
-        resolution = self._objective['AF_max']
+        resolution = self._objective.autofocus_step_max_um
         exposure = self._scope.imaging.get_exposure_ms()
 
         self._params = {
@@ -838,7 +838,7 @@ class AutofocusRunner:
         next_resolution = prev_resolution / 3
 
         # Bound the resolution to AF_min
-        af_min = self._objective['AF_min']
+        af_min = self._objective.autofocus_step_min_um
         self._params['resolution'] = max(af_min, next_resolution)
 
         # Add the scores for the pass to the full dataset and then reset

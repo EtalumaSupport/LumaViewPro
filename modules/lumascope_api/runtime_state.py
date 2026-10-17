@@ -45,6 +45,7 @@ from modules.api_surface import api
 if TYPE_CHECKING:
     from modules.labware import WellPlate
     from modules.lumascope_api._lumascope import Lumascope
+    from modules.objectives_loader import Objective
 
 
 # The axes a plate coordinate is defined for: the plate lies in X and Y.
@@ -125,15 +126,15 @@ class RuntimeState:
         return self._turreted
 
     @api(reads=True)
-    def resolve_current_objective(self) -> tuple[str, dict]:
-        """The active objective's id and metadata, or why it is unknown.
+    def resolve_current_objective(self) -> tuple[str, Objective]:
+        """The active objective's id and record, or why it is unknown.
 
         On a turreted scope, the objective assigned to the slot in the light
         path (``motion.get_turret_slot``), read fresh every time; with no
         turret, the selected one.
 
         Returns:
-            tuple[str, dict]: The objective id and its catalogue entry.
+            tuple[str, Objective]: The objective id and its catalogue record.
 
         Raises:
             ObjectiveUnknownError: On a turreted scope, the slot is unknown
@@ -143,27 +144,27 @@ class RuntimeState:
                 selected (``'none_selected'``); on any scope, bring-up has not
                 said whether it has a turret (``'turret_undecided'``).
         """
-        objective_id, info, unknown = self._derive_current_objective()
+        objective_id, objective, unknown = self._derive_current_objective()
         if unknown is not None:
             raise unknown
-        return objective_id, info
+        return objective_id, objective
 
     def _derive_current_objective(
         self,
-    ) -> tuple[str | None, dict | None, ObjectiveUnknownError | None]:
-        """The one derivation: (id, info, None), or (None, None, why).
+    ) -> tuple[str | None, Objective | None, ObjectiveUnknownError | None]:
+        """The one derivation: (id, objective, None), or (None, None, why).
 
         Records the optics whenever the answer is a different objective
         from the last one recorded -- after a turret move, an assignment
         or a selection -- so the scale every later capture used is in the
         log however the objective changed.
         """
-        objective_id, info, unknown = self._derive()
+        objective_id, objective, unknown = self._derive()
         if unknown is None:
-            self._record_optics_on_change(objective_id, info)
-        return objective_id, info, unknown
+            self._record_optics_on_change(objective_id, objective)
+        return objective_id, objective, unknown
 
-    def _record_optics_on_change(self, objective_id: str, info: dict) -> None:
+    def _record_optics_on_change(self, objective_id: str, objective: Objective) -> None:
         with self._optics_lock:
             if objective_id == self._logged_objective_id:
                 return
@@ -175,7 +176,7 @@ class RuntimeState:
 
             config_helpers.log_resolved_optics(
                 objective_id,
-                info['focal_length'],
+                objective.focal_length_mm,
                 self._scope.imaging.get_binning_size(),
                 capabilities=self._scope.capabilities,
             )
@@ -185,7 +186,7 @@ class RuntimeState:
                 exc_info=True,
             )
 
-    def _derive(self) -> tuple[str | None, dict | None, ObjectiveUnknownError | None]:
+    def _derive(self) -> tuple[str | None, Objective | None, ObjectiveUnknownError | None]:
         if self._turreted is None:
             return None, None, ObjectiveUnknownError('turret_undecided')
         if not self._turreted:
@@ -195,18 +196,17 @@ class RuntimeState:
             objective_id = self._scope.read_setting('objective_id')
             if objective_id is None:
                 return None, None, ObjectiveUnknownError('none_selected')
-            info = self._scope.objective_helper.get_objective_info(objective_id=objective_id)
-            return objective_id, info, None
+            objective = self._scope.objective_helper.get_objective_info(objective_id=objective_id)
+            return objective_id, objective, None
         slot = self._scope.motion.get_turret_slot()
         if slot is None:
             return None, None, ObjectiveUnknownError('slot_unknown')
         objective_id = self.get_turret_config().get(slot)
         if objective_id is None:
             return None, None, ObjectiveUnknownError('slot_unassigned', slot)
-        if objective_id not in self._scope.objective_helper.get_objectives_list():
+        if objective_id not in self._scope.objectives:
             return None, None, ObjectiveUnknownError('not_in_catalogue', slot)
-        info = self._scope.objective_helper.get_objective_info(objective_id=objective_id)
-        return objective_id, info, None
+        return objective_id, self._scope.objectives[objective_id], None
 
     def get_current_objective_id(self) -> str | None:
         """Get the ID of the currently active objective.
@@ -217,43 +217,11 @@ class RuntimeState:
         """
         return self._derive_current_objective()[0]
 
-    @api(reads=True)
-    def get_objective_info(self, objective_id: str | None) -> dict:
-        """Get objective metadata by ID.
-
-        Args:
-            objective_id: Objective identifier (e.g. "4x Oly", "10x Oly").
+    def get_current_objective(self) -> Objective | None:
+        """The active objective's record.
 
         Returns:
-            dict: Objective info including focal_length, magnification, etc.
-
-        Raises:
-            CatalogueNameRefusedError: ``'objective_not_in_catalogue'``, the
-                catalogue holds no such id -- what a protocol saved against
-                another catalogue names.
-            ObjectiveUnknownError: ``'none_selected'``, the id is null, which
-                is what a fresh or half-configured scope stores.
-
-        Refused by name rather than answered with None: nearly every caller
-        subscripts the answer, so a None reached the user as a bare
-        attribute error naming nothing they could act on.
-        """
-        return self._scope.objective_helper.get_objective_info(objective_id=objective_id)
-
-    @api(reads=True)
-    def get_available_objectives(self) -> list[str]:
-        """Get list of all available objective IDs.
-
-        Returns:
-            list[str]: Objective identifiers (e.g. ["4x", "10x Oly", "20x Oly"]).
-        """
-        return self._scope.objective_helper.get_objectives_list()
-
-    def get_current_objective(self) -> dict | None:
-        """Get the currently active objective info.
-
-        Returns:
-            dict | None: Active objective metadata, or None when it is not
+            Objective | None: The active objective, or None when it is not
                 known (``resolve_current_objective`` says why).
         """
         return self._derive_current_objective()[1]

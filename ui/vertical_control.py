@@ -284,16 +284,14 @@ class VerticalControl(BoxLayout):
         """
         ctx = _app_ctx.ctx
         slot = ctx.scope.motion.get_turret_slot()
-        catalogue = ctx.objective_helper.get_objectives_list()
+        catalogue = ctx.scope.objectives
         for position, assigned in ctx.scope.runtime_state.get_turret_config().items():
             button = self.ids[f'turret_pos_{position}_btn']
             button.state = 'down' if position == slot else 'normal'
             if assigned is None:
                 button.text = f'< {position} >'
             elif assigned in catalogue:
-                magnification = ctx.session.get_objective_info(objective_id=assigned)[
-                    'magnification'
-                ]
+                magnification = catalogue[assigned].magnification
                 button.text = f'{magnification}x'
             else:
                 # Shown as assigned, because it is: the active objective

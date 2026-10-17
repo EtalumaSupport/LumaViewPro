@@ -19,6 +19,7 @@ from modules.exceptions import ArgumentRefusedError
 from modules.labware_loader import WellPlateLoader
 from modules.protocol_state_machine import SequencedCaptureRunMode
 from tests.test_composite_run_config import _settings
+from tests.objective_records import objective
 
 # Mid-travel in Z, so a stack around it is inside the travel the build judges.
 _POSITION = {'x': 1.0, 'y': 2.0, 'z': 5000.0}
@@ -45,7 +46,7 @@ def _runner():
     session.capture_settings_snapshot.return_value = session.settings
     session.get_settings_snapshot.return_value = session.settings
     session.plate_position_on.return_value = dict(_POSITION)
-    session.objective_helper.get_objective_info.return_value = {'magnification': 10}
+    session.objective_helper.get_objective_info.return_value = objective(magnification=10)
     return ProtocolRunner(session)
 
 
@@ -209,7 +210,7 @@ class TestTheConfigActuallyBuildsASliceEach:
         if zstack is not None:
             settings['zstack'] = zstack
         objective_helper = MagicMock()
-        objective_helper.get_objective_info.return_value = {'magnification': 10}
+        objective_helper.get_objective_info.return_value = objective(magnification=10)
         wellplate_loader = WellPlateLoader()
 
         config = config_helpers.get_standalone_capture_config_from_settings(

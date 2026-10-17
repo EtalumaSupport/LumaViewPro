@@ -1353,7 +1353,7 @@ class ProtocolImageWriter:
                 objective_unknown = e
             objective_short_name = None
             if self._scope.capabilities.has_turret and frame_objective is not None:
-                objective_short_name = frame_objective['short_name']
+                objective_short_name = frame_objective.short_name
 
             # Build base name from the protocol's root prefix + step name. The
             # prefix is the one post-processing reads, so its outputs find

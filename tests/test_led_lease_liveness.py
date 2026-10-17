@@ -24,6 +24,7 @@ from modules.lumascope_api.illumination import LedState
 from tests.af_drives import park_z
 from tests.protocol_drives import held_run_claim
 from tests.scope_fakes import build_scope, home_sim_scope
+from tests.objective_records import objective
 
 
 @pytest.fixture
@@ -47,11 +48,9 @@ def _af_runner(scope):
         scope=scope,
     )
     scope.objective_helper = MagicMock()
-    scope.objective_helper.get_objective_info.return_value = {
-        'AF_range': 50.0,
-        'AF_max': 10.0,
-        'AF_min': 5.0,
-    }
+    scope.objective_helper.get_objective_info.return_value = objective(
+        autofocus_half_range_um=50.0, autofocus_step_max_um=10.0, autofocus_step_min_um=5.0
+    )
     return r
 
 

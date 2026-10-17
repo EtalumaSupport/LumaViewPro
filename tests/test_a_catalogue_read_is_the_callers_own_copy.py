@@ -1,12 +1,15 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""Every published catalogue read hands out the caller's own copy.
+"""No caller can change a published catalogue for the readers after it.
 
 The scope reads its catalogues once, at bring-up, and every consumer reads
 the scope's copy. The accessors handed out that copy itself, so a caller
 that changed what it was given -- a plate's spacing, a model's axes, an
-objective's field of view, a shipped setting -- changed it for every later
-reader in the process, the scope included.
+objective's focal length, a shipped setting -- changed it for every later
+reader in the process, the scope included. A read hands out the caller's
+own copy, or a record no caller can change.
 """
+
+import dataclasses
 
 import pytest
 
@@ -33,11 +36,13 @@ def test_a_changed_scope_model_leaves_the_next_read_unchanged(scope):
     assert dict(scope.scope_models[model]) == shipped
 
 
-def test_a_changed_objectives_table_leaves_the_next_read_unchanged(scope):
-    table = scope.objective_helper.get_objectives_dataframe()
-    shipped = table.copy(deep=True)
-    table.iloc[0, 0] = 'changed by a caller'
-    assert scope.objective_helper.get_objectives_dataframe().equals(shipped)
+def test_the_objectives_refuse_a_change(scope):
+    objectives = scope.objectives
+    with pytest.raises(TypeError):
+        objectives['10x Oly'] = objectives['4x Oly']
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        objectives['10x Oly'].focal_length_mm = 1.0
+    assert scope.objectives['10x Oly'].focal_length_mm == 18.0
 
 
 def test_a_changed_settings_template_leaves_the_next_read_unchanged(scope):

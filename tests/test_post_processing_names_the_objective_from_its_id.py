@@ -17,6 +17,7 @@ import pathlib
 import pytest
 
 from modules.common_utils import PostFunction
+from modules.exceptions import InstallationFileError
 from modules.objectives_loader import ObjectiveLoader, objective_short_name
 from modules.protocol_post_processor import ProtocolPostProcessor
 
@@ -75,22 +76,22 @@ def test_every_shipped_objective_keeps_its_token():
     catalogue = ObjectiveLoader()
     assert set(catalogue.get_objectives_list()) == set(SHIPPED_TOKENS)
     for objective_id, token in SHIPPED_TOKENS.items():
-        assert catalogue.get_objective_info(objective_id)['short_name'] == token
+        assert catalogue.get_objective_info(objective_id).short_name == token
         assert objective_short_name(objective_id) == token
 
 
 def test_a_catalogue_cannot_rename_an_objective(tmp_path):
     # Capture takes its token from the catalogue and post-processing derives
     # it from the id, so a catalogue entry naming its own short_name would
-    # name one objective two ways.
+    # name one objective two ways: it is a key the catalogue does not
+    # declare, and the file is refused.
     catalogue = json.loads((REPO_ROOT / 'data' / 'objectives.json').read_text())
     catalogue['4x Oly']['short_name'] = 'Custom'
     (tmp_path / 'data').mkdir()
     (tmp_path / 'data' / 'objectives.json').write_text(json.dumps(catalogue))
 
-    loaded = ObjectiveLoader(source_path=tmp_path)
-
-    assert loaded.get_objective_info('4x Oly')['short_name'] == objective_short_name('4x Oly')
+    with pytest.raises(InstallationFileError, match="'4x Oly' the undeclared key 'short_name'"):
+        ObjectiveLoader(source_path=tmp_path)
 
 
 def test_an_id_the_catalogue_lacks_is_named(turret_post_processor):

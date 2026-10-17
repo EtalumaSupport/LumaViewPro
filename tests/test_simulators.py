@@ -618,7 +618,7 @@ class TestScaleBarObjectiveInit:
 
         scope = record_turret_answer(build_scope(simulate=True, sim_model='LS850'))
         bind_settings_like_a_session(scope, objective_id='20x Oly')
-        assert scope.runtime_state.get_current_objective()['magnification'] == 20
+        assert scope.runtime_state.get_current_objective().magnification == 20
 
     def test_scale_bar_disabled_without_objective(self):
         """Scale bar enabled but no objective -> use_scale_bar forced False."""

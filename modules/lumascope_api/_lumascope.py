@@ -77,7 +77,7 @@ from modules.path_utils import get_source_root, read_installation_file, resolve_
 from modules.scope_capabilities import ScopeCapabilities
 from modules.activity_claim import ActivityClaim
 from modules.sequential_io_executor import SequentialIOExecutor
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -93,7 +93,7 @@ if TYPE_CHECKING:
     from modules.lumascope_api.protocols import ProtocolsAPI
     from modules.lumascope_api.runtime_state import RuntimeState
     from modules.lumascope_api.simulation import SimulationAPI
-    from modules.objectives_loader import ObjectiveLoader
+    from modules.objectives_loader import Objective, ObjectiveLoader
     from modules.scope_init_config import ScopeInitConfig
 
 # Import additional libraries
@@ -785,7 +785,7 @@ class Lumascope:
                 objective_id = self.runtime_state.get_current_objective_id()
                 if objective_id is None:
                     return None
-                return float(self.runtime_state.get_objective_info(objective_id)['DOF'])
+                return float(self.objectives[objective_id].depth_of_field_um)
 
             camera_kwargs['depth_of_field_func'] = _depth_of_field
             camera_kwargs['focal_spread_um'] = sim_focal_spread_um
@@ -1018,9 +1018,8 @@ class Lumascope:
             # path, derived on every read. An assignment the catalogue does
             # not hold reads as unknown whenever its slot is in the light
             # path; said once here, not raised per read.
-            catalogue = set(self.runtime_state.get_available_objectives())
             for slot, objective_id in self.runtime_state.get_turret_config().items():
-                if objective_id is not None and objective_id not in catalogue:
+                if objective_id is not None and objective_id not in self.objectives:
                     logger.warning(
                         f'[SCOPE API ] turret slot {slot} is assigned {objective_id!r}, '
                         'which is not in the objective catalogue; its objective reads '
@@ -1348,6 +1347,17 @@ class Lumascope:
         Every member refuses on a real scope.
         """
         return self._simulation
+
+    @api
+    @property
+    def objectives(self) -> 'Mapping[str, Objective]':
+        """The installation's objectives, by id, read once at bring-up.
+
+        Read-only, as each record is: no caller can change what another
+        reads. Which one is in the light path is
+        ``runtime_state.resolve_current_objective``'s answer.
+        """
+        return self.objective_helper.objectives
 
     @api
     @property

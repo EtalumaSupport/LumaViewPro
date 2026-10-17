@@ -134,6 +134,7 @@ scope = session.scope
 
 scope.wellplate_loader                    # the labware catalogue, read from it once
 scope.objective_helper                    # the objective catalogue, read from it once
+scope.objectives                          # every objective, by id: Objective records, read-only
 scope.scope_models                        # the model catalogue (scopes.json Models), read from it once
 scope.scope_models['LS850T']['Turret']    # one model's entry: True, the LS850T has a turret
 ```
@@ -142,14 +143,18 @@ A scope acts on configuration it does not hold: the labware, the stage offset, t
 
 ```python
 scope.objective_helper.get_objectives_list()        # every objective id in the catalogue
-scope.objective_helper.get_objectives_dataframe()   # the catalogue as a pandas DataFrame
+scope.objectives['10x Oly'].focal_length_mm         # one objective's record; every field is named with its unit
 scope.wellplate_loader.get_plate_list()             # every plate name in the catalogue
 scope.wellplate_loader.is_known_plate(name)         # True for a catalogue name or a retired alias
 scope.wellplate_loader.resolve_plate_key(name)      # the catalogue's spelling; CatalogueNameRefusedError if unknown
 scope.wellplate_loader.get_plate(plate_key=name)    # a WellPlate built from the catalogue entry
 ```
 
-Each catalogue read -- `scope_models`, `settings_template`, `get_objectives_dataframe()`, `get_plate()` -- hands out the caller's own copy: changing what you were given changes nothing the scope or any other reader sees.
+Each catalogue read -- `scope_models`, `settings_template`, `get_plate()` -- hands out the caller's own copy, and `objectives` a read-only mapping of frozen records: changing what you were given changes nothing the scope or any other reader sees, and an `Objective` refuses a change outright.
+
+An `Objective` names each field with its unit. Autofocus starts at `autofocus_step_max_um` and refines down to `autofocus_step_min_um` across `autofocus_half_range_um` either side of where it starts; a jog moves `jog_z_fine_um` / `jog_z_coarse_um` on Z and `jog_xy_fine_um` / `jog_xy_coarse_um` on X and Y; `focal_length_mm` sets the image scale; `short_name` is the token step and file names carry. `focus_peak_fwhm_dense_um` is None until the engineering plugin's characterization has measured the objective. The installation's `objectives.json` keeps its own keys (`focal_length`, `DOF`, `AF_min`, ...), and a capture's metadata carries the objective under those keys. An entry missing a field, carrying a key no field declares, or giving a number as anything else refuses bring-up with `InstallationFileError`, naming the file, the objective and the key.
+
+Slides and Petri dishes are in `labware.json` but are not labware the API publishes yet: the labware catalogue is the multi-well plates.
 
 `source_path` is the folder holding `data/`; without one the scope uses the installation's own. The scope reads `data/labware.json`, `data/objectives.json`, `data/scopes.json` and `data/motorconfig_defaults.json` from it once, first, before anything starts, and everything that asks about plates, objectives or models reads the scope's copy: the scope's runtime state, protocol construction and validation, autofocus, the run, the session and the GUI. The model catalogue (`scopes.json`'s `Models`) is `scope.scope_models`, a read-only mapping of model name to its entry. A file that is missing, unreadable or not the shape its reader needs (for `scopes.json`, one with no `Models` section) raises `InstallationFileError` (`modules.exceptions`) naming the file and its folder, and nothing is left running. A simulated scope's `sim_model` that the folder's catalogue does not list raises `ScopeModelUnknownError` (reason `model_unknown`, a refusal) before anything starts. The release's layer vocabulary (`scopes.json`'s `LayerOrder`) is the one exception: it is process-wide, read from the installation's own folder the first time any code asks for the layers, and a scope's layers are resolved against it. It is not a `ConfigError`: the installation is at fault, not your settings.
 
@@ -257,9 +262,7 @@ Labware / turret-config / stage-offset are runtime-mutable microscope configurat
 
 ```python
 scope.runtime_state.is_turreted()                      # True when the objective is derived from the turret slot
-scope.runtime_state.resolve_current_objective()        # (id, info), or raises ObjectiveUnknownError saying why
-scope.runtime_state.get_objective_info('10x Oly')      # {focal_length, magnification, NA, ...}
-scope.runtime_state.get_available_objectives()
+scope.runtime_state.resolve_current_objective()        # (id, Objective), or raises ObjectiveUnknownError saying why
 
 # Turret integration
 scope.runtime_state.get_turret_config()                # {1: '4x Oly', 2: '10x Oly', 3: None, 4: None}, a copy
@@ -1214,7 +1217,7 @@ A number you pass is a finite number: NaN or an infinity is refused with `Argume
 
 An axis is named exactly `'X'`, `'Y'`, `'Z'` or `'T'`, in capitals. Every member that takes an axis -- the moves, the position and state reads, `get_axis_limits`, the limit switches, the precision mode, `jog_step` and `read_motor_drv_status` -- refuses any other name (`'x'`, `'Q'`) with `ArgumentRefusedError` reason `axis_unknown`, its `offered` holding the names the member takes, before the scope's hardware is asked. A home takes `'Z'`, `'T'` or `'ALL'`; `jog_step` takes `'X'`, `'Y'` or `'Z'`. An axis this model lacks is a name: a command for it is refused as absent hardware, and a read answers as for a missing axis (`get_axis_state` `'unknown'`, a position None). The generic movers refuse `'T'` with reason `turret_moves_by_slot`: the turret moves only through `move_turret(slot)`. A frame other than `'stage'` or `'plate'` is `frame_unknown`, and a plate target for Z is `plate_frame_axis`, refused by the plate's owner once the move is on the lane. `set_motor_fan_duty` takes a whole percentage and refuses one outside 0 to 100 (`fan_duty_out_of_range`), with nothing sent. The camera diagnostics refuse a count or time outside what they take (`out_of_range`, its `limits` the ends, which are included): `run_grab_lifecycle_benchmark` takes 1 to 10,000 cycles, 0 to 60,000 ms between them and a slow threshold of 0 to 600 s; `run_pylon_diagnostic_probe` takes 0 to 3,600 s. A stage offset handed to `protocols.plate_to_stage`, `stage_targets`, `step_targets` or `plate_transform`, and the auto-gain settings handed to `set_auto_gain` or `apply_layer_camera_settings`, are read before the member acts: a key left out is `missing_key` and a value that is no number `not_a_number`, each naming the key (`stage_offset['x']`). Each is the request's (`cause` `REQUEST`): it fails the same way until the caller changes it.
 
-A plate or an objective is named by its catalogue key (`scope.wellplate_loader.get_plate_list()`, `scope.objective_helper.get_objectives_list()`); a plate renamed since a file named it is still found under its old name and stored under its key. Every member that takes one -- `select_labware`, `set_protocol_labware`, `create_protocol`, `select_objective`, `confirm_objective`, `assign_turret_objective`, `scope.runtime_state.get_objective_info` -- refuses a name the catalogue does not hold with `CatalogueNameRefusedError` (`modules.exceptions`, a `ConfigError`), reason `labware_unknown` or `objective_not_in_catalogue`, its `argument` naming the catalogue owner's parameter (`plate_key`, `objective_id`) and its `offered` holding the catalogue's keys, before anything is stored. The run's `ProtocolRunRefusedError` uses the same reason, `objective_not_in_catalogue`, for a protocol step's objective; `argument` is on the catalogue refusal only. A turret slot that is not a whole number 1 to 4 is refused with `PositionOutOfRangeError` by every member that takes one. Each is the request's (`cause` `REQUEST`).
+A plate or an objective is named by its catalogue key (`scope.wellplate_loader.get_plate_list()`, `scope.objective_helper.get_objectives_list()`); a plate renamed since a file named it is still found under its old name and stored under its key. Every member that takes one -- `select_labware`, `set_protocol_labware`, `create_protocol`, `select_objective`, `confirm_objective`, `assign_turret_objective` -- refuses a name the catalogue does not hold with `CatalogueNameRefusedError` (`modules.exceptions`, a `ConfigError`), reason `labware_unknown` or `objective_not_in_catalogue`, its `argument` naming the catalogue owner's parameter (`plate_key`, `objective_id`) and its `offered` holding the catalogue's keys, before anything is stored. The run's `ProtocolRunRefusedError` uses the same reason, `objective_not_in_catalogue`, for a protocol step's objective; `argument` is on the catalogue refusal only. A turret slot that is not a whole number 1 to 4 is refused with `PositionOutOfRangeError` by every member that takes one. Each is the request's (`cause` `REQUEST`).
 
 `scope.protocols.create_protocol(input_config=... | empty_config=...)` judges the configuration whole before anything is built: every key the build reads, present and of its kind, whichever of them this build happens to reach. A key left out is `ArgumentRefusedError` reason `missing_key`, a value of the wrong kind `wrong_kind` (its words name the kind) or, for a number, `not_a_number` (`True` and NaN included), a layer's `acquire` that is neither None nor `'image'` / `'video'` `acquire_mode_unknown`, a layer name that is no layer `layer_unknown` (`no_layer_selected` for None), and a z-stack reference other than `'top'`, `'center'` or `'bottom'` `zstack_reference_unknown`; each names the key's path as you wrote it in `argument` (`input_config['layer_configs']['BF']['gain_db']`). A layer that acquires nothing is read for its `acquire` only, and the z-stack's keys only when `use_zstacking` is set. Passing neither source, or both, is `protocol_source_ambiguous`. What only the build can see is `ProtocolRunRefusedError`, raised to you and posted to no listener (over REST, answered 422 and shown to no one): steps or a grid with no `objective_id` (`objective_not_given`), an acquiring layer with no focus and no `current_z` (`focus_not_given`), and a `tiling_overlap_percent` outside 0 to 50 (`overlap_out_of_range`, here and in `apply_tiling`). Each is the request's.
 
@@ -1393,7 +1396,7 @@ still states the major version.
 session.get_layer_configs()              # all layer settings
 session.saved_focus('Blue')              # the Z saved as a layer's focus; FocusNotSavedError when none was
                                          # ever saved (a step built for that layer takes the current Z)
-session.scope.runtime_state.resolve_current_objective()  # (id, info) of the active objective; ObjectiveUnknownError when unknown
+session.scope.runtime_state.resolve_current_objective()  # (id, Objective) of the active objective; ObjectiveUnknownError when unknown
 session.capture_settings_snapshot()      # settings snapshot with objective_id set to the active objective,
                                          # for composing a capture or run; not for saving
 session.get_current_plate_position()     # current XY in plate coords; CatalogueNameRefusedError when the stored plate is not in
@@ -3014,7 +3017,7 @@ from modules import layer_record
 
 ## API reference
 
-The API is exactly the members below, and nothing else: each carries `@api` in the source, or is a data attribute its class names in `@api_fields` (`modules/api_surface.py`). An unmarked member stays callable from Python but is not API: it can change in any release, and it is never put on a wire. A member labelled (in-process) is API for a caller in the same process (Python, MATLAB calling Python) and is kept off the wire, because it hosts a session, takes or returns a function (a listener's registration among them: a wire client hears events on the stream), hands out an image array or a table (a wire client gets frames from the live view and data as files, steps through `num_steps` and `step(idx)`, objectives through `get_objectives_list`), is a method of a class that crosses the wire as a record (a wire client holds the record's data, and a record has no address), takes a live object no wire member hands out (a wire client has no handle to send for it), or is held back by policy. `tests/guards/test_the_api_is_declared.py` holds this index equal to the marks, and every type a member hands out or takes in published. How each type crosses a wire is declared once, in `modules/wire_encoding.py`: scalars as themselves, `timedelta` as seconds, `datetime` as ISO 8601, an enum by its value or name, a record (a dataclass, a NamedTuple, or a class `@api_fields(..., record=True)` declares one) as an object of its fields and wire properties, a path as its live-folder name and host path, a running call as a job, any other object as a handle; `tests/guards/test_every_wire_edge_has_a_form.py` fails a wire member whose type has none. A record carries every field on a wire, null where a value is unknown, never a shape that varies. In the same process a record answers `to_dict()`, its data as plain Python for a caller that needs a dict (MATLAB's `struct()` takes a dict, not a dataclass): a nested record becomes a dict and an enum its wire form, while a path, a handle and a running call stay the live objects, a NaN stays a NaN, and a key keeps its type.
+The API is exactly the members below, and nothing else: each carries `@api` in the source, or is a data attribute its class names in `@api_fields` (`modules/api_surface.py`). An unmarked member stays callable from Python but is not API: it can change in any release, and it is never put on a wire. A member labelled (in-process) is API for a caller in the same process (Python, MATLAB calling Python) and is kept off the wire, because it hosts a session, takes or returns a function (a listener's registration among them: a wire client hears events on the stream), hands out an image array or a table (a wire client gets frames from the live view and data as files, steps through `num_steps` and `step(idx)`), is a method of a class that crosses the wire as a record (a wire client holds the record's data, and a record has no address), takes a live object no wire member hands out (a wire client has no handle to send for it), or is held back by policy. `tests/guards/test_the_api_is_declared.py` holds this index equal to the marks, and every type a member hands out or takes in published. How each type crosses a wire is declared once, in `modules/wire_encoding.py`: scalars as themselves, `timedelta` as seconds, `datetime` as ISO 8601, an enum by its value or name, a record (a dataclass, a NamedTuple, or a class `@api_fields(..., record=True)` declares one) as an object of its fields and wire properties, a path as its live-folder name and host path, a running call as a job, any other object as a handle; `tests/guards/test_every_wire_edge_has_a_form.py` fails a wire member whose type has none. A record carries every field on a wire, null where a value is unknown, never a shape that varies. In the same process a record answers `to_dict()`, its data as plain Python for a caller that needs a dict (MATLAB's `struct()` takes a dict, not a dataclass): a nested record becomes a dict and an enum its wire form, while a path, a handle and a running call stay the live objects, a NaN stays a NaN, and a key keeps its type.
 
 ### ScopeSession
 
@@ -3149,6 +3152,7 @@ Reached through `session.scope`.
 - `motor_connected`
 - `no_hardware`
 - `objective_helper`
+- `objectives`
 - `protocols`
 - `runtime_state`
 - `scope_models`
@@ -3299,9 +3303,7 @@ Reached through `session.scope.protocols`.
 
 Reached through `session.scope.runtime_state`.
 
-- `get_available_objectives`
 - `get_labware`
-- `get_objective_info`
 - `get_stage_offset`
 - `get_turret_config`
 - `get_well_label`
@@ -3382,7 +3384,6 @@ Reached through `session.scope.layer_identity`.
 
 Reached through `session.scope.objective_helper`.
 
-- `get_objectives_dataframe` (in-process)
 - `get_objectives_list`
 
 ### WellPlateLoader
@@ -3850,6 +3851,29 @@ Reached through delivered to `session.add_outcome_listener`'s callback.
 - `timestamp`
 - `title`
 - `wall_time`
+
+### Objective
+
+Reached through `session.scope.objectives`, and returned by `session.scope.runtime_state.resolve_current_objective`.
+
+- `autofocus_half_range_um`
+- `autofocus_step_max_um`
+- `autofocus_step_min_um`
+- `depth_of_field_um`
+- `description`
+- `focal_length_mm`
+- `focus_peak_fwhm_dense_um`
+- `id`
+- `jog_xy_coarse_um`
+- `jog_xy_fine_um`
+- `jog_z_coarse_um`
+- `jog_z_fine_um`
+- `magnification`
+- `numerical_aperture`
+- `short_name`
+- `working_distance_mm`
+- `z_settle_timeout_ms`
+- `z_settle_tolerance_um`
 
 ### ObjectiveQuestion
 

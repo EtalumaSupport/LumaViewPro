@@ -33,6 +33,7 @@ from tests.test_a_run_needs_every_axis_position import COMPLETION_TIMEOUT, _sett
 from tests.test_composite_run_config import _settings as _run_settings
 from tests.test_run_refusal_contract import _build_real_protocol, _make_single_step_protocol
 from tests.case_walk import failing_cases
+from tests.objective_records import objective
 
 _POSITION = {'x': 1.0, 'y': 2.0, 'z': 3.0}
 
@@ -73,7 +74,7 @@ def _runner_over_a_store_edited_after_the_first_read():
     session.capture_settings_snapshot.side_effect = snapshot
     session.get_settings_snapshot.side_effect = snapshot
     session.plate_position_on.return_value = dict(_POSITION)
-    session.objective_helper.get_objective_info.return_value = {'magnification': 10}
+    session.objective_helper.get_objective_info.return_value = objective(magnification=10)
     return ProtocolRunner(session)
 
 

@@ -18,13 +18,17 @@ import modules.protocol_recording as protocol_recording
 from modules.exceptions import CaptureFailedError
 from modules.run_events import RunEvents
 from modules.layer_record import release_colors
+from tests.objective_records import objective
 
 
 def _make_recorder(tmp_path, clock, active_cached=True):
     scope = MagicMock()
     scope.imaging.frames_until_valid.return_value = 0
     scope.imaging.active_cached = active_cached
-    scope.runtime_state.resolve_current_objective.return_value = ('4x Oly', {'focal_length': 45.0})
+    scope.runtime_state.resolve_current_objective.return_value = (
+        '4x Oly',
+        objective(focal_length_mm=45.0),
+    )
     scope.capabilities.camera_model = 'sim'
     scope.capabilities.camera_serial_number = '0'
     scope.capabilities.camera_timestamp_tick_hz = None

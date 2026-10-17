@@ -7,7 +7,6 @@ the settings dict only.
 """
 
 import datetime
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -20,7 +19,6 @@ from modules.config_helpers import (
     get_sequenced_capture_config_from_settings,
     get_zstack_params_from_settings,
     get_auto_gain_settings,
-    get_current_objective_info,
 )
 from modules.exceptions import CatalogueNameRefusedError, ConfigError
 from modules.objectives_loader import ObjectiveLoader
@@ -225,13 +223,3 @@ class TestGetAutoGainSettings:
         assert result['max_duration'] == datetime.timedelta(seconds=30)
         assert 'max_duration_seconds' not in result
         assert result['target_percent'] == 80
-
-
-class TestGetCurrentObjectiveInfo:
-    def test_reads_objective(self):
-        helper = MagicMock()
-        helper.get_objective_info.return_value = {'focal_length': 10}
-        settings = {'objective_id': '20x Oly'}
-        obj_id, info = get_current_objective_info(settings, helper)
-        assert obj_id == '20x Oly'
-        assert info['focal_length'] == 10

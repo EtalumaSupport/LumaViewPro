@@ -91,7 +91,7 @@ def test_a_sweep_led_past_travel_is_refused_and_z_goes_back(scope, monkeypatch, 
     # extension runs past it. Either is refused before the stage moves
     # there, and Z returns to where the autofocus started.
     limit = scope.motion.get_axis_limits('Z')[edge]
-    af_range = scope.objective_helper.get_objective_info(objective_id='10x Oly')['AF_range']
+    af_range = scope.objectives['10x Oly'].autofocus_half_range_um
     start = limit + (af_range + 5.0) * (1 if edge == 'min' else -1)
     with pytest.raises(AutofocusFailedError) as refused:
         _autofocus_from(scope, start, monkeypatch, peak=limit)

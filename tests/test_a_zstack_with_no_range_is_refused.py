@@ -35,6 +35,7 @@ from modules.notification_center import Severity
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 from tests.test_start_zstack_entry_point import _POSITION, _zstack_settings
+from tests.objective_records import objective
 
 
 # Both halves of "not configured": the count needs a range to sweep and a
@@ -55,7 +56,7 @@ def _standalone_config(zstack: dict, *, use_zstacking: bool = True) -> dict:
     settings['zstack'] = {**settings['zstack'], **zstack}
 
     objective_helper = MagicMock()
-    objective_helper.get_objective_info.return_value = {'magnification': 10}
+    objective_helper.get_objective_info.return_value = objective(magnification=10)
     wellplate_loader = WellPlateLoader()
 
     return config_helpers.get_standalone_capture_config_from_settings(
@@ -170,7 +171,7 @@ class TestTheHeadlessCallerGetsIt:
         session.capture_settings_snapshot.return_value = session.settings
         session.scope = sim_scope
         session.plate_position_on.return_value = dict(_POSITION)
-        session.objective_helper.get_objective_info.return_value = {'magnification': 10}
+        session.objective_helper.get_objective_info.return_value = objective(magnification=10)
         session.wellplate_loader = sim_scope.wellplate_loader
         runner = ProtocolRunner(session)
 

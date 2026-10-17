@@ -55,7 +55,7 @@ class TestAHeadlessImageCarriesItsScale:
         caps = sim_scope.capabilities
         expected = (
             caps.pixel_size_um
-            / (caps.lens_focal_length_mm / objective['focal_length'])
+            / (caps.lens_focal_length_mm / objective.focal_length_mm)
             * sim_scope.imaging._binning_size
         )
 

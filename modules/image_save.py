@@ -354,12 +354,7 @@ def generate_image_metadata(
             f"{common_utils.get_layers()} or 'Composite'"
         )
 
-    objective = scope.runtime_state.get_objective_info(objective_id)
-
-    if 'focal_length' not in objective:
-        raise ConfigurationDefectError(
-            'objective_entry_incomplete', '[SCOPE API ] Objective focal length not provided'
-        )
+    objective = scope.objective_helper.get_objective_info(objective_id=objective_id)
 
     if labware is None:
         raise ConfigurationDefectError('labware_not_given', '[SCOPE API ] Labware not set')
@@ -367,7 +362,7 @@ def generate_image_metadata(
     _position_fields = position_metadata_fields(plate_x_mm, plate_y_mm, stage_z_um)
 
     pixel_size_um = common_utils.get_pixel_size(
-        focal_length=objective['focal_length'],
+        focal_length=objective.focal_length_mm,
         binning_size=frame_record.binning_size,
         capabilities=scope.capabilities,
     )
@@ -440,8 +435,8 @@ def generate_image_metadata(
         **({'filterset': identity.filterset} if identity.filterset else {}),
         'datetime': captured_at.strftime('%Y:%m:%d %H:%M:%S'),
         'sub_sec_time': f'{captured_at.microsecond // 1000:03d}',
-        'objective': objective,
-        'focal_length': objective['focal_length'],
+        'objective': objective.catalogue_entry(),
+        'focal_length': objective.focal_length_mm,
         **_position_fields,
         **_frame_settings,
         # An LED that was off for the grab, or on an absent board, has no

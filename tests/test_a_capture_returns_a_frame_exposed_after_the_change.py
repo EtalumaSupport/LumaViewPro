@@ -79,7 +79,7 @@ def _xy_move(scope, x, y):
 
 def _turret_move(scope, slot):
     scope.motion.move_turret(slot)
-    dof = float(scope.runtime_state.get_objective_info(TEST_TURRET_OBJECTIVES[slot])['DOF'])
+    dof = float(scope.objectives[TEST_TURRET_OBJECTIVES[slot]].depth_of_field_um)
     return dof, _z_landed(scope)
 
 

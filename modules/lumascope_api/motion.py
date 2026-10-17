@@ -1232,9 +1232,9 @@ class MotionAPI:
         """The jog step for ``axis`` under the active objective.
 
         A jog's size scales with the objective, so the active objective's
-        catalogue entry answers: ``z_coarse`` / ``z_fine`` for Z,
-        ``xy_coarse`` / ``xy_fine`` for X and Y, in the units
-        ``move_relative`` takes for that axis.
+        record answers: ``jog_z_coarse_um`` / ``jog_z_fine_um`` for Z,
+        ``jog_xy_coarse_um`` / ``jog_xy_fine_um`` for X and Y, the units
+        ``move_relative`` takes.
 
         Raises:
             ArgumentRefusedError: ``'axis_unknown'``, ``axis`` is not 'X',
@@ -1243,9 +1243,10 @@ class MotionAPI:
                 unknown; no step is guessed, so nothing should move.
         """
         refuse_unknown_axis(axis, ('X', 'Y', 'Z'))
-        kind = 'z' if axis == 'Z' else 'xy'
         _, objective = self._scope.runtime_state.resolve_current_objective()
-        return objective[f'{kind}_{"coarse" if coarse else "fine"}']
+        if axis == 'Z':
+            return objective.jog_z_coarse_um if coarse else objective.jog_z_fine_um
+        return objective.jog_xy_coarse_um if coarse else objective.jog_xy_fine_um
 
     @api(reads=True)
     def get_actual_position(self, axis: str) -> float | None:

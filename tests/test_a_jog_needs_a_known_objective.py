@@ -37,12 +37,12 @@ def test_the_step_is_the_active_objective_s(turret_session):
     motion = turret_session.scope.motion
     home_sim_scope(turret_session.scope)
     motion.move_turret(1)
-    info = turret_session.get_objective_info('4x Oly')
+    objective = turret_session.scope.objectives['4x Oly']
 
-    assert motion.jog_step('Z', coarse=True) == info['z_coarse']
-    assert motion.jog_step('Z', coarse=False) == info['z_fine']
-    assert motion.jog_step('X', coarse=True) == info['xy_coarse']
-    assert motion.jog_step('Y', coarse=False) == info['xy_fine']
+    assert motion.jog_step('Z', coarse=True) == objective.jog_z_coarse_um
+    assert motion.jog_step('Z', coarse=False) == objective.jog_z_fine_um
+    assert motion.jog_step('X', coarse=True) == objective.jog_xy_coarse_um
+    assert motion.jog_step('Y', coarse=False) == objective.jog_xy_fine_um
 
 
 @pytest.mark.parametrize('slot', [None, 2], ids=['slot_unknown', 'slot_unassigned'])
@@ -83,4 +83,3 @@ def test_the_buttons_ask_the_api_and_show_its_refusal(rel_path, class_name, meth
     # boundary that shows the API's refusal as it is typed.
     assert 'jog_step' in calls
     assert 'run_reported' in calls
-    assert 'get_current_objective_info' not in calls

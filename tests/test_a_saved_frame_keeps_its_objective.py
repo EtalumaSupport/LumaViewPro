@@ -138,7 +138,7 @@ def test_a_save_after_the_next_turret_move_keeps_its_own_objective(tmp_path, mon
     )
 
     def _expected(objective_id):
-        focal_length = session.objective_helper.get_objective_info(objective_id)['focal_length']
+        focal_length = session.scope.objectives[objective_id].focal_length_mm
         return round(
             common_utils.get_pixel_size(
                 focal_length=focal_length, binning_size=binning, capabilities=capabilities

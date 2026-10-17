@@ -67,6 +67,7 @@ from modules.run_outcome import EndingLatch
 from tests.scope_fakes import give_camera_capabilities, give_stub_lanes
 from tests.case_walk import failing_cases
 from modules.layer_record import release_colors
+from tests.objective_records import objective
 
 
 class ScriptedCameraDriver:
@@ -532,10 +533,9 @@ def _metadata_scope_with_real_imaging(imaging: ImagingAPI, driver) -> SimpleName
     cam_image_handler, so the chunk-less fallback is what runs."""
     labware = SimpleNamespace(config={'rows': 8, 'columns': 12, 'standard': 'SBS'})
     runtime_state = SimpleNamespace(
-        get_current_objective=lambda: {'focal_length': 9.0},
+        get_current_objective=lambda: objective(focal_length_mm=9.0),
         # The metadata stamps the objective the frame was taken with, by id.
         get_current_objective_id=lambda: '4x Oly',
-        get_objective_info=lambda objective_id: {'focal_length': 9.0},
         get_labware=lambda: labware,
         get_stage_offset=lambda: {'x': 0, 'y': 0},
         stage_to_plate=lambda **kwargs: (1.0, 2.0),
@@ -543,6 +543,9 @@ def _metadata_scope_with_real_imaging(imaging: ImagingAPI, driver) -> SimpleName
     )
     return SimpleNamespace(
         runtime_state=runtime_state,
+        objective_helper=SimpleNamespace(
+            get_objective_info=lambda objective_id: objective(focal_length_mm=9.0)
+        ),
         capabilities=SimpleNamespace(
             pixel_size_um=None,
             lens_focal_length_mm=None,

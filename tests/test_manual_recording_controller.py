@@ -30,6 +30,7 @@ from tests.video_engine_harness import FakeClock, ManualFireScheduler, NotifyRec
 from tests.camera_fakes import delivered_frame
 from modules.lumascope_api import AxisPosition, AxisState
 from modules.layer_record import release_colors
+from tests.objective_records import objective
 
 TICK_HZ = 1_000_000_000
 
@@ -134,7 +135,7 @@ class _FakeRuntimeState:
     """
 
     def __init__(self, focal_length=9.0):
-        self._objective = {'focal_length': focal_length}
+        self._objective = objective(focal_length_mm=focal_length)
 
     def get_current_objective(self):
         return self._objective
