@@ -474,6 +474,15 @@ class Camera(ABC):
         # _state_lock -- _state_lock holds for ms, _lifecycle_lock can
         # hold for seconds.
         self._lifecycle_lock = threading.RLock()
+        # One teardown at a time: the scope's and the camera's own removal
+        # teardown both call disconnect(), on different threads. Its own
+        # lock, because the SDK's removal callback takes _state_lock and
+        # every driver's teardown takes _lifecycle_lock inside it.
+        self._teardown_lock = threading.Lock()
+        # True while a teardown runs (under _state_lock): the handle is
+        # dying, so a connect() must not take it for a live one and a
+        # presence probe has no device to look for.
+        self._disconnecting = False
         self._active = False
         self.cam_image_handler: ImageHandlerBase | None = None
         self.model_name = None
@@ -708,9 +717,28 @@ class Camera(ABC):
         """
         pass
 
-    @abstractmethod
     def disconnect(self) -> bool:
         """Disconnect from the camera hardware and release resources.
+
+        One teardown runs at a time: a call on another thread while one runs
+        (the scope's close and the camera's own removal teardown) waits for
+        it, then finds nothing left.
+
+        Returns:
+            bool: True on success.
+        """
+        with self._teardown_lock:
+            with self._state_lock:
+                self._disconnecting = True
+            try:
+                return self._disconnect()
+            finally:
+                with self._state_lock:
+                    self._disconnecting = False
+
+    @abstractmethod
+    def _disconnect(self) -> bool:
+        """The driver's own teardown, run by disconnect() inside its flight.
 
         Returns:
             bool: True on success.

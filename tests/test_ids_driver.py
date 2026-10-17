@@ -842,9 +842,9 @@ class TestProbeDevicePresence:
             idscamera._DEVICE_UPDATE_TIMEOUT_MS
         )
 
-    def test_skipped_when_disconnect_requested(self):
+    def test_skipped_while_a_disconnect_runs(self):
         cam = self._cam()
-        cam._disconnect_requested = True
+        cam._disconnecting = True
         assert cam._probe_device_presence() is None
         cam.device_manager.Update.assert_not_called()
 

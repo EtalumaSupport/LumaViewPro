@@ -2093,7 +2093,7 @@ class FX2Camera(Camera):
         logger.info('[FX2 Cam   ] connected: %s', self.model_name)
         return True
 
-    def disconnect(self) -> bool:
+    def _disconnect(self) -> bool:
         self.stop_grabbing()
         self._active = None
         # Clear the start gate + last-frame buffer so a same-instance reconnect

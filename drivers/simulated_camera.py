@@ -473,7 +473,7 @@ class SimulatedCamera(Camera):
             logger.info(f'[CAM Sim   ] Connected: {self.model_name} ({self._device_serial})')
             return True
 
-    def disconnect(self) -> bool:
+    def _disconnect(self) -> bool:
         """Mark the simulated camera as disconnected.
 
         Returns:

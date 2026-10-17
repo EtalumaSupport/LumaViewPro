@@ -389,11 +389,6 @@ class IDSCamera(Camera):
         # IDS fallback is in use -- gates deriving binning sizes from the nodemap
         # (a curated body keeps its intentional list).
         self._profile_is_generic = False
-        # Sticky latch: once a user disconnect() begins it owns the teardown --
-        # a removal signal racing it must not schedule a second, competing
-        # teardown, and a connect() during the window runs the full bring-up
-        # rather than reading the dying handle as connected.
-        self._disconnect_requested = False
 
         super().__init__()
 
@@ -411,7 +406,7 @@ class IDSCamera(Camera):
         # `active` property takes _state_lock itself.
         with self._state_lock:
             already_connected = bool(self._active) and not (
-                self._device_removed or self._async_teardown_started or self._disconnect_requested
+                self._device_removed or self._async_teardown_started or self._disconnecting
             )
         if already_connected:
             _cam_log.info('[CAM Class ] connect skipped: already connected')
@@ -452,9 +447,6 @@ class IDSCamera(Camera):
             self.remote_nodemap = self.active.RemoteDevice().NodeMaps()[0]
             self._device_removed = False
             self._async_teardown_started = False
-            # Fresh lifecycle: clear the sticky disconnect latch left from a
-            # prior teardown so a new bring-up never inherits it.
-            self._disconnect_requested = False
 
             # Register the terminal removal signal now that our device is open --
             # events only transmit from registration time, and we cannot lose a
@@ -589,15 +581,11 @@ class IDSCamera(Camera):
             logger.debug(f'[CAM Class ] descriptor refresh for open retry failed: {e}')
             return None
 
-    def disconnect(self) -> bool:
+    def _disconnect(self) -> bool:
         try:
             # Unregister the DeviceLost callback first, while device_manager is
             # still set -- a stale registration would outlive the camera.
             self._unregister_device_callbacks()
-            # Latch ownership of the teardown: a removal signal racing this
-            # disconnect must not schedule a second, competing teardown.
-            with self._state_lock:
-                self._disconnect_requested = True
             if self.active:
                 if self._device_removed:
                     # The handle is dead: the remote-nodemap AcquisitionStop /
@@ -748,15 +736,10 @@ class IDSCamera(Camera):
         classifiers (wait + buffer paths), the only-bad-frames ceiling, and
         the hard stall ceiling. A wedge deliberately exits here as a clean
         disconnect the user recovers by reconnecting. All idempotent via the
-        _device_removed and _async_teardown_started guards.
+        _device_removed and _async_teardown_started guards; a removal during a
+        disconnect already under way is marked, and its teardown waits for that
+        one and finds nothing left.
         """
-        with self._state_lock:
-            if self._disconnect_requested:
-                # A user disconnect() is already in flight and owns the teardown;
-                # a removal signal racing it (the presence probe finishing its
-                # enumeration after disconnect() began, or a late DeviceLost) must
-                # not schedule a second, competing teardown.
-                return
         self._mark_disconnected()
         self._schedule_async_teardown()
 
@@ -782,7 +765,7 @@ class IDSCamera(Camera):
         removal.
         """
         with self._state_lock:
-            if self._device_removed or self._async_teardown_started or self._disconnect_requested:
+            if self._device_removed or self._async_teardown_started or self._disconnecting:
                 return None
         dm = self.device_manager
         serial = self._device_serial

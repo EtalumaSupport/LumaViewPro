@@ -1897,7 +1897,7 @@ class TestCameraStateLock:
                 self.active = True
                 return True
 
-            def disconnect(self):
+            def _disconnect(self):
                 self.active = None
                 return True
 
@@ -2008,7 +2008,7 @@ class TestCameraStateLock:
                 self.active = True
                 return True
 
-            def disconnect(self):
+            def _disconnect(self):
                 self.active = None
                 return True
 
@@ -2115,7 +2115,7 @@ class TestCameraStateLock:
                 self.active = True
                 return True
 
-            def disconnect(self):
+            def _disconnect(self):
                 return True
 
             def is_connected(self):

@@ -41,6 +41,10 @@ def bare_pylon_camera():
     cam = pyloncamera.PylonCamera.__new__(pyloncamera.PylonCamera)
     cam._state_lock = threading.Lock()
     cam._lifecycle_lock = threading.RLock()
+    # The teardown's single flight, and the removal latch it sits beside.
+    cam._teardown_lock = threading.Lock()
+    cam._disconnecting = False
+    cam._async_teardown_started = False
     cam._update_config_depth = 0
     cam._grab_gate_open = False
     # Durable frame-callback registry (base Camera.__init__ seeds these; connect
@@ -364,8 +368,10 @@ def bare_ids_camera():
     # Removal/teardown lifecycle state read by disconnect()/connect() (seeded
     # so a fake camera can exercise the teardown-ownership paths).
     cam._device_removed = False
-    cam._disconnect_requested = False
     cam._async_teardown_started = False
+    # The teardown's single flight, which Camera.__init__ seeds.
+    cam._teardown_lock = threading.Lock()
+    cam._disconnecting = False
     cam._pixel_format_cache = None
     # Capability values __init__ resolves from the nodemap at connect: the
     # analog gain selector entry and the max binning factor. Seeded so gain() /
@@ -403,6 +409,9 @@ def bare_fx2_camera():
     cam.active = MagicMock()
     cam._mark_disconnected = MagicMock()
     cam._device_removed = False
+    # The teardown's single flight, which Camera.__init__ seeds.
+    cam._teardown_lock = threading.Lock()
+    cam._disconnecting = False
     cam._grabbing = False
     cam._grab_thread = None
     cam.stream_stats = MagicMock()

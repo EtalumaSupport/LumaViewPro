@@ -386,7 +386,7 @@ class PylonCamera(Camera):
         except Exception as e:
             _cam_log.warning(f'[CAM Class ] _query_dynamic_capabilities failed: {e}')
 
-    def disconnect(self) -> bool:
+    def _disconnect(self) -> bool:
         """Tear down the active Pylon camera and release the SDK device.
 
         Each teardown step is independently guarded so one failure doesn't
