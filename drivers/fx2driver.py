@@ -106,7 +106,13 @@ from drivers.camera import (
     link_info,
     no_hardware_auto_mode,
 )
-from drivers.exceptions import CameraNoAnswerError, CameraReadFailedError
+from drivers.exceptions import (
+    CameraNoAnswerError,
+    CameraReadFailedError,
+    CameraStreamStartFailedError,
+    CameraUsbNotFoundError,
+    CameraWriteFailedError,
+)
 from drivers.registry import camera_registry, led_registry
 
 # Wire-level logging for the FX2 (LumaviewClassic LS560/620/720) USB
@@ -1047,19 +1053,32 @@ def _is_usb_timeout(error: BaseException) -> bool:
     return isinstance(error, tuple(timeouts))
 
 
-def _raise_if_no_answer(setting: str, error: BaseException) -> None:
-    """Raise ``CameraNoAnswerError`` for a failed ``setting`` write that timed out.
+def _control_write_failed(request: int, error: BaseException) -> Exception:
+    """The fault for a vendor write ``request`` the transport raised ``error`` on.
 
     A timeout is the camera not answering: it is still on the bus and may
     take the same write sent again, which a refusal or a removal would not.
+    Anything else is a write the camera did not take. Both name the request
+    and carry the library's own words.
+    """
+    words = f'{_vr_name(request)} write: {type(error).__name__}: {error}'
+    if _is_usb_timeout(error):
+        return CameraNoAnswerError(f'The camera did not answer the {words}')
+    return CameraWriteFailedError(f'The camera did not take the {words}')
+
+
+def _raise_if_no_answer(setting: str, error: BaseException) -> None:
+    """Raise ``CameraNoAnswerError`` naming ``setting`` for a write that was not answered.
+
     Any other failure returns, for the caller's own handling.
 
     Raises:
-        CameraNoAnswerError: ``error`` is a USB timeout (``_is_usb_timeout``).
+        CameraNoAnswerError: ``error`` is the funnel's no-answer
+            (``_control_write_failed``).
     """
-    if _is_usb_timeout(error):
+    if isinstance(error, CameraNoAnswerError):
         raise CameraNoAnswerError(
-            f'The camera did not answer the {setting} write: {type(error).__name__}: {error}'
+            f'The camera did not answer the {setting} write: {error}'
         ) from error
 
 
@@ -1179,7 +1198,9 @@ class _LibusbTransport(_PyusbTransport):
         self._ctx = usb1.USBContext().open()
         handle = self._ctx.openByVendorIDAndProductID(VID, PID_APP)
         if handle is None:
-            raise RuntimeError('FX2 USB device disappeared before ISO streaming could start')
+            raise CameraUsbNotFoundError(
+                'The FX2 left the bus before its stream could start',
+            )
         # Held as soon as it is opened, so a step below that raises leaves
         # it where stop_stream closes it. Control goes through this handle
         # while streaming -- the pyusb handle is released.
@@ -1707,7 +1728,7 @@ class _FX2Connection:
                     f'index=0x{index:04X} len={len(data)} -> EXCEPTION: '
                     f'{type(e).__name__}: {e} ({elapsed_ms:.1f}ms)'
                 )
-            raise
+            raise _control_write_failed(request, e) from e
         elapsed_ms = (time.monotonic() - t_start) * 1000
         # Skip log emission for I2C ops -- the i2c_write wrapper logs
         # with richer detail (addr + data bytes).
@@ -1791,13 +1812,22 @@ class _FX2Connection:
             self._gone_reported.clear()
             try:
                 self._transport.start_stream(self.stream, self._gone_reported.set)
-            except BaseException:
+            except BaseException as error:
                 # A start that raised part way is undone here, by the one
                 # that began it: the camera stops only a stream it started,
                 # so a reader left running would be reached by no stop, and
                 # the next start would open a second beside it.
                 self._transport.stop_stream()
-                raise
+                if not isinstance(error, Exception) or isinstance(error, Fault):
+                    raise
+                if _is_usb_timeout(error):
+                    raise CameraNoAnswerError(
+                        f'The camera did not answer the stream start: '
+                        f'{type(error).__name__}: {error}'
+                    ) from error
+                raise CameraStreamStartFailedError(
+                    f'The camera stream did not start: {type(error).__name__}: {error}',
+                ) from error
             self._streaming = True
 
     def stop_stream(self) -> None:

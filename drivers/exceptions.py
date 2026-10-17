@@ -183,6 +183,54 @@ class CameraNoAnswerError(Fault, HardwareError):
     words_for_person = False
 
 
+class CameraUsbNotFoundError(Fault, HardwareError):
+    """No USB device the camera driver can stream from answers to its identity.
+
+    On Windows: none bound to WinUSB, which is what the stream opens.
+    The words carry the identity and the system's own text.
+    """
+
+    reason = 'camera_usb_not_found'
+    title = 'Camera Not Found on USB'
+
+    words_for_person = False
+
+
+class CameraUsbLookupFailedError(Fault, HardwareError):
+    """The system's lookup of the camera's USB device itself failed.
+
+    Not an absence: the lookup did not complete, so whether the device is
+    there is not known. The words name the call and its error code.
+    """
+
+    reason = 'camera_usb_lookup_failed'
+    title = 'Camera USB Lookup Failed'
+
+    words_for_person = False
+
+
+class CameraUsbOpenFailedError(Fault, HardwareError):
+    """The camera's USB device was found and could not be opened or set up
+    for streaming. The words name the call and its error code.
+    """
+
+    reason = 'camera_usb_open_failed'
+    title = 'Camera USB Open Failed'
+
+    words_for_person = False
+
+
+class CameraStreamStartFailedError(Fault, HardwareError):
+    """The stream's own set-up on an opened camera failed. The words carry
+    the library's text.
+    """
+
+    reason = 'camera_stream_start_failed'
+    title = 'Camera Stream Did Not Start'
+
+    words_for_person = False
+
+
 class PartAbsentError(Fault, HardwareError):
     """A driver was asked for a part it does not have: an axis, a turret, a
     board, an active camera or an SDK node.

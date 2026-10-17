@@ -210,7 +210,7 @@ def test_a_reader_whose_buffer_registration_fails_fails_its_start():
         patch.object(winusb_iso, 'kernel32', Kernel32()),
         patch.object(winusb_iso, 'winusb', WinUsb()),
         patch.object(winusb_iso.ctypes, 'get_last_error', lambda: 8),
-        pytest.raises(RuntimeError, match='RegisterIsochBuffer failed: 8'),
+        pytest.raises(winusb_iso.CameraUsbOpenFailedError, match='RegisterIsochBuffer failed: 8'),
     ):
         reader.start()
 
@@ -230,6 +230,6 @@ def test_a_slot_whose_event_cannot_be_made_is_refused():
     with (
         patch.object(winusb_iso, 'kernel32', Kernel32()),
         patch.object(winusb_iso.ctypes, 'get_last_error', lambda: 1450),
-        pytest.raises(RuntimeError, match='CreateEventW failed: 1450'),
+        pytest.raises(winusb_iso.CameraUsbOpenFailedError, match='CreateEventW failed: 1450'),
     ):
         winusb_iso.IsoSlot(ctypes.c_void_p(1), 0x82, 1024, 8)

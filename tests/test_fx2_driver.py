@@ -772,15 +772,40 @@ def _conn_on_winusb(device):
     return conn
 
 
-def test_a_failed_winusb_out_transfer_reaches_the_caller():
-    """The contract every consumer in this chain is written against."""
+def test_a_failed_winusb_out_transfer_reaches_the_caller_as_a_write_fault():
+    """The contract every consumer in this chain is written against: a
+    refused vendor write reaches the caller, typed, naming the request and
+    carrying the transport's own words."""
+    from drivers.exceptions import CameraWriteFailedError
 
     def refuse(*a, **kw):
         raise RuntimeError('ControlTransfer OUT ... failed: 31')
 
     conn = _conn_on_winusb(SimpleNamespace(control_transfer=refuse))
-    with pytest.raises(RuntimeError, match='failed'):
+    with pytest.raises(CameraWriteFailedError, match=r'VR_I2C_WRITE.*failed: 31') as raised:
         conn.control_transfer_out(fx2driver.VR_I2C_WRITE, index=0x42, data=b'\x01')
+
+    assert raised.value.reason == 'camera_write_failed'
+
+
+@pytest.mark.parametrize('library', ['pyusb', 'libusb1', 'WinUSB'])
+def test_a_vendor_write_the_fx2_does_not_answer_is_no_answer_on_every_path(library):
+    """Every vendor write funnels through one place, so the LED's writes and
+    the sensor's set-up writes are told as the setting writes are: a timeout
+    from any of the three libraries is the camera not answering."""
+    from drivers.exceptions import CameraNoAnswerError
+
+    error = _usb_timeouts()[library]
+
+    def no_answer(*a, **kw):
+        raise error
+
+    conn = _conn_on_winusb(SimpleNamespace(control_transfer=no_answer))
+    with pytest.raises(CameraNoAnswerError) as raised:
+        conn.i2c_write(fx2driver.I2C_LED, [0xFF])
+
+    assert raised.value.reason == 'camera_no_answer'
+    assert str(error) in str(raised.value)
 
 
 def test_a_successful_winusb_out_transfer_returns_a_count_not_none():

@@ -27,6 +27,12 @@ from ctypes import (
 from ctypes import WinDLL
 
 
+from drivers.exceptions import (
+    CameraUsbLookupFailedError,
+    CameraUsbNotFoundError,
+    CameraUsbOpenFailedError,
+)
+
 log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -227,7 +233,7 @@ def find_device_path(vid: int, pid: int) -> str | None:
     )
 
     if dev_info == INVALID_HANDLE_VALUE:
-        raise RuntimeError(f'SetupDiGetClassDevsW failed: {ctypes.get_last_error()}')
+        raise CameraUsbLookupFailedError(f'SetupDiGetClassDevsW failed: {ctypes.get_last_error()}')
 
     vid_pid = f'vid_{vid:04x}&pid_{pid:04x}'
     iface_data = SP_DEVICE_INTERFACE_DATA()
@@ -242,7 +248,9 @@ def find_device_path(vid: int, pid: int) -> str | None:
                 code = ctypes.get_last_error()
                 if code == ERROR_NO_MORE_ITEMS:
                     return None
-                raise RuntimeError(f'SetupDiEnumDeviceInterfaces({idx}) failed: {code}')
+                raise CameraUsbLookupFailedError(
+                    f'SetupDiEnumDeviceInterfaces({idx}) failed: {code}'
+                )
             idx += 1
 
             detail = SP_DEVICE_INTERFACE_DETAIL_DATA()
@@ -259,8 +267,8 @@ def find_device_path(vid: int, pid: int) -> str | None:
                 byref(required),
                 byref(devinfo),
             ):
-                raise RuntimeError(
-                    f'SetupDiGetDeviceInterfaceDetailW({idx - 1}) failed: {ctypes.get_last_error()}'
+                raise CameraUsbLookupFailedError(
+                    f'SetupDiGetDeviceInterfaceDetailW({idx - 1}) failed: {ctypes.get_last_error()}',
                 )
 
             path = detail.DevicePath
@@ -292,7 +300,10 @@ class WinUsbDevice:
     def __init__(self, vid, pid):
         self.path = find_device_path(vid, pid)
         if self.path is None:
-            raise RuntimeError(f'WinUSB device not found (VID=0x{vid:04X} PID=0x{pid:04X})')
+            raise CameraUsbNotFoundError(
+                f'No WinUSB device answers to VID=0x{vid:04X} PID=0x{pid:04X}: '
+                'it is not plugged in, or Windows has no WinUSB driver bound to it',
+            )
 
         # Open device file
         self._file_handle = kernel32.CreateFileW(
@@ -306,13 +317,13 @@ class WinUsbDevice:
         )
 
         if self._file_handle == INVALID_HANDLE_VALUE:
-            raise RuntimeError(f'CreateFile failed: {ctypes.get_last_error()}')
+            raise CameraUsbOpenFailedError(f'CreateFile failed: {ctypes.get_last_error()}')
 
         # Initialize WinUSB
         self._iface_handle = c_void_p()
         if not winusb.WinUsb_Initialize(self._file_handle, byref(self._iface_handle)):
             kernel32.CloseHandle(self._file_handle)
-            raise RuntimeError(f'WinUsb_Initialize failed: {ctypes.get_last_error()}')
+            raise CameraUsbOpenFailedError(f'WinUsb_Initialize failed: {ctypes.get_last_error()}')
 
         log.info('WinUSB device opened: %s', self.path)
 
@@ -330,14 +341,16 @@ class WinUsbDevice:
 
     def set_alt_interface(self, setting: int) -> None:
         if not winusb.WinUsb_SetCurrentAlternateSetting(self._iface_handle, c_ubyte(setting)):
-            raise RuntimeError(f'SetAlternateSetting({setting}) failed: {ctypes.get_last_error()}')
+            raise CameraUsbOpenFailedError(
+                f'SetAlternateSetting({setting}) failed: {ctypes.get_last_error()}',
+            )
 
     def query_pipe(self, alt: int, index: int) -> WINUSB_PIPE_INFORMATION:
         pipe_info = WINUSB_PIPE_INFORMATION()
         if not winusb.WinUsb_QueryPipe(
             self._iface_handle, c_ubyte(alt), c_ubyte(index), byref(pipe_info)
         ):
-            raise RuntimeError(f'QueryPipe failed: {ctypes.get_last_error()}')
+            raise CameraUsbOpenFailedError(f'QueryPipe failed: {ctypes.get_last_error()}')
         return pipe_info
 
     def control_transfer(
@@ -417,7 +430,7 @@ class IsoSlot:
         self.isoch_handle = None
         self.event = kernel32.CreateEventW(None, True, False, None)
         if not self.event:
-            raise RuntimeError(f'CreateEventW failed: {ctypes.get_last_error()}')
+            raise CameraUsbOpenFailedError(f'CreateEventW failed: {ctypes.get_last_error()}')
         self.overlapped = OVERLAPPED()
         self.overlapped.hEvent = self.event
 
@@ -435,7 +448,7 @@ class IsoSlot:
             code = ctypes.get_last_error()
             self.isoch_handle = None
             self.dispose()
-            raise RuntimeError(f'WinUsb_RegisterIsochBuffer failed: {code}')
+            raise CameraUsbOpenFailedError(f'WinUsb_RegisterIsochBuffer failed: {code}')
 
     def dispose(self):
         if self.isoch_handle:
