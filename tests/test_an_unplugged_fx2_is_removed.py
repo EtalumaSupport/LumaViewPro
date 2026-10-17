@@ -9,7 +9,9 @@ driver notices (the bytes stop and the device is gone from the bus, or a
 transfer reports the device gone), marks the camera removed and tears it down
 off its own thread, as the IDS and Pylon drivers do; the LED reads the same
 removal from the connection they share. A device still on the bus that goes
-quiet is not called unplugged until it has been silent for the ceiling.
+quiet is never called unplugged: at the ceiling its camera is torn down, as a
+stream that stopped and did not recover, and its LED, which the bus still
+lists, is not declared gone.
 """
 
 from __future__ import annotations
@@ -87,7 +89,9 @@ def test_a_transfer_that_finds_the_device_gone_removes_it_before_the_silence_bou
 
 
 @pytest.mark.slow
-def test_a_silent_device_still_on_the_bus_is_removed_only_at_the_ceiling(session, monkeypatch):
+def test_a_silent_device_still_on_the_bus_loses_its_camera_at_the_ceiling_and_keeps_its_led(
+    session, monkeypatch
+):
     monkeypatch.setattr(fx2driver._UnplugWatch, 'CEILING_S', 4.0)
     scope = session.scope
     start = time.monotonic()
@@ -97,6 +101,7 @@ def test_a_silent_device_still_on_the_bus_is_removed_only_at_the_ceiling(session
     assert _wait_until(lambda: time.monotonic() - start > 3.0, 4.0)
     assert scope.camera_connected is True
     assert _wait_until(lambda: not scope.camera_connected, 6.0)
+    assert scope.led_connected is True
 
 
 def test_a_gain_written_after_the_removal_is_not_recorded(session):

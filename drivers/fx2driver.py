@@ -1907,8 +1907,21 @@ class _FX2ImageHandler(ImageHandlerBase):
 # ---------------------------------------------------------------------------
 
 
+class _StreamEnd(NamedTuple):
+    """Why the grab loop ends the stream.
+
+    Attributes:
+        gone: Whether the bus says the device left it: an unplug. False for a
+            stream silent past the ceiling with the device still listed.
+        reason: The evidence, in words, for the log.
+    """
+
+    gone: bool
+    reason: str
+
+
 class _UnplugWatch:
-    """Decides, from the grab loop, when the FX2 has been unplugged.
+    """Decides, from the grab loop, when the FX2's stream has ended.
 
     An unplug sends the driver no error: the bytes stop. Two things raise a
     suspicion -- no byte for ``SILENCE_S``, or a transfer that found the
@@ -1916,7 +1929,8 @@ class _UnplugWatch:
     ``CONFIRM_GAP_S`` apart is an unplug. A device still enumerated is
     probed at most every ``PROBE_INTERVAL_S`` while the silence lasts, and a
     stream silent for ``CEILING_S`` is dead whatever the bus says, since an
-    enumeration can keep listing a device that has gone.
+    enumeration can keep listing a device that has gone; it is not called
+    unplugged, since the bus did not say so.
 
     Silence, not missing frames: a device whose frames all misalign stores
     none but keeps sending bytes, and it is not unplugged.
@@ -1936,8 +1950,8 @@ class _UnplugWatch:
         self._absences = 0
         self._last_probe: float | None = None
 
-    def verdict(self, now: float) -> str | None:
-        """Why the device is judged unplugged at ``now``, or None."""
+    def verdict(self, now: float) -> _StreamEnd | None:
+        """Why the stream is judged ended at ``now``, or None."""
         silent_s = self._connection.stream.seconds_since_arrival(now)
         if self._connection.take_gone_report():
             self._suspected = True
@@ -1946,7 +1960,9 @@ class _UnplugWatch:
         if not self._suspected:
             return None
         if silent_s >= self.CEILING_S:
-            return f'no byte for {silent_s:.0f} s'
+            return _StreamEnd(
+                gone=False, reason=f'no byte for {silent_s:.0f} s, still listed on the bus'
+            )
         wait_s = self.CONFIRM_GAP_S if self._absences else self.PROBE_INTERVAL_S
         if self._last_probe is not None and now - self._last_probe < wait_s:
             return None
@@ -1955,7 +1971,10 @@ class _UnplugWatch:
         if present is False:
             self._absences += 1
             if self._absences >= 2:
-                return f'off the bus on two probes, {silent_s:.1f} s after the last byte'
+                return _StreamEnd(
+                    gone=True,
+                    reason=f'off the bus on two probes, {silent_s:.1f} s after the last byte',
+                )
         elif present is True:
             self._absences = 0
             self._suspected = silent_s >= self.SILENCE_S
@@ -2351,9 +2370,9 @@ class FX2Camera(Camera):
         framing_reported = False
 
         while self._grabbing:
-            unplugged = watch.verdict(time.monotonic())
-            if unplugged is not None:
-                self._on_unplugged(unplugged)
+            ended = watch.verdict(time.monotonic())
+            if ended is not None:
+                self._on_stream_ended(ended)
                 return
 
             # Re-read dimensions every iteration -- the UI can call
@@ -2451,20 +2470,30 @@ class FX2Camera(Camera):
                     s['delimiters_wrong'],
                 )
 
-    def _on_unplugged(self, reason: str) -> None:
-        """The device has left the bus: record it where it is read, then tear down.
+    def _on_stream_ended(self, ended: _StreamEnd) -> None:
+        """The stream has ended: record an unplug where it is read, then tear down.
 
         Runs on the grab loop, which returns right after. The teardown runs
         on the base Camera's thread, because stopping the stream joins this
-        one; the connection's record is what the LED, on the same device,
-        reads.
+        one. Only an unplug is recorded on the connection, which the LED, on
+        the same device, reads: a device the bus still lists is not gone. It
+        is recorded before the camera reads disconnected, so whoever waits on
+        the camera finds the LED's answer already given.
         """
-        self._fx2.removed = True
+        if ended.gone:
+            self._fx2.removed = True
         self._mark_disconnected()
-        logger.warning(
-            '[FX2 Cam   ] the FX2 was unplugged (%s); replug it and restart LumaViewPro',
-            reason,
-        )
+        if ended.gone:
+            logger.warning(
+                '[FX2 Cam   ] the FX2 was unplugged (%s); replug it and restart LumaViewPro',
+                ended.reason,
+            )
+        else:
+            logger.warning(
+                '[FX2 Cam   ] the FX2 stopped streaming and did not recover (%s); '
+                'restart LumaViewPro',
+                ended.reason,
+            )
         self._schedule_async_teardown()
 
     # -- Grab API (mostly inherits from Camera; override for clarity) ------

@@ -38,8 +38,9 @@ _DEFINITE_SITES = {
     ('drivers/idscamera.py', 'IDSCamera', 'is_connected'): 1,
     # IDS's one removal owner: DeviceLost, the presence probe, the stall ceilings.
     ('drivers/idscamera.py', 'IDSCamera', '_handle_device_lost'): 1,
-    # The FX2 grab loop's unplug.
-    ('drivers/fx2driver.py', 'FX2Camera', '_on_unplugged'): 1,
+    # The FX2 grab loop's end of the stream: an unplug the bus confirmed,
+    # or a stream silent past the ceiling, as IDS's stall ceiling.
+    ('drivers/fx2driver.py', 'FX2Camera', '_on_stream_ended'): 1,
     # The simulated camera leaving its bus.
     ('drivers/simulated_camera.py', 'SimulatedCamera', 'leave_bus'): 1,
 }
