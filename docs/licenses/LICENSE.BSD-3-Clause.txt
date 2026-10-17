@@ -10,6 +10,7 @@ under the BSD 3-Clause License:
   - tifffile (https://github.com/cgohlke/tifffile)
   - imagecodecs (https://github.com/cgohlke/imagecodecs) — wrapper; bundled C codecs have their own licenses (see docs/licenses/)
   - pyserial (https://github.com/pyserial/pyserial)
+  - pyusb (https://github.com/pyusb/pyusb)
   - psutil (https://github.com/giampaolo/psutil)
   - pypylon (https://github.com/basler/pypylon) — Python wrapper only; the Basler Pylon SDK has its own proprietary license
   - ids-peak (https://pypi.org/project/ids-peak/) — Python wrapper only; the IDS Peak SDK has its own proprietary license

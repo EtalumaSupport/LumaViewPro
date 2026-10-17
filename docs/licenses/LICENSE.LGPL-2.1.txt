@@ -1,9 +1,13 @@
 GNU Lesser General Public License, Version 2.1 (SPDX: LGPL-2.1-or-later)
 
-The following third-party component bundled with LumaViewPro is distributed
+The following third-party components bundled with LumaViewPro are distributed
 under the GNU Lesser General Public License, version 2.1 or later:
 
   - FFmpeg (https://ffmpeg.org/) — shared libraries bundled via the PyAV wheel
+  - libusb-1.0 (https://libusb.info/) — the shared library bundled via the
+    libusb-package wheel, in the application's libusb_package/ folder
+  - python-libusb1 (https://github.com/vpelletier/python-libusb1) — a
+    pure-Python binding to libusb-1.0, bundled as Python modules
 
 FFmpeg is dynamically linked from LumaViewPro's bundled copy of PyAV. The
 FFmpeg shared libraries (e.g. avcodec-*.dll, avformat-*.dll, avutil-*.dll,
@@ -16,6 +20,14 @@ Upstream FFmpeg source code is available at:
 
 The PyAV project (BSD-3 wrapper over FFmpeg) is at:
   https://github.com/PyAV-Org/PyAV
+
+libusb-1.0 is loaded at run time from the application's libusb_package/
+folder and can be replaced by the end user with a compatible build, in
+accordance with LGPL-2.1 Section 6; its source is at
+https://github.com/libusb/libusb, and the exact release bundled is the one
+the libusb-package wheel names (https://github.com/pyocd/libusb-package).
+python-libusb1's source is at https://pypi.org/project/libusb1/. Etaluma,
+Inc. modifies neither.
 
 Etaluma, Inc. does not modify the FFmpeg libraries bundled via PyAV. If you
 require the exact FFmpeg source corresponding to the bundled binaries, see

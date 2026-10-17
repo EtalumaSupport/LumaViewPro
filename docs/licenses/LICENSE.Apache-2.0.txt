@@ -4,6 +4,8 @@ The following third-party components bundled with LumaViewPro are distributed
 under the Apache License 2.0:
 
   - OpenCV / opencv-python-headless (https://opencv.org/) — OpenCV 4.5+
+  - libusb-package (https://github.com/pyocd/libusb-package) — the packaging;
+    the libusb-1.0 library it carries is LGPL-2.1 (see LICENSE.LGPL-2.1.txt)
 
 Individual copyright notices and upstream NOTICE content for each component
 are listed in docs/THIRD_PARTY_NOTICES.md.

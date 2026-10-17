@@ -4,7 +4,7 @@ LumaViewPro is distributed under the MIT License (see `docs/LICENSE`). It bundle
 
 This NOTICE file is maintained by Etaluma, Inc. in accordance with Apache-2.0 §4(d) and comparable attribution requirements from BSD, LGPL, and GPL-with-Classpath-Exception licenses that apply to bundled components.
 
-**Last updated**: 2026-04-17 (for LumaViewPro 4.0.0-beta)
+**Last updated**: 2026-10-17 (for LumaViewPro 4.0.0-beta; the Lumascope Classic USB stack added)
 **Regenerating**: If dependencies materially change, re-run `pip-licenses --with-license-file --with-notice-file --format=markdown` on the build venv after `pip install -r requirements.txt` and reconcile against this file. For 4.0.0-beta, this file was authored from the declared `requirements.txt` + PyInstaller spec and each declared dep's documented upstream license.
 
 ---
@@ -29,6 +29,9 @@ This NOTICE file is maintained by Etaluma, Inc. in accordance with Apache-2.0 §
 | pypylon | 26.4.1 | BSD-3-Clause (Python wrapper only) | https://github.com/basler/pypylon |
 | ids-peak | 1.13.0.0.6 | BSD-3-Clause (Python wrapper only) | https://pypi.org/project/ids-peak/ |
 | PyAV (`av`) | 14.0.0 | BSD-3-Clause wrapper over LGPL-2.1 FFmpeg | https://github.com/PyAV-Org/PyAV |
+| pyusb | 1.3.1 | BSD-3-Clause | https://github.com/pyusb/pyusb |
+| libusb1 (python-libusb1) | 3.4.0 | LGPL-2.1-or-later | https://github.com/vpelletier/python-libusb1 |
+| libusb-package | 1.0.30.0 | Apache-2.0 (packaging; carries the LGPL-2.1 libusb library below) | https://github.com/pyocd/libusb-package |
 
 ## C / C++ libraries bundled inside the imagecodecs wheel
 
@@ -61,6 +64,7 @@ These ship inside the application folder after PyInstaller builds the Windows in
 | SDL2 + SDL2_image / SDL2_mixer / SDL2_ttf | zlib license | https://www.libsdl.org/ | Bundled via `kivy_deps.sdl2` and included in the PyInstaller `.spec` via `Tree(sdl2.dep_bins)`. See `docs/licenses/LICENSE.*.txt` for each sub-component. |
 | GLEW | Modified BSD / MIT | http://glew.sourceforge.net/ | Bundled via `kivy_deps.glew`. |
 | OpenBLAS | BSD-3-Clause | https://www.openblas.net/ | Bundled inside NumPy/SciPy wheels. |
+| libusb-1.0 (`libusb-1.0.dll` / `.dylib` / `.so`) | LGPL-2.1-or-later | https://libusb.info/ | The USB library the Lumascope Classic (LS560, LS620, LS720) drivers run on, through pyusb and python-libusb1. Shipped unmodified from the `libusb-package` wheel, in the application's `libusb_package/` folder, and loaded at run time, so it is user-replaceable per LGPL §6. |
 
 ## Separately installed by end user (not bundled)
 
