@@ -464,7 +464,7 @@ def generate_image_metadata(
             'camera_model': frame_record.camera_model,
         },
         'plate': {
-            'name': microscope_model or 'Plate',
+            'name': labware.name,
             'rows': labware.rows,
             'columns': labware.columns,
             'standard': labware.standard,
