@@ -13,14 +13,6 @@ class LabWare:
         self.z = 1
 
 
-class Slide(LabWare):
-    """A class that stores and computes actions for slides labware"""
-
-    def __init__(self, *arg):
-        super().__init__()
-        self.covered = True
-
-
 @api_fields('config', record=True)
 class WellPlate(LabWare):
     """A class that stores and computes actions for wellplate labware"""
@@ -151,12 +143,3 @@ class WellPlate(LabWare):
     @api(in_process=True, reads=True)
     def get_dimensions(self) -> dict:
         return self.config['dimensions']
-
-
-class PitriDish(LabWare):
-    """A class that stores and computes actions for petri dish labware"""
-
-    def __init__(self, *arg):
-        super().__init__()
-        self.diameter = 100
-        self.z = 20

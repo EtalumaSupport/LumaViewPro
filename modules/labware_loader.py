@@ -109,14 +109,6 @@ class LabwareLoader:
         _validate_labware(self.labware, filepath)
 
 
-class SlideLoader(LabwareLoader):
-    """A class that stores and computes actions for slides labware"""
-
-    def __init__(self, *arg, source_path: str | pathlib.Path | None = None):
-        super().__init__(*arg, source_path=source_path)
-        self.covered = True
-
-
 class WellPlateLoader(LabwareLoader):
     """A class that stores and computes actions for wellplate labware"""
 
@@ -171,12 +163,3 @@ class WellPlateLoader(LabwareLoader):
         return labware.WellPlate(
             config=copy.deepcopy(self.labware['Wellplate'][self.resolve_plate_key(plate_key)])
         )
-
-
-class PitriDishLoader(LabwareLoader):
-    """A class that stores and computes actions for petri dish labware"""
-
-    def __init__(self, *arg, source_path: str | pathlib.Path | None = None):
-        super().__init__(*arg, source_path=source_path)
-        self.diameter = 100
-        self.z = 20
