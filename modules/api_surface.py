@@ -183,15 +183,34 @@ def api_fields[C: type](*names: str, record: bool = False) -> Callable[[C], C]:
     A dataclass or NamedTuple is a record: it crosses a wire as its data,
     and has no address there. Any other class that does is declared with
     ``record=True``; one that is not crosses as a handle to a live object.
+
+    A record gains ``to_dict()``, its data as plain Python
+    (``wire_encoding.plain``), for a caller that needs a dict: MATLAB's
+    ``struct()`` takes a dict and not a dataclass. So it is above the
+    ``@dataclass`` it marks, which must have run first.
     """
 
     def publish(cls: C) -> C:
         setattr(cls, FIELDS_ATTRIBUTE, tuple(names))
         if record:
             setattr(cls, RECORD_ATTRIBUTE, True)
+        if is_record(cls):
+            cls.to_dict = _to_dict
         return cls
 
     return publish
+
+
+def _to_dict(self: object) -> dict:
+    """This record's fields as a dict of plain Python data: a nested record a dict, an enum its string, a sequence a list.
+
+    A path, a handle and a running call stay the live objects they are, a
+    NaN stays a NaN, and a key keeps its type (``wire_encoding.plain``).
+    """
+    # Imported here: wire_encoding reads this module's marks.
+    from modules.wire_encoding import plain
+
+    return plain(self)
 
 
 # A ``Raises:`` section, its entries (``ClassName: words``, continued

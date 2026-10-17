@@ -6,7 +6,8 @@ the API from the Session, edge by edge, and names every edge whose type
 has no form, so a member that would hand a wire client something it
 cannot carry fails the build (``tests/guards/test_every_wire_edge_has_a_form``);
 ``encode`` turns a value into JSON-ready data for a host that carries it,
-the REST server.
+the REST server; ``plain`` walks it the same way for a caller in the same
+process, keeping what only a wire needs converted (a record's ``to_dict()``).
 
 The forms:
 
@@ -424,6 +425,33 @@ def encode(
             is refused here, where the call ends, rather than when it is
             rendered, after a job may already hold it.
     """
+    return _walk(value, wire=True, live_folder=live_folder, handle=handle, job=job)
+
+
+def plain(value: object) -> object:
+    """*value* as plain Python data, for a caller in the same process: what a record's ``to_dict()`` answers.
+
+    The same walk as ``encode``, so a record's fields, its wire-marked
+    properties among them, are the ones a wire client gets: a record
+    becomes a dict, an enum its wire form, a tuple, list, set or series a
+    list or dict. What only a wire needs turned into something else stays
+    as it is: a path, a handle and a running call are the live objects
+    the caller can use, a NaN is a NaN, a time is a ``datetime`` or
+    ``timedelta``, and a key keeps its type.
+    """
+    return _walk(value, wire=False, live_folder=None, handle=None, job=None)
+
+
+def _walk(
+    value: object,
+    *,
+    wire: bool,
+    live_folder: pathlib.Path | None,
+    handle: Callable[[object], object] | None,
+    job: Callable[[Operation], object] | None,
+) -> object:
+    def key(k: object) -> object:
+        return _key(k) if wire else k
 
     def form(v: object) -> object:
         # An enum before a scalar: an IntEnum is an int, and would cross as
@@ -432,18 +460,18 @@ def encode(
             return v.value
         if isinstance(v, enum.Enum):
             return v.name
-        if isinstance(v, float) and not math.isfinite(v):
+        if wire and isinstance(v, float) and not math.isfinite(v):
             raise NoWireFormError(f'{v!r} is not a finite number, and JSON carries no other')
         if v is None or isinstance(v, (bool, int, float, str)):
             return v
         if isinstance(v, datetime.timedelta):
-            return v.total_seconds()
+            return v.total_seconds() if wire else v
         if isinstance(v, (datetime.datetime, datetime.date)):
-            return v.isoformat()
+            return v.isoformat() if wire else v
         if isinstance(v, pathlib.PurePath):
-            return _path(v, live_folder)
+            return _path(v, live_folder) if wire else v
         if isinstance(v, Operation):
-            return job(v)
+            return job(v) if wire else v
         cls = type(v)
         if is_record(cls):
             names = _fields(cls) + tuple(_wire_properties(cls))
@@ -452,21 +480,25 @@ def encode(
             # A numpy scalar where the annotation says int or float.
             return form(v.item())
         if type(v).__name__ == 'Series' and type(v).__module__.startswith('pandas'):
-            return {_key(k): form(x) for k, x in v.items()}
+            return {key(k): form(x) for k, x in v.items()}
         if isinstance(v, Mapping):
-            return {_key(k): form(x) for k, x in v.items()}
+            return {key(k): form(x) for k, x in v.items()}
         if isinstance(v, (set, frozenset)):
             return sorted(form(x) for x in v)
         if isinstance(v, (tuple, list)):
             return [form(x) for x in v]
         if cls.__module__.startswith('modules') and class_form(cls) == HANDLE:
-            return handle(v)
+            return handle(v) if wire else v
         if (
             isinstance(v, Iterable)
             and not isinstance(v, (bytes, bytearray))
             and not hasattr(v, 'shape')
         ):
             return [form(x) for x in v]
+        if not wire:
+            # An array, a table, anything else the caller holds: it is
+            # already the caller's own kind of object.
+            return v
         raise NoWireFormError(f'{cls.__module__}.{cls.__qualname__} has no wire form')
 
     return form(value)
