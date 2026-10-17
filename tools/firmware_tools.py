@@ -212,9 +212,10 @@ def _move_to_step(board, axis, position, timeout=30):
     """
     try:
         board.move(axis, position)
+        arrived = board.wait_for_position(axis, timeout=timeout)
     except HardwareError as e:
         return str(e)
-    if not board.wait_for_position(axis, timeout=timeout):
+    if not arrived:
         return f'{axis} move-away timeout'
     return None
 

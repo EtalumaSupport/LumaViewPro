@@ -13,6 +13,7 @@ import time
 
 import pytest
 
+from drivers.exceptions import BoardNoReplyError
 from drivers.motorboard import MotorBoard
 from drivers.sim_wire.backend import DEFAULT_DIALECT, MotorBoardSpec, SimWireBackend
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
@@ -75,6 +76,18 @@ class TestMovesInInstantMode:
         left, _right = board.limit_switch_status('X')
         assert left == 1
         assert board.current_pos('X') < 0
+
+    def test_a_board_that_stops_answering_during_the_wait_raises_its_fault(self, board):
+        """A board gone silent is its no-reply fault, not an axis short of its target."""
+        assert board.home() is None
+        board.move('X', -400_000)  # never arrives, so the wait polls to its deadline
+        port = board._backend.motor_board
+        port.drop_next_reply(count=1000)
+        try:
+            with pytest.raises(BoardNoReplyError):
+                board.wait_for_position('X', timeout=0.3)
+        finally:
+            port.disarm_reply()
 
 
 @pytest.mark.parametrize('board', [('LS850T', 'XYZT', 'realistic')], indirect=True)

@@ -72,6 +72,7 @@ _OWN_DOORS: dict[str, str] = {
     'tests/test_sim_wire_led.py': 'the LED firmware behind its own emulated port, no scope',
     'tests/test_sim_wire_faults.py': "the firmware simulator's hardware faults and write oracle",
     'tests/test_sim_wire_homing.py': "the motor driver's home on the shipped firmware, no scope",
+    'tests/test_sim_wire_motion.py': "the motor driver's moves on the shipped firmware, no scope",
     'tests/test_a_home_is_believed_only_when_it_happened.py': (
         "the motor driver's reading of a home, on the firmware simulator"
     ),

@@ -17,6 +17,7 @@ from drivers.exceptions import (
     BoardReplyUnreadableError,
     BoardReportedError,
     ConfigReadError,
+    HardwareError,
     MotionNotCompletedError,
     PartAbsentError,
 )
@@ -1552,14 +1553,23 @@ class MotorBoard(SerialBoard):
             timeout: Maximum wait time in seconds.
 
         Returns:
-            bool: True if the position was reached, False on timeout.
+            bool: True if the position was reached, False when the board
+                was still reporting the axis short of it at the deadline.
+
+        Raises:
+            HardwareError: the board's last poll failed at the deadline --
+                it stopped answering, which is not an axis short of its
+                target. A failed poll before then is ridden out.
         """
         deadline = time.monotonic() + timeout
+        last_error = None
         while time.monotonic() < deadline:
             try:
                 if self.target_status(axis):
                     return True
-            except Exception as e:
+                last_error = None
+            except HardwareError as e:
+                last_error = e
                 logger.debug(
                     '[XYZ Class ] wait_for_position(%s): target_status poll '
                     'raised; continuing to poll: %s: %s',
@@ -1568,6 +1578,8 @@ class MotorBoard(SerialBoard):
                     e,
                 )
             time.sleep(0.01)
+        if last_error is not None:
+            raise last_error
         logger.warning(f'[XYZ Class ] wait_for_position({axis}): timed out after {timeout}s')
         return False
 
