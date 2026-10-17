@@ -22,7 +22,7 @@ import logging
 
 import pytest
 
-from drivers.exceptions import HardwareError
+from drivers.exceptions import BoardNoReplyError, BoardReplyUnreadableError, HardwareError
 from modules.exceptions import HardwareCommandRefusedError, MissingPart, MoveNotCompletedError
 from modules.lumascope_api._constants import AxisState
 from tests.test_a_command_for_absent_motion_hardware_is_refused import _session
@@ -106,11 +106,38 @@ def test_a_failed_arrival_read_raises(make_session):
         scope.motion.get_target_status('Z')
 
 
-def test_a_failed_switch_read_is_the_documented_unread(make_session):
+def test_a_failed_switch_read_raises(make_session):
     scope = make_session('LS850').scope
     scope.simulation.drop_replies('motor', count=None, command='STATUS_RZ')
 
-    assert scope.motion.get_limit_switch_status('Z') == (-1, -1)
+    with pytest.raises(HardwareError):
+        scope.motion.get_limit_switch_status('Z')
+
+
+def test_a_firmware_board_that_drops_the_switch_reply_raises_no_reply(make_session):
+    """The production motor driver against the real firmware: a missing reply
+    is the board's no-reply fault, not a TypeError from reading nothing."""
+    scope = make_session('LS850', homed=False, simulator_tier='firmware').scope
+    scope.simulation.drop_replies('motor')
+
+    with pytest.raises(BoardNoReplyError):
+        scope.motion.get_limit_switch_status('Z')
+
+
+def test_a_firmware_board_whose_status_reply_is_garbled_raises_unreadable(make_session):
+    """A reply that is not a number is the board's unreadable-reply fault, for
+    the switch read and the arrival read alike, which share the one STATUS_R read."""
+    scope = make_session('LS850', homed=False, simulator_tier='firmware').scope
+    # A stand-in by design: the simulation API drops replies but cannot yet
+    # garble one, so the wire's own port is armed (a simulator gap).
+    port = scope._motion_driver._backend.motor_board
+
+    port.garble_next_reply()
+    with pytest.raises(BoardReplyUnreadableError):
+        scope.motion.get_limit_switch_status('Z')
+    port.garble_next_reply()
+    with pytest.raises(BoardReplyUnreadableError):
+        scope.motion.get_target_status('Z')
 
 
 def test_a_present_axis_answers_its_read(make_session):
@@ -157,6 +184,26 @@ def test_a_home_whose_switch_read_fails_still_homes(make_session):
     scope.motion.home()
 
     assert all(scope.motion.position_is_known(axis) for axis in scope.capabilities.axes)
+
+
+def test_a_home_records_a_switch_it_could_not_read_as_unread(make_session, monkeypatch):
+    import modules.lumascope_api.motion as motion_module
+
+    session = make_session('LS850', homed=False)
+    scope = session.scope
+    scope.simulation.drop_replies('motor', count=None, command='STATUS_RZ')
+    # The line is the product; the module's logger is a stand-in in the test process.
+    lines = []
+    monkeypatch.setattr(
+        motion_module.logger, 'info', lambda message, *a, **kw: lines.append(str(message))
+    )
+
+    scope.motion.home()
+
+    before = [line for line in lines if 'before homing' in line]
+    assert len(before) == 1, before
+    assert "'Z': 'unread (" in before[0]
+    assert "'X': (" in before[0]
 
 
 def test_a_home_whose_controller_goes_as_it_finishes_leaves_no_axis_homing(

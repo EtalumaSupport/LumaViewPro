@@ -615,15 +615,15 @@ class Tmcm6110Board:
         return self._exchange(RFS, RFS_STATUS, self._motor(axis))
 
     def limit_switch_status(self, axis: str) -> tuple[int, int]:
-        """``(left, right)``: 1 engaged, 0 clear, -1 each when unread."""
+        """``(left, right)``: 1 engaged, 0 clear.
+
+        Raises:
+            HardwareError: the board did not answer.
+        """
         motor = self._motor(axis)
-        try:
-            with self._lock:
-                left = self._exchange(GAP, AP_LEFT_SWITCH, motor)
-                right = self._exchange(GAP, AP_RIGHT_SWITCH, motor)
-        except HardwareError as e:
-            logger.warning(f'[TMCM-6110 ] limit_switch_status({axis}) failed: {e}')
-            return -1, -1
+        with self._lock:
+            left = self._exchange(GAP, AP_LEFT_SWITCH, motor)
+            right = self._exchange(GAP, AP_RIGHT_SWITCH, motor)
         return int(left != 0), int(right != 0)
 
     # ------------------------------------------------------------------

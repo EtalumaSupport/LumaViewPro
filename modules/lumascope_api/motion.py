@@ -912,16 +912,20 @@ class MotionAPI:
 
         Use as ``with scope.motion._reference_position_logger(): ... home ...``.
         Emits forced-INFO log lines so the limit-switch state pre/post
-        homing is preserved for diagnostics. Reads the driver, whose failed
-        read is the switch's -1, so a log line never ends the home it
-        describes.
+        homing is preserved for diagnostics. A switch the board did not
+        answer is written into the line as unread, with the board's error,
+        so a log line never ends the home it describes; the home's own
+        reads report a board that has stopped answering.
         """
 
-        def read() -> dict[str, tuple[int, int]]:
-            return {
-                axis: self._driver.limit_switch_status(axis=axis)
-                for axis in self._scope.capabilities.axes
-            }
+        def read_axis(axis: str) -> tuple[int, int] | str:
+            try:
+                return self._driver.limit_switch_status(axis=axis)
+            except HardwareError as e:
+                return f'unread ({e})'
+
+        def read() -> dict[str, tuple[int, int] | str]:
+            return {axis: read_axis(axis) for axis in self._scope.capabilities.axes}
 
         before = read()
         logger.info(f'Limit switch status before homing: {before}', extra={'force_error': True})
@@ -1367,9 +1371,10 @@ class MotionAPI:
 
         Returns:
             tuple[int, int]: ``(left, right)``, each 1 when that switch is
-            engaged, 0 when clear, and -1 when the state could not be read.
+            engaged and 0 when clear.
 
         Raises:
+            HardwareError: the board did not answer the read.
             ArgumentRefusedError: ``'axis_unknown'``, ``axis`` is no axis
                 name.
             HardwareCommandRefusedError: ``'not_connected'`` or
@@ -1392,6 +1397,7 @@ class MotionAPI:
         Raises:
             HardwareCommandRefusedError: ``'not_connected'``, no motor
                 controller (see ``_refuse_absent``).
+            HardwareError: the board did not answer an axis's read.
         """
         self._refuse_absent('get_limit_switch_status_all_axes')
         resp = {}

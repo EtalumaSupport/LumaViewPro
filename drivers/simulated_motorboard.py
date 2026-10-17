@@ -1147,14 +1147,15 @@ class SimulatedMotorBoard:
 
         Returns:
             tuple[int, int]: ``(left, right)`` where each value is 1
-                (engaged), 0 (clear), or -1 on read failure.
+                (engaged) or 0 (clear).
+
+        Raises:
+            HardwareError: No response from the motor board, as the board's
+                driver raises it.
         """
-        try:
-            resp = self.reference_status(axis)
-            left = 1 if (resp & (1 << 0)) else 0
-            right = 1 if (resp & (1 << 1)) else 0
-        except Exception:
-            left, right = -1, -1
+        resp = self.reference_status(axis)
+        left = 1 if (resp & (1 << 0)) else 0
+        right = 1 if (resp & (1 << 1)) else 0
         return left, right
 
     # ------------------------------------------------------------------
@@ -1502,17 +1503,6 @@ class SimulatedMotorBoard:
             bool: Always True.
         """
         return True
-
-    def read_status(self, axis: str) -> int:
-        """Simulated STATUS register -- bit 9 (position_reached) set.
-
-        Args:
-            axis: Axis letter (accepted but unused).
-
-        Returns:
-            int: Always ``0x200``.
-        """
-        return 0x200  # bit 9 = position_reached
 
     def detect_firmware_version(self) -> None:
         """No-op for simulator -- version is set at construction."""

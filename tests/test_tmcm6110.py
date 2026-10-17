@@ -485,8 +485,13 @@ def test_the_limit_switches_read_left_then_right(board, sim):
     assert board.limit_switch_status('Z') == (0, 0)
     sim.axes['Z'].p = float(sim.axes['Z'].layout.right_switch_at)
     assert board.limit_switch_status('Z') == (0, 1)
+
+
+def test_a_switch_read_the_board_does_not_answer_raises(board, sim):
+    """Never a value standing in for the read: a client could not tell it from the switches."""
     sim.silent = True
-    assert board.limit_switch_status('Z') == (-1, -1)
+    with pytest.raises(HardwareError):
+        board.limit_switch_status('Z')
 
 
 # --- Acceleration ---------------------------------------------------------

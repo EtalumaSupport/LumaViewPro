@@ -1647,7 +1647,7 @@ scope.motion.position_is_known('Z')              # False until homed: an absolut
 # Limit switches -- why a move stopped short. Reaching a limit is reported,
 # not raised, so a move that ran out of travel and one that arrived look the
 # same until you ask.
-scope.motion.get_limit_switch_status('X')        # (left, right); 1 engaged, 0 clear, -1 unreadable;
+scope.motion.get_limit_switch_status('X')        # (left, right); 1 engaged, 0 clear; HardwareError when the board does not answer;
                                                  # HardwareCommandRefusedError 'not_connected' / 'axis_absent'
                                                  # for a switch the scope lacks -- never (0, 0)
 

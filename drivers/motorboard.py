@@ -1339,26 +1339,9 @@ class MotorBoard(SerialBoard):
 
         Raises:
             HardwareError: No response from the motor board (timeout or
-                disconnect); re-raised after logging.
+                disconnect), or a reply that is not a number.
         """
-
-        # logger.info('[XYZ Class ] MotorBoard.target_status('+axis+')')
-        try:
-            payload = 'STATUS_R' + axis
-            response = self.exchange_command(payload)
-            if response is None:
-                raise BoardNoReplyError(
-                    f'target_status({axis}): no response from motor board '
-                    '(STATUS_R returned None -- timeout or disconnect)'
-                )
-            data = int(response)
-            bits = format(data, 'b').zfill(32)
-
-            return bits[22] == '1'
-
-        except Exception:
-            logger.error('[XYZ Class ] MotorBoard.target_status(' + axis + ') inactive')
-            raise
+        return format(self.reference_status(axis), 'b').zfill(32)[22] == '1'
 
     # Get all reference status register bits as 32 character string (32-> 0)
     def reference_status(self, axis: str) -> int:
@@ -1371,10 +1354,23 @@ class MotorBoard(SerialBoard):
             int: 32-bit register value as returned by the firmware.
 
         Raises:
-            Exception: Re-raises any error from the STATUS_R query.
+            HardwareError: No response from the motor board (timeout or
+                disconnect), or a reply that is not a number; re-raised
+                after logging.
         """
         try:
-            data = int(self.exchange_command('STATUS_R' + axis))
+            response = self.exchange_command('STATUS_R' + axis)
+            if response is None:
+                raise BoardNoReplyError(
+                    f'reference_status({axis}): no response from motor board '
+                    '(STATUS_R returned None -- timeout or disconnect)'
+                )
+            try:
+                data = int(response)
+            except ValueError as e:
+                raise BoardReplyUnreadableError(
+                    f'STATUS_R{axis}: the board did not report a status (reply {response!r})'
+                ) from e
             # bits = format(data, 'b').zfill(32)
 
             # data is an integer that represents 4 bytes, or 32 bits,
@@ -1398,24 +1394,21 @@ class MotorBoard(SerialBoard):
 
         Returns:
             tuple[int, int]: ``(left, right)`` where each value is 1
-                (engaged), 0 (clear), or -1 on read failure.
+                (engaged) or 0 (clear).
+
+        Raises:
+            HardwareError: No response from the motor board.
         """
-        try:
-            resp = self.reference_status(axis=axis)
-            resp_int = int(resp)
-            if resp_int & (1 << 0):
-                left = 1
-            else:
-                left = 0
+        resp_int = int(self.reference_status(axis=axis))
+        if resp_int & (1 << 0):
+            left = 1
+        else:
+            left = 0
 
-            if resp_int & (1 << 1):
-                right = 1
-            else:
-                right = 0
-
-        except Exception as e:
-            logger.warning(f'[XYZ Class ] limit_switch_status({axis}) failed: {e}')
-            left, right = -1, -1
+        if resp_int & (1 << 1):
+            right = 1
+        else:
+            right = 0
 
         return left, right
 
@@ -1577,24 +1570,6 @@ class MotorBoard(SerialBoard):
             time.sleep(0.01)
         logger.warning(f'[XYZ Class ] wait_for_position({axis}): timed out after {timeout}s')
         return False
-
-    def read_status(self, axis: str) -> int | None:
-        """Read raw STATUS register value for an axis.
-
-        Args:
-            axis: Axis letter ('X', 'Y', 'Z', 'T').
-
-        Returns:
-            int | None: 32-bit register value, or None on failure.
-        """
-        try:
-            resp = self.exchange_command('STATUS_R' + axis)
-            if resp is None:
-                return None
-            return int(resp)
-        except (ValueError, TypeError) as e:
-            logger.warning(f'[XYZ Class ] read_status({axis}) failed: {e}')
-            return None
 
     def get_current_firmware(self) -> str | None:
         """Return the current motor-controller firmware identification.
