@@ -66,10 +66,20 @@ def body(s):
     # --- no clock of its own: the GUI's 15 s stuck-AF timer is gone, and
     #     nothing under modules/ or ui/ carries one. Every wait inside a
     #     sweep is a move the motion monitor judges or a bounded capture.
+    #     Source only: a stale __pycache__ entry compiled from the file that
+    #     carried the timer still holds its name (a 3.12 .pyc beside the 3.13
+    #     one, 2026-10-16) and is not the tree under test.
     import subprocess
 
     hits = subprocess.run(
-        ['grep', '-rln', 'AF_SAFETY_TIMEOUT_S', str(REPO / 'modules'), str(REPO / 'ui')],
+        [
+            'grep',
+            '-rln',
+            '--include=*.py',
+            'AF_SAFETY_TIMEOUT_S',
+            str(REPO / 'modules'),
+            str(REPO / 'ui'),
+        ],
         capture_output=True,
         text=True,
     ).stdout.split()
