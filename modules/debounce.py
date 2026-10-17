@@ -7,15 +7,25 @@ double-clicks from sending duplicate commands.
 """
 
 import time
+from collections.abc import Callable
 from functools import wraps
+from typing import TypeVar
+
+from modules import gui_logger
+
+_F = TypeVar('_F', bound=Callable)
 
 
-def debounce(delay: float):
+def debounce(delay: float) -> Callable[[_F], _F]:
     """Decorator that ignores repeated calls within *delay* seconds.
 
-    Each decorated method gets its own per-instance timestamp stored as
-    ``self._debounce_<method_name>``.  If the method is called again
-    before *delay* seconds have elapsed, the call is silently dropped.
+    Each decorated method gets its own per-instance window for each set of
+    arguments, stored as ``self._debounce_<method_name>``.  A call with the
+    same arguments before *delay* seconds have elapsed is dropped, and the
+    drop is recorded: the handler's own record is inside the method, so a
+    press dropped here would otherwise leave no line at all.  A call with
+    different arguments is a different press -- the turret's slot 3 pressed
+    just after slot 2 runs.
 
     Args:
         delay: Minimum interval in seconds between accepted calls.
@@ -34,10 +44,16 @@ def debounce(delay: float):
         @wraps(func)
         def wrapper(self, *args, **kwargs):
             now = time.monotonic()
-            last = getattr(self, attr, 0.0)
-            if now - last < delay:
+            key = (args, tuple(sorted(kwargs.items())))
+            windows = getattr(self, attr, None)
+            if windows is None:
+                windows = {}
+                setattr(self, attr, windows)
+            if now - windows.get(key, 0.0) < delay:
+                detail = f'dropped args={args}' if args else 'dropped'
+                gui_logger.button(f'{type(self).__name__}.{func.__name__}', detail)
                 return
-            setattr(self, attr, now)
+            windows[key] = now
             return func(self, *args, **kwargs)
 
         return wrapper
