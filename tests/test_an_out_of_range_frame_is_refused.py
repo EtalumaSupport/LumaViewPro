@@ -13,12 +13,12 @@ grid and crops back.
 """
 
 import copy
-import dataclasses
 
 import pytest
 
 from modules.exceptions import CameraSettingOutOfRangeError
-from tests.scope_fakes import home_sim_scope
+from modules.scope_capabilities import FrameSize
+from tests.scope_fakes import home_sim_scope, set_camera_limits
 
 
 @pytest.fixture
@@ -59,9 +59,7 @@ class TestTheSession:
         imaging = session.scope.imaging
         # A minimum above the camera's 4 px grid, as a Pylon camera declares:
         # the sim's minimum is one grid step, which the grid snap alone meets.
-        monkeypatch.setattr(
-            type(imaging), 'min_frame_size_cached', property(lambda _: {'width': 48, 'height': 64})
-        )
+        set_camera_limits(monkeypatch, session.scope, frame_min=FrameSize(width=48, height=64))
         before = copy.deepcopy(session.settings['frame'])
         delivered_before = imaging.frame_size_cached
         writes = _camera_writes(monkeypatch, imaging)
@@ -92,11 +90,7 @@ class TestTheSession:
 
     def test_an_unknown_maximum_leaves_the_ceiling_unchecked(self, session, monkeypatch):
         imaging = session.scope.imaging
-        monkeypatch.setattr(
-            session.scope,
-            'capabilities',
-            dataclasses.replace(session.scope.capabilities, camera_max_frame_size=None),
-        )
+        set_camera_limits(monkeypatch, session.scope, frame_max=None)
         writes = _camera_writes(monkeypatch, imaging)
         try:
             session.set_frame_size(5000, 800)

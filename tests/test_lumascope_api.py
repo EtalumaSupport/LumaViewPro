@@ -911,9 +911,13 @@ def dataclasses_fields(cls):
 def _scope_without_an_exposure_floor():
     """A simulated scope whose camera declares no exposure floor, so a sub-5 us
     request reaches the unit-confusion warning instead of the floor's refusal."""
+    import dataclasses
+
     scope = build_scope(simulate=True)
-    scope._camera_driver.profile.exposure_min_us = None
-    scope.imaging._populate_camera_cache()
+    scope.capabilities = dataclasses.replace(
+        scope.capabilities,
+        camera_limits=dataclasses.replace(scope.capabilities.camera_limits, exposure_ms_min=None),
+    )
     return scope
 
 

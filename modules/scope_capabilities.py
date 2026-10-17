@@ -37,6 +37,7 @@ from typing import TYPE_CHECKING, Any
 from drivers.exceptions import HardwareError
 from drivers.null_ledboard import NullLEDBoard
 from lvp_logger import logger
+from modules import common_utils
 from modules.api_surface import api_fields
 
 if TYPE_CHECKING:
@@ -153,12 +154,89 @@ def _resolve_lens_focal_length_mm(motorconfig, optics: dict) -> float | None:
     return None
 
 
+@api_fields('width', 'height')
+@dataclass(frozen=True)
+class FrameSize:
+    """A frame's size, in pixels."""
+
+    width: int
+    height: int
+
+
+@api_fields(
+    'gain_db_min',
+    'gain_db_max',
+    'analog_gain_db_max',
+    'exposure_ms_min',
+    'exposure_ms_max',
+    'frame_min',
+    'frame_max',
+)
+@dataclass(frozen=True)
+class CameraLimits:
+    """The ranges the attached camera takes, read once at connect.
+
+    ``set_gain_db``, ``set_exposure_ms`` and ``set_frame_size`` refuse a
+    value outside them before it reaches the camera. A limit the camera
+    does not declare is None, and that end is not checked.
+
+    ``gain_db_max`` is the most gain the camera applies, digital stage
+    included; ``analog_gain_db_max`` the most before a digital stage, past
+    which the camera multiplies digitised values and the noise with the
+    signal. ``frame_max`` is the largest frame the scope delivers,
+    unbinned: the smallest of the sensor size the camera's profile
+    documents, the maximum the camera reports at connect multiplied back
+    by the binning it reported then, and the model's catalogue
+    ``MaxFrame`` (a lens that images less than the sensor: the LS560's
+    1700), each where it is known. ``set_frame_size`` divides it by the
+    binning in force. ``frame_min`` is the smallest frame the camera
+    reported at connect.
+    """
+
+    gain_db_min: float | None
+    gain_db_max: float | None
+    analog_gain_db_max: float | None
+    exposure_ms_min: float | None
+    exposure_ms_max: float | None
+    frame_min: FrameSize | None
+    frame_max: FrameSize | None
+
+
+def _unbinned(reported: tuple[int, int] | None, binning: object) -> tuple[int, int] | None:
+    """The maximum a camera reported at ``binning``, as the sensor frame it bins.
+
+    A camera reports its maximum at the binning it holds. Without a binning
+    read to multiply it back by (a driver's read failure answers -1), the
+    report is left out rather than taken as the sensor's.
+    """
+    if reported is None:
+        return None
+    if isinstance(binning, bool) or not isinstance(binning, int) or binning < 1:
+        logger.warning(
+            f'[CAPABILITIES] binning read {binning!r} at connect: the maximum frame '
+            f'the camera reported ({reported[0]}x{reported[1]}) is left out'
+        )
+        return None
+    return (reported[0] * binning, reported[1] * binning)
+
+
+def _limit(value: object, valid: Callable[[object], bool]) -> float | None:
+    return float(value) if valid(value) else None
+
+
+def _frame(value: object) -> FrameSize | None:
+    if not common_utils.is_valid_frame_size(value):
+        return None
+    return FrameSize(width=int(value['width']), height=int(value['height']))
+
+
 @api_fields(
     'axes',
     'camera_analog_gain_max_db',
     'camera_binning_sizes',
     'buffer_bit_depth',
     'camera_has_clock_latch',
+    'camera_limits',
     'camera_max_frame_size',
     'camera_max_significant_bits',
     'camera_model',
@@ -263,26 +341,22 @@ class ScopeCapabilities:
     camera_pixel_formats: tuple[str, ...]
     camera_binning_sizes: tuple[int, ...]
 
+    camera_limits: CameraLimits | None
+    """The ranges the attached camera takes, read once at connect; None
+    with no camera connected."""
+
     camera_max_frame_size: tuple[int, int] | None
-    """The largest frame the scope delivers, unbinned, as ``(width, height)``
-    in pixels: the smallest of the sensor size the camera's profile
-    documents, the maximum the camera reports at connect, and the model's
-    catalogue ``MaxFrame`` (a lens that images less than the sensor: the
-    LS560's 1700), each where it is known. The profile stays in the
-    comparison because a camera can report a few rows and columns more than
-    its documented sensor (the LS850T's daA3840 reports 3860 x 2178 against
-    3840 x 2160). None when none of them is known: no camera, or its boot
-    read failed (logged at warning). ``scope.imaging.set_frame_size``
-    refuses a frame above it, divided by the binning in force."""
+    """``camera_limits.frame_max`` as ``(width, height)``, None where it is.
+    The profile stays in that comparison because a camera can report a few
+    rows and columns more than its documented sensor (the LS850T's daA3840
+    reports 3860 x 2178 against 3840 x 2160)."""
 
     camera_analog_gain_max_db: float | None
-    """The most gain, in dB, the camera applies before a digital stage:
-    the analog maximum its profile documents, or, for a camera whose
-    profile states no digital stage, the live maximum it reported at
-    connect (all its gain is analog). Above it the camera multiplies
-    digitised values, which raises the noise with the signal. None when
-    neither is known: no camera, a camera with a digital stage and no
-    documented split, or a maximum the connect read did not get."""
+    """``camera_limits.analog_gain_db_max``: the analog maximum the camera's
+    profile documents, or, for a camera whose profile states no digital
+    stage, its total maximum (all its gain is analog). None when neither
+    is known: no camera, or a camera with a digital stage and no documented
+    split."""
 
     camera_reports_temperature: bool
     """True if the camera has a temperature sensor, probed from its
@@ -422,6 +496,7 @@ class ScopeCapabilities:
         camera_binning_sizes: tuple[int, ...] = ()
         camera_max_frame_size: tuple[int, int] | None = None
         camera_analog_gain_max_db: float | None = None
+        camera_limits: CameraLimits | None = None
         camera_reports_temperature = False
         is_color_native = False
         buffer_bit_depth = 16
@@ -452,9 +527,36 @@ class ScopeCapabilities:
                     camera_analog_gain_max_db = float(gain.total_max_db)
             size = _probe('camera.get_max_frame_size', lambda: camera.get_max_frame_size(), None)
             reported = (int(size['width']), int(size['height'])) if size else None
+            binning = _probe('camera.get_binning_size', lambda: camera.get_binning_size(), None)
             camera_max_frame_size = _smallest_frame(
-                documented, reported, _declared_max_frame(scope_models, model)
+                documented, _unbinned(reported, binning), _declared_max_frame(scope_models, model)
             )
+            if camera.active:
+                camera_limits = CameraLimits(
+                    gain_db_min=_limit(
+                        _probe('camera.min_gain', lambda: camera.min_gain, None),
+                        lambda v: isinstance(v, (int, float)) and not isinstance(v, bool),
+                    ),
+                    gain_db_max=_limit(
+                        _probe('camera.get_max_gain', lambda: camera.get_max_gain(), None),
+                        lambda v: isinstance(v, (int, float)) and v > 0,
+                    ),
+                    analog_gain_db_max=camera_analog_gain_max_db,
+                    exposure_ms_min=_limit(
+                        _probe('camera.get_min_exposure', lambda: camera.get_min_exposure(), None),
+                        common_utils.is_valid_exposure_ms,
+                    ),
+                    exposure_ms_max=_limit(
+                        _probe('camera.get_max_exposure', lambda: camera.get_max_exposure(), None),
+                        common_utils.is_valid_exposure_ms,
+                    ),
+                    frame_min=_frame(
+                        _probe(
+                            'camera.get_min_frame_size', lambda: camera.get_min_frame_size(), None
+                        )
+                    ),
+                    frame_max=FrameSize(*camera_max_frame_size) if camera_max_frame_size else None,
+                )
             is_color_native = bool(getattr(camera, 'is_color_native', False))
             buffer_bit_depth = int(getattr(camera, 'native_bit_depth', 16))
             if camera_pixel_formats:
@@ -517,6 +619,7 @@ class ScopeCapabilities:
             camera_supports_auto_exposure=camera_supports_auto_exposure,
             camera_pixel_formats=camera_pixel_formats,
             camera_binning_sizes=camera_binning_sizes,
+            camera_limits=camera_limits,
             camera_max_frame_size=camera_max_frame_size,
             camera_analog_gain_max_db=camera_analog_gain_max_db,
             camera_reports_temperature=camera_reports_temperature,

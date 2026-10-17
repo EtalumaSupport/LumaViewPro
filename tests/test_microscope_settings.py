@@ -25,64 +25,6 @@ from unittest.mock import MagicMock
 import pytest
 
 from modules.config_helpers import DEFAULT_MAX_EXPOSURE_MS, camera_max_exposure_for_ui
-from tests.scope_fakes import build_scope
-
-
-class TestCameraMaxExposureContract:
-    """Pin the ImagingAPI.max_exposure_ms_cached no-camera contract.
-
-    The contract is: the property returns None when no camera is
-    connected or the cache has not been populated with a real value.
-    load_settings relies on `value or DEFAULT_MAX_EXPOSURE_MS` for the
-    fallback, so anything falsy (None, 0, 0.0) is equivalent from the
-    caller's perspective -- but None is the intended sentinel.
-    """
-
-    def test_inactive_camera_yields_none_max_exposure(self):
-        """Forcing camera cache to inactive must leave max_exposure None."""
-
-        scope = build_scope(simulate=True)
-        # Simulator connects an active camera by default. Force the exact
-        # no-camera state that load_settings sees on a real missing camera.
-        with scope.imaging._camera_cache_lock:
-            scope.imaging._camera_cache['active'] = False
-            scope.imaging._camera_cache['max_exposure_ms'] = None
-
-        assert scope.imaging.max_exposure_ms_cached is None
-
-    def test_zero_in_cache_yields_none_max_exposure(self):
-        """Legacy 0.0 in cache (driver returned 0) is coerced to None.
-
-        Belt-and-suspenders: even if something writes 0.0 into the cache,
-        the property still returns None so callers see a consistent
-        "camera missing" signal.
-        """
-
-        scope = build_scope(simulate=True)
-        with scope.imaging._camera_cache_lock:
-            scope.imaging._camera_cache['max_exposure_ms'] = 0.0
-
-        assert scope.imaging.max_exposure_ms_cached is None
-
-    def test_populated_value_passes_through(self):
-        """A real positive value in the cache is returned as float."""
-
-        scope = build_scope(simulate=True)
-        with scope.imaging._camera_cache_lock:
-            scope.imaging._camera_cache['max_exposure_ms'] = 500.0
-
-        assert scope.imaging.max_exposure_ms_cached == 500.0
-        assert isinstance(scope.imaging.max_exposure_ms_cached, float)
-
-    def test_integer_in_cache_is_coerced_to_float(self):
-        """Integer from a driver is returned as float for caller consistency."""
-
-        scope = build_scope(simulate=True)
-        with scope.imaging._camera_cache_lock:
-            scope.imaging._camera_cache['max_exposure_ms'] = 750
-
-        assert scope.imaging.max_exposure_ms_cached == 750.0
-        assert isinstance(scope.imaging.max_exposure_ms_cached, float)
 
 
 class TestTheSliderRangeWithNoCamera:

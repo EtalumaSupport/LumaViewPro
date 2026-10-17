@@ -129,6 +129,8 @@ class TestCapabilityMapping:
         camera = SimpleNamespace(
             model_name=model_name,
             device_serial=None,
+            active=None,
+            get_binning_size=lambda: 1,
             timestamp_tick_frequency_hz=None,
             profile=lookup_profile(model_name),
             get_max_frame_size=lambda: {'width': 1024, 'height': 768},

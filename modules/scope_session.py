@@ -4465,9 +4465,10 @@ class ScopeSession:
         else:
             factor = binning.binning_size_str_to_int(self.settings['binning']['size'])
             displayed = {'width': int(frame['width']), 'height': int(frame['height'])}
-            maximum = self.scope.capabilities.camera_max_frame_size
+            limits = self.scope.capabilities.camera_limits
+            maximum = limits.frame_max if limits else None
             cap = (
-                {'width': maximum[0], 'height': maximum[1]}
+                {'width': maximum.width, 'height': maximum.height}
                 if maximum
                 else {
                     'width': displayed['width'] * factor,
@@ -4494,11 +4495,12 @@ class ScopeSession:
         """
         imaging = self.scope.imaging
         target = binning.native_to_displayed(native, factor, imaging.get_pixel_alignment())
-        minimum = imaging.min_frame_size_cached
+        limits = self.scope.capabilities.camera_limits
+        minimum = limits.frame_min if limits else None
         if minimum is not None:
             target = {
-                'width': max(target['width'], minimum['width']),
-                'height': max(target['height'], minimum['height']),
+                'width': max(target['width'], minimum.width),
+                'height': max(target['height'], minimum.height),
             }
         return target
 

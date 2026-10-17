@@ -18,6 +18,7 @@ from __future__ import annotations
 import pytest
 
 from modules.exceptions import ProtocolRunRefusedError
+from tests.scope_fakes import set_camera_limits
 from tests.test_a_protocol_needs_its_objectives_on_the_turret import _prepare
 from tests.test_protocol_execution import (  # noqa: F401 -- pytest fixtures
     _make_multi_step_protocol,
@@ -54,10 +55,10 @@ def test_a_gain_above_the_camera_maximum_is_refused_naming_the_step(executor, sc
     assert f'{maximum:g}' in message
 
 
-def test_a_gain_below_the_camera_minimum_is_refused(executor, scope, tmp_path):
+def test_a_gain_below_the_camera_minimum_is_refused(executor, scope, tmp_path, monkeypatch):
     """Protocol validation already refuses a negative gain, so the floor that
     matters here is a camera's above 0 dB."""
-    scope.imaging._commit_camera_writes({'min_gain_db': 2.0})
+    set_camera_limits(monkeypatch, scope, gain_db_min=2.0)
     with pytest.raises(ProtocolRunRefusedError) as refusal:
         _prepare(executor, _steps(gain_db=1.0), tmp_path)
 
@@ -75,9 +76,8 @@ def test_values_in_range_are_admitted(executor, scope, tmp_path):
     _prepare(executor, _steps(gain_db=scope.imaging.max_gain_db_cached, exposure_ms=10.0), tmp_path)
 
 
-def test_an_undeclared_floor_is_not_checked(executor, scope, tmp_path):
+def test_an_undeclared_floor_is_not_checked(executor, scope, tmp_path, monkeypatch):
     """A camera that declares no exposure floor: a tiny exposure is the
     camera's to take or refuse, not the run's to refuse."""
-    scope._camera_driver.profile.exposure_min_us = None
-    scope.imaging._populate_camera_cache()
+    set_camera_limits(monkeypatch, scope, exposure_ms_min=None)
     _prepare(executor, _steps(exposure_ms=0.001), tmp_path)

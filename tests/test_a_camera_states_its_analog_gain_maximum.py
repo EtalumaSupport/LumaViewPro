@@ -23,6 +23,8 @@ def _capabilities(profile):
     camera = SimpleNamespace(
         model_name='STUB',
         device_serial=None,
+        active=None,
+        get_binning_size=lambda: 1,
         timestamp_tick_frequency_hz=None,
         profile=profile,
         get_max_frame_size=lambda: None,

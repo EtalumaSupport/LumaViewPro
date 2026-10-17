@@ -44,7 +44,7 @@ from modules.lumascope_api import Lumascope
 from modules.lumascope_api.imaging import ImagingAPI
 from modules.notification_center import Severity
 from tests.camera_fakes import bare_pylon_camera
-from tests.scope_fakes import give_stub_lanes
+from tests.scope_fakes import give_camera_capabilities, give_stub_lanes
 
 # Every GenICam class a refused SetValue can arrive as that is NOT a
 # RuntimeException subclass, and therefore reaches the bare handler with the
@@ -89,6 +89,7 @@ def pylon_imaging(pylon_cam):
     scope = Lumascope.__new__(Lumascope)
     scope._camera_driver = pylon_cam
     give_stub_lanes(scope)
+    give_camera_capabilities(scope, pylon_cam)
     scope._cam_lock = threading.RLock()
     scope._state_lock = threading.RLock()
     imaging = ImagingAPI(scope, pylon_cam)

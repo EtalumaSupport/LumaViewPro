@@ -18,6 +18,7 @@ are pinned with AST guards, matching the other ui/ guards in this suite.
 """
 
 import ast
+import dataclasses
 import pathlib
 import threading
 
@@ -26,7 +27,7 @@ import pytest
 from drivers.simulated_camera import SimulatedCamera
 from modules.lumascope_api._lumascope import Lumascope
 from modules.lumascope_api.imaging import AppliedCameraSetting, ImagingAPI, cap_stored_value
-from tests.scope_fakes import give_stub_lanes
+from tests.scope_fakes import give_camera_capabilities, give_stub_lanes
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 IMAGE_SETTINGS_PATH = REPO_ROOT / 'ui' / 'image_settings.py'
@@ -50,13 +51,17 @@ def imaging():
     scope = Lumascope.__new__(Lumascope)
     scope._camera_driver = cam
     give_stub_lanes(scope)
+    give_camera_capabilities(scope, cam)
+    scope.capabilities = dataclasses.replace(
+        scope.capabilities,
+        camera_limits=dataclasses.replace(
+            scope.capabilities.camera_limits, gain_db_max=20.0, exposure_ms_max=200.0
+        ),
+    )
     scope._cam_lock = threading.RLock()
     scope._state_lock = threading.RLock()
     api = ImagingAPI(scope, cam)
     scope.imaging = api
-    with api._camera_cache_lock:
-        api._camera_cache['max_gain_db'] = 20.0
-        api._camera_cache['max_exposure_ms'] = 200.0
     return api
 
 

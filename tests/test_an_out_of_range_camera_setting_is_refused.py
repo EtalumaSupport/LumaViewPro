@@ -20,7 +20,7 @@ from drivers.simulated_camera import SimulatedCamera
 from modules.exceptions import CameraSettingOutOfRangeError, CameraSettingRejected, Refusal
 from modules.lumascope_api import Lumascope
 from modules.lumascope_api.imaging import ImagingAPI
-from tests.scope_fakes import give_stub_lanes
+from tests.scope_fakes import give_camera_capabilities, give_stub_lanes, set_camera_limits
 
 
 @pytest.fixture
@@ -31,6 +31,7 @@ def sim_imaging():
     scope = Lumascope.__new__(Lumascope)
     scope._camera_driver = cam
     give_stub_lanes(scope)
+    give_camera_capabilities(scope, cam)
     scope._cam_lock = threading.RLock()
     scope._state_lock = threading.RLock()
     imaging = ImagingAPI(scope, cam)
@@ -65,9 +66,9 @@ def test_a_gain_above_the_maximum_is_refused_naming_the_range(sim_imaging, monke
     assert imaging.frame_validity.target('gain') == 3.0
 
 
-def test_a_gain_below_a_declared_floor_is_refused(sim_imaging):
+def test_a_gain_below_a_declared_floor_is_refused(sim_imaging, monkeypatch):
     imaging, _cam = sim_imaging
-    imaging._commit_camera_writes({'min_gain_db': 2.0})
+    set_camera_limits(monkeypatch, imaging._scope, gain_db_min=2.0)
 
     with pytest.raises(CameraSettingOutOfRangeError) as excinfo:
         imaging.set_gain_db(1.0)
@@ -88,11 +89,9 @@ def test_an_exposure_above_the_maximum_is_refused(sim_imaging):
     assert f'{minimum:g} to {maximum:g} ms' in str(excinfo.value)
 
 
-def test_an_undeclared_floor_is_not_checked(sim_imaging):
-    imaging, cam = sim_imaging
-    cam.profile.exposure_min_us = None  # a camera that declares no floor
-    imaging._populate_camera_cache()
-    assert imaging.min_exposure_ms_cached is None
+def test_an_undeclared_floor_is_not_checked(sim_imaging, monkeypatch):
+    imaging, _cam = sim_imaging
+    set_camera_limits(monkeypatch, imaging._scope, exposure_ms_min=None)
 
     imaging.set_exposure_ms(0.001)
 

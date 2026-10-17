@@ -71,13 +71,6 @@ _NO_CAMERA_CACHE = {
     'gain_db': -1.0,
     'exposure_ms': 0.0,
     'frame_size': {'width': 0, 'height': 0},
-    'min_frame_size': {'width': 0, 'height': 0},
-    'max_exposure_ms': 0.0,
-    'max_gain_db': 0.0,
-    # The floors are None until a camera declares one, and stay None
-    # when it declares none: a missing floor is not a floor of zero.
-    'min_exposure_ms': None,
-    'min_gain_db': None,
     'pixel_format': None,
     'binning': 1,
 }
@@ -897,9 +890,9 @@ class ImagingAPI:
         validated-read commit the public getters answer by, so a failed or
         sentinel read never overwrites a cached last-known-good value,
         one raising key cannot abort the rest of the round, and populate
-        cannot drift from the getters' validation rules. The direct
-        _live_validated_read calls cover the keys with no public getter
-        (sensor minimum, exposure/gain ceilings).
+        cannot drift from the getters' validation rules. The camera's
+        limits are not here: they are ``capabilities.camera_limits``, read
+        once at connect.
         """
         if not self._driver or not self._driver.active:
             with self._camera_cache_lock:
@@ -912,39 +905,6 @@ class ImagingAPI:
             self.get_exposure_ms()
             self._get_frame_size()
             self._get_pixel_format()
-            self._live_validated_read(
-                'min_frame_size',
-                lambda driver: driver.get_min_frame_size(),
-                common_utils.is_valid_frame_size,
-                lambda v: {'width': int(v['width']), 'height': int(v['height'])},
-            )
-            self._live_validated_read(
-                'max_exposure_ms',
-                lambda driver: driver.get_max_exposure(),
-                common_utils.is_valid_exposure_ms,
-                float,
-            )
-            self._live_validated_read(
-                'max_gain_db',
-                lambda driver: driver.get_max_gain(),
-                lambda v: isinstance(v, (int, float)) and v > 0,
-                float,
-            )
-            # Committed as read, None included, rather than through the
-            # validated read: an undeclared floor is an answer, not a failed
-            # read, and it must replace a previous camera's floor.
-            min_gain = self._driver.min_gain
-            min_exposure = self._driver.get_min_exposure()
-            self._commit_camera_writes(
-                {
-                    'min_gain_db': float(min_gain) if min_gain is not None else None,
-                    'min_exposure_ms': (
-                        float(min_exposure)
-                        if common_utils.is_valid_exposure_ms(min_exposure)
-                        else None
-                    ),
-                }
-            )
             with self._camera_cache_lock:
                 self._camera_cache['active'] = True
             logger.info('[SCOPE API ] Camera cache populated')
@@ -1681,11 +1641,15 @@ class ImagingAPI:
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera, with none connected or one removed during the write.
         """
+        # The range is the connected camera's: with none, or the scope
+        # disconnected, that is the answer, not a range it no longer has.
+        self.refuse_camera_not_connected('set_gain_db')
+        limits = self._scope.capabilities.camera_limits
         self._refuse_out_of_range(
             'gain_db',
             gain_db,
-            self.min_gain_db_cached,
-            self.max_gain_db_cached,
+            limits.gain_db_min if limits else None,
+            limits.gain_db_max if limits else None,
             noun='gain',
             unit='dB',
         )
@@ -1722,11 +1686,15 @@ class ImagingAPI:
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera, with none connected or one removed during the write.
         """
+        # The range is the connected camera's: with none, or the scope
+        # disconnected, that is the answer, not a range it no longer has.
+        self.refuse_camera_not_connected('set_exposure_ms')
+        limits = self._scope.capabilities.camera_limits
         self._refuse_out_of_range(
             'exposure_ms',
             exposure_ms,
-            self.min_exposure_ms_cached,
-            self.max_exposure_ms_cached,
+            limits.exposure_ms_min if limits else None,
+            limits.exposure_ms_max if limits else None,
             noun='exposure',
             unit='ms',
         )
@@ -2153,22 +2121,26 @@ class ImagingAPI:
             CameraSettingOutOfRangeError: A width or height below the
                 camera's minimum frame, or above the scope's maximum at the
                 current binning: the sensor, or the model's smaller maximum
-                (``capabilities.camera_max_frame_size``). Nothing reaches the
+                (``capabilities.camera_limits.frame_max``). Nothing reaches the
                 camera; an undeclared end is not checked.
             HardwareCommandRefusedError: A recording holds the scope: its
                 frames are fitted to the geometry it started with.
                 ``'not_connected'``, naming the camera, with none connected
                 or one removed during the write.
         """
-        minimum = self.min_frame_size_cached
-        maximum = self._max_frame_unbinned()
+        # The range is the connected camera's: with none, or the scope
+        # disconnected, that is the answer, not a range it no longer has.
+        self.refuse_camera_not_connected('set_frame_size')
+        limits = self._scope.capabilities.camera_limits
+        minimum = limits.frame_min if limits else None
+        maximum = limits.frame_max if limits else None
         factor = self._binning_size
         for axis, value in (('width', w), ('height', h)):
             self._refuse_out_of_range(
                 f'frame_{axis}',
                 value,
-                minimum[axis] if minimum else None,
-                maximum[axis] // factor if maximum else None,
+                getattr(minimum, axis) if minimum else None,
+                getattr(maximum, axis) // factor if maximum else None,
                 noun=f'frame {axis}',
                 unit='px',
             )
@@ -2182,12 +2154,13 @@ class ImagingAPI:
 
     def _max_frame_unbinned(self) -> dict | None:
         """The largest frame the scope delivers, unbinned
-        (``capabilities.camera_max_frame_size``), or None when it is unknown.
+        (``capabilities.camera_limits.frame_max``), or None when it is unknown.
         """
-        size = self._scope.capabilities.camera_max_frame_size
+        limits = self._scope.capabilities.camera_limits
+        size = limits.frame_max if limits else None
         if size is None:
             return None
-        return {'width': size[0], 'height': size[1]}
+        return {'width': size.width, 'height': size.height}
 
     def _set_frame_size_impl(self, w: int, h: int) -> dict | None:
         """Set the camera frame size in pixels.
@@ -4563,7 +4536,10 @@ class ImagingAPI:
         if arm is None:
             return self.exposure_ms_cached
         ceiling = arm.settings.get('max_exposure_ms')
-        return float(ceiling) if ceiling else self.max_exposure_ms_cached
+        if ceiling:
+            return float(ceiling)
+        limits = self._scope.capabilities.camera_limits
+        return limits.exposure_ms_max if limits else None
 
     @api
     @property
@@ -4590,79 +4566,49 @@ class ImagingAPI:
     @api
     @property
     def min_frame_size_cached(self) -> dict | None:
-        """Minimum camera frame size, or None if no camera is connected.
-
-        Returns None (not a zero-sized dict) so callers can distinguish
-        "camera missing" from a real driver value -- the same contract as
-        its siblings max_exposure_ms_cached and max_gain_db_cached.
-
-        Returns:
-            dict | None: Copy of the cached min frame size dict, or None
-                if unavailable.
+        """``capabilities.camera_limits.frame_min`` as ``{'width', 'height'}``,
+        or None when it is unknown or no camera is connected.
         """
-        with self._camera_cache_lock:
-            value = dict(self._camera_cache['min_frame_size'])
-        if value.get('width', 0) <= 0 or value.get('height', 0) <= 0:
+        limits = self._scope.capabilities.camera_limits
+        if limits is None or limits.frame_min is None:
             return None
-        return value
+        return {'width': limits.frame_min.width, 'height': limits.frame_min.height}
 
     @api
     @property
     def max_exposure_ms_cached(self) -> float | None:
-        """Maximum camera exposure time in ms, or None if no camera is connected.
-
-        Returns None (not a sentinel 0.0) so callers can distinguish
-        "camera missing" from a real driver value. See #616.
-
-        Returns:
-            float | None: Max exposure time in ms, or None if unavailable.
+        """``capabilities.camera_limits.exposure_ms_max``, or None when it is
+        unknown or no camera is connected.
         """
-        with self._camera_cache_lock:
-            value = self._camera_cache.get('max_exposure_ms')
-        if not value or value <= 0:
-            return None
-        return float(value)
+        limits = self._scope.capabilities.camera_limits
+        return limits.exposure_ms_max if limits else None
 
     @api
     @property
     def max_gain_db_cached(self) -> float | None:
-        """Maximum camera gain in dB, or None if no camera is connected.
-
-        Parallel to max_exposure_ms_cached -- lets the UI size the gain
-        slider to the connected camera's profile-declared cap instead
-        of a universal hardcoded 48 dB that can drive the image past
-        the sensor's usable range (observed on LS620 2026-04-16).
-
-        Returns:
-            float | None: Max gain in dB, or None if unavailable.
+        """``capabilities.camera_limits.gain_db_max``, or None when it is
+        unknown or no camera is connected.
         """
-        with self._camera_cache_lock:
-            value = self._camera_cache.get('max_gain_db')
-        if value is None or value <= 0:
-            return None
-        return float(value)
+        limits = self._scope.capabilities.camera_limits
+        return limits.gain_db_max if limits else None
 
     @api
     @property
     def min_gain_db_cached(self) -> float | None:
-        """Minimum camera gain in dB, or None when the camera declares none.
-
-        Unlike the maximum there is no stand-in: None is the answer for a
-        camera whose profile has no floor, and a caller checking a request
-        against the range does not check that end.
+        """``capabilities.camera_limits.gain_db_min``, or None when the camera
+        declares none or no camera is connected: a missing floor is not a
+        floor of zero.
         """
-        with self._camera_cache_lock:
-            value = self._camera_cache.get('min_gain_db')
-        return None if value is None else float(value)
+        limits = self._scope.capabilities.camera_limits
+        return limits.gain_db_min if limits else None
 
     @api
     @property
     def min_exposure_ms_cached(self) -> float | None:
-        """Minimum camera exposure in ms, or None when the camera declares
-        none. See ``min_gain_db_cached``."""
-        with self._camera_cache_lock:
-            value = self._camera_cache.get('min_exposure_ms')
-        return None if value is None else float(value)
+        """``capabilities.camera_limits.exposure_ms_min``, or None when the
+        camera declares none or no camera is connected."""
+        limits = self._scope.capabilities.camera_limits
+        return limits.exposure_ms_min if limits else None
 
     @api(reads=True)
     def applied_gain_db_for(self, stored_gain_db: float) -> AppliedCameraSetting:
@@ -4678,7 +4624,8 @@ class ImagingAPI:
                 finite number.
         """
         refuse_unless_finite_number(stored_gain_db, 'stored_gain_db')
-        return cap_stored_value(stored_gain_db, self.max_gain_db_cached)
+        limits = self._scope.capabilities.camera_limits
+        return cap_stored_value(stored_gain_db, limits.gain_db_max if limits else None)
 
     @api(reads=True)
     def applied_exposure_ms_for(self, stored_exposure_ms: float) -> AppliedCameraSetting:
@@ -4692,7 +4639,8 @@ class ImagingAPI:
                 finite number.
         """
         refuse_unless_finite_number(stored_exposure_ms, 'stored_exposure_ms')
-        return cap_stored_value(stored_exposure_ms, self.max_exposure_ms_cached)
+        limits = self._scope.capabilities.camera_limits
+        return cap_stored_value(stored_exposure_ms, limits.exposure_ms_max if limits else None)
 
     @api(reads=True)
     def applied_auto_gain_for(self, stored_auto_gain: bool) -> AppliedCameraSetting:

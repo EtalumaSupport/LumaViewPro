@@ -1208,15 +1208,21 @@ class ProtocolsAPI:
                 camera's range. It has been logged and shown before it is
                 raised.
         """
-        imaging = self._scope.imaging
+        limits = self._scope.capabilities.camera_limits
         checks = (
-            ('Gain', 'gain', 'dB', imaging.min_gain_db_cached, imaging.max_gain_db_cached),
+            (
+                'Gain',
+                'gain',
+                'dB',
+                limits.gain_db_min if limits else None,
+                limits.gain_db_max if limits else None,
+            ),
             (
                 'Exposure',
                 'exposure',
                 'ms',
-                imaging.min_exposure_ms_cached,
-                imaging.max_exposure_ms_cached,
+                limits.exposure_ms_min if limits else None,
+                limits.exposure_ms_max if limits else None,
             ),
         )
         problems = []

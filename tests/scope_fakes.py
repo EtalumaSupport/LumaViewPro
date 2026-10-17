@@ -215,6 +215,23 @@ def give_camera_capabilities(scope, camera):
     return scope
 
 
+def set_camera_limits(monkeypatch, scope, **limits):
+    """Give ``scope`` a camera whose limits differ from its camera's by ``limits``.
+
+    ``capabilities.camera_limits`` is read once at connect, so a test that
+    needs a camera declaring another range (a floor above 0 dB, no floor at
+    all) states it here; the test's end restores the scope's own. Returns
+    the new limits.
+    """
+    import dataclasses
+
+    changed = dataclasses.replace(scope.capabilities.camera_limits, **limits)
+    monkeypatch.setattr(
+        scope, 'capabilities', dataclasses.replace(scope.capabilities, camera_limits=changed)
+    )
+    return changed
+
+
 def swap_lanes(scope, *, io=None, camera=None):
     """Put a test's own lane in place of a scope's: the one sanctioned lane seam.
 

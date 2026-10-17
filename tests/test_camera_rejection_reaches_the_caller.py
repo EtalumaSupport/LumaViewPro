@@ -29,7 +29,7 @@ from modules.exceptions import CameraSettingRejected, HardwareCommandRefusedErro
 from modules.lumascope_api import Lumascope
 from modules.lumascope_api.imaging import ImagingAPI
 from modules.notification_center import Severity
-from tests.scope_fakes import give_stub_lanes
+from tests.scope_fakes import give_camera_capabilities, give_stub_lanes
 
 
 @pytest.fixture
@@ -40,6 +40,7 @@ def sim_imaging():
     scope = Lumascope.__new__(Lumascope)
     scope._camera_driver = cam
     give_stub_lanes(scope)
+    give_camera_capabilities(scope, cam)
     scope._cam_lock = threading.RLock()
     scope._state_lock = threading.RLock()
     imaging = ImagingAPI(scope, cam)
