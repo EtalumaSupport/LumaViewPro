@@ -83,6 +83,7 @@ from modules.lumascope_api.bring_up import (
     PartStatus,
     Substitution,
 )
+from modules.fx2_driver_step import repair_refusal
 from modules.path_utils import get_source_root, read_installation_file, resolve_data_file
 from modules.scope_capabilities import ScopeCapabilities
 from modules.activity_claim import ActivityClaim
@@ -1326,8 +1327,6 @@ class Lumascope:
         if camera.up:
             reported = failure
         else:
-            from modules.fx2_driver_step import repair_refusal  # local-import: Windows-only use
-
             reported = CameraNotAvailableError(
                 camera.cause,
                 repairable=camera.cause == 'camera_driver_unusable' and repair_refusal() is None,

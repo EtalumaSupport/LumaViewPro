@@ -340,8 +340,9 @@ def run_as_administrator(executable: pathlib.Path, argument: str, wait_s: float)
             given.
 
     Raises:
-        CameraDriverRepairFailedError: Windows could not start it, or it did
-            not finish within ``wait_s``.
+        CameraDriverRepairFailedError: Windows could not start it, it did not
+            finish within ``wait_s``, or the wait or its exit code could not
+            be read.
     """
     import ctypes
     from ctypes import wintypes
@@ -370,6 +371,7 @@ def run_as_administrator(executable: pathlib.Path, argument: str, wait_s: float)
     sw_hide = 0
     error_cancelled = 1223
     wait_object_0 = 0
+    wait_timeout = 0x102
 
     shell32 = ctypes.WinDLL('shell32', use_last_error=True)
     kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
@@ -400,10 +402,19 @@ def run_as_administrator(executable: pathlib.Path, argument: str, wait_s: float)
         raise CameraDriverRepairFailedError(
             f'Windows could not start {executable.name} (error {code})', logs
         )
+    if not info.hProcess:
+        raise CameraDriverRepairFailedError(
+            f'Windows started {executable.name} with no process to wait on', logs
+        )
     try:
-        if kernel32.WaitForSingleObject(info.hProcess, int(wait_s * 1000)) != wait_object_0:
+        waited = kernel32.WaitForSingleObject(info.hProcess, int(wait_s * 1000))
+        if waited == wait_timeout:
             raise CameraDriverRepairFailedError(
                 f'{executable.name} did not finish within {wait_s:.0f} s', logs
+            )
+        if waited != wait_object_0:
+            raise CameraDriverRepairFailedError(
+                f'waiting for {executable.name} failed (error {ctypes.get_last_error()})', logs
             )
         exit_code = wintypes.DWORD()
         if not kernel32.GetExitCodeProcess(info.hProcess, ctypes.byref(exit_code)):

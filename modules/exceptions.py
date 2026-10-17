@@ -966,7 +966,8 @@ class CameraDriverRepairRefusedError(Refusal, Exception):
         reason: ``'repair_needs_windows'``, ``'repair_needs_installed_build'``
             (a source run or a build run from ``dist``), ``'repair_declined'``
             (the administrator's prompt was not approved) or
-            ``'driver_already_usable'``.
+            ``'driver_already_usable'`` (a camera is up, or every present
+            device is on a driver LumaViewPro can use).
     """
 
     title = 'Camera Driver Not Repaired'
@@ -994,8 +995,8 @@ class CameraDriverRepairRefusedError(Refusal, Exception):
             "administrator's password), or run the LumaViewPro installer as an administrator."
         ),
         'driver_already_usable': (
-            "The camera's USB devices are already on drivers LumaViewPro can use; there is "
-            'nothing to repair.'
+            'The camera is up, or its USB devices are already on drivers LumaViewPro can use; '
+            'there is nothing to repair.'
         ),
     }
 

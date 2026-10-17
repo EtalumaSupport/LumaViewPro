@@ -1477,10 +1477,10 @@ class ScopeSession:
         It runs the installed driver step as an administrator: Windows asks
         once, on the scope PC's desktop, so someone at the scope approves it
         whoever asked. The step logs every action to the install folder's
-        ``logs``. The camera already up is never touched: Repair runs only
-        while a present device is on a driver LumaViewPro cannot use, and
-        the camera connects on its new driver at the next start, which the
-        notice it reports says.
+        ``logs``. A camera that is up is never touched: Repair runs only
+        while no camera is connected and a present device is on a driver
+        LumaViewPro cannot use, and the camera connects on its new driver at
+        the next start, which the notice it reports says.
 
         Returns:
             tuple[UsbIdentityBindings, ...]: The bindings read after the
@@ -1489,8 +1489,10 @@ class ScopeSession:
         Raises:
             CameraDriverRepairRefusedError: ``'repair_needs_windows'``,
                 ``'repair_needs_installed_build'``,
-                ``'driver_already_usable'``, or ``'repair_declined'`` when
-                the administrator's approval was not given.
+                ``'driver_already_usable'`` (a camera is up, or every present
+                device is on a driver LumaViewPro can use), or
+                ``'repair_declined'`` when the administrator's approval was not
+                given.
             CameraDriverRepairFailedError: The step could not start, did not
                 finish, ended unsuccessfully, or left a present device on a
                 driver LumaViewPro cannot use; the words name its log.
@@ -1503,7 +1505,13 @@ class ScopeSession:
         reason = fx2_driver_step.repair_refusal()
         if reason is not None:
             raise CameraDriverRepairRefusedError(reason)
-        if all(identity.usable for identity in self.scope.diagnostics.get_camera_usb_bindings()):
+        # A camera that is up is on a driver that works, and the step
+        # reinstalls every present device, so it would be pulled from under
+        # whatever is using it; an unbound bootloader identity beside it is
+        # another vendor's board, not ours to take.
+        if self.scope.camera_connected or all(
+            identity.usable for identity in self.scope.diagnostics.get_camera_usb_bindings()
+        ):
             raise CameraDriverRepairRefusedError('driver_already_usable')
         step = launch_root() / fx2_driver_step.DRIVER_STEP_EXE
         exit_code = fx2_driver_step.run_as_administrator(
