@@ -69,7 +69,8 @@ Firmware-only (doc_status family):
                 is BLOCKED (a prepend that truncated the file)
     handover_shape -- a live docs/SESSION_HANDOVER_*.md gains no heading
                 outside Branch tips / Next / Rulings, and a new one has
-                all three (WARN, diff-aware)
+                Branch tips and Next, Rulings only when there is one
+                (WARN, diff-aware)
 
 Severities: 'block' fails the commit (exit 1); 'warn' prints to stderr
 but does not affect exit code.
@@ -1086,6 +1087,11 @@ _HEADING_RE = re.compile(r'^#{2,} +(.+?)\s*$')
 # Mirrors the H2 lines of the handover block in the handover-close skill's
 # references/templates.md; a rename lands in both or every next close WARNs.
 _HANDOVER_SECTIONS = ('Branch tips', 'Next', 'Rulings')
+# Rulings holds only a ruling the next session must obey that has no other
+# home yet, so most closes have none and the section is absent (Eric,
+# 2026-10-16: "i never told you to put rulings in there, unless they are
+# critical"); the other two every handover has.
+_HANDOVER_REQUIRED = ('Branch tips', 'Next')
 
 
 def _is_handover(path: str) -> bool:
@@ -1097,13 +1103,13 @@ def _is_handover(path: str) -> bool:
 
 def _check_handover_shape(content: str, path: str, added: set[int] | None) -> list[Violation]:
     """WARN when a handover gains a heading outside its closed shape, or a
-    new handover arrives without one of the three.
+    new handover arrives without Branch tips or Next.
 
     The handover's length lives in sections the writer adds beside the
     template's ("the three facts a builder will rediscover", "what was
     established"), not in the template's own sections, so the shape is
-    closed: the plan paragraph under the H1, then exactly Branch tips /
-    Next / Rulings, and nothing deeper. Diff-aware:
+    closed: the plan paragraph under the H1, then Branch tips / Next,
+    Rulings only when there is one, and nothing deeper. Diff-aware:
     only an ADDED heading line fires, so an old handover left as written
     stays silent; a missing section is reported only when every line of
     the file is added (a new handover), for the same reason. WARN, not
@@ -1134,7 +1140,7 @@ def _check_handover_shape(content: str, path: str, added: set[int] | None) -> li
             )
     if added >= set(range(1, len(lines) + 1)):
         present = {m.group(1) for m in map(_HEADING_RE.match, lines) if m}
-        for name in _HANDOVER_SECTIONS:
+        for name in _HANDOVER_REQUIRED:
             if name not in present:
                 violations.append(
                     Violation(
