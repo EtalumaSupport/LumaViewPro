@@ -99,9 +99,11 @@ _REASON_UNNAMED_PINNED = frozenset(
 # scope's copy that bring-up refuses for it (Eric, 2026-10-13); 166 since
 # IlluminationAPI.restore_led_state states the lease's refusal; 169 since
 # ScopeSession.shown_channel and its listener pair, a read and an add and
-# remove that raise nothing (Eric, 2026-10-13); the count does not yet tell
-# a member that raises nothing from one that has not said.
-_WITHOUT_A_SECTION_CEILING = 159
+# remove that raise nothing (Eric, 2026-10-13); 160 since
+# MotionAPI.get_target_positions, a read of the axes the scope has that
+# raises nothing (Eric, 2026-10-17); the count does not yet tell a member
+# that raises nothing from one that has not said.
+_WITHOUT_A_SECTION_CEILING = 160
 
 
 def _sections():

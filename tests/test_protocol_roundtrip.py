@@ -2189,13 +2189,6 @@ class TestLumascapeAPIMotor:
         pos = scope.motion.get_target_position('Z')
         assert pos == pytest.approx(5000.0, abs=1.0)
 
-    def test_all_axes_have_target(self, scope):
-        """All axes return a position (even if 0)."""
-        positions = scope.motion.get_target_position(axis=None)
-        assert isinstance(positions, dict)
-        for ax in ('X', 'Y', 'Z'):
-            assert ax in positions
-
 
 class TestLumascapeAPICamera:
     """Direct tests on Lumascope camera API with simulated hardware."""

@@ -116,9 +116,9 @@ class TestPositionAccessorsCacheOnly:
         """LV-45 invariant: get_target_position('Z') is cache-only."""
         scope_with_io_traps.motion.get_target_position('Z')
 
-    def test_get_target_position_all_axes_no_io(self, scope_with_io_traps):
-        """get_target_position(None) returns a dict snapshot -- cache-only."""
-        result = scope_with_io_traps.motion.get_target_position()
+    def test_get_target_positions_no_io(self, scope_with_io_traps):
+        """get_target_positions returns a dict snapshot -- cache-only."""
+        result = scope_with_io_traps.motion.get_target_positions()
         assert isinstance(result, dict)
 
     def test_get_current_position_single_axis_no_io(self, scope_with_io_traps):

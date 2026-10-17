@@ -63,7 +63,7 @@ def _refused(call, reason):
 def _motion_state(scope):
     motion = scope.motion
     states = {axis: motion.get_axis_state(axis) for axis in EVERY_AXIS}
-    return states, motion.get_target_position(), motion.get_turret_slot()
+    return states, motion.get_target_positions(), motion.get_turret_slot()
 
 
 NO_AXIS = [(member, name) for member in AXIS_MEMBERS for name in ('Q', 'x')]

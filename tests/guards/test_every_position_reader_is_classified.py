@@ -18,7 +18,13 @@ import ast
 from tests.ast_seams import production_modules, walk_defs
 
 _READERS = frozenset(
-    {'get_current_position', 'get_target_position', 'get_actual_position', 'axis_positions'}
+    {
+        'get_current_position',
+        'get_target_position',
+        'get_target_positions',
+        'get_actual_position',
+        'axis_positions',
+    }
 )
 
 # Saves the position into a setting or a step. Must ask the motion API's

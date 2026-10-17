@@ -1550,6 +1550,7 @@ scope.motion.axes_without_position()             # {axis: 'unknown' | 'homing'};
 scope.motion.axis_positions()                    # {axis: AxisPosition(state, position)} in ONE snapshot; position is None unless the axis is IDLE or MOVING -- the read for a caller writing a position into a file
 scope.runtime_state.plate_transform()            # (sx_um, sy_um) -> (px_mm, py_mm), BOUND to the labware and offset registered now; None when either is unset. For a caller converting many positions over time (a recording, one per frame): every frame is stated in one frame of reference, and it cannot raise
 scope.motion.get_target_position('Z')            # the commanded target, moving or arrived; the polled position when none was reached (before a first move, after a home, a STOP or a fault)
+scope.motion.get_target_positions()              # {axis: target} for every axis the scope has a position for
 scope.motion.get_actual_position('Z')            # hardware position via serial (slow; use sparingly)
 # A position with no hardware behind it is None: an axis the scope does not
 # have, and every axis with no motor board installed (a manual scope, a board
@@ -3176,6 +3177,7 @@ Reached through `session.scope.motion`.
 - `get_axis_state`
 - `get_limit_switch_status`
 - `get_target_position`
+- `get_target_positions`
 - `get_turret_slot`
 - `has_homed`
 - `home`

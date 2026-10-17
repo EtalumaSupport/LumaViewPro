@@ -1,5 +1,5 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""get_target_position answers the commanded target, or the polled position when none was reached.
+"""get_target_position answers the commanded target, or the polled position when none was reached; get_target_positions answers it for every axis.
 
 The target used to live only in the move's ramp profile, cleared the moment
 the axis went IDLE, so an arrived axis answered the polled position, a
@@ -54,6 +54,13 @@ def test_an_arrived_move_answers_its_commanded_target(session):
     assert motion.get_target_position('Z') == 100.0
     # Proves the answer above is not the poll.
     assert motion.get_current_position('Z') != 100.0
+
+
+def test_every_axis_answers_its_commanded_target(session):
+    motion = session.scope.motion
+    for axis, target in (('X', 100.0), ('Y', 200.0), ('Z', 300.0)):
+        motion.move_absolute(axis, target)
+    assert motion.get_target_positions() == {'X': 100.0, 'Y': 200.0, 'Z': 300.0}
 
 
 def test_a_stopped_move_answers_the_poll(session):

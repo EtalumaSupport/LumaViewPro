@@ -365,9 +365,8 @@ class RuntimeState:
 
         labware = self.get_labware()
 
-        # The all-axes read carries only the axes the scope has; a
-        # single-axis read of an absent axis answers 0, which names a well.
-        targets = self._scope.motion.get_target_position()
+        # The all-axes read carries only the axes the scope has.
+        targets = self._scope.motion.get_target_positions()
         if 'X' not in targets or 'Y' not in targets:
             return None
 

@@ -1790,7 +1790,7 @@ class MotionAPI:
             return self._pos_cache.get(axis, 0.0)
 
     @api(reads=True)
-    def get_target_position(self, axis: str | None = None) -> float | dict | None:
+    def get_target_position(self, axis: str) -> float | None:
         """Get the target position for an axis (where it is commanded to go); um for X/Y/Z, turret slot for T.
 
         The last target this API wrote to the board for the axis, while the
@@ -1805,23 +1805,16 @@ class MotionAPI:
         answers its slot as a float.
 
         Args:
-            axis: Axis name ("X", "Y", "Z", "T"), or None for all axes.
+            axis: Axis name ("X", "Y", "Z", "T").
 
         Returns:
-            float | dict | None: Position in um for a single axis, or a dict
-                of the axes that have one. None for an axis with no hardware
-                behind it (see ``_has_position``).
+            float | None: The target in um, or None for an axis with no
+                hardware behind it (see ``_has_position``).
 
         Raises:
-            ArgumentRefusedError: ``'axis_unknown'``, ``axis`` is neither
-                None nor an axis name.
+            ArgumentRefusedError: ``'axis_unknown'``, ``axis`` is no axis
+                name.
         """
-        if axis is None:
-            return {
-                ax: self.get_target_position(ax)
-                for ax in self._scope.capabilities.axes
-                if self._has_position(ax)
-            }
         refuse_unknown_axis(axis)
         if not self._has_position(axis):
             return None
@@ -1838,6 +1831,18 @@ class MotionAPI:
             ):
                 return float(move.target)
         return self._read_position_cache(axis)
+
+    @api(reads=True)
+    def get_target_positions(self) -> dict[str, float]:
+        """The target of every axis the scope has a position for, by axis name, as ``get_target_position`` answers each.
+
+        An axis with no hardware behind it is left out. No serial I/O.
+        """
+        return {
+            ax: self.get_target_position(ax)
+            for ax in self._scope.capabilities.axes
+            if self._has_position(ax)
+        }
 
     def get_current_position(self, axis: str | None = None) -> float | dict | None:
         """Get the current position for an axis; um for X/Y/Z, turret slot (1-4) for T.

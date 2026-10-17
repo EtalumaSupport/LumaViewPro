@@ -705,21 +705,6 @@ class TestPositionCache:
         sim_scope.motion.start_move_relative('Z', -1000.0).result()
         assert sim_scope.motion.get_target_position('Z') == pytest.approx(2000.0, abs=0.1)
 
-    def test_get_all_axes(self, sim_scope):
-        """get_target_position(None) returns dict of all axes."""
-        moves = [
-            sim_scope.motion.start_move_absolute('X', 100.0),
-            sim_scope.motion.start_move_absolute('Y', 200.0),
-            sim_scope.motion.start_move_absolute('Z', 300.0),
-        ]
-        for move in moves:
-            move.result()
-        result = sim_scope.motion.get_target_position()
-        assert isinstance(result, dict)
-        assert result['X'] == 100.0
-        assert result['Y'] == 200.0
-        assert result['Z'] == 300.0
-
     def test_get_current_position_matches_target(self, sim_scope):
         """After a blocking move, get_current_position is at the target
         within microstep precision. The motor lands at the nearest
@@ -745,13 +730,6 @@ class TestPositionCache:
         # Should now match what the motor reports
         pos = sim_scope.motion.get_target_position('Z')
         assert abs(pos - 5000.0) < 1.0  # allow microstep rounding
-
-    def test_cache_returns_copy(self, sim_scope):
-        """get_target_position(None) should return a copy, not the internal dict."""
-        result = sim_scope.motion.get_target_position()
-        result['X'] = 99999.0
-        # Internal cache should be unaffected
-        assert sim_scope.motion.get_target_position('X') == 0.0
 
 
 # ===========================================================================
