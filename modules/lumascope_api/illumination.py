@@ -12,6 +12,7 @@ extension.
 from __future__ import annotations
 
 import enum
+import functools
 import logging as _logging
 import threading
 from dataclasses import dataclass
@@ -20,6 +21,7 @@ from typing import TYPE_CHECKING
 
 from drivers.null_ledboard import NullLEDBoard
 from lib import profile_trace
+from lib.lumascope_error import Fault
 from lvp_logger import logger
 from modules.finite_number import refuse_unless_finite_number
 from modules.exceptions import (
@@ -895,12 +897,44 @@ class IlluminationAPI:
 
         Returns:
             True when the all-off was written; False when no LED controller
-            was connected to write it to.
+            was connected to write it to, or the write found it gone.
         """
+        return self._asked_again_after_a_fault(self._leds_off_if_connected)()
+
+    def _leds_off_if_connected(self) -> bool:
         if not self._scope.led_connected:
             return False
         self._write_leds_off()
         return True
+
+    def _asked_again_after_a_fault(self, impl):
+        """``impl``, asked for the LED controller again when it raises a fault.
+
+        Every LED body asks for the controller before it writes, so one
+        already gone is answered with nothing sent. A body whose write is
+        what finds it gone (the Classic's LED shares the camera's USB
+        device, which tells nothing when unplugged) raises the device's
+        fault instead. A fault raised with the controller now disconnected
+        runs the body once more: its presence question answers as it would
+        have at the door, refused ``not_connected`` (chained to the fault)
+        or an off satisfied, and nothing is written, since every body asks
+        before it changes anything. A fault with the controller still
+        connected, or a refusal or defect of any other kind, keeps its type.
+        """
+
+        @functools.wraps(impl)
+        def ask_again_after_a_fault(*args, **kwargs):
+            try:
+                return impl(*args, **kwargs)
+            except Fault as fault:
+                if self._scope.led_connected:
+                    raise
+                try:
+                    return impl(*args, **kwargs)
+                except HardwareCommandRefusedError as refusal:
+                    raise refusal from fault
+
+        return ask_again_after_a_fault
 
     def _write_leds_off(self) -> None:
         """Write the board's all-off and record every address dark."""
@@ -936,11 +970,15 @@ class IlluminationAPI:
         the lane is closed, or a run, a diagnostic or a home holds the scope and this
         call is not made under its taking. The body asks for the LED
         controller on the lane (``refuse_controller_not_connected``), so a
-        lane refusal is never hidden behind the presence question.
+        lane refusal is never hidden behind the presence question, and asks
+        again when its write finds the controller gone
+        (``_asked_again_after_a_fault``).
         """
         kwargs = kwargs or {}
         return self._scope._io_executor.call(
-            IOTask(action=impl, args=args, kwargs=kwargs), name, _LED_WRITE_TIMEOUT_S
+            IOTask(action=self._asked_again_after_a_fault(impl), args=args, kwargs=kwargs),
+            name,
+            _LED_WRITE_TIMEOUT_S,
         )
 
     @api
@@ -1025,8 +1063,12 @@ class IlluminationAPI:
         the notification stack, state cache, and listener bus may already
         be torn down. Don't call from normal code paths; use `leds_off`
         instead. Writes nothing when no LED board is connected, for the
-        reason ``_leds_off_if_present`` gives.
+        reason ``_leds_off_if_present`` gives, and returns quietly when its
+        write is what finds the board gone (``_asked_again_after_a_fault``).
         """
+        self._asked_again_after_a_fault(self._leds_off_bounded)(timeout_s)
+
+    def _leds_off_bounded(self, timeout_s: float) -> None:
         if not self._scope.led_connected:
             return
         acquired = self._led_lock.acquire(timeout=timeout_s)
@@ -1219,13 +1261,15 @@ class IlluminationAPI:
         if not channels_to_off:
             return
         self.refuse_controller_not_connected('LedLease.release')
-        with self._led_state_lock:
-            for address in channels_to_off:
-                self._lit_by.pop(address, None)
-                self._led_state.pop(address, None)
         for ch in channels_to_off:
             with self._led_lock:
                 self._driver.led_off(ch)
+            # Dark once written, never before: a write that finds the
+            # controller gone leaves the channel believed lit, and the
+            # release asked again is refused for it.
+            with self._led_state_lock:
+                self._lit_by.pop(ch, None)
+                self._led_state.pop(ch, None)
             self._scope.imaging.frame_validity.invalidate('led')
             _api_log.info(f'led_off ch={ch} (release of the {lease.purpose!r} lease)')
             with self._led_state_lock:

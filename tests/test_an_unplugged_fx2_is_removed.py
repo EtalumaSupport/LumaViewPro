@@ -26,7 +26,9 @@ from drivers import fx2driver
 from drivers.exceptions import CameraWriteFailedError
 from drivers.fx2driver import _ByteStream
 from modules.exceptions import CaptureFailedError, HardwareCommandRefusedError, MissingPart
+from modules.lumascope_api.illumination import LedState, LedTransition, LedTransitionCtx
 from modules.scope_session import ScopeSession
+from tests.protocol_drives import held_run_claim
 from tests.settings_fixtures import complete_settings
 
 
@@ -201,6 +203,81 @@ def test_a_stream_stop_that_finds_its_camera_removed_is_satisfied(session, monke
 
     assert scope.imaging.disable_streaming() is None
     assert scope.imaging.camera_removed is True
+
+
+def test_an_led_on_that_finds_the_device_unplugged_is_refused_not_connected():
+    # The LED shares the camera's USB device; its write is the first
+    # transfer since the pull, so it is what finds the device gone.
+    session = _ls620_not_streaming_then_unplugged()
+    scope = session.scope
+    try:
+        with pytest.raises(HardwareCommandRefusedError) as refused:
+            scope.illumination.led_on('BF', 10.0)
+
+        assert refused.value.reason == 'not_connected'
+        assert refused.value.missing == MissingPart.LED_CONTROLLER
+        assert scope.led_connected is False
+    finally:
+        session.shutdown()
+
+
+def test_an_all_off_that_finds_the_device_unplugged_with_nothing_lit_is_satisfied():
+    session = _ls620_not_streaming_then_unplugged()
+    scope = session.scope
+    try:
+        assert scope.illumination.leds_off() is None
+        assert scope.led_connected is False
+    finally:
+        session.shutdown()
+
+
+def test_the_scopes_own_off_that_finds_the_device_unplugged_reports_no_controller():
+    # Bring-up, shutdown and the safety off call it directly; its answer
+    # is the only thing it tells, so the answer is what is asserted.
+    session = _ls620_not_streaming_then_unplugged()
+    scope = session.scope
+    try:
+        assert scope.illumination._leds_off_if_present() is False
+    finally:
+        session.shutdown()
+
+
+def test_the_disconnect_off_that_finds_the_device_unplugged_writes_nothing_and_does_not_raise():
+    # The disconnect reaches it first when the lane's own off never ran.
+    session = _ls620_not_streaming_then_unplugged()
+    scope = session.scope
+    try:
+        assert scope.illumination._leds_off_emergency() is None
+    finally:
+        session.shutdown()
+
+
+def test_a_lease_release_that_finds_the_device_unplugged_is_refused_and_its_led_stays_lit():
+    # The release could not darken the LED, so it must not be believed dark.
+    settings = complete_settings()
+    settings['microscope'] = 'LS620'
+    settings['simulator_tier'] = 'fast'
+    session = ScopeSession.create(settings, simulate=True)
+    scope = session.scope
+    try:
+        scope.imaging.disable_streaming()
+        lease = scope.illumination.acquire_led_lease('protocol', claim=held_run_claim())
+        channel = scope.illumination.color2ch(color='BF')
+        lease.apply(
+            LedTransition.MANUAL_STEP,
+            LedTransitionCtx(channel=channel, illumination_ma=10.0, preview_on=True),
+        )
+        assert scope.illumination.get_led_state('BF').state is LedState.LIT
+        scope.simulation.remove_camera()
+
+        with pytest.raises(HardwareCommandRefusedError) as refused:
+            lease.release()
+
+        assert refused.value.reason == 'not_connected'
+        assert refused.value.missing == MissingPart.LED_CONTROLLER
+        assert scope.illumination.get_led_state('BF').state is LedState.LIT
+    finally:
+        session.shutdown()
 
 
 def test_a_gain_written_before_the_teardown_ends_is_not_recorded(session):
