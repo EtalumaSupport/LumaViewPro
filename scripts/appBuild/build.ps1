@@ -57,7 +57,12 @@ $ErrorActionPreference = "Stop"
 # one Windows PowerShell 5.1 window transcribed no native program's output,
 # so that build kept no record of what it packed or where each binary came
 # from.
-$script_version = 6
+#
+# v7: the FX2's driver package is the repo's INF, its DriverVer stamped with
+# the build's date and the installer version, carried by every build. v6
+# reads an INF staged by hand in dependencies\fx2\, unstamped, so its
+# package loses to any Zadig binding made after 2024-01-01.
+$script_version = 7
 
 $repo_url = "https://github.com/EtalumaSupport/LumaViewPro.git"
 $script_dir = Split-Path -Parent $PSCommandPath
@@ -302,21 +307,12 @@ if ($ids_files) {
     }
 }
 
-# FX2 WinUSB INF for LVC (LS560/LS620/LS720) cameras: binds inbox
-# WinUSB.sys to the FX2 VID/PID; installed by pnputil custom action in
-# Package.wxs. The FX2's libusb library is not a dependency here: the
-# release spec takes it from the libusb-package wheel, with the firmware
-# hex, and refuses a build without either.
-# See BUILD_INSTRUCTIONS.md > Optional Dependencies.
-$fx2_inf = ""
+# The FX2's driver package (LS560/LS620/LS720) is not a dependency here:
+# its INF is in the repo (build_exe\fx2_driver\) and is stamped and carried
+# by every build, after the installer version is known. Its libusb library
+# comes from the libusb-package wheel, with the firmware hex, through the
+# release spec, which refuses a build without either.
 $fx2_dir = Join-Path $deps "fx2"
-if (Test-Path $fx2_dir) {
-    $fx2_files = Get-ChildItem -Path $fx2_dir -Filter "*WinUSB*.inf" -ErrorAction SilentlyContinue
-    if ($fx2_files) {
-        $fx2_inf = $fx2_files[0].FullName
-        Write-Host "Found FX2 WinUSB INF: $fx2_inf"
-    }
-}
 
 # VC++ Redistributable (x64). REQUIRED for the bundle: the app no longer
 # ships msvcp140/concrt140 app-local (a stale bundled copy shadowed the
@@ -361,11 +357,11 @@ if ($ids_files -and -not $ids_peak_iss) {
         $near_misses += "dependencies\$($f.Name) is a response file but the IDS silent install requires it to be named exactly 'setup.iss'"
     }
 }
-# The FX2 INF lives in dependencies\fx2\, not the dependencies\ root.
-# Dropping it one level too high is the same silent-miss shape.
-foreach ($f in @(Get-ChildItem -Path $deps -File -ErrorAction SilentlyContinue |
-                 Where-Object { $_.Name -match '(?i)winusb.*\.inf$' })) {
-    $near_misses += "dependencies\$($f.Name) is an FX2 dependency but belongs in dependencies\fx2\, not the dependencies\ root"
+# An INF in either place was the old route and is now read by nothing:
+# the build carries the repo's INF, stamped.
+foreach ($f in @(Get-ChildItem -Path @($deps, $fx2_dir) -File -ErrorAction SilentlyContinue |
+                 Where-Object { $_.Name -match '(?i)\.inf$' })) {
+    $near_misses += "$($f.FullName) is no longer bundled: the FX2's INF ships from the repo (scripts\appBuild\build_exe\fx2_driver\). Remove the file"
 }
 # A libusb DLL in either place was the old route and is now read by nothing:
 # the build takes the library from the libusb-package wheel.
@@ -388,7 +384,6 @@ if ($near_misses.Count -gt 0) {
 if (-not $pylon_msi) { Write-Host "No Pylon MSI in dependencies\ - bundle will be skipped" }
 if (-not $vc_redist_exe) { Write-Host "No vc_redist.x64.exe in dependencies\ - bundle will NOT be built (the app does not ship msvcp140; the installer must chain the redistributable)" }
 if (-not $ids_peak_exe) { Write-Host "No IDS Peak runtime in dependencies\ - IDS cameras will need manual driver install on customer machines" }
-if (-not $fx2_inf) { Write-Host "No FX2 WinUSB INF in dependencies\fx2\ - LVC FX2 driver will need manual install (Zadig)" }
 
 # ---------------------------------------------------------------------------
 # Check tools
@@ -953,12 +948,15 @@ $msi_args = @(
     '-d', "ProductName=$product_installed",
     '-d', "Version=$wix_ver"
 )
-# Pass optional FX2 INF path. Package.wxs gates the FX2 driver-install
-# component on this define being set, so absence -> no FX2 install action
-# in the MSI.
-if ($fx2_inf) {
-    $msi_args += @('-d', "Fx2InfPath=$fx2_inf")
-}
+# The FX2 driver package, its DriverVer stamped with today's date and the
+# installer version: Windows ranks equally signed packages for one device by
+# that date, so the stamp is what lets ours outrank an older Zadig binding.
+$fx2_inf = & $venv_python (Join-Path $src "scripts\appBuild\config\fx2_driver_package.py") `
+    (Join-Path $src "scripts\appBuild\build_exe\fx2_driver\Lumascope_Classic.inf") `
+    (Join-Path $output_dir "fx2_driver") $wix_ver
+if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: the FX2 driver package could not be stamped"; Set-Location $build_dir; Exit 1 }
+Write-Host "FX2 driver package: $fx2_inf"
+$msi_args += @('-d', "Fx2InfPath=$fx2_inf")
 $msi_args += @('-out', $msi, 'Package.wxs', 'Folders.wxs')
 & $wix_exe @msi_args
 
@@ -1073,7 +1071,7 @@ $dep_receipt = @(
     "Pylon=$(if ($pylon_msi) {'bundled'} else {'NOT BUNDLED'})"
     "VCRedist=$(if ($vc_redist_exe) {'bundled'} else {'NOT BUNDLED'})"
     "IDS=$(if ($ids_peak_exe -and $ids_peak_iss) {'bundled'} else {'NOT BUNDLED'})"
-    "FX2-INF=$(if ($fx2_inf) {'bundled'} else {'NOT BUNDLED'})"
+    "FX2-INF=bundled"
 ) -join '  '
 Write-Host "  Drivers:  $dep_receipt"
 Write-Host "  Log:      $build_log"

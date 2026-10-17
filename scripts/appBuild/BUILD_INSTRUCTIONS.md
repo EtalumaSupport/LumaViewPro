@@ -20,8 +20,8 @@ The `-setup.exe` bundle is only created when both **required** dependencies
 are present: the Basler Pylon USB Camera Driver MSI and the Microsoft VC++
 Redistributable (`vc_redist.x64.exe` -- the app deliberately ships no
 `msvcp140.dll` of its own, so the bundle must chain the redistributable).
-Optional dependencies (IDS Peak, FX2 driver) are silently skipped when their
-files are absent.
+The optional dependency (IDS Peak) is silently skipped when its files are
+absent. The FX2 driver package is carried by every build, from the repo.
 
 ## One-Time Setup
 
@@ -96,9 +96,7 @@ dependencies\
 |-- pylon_USB_Camera_Driver.msi          # required for the bundle
 |-- vc_redist.x64.exe                    # required for the bundle
 |-- ids_peak_<version>.exe               # optional — IDS cameras
-|-- setup.iss                            # optional — paired with ids_peak EXE
-`-- fx2\
-    `-- LumaScope_WinUSB.inf             # optional — LVC FX2 driver bind
+`-- setup.iss                            # optional — paired with ids_peak EXE
 ```
 
 #### Where each dependency comes from
@@ -109,7 +107,6 @@ dependencies\
 | `vc_redist.x64.exe` | [aka.ms/vs/17/release/vc_redist.x64.exe](https://aka.ms/vs/17/release/vc_redist.x64.exe) | Microsoft's latest VC++ x64 redistributable, no account needed. The build fails if its version is older than the newest VC runtime any bundled wheel carries (build.ps1 prints both in the CRT census). |
 | `ids_peak_<version>.exe` | [en.ids-imaging.com/download-peak.html](https://en.ids-imaging.com/download-peak.html) → Runtime variant | Free MyIDS account required. **The download is a package; extract it and use the inner `ids_peak_<version>.exe` (underscores). The hyphenated outer file cannot be driven silently.** Chaining IDS is not currently supported — see the IDS Peak section below before using these two rows. |
 | `setup.iss` | Generated locally, once per IDS Peak runtime version | Run the **inner** `ids_peak_<version>.exe /r`; it records your interactive choices into `%WINDIR%\setup.iss`. The choices matter — the USB3 Vision Transport Layer must be selected. See the IDS Peak section below. |
-| `fx2\LumaScope_WinUSB.inf` | Firmware repo, `fx2_firmware/build_deps/LumaScope_WinUSB.inf` | ~2 KB text file. Copy as-is. |
 
 Keep a local mirror of every account-gated download (Pylon, IDS Peak) in
 your build artefact store. Do not depend on being logged into MyBasler /
@@ -225,29 +222,31 @@ order and that `requirements.txt` does not currently carry. IDS renumbered
 releases from `2.x` to `YY.MM` (2.21 → 26.06), so any "runtime ≥ 2.18"
 guidance predates the change and cannot be compared numerically.
 
-#### FX2 WinUSB Driver (LVC cameras: LS560 / LS620 / LS720)
+#### FX2 WinUSB Driver (Lumascope Classic: LS560 / LS620 / LS720)
 
-```text
-dependencies\fx2\
-`-- LumaScope_WinUSB.inf            # ~2 KB text file
-```
+Nothing to drop in. The driver package is
+`scripts\appBuild\build_exe\fx2_driver\Lumascope_Classic.inf` in the repo: it
+binds inbox `WinUSB.sys` to both of the FX2's identities, `0x04B4:0x8613` (the
+bootloader) and `0x04B4:0xEA17` (the running firmware), named "Lumascope
+Classic (Bootloader)" and "Lumascope Classic" in Device Manager. The build
+stamps its `DriverVer` with the build's date and the installer version
+(`scripts\appBuild\config\fx2_driver_package.py`), writes the stamped copy to
+the output folder's `fx2_driver\`, and the MSI installs it to
+`<InstallFolder>\drivers\fx2\` and runs `pnputil /add-driver <inf> /install`
+during `InstallFiles` (deferred, runs as SYSTEM, errors ignored). Windows
+ranks equally signed packages for one device by that date, so the stamp is
+what lets ours outrank an older Zadig binding. Until the package's catalog is
+signed, `pnputil` refuses it and the customer must still bind the driver with
+Zadig.
 
-- **`LumaScope_WinUSB.inf`** — binds inbox `WinUSB.sys` to the FX2 VID/PID
-  `0x04B4:0x8613` / `0x04B4:0xEA17` so `pyusb` can open the device without
-  Zadig. When present, the LVP MSI installs it to
-  `<InstallFolder>\drivers\fx2\` and runs `pnputil /add-driver <inf> /install`
-  during `InstallFiles` (deferred, runs as SYSTEM, errors ignored). Without
-  it the build still succeeds, and the customer must bind the driver with
-  Zadig.
-
-The rest of what the FX2 needs is not a dependency to drop in: the release
+The rest of what the FX2 needs is not a dependency to drop in either: the release
 spec ships the firmware hex from the clone's `firmware\` folder and the
 native libusb library from the `libusb-package` wheel (`requirements.txt`),
 inside the bundle's `libusb_package\` folder where the driver looks for it.
 The build is refused, naming the file, when either is missing, before
-PyInstaller runs and again in the built tree. A `libusb*.dll` left in
-`dependencies\` or `dependencies\fx2\` from the old route also refuses the
-build: nothing reads it any more.
+PyInstaller runs and again in the built tree. A `libusb*.dll` or an `.inf`
+left in `dependencies\` or `dependencies\fx2\` from the old route also refuses
+the build: nothing reads it any more.
 
 ### 4. Copy The Build Script
 
@@ -314,10 +313,10 @@ The script then:
    version (e.g. `4.0.0-beta6` → `4.0.0.6`) so beta-to-beta upgrades are
    visible to Windows Installer / Burn.
 2. Installs build dependencies into `buildvenv`.
-3. Builds the app folder with PyInstaller. Bundles `libusb-1.0.dll` if
-   present in `dependencies\fx2\`.
-4. Builds `LumaViewPro-<version>.msi`. Adds an FX2 driver-install
-   custom action if `LumaScope_WinUSB.inf` is present.
+3. Builds the app folder with PyInstaller, with the FX2's firmware hex and
+   `libusb-package`'s library.
+4. Stamps the FX2 driver package and builds `LumaViewPro-<version>.msi`,
+   which carries it and its driver-install custom action.
 5. Builds `LumaViewPro-<version>-setup.exe` if the Pylon MSI is present.
    Chains the IDS Peak runtime EXE if its files are present.
 6. Removes temporary clone/build files.
@@ -327,7 +326,9 @@ Example output:
 ```text
 C:\LVP\appbuild\exe_artifacts\LumaViewPro-4.0.0-beta6\
 |-- LumaViewPro-4.0.0-beta6.msi
-`-- LumaViewPro-4.0.0-beta6-setup.exe
+|-- LumaViewPro-4.0.0-beta6-setup.exe
+`-- fx2_driver\
+    `-- Lumascope_Classic.inf          # the stamped copy the MSI carries
 ```
 
 Previous completed packages are preserved in `exe_artifacts\`.
@@ -339,7 +340,7 @@ Before a customer build:
 1. Confirm `version.txt` has the release version testers should see.
 2. Commit and push the branch to be packaged.
 3. Confirm `dependencies\` contains the Pylon MSI. Confirm any optional
-   dependencies you intend to ship (IDS Peak, FX2 INF + DLL) are also present.
+   dependency you intend to ship (IDS Peak) is also present.
 4. Run `.\build.ps1` and choose `Release`.
 5. Verify both output files exist.
 6. Ship `LumaViewPro-<version>-setup.exe`.

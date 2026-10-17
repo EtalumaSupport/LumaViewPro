@@ -12,10 +12,18 @@ The spec now takes both through ``fx2_bundle``: the hex files into
 refusing the build before PyInstaller runs and again on the built tree when
 either is missing. PyInstaller does not run here, so the gate is run on
 temporary trees.
+
+The installer's driver package was an INF staged by hand from the Firmware
+repo, dated 2024-01-01, so any Zadig binding made since outranked it (Windows
+ranks equally signed packages for one device by the INF's date). The INF is
+now in the repo, binding both of the FX2's identities, and every build
+stamps its ``DriverVer`` through ``fx2_driver_package``.
 """
 
 from __future__ import annotations
 
+import configparser
+import datetime
 import importlib.util
 import pathlib
 import sys
@@ -26,17 +34,20 @@ from drivers import fx2driver
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 CONFIG = REPO_ROOT / 'scripts' / 'appBuild' / 'config'
+BUILD_EXE = REPO_ROOT / 'scripts' / 'appBuild' / 'build_exe'
+SHIPPED_INF = BUILD_EXE / 'fx2_driver' / 'Lumascope_Classic.inf'
 
 
-def _load_fx2_bundle():
-    # The spec imports it from its folder by path; the test does the same.
-    spec = importlib.util.spec_from_file_location('fx2_bundle', CONFIG / 'fx2_bundle.py')
+def _load_config_module(name):
+    # The spec and build.ps1 run these from their folder by path; the test does the same.
+    spec = importlib.util.spec_from_file_location(name, CONFIG / f'{name}.py')
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
 
 
-fx2_bundle = _load_fx2_bundle()
+fx2_bundle = _load_config_module('fx2_bundle')
+fx2_driver_package = _load_config_module('fx2_driver_package')
 
 
 def _library(tmp_path) -> pathlib.Path:
@@ -136,3 +147,70 @@ def test_the_spec_runs_the_gate_and_reads_no_dll_from_the_environment():
     assert 'fx2_bundle_entries(SPECPATH, _libusb_path)' in spec
     assert 'check_fx2_dist(_dist_root,' in spec
     assert 'FX2_LIBUSB_DLL' not in spec
+
+
+def _read_inf(path) -> configparser.ConfigParser:
+    inf = configparser.ConfigParser(
+        delimiters=('=',),
+        comment_prefixes=(';',),
+        interpolation=None,
+        strict=False,
+        allow_no_value=True,
+    )
+    inf.optionxform = str
+    inf.read(path, encoding='ascii')
+    return inf
+
+
+def test_the_stamped_package_binds_both_identities_dated_and_versioned_by_the_build(tmp_path):
+    stamped = fx2_driver_package.stamp_driver_package(
+        str(SHIPPED_INF), str(tmp_path), '4.0.0.38', datetime.date(2026, 10, 17)
+    )
+
+    inf = _read_inf(stamped)
+    assert inf['Version']['DriverVer'].strip() == '10/17/2026,4.0.0.38'
+    strings = {key: value.strip().strip('"') for key, value in inf['Strings'].items()}
+    bound = {
+        model.split(',')[1].strip(): strings[name.strip('%')]
+        for name, model in inf['Standard.NTamd64'].items()
+    }
+    assert bound == {
+        'USB\\VID_04B4&PID_EA17': 'Lumascope Classic',
+        'USB\\VID_04B4&PID_8613': 'Lumascope Classic (Bootloader)',
+    }
+    assert strings['ManufacturerName'] == 'Etaluma'
+
+
+def test_a_version_that_is_not_four_numbers_refuses_the_stamp(tmp_path):
+    with pytest.raises(SystemExit, match='four-part numeric version'):
+        fx2_driver_package.stamp_driver_package(
+            str(SHIPPED_INF), str(tmp_path), '4.0.0-beta38', datetime.date(2026, 10, 17)
+        )
+
+
+def test_an_inf_without_its_placeholder_refuses_the_stamp(tmp_path):
+    already = tmp_path / 'source' / 'Lumascope_Classic.inf'
+    already.parent.mkdir()
+    already.write_text(
+        SHIPPED_INF.read_text(encoding='ascii').replace(
+            fx2_driver_package.PLACEHOLDER, '01/01/2024,1.0.0.0'
+        ),
+        encoding='ascii',
+    )
+
+    with pytest.raises(SystemExit, match='0 times, not once'):
+        fx2_driver_package.stamp_driver_package(
+            str(already), str(tmp_path / 'out'), '4.0.0.38', datetime.date(2026, 10, 17)
+        )
+
+
+def test_every_build_stamps_the_repos_inf_and_hands_the_installer_that_copy():
+    # pin-justified: build.ps1 runs on the Windows build box, not here.
+    build = (REPO_ROOT / 'scripts' / 'appBuild' / 'build.ps1').read_text(encoding='utf-8')
+    package = (BUILD_EXE / 'wix' / 'Package.wxs').read_text(encoding='utf-8-sig')
+
+    stamp = build.index('fx2_driver_package.py')
+    assert 'build_exe\\fx2_driver\\Lumascope_Classic.inf' in build[stamp : stamp + 300]
+    assert build.index('"Fx2InfPath=$fx2_inf"') > stamp
+    assert 'if ($fx2_inf)' not in build
+    assert '<?ifdef Fx2InfPath ?>' not in package
