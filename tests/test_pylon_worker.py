@@ -267,14 +267,19 @@ class TestProcessFailure(unittest.TestCase):
         worker._process_failure(gr, 0.0)
         base._record_failure.assert_called_once()
 
-    def test_cascade_triggers_auto_stop(self):
+    def test_the_cascade_marks_the_camera_removed_and_touches_no_sdk_call(self):
+        """At the cascade's limit the camera is removed: it is marked and torn
+        down off this thread, like every other definite removal, and the
+        worker sends it nothing. It called StopGrabbing here, on the grab
+        worker, outside any teardown and on a camera it was declaring gone:
+        the call pypylon #225 names as a native-abort hazard on a removed
+        handle, which the teardown itself skips for a removed camera."""
         worker, parent, base, _ = _make_worker()
         base._record_failure.return_value = True
         gr = _FakeGrabResult(err_code=999, err_desc='transport err')
         worker._process_failure(gr, 0.0)
-        parent.stop_grabbing.assert_called_once()
+        parent.stop_grabbing.assert_not_called()
         parent._mark_disconnected.assert_called_once()
-        # Torn down like every other definite removal, off this thread.
         parent._schedule_async_teardown.assert_called_once()
 
     def test_grabresult_introspection_failure_is_tolerated(self):

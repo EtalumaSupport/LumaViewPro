@@ -396,10 +396,11 @@ class PylonCamera(Camera):
         When the device is already known to be removed (cable unplug,
         callback err_code=433 already observed), the SDK-touching
         teardown steps (StopGrabbing, wait_for_acquisition_idle, Close)
-        are SKIPPED. Calling these on a dead device handle is the
-        pypylon #225 abort hazard: StopGrabbing can hang or trigger a
-        native abort, and Close on an already-removed handle has been
-        observed to crash. Only DetachDevice + DestroyDevice are kept,
+        are SKIPPED; a removal marked while the teardown runs is asked
+        again before Close, which is then skipped too. Calling these on a
+        dead device handle is the pypylon #225 abort hazard: StopGrabbing
+        can hang or trigger a native abort, and Close on an already-removed
+        handle has been observed to crash. Only DetachDevice + DestroyDevice are kept,
         since they release Python-side ownership of the handle and do
         not communicate with the device.
         """
@@ -436,13 +437,22 @@ class PylonCamera(Camera):
                     # prevent the others from running. The behaviour the caller
                     # expects after disconnect() returns is "self.active is None"
                     # regardless of whether the SDK calls themselves succeeded.
-                    try:
-                        self.active.Close()
-                    except Exception as e:
-                        _cam_log.warning(
-                            f'[CAM Class ] Close() during disconnect raised: {e}; '
-                            f'continuing teardown'
+                    # A removal latched since the check at entry -- during the
+                    # StopGrabbing or the idle wait -- is asked again here, so
+                    # Close() never meets a handle marked removed.
+                    if self.is_device_removed():
+                        _log_safely(
+                            'disconnect: device removed during the teardown -- '
+                            'skipping Close (pypylon #225 hazard)'
                         )
+                    else:
+                        try:
+                            self.active.Close()
+                        except Exception as e:
+                            _cam_log.warning(
+                                f'[CAM Class ] Close() during disconnect raised: {e}; '
+                                f'continuing teardown'
+                            )
                 else:
                     _log_safely(
                         'disconnect: device already removed -- skipping '
@@ -5111,23 +5121,18 @@ class _PylonImageGrabWorker:
 
         MAX_CONSECUTIVE_FAILURES (128 frames at 30 fps ~= 4.3 s) failed grabs
         with no delivered frame between them are the grab path's definite
-        evidence of a removal: the grab stops, the camera is marked removed
-        and torn down off this thread, as every definite removal is. One
-        owner, run on this worker's thread alone, because the count it keeps
-        is not locked.
+        evidence of a removal: the camera is marked removed and torn down off
+        this thread, as every definite removal is. The worker sends the
+        camera nothing itself: StopGrabbing on a removed handle is the
+        pypylon #225 hazard the teardown skips for a removed camera, and
+        from here it would also run outside the teardown, beside a close's
+        own. One owner, run on this worker's thread alone, because the count
+        it keeps is not locked.
         """
         if not self._base._record_failure():
             return
         if _cam_log is not None:
-            _cam_log.error('[CAM Class ] Too many grab failures; stopping acquisition')
-        try:
-            if self._parent.active and self._parent.is_grabbing():
-                self._parent.stop_grabbing()
-        except Exception as e:
-            if _cam_log is not None:
-                _cam_log.warning(
-                    f'[CAM Class ] worker could not stop grabbing after max failures: {e}'
-                )
+            _cam_log.error('[CAM Class ] Too many grab failures; the camera is removed')
         self._parent._mark_disconnected()
         self._parent._schedule_async_teardown()
 
