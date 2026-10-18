@@ -4965,9 +4965,10 @@ class ScopeSession:
         taking, the motion is that activity's work and takes nothing. The
         claim is released before the operation is done, so a caller told
         the motion has ended finds the scope free. Its ``stop()`` is
-        ``stop_motion`` while the motion drives, refused ``'home_in_flight'``
-        while the home drives on a board that cannot stop one, and nothing
-        once the motion has ended.
+        ``stop_motion`` while the motion drives, refused ``'home_not_stoppable'``
+        while the home drives on a board that cannot stop one -- the home
+        runs to its end and nothing after it moves -- and nothing once the
+        motion has ended.
 
         A failed home is reported (``report_outcome``) and ends the motion
         without the turret move -- an absolute move against a reference the

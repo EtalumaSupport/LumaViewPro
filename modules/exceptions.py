@@ -2876,6 +2876,7 @@ class HardwareCommandRefusedError(Refusal, Exception):
         'exclusive_activity_running': RefusalCause.STATE,
         'capture_in_flight': RefusalCause.STATE,
         'home_in_flight': RefusalCause.STATE,
+        'home_not_stoppable': RefusalCause.STATE,
         'scope_disconnected': RefusalCause.STATE,
         'monitor_ended': RefusalCause.STATE,
         'position_unread': RefusalCause.STATE,
@@ -2894,6 +2895,7 @@ class HardwareCommandRefusedError(Refusal, Exception):
         'capture_in_flight': 'Microscope Busy',
         'exclusive_activity_running': 'Microscope Busy',
         'home_in_flight': 'Microscope Busy',
+        'home_not_stoppable': 'Microscope Busy',
         'not_connected': 'Not Connected',
         'scope_disconnected': 'Not Connected',
         'camera_not_streaming': CAMERA_NOT_STREAMING_TITLE,
@@ -3072,6 +3074,8 @@ def _command_refused_sentence(reason: str, holder: str | None) -> str:
         return 'A capture is still being saved. Try again in a moment.'
     if reason == 'home_in_flight':
         return 'The microscope is already homing. Wait for the home to finish.'
+    if reason == 'home_not_stoppable':
+        return 'This microscope cannot stop a home; the home runs to its end.'
     if reason == 'activity_ended':
         return 'The activity that sent this command has ended, so the command was not sent.'
     if reason == 'scope_disconnected':

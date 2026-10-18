@@ -129,7 +129,7 @@ def test_a_stop_while_the_board_homes_ends_it_only_where_the_board_can_take_one(
     else:
         with pytest.raises(HardwareCommandRefusedError) as refused:
             home.stop()
-        assert (refused.value.reason, refused.value.member) == ('home_in_flight', 'stop_motion')
+        assert (refused.value.reason, refused.value.member) == ('home_not_stoppable', 'stop_motion')
         assert home.result(60) is None
         assert homed.motion.axes_without_position() == {}
 
@@ -146,7 +146,10 @@ def test_the_el0940_driver_refuses_a_stop_while_it_homes(monkeypatch):
             assert homing.wait(30)
             with pytest.raises(HardwareCommandRefusedError) as refused:
                 scope.motion.stop_motion()
-            assert (refused.value.reason, refused.value.member) == ('home_in_flight', 'stop_motion')
+            assert (refused.value.reason, refused.value.member) == (
+                'home_not_stoppable',
+                'stop_motion',
+            )
             assert home.result(60) is None
     finally:
         scope.disconnect()

@@ -877,11 +877,15 @@ class MotionAPI:
         homes (the LS720's); on any other, a Stop while the home drives is
         refused and the home runs to its end.
 
+        A press -- taken, failed or refused -- withholds every move asked
+        before it that has not yet driven, from any client and any queue,
+        and ends the live run (its press listeners are told first).
+
         Raises:
             HardwareCommandRefusedError: ``'scope_disconnected'`` after
                 ``disconnect()``, as every other command is refused then;
                 ``'not_connected'`` or ``'axis_absent'`` with no motor
-                controller (see ``refuse_absent``); ``'home_in_flight'``
+                controller (see ``refuse_absent``); ``'home_not_stoppable'``
                 while a home drives on a board that cannot stop one.
                 Nothing was sent.
             MotorStopFailedError: the board did not take the STOP, so the
@@ -918,7 +922,7 @@ class MotionAPI:
             # so the home runs to its end and nothing after it moves.
             self._last_press_ask = ask_now()
             if self._unstoppable_homes_driving:
-                raise HardwareCommandRefusedError('home_in_flight', 'stop_motion')
+                raise HardwareCommandRefusedError('home_not_stoppable', 'stop_motion')
             # A person's Stop, which a home it ends ends as: counted before
             # the send, so a send that fails is counted too.
             self._stops_asked += 1
@@ -2565,8 +2569,8 @@ class MotionAPI:
         refused at once rather than queued behind it. The operation is done
         once the home has released the scope, with what ``home`` would have
         returned or raised; its ``stop()`` is ``stop_motion`` while the home
-        drives, refused ``'home_in_flight'`` on a board that cannot stop a
-        home, and nothing once the home has ended.
+        drives, refused ``'home_not_stoppable'`` on a board that cannot stop
+        a home, and nothing once the home has ended.
 
         Raises:
             ArgumentRefusedError: ``'axis_unknown'``, ``axis`` is not

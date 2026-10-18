@@ -118,7 +118,8 @@ def test_its_stop_is_the_stages_stop_refused_while_this_board_homes(session, mon
     finally:
         held.release.set()
 
-    assert (refused.value.reason, refused.value.member) == ('home_in_flight', 'stop_motion')
+    assert (refused.value.reason, refused.value.member) == ('home_not_stoppable', 'stop_motion')
+    assert str(refused.value) == ('This microscope cannot stop a home; the home runs to its end.')
     assert started.result(timeout=HOME_S) is None
     assert session.scope.motion.get_turret_slot() == 1
 
