@@ -517,11 +517,20 @@ class ProtocolPostProcessor(abc.ABC):
                 continue
             row0 = group.iloc[0]
             output_file_loc_rel = output_file_loc.relative_to(root_path)
-            group_label = (
-                f'well={row0.get("Well", "")} color={row0.get("Color", "")} '
-                f'tile_group={row0.get("Tile Group ID", "")} '
-                f'tiles={len(group)} output={output_file_loc_rel}'
+            # Each column names every value the group holds: a composite's or
+            # a hyperstack's group spans its colours, so one row's colour names
+            # only part of it. Its images are counted as images, since only a
+            # stitch's are tiles.
+            held = ' '.join(
+                f'{key}={"+".join(str(value) for value in group[column].unique())}'
+                for key, column in (
+                    ('well', 'Well'),
+                    ('color', 'Color'),
+                    ('tile_group', 'Tile Group ID'),
+                )
+                if column in group
             )
+            group_label = f'{held} images={len(group)} output={output_file_loc_rel}'
 
             if protocol_post_record.file_exists_in_records(filepath=output_file_loc_rel):
                 logger.info(
