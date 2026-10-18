@@ -1,12 +1,12 @@
 {
     "LayerOrder": [
-        {"key": "BF", "modality": "transmitted", "background": "bright", "manual_max_exposure_ms": 50, "display_color": "#ffffff", "step_order": 0},
-        {"key": "PC", "modality": "transmitted", "background": "bright", "manual_max_exposure_ms": 200, "display_color": "#ffffff", "step_order": 1},
-        {"key": "DF", "modality": "transmitted", "background": "dark", "manual_max_exposure_ms": 200, "display_color": "#ffffff", "step_order": 2},
-        {"key": "Blue", "modality": "fluorescence", "background": "dark", "manual_max_exposure_ms": 1000, "display_color": "#0000ff", "step_order": 4},
-        {"key": "Green", "modality": "fluorescence", "background": "dark", "manual_max_exposure_ms": 1000, "display_color": "#00ff00", "step_order": 3},
-        {"key": "Red", "modality": "fluorescence", "background": "dark", "manual_max_exposure_ms": 1000, "display_color": "#ff0000", "step_order": 5},
-        {"key": "Lumi", "modality": "luminescence", "background": "dark", "manual_max_exposure_ms": null, "display_color": "#0000ff", "step_order": 6}
+        {"key": "BF", "modality": "transmitted", "background": "bright", "manual_max_exposure_ms": 50, "display_color": "#ffffff", "step_order": 0, "sim_light_per_ma_s": 89.1},
+        {"key": "PC", "modality": "transmitted", "background": "bright", "manual_max_exposure_ms": 200, "display_color": "#ffffff", "step_order": 1, "sim_light_per_ma_s": 3.57},
+        {"key": "DF", "modality": "transmitted", "background": "dark", "manual_max_exposure_ms": 200, "display_color": "#ffffff", "step_order": 2, "sim_light_per_ma_s": 0.594},
+        {"key": "Blue", "modality": "fluorescence", "background": "dark", "manual_max_exposure_ms": 1000, "display_color": "#0000ff", "step_order": 4, "sim_light_per_ma_s": 0.0126},
+        {"key": "Green", "modality": "fluorescence", "background": "dark", "manual_max_exposure_ms": 1000, "display_color": "#00ff00", "step_order": 3, "sim_light_per_ma_s": 0.0126},
+        {"key": "Red", "modality": "fluorescence", "background": "dark", "manual_max_exposure_ms": 1000, "display_color": "#ff0000", "step_order": 5, "sim_light_per_ma_s": 0.0126},
+        {"key": "Lumi", "modality": "luminescence", "background": "dark", "manual_max_exposure_ms": null, "display_color": "#0000ff", "step_order": 6, "sim_light_per_ma_s": null}
     ],
     "Models": {
         "Lumi": {

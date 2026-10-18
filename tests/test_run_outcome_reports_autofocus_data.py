@@ -66,7 +66,7 @@ def _make_af_step_protocol():
         'Auto_Focus': True,
         'Color': 'BF',
         'False_Color': False,
-        'Illumination': 50.0,
+        'Illumination': 1.0,
         'Gain': 1.0,
         'Auto_Gain': False,
         'Exposure': 10.0,

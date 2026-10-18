@@ -35,7 +35,7 @@ def _autofocus(session) -> float:
             run=run_identity('autofocus'),
             objective_id=next(iter(session.scope.objectives)),
             led_color='BF',
-            led_illumination=50.0,
+            led_illumination=5.0,
             led_lease=session.scope.illumination.acquire_led_lease(
                 'protocol', claim=held_run_claim()
             ),
@@ -80,10 +80,11 @@ def test_the_scored_frame_is_drained_past_the_step_s_z_move():
     no drained frame here.
     """
     with _session_over_the_focus_target() as session:
-        # Bright enough that no frame is dark, so the sweep makes no
-        # same-Z dark retry and its last capture is a step's; at the
-        # simulator's 40 fps delivery ceiling it costs no time.
-        session.scope.imaging.set_exposure_ms(20.0)
+        # BF's shipped exposure at its shipped current shows the field at
+        # its own grey levels: no frame is dark, so the sweep makes no
+        # same-Z dark retry and its last capture is a step's, and none is
+        # saturated flat.
+        session.scope.imaging.set_exposure_ms(2.0)
         _autofocus(session)
         info = session.scope.imaging.last_capture_info
         z_skip = session.scope.imaging.frame_validity.SKIP_FRAMES['z_move']

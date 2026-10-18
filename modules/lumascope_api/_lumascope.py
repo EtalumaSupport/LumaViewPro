@@ -758,11 +758,24 @@ class Lumascope:
         # its device model is the one simulation. Built by name, since the
         # registry lists no FX2 on a host without libusb.
         sim_fx2 = None
+
+        def _sim_light_of(address: int) -> float:
+            """The light per mA-second the layer ``address`` lights renders in
+            the simulators (the catalogue's); 0 for an address no layer names
+            or a layer with no LED. Read while a frame is made, after the
+            illumination API and the identity exist."""
+            from modules.layer_record import release_layer
+
+            name = self.illumination.ch2color(address)
+            if name is None:
+                return 0.0
+            return release_layer(name).sim_light_per_ma_s or 0.0
+
         if simulate and sim_led_board == 'FX2':
             from drivers.fx2driver import FX2LEDController
             from drivers.simulated_fx2 import SimulatedFX2
 
-            sim_fx2 = SimulatedFX2()
+            sim_fx2 = SimulatedFX2(light_of=_sim_light_of)
             self._led_driver: LEDBoardProtocol = FX2LEDController(
                 connection=sim_fx2.connection, debug_wire=fx2_debug_wire
             )
@@ -817,6 +830,9 @@ class Lumascope:
 
             camera_kwargs['illumination_func'] = lambda: sum(
                 ma for _, ma in live_lit_pairs(self.illumination)
+            )
+            camera_kwargs['light_func'] = lambda: sum(
+                ma * _sim_light_of(address) for address, ma in live_lit_pairs(self.illumination)
             )
 
             # Focus falls off as the objective's depth of field says, asked

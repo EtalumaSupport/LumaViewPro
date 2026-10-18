@@ -104,6 +104,14 @@ class CatalogueLayer:
     `display_color` is the release's colour for the layer, ``'#rrggbb'``.
     `step_order` is where the layer's steps are inserted in a new protocol,
     which is not its display order.
+    `sim_light_per_ma_s` is the light the simulated cameras render for the
+    layer, per mA of LED current and second of exposure at unity gain;
+    None for a layer with no LED. Each value puts the layer's shipped
+    defaults (`settings.json`) at brightness 1.0, the specimen at its own
+    grey levels: 1 / (exposure s x linear gain x mA), so BF's 2 ms, 1 dB
+    and 5 mA give 89.1 and fluorescence's 100 ms, 10 dB and 250 mA 0.0126.
+    The defaults are what makes each layer look right on a scope, so they
+    carry the light each modality delivers.
     """
 
     key: str
@@ -112,6 +120,7 @@ class CatalogueLayer:
     manual_max_exposure_ms: float | None
     display_color: str
     step_order: int
+    sim_light_per_ma_s: float | None
 
 
 @api_fields(
@@ -633,6 +642,9 @@ def _catalogue_layer(entry: object, path: str | os.PathLike) -> CatalogueLayer:
     step_order = entry['step_order']
     if not isinstance(step_order, int) or isinstance(step_order, bool):
         raise refuse('whose step_order is not an integer')
+    light = entry['sim_light_per_ma_s']
+    if light is not None and not (_is_number(light) and light > 0):
+        raise refuse('whose sim_light_per_ma_s is not a positive number or null')
     return CatalogueLayer(
         key=key,
         modality=entry['modality'],
@@ -640,6 +652,7 @@ def _catalogue_layer(entry: object, path: str | os.PathLike) -> CatalogueLayer:
         manual_max_exposure_ms=None if ceiling is None else float(ceiling),
         display_color=entry['display_color'],
         step_order=step_order,
+        sim_light_per_ma_s=None if light is None else float(light),
     )
 
 

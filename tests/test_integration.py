@@ -113,9 +113,9 @@ def _make_protocol(steps_config):
 
     defaults = {
         'color': 'BF',
-        'illumination_ma': 50.0,
+        'illumination_ma': 5.0,
         'gain_db': 1.0,
-        'exposure_ms': 10.0,
+        'exposure_ms': 2.0,
         'auto_gain': False,
         'auto_focus': False,
         'acquire': 'image',
@@ -597,7 +597,7 @@ class TestIntegrationAutofocus:
                 run=run_identity('autofocus'),
                 objective_id='10x Oly',
                 led_color='BF',
-                led_illumination=50.0,
+                led_illumination=5.0,
                 camera_gain=1.0,
                 camera_exposure=2.0,
                 led_lease=scope.illumination.acquire_led_lease('protocol', claim=held_run_claim()),
@@ -1050,7 +1050,7 @@ class TestRestAPIPrep:
                     # simulator used to render a lit field whatever the LEDs
                     # were doing, so this read as a working sweep.
                     led_color='BF',
-                    led_illumination=50.0,
+                    led_illumination=5.0,
                     led_lease=session.scope.illumination.acquire_led_lease(
                         'protocol', claim=held_run_claim()
                     ),

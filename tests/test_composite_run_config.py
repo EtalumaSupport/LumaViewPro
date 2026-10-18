@@ -41,16 +41,15 @@ _ALL_LAYERS = release_catalogue()
 
 
 def _layer(acquire=None, focus=0.0):
+    # No current, gain or exposure: each layer takes its shipped light from
+    # the template, as a scope would, so BF is not lit ten times past it.
     return {
         'acquire': acquire,
         'video_config': {},
         'stim_config': {'enabled': False},
         'autofocus': False,
         'false_color': True,
-        'illumination_ma': 50.0,
-        'gain_db': 2.0,
         'auto_gain': False,
-        'exposure_ms': 10.0,
         'sum': 1,
         'focus': focus,
     }

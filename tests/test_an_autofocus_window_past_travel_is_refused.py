@@ -56,7 +56,7 @@ def _autofocus_from(scope, z, monkeypatch, peak):
             run=run_identity('autofocus'),
             objective_id='10x Oly',
             led_color='BF',
-            led_illumination=50.0,
+            led_illumination=5.0,
             camera_gain=1.0,
             camera_exposure=50.0,
             led_lease=scope.illumination.acquire_led_lease('protocol', claim=held_run_claim()),

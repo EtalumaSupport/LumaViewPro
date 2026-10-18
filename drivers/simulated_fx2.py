@@ -49,8 +49,10 @@ from drivers.fx2driver import (
     VR_I2C_WRITE,
     VR_START_STREAMING,
     VR_STOP_STREAMING,
+    _CH_TO_I2C,
     _ByteStream,
     _FX2Connection,
+    FX2LEDController,
     _register_to_gain_db,
     exposure_s,
     frame_layout,
@@ -89,6 +91,10 @@ TRANSFER_S = ISO_NUM_PACKETS * 125e-6
 
 _LED_PREAMBLE = 0xFF
 _LED_CHANNELS = (ord('A'), ord('B'), ord('C'), ord('D'))
+# The LED address each peripheral channel lights, and the current a
+# brightness byte drives: the peripheral's full scale over 255 steps.
+_I2C_TO_ADDRESS = {i2c: address for address, i2c in _CH_TO_I2C.items()}
+_MA_PER_STEP = FX2LEDController._MAX_MA / 255.0
 
 
 def bytes_per_transfer(w: int, h: int, frame_period_s: float) -> float:
@@ -202,6 +208,14 @@ class _LedPeripheral:
     def lit(self) -> bool:
         return any(self.brightness.values())
 
+    def lit_ma(self) -> dict[int, float]:
+        """The current each lit LED address drives, in mA."""
+        return {
+            _I2C_TO_ADDRESS[channel]: byte * _MA_PER_STEP
+            for channel, byte in self.brightness.items()
+            if byte
+        }
+
 
 class SimulatedFX2Device:
     """One simulated FX2, from its bootloader to its stream.
@@ -211,7 +225,7 @@ class SimulatedFX2Device:
             ``'realistic'`` waits the bench's ``REENUMERATE_S``.
     """
 
-    def __init__(self, *, timing: str = 'instant'):
+    def __init__(self, *, timing: str = 'instant', light_of: Callable[[int], float] | None = None):
         if timing not in TIMINGS:
             raise ValueError(f'timing mode {timing!r} is not one of {TIMINGS}')
         self._timing = timing
@@ -222,6 +236,10 @@ class SimulatedFX2Device:
         self._image = bytearray()
         self.sensor = _Mt9p031()
         self.leds = _LedPeripheral()
+        # The light per mA-second at unity gain the layer an LED address
+        # lights renders; unwired, any lit LED shows the field at the
+        # reference exposure's grey levels, whatever its current.
+        self._light_of = light_of
         self._sink: Callable[[bytes], None] | None = None
         self._streaming = threading.Event()
         self._stop = threading.Event()
@@ -419,7 +437,11 @@ class SimulatedFX2Device:
             frames = self._specimen[(w, h)] = drift_frames(specimen_field(h, w), h, w)
         field = frames[self._frame_index % len(frames)]
         self._frame_index += 1
-        scale = self.sensor.exposure_s() / _REFERENCE_EXPOSURE_S * self.sensor.gain()
+        if self._light_of is None:
+            scale = self.sensor.exposure_s() / _REFERENCE_EXPOSURE_S * self.sensor.gain()
+        else:
+            light = sum(ma * self._light_of(address) for address, ma in self.leds.lit_ma().items())
+            scale = self.sensor.exposure_s() * self.sensor.gain() * light
         return np.clip(field.astype(np.float32) * scale, 0, 255).astype(np.uint8)
 
     def _stream_loop(self) -> None:
@@ -601,8 +623,8 @@ class SimulatedFX2:
     upload into the bootloader, the wait for re-enumeration, the open.
     """
 
-    def __init__(self, *, timing: str = 'instant'):
-        self.device = SimulatedFX2Device(timing=timing)
+    def __init__(self, *, timing: str = 'instant', light_of: Callable[[int], float] | None = None):
+        self.device = SimulatedFX2Device(timing=timing, light_of=light_of)
         # Kept for its faults: the transport is where the cable is pulled.
         self.transport = SimulatedFX2Transport(self.device)
         self.connection = _FX2Connection(self.transport)

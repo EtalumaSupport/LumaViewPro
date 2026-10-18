@@ -60,7 +60,7 @@ def _step(name, index, *, x, gain, sum_count=1, autofocus=False):
         'Auto_Focus': autofocus,
         'Color': 'BF',
         'False_Color': False,
-        'Illumination': 50.0,
+        'Illumination': 1.0,
         'Gain': gain,
         'Auto_Gain': False,
         'Exposure': 10.0,
@@ -167,9 +167,9 @@ class TestALateWriteRecordsItsFrame:
                 f'{name} records gain {metadata.get("gain_db")}, not the {gain} dB it was '
                 'captured at -- the record was read when the write ran'
             )
-            assert metadata.get('illumination_ma') == 50.0, (
+            assert metadata.get('illumination_ma') == 1.0, (
                 f'{name} records LED current {metadata.get("illumination_ma")}, not the '
-                '50 mA it was lit at -- by write time the run had turned the LED off'
+                '1 mA it was lit at -- by write time the run had turned the LED off'
             )
             assert metadata.get('well_label') == well, (
                 f'{name} records well {metadata.get("well_label")!r}, not {well!r}: the step '
