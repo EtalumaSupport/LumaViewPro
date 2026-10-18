@@ -17,6 +17,11 @@ import pytest
 
 from modules.exceptions import AutofocusStopped
 from tests.af_drives import AF_CENTER_Z, af_runner_and_scope, drive_af
+from tests.test_a_run_needs_every_axis_position import COMPLETION_TIMEOUT
+from tests.test_a_stop_press_ends_the_live_run import (  # noqa: F401 (the fixture)
+    session,
+    start_an_autofocus_held_mid_sweep,
+)
 
 
 def _z_moves(scope):
@@ -51,3 +56,34 @@ def test_an_abort_that_is_no_stop_still_puts_z_back():
     moves = _aborted_sweep(stay_put=False)
 
     assert moves and moves[-1] == AF_CENTER_Z, moves
+
+
+# The run's cleanup reads its ending to decide: each ending in STOP_REASONS
+# leaves Z, any other puts it back. Each is a different ending reaching it.
+@pytest.mark.parametrize(
+    'end, reason',
+    [
+        (lambda session, run: run.stop(), 'stopped'),
+        (lambda session, run: session.scope.motion.stop_motion(), 'stage_stopped'),
+    ],
+    ids=['the_runs_stop', 'a_stop_press'],
+)
+def test_an_autofocus_run_stopped_mid_sweep_leaves_z_where_it_stopped(session, end, reason):
+    run = start_an_autofocus_held_mid_sweep(session)
+
+    end(session, run)
+    outcome = run.result(timeout=COMPLETION_TIMEOUT)
+
+    assert (outcome.status, outcome.reason) == ('aborted', reason)
+    z = session.scope.motion.get_current_position(axis='Z')
+    assert z != 5000.0, 'Z was put back after the stop'
+
+
+def test_an_autofocus_run_a_fault_ends_mid_sweep_puts_z_back(session):
+    run = start_an_autofocus_held_mid_sweep(session)
+
+    session.sequenced_capture_runner.abort_run_fatal('camera_failure', 'The camera failed.')
+    outcome = run.result(timeout=COMPLETION_TIMEOUT)
+
+    assert (outcome.status, outcome.reason) == ('failed', 'camera_failure')
+    assert session.scope.motion.get_current_position(axis='Z') == 5000.0

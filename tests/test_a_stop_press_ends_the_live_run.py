@@ -288,15 +288,29 @@ def test_a_run_started_after_stop_runs(session, tmp_path):
     assert (outcome.status, outcome.reason) == ('completed', 'completed')
 
 
-def test_stop_pressed_during_an_autofocus_run_ends_it_and_tells_it_once(session, centre_posts):
-    """A standalone autofocus is a run: a STOP while it moves ends it.
-    Before, it went on and ended 'completed'. Where the sweep leaves Z is
-    the sweep's own (``test_a_stopped_autofocus_leaves_z.py``)."""
+def start_an_autofocus_held_mid_sweep(session):
+    """Start a standalone autofocus and return its run once a sweep move is held.
+
+    The run's first Z move is its go-to-step, to the Z it already stands
+    at; that move is let go, and a hold armed after it holds a move of the
+    sweep itself.
+    """
     # Mid-travel, so the sweep's window lies inside Z's travel.
     session.scope.motion.move_absolute('Z', 5000.0)
-    held = session.scope.simulation.hold_axis('Z')
+    to_the_step = session.scope.simulation.hold_axis('Z')
     run = session.create_protocol_runner().start_autofocus('BF')
-    assert held.wait(_HOLD_WAIT_S), "the autofocus run's Z move never got part of the way"
+    assert to_the_step.wait(_HOLD_WAIT_S), "the autofocus run's go-to-step never started"
+    session.scope.simulation.clear()
+    in_the_sweep = session.scope.simulation.hold_axis('Z')
+    assert in_the_sweep.wait(_HOLD_WAIT_S), 'no move of the sweep got part of the way'
+    return run
+
+
+def test_stop_pressed_during_an_autofocus_run_ends_it_and_tells_it_once(session, centre_posts):
+    """A standalone autofocus is a run: a STOP while it sweeps ends it.
+    Before, it went on and ended 'completed'. Where the sweep leaves Z is
+    the sweep's own (``test_a_stopped_autofocus_leaves_z.py``)."""
+    run = start_an_autofocus_held_mid_sweep(session)
 
     session.scope.motion.stop_motion()
     outcome = run.result(timeout=COMPLETION_TIMEOUT)
