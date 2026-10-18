@@ -20,6 +20,7 @@ from modules.exceptions import (
 from modules.lumascope_api.motion import AxisState
 from modules.notification_center import OutcomeKind, outcome_of
 from modules.scope_session import ScopeSession
+from modules.sequential_io_executor import IOTask
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
 
@@ -345,3 +346,128 @@ def test_a_stop_on_firmware_without_stop_leaves_the_stage_short_and_at_rest(fiel
     time.sleep(0.3)
     assert driver.current_pos('X') == stopped_at
     assert motion.get_current_position('X') == pytest.approx(stopped_at, abs=0.1)
+
+
+# ----------------------------------------------------------------------
+# Work asked before a STOP drives nothing after it.
+# ----------------------------------------------------------------------
+
+
+@pytest.fixture
+def fast_session(tmp_path):
+    """A homed scope on the fast tier: a move that drives arrives at once,
+    so a move that was withheld is told by the stage not having moved."""
+    s = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
+    try:
+        home_sim_scope(s.scope)
+        yield s
+    finally:
+        s.shutdown()
+        s.scope.disconnect()
+
+
+class _Busy:
+    """An executor kept busy by one task until released: the work a later
+    ask waits behind, as a turret change or a run's start holds it on the
+    bench."""
+
+    def __init__(self, executor):
+        self.entered = threading.Event()
+        self.release = threading.Event()
+
+        def busy():
+            self.entered.set()
+            assert self.release.wait(_HOLD_WAIT_S), 'the busy task was never released'
+
+        executor.put(IOTask(action=busy))
+        assert self.entered.wait(_HOLD_WAIT_S), 'the busy task never started'
+
+
+def _drained(executor):
+    """Wait until ``executor`` has run everything queued before this call."""
+    executor.put(IOTask(action=lambda: None), return_future=True).result(timeout=_HOLD_WAIT_S)
+
+
+def test_a_door_call_queued_behind_the_lane_when_stop_is_pressed_drives_nothing(
+    fast_session, monkeypatch
+):
+    """A door call that waits behind a busy IO lane when STOP is pressed.
+    Before, the move's body read the stop only as it started, after the
+    STOP, and drove the whole way (30 mm on the realistic simulator),
+    reporting that it arrived."""
+    motion = fast_session.scope.motion
+    lane = fast_session.scope._io_executor
+    busy = _Busy(lane)
+    # a stand-in by design: the lane says nothing when a task joins its
+    # queue, and the STOP must be pressed after the door call has queued.
+    queued = threading.Event()
+    real_submit = lane.submit
+
+    def submit_and_tell(*args, **kwargs):
+        waiter = real_submit(*args, **kwargs)
+        queued.set()
+        return waiter
+
+    monkeypatch.setattr(lane, 'submit', submit_and_tell)
+    x0 = motion.get_current_position('X')
+    handles = []
+    asked = threading.Thread(
+        target=lambda: handles.append(motion.start_move_absolute('X', x0 + 5000.0))
+    )
+    asked.start()
+    assert queued.wait(_HOLD_WAIT_S), 'the door call never queued'
+    motion.stop_motion()
+    busy.release.set()
+    asked.join(_HOLD_WAIT_S)
+
+    assert handles, 'the door call never returned'
+    assert _reason(handles[0]) == 'stopped'
+    assert motion.get_current_position('X') == pytest.approx(x0, abs=0.1)
+
+
+def test_a_gesture_queued_on_the_lane_when_stop_is_pressed_drives_nothing(fast_session):
+    """The GUI's shape: a click puts a task on the IO lane, and the task
+    calls the motion door only when the lane reaches it, after the STOP.
+    The ask is the click, so the move is withheld."""
+    motion = fast_session.scope.motion
+    lane = fast_session.scope._io_executor
+    busy = _Busy(lane)
+    x0 = motion.get_current_position('X')
+    handles = []
+    lane.put(IOTask(action=lambda: handles.append(motion.start_move_absolute('X', x0 + 5000.0))))
+    motion.stop_motion()
+    busy.release.set()
+    _drained(lane)
+
+    assert handles, 'the gesture never ran'
+    assert _reason(handles[0]) == 'stopped'
+    assert motion.get_current_position('X') == pytest.approx(x0, abs=0.1)
+
+
+def test_a_request_queued_on_the_worker_pool_when_stop_is_pressed_drives_nothing(fast_session):
+    """Step navigation and a run's start go to the GUI's worker pool, whose
+    task then asks the IO lane. The lane's task carries the pool task's ask,
+    so a request made before the STOP drives nothing after it."""
+    motion = fast_session.scope.motion
+    pool = fast_session.executor_bundle.worker_pool
+    busy = _Busy(pool)
+    x0 = motion.get_current_position('X')
+    handles = []
+    pool.put(IOTask(action=lambda: handles.append(motion.start_move_absolute('X', x0 + 5000.0))))
+    motion.stop_motion()
+    busy.release.set()
+    _drained(pool)
+
+    assert handles, 'the pool request never ran'
+    assert _reason(handles[0]) == 'stopped'
+    assert motion.get_current_position('X') == pytest.approx(x0, abs=0.1)
+
+
+def test_a_move_asked_after_stop_drives(fast_session):
+    """A STOP withholds only what was asked before it: the next move asked
+    drives as usual."""
+    motion = fast_session.scope.motion
+    x0 = motion.get_current_position('X')
+    motion.stop_motion()
+    assert _reason(motion.start_move_absolute('X', x0 + 5000.0)) == 'arrived'
+    assert motion.get_current_position('X') == pytest.approx(x0 + 5000.0, abs=0.1)

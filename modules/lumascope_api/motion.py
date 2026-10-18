@@ -59,7 +59,7 @@ from modules.exceptions import (
 from modules.notification_center import notifications
 from modules.activity_claim import Taking, acting, current_taking
 from modules.operation import Operation, refuse_waiting_on_ui_thread
-from modules.sequential_io_executor import IOTask, slow_task_budget
+from modules.sequential_io_executor import IOTask, ask_now, asked_before, slow_task_budget
 from modules.video_cadence import StallWatch
 
 # Declared costs, module-level because the @slow_task_budget decorators run at
@@ -81,6 +81,11 @@ _TURRET_MOVE_SLOW_TASK_S = 15.0
 # move armed: equal to no reading, so the first good read counts as progress
 # and a move never read is given up at the window.
 _NOT_YET_READ = object()
+
+# The stop generation of a move asked before the last press of stop_motion:
+# below every generation the counter takes, so it reads as stopped against
+# any of them.
+_ASKED_BEFORE_A_STOP = -1
 
 # How long the Z overshoot leg may take to reach its point before the move
 # fails. The leg's wait is the one loop in a move with no reply timeout of
@@ -324,13 +329,19 @@ class MotionAPI:
         # nobody commanded; a waited move compares this against the value
         # it saw before driving to tell a stop from an arrival.
         self._stop_generation = 0
-        # Bumped by the Stops someone asked for (stop_motion, the teardown's
-        # stop), not by a stop the stage made in refusing for an interlock:
+        # Bumped by the Stops someone asked for (stop_motion), not by the
+        # scope's own halt (_stop: the teardown, a stall) or a stop the stage
+        # made in refusing for an interlock:
         # a home that has not driven yet is ended by an asked Stop, while
         # the lid's stop halts what was moving and the home's own interlock
         # read refuses it with the lid as the cause. Written and read under
         # _stop_lock.
         self._stops_asked = 0
+        # Where the last press of stop_motion stands in the executors' one
+        # ask order, refused or not: work asked before it drives nothing,
+        # because the person pressed STOP after asking for it. Written and
+        # read under _stop_lock.
+        self._last_press_ask = 0
         self._stop_lock = threading.Lock()
         # How many homes drive now on a board that cannot take a STOP until
         # the home ends: stop_motion is refused while any does, not queued
@@ -869,12 +880,31 @@ class MotionAPI:
         with self._stop_lock:
             if not live():
                 return
+            # Before the send and before a refusal: a press the board cannot
+            # take while it homes still withholds what was asked before it,
+            # so the home runs to its end and nothing after it moves.
+            self._last_press_ask = ask_now()
             if self._unstoppable_homes_driving:
                 raise HardwareCommandRefusedError('home_in_flight', 'stop_motion')
             # A person's Stop, which a home it ends ends as: counted before
             # the send, so a send that fails is counted too.
             self._stops_asked += 1
             self._send_stop()
+
+    def _generation_asked(self) -> int:
+        """The stop generation a move body drives under: ``_ASKED_BEFORE_A_STOP``
+        when the work it runs in was asked before the last press of
+        ``stop_motion``, else ``_stop_generation``.
+
+        Every reader of a move's generation compares it with the current
+        one, so a move asked before the press has its target write withheld
+        and ends ``'stopped'`` wherever it is read -- a jog queued behind the
+        lane when STOP was pressed drove after it, reporting that it arrived.
+        """
+        with self._stop_lock:
+            if asked_before(self._last_press_ask):
+                return _ASKED_BEFORE_A_STOP
+            return self._stop_generation
 
     def _stop(self) -> None:
         """Send the STOP, refusing nothing: the scope's own halt, for its teardown (which asks presence first) and a stall."""
@@ -1051,7 +1081,7 @@ class MotionAPI:
         # to the number the person commanded, not to the poll of it.
         logger.info('[SCOPE API ] Moving Z to 0', extra={'force_error': True})
         initial_z = self.get_target_position(axis='Z')
-        stop_generation = self._stop_generation
+        stop_generation = self._generation_asked()
         # force: this retract is the turret-safety move, and it is also
         # the first motion of the turret-home recovery -- the case where
         # Z is legitimately still unknown because the home that would
@@ -2040,7 +2070,7 @@ class MotionAPI:
         self._pre_drive(axis, force=force)
 
         leg = self._backlash_leg(axis, position, overshoot_enabled, 'move_absolute')
-        stop_generation = self._stop_generation
+        stop_generation = self._generation_asked()
         try:
             move, written = self._send_drive(
                 axis,
@@ -2157,7 +2187,7 @@ class MotionAPI:
             raise PositionOutOfRangeError(axis, target_pos, limits.min_um, limits.max_um)
 
         leg = self._backlash_leg(axis, target_pos, overshoot_enabled, 'move_relative')
-        stop_generation = self._stop_generation
+        stop_generation = self._generation_asked()
         try:
             move, written = self._send_drive(
                 axis,

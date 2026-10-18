@@ -121,3 +121,25 @@ def test_its_stop_is_the_stages_stop_refused_while_this_board_homes(session, mon
     assert (refused.value.reason, refused.value.member) == ('home_in_flight', 'stop_motion')
     assert started.result(timeout=HOME_S) is None
     assert session.scope.motion.get_turret_slot() == 1
+
+
+def test_a_stop_refused_during_its_home_cancels_the_legs_after_it(session, monkeypatch):
+    """The LS850T's board cannot take a STOP while it homes, so the press is
+    refused and the home runs to its end -- and then nothing after it moves.
+    Before, the startup motion went on to place Z at the simulated sample
+    plane, a move the person had pressed STOP on."""
+    motion = session.scope.motion
+    held = _HeldHome(session.scope, monkeypatch)
+    started = session.start_application_session()
+    try:
+        assert held.entered.wait(HOME_S)
+        with pytest.raises(HardwareCommandRefusedError):
+            motion.stop_motion()
+    finally:
+        held.release.set()
+
+    assert started.result(timeout=HOME_S) is None
+    assert motion.has_homed()
+    # The home leaves Z at the floor; the sample plane is millimetres above.
+    assert session.scope._camera_driver.get_nominal_focal_z() > 1000.0
+    assert motion.get_current_position('Z') == pytest.approx(0.0, abs=1.0)

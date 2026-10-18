@@ -66,6 +66,7 @@ from modules.exceptions import (
     HomingFailedError,
     LiveFolderPathRefusedError,
     MissingPart,
+    MoveStoppedError,
     ObjectiveUnknownError,
     ProtocolNotLoadedError,
     Remedy,
@@ -5100,16 +5101,23 @@ class ScopeSession:
             logger.info('startup turret positioning skipped: the stage reference is unknown')
             return
 
-        if self.scope.capabilities.has_turret:
-            # Every session starts at position 1, the slot the firmware's
-            # home leaves the turret on. After a real home this move is a
-            # physical no-op.
-            START_POSITION = 1
-            turret_fn(START_POSITION)
+        try:
+            if self.scope.capabilities.has_turret:
+                # Every session starts at position 1, the slot the firmware's
+                # home leaves the turret on. After a real home this move is a
+                # physical no-op.
+                START_POSITION = 1
+                turret_fn(START_POSITION)
 
-        # After the home, not instead of it: the simulator homes to the
-        # floor exactly as the instrument does, and only then is placed
-        # where its simulated sample is. A real scope is left alone here --
-        # its operator does the focusing, and startup moving their stage
-        # for them is not a convenience.
-        self.scope.move_to_simulated_sample_plane()
+            # After the home, not instead of it: the simulator homes to the
+            # floor exactly as the instrument does, and only then is placed
+            # where its simulated sample is. A real scope is left alone here --
+            # its operator does the focusing, and startup moving their stage
+            # for them is not a convenience.
+            self.scope.move_to_simulated_sample_plane()
+        except MoveStoppedError as e:
+            if e.reason != 'stopped':
+                raise
+            # STOP was pressed while the motion ran, so its later legs drive
+            # nothing: the person asked for the stage to stop, and it has.
+            logger.info(f'startup motion ended by STOP ({e.axis} {e.reason})')

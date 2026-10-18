@@ -200,6 +200,41 @@ def inline_outcome() -> Iterator[None]:
         _inline_outcome.active = previous
 
 
+# One order every executor stamps its tasks in, at submission: a task asked
+# later carries a larger number than every task asked before it, whichever
+# executor each was put on. Work a task submits while it runs carries the
+# running task's number, so a click that queues a task which later asks
+# another lane is still asked at the click. Motion reads it to withhold
+# work asked before a STOP.
+_ask_order = itertools.count(1)
+_asking = threading.local()
+
+
+def ask_now() -> int:
+    """A mark later than every ask made before this call, in the one ask order."""
+    return next(_ask_order)
+
+
+def asked_before(mark: int) -> bool:
+    """Whether the task this thread runs was asked before ``mark``.
+
+    False on a thread running no executor's task: its asks are made now.
+    """
+    ask = getattr(_asking, 'ask', None)
+    return ask is not None and ask < mark
+
+
+@contextlib.contextmanager
+def _running_ask(ask: int | None) -> Iterator[None]:
+    """Run under ``ask`` on this thread for the length of a ``with`` block; nests."""
+    previous = getattr(_asking, 'ask', None)
+    _asking.ask = ask
+    try:
+        yield
+    finally:
+        _asking.ask = previous
+
+
 def refuse_blocking_inline(member: str) -> None:
     """Refuse a blocking call inside the inline boundary, before any wait is made.
 
@@ -370,6 +405,8 @@ class IOTask:
         self.taking = None
         # Set only by the lane, for a submitter holding its override key.
         self.override = False
+        # Where the task stands in the one ask order, stamped at submit.
+        self.asked = None
         # Set by the lane when this task was put on it with nothing waiting
         # and nothing running: it is next whatever the worker's timing, so a
         # hold that begins before the worker takes it lets it run, as it
@@ -774,6 +811,8 @@ class SequentialIOExecutor:
     def _stamp(self, task: IOTask, override: object | None) -> None:
         task.set_name(self.executor_name)
         task.taking = current_taking()
+        running = getattr(_asking, 'ask', None)
+        task.asked = running if running is not None else ask_now()
         task.override = override is not None and override is self._override_key
 
     def _refused_at_submit(self, task: IOTask, refusal, return_future: bool, waiter=None):
@@ -1410,7 +1449,7 @@ class SequentialIOExecutor:
                 run_result = None
                 run_exc = None
                 try:
-                    with acting(task.taking):
+                    with acting(task.taking), _running_ask(task.asked):
                         run_result = task.run()
                 except BaseException as e:
                     run_exc = e
