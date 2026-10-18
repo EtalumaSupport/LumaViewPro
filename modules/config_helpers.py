@@ -43,12 +43,18 @@ if typing.TYPE_CHECKING:
 
 
 def find_nearest_step(x: float, y: float, protocol: 'Protocol | None') -> int:
-    """Given a position, find the nearest step index in the protocol."""
+    """Given a position, find the nearest step index in the protocol.
+
+    A step with no X/Y is at no place on the plate, so it is never the
+    nearest; -1 when no step has one.
+    """
     if protocol is None or protocol.num_steps() <= 0:
         return -1
 
-    steps_df = protocol.steps()
-    idx = (steps_df[['X', 'Y']].sub([x, y]).pow(2).sum(axis=1)).idxmin()
+    placed = protocol.steps()[['X', 'Y']].dropna()
+    if placed.empty:
+        return -1
+    idx = (placed.sub([x, y]).pow(2).sum(axis=1)).idxmin()
     # int(), not the bare idxmin: it returns np.int64, and this index is
     # handed on as a step number to callers that store and display it.
     # The annotation above promises a Python int.

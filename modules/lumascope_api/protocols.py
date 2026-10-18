@@ -647,13 +647,15 @@ class ProtocolsAPI:
             ProtocolRunRefusedError: ``tiling`` is not a grid this
                 installation offers, the protocol is already tiled, a step's
                 objective is not in the catalogue, the scope has no X/Y
-                motor, or a tile falls outside the stage's travel. Nothing
-                changes.
+                motor, a step has no position on an axis this scope moves
+                (``'step_position_missing'``), or a tile falls outside the
+                stage's travel. Nothing changes.
             CatalogueNameRefusedError: the protocol's plate is not in the
                 catalogue (``'labware_unknown'``). Nothing changes.
             ConfigError: no session has bound the scope, so it has no stage
                 offset. Nothing changes.
         """
+        self.refuse_missing_positions(protocol.steps(), then='tile them')
         protocol.apply_tiling(
             tiling=tiling,
             frame_dimensions=frame_dimensions,
@@ -683,13 +685,16 @@ class ProtocolsAPI:
 
         Raises:
             ProtocolRunRefusedError: ``range_um`` or ``step_size_um`` is not
-                greater than zero, the scope has no Z motor, or a slice falls
-                outside the Z travel. Nothing changes.
+                greater than zero, the scope has no Z motor, a step has no
+                position on an axis this scope moves
+                (``'step_position_missing'``), or a slice falls outside the Z
+                travel. Nothing changes.
             ArgumentRefusedError: ``'not_a_number'``, ``range_um`` or
                 ``step_size_um`` is not a finite number. Nothing changes.
             ArgumentRefusedError: ``'zstack_reference_unknown'``,
                 ``z_reference`` is not one of the three. Nothing changes.
         """
+        self.refuse_missing_positions(protocol.steps(), then='stack them')
         protocol.apply_zstacking(
             zstack_params={
                 'range': range_um,
@@ -752,7 +757,9 @@ class ProtocolsAPI:
 
         Raises:
             StepNotFoundError: ``step_idx`` is not a step of ``protocol``.
-            ProtocolRunRefusedError: this scope cannot put the step's
+            ProtocolRunRefusedError: ``'step_position_missing'``, the step has
+                no position on an axis this scope moves
+                (``refuse_missing_positions``). Or this scope cannot put the step's
                 objective in the light path (``refuse_unaddressable_objectives``):
                 ``'turret_objectives_unassigned'``, no turret slot carries it;
                 ``'objective_not_mounted'``, without a turret, it is not the
@@ -764,6 +771,7 @@ class ProtocolsAPI:
             CatalogueNameRefusedError: as ``stage_targets``.
         """
         step = protocol.step(idx=step_idx)
+        self.refuse_missing_positions(protocol.steps().iloc[[step_idx]], then='go to it')
         self.refuse_unaddressable_objectives([step['Objective']])
         turret_slot = None
         if self._scope.capabilities.has_turret:
@@ -1033,12 +1041,17 @@ class ProtocolsAPI:
         a Z axis. Permanent, so it is asked before whether the scope knows
         its position.
 
+        A step with no position on a missing axis asks for no motion there.
+        Without X/Y a step's well and tile name a place too: steps with no X/Y
+        that name different wells or tiles would image one field under each
+        name, so they ask for motion as positions do.
+
         A consult seam, not part of the L2 API surface: an L2 caller meets
         this rule by starting a run, which asks it here.
 
         Args:
-            steps: The protocol's steps table (``Protocol.steps()``), its
-                positions already validated as numbers.
+            steps: The protocol's steps table (``Protocol.steps()``): each
+                position a finite number, or NaN where the step has none.
 
         Raises:
             ProtocolRunRefusedError: ``positions_unreachable``. It has been
@@ -1046,8 +1059,14 @@ class ProtocolsAPI:
         """
         present = set(self._scope.capabilities.axes)
         needed = []
-        if not {'X', 'Y'} <= present and len(steps[['X', 'Y']].round(3).drop_duplicates()) > 1:
-            needed.append('the steps are at different X/Y positions')
+        if not {'X', 'Y'} <= present:
+            stated = steps[['X', 'Y']].dropna()
+            if len(stated.round(3).drop_duplicates()) > 1:
+                needed.append('the steps are at different X/Y positions')
+            unplaced = steps[steps['X'].isna()]
+            named = unplaced[(unplaced['Well'] != '') | (unplaced['Tile'] != '')]
+            if len(named[['Well', 'Tile']].drop_duplicates()) > 1:
+                needed.append('the steps name different wells or tiles')
         if 'Z' not in present:
             if steps['Z'].round(3).nunique() > 1:
                 needed.append('the steps are at different Z positions')
@@ -1063,6 +1082,41 @@ class ProtocolsAPI:
                     'one position on those axes, without autofocus if there is no Z motor.'
                 ),
             )
+
+    def refuse_missing_positions(self, steps: pd.DataFrame, *, then: str = 'run it') -> None:
+        """Refuse steps that have no position on an axis this scope drives.
+
+        A step recorded on a scope without an axis has no position on it, and
+        on a scope that has the axis it says nothing about where to go there:
+        driven, it would image wherever the last move left the stage under
+        the step's name. One rule for the run, Go To Step and the tile and
+        z-stack builds, each asking it before it reads a position.
+
+        A consult seam, not part of the L2 API surface.
+
+        Args:
+            steps: The steps judged (``Protocol.steps()`` or a selection of it).
+            then: What the person was doing, ending the refusal's words.
+
+        Raises:
+            ProtocolRunRefusedError: ``step_position_missing``, naming the
+                steps and the axes.
+        """
+        driven = [axis for axis in ('X', 'Y', 'Z') if axis in self._scope.capabilities.axes]
+        lacking = [axis for axis in driven if steps[axis].isna().any()]
+        if not lacking:
+            return
+        missing = steps[steps[lacking].isna().any(axis=1)]
+        names = common_utils.first_few(list(missing['Name']), separator=', ')
+        axes = ', '.join(lacking)
+        self._refuse(
+            reason='step_position_missing',
+            message=(
+                f'{len(missing)} step(s) have no {axes} position, and this scope moves '
+                f'{axes}: {names}. They were recorded on a scope without that axis.\n\n'
+                f'Update those steps here, or delete them, to {then}.'
+            ),
+        )
 
     def refuse_positions_outside_travel(self, steps: pd.DataFrame, labware_key: str) -> None:
         """Refuse a protocol whose steps lie outside this scope's stage travel.

@@ -537,6 +537,22 @@ def _float_cell(value: object) -> float:
     return number
 
 
+def _position_cell(value: object) -> float:
+    """A step's X, Y or Z: a finite number, or NaN where the step has no position on that axis.
+
+    A scope records no position on an axis it lacks, so a blank, a None or a
+    NaN is that, not a cell of the wrong type. NaN is how the frame holds it:
+    a float column keeps its arithmetic, and ``step`` answers None for it.
+    """
+    if (
+        value is None
+        or (isinstance(value, str) and value == '')
+        or (isinstance(value, float) and np.isnan(value))
+    ):
+        return np.nan
+    return _float_cell(value)
+
+
 def _int_cell(value: object) -> int:
     number = _float_cell(value)
     if not number.is_integer():
@@ -581,13 +597,15 @@ def _dict_cell(value: object) -> dict:
 
 
 # Each step column with the type its cell is read as: the one reader for a
-# file's steps, a caller's frame and every in-place write. No cell is blank:
-# an empty position, number or True/False is a cell of the wrong type.
+# file's steps, a caller's frame and every in-place write. Only a position
+# may be blank, where the step has none on that axis; an empty number or
+# True/False is a cell of the wrong type.
+_POSITION_COLUMNS = ('X', 'Y', 'Z')
 _STEP_CELLS = {
     'Name': _str_cell,
-    'X': _float_cell,
-    'Y': _float_cell,
-    'Z': _float_cell,
+    'X': _position_cell,
+    'Y': _position_cell,
+    'Z': _position_cell,
     'Auto_Focus': _bool_cell,
     'Color': _str_cell,
     'False_Color': _bool_cell,
@@ -1245,8 +1263,8 @@ class Protocol:
         if len(steps) == 0:
             return
 
-        # First group by X/Y location
-        grouped_df = steps.groupby(by=['X', 'Y'], sort=False)
+        # First group by X/Y location; steps with no X/Y are one place, kept.
+        grouped_df = steps.groupby(by=['X', 'Y'], sort=False, dropna=False)
 
         # For each X/Y location, sort by Z-height
         grouped_list = []
@@ -1630,7 +1648,8 @@ class Protocol:
         """``df`` with every step column read by its reader and given its dtype.
 
         Raises:
-            ProtocolFormatError: a cell is not of its column's type.
+            ProtocolFormatError: a cell is not of its column's type, or a step
+                has one of X and Y without the other.
         """
         dtypes = cls._create_empty_steps_df().dtypes
         columns = {
@@ -1641,6 +1660,15 @@ class Protocol:
             )
             for column in _STEP_CELLS
         }
+        # X and Y are one stage: a step has both or neither, since no scope
+        # drives one without the other and a move needs the pair.
+        half = (columns['X'].isna() != columns['Y'].isna()).to_numpy().nonzero()[0]
+        if len(half):
+            position = int(half[0])
+            raise ProtocolFormatError(
+                f'step {position + 1} ({df["Name"].iloc[position]}) has one of X and Y '
+                'without the other: a step has both or neither.'
+            )
         return df.assign(**columns)
 
     @staticmethod
@@ -1659,6 +1687,21 @@ class Protocol:
         except ValueError as e:
             raise StepEditRefusedError(f'a step {column} of {value!r} {e}') from None
 
+    @staticmethod
+    def _measured_z(value: object) -> float:
+        """``value`` read as a focus Z: a number, never no position.
+
+        The focus writers write a Z the stage or an autofocus measured; a None
+        there would erase the step's focus, not record that it has none.
+
+        Raises:
+            StepEditRefusedError: ``value`` is not a finite number.
+        """
+        try:
+            return _float_cell(value)
+        except ValueError as e:
+            raise StepEditRefusedError(f'a step Z of {value!r} {e}') from None
+
     @api(in_process=True, reads=True)
     def steps(self) -> pd.DataFrame:
         """A copy of the steps frame.
@@ -1666,6 +1709,8 @@ class Protocol:
         A write to it does not reach the protocol, and its dict cells are
         read-only, so a write into one raises: the protocol changes only
         through its writers. Readers inside this class use the stored frame.
+        A step with no position on an axis holds NaN in that column, the
+        frame's own missing value; ``step`` answers None for it.
         """
         return self._config['steps'].copy()
 
@@ -1801,7 +1846,7 @@ class Protocol:
 
     def modify_step_z_height(self, step_idx: int, z: float) -> None:
         self._refuse_unless_in_range(step_idx)
-        self._config['steps'].at[step_idx, 'Z'] = self._typed_value('Z', z)
+        self._config['steps'].at[step_idx, 'Z'] = self._measured_z(z)
 
     # What makes a step the one a focus was found for. Not the step-list
     # revision: an Update moves a step without changing the list.
@@ -1869,7 +1914,7 @@ class Protocol:
         Returns the number of slices moved.
         """
         self._refuse_unless_in_range(reference_step_idx)
-        z = self._typed_value('Z', z)
+        z = self._measured_z(z)
         steps = self._config['steps']
         group_id = steps.at[reference_step_idx, 'Z-Stack Group ID']
         shift = z - steps.at[reference_step_idx, 'Z']
@@ -1897,7 +1942,7 @@ class Protocol:
         Returns:
             Number of steps updated.
         """
-        z = self._typed_value('Z', z)
+        z = self._measured_z(z)
         steps_df = self._config['steps']
         if steps_df is None or len(steps_df) == 0:
             return 0
@@ -2126,9 +2171,17 @@ class Protocol:
         back through here. That row is also what the image writer records its
         position from, so a stale hold does not merely misinform the caller,
         it is written into the saved image.
+
+        X, Y or Z is None where the step has no position on that axis: the
+        frame's NaN does not cross the wire, and None is what every record
+        says for no position.
         """
         self._refuse_unless_in_range(idx)
-        return to_python_scalars(self._config['steps'].iloc[idx])
+        row = to_python_scalars(self._config['steps'].iloc[idx]).astype(object)
+        for column in _POSITION_COLUMNS:
+            if pd.isna(row[column]):
+                row[column] = None
+        return row
 
     def apply_tiling(
         self,
@@ -3214,15 +3267,19 @@ class Protocol:
         # Each step cell is read by its column's reader, so a name or label of
         # 'NA' or '0600' stays that text and a number is the number written.
         # A blank cell stays blank: a runnable protocol refuses it at
-        # construction, and post-processing's reader keeps it. Any other cell
-        # its reader refuses refuses the file, naming the step and column. The
-        # config columns are parsed below, with their legacy repairs.
+        # construction, and post-processing's reader keeps it. A blank
+        # position is the step's having none on that axis, read by its reader.
+        # Any other cell its reader refuses refuses the file, naming the step
+        # and column. The config columns are parsed below, with their legacy
+        # repairs.
         for column in _STEP_CELLS:
             if column in protocol_df.columns and column not in _DICT_COLUMNS:
                 try:
                     protocol_df[column] = pd.Series(
                         [
-                            '' if cell == '' else _read_step_cell(protocol_df, column, position)
+                            ''
+                            if cell == '' and column not in _POSITION_COLUMNS
+                            else _read_step_cell(protocol_df, column, position)
                             for position, cell in enumerate(protocol_df[column])
                         ],
                         index=protocol_df.index,

@@ -204,7 +204,8 @@ class ProtocolSettings(FloatLayout):
             label.text = ''
             return
         step = self._protocol.step(idx=self.curr_step)
-        label.text = f'{float(step["Z"]):.0f} um'
+        # A step recorded without Z has no focus to show.
+        label.text = '' if step['Z'] is None else f'{float(step["Z"]):.0f} um'
 
     def _update_protocol_size_advisory(self):
         """Show the session's size advisory for this protocol, if it has one.

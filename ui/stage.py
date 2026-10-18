@@ -130,8 +130,9 @@ class Stage(Widget):
 
     def set_protocol_steps(self, protocol):
         # The positions are stated against the protocol's plate, so the plate
-        # travels with them. Filter to only keep the X/Y locations.
-        df = protocol.steps()[['X', 'Y']]
+        # travels with them. Filter to only keep the X/Y locations; a step
+        # with none has no place on the map.
+        df = protocol.steps()[['X', 'Y']].dropna()
         self._protocol_step_locations_df = df.drop_duplicates()
         self._protocol_step_labware = protocol.labware()
         self._protocol_step_redraw = True

@@ -341,12 +341,11 @@ class TestAxesOutsideTravel:
 
 class TestAPositionIsANumber:
     @pytest.mark.parametrize('axis', ['X', 'Y', 'Z'])
-    @pytest.mark.parametrize('value', ['', 'abc', None])
-    def test_a_position_that_is_not_a_number_is_refused(self, axis, value):
-        # An empty position too: "unknown" arrives with the Z-only row, which
-        # fixes every reader of one first (ruled F2).
+    def test_a_position_that_is_not_a_number_is_refused(self, axis):
+        # A blank or None position is no position on that axis, not a cell of
+        # the wrong type (test_a_step_may_have_no_position); text is neither.
         with pytest.raises(ProtocolFormatError, match=axis):
-            _make_protocol([_valid_step(**{axis: value})])
+            _make_protocol([_valid_step(**{axis: 'abc'})])
 
     def test_numeric_positions_are_not_reported(self):
         p = _make_protocol([_valid_step(X=999999, Y=-5, Z=200000)])

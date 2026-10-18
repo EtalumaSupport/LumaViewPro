@@ -1189,6 +1189,9 @@ class SequencedCaptureRunner:
         # put in the light path is told that first. Before the not-homed
         # gate: a scope with no motor for an axis cannot be homed into one.
         self._scope.protocols.refuse_unreachable_positions(protocol.steps())
+        # Its mirror, on the axes the scope has: before the travel gate, which
+        # would judge a step with no position as outside the travel.
+        self._scope.protocols.refuse_missing_positions(protocol.steps())
         self._scope.protocols.refuse_camera_values_out_of_range(protocol.steps())
 
         # After the connection gate: a board that dropped reports its axes

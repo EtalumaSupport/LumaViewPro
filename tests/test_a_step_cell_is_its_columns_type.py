@@ -10,7 +10,9 @@ raised a bare ``ValueError``; an empty X made the stage's right-click raise.
 
 Now every cell is read by its column's reader where the frame is taken, and
 a cell of the wrong type refuses the load in one message naming the file,
-the step and the column. The in-place writers read their values the same
+the step and the column. A blank X, Y or Z is not of the wrong type: it is
+a step with no position on that axis (``test_a_step_may_have_no_position``),
+and a focus writer still refuses a Z that is no number. The in-place writers read their values the same
 way, since a pandas frame does not hold its own schema. Post-processing,
 which reads a finished run's record and never runs it, keeps a blank cell
 blank and refuses any other cell its column cannot hold.
@@ -60,9 +62,7 @@ TWO_STEPS = [
     ('column', 'text'),
     [
         ('X', 'left'),
-        ('X', ''),
-        ('Y', ''),
-        ('Z', ''),
+        ('Z', 'high'),
         ('Exposure', '10 ms'),
         ('Sum', '2.5'),
         ('Z-Slice', 'top'),
@@ -111,7 +111,7 @@ def test_a_typed_file_loads_with_the_schemas_dtypes(tmp_path):
 
 @pytest.mark.parametrize(
     ('column', 'value'),
-    [('X', None), ('Exposure', 'ten'), ('Auto_Focus', 'True?'), ('Objective', None)],
+    [('X', 'left'), ('Exposure', 'ten'), ('Auto_Focus', 'True?'), ('Objective', None)],
 )
 def test_a_protocol_built_from_a_mistyped_frame_is_refused(column, value):
     with pytest.raises(ProtocolFormatError) as refused:
