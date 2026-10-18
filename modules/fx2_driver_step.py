@@ -435,8 +435,9 @@ def main(argv: list[str]) -> int:
             else:
                 complete = uninstall(WindowsMachine(), package_dir)
         except Exception:
-            # The top of the step: the installer ignores the exit code and this
-            # executable has no console, so the log is the only place it is told.
+            # The top of the step: this executable has no console, and its exit
+            # code says only that it failed, so the log is the only place the
+            # cause is told.
             log.exception(f'{argv[0]} stopped on an unexpected error')
             return 1
         if installed is Installed.NOT_ACCEPTED:

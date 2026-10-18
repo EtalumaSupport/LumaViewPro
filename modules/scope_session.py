@@ -1479,11 +1479,11 @@ class ScopeSession:
         as an administrator, on the scope PC's desktop: Windows asks there
         for an administrator's approval, then whether to install software
         from Etaluma (unless the person chose to always trust it), so someone
-        at the scope answers whoever asked. The step logs every action to the install folder's
-        ``logs``. A camera that is up is never touched: Repair runs only
-        while no camera is connected and a present device is on a driver
-        LumaViewPro cannot use, and the camera connects on its new driver at
-        the next start, which the notice it reports says.
+        at the scope answers whoever asked. The step logs every action to the
+        install folder's ``logs``. A camera that is up is never touched:
+        Repair runs only while no camera is connected and a present device is
+        on a driver LumaViewPro cannot use, and the camera connects on its new
+        driver at the next start, which the notice it reports says.
 
         Returns:
             tuple[UsbIdentityBindings, ...]: The bindings read after the
