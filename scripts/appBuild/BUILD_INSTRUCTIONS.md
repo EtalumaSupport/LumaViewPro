@@ -222,31 +222,56 @@ order and that `requirements.txt` does not currently carry. IDS renumbered
 releases from `2.x` to `YY.MM` (2.21 → 26.06), so any "runtime ≥ 2.18"
 guidance predates the change and cannot be compared numerically.
 
+#### Code Signing Certificate (optional; it also decides the Lumascope Classic driver)
+
+With no certificate configured the build is unsigned and leaves the Lumascope
+Classic driver out of the installer (below). To sign:
+
+1. Buy an OV code-signing certificate issued to Etaluma, with the CA's cloud
+   signing (SSL.com eSigner, Certum SimplySign, or Sectigo through a reseller),
+   not a USB token: a token's PIN needs someone at the build box. Install the
+   CA's signing tool on the build box and sign in; it puts the certificate,
+   with its key, in your certificate store (`Cert:\CurrentUser\My`).
+2. Install the Windows SDK (its Signing Tools give `signtool.exe`) and the
+   Windows Driver Kit (`Inf2Cat.exe`). Both are free from Microsoft.
+3. Put the certificate's SHA-1 thumbprint, on one line, in
+   `dependencies\signing\thumbprint.txt`
+   (`Get-ChildItem Cert:\CurrentUser\My -CodeSigningCert` lists it).
+
+The build then signs `LumaViewPro.exe`, `lvp_fx2_driver_step.exe`, the
+Classic driver's catalog, the MSI, and the bundle's engine and the bundle,
+each with a timestamp, and stops if any file fails to sign. Its receipt says
+`Signed: yes (<thumbprint>)`, or `Signed: NO`.
+
 #### FX2 WinUSB Driver (Lumascope Classic: LS560 / LS620 / LS720)
 
-Nothing to drop in. The driver package is
+Nothing to drop in, and in a signed build only. The driver package is
 `scripts\appBuild\build_exe\fx2_driver\Lumascope_Classic.inf` in the repo: it
 binds inbox `WinUSB.sys` to both of the FX2's identities, `0x04B4:0x8613` (the
 bootloader) and `0x04B4:0xEA17` (the running firmware), named "Lumascope
-Classic (Bootloader)" and "Lumascope Classic" in Device Manager. The build
-stamps its `DriverVer` with the build's date and the installer version
+Classic (Bootloader)" and "Lumascope Classic" in Device Manager. A signed
+build stamps its `DriverVer` with the build's date and the installer version
 (`scripts\appBuild\config\fx2_driver_package.py`), writes the stamped copy to
-the output folder's `fx2_driver\`, and the MSI installs it to
-`<InstallFolder>\drivers\fx2\`. Windows ranks equally signed packages for one
-device by that date, so the stamp is what lets ours outrank an older Zadig
-binding.
+the output folder's `fx2_driver\`, makes its catalog with `Inf2Cat` and signs
+it, and the MSI installs both to `<InstallFolder>\drivers\fx2\`. Windows ranks
+equally signed packages for one device by that date, so the stamp is what
+lets ours outrank an older Zadig binding. An unsigned build leaves them out
+and its receipt says `ClassicDriver=NOT BUNDLED (no signing certificate)`:
+Windows accepts a driver package only with a signed catalog.
 
-The MSI then runs the driver step, `lvp_fx2_driver_step.exe install` (a second
-executable the release spec builds from `lvp_fx2_driver_step.py`, deferred, as
-SYSTEM, its result ignored): it adds our package to the driver store, and only
-once it is there exports and removes every other vendor's package for the
-running firmware (`0xEA17`), binds the present devices to ours, removes our
-older packages and the past devices of both identities, and logs every step
-to `<InstallFolder>\logs\driver_install_<version>_<time>.log`. Uninstall runs
-`lvp_fx2_driver_step.exe uninstall`, which removes our package and restores
-what install exported. Until the package's catalog is signed, it does not
-enter the store, the step removes nothing, and the customer must still bind
-the driver with Zadig.
+The installer does not bind the driver. The first time LumaViewPro meets a
+Classic on no driver, or on one it cannot use (LumaView Classic's libusbK),
+it offers to install it; that runs the driver step, `lvp_fx2_driver_step.exe
+install`, as an administrator on the person's desktop, where Windows asks
+whether to install software from Etaluma. The step adds our package to the
+driver store, and only once it is there exports and removes every other
+vendor's package for the running firmware (`0xEA17`), binds the present
+devices to ours, removes our older packages and the past devices of both
+identities, and logs every step to
+`<InstallFolder>\logs\driver_install_<version>_<time>.log`. A working Zadig
+WinUSB binding is left as it is. Uninstall runs `lvp_fx2_driver_step.exe
+uninstall`, which removes our package and restores what install exported; an
+upgrade leaves the driver installed.
 
 The rest of what the FX2 needs is not a dependency to drop in either: the release
 spec ships the firmware hex from the clone's `firmware\` folder and the

@@ -225,16 +225,23 @@ def test_an_inf_without_its_placeholder_refuses_the_stamp(tmp_path):
         )
 
 
-def test_every_build_stamps_the_repos_inf_and_the_installer_runs_the_driver_step():
-    # pin-justified: build.ps1 runs on the Windows build box, not here.
+def test_a_signed_build_alone_carries_the_classic_driver_and_the_installer_only_uninstalls_it():
+    # pin-justified: build.ps1 and the WiX sources run on the Windows build
+    # box, not here. Windows accepts a driver package only with a signed
+    # catalog, so an unsigned build leaves the package out; and the driver is
+    # bound by the app's Repair, where Windows can ask the person, never by an
+    # installer action running as SYSTEM.
     build = (REPO_ROOT / 'scripts' / 'appBuild' / 'build.ps1').read_text(encoding='utf-8')
     package = (BUILD_EXE / 'wix' / 'Package.wxs').read_text(encoding='utf-8-sig')
 
+    signed = build.index('if ($signing_thumbprint) {\n    $fx2_dir_out')
     stamp = build.index('fx2_driver_package.py')
+    assert signed < stamp < build.index('"Fx2CatPath=$fx2_cat"')
     assert 'build_exe\\fx2_driver\\Lumascope_Classic.inf' in build[stamp : stamp + 300]
-    assert build.index('"Fx2InfPath=$fx2_inf"') > stamp
-    assert 'if ($fx2_inf)' not in build
-    assert '<?ifdef Fx2InfPath ?>' not in package
-    assert '[INSTALLFOLDER]lvp_fx2_driver_step.exe&quot; install' in package
-    assert '[INSTALLFOLDER]lvp_fx2_driver_step.exe&quot; uninstall' in package
-    assert 'NOT UPGRADINGPRODUCTCODE' in package
+    assert build.index('Invoke-Sign $fx2_cat') < build.index('"Fx2InfPath=$fx2_inf"')
+    start = package.index('<?ifdef Fx2InfPath ?>')
+    driver = package[start : package.index('<?endif ?>', start)]
+    assert '$(var.Fx2CatPath)' in driver
+    assert '[INSTALLFOLDER]lvp_fx2_driver_step.exe&quot; uninstall' in driver
+    assert 'NOT UPGRADINGPRODUCTCODE' in driver
+    assert 'lvp_fx2_driver_step.exe&quot; install' not in package

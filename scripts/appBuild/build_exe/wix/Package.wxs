@@ -105,22 +105,27 @@
 
 	  <!--
 	    The FX2 WinUSB driver package for the Lumascope Classic (LS560/LS620/
-	    LS720), installed to drivers\fx2\. Fx2InfPath is the copy the build
-	    stamped (build.ps1, fx2_driver_package.py).
+	    LS720), installed to drivers\fx2\, in a signed build only: build.ps1
+	    defines Fx2InfPath (the INF it stamped, fx2_driver_package.py) and
+	    Fx2CatPath (its signed catalog) only when a signing certificate is
+	    configured, since Windows accepts a driver package only with a signed
+	    catalog.
 
-	    The driver step (lvp_fx2_driver_step.exe, modules/fx2_driver_step.py)
-	    binds it at install and removes it at uninstall, deferred and as
-	    SYSTEM because pnputil needs an administrator. It logs every step to
-	    logs\driver_<step>_<version>_<time>.log under the install folder.
-	    Return="ignore": an installer action cannot tell the person anything,
-	    so the install completes whatever the step did and LumaViewPro's
-	    connect is where a binding that cannot work is told.
+	    The installer does not bind it. LumaViewPro's Repair runs the driver
+	    step (lvp_fx2_driver_step.exe, modules/fx2_driver_step.py) on the
+	    person's desktop, where Windows asks whether to install software from
+	    Etaluma; an installer action runs as SYSTEM with no desktop to ask on.
+	    Uninstall runs the step deferred and as SYSTEM, which removing a
+	    package needs and no prompt does: it removes our package and restores
+	    what Repair exported, logging to logs\driver_uninstall_<version>_<time>.log
+	    under the install folder. Return="ignore": an installer action cannot
+	    tell the person anything.
 
-	    The uninstall step is skipped when a newer version is removing this
-	    one (UPGRADINGPRODUCTCODE): the newer version's install step replaces
-	    our package itself, and restoring the packages this one removed would
-	    hand the device back to them in between.
+	    The uninstall step is skipped when a newer version is removing this one
+	    (UPGRADINGPRODUCTCODE): an upgrade leaves our driver installed and
+	    working, and only a full uninstall removes it.
 	  -->
+	  <?ifdef Fx2InfPath ?>
 	  <DirectoryRef Id="INSTALLFOLDER">
 	    <Directory Id="Fx2DriverDir" Name="drivers">
 	      <Directory Id="Fx2DriverSubDir" Name="fx2">
@@ -129,16 +134,14 @@
 	                Source="$(var.Fx2InfPath)"
 	                KeyPath="yes" />
 	        </Component>
+	        <Component Id="Fx2WinUSBCatFile" Guid="8c1e2f6a-4b7d-4e0a-9f35-6d2a71c4b8e3">
+	          <File Id="Fx2WinUSBCat"
+	                Source="$(var.Fx2CatPath)"
+	                KeyPath="yes" />
+	        </Component>
 	      </Directory>
 	    </Directory>
 	  </DirectoryRef>
-
-	  <CustomAction Id="InstallFx2Driver"
-	                Directory="INSTALLFOLDER"
-	                ExeCommand="&quot;[INSTALLFOLDER]lvp_fx2_driver_step.exe&quot; install"
-	                Execute="deferred"
-	                Impersonate="no"
-	                Return="ignore" />
 
 	  <CustomAction Id="UninstallFx2Driver"
 	                Directory="INSTALLFOLDER"
@@ -148,9 +151,9 @@
 	                Return="ignore" />
 
 	  <InstallExecuteSequence>
-	    <Custom Action="InstallFx2Driver" After="InstallFiles" Condition="NOT REMOVE" />
 	    <Custom Action="UninstallFx2Driver" Before="RemoveFiles" Condition="REMOVE=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
 	  </InstallExecuteSequence>
+	  <?endif ?>
 
   </Package>
 </Wix>
