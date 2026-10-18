@@ -2947,6 +2947,7 @@ class MissingPart:
     Y: ClassVar['MissingPart']
     Z: ClassVar['MissingPart']
     TURRET: ClassVar['MissingPart']
+    XY_STAGE: ClassVar['MissingPart']
     LED_CONTROLLER: ClassVar['MissingPart']
     CAMERA: ClassVar['MissingPart']
     FAN_CONTROL: ClassVar['MissingPart']
@@ -2999,6 +3000,12 @@ MissingPart.X = MissingPart('X', 'axis_absent', 'This microscope has no X motor.
 MissingPart.Y = MissingPart('Y', 'axis_absent', 'This microscope has no Y motor.')
 MissingPart.Z = MissingPart('Z', 'axis_absent', 'This microscope has no Z motor.')
 MissingPart.TURRET = MissingPart('T', 'axis_absent', 'This microscope has no turret.')
+MissingPart.XY_STAGE = MissingPart(
+    'XY stage',
+    'axis_absent',
+    'This microscope has no XY stage, so it has one field and no wells to move '
+    'between: its plate is Center Plate.',
+)
 MissingPart.LED_CONTROLLER = MissingPart(
     'LED controller', 'not_connected', 'The LED controller is not connected.'
 )

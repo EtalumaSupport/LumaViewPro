@@ -305,3 +305,19 @@ def test_an_autofocus_and_a_z_stack_run_on_a_scope_without_a_stage(make_session,
     stacked = runner.run_zstack('BF', parent_dir=str(tmp_path / 'zs'), timeout_s=180)
 
     assert (focused.status, stacked.status) == ('completed', 'completed'), (focused, stacked)
+
+
+# --- A scope without an XY stage has one plate ------------------------------------------
+
+
+def test_a_plate_with_wells_is_refused_where_it_is_selected_without_a_stage(make_session):
+    from modules.exceptions import HardwareCommandRefusedError, MissingPart
+    from modules.labware_loader import CENTER_PLATE
+
+    session = make_session('LS820')
+
+    with pytest.raises(HardwareCommandRefusedError) as refused:
+        session.select_labware('96 well microplate')
+
+    assert (refused.value.reason, refused.value.missing) == ('axis_absent', MissingPart.XY_STAGE)
+    assert session.settings['protocol']['labware'] == CENTER_PLATE

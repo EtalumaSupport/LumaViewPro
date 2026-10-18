@@ -3356,10 +3356,18 @@ class ScopeSession:
         Returns:
             ``[('protocol.labware', stored, shipped)]`` when replaced, else ``[]``.
         """
+        from modules.labware_loader import CENTER_PLATE
+
         stored = self.settings['protocol']['labware']
         if self.wellplate_loader.is_known_plate(stored):
             return []
-        shipped = self.scope.settings_template['protocol']['labware']
+        # A scope with no XY stage has one plate, which no stored value
+        # changes; the shipped plate is a stage scope's.
+        shipped = (
+            self.scope.settings_template['protocol']['labware']
+            if self.scope.capabilities.has_xy_stage
+            else CENTER_PLATE
+        )
         self.select_labware(shipped)
         logger.info(
             f'[Session  ] stored plate {stored!r} replaced by {shipped!r}: '
@@ -4136,15 +4144,28 @@ class ScopeSession:
         a spelling the catalogue lacks, and whether the plate changed is
         decided on the key rather than on how it was spelled.
 
+        On a scope with no XY stage the one plate is Center Plate: another
+        plate's wells are places it cannot move between, and a protocol made
+        on one would image one field under every well's name.
+
         Raises:
             CatalogueNameRefusedError: ``'labware_unknown'``, the labware
                 catalogue has no plate by that name. Nothing is written.
-            HardwareCommandRefusedError: A run, a diagnostic or a recording
-                holds the scope and ``labware_name`` is not the plate in place
-                (``exclusive_activity_running``): each states its positions
-                against the plate it started with. Nothing is written.
+            HardwareCommandRefusedError: ``'axis_absent'``, this scope has no
+                XY stage and ``labware_name`` is not Center Plate
+                (``missing`` is ``MissingPart.XY_STAGE``). A run, a diagnostic
+                or a recording holds the scope and ``labware_name`` is not the
+                plate in place (``exclusive_activity_running``): each states
+                its positions against the plate it started with. Nothing is
+                written.
         """
+        from modules.labware_loader import CENTER_PLATE
+
         labware_name = self.wellplate_loader.resolve_plate_key(labware_name)
+        if not self.scope.capabilities.has_xy_stage and labware_name != CENTER_PLATE:
+            raise HardwareCommandRefusedError(
+                'axis_absent', 'select_labware', missing=MissingPart.XY_STAGE
+            )
         if labware_name == self.settings['protocol']['labware']:
             # A holder is refused only a different plate: the GUI re-selects
             # the current one whenever its panels redraw, under any hold.
