@@ -48,6 +48,7 @@ from modules.exceptions import (
     RunCheckFailedError,
     RunFailedToStartError,
     RunImagesNotSavedError,
+    RunEndedByStopNotice,
     RunIncompleteError,
     RunStartError,
     SingleScanNotice,
@@ -77,6 +78,9 @@ from modules.operation import Operation
 # How often the run loop re-asks whether the camera lane has gone idle
 # before the run takes the camera; a still's grab is tens to hundreds of
 # milliseconds, so this bounds how late the run starts after it.
+# How a run ends when STOP is pressed while it is live.
+_ENDED_BY_STOP = RunEnding('aborted', 'stage_stopped', str(RunEndedByStopNotice()))
+
 _CAMERA_LANE_POLL_S = 0.01
 
 # How long a post-run build -- the composite merge, the hyperstack build --
@@ -418,6 +422,8 @@ class SequencedCaptureRunner:
         # with no handlers instead of AttributeError.
         self._events = RunEvents()
         self._reset_vars()
+        # A press of STOP, from any client, ends the live run.
+        scope.motion.add_stop_press_listener(self._end_the_live_run_for_stop)
         self._step_executor = ProtocolStepRunner(self)
         self._run_loop_executor = ProtocolRunLoop(self)
 
@@ -634,8 +640,18 @@ class SequencedCaptureRunner:
 
         return True
 
-    def _stop_run(self, run: 'EngineRun') -> None:
+    def _end_the_live_run_for_stop(self) -> None:
+        """A press of STOP ends the live run, as its own Stop does, recorded ``stage_stopped``."""
+        with self._run_lock:
+            run = self._run_handle
+        if run is not None:
+            self._stop_run(run, _ENDED_BY_STOP)
+
+    def _stop_run(self, run: 'EngineRun', ending: RunEnding | None = None) -> None:
         """Stop *run*, the run its start() made. Non-blocking for the caller.
+
+        ``ending`` is how the run ended: the run's own Stop when None, else
+        STOP pressed while it ran.
 
         Anyone may stop the live run, and the stop names the run rather
         than the caller: who asks is self-declared and protects nothing,
@@ -659,7 +675,7 @@ class SequencedCaptureRunner:
         with self._run_lock:
             if not self._is_live_run_locked(run):
                 return
-            self._ending.set_if_unset(RunEnding('aborted', 'stopped', 'Stopped'))
+            self._ending.set_if_unset(ending or RunEnding('aborted', 'stopped', 'Stopped'))
             self.protocol_thread.abort()
 
     def force_reset(self, reason: str) -> None:
@@ -1985,6 +2001,13 @@ class SequencedCaptureRunner:
         if outcome is not None:
             outcome.record_captures(tally)
             outcome.record_focus_failures(focus_failures)
+        if ending.reason == 'stage_stopped':
+            from modules.notification_center import notifications
+
+            notifications.report_outcome(
+                RunEndedByStopNotice(), solicited=False, category='Protocol'
+            )
+            return ending
         if ending.status != 'completed':
             return ending
         unfocused = self._unfocused_words(len(focus_failures))

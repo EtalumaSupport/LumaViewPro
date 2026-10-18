@@ -2342,6 +2342,24 @@ class RecordIncompleteError(Fault, CaptureError):
         self.attempted = attempted
 
 
+class RunEndedByStopNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error
+    """STOP was pressed while a run was live, so the run ended.
+
+    The run's outcome carries it as status ``'aborted'``, reason
+    ``'stage_stopped'``, in these words, and the person is told once when the
+    run ends: the run's owner may not be the one who pressed STOP (a REST
+    client, the GUI's button). The words say what was pressed, which is true
+    whether or not the board took the STOP; a STOP it did not take is
+    reported as that failure, where it was pressed.
+    """
+
+    title = ENDING_TITLES['stage_stopped']
+    reason = 'stage_stopped'
+
+    def __init__(self):
+        super().__init__('STOP was pressed, so the run ended.')
+
+
 class RunIncompleteError(Fault, CaptureError):
     """A run reached its end without every capture it was asked for.
 

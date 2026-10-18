@@ -29,7 +29,7 @@ from modules.lumascope_api.illumination import (
 from modules.protocol_image_writer import SLOW_WRITE_BLOCKED_WARN_S, WRITE_STALL_FATAL_S
 from modules.protocol_state_machine import ProtocolState
 from modules.run_events import RunEvents, deliver
-from modules.run_outcome import RunEnding
+from modules.run_outcome import STOP_REASONS, RunEnding
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -195,7 +195,7 @@ def run_cleanup(
     if autofocus_thread is not None and ending.status != 'failed_at_start':
         _af_future = autofocus_thread.current_future
         if _af_future is not None and not _af_future.done():
-            autofocus_thread.abort()
+            autofocus_thread.abort(stay_put=ending.reason in STOP_REASONS)
             try:
                 # Returns the run's exception (normally AutofocusAborted)
                 # without raising it; raises TimeoutError on the bound.

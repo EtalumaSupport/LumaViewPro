@@ -65,6 +65,7 @@ from modules.api_surface import api, api_fields
 ENDING_TITLES: dict[str, str] = {
     'completed': 'Protocol Complete',
     'stopped': 'Protocol Stopped',
+    'stage_stopped': 'Protocol Stopped',
     'shutdown': 'Protocol Stopped',
     'captures_failed': 'Run Incomplete',
     'start_failed': 'Run failed to start',
@@ -85,6 +86,11 @@ ENDING_TITLES: dict[str, str] = {
     'autofocus_failed': 'Autofocus Failed',
     'autofocus_not_started': 'Autofocus Not Started',
 }
+
+
+# The endings a person's stop makes: the run's own Stop, and STOP pressed
+# while it ran. A stop leaves the stage where it stopped it.
+STOP_REASONS = frozenset({'stopped', 'stage_stopped'})
 
 
 @dataclasses.dataclass(frozen=True)

@@ -87,6 +87,9 @@ class AutofocusThread:
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
         self._aborted = threading.Event()
+        # Set with an abort that is a person's stop: the sweep leaves Z where
+        # the stop left it instead of putting it back.
+        self._stay_put = threading.Event()
 
         # One outstanding AF request at a time; second arrivals while a
         # run is in flight fail-fast via run_autofocus(). The queue is
@@ -184,6 +187,7 @@ class AutofocusThread:
             # Same-lock pairing makes the new-sweep-with-cleared-aborted
             # publication atomic w.r.t. abort().
             self._aborted.clear()
+            self._stay_put.clear()
         # The sweep's moves, LED and camera writes are its caller's -- the run
         # that dispatched it -- so this thread acts under the caller's taking.
         try:
@@ -196,7 +200,7 @@ class AutofocusThread:
             future.set_exception(RuntimeError('Autofocus request queue full'))
         return future
 
-    def abort(self) -> None:
+    def abort(self, *, stay_put: bool = False) -> None:
         """Signal the in-flight AF run to unwind. AFE consults the
         abort_event each iteration and raises AutofocusAborted. The
         Future from run_autofocus() resolves with that exception.
@@ -206,6 +210,8 @@ class AutofocusThread:
         if not self.is_running:
             return
         logger.info('autofocus_thread abort requested')
+        if stay_put:
+            self._stay_put.set()
         self._aborted.set()
 
     # ---- inspection ----
@@ -261,7 +267,9 @@ class AutofocusThread:
             kwargs, future, taking = req
             try:
                 with acting(taking):
-                    result = self._afe.run(**kwargs, abort_event=self._aborted)
+                    result = self._afe.run(
+                        **kwargs, abort_event=self._aborted, stay_put=self._stay_put
+                    )
                 future.set_result(result)
             except LumascopeError as ex:
                 # An outcome: the runner reported it once, where its flight

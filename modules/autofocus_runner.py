@@ -81,6 +81,9 @@ class AutofocusRunner:
         # Set by run() before the loop starts; consulted by _iterate
         # each iteration. AutofocusThread owns the actual Event.
         self._abort_event: threading.Event | None = None
+        # Set by run(); AutofocusThread owns it. Set with an abort that is a
+        # person's stop, so the sweep leaves Z where the stop left it.
+        self._stay_put: threading.Event | None = None
 
         self._af_in_progress = threading.Event()
 
@@ -167,6 +170,7 @@ class AutofocusRunner:
         abort_event: threading.Event | None = None,
         keep_led_on: bool = False,
         *,
+        stay_put: threading.Event | None = None,
         led_color: str | None,
         led_illumination: float,
         led_lease: 'LedLease',
@@ -189,6 +193,8 @@ class AutofocusRunner:
                 the lock read from the camera instead of camera_gain /
                 camera_exposure (see _apply_sweep_camera_targets).
             abort_event: signalled by caller to abort the run. Required.
+            stay_put: set with an abort that is a person's stop; the sweep
+                then leaves Z where the stop left it.
             led_lease: the LED lease of the run AF executes inside -- AF
                 takes a child lease under it. Every AF runs inside a run,
                 an interactive one as a one-step run.
@@ -235,6 +241,7 @@ class AutofocusRunner:
 
         self._reset_state()
         self._abort_event = abort_event
+        self._stay_put = stay_put
         self._run_trigger_source = run_trigger_source
         self._led_color = led_color
         self._led_illumination = led_illumination
@@ -510,7 +517,10 @@ class AutofocusRunner:
                 # flag, and reads the scan centre: the same pre-AF Z, written once
                 # before the sweep and never mutated, so there is no absent value
                 # to guard against.
-                if self._best_focus_position is None and self._params:
+                # A person's stop leaves Z where it stopped it: putting it back
+                # is a move made after they pressed STOP.
+                stopped = self._stay_put is not None and self._stay_put.is_set()
+                if self._best_focus_position is None and self._params and not stopped:
                     pre_af_z = self._params['center']
                     try:
                         self._scope.motion.move_absolute('Z', pre_af_z)

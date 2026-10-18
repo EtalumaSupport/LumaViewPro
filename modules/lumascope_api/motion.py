@@ -264,6 +264,8 @@ class MotionAPI:
         # via Clock.schedule_once.
         self._position_listeners_lock = threading.Lock()
         self._position_listeners: list = []
+        self._stop_press_listeners_lock = threading.Lock()
+        self._stop_press_listeners: list = []
 
         self._turreting_event = threading.Event()  # set => turret move in progress
 
@@ -862,9 +864,9 @@ class MotionAPI:
                 stage may still be moving. Chained from the driver's
                 error. The stop generation has moved regardless.
         """
-        self._stop_motion_while(lambda: True)
+        self._stop_motion_while(lambda: True, pressed=True)
 
-    def _stop_motion_while(self, live: Callable[[], bool]) -> None:
+    def _stop_motion_while(self, live: Callable[[], bool], *, pressed: bool = False) -> None:
         """``stop_motion``, for one operation's work: sent only while ``live()`` answers True.
 
         ``live()`` is asked and the STOP sent in one hold of ``_stop_lock``,
@@ -877,6 +879,13 @@ class MotionAPI:
         started while a Stop lands does.
         """
         self.refuse_absent('stop_motion')
+        if pressed:
+            # A press of STOP is told before the STOP is sent, so no work a
+            # listener ends starts during the exchange; outside _stop_lock,
+            # which a listener's own stop of a run must not wait behind.
+            with self._stop_press_listeners_lock:
+                listeners = list(self._stop_press_listeners)
+            notifications.tell_listeners(listeners, category='Motion')
         with self._stop_lock:
             if not live():
                 return
@@ -1579,6 +1588,22 @@ class MotionAPI:
                 self._position_listeners.remove(listener)
             except ValueError:
                 pass
+
+    def add_stop_press_listener(self, listener: Callable[[], None]) -> None:
+        """Register a callback for each press of ``stop_motion`` (not part of the L2 API surface).
+
+        The run engine's hook, registered once for the engine's life: a
+        press ends the live run, for every client that presses STOP.
+
+        Called with no arguments as STOP is pressed, before the STOP is sent
+        and whether or not the board takes it, on the presser's thread, so a
+        listener must not wait.
+
+        Args:
+            listener: ``callable()``
+        """
+        with self._stop_press_listeners_lock:
+            self._stop_press_listeners.append(listener)
 
     def _fire_position_listeners(self, axis: str):
         """Notify all position listeners of a change on *axis*, as ``axis_positions`` answers it."""
