@@ -263,6 +263,9 @@ def run_cleanup(
                     LedTransitionCtx(end_policy=end_policy, snapshot_lit=snapshot_lit),
                 )
                 led_end_state_applied = True
+                logger.info(
+                    f'[{logger_name}] Cleanup: LED end state applied ({end_policy.name.lower()})'
+                )
         except CancelledError:
             # The protocol queue was cleared and this restore task cancelled
             # before it ran. A superseding run/abort cycle is one canceller --
@@ -278,7 +281,6 @@ def run_cleanup(
             )
         except Exception as ex:
             cleanup_errors.append(('Restore LED states', f'{type(ex).__name__}: {ex}'))
-    logger.info(f'[{logger_name}] Cleanup: LED restore complete')
 
     # --- Restore camera gain and exposure ---
     # Before the return moves and the executors' end: live preview after the

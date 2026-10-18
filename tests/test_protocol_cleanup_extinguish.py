@@ -129,3 +129,62 @@ def test_cleanup_without_lease_does_not_darken(scope, monkeypatch):
     _run_cleanup_inner(stub)
 
     assert _lit(scope), 'a cleanup that never held the lease must leave the LED end-state alone'
+
+
+def _cleanup_told(scope, monkeypatch, apply_led_transition_fn):
+    """Run run_cleanup with this RUN_END transition; what it logged at INFO."""
+    import threading
+
+    import modules.protocol_cleanup as protocol_cleanup
+    from modules.protocol_state_machine import ProtocolState
+
+    told = []
+    monkeypatch.setattr(
+        protocol_cleanup.logger, 'info', lambda message, *a, **k: told.append(message)
+    )
+    applied = protocol_cleanup.run_cleanup(
+        get_state_fn=lambda: ProtocolState.RUNNING,
+        set_state_fn=lambda state: None,
+        scan_in_progress=threading.Event(),
+        forced_dark=False,
+        leds_state_at_end='off',
+        original_led_states=(),
+        saved_camera_state={},
+        show_pre_run_layer_fn=None,
+        return_to_position=None,
+        scope=scope,
+        apply_led_transition_fn=apply_led_transition_fn,
+        default_move_fn=lambda *a, **k: None,
+        cancel_scheduled_events_fn=lambda: None,
+        autofocus_thread=None,
+        write_batch=scr.RunWriteBatch(MagicMock()),
+        ending=RunEnding('completed', 'completed', 'The run finished normally.'),
+        record_cleanup_failures=lambda steps: None,
+        failed_before=(),
+    )
+    return applied, told
+
+
+def test_a_restore_that_did_not_apply_is_not_logged_as_complete(scope, monkeypatch):
+    # A stand-in by design: the subject is the cleanup catching the run's LED
+    # transition, and the transition is its interchangeable collaborator.
+    from concurrent.futures import CancelledError
+
+    for fault in (RuntimeError('LED board did not answer'), CancelledError()):
+
+        def _fails(transition, ctx, fault=fault):
+            raise fault
+
+        applied, told = _cleanup_told(scope, monkeypatch, _fails)
+
+        assert applied is False
+        assert [line for line in told if 'LED' in line and 'complete' in line] == [], (
+            f'a restore that raised {type(fault).__name__} must not be logged as complete'
+        )
+
+
+def test_a_restore_that_applied_is_logged_with_what_it_applied(scope, monkeypatch):
+    applied, told = _cleanup_told(scope, monkeypatch, lambda transition, ctx: None)
+
+    assert applied is True
+    assert [line for line in told if 'LED end state applied' in line] != []
