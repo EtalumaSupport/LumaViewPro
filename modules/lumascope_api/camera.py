@@ -1730,6 +1730,23 @@ class CameraAPI:
     # The camera's stored settings: applied, then saved
     # ------------------------------------------------------------------
 
+    def _saved_after(self, impl, member: str, updates: dict[str, object]):
+        """A camera-lane body: ``impl``, then the save of ``updates``.
+
+        Each stored setting's write and its save are one lane task, so no
+        other camera command lands between them: saved on the caller's
+        thread after the task, two callers' binnings left one saved beside a
+        camera at the other. A body answering falsy found no camera, and
+        nothing is saved.
+        """
+
+        def write_then_save(*args):
+            if not impl(*args):
+                raise _camera_not_connected(member)
+            self._scope.store_settings(updates)
+
+        return write_then_save
+
     @api
     def set_high_conversion_gain(self, enabled: bool) -> None:
         """Turn the camera's high conversion gain on or off, then save it.
@@ -1750,14 +1767,16 @@ class CameraAPI:
             CameraSettingRejected: The camera refused it or raised from it
                 (chained). Nothing is saved.
         """
-        if not self._dispatch_camera(
-            self._set_conversion_gain_mode_impl,
+        self._dispatch_camera(
+            self._saved_after(
+                self._set_conversion_gain_mode_impl,
+                'set_high_conversion_gain',
+                {'camera.high_conversion_gain': enabled},
+            ),
             'set_high_conversion_gain',
             args=('High' if enabled else 'Low',),
             timeout_s=self._CAMERA_GEOMETRY_TIMEOUT_S,
-        ):
-            raise _camera_not_connected('set_high_conversion_gain')
-        self._scope.store_settings({'camera.high_conversion_gain': enabled})
+        )
 
     @api
     def set_line_noise_reduction(self, enabled: bool) -> None:
@@ -1776,14 +1795,16 @@ class CameraAPI:
             CameraSettingRejected: The camera refused it or raised from it
                 (chained). Nothing is saved.
         """
-        if not self._dispatch_camera(
-            self._set_line_noise_reduction_impl,
+        self._dispatch_camera(
+            self._saved_after(
+                self._set_line_noise_reduction_impl,
+                'set_line_noise_reduction',
+                {'camera.line_noise_reduction': enabled},
+            ),
             'set_line_noise_reduction',
             args=(enabled,),
             timeout_s=self._CAMERA_GEOMETRY_TIMEOUT_S,
-        ):
-            raise _camera_not_connected('set_line_noise_reduction')
-        self._scope.store_settings({'camera.line_noise_reduction': enabled})
+        )
 
     @api
     def set_image_mode(self, mode: str) -> None:
@@ -1812,15 +1833,16 @@ class CameraAPI:
         target = image_mode.select_capture_pixel_format(
             capture_depth, self._scope.capabilities.camera_pixel_formats
         )
-        if target is not None and not self._dispatch_camera(
-            self._set_pixel_format_impl,
+        if target is None:
+            self._scope.store_settings({'image_mode': mode})
+            return
+        self._dispatch_camera(
+            self._saved_after(self._set_pixel_format_impl, 'set_image_mode', {'image_mode': mode}),
             'set_image_mode',
             args=(target,),
             timeout_s=self._CAMERA_GEOMETRY_TIMEOUT_S,
             falsifies_recording=True,
-        ):
-            raise _camera_not_connected('set_image_mode')
-        self._scope.store_settings({'image_mode': mode})
+        )
 
     @api
     def set_binning_size(self, size: int) -> dict | None:
@@ -1850,14 +1872,19 @@ class CameraAPI:
                 frame the camera reports holding at it).
         """
         self._refuse_unusable_binning(size, 'set_binning_size')
-        native = self._native_frame()
-        if not self._dispatch_camera(
-            self._set_binning_size_impl,
+        # One lane task restarts the grab twice: the binning, then the frame.
+        return self._dispatch_camera(
+            self._bin_and_save_impl,
             'set_binning_size',
             args=(size,),
-            timeout_s=self._CAMERA_GEOMETRY_TIMEOUT_S,
+            timeout_s=2 * self._CAMERA_GEOMETRY_TIMEOUT_S,
             falsifies_recording=True,
-        ):
+        )
+
+    def _bin_and_save_impl(self, size: int) -> dict | None:
+        """On the camera lane: bin by ``size`` and save it, then frame the saved region at it."""
+        native = self._native_frame()
+        if not self._set_binning_size_impl(size):
             raise _camera_not_connected('set_binning_size')
         held = self.frame_size_cached
         self._scope.store_settings(
@@ -1867,7 +1894,7 @@ class CameraAPI:
                 'frame.height': int(held['height']),
             }
         )
-        return self._apply_frame(native, self._target_frame(native, size))
+        return self._apply_frame_impl(native, self._target_frame(native, size))
 
     @api
     def set_frame_size(self, width: int, height: int) -> dict | None:
@@ -1898,10 +1925,20 @@ class CameraAPI:
             CameraSettingRejected: The camera refused the frame. Nothing is
                 saved.
         """
+        return self._dispatch_camera(
+            self._frame_and_save_impl,
+            'set_frame_size',
+            args=(width, height),
+            timeout_s=self._CAMERA_GEOMETRY_TIMEOUT_S,
+            falsifies_recording=True,
+        )
+
+    def _frame_and_save_impl(self, width: int, height: int) -> dict | None:
+        """On the camera lane: frame at ``width`` x ``height`` at the binning held, and save it."""
         factor = self._binning_size
         native = {'width': width * factor, 'height': height * factor}
         target = binning.native_to_displayed(native, factor, self.get_pixel_alignment())
-        return self._apply_frame(native, target)
+        return self._apply_frame_impl(native, target)
 
     @api(reads=True)
     def frame_at_binning(self, size: int) -> dict:
@@ -2006,22 +2043,19 @@ class CameraAPI:
                 unit='px',
             )
 
-    def _apply_frame(self, native: dict, target: dict) -> dict | None:
-        """Apply the displayed ``target``, then save it and the ``native`` region it came from."""
+    def _apply_frame_impl(self, native: dict, target: dict) -> dict | None:
+        """On the camera lane: apply the displayed ``target``, then save it and the
+        ``native`` region it came from.
+
+        A frame the camera already delivers is not written again, but is
+        saved with its region; the lane task asked for the camera first, so
+        nothing is saved for a camera that is not there.
+        """
         if target == self.frame_size_cached:
-            # Nothing to write, but nothing is saved for a camera that is not
-            # there: its cached frame describes no camera.
-            self.refuse_camera_not_connected('set_frame_size')
             delivered = target
         else:
             self._refuse_frame_out_of_range(target)
-            delivered = self._dispatch_camera(
-                self._set_frame_size_impl,
-                'set_frame_size',
-                args=(target['width'], target['height']),
-                timeout_s=self._CAMERA_GEOMETRY_TIMEOUT_S,
-                falsifies_recording=True,
-            )
+            delivered = self._set_frame_size_impl(target['width'], target['height'])
             if delivered is None:
                 return None
         self._scope.store_settings(

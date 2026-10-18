@@ -120,11 +120,12 @@ def _dispatches(path: Path):
                     timeout = next(k.value for k in call.keywords if k.arg == 'timeout_s')
                     impl = call.args[0]
                     # A raw door hands its body over through _no_layers_write,
-                    # which runs the same body.
+                    # and a stored setting through _saved_after; each runs
+                    # the same body.
                     if (
                         isinstance(impl, ast.Call)
                         and isinstance(impl.func, ast.Attribute)
-                        and impl.func.attr == '_no_layers_write'
+                        and impl.func.attr in ('_no_layers_write', '_saved_after')
                     ):
                         impl = impl.args[0]
                     yield cls.name, fn, impl, timeout
@@ -196,7 +197,8 @@ def test_the_census_finds_the_restarting_commands():
     """The instrument reports presence: the commands known to restart the grab
     are found, with the counts their bodies make."""
     counts = {name: restarts for name, restarts, _, _ in _census()}
-    assert counts['CameraAPI._set_frame_size_impl'] == 1
+    assert counts['CameraAPI._frame_and_save_impl'] == 1
+    assert counts['CameraAPI._bin_and_save_impl'] == 2
     assert counts['CameraAPI._set_pixel_format_impl'] == 1
     assert counts['CameraAPI._set_conversion_gain_mode_impl'] == 1
     assert counts['CameraAPI._restore_camera_state_impl'] == 3

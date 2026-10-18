@@ -17,9 +17,14 @@ from __future__ import annotations
 
 import pytest
 
-from modules import image_mode
+from modules import image_mode, sequential_io_executor
 from drivers.exceptions import CameraReadFailedError
-from modules.exceptions import CameraSettingRejected, ConfigurationDefectError, SettingRefusedError
+from modules.exceptions import (
+    CameraSettingRejected,
+    ConfigurationDefectError,
+    HardwareCommandRefusedError,
+    SettingRefusedError,
+)
 from modules.lumascope_api.camera import CameraAPI
 from modules.lumascope_api.imaging import ImagingAPI
 from modules.scope_init_config import ScopeInitConfig
@@ -119,6 +124,57 @@ def test_a_restore_puts_back_the_saved_frame_and_the_region_it_came_from(session
         'width': before['frame.native_width'] // 2,
         'height': before['frame.native_height'] // 2,
     }
+
+
+def test_every_saving_setter_saves_on_the_camera_lane_inside_its_own_task(session, monkeypatch):
+    """A setter called off the lane writes the camera and saves in one lane task.
+
+    A save on the caller's thread after the task let a second caller's
+    command land between them: binning 2 and binning 4 asked at once left 2x2
+    saved beside a camera at 4x. On the lane, nothing lands between the write
+    and its save. Fails if any setter's save moves back after its dispatch.
+    """
+    camera = session.camera
+    saves: list[tuple[str, object]] = []
+    store = session.scope.store_settings
+    calling: list[str] = []
+
+    def spying(updates):
+        saves.append((calling[-1], getattr(sequential_io_executor._lane_worker, 'executor', None)))
+        store(updates)
+
+    monkeypatch.setattr(session.scope, 'store_settings', spying)
+    for name, call in (
+        ('set_image_mode', lambda: camera.set_image_mode('12bit_scientific')),
+        ('set_binning_size', lambda: camera.set_binning_size(2)),
+        ('set_frame_size', lambda: camera.set_frame_size(800, 600)),
+        ('set_frame_size at the frame held', lambda: camera.set_frame_size(800, 600)),
+        ('set_high_conversion_gain', lambda: camera.set_high_conversion_gain(False)),
+        ('set_line_noise_reduction', lambda: camera.set_line_noise_reduction(False)),
+    ):
+        calling.append(name)
+        call()
+
+    unsaved = [name for name in calling if name not in {saver for saver, _lane in saves}]
+    off_lane = [saver for saver, lane in saves if lane is not session.camera_executor]
+    assert unsaved == [], f'{unsaved} saved nothing'
+    assert off_lane == [], f'{off_lane} saved off the camera lane'
+
+
+def test_the_frame_already_held_is_refused_while_an_activity_holds_the_scope(session):
+    """No storing setter answers past a hold, so a run's restore has nothing to put back."""
+    camera = session.camera
+    held_frame = camera.frame_size_cached
+    before = _saved_geometry(session)
+    claim = session.activity_claim.try_claim('diagnostic')
+    try:
+        with pytest.raises(HardwareCommandRefusedError) as refused:
+            camera.set_frame_size(held_frame['width'], held_frame['height'])
+    finally:
+        claim.release()
+
+    assert refused.value.reason == 'exclusive_activity_running'
+    assert _saved_geometry(session) == before
 
 
 def test_a_restore_that_changed_nothing_saves_nothing(session, monkeypatch):
