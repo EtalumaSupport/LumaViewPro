@@ -60,15 +60,6 @@ def test_the_cell_count_reader_refuses_a_missing_file(live):
     assert refused.value.reason == 'not_found'
 
 
-def test_a_protocol_saved_into_a_missing_folder_is_written_there(session, live):
-    target = live / 'new' / 'deeper' / 'plate.tsv'
-
-    written = session.save_protocol(session.new_protocol(), target)
-
-    assert written == target
-    assert session.load_protocol(written).labware() == session.new_protocol().labware()
-
-
 def _writers(session):
     """Each writer of a named file, with the extension its kind takes."""
     protocol = session.new_protocol()
@@ -80,6 +71,16 @@ def _writers(session):
             lambda p: save_cell_count_method(default_cell_count_method(), p),
         ),
     }
+
+
+def test_each_writer_makes_a_missing_folder_where_it_was_sent(session, tmp_path):
+    missing = []
+    for writer, (extension, write) in _writers(session).items():
+        target = tmp_path / writer / 'new' / 'deeper' / f'plate{extension}'
+        write(target)
+        if not target.is_file():
+            missing.append(f'{writer} wrote nothing at {target}')
+    assert missing == []
 
 
 def test_each_writer_writes_exactly_the_name_it_was_given(session, tmp_path):

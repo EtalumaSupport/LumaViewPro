@@ -389,6 +389,7 @@ def save_cell_count_method(method: Mapping, path: str | os.PathLike) -> None:
     check_cell_count_method(method)
     path = path_utils.file_to_write(path, extension='.json')
     saved = python_values(copy.deepcopy({**method, 'metadata': dict(_CELL_COUNT_METHOD_METADATA)}))
+    path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, 'w') as f:
         json.dump(saved, f, indent=4)
 
