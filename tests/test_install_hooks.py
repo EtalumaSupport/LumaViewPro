@@ -14,6 +14,7 @@ inherits the session's real judge and pays for an LLM call.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -31,6 +32,7 @@ _CLEAN_ENV = {
 }
 
 _CLEAN = 'def read(path):\n    with open(path) as f:\n        return f.read()\n'
+_SGR = re.compile(r'\x1b\[[0-9;]*m')
 _CLEANER = 'def read(path):\n    with open(path) as f:\n        return f.read().strip()\n'
 _BANDAID = (
     'def read(path):\n'
@@ -65,7 +67,10 @@ def test_the_stage_pins_the_diff_it_reads():
         '-U3',
         '-W',
         '--no-ext-diff',
-        '--no-color',
+        '--color=always',
+        '--color-moved=blocks',
+        "color.diff.oldMoved='bold magenta'",
+        "color.diff.newMoved='bold cyan'",
     ):
         assert flag in _JUDGE_STAGE, (
             f'the stage must pin {flag}; a session git setting could change the diff otherwise'
@@ -114,7 +119,10 @@ class _Repo:
         return (self.root / 'version.txt').read_text()
 
     def judged_diff(self) -> str | None:
-        return self.log.read_text() if self.log.exists() else None
+        """What the stage was piped, as the stage reads it: the colour git adds
+        for move detection stripped (the stage reads it only to collapse moved
+        blocks; `judge_commit.py collapse_moves`)."""
+        return _SGR.sub('', self.log.read_text()) if self.log.exists() else None
 
 
 @pytest.fixture

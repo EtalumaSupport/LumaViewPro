@@ -78,7 +78,14 @@ git add "$VERSION_FILE"
 # sentinel answer as a deleted guard (triage, 2026-10-15; Eric: "it isn't
 # looking at a big enough scope"). Measured on the twelve trunk commits
 # before it: 1.3x to 4.3x the payload, the largest 101 KB to 289 KB, which
-# the judge read and answered in seconds. An amend
+# the judge read and answered in seconds. --color=always with
+# --color-moved=blocks and the two moved colours pinned is read by the
+# stage for one thing: a block git finds removed in one place and added
+# byte for byte in another is one marker line to the judge, not two copies
+# (a 191-file move of camera members was 840 KB with every moved body shown
+# twice, and the model answered "Prompt is too long"; collapsed, 512 KB,
+# judged in 43 s, a band-aid planted at either end denied 4 of 4 cold runs;
+# primary, 2026-10-18). An amend
 # replaces HEAD, so the commit it produces is the index against HEAD's
 # parent, and that is what the judge reads; git tells a hook nothing about
 # an amend, but the hook's parent process is the `git commit` itself and
@@ -100,7 +107,8 @@ _JUDGE_STAGE = """if [ -n "${COMMIT_JUDGE:-}" ]; then
         (
             set -o pipefail
             unset GIT_DIFF_OPTS
-            git diff --cached --no-color --no-ext-diff --text --no-textconv -M --src-prefix=a/ --dst-prefix=b/ -U3 -W "$JUDGE_BASE" -- '*.py' \\
+            git -c color.diff.oldMoved='bold magenta' -c color.diff.newMoved='bold cyan' \\
+                diff --cached --color=always --color-moved=blocks --no-ext-diff --text --no-textconv -M --src-prefix=a/ --dst-prefix=b/ -U3 -W "$JUDGE_BASE" -- '*.py' \\
                 | "$COMMIT_JUDGE" --repo "$REPO_ROOT"
         ) || exit 1
     fi
