@@ -650,7 +650,7 @@ class MotionAPI:
         if axis == 'T':
             raise ArgumentRefusedError('turret_moves_by_slot', argument='axis', value=axis)
 
-    def _refuse_absent(self, member: str, axis: str | None = None) -> None:
+    def refuse_absent(self, member: str, axis: str | None = None) -> None:
         """Refuse a command for motion hardware this scope does not have.
 
         The one presence question every motion command asks, after its axis
@@ -662,6 +662,10 @@ class MotionAPI:
         ``capabilities.axes`` is not on this scope. An axis-less command (a
         stop, the acceleration limit, a full home) asks the controller half
         only.
+
+        A consult seam, not part of the L2 API surface: a member above this
+        API that acts on an axis (a fan duty, a bookmark save) asks it, so
+        it refuses a missing part in the words a motion command uses.
 
         Raises:
             HardwareCommandRefusedError: ``'scope_disconnected'`` after
@@ -840,7 +844,7 @@ class MotionAPI:
             HardwareCommandRefusedError: ``'scope_disconnected'`` after
                 ``disconnect()``, as every other command is refused then;
                 ``'not_connected'`` or ``'axis_absent'`` with no motor
-                controller (see ``_refuse_absent``); ``'home_in_flight'``
+                controller (see ``refuse_absent``); ``'home_in_flight'``
                 while a home drives on a board that cannot stop one.
                 Nothing was sent.
             MotorStopFailedError: the board did not take the STOP, so the
@@ -861,7 +865,7 @@ class MotionAPI:
         while the STOP is being sent has its drive withheld, as every move
         started while a Stop lands does.
         """
-        self._refuse_absent('stop_motion')
+        self.refuse_absent('stop_motion')
         with self._stop_lock:
             if not live():
                 return
@@ -952,7 +956,7 @@ class MotionAPI:
         Raises:
             HardwareCommandRefusedError: ``'not_connected'`` or
                 ``'axis_absent'``, no motor controller (see
-                ``_refuse_absent``); or an interlock reason, the stage's
+                ``refuse_absent``); or an interlock reason, the stage's
                 interlock refused the home before anything moved. Nothing
                 was driven, and every axis keeps the state it had.
             HomingFaultError: the driver raised, or a homed axis's position
@@ -965,7 +969,7 @@ class MotionAPI:
         # auto-reconnect and burns its full timeout (~10 s), and the
         # person sees a hang, then a "Homing Failed" that implies a
         # homing-mechanics problem instead of the cable.
-        self._refuse_absent('home')
+        self.refuse_absent('home')
         present_axes = self._scope.capabilities.axes
         _api_log.info('home START')
         # What a home the interlock refuses before anything moves gives back.
@@ -1093,7 +1097,7 @@ class MotionAPI:
         Raises:
             HardwareCommandRefusedError: ``'not_connected'`` or
                 ``'axis_absent'``, no motor controller or no turret (see
-                ``_refuse_absent``); refused before Z is parked, and nothing
+                ``refuse_absent``); refused before Z is parked, and nothing
                 was driven or recorded.
             HomingFaultError: the home or its Z park raised, or the
                 turret's position could not be read.
@@ -1104,7 +1108,7 @@ class MotionAPI:
         # park and restore Z and record slot 1 for a turret it does not
         # have, and one with no controller burn the driver's auto-reconnect
         # timeout first.
-        self._refuse_absent('home', 'T')
+        self.refuse_absent('home', 'T')
 
         # T goes HOMING once Z is parked, not before: until then nothing
         # is turning it.
@@ -1168,7 +1172,7 @@ class MotionAPI:
         Raises:
             HardwareCommandRefusedError: ``'not_connected'`` or
                 ``'axis_absent'``, no motor controller or no turret (see
-                ``_refuse_absent``); refused before Z is parked, and nothing
+                ``refuse_absent``); refused before Z is parked, and nothing
                 was driven or recorded.
             AxisStateUnknownError: The turret position is unknown.
             PositionOutOfRangeError: The slot is not a whole number 1-4.
@@ -1176,7 +1180,7 @@ class MotionAPI:
                 restore did not arrive, or was stopped. The slot is unknown
                 afterwards, whichever of the three it was.
         """
-        self._refuse_absent('move_turret', 'T')
+        self.refuse_absent('move_turret', 'T')
         # Refused here as well as at the generic door below, and both are
         # load-bearing: this one precedes the safety Z-retract and the
         # same-position short-circuit, so a nonsense slot cannot drop Z or
@@ -1280,7 +1284,7 @@ class MotionAPI:
         refuse_unknown_axis(axis)
         if not self._has_position(axis):
             return None
-        self._refuse_absent('get_actual_position')
+        self.refuse_absent('get_actual_position')
         return self._driver.current_pos(axis)
 
     @api
@@ -1301,7 +1305,7 @@ class MotionAPI:
                 name; nothing was sent.
             HardwareCommandRefusedError: ``'not_connected'`` or
                 ``'axis_absent'``, no motor controller or no such axis (see
-                ``_refuse_absent``); nothing was sent.
+                ``refuse_absent``); nothing was sent.
         """
         refuse_unknown_axis(axis)
         return self._dispatch_motion(
@@ -1312,7 +1316,7 @@ class MotionAPI:
         )
 
     def _set_precision_mode_impl(self, axis: str, enabled: bool) -> None:
-        self._refuse_absent('set_precision_mode', axis)
+        self.refuse_absent('set_precision_mode', axis)
         self._driver.set_precision_mode(axis, enabled)
 
     def get_target_status(self, axis: str) -> bool:
@@ -1333,13 +1337,13 @@ class MotionAPI:
                 name.
             HardwareCommandRefusedError: ``'not_connected'`` or
                 ``'axis_absent'``, no motor controller or no such axis (see
-                ``_refuse_absent``); nothing was sent.
+                ``refuse_absent``); nothing was sent.
             HardwareError: the board did not answer the read. A read that
                 failed is not "short of the target", so it is never
                 answered as False.
         """
         refuse_unknown_axis(axis)
-        self._refuse_absent('get_target_status', axis)
+        self.refuse_absent('get_target_status', axis)
         return self._read_target_status(axis)
 
     def _read_target_status(self, axis: str) -> bool:
@@ -1383,11 +1387,11 @@ class MotionAPI:
                 name.
             HardwareCommandRefusedError: ``'not_connected'`` or
                 ``'axis_absent'``, no motor controller or no such axis (see
-                ``_refuse_absent``); a switch the scope does not have is
+                ``refuse_absent``); a switch the scope does not have is
                 never answered as clear.
         """
         refuse_unknown_axis(axis)
-        self._refuse_absent('get_limit_switch_status', axis)
+        self.refuse_absent('get_limit_switch_status', axis)
         return self._driver.limit_switch_status(axis=axis)
 
     def get_limit_switch_status_all_axes(self) -> dict:
@@ -1400,10 +1404,10 @@ class MotionAPI:
 
         Raises:
             HardwareCommandRefusedError: ``'not_connected'``, no motor
-                controller (see ``_refuse_absent``).
+                controller (see ``refuse_absent``).
             HardwareError: the board did not answer an axis's read.
         """
-        self._refuse_absent('get_limit_switch_status_all_axes')
+        self.refuse_absent('get_limit_switch_status_all_axes')
         resp = {}
         for axis in self._scope.capabilities.axes:
             resp[axis] = self.get_limit_switch_status(axis=axis)
@@ -1438,7 +1442,7 @@ class MotionAPI:
         Raises:
             HardwareCommandRefusedError: ``'not_connected'`` or
                 ``'axis_absent'``, no motor controller (see
-                ``_refuse_absent``); asked before the value, and nothing was
+                ``refuse_absent``); asked before the value, and nothing was
                 sent.
             AccelerationLimitRefusedError: ``val_pct`` is not a number or
                 is outside ``ACCELERATION_PCT_MIN`` to ``ACCELERATION_PCT_MAX``
@@ -1453,7 +1457,7 @@ class MotionAPI:
         )
 
     def _set_acceleration_limit_impl(self, val_pct: int) -> None:
-        self._refuse_absent('set_acceleration_limit')
+        self.refuse_absent('set_acceleration_limit')
         refuse_acceleration_pct(val_pct)
         self._driver.set_acceleration_limits(val_pct=val_pct)
 
@@ -1581,11 +1585,11 @@ class MotionAPI:
                 name.
             HardwareCommandRefusedError: ``'not_connected'`` or
                 ``'axis_absent'``, no motor controller or no such axis (see
-                ``_refuse_absent``); an axis the scope does not have has no
+                ``refuse_absent``); an axis the scope does not have has no
                 travel to answer with.
         """
         refuse_unknown_axis(axis)
-        self._refuse_absent('get_axis_limits', axis)
+        self.refuse_absent('get_axis_limits', axis)
         limits = self._driver.get_axis_limits(axis=axis)
         if limits is None:
             return None
@@ -1600,7 +1604,7 @@ class MotionAPI:
         Raises:
             HardwareCommandRefusedError: ``'not_connected'`` or
                 ``'axis_absent'``, no motor controller or no Z (see
-                ``_refuse_absent``); or an interlock reason, the stage's
+                ``refuse_absent``); or an interlock reason, the stage's
                 interlock refused the home before anything moved. Nothing
                 was driven, and Z keeps the state it had.
             HomingFaultError: the driver raised (e.g. HardwareError on
@@ -1612,7 +1616,7 @@ class MotionAPI:
         # Asked before the driver, as the full home does: its
         # exchange_command would burn its auto-reconnect timeout and the
         # user see a hang instead of the actual cause.
-        self._refuse_absent('home', 'Z')
+        self.refuse_absent('home', 'Z')
         _api_log.info('Z home START')
         # What a home the interlock refuses before anything moves gives back.
         state_before = self._axis_states(('Z',))['Z']
@@ -1968,7 +1972,7 @@ class MotionAPI:
                 ``_start``); the internal callers pass literals.
             HardwareCommandRefusedError: ``'not_connected'`` or
                 ``'axis_absent'``, no motor controller or no such axis (see
-                ``_refuse_absent``); nothing was driven.
+                ``refuse_absent``); nothing was driven.
             PositionOutOfRangeError: The target is outside the axis's
                 configured travel and ``ignore_limits`` is False. A
                 ValueError subclass.
@@ -1980,7 +1984,7 @@ class MotionAPI:
             MoveFaultError: ``'driver_failed'``, the board did not
                 take the command.
         """
-        self._refuse_absent('move_absolute', axis)
+        self.refuse_absent('move_absolute', axis)
         refuse_unless_finite_number(position, 'position')
 
         if frame == 'plate':
@@ -2100,7 +2104,7 @@ class MotionAPI:
                 limit.
             HardwareCommandRefusedError: ``'not_connected'`` or
                 ``'axis_absent'``, no motor controller or no such axis (see
-                ``_refuse_absent``); nothing was driven.
+                ``refuse_absent``); nothing was driven.
             AxisStateUnknownError: The axis position is unknown.
             HardwareCommandRefusedError: ``'position_unread'``, the board
                 did not report the target to add to (or, for Z with
@@ -2114,7 +2118,7 @@ class MotionAPI:
         turret-safety Z-park, which is an absolute move. A hatch with no
         caller is just an opt-out waiting to be reached for.
         """
-        self._refuse_absent('move_relative', axis)
+        self.refuse_absent('move_relative', axis)
         refuse_unless_finite_number(distance, 'distance')
         if abs(distance) > MOTOR_POSITION_LIMIT:
             # Same refusal as the absolute path, reachable the same way.
@@ -2349,7 +2353,7 @@ class MotionAPI:
         ``start_move_absolute`` followed by its operation's ``result()``:
         the command goes on the scope's IO lane, and the wait for arrival
         blocks this caller, not the lane. A move on an axis this scope does
-        not have is refused (``_refuse_absent``) and drives nothing.
+        not have is refused (``refuse_absent``) and drives nothing.
 
         Raises:
             ArgumentRefusedError: ``'axis_unknown'``,
@@ -2436,7 +2440,7 @@ class MotionAPI:
                 ``'Z'``, ``'T'`` or ``'ALL'``; nothing was asked of the scope.
             HardwareCommandRefusedError: ``'not_connected'`` or
                 ``'axis_absent'``, no motor controller, or no Z or turret to
-                home (see ``_refuse_absent``); ``'exclusive_activity_running'``,
+                home (see ``refuse_absent``); ``'exclusive_activity_running'``,
                 a run, a diagnostic or a recording holds the scope; or
                 ``'lid_open'``, the stage's lid is open, and nothing moves.
             HomingFaultError: the home was driven and did not establish

@@ -1162,7 +1162,7 @@ class DiagnosticsAPI:
             HardwareError: The board answered the write with an error, or
                 did not answer.
         """
-        self._scope.motion._refuse_absent('set_motor_fan_duty')
+        self._scope.motion.refuse_absent('set_motor_fan_duty')
         if not 0 <= duty_pct <= 100:
             raise ArgumentRefusedError('fan_duty_out_of_range', argument='duty_pct', value=duty_pct)
         self._scope.motion._dispatch_motion(

@@ -34,7 +34,7 @@ def refuse_unknown_axis(axis: object, names: tuple[str, ...] = _VALID_AXIS_NAMES
     The one check of an axis name, asked by every member that takes one
     before it asks whether the scope has the axis: a name that is no axis
     is the request's fault on every scope, while an axis this model lacks
-    is the hardware's answer (``MotionAPI._refuse_absent``) or, for a
+    is the hardware's answer (``MotionAPI.refuse_absent``) or, for a
     read, the answer a missing axis gives. Names are exact: ``'x'`` is not
     ``'X'``, so each axis has one spelling in every log and on every wire.
 
