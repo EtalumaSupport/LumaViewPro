@@ -292,20 +292,20 @@ class TestTheManualRecordingReadsItsClaimsUnderTheClaim:
         from tests.test_manual_recording_controller import (
             FakeClock,
             ManualFireScheduler,
-            _FakeImaging,
+            _FakeCamera,
             _FakeScope,
             make_settings,
         )
 
         claim = ActivityClaim()
         read_under = {}
-        frame_size = _FakeImaging.frame_size_cached.fget
+        frame_size = _FakeCamera.frame_size_cached.fget
 
-        def _frame_size_read(imaging):
+        def _frame_size_read(camera):
             read_under['frame_size'] = claim.owner
-            return frame_size(imaging)
+            return frame_size(camera)
 
-        monkeypatch.setattr(_FakeImaging, 'frame_size_cached', property(_frame_size_read))
+        monkeypatch.setattr(_FakeCamera, 'frame_size_cached', property(_frame_size_read))
         scope = _FakeScope()
         resolve = scope.runtime_state.resolve_current_objective
 

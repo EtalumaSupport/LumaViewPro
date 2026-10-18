@@ -14,7 +14,7 @@ from modules.lumascope_api.illumination import LedState
 # Heavy deps are mocked by tests/conftest.py at module-import time.
 
 from tests.protocol_drives import held_run_claim
-from tests.scope_fakes import build_scope
+from tests.scope_fakes import bind_settings_like_a_session, build_scope
 
 
 # ---------------------------------------------------------------------------
@@ -24,8 +24,9 @@ from tests.scope_fakes import build_scope
 
 @pytest.fixture
 def scope():
-    """Simulated Lumascope with fast timing."""
+    """Simulated Lumascope with fast timing, bound to the shipped settings."""
     s = build_scope(simulate=True)
+    bind_settings_like_a_session(s)
     s._led_driver.set_timing_mode('fast')
     s._motion_driver.set_timing_mode('fast')
     s._camera_driver.set_timing_mode('fast')
@@ -210,40 +211,40 @@ class TestCameraListener:
 
     def test_listener_fires_on_set_gain(self, scope):
         events = []
-        scope.imaging.add_camera_listener(lambda p, v: events.append((p, v)))
-        scope.imaging.set_gain_db(5.0)
+        scope.camera.add_camera_listener(lambda p, v: events.append((p, v)))
+        scope.camera.set_gain_db(5.0)
         assert len(events) == 1
         assert events[0] == ('gain', 5.0)
 
     def test_listener_fires_on_set_exposure(self, scope):
         events = []
-        scope.imaging.add_camera_listener(lambda p, v: events.append((p, v)))
-        scope.imaging.set_exposure_ms(25.0)  # Different from default 10ms
+        scope.camera.add_camera_listener(lambda p, v: events.append((p, v)))
+        scope.camera.set_exposure_ms(25.0)  # Different from default 10ms
         assert len(events) == 1
         assert events[0] == ('exposure', 25.0)
 
     def test_listener_not_fired_on_redundant_gain(self, scope):
         """Skip-check: same gain value should not fire listener."""
-        scope.imaging.set_gain_db(5.0)
+        scope.camera.set_gain_db(5.0)
         events = []
-        scope.imaging.add_camera_listener(lambda p, v: events.append((p, v)))
-        scope.imaging.set_gain_db(5.0)  # redundant
+        scope.camera.add_camera_listener(lambda p, v: events.append((p, v)))
+        scope.camera.set_gain_db(5.0)  # redundant
         assert len(events) == 0
 
     def test_remove_camera_listener(self, scope):
         events = []
         listener = lambda p, v: events.append((p, v))
-        scope.imaging.add_camera_listener(listener)
-        scope.imaging.remove_camera_listener(listener)
-        scope.imaging.set_gain_db(5.0)
+        scope.camera.add_camera_listener(listener)
+        scope.camera.remove_camera_listener(listener)
+        scope.camera.set_gain_db(5.0)
         assert len(events) == 0
 
     def test_camera_listener_exception_does_not_propagate(self, scope):
         def bad_listener(p, v):
             raise RuntimeError('broken')
 
-        scope.imaging.add_camera_listener(bad_listener)
-        scope.imaging.set_gain_db(5.0)  # should not raise
+        scope.camera.add_camera_listener(bad_listener)
+        scope.camera.set_gain_db(5.0)  # should not raise
 
 
 # ---------------------------------------------------------------------------
@@ -255,27 +256,27 @@ class TestCameraSaveRestore:
     """Tests for save_camera_state / restore_camera_state."""
 
     def test_save_restore_roundtrip(self, scope):
-        scope.imaging.set_gain_db(5.0)
-        scope.imaging.set_exposure_ms(25.0)
-        snapshot = scope.imaging.save_camera_state('test')
+        scope.camera.set_gain_db(5.0)
+        scope.camera.set_exposure_ms(25.0)
+        snapshot = scope.camera.save_camera_state('test')
         # Change to different values
-        scope.imaging.set_gain_db(10.0)
-        scope.imaging.set_exposure_ms(50.0)
-        assert scope.imaging.get_gain_db() != 5.0
+        scope.camera.set_gain_db(10.0)
+        scope.camera.set_exposure_ms(50.0)
+        assert scope.camera.get_gain_db() != 5.0
         # Restore
-        scope.imaging.restore_camera_state(snapshot)
-        assert abs(scope.imaging.get_gain_db() - 5.0) < 0.01
-        assert abs(scope.imaging.get_exposure_ms() - 25.0) < 0.01
+        scope.camera.restore_camera_state(snapshot)
+        assert abs(scope.camera.get_gain_db() - 5.0) < 0.01
+        assert abs(scope.camera.get_exposure_ms() - 25.0) < 0.01
 
     def test_restore_empty_snapshot(self, scope):
-        scope.imaging.set_gain_db(5.0)
-        scope.imaging.restore_camera_state(None)
-        assert abs(scope.imaging.get_gain_db() - 5.0) < 0.01  # unchanged
-        scope.imaging.restore_camera_state({})
-        assert abs(scope.imaging.get_gain_db() - 5.0) < 0.01  # unchanged
+        scope.camera.set_gain_db(5.0)
+        scope.camera.restore_camera_state(None)
+        assert abs(scope.camera.get_gain_db() - 5.0) < 0.01  # unchanged
+        scope.camera.restore_camera_state({})
+        assert abs(scope.camera.get_gain_db() - 5.0) < 0.01  # unchanged
 
     def test_snapshot_contains_tag(self, scope):
-        snapshot = scope.imaging.save_camera_state('protocol')
+        snapshot = scope.camera.save_camera_state('protocol')
         assert snapshot['tag'] == 'protocol'
         assert 'gain_db' in snapshot
         assert 'exposure_ms' in snapshot

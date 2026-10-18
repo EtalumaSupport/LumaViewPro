@@ -996,7 +996,7 @@ class ProtocolImageWriter:
                 step_name=str(step.get('Name', '?')),
                 cause=cause,
             )
-        if self._scope.imaging.camera_removed:
+        if self._scope.camera.camera_removed:
             logger.error(
                 f'[PROTOCOL] Capture failed for step {curr_step} ({step.get("Name", "?")}), '
                 f'scan {scan_count} -- the camera was removed'
@@ -1280,8 +1280,8 @@ class ProtocolImageWriter:
             # even though the line is dropped in normal operation.
             if logger.isEnabledFor(logging.DEBUG):
                 _ag = step['Auto_Gain']
-                _curr_gain = self._scope.imaging.get_gain_db()
-                _curr_exp = self._scope.imaging.get_exposure_ms()
+                _curr_gain = self._scope.camera.get_gain_db()
+                _curr_exp = self._scope.camera.get_exposure_ms()
                 logger.debug(
                     f'[CAPTURE DIAG] step={step.get("Name", "?")} color={step["Color"]} '
                     f'Auto_Gain={_ag!r} (type={type(_ag).__name__}) '
@@ -1317,10 +1317,10 @@ class ProtocolImageWriter:
                 # Both writes run even when one is not taken, so the camera is
                 # left at the step's other value; the step is then not
                 # captured (below).
-                imaging = self._scope.imaging
+                camera = self._scope.camera
                 for setter, value in (
-                    (imaging.set_gain_db, step['Gain']),
-                    (imaging.set_exposure_ms, step['Exposure']),
+                    (camera.set_gain_db, step['Gain']),
+                    (camera.set_exposure_ms, step['Exposure']),
                 ):
                     try:
                         setter(value)

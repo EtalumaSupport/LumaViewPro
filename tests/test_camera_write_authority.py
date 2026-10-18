@@ -1,6 +1,6 @@
 """Every camera-state write declares its capture-readiness consequence.
 
-``ImagingAPI._camera_write`` is the one path a camera setter writes through,
+``CameraAPI._camera_write`` is the one path a camera setter writes through,
 so a write and the frame-validity invalidation it requires are declared
 together and a new setter cannot write a camera node and forget to
 invalidate. Frame validity (``modules/frame_validity.py``) is the owner of
@@ -39,7 +39,7 @@ from tests.ast_seams import parse_module
 from tests.scope_fakes import bind_settings_like_a_session, build_scope
 
 # Driver methods that mutate camera state. A call to any of these must be wrapped
-# in a write thunk handed to ImagingAPI._camera_write, never issued directly --
+# in a write thunk handed to CameraAPI._camera_write, never issued directly --
 # that is what couples every camera write to its frame-validity invalidation.
 CAMERA_WRITE_METHODS = frozenset(
     {
@@ -58,7 +58,7 @@ CAMERA_WRITE_METHODS = frozenset(
     }
 )
 
-_IMAGING_REL = 'modules/lumascope_api/imaging.py'
+_CAMERA_REL = 'modules/lumascope_api/camera.py'
 
 _AUTO_GAIN_SETTINGS = {
     'target_brightness': 0.5,
@@ -70,7 +70,7 @@ _AUTO_GAIN_SETTINGS = {
 
 class _CamWriteCapableSim(SimulatedCamera):
     """SimulatedCamera plus the two Pylon-only SDK setters and the probes
-    that declare them, so the success path of set_conversion_gain_mode /
+    that declare them, so the success path of set_high_conversion_gain /
     set_line_noise_reduction is exercisable in the sim."""
 
     def __init__(self, **kwargs):
@@ -93,17 +93,17 @@ class _CamWriteCapableSim(SimulatedCamera):
         return True
 
 
-def _sim_imaging():
-    """The imaging API of a simulated scope, bound to the shipped settings."""
+def _sim_camera():
+    """The camera API of a simulated scope, bound to the shipped settings."""
     scope = build_scope(simulate=True)
     bind_settings_like_a_session(scope)
-    return scope.imaging
+    return scope.camera
 
 
 @pytest.fixture
-def imaging_plain():
-    """A simulated scope's imaging, on its stock SimulatedCamera."""
-    return _sim_imaging()
+def camera_plain():
+    """A simulated scope's camera API, on its stock SimulatedCamera."""
+    return _sim_camera()
 
 
 @pytest.fixture
@@ -115,15 +115,15 @@ def plain_scope():
 
 
 @pytest.fixture
-def imaging_capable(monkeypatch):
-    """A simulated scope's imaging, on a camera with every camera setter."""
+def camera_capable(monkeypatch):
+    """A simulated scope's camera API, on a camera with every camera setter."""
 
     def _capable_camera(name='auto', *, simulate=False, **kwargs):
         return _CamWriteCapableSim(**kwargs)
 
     # a stand-in by design: SimulatedCamera has no conversion-gain or line-noise-reduction node (Pylon-only); the simulator's gap, and this subclass goes when it has them
     monkeypatch.setattr(_lumascope.camera_registry, 'create', _capable_camera)
-    return _sim_imaging()
+    return _sim_camera()
 
 
 def _grown_by_one(before, *sources):
@@ -140,12 +140,12 @@ class TestValueSetterSequences:
     """Manual value setters record the value the camera took as the chunk
     target: the value ``chunk_match`` rejects a stale frame against."""
 
-    def test_the_exposure_target_is_the_microseconds_the_camera_took(self, imaging_plain):
+    def test_the_exposure_target_is_the_microseconds_the_camera_took(self, camera_plain):
         """The setter takes milliseconds; the frame's ExposureTime chunk is in
         microseconds, so the target is recorded in microseconds. The target
         never clears a source: settling is by frame count alone."""
-        imaging_plain.set_exposure_ms(2.5)
-        assert imaging_plain.frame_validity.target('exposure') == 2500.0
+        camera_plain.set_exposure_ms(2.5)
+        assert camera_plain.frame_validity.target('exposure') == 2500.0
 
 
 class TestAutoSetterSequences:
@@ -154,43 +154,43 @@ class TestAutoSetterSequences:
     value, the manual chunk target is cleared and settling falls back to the
     frame count alone."""
 
-    def test_set_auto_gain_enable_arms_settle_window(self, imaging_plain):
+    def test_set_auto_gain_enable_arms_settle_window(self, camera_plain):
         """Arming continuous auto-gain holds readiness for 'gain' and for the
         'auto_gain' settle window, and clears the manual gain target."""
-        fv = imaging_plain.frame_validity
-        imaging_plain.set_gain_db(5.0)
+        fv = camera_plain.frame_validity
+        camera_plain.set_gain_db(5.0)
         assert fv.target('gain') == 5.0, 'precondition: a manual gain target'
         before = fv.invalidation_counts
-        imaging_plain.set_auto_gain(True, _AUTO_GAIN_SETTINGS)
+        camera_plain.set_auto_gain(True, _AUTO_GAIN_SETTINGS)
         assert fv.invalidation_counts == _grown_by_one(before, 'gain', 'auto_gain')
         assert fv.target('gain') is None
 
-    def test_set_auto_gain_disable_sequence(self, imaging_plain):
+    def test_set_auto_gain_disable_sequence(self, camera_plain):
         """Disarming invalidates 'gain' and arms no 'auto_gain' window; the
         gain target stays cleared until a manual gain is written."""
-        fv = imaging_plain.frame_validity
-        imaging_plain.set_gain_db(5.0)
+        fv = camera_plain.frame_validity
+        camera_plain.set_gain_db(5.0)
         before = fv.invalidation_counts
-        imaging_plain.set_auto_gain(False, _AUTO_GAIN_SETTINGS)
+        camera_plain.set_auto_gain(False, _AUTO_GAIN_SETTINGS)
         assert fv.invalidation_counts == _grown_by_one(before, 'gain')
         assert fv.target('gain') is None
 
-    def test_update_auto_gain_target_brightness_arms_settle_window(self, imaging_plain):
+    def test_update_auto_gain_target_brightness_arms_settle_window(self, camera_plain):
         """A new target brightness re-drives the running convergence, so it
         holds readiness for the same sources arming does."""
-        fv = imaging_plain.frame_validity
+        fv = camera_plain.frame_validity
         before = fv.invalidation_counts
-        imaging_plain.update_auto_gain_target_brightness(0.5)
+        camera_plain.update_auto_gain_target_brightness(0.5)
         assert fv.invalidation_counts == _grown_by_one(before, 'gain', 'auto_gain')
 
-    def test_set_auto_exposure_enable_sequence(self, imaging_plain):
+    def test_set_auto_exposure_enable_sequence(self, camera_plain):
         """Toggling auto-exposure holds readiness for 'exposure' and clears
         the manual exposure target."""
-        fv = imaging_plain.frame_validity
-        imaging_plain.set_exposure_ms(2.5)
+        fv = camera_plain.frame_validity
+        camera_plain.set_exposure_ms(2.5)
         assert fv.target('exposure') == 2500.0, 'precondition: a manual exposure target'
         before = fv.invalidation_counts
-        imaging_plain.set_auto_exposure_time(True)
+        camera_plain.set_auto_exposure_time(True)
         assert fv.invalidation_counts == _grown_by_one(before, 'exposure')
         assert fv.target('exposure') is None
 
@@ -199,185 +199,193 @@ class TestGeometrySetterSequences:
     """Geometry setters: the cache holds the geometry the camera delivered,
     and a rejected frame-size write still holds readiness."""
 
-    def test_set_frame_size_caches_delivered_geometry(self, imaging_plain):
+    def test_set_frame_size_caches_delivered_geometry(self, camera_plain):
         # The cache must hold the size the driver delivered (via the write's
         # own return value), not the request: a driver answering a smaller
         # size (a request within one grid step of its maximum) is believed.
-        cam = imaging_plain._driver
+        cam = camera_plain._driver
         cam.set_frame_size = lambda w, h: {'width': 624, 'height': 480}
-        imaging_plain.set_frame_size(640, 482)
-        assert imaging_plain.frame_size_cached == {'width': 624, 'height': 480}
+        camera_plain.set_frame_size(640, 482)
+        assert camera_plain.frame_size_cached == {'width': 624, 'height': 480}
 
     def test_set_frame_size_rejected_write_keeps_prior_cache(self, plain_scope):
         """A rejected frame-size write still invalidates 'frame_size' (the
         camera may have restarted its grab engine), and the cache keeps the
         geometry the camera still has."""
-        imaging = plain_scope.imaging
-        imaging.set_frame_size(624, 480)
-        fv = imaging.frame_validity
+        camera = plain_scope.camera
+        camera.set_frame_size(624, 480)
+        fv = camera.frame_validity
         before = fv.invalidation_counts
         plain_scope.simulation.refuse_camera_write('frame_size', 'false')
         with pytest.raises(CameraSettingRejected) as caught:
-            imaging.set_frame_size(1200, 800)
+            camera.set_frame_size(1200, 800)
         assert caught.value.setting == 'frame_size'
         assert fv.invalidation_counts == _grown_by_one(before, 'frame_size')
         assert 'frame_size' in fv.pending_sources
-        assert imaging.frame_size_cached == {'width': 624, 'height': 480}
+        assert camera.frame_size_cached == {'width': 624, 'height': 480}
 
-    def test_binning_read_failure_sentinel_not_committed(self, imaging_plain):
-        imaging_plain.set_binning_size(2)
-        cam = imaging_plain._driver
+    def test_binning_read_failure_sentinel_not_committed(self, camera_plain):
+        camera_plain.set_binning_size(2)
+        cam = camera_plain._driver
         orig = cam.get_binning_size
         cam.get_binning_size = lambda: -1
         try:
-            imaging_plain._populate_camera_cache()
+            camera_plain._populate_camera_cache()
         finally:
             cam.get_binning_size = orig
         # A failed read returns the out-of-band -1 sentinel and must leave the
         # last-known factor in place -- committing it (or an in-band 1) would
         # silently de-bin the scale-bar / FOV math for a 2x camera.
-        assert imaging_plain._binning_size == 2
+        assert camera_plain._binning_size == 2
 
-    def test_gain_exposure_read_failure_not_cached(self, imaging_plain):
-        prior_gain = imaging_plain.gain_db_cached
-        prior_exposure = imaging_plain.exposure_ms_cached
-        cam = imaging_plain._driver
+    def test_gain_exposure_read_failure_not_cached(self, camera_plain):
+        prior_gain = camera_plain.gain_db_cached
+        prior_exposure = camera_plain.exposure_ms_cached
+        cam = camera_plain._driver
         orig_gain, orig_exp = cam.get_gain, cam.get_exposure_t
         cam.get_gain = lambda: -1.0
         cam.get_exposure_t = lambda: -1.0
         try:
-            imaging_plain._populate_camera_cache()
+            camera_plain._populate_camera_cache()
         finally:
             cam.get_gain, cam.get_exposure_t = orig_gain, orig_exp
         # A negative return is the drivers' failed-read sentinel. The old
         # `or 0.0` idiom passed it through (-1.0 is truthy) and latched -1
         # into the UI gain/exposure readout; a failed read must leave the
         # last-known values in place.
-        assert imaging_plain.gain_db_cached == prior_gain
-        assert imaging_plain.exposure_ms_cached == prior_exposure
-        assert imaging_plain.gain_db_cached >= 0
-        assert imaging_plain.exposure_ms_cached >= 0
+        assert camera_plain.gain_db_cached == prior_gain
+        assert camera_plain.exposure_ms_cached == prior_exposure
+        assert camera_plain.gain_db_cached >= 0
+        assert camera_plain.exposure_ms_cached >= 0
 
-    def test_rejected_binning_write_keeps_prior_factor(self, imaging_plain):
-        imaging_plain.set_binning_size(2)
-        cam = imaging_plain._driver
+    def test_rejected_binning_write_keeps_prior_factor(self, camera_plain):
+        camera_plain.set_binning_size(2)
+        cam = camera_plain._driver
         orig = cam.set_binning_size
         cam.set_binning_size = lambda size: False
         try:
             # Rejection surfaces as the typed raise (the apply contract).
             with pytest.raises(CameraSettingRejected):
-                imaging_plain.set_binning_size(4)
+                camera_plain.set_binning_size(4)
         finally:
             cam.set_binning_size = orig
         # A rejected write must not commit the requested factor: the hardware
         # is still at the previous binning and scale-bar math reads this value.
-        assert imaging_plain._binning_size == 2
+        assert camera_plain._binning_size == 2
 
-    def test_set_binning_size_refreshes_geometry_caches(self, imaging_plain):
-        imaging_plain.set_frame_size(3840, 2160)
-        imaging_plain.set_binning_size(2)
+    def test_set_binning_size_refreshes_geometry_caches(self, camera_plain):
+        camera_plain.set_frame_size(3840, 2160)
+        camera_plain.set_binning_size(2)
         # Binning 2x halves the sim's post-binning ceiling (3840x2160 native)
         # and the driver clamps the current frame down to it; both
         # binning-dependent geometry caches must reflect the driver's
         # post-binning reality, not the 1x values.
-        assert imaging_plain.frame_size_cached == {'width': 1920, 'height': 1080}
-        assert imaging_plain.min_frame_size_cached == (imaging_plain._driver.get_min_frame_size())
+        assert camera_plain.frame_size_cached == {'width': 1920, 'height': 1080}
+        assert camera_plain.min_frame_size_cached == (camera_plain._driver.get_min_frame_size())
 
 
 class TestSdkPerfSetterSequences:
     """The two camera toggles: a change the camera took holds readiness for
     its source; a refusal, of either kind, invalidates nothing."""
 
-    def test_set_conversion_gain_mode_success_sequence(self, imaging_capable):
-        imaging_capable.set_conversion_gain_mode('High')
-        assert 'conversion_gain_mode' in imaging_capable.frame_validity.pending_sources
-        assert imaging_capable._driver._conversion_gain_mode == 'High'
+    def test_set_high_conversion_gain_success_sequence(self, camera_capable):
+        camera_capable.set_high_conversion_gain(True)
+        assert 'conversion_gain_mode' in camera_capable.frame_validity.pending_sources
+        assert camera_capable._driver._conversion_gain_mode == 'High'
 
-    def test_set_line_noise_reduction_success_sequence(self, imaging_capable):
-        imaging_capable.set_line_noise_reduction(True)
-        assert 'line_noise_reduction' in imaging_capable.frame_validity.pending_sources
-        assert imaging_capable._driver._line_noise_reduction is True
+    def test_set_line_noise_reduction_success_sequence(self, camera_capable):
+        camera_capable.set_line_noise_reduction(True)
+        assert 'line_noise_reduction' in camera_capable.frame_validity.pending_sources
+        assert camera_capable._driver._line_noise_reduction is True
 
-    def test_conversion_gain_on_without_the_mode_is_refused(self, imaging_plain):
+    def test_conversion_gain_on_without_the_mode_is_refused(self, camera_plain):
         """Refused before the camera: nothing changed, so readiness is untouched."""
-        before = imaging_plain.frame_validity.invalidation_counts
+        before = camera_plain.frame_validity.invalidation_counts
         with pytest.raises(CameraSettingUnsupportedError) as caught:
-            imaging_plain.set_conversion_gain_mode('High')
+            camera_plain.set_high_conversion_gain(True)
         assert caught.value.reason == 'conversion_gain_mode_unsupported'
         assert caught.value.offered == ('Low',)
         assert str(caught.value).startswith('This camera has no high conversion gain.')
-        assert imaging_plain.frame_validity.invalidation_counts == before
+        assert camera_plain.frame_validity.invalidation_counts == before
 
-    def test_line_noise_on_without_the_filter_is_refused(self, imaging_plain):
+    def test_line_noise_on_without_the_filter_is_refused(self, camera_plain):
         """Refused before the camera: nothing changed, so readiness is untouched."""
-        before = imaging_plain.frame_validity.invalidation_counts
+        before = camera_plain.frame_validity.invalidation_counts
         with pytest.raises(CameraSettingUnsupportedError) as caught:
-            imaging_plain.set_line_noise_reduction(True)
+            camera_plain.set_line_noise_reduction(True)
         assert caught.value.reason == 'line_noise_reduction_unsupported'
         assert caught.value.offered == (False,)
-        assert imaging_plain.frame_validity.invalidation_counts == before
+        assert camera_plain.frame_validity.invalidation_counts == before
 
-    def test_off_without_the_mode_is_that_cameras_state(self, imaging_plain):
+    def test_off_without_the_mode_is_that_cameras_state(self, camera_plain):
         """Off on a camera without the feature is its state, not a write, so
         readiness is untouched."""
-        before = imaging_plain.frame_validity.invalidation_counts
-        imaging_plain.set_conversion_gain_mode('Low')
-        imaging_plain.set_line_noise_reduction(False)
-        assert imaging_plain.frame_validity.invalidation_counts == before
+        before = camera_plain.frame_validity.invalidation_counts
+        camera_plain.set_high_conversion_gain(False)
+        camera_plain.set_line_noise_reduction(False)
+        assert camera_plain.frame_validity.invalidation_counts == before
 
-    def test_a_mode_that_is_neither_high_nor_low_is_refused(self, imaging_capable):
-        """Refused before the camera: nothing changed, so readiness is untouched."""
-        before = imaging_capable.frame_validity.invalidation_counts
+    def test_a_mode_that_is_neither_high_nor_low_is_refused(self, camera_capable):
+        """Refused before the camera: nothing changed, so readiness is untouched.
+
+        The public toggle takes a bool and cannot name another mode, so the
+        camera's body is driven on its lane, as the toggle drives it."""
+        before = camera_capable.frame_validity.invalidation_counts
         with pytest.raises(CameraSettingUnsupportedError) as caught:
-            imaging_capable.set_conversion_gain_mode('Bogus')
+            camera_capable._dispatch_camera(
+                camera_capable._set_conversion_gain_mode_impl,
+                'set_high_conversion_gain',
+                args=('Bogus',),
+                timeout_s=camera_capable._CAMERA_GEOMETRY_TIMEOUT_S,
+            )
         assert caught.value.offered == ('High', 'Low')
-        assert imaging_capable._driver._conversion_gain_mode == 'Low'
-        assert imaging_capable.frame_validity.invalidation_counts == before
+        assert camera_capable._driver._conversion_gain_mode == 'Low'
+        assert camera_capable.frame_validity.invalidation_counts == before
 
     @pytest.mark.parametrize(
         ('member', 'driver_member', 'value'),
         [
-            ('set_conversion_gain_mode', 'set_conversion_gain_mode', 'High'),
+            ('set_high_conversion_gain', 'set_conversion_gain_mode', True),
             ('set_line_noise_reduction', 'set_line_noise_reduction', True),
         ],
     )
     def test_a_driver_refusal_is_a_rejection(
-        self, imaging_capable, monkeypatch, member, driver_member, value
+        self, camera_capable, monkeypatch, member, driver_member, value
     ):
         """A toggle the camera refused invalidates nothing. Pins today's
         applied-only invalidation; flips with ruling K12's build."""
-        before = imaging_capable.frame_validity.invalidation_counts
+        before = camera_capable.frame_validity.invalidation_counts
         # a stand-in by design: SimulatedCamera has no conversion-gain or line-noise node, so refuse_camera_write cannot refuse one; the gap is the simulator's missing node
-        monkeypatch.setattr(imaging_capable._driver, driver_member, lambda *a, **k: False)
+        monkeypatch.setattr(camera_capable._driver, driver_member, lambda *a, **k: False)
         with pytest.raises(CameraSettingRejected) as caught:
-            getattr(imaging_capable, member)(value)
+            getattr(camera_capable, member)(value)
         assert caught.value.__cause__ is None
-        assert imaging_capable.frame_validity.invalidation_counts == before
+        assert camera_capable.frame_validity.invalidation_counts == before
 
     @pytest.mark.parametrize(
         ('member', 'driver_member', 'value'),
         [
-            ('set_conversion_gain_mode', 'set_conversion_gain_mode', 'High'),
+            ('set_high_conversion_gain', 'set_conversion_gain_mode', True),
             ('set_line_noise_reduction', 'set_line_noise_reduction', True),
         ],
     )
     def test_a_driver_raise_is_a_chained_rejection(
-        self, imaging_capable, monkeypatch, member, driver_member, value
+        self, camera_capable, monkeypatch, member, driver_member, value
     ):
         """A toggle whose write raised invalidates nothing. Pins today's
         applied-only invalidation; flips with ruling K12's build."""
-        before = imaging_capable.frame_validity.invalidation_counts
+        before = camera_capable.frame_validity.invalidation_counts
         fault = RuntimeError('node write failed')
 
         def raising(*a, **k):
             raise fault
 
         # a stand-in by design: SimulatedCamera has no conversion-gain or line-noise node, so refuse_camera_write cannot fail one; the gap is the simulator's missing node
-        monkeypatch.setattr(imaging_capable._driver, driver_member, raising)
+        monkeypatch.setattr(camera_capable._driver, driver_member, raising)
         with pytest.raises(CameraSettingRejected) as caught:
-            getattr(imaging_capable, member)(value)
+            getattr(camera_capable, member)(value)
         assert caught.value.__cause__ is fault
-        assert imaging_capable.frame_validity.invalidation_counts == before
+        assert camera_capable.frame_validity.invalidation_counts == before
 
 
 class TestTheImplsAbsentAnswerIsRefused:
@@ -388,17 +396,17 @@ class TestTheImplsAbsentAnswerIsRefused:
         ('member', 'value'),
         [
             ('set_binning_size', 2),
-            ('set_pixel_format', 'Mono8'),
-            ('set_conversion_gain_mode', 'High'),
+            ('set_image_mode', '8bit'),
+            ('set_high_conversion_gain', True),
             ('set_line_noise_reduction', True),
         ],
     )
-    def test_absent_answer_raises_not_connected(self, imaging_plain, monkeypatch, member, value):
+    def test_absent_answer_raises_not_connected(self, camera_plain, monkeypatch, member, value):
         # The lane's question answers connected; the driver drops before the body.
         monkeypatch.setattr(Lumascope, 'camera_connected', property(lambda self: True))
-        imaging_plain._driver.active = False
+        camera_plain._driver.active = False
         with pytest.raises(HardwareCommandRefusedError) as caught:
-            getattr(imaging_plain, member)(value)
+            getattr(camera_plain, member)(value)
         assert caught.value.reason == 'not_connected'
         assert caught.value.member == member
 
@@ -408,16 +416,16 @@ class TestBlackLevelSetterSequence:
     took the value, and invalidates nothing when it was refused before
     reaching the camera."""
 
-    def test_set_black_level_success_sequence(self, imaging_plain):
-        assert imaging_plain.set_black_level(4.0) == 4.0
-        assert 'black_level' in imaging_plain.frame_validity.pending_sources
+    def test_set_black_level_success_sequence(self, camera_plain):
+        assert camera_plain.set_black_level(4.0) == 4.0
+        assert 'black_level' in camera_plain.frame_validity.pending_sources
 
-    def test_an_out_of_range_black_level_invalidates_nothing(self, imaging_plain):
-        before = imaging_plain.frame_validity.invalidation_counts
+    def test_an_out_of_range_black_level_invalidates_nothing(self, camera_plain):
+        before = camera_plain.frame_validity.invalidation_counts
         with pytest.raises(CameraSettingOutOfRangeError) as caught:
-            imaging_plain.set_black_level(1000.0)
+            camera_plain.set_black_level(1000.0)
         assert caught.value.reason == 'black_level_out_of_range'
-        assert imaging_plain.frame_validity.invalidation_counts == before
+        assert camera_plain.frame_validity.invalidation_counts == before
 
 
 class TestCameraWriteAuthority:
@@ -429,45 +437,45 @@ class TestCameraWriteAuthority:
     def test_force_invalidate_fires_even_on_rejection(self, plain_scope):
         """A refused gain still holds readiness for 'gain', and records no
         target: the prior one stands."""
-        imaging = plain_scope.imaging
-        fv = imaging.frame_validity
-        imaging.set_gain_db(3.0)
+        camera = plain_scope.camera
+        fv = camera.frame_validity
+        camera.set_gain_db(3.0)
         before = fv.invalidation_counts
         plain_scope.simulation.refuse_camera_write('gain', 'false')
         with pytest.raises(CameraSettingRejected) as caught:
-            imaging.set_gain_db(9.0)
+            camera.set_gain_db(9.0)
         assert caught.value.setting == 'gain_db'
         assert fv.invalidation_counts == _grown_by_one(before, 'gain')
         assert fv.target('gain') == 3.0
 
-    def test_applied_block_runs_when_not_rejected(self, imaging_plain, monkeypatch):
+    def test_applied_block_runs_when_not_rejected(self, camera_plain, monkeypatch):
         """A driver that cannot confirm answers None, which is not a refusal:
         the request is recorded as the chunk target."""
         # a stand-in by design: a driver with no confirmation signal (answers None); the simulator always confirms
-        monkeypatch.setattr(imaging_plain._driver, 'gain', lambda v: None)
-        imaging_plain.set_gain_db(5.0)
-        assert imaging_plain.frame_validity.target('gain') == 5.0
+        monkeypatch.setattr(camera_plain._driver, 'gain', lambda v: None)
+        camera_plain.set_gain_db(5.0)
+        assert camera_plain.frame_validity.target('gain') == 5.0
 
     def test_force_clear_fires_even_on_rejection(self, plain_scope):
         """A refused auto-exposure toggle still holds readiness for
         'exposure' and still clears the manual exposure target."""
-        imaging = plain_scope.imaging
-        fv = imaging.frame_validity
-        imaging.set_exposure_ms(2.5)
+        camera = plain_scope.camera
+        fv = camera.frame_validity
+        camera.set_exposure_ms(2.5)
         before = fv.invalidation_counts
         plain_scope.simulation.refuse_camera_write('auto_exposure', 'false')
         with pytest.raises(CameraSettingRejected) as caught:
-            imaging.set_auto_exposure_time(True)
+            camera.set_auto_exposure_time(True)
         assert caught.value.setting == 'auto_exposure'
         assert fv.invalidation_counts == _grown_by_one(before, 'exposure')
         assert fv.target('exposure') is None
 
 
-def _imaging_tree():
+def _camera_tree():
     # The suite-wide cached parser, so future hardening of production-source AST
     # reads (encoding, AsyncFunctionDef, path resolution) does not bypass this
     # guard. The negative tests below still ast.parse() inline source strings.
-    return parse_module(_IMAGING_REL)
+    return parse_module(_CAMERA_REL)
 
 
 def _parent_map(tree):
@@ -575,7 +583,7 @@ class TestAuthorityIsSingleWritePath:
     if a future edit reintroduces a raw write or a raw invalidate."""
 
     def test_invalidate_only_inside_camera_write(self):
-        offenders = _invalidate_offenders(_imaging_tree())
+        offenders = _invalidate_offenders(_camera_tree())
         assert not offenders, (
             f'self.frame_validity.invalidate(...) called outside _camera_write at '
             f'lines {offenders}; all camera invalidation must route through the authority '
@@ -583,7 +591,7 @@ class TestAuthorityIsSingleWritePath:
         )
 
     def test_camera_driver_writes_wrapped_in_authority_thunk(self):
-        offenders, found = _driver_write_offenders(_imaging_tree())
+        offenders, found = _driver_write_offenders(_camera_tree())
         assert not offenders, (
             f'camera driver write issued outside a _camera_write thunk: {offenders}; '
             f'wrap the write in a lambda/closure handed to self._camera_write so it '
@@ -600,7 +608,7 @@ class TestAuthorityIsSingleWritePath:
         # The guard must BITE: a setter that invalidates a camera source directly
         # (outside the authority) is flagged.
         src = (
-            'class ImagingAPI:\n'
+            'class CameraAPI:\n'
             '    def _camera_write(self, write_fn):\n'
             '        return write_fn()\n'
             '    def set_thing(self):\n'
@@ -611,7 +619,7 @@ class TestAuthorityIsSingleWritePath:
     def test_guard_detects_a_raw_driver_write(self):
         # A driver write issued directly, not wrapped in a _camera_write thunk.
         src = (
-            'class ImagingAPI:\n'
+            'class CameraAPI:\n'
             '    def _camera_write(self, write_fn):\n'
             '        return write_fn()\n'
             '    def set_thing(self):\n'
@@ -623,7 +631,7 @@ class TestAuthorityIsSingleWritePath:
     def test_guard_accepts_a_wrapped_driver_write(self):
         # A driver write wrapped in a lambda handed to _camera_write is clean.
         src = (
-            'class ImagingAPI:\n'
+            'class CameraAPI:\n'
             '    def _camera_write(self, write_fn, **kw):\n'
             '        return write_fn()\n'
             '    def set_thing(self):\n'

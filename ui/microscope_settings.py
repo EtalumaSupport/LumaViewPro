@@ -193,9 +193,9 @@ class MicroscopeSettings(BoxLayout):
         # applies the documented no-camera fallback; #616). The gain cap
         # keeps the slider honest per-camera -- a universal 48 dB let LS620
         # users overdrive past the usable range and black out the image.
-        max_exposure = camera_max_exposure_for_ui(lumaview.scope.imaging)
+        max_exposure = camera_max_exposure_for_ui(lumaview.scope.camera)
         ctx.max_exposure = max_exposure
-        max_gain = camera_max_gain_for_ui(lumaview.scope.imaging)
+        max_gain = camera_max_gain_for_ui(lumaview.scope.camera)
         ctx.max_gain = max_gain
 
         if not settings['video_as_frames']:
@@ -220,7 +220,7 @@ class MicroscopeSettings(BoxLayout):
         # the size the camera delivers.
         self._write_frame_text(settings['frame']['width'], settings['frame']['height'])
 
-        # Pixel Binning -- UI recalculation only, scope.imaging.set_binning_size()
+        # Pixel Binning -- UI recalculation only, scope.camera.set_binning_size()
         # was applied by the Session's bring-up. Writing the spinner runs its
         # handler, once; the kv starts it on 'Select', so the write always does.
         self.ids['binning_spinner'].text = binning_size_str
@@ -369,7 +369,7 @@ class MicroscopeSettings(BoxLayout):
 
         session = ctx.session
         submit_reported(
-            lambda: session.set_image_mode(mode),
+            lambda: session.camera.set_image_mode(mode),
             self._redraw_image_mode,
             'IMAGE_MODE',
             lane=ctx.camera_executor,
@@ -523,7 +523,7 @@ class MicroscopeSettings(BoxLayout):
         # runs, so an edit typed meanwhile is read against the binning the
         # spinner shows; the redraw then shows what the camera delivered.
         run_reported(
-            lambda: self._write_frame_text(**session.frame_at_binning(size)),
+            lambda: self._write_frame_text(**session.camera.frame_at_binning(size)),
             None,
             'BINNING',
         )
@@ -534,7 +534,7 @@ class MicroscopeSettings(BoxLayout):
             self._redraw_framing()
             return
         submit_reported(
-            lambda: session.set_binning_size(size),
+            lambda: session.camera.set_binning_size(size),
             self._framing_applied,
             'BINNING',
             lane=ctx.camera_executor,
@@ -743,7 +743,7 @@ class MicroscopeSettings(BoxLayout):
             session = ctx.session
             applier = self._frame_size_applier
             submit_reported(
-                lambda: applier.apply_pending(lambda wh: session.set_frame_size(*wh)),
+                lambda: applier.apply_pending(lambda wh: session.camera.set_frame_size(*wh)),
                 self._framing_applied,
                 'FRAME_SIZE',
                 lane=ctx.camera_executor,

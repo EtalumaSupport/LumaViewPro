@@ -87,7 +87,7 @@ class TestARemovedCamera:
     def test_under_a_live_view_auto_gain_arm_it_is_not_reported_again_by_the_re_arm(
         self, sim_scope, posted
     ):
-        sim_scope.imaging.set_auto_gain(True, AUTO_GAIN)
+        sim_scope.camera.set_auto_gain(True, AUTO_GAIN)
         posted.clear()
 
         with pytest.raises(HardwareCommandRefusedError) as refused:
@@ -126,7 +126,7 @@ def test_a_camera_that_is_not_streaming_is_refused_as_that(sim_scope):
 def test_a_no_frame_capture_under_a_live_arm_leaves_the_arm_re_armed(sim_scope):
     # The camera is still there, so the live view keeps adjusting after a
     # capture that got nothing; only a removal skips the re-arm.
-    sim_scope.imaging.set_auto_gain(True, AUTO_GAIN)
+    sim_scope.camera.set_auto_gain(True, AUTO_GAIN)
 
     def stall():
         sim_scope.simulation.stall_stream(0.0, 30.0)
@@ -135,4 +135,4 @@ def test_a_no_frame_capture_under_a_live_arm_leaves_the_arm_re_armed(sim_scope):
         sim_scope.imaging.capture_and_wait(sum_count=2, sum_iteration_callback=stall, timeout_s=0.5)
 
     # A lock takes the arm that stands; with none it locks nothing.
-    assert sim_scope.imaging.lock_auto_gain().state is not None, 'the arm was not re-armed'
+    assert sim_scope.camera.lock_auto_gain().state is not None, 'the arm was not re-armed'

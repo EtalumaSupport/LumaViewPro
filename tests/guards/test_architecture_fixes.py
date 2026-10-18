@@ -1003,7 +1003,7 @@ class TestThePrivateReachCensusCountsReachesNotSpellings:
     """
 
     _LABEL = 'ui/fixture.py'
-    _DIRECT = 'def f(ctx):\n    ctx.lumaview.scope.imaging._set_pixel_format_impl(fmt)\n'
+    _DIRECT = 'def f(ctx):\n    ctx.lumaview.scope.camera._set_pixel_format_impl(fmt)\n'
     _ALIASED = (
         'def f(ctx):\n'
         '    imaging = ctx.lumaview.scope.imaging\n'

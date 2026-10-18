@@ -44,6 +44,7 @@ def ctx(monkeypatch):
     # a stand-in by design: the lane dispatch is the subject; each member is interchangeable
     scope = SimpleNamespace(
         illumination=MagicMock(),
+        camera=MagicMock(),
         imaging=MagicMock(),
         motion=MagicMock(),
         led_connected=True,
@@ -60,6 +61,7 @@ def ctx(monkeypatch):
             recover_file_writer=MagicMock(),
             light_shown_channel=MagicMock(),
             show_channel=MagicMock(),
+            camera=SimpleNamespace(),
         ),
         ui_listener_bridge=SimpleNamespace(reconcile_led_buttons=MagicMock()),
     )
@@ -116,6 +118,7 @@ def test_the_layer_apply_shows_the_layer_through_the_session(ctx, boundary, monk
     assert submit.lane is None
     ctx.session.show_channel.assert_called_once_with('Green')
     assert ctx.scope.illumination.mock_calls == []
+    assert ctx.scope.camera.mock_calls == []
     assert ctx.scope.imaging.mock_calls == []
 
 
@@ -143,8 +146,8 @@ def test_an_advanced_camera_switch_writes_its_member_on_the_camera_lane(
 
     monkeypatch.setattr(advanced_settings, 'submit_reported', boundary.submit_reported)
     monkeypatch.setattr(advanced_settings.gui_logger, 'select', MagicMock())
-    # The Session member commands the camera and stores what it took.
-    setattr(ctx.session, member, MagicMock(return_value=True))
+    # The camera API member commands the camera and stores what it took.
+    setattr(ctx.session.camera, member, MagicMock(return_value=True))
     widget = SimpleNamespace(
         ids={widget_id: SimpleNamespace(active=True)}, _show_camera_modes=MagicMock()
     )
@@ -153,7 +156,7 @@ def test_an_advanced_camera_switch_writes_its_member_on_the_camera_lane(
 
     (submit,) = boundary.submits
     assert submit.lane is ctx.camera_executor
-    getattr(ctx.session, member).assert_called_once_with(*expected_args)
+    getattr(ctx.session.camera, member).assert_called_once_with(*expected_args)
 
 
 # ---------------------------------------------------------------------------

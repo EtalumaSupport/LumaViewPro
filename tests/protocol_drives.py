@@ -284,7 +284,7 @@ def run_loop_ready_runner(step, n_scans=1, **state):
     # takes the auto-gain arm out of that snapshot. A bare mock snapshot
     # answers the arm with a mock, which the arm take cannot apply, so the
     # default snapshot states the common case: no standing arm.
-    runner._scope.imaging.save_camera_state.return_value = {'auto_gain_arm': None}
+    runner._scope.camera.save_camera_state.return_value = {'auto_gain_arm': None}
     # The run the loop is dispatched for: every cleanup it asks for names it.
     runner._run_outcome = PendingRunOutcome()
     runner._set_state(ProtocolState.RUNNING)

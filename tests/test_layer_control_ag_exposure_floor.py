@@ -31,7 +31,7 @@ from types import SimpleNamespace
 import pytest
 
 import modules.config_helpers as config_helpers
-from modules.lumascope_api.imaging import (
+from modules.lumascope_api.camera import (
     AutoGainConvergence,
     AutoGainLock,
     stored_exposure_after_lock,
@@ -76,7 +76,7 @@ def _leave(settings: dict, layer: str, lock: AutoGainLock) -> None:
     scope whose lock returns ``lock``."""
     session = SimpleNamespace(
         scope=SimpleNamespace(
-            imaging=SimpleNamespace(lock_auto_gain=lambda: lock, get_held_layer=lambda: layer),
+            camera=SimpleNamespace(lock_auto_gain=lambda: lock, get_held_layer=lambda: layer),
             camera_connected=True,
         ),
         settings=settings,

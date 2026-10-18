@@ -50,7 +50,7 @@ def _probe(session, label):
     def cross_lane():
         t = time.perf_counter()
         try:
-            v = session.scope.imaging.set_exposure_ms(20.0)
+            v = session.scope.camera.set_exposure_ms(20.0)
             result['outcome'] = f'returned {v}'
         except Exception as ex:
             result['outcome'] = f'raised {type(ex).__name__}: {str(ex)[:90]}'

@@ -20,7 +20,7 @@ from modules.exceptions import (
     MoveNotCompletedError,
 )
 from modules.lumascope_api.simulation import InjectedFault
-from tests.scope_fakes import build_scope, home_sim_scope
+from tests.scope_fakes import bind_settings_like_a_session, build_scope, home_sim_scope
 
 
 @pytest.fixture
@@ -125,23 +125,25 @@ def test_a_held_axis_never_arrives_and_its_move_is_not_completed(scope, monkeypa
 def test_a_removed_camera_refuses_the_next_write(scope):
     scope.simulation.remove_camera()
     with pytest.raises(HardwareCommandRefusedError) as refused:
-        scope.imaging.set_gain_db(3.0)
+        scope.camera.set_gain_db(3.0)
     assert refused.value.reason == 'not_connected'
 
 
 def test_a_refused_gain_write_is_rejected_and_records_no_target(scope):
-    scope.imaging.set_gain_db(3.0)
+    scope.camera.set_gain_db(3.0)
     scope.simulation.refuse_camera_write('gain', 'false')
     with pytest.raises(CameraSettingRejected) as rejected:
-        scope.imaging.set_gain_db(9.0)
+        scope.camera.set_gain_db(9.0)
     assert rejected.value.setting == 'gain_db'
     assert scope.imaging.frame_validity.target('gain') == 3.0
 
 
 def test_a_raising_binning_write_is_a_chained_rejection(scope):
+    # The binning reads the framed region it keeps from the settings.
+    bind_settings_like_a_session(scope)
     scope.simulation.refuse_camera_write('binning', 'raise')
     with pytest.raises(CameraSettingRejected) as rejected:
-        scope.imaging.set_binning_size(2)
+        scope.camera.set_binning_size(2)
     assert rejected.value.setting == 'binning'
     assert isinstance(rejected.value.__cause__, RuntimeError)
 
@@ -149,8 +151,8 @@ def test_a_raising_binning_write_is_a_chained_rejection(scope):
 def test_a_refused_write_is_one_write(scope):
     scope.simulation.refuse_camera_write('gain', 'false')
     with pytest.raises(CameraSettingRejected):
-        scope.imaging.set_gain_db(9.0)
-    scope.imaging.set_gain_db(9.0)
+        scope.camera.set_gain_db(9.0)
+    scope.camera.set_gain_db(9.0)
     assert scope.imaging.frame_validity.target('gain') == 9.0
 
 
@@ -158,8 +160,8 @@ def test_a_refused_write_counted_twice_is_two_writes(scope):
     scope.simulation.refuse_camera_write('gain', 'false', count=2)
     for _ in range(2):
         with pytest.raises(CameraSettingRejected):
-            scope.imaging.set_gain_db(9.0)
-    scope.imaging.set_gain_db(9.0)
+            scope.camera.set_gain_db(9.0)
+    scope.camera.set_gain_db(9.0)
     assert scope.imaging.frame_validity.target('gain') == 9.0
 
 
@@ -210,7 +212,7 @@ def test_injected_lists_what_was_asked_and_clear_takes_it_all_back(scope):
     scope.simulation.clear()
     assert scope.simulation.injected() == ()
     assert scope.motion.get_actual_position('X') == pytest.approx(0.0, abs=0.1)
-    scope.imaging.set_gain_db(4.0)
+    scope.camera.set_gain_db(4.0)
     assert scope.imaging.frame_validity.target('gain') == 4.0
 
 

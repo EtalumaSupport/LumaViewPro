@@ -23,13 +23,16 @@ from modules.lumascope_api.illumination import LedState
 
 from tests.af_drives import park_z
 from tests.protocol_drives import held_run_claim
-from tests.scope_fakes import build_scope, home_sim_scope
+from tests.scope_fakes import bind_settings_like_a_session, build_scope, home_sim_scope
 from tests.objective_records import objective
 
 
 @pytest.fixture
 def scope():
     s = build_scope(simulate=True)
+    # Autofocus saves and restores the camera, whose snapshot carries the
+    # stored image mode and region: the scope reads a session's settings.
+    bind_settings_like_a_session(s)
     s._led_driver.set_timing_mode('fast')
     s._motion_driver.set_timing_mode('fast')
     s._camera_driver.set_timing_mode('fast')
@@ -142,8 +145,8 @@ def test_refused_af_acquire_aborts_the_af_run(scope, monkeypatch, centre_posts):
     monkeypatch.setattr(scope.motion, 'move_absolute', _recording_move)
 
     pre_z = scope.motion.get_current_position('Z')
-    pre_gain = scope.imaging.get_gain_db()
-    pre_exposure = scope.imaging.get_exposure_ms()
+    pre_gain = scope.camera.get_gain_db()
+    pre_exposure = scope.camera.get_exposure_ms()
 
     with pytest.raises(AutofocusAborted) as aborted:
         runner.run(
@@ -167,8 +170,8 @@ def test_refused_af_acquire_aborts_the_af_run(scope, monkeypatch, centre_posts):
     assert all(abs(pos - pre_z) < 1e-6 for pos in z_targets), (
         f'the stage must not walk the AF z range on a refused run; Z moves: {z_targets}'
     )
-    assert scope.imaging.get_gain_db() == pre_gain, 'camera gain must be restored'
-    assert scope.imaging.get_exposure_ms() == pre_exposure, 'camera exposure must be restored'
+    assert scope.camera.get_gain_db() == pre_gain, 'camera gain must be restored'
+    assert scope.camera.get_exposure_ms() == pre_exposure, 'camera exposure must be restored'
     assert scope.imaging.is_focusing is False
     assert not runner.in_progress(), 'the in-progress flag must clear on the refused run'
     # The lease is refused only once the run that handed it over has ended,

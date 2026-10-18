@@ -134,17 +134,18 @@ class TestAGrabThatStoppedUnaskedIsReported:
 class TestWhatIsNotAStall:
     def test_a_long_exposure_is_not_a_stall(self, session, shown, caplog):
         # 800 ms between frames is past the 0.5 s floor; ten of them is the bound.
-        imaging = session.scope.imaging
-        at_change = imaging._frames_delivered()
-        imaging.set_exposure_ms(800.0)
-        assert imaging.exposure_ms_cached == 800.0, 'precondition: the long exposure took'
+        scope = session.scope
+        camera = scope.camera
+        at_change = scope._frames_delivered()
+        camera.set_exposure_ms(800.0)
+        assert camera.exposure_ms_cached == 800.0, 'precondition: the long exposure took'
         # The frames the camera had started come at the old, short exposure.
         in_flight = SimulatedCamera.SENSOR_PIPELINE_FRAMES
-        assert _wait_for(lambda: imaging._frames_delivered() > at_change + in_flight, 3.0)
+        assert _wait_for(lambda: scope._frames_delivered() > at_change + in_flight, 3.0)
         started = time.monotonic()
-        before = imaging._frames_delivered()
+        before = scope._frames_delivered()
         with caplog.at_level(logging.INFO):
-            assert _wait_for(lambda: imaging._frames_delivered() - before >= 3, 10.0), (
+            assert _wait_for(lambda: scope._frames_delivered() - before >= 3, 10.0), (
                 'precondition: the long-exposure stream delivered'
             )
         # Three frames span at least two 0.8 s gaps, each past the floor; a
@@ -162,19 +163,20 @@ class TestWhatIsNotAStall:
         # drop, past the short exposure's 0.5 s bound and inside the long
         # one's 10 s. Once the camera's pipeline of frames has come the short
         # bound applies: a hold of 1.5 s after it is a stall.
-        imaging = session.scope.imaging
-        imaging.set_exposure_ms(1000.0)
-        before = imaging._frames_delivered()
-        assert _wait_for(lambda: imaging._frames_delivered() > before, 3.0), (
+        scope = session.scope
+        camera = scope.camera
+        camera.set_exposure_ms(1000.0)
+        before = scope._frames_delivered()
+        assert _wait_for(lambda: scope._frames_delivered() > before, 3.0), (
             'precondition: the long-exposure stream delivered'
         )
         time.sleep(0.3)  # the check has run at the long exposure's bound
         with caplog.at_level(logging.INFO):
-            at_drop = imaging._frames_delivered()
-            imaging.set_exposure_ms(5.0)
+            at_drop = scope._frames_delivered()
+            camera.set_exposure_ms(5.0)
             in_flight = SimulatedCamera.SENSOR_PIPELINE_FRAMES
             # The frames in flight, and one at the short exposure behind them.
-            assert _wait_for(lambda: imaging._frames_delivered() > at_drop + in_flight + 1, 5.0)
+            assert _wait_for(lambda: scope._frames_delivered() > at_drop + in_flight + 1, 5.0)
             assert shown == [], 'the frames in the pipeline were reported as a stall'
             assert _stall_lines(caplog) == []
 

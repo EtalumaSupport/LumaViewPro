@@ -55,9 +55,9 @@ def test_every_saturation_walk_runs_with_the_camera_lock_released(sim_scope, mon
         seen = {}
 
         def try_acquire():
-            got = imaging._cam_lock.acquire(blocking=False)
+            got = sim_scope.camera._cam_lock.acquire(blocking=False)
             if got:
-                imaging._cam_lock.release()
+                sim_scope.camera._cam_lock.release()
             seen['free'] = got
 
         probe = threading.Thread(target=try_acquire)

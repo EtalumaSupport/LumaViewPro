@@ -39,8 +39,8 @@ def live_scope():
 
 
 def test_a_camera_without_chunks_logs_the_applied_values_marked_applied(live_scope):
-    applied_exp = live_scope.imaging.set_exposure_ms(50.0)
-    applied_gain = live_scope.imaging.set_gain_db(6.0)
+    applied_exp = live_scope.camera.set_exposure_ms(50.0)
+    applied_gain = live_scope.camera.set_gain_db(6.0)
     image = live_scope.imaging._capture_and_wait_impl(accept_dark=True, timeout_s=1.0)
     assert image is not None
     info = live_scope.imaging.last_capture_info

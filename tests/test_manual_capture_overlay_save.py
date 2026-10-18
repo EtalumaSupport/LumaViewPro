@@ -62,10 +62,10 @@ def capture_ctx(tmp_path):
         'X': AxisPosition(AxisState.IDLE, 1000.0),
         'Y': AxisPosition(AxisState.IDLE, 2000.0),
     }
-    scope.imaging._capture_and_wait_impl.return_value = np.zeros((4, 4), dtype=np.uint8)
+    scope.imaging._capture_holding_layer_impl.return_value = np.zeros((4, 4), dtype=np.uint8)
     scope.imaging.capture_frame_depth.return_value = 8
     scope.imaging.last_capture_info = {'frame_record': frame_record()}
-    scope.imaging._submit_camera.side_effect = _run_on_the_calling_thread
+    scope.camera._submit_camera.side_effect = _run_on_the_calling_thread
     return types.SimpleNamespace(
         scope=scope,
         tmp_path=tmp_path,
@@ -134,7 +134,7 @@ class TestOverlayIsSavedRegardlessOfBuildMode:
         save_one = _run_capture(capture_ctx, sum_count=3)
 
         assert save_one.call_count == 1
-        kwargs = capture_ctx.scope.imaging._capture_and_wait_impl.call_args.kwargs
+        kwargs = capture_ctx.scope.imaging._capture_holding_layer_impl.call_args.kwargs
         assert kwargs['sum_count'] == 3
 
     def test_engineering_mode_no_longer_decides_what_is_written(self):
@@ -200,7 +200,7 @@ class TestSummingSurvivesAnOverlay:
 
         _run_capture(capture_ctx, sum_count=3)
 
-        kwargs = capture_ctx.scope.imaging._capture_and_wait_impl.call_args.kwargs
+        kwargs = capture_ctx.scope.imaging._capture_holding_layer_impl.call_args.kwargs
         assert kwargs['sum_count'] == 3, (
             'the overlay path grabbed its frame without the configured frame '
             'count, so an overlay silently reduced a summed capture to one frame'
@@ -268,7 +268,7 @@ class TestASumsOverlayIsDrawnAsItIsShown:
         """Three 8-bit frames summed to 255 are one frame's white; the overlay
         is drawn on that rendering, so the pixel is white, not 255 of 1023."""
         capture_ctx.use_crosshairs = True
-        capture_ctx.scope.imaging._capture_and_wait_impl.return_value = np.full(
+        capture_ctx.scope.imaging._capture_holding_layer_impl.return_value = np.full(
             (4, 4), 255, dtype=np.uint16
         )
         capture_ctx.scope.imaging.capture_frame_depth.return_value = 10

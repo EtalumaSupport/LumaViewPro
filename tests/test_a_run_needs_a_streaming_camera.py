@@ -58,7 +58,7 @@ def test_a_run_asked_for_while_the_grab_restarts_on_the_lane_is_admitted(session
 
     waiter = Future()
     waiter.set_running_or_notify_cancel()
-    session.scope.imaging._submit_camera(regrab, 'regrab', waiter=waiter)
+    session.scope.camera._submit_camera(regrab, 'regrab', waiter=waiter)
     assert stopped.wait(5), 'the lane never ran the regrab'
     assert session.scope.imaging.is_streaming() is False
 
@@ -70,6 +70,6 @@ def test_a_streaming_camera_is_answered_without_the_lane(session, monkeypatch):
     def no_lane(*args, **kwargs):
         raise AssertionError('a streaming camera was asked on the lane')
 
-    monkeypatch.setattr(session.scope.imaging, '_dispatch_camera', no_lane)
+    monkeypatch.setattr(session.scope.camera, '_dispatch_camera', no_lane)
 
     assert session.scope.imaging.is_streaming_once_settled() is True

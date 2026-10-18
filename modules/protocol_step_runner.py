@@ -181,8 +181,8 @@ class ProtocolStepRunner:
                     and not p._scope.motion.axes_without_position()
                 ):
                     p._ending.set_if_unset(_ending_of_a_failed_autofocus(_af_exc))
-            _cam_gain = p._scope.imaging.get_gain_db() if p._scope.imaging.active_cached else '?'
-            _cam_exp = p._scope.imaging.get_exposure_ms() if p._scope.imaging.active_cached else '?'
+            _cam_gain = p._scope.camera.get_gain_db() if p._scope.camera.active_cached else '?'
+            _cam_exp = p._scope.camera.get_exposure_ms() if p._scope.camera.active_cached else '?'
             logger.info(
                 f'[SCAN DIAG] AF gate passed: future.done()=True '
                 f'camera_gain={_cam_gain} camera_exp={_cam_exp} step={p._curr_step}'
@@ -324,7 +324,7 @@ class ProtocolStepRunner:
                 step['Color']
             )
             try:
-                p._scope.imaging.apply_layer_camera_settings(
+                p._scope.camera.apply_layer_camera_settings(
                     layer=step['Color'],
                     gain_db=step['Gain'],
                     exposure_ms=step['Exposure'],
@@ -507,7 +507,7 @@ class ProtocolStepRunner:
         # reported and the run goes on: the next step writes its own values.
         if step['Auto_Gain']:
             try:
-                p._scope.imaging.set_auto_gain(False, p._autogain_settings)
+                p._scope.camera.set_auto_gain(False, p._autogain_settings)
             except CameraSettingRejected as rejected:
                 notifications.report_outcome(rejected, solicited=False, category='Camera')
 

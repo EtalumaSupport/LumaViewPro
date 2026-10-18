@@ -1,11 +1,11 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """A frame outside what the camera can deliver is refused, never capped.
 
-``ScopeSession.set_frame_size`` capped a request at the sensor and raised
-one below the camera's minimum up to it, so a caller asking for 5000 px got
-the sensor's width with nothing said, and one asking for 10 px got the
-minimum. The frame is now checked where the other camera setting bounds are
--- the public ``ImagingAPI.set_frame_size`` -- and a width or height outside
+The frame writer capped a request at the sensor and raised one below the
+camera's minimum up to it, so a caller asking for 5000 px got the sensor's
+width with nothing said, and one asking for 10 px got the minimum. The frame
+is now checked where the other camera setting bounds are -- the public
+``CameraAPI.set_frame_size`` -- and a width or height outside
 [the camera's minimum, the sensor at the current binning] is refused with
 the range, before anything reaches the camera or the settings. A size inside
 the range is delivered exactly: the camera acquires the next window up on its
@@ -35,19 +35,19 @@ def session(tmp_path):
         s.shutdown()
 
 
-def _camera_writes(monkeypatch, imaging):
+def _camera_writes(monkeypatch, camera):
     writes = []
-    real = imaging._set_frame_size_impl
+    real = camera._set_frame_size_impl
 
     def _recording(w, h):
         writes.append((w, h))
         return real(w, h)
 
-    monkeypatch.setattr(imaging, '_set_frame_size_impl', _recording)
+    monkeypatch.setattr(camera, '_set_frame_size_impl', _recording)
     return writes
 
 
-class TestTheSession:
+class TestTheFrameWriter:
     @pytest.mark.parametrize(
         ('width', 'height', 'setting'),
         [(5000, 800, 'frame_width'), (1000, 5000, 'frame_height'), (1000, 20, 'frame_height')],
@@ -56,16 +56,16 @@ class TestTheSession:
     def test_it_is_refused_with_the_range_and_nothing_moves(
         self, session, monkeypatch, width, height, setting
     ):
-        imaging = session.scope.imaging
+        camera = session.scope.camera
         # A minimum above the camera's 4 px grid, as a Pylon camera declares:
         # the sim's minimum is one grid step, which the grid snap alone meets.
         set_camera_limits(monkeypatch, session.scope, frame_min=FrameSize(width=48, height=64))
         before = copy.deepcopy(session.settings['frame'])
-        delivered_before = imaging.frame_size_cached
-        writes = _camera_writes(monkeypatch, imaging)
+        delivered_before = camera.frame_size_cached
+        writes = _camera_writes(monkeypatch, camera)
 
         with pytest.raises(CameraSettingOutOfRangeError) as refused:
-            session.set_frame_size(width, height)
+            session.camera.set_frame_size(width, height)
 
         assert refused.value.setting == setting
         assert refused.value.minimum is not None and refused.value.maximum is not None
@@ -74,26 +74,26 @@ class TestTheSession:
         ), 'the refusal states the range'
         assert writes == []
         assert session.settings['frame'] == before
-        assert imaging.frame_size_cached == delivered_before
+        assert camera.frame_size_cached == delivered_before
 
     def test_the_ceiling_follows_the_binning(self, session):
-        session.set_binning_size(2)
+        session.camera.set_binning_size(2)
         width, _ = session.scope.capabilities.camera_max_frame_size
         with pytest.raises(CameraSettingOutOfRangeError) as refused:
-            session.set_frame_size(width, 400)
+            session.camera.set_frame_size(width, 400)
         assert refused.value.maximum == width // 2
 
     def test_an_in_range_size_is_delivered_exactly(self, session):
-        delivered = session.set_frame_size(1000, 802)
-        assert delivered == session.scope.imaging.frame_size_cached
+        delivered = session.camera.set_frame_size(1000, 802)
+        assert delivered == session.scope.camera.frame_size_cached
         assert delivered == {'width': 1000, 'height': 802}
 
     def test_an_unknown_maximum_leaves_the_ceiling_unchecked(self, session, monkeypatch):
-        imaging = session.scope.imaging
+        camera = session.scope.camera
         set_camera_limits(monkeypatch, session.scope, frame_max=None)
-        writes = _camera_writes(monkeypatch, imaging)
+        writes = _camera_writes(monkeypatch, camera)
         try:
-            session.set_frame_size(5000, 800)
+            session.camera.set_frame_size(5000, 800)
         except CameraSettingOutOfRangeError:
             pytest.fail('with no known maximum there is no ceiling to refuse against')
         except Exception:
@@ -121,7 +121,7 @@ class TestBringUpStoresTheDeliveredFrame:
         # A frame wider than the simulated 3840x2160 sensor.
         s = self._create(tmp_path, (4000, 1900))
         try:
-            delivered = s.scope.imaging.frame_size_cached
+            delivered = s.scope.camera.frame_size_cached
             assert (delivered['width'], delivered['height']) != (4000, 1900)
             frame = s.settings['frame']
             assert {'width': frame['width'], 'height': frame['height']} == delivered
@@ -133,25 +133,25 @@ class TestBringUpStoresTheDeliveredFrame:
         try:
             frame = s.settings['frame']
             assert (frame['width'], frame['height']) == (960, 600)
-            assert s.scope.imaging.frame_size_cached == {'width': 960, 'height': 600}
+            assert s.scope.camera.frame_size_cached == {'width': 960, 'height': 600}
         finally:
             s.shutdown()
 
     def test_a_saved_binning_the_camera_lacks_is_stored_as_delivered(self, tmp_path):
         # A saved 3x3 on the simulated camera, which offers 1, 2 and 4: bring-up
         # runs at the camera's 1x1, and the store says so beside the delivered
-        # frame. The Session's own frame writer then works its native region
+        # frame. The camera's own frame writer then works its native region
         # out at the binning in force, not at the one the file carried.
         s = self._create(tmp_path, (1900, 1900), binning='3x3')
         try:
-            imaging = s.scope.imaging
-            assert imaging.get_binning_size() == 1
+            camera = s.scope.camera
+            assert camera.get_binning_size() == 1
             assert s.settings['binning']['size'] == '1x1'
             frame = s.settings['frame']
-            assert {'width': frame['width'], 'height': frame['height']} == imaging.frame_size_cached
-            assert s.set_frame_size(960, 600) == {'width': 960, 'height': 600}
+            assert {'width': frame['width'], 'height': frame['height']} == camera.frame_size_cached
+            assert s.camera.set_frame_size(960, 600) == {'width': 960, 'height': 600}
             assert (frame['native_width'], frame['native_height']) == (960, 600)
-            assert s.frame_at_binning(2) == {'width': 480, 'height': 300}
+            assert s.camera.frame_at_binning(2) == {'width': 480, 'height': 300}
         finally:
             s.shutdown()
 
@@ -165,7 +165,7 @@ class TestBringUpStoresTheDeliveredFrame:
             try:
                 # The unfocused BF steps take the current Z, which needs a home.
                 home_sim_scope(s.scope)
-                assert s.scope.imaging.get_binning_size() == 1
+                assert s.scope.camera.get_binning_size() == 1
                 protocol = s.scope.protocols.create_protocol(
                     input_config=s.get_sequenced_capture_config(tiling='3x3')
                 )

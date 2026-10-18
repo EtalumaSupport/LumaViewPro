@@ -288,7 +288,7 @@ def run_cleanup(
         if saved_camera_state:
             tag = saved_camera_state.get('tag', '?')
             logger.info(f'[{logger_name}] Cleanup: restoring camera state tag={tag}')
-            scope.imaging.restore_camera_state(saved_camera_state)
+            scope.camera.restore_camera_state(saved_camera_state)
     except Exception as ex:
         cleanup_errors.append(('Restore camera gain/exposure', f'{type(ex).__name__}: {ex}'))
 

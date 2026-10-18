@@ -227,8 +227,8 @@ class TestABrokenListenerIsLoud:
                 ),
             ),
             (
-                lambda s, cb: s.scope.imaging.add_camera_listener(cb),
-                lambda s: s.scope.imaging._fire_camera_listeners('gain', 1.0),
+                lambda s, cb: s.scope.camera.add_camera_listener(cb),
+                lambda s: s.scope.camera._fire_camera_listeners('gain', 1.0),
             ),
         ],
         ids=['position', 'led', 'camera'],

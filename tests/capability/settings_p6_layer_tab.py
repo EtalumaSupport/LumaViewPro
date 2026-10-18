@@ -17,7 +17,7 @@ from modules.lumascope_api.illumination import LedState
 
 s, live = _common.make_session()
 try:
-    ill, im = s.scope.illumination, s.scope.imaging
+    ill, im = s.scope.illumination, s.scope.camera
     cfgs = s.get_layer_configs()
     print('layers known to the session:', sorted(cfgs))
     target = 'Green' if 'Green' in cfgs else sorted(cfgs)[0]

@@ -18,8 +18,8 @@ import pytest
 
 import modules.lumascope_api.diagnostics as diag
 from modules.lumascope_api import Lumascope
+from modules.lumascope_api.camera import CameraAPI
 from modules.lumascope_api.diagnostics import DiagnosticsAPI
-from modules.lumascope_api.imaging import ImagingAPI
 from modules.lumascope_api.runtime_state import RuntimeState
 from tests.scope_fakes import build_scope, give_stub_lanes
 
@@ -90,8 +90,8 @@ def _scope_with(camera) -> Lumascope:
     scope.runtime_state = RuntimeState(scope)
     scope._camera_driver = camera
     give_stub_lanes(scope)
-    scope.imaging = ImagingAPI.__new__(ImagingAPI)
-    scope.imaging._scope = scope
+    scope.camera = CameraAPI.__new__(CameraAPI)
+    scope.camera._scope = scope
     scope.diagnostics = DiagnosticsAPI(scope)
     return scope
 

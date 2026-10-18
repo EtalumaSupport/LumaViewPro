@@ -582,8 +582,8 @@ class TestIntegrationAutofocus:
 
         # Simulate the multi-channel scenario: camera is at Green settings
         # when BF AF starts with its own explicit targets.
-        scope.imaging.set_gain_db(20.0)
-        scope.imaging.set_exposure_ms(100.0)
+        scope.camera.set_gain_db(20.0)
+        scope.camera.set_exposure_ms(100.0)
 
         # Drive AF through AutofocusThread so the abort_event contract
         # is satisfied and the Future resolves when AFE.run()'s finally
@@ -615,8 +615,8 @@ class TestIntegrationAutofocus:
         # contract: explicit AF targets (the committed layer/step
         # values, 1.0 dB / 2.0 ms here) are KEPT after AF rather than
         # reverted to the pre-AF snapshot (20.0 / 100.0).
-        actual_gain = scope.imaging.get_gain_db()
-        actual_exp = scope.imaging.get_exposure_ms()
+        actual_gain = scope.camera.get_gain_db()
+        actual_exp = scope.camera.get_exposure_ms()
         assert abs(actual_gain - 1.0) < 0.1, (
             f'Camera gain should remain at the committed AF target 1.0 '
             f'when the AF Future resolves, but got {actual_gain}'
@@ -803,25 +803,33 @@ class TestRestAPIPrep:
     def test_get_pixel_format(self):
         """_get_pixel_format() should return format string from simulated camera."""
         session = ScopeSession.create(complete_settings(), simulate=True)
-        fmt = session.scope.imaging._get_pixel_format()
+        fmt = session.scope.camera._get_pixel_format()
         assert isinstance(fmt, str)
         assert fmt in ('Mono8', 'Mono10', 'Mono12')
 
     def test_set_pixel_format(self):
-        """set_pixel_format() should change the camera format."""
+        """The image mode sets the camera format: a pixel format is set only
+        through it, and 12-bit scientific selects Mono12 on the simulated camera."""
         session = ScopeSession.create(complete_settings(), simulate=True)
-        session.scope.imaging.set_pixel_format('Mono12')
-        assert session.scope.imaging._get_pixel_format() == 'Mono12'
+        session.scope.camera.set_image_mode('12bit_scientific')
+        assert session.scope.camera._get_pixel_format() == 'Mono12'
 
     def test_set_pixel_format_invalid(self):
-        """set_pixel_format() with an unsupported format raises the typed
+        """The pixel-format write with an unsupported format raises the typed
         rejection (the apply contract: an L2 caller cannot mistake a
-        rejected format for an applied one by dropping the return)."""
+        rejected format for an applied one by dropping the return). No public
+        member names a format, so the body runs on the camera lane."""
         from modules.exceptions import CameraSettingRejected
 
         session = ScopeSession.create(complete_settings(), simulate=True)
+        camera = session.scope.camera
         with pytest.raises(CameraSettingRejected):
-            session.scope.imaging.set_pixel_format('InvalidFormat')
+            camera._dispatch_camera(
+                camera._set_pixel_format_impl,
+                'set_pixel_format',
+                args=('InvalidFormat',),
+                timeout_s=camera._CAMERA_GEOMETRY_TIMEOUT_S,
+            )
 
     def test_the_capabilities_list_the_pixel_formats(self):
         """capabilities.camera_pixel_formats is a tuple of format strings."""
@@ -837,9 +845,9 @@ class TestRestAPIPrep:
 
         session = ScopeSession.create(complete_settings(), simulate=True)
         session.scope._camera_driver = None
-        assert session.scope.imaging._get_pixel_format() is None
+        assert session.scope.camera._get_pixel_format() is None
         with pytest.raises(HardwareCommandRefusedError) as exc:
-            session.scope.imaging.set_pixel_format('Mono8')
+            session.scope.camera.set_image_mode('8bit')
         assert exc.value.missing == MissingPart.CAMERA
 
     def test_get_motor_info(self):

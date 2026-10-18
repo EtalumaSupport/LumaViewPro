@@ -52,31 +52,40 @@ _AUTO_GAIN = {
     'min_exposure_ms': 0.1,
 }
 
-# Every camera command an outside caller sends that needs a camera, by name.
+# Every camera command an outside caller sends that needs a camera, by name,
+# each run on the scope.
 REFUSED = {
-    'set_gain_db': lambda im: im.set_gain_db(5.0),
-    'set_exposure_ms': lambda im: im.set_exposure_ms(20.0),
-    'set_black_level': lambda im: im.set_black_level(10.0),
-    'set_auto_gain_on': lambda im: im.set_auto_gain(True, _AUTO_GAIN),
-    'set_auto_exposure_time_on': lambda im: im.set_auto_exposure_time(True),
-    'update_auto_gain_target_brightness': lambda im: im.update_auto_gain_target_brightness(0.5),
-    'auto_gain_once': lambda im: im.auto_gain_once(True, 0.5, 0.0, 20.0),
-    'enable_streaming': lambda im: im.enable_streaming(),
-    'set_frame_size': lambda im: im.set_frame_size(1024, 1024),
-    'set_binning_size': lambda im: im.set_binning_size(1),
-    'set_pixel_format': lambda im: im.set_pixel_format('Mono8'),
-    'set_conversion_gain_mode': lambda im: im.set_conversion_gain_mode('Low'),
-    'set_line_noise_reduction': lambda im: im.set_line_noise_reduction(False),
-    'apply_layer_camera_settings': lambda im: im.apply_layer_camera_settings(5.0, 20.0, layer='BF'),
-    'capture_and_wait': lambda im: im.capture_and_wait(),
+    'set_gain_db': lambda s: s.camera.set_gain_db(5.0),
+    'set_exposure_ms': lambda s: s.camera.set_exposure_ms(20.0),
+    'set_black_level': lambda s: s.camera.set_black_level(10.0),
+    'set_auto_gain_on': lambda s: s.camera.set_auto_gain(True, _AUTO_GAIN),
+    'set_auto_exposure_time_on': lambda s: s.camera.set_auto_exposure_time(True),
+    'update_auto_gain_target_brightness': lambda s: s.camera.update_auto_gain_target_brightness(
+        0.5
+    ),
+    'auto_gain_once': lambda s: s.camera.auto_gain_once(True, 0.5, 0.0, 20.0),
+    'enable_streaming': lambda s: s.imaging.enable_streaming(),
+    'set_frame_size': lambda s: s.camera.set_frame_size(1024, 1024),
+    'set_binning_size': lambda s: s.camera.set_binning_size(1),
+    'set_high_conversion_gain': lambda s: s.camera.set_high_conversion_gain(False),
+    'set_line_noise_reduction': lambda s: s.camera.set_line_noise_reduction(False),
+    'apply_layer_camera_settings': lambda s: s.camera.apply_layer_camera_settings(
+        5.0, 20.0, layer='BF'
+    ),
+    'capture_and_wait': lambda s: s.imaging.capture_and_wait(),
 }
+
+# The image mode's apply: with no camera it has no format to apply, and the
+# mode is saved for bring-up to apply, so it is not refused then; after
+# disconnect, and with a camera that leaves during the write, it is.
+IMAGE_MODE = {'set_image_mode': lambda s: s.camera.set_image_mode('8bit')}
 
 # The offs: satisfied with no camera, answering what each answers with one.
 SATISFIED = {
-    'disable_streaming': lambda im: im.disable_streaming(),
-    'set_auto_gain_off': lambda im: im.set_auto_gain(False, _AUTO_GAIN),
-    'set_auto_exposure_time_off': lambda im: im.set_auto_exposure_time(False),
-    'lock_auto_gain': lambda im: im.lock_auto_gain(),
+    'disable_streaming': lambda s: s.imaging.disable_streaming(),
+    'set_auto_gain_off': lambda s: s.camera.set_auto_gain(False, _AUTO_GAIN),
+    'set_auto_exposure_time_off': lambda s: s.camera.set_auto_exposure_time(False),
+    'lock_auto_gain': lambda s: s.camera.lock_auto_gain(),
 }
 
 DIAGNOSTIC_RUNNERS = {
@@ -134,17 +143,17 @@ def _camera_store(session) -> dict:
 @pytest.mark.parametrize('model', ('LS850', 'LS620'))
 def test_with_its_camera_every_command_and_read_answers_as_before(make_session, model):
     scope = make_session(model).scope
-    im = scope.imaging
+    camera, im = scope.camera, scope.imaging
 
-    assert im.set_gain_db(5.0) == pytest.approx(5.0, abs=0.5)
-    assert im.set_exposure_ms(20.0) == pytest.approx(20.0, rel=0.1)
-    assert im.get_gain_db() == pytest.approx(5.0, abs=0.5)
-    assert im.get_exposure_ms() == pytest.approx(20.0, rel=0.1)
-    assert im.get_width() > 0 and im.get_height() > 0
+    assert camera.set_gain_db(5.0) == pytest.approx(5.0, abs=0.5)
+    assert camera.set_exposure_ms(20.0) == pytest.approx(20.0, rel=0.1)
+    assert camera.get_gain_db() == pytest.approx(5.0, abs=0.5)
+    assert camera.get_exposure_ms() == pytest.approx(20.0, rel=0.1)
+    assert camera.get_width() > 0 and camera.get_height() > 0
     assert im.capture_and_wait() is not None
     im.disable_streaming()
     im.enable_streaming()
-    im.restore_camera_state(im.save_camera_state('present'))
+    camera.restore_camera_state(camera.save_camera_state('present'))
 
 
 # --- No camera -------------------------------------------------------------------
@@ -184,7 +193,7 @@ def test_with_no_camera_every_command_is_refused_naming_it(
     before = _camera_store(session)
     centre_posts.clear()
 
-    assert _not_named_as_the_camera(REFUSED, session.scope.imaging) == {}
+    assert _not_named_as_the_camera(REFUSED, session.scope) == {}
     assert _camera_store(session) == before
     assert _camera_posts(centre_posts) == []
 
@@ -202,7 +211,9 @@ def test_with_no_camera_a_binning_preview_is_refused_naming_it(make_session, mon
     session = _camera_less(make_session, monkeypatch, 'LS850')
 
     assert (
-        _not_named_as_the_camera({'frame_at_binning': lambda s: s.frame_at_binning(2)}, session)
+        _not_named_as_the_camera(
+            {'frame_at_binning': lambda s: s.camera.frame_at_binning(2)}, session
+        )
         == {}
     )
 
@@ -211,24 +222,24 @@ def test_with_no_camera_a_binning_preview_is_refused_naming_it(make_session, mon
 def test_with_no_camera_every_off_is_satisfied_with_its_own_answer(
     make_session, monkeypatch, centre_posts, model
 ):
-    camera = make_session(model).scope.imaging
-    with_camera = {name: off(camera) for name, off in SATISFIED.items()}
+    scope = make_session(model).scope
+    with_camera = {name: off(scope) for name, off in SATISFIED.items()}
     session = _camera_less(make_session, monkeypatch, model)
     centre_posts.clear()
 
-    assert {name: off(session.scope.imaging) for name, off in SATISFIED.items()} == with_camera
+    assert {name: off(session.scope) for name, off in SATISFIED.items()} == with_camera
     assert _camera_posts(centre_posts) == []
 
 
 def test_with_no_camera_a_restore_of_a_cameraless_snapshot_is_satisfied_and_any_other_refused(
     make_session, monkeypatch
 ):
-    im = _camera_less(make_session, monkeypatch, 'LS850').scope.imaging
+    camera = _camera_less(make_session, monkeypatch, 'LS850').scope.camera
 
-    assert im.restore_camera_state(im.save_camera_state('cameraless')) is None
+    assert camera.restore_camera_state(camera.save_camera_state('cameraless')) is None
     _assert_names_the_camera(
         _refused(
-            lambda: im.restore_camera_state(
+            lambda: camera.restore_camera_state(
                 {
                     'tag': 'from a camera',
                     'gain_db': 5.0,
@@ -254,9 +265,14 @@ def test_with_no_camera_a_frame_listener_is_refused(make_session, monkeypatch):
 @pytest.mark.parametrize('model', ('LS850', 'LS620'))
 def test_with_no_camera_the_value_reads_answer_none(make_session, monkeypatch, model):
     scope = _camera_less(make_session, monkeypatch, model).scope
-    im = scope.imaging
+    camera = scope.camera
 
-    assert (im.get_gain_db(), im.get_exposure_ms(), im.get_width(), im.get_height()) == (
+    assert (
+        camera.get_gain_db(),
+        camera.get_exposure_ms(),
+        camera.get_width(),
+        camera.get_height(),
+    ) == (
         None,
         None,
         None,
@@ -287,7 +303,7 @@ def test_with_no_camera_the_session_binning_is_refused_naming_it(make_session, m
     session = _camera_less(make_session, monkeypatch, 'LS850')
     before = _camera_store(session)
 
-    _assert_names_the_camera(_refused(lambda: session.set_binning_size(1)))
+    _assert_names_the_camera(_refused(lambda: session.camera.set_binning_size(1)))
 
     assert _camera_store(session) == before
 
@@ -298,7 +314,7 @@ def test_with_no_camera_a_session_camera_toggle_is_refused_naming_it(
 ):
     session = _camera_less(make_session, monkeypatch, 'LS850')
 
-    _assert_names_the_camera(_refused(lambda: getattr(session, member)(False)))
+    _assert_names_the_camera(_refused(lambda: getattr(session.camera, member)(False)))
 
 
 def test_with_no_camera_showing_a_channel_is_refused_naming_it(make_session, monkeypatch):
@@ -343,29 +359,35 @@ def _disconnected(make_session, model: str):
 
 @pytest.mark.parametrize('model', ('LS850', 'LS620'))
 def test_after_disconnect_a_command_says_the_scope_is_disconnected(make_session, model):
-    im = _disconnected(make_session, model).scope.imaging
+    scope = _disconnected(make_session, model).scope
 
-    for command in (*REFUSED.values(), *SATISFIED.values()):
-        assert _refused(lambda command=command: command(im)).reason == 'scope_disconnected'
-    assert _refused(lambda: im.set_gain_db(1000.0)).reason == 'scope_disconnected'
+    for command in (*REFUSED.values(), *IMAGE_MODE.values(), *SATISFIED.values()):
+        assert _refused(lambda command=command: command(scope)).reason == 'scope_disconnected'
+    assert _refused(lambda: scope.camera.set_gain_db(1000.0)).reason == 'scope_disconnected'
     assert (
-        _refused(lambda: im.add_frame_listener(lambda *args: None)).reason == 'scope_disconnected'
+        _refused(lambda: scope.imaging.add_frame_listener(lambda *args: None)).reason
+        == 'scope_disconnected'
     )
 
 
 @pytest.mark.parametrize('model', ('LS850', 'LS620'))
 def test_after_disconnect_no_read_describes_the_camera_that_left(make_session, model):
     scope = _disconnected(make_session, model).scope
-    im = scope.imaging
+    camera = scope.camera
 
-    assert (im.get_gain_db(), im.get_exposure_ms(), im.get_width(), im.get_height()) == (
+    assert (
+        camera.get_gain_db(),
+        camera.get_exposure_ms(),
+        camera.get_width(),
+        camera.get_height(),
+    ) == (
         None,
         None,
         None,
         None,
     )
-    assert im.frame_size_cached == {'width': 0, 'height': 0}
-    assert im.gain_db_cached == -1.0
+    assert camera.frame_size_cached == {'width': 0, 'height': 0}
+    assert camera.gain_db_cached == -1.0
     assert scope.diagnostics.get_camera_temperatures_degc() is None
     assert scope.diagnostics.get_camera_link_info() is None
 
@@ -378,7 +400,9 @@ def test_after_disconnect_a_frame_at_the_departed_size_is_refused_and_not_stored
     frame = dict(session.settings['frame'])
     before = _camera_store(session)
 
-    refusal = _refused(lambda: session.set_frame_size(int(frame['width']), int(frame['height'])))
+    refusal = _refused(
+        lambda: session.camera.set_frame_size(int(frame['width']), int(frame['height']))
+    )
 
     assert refusal.reason == 'scope_disconnected'
     assert _camera_store(session) == before
@@ -416,8 +440,8 @@ def test_a_camera_removed_mid_run_ends_the_run_hardware_disconnected(
 
 # --- A camera removed during its write -------------------------------------------
 
-# The commands of REFUSED the simulator can take the camera away during, by the
-# node each one writes.
+# The commands of REFUSED and IMAGE_MODE the simulator can take the camera
+# away during, by the node each one writes.
 REMOVED_DURING = {
     'gain': 'set_gain_db',
     'exposure': 'set_exposure_ms',
@@ -425,7 +449,7 @@ REMOVED_DURING = {
     'auto_exposure': 'set_auto_exposure_time_on',
     'frame_size': 'set_frame_size',
     'binning': 'set_binning_size',
-    'pixel_format': 'set_pixel_format',
+    'pixel_format': 'set_image_mode',
     'auto_gain': 'set_auto_gain_on',
     'auto_gain_once': 'auto_gain_once',
     'auto_gain_target_brightness': 'update_auto_gain_target_brightness',
@@ -443,7 +467,7 @@ def test_a_camera_removed_during_the_write_is_refused_as_an_absent_one(make_sess
         session.scope.simulation.refuse_camera_write(node, 'removed')
         centre_posts.clear()
         try:
-            REFUSED[name](session.scope.imaging)
+            {**REFUSED, **IMAGE_MODE}[name](session.scope)
         except HardwareCommandRefusedError as refusal:
             if (refusal.reason, refusal.missing) != ('not_connected', MissingPart.CAMERA):
                 answered[name] = f'refused {refusal.reason} {refusal.missing}'
@@ -466,21 +490,21 @@ def test_an_off_is_satisfied_when_the_camera_leaves_during_it(make_session):
     ):
         session = make_session('LS850')
         session.scope.simulation.refuse_camera_write(node, 'removed')
-        answers[name] = SATISFIED[name](session.scope.imaging)
+        answers[name] = SATISFIED[name](session.scope)
 
     assert answers == {'set_auto_gain_off': True, 'set_auto_exposure_time_off': True}
 
 
 def test_a_write_the_camera_left_during_records_nothing(make_session):
     session = make_session('LS850')
-    im = session.scope.imaging
-    im.set_gain_db(3.0)
-    before = (im.gain_db_cached, im.frame_validity.target('gain'))
+    camera = session.scope.camera
+    camera.set_gain_db(3.0)
+    before = (camera.gain_db_cached, camera.frame_validity.target('gain'))
     session.scope.simulation.refuse_camera_write('gain', 'removed')
 
-    _refused(lambda: im.set_gain_db(9.0))
+    _refused(lambda: camera.set_gain_db(9.0))
 
-    assert (im.gain_db_cached, im.frame_validity.target('gain')) == before
+    assert (camera.gain_db_cached, camera.frame_validity.target('gain')) == before
 
 
 def test_a_write_that_raises_as_the_camera_leaves_is_refused_as_an_absent_one(
@@ -499,7 +523,7 @@ def test_a_write_that_raises_as_the_camera_leaves_is_refused_as_an_absent_one(
 
     monkeypatch.setattr(driver, 'gain', leaves_and_raises)
 
-    refusal = _refused(lambda: session.scope.imaging.set_gain_db(9.0))
+    refusal = _refused(lambda: session.scope.camera.set_gain_db(9.0))
 
     assert (refusal.reason, refusal.missing) == ('not_connected', MissingPart.CAMERA)
     assert isinstance(refusal.__cause__, RuntimeError)
@@ -510,7 +534,7 @@ def test_turning_auto_gain_off_as_the_camera_leaves_stores_it_off(make_session):
     answers as with no camera, and the layer stores auto-gain off."""
     session = make_session('LS850')
     session.set_layer_auto_gain('BF', True)
-    session.scope.imaging.set_auto_gain(True, _AUTO_GAIN)
+    session.scope.camera.set_auto_gain(True, _AUTO_GAIN)
     session.scope.simulation.refuse_camera_write('auto_gain', 'removed')
 
     lock = session.set_layer_auto_gain('BF', False)
@@ -525,7 +549,7 @@ def test_a_camera_removed_as_the_run_takes_the_auto_gain_arm_ends_the_run_hardwa
     """The run's start turns a live-view arm off; the camera leaving then is
     the run's disconnect, not a crash of the run loop."""
     session = make_session('LS850')
-    session.scope.imaging.set_auto_gain(True, _AUTO_GAIN)
+    session.scope.camera.set_auto_gain(True, _AUTO_GAIN)
     session.scope.simulation.refuse_camera_write('auto_gain', 'removed')
     step = {**_make_single_step_protocol().step(idx=0), 'Z': 3000.0}
 
@@ -546,7 +570,7 @@ def test_a_camera_removed_as_live_view_re_arms_auto_gain_keeps_the_frame(
     session = make_session('LS850')
     im = session.scope.imaging
     driver = session.scope._camera_driver
-    im.set_auto_gain(True, _AUTO_GAIN)
+    session.scope.camera.set_auto_gain(True, _AUTO_GAIN)
     real_auto_gain = driver.auto_gain
 
     # A stand-in by design: the simulator refuses a node's next write, and the
@@ -585,7 +609,7 @@ def test_a_camera_removed_during_bring_up_is_reported_once_and_the_scope_comes_u
 
     session = make_session('LS850')
 
-    assert session.scope.imaging.camera_removed
+    assert session.scope.camera.camera_removed
     assert [n.message for n in _camera_posts(centre_posts)] == ['The camera is not connected.']
 
 
@@ -617,10 +641,10 @@ def test_the_gui_camera_controls_follow_whether_a_camera_is_connected(monkeypatc
 
 def test_a_grab_is_sized_by_its_floors_when_the_camera_never_reported_an_exposure():
     from tests.test_camera_getter_sentinel_containment import (
-        _build_imaging,
+        _build_camera,
         all_reads_fail_driver,
         steady_good_driver,
     )
 
-    assert _build_imaging(all_reads_fail_driver())._grab_sizing_exposure_s() == 0.0
-    assert _build_imaging(steady_good_driver())._grab_sizing_exposure_s() == pytest.approx(0.05)
+    assert _build_camera(all_reads_fail_driver())._grab_sizing_exposure_s() == 0.0
+    assert _build_camera(steady_good_driver())._grab_sizing_exposure_s() == pytest.approx(0.05)

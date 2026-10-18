@@ -27,7 +27,7 @@ from modules.exceptions import (
     ArgumentTypeRefusedError,
     HardwareCommandRefusedError,
 )
-from modules.lumascope_api.imaging import (
+from modules.lumascope_api.camera import (
     AutoGainConvergence,
     AutoGainLock,
     stored_exposure_after_lock,
@@ -47,11 +47,11 @@ def _session(settings, lock=None, layers=('BF', 'PC', 'DF', 'Blue', 'Green', 'Re
     """A Session showing ``shown`` (the first layer in ``settings`` when
     None), whose camera holds the shown layer's settings."""
     shown = shown or next(iter(settings))
-    imaging = SimpleNamespace(
+    camera = SimpleNamespace(
         lock_auto_gain=MagicMock(return_value=lock), get_held_layer=lambda: shown
     )
     scope = SimpleNamespace(
-        imaging=imaging,
+        camera=camera,
         layer_identity=identity_with_layers(layers, model='LS850'),
         camera_connected=True,
     )
@@ -156,7 +156,7 @@ def test_turning_the_shown_layer_on_stores_it_locks_nothing_and_arms_the_camera(
     assert session.set_layer_auto_gain('BF', True) is None
 
     assert settings['BF'] == {'exposure_ms': 42.0, 'gain_db': 7.0, 'auto_gain': True}
-    session.scope.imaging.lock_auto_gain.assert_not_called()
+    session.scope.camera.lock_auto_gain.assert_not_called()
     session.apply_layer_camera.assert_called_once_with('BF')
 
 
@@ -180,7 +180,7 @@ def test_turning_off_a_hidden_layer_stores_only_its_preference_and_locks_nothing
 
     session.set_layer_auto_gain('Green', False)
 
-    session.scope.imaging.lock_auto_gain.assert_not_called()
+    session.scope.camera.lock_auto_gain.assert_not_called()
     session.apply_layer_camera.assert_not_called()
     assert settings['Green'] == {'exposure_ms': 55.0, 'gain_db': 4.0, 'auto_gain': False}
 
@@ -209,7 +209,7 @@ def test_a_refused_request_changes_nothing(layer, enabled, layers, refused, reas
     assert getattr(raised.value, 'reason', None) == reason
 
     assert settings == before
-    session.scope.imaging.lock_auto_gain.assert_not_called()
+    session.scope.camera.lock_auto_gain.assert_not_called()
 
 
 def test_turning_off_a_layer_this_scope_lacks_is_admitted():

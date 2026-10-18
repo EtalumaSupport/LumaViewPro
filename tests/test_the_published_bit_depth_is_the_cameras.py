@@ -7,7 +7,7 @@ client scaling a frame by it was off by four bits, and the depth of the
 frames the camera delivers now was not published at all. Now
 ``buffer_bit_depth`` is the width, ``camera_max_significant_bits`` the
 deepest data depth the camera delivers, and ``imaging.significant_bits`` the
-current frames' depth, following ``set_image_mode``; with no camera it is
+current frames' depth, following ``camera.set_image_mode``; with no camera it is
 refused rather than answered with the buffer width.
 """
 
@@ -37,8 +37,8 @@ def test_the_capabilities_name_the_deepest_depth_and_the_buffer_width(ls850t):
 
 
 def test_the_current_depth_follows_the_image_mode(ls850t):
-    ls850t.set_image_mode(IMAGE_MODE_8BIT)
+    ls850t.camera.set_image_mode(IMAGE_MODE_8BIT)
     assert ls850t.scope.imaging.significant_bits == 8
 
-    ls850t.set_image_mode(IMAGE_MODE_12BIT_SCIENTIFIC)
+    ls850t.camera.set_image_mode(IMAGE_MODE_12BIT_SCIENTIFIC)
     assert ls850t.scope.imaging.significant_bits == 12

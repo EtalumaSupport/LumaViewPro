@@ -27,7 +27,7 @@ from modules.exceptions import SettingRefusedError
 
 s, live = _common.make_session()
 try:
-    im, mo = s.scope.imaging, s.scope.motion
+    camera, mo = s.scope.camera, s.scope.motion
 
     # --- camera low-noise toggles: real API setters ----------------------
     caps = s.scope.capabilities
@@ -38,8 +38,8 @@ try:
         caps.has_xy_stage,
     )
     for fn, good, bad in (
-        (im.set_conversion_gain_mode, 'High', 'Sideways'),
-        (im.set_line_noise_reduction, True, 'yes-please'),
+        (camera.set_high_conversion_gain, True, 'Sideways'),
+        (camera.set_line_noise_reduction, True, 'yes-please'),
     ):
         try:
             print(f'{fn.__name__}({good!r}) ->', fn(good))

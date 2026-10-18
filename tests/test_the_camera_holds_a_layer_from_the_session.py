@@ -31,8 +31,8 @@ _BLUE = {'exposure_ms': 100.0, 'gain_db': 10.0, 'auto_gain': False}
 
 
 def _camera(session) -> tuple[float, float]:
-    imaging = session.scope.imaging
-    return round(float(imaging.get_exposure_ms()), 3), round(float(imaging.get_gain_db()), 3)
+    camera = session.scope.camera
+    return round(float(camera.get_exposure_ms()), 3), round(float(camera.get_gain_db()), 3)
 
 
 def _said(monkeypatch) -> list[str]:
@@ -163,7 +163,7 @@ class TestGoingToAStep:
         protocol, _bf_idx, blue_idx = _two_step_protocol(session)
         refused = CameraSettingRejected('gain_db', 10.0, message='x')
         # a stand-in by design: the simulated camera takes every in-range value
-        monkeypatch.setattr(session.scope.imaging, 'hold_layer', MagicMock(side_effect=refused))
+        monkeypatch.setattr(session.scope.camera, 'hold_layer', MagicMock(side_effect=refused))
 
         with pytest.raises(CameraSettingRejected) as raised:
             session.go_to_step(protocol, blue_idx)
@@ -193,7 +193,7 @@ class TestTheMember:
     def test_the_auto_gain_cap_carries_the_installations_override(self, session, monkeypatch):
         session.settings['ag_ae_max_exposure_ms'] = {'fluorescence': 123.0}
         applied = MagicMock(return_value=None)
-        monkeypatch.setattr(session.scope.imaging, 'hold_layer', applied)
+        monkeypatch.setattr(session.scope.camera, 'hold_layer', applied)
 
         session.apply_layer_camera('Blue')
 
@@ -210,7 +210,7 @@ class TestTheHeldLayer:
 
     def test_the_layer_applied_is_the_layer_held(self, session):
         session.apply_layer_camera('Blue')
-        assert session.scope.imaging.get_held_layer() == 'Blue'
+        assert session.scope.camera.get_held_layer() == 'Blue'
 
     def test_applying_the_held_layer_again_writes_nothing(self, session):
         imaging = session.scope.imaging
@@ -232,57 +232,57 @@ class TestTheHeldLayer:
         assert _camera(session) == (55.0, _BLUE['gain_db'])
 
     def test_a_raw_camera_write_leaves_no_layer_held(self, session):
-        imaging = session.scope.imaging
+        camera = session.scope.camera
         session.apply_layer_camera('Blue')
 
-        imaging.set_exposure_ms(30.0)
+        camera.set_exposure_ms(30.0)
 
-        assert imaging.get_held_layer() is None
+        assert camera.get_held_layer() is None
         session.apply_layer_camera('Blue')
         assert _camera(session) == (_BLUE['exposure_ms'], _BLUE['gain_db'])
 
     def test_a_restored_snapshot_holds_the_layer_it_was_taken_with(self, session):
-        imaging = session.scope.imaging
+        camera = session.scope.camera
         session.apply_layer_camera('Blue')
-        snapshot = imaging.save_camera_state('test')
-        imaging.set_gain_db(1.0)
+        snapshot = camera.save_camera_state('test')
+        camera.set_gain_db(1.0)
 
-        imaging.restore_camera_state(snapshot)
+        camera.restore_camera_state(snapshot)
 
-        assert imaging.get_held_layer() == 'Blue'
+        assert camera.get_held_layer() == 'Blue'
 
     def test_a_trimmed_restore_leaves_no_layer_held(self, session):
-        imaging = session.scope.imaging
+        camera = session.scope.camera
         session.apply_layer_camera('Blue')
-        snapshot = imaging.save_camera_state('test')
+        snapshot = camera.save_camera_state('test')
         del snapshot['gain_db']
 
-        imaging.restore_camera_state(snapshot)
+        camera.restore_camera_state(snapshot)
 
-        assert imaging.get_held_layer() is None
+        assert camera.get_held_layer() is None
 
     def test_a_refused_layer_is_not_held_and_is_written_again(self, session, monkeypatch):
-        imaging = session.scope.imaging
-        real = imaging._apply_layer_camera_settings_impl
+        camera = session.scope.camera
+        real = camera._apply_layer_camera_settings_impl
         # a stand-in by design: the simulated camera takes every in-range value
         monkeypatch.setattr(
-            imaging,
+            camera,
             '_apply_layer_camera_settings_impl',
             MagicMock(side_effect=CameraSettingRejected('gain_db', 10.0, message='x')),
         )
         with pytest.raises(CameraSettingRejected):
             session.apply_layer_camera('Blue')
-        assert imaging.get_held_layer() is None
+        assert camera.get_held_layer() is None
 
-        monkeypatch.setattr(imaging, '_apply_layer_camera_settings_impl', real)
+        monkeypatch.setattr(camera, '_apply_layer_camera_settings_impl', real)
         session.apply_layer_camera('Blue')
 
-        assert imaging.get_held_layer() == 'Blue'
+        assert camera.get_held_layer() == 'Blue'
         assert _camera(session) == (_BLUE['exposure_ms'], _BLUE['gain_db'])
 
 
 def test_no_gui_module_puts_a_layer_on_the_camera_itself():
-    """The GUI applies a layer through the Session member, never the imaging one."""
+    """The GUI applies a layer through the Session member, never the camera one."""
     from tests.ast_seams import REPO_ROOT
 
     callers = [
@@ -328,4 +328,4 @@ class TestAWriteToTheShownLayer:
     def test_auto_gain_turned_on_for_the_shown_layer_arms_the_camera(self, session):
         session.set_layer_auto_gain('BF', True)
 
-        assert session.scope.imaging.lock_auto_gain().state is not None
+        assert session.scope.camera.lock_auto_gain().state is not None

@@ -65,19 +65,19 @@ def _rows(session):
             'set_auto_gain, no target',
             ArgumentRefusedError,
             'missing_key',
-            lambda: scope.imaging.set_auto_gain(True, {'min_gain_db': 0, 'max_gain_db': 20}),
+            lambda: scope.camera.set_auto_gain(True, {'min_gain_db': 0, 'max_gain_db': 20}),
         ),
         (
             'set_auto_gain, text exposure bound',
             ArgumentRefusedError,
             'not_a_number',
-            lambda: scope.imaging.set_auto_gain(True, {**_AUTO_GAIN, 'max_exposure_ms': 'x'}),
+            lambda: scope.camera.set_auto_gain(True, {**_AUTO_GAIN, 'max_exposure_ms': 'x'}),
         ),
         (
             'apply_layer_camera_settings, empty auto-gain settings',
             ArgumentRefusedError,
             'missing_key',
-            lambda: scope.imaging.apply_layer_camera_settings(
+            lambda: scope.camera.apply_layer_camera_settings(
                 1.0, 5.0, auto_gain=True, auto_gain_settings={}
             ),
         ),
@@ -85,7 +85,7 @@ def _rows(session):
             'frame_at_binning, 0',
             CameraSettingUnsupportedError,
             'binning_unsupported',
-            lambda: session.frame_at_binning(0),
+            lambda: session.camera.frame_at_binning(0),
         ),
         (
             'run_camera_bandwidth_test, no frames',
@@ -146,6 +146,6 @@ def test_every_argument_a_member_cannot_use_is_refused_with_its_reason(session):
 def test_a_binning_this_camera_offers_is_still_previewed(session):
     size = session.scope.capabilities.camera_binning_sizes[-1]
 
-    preview = session.frame_at_binning(size)
+    preview = session.camera.frame_at_binning(size)
 
     assert preview['width'] > 0 and preview['height'] > 0

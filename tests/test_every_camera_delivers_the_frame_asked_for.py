@@ -154,6 +154,6 @@ def test_the_frame_step_with_no_camera_is_even_sides():
     scope = build_scope(simulate=True)
     try:
         scope._camera_driver.active = False
-        assert scope.imaging.get_pixel_alignment() == {'width': 2, 'height': 2}
+        assert scope.camera.get_pixel_alignment() == {'width': 2, 'height': 2}
     finally:
         scope.disconnect()

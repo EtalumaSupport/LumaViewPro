@@ -468,8 +468,8 @@ class TestCaptureTimeChunkVerification:
     @staticmethod
     def _make_imaging(driver):
         from modules.lumascope_api import Lumascope
-        from modules.lumascope_api.imaging import ImagingAPI
         from modules.lumascope_api.runtime_state import RuntimeState
+        from tests.scope_fakes import give_camera_and_imaging
 
         # a stand-in by design: the subject is the capture path's handling of a
         # scripted chunk sequence (stale, stale, fresh), and the SimulatedCamera
@@ -479,9 +479,8 @@ class TestCaptureTimeChunkVerification:
         bind_settings_like_a_session(scope)
         scope.runtime_state = RuntimeState(scope)
         scope._camera_driver = driver
-        imaging = ImagingAPI(scope, None)
-        scope.imaging = imaging
-        return imaging
+        give_camera_and_imaging(scope)
+        return scope.imaging
 
     def test_stale_chunk_frame_rejected_until_match(self):
         stale = {'Gain': 30.0, 'ExposureTime': 100000.0}

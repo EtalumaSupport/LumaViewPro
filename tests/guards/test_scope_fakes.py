@@ -24,9 +24,11 @@ class TestSpecScopeRejectsTheWrongWorld:
             _ = scope.no_such_capability
 
     def test_the_known_wrong_world_names_raise(self):
-        """`led_on_fast` and `camera` are the confirmed dead probes.
+        """`led_on_fast` and `camera_driver` are names the real scope lacks.
 
-        A bare MagicMock answers True for both, which is how the
+        `led_on_fast` is a confirmed dead probe; `camera_driver` is the other's
+        shape, the driver probed bare (its handle is `_camera_driver`, and
+        `camera` is the camera sub-API). A bare MagicMock answers True for both, which is how the
         production branches guarding them stayed green. This double must
         not.
         """
@@ -35,14 +37,14 @@ class TestSpecScopeRejectsTheWrongWorld:
         with pytest.raises(AttributeError):
             _ = scope.led_on_fast
         with pytest.raises(AttributeError):
-            _ = scope.camera
+            _ = scope.camera_driver
 
     def test_hasattr_is_false_for_a_name_the_real_scope_lacks(self):
         """`hasattr` must answer honestly, since production probes with it."""
         # a stand-in by design: the double is the subject
         scope = spec_scope()
         assert not hasattr(scope, 'led_on_fast')
-        assert not hasattr(scope, 'camera')
+        assert not hasattr(scope, 'camera_driver')
 
     def test_real_sub_api_access_is_allowed(self):
         """The inverse failure: rejecting legitimate production access.

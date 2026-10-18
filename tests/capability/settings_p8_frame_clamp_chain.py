@@ -14,17 +14,18 @@ from modules.exceptions import CameraSettingOutOfRangeError
 s, live = _common.make_session()
 try:
     im = s.scope.imaging
-    before = im.frame_size_cached
+    im_camera = s.scope.camera
+    before = im_camera.frame_size_cached
     print('largest frame     :', s.scope.capabilities.camera_max_frame_size)
     try:
-        delivered = im.set_frame_size(13414, 13414)
+        delivered = im_camera.set_frame_size(13414, 13414)
         _common.ok('13414 is REFUSED by the API', False, f'delivered {delivered}')
     except CameraSettingOutOfRangeError as e:
         _common.ok('13414 is REFUSED by the API', True, str(e))
     _common.ok(
         'a refused frame leaves the frame as it was',
-        im.frame_size_cached == before,
-        f'{before} -> {im.frame_size_cached}',
+        im_camera.frame_size_cached == before,
+        f'{before} -> {im_camera.frame_size_cached}',
     )
 except Exception:
     import traceback

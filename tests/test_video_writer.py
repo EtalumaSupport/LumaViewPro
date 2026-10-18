@@ -326,7 +326,7 @@ class TestProtocolVideoDropNotification:
 
         listeners = {}
         scope = MagicMock()
-        answer_auto_gain_like_the_api(scope.imaging)
+        answer_auto_gain_like_the_api(scope.camera)
         scope.runtime_state.resolve_current_objective.return_value = (
             '4x Oly',
             objective(focal_length_mm=45.0),
@@ -337,11 +337,11 @@ class TestProtocolVideoDropNotification:
         scope.runtime_state.plate_transform = lambda: None
         scope.illumination.get_led_states = lambda: {}
         scope.imaging.frames_until_valid.return_value = 0
-        scope.imaging.active_cached = True
+        scope.camera.active_cached = True
         scope.capabilities.camera_model = 'sim'
         scope.capabilities.camera_serial_number = '0'
         scope.capabilities.camera_timestamp_tick_hz = None
-        scope.imaging.frame_size_cached = {'width': 8, 'height': 8}
+        scope.camera.frame_size_cached = {'width': 8, 'height': 8}
         scope.imaging.add_frame_listener = lambda cb, name=None: listeners.update(cb=cb)
 
         clock = {'t': 1000.0}

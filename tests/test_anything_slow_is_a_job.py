@@ -185,8 +185,8 @@ def test_an_answer_the_wire_cannot_carry_is_a_failed_job_and_the_listing_still_r
         assert release.wait(10)
         return float('nan')
 
-    monkeypatch.setattr(session.scope.imaging, 'get_gain_db', answers_nan)
-    accepted = client.post('/api/v1/scope/imaging/get_gain_db', headers={'Prefer': 'wait=0'})
+    monkeypatch.setattr(session.scope.camera, 'get_gain_db', answers_nan)
+    accepted = client.post('/api/v1/scope/camera/get_gain_db', headers={'Prefer': 'wait=0'})
     release.set()
 
     ended = client.get(accepted.headers['Location'], headers={'Prefer': 'wait=10'})

@@ -21,8 +21,8 @@ from tests.test_auto_gain_lock import _build
 def test_rejected_capture_names_the_setting():
     """A stale exposure target with no auto-gain arm: the gate rejects every
     frame and the failure names the setting that never matched."""
-    imaging, cam = _build(ae_lands_on_ms=62.0)
-    imaging._set_exposure_ms_impl(100.0)
+    imaging, camera, cam = _build(ae_lands_on_ms=62.0)
+    camera._set_exposure_ms_impl(100.0)
     cam._exposure_us = 62000.0  # the camera moved on its own; the target did not
 
     with pytest.raises(CaptureFailedError) as failed:

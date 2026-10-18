@@ -10,6 +10,7 @@ checks, because they all reach the same member. Its read by path,
 """
 
 import math
+import re
 import threading
 
 import pytest
@@ -22,6 +23,7 @@ from modules.exceptions import (
     Refusal,
     SettingRefusedError,
 )
+from modules.lumascope_api.camera import CameraAPI
 from modules.scope_session import ScopeSession
 from tests.installation_fixtures import copy_installation_files
 from tests.settings_fixtures import complete_settings
@@ -83,32 +85,102 @@ def test_a_refused_write_names_why_and_writes_nothing(session, path, value, reas
     assert session.get_settings_snapshot() == before
 
 
+# A session member is named by its name, and its words say ``ScopeSession.``;
+# a camera member is named by where a caller reaches it, ``scope.camera.``.
 @pytest.mark.parametrize(
-    ('path', 'member', 'reason'),
+    ('path', 'owner', 'member', 'words', 'reason'),
     [
-        ('microscope', 'select_model', 'has_member'),
+        ('microscope', ScopeSession, 'select_model', 'ScopeSession.select_model', 'has_member'),
         # In-process members: only the host moves the live folder, which
         # confines every path a wire caller sends.
-        ('live_folder', 'set_live_folder', 'host_only'),
-        ('protocol.filepath', 'set_protocol_filepath', 'host_only'),
-        ('objective_id', 'select_objective', 'has_member'),
-        ('turret_objectives.1', 'assign_turret_objective', 'has_member'),
-        ('protocol.labware', 'select_labware', 'has_member'),
-        ('image_mode', 'set_image_mode', 'has_member'),
-        ('binning.size', 'set_binning_size', 'has_member'),
-        ('frame.width', 'set_frame_size', 'has_member'),
-        ('Blue.acquire', 'set_layer_acquire', 'has_member'),
-        ('Blue.auto_gain', 'set_layer_auto_gain', 'has_member'),
-        ('Blue.focus', 'save_layer_focus', 'has_member'),
+        (
+            'live_folder',
+            ScopeSession,
+            'set_live_folder',
+            'ScopeSession.set_live_folder',
+            'host_only',
+        ),
+        (
+            'protocol.filepath',
+            ScopeSession,
+            'set_protocol_filepath',
+            'ScopeSession.set_protocol_filepath',
+            'host_only',
+        ),
+        (
+            'objective_id',
+            ScopeSession,
+            'select_objective',
+            'ScopeSession.select_objective',
+            'has_member',
+        ),
+        (
+            'turret_objectives.1',
+            ScopeSession,
+            'assign_turret_objective',
+            'ScopeSession.assign_turret_objective',
+            'has_member',
+        ),
+        (
+            'protocol.labware',
+            ScopeSession,
+            'select_labware',
+            'ScopeSession.select_labware',
+            'has_member',
+        ),
+        (
+            'image_mode',
+            CameraAPI,
+            'scope.camera.set_image_mode',
+            'scope.camera.set_image_mode',
+            'has_member',
+        ),
+        (
+            'binning.size',
+            CameraAPI,
+            'scope.camera.set_binning_size',
+            'scope.camera.set_binning_size',
+            'has_member',
+        ),
+        (
+            'frame.width',
+            CameraAPI,
+            'scope.camera.set_frame_size',
+            'scope.camera.set_frame_size',
+            'has_member',
+        ),
+        (
+            'Blue.acquire',
+            ScopeSession,
+            'set_layer_acquire',
+            'ScopeSession.set_layer_acquire',
+            'has_member',
+        ),
+        (
+            'Blue.auto_gain',
+            ScopeSession,
+            'set_layer_auto_gain',
+            'ScopeSession.set_layer_auto_gain',
+            'has_member',
+        ),
+        (
+            'Blue.focus',
+            ScopeSession,
+            'save_layer_focus',
+            'ScopeSession.save_layer_focus',
+            'has_member',
+        ),
     ],
 )
-def test_a_setting_with_a_member_is_refused_naming_it(session, path, member, reason):
-    with pytest.raises(SettingRefusedError, match=f'ScopeSession.{member}') as refused:
+def test_a_setting_with_a_member_is_refused_naming_it(session, path, owner, member, words, reason):
+    with pytest.raises(
+        SettingRefusedError, match=f'it is changed by {re.escape(words)}'
+    ) as refused:
         session.update_settings(path, None)
     assert refused.value.reason == reason
     assert refused.value.member == member
-    # The name it gives is a member a caller can call.
-    assert callable(getattr(ScopeSession, member))
+    # The name it gives is a member a caller can call, on the class that owns it.
+    assert callable(getattr(owner, member.rpartition('.')[2]))
 
 
 @pytest.mark.parametrize(
@@ -168,8 +240,8 @@ def test_a_protocol_schedule_no_protocol_can_run_is_refused(session):
 def test_a_layer_exposure_or_gain_above_the_camera_is_stored_as_the_intent(session):
     # The camera's limit is the apply's to hold (applied_exposure_ms_for),
     # with the stored value kept for a camera that can reach it.
-    assert session.scope.imaging.max_exposure_ms_cached == 1000.0
-    assert session.scope.imaging.max_gain_db_cached == 48.0
+    assert session.scope.camera.max_exposure_ms_cached == 1000.0
+    assert session.scope.camera.max_gain_db_cached == 48.0
     session.update_settings('Blue.exposure_ms', 1500.0)
     session.update_settings('Blue.gain_db', 60.0)
     assert session.settings['Blue']['exposure_ms'] == 1500.0
@@ -251,26 +323,27 @@ def test_a_relative_live_folder_is_stored_absolute_and_created(tmp_path):
 
 
 @pytest.mark.parametrize(
-    ('member', 'imaging_setter', 'path'),
+    ('member', 'camera_body', 'path'),
     [
-        ('set_high_conversion_gain', 'set_conversion_gain_mode', 'high_conversion_gain'),
-        ('set_line_noise_reduction', 'set_line_noise_reduction', 'line_noise_reduction'),
+        ('set_high_conversion_gain', '_set_conversion_gain_mode_impl', 'high_conversion_gain'),
+        ('set_line_noise_reduction', '_set_line_noise_reduction_impl', 'line_noise_reduction'),
     ],
 )
 def test_a_camera_mode_is_stored_only_once_the_camera_took_it(
-    session, monkeypatch, member, imaging_setter, path
+    session, monkeypatch, member, camera_body, path
 ):
-    imaging = session.scope.imaging
-    monkeypatch.setattr(imaging, imaging_setter, lambda value: None)
-    getattr(session, member)(True)
+    camera = session.scope.camera
+    # a stand-in by design: the simulated camera has neither mode, so on is refused before the camera; the gap is the simulator's missing nodes
+    monkeypatch.setattr(camera, camera_body, lambda value: True)
+    getattr(session.camera, member)(True)
     assert session.settings['camera'][path] is True
 
     def refused(value):
         raise CameraSettingRejected(path, value, message='refused')
 
-    monkeypatch.setattr(imaging, imaging_setter, refused)
+    monkeypatch.setattr(camera, camera_body, refused)
     with pytest.raises(CameraSettingRejected):
-        getattr(session, member)(False)
+        getattr(session.camera, member)(False)
     assert session.settings['camera'][path] is True, 'a mode the camera refused is not stored'
 
 

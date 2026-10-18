@@ -77,8 +77,12 @@ class TestGetImageFromBufferUsesFrameDepth:
     def test_downconvert_uses_frame_depth_not_live_driver(self, monkeypatch):
         from drivers.simulated_camera import SimulatedCamera
         from modules.lumascope_api import Lumascope
-        from modules.lumascope_api.imaging import ImagingAPI
         from modules.lumascope_api.runtime_state import RuntimeState
+        from tests.scope_fakes import (
+            give_camera_and_imaging,
+            give_camera_capabilities,
+            give_stub_lanes,
+        )
 
         cam = SimulatedCamera()
         cam.connect()
@@ -98,7 +102,10 @@ class TestGetImageFromBufferUsesFrameDepth:
         bind_settings_like_a_session(scope)
         scope._camera_driver = cam
         scope.runtime_state = RuntimeState(scope)
-        imaging = ImagingAPI(scope, cam)
+        give_stub_lanes(scope)
+        give_camera_capabilities(scope, cam)
+        give_camera_and_imaging(scope)
+        imaging = scope.imaging
 
         img, _ts = imaging.get_image_from_buffer(force_to_8bit=True)
 

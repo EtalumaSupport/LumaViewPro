@@ -40,7 +40,7 @@ from drivers.null_ledboard import NullLEDBoard
 from drivers.simulated_motorboard import SimulatedMotorBoard
 from drivers.simulated_ledboard import SimulatedLEDBoard
 from drivers.protocols import MotorBoardProtocol, LEDBoardProtocol
-from tests.scope_fakes import build_scope
+from tests.scope_fakes import bind_settings_like_a_session, build_scope
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 
 
@@ -583,6 +583,9 @@ class TestRunGrabLifecycleBenchmark:
     def _scope_with_camera(self):
         """Return a Lumascope with simulated camera ready for stop/start cycles."""
         scope = build_scope(simulate=True)
+        # The benchmark saves and restores the camera's state, which reads and
+        # saves the settings a session binds.
+        bind_settings_like_a_session(scope)
         # SimulatedCamera is wired by the registry; ensure it is in the
         # active grabbing state the benchmark expects.
         if scope._camera_driver and not scope.imaging.is_streaming():
@@ -649,13 +652,13 @@ class TestRunGrabLifecycleBenchmark:
         and 4.0 dB (odd cycles)."""
         scope = self._scope_with_camera()
         gain_calls = []
-        original_set_gain = scope.imaging.set_gain_db
+        original_set_gain = scope.camera.set_gain_db
 
         def _track(gain):
             gain_calls.append(gain)
             return original_set_gain(gain)
 
-        scope.imaging.set_gain_db = _track
+        scope.camera.set_gain_db = _track
 
         scope.diagnostics.run_grab_lifecycle_benchmark(
             num_cycles=4, inter_cycle_delay_ms=0, vary_settings=True
@@ -674,8 +677,8 @@ class TestRunGrabLifecycleBenchmark:
         import os
 
         scope = self._scope_with_camera()
-        scope.imaging.set_gain_db(2.5)
-        scope.imaging.set_exposure_ms(20.0)
+        scope.camera.set_gain_db(2.5)
+        scope.camera.set_exposure_ms(20.0)
 
         r = scope.diagnostics.run_grab_lifecycle_benchmark(
             num_cycles=2, inter_cycle_delay_ms=0, vary_settings=True
@@ -684,8 +687,8 @@ class TestRunGrabLifecycleBenchmark:
             os.remove(r['written_to'])
 
         assert r['errors'] == []
-        assert scope.imaging.get_gain_db() == pytest.approx(2.5)
-        assert scope.imaging.get_exposure_ms() == pytest.approx(20.0)
+        assert scope.camera.get_gain_db() == pytest.approx(2.5)
+        assert scope.camera.get_exposure_ms() == pytest.approx(20.0)
 
     def test_writes_json_artifact(self, tmp_path, monkeypatch):
         """Persists results to data/camera_timing/. Filename includes camera
@@ -942,18 +945,18 @@ class TestSetExposureTimeValueWarningSuppression:
     def _patch_logger(self, monkeypatch):
         from unittest.mock import MagicMock
 
-        # Phase 4d relocated set_exposure_ms's body to imaging.py; the
-        # warning is now emitted via imaging.py's `logger` import.
-        import modules.lumascope_api.imaging as imaging_mod
+        # set_exposure_ms's body lives in camera.py; the warning is
+        # emitted via camera.py's `logger` import.
+        import modules.lumascope_api.camera as camera_mod
 
         mock = MagicMock()
-        monkeypatch.setattr(imaging_mod, 'logger', mock)
+        monkeypatch.setattr(camera_mod, 'logger', mock)
         return mock
 
     def test_warning_fires_by_default_at_sub_0_005_ms(self, monkeypatch):
         mock_logger = self._patch_logger(monkeypatch)
         scope = _scope_without_an_exposure_floor()
-        scope.imaging.set_exposure_ms(0.003)
+        scope.camera.set_exposure_ms(0.003)
         # Find the warning among any other logger calls
         warn_msgs = [str(c) for c in mock_logger.warning.call_args_list]
         assert any('set_exposure_ms(0.003ms)' in m and 'below' in m for m in warn_msgs), (
@@ -963,8 +966,8 @@ class TestSetExposureTimeValueWarningSuppression:
     def test_warning_suppressed_inside_context_manager(self, monkeypatch):
         mock_logger = self._patch_logger(monkeypatch)
         scope = _scope_without_an_exposure_floor()
-        with scope.imaging.suppress_value_warnings():
-            scope.imaging.set_exposure_ms(0.003)
+        with scope.camera.suppress_value_warnings():
+            scope.camera.set_exposure_ms(0.003)
         warn_msgs = [str(c) for c in mock_logger.warning.call_args_list]
         assert not any('set_exposure_ms(0.003ms)' in m for m in warn_msgs), (
             f'expected no sub-0.005ms warning inside context, got: {warn_msgs}'
@@ -972,35 +975,35 @@ class TestSetExposureTimeValueWarningSuppression:
 
     def test_flag_restored_after_normal_exit(self):
         scope = build_scope(simulate=True)
-        assert scope.imaging._suppress_value_warnings is False
-        with scope.imaging.suppress_value_warnings():
-            assert scope.imaging._suppress_value_warnings is True
-        assert scope.imaging._suppress_value_warnings is False
+        assert scope.camera._suppress_value_warnings is False
+        with scope.camera.suppress_value_warnings():
+            assert scope.camera._suppress_value_warnings is True
+        assert scope.camera._suppress_value_warnings is False
 
     def test_flag_restored_after_exception_in_context(self):
         scope = build_scope(simulate=True)
-        assert scope.imaging._suppress_value_warnings is False
-        with pytest.raises(RuntimeError, match='boom'), scope.imaging.suppress_value_warnings():
-            assert scope.imaging._suppress_value_warnings is True
+        assert scope.camera._suppress_value_warnings is False
+        with pytest.raises(RuntimeError, match='boom'), scope.camera.suppress_value_warnings():
+            assert scope.camera._suppress_value_warnings is True
             raise RuntimeError('boom')
-        assert scope.imaging._suppress_value_warnings is False
+        assert scope.camera._suppress_value_warnings is False
 
     def test_nested_context_managers_restore_to_outer_value(self):
         """Nested `with` blocks restore to prior, not unconditionally False --
         an outer `with` followed by an inner-then-exit must leave True."""
         scope = build_scope(simulate=True)
-        with scope.imaging.suppress_value_warnings():
-            with scope.imaging.suppress_value_warnings():
-                assert scope.imaging._suppress_value_warnings is True
+        with scope.camera.suppress_value_warnings():
+            with scope.camera.suppress_value_warnings():
+                assert scope.camera._suppress_value_warnings is True
             # After inner exit, outer is still suppressing
-            assert scope.imaging._suppress_value_warnings is True
-        assert scope.imaging._suppress_value_warnings is False
+            assert scope.camera._suppress_value_warnings is True
+        assert scope.camera._suppress_value_warnings is False
 
     def test_warning_does_not_fire_at_or_above_threshold(self, monkeypatch):
         mock_logger = self._patch_logger(monkeypatch)
         scope = build_scope(simulate=True)
-        scope.imaging.set_exposure_ms(0.5)
-        scope.imaging.set_exposure_ms(20.0)
+        scope.camera.set_exposure_ms(0.5)
+        scope.camera.set_exposure_ms(20.0)
         warn_msgs = [str(c) for c in mock_logger.warning.call_args_list]
         assert not any('very low' in m for m in warn_msgs), (
             f'no sub-0.1ms warning expected, got: {warn_msgs}'

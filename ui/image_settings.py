@@ -272,7 +272,7 @@ class ImageSettings(BoxLayout):
     def set_layer_autogain_support(self):
         """Gate the Auto Gain/Exp control on the camera's hardware AG/AE support.
 
-        The checkbox drives hardware auto-gain/exposure (imaging.set_auto_gain
+        The checkbox drives hardware auto-gain/exposure (camera.set_auto_gain
         -> driver.auto_gain), so on a camera without either (IDS U3-34Lx, FX2
         LS620) the control is a no-op and is hidden. Parallel to
         set_layer_gain_ranges: runs at every capability-sync point (connect /
@@ -283,7 +283,7 @@ class ImageSettings(BoxLayout):
 
         Only the visibility gate is set here; the persisted per-layer auto_gain
         is NOT mutated. The enable actually in force is the API's answer
-        (imaging.applied_auto_gain_for), read at the consumption point
+        (camera.applied_auto_gain_for), read at the consumption point
         (LayerControl.effective_auto_gain), so a capable camera's saved
         preference survives a swap to an AG-less body and back.
         """
@@ -384,10 +384,10 @@ class ImageSettings(BoxLayout):
         """
         ctx = _app_ctx.ctx
         settings = ctx.settings
-        imaging = ctx.lumaview.scope.imaging
+        camera = ctx.lumaview.scope.camera
         for layer in common_utils.get_layers():
-            gain = imaging.applied_gain_db_for(settings[layer]['gain_db'])
-            exposure = imaging.applied_exposure_ms_for(settings[layer]['exposure_ms'])
+            gain = camera.applied_gain_db_for(settings[layer]['gain_db'])
+            exposure = camera.applied_exposure_ms_for(settings[layer]['exposure_ms'])
             if gain.capped or exposure.capped:
                 self.layer_lookup(layer=layer).render_layer_values_from_settings()
 

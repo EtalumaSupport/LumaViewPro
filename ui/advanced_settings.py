@@ -132,7 +132,7 @@ class AdvancedSettings(Popup):
         gui_logger.select('HIGH_CONVERSION_GAIN', state)
         session = ctx.session
         submit_reported(
-            lambda: session.set_high_conversion_gain(state),
+            lambda: session.camera.set_high_conversion_gain(state),
             self._show_camera_modes,
             'HIGH_CONVERSION_GAIN',
             lane=ctx.camera_executor,
@@ -144,7 +144,7 @@ class AdvancedSettings(Popup):
         gui_logger.select('LINE_NOISE_REDUCTION', state)
         session = ctx.session
         submit_reported(
-            lambda: session.set_line_noise_reduction(state),
+            lambda: session.camera.set_line_noise_reduction(state),
             self._show_camera_modes,
             'LINE_NOISE_REDUCTION',
             lane=ctx.camera_executor,

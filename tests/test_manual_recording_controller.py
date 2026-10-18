@@ -45,12 +45,11 @@ def _healthy_disk(monkeypatch):
     )
 
 
-class _FakeImaging:
+class _FakeCamera:
     def __init__(self, exposure_ms=100.0, width=32, height=24):
         self.active_cached = True
         self.exposure_ms_cached = exposure_ms
         self._frame_size = {'width': width, 'height': height}
-        self.listener = None
         # Read at recording start to resolve the frames' image scale.
         self._binning_size = 1
 
@@ -62,6 +61,11 @@ class _FakeImaging:
     @property
     def frame_size_cached(self):
         return dict(self._frame_size)
+
+
+class _FakeImaging:
+    def __init__(self):
+        self.listener = None
 
     def add_frame_listener(self, cb, name=None):
         self.listener = cb
@@ -154,8 +158,9 @@ class _FakeRuntimeState:
 
 
 class _FakeScope:
-    def __init__(self, lit=None, board=True, **imaging_kwargs):
-        self.imaging = _FakeImaging(**imaging_kwargs)
+    def __init__(self, lit=None, board=True, **camera_kwargs):
+        self.camera = _FakeCamera(**camera_kwargs)
+        self.imaging = _FakeImaging()
         self.motion = _FakeMotion()
         self.illumination = _FakeIllumination(lit=lit, board=board)
         self.runtime_state = _FakeRuntimeState()
@@ -247,14 +252,14 @@ def finish(controller, timeout=15.0):
 class TestStartRefusals:
     def test_inactive_camera_refused(self, tmp_path):
         controller, scope, _ = make_controller(tmp_path)
-        scope.imaging.active_cached = False
+        scope.camera.active_cached = False
         with pytest.raises(RecordingRefusedError) as e:
             controller.start()
         assert e.value.reason == 'camera_inactive'
 
     def test_unknown_exposure_refused(self, tmp_path):
         controller, scope, _ = make_controller(tmp_path)
-        scope.imaging.exposure_ms_cached = 0.0
+        scope.camera.exposure_ms_cached = 0.0
         with pytest.raises(RecordingRefusedError) as e:
             controller.start()
         assert e.value.reason == 'camera_exposure_unknown'
@@ -270,7 +275,7 @@ class TestStartRefusals:
 
     def test_refusal_commits_nothing(self, tmp_path):
         controller, scope, _ = make_controller(tmp_path)
-        scope.imaging.active_cached = False
+        scope.camera.active_cached = False
         with pytest.raises(RecordingRefusedError):
             controller.start()
         assert scope.imaging.listener is None
@@ -1148,7 +1153,7 @@ class TestFeedLossDetection:
         # Started at 100 ms: the bound is the 5 s floor. Raised to 8 s, the
         # next frame is 8 s away; judged by the start exposure, the live
         # feed would be stopped as dead at 5 s.
-        scope.imaging.exposure_ms_cached = 8000.0
+        scope.camera.exposure_ms_cached = 8000.0
         controller._scheduler.fire()
         clock.advance(7.5)
         controller._scheduler.fire()
@@ -1161,7 +1166,7 @@ class TestFeedLossDetection:
 
     def test_a_dead_feed_is_still_caught_at_the_raised_bound(self, tmp_path, centre_posts):
         controller, scope, clock, _notify = self._recording_controller(tmp_path, centre_posts)
-        scope.imaging.exposure_ms_cached = 800.0  # bound 10 x 0.8 s = 8 s
+        scope.camera.exposure_ms_cached = 800.0  # bound 10 x 0.8 s = 8 s
         controller._scheduler.fire()
         clock.advance(8.5)
         controller._scheduler.fire()
@@ -1173,7 +1178,7 @@ class TestFeedLossDetection:
         self, tmp_path, centre_posts
     ):
         controller, scope, clock, notify = self._recording_controller(tmp_path, centre_posts)
-        scope.imaging.active_cached = False
+        scope.camera.active_cached = False
         clock.advance(0.2)
         controller._scheduler.fire()
         assert not controller.is_recording

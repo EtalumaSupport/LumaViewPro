@@ -29,8 +29,8 @@ _MOTION_SOURCES = ('xy_move', 'z_move', 'turret')
 
 
 @pytest.fixture
-def sim_imaging():
-    """A simulated scope's ImagingAPI and its SimulatedCamera, streaming.
+def sim_camera():
+    """A simulated scope's CameraAPI and its SimulatedCamera, streaming.
 
     Bound to the template's settings as a session binds its scope. The
     stream never credits a pending source (frames are counted only by a
@@ -40,7 +40,7 @@ def sim_imaging():
     scope = build_scope(simulate=True)
     bind_settings_like_a_session(scope)
     scope.imaging.enable_streaming()
-    yield scope.imaging, scope._camera_driver
+    yield scope.camera, scope._camera_driver
     scope.imaging.disable_streaming()
 
 
@@ -48,66 +48,66 @@ class TestSetGainAlwaysInvalidatesDespiteStaleCache:
     """A desynced cache must NOT suppress the hardware write or the
     invalidate -- the heart of the brightfield-saturation bug."""
 
-    def test_desynced_cache_still_drives_hardware(self, sim_imaging):
-        imaging, cam = sim_imaging
-        imaging.set_gain_db(0.0)  # cache = 0, hw = 0
+    def test_desynced_cache_still_drives_hardware(self, sim_camera):
+        camera, cam = sim_camera
+        camera.set_gain_db(0.0)  # cache = 0, hw = 0
         # Hardware drifts (a live-mode auto-gain cycle drove it) without
         # the cache being updated -- the desynced precondition. A write to the
         # simulated camera's private register is the fault injection: no
         # public member moves the hardware behind the API's cache.
         with cam._lock:
             cam._gain = 10.8
-        imaging.set_gain_db(0.0)  # request the per-step intended gain
+        camera.set_gain_db(0.0)  # request the per-step intended gain
         assert cam.get_gain() == pytest.approx(0.0, abs=0.001), (
             'set_gain_db must drive hardware to the requested value even '
             f'when the cache already reads it; got {cam.get_gain()}'
         )
 
-    def test_desynced_cache_still_turns_marker_red(self, sim_imaging):
-        imaging, cam = sim_imaging
-        imaging.set_gain_db(0.0)
-        imaging.frame_validity.reset()  # GREEN baseline
-        assert imaging.frame_validity.is_valid
+    def test_desynced_cache_still_turns_marker_red(self, sim_camera):
+        camera, cam = sim_camera
+        camera.set_gain_db(0.0)
+        camera.frame_validity.reset()  # GREEN baseline
+        assert camera.frame_validity.is_valid
         # Fault injection, as above: hardware drifted behind the cache.
         with cam._lock:
             cam._gain = 10.8
-        imaging.set_gain_db(0.0)
-        assert not imaging.frame_validity.is_valid, (
+        camera.set_gain_db(0.0)
+        assert not camera.frame_validity.is_valid, (
             'set_gain_db must invalidate frame validity (marker RED) even '
             'when the cache already reads the requested value'
         )
-        assert 'gain' in imaging.frame_validity.pending_sources
+        assert 'gain' in camera.frame_validity.pending_sources
 
 
 class TestSetExposureAlwaysInvalidatesDespiteStaleCache:
     """Symmetric exposure-axis sibling (the #679 axis)."""
 
-    def test_desynced_cache_still_drives_hardware(self, sim_imaging):
-        imaging, cam = sim_imaging
-        imaging.set_exposure_ms(0.1)  # cache = 0.1, hw = 0.1
+    def test_desynced_cache_still_drives_hardware(self, sim_camera):
+        camera, cam = sim_camera
+        camera.set_exposure_ms(0.1)  # cache = 0.1, hw = 0.1
         # Fault injection: hardware drifted behind the cache (no public form).
         with cam._lock:
             cam._exposure_us = 14.0  # hw drifted to 0.014 ms
-        imaging.set_exposure_ms(0.1)
+        camera.set_exposure_ms(0.1)
         assert cam.get_exposure_t() == pytest.approx(0.1, abs=0.001), (
             'set_exposure_ms must drive hardware even when the cache '
             f'already reads the requested value; got {cam.get_exposure_t()}'
         )
 
-    def test_desynced_cache_still_turns_marker_red(self, sim_imaging):
-        imaging, cam = sim_imaging
-        imaging.set_exposure_ms(0.1)
-        imaging.frame_validity.reset()
-        assert imaging.frame_validity.is_valid
+    def test_desynced_cache_still_turns_marker_red(self, sim_camera):
+        camera, cam = sim_camera
+        camera.set_exposure_ms(0.1)
+        camera.frame_validity.reset()
+        assert camera.frame_validity.is_valid
         # Fault injection, as above.
         with cam._lock:
             cam._exposure_us = 14.0
-        imaging.set_exposure_ms(0.1)
-        assert not imaging.frame_validity.is_valid, (
+        camera.set_exposure_ms(0.1)
+        assert not camera.frame_validity.is_valid, (
             'set_exposure_ms must invalidate frame validity even when '
             'the cache already reads the requested value'
         )
-        assert 'exposure' in imaging.frame_validity.pending_sources
+        assert 'exposure' in camera.frame_validity.pending_sources
 
 
 class TestAutoGainOnceInvalidates:
@@ -116,14 +116,14 @@ class TestAutoGainOnceInvalidates:
     could grab before the converged values flushed the pipeline. The SDK
     chooses the converged values, so the manual chunk targets are dropped."""
 
-    def test_auto_gain_once_turns_marker_red(self, sim_imaging):
-        imaging, _cam = sim_imaging
-        fv = imaging.frame_validity
-        imaging.set_gain_db(5.0)
-        imaging.set_exposure_ms(10.0)
+    def test_auto_gain_once_turns_marker_red(self, sim_camera):
+        camera, _cam = sim_camera
+        fv = camera.frame_validity
+        camera.set_gain_db(5.0)
+        camera.set_exposure_ms(10.0)
         assert fv.target('gain') is not None and fv.target('exposure') is not None
         before = fv.invalidation_counts
-        imaging.auto_gain_once(
+        camera.auto_gain_once(
             state=True,
             target_brightness=0.5,
             min_gain_db=0.0,
@@ -226,25 +226,27 @@ class TestGeometryFormatInvalidates:
     buffer / restart the grab engine; each must turn the marker RED so a
     capture waits for the old geometry to flush."""
 
-    def test_set_frame_size_turns_marker_red(self, sim_imaging):
-        imaging, _cam = sim_imaging
-        imaging.frame_validity.reset()
-        imaging.set_frame_size(640, 480)
-        assert 'frame_size' in imaging.frame_validity.pending_sources
+    def test_set_frame_size_turns_marker_red(self, sim_camera):
+        camera, _cam = sim_camera
+        camera.frame_validity.reset()
+        camera.set_frame_size(640, 480)
+        assert 'frame_size' in camera.frame_validity.pending_sources
 
-    def test_set_pixel_format_turns_marker_red(self, sim_imaging):
-        imaging, _cam = sim_imaging
-        imaging.frame_validity.reset()
-        imaging.set_pixel_format('Mono12')
-        assert imaging.pixel_format_cached == 'Mono12'
-        assert 'pixel_format' in imaging.frame_validity.pending_sources
+    def test_set_pixel_format_turns_marker_red(self, sim_camera):
+        camera, _cam = sim_camera
+        camera.frame_validity.reset()
+        # A pixel format is set only through the image mode; 12-bit
+        # scientific selects Mono12 on the simulated camera.
+        camera.set_image_mode('12bit_scientific')
+        assert camera.pixel_format_cached == 'Mono12'
+        assert 'pixel_format' in camera.frame_validity.pending_sources
 
-    def test_set_binning_size_turns_marker_red(self, sim_imaging):
-        imaging, _cam = sim_imaging
-        imaging.frame_validity.reset()
-        imaging.set_binning_size(2)
-        assert imaging.get_binning_size() == 2
-        assert 'binning' in imaging.frame_validity.pending_sources
+    def test_set_binning_size_turns_marker_red(self, sim_camera):
+        camera, _cam = sim_camera
+        camera.frame_validity.reset()
+        camera.set_binning_size(2)
+        assert camera.get_binning_size() == 2
+        assert 'binning' in camera.frame_validity.pending_sources
 
 
 class TestSaturationGuard:
@@ -280,35 +282,35 @@ class TestRejectedSettingRaisesAndKeepsCache:
     the camera streams at the old setting while the cache claims the
     new one -- the silent stale-settings shape."""
 
-    def test_rejected_gain_raises_and_keeps_cache(self, sim_imaging, monkeypatch, centre_posts):
-        imaging, cam = sim_imaging
-        imaging.set_gain_db(2.0)  # establish a known cache value
+    def test_rejected_gain_raises_and_keeps_cache(self, sim_camera, monkeypatch, centre_posts):
+        camera, cam = sim_camera
+        camera.set_gain_db(2.0)  # establish a known cache value
         monkeypatch.setattr(cam, 'gain', lambda v: False)
 
         # The public setter raises the rejection to its caller; what this test
         # pins is what happens on the way out -- the API posts nothing, and the
         # cache keeps the value the camera actually holds.
         with pytest.raises(CameraSettingRejected):
-            imaging.set_gain_db(7.0)
+            camera.set_gain_db(7.0)
 
         captured = [n for n in centre_posts if n.severity == Severity.ERROR]
         assert not captured, 'A confirmed gain rejection is shown by its reporter, not the API'
-        assert imaging.gain_db_cached == 2.0, (
+        assert camera.gain_db_cached == 2.0, (
             'A rejected gain write must not be recorded in the cache'
         )
 
-    def test_rejected_exposure_raises_and_keeps_cache(self, sim_imaging, monkeypatch, centre_posts):
-        imaging, cam = sim_imaging
-        imaging.set_exposure_ms(20.0)  # establish a known cache value
+    def test_rejected_exposure_raises_and_keeps_cache(self, sim_camera, monkeypatch, centre_posts):
+        camera, cam = sim_camera
+        camera.set_exposure_ms(20.0)  # establish a known cache value
         monkeypatch.setattr(cam, 'exposure_t', lambda v: False)
 
         # See the gain case above: the raise is the public setter's contract,
         # the silent API and the held cache are what this test pins.
         with pytest.raises(CameraSettingRejected):
-            imaging.set_exposure_ms(50.0)
+            camera.set_exposure_ms(50.0)
 
         captured = [n for n in centre_posts if n.severity == Severity.ERROR]
         assert not captured, 'A confirmed exposure rejection is shown by its reporter, not the API'
-        assert imaging.exposure_ms_cached == 20.0, (
+        assert camera.exposure_ms_cached == 20.0, (
             'A rejected exposure write must not be recorded in the cache'
         )

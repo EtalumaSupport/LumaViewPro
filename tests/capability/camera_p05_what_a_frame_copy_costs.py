@@ -72,6 +72,7 @@ def _measure(session):
 
     scope = session.scope
     imaging = scope.imaging
+    camera_api = scope.camera
     frames, rate_hz = _held_frames(imaging)
     check(
         f'the camera delivered {FRAMES} frames within {SAMPLE_S:.0f} s',
@@ -100,7 +101,7 @@ def _measure(session):
     )
 
     objective = scope.runtime_state.get_current_objective()
-    binning = imaging.get_binning_size()
+    binning = camera_api.get_binning_size()
 
     def bar(image):
         return image_utils.add_scale_bar(

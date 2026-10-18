@@ -33,9 +33,7 @@ from typing import TYPE_CHECKING
 import modules.settings_init as settings_init
 from lvp_logger import logger
 from modules import (
-    binning,
     common_utils,
-    image_mode,
     kivy_utils,
     live_work,
     path_utils,
@@ -57,7 +55,6 @@ from modules.exceptions import (
     CameraDriverRepairedNotice,
     CameraDriverRepairFailedError,
     CameraDriverRepairRefusedError,
-    CameraSettingUnsupportedError,
     ConfigError,
     DiagnosticRefusedError,
     FileWriterNotStuckError,
@@ -84,7 +81,7 @@ from modules.lumascope_api import AxisPosition
 from modules.lumascope_api._constants import refuse_unless_turret_slot
 from modules.lumascope_api.bring_up import PartStatus
 from modules.lumascope_api.illumination import LedState, LedTransition, LedTransitionCtx
-from modules.lumascope_api.imaging import LayerCameraRequest
+from modules.lumascope_api.camera import CameraAPI, LayerCameraRequest
 from modules.lumascope_api.runtime_state import slots_holding
 from modules.manual_capture import ManualCaptureController
 from modules.notification_center import Notification
@@ -143,7 +140,7 @@ if TYPE_CHECKING:
     from modules.lumascope_api import Lumascope
     from modules.lumascope_api.bring_up import BringUpRecord
     from modules.lumascope_api.diagnostics import UsbIdentityBindings
-    from modules.lumascope_api.imaging import AutoGainLock
+    from modules.lumascope_api.camera import AutoGainLock
     from modules.objectives_loader import ObjectiveLoader
     from modules.protocol import Protocol, ProtocolSizeAdvisory
     from modules.lumascope_api.protocols import StepTargets
@@ -484,7 +481,7 @@ class ScopeSession:
         # their one store, so it holds no copy to keep in step. After the
         # claim: the lanes refuse a second session over this scope there,
         # before it could point the scope at its own settings.
-        scope.bind_settings(self._read_stored_setting)
+        scope.bind_settings(self._read_stored_setting, self._store_settings)
         # Service the scope NOW, before any collaborator is composed: the
         # temperature log reads the camera under the key, and the protocol
         # constructors resolve their data files from the source path.
@@ -569,6 +566,11 @@ class ScopeSession:
     def source_path(self) -> pathlib.Path:
         """The data folder this session runs on: its scope's, never a copy."""
         return self.scope.source_path
+
+    @property
+    def camera(self) -> 'CameraAPI':
+        """The scope's camera, ``scope.camera``: the same object, for an in-process caller."""
+        return self.scope.camera
 
     @property
     def wellplate_loader(self) -> 'WellPlateLoader':
@@ -1908,7 +1910,7 @@ class ScopeSession:
 
         For the shown layer the camera follows when this returns: turning it
         on arms the camera's auto loop (``apply_layer_camera``); turning it
-        off locks the standing arm (``scope.imaging.lock_auto_gain``) and
+        off locks the standing arm (``scope.camera.lock_auto_gain``) and
         stores what the camera reached as the layer's manual setting: the
         lock's ``gain_db`` and its ``stored_exposure_ms``, rounded to 0.1 dB
         and 0.01 ms, the resolution the stored settings carry, each only when
@@ -1935,17 +1937,17 @@ class ScopeSession:
                 ``'exclusive_activity_running'``, when a run, a diagnostic
                 or a home holds the scope.
         """
-        from modules.lumascope_api.imaging import AutoGainLock
+        from modules.lumascope_api.camera import AutoGainLock
 
         refuse_unknown_layer(layer)
         lock = None
-        holds = self.scope.imaging.get_held_layer() == layer
+        holds = self.scope.camera.get_held_layer() == layer
         if enabled:
             self.scope.layer_identity.refuse_unless_on_scope(
                 layer, 'set_layer_auto_gain', then='run auto-gain'
             )
         elif holds:
-            lock = self.scope.imaging.lock_auto_gain()
+            lock = self.scope.camera.lock_auto_gain()
         else:
             lock = AutoGainLock(state=None)
         with self.settings_lock:
@@ -1970,7 +1972,7 @@ class ScopeSession:
         """Put ``layer``'s stored exposure, gain and auto-gain on the camera, and wait.
 
         Nothing is written when the camera already holds ``layer`` at its
-        stored settings (``scope.imaging.hold_layer``).
+        stored settings (``scope.camera.hold_layer``).
 
         The one way a layer's settings reach the camera outside a run,
         in-process: ``show_channel`` (the public way), bring-up's BF,
@@ -1981,7 +1983,7 @@ class ScopeSession:
         camera without hardware auto-gain applies the layer manually.
 
         Returns:
-            What ``scope.imaging.hold_layer`` returns: the gain and exposure
+            What ``scope.camera.hold_layer`` returns: the gain and exposure
             now in effect.
 
         Raises:
@@ -1998,7 +2000,7 @@ class ScopeSession:
         self.scope.layer_identity.refuse_unless_on_scope(
             layer, 'apply_layer_camera', then='be applied to the camera'
         )
-        return self.scope.imaging.hold_layer(layer, self._layer_camera_request(layer))
+        return self.scope.camera.hold_layer(layer, self._layer_camera_request(layer))
 
     def _layer_camera_request(self, layer: str) -> LayerCameraRequest:
         """``layer``'s stored gain, exposure and auto-gain, with the auto-gain
@@ -2566,7 +2568,7 @@ class ScopeSession:
         motion.refuse_controller_not_connected('go_to_step')
         # The step's layer goes onto the camera after the moves; with no
         # camera the step would be moved to and stored with nothing to see.
-        self.scope.imaging.refuse_camera_not_connected('go_to_step')
+        self.scope.camera.refuse_camera_not_connected('go_to_step')
         last = self._last_step_gone_to
         shows = last is None or last[0] is not protocol or last[1] != step_idx
         # A first visit is the step's preview. A repeat leaves the LEDs as the
@@ -2934,7 +2936,8 @@ class ScopeSession:
 
         Raises:
             SettingRefusedError: ``'has_member'``, ``path`` is owned by a
-                Session member (named); ``'host_only'``, its member is
+                member (named by its path from the session:
+                ``scope.camera.set_frame_size`` for the camera's); ``'host_only'``, its member is
                 in-process, so only the application hosting the scope changes
                 it (``live_folder``, ``protocol.filepath``);
                 ``'installation_only'``, it is set
@@ -2954,7 +2957,7 @@ class ScopeSession:
 
         A layer's gain or exposure is stored as written, the person's
         intent; a camera that cannot reach it is driven at its own limit
-        when the layer is applied (``ImagingAPI.applied_gain_db_for``).
+        when the layer is applied (``CameraAPI.applied_gain_db_for``).
         A write to the shown layer's gain or exposure (or, while it is on
         auto-gain, to the auto-gain bounds) is on the camera, and to its
         illumination on its lit LED, when this returns; a write to a hidden
@@ -2966,16 +2969,19 @@ class ScopeSession:
         """
         value = python_values(value)
         member = settings_paths.member_for(path)
-        if member is not None and mark_of(getattr(ScopeSession, member)) == IN_PROCESS:
+        owner = (
+            {'ScopeSession': ScopeSession, 'CameraAPI': CameraAPI}[member.owner] if member else None
+        )
+        if member is not None and mark_of(getattr(owner, member.name)) == IN_PROCESS:
             # The live folder confines every path a wire caller sends, so only
             # the host moves it; advice naming the member alone sends a REST
             # client to a route that does not exist.
             raise SettingRefusedError(
                 'host_only',
                 path,
-                f'it is changed by ScopeSession.{member}, which only the application '
+                f'it is changed by {member.words}, which only the application '
                 'hosting the scope can call; a REST client reads it and cannot move it',
-                member=member,
+                member=member.path,
             )
         settings_paths.check_write(
             self.scope.settings_template,
@@ -3210,6 +3216,17 @@ class ScopeSession:
         except ProtocolNotLoadedError:
             self.set_protocol_filepath('')
             raise
+
+    def _store_settings(self, updates: dict[str, object]) -> None:
+        """Put each of ``updates`` (dotted path to value) in the live settings, under one ``settings_lock`` hold.
+
+        The scope's writer (``Lumascope.bind_settings``): the camera saves
+        the settings it changes through it, past ``update_settings``'
+        refusal of the settings it owns.
+        """
+        with self.settings_lock:
+            for path, value in updates.items():
+                self._store_setting(path, value)
 
     def _store_setting(self, path: str, value: object) -> None:
         """Under ``settings_lock``: put ``value`` at ``path`` in the live settings.
@@ -3496,7 +3513,6 @@ class ScopeSession:
         )
         self.scope.initialize(config)
         self._date_an_undated_objective_confirmation()
-        self._store_delivered_geometry()
         # The camera streams from here on, in every host that configures a
         # scope, so the imaging API starts watching the stream here: a stall
         # nobody is reading is reported to every client, not only to a GUI.
@@ -3519,21 +3535,21 @@ class ScopeSession:
         """Tell, as one notice, every saved layer gain or exposure the attached camera cannot reach.
 
         A saved layer value above the camera's range is kept as saved and
-        applied at the camera's limit (``ImagingAPI.applied_gain_db_for``
+        applied at the camera's limit (``CameraAPI.applied_gain_db_for``
         and kin); each apply logs it, and this is where the person is told,
         once per bring-up for every capped layer at once. With no camera
         the cache declares no limit, so nothing is capped and nothing is
         told.
         """
-        imaging = self.scope.imaging
+        camera = self.scope.camera
         capped: list[tuple[str, str, float, float]] = []
         with self.settings_lock:
             for record in self.scope.layer_identity.layers:
                 layer = record.key_name
-                gain = imaging.applied_gain_db_for(self.settings[layer]['gain_db'])
+                gain = camera.applied_gain_db_for(self.settings[layer]['gain_db'])
                 if gain.capped:
                     capped.append((layer, 'gain_db', gain.stored, gain.applied))
-                exposure = imaging.applied_exposure_ms_for(self.settings[layer]['exposure_ms'])
+                exposure = camera.applied_exposure_ms_for(self.settings[layer]['exposure_ms'])
                 if exposure.capped:
                     capped.append((layer, 'exposure_ms', exposure.stored, exposure.applied))
         if not capped:
@@ -4344,144 +4360,6 @@ class ScopeSession:
         with self.settings_lock:
             self._store_setting('motion.acceleration_max_pct', val_pct)
 
-    @api
-    def set_high_conversion_gain(self, enabled: bool) -> None:
-        """Turn the camera's high conversion gain on or off, then store it.
-
-        High conversion gain lowers the sensor's read-noise floor at the cost
-        of dynamic range. The one writer of ``camera.high_conversion_gain``:
-        the setting is stored only once the camera took it, so the store
-        never names a mode the camera is not in. Off on a camera without the
-        mode is its state, and is stored.
-
-        Raises:
-            HardwareCommandRefusedError: ``'not_connected'``, naming the
-                camera, with none connected. Nothing is stored.
-            CameraSettingUnsupportedError: ``'conversion_gain_mode_unsupported'``,
-                on, for a camera without the mode. Nothing is stored.
-            CameraSettingRejected: The camera refused it. Nothing is stored.
-        """
-        self.scope.imaging.set_conversion_gain_mode('High' if enabled else 'Low')
-        with self.settings_lock:
-            self._store_setting('camera.high_conversion_gain', enabled)
-
-    @api
-    def set_line_noise_reduction(self, enabled: bool) -> None:
-        """Turn the camera's line-noise filter on or off, then store it.
-
-        The one writer of ``camera.line_noise_reduction``, stored only once
-        the camera took it, as ``set_high_conversion_gain`` is.
-
-        Raises:
-            HardwareCommandRefusedError: ``'not_connected'``, naming the
-                camera, with none connected. Nothing is stored.
-            CameraSettingUnsupportedError: ``'line_noise_reduction_unsupported'``,
-                on, for a camera without the filter. Nothing is stored.
-            CameraSettingRejected: The camera refused it. Nothing is stored.
-        """
-        self.scope.imaging.set_line_noise_reduction(enabled)
-        with self.settings_lock:
-            self._store_setting('camera.line_noise_reduction', enabled)
-
-    @api
-    def set_image_mode(self, mode: str) -> None:
-        """Capture in ``mode``: apply the camera format it needs, then store it.
-
-        The one writer of ``settings['image_mode']`` for every host. The mode
-        names a capture depth, and the format is chosen from the ones this
-        camera reports, so a sensor is never asked for a format it lacks. A
-        camera that reports none (none is connected) has nothing to apply;
-        the mode is stored and bring-up applies it.
-
-        Raises:
-            SettingRefusedError: ``'out_of_range'``, ``mode`` is not an image
-                mode. Nothing is applied or stored.
-            HardwareCommandRefusedError: ``'not_connected'``, naming the
-                camera, when it went away between the format query and the
-                apply. Nothing is stored.
-            CameraSettingRejected: The camera refused the format. Nothing is
-                stored, so captures are never tagged with a depth the camera
-                is not delivering.
-        """
-        settings_paths.refuse_outside_range('image_mode', mode)
-        capture_depth = image_mode.resolve_image_mode(mode)['capture_depth']
-        imaging = self.scope.imaging
-        target = image_mode.select_capture_pixel_format(
-            capture_depth, self.scope.capabilities.camera_pixel_formats
-        )
-        if target is not None:
-            imaging.set_pixel_format(target)
-        with self.settings_lock:
-            self._store_setting('image_mode', mode)
-
-    @api
-    def set_binning_size(self, size: int) -> 'dict | None':
-        """Bin the camera by ``size``, keep the framed region, and store both.
-
-        The one writer of the binning for every host. The framed region is
-        held unbinned (``frame['native_width'/'native_height']``), so a new
-        binning divides that region by the new factor rather than rescaling
-        the last displayed size, and cycling the binning round-trips. The
-        binning goes first and the frame after it, because the camera's frame
-        limits depend on the binning in force; one caller running both in
-        order is what keeps a frame edit from being worked out against a
-        binning the camera has not reached.
-
-        Returns:
-            The frame the camera delivers, ``{'width', 'height'}``.
-
-        Raises:
-            HardwareCommandRefusedError: ``'not_connected'``, naming the
-                camera, with none connected. Nothing is stored.
-            CameraSettingUnsupportedError: ``'binning_unsupported'``, this
-                camera does not offer ``size``. Nothing reaches the camera.
-            CameraSettingRejected: The camera refused the binning (nothing is
-                stored) or the frame after it (the binning is stored, with the
-                frame the camera reports holding at it).
-        """
-        imaging = self.scope.imaging
-        self._refuse_unusable_binning(size, 'set_binning_size')
-        label = binning.binning_size_int_to_str(size)
-        native = self._native_frame()
-        imaging.set_binning_size(size)
-        with self.settings_lock:
-            self._store_setting('binning.size', label)
-            held = imaging.frame_size_cached
-            self._store_setting('frame.width', int(held['width']))
-            self._store_setting('frame.height', int(held['height']))
-        return self._apply_frame(native, self._target_frame(native, size))
-
-    @api
-    def set_frame_size(self, width: int, height: int) -> 'dict | None':
-        """Frame the camera at ``width`` x ``height`` at the stored binning, and store it.
-
-        The one writer of the frame for every host. The size is what the
-        person sees and captures (post-binning); the unbinned region it
-        implies is stored beside it. A size the camera already delivers is
-        not written again.
-
-        Returns:
-            The frame the camera delivers: the request floored to even
-            sides.
-
-        Raises:
-            HardwareCommandRefusedError: ``'not_connected'``, naming the
-                camera, with none connected; ``'scope_disconnected'`` after
-                ``disconnect()``. Nothing is stored.
-            CameraSettingOutOfRangeError: ``'frame_width_out_of_range'`` or
-                ``'frame_height_out_of_range'``, the size, floored to even
-                sides, is below the camera's minimum frame or above the
-                scope's maximum at the stored binning. Nothing is stored.
-            CameraSettingRejected: The camera refused the frame. Nothing is
-                stored.
-        """
-        factor = binning.binning_size_str_to_int(self.settings['binning']['size'])
-        native = {'width': width * factor, 'height': height * factor}
-        target = binning.native_to_displayed(
-            native, factor, self.scope.imaging.get_pixel_alignment()
-        )
-        return self._apply_frame(native, target)
-
     @api(reads=True)
     def get_binning_size(self) -> int:
         """The binning factor in force: the one the camera took and the store holds.
@@ -4493,156 +4371,6 @@ class ScopeSession:
         import modules.config_helpers as config_helpers
 
         return config_helpers.get_binning_from_settings(self.settings)
-
-    @api(reads=True)
-    def frame_at_binning(self, size: int) -> dict:
-        """The frame ``set_binning_size(size)`` will ask the camera for; nothing is applied.
-
-        The same arithmetic the apply uses, answered from the store and the
-        camera's cached limits, so a display can show the new frame beside
-        the new binning while the apply is still running. The camera's own
-        answer (its grid, its minimum at the new binning) can differ; the
-        stored frame after the apply is the truth.
-
-        Raises:
-            HardwareCommandRefusedError: ``'not_connected'``, naming the
-                camera, with none connected.
-            CameraSettingUnsupportedError: ``'binning_unsupported'``, this
-                camera does not offer ``size``, as ``set_binning_size``
-                refuses it.
-        """
-        self._refuse_unusable_binning(size, 'frame_at_binning')
-        return self._target_frame(self._native_frame(), size)
-
-    def _refuse_unusable_binning(self, size: int, member: str) -> None:
-        """Refuse a binning with no camera to take it, or one this camera does not offer.
-
-        Raises:
-            HardwareCommandRefusedError: ``'not_connected'``, naming the
-                camera and ``member``, with none connected.
-            CameraSettingUnsupportedError: ``size`` is not one of
-                ``capabilities.camera_binning_sizes``.
-        """
-        # Asked before the offered sizes: a scope with no camera offers
-        # none, and "does not support" would name the wrong cause.
-        self.scope.imaging.refuse_camera_not_connected(member)
-        offered = self.scope.capabilities.camera_binning_sizes
-        if size not in offered:
-            raise CameraSettingUnsupportedError(
-                'binning',
-                size,
-                offered,
-                message=(
-                    f'This camera does not support {binning.binning_size_int_to_str(size)} binning.'
-                ),
-            )
-
-    def _native_frame(self) -> dict:
-        """The stored unbinned region, or one rebuilt from the displayed frame.
-
-        The stored pair is returned as it is, never re-capped: a small
-        reading during a reconnect would otherwise shrink the stored region
-        for good. Settings saved before the pair existed hold only the
-        displayed size, so the region is rebuilt as displayed x stored
-        binning, capped at the largest frame the scope delivers.
-        """
-        frame = self.settings['frame']
-        if 'native_width' in frame and 'native_height' in frame:
-            native = {'width': int(frame['native_width']), 'height': int(frame['native_height'])}
-            source = 'stored'
-        else:
-            factor = binning.binning_size_str_to_int(self.settings['binning']['size'])
-            displayed = {'width': int(frame['width']), 'height': int(frame['height'])}
-            limits = self.scope.capabilities.camera_limits
-            maximum = limits.frame_max if limits else None
-            cap = (
-                {'width': maximum.width, 'height': maximum.height}
-                if maximum
-                else {
-                    'width': displayed['width'] * factor,
-                    'height': displayed['height'] * factor,
-                }
-            )
-            native = binning.displayed_to_native(displayed, factor, cap)
-            source = f'rebuilt from {displayed["width"]}x{displayed["height"]} at {factor}x'
-        # Whether the region came from the store or was rebuilt, and from
-        # what: a rebuild against the wrong binning is how the region once
-        # drifted, so the inputs stay in the log.
-        logger.info(f'[Session  ] native frame: {source} -> {native["width"]}x{native["height"]}')
-        return native
-
-    def _target_frame(self, native: dict, factor: int) -> dict:
-        """The displayed frame a stored ``native`` region gives at a new ``factor``.
-
-        The region divided by the binning and floored to even sides, so it
-        follows from the region alone. It is raised to the camera's
-        minimum: a Pylon camera floors only to its maximum and refuses a
-        smaller request outright, and no one asked for this frame -- a
-        binning change derives it, so there is no request to refuse. A frame
-        a person asks for is refused out of range instead (``set_frame_size``).
-        """
-        imaging = self.scope.imaging
-        target = binning.native_to_displayed(native, factor, imaging.get_pixel_alignment())
-        limits = self.scope.capabilities.camera_limits
-        minimum = limits.frame_min if limits else None
-        if minimum is not None:
-            target = {
-                'width': max(target['width'], minimum.width),
-                'height': max(target['height'], minimum.height),
-            }
-        return target
-
-    def _store_delivered_geometry(self) -> None:
-        """Store the binning and frame bring-up's camera took, as the Session's writers do after an apply.
-
-        Bring-up applies the stored binning and frame to the camera directly.
-        A binning the camera does not offer is replaced by the one it
-        reports, and a stored frame above the scope's maximum is refitted to
-        it, so what the camera delivers can differ from what was stored.
-        Storing the delivered pair keeps the settings, the frame fields and
-        every reader of them on the geometry the camera actually holds. The
-        two are stored together because a frame beside a binning the camera
-        is not at describes a region the sensor does not have, and the next
-        frame or binning change is worked out from that pair. The native
-        region is left as stored: it is the intent, and a small reading must
-        not shrink it for good. With no camera connected nothing was
-        delivered, so nothing is stored.
-        """
-        if not self.scope.camera_connected:
-            return
-        imaging = self.scope.imaging
-        delivered = imaging.frame_size_cached
-        label = binning.binning_size_int_to_str(imaging.get_binning_size())
-        with self.settings_lock:
-            stored_label = self.settings['binning']['size']
-            frame = self.settings['frame']
-            stored = {'width': frame['width'], 'height': frame['height']}
-            if stored == delivered and stored_label == label:
-                return
-            self._store_setting('binning.size', label)
-            self._store_setting('frame.width', int(delivered['width']))
-            self._store_setting('frame.height', int(delivered['height']))
-        logger.info(
-            f'[Session  ] stored {stored_label} {stored["width"]}x{stored["height"]}; the camera '
-            f'delivers {label} {delivered["width"]}x{delivered["height"]} -- the delivered '
-            f'binning and frame are stored'
-        )
-
-    def _apply_frame(self, native: dict, target: dict) -> 'dict | None':
-        """Apply the displayed ``target``, then store it and the ``native`` region it came from."""
-        imaging = self.scope.imaging
-        if target == imaging.frame_size_cached:
-            delivered = target
-        else:
-            delivered = imaging.set_frame_size(target['width'], target['height'])
-            if delivered is None:
-                return None
-        with self.settings_lock:
-            self._store_setting('frame.native_width', int(native['width']))
-            self._store_setting('frame.native_height', int(native['height']))
-            self._store_setting('frame.width', int(delivered['width']))
-            self._store_setting('frame.height', int(delivered['height']))
-        return dict(delivered)
 
     # --- Hardware commands: NOT forwarded ---
     # The Session surface deliberately carries no hardware-command

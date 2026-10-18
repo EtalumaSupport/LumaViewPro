@@ -42,7 +42,7 @@ def _read(session):
     figure('frame grid step (width, height)', grid.step)
     figure('frame size minimum (width, height)', grid.size_min)
     figure('frame size maximum (width, height)', grid.max_size)
-    figure('binning', scope.imaging.get_binning_size())
+    figure('binning', scope.camera.get_binning_size())
 
 
 def main():

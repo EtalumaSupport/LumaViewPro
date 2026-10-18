@@ -48,8 +48,8 @@ def _frames_from(scope, change, wanted: int) -> list:
 
 
 def test_a_backlog_delivers_frames_made_before_the_change(sim_scope):
-    imaging = sim_scope.imaging
-    before = imaging.get_gain_db()
+    camera = sim_scope.camera
+    before = camera.get_gain_db()
     sim_scope.simulation.delay_delivery(BACKLOG)
     # The backlog stands once a frame arrives after it: none is delivered
     # until BACKLOG are held.
@@ -57,7 +57,7 @@ def test_a_backlog_delivers_frames_made_before_the_change(sim_scope):
     in_flight = SimulatedCamera.SENSOR_PIPELINE_FRAMES + BACKLOG
     after = before + 6.0
 
-    frames = _frames_from(sim_scope, lambda: imaging.set_gain_db(after), in_flight + 6)
+    frames = _frames_from(sim_scope, lambda: camera.set_gain_db(after), in_flight + 6)
 
     made_under = [sim_scope.simulation.exposed_under(f).gain_db for f in frames]
     old = made_under.index(after)

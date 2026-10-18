@@ -124,21 +124,21 @@ def recording(sim_session):
 _FALSIFIERS = [
     (
         'set_frame_size',
-        'imaging',
+        'camera',
         '_set_frame_size_impl',
-        lambda sc: sc.imaging.set_frame_size(640, 480),
+        lambda sc: sc.camera.set_frame_size(640, 480),
     ),
     (
         'set_binning_size',
-        'imaging',
+        'camera',
         '_set_binning_size_impl',
-        lambda sc: sc.imaging.set_binning_size(2),
+        lambda sc: sc.camera.set_binning_size(2),
     ),
     (
-        'set_pixel_format',
-        'imaging',
+        'set_image_mode',
+        'camera',
         '_set_pixel_format_impl',
-        lambda sc: sc.imaging.set_pixel_format('Mono12'),
+        lambda sc: sc.camera.set_image_mode('12bit_scientific'),
     ),
     ('move_turret', 'motion', '_move_turret_impl', lambda sc: sc.motion.move_turret(2)),
     ('home T', 'motion', '_home_turret_impl', lambda sc: sc.motion.home('T')),
@@ -148,8 +148,8 @@ _FALSIFIERS = [
 _OPEN = [
     ('move_absolute Z', lambda sc: sc.motion.move_absolute('Z', 100.0)),
     ('move_relative X', lambda sc: sc.motion.move_relative('X', 10.0)),
-    ('set_gain_db', lambda sc: sc.imaging.set_gain_db(2.0)),
-    ('set_exposure_ms', lambda sc: sc.imaging.set_exposure_ms(20.0)),
+    ('set_gain_db', lambda sc: sc.camera.set_gain_db(2.0)),
+    ('set_exposure_ms', lambda sc: sc.camera.set_exposure_ms(20.0)),
 ]
 
 
@@ -210,9 +210,9 @@ class TestTheSessionStores:
     @pytest.mark.parametrize(
         'call',
         [
-            lambda s: s.set_binning_size(2),
-            lambda s: s.set_frame_size(640, 480),
-            lambda s: s.set_image_mode(
+            lambda s: s.camera.set_binning_size(2),
+            lambda s: s.camera.set_frame_size(640, 480),
+            lambda s: s.camera.set_image_mode(
                 '12bit_scientific' if s.settings['image_mode'] == '8bit' else '8bit'
             ),
         ],
@@ -269,15 +269,15 @@ class TestTheLongestExposure:
     reads the longest exposure the camera may be using, not the start value."""
 
     def test_it_is_the_cached_exposure_with_no_auto_gain_armed(self, sim_session):
-        imaging = sim_session.scope.imaging
-        assert imaging.longest_exposure_ms == imaging.exposure_ms_cached
+        camera = sim_session.scope.camera
+        assert camera.longest_exposure_ms == camera.exposure_ms_cached
 
     def test_it_is_the_arms_ceiling_while_auto_gain_is_armed(self, sim_session):
-        imaging = sim_session.scope.imaging
-        imaging.set_auto_gain(True, {**_AUTO_GAIN, 'max_exposure_ms': 150.0})
-        assert imaging.longest_exposure_ms == 150.0
-        imaging.set_auto_gain(False, dict(_AUTO_GAIN))
-        assert imaging.longest_exposure_ms == imaging.exposure_ms_cached
+        camera = sim_session.scope.camera
+        camera.set_auto_gain(True, {**_AUTO_GAIN, 'max_exposure_ms': 150.0})
+        assert camera.longest_exposure_ms == 150.0
+        camera.set_auto_gain(False, dict(_AUTO_GAIN))
+        assert camera.longest_exposure_ms == camera.exposure_ms_cached
 
 
 class TestReselectingThePlateInPlace:

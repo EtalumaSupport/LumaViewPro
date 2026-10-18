@@ -100,25 +100,25 @@ def _drive_capture(monkeypatch, debug_enabled):
         protocol=protocol,
         enable_image_saving=True,
     )
-    return scope.imaging
+    return scope.camera
 
 
 def test_camera_reads_skipped_when_debug_disabled(monkeypatch):
-    imaging = _drive_capture(monkeypatch, debug_enabled=False)
-    assert imaging.get_gain_db.call_count == 0, (
+    camera = _drive_capture(monkeypatch, debug_enabled=False)
+    assert camera.get_gain_db.call_count == 0, (
         'the diagnostic live gain read must not run when debug is off'
     )
-    assert imaging.get_exposure_ms.call_count == 0, (
+    assert camera.get_exposure_ms.call_count == 0, (
         'the diagnostic live exposure read must not run when debug is off'
     )
 
 
 def test_camera_reads_run_when_debug_enabled(monkeypatch):
-    imaging = _drive_capture(monkeypatch, debug_enabled=True)
-    assert imaging.get_gain_db.call_count == 1, (
+    camera = _drive_capture(monkeypatch, debug_enabled=True)
+    assert camera.get_gain_db.call_count == 1, (
         'with debug on, the diagnostic must read the live gain '
         '(comparing intended vs actual is the whole point)'
     )
-    assert imaging.get_exposure_ms.call_count == 1, (
+    assert camera.get_exposure_ms.call_count == 1, (
         'with debug on, the diagnostic must read the live exposure'
     )

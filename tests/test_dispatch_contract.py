@@ -59,7 +59,7 @@ IMPL_RESULT = object()
 # tiers were deleted, so there is no second spelling of a command to pin.
 FAMILIES = [
     ('illumination', 'led_on', {'channel': 0, 'illumination_ma': 10.0}, 'io'),
-    ('imaging', 'set_gain_db', {'gain_db': 1.0}, 'camera'),
+    ('camera', 'set_gain_db', {'gain_db': 1.0}, 'camera'),
     (
         'motion',
         'start_move_absolute',
@@ -73,7 +73,7 @@ FAMILIES = [
     # by a running protocol -- and this table is what keeps them (and
     # any future sibling) on the dispatcher.
     (
-        'imaging',
+        'camera',
         'set_auto_gain',
         {
             'state': True,
@@ -81,21 +81,21 @@ FAMILIES = [
         },
         'camera',
     ),
-    ('imaging', 'set_auto_exposure_time', {'state': True}, 'camera'),
-    ('imaging', 'set_frame_size', {'w': 640, 'h': 480}, 'camera'),
-    ('imaging', 'set_binning_size', {'size': 1}, 'camera'),
-    ('imaging', 'set_pixel_format', {'pixel_format': 'Mono8'}, 'camera'),
-    ('imaging', 'set_conversion_gain_mode', {'mode': 'High'}, 'camera'),
-    ('imaging', 'set_line_noise_reduction', {'enabled': True}, 'camera'),
-    ('imaging', 'set_black_level', {'value': 4.0}, 'camera'),
+    ('camera', 'set_auto_exposure_time', {'state': True}, 'camera'),
+    ('camera', 'set_frame_size', {'width': 640, 'height': 480}, 'camera'),
+    ('camera', 'set_binning_size', {'size': 1}, 'camera'),
+    ('camera', 'set_image_mode', {'mode': '8bit'}, 'camera'),
+    ('camera', 'set_high_conversion_gain', {'enabled': True}, 'camera'),
+    ('camera', 'set_line_noise_reduction', {'enabled': True}, 'camera'),
+    ('camera', 'set_black_level', {'value': 4.0}, 'camera'),
     (
-        'imaging',
+        'camera',
         'update_auto_gain_target_brightness',
         {'target_brightness': 0.5},
         'camera',
     ),
     (
-        'imaging',
+        'camera',
         'auto_gain_once',
         {
             'state': True,
@@ -106,7 +106,7 @@ FAMILIES = [
         'camera',
     ),
     (
-        'imaging',
+        'camera',
         'apply_layer_camera_settings',
         {'gain_db': 1.0, 'exposure_ms': 10.0, 'layer': 'BF'},
         'camera',
@@ -124,17 +124,29 @@ FAMILY_IDS = [f'{family}.{member}' for family, member, _, _ in FAMILIES]
 # camera was there, so it returns nothing rather than passing the answer on.
 _RETURNS_NOTHING = frozenset(
     {
-        'set_binning_size',
-        'set_pixel_format',
-        'set_conversion_gain_mode',
+        'set_image_mode',
+        'set_high_conversion_gain',
         'set_line_noise_reduction',
         'auto_gain_once',
     }
 )
 
+# A member that answers with the frame the camera delivers. The frame
+# setter's body is the frame write, so its probe answers a frame; the
+# binning setter's body answers only whether the camera was there, and the
+# frame it then applies at the new binning is the camera's own.
+_RETURNS_THE_FRAME = frozenset({'set_frame_size', 'set_binning_size'})
+_PROBE_ANSWER = {'set_frame_size': {'width': 640, 'height': 480}, 'set_binning_size': True}
+
 # A member whose body is not named after it: the start members share the
-# move bodies with the waited members.
-_BODY_OF = {'start_move_absolute': '_move_absolute_impl'}
+# move bodies with the waited members, and the image mode and the high
+# conversion gain are applied by the pixel-format and conversion-gain
+# bodies.
+_BODY_OF = {
+    'start_move_absolute': '_move_absolute_impl',
+    'set_image_mode': '_set_pixel_format_impl',
+    'set_high_conversion_gain': '_set_conversion_gain_mode_impl',
+}
 
 
 @pytest.fixture
@@ -167,7 +179,7 @@ def _install_probe(scope, family, member):
 
     def _probe(*args, **kwargs):
         threads.append(threading.current_thread().name)
-        return IMPL_RESULT
+        return _PROBE_ANSWER.get(member, IMPL_RESULT)
 
     setattr(sub, _BODY_OF.get(member, f'_{member}_impl'), _probe)
     return sub, threads
@@ -242,7 +254,12 @@ def test_live_executor_submits_and_blocks(sim_scope, executors, family, member, 
         f'has; body ran on {threads}'
     )
     assert caller not in threads
-    assert result is (None if member in _RETURNS_NOTHING else IMPL_RESULT)
+    if member in _RETURNS_THE_FRAME:
+        assert result == (
+            _PROBE_ANSWER[member] if member == 'set_frame_size' else sub.frame_size_cached
+        )
+    else:
+        assert result is (None if member in _RETURNS_NOTHING else IMPL_RESULT)
 
 
 def test_capture_wait_scales_with_the_declared_work(sim_scope, executors):
@@ -258,6 +275,7 @@ def test_capture_wait_scales_with_the_declared_work(sim_scope, executors):
     drain-and-recheck deadline, or a deep legitimate drain surfaces as an
     executor TimeoutError instead of the body's loud None."""
     imaging = sim_scope.imaging
+    camera = sim_scope.camera
     recorded = {}
     # Settle work pending at submit, so the validity term is not zero.
     imaging.frame_validity.invalidate('auto_gain')
@@ -273,7 +291,7 @@ def test_capture_wait_scales_with_the_declared_work(sim_scope, executors):
         imaging.capture_and_wait(timeout_s=5.0, sum_count=10, sum_delay_s=0.2)
 
     frame_cost = max(
-        imaging.exposure_ms_cached / 1000.0,
+        camera.exposure_ms_cached / 1000.0,
         imaging._CAPTURE_DEADLINE_MIN_FRAME_PERIOD_S,
     )
     expected = (
@@ -288,15 +306,15 @@ def test_capture_wait_scales_with_the_declared_work(sim_scope, executors):
     )
 
 
-def test_no_public_imaging_member_writes_the_camera_inline():
+def test_no_public_camera_or_imaging_member_writes_the_camera_inline():
     """Shape tripwire for the whole member class, not a spelling grep.
 
-    A public ImagingAPI method that reaches ``_camera_write`` or frame
-    invalidation in its own body executes camera-state writes on the
-    caller's thread -- unserialized against the camera lane and
+    A public CameraAPI or ImagingAPI method that reaches ``_camera_write``
+    or frame invalidation in its own body executes camera-state writes on
+    the caller's thread -- unserialized against the camera lane and
     invisible to the protocol fence (an inline body never meets the
     executor's refusal). The dispatch shape puts every such write in a
-    ``_impl`` behind ``_dispatch_camera``, so this walks the class and
+    ``_impl`` behind ``_dispatch_camera``, so this walks both classes and
     fails on any public def whose body touches the write/invalidate
     seams directly. A literal grep for the invalidation spellings
     missed a member of this class once (a public method reaching the
@@ -308,32 +326,36 @@ def test_no_public_imaging_member_writes_the_camera_inline():
 
     import tests.ast_seams as ast_seams
 
-    tree = ast_seams.parse_module('modules/lumascope_api/imaging.py')
-    cls = next(
-        node
-        for node in ast.walk(tree)
-        if isinstance(node, ast.ClassDef) and node.name == 'ImagingAPI'
-    )
     WRITE_SEAMS = {'_camera_write', 'invalidate', 'force_invalidate'}
     offenders = []
-    for node in cls.body:
-        if not isinstance(node, ast.FunctionDef) or node.name.startswith('_'):
-            continue
-        for sub in ast.walk(node):
-            if isinstance(sub, ast.Call):
-                callee = sub.func
-                name = (
-                    callee.attr
-                    if isinstance(callee, ast.Attribute)
-                    else callee.id
-                    if isinstance(callee, ast.Name)
-                    else None
-                )
-                if name in WRITE_SEAMS:
-                    offenders.append(f'{node.name}:{sub.lineno}')
+    for path, class_name in (
+        ('modules/lumascope_api/camera.py', 'CameraAPI'),
+        ('modules/lumascope_api/imaging.py', 'ImagingAPI'),
+    ):
+        tree = ast_seams.parse_module(path)
+        cls = next(
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.ClassDef) and node.name == class_name
+        )
+        for node in cls.body:
+            if not isinstance(node, ast.FunctionDef) or node.name.startswith('_'):
+                continue
+            for sub in ast.walk(node):
+                if isinstance(sub, ast.Call):
+                    callee = sub.func
+                    name = (
+                        callee.attr
+                        if isinstance(callee, ast.Attribute)
+                        else callee.id
+                        if isinstance(callee, ast.Name)
+                        else None
+                    )
+                    if name in WRITE_SEAMS:
+                        offenders.append(f'{class_name}.{node.name}:{sub.lineno}')
     assert not offenders, (
-        'public ImagingAPI members must dispatch camera-state writes, never '
-        f'execute them inline in their own body; inline writers found: {offenders}'
+        'public CameraAPI and ImagingAPI members must dispatch camera-state writes, '
+        f'never execute them inline in their own body; inline writers found: {offenders}'
     )
 
 
@@ -350,6 +372,7 @@ def test_no_dispatcher_has_a_lane_less_branch():
     offenders = []
     for path in (
         'modules/lumascope_api/illumination.py',
+        'modules/lumascope_api/camera.py',
         'modules/lumascope_api/imaging.py',
         'modules/lumascope_api/motion.py',
         'modules/lumascope_api/_lumascope.py',

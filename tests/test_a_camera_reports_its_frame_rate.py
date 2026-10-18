@@ -17,11 +17,11 @@ from tests.settings_fixtures import complete_settings
 
 
 def test_the_simulator_reports_the_rate_it_paces_frames_at(sim_scope):
-    imaging = sim_scope.imaging
-    imaging.set_exposure_ms(100.0)
-    assert imaging.get_resulting_frame_rate() == pytest.approx(10.0)
-    imaging.set_exposure_ms(1.0)
-    assert imaging.get_resulting_frame_rate() == pytest.approx(
+    camera = sim_scope.camera
+    camera.set_exposure_ms(100.0)
+    assert camera.get_resulting_frame_rate() == pytest.approx(10.0)
+    camera.set_exposure_ms(1.0)
+    assert camera.get_resulting_frame_rate() == pytest.approx(
         sim_scope._camera_driver._MAX_DELIVERY_FPS
     )
 
@@ -36,7 +36,7 @@ def fx2_session():
 
 
 def test_the_fx2_reports_none(fx2_session):
-    assert fx2_session.scope.imaging.get_resulting_frame_rate() is None
+    assert fx2_session.scope.camera.get_resulting_frame_rate() is None
 
 
 # --- Pylon --------------------------------------------------------------------

@@ -44,7 +44,7 @@ from modules.exceptions import (
     ProtocolStepsInvalidNotice,
     unknown_positions_sentence,
 )
-from modules.lumascope_api.imaging import camera_range_words
+from modules.lumascope_api.camera import camera_range_words
 from modules.lumascope_api.runtime_state import slots_holding
 from modules.api_surface import api, api_fields
 

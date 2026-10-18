@@ -271,13 +271,13 @@ class DiagnosticsAPI:
         read. A camera that leaves while the read is queued is answered the
         same way at the lane.
         """
-        imaging = self._scope.imaging
+        camera = self._scope.camera
         if not self._scope.camera_connected:
             return None
-        return imaging._dispatch_camera(
+        return camera._dispatch_camera(
             impl,
             name,
-            timeout_s=imaging._CAMERA_WRITE_TIMEOUT_S,
+            timeout_s=camera._CAMERA_WRITE_TIMEOUT_S,
             override=True,
             satisfied_when_absent=None,
         )
@@ -369,8 +369,8 @@ class DiagnosticsAPI:
         except Exception as e:
             info['resolution'] = f'Error: {e}'
 
-        _try('gain_db', lambda: self._scope.imaging.get_gain_db())
-        _try('exposure_ms', lambda: self._scope.imaging.get_exposure_ms())
+        _try('gain_db', lambda: self._scope.camera.get_gain_db())
+        _try('exposure_ms', lambda: self._scope.camera.get_exposure_ms())
         _try('max_gain_db', lambda: self._scope._camera_driver.get_max_gain())
         _try('max_exposure_ms', lambda: self._scope._camera_driver.get_max_exposure())
 
@@ -427,7 +427,7 @@ class DiagnosticsAPI:
         """
         _refuse_outside(num_frames, 'num_frames', _BANDWIDTH_FRAMES)
         refuse_unless_finite_number(timeout_s, 'timeout_s')
-        self._scope.imaging.refuse_camera_not_connected('run_camera_bandwidth_test')
+        self._scope.camera.refuse_camera_not_connected('run_camera_bandwidth_test')
         results = {
             'num_frames_requested': int(num_frames),
             'num_frames_received': 0,
@@ -517,7 +517,7 @@ class DiagnosticsAPI:
 
         See ``_run_grab_lifecycle_benchmark_impl`` for the measurement and
         the result; this adds the dispatch described on
-        ``ImagingAPI._dispatch_camera``, bounded per cycle. ``progress_cb``
+        ``CameraAPI._dispatch_camera``, bounded per cycle. ``progress_cb``
         is called on the camera lane's worker.
 
         Raises:
@@ -536,7 +536,7 @@ class DiagnosticsAPI:
         ):
             _refuse_outside(value, name, limits)
         bound_s = num_cycles * (self._GRAB_CYCLE_BOUND_S + inter_cycle_delay_ms / 1000.0)
-        return self._scope.imaging._dispatch_camera(
+        return self._scope.camera._dispatch_camera(
             self._run_grab_lifecycle_benchmark_impl,
             'run_grab_lifecycle_benchmark',
             args=(num_cycles, inter_cycle_delay_ms, vary_settings),
@@ -625,7 +625,7 @@ class DiagnosticsAPI:
         # Snapshot current settings so we can restore even when vary_settings
         # is on -- the benchmark must not leave the camera in an arbitrary state.
         saved_camera_state = (
-            self._scope.imaging.save_camera_state('grab_lifecycle_benchmark')
+            self._scope.camera.save_camera_state('grab_lifecycle_benchmark')
             if vary_settings
             else None
         )
@@ -652,18 +652,18 @@ class DiagnosticsAPI:
                     # not to dominate the cycle, large enough that GenICam
                     # node-map writes are real.
                     if i % 2 == 0:
-                        self._scope.imaging.set_gain_db(1.0)
-                        self._scope.imaging.set_exposure_ms(10.0)
+                        self._scope.camera.set_gain_db(1.0)
+                        self._scope.camera.set_exposure_ms(10.0)
                     else:
-                        self._scope.imaging.set_gain_db(4.0)
-                        self._scope.imaging.set_exposure_ms(50.0)
+                        self._scope.camera.set_gain_db(4.0)
+                        self._scope.camera.set_exposure_ms(50.0)
 
                 t1 = time.monotonic()
                 self._scope._camera_driver.start_grabbing()
                 start_s = time.monotonic() - t1
             except Exception as e:
                 # A camera gone ends the benchmark; the lane answers for it.
-                if self._scope.imaging.camera_removed:
+                if self._scope.camera.camera_removed:
                     raise
                 results['errors'].append(f'Cycle {i}: {type(e).__name__}: {e}')
                 # Try to leave the camera grabbing for the next iteration;
@@ -694,7 +694,7 @@ class DiagnosticsAPI:
         # Restore caller's gain/exposure so vary_settings doesn't leak state.
         try:
             if saved_camera_state is not None:
-                self._scope.imaging.restore_camera_state(saved_camera_state)
+                self._scope.camera.restore_camera_state(saved_camera_state)
         except Exception as e:
             results['errors'].append(f'Restore settings failed: {type(e).__name__}: {e}')
 
@@ -762,7 +762,7 @@ class DiagnosticsAPI:
         """One-shot Pylon-camera diagnostic probe, on the camera lane, and wait.
 
         See ``_run_pylon_diagnostic_probe_impl`` for the probe and its JSON;
-        this adds the dispatch described on ``ImagingAPI._dispatch_camera``.
+        this adds the dispatch described on ``CameraAPI._dispatch_camera``.
         The probe pops the camera's error queue, so it is a write to the
         camera and refused while another activity holds the scope.
         ``progress_cb`` is called on the camera lane's worker.
@@ -775,7 +775,7 @@ class DiagnosticsAPI:
                 Nothing reached the camera.
         """
         _refuse_outside(duration_s, 'duration_s', _PROBE_DURATION_S)
-        return self._scope.imaging._dispatch_camera(
+        return self._scope.camera._dispatch_camera(
             self._run_pylon_diagnostic_probe_impl,
             'run_pylon_diagnostic_probe',
             args=(duration_s,),
@@ -1384,7 +1384,7 @@ class DiagnosticsAPI:
             'gain_max_db': profile.gain.total_max_db,
             'exposure_min_us': exposure_min_us,
             'exposure_min_ms': exposure_min_ms,
-            'max_exposure_ms': self._scope.imaging.max_exposure_ms_cached,
+            'max_exposure_ms': self._scope.camera.max_exposure_ms_cached,
         }
 
     def _camera_summary(self) -> dict:

@@ -309,14 +309,14 @@ class ManualRecordingController:
         settings = self._settings
         scope = self._scope
 
-        if not scope.imaging.active_cached:
+        if not scope.camera.active_cached:
             raise RecordingRefusedError(
                 reason='camera_inactive',
                 message='The camera is not streaming, so there is nothing to record. '
                 'Check the camera connection and try again.',
             )
 
-        exposure = scope.imaging.exposure_ms_cached
+        exposure = scope.camera.exposure_ms_cached
         # The exposure cache seeds 0.0 and keeps the prior value when a
         # read fails, so a camera whose exposure was never successfully
         # read reports 0 here; the dead-feed bound derives from it, so
@@ -432,7 +432,7 @@ class ManualRecordingController:
         claimed = {}
 
         def _make_config() -> RecordingConfig:
-            frame_size = scope.imaging.frame_size_cached
+            frame_size = scope.camera.frame_size_cached
             claimed['frame_size'] = frame_size
             claimed['pixel_size_um'] = resolve_recording_pixel_size(scope)
             claimed['to_plate'] = scope.runtime_state.plate_transform() if video_as_frames else None
@@ -670,7 +670,7 @@ class ManualRecordingController:
         if self._elapsed_clock() - start_ts >= config.duration_s:
             self.stop(reason='duration_elapsed')
             return
-        if not self._scope.imaging.active_cached:
+        if not self._scope.camera.active_cached:
             self._stop_for_camera_loss(reason='camera_disconnected')
             return
         if stall_watch is None:
@@ -683,7 +683,7 @@ class ManualRecordingController:
 
     def _stall_threshold_now(self, effective_fps: float | None, floor_ms: float = 0.0) -> float:
         """The feed-death bound for the longest exposure the camera may be using now."""
-        exposure_ms = max(floor_ms, self._scope.imaging.longest_exposure_ms or 0.0)
+        exposure_ms = max(floor_ms, self._scope.camera.longest_exposure_ms or 0.0)
         return stall_threshold_s(effective_fps, exposure_ms / 1000.0)
 
     def _disarm_health_check(self) -> None:

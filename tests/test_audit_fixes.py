@@ -24,7 +24,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from tests.af_drives import park_z
-from tests.scope_fakes import home_sim_scope, bind_settings_like_a_session
+from tests.scope_fakes import home_sim_scope, bind_settings_like_a_session, give_camera_and_imaging
 from tests.protocol_drives import lent_run_claim
 from tests.frame_records import frame_record, plate, unpositioned
 from modules.protocol_image_writer import RunWriteBatch
@@ -975,9 +975,9 @@ class TestIssue602_AFExecutorLED:
         abort_event.set()  # pre-set so AFE.run() unwinds via abort path
         with (
             patch.object(af, '_move_absolute_position'),
-            patch.object(scope.imaging, 'save_camera_state', return_value={}),
+            patch.object(scope.camera, 'save_camera_state', return_value={}),
             patch.object(scope.motion, 'set_precision_mode'),
-            patch.object(scope.imaging, 'restore_camera_state'),
+            patch.object(scope.camera, 'restore_camera_state'),
         ):
             with pytest.raises(AutofocusAborted):
                 af.run(
@@ -1041,9 +1041,9 @@ class TestAFPrecisionModeRestoresOn:
             patch.object(scope.motion, 'set_precision_mode') as mock_set,
             patch.object(af, '_move_absolute_position'),
             patch.object(scope.illumination, 'save_led_state', return_value={}),
-            patch.object(scope.imaging, 'save_camera_state', return_value={}),
+            patch.object(scope.camera, 'save_camera_state', return_value={}),
             patch.object(scope.illumination, 'restore_led_state'),
-            patch.object(scope.imaging, 'restore_camera_state'),
+            patch.object(scope.camera, 'restore_camera_state'),
         ):
             with pytest.raises(AutofocusAborted):
                 af.run(
@@ -1315,7 +1315,7 @@ class TestRule14_A10_ProtocolCleanupErrorCollection:
             return_to_position=PlateLocation(x_mm=1.0, y_mm=2.0, z_um=3.0),
             default_move_fn=_raiser('move'),
         )
-        kwargs['scope'].imaging.restore_camera_state.side_effect = RuntimeError('camera boom')
+        kwargs['scope'].camera.restore_camera_state.side_effect = RuntimeError('camera boom')
         run_cleanup(**kwargs)
 
         assert captured, 'failing cleanup steps must surface a summary notification'
@@ -1375,25 +1375,28 @@ class TestRule14_A10_ProtocolCleanupErrorCollection:
 
 
 class TestSetBinningSizeAnswersByRaising:
-    """ImagingAPI.set_binning_size returns only when the camera took it.
+    """CameraAPI.set_binning_size returns only when the camera took it.
 
     Bench session 2026-05-05 surfaced a phantom-failure bug where the API
     method dropped the driver's True return and implicitly returned None;
     char-tool's `if not ok:` check then misreported every successful binning
     op as a failure. A status any caller can drop is the defect: the member
-    returns nothing and every failure raises, so there is no return to
-    misread.
+    returns the frame the camera delivers, never a success flag, and every
+    failure raises, so there is no status to misread.
     """
 
-    def test_set_binning_size_declares_no_return(self):
+    def test_set_binning_size_declares_no_status(self):
         from tests.ast_seams import assert_def
 
         assert_def(
-            'modules/lumascope_api/imaging.py',
+            'modules/lumascope_api/camera.py',
             'set_binning_size',
             params=['self', 'size'],
-            returns='None',
-            msg='ImagingAPI.set_binning_size must declare `-> None`: a failure raises (Rule 37)',
+            returns='dict | None',
+            msg=(
+                'CameraAPI.set_binning_size must declare `-> dict | None`, the frame '
+                'it delivers, never a status: a failure raises (Rule 37)'
+            ),
         )
 
     def test_set_binning_size_returns_driver_value(self):
@@ -1406,11 +1409,18 @@ class TestSetBinningSizeAnswersByRaising:
 
         from modules.exceptions import CameraSettingRejected
 
-        imaging, _cam = _sim_backed_imaging()
-        imaging.set_binning_size(2)
-        assert imaging.get_binning_size() == 2, 'a driver-accepted binning change is recorded'
+        _imaging, camera, _cam = _sim_backed_imaging()
+        camera.set_binning_size(2)
+        assert camera.get_binning_size() == 2, 'a driver-accepted binning change is recorded'
+        # The driver's own rejection, so the body on the lane: the storing
+        # setter refuses a size the camera does not offer before the write.
         with pytest.raises(CameraSettingRejected):
-            imaging.set_binning_size(5)  # sim supports 1-4
+            camera._dispatch_camera(
+                camera._set_binning_size_impl,
+                'set_binning_size',
+                args=(5,),  # sim supports 1-4
+                timeout_s=camera._CAMERA_GEOMETRY_TIMEOUT_S,
+            )
 
     def test_set_binning_size_has_returns_docstring_section(self):
         """Rule 38: public methods declare what they return."""
@@ -1421,7 +1431,7 @@ class TestSetBinningSizeAnswersByRaising:
         # contract text lives on the impl -- the public is a thin
         # dispatcher whose docstring points here, the same shape as the
         # other dispatched setters.
-        source = pathlib.Path('modules/lumascope_api/imaging.py').read_text()
+        source = pathlib.Path('modules/lumascope_api/camera.py').read_text()
         idx = source.find('def _set_binning_size_impl(self, size: int) -> bool:')
         next_def = source.find('\n    def ', idx + 1)
         body = source[idx:next_def] if next_def != -1 else source[idx : idx + 2000]
@@ -2218,7 +2228,7 @@ def _bare_protocol_writer(**overrides):
         # writer reads it once per capture, for the file name and the scale.
         writer._scope.runtime_state.resolve_current_objective.return_value = ('4x Oly', {})
         # A brought-up scope's camera is present; a failed capture asks.
-        writer._scope.imaging.camera_removed = False
+        writer._scope.camera.camera_removed = False
         # A capture hands on its frame's record; a stub's would answer every
         # fact it carries (blown, dark) with a truthy stand-in.
         writer._scope.imaging.last_capture_info = {'frame_record': frame_record()}
@@ -2931,9 +2941,11 @@ class TestPF5_ImageBufferRetired:
 
         from tests.camera_fakes import grab_a_frame_made_after_now
 
-        imaging, cam = _sim_backed_imaging()
-        imaging.set_pixel_format('Mono12')
-        assert imaging.pixel_format_cached == 'Mono12'
+        imaging, camera, cam = _sim_backed_imaging()
+        # A pixel format is set only through the image mode; 12-bit
+        # scientific selects Mono12 on the simulated camera.
+        camera.set_image_mode('12bit_scientific')
+        assert camera.pixel_format_cached == 'Mono12'
         grab_a_frame_made_after_now(cam)
         sentinel = np.full((4, 4), 7, dtype=np.uint8)
         monkeypatch.setattr(
@@ -2948,7 +2960,7 @@ class TestPF5_ImageBufferRetired:
         image, not be discarded."""
         import numpy as np
 
-        imaging, _cam = _sim_backed_imaging()
+        imaging, _camera, _cam = _sim_backed_imaging()
         sentinel = np.full((4, 4), 9, dtype=np.uint8)
         bind_settings_like_a_session(
             imaging._scope, scale_bar={'enabled': True}, objective_id='4x Oly'
@@ -3085,10 +3097,11 @@ class TestFrameValidity_AllLedMutatorsInvalidate:
 
 
 def _sim_backed_imaging():
-    """ImagingAPI on a connected SimulatedCamera with a minimal scope stub.
+    """ImagingAPI and CameraAPI on a connected SimulatedCamera with a minimal scope stub.
 
-    The API object builds its own locks and frame_validity, so the scope
-    stub only needs the camera-driver slot the _driver property resolves,
+    Returns ``(imaging, camera, driver)``. The sub-APIs are built as the
+    constructor builds them (``give_camera_and_imaging``), with their locks
+    and the one frame_validity, so the scope stub only needs the camera-driver slot the _driver property resolves,
     runtime_state (read by get_image's scale-bar gate) with the objective
     catalogue it reads, and capabilities
     (the optics the scale bar's pixel size is resolved from).
@@ -3120,9 +3133,8 @@ def _sim_backed_imaging():
     scope.capabilities = dataclasses.replace(
         scope.capabilities, pixel_size_um=None, lens_focal_length_mm=None
     )
-    imaging = ImagingAPI(scope, cam)
-    scope.imaging = imaging
-    return imaging, cam
+    camera = give_camera_and_imaging(scope)
+    return scope.imaging, camera, cam
 
 
 class TestSessionManifestHelpers:
@@ -3735,9 +3747,8 @@ class TestPylonDiagnosticProbe:
         attach the supplied fake camera. Phase 5b: also inject
         DiagnosticsAPI so callers can use scope.diagnostics.X."""
         from modules.lumascope_api import Lumascope
+        from modules.lumascope_api.camera import CameraAPI
         from modules.lumascope_api.diagnostics import DiagnosticsAPI
-
-        from modules.lumascope_api.imaging import ImagingAPI
 
         scope = Lumascope.__new__(Lumascope)
         bind_settings_like_a_session(scope)
@@ -3746,8 +3757,8 @@ class TestPylonDiagnosticProbe:
         # No camera lane: the probe's dispatch runs its body inline, as it
         # does on a bare scope.
         give_stub_lanes(scope)
-        scope.imaging = ImagingAPI.__new__(ImagingAPI)
-        scope.imaging._scope = scope
+        scope.camera = CameraAPI.__new__(CameraAPI)
+        scope.camera._scope = scope
         scope.diagnostics = DiagnosticsAPI(scope)
         return scope
 
@@ -3959,13 +3970,12 @@ class TestDeviceLinkThroughputLimitSetter:
 
     def _make_scope_with_fake_camera(self, fake_camera):
         from modules.lumascope_api import Lumascope
-        from modules.lumascope_api.imaging import ImagingAPI
 
         scope = Lumascope.__new__(Lumascope)
         bind_settings_like_a_session(scope)
         scope.runtime_state = RuntimeState(scope)
         scope._camera_driver = fake_camera
-        scope.imaging = ImagingAPI(scope, fake_camera)
+        give_camera_and_imaging(scope)
         return scope
 
     def test_lumascope_method_exists(self):
@@ -3974,13 +3984,12 @@ class TestDeviceLinkThroughputLimitSetter:
 
     def test_no_camera_returns_false(self):
         from modules.lumascope_api import Lumascope
-        from modules.lumascope_api.imaging import ImagingAPI
 
         scope = Lumascope.__new__(Lumascope)
         bind_settings_like_a_session(scope)
         scope.runtime_state = RuntimeState(scope)
         scope._camera_driver = None
-        scope.imaging = ImagingAPI(scope, None)
+        give_camera_and_imaging(scope)
         assert scope.imaging._set_device_link_throughput_limit('Off') is False
 
     def test_inactive_camera_returns_false(self):
@@ -6095,13 +6104,12 @@ class TestAcquisitionStopModeSetter:
 
     def _make_scope_with_fake_camera(self, fake_camera):
         from modules.lumascope_api import Lumascope
-        from modules.lumascope_api.imaging import ImagingAPI
 
         scope = Lumascope.__new__(Lumascope)
         bind_settings_like_a_session(scope)
         scope.runtime_state = RuntimeState(scope)
         scope._camera_driver = fake_camera
-        scope.imaging = ImagingAPI(scope, fake_camera)
+        give_camera_and_imaging(scope)
         return scope
 
     def test_lumascope_method_exists(self):
@@ -6110,13 +6118,12 @@ class TestAcquisitionStopModeSetter:
 
     def test_no_camera_returns_false(self):
         from modules.lumascope_api import Lumascope
-        from modules.lumascope_api.imaging import ImagingAPI
 
         scope = Lumascope.__new__(Lumascope)
         bind_settings_like_a_session(scope)
         scope.runtime_state = RuntimeState(scope)
         scope._camera_driver = None
-        scope.imaging = ImagingAPI(scope, None)
+        give_camera_and_imaging(scope)
         assert scope.imaging._set_acquisition_stop_mode('Complete') is False
 
     def test_inactive_camera_returns_false(self):
@@ -6233,13 +6240,12 @@ class TestGigeSetters:
 
     def _make_scope_with_fake_camera(self, fake_camera):
         from modules.lumascope_api import Lumascope
-        from modules.lumascope_api.imaging import ImagingAPI
 
         scope = Lumascope.__new__(Lumascope)
         bind_settings_like_a_session(scope)
         scope.runtime_state = RuntimeState(scope)
         scope._camera_driver = fake_camera
-        scope.imaging = ImagingAPI(scope, fake_camera)
+        give_camera_and_imaging(scope)
         return scope
 
     def test_lumascope_methods_exist(self):
@@ -6258,13 +6264,12 @@ class TestGigeSetters:
 
     def test_no_camera_returns_false_for_all(self):
         from modules.lumascope_api import Lumascope
-        from modules.lumascope_api.imaging import ImagingAPI
 
         scope = Lumascope.__new__(Lumascope)
         bind_settings_like_a_session(scope)
         scope.runtime_state = RuntimeState(scope)
         scope._camera_driver = None
-        scope.imaging = ImagingAPI(scope, None)
+        give_camera_and_imaging(scope)
         assert scope.imaging._set_bandwidth_reserve_mode('Performance') is False
         assert scope.imaging._set_gev_packet_size(9000) is False
         assert scope.imaging._set_gev_inter_packet_delay(0) is False
@@ -6467,13 +6472,12 @@ class TestStreamGrabberSetters:
 
     def _make_scope_with_fake_camera(self, fake_camera):
         from modules.lumascope_api import Lumascope
-        from modules.lumascope_api.imaging import ImagingAPI
 
         scope = Lumascope.__new__(Lumascope)
         bind_settings_like_a_session(scope)
         scope.runtime_state = RuntimeState(scope)
         scope._camera_driver = fake_camera
-        scope.imaging = ImagingAPI(scope, fake_camera)
+        give_camera_and_imaging(scope)
         return scope
 
     def test_lumascope_methods_exist(self):
@@ -6484,13 +6488,12 @@ class TestStreamGrabberSetters:
 
     def test_no_camera_returns_false_for_both(self):
         from modules.lumascope_api import Lumascope
-        from modules.lumascope_api.imaging import ImagingAPI
 
         scope = Lumascope.__new__(Lumascope)
         bind_settings_like_a_session(scope)
         scope.runtime_state = RuntimeState(scope)
         scope._camera_driver = None
-        scope.imaging = ImagingAPI(scope, None)
+        give_camera_and_imaging(scope)
         assert scope.imaging._set_max_transfer_size(262144) is False
         assert scope.imaging._set_num_max_queued_urbs(64) is False
 
@@ -7837,7 +7840,7 @@ class TestImagingGetCameraTempsRetired:
 
 
 class TestImagingParamNamesUseUnitSuffix:
-    """Audit U3 + U4 -- imaging API + driver method param names carry unit
+    """Audit U3 + U4 -- camera API + driver method param names carry unit
     suffix (gain_db / exposure_ms / min_gain_db / max_gain_db). Pre-freeze,
     the L2 surface and the driver contract drop bare ``gain`` / ``t`` /
     ``exposure`` / ``min_gain`` / ``max_gain`` parameter names that fail to
@@ -7846,7 +7849,7 @@ class TestImagingParamNamesUseUnitSuffix:
     camera-cache, API-param). Lock these so a revert breaking either the
     L2 contract or the driver contract trips immediately."""
 
-    _IMAGING_PARAMS = (
+    _CAMERA_PARAMS = (
         # (method, expected_param_name_set, banned_param_name_set)
         ('set_gain_db', frozenset({'gain_db'}), frozenset({'gain'})),
         ('set_exposure_ms', frozenset({'exposure_ms'}), frozenset({'t', 'exposure'})),
@@ -7858,18 +7861,18 @@ class TestImagingParamNamesUseUnitSuffix:
         ),
     )
 
-    def test_imaging_method_param_names(self):
+    def test_camera_method_param_names(self):
         import inspect
-        from modules.lumascope_api.imaging import ImagingAPI
+        from modules.lumascope_api.camera import CameraAPI
 
-        for method_name, expected, banned in self._IMAGING_PARAMS:
-            method = getattr(ImagingAPI, method_name)
+        for method_name, expected, banned in self._CAMERA_PARAMS:
+            method = getattr(CameraAPI, method_name)
             params = set(inspect.signature(method).parameters)
             missing = expected - params
             present_banned = banned & params
-            assert not missing, f'ImagingAPI.{method_name} missing unit-suffixed params {missing}'
+            assert not missing, f'CameraAPI.{method_name} missing unit-suffixed params {missing}'
             assert not present_banned, (
-                f'ImagingAPI.{method_name} still has bare-name params '
+                f'CameraAPI.{method_name} still has bare-name params '
                 f'{present_banned}; should use unit-suffixed names per audit U3'
             )
 
@@ -8095,8 +8098,13 @@ class TestConnectionCheckShapeUniformOnLumascope:
     Internal imaging callers route through self._scope.camera_connected."""
 
     def test_imaging_class_does_not_carry_camera_is_connected(self):
+        from modules.lumascope_api.camera import CameraAPI
         from modules.lumascope_api.imaging import ImagingAPI
 
+        # The camera's members moved to CameraAPI (W3b): neither class carries it.
+        assert not hasattr(CameraAPI, 'camera_is_connected'), (
+            'camera_is_connected came back on CameraAPI'
+        )
         assert not hasattr(ImagingAPI, 'camera_is_connected'), (
             'ImagingAPI.camera_is_connected must be retired per audit #22; '
             'callers read scope.camera_connected (property) instead.'
@@ -8165,7 +8173,8 @@ class TestFrameValidityIsL2Stable:
         scope = Lumascope.__new__(Lumascope)
         bind_settings_like_a_session(scope)
         scope._camera_driver = None
-        api = ImagingAPI(scope, None)
+        give_camera_and_imaging(scope)
+        api = scope.imaging
         assert isinstance(api.frame_validity, FrameValidity), (
             'ImagingAPI must expose a FrameValidity instance under the '
             'public frame_validity name -- L2 callers depend on it.'
@@ -8262,8 +8271,13 @@ class TestCameraMaxFrameSizeOnCapabilities:
     tuple[int, int]. The ImagingAPI wrapper is retired."""
 
     def test_imaging_class_does_not_carry_camera_max_frame_size(self):
+        from modules.lumascope_api.camera import CameraAPI
         from modules.lumascope_api.imaging import ImagingAPI
 
+        # The camera's members moved to CameraAPI (W3b): neither class carries it.
+        assert not hasattr(CameraAPI, 'camera_max_frame_size'), (
+            'camera_max_frame_size came back on CameraAPI'
+        )
         assert not hasattr(ImagingAPI, 'camera_max_frame_size'), (
             'ImagingAPI.camera_max_frame_size must be retired per audit #4; '
             'callers read scope.capabilities.camera_max_frame_size instead.'
@@ -8686,7 +8700,7 @@ class TestAutoGainArmedInScanIterate:
     def _queued_ag_applies(runner):
         # The run arms through the public member, under its taking; the
         # member's own dispatch puts the apply on the lane.
-        return runner._scope.imaging.apply_layer_camera_settings.call_args_list
+        return runner._scope.camera.apply_layer_camera_settings.call_args_list
 
     def test_run_loop_resets_armed_step_per_scan(self):
         """Each scan must re-arm AG: a two-scan run queues the AG apply
@@ -8748,27 +8762,27 @@ class TestAutoGainArmedInScanIterate:
             protocol=protocol,
             enable_image_saving=True,
         )
-        return scope.imaging
+        return scope.camera
 
     def test_capture_does_not_double_apply_for_ag_step(self):
         """An Auto_Gain step's capture must apply NO camera settings --
         scan_iterate already lit the LED and armed AG against the lit
         scene; a re-apply here would restart AG mid-grab and discard the
         settling the capture_and_wait drain produced."""
-        imaging = self._drive_capture(auto_gain=True)
+        camera = self._drive_capture(auto_gain=True)
         assert (
-            not imaging.apply_layer_camera_settings.called
-            and not imaging._apply_layer_camera_settings_impl.called
+            not camera.apply_layer_camera_settings.called
+            and not camera._apply_layer_camera_settings_impl.called
         ), 'AG-step capture must not re-apply layer camera settings'
-        assert not imaging.set_gain_db.called and not imaging.set_exposure_ms.called, (
+        assert not camera.set_gain_db.called and not camera.set_exposure_ms.called, (
             'AG-step capture must not drive manual gain/exposure either'
         )
 
     def test_capture_applies_settings_for_manual_step(self):
         """Control: a non-AG step DOES drive the step gain/exposure."""
-        imaging = self._drive_capture(auto_gain=False)
-        imaging.set_gain_db.assert_called_once_with(2.0)
-        imaging.set_exposure_ms.assert_called_once_with(10.0)
+        camera = self._drive_capture(auto_gain=False)
+        camera.set_gain_db.assert_called_once_with(2.0)
+        camera.set_exposure_ms.assert_called_once_with(10.0)
 
     def test_arm_block_returns_after_arming(self):
         """The arm tick must NOT capture -- the next scan_iterate tick

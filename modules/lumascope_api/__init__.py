@@ -3,7 +3,7 @@
 
 The composition root Lumascope and its public state enum AxisState live
 in _lumascope.py. The sub-API classes (MotionAPI, IlluminationAPI,
-ImagingAPI, DiagnosticsAPI, Capabilities, RuntimeState,
+CameraAPI, ImagingAPI, DiagnosticsAPI, Capabilities, RuntimeState,
 ProtocolsAPI) live in sibling modules in this package.
 
 Existing imports `from modules.lumascope_api import Lumascope` and
@@ -17,6 +17,7 @@ from modules.lumascope_api._lumascope import (
     AxisState,
     Lumascope,
 )
+from modules.lumascope_api.camera import CameraAPI
 from modules.lumascope_api.capabilities import Capabilities
 from modules.lumascope_api.diagnostics import DiagnosticsAPI
 from modules.lumascope_api.illumination import IlluminationAPI
@@ -28,6 +29,7 @@ from modules.lumascope_api.runtime_state import RuntimeState
 __all__ = [
     'AxisPosition',
     'AxisState',
+    'CameraAPI',
     'Capabilities',
     'DiagnosticsAPI',
     'Frame',

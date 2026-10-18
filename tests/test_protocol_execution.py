@@ -1515,7 +1515,7 @@ class TestZeroExposure:
     its declared floor, stands in for it."""
 
     def test_zero_exposure_completes(self, executor, scope, tmp_path):
-        floor_ms = scope.imaging.min_exposure_ms_cached
+        floor_ms = scope.camera.min_exposure_ms_cached
         protocol = _make_single_step_protocol(color='BF', exposure=floor_ms)
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
@@ -1941,35 +1941,35 @@ class TestCameraStateRestoration:
 
     def test_gain_restored_after_protocol(self, executor, scope, tmp_path):
         """Gain is restored to original value after protocol completes."""
-        scope.imaging.set_gain_db(3.0)
-        scope.imaging.set_exposure_ms(25.0)
-        original_gain = scope.imaging.get_gain_db()
-        original_exposure = scope.imaging.get_exposure_ms()
+        scope.camera.set_gain_db(3.0)
+        scope.camera.set_exposure_ms(25.0)
+        original_gain = scope.camera.get_gain_db()
+        original_exposure = scope.camera.get_exposure_ms()
 
         protocol = _make_single_step_protocol(color='BF', gain=10.0, exposure=100.0)
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
 
-        assert scope.imaging.get_gain_db() == pytest.approx(original_gain, abs=0.1)
-        assert scope.imaging.get_exposure_ms() == pytest.approx(original_exposure, abs=0.1)
+        assert scope.camera.get_gain_db() == pytest.approx(original_gain, abs=0.1)
+        assert scope.camera.get_exposure_ms() == pytest.approx(original_exposure, abs=0.1)
 
     def test_gain_restored_with_auto_gain(self, executor, scope, tmp_path):
         """Even with auto_gain enabled, original gain is restored after cleanup."""
-        scope.imaging.set_gain_db(5.0)
-        original_gain = scope.imaging.get_gain_db()
+        scope.camera.set_gain_db(5.0)
+        original_gain = scope.camera.get_gain_db()
 
         protocol = _make_single_step_protocol(color='BF', auto_gain=True)
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
 
-        assert scope.imaging.get_gain_db() == pytest.approx(original_gain, abs=0.1)
+        assert scope.camera.get_gain_db() == pytest.approx(original_gain, abs=0.1)
 
     def test_gain_restored_after_multi_step(self, executor, scope, tmp_path):
         """Multi-step protocol with varying gains restores to original."""
-        scope.imaging.set_gain_db(2.0)
-        scope.imaging.set_exposure_ms(15.0)
-        original_gain = scope.imaging.get_gain_db()
-        original_exposure = scope.imaging.get_exposure_ms()
+        scope.camera.set_gain_db(2.0)
+        scope.camera.set_exposure_ms(15.0)
+        original_gain = scope.camera.get_gain_db()
+        original_exposure = scope.camera.get_exposure_ms()
 
         protocol = _make_multi_step_protocol(
             [
@@ -1981,15 +1981,15 @@ class TestCameraStateRestoration:
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
 
-        assert scope.imaging.get_gain_db() == pytest.approx(original_gain, abs=0.1)
-        assert scope.imaging.get_exposure_ms() == pytest.approx(original_exposure, abs=0.1)
+        assert scope.camera.get_gain_db() == pytest.approx(original_gain, abs=0.1)
+        assert scope.camera.get_exposure_ms() == pytest.approx(original_exposure, abs=0.1)
 
     def test_gain_restored_after_cancellation(self, executor, scope, tmp_path):
         """Gain is restored even when protocol is cancelled mid-run."""
-        scope.imaging.set_gain_db(4.0)
-        scope.imaging.set_exposure_ms(30.0)
-        original_gain = scope.imaging.get_gain_db()
-        original_exposure = scope.imaging.get_exposure_ms()
+        scope.camera.set_gain_db(4.0)
+        scope.camera.set_exposure_ms(30.0)
+        original_gain = scope.camera.get_gain_db()
+        original_exposure = scope.camera.get_exposure_ms()
 
         protocol = _make_multi_step_protocol(
             [
@@ -2015,8 +2015,8 @@ class TestCameraStateRestoration:
         run.stop()
         done.wait(timeout=COMPLETION_TIMEOUT)
 
-        assert scope.imaging.get_gain_db() == pytest.approx(original_gain, abs=0.1)
-        assert scope.imaging.get_exposure_ms() == pytest.approx(original_exposure, abs=0.1)
+        assert scope.camera.get_gain_db() == pytest.approx(original_gain, abs=0.1)
+        assert scope.camera.get_exposure_ms() == pytest.approx(original_exposure, abs=0.1)
 
 
 # ---------------------------------------------------------------------------
@@ -2077,23 +2077,23 @@ class TestCleanupCorrectness:
     def test_back_to_back_runs_no_state_bleed(self, executor, scope, tmp_path):
         """Gain/exposure from run A don't leak into run B's restored values."""
         # Run A: set gain to 8
-        scope.imaging.set_gain_db(8.0)
-        scope.imaging.set_exposure_ms(80.0)
+        scope.camera.set_gain_db(8.0)
+        scope.camera.set_exposure_ms(80.0)
         protocol_a = _make_single_step_protocol(color='BF', gain=15.0, exposure=150.0)
         completed_a, _ = _run_and_wait(executor, protocol_a, tmp_path)
         assert completed_a
         # Should restore to 8.0/80.0
-        assert scope.imaging.get_gain_db() == pytest.approx(8.0, abs=0.1)
+        assert scope.camera.get_gain_db() == pytest.approx(8.0, abs=0.1)
 
         # Run B: change gain before second run
-        scope.imaging.set_gain_db(2.0)
-        scope.imaging.set_exposure_ms(20.0)
+        scope.camera.set_gain_db(2.0)
+        scope.camera.set_exposure_ms(20.0)
         protocol_b = _make_single_step_protocol(color='Red', gain=12.0, exposure=120.0)
         completed_b, _ = _run_and_wait(executor, protocol_b, tmp_path / 'run2')
         assert completed_b
         # Should restore to 2.0/20.0, NOT to 8.0/80.0 from run A
-        assert scope.imaging.get_gain_db() == pytest.approx(2.0, abs=0.1)
-        assert scope.imaging.get_exposure_ms() == pytest.approx(20.0, abs=0.1)
+        assert scope.camera.get_gain_db() == pytest.approx(2.0, abs=0.1)
+        assert scope.camera.get_exposure_ms() == pytest.approx(20.0, abs=0.1)
 
 
 class TestProtocolLedNoFlash:

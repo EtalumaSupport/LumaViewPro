@@ -879,7 +879,7 @@ class ProtocolRunner:
             borrowed_claim=claim.lend() if claim is not None else None,
             # The image mode and formats are the store's, read from the
             # snapshot for every run kind, so a script and the GUI's Run get
-            # the same files from the same settings; session.set_image_mode
+            # the same files from the same settings; scope.camera.set_image_mode
             # is how a caller chooses.
             **config_helpers.get_sequenced_run_settings(settings, run_mode=run_mode),
         )
@@ -894,7 +894,7 @@ class ProtocolRunner:
         logger.info(
             f'[Protocol] scan "{sequence_name}" '
             f'image_mode={plan.image_capture_config.image_mode} '
-            f'pixel_format={self.session.scope.imaging.pixel_format_cached} '
+            f'pixel_format={self.session.scope.camera.pixel_format_cached} '
             f'save_encoding={plan.image_capture_config.save_encoding}'
         )
 

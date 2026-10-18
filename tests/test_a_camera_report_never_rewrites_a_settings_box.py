@@ -14,7 +14,7 @@ applied is the API's to answer (``set_exposure_ms`` returns it,
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-from modules.lumascope_api.imaging import AppliedCameraSetting
+from modules.lumascope_api.camera import AppliedCameraSetting
 from tests.scope_fakes import spec_scope
 from ui.listener_bridge import UIListenerBridge
 
@@ -23,7 +23,7 @@ def _bridge_with_an_open_blue_layer():
     """A real bridge over a fake scope, Blue's drawer open at 1000 ms / 6 dB."""
     camera_listeners = []
     scope = spec_scope()
-    scope.imaging.add_camera_listener.side_effect = camera_listeners.append
+    scope.camera.add_camera_listener.side_effect = camera_listeners.append
 
     boxes = {
         'exp_text': SimpleNamespace(text='1000.0'),

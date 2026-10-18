@@ -17,38 +17,40 @@ import pytest
 from drivers import camera_profiles
 from drivers.camera_profiles import lookup_profile, simulated_profile
 from modules.exceptions import CameraSettingOutOfRangeError
-from tests.scope_fakes import build_scope
+from tests.scope_fakes import bind_settings_like_a_session, build_scope
 
 
 @pytest.fixture
 def scope():
     scope = build_scope(simulate=True)
+    # The frame size is saved as the camera takes it.
+    bind_settings_like_a_session(scope)
     yield scope
     scope.disconnect()
 
 
 @pytest.mark.parametrize('gain_db', [30.0, 48.0])
 def test_a_gain_the_dart_takes_is_taken(scope, gain_db):
-    assert scope.imaging.set_gain_db(gain_db) == pytest.approx(gain_db)
+    assert scope.camera.set_gain_db(gain_db) == pytest.approx(gain_db)
 
 
 def test_a_gain_above_the_darts_is_refused(scope):
     with pytest.raises(CameraSettingOutOfRangeError):
-        scope.imaging.set_gain_db(48.5)
+        scope.camera.set_gain_db(48.5)
 
 
 def test_an_exposure_the_dart_takes_is_taken(scope):
-    assert scope.imaging.set_exposure_ms(1000.0) == pytest.approx(1000.0)
+    assert scope.camera.set_exposure_ms(1000.0) == pytest.approx(1000.0)
 
 
 @pytest.mark.parametrize('exposure_ms', [1500.0, 0.010])
 def test_an_exposure_outside_the_darts_range_is_refused(scope, exposure_ms):
     with pytest.raises(CameraSettingOutOfRangeError):
-        scope.imaging.set_exposure_ms(exposure_ms)
+        scope.camera.set_exposure_ms(exposure_ms)
 
 
 def test_a_1900_frame_is_acquired_at_1900(scope):
-    scope.imaging.set_frame_size(1900, 1900)
+    scope.camera.set_frame_size(1900, 1900)
     camera = scope._camera_driver
     assert (camera._width, camera._height) == (1900, 1900)
 

@@ -14,8 +14,8 @@ outcome against the layer class's usable range, and re-arm afterwards when
 the arm was a live-view arm.
 
 Only the camera driver is a double (a SimulatedCamera with per-frame chunks
-and a modelled auto-exposure). ImagingAPI, FrameValidity, the drain loop
-and the chunk gate are the production objects.
+and a modelled auto-exposure). CameraAPI, ImagingAPI, FrameValidity, the
+drain loop and the chunk gate are the production objects.
 """
 
 from __future__ import annotations
@@ -32,12 +32,14 @@ from drivers.exceptions import CameraReadFailedError, HardwareError
 from modules.exceptions import ExposureAtMinimumNotice
 from drivers.simulated_camera import SimulatedCamera, _SimImageHandler
 from modules.lumascope_api import Lumascope
+from modules.lumascope_api.camera import CameraAPI
 from modules.lumascope_api.imaging import ImagingAPI
 from modules.notification_center import OutcomeKind
 from tests import ast_seams
 from tests.camera_fakes import grab_a_frame_made_after_now
 from tests.scope_fakes import (
     bind_settings_like_a_session,
+    give_camera_and_imaging,
     give_camera_capabilities,
     give_stub_lanes,
 )
@@ -132,7 +134,7 @@ class _StubIllumination:
         return ()
 
 
-def _build(ae_lands_on_ms: float) -> tuple[ImagingAPI, _ChunkAeSim]:
+def _build(ae_lands_on_ms: float) -> tuple[ImagingAPI, CameraAPI, _ChunkAeSim]:
     cam = _ChunkAeSim(ae_lands_on_ms)
     cam.active = True
     scope = Lumascope.__new__(Lumascope)
@@ -142,12 +144,12 @@ def _build(ae_lands_on_ms: float) -> tuple[ImagingAPI, _ChunkAeSim]:
     give_stub_lanes(scope)
     scope._cam_lock = threading.RLock()
     scope._state_lock = threading.RLock()
-    imaging = ImagingAPI(scope, cam)
-    scope.imaging = imaging
+    camera = give_camera_and_imaging(scope)
+    imaging = scope.imaging
     scope.illumination = _StubIllumination()
     scope.runtime_state = _StubRuntimeState()
     imaging.enable_streaming()
-    return imaging, cam
+    return imaging, camera, cam
 
 
 def _logged(level: str) -> list[str]:
@@ -160,8 +162,8 @@ def _logged(level: str) -> list[str]:
     return [str(call.args[0]) for call in getattr(lvp_logger.logger, level).call_args_list]
 
 
-def _arm(imaging, settings, *, resume_after_capture):
-    imaging._apply_layer_camera_settings_impl(
+def _arm(camera, settings, *, resume_after_capture):
+    camera._apply_layer_camera_settings_impl(
         layer='BF',
         gain_db=1.0,
         exposure_ms=100.0,
@@ -175,8 +177,8 @@ def test_auto_gain_capture_locks_and_passes_the_gate():
     """A per-capture arm at a 100 ms step exposure whose auto-exposure lands
     at 62.003 ms: the capture returns a frame proven at 62.003 ms through
     the gate, reports CONVERGED, and leaves the camera locked (auto off)."""
-    imaging, cam = _build(ae_lands_on_ms=62.003)
-    _arm(imaging, AG_SETTINGS_FLUORESCENCE, resume_after_capture=False)
+    imaging, camera, cam = _build(ae_lands_on_ms=62.003)
+    _arm(camera, AG_SETTINGS_FLUORESCENCE, resume_after_capture=False)
     image = imaging._capture_and_wait_impl(timeout_s=1.0)
     assert image is not None, 'the capture was rejected against the stale exposure target'
     info = imaging.last_capture_info
@@ -191,9 +193,9 @@ def test_auto_gain_capture_locks_and_passes_the_gate():
 def test_auto_gain_capture_reports_maxed_and_saves():
     """Auto-exposure pegged at the 200 ms class ceiling is MAXED: the frame
     is still returned and the lock line is logged at INFO."""
-    imaging, _cam = _build(ae_lands_on_ms=500.0)
+    imaging, camera, _cam = _build(ae_lands_on_ms=500.0)
     lvp_logger.logger.reset_mock()
-    _arm(imaging, AG_SETTINGS_FLUORESCENCE, resume_after_capture=False)
+    _arm(camera, AG_SETTINGS_FLUORESCENCE, resume_after_capture=False)
     image = imaging._capture_and_wait_impl(timeout_s=1.0)
     assert image is not None
     info = imaging.last_capture_info
@@ -207,8 +209,8 @@ def test_auto_gain_capture_reports_at_minimum_below_class_floor():
     """A fluorescence auto-exposure landing at 0.4 ms -- above the camera's
     own floor but below the class's 1.0 ms usable floor -- is AT_MINIMUM,
     and the frame is still captured at 0.4 ms."""
-    imaging, _cam = _build(ae_lands_on_ms=0.4)
-    _arm(imaging, AG_SETTINGS_FLUORESCENCE, resume_after_capture=False)
+    imaging, camera, _cam = _build(ae_lands_on_ms=0.4)
+    _arm(camera, AG_SETTINGS_FLUORESCENCE, resume_after_capture=False)
     image = imaging._capture_and_wait_impl(timeout_s=1.0)
     assert image is not None
     info = imaging.last_capture_info
@@ -221,26 +223,26 @@ def test_lock_result_carries_the_value_to_store():
     """The API decides what a caller stores as the manual setting after a
     lock: the achieved exposure floored to the class's usable floor, so a
     GUI and a REST caller store the same value."""
-    imaging, _cam = _build(ae_lands_on_ms=0.4)
-    _arm(imaging, AG_SETTINGS_FLUORESCENCE, resume_after_capture=False)
+    _imaging, camera, _cam = _build(ae_lands_on_ms=0.4)
+    _arm(camera, AG_SETTINGS_FLUORESCENCE, resume_after_capture=False)
     grab_a_frame_made_after_now(_cam)  # the lock reads the newest frame's chunks
-    lock = imaging._lock_auto_gain_impl()
+    lock = camera._lock_auto_gain_impl()
     assert lock.exposure_ms == 0.4
     assert lock.stored_exposure_ms == 1.0
 
-    imaging, _cam = _build(ae_lands_on_ms=62.003)
-    _arm(imaging, AG_SETTINGS_FLUORESCENCE, resume_after_capture=False)
+    _imaging, camera, _cam = _build(ae_lands_on_ms=62.003)
+    _arm(camera, AG_SETTINGS_FLUORESCENCE, resume_after_capture=False)
     grab_a_frame_made_after_now(_cam)  # the lock reads the newest frame's chunks
-    assert imaging._lock_auto_gain_impl().stored_exposure_ms == 62.003
+    assert camera._lock_auto_gain_impl().stored_exposure_ms == 62.003
 
 
 def test_auto_gain_capture_failed_readback_still_captures():
     """No chunks and a failed hardware readback leave nothing to lock: the
     state is FAILED, no exposure/gain target is recorded, the capture still
     returns a frame, and the lock line is logged."""
-    imaging, cam = _build(ae_lands_on_ms=62.0)
+    imaging, camera, cam = _build(ae_lands_on_ms=62.0)
     lvp_logger.logger.reset_mock()
-    _arm(imaging, AG_SETTINGS_FLUORESCENCE, resume_after_capture=False)
+    _arm(camera, AG_SETTINGS_FLUORESCENCE, resume_after_capture=False)
     cam.chunks_absent = True
     cam.fail_readback = True
     image = imaging._capture_and_wait_impl(timeout_s=1.0)
@@ -256,14 +258,14 @@ def test_auto_gain_capture_failed_readback_still_captures():
 def test_live_view_arm_resumes_after_capture():
     """A live-view arm (the default) is re-armed after the capture so the
     view keeps adjusting; a protocol step's arm stays locked off."""
-    imaging, cam = _build(ae_lands_on_ms=62.0)
-    _arm(imaging, AG_SETTINGS_TRANSMITTED, resume_after_capture=True)
+    imaging, camera, cam = _build(ae_lands_on_ms=62.0)
+    _arm(camera, AG_SETTINGS_TRANSMITTED, resume_after_capture=True)
     assert imaging._capture_and_wait_impl(timeout_s=1.0) is not None
     assert cam._auto_gain_enabled is True
     assert imaging.frame_validity.frames_until_valid() == 20
 
-    imaging, cam = _build(ae_lands_on_ms=62.0)
-    _arm(imaging, AG_SETTINGS_TRANSMITTED, resume_after_capture=False)
+    imaging, camera, cam = _build(ae_lands_on_ms=62.0)
+    _arm(camera, AG_SETTINGS_TRANSMITTED, resume_after_capture=False)
     assert imaging._capture_and_wait_impl(timeout_s=1.0) is not None
     assert cam._auto_gain_enabled is False
 
@@ -271,8 +273,8 @@ def test_live_view_arm_resumes_after_capture():
 def test_a_failed_black_level_read_fails_the_capture_and_the_arm_resumes():
     """The record's black level read raising fails the capture, and a
     live-view arm the capture locked is re-armed all the same."""
-    imaging, cam = _build(ae_lands_on_ms=62.0)
-    _arm(imaging, AG_SETTINGS_TRANSMITTED, resume_after_capture=True)
+    imaging, camera, cam = _build(ae_lands_on_ms=62.0)
+    _arm(camera, AG_SETTINGS_TRANSMITTED, resume_after_capture=True)
     with (
         patch.object(
             cam, 'get_black_level', side_effect=CameraReadFailedError('BlackLevel read failed')
@@ -288,10 +290,10 @@ def test_live_view_lock_tells_the_user_and_a_protocol_lock_does_not(centre_posts
     center from the API itself, so the GUI renders nothing of its own and
     a headless caller gets the same notice; a protocol step's arm is
     unattended and gets the log line only."""
-    imaging, _cam = _build(ae_lands_on_ms=0.4)
-    _arm(imaging, AG_SETTINGS_FLUORESCENCE, resume_after_capture=True)
+    _imaging, camera, _cam = _build(ae_lands_on_ms=0.4)
+    _arm(camera, AG_SETTINGS_FLUORESCENCE, resume_after_capture=True)
     grab_a_frame_made_after_now(_cam)  # the lock reads the newest frame's chunks
-    lock = imaging._lock_auto_gain_impl()
+    lock = camera._lock_auto_gain_impl()
     assert lock.state.value == 'AT_MINIMUM'
     assert [(n.kind, n.reason) for n in centre_posts] == [
         (OutcomeKind.NOTICE, ExposureAtMinimumNotice.reason)
@@ -299,16 +301,16 @@ def test_live_view_lock_tells_the_user_and_a_protocol_lock_does_not(centre_posts
     assert '0.4' in centre_posts[0].message
 
     centre_posts.clear()
-    imaging, _cam = _build(ae_lands_on_ms=0.4)
-    _arm(imaging, AG_SETTINGS_FLUORESCENCE, resume_after_capture=False)
+    _imaging, camera, _cam = _build(ae_lands_on_ms=0.4)
+    _arm(camera, AG_SETTINGS_FLUORESCENCE, resume_after_capture=False)
     grab_a_frame_made_after_now(_cam)  # the lock reads the newest frame's chunks
-    assert imaging._lock_auto_gain_impl().state.value == 'AT_MINIMUM'
+    assert camera._lock_auto_gain_impl().state.value == 'AT_MINIMUM'
     assert centre_posts == []
 
 
 def test_failed_lock_under_a_live_view_arm_is_an_error_to_the_user(centre_posts):
-    imaging, cam = _build(ae_lands_on_ms=62.0)
-    _arm(imaging, AG_SETTINGS_TRANSMITTED, resume_after_capture=True)
+    imaging, camera, cam = _build(ae_lands_on_ms=62.0)
+    _arm(camera, AG_SETTINGS_TRANSMITTED, resume_after_capture=True)
     cam.chunks_absent = True
     cam.fail_readback = True
     assert imaging._capture_and_wait_impl(timeout_s=1.0) is not None
@@ -321,14 +323,14 @@ def test_failed_lock_under_a_live_view_arm_is_an_error_to_the_user(centre_posts)
 def test_public_lock_runs_the_impl_without_an_executor():
     """A bare scope with no executor runs the body on the calling thread;
     the toggle-off path uses this member, never the impl."""
-    imaging, cam = _build(ae_lands_on_ms=8.0)
-    _arm(imaging, AG_SETTINGS_TRANSMITTED, resume_after_capture=True)
+    _imaging, camera, cam = _build(ae_lands_on_ms=8.0)
+    _arm(camera, AG_SETTINGS_TRANSMITTED, resume_after_capture=True)
     grab_a_frame_made_after_now(cam)  # the lock reads the newest frame's chunks
-    lock = imaging.lock_auto_gain()
+    lock = camera.lock_auto_gain()
     assert lock.state.value == 'CONVERGED'
     assert lock.stored_exposure_ms == 8.0
     assert cam._auto_gain_enabled is False
-    assert imaging.lock_auto_gain().state is None
+    assert camera.lock_auto_gain().state is None
 
 
 def test_class_floor_lives_in_config_helpers():
@@ -348,9 +350,9 @@ def test_converged_lock_leaves_an_info_line():
     """Every lock state leaves one line in a customer bundle, the normal
     one included: a converged lock logged only at debug left no trace of
     what the camera settled at when debug was off."""
-    imaging, _cam = _build(ae_lands_on_ms=62.003)
+    imaging, camera, _cam = _build(ae_lands_on_ms=62.003)
     lvp_logger.logger.reset_mock()
-    _arm(imaging, AG_SETTINGS_FLUORESCENCE, resume_after_capture=False)
+    _arm(camera, AG_SETTINGS_FLUORESCENCE, resume_after_capture=False)
     assert imaging._capture_and_wait_impl(timeout_s=1.0) is not None
     lock_lines = [m for m in _logged('info') if '[AG CONVERGE] locked: state=CONVERGED' in m]
     assert len(lock_lines) == 1, _logged('info')
@@ -376,7 +378,7 @@ class _InertAeSim(_ChunkAeSim):
         return True
 
 
-def _build_inert() -> tuple[ImagingAPI, _InertAeSim]:
+def _build_inert() -> tuple[ImagingAPI, CameraAPI, _InertAeSim]:
     cam = _InertAeSim(ae_lands_on_ms=0.0)
     cam.active = True
     scope = Lumascope.__new__(Lumascope)
@@ -386,12 +388,12 @@ def _build_inert() -> tuple[ImagingAPI, _InertAeSim]:
     give_stub_lanes(scope)
     scope._cam_lock = threading.RLock()
     scope._state_lock = threading.RLock()
-    imaging = ImagingAPI(scope, cam)
-    scope.imaging = imaging
+    camera = give_camera_and_imaging(scope)
+    imaging = scope.imaging
     scope.illumination = _StubIllumination()
     scope.runtime_state = _StubRuntimeState()
     imaging.enable_streaming()
-    return imaging, cam
+    return imaging, camera, cam
 
 
 def test_arm_clamps_exposure_above_the_class_cap():
@@ -401,9 +403,9 @@ def test_arm_clamps_exposure_above_the_class_cap():
     to the slider. The arm clamps the exposure to the cap first, re-targets
     the gate to it, and says so once; an exposure inside the cap is left
     alone."""
-    imaging, cam = _build_inert()
+    imaging, camera, cam = _build_inert()
     lvp_logger.logger.reset_mock()
-    imaging._apply_layer_camera_settings_impl(
+    camera._apply_layer_camera_settings_impl(
         layer='BF',
         gain_db=1.0,
         exposure_ms=100.0,
@@ -412,19 +414,19 @@ def test_arm_clamps_exposure_above_the_class_cap():
         resume_after_capture=True,
     )
     assert cam._exposure_us == 50000.0
-    assert imaging.exposure_ms_cached == 50.0
+    assert camera.exposure_ms_cached == 50.0
     assert imaging.frame_validity.target('exposure') == 50000.0
     clamp_lines = [m for m in _logged('info') if '[AG ARM]' in m]
     assert len(clamp_lines) == 1, _logged('info')
     assert '100' in clamp_lines[0] and '50' in clamp_lines[0]
     grab_a_frame_made_after_now(cam)  # the lock reads the newest frame's chunks
-    lock = imaging._lock_auto_gain_impl()
+    lock = camera._lock_auto_gain_impl()
     assert lock.exposure_ms == 50.0
     assert lock.state.value == 'MAXED'
 
-    imaging, cam = _build_inert()
+    imaging, camera, cam = _build_inert()
     lvp_logger.logger.reset_mock()
-    imaging._apply_layer_camera_settings_impl(
+    camera._apply_layer_camera_settings_impl(
         layer='BF',
         gain_db=1.0,
         exposure_ms=20.0,
@@ -443,33 +445,33 @@ def test_run_restore_re_arms_the_live_view_arm():
     step), untouched by a hand-built snapshot without the field. Every run
     used to end with the step-end disarm and a restore of gain and exposure
     only, leaving the loop off while the layer toggle showed on."""
-    imaging, cam = _build(ae_lands_on_ms=8.0)
-    _arm(imaging, AG_SETTINGS_TRANSMITTED, resume_after_capture=True)
-    snapshot = imaging.save_camera_state('protocol')
+    _imaging, camera, cam = _build(ae_lands_on_ms=8.0)
+    _arm(camera, AG_SETTINGS_TRANSMITTED, resume_after_capture=True)
+    snapshot = camera.save_camera_state('protocol')
     assert snapshot['auto_gain_arm'] is not None
-    assert imaging._lock_auto_gain_impl().state is not None
+    assert camera._lock_auto_gain_impl().state is not None
     assert cam._auto_gain_enabled is False
-    imaging.restore_camera_state(snapshot)
+    camera.restore_camera_state(snapshot)
     assert cam._auto_gain_enabled is True
-    assert imaging._auto_gain_arm is not None
-    assert imaging._auto_gain_arm.resume_after_capture is True
+    assert camera._auto_gain_arm is not None
+    assert camera._auto_gain_arm.resume_after_capture is True
 
-    imaging, cam = _build(ae_lands_on_ms=8.0)
-    snapshot = imaging.save_camera_state('protocol')
+    _imaging, camera, cam = _build(ae_lands_on_ms=8.0)
+    snapshot = camera.save_camera_state('protocol')
     assert snapshot['auto_gain_arm'] is None
-    _arm(imaging, AG_SETTINGS_TRANSMITTED, resume_after_capture=False)
+    _arm(camera, AG_SETTINGS_TRANSMITTED, resume_after_capture=False)
     assert cam._auto_gain_enabled is True
-    imaging.restore_camera_state(snapshot)
+    camera.restore_camera_state(snapshot)
     assert cam._auto_gain_enabled is False
-    assert imaging._auto_gain_arm is None
+    assert camera._auto_gain_arm is None
 
     # A hand-built snapshot without the field: a guard for the future,
     # green before the field existed as well.
-    imaging, cam = _build(ae_lands_on_ms=8.0)
-    _arm(imaging, AG_SETTINGS_TRANSMITTED, resume_after_capture=False)
-    imaging.restore_camera_state({'tag': 't', 'exposure_ms': 12.0})
+    _imaging, camera, cam = _build(ae_lands_on_ms=8.0)
+    _arm(camera, AG_SETTINGS_TRANSMITTED, resume_after_capture=False)
+    camera.restore_camera_state({'tag': 't', 'exposure_ms': 12.0})
     assert cam._auto_gain_enabled is True
-    assert imaging.exposure_ms_cached == 12.0
+    assert camera.exposure_ms_cached == 12.0
 
 
 def test_a_restore_that_disarms_puts_back_the_snapshots_gain():
@@ -477,12 +479,12 @@ def test_a_restore_that_disarms_puts_back_the_snapshots_gain():
     turns the loop off and then writes the snapshot's gain, so the camera
     and the capture gate both hold it (#840). The loop owns the gain while it
     runs and takes back a write made under it."""
-    imaging, cam = _build(ae_lands_on_ms=8.0)
-    imaging._set_gain_db_impl(3.0)
-    snapshot = imaging.save_camera_state('protocol')
-    _arm(imaging, AG_SETTINGS_TRANSMITTED, resume_after_capture=False)
+    imaging, camera, cam = _build(ae_lands_on_ms=8.0)
+    camera._set_gain_db_impl(3.0)
+    snapshot = camera.save_camera_state('protocol')
+    _arm(camera, AG_SETTINGS_TRANSMITTED, resume_after_capture=False)
 
-    imaging.restore_camera_state(snapshot)
+    camera.restore_camera_state(snapshot)
 
     assert cam._auto_gain_enabled is False
     assert cam.get_gain() == 3.0
@@ -493,8 +495,8 @@ def test_restore_re_arm_clamps_a_trimmed_snapshot():
     """The autofocus trim restores no exposure, so the re-arm sees whatever
     the sweep left in the cache; above the class ceiling it is clamped like
     any arm."""
-    imaging, cam = _build_inert()
-    imaging._apply_layer_camera_settings_impl(
+    _imaging, camera, cam = _build_inert()
+    camera._apply_layer_camera_settings_impl(
         layer='BF',
         gain_db=1.0,
         exposure_ms=20.0,
@@ -502,11 +504,11 @@ def test_restore_re_arm_clamps_a_trimmed_snapshot():
         auto_gain_settings=AG_SETTINGS_TRANSMITTED,
         resume_after_capture=True,
     )
-    snapshot = imaging.save_camera_state('autofocus')
-    imaging._lock_auto_gain_impl()
-    imaging._set_exposure_ms_impl(100.0)
+    snapshot = camera.save_camera_state('autofocus')
+    camera._lock_auto_gain_impl()
+    camera._set_exposure_ms_impl(100.0)
     trimmed = {'tag': 'autofocus', 'auto_gain_arm': snapshot['auto_gain_arm']}
-    imaging.restore_camera_state(trimmed)
+    camera.restore_camera_state(trimmed)
     assert cam._auto_gain_enabled is True
     assert cam._exposure_us == 50000.0
 
@@ -527,26 +529,26 @@ def test_run_start_owns_a_standing_live_arm():
         SequencedCaptureRunMode.FULL_PROTOCOL,
         SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN,
     ):
-        imaging, cam = _build(ae_lands_on_ms=8.0)
-        _arm(imaging, AG_SETTINGS_TRANSMITTED, resume_after_capture=True)
+        _imaging, camera, cam = _build(ae_lands_on_ms=8.0)
+        _arm(camera, AG_SETTINGS_TRANSMITTED, resume_after_capture=True)
         runner = bare_capture_runner()
-        runner._scope.imaging = imaging
-        runner._saved_camera_state = imaging.save_camera_state('protocol')
+        runner._scope.camera = camera
+        runner._saved_camera_state = camera.save_camera_state('protocol')
         runner._run_mode = run_mode
         runner._take_auto_gain_arm_for_run()
         assert cam._auto_gain_enabled is False, run_mode
-        assert imaging._auto_gain_arm is None, run_mode
+        assert camera._auto_gain_arm is None, run_mode
         assert runner._saved_camera_state['auto_gain_arm'] is not None, run_mode
 
-    imaging, cam = _build(ae_lands_on_ms=8.0)
-    _arm(imaging, AG_SETTINGS_TRANSMITTED, resume_after_capture=True)
+    _imaging, camera, cam = _build(ae_lands_on_ms=8.0)
+    _arm(camera, AG_SETTINGS_TRANSMITTED, resume_after_capture=True)
     runner = bare_capture_runner()
-    runner._scope.imaging = imaging
-    runner._saved_camera_state = imaging.save_camera_state('protocol')
+    runner._scope.camera = camera
+    runner._saved_camera_state = camera.save_camera_state('protocol')
     runner._run_mode = SequencedCaptureRunMode.SINGLE_AUTOFOCUS
     runner._take_auto_gain_arm_for_run()
     assert cam._auto_gain_enabled is True
-    assert imaging._auto_gain_arm is not None
+    assert camera._auto_gain_arm is not None
 
     # The seam: the run's camera takeover snapshots the camera, then takes
     # the arm out of that snapshot -- in that order, after the wait for the
@@ -594,7 +596,7 @@ def test_apply_layer_camera_settings_names_the_layer_it_applied_to():
     millisecond, which reads as one call logged twice -- a double-apply
     bug that has to be disproved by hand every time someone reads the log.
     """
-    imaging, _ = _build(ae_lands_on_ms=50.0)
+    _imaging, camera, _ = _build(ae_lands_on_ms=50.0)
     collector = _ApiLogCollector()
     api_log = logging.getLogger('LVP.api')
     # The logger carries no level of its own, so it inherits root's WARNING
@@ -605,7 +607,7 @@ def test_apply_layer_camera_settings_names_the_layer_it_applied_to():
     api_log.addHandler(collector)
     try:
         for layer in ('Red', 'Lumi'):
-            imaging._apply_layer_camera_settings_impl(
+            camera._apply_layer_camera_settings_impl(
                 layer=layer,
                 gain_db=20.0,
                 exposure_ms=100.0,
@@ -642,7 +644,7 @@ def test_a_lock_right_after_the_arm_reads_a_frame_taken_under_it():
         home_sim_scope(session.scope)
         session.set_layer_auto_gain('BF', True)
 
-        lock = session.scope.imaging.lock_auto_gain()
+        lock = session.scope.camera.lock_auto_gain()
 
         assert lock.state is not None
         assert lock.gain_db != 1.0

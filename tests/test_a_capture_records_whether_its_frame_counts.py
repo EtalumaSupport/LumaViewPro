@@ -86,7 +86,7 @@ def test_a_frame_the_preview_counted_names_the_preview(sim_scope, caplog):
             arrived.set()
 
     imaging.add_frame_listener(on_frame, name='after the gain write')
-    imaging.set_gain_db(imaging.get_gain_db() + 1.0)
+    sim_scope.camera.set_gain_db(sim_scope.camera.get_gain_db() + 1.0)
     change = imaging.frame_validity.changes()['gain']
     assert arrived.wait(5.0), 'no frame arrived after the gain write'
     imaging.remove_frame_listener(on_frame)
@@ -108,7 +108,7 @@ def test_frames_the_captures_drain_counted_name_the_drain(sim_scope, caplog):
     """With nothing else counting, the capture's own drain meets the
     change's count, and its record and its log line say so."""
     imaging = sim_scope.imaging
-    imaging.set_gain_db(imaging.get_gain_db() + 1.0)
+    sim_scope.camera.set_gain_db(sim_scope.camera.get_gain_db() + 1.0)
 
     with caplog.at_level(logging.INFO, logger='LVP.api'):
         imaging.capture_and_wait(accept_dark=True)
@@ -125,7 +125,7 @@ def test_frames_a_grab_counted_name_the_grab(sim_scope, caplog):
     capture after enough of them waits on none, and its record and its log
     line name the grab as what counted them."""
     imaging = sim_scope.imaging
-    imaging.set_gain_db(imaging.get_gain_db() + 1.0)
+    sim_scope.camera.set_gain_db(sim_scope.camera.get_gain_db() + 1.0)
     for _ in range(imaging.frame_validity.changes()['gain'].skip):
         imaging.get_image(force_new_capture=True)
 
@@ -156,7 +156,7 @@ def test_a_move_is_in_force_when_its_axis_settles(sim_scope):
 def test_the_saved_file_carries_the_judgments(sim_scope, tmp_path):
     # The structured TIFF: OME-XML keeps only schema attributes, so on that
     # path the judgments go as the frame id and camera ticks already do.
-    sim_scope.imaging.set_exposure_ms(20.0)
+    sim_scope.camera.set_exposure_ms(20.0)
     image = sim_scope.imaging.capture_and_wait(accept_dark=True, force_to_8bit=True)
     record = sim_scope.imaging.last_capture_info['frame_record']
     metadata = image_save.generate_image_metadata(
@@ -189,7 +189,7 @@ def test_the_saved_file_carries_the_judgments(sim_scope, tmp_path):
 
 def test_a_listeners_frame_is_judged_through_the_api(sim_scope):
     imaging = sim_scope.imaging
-    imaging.set_gain_db(imaging.get_gain_db() + 1.0)
+    sim_scope.camera.set_gain_db(sim_scope.camera.get_gain_db() + 1.0)
     at_seq = imaging.frame_validity.changes()['gain'].at_seq
     later = []
     arrived = threading.Event()

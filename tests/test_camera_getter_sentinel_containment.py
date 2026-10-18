@@ -4,7 +4,7 @@
 One layer up from tests/test_pylon_getter_transient_reads.py (the per-driver
 net): the drivers answer a failed/transient read with a sentinel (-1 for
 gain / exposure / binning, None for frame_size / pixel_format, {} for the
-max/min frame-size variants) or by raising. ImagingAPI's public getters must
+max/min frame-size variants) or by raising. CameraAPI's public getters must
 contain all of those at the API boundary via _validated_camera_read:
 
   - a validated live read updates the camera cache and is returned;
@@ -19,7 +19,7 @@ flaky USB read de-binned the binning spinner (-1 -> '1x1'), crashed
 get_width (TypeError on None / KeyError on {}), reclassified a Mono8 camera
 as 2 bytes/pixel, and poisoned save/restore snapshots with gain -1.
 
-Harness pattern: real ImagingAPI on a Lumascope built via __new__ (the
+Harness pattern: real CameraAPI on a Lumascope built via __new__ (the
 test_camera_write_authority.py pattern) with a scripted driver double, so
 the production getter path -- including _populate_camera_cache at init --
 is what runs.
@@ -45,6 +45,7 @@ from modules.binning import binning_size_int_to_str
 from modules.exceptions import HardwareCommandRefusedError
 from modules.image_save import generate_image_metadata
 from modules.lumascope_api import Lumascope
+from modules.lumascope_api.camera import CameraAPI
 from modules.lumascope_api.imaging import ImagingAPI
 
 # Marker: this scripted read raises instead of returning a value.
@@ -65,7 +66,12 @@ GOOD_ROUND = {
 
 
 from modules.run_outcome import EndingLatch
-from tests.scope_fakes import give_camera_capabilities, give_stub_lanes
+from tests.scope_fakes import (
+    bind_settings_like_a_session,
+    give_camera_and_imaging,
+    give_camera_capabilities,
+    give_stub_lanes,
+)
 from tests.case_walk import failing_cases
 from modules.layer_record import release_colors
 from tests.objective_records import objective
@@ -164,20 +170,24 @@ def steady_good_driver(overrides: dict | None = None) -> ScriptedCameraDriver:
     return ScriptedCameraDriver(scripts)
 
 
-def _build_imaging(cam) -> ImagingAPI:
-    """Real ImagingAPI on a bare Lumascope (test_camera_write_authority
-    pattern) so the production getter / populate path is exercised."""
+def _build_camera(cam) -> CameraAPI:
+    """Real CameraAPI on a bare Lumascope (test_camera_write_authority
+    pattern) so the production getter / populate path is exercised. The
+    scope is bound to the shipped settings, whose image mode and region a
+    snapshot carries."""
     scope = Lumascope.__new__(Lumascope)
+    bind_settings_like_a_session(scope)
     scope._camera_driver = cam
     give_stub_lanes(scope)
     # The scripted driver declares no static facts: no model, no frame
     # maximum, no auto modes.
     give_camera_capabilities(scope, None)
-    scope._cam_lock = threading.RLock()
-    scope._state_lock = threading.RLock()
-    imaging = ImagingAPI(scope, cam)
-    scope.imaging = imaging
-    return imaging
+    return give_camera_and_imaging(scope)
+
+
+def _build_imaging(cam) -> ImagingAPI:
+    """The real ImagingAPI (the capture) of a ``_build_camera`` scope."""
+    return _build_camera(cam)._scope.imaging
 
 
 # --- The sweep -------------------------------------------------------------
@@ -192,7 +202,7 @@ CONVERTED_GETTERS = [
     ('get_binning_size', 1, 2),
 ]
 
-# The frame-size / pixel-format live reads are ImagingAPI-internal (public
+# The frame-size / pixel-format live reads are CameraAPI-internal (public
 # readers use the *_cached properties), but their bodies still serve the
 # validated last-known-good contract to the cache populate and the internal
 # callers -- the behavior sweep covers them under their private names, while
@@ -216,10 +226,10 @@ def test_all_reads_fail_cold_cache_returns_absent_default():
     def check(getter, absent, _lkg):
         # Active driver, every read raises, nothing ever validly read: the getter
         # must answer the documented camera-absent default and raise nothing.
-        imaging = _build_imaging(all_reads_fail_driver())
-        assert imaging._driver.active
+        camera = _build_camera(all_reads_fail_driver())
+        assert camera._driver.active
         for _ in range(2):
-            _assert_value(getattr(imaging, getter)(), absent)
+            _assert_value(getattr(camera, getter)(), absent)
 
     failed = failing_cases(_SWEEP, check, label=lambda case: case[0])
     assert not failed, failed
@@ -230,9 +240,9 @@ def test_failing_reads_after_good_populate_return_last_known_good():
         # One good round is consumed by the init-time populate; every driver read
         # after that raises. The getter must keep answering the last-known-good
         # value -- never a sentinel, never an exception.
-        imaging = _build_imaging(good_then_failing_driver())
+        camera = _build_camera(good_then_failing_driver())
         for _ in range(3):
-            _assert_value(getattr(imaging, getter)(), lkg)
+            _assert_value(getattr(camera, getter)(), lkg)
 
     failed = failing_cases(_SWEEP, check, label=lambda case: case[0])
     assert not failed, failed
@@ -240,8 +250,8 @@ def test_failing_reads_after_good_populate_return_last_known_good():
 
 def test_no_driver_returns_absent_default():
     def check(getter, absent, _lkg):
-        imaging = _build_imaging(None)
-        _assert_value(getattr(imaging, getter)(), absent)
+        camera = _build_camera(None)
+        _assert_value(getattr(camera, getter)(), absent)
 
     failed = failing_cases(_SWEEP, check, label=lambda case: case[0])
     assert not failed, failed
@@ -253,8 +263,8 @@ def test_inactive_driver_returns_absent_default():
         # camera-absent default without touching the (would-be-good) reads.
         driver = steady_good_driver()
         driver.active = False
-        imaging = _build_imaging(driver)
-        _assert_value(getattr(imaging, getter)(), absent)
+        camera = _build_camera(driver)
+        _assert_value(getattr(camera, getter)(), absent)
 
     failed = failing_cases(_SWEEP, check, label=lambda case: case[0])
     assert not failed, failed
@@ -263,7 +273,8 @@ def test_inactive_driver_returns_absent_default():
 # --- Completeness guard -----------------------------------------------------
 #
 # Public zero-arg get_* methods NOT converted to the validated-cache contract,
-# each with the reason it is exempt. A future getter added to ImagingAPI must
+# each with the reason it is exempt. A future getter added to CameraAPI or
+# ImagingAPI (the camera and the capture the scope publishes) must
 # land in CONVERTED_GETTERS (with sweep coverage) or here (with a reason).
 EXCLUDED = {
     'get_held_layer': (
@@ -301,9 +312,12 @@ EXCLUDED = {
 
 
 def _public_zero_arg_getters() -> set:
-    """Every public ImagingAPI method named get_* callable with no args."""
+    """Every public CameraAPI and ImagingAPI method named get_* callable with no args."""
     names = set()
-    for name, member in inspect.getmembers(ImagingAPI, predicate=inspect.isfunction):
+    members = inspect.getmembers(CameraAPI, predicate=inspect.isfunction) + inspect.getmembers(
+        ImagingAPI, predicate=inspect.isfunction
+    )
+    for name, member in members:
         if not name.startswith('get_'):
             continue
         params = [p for p in inspect.signature(member).parameters.values() if p.name != 'self']
@@ -323,20 +337,25 @@ def test_every_public_zero_arg_getter_is_classified():
 
     unclassified = actual - converted - set(EXCLUDED)
     assert not unclassified, (
-        f'unclassified public camera getter(s) on ImagingAPI: {sorted(unclassified)}. '
+        f'unclassified public camera getter(s) on CameraAPI/ImagingAPI: {sorted(unclassified)}. '
         f'Either convert to the validated last-known-good contract and add to '
         f'CONVERTED_GETTERS (with sweep coverage), or add to EXCLUDED with a reason.'
     )
 
     # The guard must not go vacuous on a rename: every converted getter must
     # still exist as a public zero-arg method, every excluded name must still
-    # be an ImagingAPI attribute, and no name may be classified twice.
+    # be a CameraAPI or ImagingAPI attribute, and no name may be classified twice.
     missing_converted = converted - actual
     assert not missing_converted, (
-        f'CONVERTED_GETTERS entries no longer on ImagingAPI (renamed?): {sorted(missing_converted)}'
+        f'CONVERTED_GETTERS entries no longer on CameraAPI/ImagingAPI (renamed?): '
+        f'{sorted(missing_converted)}'
     )
-    stale_excluded = [name for name in EXCLUDED if not hasattr(ImagingAPI, name)]
-    assert not stale_excluded, f'EXCLUDED entries no longer on ImagingAPI: {stale_excluded}'
+    stale_excluded = [
+        name for name in EXCLUDED if not (hasattr(CameraAPI, name) or hasattr(ImagingAPI, name))
+    ]
+    assert not stale_excluded, (
+        f'EXCLUDED entries no longer on CameraAPI/ImagingAPI: {stale_excluded}'
+    )
     assert not converted & set(EXCLUDED), 'a getter may not be both converted and excluded'
 
 
@@ -347,9 +366,9 @@ def test_binning_spinner_not_debinned_by_transient_read_failure():
     # Camera at 2x2; the binning read then fails transiently. The old
     # behavior returned the driver's -1 sentinel, which binning_size_int_to_str
     # maps to '1x1' -- the UI spinner silently de-binned a 2x camera.
-    imaging = _build_imaging(good_then_failing_driver())
-    assert imaging.get_binning_size() == 2
-    assert binning_size_int_to_str(imaging.get_binning_size()) == '2x2'
+    camera = _build_camera(good_then_failing_driver())
+    assert camera.get_binning_size() == 2
+    assert binning_size_int_to_str(camera.get_binning_size()) == '2x2'
 
 
 def test_pixel_format_none_read_does_not_clobber_known_mono8():
@@ -357,19 +376,19 @@ def test_pixel_format_none_read_does_not_clobber_known_mono8():
     # returns the None sentinel must keep the known format. The old behavior
     # cached None, and every reader of the format then saw no format at all.
     driver = steady_good_driver({'get_pixel_format': ['Mono8', None]})
-    imaging = _build_imaging(driver)
-    assert imaging.pixel_format_cached == 'Mono8'
-    imaging._populate_camera_cache()
-    assert imaging.pixel_format_cached == 'Mono8'
+    camera = _build_camera(driver)
+    assert camera.pixel_format_cached == 'Mono8'
+    camera._populate_camera_cache()
+    assert camera.pixel_format_cached == 'Mono8'
 
 
 def test_get_width_returns_none_not_typeerror_on_cold_cache_read_failure():
     # Driver present + active, frame-size read fails, nothing cached yet.
     # The old behavior subscripted the None passthrough -> TypeError.
-    imaging = _build_imaging(all_reads_fail_driver())
-    assert imaging._driver.active
-    assert imaging.get_width() is None
-    assert imaging.get_height() is None
+    camera = _build_camera(all_reads_fail_driver())
+    assert camera._driver.active
+    assert camera.get_width() is None
+    assert camera.get_height() is None
 
 
 def test_get_width_returns_last_known_after_transient_failure():
@@ -377,10 +396,10 @@ def test_get_width_returns_last_known_after_transient_failure():
     # 1936x1216, then reads fail again: the getter answers the last-known
     # width, not a crash or a zero.
     driver = steady_good_driver({'get_frame_size': [RAISE, {'width': 1936, 'height': 1216}, RAISE]})
-    imaging = _build_imaging(driver)
-    assert imaging.get_width() == 1936  # the one good read
-    assert imaging.get_width() == 1936  # failing read -> last-known-good
-    assert imaging.get_height() == 1216
+    camera = _build_camera(driver)
+    assert camera.get_width() == 1936  # the one good read
+    assert camera.get_width() == 1936  # failing read -> last-known-good
+    assert camera.get_height() == 1216
 
 
 def test_save_camera_state_snapshot_not_poisoned_by_failing_reads():
@@ -388,10 +407,10 @@ def test_save_camera_state_snapshot_not_poisoned_by_failing_reads():
     # reads fail; the snapshot must carry the last-known values, not -1 --
     # the old shape restored gain -1 after an autofocus save/restore cycle.
     # Only these two fail: a failed read of the frame size or format raises.
-    imaging = _build_imaging(
+    camera = _build_camera(
         steady_good_driver({'get_gain': [12.5, RAISE], 'get_exposure_t': [50.0, RAISE]})
     )
-    snapshot = imaging.save_camera_state('pre-autofocus')
+    snapshot = camera.save_camera_state('pre-autofocus')
     assert snapshot['gain_db'] == 12.5
     assert snapshot['exposure_ms'] == 50.0
 
@@ -401,18 +420,18 @@ def test_populate_none_frame_size_read_keeps_cached_geometry():
     # None sentinel must leave the previously cached geometry intact. The old
     # behavior stored zero dims over the known-good size.
     driver = steady_good_driver({'get_frame_size': [{'width': 1936, 'height': 1216}, None]})
-    imaging = _build_imaging(driver)
-    assert imaging.frame_size_cached == {'width': 1936, 'height': 1216}
-    imaging._populate_camera_cache()
-    assert imaging.frame_size_cached == {'width': 1936, 'height': 1216}
+    camera = _build_camera(driver)
+    assert camera.frame_size_cached == {'width': 1936, 'height': 1216}
+    camera._populate_camera_cache()
+    assert camera.frame_size_cached == {'width': 1936, 'height': 1216}
 
 
 # --- The live-confirmed surface (get_live_camera_settings) --------------------
 
 
 def test_get_live_camera_settings_reports_live_confirmed_values():
-    imaging = _build_imaging(steady_good_driver())
-    assert imaging.get_live_camera_settings() == {
+    camera = _build_camera(steady_good_driver())
+    assert camera.get_live_camera_settings() == {
         'gain_db': 12.5,
         'exposure_ms': 50.0,
         'frame_size': {'width': 1936, 'height': 1216},
@@ -426,22 +445,22 @@ def test_get_live_camera_settings_omits_failed_gain_while_getter_answers_lkg():
     # surface must omit 'gain_db' (unknown stays unknown), while the value
     # getter keeps answering the last-known-good for control flow.
     driver = steady_good_driver({'get_gain': [12.5, RAISE]})
-    imaging = _build_imaging(driver)  # populate consumes the one good gain read
-    settings = imaging.get_live_camera_settings()
+    camera = _build_camera(driver)  # populate consumes the one good gain read
+    settings = camera.get_live_camera_settings()
     assert settings == {
         'exposure_ms': 50.0,
         'frame_size': {'width': 1936, 'height': 1216},
         'pixel_format': 'Mono12',
     }
     assert 'gain_db' not in settings
-    assert imaging.get_gain_db() == 12.5
+    assert camera.get_gain_db() == 12.5
 
 
 def test_get_live_camera_settings_empty_when_inactive():
     driver = steady_good_driver()
     driver.active = False
-    imaging = _build_imaging(driver)
-    assert imaging.get_live_camera_settings() == {}
+    camera = _build_camera(driver)
+    assert camera.get_live_camera_settings() == {}
 
 
 # --- Write-generation guard ---------------------------------------------------
@@ -453,7 +472,7 @@ def test_authoritative_write_beats_in_flight_stale_read():
     # The read's value is stale hardware truth from BEFORE the write; the
     # generation guard must discard it and answer the newer written value.
     driver = steady_good_driver()
-    imaging = _build_imaging(driver)
+    camera = _build_camera(driver)
 
     read_started = threading.Event()
     release_read = threading.Event()
@@ -466,10 +485,10 @@ def test_authoritative_write_beats_in_flight_stale_read():
     driver.get_gain = held_gain_read
 
     result = {}
-    reader_thread = threading.Thread(target=lambda: result.update(value=imaging.get_gain_db()))
+    reader_thread = threading.Thread(target=lambda: result.update(value=camera.get_gain_db()))
     reader_thread.start()
     assert read_started.wait(timeout=5.0), 'driver read never started'
-    imaging._commit_camera_writes({'gain_db': 20.0})  # setter write-through lands
+    camera._commit_camera_writes({'gain_db': 20.0})  # setter write-through lands
     release_read.set()
     reader_thread.join(timeout=5.0)
     assert not reader_thread.is_alive()
@@ -478,7 +497,7 @@ def test_authoritative_write_beats_in_flight_stale_read():
         f'racing getter must answer the newer authoritative write, '
         f'not its stale hardware read; got {result["value"]}'
     )
-    assert imaging.gain_db_cached == 20.0
+    assert camera.gain_db_cached == 20.0
 
 
 # --- Populate resilience --------------------------------------------------------
@@ -490,11 +509,11 @@ def test_populate_survives_raising_key_and_caches_the_rest():
     # still cached. The old populate body was a single try, so one raising
     # read silently dropped every remaining key.
     driver = steady_good_driver({'get_frame_size': [RAISE]})
-    imaging = _build_imaging(driver)
-    assert imaging.gain_db_cached == 12.5
-    assert imaging.exposure_ms_cached == 50.0
-    assert imaging.pixel_format_cached == 'Mono12'
-    assert imaging.frame_size_cached == {'width': 0, 'height': 0}  # seed intact
+    camera = _build_camera(driver)
+    assert camera.gain_db_cached == 12.5
+    assert camera.exposure_ms_cached == 50.0
+    assert camera.pixel_format_cached == 'Mono12'
+    assert camera.frame_size_cached == {'width': 0, 'height': 0}  # seed intact
 
 
 # --- Read-failure observability -------------------------------------------------
@@ -508,14 +527,14 @@ def test_failed_read_warns_once_per_window(monkeypatch):
     # caplog cannot observe it -- the established recorder-logger pattern from
     # test_set_exposure_time_warning_threshold.py is used instead.
     driver = steady_good_driver()
-    imaging = _build_imaging(driver)
+    camera = _build_camera(driver)
 
     warnings = []
-    monkeypatch.setattr('modules.lumascope_api.imaging.logger', _recording_logger(warnings))
+    monkeypatch.setattr('modules.lumascope_api.camera.logger', _recording_logger(warnings))
 
     driver._scripts['get_gain'] = [RAISE]
-    imaging.get_gain_db()
-    imaging.get_gain_db()  # back-to-back, well inside the 5 s window
+    camera.get_gain_db()
+    camera.get_gain_db()  # back-to-back, well inside the 5 s window
 
     hits = [w for w in warnings if 'read failed' in w]
     assert len(hits) == 1, (
@@ -527,9 +546,11 @@ def test_failed_read_warns_once_per_window(monkeypatch):
 # --- Saved-image metadata omission (image_save integration) ---------------------
 
 
-def _metadata_scope_with_real_imaging(imaging: ImagingAPI, driver) -> SimpleNamespace:
+def _metadata_scope_with_real_imaging(
+    camera: CameraAPI, imaging: ImagingAPI, driver
+) -> SimpleNamespace:
     """The tests/test_frame_metadata_from_chunk.py stub scope, with the REAL
-    ImagingAPI wired in so generate_image_metadata exercises the production
+    CameraAPI and ImagingAPI wired in so generate_image_metadata exercises the production
     get_live_camera_settings path. The scripted driver has no
     cam_image_handler, so the chunk-less fallback is what runs."""
     labware = plate()
@@ -554,6 +575,7 @@ def _metadata_scope_with_real_imaging(imaging: ImagingAPI, driver) -> SimpleName
             camera_timestamp_tick_hz=None,
             camera_has_clock_latch=False,
         ),
+        camera=camera,
         imaging=imaging,
         diagnostics=SimpleNamespace(
             get_motor_info=lambda: {'serial_number': 'SN1', 'firmware_version': 'fw'},
@@ -572,10 +594,11 @@ def test_chunkless_metadata_omits_keys_when_live_reads_fail():
     # metadata must omit 'gain_db' / 'exposure_time_ms' rather than record a
     # value the frame may not have been captured at.
     driver = steady_good_driver()
-    imaging = _build_imaging(driver)  # good populate: cache holds 12.5 / 50.0
+    camera = _build_camera(driver)  # good populate: cache holds 12.5 / 50.0
+    imaging = camera._scope.imaging
     driver._scripts['get_gain'] = [RAISE]
     driver._scripts['get_exposure_t'] = [RAISE]
-    scope = _metadata_scope_with_real_imaging(imaging, driver)
+    scope = _metadata_scope_with_real_imaging(camera, imaging, driver)
     # The capture builds the frame's record beside the grab; the scripted
     # driver has no chunks, so the record takes the live-confirmed surface.
     imaging._scope = scope
@@ -608,8 +631,8 @@ def test_chunkless_metadata_omits_keys_when_live_reads_fail():
     )
     assert 'exposure_time_ms' not in metadata
     # Same state, control-flow surface: the value getters still answer LKG.
-    assert imaging.get_gain_db() == 12.5
-    assert imaging.get_exposure_ms() == 50.0
+    assert camera.get_gain_db() == 12.5
+    assert camera.get_exposure_ms() == 50.0
 
 
 # --- Depth property (significant_bits) ---------------------------------------------
@@ -657,7 +680,7 @@ def test_writer_saves_capture_time_depth_not_save_time_rederivation(monkeypatch,
     from modules.run_events import RunEvents
 
     scope = MagicMock()
-    scope.imaging.significant_bits = 16  # save-time state disagrees
+    scope.camera.significant_bits = 16  # save-time state disagrees
     writer = ProtocolImageWriter(
         scope=scope,
         events=RunEvents(),
@@ -805,17 +828,28 @@ def test_disconnect_tears_down_temp_logging_schedule():
 
 # --- Snapshot omit-if-unknown (Seams-9, restore side) ------------------------------
 
+# The shipped template's image mode and region, which a snapshot of an active
+# camera carries for the restore to save back.
+SHIPPED_STORED = {
+    'image_mode': '8bit',
+    'binning.size': '1x1',
+    'frame.width': 1900,
+    'frame.height': 1900,
+    'frame.native_width': 1900,
+    'frame.native_height': 1900,
+}
+
 
 def test_save_camera_state_omits_never_read_fields_and_warns(monkeypatch):
     # Cold cache, gain and exposure reads fail: the snapshot must carry NO
     # gain/exposure keys (omit-if-unknown -- the old shape stored gain -1 and
     # a later restore drove the sentinel back toward the camera), and a
     # WARNING names each omitted field at SAVE time.
-    imaging = _build_imaging(steady_good_driver({'get_gain': [RAISE], 'get_exposure_t': [RAISE]}))
+    camera = _build_camera(steady_good_driver({'get_gain': [RAISE], 'get_exposure_t': [RAISE]}))
     warnings = []
-    monkeypatch.setattr('modules.lumascope_api.imaging.logger', _recording_logger(warnings))
+    monkeypatch.setattr('modules.lumascope_api.camera.logger', _recording_logger(warnings))
 
-    snapshot = imaging.save_camera_state('t')
+    snapshot = camera.save_camera_state('t')
 
     assert snapshot == {
         'tag': 't',
@@ -823,6 +857,7 @@ def test_save_camera_state_omits_never_read_fields_and_warns(monkeypatch):
         'held_layer': None,
         'frame_size': {'width': 1936, 'height': 1216},
         'pixel_format': 'Mono12',
+        'stored': SHIPPED_STORED,
     }
     save_warnings = [w for w in warnings if 'save_camera_state' in w]
     assert len(save_warnings) == 2, save_warnings
@@ -831,11 +866,11 @@ def test_save_camera_state_omits_never_read_fields_and_warns(monkeypatch):
 
 
 def test_save_camera_state_carries_both_fields_without_warning(monkeypatch):
-    imaging = _build_imaging(steady_good_driver())
+    camera = _build_camera(steady_good_driver())
     warnings = []
-    monkeypatch.setattr('modules.lumascope_api.imaging.logger', _recording_logger(warnings))
+    monkeypatch.setattr('modules.lumascope_api.camera.logger', _recording_logger(warnings))
 
-    snapshot = imaging.save_camera_state('t')
+    snapshot = camera.save_camera_state('t')
 
     assert snapshot == {
         'tag': 't',
@@ -845,6 +880,7 @@ def test_save_camera_state_carries_both_fields_without_warning(monkeypatch):
         'held_layer': None,
         'frame_size': {'width': 1936, 'height': 1216},
         'pixel_format': 'Mono12',
+        'stored': SHIPPED_STORED,
     }
     assert warnings == []
 
@@ -854,14 +890,14 @@ def test_restore_camera_state_trimmed_snapshot_restores_only_present_fields(monk
     # targeted) is legitimate: restore the present field, skip the absent one,
     # and log NO warning -- save_camera_state already warned if the omission
     # was a never-read.
-    imaging = _build_imaging(steady_good_driver())
+    camera = _build_camera(steady_good_driver())
     warnings = []
-    monkeypatch.setattr('modules.lumascope_api.imaging.logger', _recording_logger(warnings))
+    monkeypatch.setattr('modules.lumascope_api.camera.logger', _recording_logger(warnings))
     calls = []
-    monkeypatch.setattr(imaging, '_set_gain_db_impl', lambda g: calls.append(('gain', g)))
-    monkeypatch.setattr(imaging, '_set_exposure_ms_impl', lambda e: calls.append(('exposure', e)))
+    monkeypatch.setattr(camera, '_set_gain_db_impl', lambda g: calls.append(('gain', g)))
+    monkeypatch.setattr(camera, '_set_exposure_ms_impl', lambda e: calls.append(('exposure', e)))
 
-    imaging.restore_camera_state({'tag': 't', 'exposure_ms': 50.0})
+    camera.restore_camera_state({'tag': 't', 'exposure_ms': 50.0})
 
     assert calls == [('exposure', 50.0)], (
         f'only the present field may be restored; set_gain_db must not run: {calls}'
@@ -870,11 +906,11 @@ def test_restore_camera_state_trimmed_snapshot_restores_only_present_fields(monk
 
 
 def test_restore_camera_state_empty_snapshot_is_noop(monkeypatch):
-    imaging = _build_imaging(steady_good_driver())
+    camera = _build_camera(steady_good_driver())
     calls = []
-    monkeypatch.setattr(imaging, '_set_gain_db_impl', lambda g: calls.append(('gain', g)))
-    monkeypatch.setattr(imaging, '_set_exposure_ms_impl', lambda e: calls.append(('exposure', e)))
+    monkeypatch.setattr(camera, '_set_gain_db_impl', lambda g: calls.append(('gain', g)))
+    monkeypatch.setattr(camera, '_set_exposure_ms_impl', lambda e: calls.append(('exposure', e)))
 
-    imaging.restore_camera_state({})
+    camera.restore_camera_state({})
 
     assert calls == []

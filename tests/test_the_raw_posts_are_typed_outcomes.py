@@ -134,7 +134,7 @@ class TestTheAutoGainLimitsAreShown:
             s.shutdown()
 
     def _lock(self, state, *, resume_after_capture=True):
-        from modules.lumascope_api.imaging import AutoGainLock
+        from modules.lumascope_api.camera import AutoGainLock
 
         return AutoGainLock(
             state=state,
@@ -146,15 +146,15 @@ class TestTheAutoGainLimitsAreShown:
         )
 
     def test_a_live_view_lock_at_either_limit_is_a_shown_notice(self, session):
-        from modules.lumascope_api.imaging import AutoGainConvergence
+        from modules.lumascope_api.camera import AutoGainConvergence
 
         heard = []
         session.add_outcome_listener(heard.append)
-        imaging = session.scope.imaging
+        camera = session.scope.camera
 
-        imaging._notify_auto_gain_outcome(self._lock(AutoGainConvergence.MAXED))
-        imaging._notify_auto_gain_outcome(self._lock(AutoGainConvergence.AT_MINIMUM))
-        imaging._notify_auto_gain_outcome(self._lock(AutoGainConvergence.FAILED))
+        camera._notify_auto_gain_outcome(self._lock(AutoGainConvergence.MAXED))
+        camera._notify_auto_gain_outcome(self._lock(AutoGainConvergence.AT_MINIMUM))
+        camera._notify_auto_gain_outcome(self._lock(AutoGainConvergence.FAILED))
 
         assert [(n.kind, n.title, n.shown) for n in heard] == [
             (OutcomeKind.NOTICE, 'Exposure at the maximum', True),
@@ -163,13 +163,13 @@ class TestTheAutoGainLimitsAreShown:
         ]
 
     def test_a_protocol_steps_lock_tells_no_one(self, session):
-        from modules.lumascope_api.imaging import AutoGainConvergence
+        from modules.lumascope_api.camera import AutoGainConvergence
 
         heard = []
         session.add_outcome_listener(heard.append)
-        imaging = session.scope.imaging
+        camera = session.scope.camera
 
-        imaging._notify_auto_gain_outcome(
+        camera._notify_auto_gain_outcome(
             self._lock(AutoGainConvergence.MAXED, resume_after_capture=False)
         )
 

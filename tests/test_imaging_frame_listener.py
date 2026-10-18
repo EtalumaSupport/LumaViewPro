@@ -127,7 +127,7 @@ def _make_simulated_scope():
     """
 
     scope = build_scope(simulate=True)
-    scope.imaging.set_exposure_ms(1.0)
+    scope.camera.set_exposure_ms(1.0)
     return scope
 
 

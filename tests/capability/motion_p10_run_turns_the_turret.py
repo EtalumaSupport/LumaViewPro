@@ -71,7 +71,7 @@ def _expected_pixel_size(session, objective_id):
     return round(
         common_utils.get_pixel_size(
             focal_length=focal_length,
-            binning_size=session.scope.imaging.get_binning_size(),
+            binning_size=session.scope.camera.get_binning_size(),
             capabilities=session.scope.capabilities,
         ),
         common_utils.max_decimal_precision('pixel_size'),

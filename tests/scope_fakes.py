@@ -96,7 +96,7 @@ def build_scope(**kwargs):
     _TEARDOWNS.append(scope.disconnect)
     if kwargs.get('simulate') and scope.camera_connected:
         frame = complete_settings()['frame']
-        scope.imaging._set_frame_size_impl(frame['width'], frame['height'])
+        scope.camera._set_frame_size_impl(frame['width'], frame['height'])
     return scope
 
 
@@ -213,6 +213,26 @@ def give_camera_capabilities(scope, camera):
         scope_models={},
     )
     return scope
+
+
+def give_camera_and_imaging(scope):
+    """Give a `Lumascope.__new__` stub the camera and capture sub-APIs a built scope has.
+
+    Built as the constructor builds them: the scope's one frame validity,
+    then ``scope.camera`` over it, then ``scope.imaging`` with both. The stub
+    needs its camera driver (``_camera_driver``), lanes and capabilities set
+    first, since the camera reads its cache from the driver as it is built.
+    Returns the camera.
+    """
+    from modules.frame_validity import FrameValidity
+    from modules.lumascope_api import Lumascope
+    from modules.lumascope_api.camera import CameraAPI
+    from modules.lumascope_api.imaging import ImagingAPI
+
+    scope.frame_validity = FrameValidity(Lumascope._frames_delivered.__get__(scope))
+    scope.camera = CameraAPI(scope, scope.frame_validity)
+    scope.imaging = ImagingAPI(scope, scope.camera, scope.frame_validity)
+    return scope.camera
 
 
 def set_camera_limits(monkeypatch, scope, **limits):
@@ -379,6 +399,7 @@ def spec_scope(**attrs):
         # with no camera (imaging.significant_bits) would raise from a
         # disconnected scope's.
         for sub_api in (
+            'camera',
             'capabilities',
             'diagnostics',
             'illumination',
@@ -418,11 +439,12 @@ def bind_settings_like_a_session(scope, **overrides) -> dict:
     """Give a hand-built test scope the settings a session would bind it to.
 
     The scope reads its labware, stage offset, turret map, objective and
-    scale bar from a session's settings (``Lumascope.bind_settings``), and a
-    scope no session bound refuses those reads. A test about something else
-    binds its bare scope here, to the shipped template with ``overrides``
-    laid over it (``complete_settings``), read through the Session's own
-    reader so the answers are the ones a session gives. Called again for a
+    scale bar from a session's settings, and its camera saves the settings it
+    changes there (``Lumascope.bind_settings``); a scope no session bound
+    refuses both. A test about something else binds its bare scope here, to
+    the shipped template with ``overrides`` laid over it
+    (``complete_settings``), read and written through the Session's own
+    reader and writer so the answers are the ones a session gives. Called again for a
     scope it bound, it lays ``overrides`` over the settings already bound.
 
     Returns:
@@ -446,8 +468,14 @@ def bind_settings_like_a_session(scope, **overrides) -> dict:
     )
     settings = complete_settings(**overrides)
     _BOUND_SETTINGS[scope] = settings
-    holder = types.SimpleNamespace(settings=settings, settings_lock=threading.Lock())
-    scope.bind_settings(functools.partial(ScopeSession._read_stored_setting, holder))
+    holder = types.SimpleNamespace(
+        settings=settings, settings_lock=threading.Lock(), _settings_saver=None
+    )
+    holder._store_setting = functools.partial(ScopeSession._store_setting, holder)
+    scope.bind_settings(
+        functools.partial(ScopeSession._read_stored_setting, holder),
+        functools.partial(ScopeSession._store_settings, holder),
+    )
     return settings
 
 
@@ -492,18 +520,18 @@ def configure_turret_like_bringup(scope, turret_objectives: dict | None = None) 
     home_sim_scope(scope)
 
 
-def answer_auto_gain_like_the_api(imaging, *, has_auto_gain: bool = True) -> None:
-    """Give a fake imaging surface the API's own ``applied_auto_gain_for``.
+def answer_auto_gain_like_the_api(camera, *, has_auto_gain: bool = True) -> None:
+    """Give a fake camera surface the API's own ``applied_auto_gain_for``.
 
     A bare MagicMock answers a MagicMock, which is truthy, so a caller asking
     whether a step's auto-gain applies would always hear yes. This wires the
     real member over a camera that does or does not have hardware auto-gain,
     so the fake gives the API's decision rather than one of its own.
     """
-    from modules.lumascope_api.imaging import ImagingAPI
+    from modules.lumascope_api.camera import CameraAPI
 
-    imaging._camera_has_auto_gain = lambda: has_auto_gain
-    imaging.applied_auto_gain_for = ImagingAPI.applied_auto_gain_for.__get__(imaging)
+    camera._camera_has_auto_gain = lambda: has_auto_gain
+    camera.applied_auto_gain_for = CameraAPI.applied_auto_gain_for.__get__(camera)
 
 
 def identity_with_layers(keys, *, model=None, filterset=''):

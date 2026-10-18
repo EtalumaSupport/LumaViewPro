@@ -36,15 +36,15 @@ def _steps(**values):
 
 
 def test_the_api_caches_the_camera_floors(scope):
-    imaging = scope.imaging
-    assert imaging.min_gain_db_cached == pytest.approx(scope._camera_driver.min_gain)
-    assert imaging.min_exposure_ms_cached == pytest.approx(
+    camera = scope.camera
+    assert camera.min_gain_db_cached == pytest.approx(scope._camera_driver.min_gain)
+    assert camera.min_exposure_ms_cached == pytest.approx(
         scope._camera_driver.profile.exposure_min_us / 1000.0
     )
 
 
 def test_a_gain_above_the_camera_maximum_is_refused_naming_the_step(executor, scope, tmp_path):
-    maximum = scope.imaging.max_gain_db_cached
+    maximum = scope.camera.max_gain_db_cached
     with pytest.raises(ProtocolRunRefusedError) as refusal:
         _prepare(executor, _steps(gain_db=maximum + 28.0), tmp_path)
 
@@ -67,13 +67,13 @@ def test_a_gain_below_the_camera_minimum_is_refused(executor, scope, tmp_path, m
 
 def test_an_exposure_above_the_camera_maximum_is_refused(executor, scope, tmp_path):
     with pytest.raises(ProtocolRunRefusedError) as refusal:
-        _prepare(executor, _steps(exposure_ms=scope.imaging.max_exposure_ms_cached + 1.0), tmp_path)
+        _prepare(executor, _steps(exposure_ms=scope.camera.max_exposure_ms_cached + 1.0), tmp_path)
 
     assert refusal.value.reason == OUT_OF_RANGE
 
 
 def test_values_in_range_are_admitted(executor, scope, tmp_path):
-    _prepare(executor, _steps(gain_db=scope.imaging.max_gain_db_cached, exposure_ms=10.0), tmp_path)
+    _prepare(executor, _steps(gain_db=scope.camera.max_gain_db_cached, exposure_ms=10.0), tmp_path)
 
 
 def test_an_undeclared_floor_is_not_checked(executor, scope, tmp_path, monkeypatch):

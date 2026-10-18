@@ -63,8 +63,8 @@ def main():
         figure('one step, mA', round(step, 4))
 
         saved = session.settings[LAYER]
-        figure(f'{LAYER} exposure ms', scope.imaging.set_exposure_ms(float(saved['exposure_ms'])))
-        figure(f'{LAYER} gain dB', scope.imaging.set_gain_db(float(saved['gain_db'])))
+        figure(f'{LAYER} exposure ms', scope.camera.set_exposure_ms(float(saved['exposure_ms'])))
+        figure(f'{LAYER} gain dB', scope.camera.set_gain_db(float(saved['gain_db'])))
 
         illumination.leds_off()
         dark, _ = _frame(scope)

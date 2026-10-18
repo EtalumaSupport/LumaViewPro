@@ -124,7 +124,7 @@ def test_the_button_hands_the_press_to_the_engine_and_decides_nothing(
     # press's land in the same place. No camera pre-check: a camera that
     # is not streaming is the engine's refusal, and the button cannot know
     # that better than prepare() does.
-    app_ctx.scope.imaging.active_cached = False
+    app_ctx.scope.camera.active_cached = False
     starter = _Starter()
 
     _click(starter)

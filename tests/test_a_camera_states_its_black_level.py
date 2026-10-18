@@ -28,11 +28,11 @@ from tests.settings_fixtures import complete_settings
 def test_the_simulated_camera_offers_it_and_offsets_its_frames(sim_scope):
     imaging = sim_scope.imaging
     assert sim_scope.capabilities.camera_supports_black_level is True
-    assert imaging.get_black_level() == 0.0
+    assert sim_scope.camera.get_black_level() == 0.0
     sim_scope._camera_driver.set_test_pattern(enabled=True, pattern='Black')
 
-    assert imaging.set_black_level(4.0) == 4.0
-    assert imaging.get_black_level() == 4.0
+    assert sim_scope.camera.set_black_level(4.0) == 4.0
+    assert sim_scope.camera.get_black_level() == 4.0
     image = imaging.capture_and_wait(force_to_8bit=False, accept_dark=True, timeout_s=2.0)
 
     assert image is not None
@@ -49,7 +49,7 @@ def test_a_full_scale_pixel_saturates_under_the_offset_and_does_not_wrap(sim_sco
     grab_a_frame_made_after_now(sim_scope._camera_driver)
     full_scale = imaging.capture_and_wait(force_to_8bit=False, timeout_s=2.0)
 
-    imaging.set_black_level(4.0)
+    sim_scope.camera.set_black_level(4.0)
     image = imaging.capture_and_wait(force_to_8bit=False, timeout_s=2.0)
 
     assert full_scale is not None and image is not None
@@ -61,31 +61,31 @@ def test_a_camera_refusal_is_a_rejection_in_the_black_levels_words(sim_scope):
         patch.object(sim_scope._camera_driver, 'set_black_level', return_value=False),
         pytest.raises(CameraSettingRejected) as rejected,
     ):
-        sim_scope.imaging.set_black_level(4.0)
+        sim_scope.camera.set_black_level(4.0)
     assert str(rejected.value).startswith('The camera did not accept the black level 4.')
 
 
 def test_the_simulator_reloads_its_default_black_level_at_connect(sim_scope):
     driver = sim_scope._camera_driver
-    sim_scope.imaging.set_black_level(4.0)
+    sim_scope.camera.set_black_level(4.0)
     driver.init_camera_config()
     assert driver.get_black_level() == 0.0
 
 
 def test_a_value_outside_the_range_is_refused_and_nothing_moves(sim_scope):
-    imaging = sim_scope.imaging
+    camera = sim_scope.camera
     with pytest.raises(CameraSettingOutOfRangeError):
-        imaging.set_black_level(1000.0)
-    assert imaging.get_black_level() == 0.0
+        camera.set_black_level(1000.0)
+    assert camera.get_black_level() == 0.0
 
 
 def test_the_range_is_the_one_the_setter_refuses_outside(sim_scope):
-    imaging = sim_scope.imaging
-    low, high = imaging.get_black_level_range()
+    camera = sim_scope.camera
+    low, high = camera.get_black_level_range()
     assert (low, high) == sim_scope._camera_driver.get_black_level_range()
-    assert imaging.set_black_level(high) == high
+    assert camera.set_black_level(high) == high
     with pytest.raises(CameraSettingOutOfRangeError) as refused:
-        imaging.set_black_level(high + 1.0)
+        camera.set_black_level(high + 1.0)
     assert refused.value.maximum == high
 
 
@@ -98,12 +98,12 @@ def test_a_failed_range_read_raises(sim_scope):
         ),
         pytest.raises(HardwareError, match='BlackLevel range read failed'),
     ):
-        sim_scope.imaging.get_black_level_range()
+        sim_scope.camera.get_black_level_range()
 
 
 def test_no_active_camera_has_no_range(sim_scope):
     with patch.object(sim_scope._camera_driver, '_active', None):
-        assert sim_scope.imaging.get_black_level_range() is None
+        assert sim_scope.camera.get_black_level_range() is None
 
 
 def test_a_failed_read_fails_the_capture_and_records_no_frame(sim_scope):
@@ -130,10 +130,10 @@ def fx2_session():
 def test_the_fx2_reports_its_row_black_target_and_offers_no_setting(fx2_session):
     scope = fx2_session.scope
     assert scope.capabilities.camera_supports_black_level is False
-    assert scope.imaging.get_black_level() == 0.0
-    assert scope.imaging.get_black_level_range() is None
+    assert scope.camera.get_black_level() == 0.0
+    assert scope.camera.get_black_level_range() is None
     with pytest.raises(CameraSettingUnsupportedError) as caught:
-        scope.imaging.set_black_level(4.0)
+        scope.camera.set_black_level(4.0)
     assert caught.value.reason == 'black_level_unsupported'
     assert caught.value.offered == ()
     assert caught.value.title == 'Not Available on This Camera'

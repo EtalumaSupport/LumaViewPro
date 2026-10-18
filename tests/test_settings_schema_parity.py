@@ -44,13 +44,11 @@ RUNTIME_ONLY_TOP_LEVEL = {'turret_position'}
 MIGRATED_TOP_LEVEL = {'manual_video'}
 
 # Per-layer (nested dict) keys that exist ONLY in current.json, on purpose,
-# keyed by the top-level entry they live under:
-# - frame.native_width / frame.native_height: the connected camera's native
-#   sensor dimensions, discovered from hardware at runtime; settings.json
-#   cannot know them ahead of the camera.
-RUNTIME_ONLY_PER_LAYER = {
-    'frame': {'native_width', 'native_height'},
-}
+# keyed by the top-level entry they live under. None now: the frame's
+# unbinned region (frame.native_width / frame.native_height), the last one,
+# is shipped in settings.json, since the saved frame always carries it and
+# settings preparation adds it to an older current.json.
+RUNTIME_ONLY_PER_LAYER: dict[str, set[str]] = {}
 
 # Per-layer keys a load renames or drops, exempt on EVERY layer rather
 # than under one named entry the way RUNTIME_ONLY_PER_LAYER works -- all seven

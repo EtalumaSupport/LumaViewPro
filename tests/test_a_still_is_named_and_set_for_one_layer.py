@@ -132,7 +132,7 @@ def test_a_still_pressed_as_the_shown_layer_changes_is_one_layers(session):
 
 
 def test_a_raw_camera_write_stands_and_the_record_says_no_layer(session):
-    session.scope.imaging.set_exposure_ms(30.0)
+    session.scope.camera.set_exposure_ms(30.0)
 
     name, record = _still(session)
 
@@ -149,7 +149,7 @@ def test_the_saved_file_states_the_layer_the_camera_held(session):
     session.scope.illumination.led_on('Blue', 100.0)
     held = session.manual_capture.capture(false_color_on=False).result(timeout=30)[0]
     session.scope.illumination.leds_off()
-    session.scope.imaging.set_exposure_ms(30.0)
+    session.scope.camera.set_exposure_ms(30.0)
     raw = session.manual_capture.capture(false_color_on=False).result(timeout=30)[0]
 
     held_saved = read_postproc_input_metadata(held)
@@ -174,7 +174,7 @@ def test_a_still_that_would_change_a_recordings_layer_is_refused(session):
 
         assert refused.value.reason == 'exclusive_activity_running'
         assert refused.value.holder == 'recording'
-        assert session.scope.imaging.get_held_layer() == 'BF'
+        assert session.scope.camera.get_held_layer() == 'BF'
     finally:
         recording.stop()
         recording.result(timeout=60)

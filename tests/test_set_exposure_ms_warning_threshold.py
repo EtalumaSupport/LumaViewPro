@@ -17,7 +17,7 @@ sensor physical minimum. The warning now fires only for genuinely
 impossible values (unit-confusion bugs). Wording corrected to name
 the actual behavior (clamping) and prompt the user to verify units.
 
-These tests drive set_exposure_ms on a simulator-backed ImagingAPI
+These tests drive set_exposure_ms on a simulator-backed CameraAPI
 with a recording logger (the shared lvp_logger is conftest-mocked, so
 caplog cannot observe it) and lock the no-warn/warn boundary plus the
 wording, so a threshold bump back toward 0.1 ms or a wording revert
@@ -27,15 +27,14 @@ trips immediately.
 from __future__ import annotations
 
 from types import SimpleNamespace
-from tests.scope_fakes import give_camera_capabilities, give_stub_lanes
+from tests.scope_fakes import give_camera_and_imaging, give_camera_capabilities, give_stub_lanes
 
 
 def _warnings_for(exposure_ms: float, monkeypatch) -> list:
-    """Call set_exposure_ms on a sim-backed ImagingAPI; return the
-    warning messages the imaging module logged."""
+    """Call set_exposure_ms on a sim-backed CameraAPI; return the
+    warning messages the camera module logged."""
     from drivers.simulated_camera import SimulatedCamera
     from modules.lumascope_api import Lumascope
-    from modules.lumascope_api.imaging import ImagingAPI
 
     cam = SimulatedCamera()
     cam.connect()
@@ -46,7 +45,7 @@ def _warnings_for(exposure_ms: float, monkeypatch) -> list:
     scope._camera_driver = cam
     give_stub_lanes(scope)
     give_camera_capabilities(scope, cam)
-    imaging = ImagingAPI(scope, cam)
+    camera = give_camera_and_imaging(scope)
 
     records = []
     recorder = SimpleNamespace(
@@ -56,8 +55,8 @@ def _warnings_for(exposure_ms: float, monkeypatch) -> list:
         error=lambda *a, **kw: None,
         exception=lambda *a, **kw: None,
     )
-    monkeypatch.setattr('modules.lumascope_api.imaging.logger', recorder)
-    imaging.set_exposure_ms(exposure_ms)
+    monkeypatch.setattr('modules.lumascope_api.camera.logger', recorder)
+    camera.set_exposure_ms(exposure_ms)
     return records
 
 

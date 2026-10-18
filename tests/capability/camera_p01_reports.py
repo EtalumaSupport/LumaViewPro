@@ -63,6 +63,7 @@ def main():
     with session_cm as (session, _runner):
         scope = session.scope
         imaging = scope.imaging
+        camera_api = scope.camera
         caps = scope.capabilities
         figure(
             'camera',
@@ -73,7 +74,7 @@ def main():
             },
         )
 
-        level = imaging.get_black_level()
+        level = camera_api.get_black_level()
         figure('black level', level)
         imaging.capture_and_wait(accept_dark=True, timeout_s=5.0)
         record = (imaging.last_capture_info or {}).get('frame_record')
@@ -85,16 +86,16 @@ def main():
             recorded,
         )
 
-        figure('resulting frame rate (camera)', imaging.get_resulting_frame_rate())
-        exposure = imaging.get_exposure_ms()
+        figure('resulting frame rate (camera)', camera_api.get_resulting_frame_rate())
+        exposure = camera_api.get_exposure_ms()
         figure('exposure ms', exposure)
         figure('delivered fps at the session exposure', _delivered_fps(imaging))
-        imaging.set_exposure_ms(1.0)
+        camera_api.set_exposure_ms(1.0)
         try:
-            figure('resulting frame rate (camera) at 1 ms', imaging.get_resulting_frame_rate())
+            figure('resulting frame rate (camera) at 1 ms', camera_api.get_resulting_frame_rate())
             figure('delivered fps at 1 ms', _delivered_fps(imaging))
         finally:
-            imaging.set_exposure_ms(exposure)
+            camera_api.set_exposure_ms(exposure)
 
         link = scope.diagnostics.get_camera_link_info()
         figure('link', link)

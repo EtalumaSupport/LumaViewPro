@@ -90,7 +90,7 @@ def test_a_home_holds_the_scope_until_it_ends(session, monkeypatch):
         assert session.run_lockout_named == 'A home is in progress.'
         _refused_by_the_home(lambda: scope.motion.start_move_relative('Z', 10.0))
         _refused_by_the_home(lambda: scope.illumination.led_on('BF', 10.0))
-        _refused_by_the_home(lambda: scope.imaging.set_gain_db(1.0))
+        _refused_by_the_home(lambda: scope.camera.set_gain_db(1.0))
         with pytest.raises(HardwareCommandRefusedError) as second:
             scope.motion.start_home('Z')
         assert second.value.reason == 'home_in_flight'

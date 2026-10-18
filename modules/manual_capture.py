@@ -28,7 +28,7 @@ from modules.exceptions import (
 )
 from modules.image_save import save_image
 from modules.layer_record import ChannelColors
-from modules.lumascope_api.imaging import LayerCameraRequest
+from modules.lumascope_api.camera import LayerCameraRequest
 from modules.recording_frames import frame_fact
 from modules.api_surface import api
 from modules.operation import Operation
@@ -169,7 +169,7 @@ class ManualCaptureController:
             # diagnostic holding the scope takes a still under its own, and
             # a run that takes the scope after this returns finds the still
             # already on the lane.
-            request.scope.imaging._submit_camera(
+            request.scope.camera._submit_camera(
                 self._still_body, _MEMBER, args=(request,), waiter=waiter
             )
         except BaseException:
@@ -203,7 +203,7 @@ class ManualCaptureController:
         The channel is the light -- the lit LED, else the shown layer -- the
         rule a manual recording uses too, read on the lane, and the camera
         holds that layer's stored settings for the grab
-        (``_hold_layer_for_capture``). The light is read again once the
+        (``ImagingAPI._capture_holding_layer_impl``). The light is read again once the
         frame has passed: an LED change during the drain re-drains the
         capture, so that read is the light the frame was taken under. A
         change means the frame is taken again on the new light's layer, and
@@ -219,11 +219,8 @@ class ManualCaptureController:
         shown_layer = self._shown_layer()
         channel = common_utils.resolve_channel_identity(scope.illumination, shown_layer)
         while True:
-            scope.imaging._hold_layer_for_capture(
-                channel, self._layer_camera_request(channel), _MEMBER
-            )
             # The summing row is the imaged channel's, from the store the camera
-            # was just made to hold; the delay is a settle between summed frames.
+            # is made to hold; the delay is a settle between summed frames.
             layer_config = config_helpers.get_layer_configs(self._settings_snapshot(), [channel])[
                 channel
             ]
@@ -232,7 +229,10 @@ class ManualCaptureController:
             # admitted again, inline, against whatever holds the scope now -- a
             # run that took it after the still was put on the lane would refuse
             # the still it waits for.
-            array = scope.imaging._capture_and_wait_impl(
+            array = scope.imaging._capture_holding_layer_impl(
+                channel,
+                self._layer_camera_request(channel),
+                _MEMBER,
                 force_to_8bit=capture_config.capture_depth == 8,
                 all_ones_check=True,
                 timeout_s=_CAPTURE_RETRY_BUDGET_S,

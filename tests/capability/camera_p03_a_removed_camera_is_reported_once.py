@@ -94,7 +94,7 @@ def _the_hand(session, delay=None):
 def _arm(session):
     scope = session.scope
     scope.illumination.led_on('BF', BF_MA)
-    scope.imaging.set_auto_gain(True, AUTO_GAIN)
+    scope.camera.set_auto_gain(True, AUTO_GAIN)
     scope.imaging.capture_and_wait()
 
 

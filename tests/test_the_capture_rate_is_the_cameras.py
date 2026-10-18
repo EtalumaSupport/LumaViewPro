@@ -54,7 +54,7 @@ def _wait_for(predicate, timeout_s):
 def _streaming_fast(session):
     """The simulated camera at a short exposure: its 40 fps delivery ceiling."""
     imaging = session.scope.imaging
-    imaging.set_exposure_ms(2.0)
+    session.scope.camera.set_exposure_ms(2.0)
     camera = session.scope._camera_driver
     camera_fps = camera.get_resulting_frame_rate()
     assert camera_fps > 30, 'the simulated camera does not outrun a 30 fps display cap'
@@ -96,7 +96,7 @@ class TestTheRateIsTheCameras:
         assert _wait_for(lambda: imaging.get_delivered_rate().frames_per_s > 0, 5.0)
         rate = imaging.get_delivered_rate()
         # Mono8 on the simulated USB3 link: one byte a pixel of the acquired window.
-        assert imaging.pixel_format_cached == 'Mono8'
+        assert session.scope.camera.pixel_format_cached == 'Mono8'
         acquired_bytes = camera._width * camera._height
         assert rate.bytes_per_s / rate.frames_per_s == pytest.approx(acquired_bytes, rel=1e-6)
 

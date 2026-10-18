@@ -55,7 +55,7 @@ IN_PROCESS_LABEL = '(in-process)'
 # field, and an outcome delivered to a listener.
 NOT_VACUOUS = {
     'ScopeSession.add_step',
-    'ImagingAPI.set_gain_db',
+    'CameraAPI.set_gain_db',
     'Operation.stop',
     'RunOutcome.status',
     'Notification.kind',

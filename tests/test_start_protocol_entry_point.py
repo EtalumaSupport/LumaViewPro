@@ -84,7 +84,7 @@ class TestTheScanLogNamesTheFormatInForce:
         lines = []
         monkeypatch.setattr(protocol_runner.logger, 'info', lambda msg, *a, **k: lines.append(msg))
         runner = _runner()
-        runner.session.scope.imaging.pixel_format_cached = 'Mono8'
+        runner.session.scope.camera.pixel_format_cached = 'Mono8'
 
         _run(runner, 'start_single_scan')
 

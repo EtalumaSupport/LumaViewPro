@@ -19,6 +19,7 @@ import threading
 from types import SimpleNamespace
 
 from modules.image_save import generate_image_metadata
+from modules.lumascope_api.camera import CameraAPI
 from modules.lumascope_api.imaging import ImagingAPI
 from tests.frame_records import frame_record, plate
 from modules.layer_record import release_color
@@ -30,9 +31,9 @@ GRABBED_AT = datetime.datetime(2026, 9, 29, 12, 0, 0)
 
 
 def _imaging(live=None, chunk_reads=None):
-    """An imaging API with just what building a frame's record touches.
+    """An imaging API and its camera API, with just what building a frame's record touches.
 
-    live: what get_live_camera_settings answers (default: both fields read).
+    live: what the camera's get_live_camera_settings answers (default: both fields read).
     chunk_reads: optional list that records each read of the camera's chunks.
     """
 
@@ -41,8 +42,7 @@ def _imaging(live=None, chunk_reads=None):
             chunk_reads.append(1)
         return None
 
-    imaging = object.__new__(ImagingAPI)
-    imaging._scope = SimpleNamespace(
+    scope = SimpleNamespace(
         capabilities=SimpleNamespace(
             camera_model='simcam',
             camera_timestamp_tick_hz=1_000_000_000,
@@ -53,14 +53,20 @@ def _imaging(live=None, chunk_reads=None):
             cam_image_handler=SimpleNamespace(get_last_chunks=get_last_chunks),
         ),
     )
-    imaging._camera_cache_lock = threading.Lock()
-    imaging._camera_cache = {'binning': 1}
+    camera = object.__new__(CameraAPI)
+    camera._scope = scope
+    camera._camera_cache_lock = threading.Lock()
+    camera._camera_cache = {'binning': 1}
+    camera._state_lock = threading.Lock()
+    camera._held_layer = None
+    answer = {'gain_db': LIVE_GAIN_DB, 'exposure_ms': LIVE_EXPOSURE_MS} if live is None else live
+    camera.get_live_camera_settings = lambda: answer
+    imaging = object.__new__(ImagingAPI)
+    imaging._scope = scope
+    imaging._camera = camera
     # The reducer's account of the frame just made: one frame, 12 bits.
     imaging._state_lock = threading.Lock()
     imaging._last_frame_summing = (1, 12)
-    imaging._held_layer = None
-    answer = {'gain_db': LIVE_GAIN_DB, 'exposure_ms': LIVE_EXPOSURE_MS} if live is None else live
-    imaging.get_live_camera_settings = lambda: answer
     return imaging
 
 

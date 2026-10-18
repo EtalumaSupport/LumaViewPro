@@ -183,9 +183,9 @@ def _scope_with_auto_gain(has_auto_gain):
     """
     from tests.scope_fakes import answer_auto_gain_like_the_api
 
-    imaging = SimpleNamespace()
-    answer_auto_gain_like_the_api(imaging, has_auto_gain=has_auto_gain)
-    return SimpleNamespace(imaging=imaging)
+    camera = SimpleNamespace()
+    answer_auto_gain_like_the_api(camera, has_auto_gain=has_auto_gain)
+    return SimpleNamespace(camera=camera)
 
 
 class _NoSettingsCtx:

@@ -12,32 +12,32 @@ import harness as _common
 from modules.lumascope_api._constants import *  # noqa: F403  (no-op if absent)
 
 s, live = _common.make_session()
-im = s.scope.imaging
+im_camera = s.scope.camera
 try:
     caps = s.scope.capabilities
     native = caps.camera_max_frame_size
     print('largest frame         :', native)
     print('available binning     :', caps.camera_binning_sizes)
     print('supported pix formats :', caps.camera_pixel_formats)
-    print('start w/h             :', im.get_width(), im.get_height())
+    print('start w/h             :', im_camera.get_width(), im_camera.get_height())
 
     # --- frame size, in range -------------------------------------------
-    delivered = im.set_frame_size(800, 600)
+    delivered = im_camera.set_frame_size(800, 600)
     _common.check(
         'frame 800x600 applied', delivered == {'width': 800, 'height': 600}, str(delivered)
     )
     _common.check(
         'frame read-back',
-        (im.get_width(), im.get_height()) == (800, 600),
-        f'{im.get_width()}x{im.get_height()}',
+        (im_camera.get_width(), im_camera.get_height()) == (800, 600),
+        f'{im_camera.get_width()}x{im_camera.get_height()}',
     )
-    print('frame_size_cached     :', im.frame_size_cached)
+    print('frame_size_cached     :', im_camera.frame_size_cached)
 
     # --- frame size, OUT OF RANGE (the 13414 shape) ----------------------
-    from modules.exceptions import CameraSettingOutOfRangeError
+    from modules.exceptions import CameraSettingOutOfRangeError, CameraSettingUnsupportedError
 
     try:
-        out = im.set_frame_size(13414, 13414)
+        out = im_camera.set_frame_size(13414, 13414)
         print('set_frame_size(13414,13414) RETURNED:', out)
         _common.check(
             '13414 refused (not silently clamped)',
@@ -46,56 +46,58 @@ try:
         )
     except CameraSettingOutOfRangeError as e:
         _common.check('13414 refused (not silently clamped)', True, str(e))
-    print('after oversize, read-back:', im.get_width(), im.get_height())
+    print('after oversize, read-back:', im_camera.get_width(), im_camera.get_height())
 
     # --- frame size, zero / negative ------------------------------------
     for bad in ((0, 0), (-10, 600)):
         try:
-            out = im.set_frame_size(*bad)
+            out = im_camera.set_frame_size(*bad)
             print(f'set_frame_size{bad} RETURNED:', out)
         except Exception as e:
             print(f'set_frame_size{bad} raised {type(e).__name__}: {e}')
 
     # --- binning ---------------------------------------------------------
     supported = caps.camera_binning_sizes
-    im.set_binning_size(2)
+    im_camera.set_binning_size(2)
     _common.ok(
         'binning 2 applied',
-        im.get_binning_size() == 2,
-        f'read-back={im.get_binning_size()}',
+        im_camera.get_binning_size() == 2,
+        f'read-back={im_camera.get_binning_size()}',
     )
     bad_bin = next(x for x in (3, 5, 7, 16) if x not in supported)
     try:
-        im.set_binning_size(bad_bin)
-        _common.void(
+        im_camera.set_binning_size(bad_bin)
+        _common.check(
             f'unsupported binning {bad_bin} refused',
             False,
-            f'accepted; read-back {im.get_binning_size()}',
+            f'accepted; read-back {im_camera.get_binning_size()}',
         )
-    except Exception as e:
-        _common.void(f'unsupported binning {bad_bin} refused', True, f'{type(e).__name__}: {e}')
-    im.set_binning_size(1)
+    except CameraSettingUnsupportedError as e:
+        _common.check(f'unsupported binning {bad_bin} refused', True, f'{e.reason}: {e}')
+    im_camera.set_binning_size(1)
 
-    # --- pixel format (image mode) --------------------------------------
+    # --- pixel format, chosen by the image mode -------------------------
+    from modules import image_mode
+
     fmts = caps.camera_pixel_formats
     if fmts:
-        im.set_pixel_format(fmts[0])
+        chosen = image_mode.select_capture_pixel_format(12, fmts)
+        im_camera.set_image_mode('12bit_scientific')
         _common.ok(
-            f'pixel format {fmts[0]} applied',
-            im.pixel_format_cached == fmts[0],
-            f'read-back={im.pixel_format_cached}',
+            f'pixel format {chosen} applied by the full-depth mode',
+            im_camera.pixel_format_cached == chosen,
+            f'read-back={im_camera.pixel_format_cached}',
         )
     try:
-        im.set_pixel_format('Mono99')
-        _common.ok('bogus pixel format refused', False, 'accepted')
+        im_camera.set_image_mode('Mono99')
+        _common.ok('bogus image mode refused', False, 'accepted')
     except Exception as e:
-        _common.ok('bogus pixel format refused', True, f'{type(e).__name__}: {e}')
+        _common.ok('bogus image mode refused', True, f'{type(e).__name__}: {e}')
 
     # --- is the image MODE (8/12-bit display mode) an API concept? -------
     snap = s.get_settings_snapshot()
     print("settings['image_mode'] :", snap.get('image_mode'))
-    print('session has set_image_mode?', hasattr(s, 'set_image_mode'))
-    print('imaging has set_image_mode?', hasattr(im, 'set_image_mode'))
+    print('camera has set_image_mode?', hasattr(im_camera, 'set_image_mode'))
 finally:
     s.shutdown()
 

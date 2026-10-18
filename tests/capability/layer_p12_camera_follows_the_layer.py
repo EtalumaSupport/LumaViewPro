@@ -25,8 +25,8 @@ from harness import HARDWARE, check, figure, hardware_session, make_session, rep
 
 
 def _camera(scope):
-    imaging = scope.imaging
-    return round(float(imaging.get_exposure_ms()), 3), round(float(imaging.get_gain_db()), 3)
+    camera_api = scope.camera
+    return round(float(camera_api.get_exposure_ms()), 3), round(float(camera_api.get_gain_db()), 3)
 
 
 def _record(scope):

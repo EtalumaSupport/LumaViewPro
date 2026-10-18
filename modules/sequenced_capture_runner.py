@@ -1352,7 +1352,7 @@ class SequencedCaptureRunner:
         if arm is None or self._run_mode is SequencedCaptureRunMode.SINGLE_AUTOFOCUS:
             return
         try:
-            self._scope.imaging.set_auto_gain(False, dict(arm.settings))
+            self._scope.camera.set_auto_gain(False, dict(arm.settings))
         except CameraSettingRejected as rejected:
             # The run goes on with the camera as it is; the refusal ends its
             # flight here.
@@ -1399,7 +1399,7 @@ class SequencedCaptureRunner:
         if not self._is_run_live():
             return None
         self._original_led_states = self._scope.illumination.get_led_states()
-        self._saved_camera_state = self._scope.imaging.save_camera_state('protocol')
+        self._saved_camera_state = self._scope.camera.save_camera_state('protocol')
         # No target brightness is written here: every step that arms
         # auto-gain, and every one-shot, hands the camera its target in the
         # same write.

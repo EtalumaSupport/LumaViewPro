@@ -42,7 +42,7 @@ from tests.protocol_drives import lent_run_claim
 import modules.config_helpers as config_helpers
 
 from tests.camera_fakes import bare_pylon_camera
-from tests.scope_fakes import give_camera_capabilities
+from tests.scope_fakes import give_camera_and_imaging, give_camera_capabilities
 from modules.layer_record import release_colors
 from tests.objective_records import objective
 
@@ -160,14 +160,13 @@ def test_auto_gain_forwards_cap_to_bound_helper():
 def test_api_set_auto_gain_forwards_cap_from_settings_dict():
     from drivers.simulated_camera import SimulatedCamera
     from modules.lumascope_api import Lumascope
-    from modules.lumascope_api.imaging import ImagingAPI
 
     cam = SimulatedCamera()
     cam.connect()
     scope = Lumascope.__new__(Lumascope)
     scope._camera_driver = cam
     give_camera_capabilities(scope, cam)
-    imaging = ImagingAPI(scope, cam)
+    camera = give_camera_and_imaging(scope)
 
     recorded = {}
     orig_auto_gain = cam.auto_gain
@@ -177,10 +176,10 @@ def test_api_set_auto_gain_forwards_cap_from_settings_dict():
         return orig_auto_gain(state, **kwargs)
 
     cam.auto_gain = recording_auto_gain
-    # The impl seam: this harness builds a bare ImagingAPI with no scope
+    # The impl seam: this harness builds a bare CameraAPI with no scope
     # composition, and the forwarding contract under test lives in the
     # body, not the dispatcher.
-    imaging._set_auto_gain_impl(
+    camera._set_auto_gain_impl(
         True,
         {
             'target_brightness': 0.5,
@@ -190,7 +189,7 @@ def test_api_set_auto_gain_forwards_cap_from_settings_dict():
         },
     )
     assert recorded.get('ae_max_exposure_ms') == 800.0, (
-        'imaging.set_auto_gain must forward settings["max_exposure_ms"] '
+        'camera.set_auto_gain must forward settings["max_exposure_ms"] '
         f'to the driver as the AE cap (#655); driver saw {recorded}'
     )
 
@@ -206,7 +205,7 @@ def test_protocol_caller_injects_per_class_cap(monkeypatch):
     )
     runner = scan_ready_runner(protocol_step(Auto_Gain=True))
     runner._step_executor.scan_iterate()
-    applies = runner._scope.imaging.apply_layer_camera_settings.call_args_list
+    applies = runner._scope.camera.apply_layer_camera_settings.call_args_list
     assert applies, 'the AG step must make the apply'
     assert applies[0].kwargs['auto_gain_settings']['max_exposure_ms'] == 456.0, (
         "the step's channel-class cap must reach the AG apply. (#655)"
@@ -283,7 +282,7 @@ def test_protocol_arm_resolves_the_cap_from_the_run():
         _ag_ae_max_exposure_ms={'fluorescence': 123.0},
     )
     runner._step_executor.scan_iterate()
-    applies = runner._scope.imaging.apply_layer_camera_settings.call_args_list
+    applies = runner._scope.camera.apply_layer_camera_settings.call_args_list
     assert applies, 'the AG step must make the apply'
     assert applies[0].kwargs['auto_gain_settings']['max_exposure_ms'] == 123.0, (
         "the run's per-install fluorescence ceiling must reach the AG apply. (#655)"
@@ -301,7 +300,7 @@ def _video_session_autogain_call(autogain_settings):
 
     scope = MagicMock()
     scope.imaging.frames_until_valid.return_value = 0
-    scope.imaging.active_cached = False  # wait loop exits on its first tick
+    scope.camera.active_cached = False  # wait loop exits on its first tick
     scope.runtime_state.resolve_current_objective.return_value = (
         '4x Oly',
         objective(focal_length_mm=45.0),
@@ -309,7 +308,7 @@ def _video_session_autogain_call(autogain_settings):
     scope.capabilities.camera_model = 'sim'
     scope.capabilities.camera_serial_number = '0'
     scope.capabilities.camera_timestamp_tick_hz = None
-    scope.imaging.frame_size_cached = {'width': 8, 'height': 8}
+    scope.camera.frame_size_cached = {'width': 8, 'height': 8}
     step = {
         'Auto_Gain': True,
         'Exposure': 10.0,
@@ -344,8 +343,8 @@ def _video_session_autogain_call(autogain_settings):
     with patch.object(protocol_recording, 'check_disk_space_ok', lambda *a, **k: (True, 999999)):
         outcome = recorder.run_blocking()
     assert outcome == protocol_recording.NO_FRAMES
-    assert scope.imaging.auto_gain_once.called, 'the first-frame AG re-arm must fire'
-    return scope.imaging.auto_gain_once.call_args.kwargs
+    assert scope.camera.auto_gain_once.called, 'the first-frame AG re-arm must fire'
+    return scope.camera.auto_gain_once.call_args.kwargs
 
 
 def test_video_capture_rearm_forwards_cap():

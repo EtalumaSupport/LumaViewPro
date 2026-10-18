@@ -67,7 +67,7 @@ class FrameRecord:
             frame's exposure, not the total; ``frames_summed`` says how many.
         gain_db: Gain the frame was taken at.
         black_level: The camera's black level parameter the frame was taken
-            at, in the camera's own units (``ImagingAPI.get_black_level``).
+            at, in the camera's own units (``CameraAPI.get_black_level``).
         illumination_ma: Drive current of each LED address lit for the
             grab, by address. An address that was off is absent.
         frames_summed: Number of frames summed into the image.
@@ -98,7 +98,7 @@ class FrameRecord:
             any frame was. None when the capture did not judge it (no LED
             on, or ``accept_dark``).
         held_layer: The layer whose stored settings the camera held for the
-            grab (``ImagingAPI.get_held_layer``); None when it held no
+            grab (``CameraAPI.get_held_layer``); None when it held no
             layer's, after a raw camera write or with the settings a run's
             step wrote. The frame's own exposure and gain are the fields
             above either way.

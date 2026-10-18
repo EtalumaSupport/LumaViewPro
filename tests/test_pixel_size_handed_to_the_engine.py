@@ -56,7 +56,7 @@ class TestAHeadlessImageCarriesItsScale:
         expected = (
             caps.pixel_size_um
             / (caps.lens_focal_length_mm / objective.focal_length_mm)
-            * sim_scope.imaging._binning_size
+            * sim_scope.camera._binning_size
         )
 
         metadata = image_save.generate_image_metadata(

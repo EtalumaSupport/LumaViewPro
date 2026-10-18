@@ -370,4 +370,4 @@ def test_the_run_takes_a_standing_arm_through_the_public_member():
 
     runner._take_auto_gain_arm_for_run()
 
-    runner._scope.imaging.set_auto_gain.assert_called_once_with(False, {'target_brightness': 0.5})
+    runner._scope.camera.set_auto_gain.assert_called_once_with(False, {'target_brightness': 0.5})

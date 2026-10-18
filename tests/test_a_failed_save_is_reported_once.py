@@ -109,13 +109,14 @@ def test_an_sdk_setter_raises_the_driver_error_once_and_posts_nothing(
     setter, method, args, centre_posts
 ):
     from modules.lumascope_api import Lumascope
-    from modules.lumascope_api.imaging import ImagingAPI
+    from tests.scope_fakes import give_camera_and_imaging
 
     camera = _FailingCamera(method)
     scope = Lumascope.__new__(Lumascope)
     scope.runtime_state = RuntimeState(scope)
     scope._camera_driver = camera
-    imaging = ImagingAPI(scope, camera)
+    give_camera_and_imaging(scope)
+    imaging = scope.imaging
 
     with pytest.raises(HardwareError, match='node write timed out'):
         getattr(imaging, setter)(*args)

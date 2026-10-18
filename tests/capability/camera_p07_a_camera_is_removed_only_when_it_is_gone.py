@@ -52,7 +52,7 @@ def _the_hand(session):
     return time.monotonic() + delay
 
 
-def _until_removed(imaging, writes=None):
+def _until_removed(camera_api, writes=None):
     """Wait for the removal flag; with ``writes``, keep writing gain meanwhile.
 
     Answers when the flag was seen (monotonic), and each write's answer.
@@ -61,14 +61,14 @@ def _until_removed(imaging, writes=None):
     until = time.monotonic() + WINDOW_S
     gain = 0.0
     while time.monotonic() < until:
-        if imaging.camera_removed:
+        if camera_api.camera_removed:
             return time.monotonic(), answers
         if writes is None:
             time.sleep(POLL_S)
             continue
         gain = 6.0 if gain == 0.0 else 0.0
         try:
-            imaging.set_gain_db(gain)
+            camera_api.set_gain_db(gain)
             answers.append('applied')
         except Exception as e:
             answers.append(f'{type(e).__name__}:{getattr(e, "reason", e)}')
@@ -77,9 +77,9 @@ def _until_removed(imaging, writes=None):
     return None, answers
 
 
-def _next_command(imaging):
+def _next_command(camera_api):
     try:
-        imaging.set_gain_db(3.0)
+        camera_api.set_gain_db(3.0)
         return 'applied'
     except Exception as e:
         return f'{type(e).__name__}:{getattr(e, "reason", e)}'
@@ -87,16 +87,17 @@ def _next_command(imaging):
 
 def _phase(session, phase):
     imaging = session.scope.imaging
+    camera_api = session.scope.camera
     if phase == 'idle':
         imaging.disable_streaming()
     else:
         imaging.enable_streaming()
     figure('streaming when the hand comes', imaging.is_streaming())
-    check('the camera starts connected', not imaging.camera_removed)
+    check('the camera starts connected', not camera_api.camera_removed)
     if phase == 'writes':
-        imaging.set_gain_db(0.0)
+        camera_api.set_gain_db(0.0)
     unplugged = _the_hand(session)
-    seen, answers = _until_removed(imaging, writes=phase == 'writes' or None)
+    seen, answers = _until_removed(camera_api, writes=phase == 'writes' or None)
     figure('declared removed', seen is not None)
     if seen is not None and HARDWARE:
         # On hardware the window opens at the prompt, not at the pull; the
@@ -121,7 +122,7 @@ def _phase(session, phase):
             ),
             failed,
         )
-    after = _next_command(imaging)
+    after = _next_command(camera_api)
     figure('the next command answered', after)
     check('the next command is refused not_connected', after.endswith(':not_connected'), after)
 

@@ -33,7 +33,7 @@ if typing.TYPE_CHECKING:
     from modules.executor_registry import ExecutorBundle
     from modules.layer_record import ScopeModel
     from modules.lumascope_api._lumascope import Lumascope
-    from modules.lumascope_api.imaging import ImagingAPI
+    from modules.lumascope_api.camera import CameraAPI
     from modules.protocol import Protocol
     from modules.scope_capabilities import ScopeCapabilities
 
@@ -841,7 +841,7 @@ def focus_log(positions, values, focus_round: int, source_path: str) -> int:
 
 # Fallback exposure slider upper bound used when no camera is connected.
 # Lumascope.max_exposure_ms_cached returns None in that case; callers pattern
-# is `scope.imaging.max_exposure_ms_cached or DEFAULT_MAX_EXPOSURE_MS`. See #616.
+# is `scope.camera.max_exposure_ms_cached or DEFAULT_MAX_EXPOSURE_MS`. See #616.
 DEFAULT_MAX_EXPOSURE_MS = 1000.0
 
 # The usable exposure FLOOR per channel class (ms): see
@@ -873,15 +873,15 @@ def _camera_cap_for_ui(value: float | None, default: float) -> float:
     return default
 
 
-def camera_max_exposure_for_ui(imaging) -> float:
+def camera_max_exposure_for_ui(camera: 'CameraAPI') -> float:
     """The exposure-slider upper bound from the live camera, or the no-camera
     default. The single UI-facing resolver, so the connect (load_settings) and
     reconnect paths can't apply the fallback differently.
     """
-    return _camera_cap_for_ui(imaging.max_exposure_ms_cached, DEFAULT_MAX_EXPOSURE_MS)
+    return _camera_cap_for_ui(camera.max_exposure_ms_cached, DEFAULT_MAX_EXPOSURE_MS)
 
 
-def camera_max_gain_for_ui(imaging: 'ImagingAPI') -> float:
+def camera_max_gain_for_ui(camera: 'CameraAPI') -> float:
     """The gain-slider upper bound from the live camera, or the no-camera
     default. Parallel to camera_max_exposure_for_ui.
 
@@ -903,7 +903,7 @@ def camera_max_gain_for_ui(imaging: 'ImagingAPI') -> float:
     driver's own short-circuit tolerance, so it cannot produce a request the
     camera treats as a change.
     """
-    cap = _camera_cap_for_ui(imaging.max_gain_db_cached, DEFAULT_MAX_GAIN_DB)
+    cap = _camera_cap_for_ui(camera.max_gain_db_cached, DEFAULT_MAX_GAIN_DB)
     return round(cap, common_utils.max_decimal_precision('gain'))
 
 

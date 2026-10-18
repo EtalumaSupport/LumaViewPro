@@ -550,6 +550,28 @@ class FrameRefittedNotice(Notice, Exception):  # noqa: N818 -- a notice, not an 
         )
 
 
+class CameraFeatureAbsentNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error
+    """A camera feature saved on that this camera does not have; it is now saved off.
+
+    A camera without high conversion gain or line-noise reduction is at its
+    standard setting, which is known, so that setting is stored in the saved
+    value's place, as a substituted binning is.
+
+    Attributes:
+        feature: The feature, in words (``'high conversion gain'``).
+    """
+
+    title = 'Saved camera feature not available'
+    reason = 'camera_feature_absent'
+
+    def __init__(self, feature: str):
+        self.feature = feature
+        super().__init__(
+            f'The saved settings turn on {feature}, which this camera does not have; it '
+            'runs without it, which is now the saved setting.'
+        )
+
+
 class ChannelBlockSupersededNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error
     """The motor board carries the old Layers block, which is no longer read.
 
@@ -1308,7 +1330,8 @@ class SettingRefusedError(Refusal, ConfigError):
 
     Attributes:
         reason: ``'has_member'`` -- the setting is changed by its own
-            Session member, named in ``member``. ``'host_only'`` -- that
+            member, named in ``member`` by its path from the session (the
+            camera's as ``scope.camera.<name>``). ``'host_only'`` -- that
             member is in-process: only the application hosting the scope
             changes the setting, and a REST client reads it. ``'not_a_setting'`` -- no
             setting has this path. ``'block'`` -- the path names a block of
@@ -4085,7 +4108,7 @@ class AutofocusLedsHeldError(Refusal, AutofocusAborted):
 class CameraSettingRejected(Fault, Exception):  # noqa: N818 -- named for the event it signals; one type covers the defect class
     """The camera driver rejected a state-changing setting apply.
 
-    Raised by ImagingAPI setters (frame size, binning, pixel format, gain,
+    Raised by CameraAPI setters (frame size, binning, image mode, gain,
     exposure) when a LIVE driver refuses the apply -- distinct from a
     camera that is not there, before or during the write, which is refused
     as ``HardwareCommandRefusedError('not_connected')``. Success is observed by receiving the

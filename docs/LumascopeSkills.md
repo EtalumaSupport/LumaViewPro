@@ -104,11 +104,11 @@ Methods on the L2 surface follow one of two contracts; if a method's docstring h
 - **Camera value getters** (`get_gain_db`, `get_exposure_ms`, `get_binning_size`) are a stricter subclass of the sentinel contract: a **transient read failure is invisible** -- the getter answers with the validated last-known-good value, so a momentary USB/SDK glitch can never hand you a failure code where a physical value belongs (no `-1` gain into arithmetic, no `None` frame size into a subscript). The no-camera answers (`get_gain_db` and `get_exposure_ms` `None`, `get_binning_size` 1) occur **only** when no camera is active or the value has never been successfully read -- stable states you can see coming via `camera_connected`, not something a transient failure produces mid-session. Callers that must record what the hardware was at a specific moment (file metadata, logs of record) use `get_live_camera_settings()` instead: it returns only fields whose driver read succeeded right now (`gain_db`, `exposure_ms`, `frame_size`, `pixel_format`) and omits the rest -- there, unknown stays unknown by design.
 - **Naming convention -- `*_cached` vs `get_*`**: a property ending in `_cached` (`gain_db_cached`, `exposure_ms_cached`, `frame_size_cached`, `pixel_format_cached`, `min_frame_size_cached`, `max_exposure_ms_cached`, `max_gain_db_cached`, `min_exposure_ms_cached`, `min_gain_db_cached`) reads the host-side camera cache and performs **no driver I/O** -- safe to read at any frequency from any thread. A `get_*` method is a **live driver read** under the last-known-good contract above. The name carries the contract, so a call site's I/O behavior is visible without opening the implementation.
 - **State-changing operations** (setters like `move_absolute`, `led_on`, etc.) return only once the change is made; a change that could not be made raises (a refusal names what was missing or wrong, a fault what broke). A `Raises:` section in the docstring documents the typed exception (`HardwareError` and its children from `drivers.exceptions`; `CaptureError`, `ConfigError` from `modules.exceptions`) that propagates when the underlying SDK call itself fails. Some members still log and show their own notification before re-raising; they are being moved to raise only, so the failure is shown once, by whoever reports it. The typed exception is what L2 callers should catch. **Read the member's own `Raises:` section rather than this paragraph: it is the declaration, and not every setter returns a status.**
-- **Camera setting applies** (`set_gain_db`, `set_exposure_ms`, `set_black_level`, and the Session's `set_frame_size`, `set_binning_size` and `set_image_mode`) are the raise contract, not the True/False one: every setting write either applied or raises `CameraSettingRejected` (`modules.exceptions`), a fault carrying `setting`, `requested`, `reason`, and the `title` and message a person reads, with the driver's exception as its `__cause__` when it raised; nothing is logged or shown before it reaches you, so reporting it is yours. Its `reason` is `camera_rejected` (title 'Camera Setting Not Applied') when the camera refused the value or its driver raised from the write, and `camera_no_answer` (title 'Camera Did Not Answer') when the camera did not answer the write in time: the API sends a write the camera did not answer once more, at once, and raises only when the resend goes unanswered too. A refused write is not resent. After an unanswered one, whether the camera took the value is not known, so the gate that holds a capture until frames carry the new setting forgets the value it was waiting for and settles by frame count. Both are REST `500`. Success is observed by the returned value, which is what the camera actually applied and may differ from the request: the DELIVERED size for the geometry setters, and for `set_gain_db` / `set_exposure_ms` the gain in dB / exposure in ms now in effect (a body snaps or quantizes). A gain or exposure outside the camera's declared range (`capabilities.camera_limits`: `gain_db_min` .. `gain_db_max`, `exposure_ms_min` .. `exposure_ms_max`, read once at connect) is refused before anything reaches the camera with `CameraSettingOutOfRangeError`, a refusal and a `ValueError`, carrying `reason` (`gain_db_out_of_range` / `exposure_ms_out_of_range`), `requested`, `minimum` and `maximum`, and a message naming the range; an end the camera does not declare is `None` and is not checked. A frame width or height outside [`camera_limits.frame_min`, the scope's maximum / the current binning] is refused the same way from `set_frame_size` (`frame_width_out_of_range` / `frame_height_out_of_range`); the scope's maximum is `camera_limits.frame_max`, unbinned whatever binning the camera held at connect: the sensor, or the model's smaller one where its lens images less of the sensor (1700 on the LS560). When it is `None` the maximum is unknown and is not checked. Inside the range every camera delivers exactly the size asked for: it acquires the next window up on its own grid and crops back. The Session's `set_frame_size` floors the size to even sides first (`get_pixel_alignment()`, `{2, 2}` on every camera) and refuses before it stores. With no camera connected each raises `HardwareCommandRefusedError` (`not_connected`, `MissingPart.CAMERA`; see the dispatch paragraph below), not `CameraSettingRejected`. So does every camera command whose camera was declared removed (`scope.imaging.camera_removed`) by the time it failed or, for a write, returned, with the command's own fault as its `__cause__` and nothing recorded; an off (`disable_streaming`, `set_auto_gain(False)`, `set_auto_exposure_time(False)`, `lock_auto_gain`) is satisfied instead, as with no camera. A camera is declared removed only on definite evidence that it is gone (its SDK's removal callback, a grab that finds no device, a run of failed grabs, and on the Classic (FX2) body a failed write or stream start after which the device is absent from the USB bus on two probes 0.5 s apart). On the Basler and IDS bodies that happens on another thread: one failed write is that write's `CameraSettingRejected` with the camera still connected, so a write its cable was pulled during can first raise `CameraSettingRejected`, and the next command is refused `not_connected`. On the Classic body the failed command itself asks the bus, so a setting written to, or a stream started on, a removed camera is refused `not_connected` at once, streaming or not. A driver with no confirmation signal is deliberately **not** a rejection and does not raise: it answers `None`, meaning "cannot confirm", not "refused". On the Classic (FX2) body the sensor register write raises rather than reporting a refusal, so a failed apply there is a `CameraSettingRejected` chained to the driver's exception. `apply_layer_camera_settings` writes the gain, the exposure and the auto-gain change even when one is not taken, and then raises one `CameraSettingRejected` naming each that was not (`setting` comma-separated, `camera_no_answer` when any went unanswered).
+- **Camera setting applies** (`set_gain_db`, `set_exposure_ms`, `set_black_level`, and the camera's `set_frame_size`, `set_binning_size` and `set_image_mode`) are the raise contract, not the True/False one: every setting write either applied or raises `CameraSettingRejected` (`modules.exceptions`), a fault carrying `setting`, `requested`, `reason`, and the `title` and message a person reads, with the driver's exception as its `__cause__` when it raised; nothing is logged or shown before it reaches you, so reporting it is yours. Its `reason` is `camera_rejected` (title 'Camera Setting Not Applied') when the camera refused the value or its driver raised from the write, and `camera_no_answer` (title 'Camera Did Not Answer') when the camera did not answer the write in time: the API sends a write the camera did not answer once more, at once, and raises only when the resend goes unanswered too. A refused write is not resent. After an unanswered one, whether the camera took the value is not known, so the gate that holds a capture until frames carry the new setting forgets the value it was waiting for and settles by frame count. Both are REST `500`. Success is observed by the returned value, which is what the camera actually applied and may differ from the request: the DELIVERED size for the geometry setters, and for `set_gain_db` / `set_exposure_ms` the gain in dB / exposure in ms now in effect (a body snaps or quantizes). A gain or exposure outside the camera's declared range (`capabilities.camera_limits`: `gain_db_min` .. `gain_db_max`, `exposure_ms_min` .. `exposure_ms_max`, read once at connect) is refused before anything reaches the camera with `CameraSettingOutOfRangeError`, a refusal and a `ValueError`, carrying `reason` (`gain_db_out_of_range` / `exposure_ms_out_of_range`), `requested`, `minimum` and `maximum`, and a message naming the range; an end the camera does not declare is `None` and is not checked. A frame width or height outside [`camera_limits.frame_min`, the scope's maximum / the current binning] is refused the same way from `set_frame_size` (`frame_width_out_of_range` / `frame_height_out_of_range`); the scope's maximum is `camera_limits.frame_max`, unbinned whatever binning the camera held at connect: the sensor, or the model's smaller one where its lens images less of the sensor (1700 on the LS560). When it is `None` the maximum is unknown and is not checked. Inside the range every camera delivers exactly the size asked for: it acquires the next window up on its own grid and crops back. The camera's `set_frame_size` floors the size to even sides first (`get_pixel_alignment()`, `{2, 2}` on every camera) and refuses before it stores. With no camera connected each raises `HardwareCommandRefusedError` (`not_connected`, `MissingPart.CAMERA`; see the dispatch paragraph below), not `CameraSettingRejected`. So does every camera command whose camera was declared removed (`scope.camera.camera_removed`) by the time it failed or, for a write, returned, with the command's own fault as its `__cause__` and nothing recorded; an off (`disable_streaming`, `set_auto_gain(False)`, `set_auto_exposure_time(False)`, `lock_auto_gain`) is satisfied instead, as with no camera. A camera is declared removed only on definite evidence that it is gone (its SDK's removal callback, a grab that finds no device, a run of failed grabs, and on the Classic (FX2) body a failed write or stream start after which the device is absent from the USB bus on two probes 0.5 s apart). On the Basler and IDS bodies that happens on another thread: one failed write is that write's `CameraSettingRejected` with the camera still connected, so a write its cable was pulled during can first raise `CameraSettingRejected`, and the next command is refused `not_connected`. On the Classic body the failed command itself asks the bus, so a setting written to, or a stream started on, a removed camera is refused `not_connected` at once, streaming or not. A driver with no confirmation signal is deliberately **not** a rejection and does not raise: it answers `None`, meaning "cannot confirm", not "refused". On the Classic (FX2) body the sensor register write raises rather than reporting a refusal, so a failed apply there is a `CameraSettingRejected` chained to the driver's exception. `apply_layer_camera_settings` writes the gain, the exposure and the auto-gain change even when one is not taken, and then raises one `CameraSettingRejected` naming each that was not (`setting` comma-separated, `camera_no_answer` when any went unanswered).
 - **Hardware-command dispatch** (LED, motion, and camera commands): each command submits to one of the scope's own lanes -- IO for LED and motion, CAMERA for camera -- and blocks until the hardware has it. Every `Lumascope` builds and starts its two lanes, so commands from every caller run one at a time per bus, in order. While a run, a diagnostic or a home holds the scope (or a lane is disabled), the command raises `HardwareCommandRefusedError` (`modules.exceptions`), carrying the machine-readable `reason` (`exclusive_activity_running`) and the refused member. Once `session.shutdown()` has shut the lanes -- the first step of the scope's own `disconnect()`, before the boards are released -- every command raises at once with `reason` `scope_disconnected`, `stop_motion` included. A motion, LED or camera command for hardware the scope does not have raises it too, before anything moves, lights or is written, and its `missing` (a `MissingPart`, `modules.exceptions`) names the part, its words coming from it: `reason` `not_connected` when the model has a motor controller and none is connected -- never came up, or its cable pulled -- (`MissingPart.MOTOR_CONTROLLER`, "Check the USB cable ..."), or when no LED controller is connected (`MissingPart.LED_CONTROLLER`), or no camera ("The camera is not connected.", `MissingPart.CAMERA`: every camera command, the camera's diagnostic runners, `add_frame_listener` and a manual still's Future included); `axis_absent` when the scope does not have the part: `MissingPart.FAN_CONTROL` and `MissingPart.LED_ENGINEERING_MODE` for the diagnostics' fan and LED engineering mode, `MissingPart.X`, `Y` or `Z` for an axis it lacks, `MissingPart.TURRET` for a turret, and `MissingPart.MOTORS` on a manual scope (LS620, LS560), for every motion command, `stop_motion`, `home()` and the acceleration limit included; `MissingPart.led(...)` for an LED the model lacks, named as the command named it ("This microscope has no Red LED.", "... no LED on channel 2."); `MissingPart.layer(...)` for a layer the model lacks that a layer's settings, its focus or a still names ("This microscope has no Lumi layer."). A name that is no axis at all is refused first, on every model, with `ArgumentRefusedError` reason `axis_unknown` (see the arguments paragraph below). An LED off whose end state already holds is not refused: an off of a channel the API holds dark, of an LED the model lacks, or with no LED controller and nothing believed lit returns with nothing written and nothing logged. An LED command whose own write is what finds the LED controller gone (on the Classic the LED shares the camera's USB device, which tells nothing when unplugged) answers as it would have with the controller known gone: refused `not_connected` with the device's fault as its `__cause__`, or an off satisfied when nothing is believed lit; a channel it could not darken stays believed lit. So with no camera does a camera off, with the answer it gives with a camera: `disable_streaming` (None), `set_auto_gain(False, ...)` and `set_auto_exposure_time(False)` (True), and `lock_auto_gain` (an `AutoGainLock` whose `state` is None: no arm can stand). `remove_frame_listener` never needs a camera. There is one form of each command; a caller that must not wait runs it on its own thread.
 - **Sentinel-return methods log** at `logger.warning` or `logger.info` per Rule 5; they do **not** fire user notifications (no actionable failure occurred -- the value is just unknown).
 - **`camera_connected` is an instantaneous, non-latching poll.** A `False` can be transient (a single flaky connectivity query on an otherwise healthy camera). Consumers may skip work on `False` and re-poll on their next cycle; they must never latch, self-cancel, or tear anything down on it -- one transient `False` on a multi-day run should cost one skipped cycle, not the rest of the session.
-- **`scope.imaging.camera_removed` is the latched answer.** It is True once the camera's driver has declared it removed (unplugged, off the bus), and stays True until the camera connects again. Unlike a `False` from `camera_connected`, it is never transient, so it is safe to act on. A capture that meets a removed camera is refused `HardwareCommandRefusedError` (`not_connected`), and a run that meets it ends at once, `status='failed'`, `reason='hardware_disconnected'`, in words naming the part gone. False on a scope with no camera at all.
+- **`scope.camera.camera_removed` is the latched answer.** It is True once the camera's driver has declared it removed (unplugged, off the bus), and stays True until the camera connects again. Unlike a `False` from `camera_connected`, it is never transient, so it is safe to act on. A capture that meets a removed camera is refused `HardwareCommandRefusedError` (`not_connected`), and a run that meets it ends at once, `status='failed'`, `reason='hardware_disconnected'`, in words naming the part gone. False on a scope with no camera at all.
 - **Captures return a frame or raise.** `capture_and_wait` and `get_image` never answer None. A capture that got no frame raises `CaptureFailedError` (`modules.exceptions`, a `CaptureError` fault), its `reason` one of `no_frame` (the camera delivered no new frame within its grab window), `deadline_expired` (the scope's state kept changing for longer than the capture's budget) or `chunk_rejected` (frames came, none exposed at the `setting` asked, `'exposure'` or `'gain'`), its title and words the reason's. A camera that is not there, absent at the call or removed during it, is refused `HardwareCommandRefusedError` (`not_connected`), and one connected but not streaming `camera_not_streaming`. Nothing inside the API reports either: the raise is the report, yours to show.
 - **A captured image is read-only.** The array `capture_and_wait` and `get_image` return refuses a write (`ValueError`), whichever path made it: the camera's own frame, a sum, an 8-bit rendering or a scale-bar copy. It is the instrument's account of the frame; to process it in place, work on `image.copy()`.
 
@@ -210,7 +210,7 @@ scope.motor_connected                     # motor board (property)
 scope.motion_expected                     # False on a manual scope (LS620, LS560): no motor board to connect
 scope.led_connected                       # LED board (property)
 scope.camera_connected                    # camera (property)
-scope.imaging.camera_removed              # True once the camera was declared unplugged (latched until it reconnects)
+scope.camera.camera_removed              # True once the camera was declared unplugged (latched until it reconnects)
 scope.no_hardware                         # True if all-null (no real hardware found)
 ```
 
@@ -394,25 +394,28 @@ The scope is the startup's from before `start_application_session()` returns unt
 
 ### Camera capture settings
 
-The image mode, the binning and the frame each have one writer, on the Session: it applies the setting to the camera and stores it in the settings only once the camera took it. A refusal or a rejection leaves the store as it was, so the settings never describe a camera state that is not in force. Call them from the camera's own lane or any thread; each waits for the camera.
+The image mode, the binning and the frame each have one writer, on the camera (`scope.camera`; in-process also `session.camera`, the same object): it applies the setting to the camera and saves it in the settings only once the camera took it, whoever calls it -- the GUI, REST, a run's restore, a plugin. A refusal or a rejection leaves the settings as they were, so they never describe a camera state that is not in force. The pixel format is set only through the image mode, so a capture's depth and its save policy always agree. Over REST these are `/api/v1/scope/camera/...`. Call them from the camera's own lane or any thread; each waits for the camera.
 
 ```python
-session.set_image_mode('12bit_scientific')   # stored once the camera took it; SettingRefusedError (out_of_range) for an unknown mode;
+camera = session.scope.camera
+camera.set_image_mode('12bit_scientific')    # saved once the camera took it; SettingRefusedError (out_of_range) for an unknown mode;
                                              # CameraSettingRejected if the camera refuses the format
-session.set_binning_size(2)                  # the delivered frame {'width', 'height'}; the framed
+camera.set_binning_size(2)                   # the delivered frame {'width', 'height'}; the framed
                                              # region is kept and divided by the new factor.
                                              # CameraSettingUnsupportedError (a refusal) for a size
                                              # the camera does not list
-session.set_frame_size(960, 600)             # a displayed (post-binning) size at the stored binning;
+camera.set_frame_size(960, 600)              # a displayed (post-binning) size at the binning the camera holds;
                                              # returns what the camera delivered (the size, floored
                                              # to even sides); CameraSettingOutOfRangeError outside
                                              # the scope's range
-session.frame_at_binning(2)                  # the frame set_binning_size(2) will ask for; applies nothing;
+camera.frame_at_binning(2)                   # the frame set_binning_size(2) will ask for; applies nothing;
                                              # refused as set_binning_size refuses the same size
 session.get_binning_size()                   # the binning factor in force, e.g. 2: the one the camera took
 ```
 
-With no camera connected, `set_binning_size`, `frame_at_binning` and `set_frame_size` raise `HardwareCommandRefusedError` (`not_connected`, `MissingPart.CAMERA`) and store nothing. `set_image_mode` stores the mode for bring-up to apply.
+The saved frame always carries its unbinned region (`frame.native_width` / `frame.native_height`): the shipped settings hold it, and bring-up saves one that gives the frame the camera delivers. A setting the camera changed at bring-up -- a binning it does not offer, a frame above the scope's maximum, high conversion gain or line-noise reduction saved on for a camera without them (`CameraFeatureAbsentNotice`, saved off) -- is saved as the camera runs it and reported once. A conversion gain or line-noise value the camera refuses at bring-up stays saved and is reported once.
+
+With no camera connected, `camera.set_binning_size`, `camera.frame_at_binning` and `camera.set_frame_size` raise `HardwareCommandRefusedError` (`not_connected`, `MissingPart.CAMERA`) and store nothing. `set_image_mode` stores the mode for bring-up to apply.
 
 The image mode is a save policy, and every camera honours every mode. `'8bit'` reduces each frame to 8 bits. The three full-depth modes keep the payload at the depth the frame has: `'12bit_scientific'` (labelled "Scientific (full depth)") stores it right-aligned, `'12bit_scaled'` ("Scaled (full depth)") left-justifies it to fill its 16-bit container, and `'12bit_false_color_rgb'` ("RGB (full depth)") writes it as false-colour RGB. The ids keep their `12bit_` names: a camera with a 12-bit format is asked for it in a full-depth mode, and an 8-bit camera (LS560/620/720) delivers 8 bits in every mode. Bring-up runs the saved mode as saved.
 
@@ -431,8 +434,8 @@ session.live_folder_listing('ProtocolData')    # one level of the live folder: L
 snapshot = session.get_settings_snapshot()     # a consistent copy, taken under the lock
 session.get_setting('stage_offset')           # a copy of one setting, by its dotted path; ArgumentRefusedError (not_a_setting) when absent
 session.scope.settings_template                # every setting there is, with its shipped value
-session.set_high_conversion_gain(True)        # the camera takes it, then it is stored; a raise: neither (below)
-session.set_line_noise_reduction(True)        # likewise for the line-noise filter
+session.scope.camera.set_high_conversion_gain(True)  # the camera takes it, then it is saved; a raise: neither (below)
+session.scope.camera.set_line_noise_reduction(True)  # likewise for the line-noise filter
 session.set_scale_bar(True)                   # whether captures draw the scale bar: the setting the imaging API reads
 session.set_acceleration_limit(80)            # 1-100, else AccelerationLimitRefusedError (a ValueError); the motors take it, then it is stored; with no motor controller HardwareCommandRefusedError ('not_connected' / 'axis_absent'); nothing stored on a raise
 session.save_bookmark(('X', 'Y'))             # the live position as the bookmark: X/Y plate mm, Z um
@@ -452,7 +455,7 @@ An LED current is sent as the board's nearest step: `led_on` returns that
 step and the illumination API holds it as the lit current, while the
 setting keeps the request. A layer's gain or exposure above the attached
 camera's maximum is applied as that maximum
-(`scope.imaging.applied_gain_db_for`, `applied_exposure_ms_for`) and the
+(`scope.camera.applied_gain_db_for`, `applied_exposure_ms_for`) and the
 apply logs both numbers, while the setting keeps the request, so a camera
 that can take the value gets it back.
 
@@ -482,7 +485,7 @@ Its `reason` says why:
 
 | `reason` | Refused when |
 |---|---|
-| `has_member` | the setting is changed by its own Session member, named in `member`: `microscope` (`select_model`), `live_folder` (`set_live_folder`), `protocol.filepath` (`set_protocol_filepath`), `objective_id` (`select_objective`), `objective_confirmed` (`confirm_objective`), `turret_objectives` (`assign_turret_objective`), `protocol.labware` (`select_labware`), `image_mode` (`set_image_mode`), `binning` (`set_binning_size`), `frame` (`set_frame_size`), `camera.high_conversion_gain` (`set_high_conversion_gain`), `camera.line_noise_reduction` (`set_line_noise_reduction`), `scale_bar.enabled` (`set_scale_bar`), `motion.acceleration_max_pct` (`set_acceleration_limit`), `bookmark` (`save_bookmark`, `save_all_bookmarks`), a layer's `acquire` (`set_layer_acquire`), `auto_gain` (`set_layer_auto_gain`) and `focus` (`save_layer_focus`) |
+| `has_member` | the setting is changed by its own member, named in `member` by its path from the session (`scope.camera.set_frame_size` for the camera's, whose REST route is `/api/v1/scope/camera/set_frame_size`): `microscope` (`select_model`), `live_folder` (`set_live_folder`), `protocol.filepath` (`set_protocol_filepath`), `objective_id` (`select_objective`), `objective_confirmed` (`confirm_objective`), `turret_objectives` (`assign_turret_objective`), `protocol.labware` (`select_labware`), `image_mode` (`scope.camera.set_image_mode`), `binning` (`scope.camera.set_binning_size`), `frame` (`scope.camera.set_frame_size`), `camera.high_conversion_gain` (`scope.camera.set_high_conversion_gain`), `camera.line_noise_reduction` (`scope.camera.set_line_noise_reduction`), `scale_bar.enabled` (`set_scale_bar`), `motion.acceleration_max_pct` (`set_acceleration_limit`), `bookmark` (`save_bookmark`, `save_all_bookmarks`), a layer's `acquire` (`set_layer_acquire`), `auto_gain` (`set_layer_auto_gain`) and `focus` (`save_layer_focus`) |
 | `installation_only` | the setting is read only from the installation's settings file, so no caller can reconfigure the scope it drives: the `rest_api` block, `mode`, `lvp_lock_port`, `profile_trace_output_dir`, and the debugging switches `debug_mode`, `cprofile_enabled`, `profile_trace_enabled`, `tracemalloc_enabled`, `memory_profile_enabled`, `memory_profile_interval_s` and `fx2_debug_wire_enabled` |
 | `not_a_setting` | no setting has the path |
 | `block` | the path names a block of settings (`'video'`); each is written by its own path |
@@ -642,8 +645,8 @@ session.scope.motion.move_absolute('Z', 5000)
 session.scope.motion.move_relative('X', 500)
 
 # Imaging
-session.scope.imaging.set_gain_db(8.0)                 # dB; blocks; returns the dB in effect
-session.scope.imaging.set_exposure_ms(50.0)       # ms; blocks; returns the ms in effect
+session.scope.camera.set_gain_db(8.0)                 # dB; blocks; returns the dB in effect
+session.scope.camera.set_exposure_ms(50.0)       # ms; blocks; returns the ms in effect
 image = session.scope.imaging.capture_and_wait()    # returns frame-valid grab
 
 # A dark frame is never refused. With a channel lit (strictly positive
@@ -703,7 +706,7 @@ stored exposure, gain and auto-gain for the frame, whatever came before: a
 run, a go-to, a written setting, an LED lit through `scope.illumination`.
 When the light changes while the frame is taken, the still is taken again on
 the new light's layer, within the first capture's budget. After a raw camera
-write (`scope.imaging.set_gain_db`, `set_exposure_ms` and the other raw
+write (`scope.camera.set_gain_db`, `set_exposure_ms` and the other raw
 doors) the written values stand, and the frame's record says so:
 `frame_record.held_layer` (the layer whose stored settings the camera held,
 else None) is None, the file's `camera_held_a_layer` False. It
@@ -810,7 +813,7 @@ written = session.save_protocol(protocol, 'my_protocol.tsv')   # -> Path('my_pro
 # protocol.to_file(path) writes the protocol alone, with the block it was loaded with.
 
 # A run captures and saves in the session's image mode and output formats:
-# session.set_image_mode(...) chooses the mode before the run starts.
+# session.scope.camera.set_image_mode(...) chooses the mode before the run starts.
 pending = runner.start_single_scan(protocol)
 result = pending.result(timeout=300)
 print(result.status, result.reason, result.message)
@@ -1019,7 +1022,7 @@ session.go_to_step(protocol, 2)                       # turret, X, Y, Z, the lay
 going = session.start_go_to_step(protocol, 3)         # the same, started; going.result() is the moves' outcome
 ```
 
-**Putting a layer on the camera.** `session.show_channel(layer)` is the one public way a layer's settings reach the camera: it shows the layer and puts its stored exposure, gain and auto-gain on the camera, and waits. Nothing is written when the camera already holds the layer at its stored settings, so a repeat costs no frames. A stored auto-gain arms the live auto loop, capped to the layer's channel class; a camera without hardware auto-gain applies the layer manually. Bring-up applies BF this way (skipped with no camera, or on a scope with no BF layer), `go_to_step` the step's layer, a write to the shown layer's settings the shown layer, and a run's end the layer shown before it. `scope.imaging.apply_layer_camera_settings` writes numbers that are no layer's: after it the camera holds none, and a still's record says so.
+**Putting a layer on the camera.** `session.show_channel(layer)` is the one public way a layer's settings reach the camera: it shows the layer and puts its stored exposure, gain and auto-gain on the camera, and waits. Nothing is written when the camera already holds the layer at its stored settings, so a repeat costs no frames. A stored auto-gain arms the live auto loop, capped to the layer's channel class; a camera without hardware auto-gain applies the layer manually. Bring-up applies BF this way (skipped with no camera, or on a scope with no BF layer), `go_to_step` the step's layer, a write to the shown layer's settings the shown layer, and a run's end the layer shown before it. `scope.camera.apply_layer_camera_settings` writes numbers that are no layer's: after it the camera holds none, and a still's record says so.
 
 **A step the run will refuse.** Every step cell is read as its column's type when a protocol is loaded or built: numbers for X, Y, Z, Illumination, Gain and Exposure, whole numbers for Sum, Z-Slice and the group IDs, True or False for Auto_Focus, Auto_Gain, False_Color, Custom Step and Auto_Named, `'image'` or `'video'` for Acquire, and a parsable config for Video Config and Stim_Config. A cell of the wrong type -- text in a number column, `maybe` in a True/False column, an empty position -- refuses the load with `ProtocolFormatError`, naming the file, the step and the column; nothing is guessed for it. Every text cell is the text in the file: a step named, or a well labelled, `NA`, `None` or `null` loads as that text. A file no LumaViewPro writer produces -- a NUL in a cell, a quote that does not close, a row whose cell count is not the header's, a header naming one column twice -- refuses the load with `ProtocolFormatError`, naming the file. A `Protocol` constructed in memory (`Protocol(config=...)`) is refused the same way, and the protocol's own writers refuse a value of the wrong type with `StepEditRefusedError`. A step index the protocol lacks is refused with `StepNotFoundError` by every writer and by `protocol.step(i)`; its words say how many steps there are ("The protocol has 6 steps.") and name no index, which is zero-based where a person counts from 1, and it carries `index`, the index refused as it was given, and `num_steps`. Both are `ProtocolError`s and refusals (`modules.protocol`): the reporter shows them as a warning, under "Step Not Changed" and "No Such Step", with no traceback. A step whose cells are the right type can still hold a value the run gate rejects (an exposure of 0, an objective not in the catalogue, an illumination above the board's maximum), and an add or update composed from live settings can too. Neither is refused: the load and the edit succeed, so the step can be fixed, and `session.load_protocol`, `add_step`, `update_step`, `delete_step` and `rename_step` report one notice, reason `protocol_steps_invalid`, listing the validator's lines. The run start refuses the protocol until every step is valid. A step on a layer this scope does not have is refused at load and when a run starts, reason `layer_not_on_scope`, naming the layers and the steps.
 
@@ -1043,7 +1046,7 @@ Recording starts are guarded like protocol starts: `RecordingRefusedError` (`mod
 
 **A manual recording from a script.** `session.manual_recording.start(false_color_on=False)` opens a recording of the live feed and returns its `Operation` once it is recording. The rate, the frames-or-MP4 choice and the duration cap (`video.max_duration_seconds`) come from the settings at that moment, and it is saved under `Manual/` in the live folder (`save_folder` names it). It raises `RecordingRefusedError` (the codes above), `ObjectiveUnknownError`, `CaptureFailedError` (a `CaptureError`; `recording_not_started`, the camera refused the frame listener); nothing is started when it raises. Its frames are named for the lit LED's channel, else the shown channel's layer, read once at the start. `stop()` closes the recording and returns; frames still queued keep writing on their own. `is_recording` is True until the stop; `is_busy` until the frames, the MP4 close and any hyperstack build are done; `end_reason` says why the last recording ended (`'user_stop'`, `'duration_elapsed'`, `'camera_stalled'`, ...). The `Operation` is done once everything is written and a new recording may start: `result()` hands back that recording's `end_reason`, and its done-callbacks run then, on the callback thread. Its `stop()` stops that recording as the controller's `stop()` does, and does nothing once that recording has stopped, so it never stops a recording started after it. What went wrong in the writing (dropped frames, a hyperstack not built, a finish that failed) is reported through the outcome subscription, not raised from `result()`.
 
-While a manual recording holds the scope -- live or still draining its frames -- it refuses, for every caller, what would falsify its file: the Session's `set_frame_size`, `set_binning_size` and `set_image_mode` (before either store is written), `motion.move_turret`, the Session's objective writers (`select_objective`, `assign_turret_objective`, `clear_turret_objective`, `clear_current_turret_objective`) and `select_labware`. Each raises `HardwareCommandRefusedError` with `reason='exclusive_activity_running'` and `holder='recording'`. A home of any axis is refused the same way, since a home holds the whole scope. X/Y/Z moves, LED, gain and exposure stay open to an API caller; a recording's feed-death bound follows an exposure raised mid-recording. The LumaViewPro GUI locks its whole control surface during a live recording, Record/Stop excepted.
+While a manual recording holds the scope -- live or still draining its frames -- it refuses, for every caller, what would falsify its file: the camera's `set_frame_size`, `set_binning_size` and `set_image_mode` (before anything is saved), `motion.move_turret`, the Session's objective writers (`select_objective`, `assign_turret_objective`, `clear_turret_objective`, `clear_current_turret_objective`) and `select_labware`. Each raises `HardwareCommandRefusedError` with `reason='exclusive_activity_running'` and `holder='recording'`. A home of any axis is refused the same way, since a home holds the whole scope. X/Y/Z moves, LED, gain and exposure stay open to an API caller; a recording's feed-death bound follows an exposure raised mid-recording. The LumaViewPro GUI locks its whole control surface during a live recording, Record/Stop excepted.
 
 Both refusal errors say busy-with-what: `holder` carries what holds the microscope at refusal time (`'protocol'`, `'recording'`, `'diagnostic'` or `'home'` for the exclusive-activity owner, `'autofocus'` for a sweep that did not stop when its run ended, None for refusals that are not holder-shaped), and `holder_trigger` carries the `run_trigger_source` of the run behind that holder -- the run holding the scope, or, for an `autofocus_running` refusal, the run that dispatched the sweep (`'protocol'`, `'autofocus_scan'`, `'zstack'`, `'autofocus'`, `'api_scan'`, `'api_composite'`, `'composite'`, ...). The two are different axes: `holder` is the activity, `holder_trigger` the provenance string the run's starter passed, so a standalone autofocus refused for its own sweep carries `'autofocus'` in both. A recording holder has no trigger -- its kind is the whole answer. File-drain refusals (`files_writing*`) carry the just-finished run's trigger so a poller can report whose files are draining. The `message` names a run by its kind in words ("The Z-stack run is using the microscope"), never by its trigger token; branch on `holder_trigger`, show `message`.
 
@@ -1399,6 +1402,7 @@ still states the major version.
 | level 16 | A camera timing record (`data/camera_timing/<model>.json`) is schema 2: its `validity` group holds, per source and direction, an `apply_delay_us` or `delivered_frames` spread (`p50`, `p95`, `max`) over its `trials` with the `provenance` of the run that measured it, and `FrameValidity.check_timing_record(record)` (`modules.frame_validity`) refuses any other with `ValueError`, as bring-up does with `InstallationFileError`; `FrameValidity.load_camera_timing` is gone, and frame validity drains at its own counts. |
 | level 17 | A capture's `frame_record` carries `saturated_fraction` (measured when `all_ones_check` is asked) and `dark` (judged when an LED is lit and `accept_dark` is not), each None when not measured, and answers `blown`; `last_capture_info` no longer carries `dark_saved`. A blown or dark frame is not logged as a warning by the capture; a run's outcome counts them (`captures.saturated`, `captures.dark`, each a tuple of `TakenCapture`). |
 | level 18 | A capture's `frame_record` carries `held_layer`, the layer whose stored settings the camera held (None after a raw camera write), and its saved file `camera_held_a_layer` (and `camera_held_layer` when one was). A manual still has the camera hold its name's layer for its frame, and is refused while a manual recording runs when that would change the camera. |
+| level 19 | The camera is its own object, `scope.camera` (`CameraAPI`; in-process also `session.camera`): every camera setter, read, hold, apply, save and restore moved there from `scope.imaging`, and the Session's `set_frame_size`, `set_binning_size`, `set_image_mode`, `set_high_conversion_gain`, `set_line_noise_reduction` and `frame_at_binning` with them, under the same names. Each storing setter saves what the camera took, whoever calls it, and `restore_camera_state` saves the binning, frame, unbinned region and image mode it puts back; the unsaved `imaging.set_frame_size`, `set_binning_size`, `set_pixel_format`, `set_conversion_gain_mode` and `set_line_noise_reduction` are gone, and a pixel format is chosen only through `set_image_mode`. `update_settings`' `has_member` refusal names the camera's members by their path, `scope.camera.<name>`. |
 
 ### Configuration queries
 
@@ -1836,9 +1840,13 @@ Use polling only when you specifically need the current value at a moment in tim
 
 ## scope.imaging
 
-Camera capture and configuration live on the `scope.imaging` sub-API
-namespace. Its published members are listed under `ImagingAPI` in the API
-reference.
+Camera capture lives on the `scope.imaging` sub-API, and the camera's
+settings, reads and their saving on `scope.camera` (in-process also
+`session.camera`, the same object; over REST `/api/v1/scope/camera/...`).
+Their published members are listed under `ImagingAPI` and `CameraAPI` in the
+API reference. A camera setting has one door, on the camera: a setting that
+is saved (the binning, the frame, the image mode, high conversion gain and
+line-noise reduction) is saved by it, whoever calls it.
 
 ```python
 # Streaming control. connect() returns the camera CONFIGURED but NOT
@@ -1921,15 +1929,15 @@ image = scope.imaging.capture_and_wait(
 )
 
 # Exposure (milliseconds) + gain (dB)
-scope.imaging.set_exposure_ms(exposure_ms=50)
-scope.imaging.get_exposure_ms()                  # last-known-good on transient read failure; None camera-absent
-scope.imaging.set_gain_db(gain_db=10.0)
-scope.imaging.get_gain_db()                           # last-known-good on transient read failure; None camera-absent
+scope.camera.set_exposure_ms(exposure_ms=50)
+scope.camera.get_exposure_ms()                  # last-known-good on transient read failure; None camera-absent
+scope.camera.set_gain_db(gain_db=10.0)
+scope.camera.get_gain_db()                           # last-known-good on transient read failure; None camera-absent
 
 # Live-confirmed readings for metadata / records: only fields whose
 # driver read succeeded RIGHT NOW; a field whose read failed is omitted
 # (the value getters above would answer last-known-good instead).
-scope.imaging.get_live_camera_settings()           # any of: gain_db, exposure_ms,
+scope.camera.get_live_camera_settings()           # any of: gain_db, exposure_ms,
                                                    #   frame_size {'width','height'}, pixel_format;
                                                    #   {} when no camera is active
 
@@ -1945,7 +1953,7 @@ scope.imaging.get_live_camera_settings()           # any of: gain_db, exposure_m
 # same refusal contract as the motion and LED commands.
 
 # Batched settings (gain + exposure + auto-gain in one call)
-scope.imaging.apply_layer_camera_settings(
+scope.camera.apply_layer_camera_settings(
     gain_db=5.0, exposure_ms=50,
     auto_gain=False, auto_gain_settings=None,
     layer='BF',          # names the layer in api.log; optional, defaults to '(unspecified)'
@@ -1954,11 +1962,11 @@ scope.imaging.apply_layer_camera_settings(
 # Auto-exposure: the camera's own exposure control, where the body has one.
 # Blocks until the camera has applied it. Check
 # caps.camera_supports_auto_exposure first -- not every body offers it.
-scope.imaging.set_auto_exposure_time(True)
+scope.camera.set_auto_exposure_time(True)
 
 # Auto-gain: the continuous toggle and the setpoint
-scope.imaging.set_auto_gain(True, settings={'target_brightness': 0.3, 'min_gain_db': 0.0, 'max_gain_db': 20.0})
-scope.imaging.update_auto_gain_target_brightness(0.5)   # live setpoint tweak while auto-gain runs
+scope.camera.set_auto_gain(True, settings={'target_brightness': 0.3, 'min_gain_db': 0.0, 'max_gain_db': 20.0})
+scope.camera.update_auto_gain_target_brightness(0.5)   # live setpoint tweak while auto-gain runs
 
 # A camera without the mode (caps.camera_supports_auto_gain /
 # _auto_exposure False: the IDS U3-34L family, the LS620's FX2) is never asked.
@@ -1971,8 +1979,8 @@ scope.imaging.update_auto_gain_target_brightness(0.5)   # live setpoint tweak wh
 
 # Camera-model-specific tuning knobs. Probe support first:
 # scope.capabilities.camera_supports_conversion_gain_mode / _line_noise_reduction.
-session.set_high_conversion_gain(True)             # applied, then stored; returns None
-session.set_line_noise_reduction(True)             # same contract
+scope.camera.set_high_conversion_gain(True)        # applied, then saved; returns None
+scope.camera.set_line_noise_reduction(True)        # same contract
 # On a camera without the mode, turning it on raises
 # CameraSettingUnsupportedError (reason 'conversion_gain_mode_unsupported' /
 # 'line_noise_reduction_unsupported'); turning it off is that camera's state
@@ -1985,12 +1993,12 @@ session.set_line_noise_reduction(True)             # same contract
 # DN of the current pixel format; FX2: the sensor's Row Black Target, fixed).
 # Recorded with every frame (FrameRecord.black_level) and in saved metadata;
 # a failed read at capture raises CameraReadFailedError and fails the capture.
-scope.imaging.get_black_level()                    # live read; None when no camera or none reported;
+scope.camera.get_black_level()                    # live read; None when no camera or none reported;
                                                    #   raises CameraReadFailedError when the read fails (no cache)
-scope.imaging.get_black_level_range()              # (minimum, maximum) set_black_level accepts, live, for the
+scope.camera.get_black_level_range()              # (minimum, maximum) set_black_level accepts, live, for the
                                                    #   current pixel format; None when no camera or none settable;
                                                    #   raises CameraReadFailedError when the read fails
-scope.imaging.set_black_level(value=4.0)           # value in effect; probe
+scope.camera.set_black_level(value=4.0)           # value in effect; probe
                                                    #   scope.capabilities.camera_supports_black_level first;
                                                    #   raises CameraSettingRejected when the camera refuses
                                                    #   or fails the write, CameraReadFailedError when its
@@ -2000,7 +2008,7 @@ scope.imaging.set_black_level(value=4.0)           # value in effect; probe
 # (Basler: the resulting acquisition frame rate; IDS: AcquisitionFrameRate's
 # maximum; the simulator: its pacing). The rate frames actually reach the
 # host at is get_delivered_rate, below.
-scope.imaging.get_resulting_frame_rate()           # fps; None when no camera or none reported (FX2);
+scope.camera.get_resulting_frame_rate()           # fps; None when no camera or none reported (FX2);
                                                    #   raises CameraReadFailedError when the read fails (no cache)
 
 # Delivered rate: what the camera delivered to the host over the last
@@ -2018,7 +2026,7 @@ rate.bytes_per_s                                   # link payload bytes per seco
 
 # Frame size (getters answer last-known-good on a transient read
 # failure; None only when no camera is active or never read)
-delivered = session.set_frame_size(2048, 2048)
+delivered = scope.camera.set_frame_size(2048, 2048)  # saved with the region it implies
 # Returns the DELIVERED {'width','height'}: the size asked for, on every
 # camera (it acquires the next window up on its grid and crops back).
 # Only a size within one grid step of the camera's own maximum comes
@@ -2027,35 +2035,35 @@ delivered = session.set_frame_size(2048, 2048)
 # refuses the apply; raises HardwareCommandRefusedError (not_connected)
 # when no camera is connected.
 # Base geometry code on the returned dict, never on the request.
-scope.imaging.frame_size_cached                    # {'width': ..., 'height': ...} -- cache read, no driver I/O
+scope.camera.frame_size_cached                    # {'width': ..., 'height': ...} -- cache read, no driver I/O
 scope.capabilities.camera_max_frame_size           # (width, height) the scope's unbinned frame ceiling: the sensor,
                                                    # or the model's smaller one (LS560: 1700); None if unknown
-scope.imaging.get_pixel_alignment()                # {'width','height'} deliverable frame-size granularity: {2, 2}, even sides (H.264), on every camera
+scope.camera.get_pixel_alignment()                # {'width','height'} deliverable frame-size granularity: {2, 2}, even sides (H.264), on every camera
 
 # Binning
-session.set_binning_size(2)
+scope.camera.set_binning_size(2)
 # The delivered frame {'width', 'height'} when applied; raises
 # CameraSettingRejected when a live camera refuses. set_image_mode raises it
 # the same way. Success is observed by the return value, rejection by the
 # typed raise -- a dropped return cannot silently record a rejected apply.
-scope.imaging.get_binning_size()                   # always >= 1 (last-known-good on failed read)
+scope.camera.get_binning_size()                   # always >= 1 (last-known-good on failed read)
 scope.capabilities.camera_binning_sizes            # e.g. (1, 2, 4)
-session.set_image_mode('12bit_scientific')         # the camera's pixel format for the mode; raises CameraSettingRejected on refusal
+scope.camera.set_image_mode('12bit_scientific')    # the camera's pixel format for the mode, then saved; raises CameraSettingRejected on refusal
 scope.capabilities.camera_pixel_formats            # e.g. ('Mono8', 'Mono12')
 
 
 # Cache reads, no driver I/O (the *_cached family)
-scope.imaging.gain_db_cached
-scope.imaging.exposure_ms_cached
-scope.imaging.pixel_format_cached
-scope.imaging.min_frame_size_cached                # dict, or None when no camera is connected
+scope.camera.gain_db_cached
+scope.camera.exposure_ms_cached
+scope.camera.pixel_format_cached
+scope.camera.min_frame_size_cached                # dict, or None when no camera is connected
 
 # The longest exposure the camera may be using now (ms), no driver I/O: the
 # armed auto-gain's exposure ceiling while continuous auto-gain is on (the
 # sensor maximum when it was given none), else exposure_ms_cached. Bound a
 # wait for the next frame by this, not by the cache, which holds the value
 # from before auto-gain was armed. None when neither is known.
-scope.imaging.longest_exposure_ms
+scope.camera.longest_exposure_ms
 
 # Scale bar overlay (burned into frames the imaging paths return when enabled;
 # skipped while the objective is unknown, with one warning each time it becomes unknown)
@@ -2072,10 +2080,10 @@ The acquisition frame-rate cap lives on the camera driver and clamps frame produ
 Cameras advertise their real limits at connect time. Use these to size UI sliders and clamp auto-exposure / auto-gain:
 
 ```python
-scope.imaging.max_exposure_ms_cached                  # ms, None if no camera connected
-scope.imaging.max_gain_db_cached                      # dB, None if no camera connected
-scope.imaging.min_exposure_ms_cached                  # ms, None if the camera declares no floor
-scope.imaging.min_gain_db_cached                      # dB, None if the camera declares no floor
+scope.camera.max_exposure_ms_cached                  # ms, None if no camera connected
+scope.camera.max_gain_db_cached                      # dB, None if no camera connected
+scope.camera.min_exposure_ms_cached                  # ms, None if the camera declares no floor
+scope.camera.min_gain_db_cached                      # dB, None if the camera declares no floor
 ```
 
 A floor is `None` when the camera declares none, not `0`: a missing floor is not a floor of zero, and nothing checks against it. A run whose steps ask for a gain or exposure outside these limits is refused before it starts (reason `camera_setting_out_of_range`), naming each step; the stored values are left as they are.
@@ -2087,8 +2095,8 @@ These are derived from the camera's profile, which is populated at connect via `
 A saved per-channel gain or exposure is the user's committed intent and outlives whichever camera is attached, whether it came from the file or was just written through `update_settings` (a typed 1500 ms on a 1000 ms camera is stored as 1500). A body that cannot reach the value is driven to its own maximum instead, and the stored value is left alone — reconnect a capable camera and the intent applies again. Ask the API what a stored value actually becomes rather than comparing against a cap yourself:
 
 ```python
-applied = scope.imaging.applied_gain_db_for(48.0)     # stored=48.0 applied=20.0 capped=True
-applied = scope.imaging.applied_exposure_ms_for(500.0)
+applied = scope.camera.applied_gain_db_for(48.0)     # stored=48.0 applied=20.0 capped=True
+applied = scope.camera.applied_exposure_ms_for(500.0)
 applied.stored                                        # what the user set
 applied.applied                                       # what this camera is given
 applied.capped                                        # True when the body is holding it down
@@ -2097,7 +2105,7 @@ applied.capped                                        # True when the body is ho
 The same holds for a stored auto-gain preference. A camera without hardware auto-gain runs manual whatever the layer stored, and the preference is kept for a camera that has the mode:
 
 ```python
-applied = scope.imaging.applied_auto_gain_for(True)   # IDS: stored=True applied=False capped=True
+applied = scope.camera.applied_auto_gain_for(True)   # IDS: stored=True applied=False capped=True
 ```
 
 All three return an `AppliedCameraSetting`. For gain and exposure, an unknown cap (no camera, or a driver that publishes none) narrows nothing, so `applied == stored` and `capped` is `False`. This is the only place the cap is applied: the per-layer apply path sends `applied` to the driver, so the value a caller reads back is what the sensor is actually at.
@@ -2110,8 +2118,8 @@ Note the difference from `set_gain_db`, `set_exposure_ms` and `set_frame_size`, 
 def on_camera(param: str, value: float):
     print(f"Camera {param} = {value}")
 
-scope.imaging.add_camera_listener(on_camera)       # fires on set_gain_db / set_exposure
-scope.imaging.remove_camera_listener(on_camera)
+scope.camera.add_camera_listener(on_camera)       # fires on set_gain_db / set_exposure
+scope.camera.remove_camera_listener(on_camera)
 ```
 
 ### Live frame listeners
@@ -2153,7 +2161,7 @@ The six listener families each pass a different callback signature -- register a
 |---|---|---|---|
 | Motion / position | `scope.motion.add_position_listener` | `on_position(axis: str, at: AxisPosition)` | `PositionChanged(axis, at)` |
 | LED / illumination | `scope.illumination.add_led_listener` | `on_led(address: int, name: str \| None, state: LedState, illumination_ma: float \| None)` | `LedReading(address, name, state, illumination_ma)` |
-| Camera params | `scope.imaging.add_camera_listener` | `on_camera(param: str, value: float)` | `CameraChanged(setting, value)` |
+| Camera params | `scope.camera.add_camera_listener` | `on_camera(param: str, value: float)` | `CameraChanged(setting, value)` |
 | Live frame | `scope.imaging.add_frame_listener` | `on_frame(frame: Frame)` | `FrameDelivered(frame)` |
 | Run state | `session.add_run_state_listener` | `on_run_state()` -- no payload; re-read the session derivations (see Run state and locks above) | `LiveWork`, read as the event is sent |
 | Outcomes | `ScopeSession.create(outcome_listener=...)` or `session.add_outcome_listener` | `on_outcome(n)` -- one `Notification` (see Outcomes above) | `Notification` itself |
@@ -2187,14 +2195,14 @@ Frame validity is the single source of truth for "is the next frame still what I
 
 When continuous auto-gain is armed, `capture_and_wait()` first locks it: the camera's auto loop is switched off, the exposure and gain it landed on become the requested values, and the frame is then verified against them like any manual setting. The frame is returned and saved with its achieved values, an exposure pinned at the layer class's ceiling or floor included. A live-view arm is re-armed after the capture; a protocol step's arm stays locked until the next step arms again.
 
-A caller that switches auto-gain off and wants to keep what it achieved calls `scope.imaging.lock_auto_gain()`, which returns the same result object: `state` (None when no arm was standing), `exposure_ms` and `gain_db` (the achieved values), and `stored_exposure_ms`, the exposure to store as the manual setting -- the achieved value floored to the channel class's usable floor, decided by the API so every client stores the same value. Limit states and a failed lock under a live-view arm also reach the user through the notification center; a protocol step's arm is logged only.
+A caller that switches auto-gain off and wants to keep what it achieved calls `scope.camera.lock_auto_gain()`, which returns the same result object: `state` (None when no arm was standing), `exposure_ms` and `gain_db` (the achieved values), and `stored_exposure_ms`, the exposure to store as the manual setting -- the achieved value floored to the channel class's usable floor, decided by the API so every client stores the same value. Limit states and a failed lock under a live-view arm also reach the user through the notification center; a protocol step's arm is logged only.
 
 ```python
 # Leave auto-gain and keep what it achieved as the manual setting
-lock = scope.imaging.lock_auto_gain()
+lock = scope.camera.lock_auto_gain()
 if lock.state is not None:
-    scope.imaging.set_gain_db(lock.gain_db)
-    scope.imaging.set_exposure_ms(lock.stored_exposure_ms)
+    scope.camera.set_gain_db(lock.gain_db)
+    scope.camera.set_exposure_ms(lock.stored_exposure_ms)
     print(f"{lock.state.value}: achieved {lock.exposure_ms} ms, stored {lock.stored_exposure_ms} ms")
 ```
 
@@ -2381,15 +2389,15 @@ caps.camera_max_frame_size      # (width, height) unbinned, in pixels: the small
 caps.camera_analog_gain_max_db  # dB: the most gain applied before a digital stage (above it the camera
                                 # multiplies digitised values). The profile's analog maximum, or the camera's
                                 # live maximum where it has no digital stage; None if neither is known.
-                                # The whole range, analog and digital, is scope.imaging.max_gain_db_cached
+                                # The whole range, analog and digital, is scope.camera.max_gain_db_cached
 caps.camera_reports_temperature # the camera has a temperature sensor (probed at connect); False:
                                 # get_camera_temperatures_degc answers {}
-# Exposure ceiling: scope.imaging.max_exposure_ms_cached (ms; None if no camera) -- see scope.imaging
+# Exposure ceiling: scope.camera.max_exposure_ms_cached (ms; None if no camera) -- see scope.imaging
 ```
 
 Important consequences:
 
-- **`camera_max_frame_size` is `None` when no camera is connected** (or none of its sources answered). Check it before using it as a `session.set_frame_size(w, h)` target, and divide by the binning in force; `set_frame_size` raises `HardwareCommandRefusedError` (`not_connected`) when no camera is connected. With a live camera it returns the DELIVERED geometry and raises `CameraSettingRejected` if the apply is refused.
+- **`camera_max_frame_size` is `None` when no camera is connected** (or none of its sources answered). Check it before using it as a `scope.camera.set_frame_size(w, h)` target, and divide by the binning in force; `set_frame_size` raises `HardwareCommandRefusedError` (`not_connected`) when no camera is connected. With a live camera it returns the DELIVERED geometry and raises `CameraSettingRejected` if the apply is refused.
 - **LED channel count varies by scope, and not only by driver family.** An LS620 (FX2 driver) exposes 4 channels (`BF`, `Blue`, `Green`, `Red`); an **LS560, same driver family, exposes 2** (`BF`, `Green`); RP2040-based scopes expose 6 (`BF`, `PC`, `DF`, `Blue`, `Green`, `Red`). Don't iterate over a hardcoded list — iterate over the layers in `scope.layer_identity.layers` that have an `led_channel`.
 - **Some scopes have no motor at all.** LS560/LS620 have `caps.axes == ()`. Calling `scope.motion.move_absolute('X', …)` against such a scope raises `HardwareCommandRefusedError` (`axis_absent`, `MissingPart.MOTORS`), as a Z-only scope does for X (`MissingPart.X`); hide motion controls based on `caps.has_xy_stage`, `caps.has_focus` and `caps.has_turret`.
 - **Travel limits come from `scope.motion.get_axis_limits(axis)`**, read-only, for present axes; check `caps.has_xy_stage` (or `axis in caps.axes`) before asking about X/Y. A run whose steps lie outside these limits is refused before it starts (reason `positions_outside_travel`), naming each step and the axis; X/Y are judged on the protocol's plate at `scope.runtime_state.get_stage_offset()`, the offset the run moves with. A run whose steps need an axis the scope does not have is refused as `positions_unreachable`: steps at different places on that axis, or, on a scope without X and Y, steps with no X/Y whose wells or tiles differ, since each would be one field saved under a different name.
@@ -2744,8 +2752,8 @@ from modules.scope_session import ScopeSession
 session = ScopeSession.create(ScopeSession.load_user_settings('.'))
 scope = session.scope
 scope.motion.home()                        # returns once the home has established the reference
-scope.imaging.set_exposure_ms(50)
-scope.imaging.set_gain_db(5.0)
+scope.camera.set_exposure_ms(50)
+scope.camera.set_gain_db(5.0)
 
 scope.motion.move_absolute('X', 60000)
 scope.motion.move_absolute('Y', 40000)
@@ -3073,7 +3081,6 @@ Reached through `ScopeSession.create(settings, ...)`; every L2 caller starts her
 - `enable_metrics` (in-process)
 - `engineering_mode`
 - `exclusive_activity`
-- `frame_at_binning`
 - `get_auto_gain_settings`
 - `get_binning_size`
 - `get_current_plate_position`
@@ -3133,13 +3140,8 @@ Reached through `ScopeSession.create(settings, ...)`; every L2 caller starts her
 - `select_model`
 - `select_objective`
 - `set_acceleration_limit`
-- `set_binning_size`
-- `set_frame_size`
-- `set_high_conversion_gain`
-- `set_image_mode`
 - `set_layer_acquire`
 - `set_layer_auto_gain`
-- `set_line_noise_reduction`
 - `set_live_folder` (in-process)
 - `set_protocol_filepath` (in-process)
 - `set_protocol_labware`
@@ -3161,6 +3163,7 @@ Reached through `ScopeSession.create(settings, ...)`; every L2 caller starts her
 
 Reached through `session.scope`.
 
+- `camera`
 - `camera_connected`
 - `capabilities`
 - `diagnostics`
@@ -3229,40 +3232,28 @@ Reached through `session.scope.illumination`.
 - `restore_led_state`
 - `save_led_state`
 
-### ImagingAPI
+### CameraAPI
 
-Reached through `session.scope.imaging`.
+Reached through `session.scope.camera` (in-process, also `session.camera`).
 
 - `add_camera_listener` (in-process)
-- `add_frame_listener` (in-process)
 - `applied_auto_gain_for`
 - `applied_exposure_ms_for`
 - `applied_gain_db_for`
 - `apply_layer_camera_settings`
 - `camera_removed`
-- `capture_and_wait` (in-process)
-- `capture_frame_depth` (in-process)
-- `capture_frame_full_scale` (in-process)
-- `disable_streaming`
-- `enable_streaming`
 - `exposure_ms_cached`
-- `frame_is_valid`
+- `frame_at_binning`
 - `frame_size_cached`
-- `frames_until_valid`
 - `gain_db_cached`
 - `get_binning_size`
 - `get_black_level`
 - `get_black_level_range`
-- `get_delivered_rate`
 - `get_exposure_ms`
 - `get_gain_db`
-- `get_image` (in-process)
-- `get_image_from_buffer` (in-process)
 - `get_live_camera_settings`
 - `get_pixel_alignment`
 - `get_resulting_frame_rate`
-- `is_streaming`
-- `judge_frame` (in-process)
 - `lock_auto_gain`
 - `longest_exposure_ms`
 - `max_exposure_ms_cached`
@@ -3272,16 +3263,39 @@ Reached through `session.scope.imaging`.
 - `min_gain_db_cached`
 - `pixel_format_cached`
 - `remove_camera_listener` (in-process)
-- `remove_frame_listener` (in-process)
-- `scale_bar_config`
 - `set_auto_exposure_time`
 - `set_auto_gain`
+- `set_binning_size`
 - `set_black_level`
 - `set_exposure_ms`
+- `set_frame_size`
 - `set_gain_db`
+- `set_high_conversion_gain`
+- `set_image_mode`
+- `set_line_noise_reduction`
+- `update_auto_gain_target_brightness`
+
+### ImagingAPI
+
+Reached through `session.scope.imaging`.
+
+- `add_frame_listener` (in-process)
+- `capture_and_wait` (in-process)
+- `capture_frame_depth` (in-process)
+- `capture_frame_full_scale` (in-process)
+- `disable_streaming`
+- `enable_streaming`
+- `frame_is_valid`
+- `frames_until_valid`
+- `get_delivered_rate`
+- `get_image` (in-process)
+- `get_image_from_buffer` (in-process)
+- `is_streaming`
+- `judge_frame` (in-process)
+- `remove_frame_listener` (in-process)
+- `scale_bar_config`
 - `set_scale_bar_color`
 - `significant_bits`
-- `update_auto_gain_target_brightness`
 
 ### DiagnosticsAPI
 
@@ -3559,7 +3573,7 @@ Reached through a REST problem, whose members carry it.
 
 ### AutoGainLock
 
-Reached through returned by `session.set_layer_auto_gain` and `scope.imaging.lock_auto_gain`.
+Reached through returned by `session.set_layer_auto_gain` and `scope.camera.lock_auto_gain`.
 
 - `ceiling_ms`
 - `exposure_ms`
@@ -3608,7 +3622,7 @@ Reached through returned by `session.post_processing.stitch`, `zproject`, `compo
 
 ### CameraChanged
 
-Reached through the event `scope.imaging.add_camera_listener` delivers.
+Reached through the event `scope.camera.add_camera_listener` delivers.
 
 - `setting`
 - `value`

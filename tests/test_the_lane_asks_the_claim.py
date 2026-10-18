@@ -440,7 +440,7 @@ class TestTheHardwareMembersUseTheLanesDispatch:
         [
             ('camera_executor', lambda scope: scope.motion.move_absolute('Z', 1000.0)),
             ('camera_executor', lambda scope: scope.illumination.leds_off()),
-            ('io_executor', lambda scope: scope.imaging.set_gain_db(1.0)),
+            ('io_executor', lambda scope: scope.camera.set_gain_db(1.0)),
         ],
         ids=['motion', 'illumination', 'imaging'],
     )

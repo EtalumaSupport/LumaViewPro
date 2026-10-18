@@ -26,9 +26,8 @@ import pytest
 
 import modules.app_context as _app_ctx
 from modules.lumascope_api import Lumascope
-from modules.lumascope_api.imaging import ImagingAPI
 from tests.camera_fakes import bare_pylon_camera
-from tests.scope_fakes import give_stub_lanes
+from tests.scope_fakes import give_camera_and_imaging, give_camera_capabilities, give_stub_lanes
 
 # Long enough that an answer which waits on the held SDK is plainly late; it
 # only bounds a failing run.
@@ -125,9 +124,10 @@ class TestTheOneToOneScale:
         scope = Lumascope.__new__(Lumascope)
         scope._camera_driver = cam
         give_stub_lanes(scope)
-        scope.imaging = ImagingAPI(scope, cam)
-        scope.imaging._camera_cache['active'] = True
-        scope.imaging._camera_cache['frame_size'] = frame_size
+        give_camera_capabilities(scope, cam)
+        give_camera_and_imaging(scope)
+        scope.camera._camera_cache['active'] = True
+        scope.camera._camera_cache['frame_size'] = frame_size
         hold()
         monkeypatch.setattr(_app_ctx, 'ctx', SimpleNamespace(scope=scope))
         viewer = SimpleNamespace(size=(950, 950), scale=1.0, pos=(0, 0))

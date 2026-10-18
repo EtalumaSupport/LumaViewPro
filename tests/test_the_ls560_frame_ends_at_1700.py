@@ -33,12 +33,12 @@ def _session(tmp_path, microscope):
 def test_the_ls560_refuses_a_frame_above_1700_and_takes_1700(tmp_path):
     s = _session(tmp_path, 'LS560')
     try:
-        imaging = s.scope.imaging
+        camera = s.scope.camera
         # The simulated FX2 sensor delivers 1900 x 1900; the lens bounds both.
         assert s.scope.capabilities.camera_max_frame_size == (1700, 1700)
         with pytest.raises(CameraSettingOutOfRangeError, match='1700'):
-            imaging.set_frame_size(1704, 1000)
-        assert imaging.set_frame_size(1700, 1000) == {'width': 1700, 'height': 1000}
+            camera.set_frame_size(1704, 1000)
+        assert camera.set_frame_size(1700, 1000) == {'width': 1700, 'height': 1000}
     finally:
         s.shutdown()
         s.scope.disconnect()
@@ -48,7 +48,7 @@ def test_a_model_that_declares_no_maximum_is_bounded_by_its_camera(tmp_path):
     s = _session(tmp_path, 'LS620')
     try:
         assert s.scope.capabilities.camera_max_frame_size == (1900, 1900)
-        assert s.scope.imaging.set_frame_size(1900, 1000) == {'width': 1900, 'height': 1000}
+        assert s.scope.camera.set_frame_size(1900, 1000) == {'width': 1900, 'height': 1000}
     finally:
         s.shutdown()
         s.scope.disconnect()

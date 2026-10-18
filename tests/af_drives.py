@@ -69,7 +69,7 @@ def af_runner_and_scope():
     scope.motion.get_current_position.return_value = AF_CENTER_Z
     scope.motion.get_target_position.return_value = 600.0
     scope.motion.get_axis_limits.return_value = AxisLimits(min_um=0.0, max_um=14000.0)
-    scope.imaging.save_camera_state.return_value = {'gain_db': 1.0, 'exposure_ms': 10.0}
+    scope.camera.save_camera_state.return_value = {'gain_db': 1.0, 'exposure_ms': 10.0}
     # AF grabs through the public capture_and_wait, under the run's taking.
     scope.imaging.capture_and_wait.return_value = np.full((40, 40), 50, dtype=np.uint8)
     runner = AutofocusRunner(

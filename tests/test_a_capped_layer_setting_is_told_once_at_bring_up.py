@@ -32,9 +32,9 @@ def test_every_capped_layer_value_is_one_notice_and_the_saved_values_are_kept(tm
         Blue={'exposure_ms': 100000.0},
     )
     try:
-        imaging = session.scope.imaging
-        max_gain = imaging.max_gain_db_cached
-        max_exposure = imaging.max_exposure_ms_cached
+        camera = session.scope.camera
+        max_gain = camera.max_gain_db_cached
+        max_exposure = camera.max_exposure_ms_cached
         assert max_gain < 1000.0 and max_exposure < 100000.0, 'the test needs a smaller camera'
         (notice,) = _notices(heard)
         assert notice.message == str(
@@ -50,8 +50,8 @@ def test_every_capped_layer_value_is_one_notice_and_the_saved_values_are_kept(tm
         assert session.settings['BF']['exposure_ms'] == 100000.0
         assert session.settings['Blue']['exposure_ms'] == 100000.0
         # BF is the layer bring-up applies: the camera runs at its limit.
-        assert imaging.get_gain_db() == max_gain
-        assert imaging.get_exposure_ms() == max_exposure
+        assert camera.get_gain_db() == max_gain
+        assert camera.get_exposure_ms() == max_exposure
     finally:
         session.shutdown()
 

@@ -82,7 +82,7 @@ def _break(runner, scope, seam, monkeypatch):
     elif seam == 'led_snapshot':
         scope.illumination.save_led_state.side_effect = _raise
     elif seam == 'camera_snapshot':
-        scope.imaging.save_camera_state.side_effect = _raise
+        scope.camera.save_camera_state.side_effect = _raise
     else:
         raise AssertionError(f'unknown seam {seam}')
 
@@ -135,7 +135,7 @@ class TestSetupFailureReleasesTheRunner:
         scope.objective_helper.get_objective_info.side_effect = None
         scope.motion.get_current_position.side_effect = None
         scope.illumination.save_led_state.side_effect = None
-        scope.imaging.save_camera_state.side_effect = None
+        scope.camera.save_camera_state.side_effect = None
         monkeypatch.undo()
         monkeypatch.setattr('modules.autofocus_functions.focus_function', lambda image: 7.0)
 
@@ -199,12 +199,12 @@ class TestTheCameraArmIsPutBackWhenItWasTakenAndNotOtherwise:
 
     def test_a_failure_at_the_lock_still_restores_the_snapshot(self, monkeypatch):
         runner, scope = af_runner_and_scope()
-        scope.imaging.lock_auto_gain.side_effect = _raise
+        scope.camera.lock_auto_gain.side_effect = _raise
 
         with raises_the_failure_from(SetupError):
             drive_af(runner)
 
-        assert scope.imaging.restore_camera_state.called, (
+        assert scope.camera.restore_camera_state.called, (
             'the lock consumes a live-view arm; a raise there must still reach '
             'the restore that puts it back'
         )
@@ -216,7 +216,7 @@ class TestTheCameraArmIsPutBackWhenItWasTakenAndNotOtherwise:
         with raises_the_failure_from(SetupError):
             drive_af(runner)
 
-        assert not scope.imaging.restore_camera_state.called, (
+        assert not scope.camera.restore_camera_state.called, (
             'nothing was snapshotted or consumed yet, so there is no camera state to write back'
         )
 
@@ -275,7 +275,7 @@ def test_a_failure_during_the_unwind_does_not_latch_the_runner(monkeypatch):
     """
     monkeypatch.setattr('modules.autofocus_functions.focus_function', lambda image: 7.0)
     runner, scope = af_runner_and_scope()
-    scope.imaging.restore_camera_state.side_effect = SetupError('camera went away mid-restore')
+    scope.camera.restore_camera_state.side_effect = SetupError('camera went away mid-restore')
 
     result = drive_af(runner)
 
@@ -317,7 +317,7 @@ def _break_unwind(scope, seam):
 
         lease.apply.side_effect = _raise_on_af_end
     elif seam == 'camera_restore':
-        scope.imaging.restore_camera_state.side_effect = SetupError('usb')
+        scope.camera.restore_camera_state.side_effect = SetupError('usb')
     else:
         raise AssertionError(f'unknown seam {seam}')
 
@@ -363,7 +363,7 @@ class TestEveryUnwindFailureStillReleasesTheClaim:
         drive_af(runner)
 
         af_lease(scope).apply.side_effect = None
-        scope.imaging.restore_camera_state.side_effect = None
+        scope.camera.restore_camera_state.side_effect = None
 
         assert drive_af(runner) == AF_CENTER_Z, (
             f'autofocus must still be usable after a raise from the {label}'
@@ -430,7 +430,7 @@ class TestTheRunsOwnOutcomeSurvivesACleanupFailure:
         runner, scope = af_runner_and_scope()
         monkeypatch.setattr('modules.autofocus_functions.focus_function', lambda image: 7.0)
         monkeypatch.setattr(runner, '_iterate', lambda: (_ for _ in ()).throw(RunError('boom')))
-        scope.imaging.restore_camera_state.side_effect = SetupError('camera went away')
+        scope.camera.restore_camera_state.side_effect = SetupError('camera went away')
 
         with raises_the_failure_from(RunError):
             drive_af(runner)
@@ -447,7 +447,7 @@ class TestTheRunsOwnOutcomeSurvivesACleanupFailure:
         # The caller stops the sweep during its first pass, before it chose
         # any focus.
         monkeypatch.setattr(runner, '_iterate', abort.set)
-        scope.imaging.restore_camera_state.side_effect = SetupError('camera went away')
+        scope.camera.restore_camera_state.side_effect = SetupError('camera went away')
 
         with pytest.raises(AutofocusAborted):
             drive_af(runner, abort_event=abort)
@@ -473,7 +473,7 @@ def test_an_led_failure_still_re_arms_the_live_view(monkeypatch):
 
     assert drive_af(runner) == AF_CENTER_Z
 
-    assert scope.imaging.restore_camera_state.called, (
+    assert scope.camera.restore_camera_state.called, (
         'the camera restore is the ONLY thing that re-arms a live-view auto-gain '
         'arm; an LED failure ahead of it must not cost the user that arm'
     )
@@ -492,7 +492,7 @@ def test_a_clean_exit_still_runs_every_restore_step(monkeypatch):
 
     assert scope.motion.set_precision_mode.called, 'the precision restore must still run'
     assert af_lease(scope).apply.called, 'the AF-end LED transition must still run'
-    assert scope.imaging.restore_camera_state.called, 'the camera restore must still run'
+    assert scope.camera.restore_camera_state.called, 'the camera restore must still run'
 
 
 # The one restore statement that is deliberately NOT guarded, and the proof

@@ -401,8 +401,8 @@ class ScopeCapabilities:
 
     camera_supports_black_level: bool = False
     """True if the camera's black level can be set
-    (``scope.imaging.set_black_level``). The black level is read with
-    ``scope.imaging.get_black_level`` on any camera that reports one,
+    (``scope.camera.set_black_level``). The black level is read with
+    ``scope.camera.get_black_level`` on any camera that reports one,
     settable or not (the FX2 reports its fixed Row Black Target)."""
 
     # ---- Cross-cutting feature flags ----

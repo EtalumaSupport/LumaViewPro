@@ -92,8 +92,8 @@ ENROLLED = (
     'MotionAPI.home',
     'MotionAPI.move_absolute',
     'MotionAPI.wait_until_finished_moving',
-    'ScopeSession.frame_at_binning',
-    'ImagingAPI.apply_layer_camera_settings',
+    'CameraAPI.frame_at_binning',
+    'CameraAPI.apply_layer_camera_settings',
     'ProtocolsAPI.step_targets',
     'ProtocolsAPI.tiling_config',
 )
@@ -351,22 +351,22 @@ def _valid_rows() -> list[Valid]:
     return [
         Valid(
             'frame_at_binning 2',
-            'ScopeSession.frame_at_binning',
-            lambda s: s.session.frame_at_binning(2),
+            'CameraAPI.frame_at_binning',
+            lambda s: s.session.camera.frame_at_binning(2),
             lambda s, frame: None if frame['width'] > 0 and frame['height'] > 0 else f'{frame}',
-            ('/api/v1/frame_at_binning', lambda s: {'size': 2}),
+            ('/api/v1/scope/camera/frame_at_binning', lambda s: {'size': 2}),
         ),
         Valid(
             'apply_layer_camera_settings',
-            'ImagingAPI.apply_layer_camera_settings',
-            lambda s: s.session.scope.imaging.apply_layer_camera_settings(2.0, 20.0),
+            'CameraAPI.apply_layer_camera_settings',
+            lambda s: s.session.scope.camera.apply_layer_camera_settings(2.0, 20.0),
             lambda s, applied: (
                 None
-                if math.isclose(s.session.scope.imaging.get_gain_db(), 2.0, abs_tol=0.5)
-                else f'gain read back {s.session.scope.imaging.get_gain_db()}'
+                if math.isclose(s.session.scope.camera.get_gain_db(), 2.0, abs_tol=0.5)
+                else f'gain read back {s.session.scope.camera.get_gain_db()}'
             ),
             (
-                '/api/v1/scope/imaging/apply_layer_camera_settings',
+                '/api/v1/scope/camera/apply_layer_camera_settings',
                 lambda s: {'gain_db': 2.0, 'exposure_ms': 20.0},
             ),
         ),
@@ -572,22 +572,22 @@ def _bad_rows() -> list[Bad]:
         ),
         Bad(
             'frame_at_binning 0',
-            'ScopeSession.frame_at_binning',
-            lambda s: s.session.frame_at_binning(0),
+            'CameraAPI.frame_at_binning',
+            lambda s: s.session.camera.frame_at_binning(0),
             CameraSettingUnsupportedError,
             'binning_unsupported',
-            ('/api/v1/frame_at_binning', lambda s: {'size': 0}),
+            ('/api/v1/scope/camera/frame_at_binning', lambda s: {'size': 0}),
         ),
         Bad(
             'apply_layer_camera_settings, empty auto-gain settings',
-            'ImagingAPI.apply_layer_camera_settings',
-            lambda s: s.session.scope.imaging.apply_layer_camera_settings(
+            'CameraAPI.apply_layer_camera_settings',
+            lambda s: s.session.scope.camera.apply_layer_camera_settings(
                 1.0, 5.0, auto_gain=True, auto_gain_settings={}
             ),
             ArgumentRefusedError,
             'missing_key',
             (
-                '/api/v1/scope/imaging/apply_layer_camera_settings',
+                '/api/v1/scope/camera/apply_layer_camera_settings',
                 lambda s: {
                     'gain_db': 1.0,
                     'exposure_ms': 5.0,
@@ -932,24 +932,24 @@ def _fault_rows() -> list[Fault]:
     return [
         Fault(
             'frame_at_binning with the camera removed',
-            'ScopeSession.frame_at_binning',
+            'CameraAPI.frame_at_binning',
             'LS850',
             lambda s: s.session.scope.simulation.remove_camera(),
-            lambda s: s.session.frame_at_binning(2),
+            lambda s: s.session.camera.frame_at_binning(2),
             HardwareCommandRefusedError,
             'not_connected',
-            ('/api/v1/frame_at_binning', lambda s: {'size': 2}),
+            ('/api/v1/scope/camera/frame_at_binning', lambda s: {'size': 2}),
         ),
         Fault(
             'apply_layer_camera_settings, the camera refusing the gain',
-            'ImagingAPI.apply_layer_camera_settings',
+            'CameraAPI.apply_layer_camera_settings',
             'LS850',
             lambda s: s.session.scope.simulation.refuse_camera_write('gain', 'false'),
-            lambda s: s.session.scope.imaging.apply_layer_camera_settings(3.0, 20.0),
+            lambda s: s.session.scope.camera.apply_layer_camera_settings(3.0, 20.0),
             CameraSettingRejected,
             None,
             (
-                '/api/v1/scope/imaging/apply_layer_camera_settings',
+                '/api/v1/scope/camera/apply_layer_camera_settings',
                 lambda s: {'gain_db': 3.0, 'exposure_ms': 20.0},
             ),
         ),

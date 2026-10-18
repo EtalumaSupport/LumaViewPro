@@ -11,7 +11,7 @@ max_exposure` branch where `max_exposure == 0` caused every stored
 exposure to be clamped to 0. Shutdown's `save_settings()` then wrote
 zeros back to disk, corrupting the settings file for future sessions.
 
-Structural fix (4.1): `ImagingAPI.max_exposure_ms_cached` now returns `None`
+Structural fix (4.1): `CameraAPI.max_exposure_ms_cached` now returns `None`
 (not 0.0) when no camera is connected, so callers can distinguish
 "camera missing" from a real driver value. The exposure slider's range is
 sized through `camera_max_exposure_for_ui`, which substitutes
@@ -36,8 +36,8 @@ class TestTheSliderRangeWithNoCamera:
         [(None, DEFAULT_MAX_EXPOSURE_MS), (500.0, 500.0), (0.0, 0.0)],
     )
     def test_only_a_missing_cap_takes_the_default(self, cached, expected):
-        imaging = SimpleNamespace(max_exposure_ms_cached=cached)
-        assert camera_max_exposure_for_ui(imaging) == expected
+        camera = SimpleNamespace(max_exposure_ms_cached=cached)
+        assert camera_max_exposure_for_ui(camera) == expected
 
 
 class TestCoalescingApplier:
@@ -348,11 +348,12 @@ class TestTheFramingRedrawShowsTheStore:
 
 class TestSelectBinningHandler:
     """select_binning_size reads the selector and hands the pick to the
-    Session on the camera lane; the store is the Session's to write. During
-    init it only redraws. Live, it shows the frame the new binning will give
-    in the boxes before it submits, so an edit typed while the apply runs is
-    read against the binning the selector shows. A preview the Session refuses
-    is reported once, through the real boundary, and no apply is sent."""
+    camera API (``session.camera``) on the camera lane; the store is the
+    camera API's to write. During init it only redraws. Live, it shows the
+    frame the new binning will give in the boxes before it submits, so an
+    edit typed while the apply runs is read against the binning the selector
+    shows. A preview the camera API refuses is reported once, through the
+    real boundary, and no apply is sent."""
 
     @pytest.fixture(autouse=True)
     def _reported(self, monkeypatch):
@@ -382,12 +383,14 @@ class TestSelectBinningHandler:
             return {'width': 960, 'height': 600}
 
         # A stand-in by design: the subject is the handler's answer to what
-        # the Session says; the Session's own refusal is pinned against the
+        # the camera API says; its own refusal is pinned against the
         # simulated scope in
         # test_an_argument_a_member_cannot_use_is_refused_before_it_is_read.py.
         session = SimpleNamespace(
-            frame_at_binning=_frame_at_binning,
-            set_binning_size=lambda size: applies.append(size),
+            camera=SimpleNamespace(
+                frame_at_binning=_frame_at_binning,
+                set_binning_size=lambda size: applies.append(size),
+            )
         )
         ctx = SimpleNamespace(
             settings=settings,
@@ -459,7 +462,7 @@ class TestSelectBinningHandler:
         assert submit['boxes'] == ('960', '600'), (
             'the boxes must show the frame the new binning gives BEFORE the submit'
         )
-        assert submit['stored_binning'] == '1x1', "the store is the Session's to write"
+        assert submit['stored_binning'] == '1x1', "the store is the camera API's to write"
         assert submit['label'] == 'BINNING'
         assert submit['lane'] is ctx.camera_executor
         assert submit['redraw'] is fake_self._framing_applied
@@ -614,7 +617,7 @@ class TestTheFrameBoxesRecordWhatWasTyped:
 
         ctx = SimpleNamespace(
             settings=settings,
-            session=SimpleNamespace(set_frame_size=_set_frame_size),
+            session=SimpleNamespace(camera=SimpleNamespace(set_frame_size=_set_frame_size)),
             camera_executor=object(),
         )
 
@@ -680,7 +683,7 @@ class TestTheFrameBoxesRecordWhatWasTyped:
     def test_a_disconnected_camera_still_records_the_entry(self):
         """The user typed it whether or not a camera was there to hear it.
 
-        That an absent camera stores nothing is the Session's answer, pinned
+        That an absent camera stores nothing is the camera API's answer, pinned
         in tests/test_the_session_applies_and_stores_camera_settings.py.
         """
         fn, fake_self, records, _applied, _settings, _boxes = self._make(

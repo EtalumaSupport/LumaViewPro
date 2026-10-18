@@ -15,7 +15,7 @@ try:
     parent = pathlib.Path(live) / 'Manual' / 'Composites'
     # (a) not streaming -- does the ENGINE refuse, or only the GUI pre-check?
     print(
-        'streaming?', s.scope.imaging.is_streaming(), 'active_cached', s.scope.imaging.active_cached
+        'streaming?', s.scope.imaging.is_streaming(), 'active_cached', s.scope.camera.active_cached
     )
     try:
         out = runner.start_composite(sequence_name='composite', parent_dir=parent)

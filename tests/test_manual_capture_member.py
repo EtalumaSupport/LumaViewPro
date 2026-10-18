@@ -345,13 +345,13 @@ class TestRefusalsAndFailures:
 class TestTheRecordIsTheCapturesMoment:
     def test_a_gain_write_queued_during_the_still_does_not_reach_its_record(self, still_session):
         session, _ = still_session
-        session.scope.imaging.set_gain_db(1.0)
+        session.scope.camera.set_gain_db(1.0)
         blocker = _LaneBlocker(session)
         try:
             future = session.manual_capture.capture(false_color_on=False)
             # The still is queued behind the blocker before the write is sent.
             _wait_until_queued(session, 1)
-            writer = threading.Thread(target=session.scope.imaging.set_gain_db, args=(20.0,))
+            writer = threading.Thread(target=session.scope.camera.set_gain_db, args=(20.0,))
             writer.start()
         finally:
             blocker.release()

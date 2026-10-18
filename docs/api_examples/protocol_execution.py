@@ -108,7 +108,7 @@ def main():
     #   protocol = session.scope.protocols.create_protocol(input_config=config)
     #
     #   # The run captures in the session's image mode
-    #   # (session.set_image_mode(...) chooses it).
+    #   # (session.scope.camera.set_image_mode(...) chooses it).
     #
     #   # Run a single scan (captures all positions/channels once)
     #   pending = runner.start_single_scan(

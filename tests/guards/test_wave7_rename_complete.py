@@ -5,7 +5,8 @@ driver attribute names on a Lumascope instance.
 Wave 7 Phase 1 renamed driver instance attributes:
     scope.motion  -> scope._motion_driver  (sub-API name reserved for MotionAPI)
     scope.led     -> scope._led_driver     (sub-API name reserved for IlluminationAPI)
-    scope.camera  -> scope._camera_driver  (sub-API name reserved for ImagingAPI)
+    scope.camera  -> scope._camera_driver  (sub-API name reserved; it is
+                                            CameraAPI since W3b)
 
 The mechanical rename in LVP 1dd7baf claimed 259 sites, but two
 post-merge bugfix sessions surfaced live-code misses:
@@ -16,7 +17,8 @@ post-merge bugfix sessions surfaced live-code misses:
 Each miss caused a user-visible failure on real hardware. This test
 walks every .py file under modules/ and ui/ (the production layers
 above drivers) and asserts that NO Attribute node with the form
-`<chain>.scope.{camera,led,motion}` exists, where `scope` is either a
+`<chain>.scope.led` exists (``scope.camera`` and ``scope.motion`` are the
+sub-APIs the names were reserved for), where `scope` is either a
 Name or the final segment of an attribute chain. AST parsing skips
 comments and string literals automatically, so docstring mentions of
 the OLD API (e.g. in scope_capabilities.py module docstring) don't
@@ -39,7 +41,7 @@ import pathlib
 
 from tests.ast_seams import REPO_ROOT
 
-BANNED_ATTRS = frozenset({'camera', 'led'})
+BANNED_ATTRS = frozenset({'led'})
 
 # Production code roots; tests/ deliberately excluded (see docstring).
 PROD_ROOTS = ('modules', 'ui')
@@ -317,8 +319,26 @@ def test_no_self_motion_calls_in_lumascope():
 # (`add_frame_listener` / `remove_frame_listener`) remain.
 IMAGING_ONLY_METHODS = frozenset(
     {
-        'add_camera_listener',
         'add_frame_listener',
+        'capture_and_wait',
+        'frame_is_valid',
+        'frames_until_valid',
+        'get_image',
+        'get_image_from_buffer',
+        'is_focusing',
+        '_log_camera_temps',
+        'remove_frame_listener',
+        'scale_bar_config',
+        'set_scale_bar_color',
+        'start_camera_temp_logging',
+        'stop_camera_temp_logging',
+    }
+)
+
+# The camera's members (CameraAPI, W3b), reached as scope.camera.<member>.
+CAMERA_ONLY_METHODS = frozenset(
+    {
+        'add_camera_listener',
         'apply_layer_camera_settings',
         'auto_gain_once',
         'active_cached',
@@ -329,33 +349,21 @@ IMAGING_ONLY_METHODS = frozenset(
         'max_gain_db_cached',
         'min_frame_size_cached',
         'pixel_format_cached',
-        'capture_and_wait',
-        'frame_is_valid',
-        'frames_until_valid',
         'get_binning_size',
         'get_exposure_ms',
         'get_gain_db',
         'get_height',
-        'get_image',
-        'get_image_from_buffer',
         'get_width',
-        'is_focusing',
-        '_log_camera_temps',
         'remove_camera_listener',
-        'remove_frame_listener',
         'restore_camera_state',
         'save_camera_state',
-        'scale_bar_config',
         'set_auto_exposure_time',
         'set_auto_gain',
         'set_binning_size',
         'set_exposure_ms',
         'set_frame_size',
         'set_gain_db',
-        'set_pixel_format',
-        'set_scale_bar_color',
-        'start_camera_temp_logging',
-        'stop_camera_temp_logging',
+        'set_image_mode',
         'suppress_value_warnings',
         'update_auto_gain_target_brightness',
     }
@@ -375,7 +383,7 @@ def _find_imaging_method_accesses(tree: ast.AST) -> list[tuple[int, str]]:
     for node in ast.walk(tree):
         if not isinstance(node, ast.Attribute):
             continue
-        if node.attr not in IMAGING_ONLY_METHODS:
+        if node.attr not in IMAGING_ONLY_METHODS | CAMERA_ONLY_METHODS:
             continue
         if _chain_ends_in_scope(node.value):
             hits.append((node.lineno, node.attr))
@@ -397,10 +405,12 @@ def test_no_imaging_method_calls_on_bare_scope_in_production():
             continue
         for lineno, attr in _find_imaging_method_accesses(tree):
             rel = path.relative_to(REPO_ROOT)
-            failures.append(f'{rel}:{lineno}: scope.{attr} -- use scope.imaging.{attr}')
+            owner = 'camera' if attr in CAMERA_ONLY_METHODS else 'imaging'
+            failures.append(f'{rel}:{lineno}: scope.{attr} -- use scope.{owner}.{attr}')
     assert not failures, (
-        'Imaging methods reached on bare scope -- production code must '
-        'go through scope.imaging.<method>:\n  ' + '\n  '.join(failures)
+        'Imaging and camera methods reached on bare scope -- production code '
+        'must go through scope.imaging.<method> or scope.camera.<method>:\n  '
+        + '\n  '.join(failures)
     )
 
 
@@ -410,9 +420,11 @@ def test_no_self_imaging_calls_in_lumascope():
     forwarder retirement."""
     source = _LUMASCOPE_PATH.read_text(encoding='utf-8')
     tree = ast.parse(source, filename=str(_LUMASCOPE_PATH))
-    hits = _find_self_method_accesses(tree, IMAGING_ONLY_METHODS)
+    hits = _find_self_method_accesses(tree, IMAGING_ONLY_METHODS | CAMERA_ONLY_METHODS)
     failures = [
-        f'_lumascope.py:{lineno}: self.{attr} -- use self.imaging.{attr}' for lineno, attr in hits
+        f'_lumascope.py:{lineno}: self.{attr} -- use '
+        f'self.{"camera" if attr in CAMERA_ONLY_METHODS else "imaging"}.{attr}'
+        for lineno, attr in hits
     ]
     assert not failures, (
         'Lumascope reached imaging-only methods via bare self -- '
@@ -865,6 +877,7 @@ PRESENCE_SETS = {
     'MOTION_ONLY_METHODS': _API_ROOT / 'motion.py',
     'ILLUMINATION_ONLY_METHODS': _API_ROOT / 'illumination.py',
     'IMAGING_ONLY_METHODS': _API_ROOT / 'imaging.py',
+    'CAMERA_ONLY_METHODS': _API_ROOT / 'camera.py',
     'DIAGNOSTICS_ONLY_METHODS': _API_ROOT / 'diagnostics.py',
     'RUNTIME_STATE_ONLY_METHODS': _API_ROOT / 'runtime_state.py',
     # Phase 7 finished the migration these six were staged for; they live on

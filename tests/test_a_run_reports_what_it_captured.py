@@ -81,20 +81,20 @@ class TestARunWhoseCameraIsGoneEndsAtOnce:
         run_parent = tmp_path / 'runs'
         with open_composite_session(headless_settings(tmp_path)) as (session, runner):
             camera = session.scope._camera_driver
-            imaging = session.scope.imaging
+            camera_api = session.scope.camera
             # Every camera write cleanup makes after the removal. The
             # simulated camera accepts a write whatever its latch says, so
             # the writes themselves are what is counted, not their reports.
             writes_after_removal = []
             for setter in ('_set_gain_db_impl', '_set_exposure_ms_impl'):
-                real = getattr(imaging, setter)
+                real = getattr(camera_api, setter)
 
                 def counted(value, *a, _real=real, _name=setter, **kw):
                     if camera.is_device_removed():
                         writes_after_removal.append((_name, value))
                     return _real(value, *a, **kw)
 
-                setattr(imaging, setter, counted)
+                setattr(camera_api, setter, counted)
 
             def unplugged(timeout_s):
                 camera._mark_disconnected()
@@ -377,7 +377,7 @@ class TestARunWhoseCleanupFailedSaysWhich:
             def unreachable(snapshot):
                 raise RuntimeError('the camera lane is gone')
 
-            session.scope.imaging.restore_camera_state = unreachable
+            session.scope.camera.restore_camera_state = unreachable
             outcome = _run(runner, tmp_path / 'runs', _two_steps())
         assert outcome.status == 'completed', outcome
         assert outcome.cleanup_failures == ('Restore camera gain/exposure',), outcome

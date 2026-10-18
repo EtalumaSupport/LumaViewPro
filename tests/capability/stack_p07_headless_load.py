@@ -24,7 +24,8 @@ if '--seconds' in sys.argv:
 
 def body(session):
     im = session.scope.imaging
-    im.set_exposure_ms(10.0)
+    im_camera = session.scope.camera
+    im_camera.set_exposure_ms(10.0)
     n = {'frames': 0}
     lock = threading.Lock()
 
@@ -55,7 +56,7 @@ def body(session):
     figure('S6.headless.process_cpu_percent', round(100.0 * cpu / (w1 - w0), 1))
     figure('S6.headless.max_rss_mb', round(max_rss / 1e6))
     figure('S6.headless.load_avg_1m', round(psutil.getloadavg()[0], 1))
-    figure('S6.headless.frame', im.frame_size_cached)
+    figure('S6.headless.frame', im_camera.frame_size_cached)
     check('S6 headless ran', True)
 
 

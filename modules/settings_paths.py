@@ -13,6 +13,7 @@ it.
 from __future__ import annotations
 
 import copy
+import dataclasses
 import logging
 import typing
 
@@ -34,29 +35,62 @@ from modules.lumascope_api._constants import SIMULATOR_TIERS, refuse_acceleratio
 from modules.protocol import Protocol, ProtocolScheduleRefusedError, schedule_from_units
 from modules.tiling_config import TilingConfig
 
-# A setting changed by its own Session member, because the member does more
-# than store it: it checks the setting against the scope, applies it, or
-# changes another setting with it. A path at or under a key here is refused,
-# naming the member. ``*`` stands for any layer.
-SETTINGS_WITH_A_MEMBER: typing.Final[dict[str, str]] = {
-    'microscope': 'select_model',
-    'live_folder': 'set_live_folder',
-    'protocol.filepath': 'set_protocol_filepath',
-    'objective_id': 'select_objective',
-    'objective_confirmed': 'confirm_objective',
-    'turret_objectives': 'assign_turret_objective',
-    'protocol.labware': 'select_labware',
-    'image_mode': 'set_image_mode',
-    'binning': 'set_binning_size',
-    'frame': 'set_frame_size',
-    'camera.high_conversion_gain': 'set_high_conversion_gain',
-    'camera.line_noise_reduction': 'set_line_noise_reduction',
-    'scale_bar.enabled': 'set_scale_bar',
-    'motion.acceleration_max_pct': 'set_acceleration_limit',
-    'bookmark': 'save_bookmark',
-    '*.acquire': 'set_layer_acquire',
-    '*.auto_gain': 'set_layer_auto_gain',
-    '*.focus': 'save_layer_focus',
+
+@dataclasses.dataclass(frozen=True)
+class SettingMember:
+    """The member that changes a setting: its owning class and its name.
+
+    ``owner`` is ``'ScopeSession'`` or ``'CameraAPI'``, the class the member
+    is looked up on; ``path`` is where a caller reaches it from the API
+    root, which is the session: the member's own name on the session, and
+    ``scope.camera.<name>`` on the camera, so a REST client is sent to the
+    route that exists.
+    """
+
+    owner: str
+    name: str
+
+    @property
+    def path(self) -> str:
+        return self.name if self.owner == 'ScopeSession' else f'scope.camera.{self.name}'
+
+    @property
+    def words(self) -> str:
+        """The member as a refusal names it."""
+        return f'ScopeSession.{self.name}' if self.owner == 'ScopeSession' else self.path
+
+
+def _session(name: str) -> SettingMember:
+    return SettingMember('ScopeSession', name)
+
+
+def _camera(name: str) -> SettingMember:
+    return SettingMember('CameraAPI', name)
+
+
+# A setting changed by its own member, because the member does more than
+# store it: it checks the setting against the scope, applies it, or changes
+# another setting with it. A path at or under a key here is refused, naming
+# the member. ``*`` stands for any layer.
+SETTINGS_WITH_A_MEMBER: typing.Final[dict[str, SettingMember]] = {
+    'microscope': _session('select_model'),
+    'live_folder': _session('set_live_folder'),
+    'protocol.filepath': _session('set_protocol_filepath'),
+    'objective_id': _session('select_objective'),
+    'objective_confirmed': _session('confirm_objective'),
+    'turret_objectives': _session('assign_turret_objective'),
+    'protocol.labware': _session('select_labware'),
+    'image_mode': _camera('set_image_mode'),
+    'binning': _camera('set_binning_size'),
+    'frame': _camera('set_frame_size'),
+    'camera.high_conversion_gain': _camera('set_high_conversion_gain'),
+    'camera.line_noise_reduction': _camera('set_line_noise_reduction'),
+    'scale_bar.enabled': _session('set_scale_bar'),
+    'motion.acceleration_max_pct': _session('set_acceleration_limit'),
+    'bookmark': _session('save_bookmark'),
+    '*.acquire': _session('set_layer_acquire'),
+    '*.auto_gain': _session('set_layer_auto_gain'),
+    '*.focus': _session('save_layer_focus'),
 }
 
 # A setting only the installation's settings file sets: it decides how the
@@ -292,7 +326,7 @@ def _display_color(path: str, value: str | None) -> None:
 # whatever hardware is attached. A ceiling the attached hardware declares (a
 # camera's exposure or gain, an LED board's current) is not a range here: the
 # stored value is the person's intent, and the apply drives the hardware at
-# its limit with the intent kept (``ImagingAPI.applied_gain_db_for`` and kin).
+# its limit with the intent kept (``CameraAPI.applied_gain_db_for`` and kin).
 # A member's setting is here too: its range is held at load as well, though a
 # write to it is refused for its member before the range is read. ``*`` stands
 # for any layer, as in ``SETTINGS_WITH_A_MEMBER``. Each rule takes the
@@ -377,8 +411,8 @@ def _kind(value: object) -> str:
     return type(value).__name__
 
 
-def member_for(path: str) -> str | None:
-    """The Session member that owns the setting at ``path``, or None."""
+def member_for(path: str) -> SettingMember | None:
+    """The member that owns the setting at ``path``, or None."""
     segments = path.split('.')
     layers = common_utils.get_layers()
     for owned, member in SETTINGS_WITH_A_MEMBER.items():
@@ -413,7 +447,7 @@ def check_write(
     with the stored intent kept.
 
     Raises:
-        SettingRefusedError: ``path`` is owned by a Session member (named),
+        SettingRefusedError: ``path`` is owned by a member (named),
             is set only by the installation's settings file, is not a
             setting, or names a block rather than one setting; or ``value``
             is not the setting's kind, or is outside its range (a protocol
@@ -423,7 +457,7 @@ def check_write(
     member = member_for(path)
     if member is not None:
         raise SettingRefusedError(
-            'has_member', path, f'it is changed by ScopeSession.{member}', member=member
+            'has_member', path, f'it is changed by {member.words}', member=member.path
         )
     if is_installation_only(path):
         raise SettingRefusedError(

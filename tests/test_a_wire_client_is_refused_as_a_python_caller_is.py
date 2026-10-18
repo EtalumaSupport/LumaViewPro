@@ -231,7 +231,7 @@ def test_a_name_that_is_no_axis_answers_with_the_names_the_member_takes(client):
             {'path': 'BF.acquire', 'member': None},
         ),
         (
-            'set_image_mode',
+            'scope/camera/set_image_mode',
             {'mode': 'bogus'},
             'out_of_range',
             {'path': 'image_mode', 'member': None},
@@ -240,7 +240,7 @@ def test_a_name_that_is_no_axis_answers_with_the_names_the_member_takes(client):
             'update_settings',
             {'path': 'image_mode', 'value': '8bit'},
             'has_member',
-            {'path': 'image_mode', 'member': 'set_image_mode'},
+            {'path': 'image_mode', 'member': 'scope.camera.set_image_mode'},
         ),
     ],
 )

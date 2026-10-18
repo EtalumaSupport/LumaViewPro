@@ -50,7 +50,7 @@ def binning_size_int_to_str(val: int) -> str:
     """Format a binning factor as its ``'NxN'`` label.
 
     Does NOT raise. Its one production caller is fed
-    ``imaging.get_binning_size()``, which contracts to >= 1, and it sits in
+    ``camera.get_binning_size()``, which contracts to >= 1, and it sits in
     a failure-recovery path where raising would be the hazard.
     """
     return f'{val}x{val}'

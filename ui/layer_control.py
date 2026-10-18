@@ -484,7 +484,7 @@ class LayerControl(BoxLayout):
         logger.info('[LVP Main  ] LayerControl.exp_text()')
         # The typed exposure is the layer's intent, stored as typed. The
         # sensor's ceiling is applied where the value reaches the camera
-        # (ImagingAPI.applied_exposure_ms_for, as the Session applies it), with
+        # (CameraAPI.applied_exposure_ms_for, as the Session applies it), with
         # the intent kept, exactly as a value loaded from the file is; the
         # box no longer carries a second copy of that ceiling.
         self._validate_and_apply_text_input(
@@ -722,7 +722,7 @@ class LayerControl(BoxLayout):
                 # the kv; on a camera whose Auto Gain control is hidden a
                 # ticked box would grey them with nothing to un-grey them.
                 # So it shows what the camera will run, not what was stored.
-                self.ids['auto_gain'].active = _app_ctx.ctx.scope.imaging.applied_auto_gain_for(
+                self.ids['auto_gain'].active = _app_ctx.ctx.scope.camera.applied_auto_gain_for(
                     step['Auto_Gain']
                 ).applied
 
@@ -916,9 +916,7 @@ class LayerControl(BoxLayout):
         saved preference survives a swap to a camera without it and back.
         """
         ctx = _app_ctx.ctx
-        return ctx.scope.imaging.applied_auto_gain_for(
-            ctx.settings[self.layer]['auto_gain']
-        ).applied
+        return ctx.scope.camera.applied_auto_gain_for(ctx.settings[self.layer]['auto_gain']).applied
 
     def apply_settings(self):
         """Show this layer at its stored settings, then display it.

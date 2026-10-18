@@ -17,22 +17,23 @@ from modules import image_mode
 s, live = _common.make_session()
 try:
     im = s.scope.imaging
+    im_camera = s.scope.camera
     print('modes available (every camera):', image_mode.available_modes())
 
-    # The whole capability, done by the caller (there is no API for it)
+    # The whole capability, one member: the camera's image mode chooses the
+    # format from the ones this camera has and saves the mode.
     mode = '12bit_scientific'
     depth = image_mode.resolve_image_mode(mode)['capture_depth']
     target = image_mode.select_capture_pixel_format(
         depth, s.scope.capabilities.camera_pixel_formats
     )
     print(f'mode {mode!r} -> capture_depth {depth} -> pixel format {target!r}')
-    im.set_pixel_format(target)
+    im_camera.set_image_mode(mode)
     _common.ok(
         '12-bit pixel format applied',
-        im.pixel_format_cached == target,
-        f'cached={im.pixel_format_cached}',
+        im_camera.pixel_format_cached == target,
+        f'cached={im_camera.pixel_format_cached}',
     )
-    s.set_image_mode(mode)
     _common.ok('image_mode recorded in the store', s.get_settings_snapshot()['image_mode'] == mode)
     print('significant_bits after the mode change:', im.significant_bits)
 
@@ -45,7 +46,7 @@ try:
             'bogus image mode refused by resolve_image_mode', True, f'{type(e).__name__}: {e}'
         )
     try:
-        s.set_image_mode('37bit')
+        im_camera.set_image_mode('37bit')
         _common.ok(
             'bogus image mode refused by the store',
             s.get_settings_snapshot()['image_mode'] != '37bit',
@@ -53,31 +54,26 @@ try:
         )
     except Exception as e:
         _common.ok('bogus image mode refused by the store', True, f'{type(e).__name__}: {e}')
-    s.set_image_mode(mode)
+    im_camera.set_image_mode(mode)
 
-    # --- TWO ANSWERERS, not a stale mirror ------------------------------
-    # This probe used to demand that settings follow a camera apply. That
-    # write-through was refuted twice by execution and then on principle by
-    # Eric ("SSOT"): a binning change always issues a frame-size apply, so
-    # recomputing the native ROI there re-introduces #683, and
-    # _set_binning_size_impl refreshes by a READ that bypasses the commit
-    # chokepoint entirely. The defect is that config_helpers answers a
-    # question ImagingAPI already owns -- so what this records is that the
-    # API knows the geometry, which is what makes the second answerer a
-    # duplicate rather than the API being ignorant.
+    # --- ONE ANSWERER: the camera saves what it took --------------------
+    # The camera's setters save the frame, the binning and the region they
+    # came from once the camera took them (scope.camera, W3b), so the
+    # settings follow every apply; what this records is that the API knows
+    # the geometry after one.
     before = s.get_settings_snapshot()
-    im.set_frame_size(1024, 768)
+    im_camera.set_frame_size(1024, 768)
     after = s.get_settings_snapshot()
     _common.ok(
         'the API knows the delivered frame size after an apply',
-        (im.get_width(), im.get_height()) != (0, 0),
-        f'API {im.get_width()}x{im.get_height()}, settings {after["frame"]}',
+        (im_camera.get_width(), im_camera.get_height()) != (0, 0),
+        f'API {im_camera.get_width()}x{im_camera.get_height()}, settings {after["frame"]}',
     )
-    im.set_binning_size(2)
+    im_camera.set_binning_size(2)
     _common.ok(
         'the API knows the delivered binning after an apply',
-        im.get_binning_size() == 2,
-        f'API {im.get_binning_size()}, settings {s.get_settings_snapshot()["binning"]}',
+        im_camera.get_binning_size() == 2,
+        f'API {im_camera.get_binning_size()}, settings {s.get_settings_snapshot()["binning"]}',
     )
     print("settings['frame'] native keys:", dict(after['frame']))
 except Exception:

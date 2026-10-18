@@ -1050,11 +1050,11 @@ class MotionAPI:
         stop_generation = self._stop_generation
         stops_asked = self._stops_asked
         if 'Z' in present_axes:
-            self._scope.imaging.frame_validity.invalidate('z_move')
+            self._scope.frame_validity.invalidate('z_move')
         if 'X' in present_axes or 'Y' in present_axes:
-            self._scope.imaging.frame_validity.invalidate('xy_move')
+            self._scope.frame_validity.invalidate('xy_move')
         if 'T' in present_axes:
-            self._scope.imaging.frame_validity.invalidate('turret')
+            self._scope.frame_validity.invalidate('turret')
         try:
             with (
                 self._reference_position_logger(),
@@ -1197,7 +1197,7 @@ class MotionAPI:
                 self._safe_turret_move(),
             ):
                 self._set_axis_state('T', AxisState.HOMING)
-                self._scope.imaging.frame_validity.invalidate('turret')
+                self._scope.frame_validity.invalidate('turret')
                 homed = False
                 try:
                     self._driver.thome()
@@ -1708,7 +1708,7 @@ class MotionAPI:
         state_before = self._axis_states(('Z',))['Z']
         self._set_axis_state('Z', AxisState.HOMING)
         stops_asked = self._stops_asked
-        self._scope.imaging.frame_validity.invalidate('z_move')
+        self._scope.frame_validity.invalidate('z_move')
         try:
             with (
                 self._reference_position_logger(),
@@ -2872,7 +2872,7 @@ class MotionAPI:
                 # Wake the motion monitor to start polling
                 self._motion_wake.set()
             else:
-                self._scope.imaging.frame_validity.motion_settled(
+                self._scope.frame_validity.motion_settled(
                     self._AXIS_VALIDITY_SOURCE.get(axis, 'xy_move'), settled_ns
                 )
 
@@ -3018,9 +3018,7 @@ class MotionAPI:
         state_before = self._axis_states((axis,))[axis]
         move = self._begin_move(axis, stop_generation)
         try:
-            self._scope.imaging.frame_validity.invalidate(
-                self._AXIS_VALIDITY_SOURCE.get(axis, 'xy_move')
-            )
+            self._scope.frame_validity.invalidate(self._AXIS_VALIDITY_SOURCE.get(axis, 'xy_move'))
             return move, send()
         except MotionInterlockError as e:
             self._refuse_for_interlock(axis, move, state_before, e, member)

@@ -28,66 +28,66 @@ REQUEST_US = 20.0
 
 
 @pytest.fixture
-def sim_imaging():
-    """A simulated scope's imaging, its camera, and its faults."""
+def sim_camera():
+    """A simulated scope's camera API, its camera driver, and its faults."""
     scope = build_scope(simulate=True)
     bind_settings_like_a_session(scope)
-    return scope.imaging, scope.imaging._driver, scope.simulation
+    return scope.camera, scope.camera._driver, scope.simulation
 
 
-def test_clamped_write_targets_the_applied_value_not_the_request(sim_imaging, monkeypatch):
+def test_clamped_write_targets_the_applied_value_not_the_request(sim_camera, monkeypatch):
     """The bench case: the driver raises the request to its floor and answers
     with the microseconds it applied; a frame carrying them passes the gate."""
-    imaging, cam, _simulation = sim_imaging
+    camera, cam, _simulation = sim_camera
     # a stand-in by design: the simulated camera has no exposure floor to clamp to; the gap is the simulator's, a camera with no floor
     monkeypatch.setattr(cam, 'exposure_t', lambda exposure_ms: 50.0)
 
-    imaging.set_exposure_ms(REQUEST_MS)
+    camera.set_exposure_ms(REQUEST_MS)
 
-    assert imaging.frame_validity.target('exposure') == 50.0, (
+    assert camera.frame_validity.target('exposure') == 50.0, (
         'the chunk target must be the applied microseconds; recording the '
         'request is what rejected every frame at the bench'
     )
-    assert imaging.frame_validity.chunk_match('exposure', 50.0), (
+    assert camera.frame_validity.chunk_match('exposure', 50.0), (
         'a frame carrying the applied exposure must pass the gate'
     )
 
 
-def test_refused_write_records_no_target(sim_imaging, monkeypatch):
+def test_refused_write_records_no_target(sim_camera, monkeypatch):
     """A driver that refused did not move the hardware: the prior target stands."""
-    imaging, _cam, simulation = sim_imaging
-    imaging.set_exposure_ms(2.5)
+    camera, _cam, simulation = sim_camera
+    camera.set_exposure_ms(2.5)
     simulation.refuse_camera_write('exposure', 'false')
 
     with pytest.raises(CameraSettingRejected) as caught:
-        imaging.set_exposure_ms(REQUEST_MS)
+        camera.set_exposure_ms(REQUEST_MS)
 
     assert caught.value.setting == 'exposure_ms'
-    assert imaging.frame_validity.target('exposure') == 2500.0, (
+    assert camera.frame_validity.target('exposure') == 2500.0, (
         'a refused write must not claim a target the camera never took'
     )
 
 
-def test_driver_reporting_no_value_falls_back_to_the_request(sim_imaging, monkeypatch):
+def test_driver_reporting_no_value_falls_back_to_the_request(sim_camera, monkeypatch):
     """None means applied-but-unknown; the request, in microseconds, is the
     best available target."""
-    imaging, cam, _simulation = sim_imaging
+    camera, cam, _simulation = sim_camera
     # a stand-in by design: a driver with no confirmation signal; the simulator always reports what it applied
     monkeypatch.setattr(cam, 'exposure_t', lambda exposure_ms: None)
 
-    imaging.set_exposure_ms(REQUEST_MS)
+    camera.set_exposure_ms(REQUEST_MS)
 
-    assert imaging.frame_validity.target('exposure') == REQUEST_US
+    assert camera.frame_validity.target('exposure') == REQUEST_US
 
 
-def test_a_bare_true_is_not_mistaken_for_microseconds(sim_imaging, monkeypatch):
+def test_a_bare_true_is_not_mistaken_for_microseconds(sim_camera, monkeypatch):
     """bool is an int subclass; a driver reporting True must not stamp 1.0 us."""
-    imaging, cam, _simulation = sim_imaging
+    camera, cam, _simulation = sim_camera
     # a stand-in by design: a driver that confirms with a bare True; the simulator reports microseconds
     monkeypatch.setattr(cam, 'exposure_t', lambda exposure_ms: True)
 
-    imaging.set_exposure_ms(REQUEST_MS)
+    camera.set_exposure_ms(REQUEST_MS)
 
-    assert imaging.frame_validity.target('exposure') == REQUEST_US, (
+    assert camera.frame_validity.target('exposure') == REQUEST_US, (
         'True is applied-but-unknown, not a 1 microsecond exposure'
     )

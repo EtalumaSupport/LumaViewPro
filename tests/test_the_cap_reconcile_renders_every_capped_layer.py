@@ -17,7 +17,7 @@ from unittest.mock import MagicMock
 
 import modules.app_context as _app_ctx
 from modules.layer_record import release_catalogue
-from modules.lumascope_api.imaging import cap_stored_value
+from modules.lumascope_api.camera import cap_stored_value
 from modules.scope_session import ShownChannel
 
 _CAP_DB = 24.0

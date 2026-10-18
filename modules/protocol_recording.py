@@ -284,7 +284,7 @@ class ProtocolVideoStep:
 
         scope = self._scope
         camera = scope.capabilities
-        frame_size = scope.imaging.frame_size_cached
+        frame_size = scope.camera.frame_size_cached
         self._tick_freq_hz = camera.camera_timestamp_tick_hz
         # One scale snapshot per step, alongside the other start-of-recording
         # camera facts: the objective cannot change while a step records.
@@ -472,9 +472,9 @@ class ProtocolVideoStep:
         # its layer apply did. A disarm or a one-shot the camera did not take
         # raises out of the step, which then records nothing: the writer
         # counts it a failed capture.
-        if scope.imaging.applied_auto_gain_for(step['Auto_Gain']).applied:
-            scope.imaging.set_auto_gain(False, self._autogain_settings)
-            scope.imaging.auto_gain_once(
+        if scope.camera.applied_auto_gain_for(step['Auto_Gain']).applied:
+            scope.camera.set_auto_gain(False, self._autogain_settings)
+            scope.camera.auto_gain_once(
                 state=True,
                 target_brightness=self._autogain_settings['target_brightness'],
                 min_gain_db=self._autogain_settings['min_gain_db'],
@@ -512,7 +512,7 @@ class ProtocolVideoStep:
             if self._stop_requested():
                 outcome, end_reason = CANCELLED, 'run_stop'
                 break
-            if not self._scope.imaging.active_cached:
+            if not self._scope.camera.active_cached:
                 logger.warning(
                     '[PROTOCOL-VIDEO] Camera went inactive mid-step; ending the recording'
                 )

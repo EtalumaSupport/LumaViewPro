@@ -5,6 +5,7 @@ import harness
 
 s, live = harness.make_session('p3')
 im = s.scope.imaging
+im_camera = s.scope.camera
 
 
 def step(label, fn):
@@ -16,24 +17,33 @@ def step(label, fn):
 
 try:
     im.enable_streaming()
-    step('set_gain_db(7.5)', lambda: (im.set_gain_db(7.5), im.get_gain_db(), im.gain_db_cached))
+    step(
+        'set_gain_db(7.5)',
+        lambda: (im_camera.set_gain_db(7.5), im_camera.get_gain_db(), im_camera.gain_db_cached),
+    )
     step(
         'set_exposure_ms(123.0)',
-        lambda: (im.set_exposure_ms(123.0), im.get_exposure_ms(), im.exposure_ms_cached),
+        lambda: (
+            im_camera.set_exposure_ms(123.0),
+            im_camera.get_exposure_ms(),
+            im_camera.exposure_ms_cached,
+        ),
     )
-    step('set_gain_db(1e6)', lambda: (im.set_gain_db(1e6), im.get_gain_db()))
+    step('set_gain_db(1e6)', lambda: (im_camera.set_gain_db(1e6), im_camera.get_gain_db()))
     print('camera_supports_auto_gain:', s.scope.capabilities.camera_supports_auto_gain, flush=True)
     ag = s.get_auto_gain_settings()
     print('session.get_auto_gain_settings():', ag, flush=True)
-    step('set_auto_gain(True, ag)', lambda: im.set_auto_gain(True, ag))
-    step('lock_auto_gain()', lambda: im.lock_auto_gain())
+    step('set_auto_gain(True, ag)', lambda: im_camera.set_auto_gain(True, ag))
+    step('lock_auto_gain()', lambda: im_camera.lock_auto_gain())
     step(
         'apply_layer_camera_settings(Blue)',
-        lambda: im.apply_layer_camera_settings(
+        lambda: im_camera.apply_layer_camera_settings(
             layer='Blue', gain_db=3.0, exposure_ms=50.0, auto_gain=False, auto_gain_settings=None
         ),
     )
-    print('after apply: gain', im.get_gain_db(), 'exp', im.get_exposure_ms(), flush=True)
+    print(
+        'after apply: gain', im_camera.get_gain_db(), 'exp', im_camera.get_exposure_ms(), flush=True
+    )
     harness.assert_no_ui()
 except Exception:
     traceback.print_exc()

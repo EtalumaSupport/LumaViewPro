@@ -28,8 +28,9 @@ def _busy(ms):
 
 def body(session):
     im = session.scope.imaging
-    im.set_exposure_ms(10.0)
-    figure('S5.camera_frame_rate_reported', im.get_resulting_frame_rate())
+    im_camera = session.scope.camera
+    im_camera.set_exposure_ms(10.0)
+    figure('S5.camera_frame_rate_reported', im_camera.get_resulting_frame_rate())
     counter = {'n': 0}
     lock = threading.Lock()
 

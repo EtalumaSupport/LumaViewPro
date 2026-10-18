@@ -38,7 +38,7 @@ def test_a_last_listener_auto_removed_on_the_pump_thread_unregisters_cleanly(mon
         def bad(*_a):
             raise ValueError('plugin bug')
 
-        scope.imaging.set_exposure_ms(1.0)
+        scope.camera.set_exposure_ms(1.0)
         scope.imaging.add_frame_listener(bad, name='bad_plugin')
         scope.imaging.enable_streaming()
         assert removed.wait(timeout=5.0)

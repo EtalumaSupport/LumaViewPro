@@ -398,7 +398,7 @@ class TestRunCleanup:
         )
         run_cleanup(**args)
 
-        scope.imaging.restore_camera_state.assert_called_once_with({'gain': 1.0, 'exposure': 10.0})
+        scope.camera.restore_camera_state.assert_called_once_with({'gain': 1.0, 'exposure': 10.0})
         camera.put.assert_not_called()
         camera.protocol_put.assert_not_called()
 

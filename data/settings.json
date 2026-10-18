@@ -22,7 +22,9 @@
     },
     "frame": {
         "width": 1900,
-        "height": 1900
+        "height": 1900,
+        "native_width": 1900,
+        "native_height": 1900
     },
     "live_folder": "./capture",
     "bookmark": {

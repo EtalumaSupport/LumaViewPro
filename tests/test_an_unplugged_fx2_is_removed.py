@@ -109,15 +109,15 @@ def test_a_silent_device_still_on_the_bus_loses_its_camera_at_the_ceiling_and_ke
 
 def test_a_gain_written_after_the_removal_is_not_recorded(session):
     scope = session.scope
-    before = scope.imaging.gain_db_cached
+    before = scope.camera.gain_db_cached
 
     session.scope.simulation.unplug('led')
     assert _wait_until(lambda: not scope.camera_connected, 6.0)
     with pytest.raises(HardwareCommandRefusedError) as exc:
-        scope.imaging.set_gain_db(before + 6.0)
+        scope.camera.set_gain_db(before + 6.0)
 
     assert exc.value.missing == MissingPart.CAMERA
-    assert scope.imaging.gain_db_cached == before
+    assert scope.camera.gain_db_cached == before
 
 
 def test_a_write_to_a_camera_removed_while_it_is_not_streaming_is_refused_not_connected():
@@ -131,17 +131,17 @@ def test_a_write_to_a_camera_removed_while_it_is_not_streaming_is_refused_not_co
     try:
         scope.imaging.disable_streaming()
         assert scope.imaging.is_streaming() is False
-        before = scope.imaging.gain_db_cached
+        before = scope.camera.gain_db_cached
         scope.simulation.remove_camera()
 
         with pytest.raises(HardwareCommandRefusedError) as refused:
-            scope.imaging.set_gain_db(before + 6.0)
+            scope.camera.set_gain_db(before + 6.0)
 
         assert refused.value.reason == 'not_connected'
         assert refused.value.missing == MissingPart.CAMERA
         assert scope.camera_connected is False
         assert scope.led_connected is False
-        assert scope.imaging.gain_db_cached == before
+        assert scope.camera.gain_db_cached == before
     finally:
         session.shutdown()
 
@@ -202,7 +202,7 @@ def test_a_stream_stop_that_finds_its_camera_removed_is_satisfied(session, monke
     monkeypatch.setattr(driver, 'stop_grabbing', stop_that_finds_the_device_gone)
 
     assert scope.imaging.disable_streaming() is None
-    assert scope.imaging.camera_removed is True
+    assert scope.camera.camera_removed is True
 
 
 def test_an_led_on_that_finds_the_device_unplugged_is_refused_not_connected():
@@ -298,14 +298,14 @@ def test_a_gain_written_before_the_teardown_ends_is_not_recorded(session):
     # it, the camera is still active, but it no longer answers connected:
     # the camera lane refuses the write before it reaches gain().
     scope = session.scope
-    before = scope.imaging.gain_db_cached
+    before = scope.camera.gain_db_cached
     scope._camera_driver._mark_disconnected()
 
     with pytest.raises(HardwareCommandRefusedError) as exc:
-        scope.imaging.set_gain_db(before + 6.0)
+        scope.camera.set_gain_db(before + 6.0)
 
     assert exc.value.missing == MissingPart.CAMERA
-    assert scope.imaging.gain_db_cached == before
+    assert scope.camera.gain_db_cached == before
 
 
 def test_the_settings_are_saved_after_the_scope_is_unplugged(tmp_path):

@@ -16,7 +16,7 @@ from modules.lumascope_api.diagnostics import DiagnosticsAPI
 def _scope_with(driver):
     return SimpleNamespace(
         _camera_driver=driver,
-        imaging=SimpleNamespace(max_exposure_ms_cached=178.0),
+        camera=SimpleNamespace(max_exposure_ms_cached=178.0),
     )
 
 

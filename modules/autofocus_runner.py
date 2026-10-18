@@ -131,7 +131,7 @@ class AutofocusRunner:
         if self._past_travel(z_min, z_max, 'the first window'):
             raise AutofocusOutOfTravelError()
         resolution = self._objective.autofocus_step_max_um
-        exposure = self._scope.imaging.get_exposure_ms()
+        exposure = self._scope.camera.get_exposure_ms()
 
         self._params = {
             'center': center,
@@ -307,13 +307,13 @@ class AutofocusRunner:
             # records a live-view arm BEFORE the lock consumes it, and the
             # restore in the finally is what puts that arm back.
             self._saved_led_state = self._scope.illumination.save_led_state('autofocus')
-            self._saved_camera_state = self._scope.imaging.save_camera_state('autofocus')
+            self._saved_camera_state = self._scope.camera.save_camera_state('autofocus')
             # A live-view auto-gain arm is locked ONCE for the whole sweep
             # and resumed in the finally below. Left standing, every sweep
             # capture would lock and re-arm on its own -- paying the
             # auto-gain settle at every position -- and the step's gain
             # and exposure written next would be overridden by the loop.
-            auto_gain_lock = self._scope.imaging.lock_auto_gain()
+            auto_gain_lock = self._scope.camera.lock_auto_gain()
             self._sweep_targets_source = self._apply_sweep_camera_targets(auto_gain_lock)
             _af_log.info(
                 f'[AF DIAG] Saved pre-AF camera state: '
@@ -614,7 +614,7 @@ class AutofocusRunner:
                     # still fail PART WAY through on its own, which is the
                     # imaging API's contract and not this runner's to change.
                     try:
-                        self._scope.imaging.restore_camera_state(restore)
+                        self._scope.camera.restore_camera_state(restore)
                     except Exception:
                         logger.exception(
                             '[AF] post-AF camera restore failed; the camera may be '
@@ -623,8 +623,8 @@ class AutofocusRunner:
                         )
                 _af_log.info(
                     f'[AF DIAG] Clearing _af_in_progress -- '
-                    f'camera now at gain={self._scope.imaging.get_gain_db()} '
-                    f'exp={self._scope.imaging.get_exposure_ms()}'
+                    f'camera now at gain={self._scope.camera.get_gain_db()} '
+                    f'exp={self._scope.camera.get_exposure_ms()}'
                 )
             finally:
                 self._af_in_progress.clear()
@@ -666,10 +666,10 @@ class AutofocusRunner:
         # A target the camera rejects ends its flight here: it is reported
         # once and the sweep scans at the value the camera holds -- one
         # refused gain is not a reason to abandon the focus.
-        imaging = self._scope.imaging
+        camera = self._scope.camera
         for setter, value in (
-            (imaging.set_gain_db, self._camera_gain),
-            (imaging.set_exposure_ms, self._camera_exposure),
+            (camera.set_gain_db, self._camera_gain),
+            (camera.set_exposure_ms, self._camera_exposure),
         ):
             if value is None:
                 continue

@@ -1,7 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """Every camera write either keeps the camera's held-layer record true or is layer-neutral.
 
-``ImagingAPI`` records which layer's stored settings the camera holds, and a
+``CameraAPI`` records which layer's stored settings the camera holds, and a
 capture is named and set by it. A write that changed the camera without
 touching the record would leave the record naming a layer whose settings
 the camera no longer holds. So every reference to a camera write body is
@@ -9,7 +9,9 @@ one of: a public door that hands it to ``_no_layers_write`` (the record
 then says no layer), the record's own writers (``_hold_layer_impl``, the
 restore), or a write that leaves the layer as it was (the in-capture lock
 and resume of a standing arm, the arm's own ceiling clamp, the batched
-apply's own steps). No module outside ``imaging.py`` reaches a write body.
+apply's own steps). No module outside ``camera.py`` reaches a write body but
+the capture's (``imaging.py``), whose lock and resume of a standing arm are
+the in-capture ones above.
 """
 
 from __future__ import annotations
@@ -68,26 +70,37 @@ def _write_body_references(tree: ast.AST):
     return found
 
 
+# The two modules a write body is named in: the camera's own, and the capture's.
+_CAMERA_MODULES = ('camera.py', 'imaging.py')
+
+
 def test_every_camera_write_keeps_the_held_layer_true():
-    path = REPO_ROOT / 'modules' / 'lumascope_api' / 'imaging.py'
-    references = _write_body_references(ast.parse(path.read_text()))
-    assert references, 'the walk found no write body: it is not reading imaging.py'
+    references = [
+        (name, *reference)
+        for name in _CAMERA_MODULES
+        for reference in _write_body_references(
+            ast.parse((REPO_ROOT / 'modules' / 'lumascope_api' / name).read_text())
+        )
+    ]
+    assert {name for name, *_ in references} == set(_CAMERA_MODULES), (
+        'the walk found no write body in one of the camera modules: it is not reading them'
+    )
     offenders = [
-        f'imaging.py:{line} {body} in {function}'
-        for line, body, function, wrapped in references
+        f'{name}:{line} {body} in {function}'
+        for name, line, body, function, wrapped in references
         if not wrapped and function not in _RECORD_KEPT_IN
     ]
     assert offenders == []
 
 
-def test_no_module_outside_imaging_reaches_a_camera_write_body():
+def test_no_module_outside_the_camera_reaches_a_camera_write_body():
     roots = [REPO_ROOT / name for name in ('modules', 'ui', 'rest')]
     files = [REPO_ROOT / 'lumaviewpro.py']
     files += [path for root in roots for path in sorted(root.rglob('*.py'))]
     offenders = [
         f'{path.relative_to(REPO_ROOT)}:{line} {body}'
         for path in files
-        if path.name != 'imaging.py'
+        if not (path.parent.name == 'lumascope_api' and path.name in _CAMERA_MODULES)
         for line, body, _function, _wrapped in _write_body_references(ast.parse(path.read_text()))
     ]
     assert offenders == []

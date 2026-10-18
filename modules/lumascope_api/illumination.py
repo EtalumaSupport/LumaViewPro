@@ -765,7 +765,7 @@ class IlluminationAPI:
         with self._led_lock:
             self._driver.led_on(channel, commanded_ma, block=block)
         self._notify_if_led_command_failed()
-        self._scope.imaging.frame_validity.invalidate('led')
+        self._scope.frame_validity.invalidate('led')
         requested = (
             f' (requested {illumination_ma})' if abs(commanded_ma - illumination_ma) >= 0.01 else ''
         )
@@ -848,7 +848,7 @@ class IlluminationAPI:
         with self._led_lock:
             self._driver.led_off(channel)
         self._notify_if_led_command_failed()
-        self._scope.imaging.frame_validity.invalidate('led')
+        self._scope.frame_validity.invalidate('led')
         _api_log.info(
             f'led_off ch={channel}{f" lease={_lease.purpose!r}" if _lease is not None else ""}'
         )
@@ -938,7 +938,7 @@ class IlluminationAPI:
             self._lit_by.clear()
             self._led_state.clear()
             readings = self._readings()
-        self._scope.imaging.frame_validity.invalidate('led')
+        self._scope.frame_validity.invalidate('led')
         _api_log.info('leds_off')
         for reading in readings:
             self._fire_led_listeners(reading)
@@ -1263,7 +1263,7 @@ class IlluminationAPI:
             with self._led_state_lock:
                 self._lit_by.pop(ch, None)
                 self._led_state.pop(ch, None)
-            self._scope.imaging.frame_validity.invalidate('led')
+            self._scope.frame_validity.invalidate('led')
             _api_log.info(f'led_off ch={ch} (release of the {lease.purpose!r} lease)')
             with self._led_state_lock:
                 reading = self._reading(ch)

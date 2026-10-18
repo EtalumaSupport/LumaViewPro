@@ -210,7 +210,7 @@ class TestAFailingHandlerIsBounded:
             raise ValueError('plugin bug')
 
         try:
-            sim_scope.imaging.set_exposure_ms(1.0)
+            sim_scope.camera.set_exposure_ms(1.0)
             sim_scope.imaging.add_frame_listener(bad, name='bad_plugin')
             sim_scope.imaging.enable_streaming()
             assert removed.wait(timeout=5.0), 'a handler failing every frame must be removed'

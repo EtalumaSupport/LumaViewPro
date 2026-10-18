@@ -42,13 +42,13 @@ def _refused(call, member, argument):
 
 
 def test_a_number_reaches_the_member_as_the_python_number_it_means(session):
-    imaging = session.scope.imaging
-    imaging.set_exposure_ms(np.float64(12.5))
-    assert type(imaging.exposure_ms_cached) is float
-    assert imaging.exposure_ms_cached == 12.5
-    imaging.set_exposure_ms(20)
-    assert type(imaging.exposure_ms_cached) is float
-    assert imaging.exposure_ms_cached == 20.0
+    camera = session.scope.camera
+    camera.set_exposure_ms(np.float64(12.5))
+    assert type(camera.exposure_ms_cached) is float
+    assert camera.exposure_ms_cached == 12.5
+    camera.set_exposure_ms(20)
+    assert type(camera.exposure_ms_cached) is float
+    assert camera.exposure_ms_cached == 20.0
 
 
 def test_a_setting_written_as_a_numpy_number_is_stored_as_the_python_one(session):
@@ -65,14 +65,14 @@ def test_a_numpy_index_reaches_a_protocol_step_as_an_int():
 
 
 def test_a_bool_is_never_a_number(session):
-    before = session.scope.imaging.exposure_ms_cached
+    before = session.scope.camera.exposure_ms_cached
     refused = _refused(
-        lambda: session.scope.imaging.set_exposure_ms(True),
-        'ImagingAPI.set_exposure_ms',
+        lambda: session.scope.camera.set_exposure_ms(True),
+        'CameraAPI.set_exposure_ms',
         'exposure_ms',
     )
     assert refused.declared == 'float'
-    assert session.scope.imaging.exposure_ms_cached == before
+    assert session.scope.camera.exposure_ms_cached == before
 
 
 def test_a_float_is_not_a_whole_number(session):
@@ -81,7 +81,9 @@ def test_a_float_is_not_a_whole_number(session):
         'DiagnosticsAPI.set_motor_fan_duty',
         'duty_pct',
     )
-    _refused(lambda: session.set_frame_size(math.nan, 400), 'ScopeSession.set_frame_size', 'width')
+    _refused(
+        lambda: session.camera.set_frame_size(math.nan, 400), 'CameraAPI.set_frame_size', 'width'
+    )
 
 
 def test_none_is_taken_only_where_the_signature_says_so(session):

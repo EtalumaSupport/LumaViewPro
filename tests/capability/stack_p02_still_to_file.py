@@ -21,7 +21,7 @@ def body(session):
     il.led_on('BF', 10)
     try:
         for mode in ('8bit', '12bit_scientific'):
-            session.set_image_mode(mode)
+            session.camera.set_image_mode(mode)
             samples = []
             sizes = []
             for _ in range(N):
@@ -36,7 +36,7 @@ def body(session):
                     'median_s': round(statistics.median(samples), 3),
                     'max_s': round(max(samples), 3),
                     'file_kb': round(sizes[-1] / 1024),
-                    'frame': session.scope.imaging.frame_size_cached,
+                    'frame': session.scope.camera.frame_size_cached,
                 },
             )
     finally:

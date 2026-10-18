@@ -20,7 +20,7 @@ engineering plugin records this from the field: a requested 29.99999986 dB
 normalised to 30.0, "which the SDK rejects".
 
 Driver-level tests assert the return contract on each path; the end-to-end test
-drives the real ``ImagingAPI`` over the real driver and asserts the consequence
+drives the real ``CameraAPI`` over the real driver and asserts the consequence
 the contract exists for -- that the refusal is raised to an L2 caller and that
 neither the cache nor the chunk target moved.
 
@@ -32,7 +32,6 @@ on a read the setter only uses to skip a redundant write is tolerated, and one
 on the read-back after the write took is the write applied.
 """
 
-import threading
 from unittest.mock import PropertyMock
 
 import pytest
@@ -41,10 +40,9 @@ from pypylon import genicam
 from drivers.exceptions import CameraNoAnswerError
 from modules.exceptions import CameraSettingRejected
 from modules.lumascope_api import Lumascope
-from modules.lumascope_api.imaging import ImagingAPI
 from modules.notification_center import Severity
 from tests.camera_fakes import bare_pylon_camera
-from tests.scope_fakes import give_camera_capabilities, give_stub_lanes
+from tests.scope_fakes import give_camera_and_imaging, give_camera_capabilities, give_stub_lanes
 
 # Every GenICam class a refused SetValue can arrive as that is NOT a
 # RuntimeException subclass, and therefore reaches the bare handler with the
@@ -84,17 +82,14 @@ def pylon_cam():
 
 
 @pytest.fixture
-def pylon_imaging(pylon_cam):
-    """The real ImagingAPI over that driver."""
+def pylon_camera(pylon_cam):
+    """The real CameraAPI over that driver."""
     scope = Lumascope.__new__(Lumascope)
     scope._camera_driver = pylon_cam
     give_stub_lanes(scope)
     give_camera_capabilities(scope, pylon_cam)
-    scope._cam_lock = threading.RLock()
-    scope._state_lock = threading.RLock()
-    imaging = ImagingAPI(scope, pylon_cam)
-    scope.imaging = imaging
-    return imaging, pylon_cam
+    camera = give_camera_and_imaging(scope)
+    return camera, pylon_cam
 
 
 class TestEverySwallowedRejectionIsReported:
@@ -127,20 +122,20 @@ class TestACommunicationFailureIsTheWritesFailure:
     ``test_pylon_setter_transient_writes``.
     """
 
-    def test_the_write_is_rejected_and_the_next_one_is_sent(self, pylon_imaging):
-        imaging, cam = pylon_imaging
+    def test_the_write_is_rejected_and_the_next_one_is_sent(self, pylon_camera):
+        camera, cam = pylon_camera
         # The real latch: the fixture's MagicMock would let a removal pass unseen.
         del cam._mark_disconnected
         takes_the_write = cam.active.Gain.SetValue.side_effect
         cam.active.Gain.SetValue.side_effect = genicam.RuntimeException('comms lost')
 
         with pytest.raises(CameraSettingRejected) as excinfo:
-            imaging.set_gain_db(30.0)
+            camera.set_gain_db(30.0)
 
         assert excinfo.value.reason == 'camera_rejected'
-        assert not imaging.camera_removed
+        assert not camera.camera_removed
         cam.active.Gain.SetValue.side_effect = takes_the_write
-        assert imaging.set_gain_db(12.0) == pytest.approx(12.0)
+        assert camera.set_gain_db(12.0) == pytest.approx(12.0)
         cam.active.Gain.SetValue.assert_called_with(12.0)
 
 
@@ -169,37 +164,37 @@ class TestTheAppliedPathsSayApplied:
 class TestARefusalIsNotRecordedAsTruth:
     """The end-to-end consequence, through the real API over the real driver."""
 
-    def test_the_refusal_reaches_an_l2_caller(self, pylon_imaging):
-        imaging, cam = pylon_imaging
+    def test_the_refusal_reaches_an_l2_caller(self, pylon_camera):
+        camera, cam = pylon_camera
         cam.active.Gain.SetValue.side_effect = genicam.OutOfRangeException('out of range')
 
         with pytest.raises(CameraSettingRejected) as excinfo:
-            imaging.set_gain_db(30.0)
+            camera.set_gain_db(30.0)
 
         assert excinfo.value.setting == 'gain_db'
         assert excinfo.value.requested == 30.0
 
-    def test_the_cache_and_the_chunk_target_stay_where_the_camera_is(self, pylon_imaging):
-        imaging, cam = pylon_imaging
-        imaging.set_gain_db(3.0)
-        assert imaging.gain_db_cached == 3.0, 'precondition: the applied write was recorded'
-        assert imaging.frame_validity.target('gain') == 3.0
+    def test_the_cache_and_the_chunk_target_stay_where_the_camera_is(self, pylon_camera):
+        camera, cam = pylon_camera
+        camera.set_gain_db(3.0)
+        assert camera.gain_db_cached == 3.0, 'precondition: the applied write was recorded'
+        assert camera.frame_validity.target('gain') == 3.0
 
         cam.active.Gain.SetValue.side_effect = genicam.OutOfRangeException('out of range')
         with pytest.raises(CameraSettingRejected):
-            imaging.set_gain_db(30.0)
+            camera.set_gain_db(30.0)
 
-        assert imaging.gain_db_cached == 3.0, 'a refused gain must not be cached as truth'
-        assert imaging.frame_validity.target('gain') == 3.0, (
+        assert camera.gain_db_cached == 3.0, 'a refused gain must not be cached as truth'
+        assert camera.frame_validity.target('gain') == 3.0, (
             'a chunk target no frame can carry rejects every frame the camera produces'
         )
 
-    def test_the_api_shows_nothing_itself(self, pylon_imaging, centre_posts):
-        imaging, cam = pylon_imaging
+    def test_the_api_shows_nothing_itself(self, pylon_camera, centre_posts):
+        camera, cam = pylon_camera
         cam.active.Gain.SetValue.side_effect = genicam.OutOfRangeException('out of range')
 
         with pytest.raises(CameraSettingRejected) as excinfo:
-            imaging.set_gain_db(30.0)
+            camera.set_gain_db(30.0)
 
         assert not [n for n in centre_posts if n.severity == Severity.ERROR], (
             'the refusal is shown by its reporter, not by the API'
@@ -291,7 +286,7 @@ def _auto_gain_once(cam):
     return cam.auto_gain_once(state=False)
 
 
-# The twelve setting writers ImagingAPI._camera_write reaches, each driven to
+# The twelve setting writers CameraAPI._camera_write reaches, each driven to
 # the write that decides whether the setting was sent.
 SETTING_WRITERS = {
     'gain': _gain,
