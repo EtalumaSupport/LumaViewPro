@@ -183,7 +183,6 @@ def stop_the_stage() -> None:
     held by the very work the person is stopping. Every press sends; the API
     decides what a press stops and what it refuses.
     """
-    gui_logger.button('STOP')
     threading.Thread(
         target=_reported,
         args=(_app_ctx.ctx.scope.motion.stop_motion, 'STOP'),

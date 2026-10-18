@@ -171,6 +171,7 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
         logger.info('[LVP Main  ] Manual recording UI cleanup complete')
 
     def stop_the_stage(self):
+        gui_logger.button('STOP')
         from ui.ui_helpers import stop_the_stage
 
         stop_the_stage()

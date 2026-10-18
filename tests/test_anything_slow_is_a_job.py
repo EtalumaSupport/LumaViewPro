@@ -515,7 +515,7 @@ def test_a_stop_the_scope_refuses_is_the_deletes_answer(tmp_path, monkeypatch):
 
             refused = client.delete(f'/api/v1/jobs/{job["id"]}')
 
-            assert (refused.status_code, refused.json()['reason']) == (409, 'home_in_flight')
+            assert (refused.status_code, refused.json()['reason']) == (409, 'home_not_stoppable')
             ended = client.get(f'/api/v1/jobs/{job["id"]}', headers={'Prefer': 'wait=60'})
             assert ended.json()['status'] == 'completed'
     finally:

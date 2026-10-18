@@ -84,6 +84,9 @@ class AutofocusRunner:
         # Set by run(); AutofocusThread owns it. Set with an abort that is a
         # person's stop, so the sweep leaves Z where the stop left it.
         self._stay_put: threading.Event | None = None
+        # Whether the sweep ended on a person's stop, read where it is
+        # aborted: the restore then leaves Z where the stop left it.
+        self._ended_by_a_stop = False
 
         self._af_in_progress = threading.Event()
 
@@ -397,6 +400,7 @@ class AutofocusRunner:
 
             if abort_event.is_set() and not self._is_complete_event.is_set():
                 _af_log.info(f'--- AF ABORTED by caller (source={self._run_trigger_source}) ---')
+                self._ended_by_a_stop = self._stay_put is not None and self._stay_put.is_set()
                 raise AutofocusStopped()
 
             completed_successfully = True
@@ -519,8 +523,7 @@ class AutofocusRunner:
                 # to guard against.
                 # A person's stop leaves Z where it stopped it: putting it back
                 # is a move made after they pressed STOP.
-                stopped = self._stay_put is not None and self._stay_put.is_set()
-                if self._best_focus_position is None and self._params and not stopped:
+                if self._best_focus_position is None and self._params and not self._ended_by_a_stop:
                     pre_af_z = self._params['center']
                     try:
                         self._scope.motion.move_absolute('Z', pre_af_z)
@@ -1097,6 +1100,7 @@ class AutofocusRunner:
 
     def _reset_state(self):
         self._objective = None
+        self._ended_by_a_stop = False
         # Events are recreated each reset so a fresh AF run starts from
         # a known-clear state regardless of how the prior run exited.
         self._is_focusing_event = threading.Event()
