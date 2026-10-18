@@ -21,7 +21,7 @@ import numpy as np
 from drivers.simulated_ledboard import SimulatedLEDBoard
 from drivers.simulated_motorboard import SimulatedMotorBoard
 from drivers.simulated_camera import SimulatedCamera
-from drivers.simulated_specimen import drift_frames, specimen_field
+from drivers.simulated_specimen import DRIFT_STEPS, Specimen
 from tests.camera_fakes import grab_a_frame_made_after_now
 
 # Imported for its side effect too: drivers/motorboard.py installs the
@@ -929,7 +929,7 @@ class TestNoPatternRequestedRendersTheSpecimen:
         assert min(f.std() for f in frames) > 0
         assert min(diffs) > 0, 'consecutive frames are identical -- this is a static image'
 
-    def test_a_fresh_camera_renders_the_specimen_without_load_specimen(self):
+    def test_a_fresh_camera_renders_the_moving_specimen(self):
         cam = SimulatedCamera(width=480, height=300)
         frames = [
             np.asarray(cam._generate_image(cam._start_exposure()), dtype=float) for _ in range(4)
@@ -1355,37 +1355,39 @@ class TestNoPatternRequestedRendersTheSpecimen:
 
 
 class TestTheSpecimenField:
-    """The specimen is one field, drifting one pixel around a circle.
+    """The specimen is one sample on the stage, drifting one pixel around a circle.
 
     A field that changed from frame to frame changed what a focus metric
     scored at one Z, so a sweep found its peak wherever the change put it.
     """
 
     def test_never_fully_black_or_blown_out(self):
-        field = specimen_field(600, 800)
+        field = Specimen().view(0.0, 0.0, 600, 800, None)
         assert field.min() > 0, 'a crushed field reads as a dead camera'
         assert field.max() < 255, 'a blown field hides the exposure control'
 
-    def test_deterministic_for_a_fixed_seed(self):
-        assert np.array_equal(specimen_field(600, 800), specimen_field(600, 800))
+    def test_the_same_place_is_the_same_sample_every_time(self):
+        assert np.array_equal(
+            Specimen().view(1500.0, -700.0, 600, 800, 0.75),
+            Specimen().view(1500.0, -700.0, 600, 800, 0.75),
+        )
 
     def test_matches_requested_size(self):
-        field = specimen_field(1200, 1920)
+        field = Specimen().view(0.0, 0.0, 1200, 1920, None)
         assert field.shape == (1200, 1920)
         assert field.dtype == np.uint8
 
     def test_the_drift_moves_the_frame_one_pixel_a_step_including_the_wrap(self):
-        frames = drift_frames(specimen_field(600, 800), 600, 800)
+        specimen = Specimen()
+        frames = [specimen.view(0.0, 0.0, 600, 800, None, shift=step) for step in DRIFT_STEPS]
         assert len({f.tobytes() for f in frames}) == len(frames), (
             'identical frames make a running stream indistinguishable from a frozen one'
         )
-        field = specimen_field(600, 800)
         # One pixel of shift on this field changes about 4 grey levels on
         # average; a larger drift would show as more.
         for a, b in zip(frames, frames[1:] + frames[:1], strict=True):
             change = float(np.abs(a.astype(int) - b.astype(int)).mean())
             assert 0 < change < 6.0, f'a drift step changed {change} grey levels'
-        assert all(f.shape == field.shape for f in frames)
 
     def test_the_drift_does_not_move_a_focus_score(self):
         """A sweep's scores differ by focus, not by which drift step a frame was."""

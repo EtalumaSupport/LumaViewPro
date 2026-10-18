@@ -45,6 +45,7 @@ CLASSIFIED = {
     'modules/autofocus_runner.py::AutofocusRunner._calculate_params': RUN,
     'modules/autofocus_runner.py::AutofocusRunner._iterate': RUN,
     'modules/config_helpers.py::get_current_plate_position': FEEDS_A_REFUSING_API,
+    'modules/lumascope_api/_lumascope.py::Lumascope.__init__._sim_stage_xy': DISPLAYS,
     'modules/lumascope_api/protocols.py::ProtocolsAPI.focus_z': SAVES,
     'modules/lumascope_api/runtime_state.py::RuntimeState.get_well_label': CAPTURE_METADATA,
     'modules/recording_frames.py::frame_fact': CAPTURE_METADATA,

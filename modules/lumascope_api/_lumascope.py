@@ -13,6 +13,7 @@ from lvp_logger import logger
 # Import Lumascope Hardware files
 from modules.lumascope_api import _constants as _api_constants
 from modules.lumascope_api._constants import SIMULATOR_TIERS
+import modules.common_utils as common_utils
 import modules.image_mode as image_mode
 
 # FX2 (Lumaview Classic LS560/LS620/LS720) -- the import side-effect is
@@ -795,11 +796,35 @@ class Lumascope:
                 return 0.0
             return release_layer(name).sim_light_per_ma_s or 0.0
 
+        def _sim_stage_xy() -> tuple[float | None, float | None]:
+            """Where the stage stands, so the simulated sample follows it; an
+            axis the scope lacks answers None and holds still."""
+            return (
+                self.motion.get_current_position('X'),
+                self.motion.get_current_position('Y'),
+            )
+
+        def _sim_pixel_size() -> float | None:
+            """The image scale the simulators draw the sample at: the one every
+            saved image carries, for the current objective at binning 1 (a
+            simulated camera bins what it draws, as a sensor does). None when
+            no objective is known or the scope cannot report its optics.
+            Read while a frame is made, after runtime_state and the
+            capabilities exist."""
+            objective_id = self.runtime_state.get_current_objective_id()
+            if objective_id is None:
+                return None
+            return common_utils.get_pixel_size(
+                self.objectives[objective_id].focal_length_mm, 1, capabilities=self.capabilities
+            )
+
         if simulate and sim_led_board == 'FX2':
             from drivers.fx2driver import FX2LEDController
             from drivers.simulated_fx2 import SimulatedFX2
 
-            sim_fx2 = SimulatedFX2(light_of=_sim_light_of)
+            sim_fx2 = SimulatedFX2(
+                light_of=_sim_light_of, stage_xy=_sim_stage_xy, pixel_size=_sim_pixel_size
+            )
             self._led_driver: LEDBoardProtocol = FX2LEDController(
                 connection=sim_fx2.connection, debug_wire=fx2_debug_wire
             )
@@ -831,12 +856,10 @@ class Lumascope:
         if simulate and sim_fx2 is None:
             camera_kwargs['timing'] = _camera_timing(sim_tier)
             camera_kwargs['z_position_func'] = lambda: self.motion.get_current_position('Z')
-            # The field follows the stage the same way; an axis the scope
-            # lacks answers None and holds still.
-            camera_kwargs['xy_position_func'] = lambda: (
-                self.motion.get_current_position('X'),
-                self.motion.get_current_position('Y'),
-            )
+            # The sample follows the stage the same way, at the objective's
+            # image scale.
+            camera_kwargs['xy_position_func'] = _sim_stage_xy
+            camera_kwargs['pixel_size_func'] = _sim_pixel_size
             # Light reaches the simulated sensor the same way Z does: the
             # composition root hands it over, because it is the only object
             # holding both halves and no driver may reach into a peer. The
@@ -886,7 +909,6 @@ class Lumascope:
                     camera_type, simulate=simulate, **camera_kwargs
                 )
                 if simulate:
-                    self._camera_driver.load_specimen()
                     simulated_camera = self._camera_driver
                     logger.info('[SCOPE API ] Using SIMULATED Camera')
             parts[CAMERA] = PartStatus(CAMERA, up=True)

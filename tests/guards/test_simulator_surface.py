@@ -97,7 +97,7 @@ _BOARD_PAIRS = (
 #
 # What the current entries cover: timing-mode controls and TIMING_*
 # constants (test-harness affordances, on every simulator),
-# `load_specimen` plus the camera's virtual-specimen focus modeling, the
+# the camera's virtual-specimen focus modeling, the
 # camera's sensor pipeline depth and clock (`SENSOR_PIPELINE_FRAMES`,
 # `TIMESTAMP_TICK_HZ`, `camera_clock_ticks`, which the Pylon driver gains
 # as a latch of its body's clock), the camera's reference LED current
@@ -121,7 +121,7 @@ _BOARD_PAIRS = (
 _SIM_ONLY_NAME_BUDGET = {
     'LEDBoard': 4,
     'MotorBoard': 17,
-    'Camera': 27,
+    'Camera': 26,
 }
 
 # Parameter divergences that stay until the simulators gain a shared
@@ -146,7 +146,6 @@ _PARAM_DIVERGENCE_ALLOWLIST = {
 # simulated type. Keyed by (file, name).
 _SIMULATION = 'modules/lumascope_api/simulation.py'
 _SIM_ONLY_CALL_ALLOWLIST = {
-    ('modules/lumascope_api/_lumascope.py', 'load_specimen'),
     (_SIMULATION, 'unplug'),
     (_SIMULATION, 'replug'),
     (_SIMULATION, 'drop_replies'),
@@ -218,8 +217,7 @@ def test_no_production_code_calls_simulator_only_names(label, real, sim):
     works in every test and fails on hardware.
 
     Tests are excluded on purpose. Driving simulator-only affordances is
-    what test code is FOR -- `conftest.sim_scope` calls `set_timing_mode`
-    and `load_specimen`.
+    what test code is FOR -- `conftest.sim_scope` calls `set_timing_mode`.
     """
     sim_only = _sim_only_names(real, sim)
 

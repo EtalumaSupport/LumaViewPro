@@ -1,7 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """A simulated Lumascope Classic FX2: the device behind the real FX2 drivers.
 
-A simulated LS620 or LS560 runs the production ``FX2Camera`` and
+A simulated LS620, LS560 or LS720 runs the production ``FX2Camera`` and
 ``FX2LEDController`` over this device, so what an integrator sees is the
 FX2's: the MT9P031's window, exposure and gain as its registers hold them,
 LED commands as the peripheral receives them, frames at the sensor's period
@@ -59,7 +59,7 @@ from drivers.fx2driver import (
     frame_time_s,
     parse_intel_hex,
 )
-from drivers.simulated_specimen import drift_frames, specimen_field
+from drivers.simulated_specimen import DRIFT_STEPS, Specimen
 from drivers.usb_driver_binding import (
     FX2_BOOTLOADER,
     FX2_FIRMWARE,
@@ -225,7 +225,14 @@ class SimulatedFX2Device:
             ``'realistic'`` waits the bench's ``REENUMERATE_S``.
     """
 
-    def __init__(self, *, timing: str = 'instant', light_of: Callable[[int], float] | None = None):
+    def __init__(
+        self,
+        *,
+        timing: str = 'instant',
+        light_of: Callable[[int], float] | None = None,
+        stage_xy: Callable[[], tuple[float | None, float | None]] | None = None,
+        pixel_size: Callable[[], float | None] | None = None,
+    ):
         if timing not in TIMINGS:
             raise ValueError(f'timing mode {timing!r} is not one of {TIMINGS}')
         self._timing = timing
@@ -240,11 +247,17 @@ class SimulatedFX2Device:
         # lights renders; unwired, any lit LED shows the field at the
         # reference exposure's grey levels, whatever its current.
         self._light_of = light_of
+        # Where the stage stands, and the objective's image scale (um of
+        # stage per pixel), asked as each frame starts, so the sensor sees
+        # the sample the stand-in camera sees there. Unwired, or answering
+        # None, the frame is drawn at 0 and at the scene's nominal scale.
+        self._stage_xy = stage_xy
+        self._pixel_size = pixel_size
         self._sink: Callable[[bytes], None] | None = None
         self._streaming = threading.Event()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
-        self._specimen: dict[tuple[int, int], list[np.ndarray]] = {}
+        self._specimen = Specimen()
         self._frame_index = 0
         self._pending: deque[bytes] = deque()
         self.extra_rows = 0
@@ -429,13 +442,13 @@ class SimulatedFX2Device:
         return out
 
     def _pixels(self, w: int, h: int) -> np.ndarray:
-        """The specimen field as this sensor sees it: black unless an LED is lit."""
+        """The specimen as this sensor sees it where the stage stands: black unless an LED is lit."""
         if not self.leds.lit():
             return np.zeros((h, w), dtype=np.uint8)
-        frames = self._specimen.get((w, h))
-        if frames is None:
-            frames = self._specimen[(w, h)] = drift_frames(specimen_field(h, w), h, w)
-        field = frames[self._frame_index % len(frames)]
+        x, y = (None, None) if self._stage_xy is None else self._stage_xy()
+        um_per_px = None if self._pixel_size is None else self._pixel_size()
+        drift = DRIFT_STEPS[self._frame_index % len(DRIFT_STEPS)]
+        field = self._specimen.view(x, y, h, w, um_per_px, shift=drift)
         self._frame_index += 1
         if self._light_of is None:
             scale = self.sensor.exposure_s() / _REFERENCE_EXPOSURE_S * self.sensor.gain()
@@ -623,8 +636,17 @@ class SimulatedFX2:
     upload into the bootloader, the wait for re-enumeration, the open.
     """
 
-    def __init__(self, *, timing: str = 'instant', light_of: Callable[[int], float] | None = None):
-        self.device = SimulatedFX2Device(timing=timing, light_of=light_of)
+    def __init__(
+        self,
+        *,
+        timing: str = 'instant',
+        light_of: Callable[[int], float] | None = None,
+        stage_xy: Callable[[], tuple[float | None, float | None]] | None = None,
+        pixel_size: Callable[[], float | None] | None = None,
+    ):
+        self.device = SimulatedFX2Device(
+            timing=timing, light_of=light_of, stage_xy=stage_xy, pixel_size=pixel_size
+        )
         # Kept for its faults: the transport is where the cable is pulled.
         self.transport = SimulatedFX2Transport(self.device)
         self.connection = _FX2Connection(self.transport)

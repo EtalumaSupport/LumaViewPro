@@ -10,7 +10,6 @@ supports the full Camera ABC interface.
 import collections
 import dataclasses
 import datetime
-import pathlib
 from dataclasses import dataclass
 import threading
 import random
@@ -26,7 +25,7 @@ from drivers.camera import Camera, Frame, FrameGrid, ImageHandlerBase, link_info
 from drivers.camera_profiles import simulated_profile
 from drivers.exceptions import CameraNoAnswerError, PartAbsentError
 from drivers.registry import camera_registry
-from drivers.simulated_specimen import drift_frames, specimen_field
+from drivers.simulated_specimen import DRIFT_STEPS, Specimen
 
 # camera.log hookup: simulator records the same per-driver SDK-call
 # trace that real drivers (pyloncamera/idscamera/fx2driver) write, so
@@ -97,6 +96,10 @@ class SensorExposure:
             until then, and on a scope with no focus axis.
         depth_of_field_um: The objective's depth of field the frame was
             focused through; None when no objective is known.
+        pixel_size_um: The objective's image scale the frame was drawn at,
+            micrometres of stage per sensor pixel at binning 1; None when no
+            objective or no optics are known, and the frame is drawn at the
+            scene's nominal scale.
     """
 
     frame_id: int
@@ -111,6 +114,7 @@ class SensorExposure:
     z_um: float | None
     z_end_um: float | None
     depth_of_field_um: float | None
+    pixel_size_um: float | None
 
 
 class _SimImageHandler(ImageHandlerBase):
@@ -200,12 +204,6 @@ class SimulatedCamera(Camera):
     # current) at brightness 1.0, the specimen at its own grey levels.
     _UNWIRED_LIGHT_PER_MA_S = 1.0 / (0.010 * 10.0 ** (1.0 / 20.0) * REFERENCE_ILLUMINATION_MA)
 
-    # How far the specimen moves on the sensor per micrometre of stage
-    # travel, in pixels at binning 1. The specimen is a pattern, not a
-    # calibrated slide: this makes the field follow X and Y, so a frame made
-    # before a move shows the old field.
-    _SPECIMEN_PX_PER_UM = 0.5
-
     # How many delivered frames' exposure records the camera keeps for
     # ``exposed_under``: a bound on memory, far more than a capture's wait
     # or a test's look back covers.
@@ -276,6 +274,7 @@ class SimulatedCamera(Camera):
         illumination_func: Callable[[], float] | None = None,
         light_func: Callable[[], float] | None = None,
         depth_of_field_func: Callable[[], float | None] | None = None,
+        pixel_size_func: Callable[[], float | None] | None = None,
         focal_spread_um: float = 0.0,
         timing: str = 'fast',
     ):
@@ -346,13 +345,13 @@ class SimulatedCamera(Camera):
         # renders it too, with a warning.
         self._test_pattern = 'specimen'
 
-        # The specimen at the full sensor, built when first rendered or
-        # loaded; the frames cut from it at the current binning and size, one
-        # per drift step; and each source's last defocused frame, reused
-        # while Z, the objective and the frame are unchanged. Each cache
-        # entry is a (key, value) pair, rebuilt when its key changes.
-        self._specimen_native: np.ndarray | None = None
-        self._specimen_cut: tuple | None = None
+        # The sample on the stage; each drift step's last in-focus frame cut
+        # from it, reused while the stage, the scale and the frame are
+        # unchanged; and each source's last defocused frame, reused while Z,
+        # the objective, the frame and where it was cut are unchanged. Each
+        # cache entry is a (key, value) pair, rebuilt when its key changes.
+        self._specimen = Specimen()
+        self._specimen_cut: dict[int, tuple] = {}
         self._drift_index = 0
         self._defocused: dict[str, tuple] = {}
         self._focus_target_cache: tuple | None = None
@@ -378,6 +377,9 @@ class SimulatedCamera(Camera):
         # Optional: auto-query the objective's depth of field (um); None when
         # no objective is known.
         self._depth_of_field_func = depth_of_field_func
+        # Optional: auto-query the objective's image scale (um of stage per
+        # pixel at binning 1); None when no objective or no optics are known.
+        self._pixel_size_func = pixel_size_func
 
         # Apply timing preset (overrides grab_delay if preset given)
         self.set_timing_mode(timing)
@@ -402,54 +404,6 @@ class SimulatedCamera(Camera):
             raise ValueError(f"Unknown timing mode: {mode!r}. Use 'fast' or 'realistic'.")
         self._grab_delay = preset['grab_delay']
         self._timing_mode = mode
-
-    def load_specimen(self, image_dir: str | None = None) -> None:
-        """Load the specimen this camera images, and show it.
-
-        The first image in ``image_dir`` (png, jpg, tiff), else in
-        data/sim_images/, as grayscale at the full sensor size; with none,
-        the generated specimen field: one sample, as a real one is, seen
-        drifting a pixel around a circle so a running stream looks alive.
-
-        Args:
-            image_dir: Path to a directory holding the image. None looks in
-                data/sim_images/ relative to the app root.
-        """
-        if image_dir is None:
-            for candidate in [
-                pathlib.Path(__file__).resolve().parent.parent / 'data' / 'sim_images',
-                pathlib.Path('.') / 'data' / 'sim_images',
-            ]:
-                if candidate.is_dir():
-                    image_dir = candidate
-                    break
-
-        loaded = None
-        if image_dir is not None and pathlib.Path(image_dir).is_dir():
-            files = [
-                fp
-                for ext in ('*.png', '*.jpg', '*.jpeg', '*.tif', '*.tiff')
-                for fp in sorted(pathlib.Path(image_dir).glob(ext))
-            ]
-            for fp in files:
-                image = cv2.imread(str(fp), cv2.IMREAD_GRAYSCALE)
-                if image is None:
-                    logger.warning(f'[SimCamera ] Could not load {fp}')
-                    continue
-                loaded = cv2.resize(
-                    image, (self._native_width, self._native_height), interpolation=cv2.INTER_AREA
-                )
-                logger.info(f'[SimCamera ] Loaded the specimen image: {fp.name}')
-                break
-
-        self._specimen_native = (
-            loaded
-            if loaded is not None
-            else specimen_field(self._native_height, self._native_width)
-        )
-        self._specimen_cut = None
-        self._defocused = {}
-        self._test_pattern = 'specimen'
 
     # ------------------------------------------------------------------
     # Connection
@@ -1153,30 +1107,35 @@ class SimulatedCamera(Camera):
         self._focus_target_cache = (key, target)
         return target
 
-    def _specimen_frame(self, h: int, w: int) -> tuple[np.ndarray, str]:
-        """The in-focus specimen as this frame sees it, and which drift step it is.
+    def _specimen_frame(
+        self, h: int, w: int, exposure: SensorExposure
+    ) -> tuple[np.ndarray, str, tuple]:
+        """The in-focus specimen as this frame sees it, which drift step it is, and where it was cut.
 
-        The frame is a region of the sensor, centred, at the current binning:
-        the specimen is reduced once when the binning changes and each drift
-        step's frame cut from it, never re-scaled per frame, so it keeps its
-        proportions.
+        The frame is a region of the sensor, centred on the stage where
+        ``exposure`` started: drawn at binning 1 at the objective's scale,
+        then binned, as the sensor sums its pixels. The drift moves it a
+        binned pixel a step.
         """
-        key = (h, w, self._binning)
-        if self._specimen_cut is None or self._specimen_cut[0] != key:
-            if self._specimen_native is None:
-                self._specimen_native = specimen_field(self._native_height, self._native_width)
-            sensor = self._specimen_native
-            if self._binning > 1:
-                sensor = cv2.resize(
-                    sensor,
-                    (self._native_width // self._binning, self._native_height // self._binning),
-                    interpolation=cv2.INTER_AREA,
-                )
-            self._specimen_cut = (key, drift_frames(sensor, h, w))
-            self._defocused = {}
-        step = self._drift_index % len(self._specimen_cut[1])
+        step = self._drift_index % len(DRIFT_STEPS)
         self._drift_index += 1
-        return self._specimen_cut[1][step], f'specimen {step}'
+        b = self._binning
+        place = (h, w, b, exposure.x_um, exposure.y_um, exposure.pixel_size_um)
+        cached = self._specimen_cut.get(step)
+        if cached is None or cached[0] != place:
+            dy, dx = DRIFT_STEPS[step]
+            frame = self._specimen.view(
+                exposure.x_um,
+                exposure.y_um,
+                h * b,
+                w * b,
+                exposure.pixel_size_um,
+                shift=(dy * b, dx * b),
+            )
+            if b > 1:
+                frame = cv2.resize(frame, (w, h), interpolation=cv2.INTER_AREA)
+            cached = self._specimen_cut[step] = (place, frame)
+        return cached[1], f'specimen {step}', place
 
     def camera_clock_ticks(self) -> int:
         """The camera's clock now, in ``TIMESTAMP_TICK_HZ`` ticks: what a latch of it answers."""
@@ -1210,6 +1169,7 @@ class SimulatedCamera(Camera):
         else:
             light = float(self._light_func())
         x, y = (None, None) if self._xy_position_func is None else self._xy_position_func()
+        um_per_px = None if self._pixel_size_func is None else self._pixel_size_func()
         self._frames_started += 1
         return SensorExposure(
             frame_id=self._frames_started,
@@ -1224,6 +1184,7 @@ class SimulatedCamera(Camera):
             z_um=z,
             z_end_um=None,
             depth_of_field_um=dof,
+            pixel_size_um=um_per_px,
         )
 
     def _blur_sigma_px(self, exposure: SensorExposure) -> float:
@@ -1237,12 +1198,14 @@ class SimulatedCamera(Camera):
         # A binned pixel is larger, so the same blur spans fewer of them.
         return self._BLUR_PX_PER_DOF * defocus / dof / self._binning
 
-    def _defocus(self, sharp: np.ndarray, source: str, exposure: SensorExposure) -> np.ndarray:
-        """``sharp`` as the objective imaged it for ``exposure``."""
+    def _defocus(
+        self, sharp: np.ndarray, source: str, place: tuple | None, exposure: SensorExposure
+    ) -> np.ndarray:
+        """``sharp``, cut at ``place``, as the objective imaged it for ``exposure``."""
         sigma = self._blur_sigma_px(exposure)
         if sigma < 0.3:
             return sharp
-        key = (sharp.shape, self._binning, round(sigma, 2))
+        key = (sharp.shape, self._binning, round(sigma, 2), place)
         cached = self._defocused.get(source)
         if cached is not None and cached[0] == key:
             return cached[1]
@@ -1254,6 +1217,7 @@ class SimulatedCamera(Camera):
         self,
         sharp: np.ndarray,
         source: str,
+        place: tuple | None,
         dtype,
         max_val: int,
         brightness: float,
@@ -1268,7 +1232,7 @@ class SimulatedCamera(Camera):
         """
         if brightness <= 0.0:
             return np.zeros(sharp.shape, dtype=dtype)
-        img = self._defocus(sharp, source, exposure)
+        img = self._defocus(sharp, source, place, exposure)
         if dtype == np.uint16:
             scaled = img.astype(np.float32) * (max_val / 255.0 * brightness)
             return np.minimum(scaled, max_val).astype(dtype)
@@ -1302,20 +1266,6 @@ class SimulatedCamera(Camera):
         exposure_s = exposure.exposure_us / 1_000_000.0
         return exposure_s * 10.0 ** (exposure.gain_db / 20.0) * exposure.light
 
-    def _at_stage_xy(self, img: np.ndarray, exposure: SensorExposure) -> np.ndarray:
-        """The specimen field ``img`` as seen with the stage where ``exposure`` started.
-
-        The field moves across the sensor against the stage's travel, and
-        what leaves one edge comes back at the other: the specimen is a
-        repeating pattern. A scope without X or Y holds that axis still.
-        """
-        px_per_um = self._SPECIMEN_PX_PER_UM / self._binning
-        dx = round((exposure.x_um or 0.0) * px_per_um)
-        dy = round((exposure.y_um or 0.0) * px_per_um)
-        if not dx and not dy:
-            return img
-        return np.roll(img, (-dy, -dx), axis=(0, 1))
-
     def _generate_image(self, exposure: SensorExposure) -> np.ndarray:
         """Generate a synthetic image as ``exposure`` made it, at the current geometry and pattern."""
         h = self._height
@@ -1339,25 +1289,21 @@ class SimulatedCamera(Camera):
             img = self._render_sample(
                 self._make_focus_target(h, w),
                 'focus_target',
+                None,
                 dtype,
                 max_val,
                 brightness,
                 exposure,
             )
         else:
-            # No specific pattern was asked for: the specimen. Built lazily,
-            # because this is reachable before load_specimen() has run -- a
-            # camera-init failure skips that call entirely.
+            # No specific pattern was asked for: the specimen.
             if self._test_pattern != 'specimen':
                 logger.warning(
                     f'[SimCamera ] Unknown test pattern '
                     f'{self._test_pattern!r} -- rendering the specimen field'
                 )
-            frame, source = self._specimen_frame(h, w)
-            img = self._at_stage_xy(
-                self._render_sample(frame, source, dtype, max_val, brightness, exposure),
-                exposure,
-            )
+            frame, source, place = self._specimen_frame(h, w, exposure)
+            img = self._render_sample(frame, source, place, dtype, max_val, brightness, exposure)
 
         if exposure.black_level:
             # The offset lifts every pixel, and a pixel lifted past full scale

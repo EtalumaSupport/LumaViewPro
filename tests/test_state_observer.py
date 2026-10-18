@@ -30,7 +30,6 @@ def scope():
     s._led_driver.set_timing_mode('fast')
     s._motion_driver.set_timing_mode('fast')
     s._camera_driver.set_timing_mode('fast')
-    s._camera_driver.load_specimen()
     s.imaging.enable_streaming()
     yield s
 
