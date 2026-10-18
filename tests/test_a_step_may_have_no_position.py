@@ -191,6 +191,34 @@ def test_steps_without_x_and_y_naming_different_wells_are_refused_without_a_stag
     assert 'name different wells or tiles' in str(refusal)
 
 
+def test_a_step_at_a_position_and_one_named_for_another_well_are_refused_without_a_stage(
+    make_session, tmp_path
+):
+    stage = make_session('LS850')
+    path = _rewrite_steps(
+        _saved_steps(stage, tmp_path / 'mixed.tsv', 2),
+        X=['14.38', ''],
+        Y=['11.24', ''],
+        Well=['A1', 'A2'],
+    )
+    session = make_session('LS820')
+    protocol = session.load_protocol(path)
+
+    refusal = _refused(lambda: session.create_protocol_runner().start_single_scan(protocol))
+
+    assert refusal.reason == 'positions_unreachable'
+    assert 'name different wells or tiles' in str(refusal)
+
+
+def test_a_configuration_with_x_and_no_y_is_refused_naming_the_step(make_session):
+    session = make_session('LS850', acquiring=('BF',))
+    config = session.get_sequenced_capture_config()
+    config['positions'] = [{'x': 10.0, 'y': None, 'z': 5000.0, 'name': 'A1'}]
+
+    with pytest.raises(ProtocolFormatError, match='one of X and Y without the other'):
+        session.scope.protocols.create_protocol(input_config=config)
+
+
 # --- What a scope without an axis records -----------------------------------------------
 
 

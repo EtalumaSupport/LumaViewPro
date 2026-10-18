@@ -786,7 +786,10 @@ class ProtocolsAPI:
             CatalogueNameRefusedError: as ``stage_targets``.
         """
         step = protocol.step(idx=step_idx)
-        self.refuse_missing_positions(protocol.steps().iloc[[step_idx]], then='go to it')
+        # This step's own fields, not the protocol's frame: a run asks it at every step.
+        lacking = [axis for axis in self._driven_axes() if step[axis] is None]
+        if lacking:
+            self._refuse_missing_positions([step['Name']], lacking, then='go to it')
         self.refuse_unaddressable_objectives([step['Objective']])
         turret_slot = None
         if self._scope.capabilities.has_turret:
@@ -1075,12 +1078,13 @@ class ProtocolsAPI:
         present = set(self._scope.capabilities.axes)
         needed = []
         if not {'X', 'Y'} <= present:
-            stated = steps[['X', 'Y']].dropna()
-            if len(stated.round(3).drop_duplicates()) > 1:
-                needed.append('the steps are at different X/Y positions')
+            stated = len(steps[['X', 'Y']].dropna().round(3).drop_duplicates())
             unplaced = steps[steps['X'].isna()]
             named = unplaced[(unplaced['Well'] != '') | (unplaced['Tile'] != '')]
-            if len(named[['Well', 'Tile']].drop_duplicates()) > 1:
+            named = len(named[['Well', 'Tile']].drop_duplicates())
+            if stated > 1:
+                needed.append('the steps are at different X/Y positions')
+            elif stated + named > 1:
                 needed.append('the steps name different wells or tiles')
         if 'Z' not in present:
             if steps['Z'].round(3).nunique() > 1:
@@ -1117,18 +1121,25 @@ class ProtocolsAPI:
             ProtocolRunRefusedError: ``step_position_missing``, naming the
                 steps and the axes.
         """
-        driven = [axis for axis in ('X', 'Y', 'Z') if axis in self._scope.capabilities.axes]
-        lacking = [axis for axis in driven if steps[axis].isna().any()]
+        lacking = [axis for axis in self._driven_axes() if steps[axis].isna().any()]
         if not lacking:
             return
         missing = steps[steps[lacking].isna().any(axis=1)]
-        names = common_utils.first_few(list(missing['Name']), separator=', ')
+        self._refuse_missing_positions(list(missing['Name']), lacking, then=then)
+
+    def _driven_axes(self) -> list[str]:
+        """The position axes this scope has a motor for, in X, Y, Z order."""
+        return [axis for axis in ('X', 'Y', 'Z') if axis in self._scope.capabilities.axes]
+
+    def _refuse_missing_positions(self, names: list[str], lacking: list[str], *, then: str) -> None:
+        """Refuse ``step_position_missing`` for the steps ``names``, which have no ``lacking`` position."""
         axes = ', '.join(lacking)
         self._refuse(
             reason='step_position_missing',
             message=(
-                f'{len(missing)} step(s) have no {axes} position, and this scope moves '
-                f'{axes}: {names}. They were recorded on a scope without that axis.\n\n'
+                f'{len(names)} step(s) have no {axes} position, and this scope moves '
+                f'{axes}: {common_utils.first_few(names, separator=", ")}. They were '
+                'recorded on a scope without that axis.\n\n'
                 f'Update those steps here, or delete them, to {then}.'
             ),
         )

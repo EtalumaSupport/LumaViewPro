@@ -2724,12 +2724,15 @@ class Protocol:
                     if not cls.layer_acquires(layer_config):
                         continue
 
+                    # Each axis as given: one of X and Y without the other is
+                    # the steps table's to refuse, naming the step.
                     x = y = None
-                    if pos['x'] is not None and pos['y'] is not None:
+                    if pos['x'] is not None:
                         x = round(
                             pos['x'] + tile_position['x'] / 1000,
                             common_utils.max_decimal_precision('x'),
                         )  # in 'plate' coordinates
+                    if pos['y'] is not None:
                         y = round(
                             pos['y'] + tile_position['y'] / 1000,
                             common_utils.max_decimal_precision('y'),
