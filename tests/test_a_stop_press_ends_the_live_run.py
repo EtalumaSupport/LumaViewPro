@@ -16,6 +16,7 @@ import threading
 
 import pytest
 
+from modules.exceptions import MotorStopFailedError
 from modules.run_events import RunEvents
 from modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
@@ -122,6 +123,27 @@ def test_a_fault_that_ended_the_run_first_keeps_its_ending(session, tmp_path):
     outcome = run.result(timeout=COMPLETION_TIMEOUT)
 
     assert (outcome.status, outcome.reason) == ('failed', 'camera_failure')
+
+
+def test_a_stop_the_board_fails_still_ends_the_run(session, tmp_path, monkeypatch):
+    """The presser hears the failed STOP; the run ends all the same, in words
+    that say only that STOP was pressed, which is true either way."""
+    from tests.test_a_failed_motor_stop_is_raised import _stop_fails
+
+    held = session.scope.simulation.hold_axis('X')
+    run = session.create_protocol_runner().start_single_scan(
+        protocol=_build_real_protocol(_steps(60.0)), parent_dir=str(tmp_path)
+    )
+    assert held.wait(_HOLD_WAIT_S), "the run's move never got part of the way"
+    # a stand-in by design: a board that does not answer the STOP, as the
+    # failed-stop tests make it; the simulator cannot fail its STOP yet.
+    _stop_fails(session.scope, monkeypatch)
+
+    with pytest.raises(MotorStopFailedError):
+        session.scope.motion.stop_motion()
+    outcome = run.result(timeout=COMPLETION_TIMEOUT)
+
+    assert (outcome.status, outcome.reason) == ('aborted', 'stage_stopped')
 
 
 def test_a_run_started_after_stop_runs(session, tmp_path):

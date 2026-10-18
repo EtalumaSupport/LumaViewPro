@@ -75,12 +75,12 @@ from modules.config_helpers import COMPOSITE_MIN_CHANNELS
 from modules.api_surface import api_fields
 from modules.operation import Operation
 
-# How often the run loop re-asks whether the camera lane has gone idle
-# before the run takes the camera; a still's grab is tens to hundreds of
-# milliseconds, so this bounds how late the run starts after it.
 # How a run ends when STOP is pressed while it is live.
 _ENDED_BY_STOP = RunEnding('aborted', 'stage_stopped', str(RunEndedByStopNotice()))
 
+# How often the run loop re-asks whether the camera lane has gone idle
+# before the run takes the camera; a still's grab is tens to hundreds of
+# milliseconds, so this bounds how late the run starts after it.
 _CAMERA_LANE_POLL_S = 0.01
 
 # How long a post-run build -- the composite merge, the hyperstack build --
