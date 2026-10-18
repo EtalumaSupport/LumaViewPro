@@ -14,6 +14,10 @@ class ProtocolExecutionRecord:
     FILE_HEADER = 'LumaViewPro Protocol Execution Record'
     CURRENT_VERSION = 3
     DEFAULT_FILENAME = 'protocol_record.tsv'
+    # A row's time is written and read in this one form. Written with
+    # microseconds always: the text a datetime gives on its own drops them on
+    # a whole second, and the reader then refuses the record.
+    TIMESTAMP_FORMAT = '%Y-%m-%d %H:%M:%S.%f'
     # The Filename of a capture taken with saving off: no file, by request.
     UNSAVED = 'unsaved'
     # 'Scan Count' is the CONTRACT for the temporal ordinal everywhere a
@@ -137,7 +141,7 @@ class ProtocolExecutionRecord:
         timestamp: datetime.datetime,
         frame_count: int = 1,
         duration_sec: float = 0.0,
-    ):
+    ) -> None:
         if self._mode != 'to_file':
             raise Exception(
                 "add_step() can only be called when the instance is initialized with an 'outfile'."
@@ -159,7 +163,7 @@ class ProtocolExecutionRecord:
                         step_name,
                         step_index,
                         scan_count,
-                        timestamp,
+                        timestamp.strftime(self.TIMESTAMP_FORMAT),
                         frame_count,
                         duration_sec,
                     ]
@@ -248,7 +252,7 @@ class ProtocolExecutionRecord:
                     'Step Name': row[1],
                     'Step Index': int(row[2]),
                     'Scan Count': int(row[3]),
-                    'Timestamp': datetime.datetime.strptime(row[4], '%Y-%m-%d %H:%M:%S.%f'),
+                    'Timestamp': datetime.datetime.strptime(row[4], cls.TIMESTAMP_FORMAT),
                 }
 
                 # Handle version 3 additions

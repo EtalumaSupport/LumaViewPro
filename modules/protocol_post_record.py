@@ -10,6 +10,7 @@ import pandas as pd
 
 from modules.common_utils import PostFunction, read_table, recover_step_label, to_int
 from modules.protocol import _bool_cell, _float_cell, _int_cell
+from modules.protocol_execution_record import ProtocolExecutionRecord
 
 from lvp_logger import logger
 
@@ -326,7 +327,7 @@ class ProtocolPostRecord:
         self._outfile_csv.writerow(
             [
                 file_path,
-                timestamp,
+                timestamp.strftime(ProtocolExecutionRecord.TIMESTAMP_FORMAT),
                 name,
                 label,
                 scan_count,
@@ -395,7 +396,11 @@ class ProtocolPostRecord:
                 # whole record file.
                 df = cls._create_empty_df()
             else:
-                df['Timestamp'] = pd.to_datetime(df['Timestamp'])
+                # ISO 8601 per cell: records written before the one time
+                # format carry a whole second's time without microseconds
+                # beside rows with them, and one inferred format refuses
+                # the mix.
+                df['Timestamp'] = pd.to_datetime(df['Timestamp'], format='ISO8601')
 
                 # Convert filename to pathlib type
                 df['Filepath'] = df.apply(lambda row: pathlib.Path(row['Filepath']), axis=1)
