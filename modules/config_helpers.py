@@ -338,7 +338,10 @@ def get_current_plate_position(scope: 'Lumascope', labware_id: str) -> PlateLoca
             the run will not drive it in.
 
     Returns:
-        The position on the plate: X and Y in mm, Z in um.
+        The position on the plate: X and Y in mm, Z in um. An axis this
+        scope has no motor for is None: there is nothing to read there, and
+        a number in its place (the origin, or the stage origin converted to
+        the plate) would be saved as a place the scope never measured.
 
     Raises:
         HardwareCommandRefusedError: ``'not_connected'`` -- this scope's
@@ -351,27 +354,18 @@ def get_current_plate_position(scope: 'Lumascope', labware_id: str) -> PlateLoca
             in the wrong frame.
     """
     scope.motion.refuse_controller_not_connected('get_current_plate_position')
-    if not scope.motor_connected:
-        # A manual scope has no motor controller by design. What its steps
-        # record in place of a position is not decided here; until it is,
-        # the origin stands in, and is logged as the stand-in it is.
-        logger.error('Cannot retrieve current plate position')
-        return PlateLocation(x_mm=0, y_mm=0, z_um=0)
+    labware_id = scope.wellplate_loader.resolve_plate_key(labware_id)
+    axes = scope.capabilities.axes
+    pos = scope.motion.get_current_positions() if axes else {}
 
-    pos = scope.motion.get_current_positions()
-
-    # Z-only scopes (no XY stage) report position without X/Y keys; tolerate
-    # missing axes so adding/modifying a step (and z-stack capture) does not
-    # raise on them.
-    plate = scope.runtime_state.stage_to_plate(
-        pos.get('X', 0), pos.get('Y', 0), labware_id=labware_id
-    )
-
-    return PlateLocation(
-        x_mm=round(plate.x_mm, common_utils.max_decimal_precision('x')),
-        y_mm=round(plate.y_mm, common_utils.max_decimal_precision('y')),
-        z_um=round(pos.get('Z', 0), common_utils.max_decimal_precision('z')),
-    )
+    x_mm = y_mm = z_um = None
+    if 'X' in axes and 'Y' in axes:
+        plate = scope.runtime_state.stage_to_plate(pos['X'], pos['Y'], labware_id=labware_id)
+        x_mm = round(plate.x_mm, common_utils.max_decimal_precision('x'))
+        y_mm = round(plate.y_mm, common_utils.max_decimal_precision('y'))
+    if 'Z' in axes:
+        z_um = round(pos['Z'], common_utils.max_decimal_precision('z'))
+    return PlateLocation(x_mm=x_mm, y_mm=y_mm, z_um=z_um)
 
 
 # ---------------------------------------------------------------------------

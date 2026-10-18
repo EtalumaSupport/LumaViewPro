@@ -19,7 +19,6 @@ from tests.settings_fixtures import complete_settings
 # Heavy deps are mocked by tests/conftest.py at module-import time.
 
 import modules.config_helpers as config_helpers
-from modules.coord_transformations import PlateLocation
 from modules.lumascope_api.illumination import LedState
 from modules.scope_session import ScopeSession
 from modules.sequential_io_executor import SequentialIOExecutor
@@ -368,16 +367,6 @@ class TestGetCurrentPlatePosition:
         with pytest.raises(HardwareCommandRefusedError) as refused:
             config_helpers.get_current_plate_position(scope, '96 well microplate')
         assert refused.value.reason == 'not_connected'
-
-    def test_a_manual_scope_still_answers_the_origin(self):
-        # A scope with no motor controller by design: what its steps record
-        # in place of a position is decided elsewhere, and until then this
-        # answer is unchanged.
-        scope = MagicMock()
-        type(scope).motor_connected = PropertyMock(return_value=False)
-        type(scope).motion_expected = PropertyMock(return_value=False)
-        result = config_helpers.get_current_plate_position(scope, '96 well microplate')
-        assert result == PlateLocation(x_mm=0, y_mm=0, z_um=0)
 
     def test_an_unknown_plate_is_refused_not_answered_in_stage_coordinates(self, tmp_path):
         from modules.exceptions import CatalogueNameRefusedError

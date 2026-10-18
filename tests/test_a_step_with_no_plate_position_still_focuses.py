@@ -5,10 +5,8 @@ A run's step move went to Z only after moving X and Y, so a step with no
 X/Y left the focus wherever it was while the saved image recorded the
 step's Z -- an image that says it was taken at a focus it was not.
 
-A step with no plate position at all is refused where the protocol is
-built until the Z-only row fixes every reader of an unknown position
-(ruled F2); until then the step carries the position it was saved with,
-and the scope, having no XY stage, moves only Z.
+The step has no plate position, as a step recorded on such a scope does
+(absent hardware stage 4), and the scope, having no XY stage, moves only Z.
 
 Driven through the Session on a simulated LS820, a scope with Z and no XY
 stage.
@@ -44,7 +42,7 @@ def zonly_session(tmp_path):
 
 
 def _step_at(z_um):
-    step = {**_make_single_step_protocol().step(idx=0), 'Z': z_um}
+    step = {**_make_single_step_protocol().step(idx=0), 'X': None, 'Y': None, 'Z': z_um}
     return _build_real_protocol([step])
 
 

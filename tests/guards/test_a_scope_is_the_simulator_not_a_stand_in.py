@@ -167,7 +167,7 @@ def _entries_with_a_site() -> set[str]:
 
 # Seeded at LVP dev/4.0.0 b17419cc (2026-10-09) with 237 entries. Only shrinks: a
 # commit that takes a stand-in to the simulator deletes its entry and lowers this.
-ALLOWED_ENTRIES = 217
+ALLOWED_ENTRIES = 216
 ALLOWED = frozenset(
     {
         'tests/af_drives.py::af_runner_and_scope',
@@ -333,7 +333,6 @@ ALLOWED = frozenset(
         'tests/test_run_outcome_reports_autofocus_data.py::TestTheSweepDoesNotReturnBeforeItsWriteLands._bare_runner',
         'tests/test_start_zstack_entry_point.py::_runner',
         'tests/test_saving_an_unknown_position_is_refused_once.py::unknown',
-        'tests/test_scope_api.py::TestGetCurrentPlatePosition.test_a_manual_scope_still_answers_the_origin',
         'tests/test_scope_api.py::TestGetCurrentPlatePosition.test_an_expected_motor_board_that_is_absent_is_refused',
         'tests/test_scope_api.py::_make_mock_scope',
         'tests/test_scope_bringup.py::_make_spec_session',

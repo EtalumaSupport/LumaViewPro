@@ -189,3 +189,119 @@ def test_steps_without_x_and_y_naming_different_wells_are_refused_without_a_stag
 
     assert refusal.reason == 'positions_unreachable'
     assert 'name different wells or tiles' in str(refusal)
+
+
+# --- What a scope without an axis records -----------------------------------------------
+
+
+@pytest.mark.parametrize(
+    # parametrize-justified: each model is its own scope and session
+    ('model', 'expected'),
+    [('LS620', (None, None, None)), ('LS820', (None, None, 'measured'))],
+)
+def test_the_plate_read_and_the_steps_record_nothing_for_an_absent_axis(
+    make_session, model, expected
+):
+    session = make_session(model, acquiring=('BF',))
+
+    here = session.get_current_plate_position()
+    added = session.create_empty_protocol()
+    session.add_step(added)
+    new = session.new_protocol()
+
+    def shape(x, y, z):
+        return (x, y, None if z is None else 'measured')
+
+    assert shape(here.x_mm, here.y_mm, here.z_um) == expected
+    step = added.step(idx=0)
+    assert shape(step['X'], step['Y'], step['Z']) == expected
+    first = new.step(idx=0)
+    assert shape(first['X'], first['Y'], first['Z']) == expected
+    assert first['Well'] == 'A1'
+
+
+@pytest.mark.parametrize('model', ['LS620', 'LS820'])  # parametrize-justified: one scope each
+def test_a_composite_runs_on_a_scope_without_a_stage(make_session, tmp_path, model):
+    session = make_session(model)
+    # One transmitted and one fluorescence channel: two planes of a composite.
+    for layer in ('BF', 'Blue'):
+        session.set_layer_acquire(layer, 'image')
+
+    outcome = session.create_protocol_runner().run_composite(
+        parent_dir=str(tmp_path / 'composite'), timeout_s=120
+    )
+
+    assert outcome.status == 'completed', outcome
+
+
+def test_channels_added_together_without_a_stage_are_one_composite(make_session, tmp_path):
+    # #772's case on a scope whose steps carry no X/Y.
+    session = make_session('LS820')
+    # One transmitted and one fluorescence channel: two planes of a composite.
+    for layer in ('BF', 'Blue'):
+        session.set_layer_acquire(layer, 'image')
+    protocol = session.create_empty_protocol()
+    session.add_step(protocol)
+
+    pending = session.create_protocol_runner().start_single_scan(
+        protocol, parent_dir=str(tmp_path / 'runs')
+    )
+    assert pending.result(timeout=120).status == 'completed'
+    pending.files.result(timeout=120)
+    run_folder = next((tmp_path / 'runs').iterdir())
+
+    built = session.post_processing.composite(run_folder)
+
+    assert built.new_count == 1, built.message
+
+
+def test_update_step_keeps_a_loaded_steps_x_and_y_without_a_stage(make_session, tmp_path):
+    stage = make_session('LS850')
+    path = _saved_steps(stage, tmp_path / 'from_a_stage.tsv', 1)
+    session = make_session('LS820', acquiring=('BF',))
+    protocol = session.load_protocol(path)
+    before = (protocol.step(idx=0)['X'], protocol.step(idx=0)['Y'])
+
+    session.update_step(protocol, 0, layer='BF')
+
+    assert (protocol.step(idx=0)['X'], protocol.step(idx=0)['Y']) == before
+    assert None not in before
+
+
+def test_writes_for_an_axis_the_scope_lacks_are_refused(make_session):
+    from modules.exceptions import HardwareCommandRefusedError
+
+    no_stage = make_session('LS820', acquiring=('BF',))
+    manual = make_session('LS620', acquiring=('BF',))
+    protocol = manual.create_empty_protocol()
+    manual.add_step(protocol)
+
+    bookmark_before = dict(no_stage.settings['bookmark'])
+    tiling = _refused(lambda: no_stage.new_protocol(tiling='3x3'))
+    step_z = _refused(lambda: manual.scope.protocols.set_step_z(protocol, 0, 123.0))
+    with pytest.raises(HardwareCommandRefusedError) as bookmark:
+        no_stage.save_bookmark(('X',))
+
+    assert (tiling.reason, step_z.reason, bookmark.value.reason) == (
+        'positions_unreachable',
+        'positions_unreachable',
+        'axis_absent',
+    )
+    assert protocol.step(idx=0)['Z'] is None
+    assert no_stage.settings['bookmark'] == bookmark_before
+
+
+def test_an_autofocus_and_a_z_stack_run_on_a_scope_without_a_stage(make_session, tmp_path):
+    session = make_session(
+        'LS820',
+        acquiring=('BF',),
+        zstack={'range': 20.0, 'step_size': 10.0, 'position': 'Current Position at Center'},
+    )
+    # Mid-travel: homed Z sits at 0, where a stack's lower slices fall outside.
+    session.scope.motion.move_absolute('Z', 5000.0)
+    runner = session.create_protocol_runner()
+
+    focused = runner.run_autofocus('BF', parent_dir=str(tmp_path / 'af'), timeout_s=180)
+    stacked = runner.run_zstack('BF', parent_dir=str(tmp_path / 'zs'), timeout_s=180)
+
+    assert (focused.status, stacked.status) == ('completed', 'completed'), (focused, stacked)

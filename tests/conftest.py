@@ -1014,8 +1014,12 @@ def scale_capabilities():
     hands in optics that report one. The values match Etaluma's Classic optics
     so geometry assertions written against the previous default stay valid.
     The LED cap is the EL-0940 firmware's, because a Protocol built from
-    capabilities carries it into validate_steps.
+    capabilities carries it into validate_steps. The axes are a stage
+    scope's, since a protocol built from capabilities records a position
+    only on the axes the scope has.
     """
     from types import SimpleNamespace
 
-    return SimpleNamespace(pixel_size_um=2.0, lens_focal_length_mm=47.8, led_max_ma=1000)
+    return SimpleNamespace(
+        pixel_size_um=2.0, lens_focal_length_mm=47.8, led_max_ma=1000, axes=('X', 'Y', 'Z')
+    )

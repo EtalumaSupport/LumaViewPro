@@ -2261,9 +2261,13 @@ class ScopeSession:
             AxisStateUnknownError: an axis's position is not known, so the
                 number it reports is not one to save. Nothing is written.
             HardwareCommandRefusedError: ``'not_connected'`` -- the motor
-                controller is not connected. Nothing is written.
+                controller is not connected; ``'axis_absent'`` -- this scope
+                has no motor for an axis in ``axes``, so there is no place on
+                it to save. Nothing is written.
         """
         axes = tuple(axes)
+        for axis in axes:
+            self.scope.motion.refuse_absent('save_bookmark', axis)
         self.scope.motion.refuse_unknown_positions(axes, recording=True, then='save the bookmark')
         position = self.get_current_plate_position()
         reads = {'x': position.x_mm, 'y': position.y_mm, 'z': position.z_um}

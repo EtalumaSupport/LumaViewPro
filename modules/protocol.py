@@ -13,7 +13,7 @@ import pathlib
 import re
 import contextlib
 import copy
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from typing import TYPE_CHECKING, ClassVar, NoReturn
 
 from lvp_logger import logger
@@ -241,8 +241,9 @@ def refuse_unless_buildable_config(config: object, argument: str, *, empty: bool
         for index, position in enumerate(positions):
             position_path = key_path(positions_path, index)
             refuse_unless_kind(position, 'dict', position_path)
-            read(position, 'x', 'number', position_path)
-            read(position, 'y', 'number', position_path)
+            # None where the scope has no motor for the axis: no position.
+            read(position, 'x', 'number', position_path, nullable=True)
+            read(position, 'y', 'number', position_path, nullable=True)
             read(position, 'z', 'number', position_path, nullable=True)
             read(position, 'name', 'str', position_path)
 
@@ -388,8 +389,18 @@ def _axis_limits_or_refuse(
         ProtocolRunRefusedError: An axis in *axes* has no limits. It has
             been logged and shown before it is raised.
     """
-    limits = {axis: axis_limits.get(axis) for axis in axes}
-    missing = [axis for axis, axis_limits in limits.items() if axis_limits is None]
+    _refuse_without_motors(axis_limits, axes, what=what)
+    return {axis: axis_limits[axis] for axis in axes}
+
+
+def _refuse_without_motors(present: 'Collection[str]', axes: tuple[str, ...], *, what: str) -> None:
+    """Refuse building *what* when an axis in *axes* is not among the *present* ones.
+
+    Raises:
+        ProtocolRunRefusedError: ``positions_unreachable``, naming the axes
+            with no motor.
+    """
+    missing = [axis for axis in axes if axis not in present]
     if missing:
         _refuse_build(
             reason='positions_unreachable',
@@ -397,7 +408,6 @@ def _axis_limits_or_refuse(
                 f'This scope has no motor for {", ".join(missing)}, so {what} cannot be built.'
             ),
         )
-    return limits
 
 
 class ProtocolFormatError(Refusal, ProtocolError):
@@ -2646,6 +2656,14 @@ class Protocol:
                 objective_id=objective_id
             ).focal_length_mm
 
+        # A scope records only what it measures: without an X/Y stage a step
+        # has no X/Y (the plate's well centres are places it cannot reach),
+        # and without Z no Z, so no focus is asked for.
+        has_xy = {'X', 'Y'} <= set(capabilities.axes)
+        has_z = 'Z' in capabilities.axes
+        if tiling != TilingConfig.no_tiling_label():
+            _refuse_without_motors(capabilities.axes, ('X', 'Y'), what='a tile grid')
+
         fill_factor = _fill_factor_or_refuse(tiling_overlap_percent)
         tiles = tiling_config.get_tile_centers(
             config_label=tiling,
@@ -2679,8 +2697,8 @@ class Protocol:
                 well_x, well_y, well_label = well_position
                 tmp.append(
                     {
-                        'x': well_x,
-                        'y': well_y,
+                        'x': well_x if has_xy else None,
+                        'y': well_y if has_xy else None,
                         # Per-(well, channel) tuned z is resolved in the layer
                         # loop below; do not collapse it to one z per well here.
                         'z': None,
@@ -2706,14 +2724,16 @@ class Protocol:
                     if not cls.layer_acquires(layer_config):
                         continue
 
-                    x = round(
-                        pos['x'] + tile_position['x'] / 1000,
-                        common_utils.max_decimal_precision('x'),
-                    )  # in 'plate' coordinates
-                    y = round(
-                        pos['y'] + tile_position['y'] / 1000,
-                        common_utils.max_decimal_precision('y'),
-                    )  # in 'plate' coordinates
+                    x = y = None
+                    if pos['x'] is not None and pos['y'] is not None:
+                        x = round(
+                            pos['x'] + tile_position['x'] / 1000,
+                            common_utils.max_decimal_precision('x'),
+                        )  # in 'plate' coordinates
+                        y = round(
+                            pos['y'] + tile_position['y'] / 1000,
+                            common_utils.max_decimal_precision('y'),
+                        )  # in 'plate' coordinates
 
                     # Resolve Z per (well, channel): a tuned carry-over for
                     # this exact channel wins (so New keeps per-channel
@@ -2721,7 +2741,9 @@ class Protocol:
                     # manual-position z; else this channel's saved focus;
                     # else, never saved, the current Z.
                     tuned_z = previous_well_z.get((pos.get('name'), layer_name))
-                    if tuned_z is not None:
+                    if not has_z:
+                        z = None
+                    elif tuned_z is not None:
                         z = tuned_z
                     elif pos['z'] is not None:
                         z = pos['z']
@@ -2738,7 +2760,8 @@ class Protocol:
                             ),
                         )
 
-                    z = round(z, common_utils.max_decimal_precision('z'))
+                    if z is not None:
+                        z = round(z, common_utils.max_decimal_precision('z'))
 
                     autofocus = layer_config['autofocus']
                     false_color = layer_config['false_color']

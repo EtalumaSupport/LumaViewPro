@@ -448,6 +448,10 @@ class ProtocolsAPI:
         change, so the step keeps the channel it already acquires.
         ``label`` renames the step; None keeps its label.
 
+        On an axis this scope has no motor for, the step keeps the position
+        it has: the scope measured nothing there, so a loaded step's X/Y
+        survive an update on a scope without a stage.
+
         Returns the step's name after the update.
 
         Raises:
@@ -481,6 +485,14 @@ class ProtocolsAPI:
             )
 
         self._refuse_channel_already_in_add(protocol, step_idx, layer)
+
+        axes = self._scope.capabilities.axes
+        has_xy = 'X' in axes and 'Y' in axes
+        plate_position = PlateLocation(
+            x_mm=plate_position.x_mm if has_xy else step['X'],
+            y_mm=plate_position.y_mm if has_xy else step['Y'],
+            z_um=plate_position.z_um if 'Z' in axes else step['Z'],
+        )
 
         protocol.modify_step(
             step_idx=step_idx,
@@ -560,9 +572,12 @@ class ProtocolsAPI:
         """Write ``z`` as step ``step_idx``'s Z.
 
         Raises:
+            ProtocolRunRefusedError: ``'positions_unreachable'``, this scope
+                has no Z axis, so no Z is a place it can go. Nothing is written.
             ProtocolError: ``step_idx`` is not a step of ``protocol``, or
                 ``z`` is not a number (raised by the protocol).
         """
+        self._refuse_no_focus_axis(then="set a step's Z")
         protocol.modify_step_z_height(step_idx=step_idx, z=z)
 
     def apply_focus_to_layer_steps(self, protocol: Protocol, layer: str, z: float) -> int:

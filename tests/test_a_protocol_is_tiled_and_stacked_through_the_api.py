@@ -70,7 +70,9 @@ def _bf_steps_at(session, xs_um):
 
 
 def _rows(protocol):
-    return protocol.steps()[['X', 'Y', 'Z', 'Tile', 'Z-Slice']].to_dict('records')
+    # No position is None here, so two reads of one step compare equal (NaN never does).
+    rows = protocol.steps()[['X', 'Y', 'Z', 'Tile', 'Z-Slice']]
+    return rows.astype(object).where(rows.notna(), None).to_dict('records')
 
 
 def _ordered(protocol):

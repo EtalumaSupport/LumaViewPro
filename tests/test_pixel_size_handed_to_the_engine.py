@@ -91,7 +91,7 @@ class TestTheResolverIsHandedTheOptics:
     def test_a_scope_that_cannot_report_its_optics_yields_none(self, no_context):
         """Preserved: no invented scale. A scope with unknown optics still
         answers None, and its callers still degrade honestly."""
-        caps = SimpleNamespace(pixel_size_um=None, lens_focal_length_mm=None)
+        caps = SimpleNamespace(pixel_size_um=None, lens_focal_length_mm=None, axes=('X', 'Y', 'Z'))
 
         assert (
             common_utils.get_pixel_size(focal_length=9.0, binning_size=1, capabilities=caps) is None
