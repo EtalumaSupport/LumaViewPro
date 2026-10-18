@@ -26,7 +26,7 @@ def main() -> int:
             session,
             runner,
             sequence_name='probe_enhance',
-            positions=[{'x': here['x'], 'y': here['y'], 'z': here['z'], 'name': 'A1'}],
+            positions=[{'x': here.x_mm, 'y': here.y_mm, 'z': here.z_um, 'name': 'A1'}],
         )
         print('run outcome:', outcome)
         if folder is None:

@@ -64,8 +64,8 @@ def body(s):
     after = s.get_current_plate_position()
     check(
         'plate-frame move landed on the typed coordinate',
-        abs(after['x'] - 60.0) < 0.05 and abs(after['y'] - 40.0) < 0.05,
-        f'{after["x"]:.3f},{after["y"]:.3f}',
+        abs(after.x_mm - 60.0) < 0.05 and abs(after.y_mm - 40.0) < 0.05,
+        f'{after.x_mm:.3f},{after.y_mm:.3f}',
     )
 
     # --- out of range RAISES rather than clamping ---

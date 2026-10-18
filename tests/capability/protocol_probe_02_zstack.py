@@ -69,14 +69,19 @@ try:
     active_layer_config['autofocus'] = False
 
     curr_position = session.get_current_plate_position()
-    curr_position.update({'name': 'ZStack'})
+    zstack_position = {
+        'x': curr_position.x_mm,
+        'y': curr_position.y_mm,
+        'z': curr_position.z_um,
+        'name': 'ZStack',
+    }
     tiling_config = TilingConfig(
         tiling_configs_file_loc=_pl.Path(session.source_path) / 'data' / 'tiling.json'
     )
     gui_cfg = config_helpers.build_sequenced_capture_config(
         {
             'labware_id': labware_id,
-            'positions': [curr_position],
+            'positions': [zstack_position],
             'objective_id': objective_id,
             'zstack_params': zstack_params,
             'use_zstacking': True,
@@ -88,7 +93,7 @@ try:
             'frame_dimensions': config_helpers.get_frame_dimensions_from_settings(settings),
             'binning_size': config_helpers.get_binning_from_settings(settings),
             'stim_config': config_helpers.get_stim_configs(settings),
-            'current_z': curr_position['z'],
+            'current_z': curr_position.z_um,
         }
     )
     gui_seq = session.scope.protocols.create_protocol(input_config=gui_cfg)

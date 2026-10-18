@@ -60,8 +60,8 @@ def body(s):
     here = s.get_current_plate_position()
     check(
         'a script can go to the nearest step through the Session',
-        abs(here['x'] - float(step['X'])) < 0.05 and abs(here['y'] - float(step['Y'])) < 0.05,
-        f'step=({step["X"]},{step["Y"]},{step["Z"]}) arrived=({here["x"]:.2f},{here["y"]:.2f},'
+        abs(here.x_mm - float(step['X'])) < 0.05 and abs(here.y_mm - float(step['Y'])) < 0.05,
+        f'step=({step["X"]},{step["Y"]},{step["Z"]}) arrived=({here.x_mm:.2f},{here.y_mm:.2f},'
         f'{m.get_current_position("Z"):.1f})',
     )
 

@@ -28,7 +28,7 @@ def main() -> int:
             runner,
             tiling='2x2',
             sequence_name='probe_stitch',
-            positions=[{'x': here['x'], 'y': here['y'], 'z': here['z'], 'name': 'A1'}],
+            positions=[{'x': here.x_mm, 'y': here.y_mm, 'z': here.z_um, 'name': 'A1'}],
         )
         print('run outcome:', outcome)
         print('folder:', folder)

@@ -87,7 +87,7 @@ try:
     print('landed at:', now)
     print(
         'ASSERT stage at step:',
-        'PASS' if abs(now['x'] - st['X']) < 0.05 and abs(now['y'] - st['Y']) < 0.05 else 'FAIL',
+        'PASS' if abs(now.x_mm - st['X']) < 0.05 and abs(now.y_mm - st['Y']) < 0.05 else 'FAIL',
     )
 
     banner('SET TILING')

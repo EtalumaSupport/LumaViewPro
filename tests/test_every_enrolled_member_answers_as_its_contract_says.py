@@ -264,7 +264,7 @@ def _over_a_well(session: ScopeSession) -> list[dict]:
     motion.move_absolute('Z', 1000.0)
     motion.wait_until_finished_moving(timeout_s=60)
     here = session.get_current_plate_position()
-    return [{'x': here['x'], 'y': here['y'], 'z': here['z'], 'name': 'A1'}]
+    return [{'x': here.x_mm, 'y': here.y_mm, 'z': here.z_um, 'name': 'A1'}]
 
 
 def _saved(live: pathlib.Path, start: Callable[[], object]) -> pathlib.Path:

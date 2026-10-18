@@ -64,10 +64,10 @@ def body(s):
     back = s.get_current_plate_position()
     check(
         'a script can RETURN to the bookmark and the stage arrives',
-        abs(back['x'] - saved['x']) < 0.05
-        and abs(back['y'] - saved['y']) < 0.05
+        abs(back.x_mm - saved['x']) < 0.05
+        and abs(back.y_mm - saved['y']) < 0.05
         and abs(m.get_current_position('Z') - saved['z']) < 5.0,
-        f'asked {saved} got x={back["x"]:.2f} y={back["y"]:.2f} z={m.get_current_position("Z")}',
+        f'asked {saved} got x={back.x_mm:.2f} y={back.y_mm:.2f} z={m.get_current_position("Z")}',
     )
 
     # 5. "Set ALL bookmarks" also stamps every layer's focus

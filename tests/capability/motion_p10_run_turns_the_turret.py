@@ -35,9 +35,9 @@ def _step(name, objective, slot, index, position, layer):
     # and the turret slot it was made at.
     return {
         'Name': name,
-        'X': position['x'],
-        'Y': position['y'],
-        'Z': position['z'],
+        'X': position.x_mm,
+        'Y': position.y_mm,
+        'Z': position.z_um,
         'Auto_Focus': False,
         'Color': 'BF',
         'False_Color': False,
