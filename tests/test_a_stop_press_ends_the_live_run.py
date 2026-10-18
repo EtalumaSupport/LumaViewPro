@@ -19,7 +19,8 @@ import pytest
 from modules.exceptions import MotorStopFailedError
 from modules.run_events import RunEvents
 from modules.scope_session import ScopeSession
-from tests.scope_fakes import home_sim_scope
+from modules.sequenced_capture_runner import SequencedCaptureRunner
+from tests.scope_fakes import TEST_TURRET_OBJECTIVES, home_sim_scope
 from tests.settings_fixtures import complete_settings
 from tests.test_a_run_needs_every_axis_position import COMPLETION_TIMEOUT, _settings
 from tests.test_run_refusal_contract import _build_real_protocol, _make_single_step_protocol
@@ -108,6 +109,137 @@ def test_stop_pressed_between_scans_ends_the_protocol(session, tmp_path, centre_
     assert (outcome.status, outcome.reason) == ('aborted', 'stage_stopped')
     assert outcome.captures.captured == 1
     assert len(_told_stopped(centre_posts)) == 1
+
+
+@pytest.fixture
+def turret_session(tmp_path):
+    s = ScopeSession.create(
+        complete_settings(
+            **_settings(
+                tmp_path,
+                microscope='LS850T',
+                simulator_tier='fast',
+                turret_objectives=dict(TEST_TURRET_OBJECTIVES),
+            )
+        ),
+        simulate=True,
+    )
+    try:
+        home_sim_scope(s.scope)
+        yield s
+    finally:
+        s.shutdown()
+
+
+class _HoldAfterFrame:
+    """Hold ``axis``'s next move once the run's ``nth`` frame lands, and note
+    where ``axis`` stood at each frame. Armed on the run's own thread, which
+    waits for the event, so the move held is the first one after that frame."""
+
+    def __init__(self, session, axis, nth):
+        self._session, self._axis, self._nth = session, axis, nth
+        self.at_frames = []
+        self._armed = threading.Event()
+        self._held = None
+
+    def __call__(self, *_args):
+        self.at_frames.append(self._session.scope.motion.get_current_position(axis=self._axis))
+        if len(self.at_frames) == self._nth:
+            self._held = self._session.scope.simulation.hold_axis(self._axis)
+            self._armed.set()
+
+    def wait(self):
+        return self._armed.wait(COMPLETION_TIMEOUT) and self._held.wait(_HOLD_WAIT_S)
+
+
+def _every_minute_for_three(protocol):
+    protocol.modify_time_params(
+        period=datetime.timedelta(seconds=60), duration=datetime.timedelta(seconds=180)
+    )
+    return protocol
+
+
+def test_stop_pressed_during_a_steps_turret_change_ends_the_run_with_z_parked(
+    turret_session, tmp_path, centre_posts
+):
+    """The turret leg: Z parked, T turning. The change ends with Z left parked
+    and the step's X and Y never driven."""
+    session = turret_session
+    held = session.scope.simulation.hold_axis('T')
+    run = session.create_protocol_runner().start_single_scan(
+        protocol=_build_real_protocol([{**_steps(60.0)[0], 'Objective': '4x Oly'}]),
+        parent_dir=str(tmp_path),
+    )
+    assert held.wait(_HOLD_WAIT_S), "the run's turret move never got part of the way"
+
+    session.scope.motion.stop_motion()
+    outcome = run.result(timeout=COMPLETION_TIMEOUT)
+
+    assert (outcome.status, outcome.reason) == ('aborted', 'stage_stopped')
+    assert outcome.captures.captured == 0
+    assert len(_told_stopped(centre_posts)) == 1
+    position = session.scope.motion.get_current_position
+    assert position(axis='Z') == 0.0, 'Z was driven back up after the STOP'
+    assert (position(axis='X'), position(axis='Y')) == (0.0, 0.0), 'the step was driven to'
+    assert session.scope.motion.get_turret_slot() is None
+
+
+def test_stop_pressed_during_grease_redistribution_ends_the_protocol(
+    session, tmp_path, centre_posts, monkeypatch
+):
+    """The grease routine drives Z to 0 and back after every hundredth
+    autofocus, between scans; a STOP during it leaves Z where it stopped."""
+    # The hundredth autofocus is this run's one, rather than a hundred
+    # sweeps run to get there.
+    real_reset = SequencedCaptureRunner._reset_vars
+
+    def _reset_one_short(self):
+        real_reset(self)
+        self._autofocus_count = 99
+
+    monkeypatch.setattr(SequencedCaptureRunner, '_reset_vars', _reset_one_short)
+    # After the frame, the first Z move is the grease's move to 0.
+    grease = _HoldAfterFrame(session, 'Z', nth=1)
+    run = session.create_protocol_runner().start_protocol(
+        _every_minute_for_three(_build_real_protocol([{**_steps(60.0)[0], 'Auto_Focus': True}])),
+        parent_dir=str(tmp_path),
+        events=RunEvents(frame_captured=grease),
+    )
+    assert grease.wait(), "the grease's move to 0 never got part of the way"
+
+    session.scope.motion.stop_motion()
+    outcome = run.result(timeout=COMPLETION_TIMEOUT)
+
+    assert (outcome.status, outcome.reason) == ('aborted', 'stage_stopped')
+    assert outcome.captures.captured == 1
+    assert len(_told_stopped(centre_posts)) == 1
+    z = session.scope.motion.get_current_position(axis='Z')
+    assert 0.0 < z < grease.at_frames[0], f'Z was driven on after the STOP: {z}'
+
+
+def test_stop_pressed_during_the_return_between_scans_ends_the_protocol(
+    session, tmp_path, centre_posts
+):
+    """Between scans the stage returns to the first step; a STOP during
+    that return leaves X where it stopped."""
+    # After the last step's frame, the first X move is the return.
+    back = _HoldAfterFrame(session, 'X', nth=2)
+    run = session.create_protocol_runner().start_protocol(
+        _every_minute_for_three(_build_real_protocol(_steps(40.0, 80.0))),
+        parent_dir=str(tmp_path),
+        events=RunEvents(frame_captured=back),
+    )
+    assert back.wait(), 'the return to the first step never got part of the way'
+
+    session.scope.motion.stop_motion()
+    outcome = run.result(timeout=COMPLETION_TIMEOUT)
+
+    assert (outcome.status, outcome.reason) == ('aborted', 'stage_stopped')
+    assert outcome.captures.captured == 2
+    assert len(_told_stopped(centre_posts)) == 1
+    first, last = back.at_frames
+    x = session.scope.motion.get_current_position(axis='X')
+    assert min(first, last) < x < max(first, last), f'X was driven on after the STOP: {x}'
 
 
 def test_a_fault_that_ended_the_run_first_keeps_its_ending(session, tmp_path):
