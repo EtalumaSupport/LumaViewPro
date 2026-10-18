@@ -1474,22 +1474,38 @@ def _check_build_untracked(paths: list[str]) -> list[Violation]:
 _CHECKER_PATH = 'tools/check_rules.py'
 
 
-def _sibling_checker(sibling_dir: str) -> Path | None:
-    """The other repo's copy of this checker, when its checkout sits beside this one.
+def _sibling_checker(sibling_dir: str) -> Path:
+    """The other repo's copy of this checker: the checkout beside this one that
+    carries this checkout's own track suffix.
 
     The two repos share this checker by copy, and the copies drifted
-    twice. The sibling's WORKING copy is the witness, not a fetched tip:
-    Firmware commits land in the one shared checkout, and the LVP main
-    checkout is only ever pulled, so each is where the other repo keeps
-    its copy current, and the fix for a block is a copy or a pull there.
+    twice. Every track commits in its own worktree, `<repo>-<track>`, and
+    the shared checkouts move only when someone pulls a pushed trunk, so a
+    track's witness is its own sibling worktree, `<other>-<track>`, the
+    tree it commits the same concern in; the bare checkout's witness is
+    the bare sibling. A witness in the shared checkout made two concerns
+    land as one Firmware commit, with that checkout's tree dirtied to
+    clear the block.
     """
-    top = subprocess.check_output(['git', 'rev-parse', '--show-toplevel'], text=True).strip()
-    sibling = Path(top).parent / sibling_dir / _CHECKER_PATH
-    return sibling if sibling.is_file() else None
+    top = Path(subprocess.check_output(['git', 'rev-parse', '--show-toplevel'], text=True).strip())
+    suffix = top.name[top.name.index('-') :] if '-' in top.name else ''
+    return top.parent / f'{sibling_dir}{suffix}' / _CHECKER_PATH
 
 
-def _check_sibling_copy(staged: str, sibling: Path | None) -> list[Violation]:
-    if sibling is None or staged == sibling.read_text(encoding='utf-8'):
+def _check_sibling_copy(staged: str, sibling: Path) -> list[Violation]:
+    if not sibling.is_file():
+        return [
+            Violation(
+                _CHECKER_PATH,
+                1,
+                1,
+                'sibling_copy',
+                f'no copy at {sibling}; the checker is one file in both repos and its '
+                "witness is the other repo's checkout with this one's track suffix: "
+                'add or move that worktree there before committing',
+            )
+        ]
+    if staged == sibling.read_text(encoding='utf-8'):
         return []
     return [
         Violation(
@@ -1498,7 +1514,7 @@ def _check_sibling_copy(staged: str, sibling: Path | None) -> list[Violation]:
             1,
             'sibling_copy',
             f'differs from {sibling}; the checker is one file in both repos: copy the '
-            'staged file there, or pull that checkout, before committing',
+            'staged file there and commit it there as the same concern',
         )
     ]
 
