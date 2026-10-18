@@ -8,7 +8,7 @@ import logging
 
 from kivy.clock import Clock
 from kivy.metrics import dp
-from kivy.properties import NumericProperty
+from kivy.properties import BooleanProperty, NumericProperty
 
 import modules.app_context as _app_ctx
 from modules import gui_logger
@@ -22,6 +22,9 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
     # The status line's height, along the bottom of the window: the live view,
     # the panels and the camera buttons all sit on top of it.
     status_line_height = NumericProperty(dp(22))
+    # Whether the scope has a motorised axis, which the red STOP is shown for:
+    # the capability the motion controls are shown by, set with them.
+    stage_has_motors = BooleanProperty(False)
 
     def __init__(self, scope, **kwargs):
         # The scope is the session's, handed in. It goes on the widget
@@ -166,6 +169,11 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
         set_title_event_text(None)
         self.draw_record_button()
         logger.info('[LVP Main  ] Manual recording UI cleanup complete')
+
+    def stop_the_stage(self):
+        from ui.ui_helpers import stop_the_stage
+
+        stop_the_stage()
 
     def open_save_folder_button(self):
         gui_logger.button('OPEN_SAVE_FOLDER')

@@ -344,6 +344,29 @@
             size: '40dp', '40dp'
             on_release: root.one2one_image()
 
+    # The red STOP: halts the stage and ends whatever is driving it, through
+    # the API's one stop. Bottom right of the live view, one row above the
+    # camera buttons and 40 dp inside the right panel's edge, so a press meant
+    # for another control lands on nothing. Declared last, so nothing draws
+    # over it, the homing banner included. Never locked: it is the control a
+    # run, a home or a recording leaves live. Shown only on a scope with a
+    # motorised axis.
+    Button:
+        id: stop_button_id
+        text: 'STOP'
+        bold: True
+        font_size: '12sp'
+        color: 1, 1, 1, 1
+        background_normal: ''
+        background_down: ''
+        background_color: (0.85, 0.1, 0.1, 1) if self.state == 'normal' else (0.6, 0.05, 0.05, 1)
+        size_hint: None, None
+        size: '48dp', '40dp'
+        pos: imagesettings_id.x - dp(40) - self.width, root.status_line_height + dp(90)
+        opacity: 1 if root.stage_has_motors else 0
+        disabled: not root.stage_has_motors
+        on_press: root.stop_the_stage()
+
 
 
 # ShaderViewer - Shaded Live Camera view

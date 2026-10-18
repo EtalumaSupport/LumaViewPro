@@ -8,6 +8,7 @@ re-exports everything for existing callers.
 """
 
 import logging
+import threading
 import typing
 
 from kivy.properties import StringProperty
@@ -171,6 +172,24 @@ def submit_reported(
     queued = executor.put(IOTask(action=_off_the_gui_thread, callback=_redraw, priority=priority))
     if queued is None:
         _redraw()
+
+
+def stop_the_stage() -> None:
+    """A press of the red STOP: ``stop_motion`` at once, reported as any request is.
+
+    Sent on a thread of its own. Not the GUI thread: on a board that has
+    stopped answering a STOP holds its exchange for seconds, and the window
+    would freeze for them. Not the IO lane or the worker pool: either may be
+    held by the very work the person is stopping. Every press sends; the API
+    decides what a press stops and what it refuses.
+    """
+    gui_logger.button('STOP')
+    threading.Thread(
+        target=_reported,
+        args=(_app_ctx.ctx.scope.motion.stop_motion, 'STOP'),
+        name='STOP',
+        daemon=True,
+    ).start()
 
 
 def run_unasked(call: typing.Callable[[], object], label: str) -> bool:
