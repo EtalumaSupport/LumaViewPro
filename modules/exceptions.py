@@ -922,8 +922,7 @@ class CameraNotAvailableError(BringUpError):
         ),
         'camera_driver_unusable': (
             'Camera driver not usable',
-            'Windows has the camera on no driver, or on one LumaViewPro cannot use. Run '
-            'the LumaViewPro installer as an administrator, then restart LumaViewPro.',
+            'Windows has the camera on no driver, or on one LumaViewPro cannot use.',
         ),
         'camera_not_initialized': (
             'Camera not initialized',
@@ -933,12 +932,25 @@ class CameraNotAvailableError(BringUpError):
     }
 
     # Offered on 'camera_driver_unusable' where the Session can take it: an
-    # installed build on Windows (``fx2_driver_step.repair_refusal``).
+    # installed Windows build that carries the Classic driver package
+    # (``fx2_driver_step.repair_refusal``).
     REPAIR: ClassVar[Remedy] = Remedy(
         member='repair_camera_driver',
-        confirm_text='Repair the driver (needs an administrator)',
+        confirm_text='Install the driver (needs an administrator)',
         cancel_text='Not now',
     )
+    # What 'camera_driver_unusable' tells the person to do, by whether the
+    # driver can be installed from here.
+    _UNUSABLE_ANSWER: ClassVar[dict[bool, str]] = {
+        True: (
+            ' Install its driver from here: Windows asks an administrator to approve it, then '
+            'whether to install software from Etaluma. Then restart LumaViewPro.'
+        ),
+        False: (
+            ' This LumaViewPro installation cannot install the Lumascope Classic driver: install '
+            'a LumaViewPro build that carries it, then restart LumaViewPro.'
+        ),
+    }
 
     def __init__(self, reason: str, *, repairable: bool = False):
         """Build the notice for ``reason``.
@@ -951,6 +963,8 @@ class CameraNotAvailableError(BringUpError):
         if repairable and reason != 'camera_driver_unusable':
             raise TypeError(f'Repair answers camera_driver_unusable, not {reason!r}')
         self.title, message = self._WORDS[reason]
+        if reason == 'camera_driver_unusable':
+            message += self._UNUSABLE_ANSWER[repairable]
         super().__init__(message, reason)
         self.remedy = self.REPAIR if repairable else None
 
@@ -960,23 +974,33 @@ class CameraDriverRepairRefusedError(Refusal, Exception):
 
     Repair runs the installed driver step as an administrator, so it needs
     Windows, an installed build that carries the signed package, an
-    administrator who approves the prompt, and a binding that needs it.
+    administrator who approves the prompt, the person's yes to Windows'
+    question whether to install Etaluma's driver, and a binding that needs it.
 
     Attributes:
         reason: ``'repair_needs_windows'``, ``'repair_needs_installed_build'``
-            (a source run or a build run from ``dist``), ``'repair_declined'``
-            (the administrator's prompt was not approved) or
-            ``'driver_already_usable'`` (a camera is up, or every present
-            device is on a driver LumaViewPro can use).
+            (a source run or a build run from ``dist``),
+            ``'repair_needs_driver_package'`` (an installation built without
+            the Classic driver), ``'no_classic_bindings'`` (a scope that reads
+            no Classic USB devices, such as a simulated one without an FX2),
+            ``'repair_declined'`` (the administrator's prompt was not
+            approved), ``'driver_not_accepted'`` (Windows did not take the
+            package: installing it was declined at its question, or Windows
+            refused it) or ``'driver_already_usable'`` (a camera is up, or
+            every present device is on a driver LumaViewPro can use).
     """
 
     title = 'Camera Driver Not Repaired'
-    # Declined is the one a person can answer by asking again; the others
-    # are answered the same until the host, the build or the binding changes.
+    # Declined and not accepted are the ones a person can answer by asking
+    # again; the others are answered the same until the host, the build or
+    # the binding changes.
     causes: ClassVar[dict[str, RefusalCause]] = {
         'repair_needs_windows': RefusalCause.REQUEST,
         'repair_needs_installed_build': RefusalCause.REQUEST,
+        'repair_needs_driver_package': RefusalCause.REQUEST,
+        'no_classic_bindings': RefusalCause.REQUEST,
         'repair_declined': RefusalCause.STATE,
+        'driver_not_accepted': RefusalCause.STATE,
         'driver_already_usable': RefusalCause.STATE,
     }
     _WORDS: ClassVar[dict[str, str]] = {
@@ -985,14 +1009,26 @@ class CameraDriverRepairRefusedError(Refusal, Exception):
             'driver; this computer binds none.'
         ),
         'repair_needs_installed_build': (
-            "LumaViewPro repairs the camera's driver only from an installed build, which carries "
-            'the signed driver package. Run the LumaViewPro installer as an administrator on the '
-            "scope's PC."
+            "LumaViewPro installs the camera's driver only from an installed build, which carries "
+            "the signed driver package. Install LumaViewPro on the scope's PC with its installer, "
+            'and install the driver from there.'
+        ),
+        'repair_needs_driver_package': (
+            'This LumaViewPro installation does not carry the Lumascope Classic driver (it was '
+            'built without a signing certificate). Install a LumaViewPro build that carries it.'
+        ),
+        'no_classic_bindings': (
+            'This scope reads no Lumascope Classic USB device, so there is no driver to install.'
         ),
         'repair_declined': (
             "Windows asked for an administrator's approval to install the camera's driver, and it "
-            'was not given. Repair again and approve it (a standard account needs an '
-            "administrator's password), or run the LumaViewPro installer as an administrator."
+            'was not given. Try again and approve it (a standard account needs an '
+            "administrator's password)."
+        ),
+        'driver_not_accepted': (
+            "Windows did not take the camera's driver: installing it was declined at Windows' "
+            "question, or Windows refused the package (the driver step's log, in the logs "
+            'folder of the LumaViewPro installation, says which). Try again to be asked again.'
         ),
         'driver_already_usable': (
             'The camera is up, or its USB devices are already on drivers LumaViewPro can use; '
@@ -1020,9 +1056,8 @@ class CameraDriverRepairFailedError(Fault, Exception):
 
     def __init__(self, what: str, logs: pathlib.Path):
         super().__init__(
-            f"The camera's driver was not repaired: {what}. The driver step's log is in {logs}. "
-            'Run the LumaViewPro installer as an administrator, or send that log to Etaluma '
-            'support.'
+            f"The camera's driver was not installed: {what}. The driver step's log is in {logs}. "
+            'Try again, or send that log to Etaluma support.'
         )
 
 

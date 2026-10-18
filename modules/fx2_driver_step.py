@@ -2,41 +2,38 @@
 """The Lumascope Classic's driver step on Windows: our WinUSB package bound,
 stale ones cleared.
 
-Run elevated, by the installer at install and uninstall (``lvp_fx2_driver_step
-install`` / ``uninstall``). An installer action cannot show the person
-anything, so the step only does and logs: every step and every Windows
-answer goes to ``<install>\\logs\\driver_install_<version>_<time>.log``, and
-the app's connect is where a binding that cannot work is told.
+Run elevated: ``install`` by the app's Repair, on the person's desktop, where
+Windows can ask whether to install software from Etaluma; ``uninstall`` by
+the installer. Every step and every Windows answer goes to
+``<install>\\logs\\driver_<step>_<version>_<time>.log``.
 
 Install, in order:
 
 1. Record each device of both identities and the driver bound to it.
-2. Trust the certificate the package is signed with, when the build carries
-   one, in ``LocalMachine\\TrustedPublisher``.
-3. Add our package to the driver store. When it does not enter the store
-   the step stops here and removes nothing, so a working Zadig or LumaView
-   Classic binding is never stripped from a PC our package cannot replace
-   it on.
-4. For the running firmware's identity (ours alone), export and then remove
+2. Add our package to the driver store; Windows asks the person first,
+   unless they chose to always trust Etaluma. When it does not enter the
+   store -- the person declined, or Windows refused the package -- the step
+   stops here and removes nothing, so a working Zadig or LumaView Classic
+   binding is never stripped from a PC our package cannot replace it on.
+3. For the running firmware's identity (ours alone), export and then remove
    every other vendor's package that names it, so uninstall can restore it.
    The bootloader's identity is every EEPROM-less Cypress FX2's, so nothing
    is removed for it: our newer package outranks an older one there.
-5. Bind the present devices to our package, remove our older packages,
+4. Bind the present devices to our package, remove our older packages,
    remove the past devices of both identities so each is matched afresh on
    its next plug, and record the bindings again.
 
-Uninstall removes our packages, restores what install exported, removes the
-certificates install trusted, and logs what it did and what it left.
+Uninstall removes our packages, restores what install exported, and logs
+what it did and what it left.
 
-The app's Repair runs the same install, as an administrator, from the
-installed build (``run_as_administrator``); ``repair_refusal`` says where it
-cannot.
+The app's Repair runs install as an administrator from the installed build
+(``run_as_administrator``); ``repair_refusal`` says where it cannot.
 """
 
 from __future__ import annotations
 
 import datetime
-import hashlib
+import enum
 import logging
 import os
 import pathlib
@@ -56,29 +53,39 @@ from drivers.usb_driver_binding import (
     store_packages,
 )
 from modules.exceptions import CameraDriverRepairFailedError
-from modules.path_utils import AppRuntime, app_runtime, read_version
+from modules.path_utils import AppRuntime, app_runtime, launch_root, read_version
 
 log = logging.getLogger('LVP.fx2_driver_step')
 
 IDENTITIES = (FX2_BOOTLOADER, FX2_FIRMWARE)
 PACKAGE_INF = 'Lumascope_Classic.inf'
-SIGNING_CERTIFICATE = 'Etaluma_TrustedPublisher.cer'
-# Install appends the thumbprint of each certificate it trusted, one per
-# line, so uninstall removes those and no other: each renewal adds one.
-TRUSTED_RECORD = 'trusted_publishers.txt'
+# Where the installer puts the package, under the install folder.
+PACKAGE_DIR = pathlib.Path('drivers', 'fx2')
 REMOVED_FOLDER = 'removed'
 # The installed name of this step's executable, beside the app's; the build
 # names it in scripts/appBuild/config/fx2_bundle.py, and a test holds the two
 # equal.
 DRIVER_STEP_EXE = 'lvp_fx2_driver_step.exe'
 # How long Repair waits for the step: its pnputil adds, exports and removals
-# for two identities take seconds; the wait bounds a step held on a Windows
-# prompt nobody can see.
+# for two identities take seconds, and Windows' question to the person
+# whether to install Etaluma's driver waits on their answer.
 REPAIR_WAIT_S = 300.0
+# The step's exit when Windows did not accept our package, so Repair tells
+# it apart from a step that failed part way.
+NOT_ACCEPTED_EXIT = 3
+
+
+class Installed(enum.Enum):
+    """What install did: both identities bound, some step incomplete, or our
+    package not accepted into the driver store and nothing changed."""
+
+    BOUND = 'bound'
+    INCOMPLETE = 'incomplete'
+    NOT_ACCEPTED = 'not_accepted'
 
 
 class Machine(Protocol):
-    """What the step acts on: ``pnputil``, ``certutil`` and the binding readers."""
+    """What the step acts on: ``pnputil`` and the binding readers."""
 
     def run(self, *args: str) -> tuple[int, str]: ...
 
@@ -91,7 +98,14 @@ class WindowsMachine:
     """The PC the step runs on."""
 
     def run(self, *args: str) -> tuple[int, str]:
-        result = subprocess.run(args, capture_output=True, text=True, check=False)
+        # No console window flashes on the person's desktop while Repair runs.
+        result = subprocess.run(
+            args,
+            capture_output=True,
+            text=True,
+            check=False,
+            creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0),
+        )
         return result.returncode, (result.stdout + result.stderr).strip()
 
     def device_bindings(self, hardware_id: str) -> list[DeviceBinding]:
@@ -105,25 +119,25 @@ class WindowsMachine:
         return store_packages(hardware_id, store_inf_folder())
 
 
-def install(machine: Machine, package_dir: pathlib.Path) -> bool:
-    """Bind both identities to our package. True when every step did.
+def install(machine: Machine, package_dir: pathlib.Path) -> Installed:
+    """Bind both identities to our package.
 
     Args:
         machine: The PC (``WindowsMachine``).
-        package_dir: ``<install>\\drivers\\fx2``: the stamped INF, its catalog,
-            and the signing certificate when the build carries one.
+        package_dir: ``<install>\\drivers\\fx2``: the stamped INF and its
+            signed catalog.
     """
     inf = package_dir / PACKAGE_INF
     _record(machine, 'before install')
-    trusted = _trust(machine, package_dir)
     code, _ = _pnputil(machine, '/add-driver', str(inf))
     ours = _our_current_package(machine, inf)
     if ours is None:
         log.error(
-            f'{inf.name} did not enter the driver store (pnputil exit {code}); '
-            'nothing removed, every existing binding left as it was'
+            f'{inf.name} did not enter the driver store (pnputil exit {code}): installing '
+            'it was declined, or Windows refused the package; nothing removed, every '
+            'existing binding left as it was'
         )
-        return False
+        return Installed.NOT_ACCEPTED
     log.info(f'{inf.name} is in the driver store as {ours.inf} ({ours.driver_ver})')
     exported = _export_and_remove_others(machine, package_dir / REMOVED_FOLDER)
     _pnputil(machine, '/add-driver', str(inf), '/install')
@@ -131,7 +145,8 @@ def install(machine: Machine, package_dir: pathlib.Path) -> bool:
     past_removed = _remove_past_devices(machine)
     bound = _present_devices_on(machine, ours)
     _record(machine, 'after install')
-    return all((trusted, exported, older_removed, past_removed, bound))
+    complete = all((exported, older_removed, past_removed, bound))
+    return Installed.BOUND if complete else Installed.INCOMPLETE
 
 
 def uninstall(machine: Machine, package_dir: pathlib.Path) -> bool:
@@ -142,11 +157,9 @@ def uninstall(machine: Machine, package_dir: pathlib.Path) -> bool:
         code, _ = _pnputil(machine, '/delete-driver', package.inf, '/uninstall')
         complete = complete and code == 0
     complete = _restore_removed(machine, package_dir / REMOVED_FOLDER) and complete
-    complete = _untrust(machine, package_dir) and complete
     _record(machine, 'after uninstall')
-    left = [name for name in (REMOVED_FOLDER, TRUSTED_RECORD) if (package_dir / name).exists()]
-    if left:
-        log.warning(f'left in {package_dir}: {", ".join(left)}')
+    if (package_dir / REMOVED_FOLDER).exists():
+        log.warning(f'left in {package_dir}: {REMOVED_FOLDER}')
     return complete
 
 
@@ -191,44 +204,6 @@ def _our_current_package(machine: Machine, inf: pathlib.Path) -> StorePackage | 
         if package.driver_ver == stamped:
             return package
     return None
-
-
-def _trust(machine: Machine, package_dir: pathlib.Path) -> bool:
-    certificate = package_dir / SIGNING_CERTIFICATE
-    if not certificate.exists():
-        log.warning(
-            'this build carries no signing certificate; the package enters the store '
-            'only if Windows already trusts its signer'
-        )
-        return True
-    thumbprint = hashlib.sha1(certificate.read_bytes()).hexdigest().upper()
-    code, out = machine.run('certutil', '-addstore', 'TrustedPublisher', str(certificate))
-    log.info(f'certutil -addstore TrustedPublisher {certificate.name} -> exit {code}\n{out}')
-    if code != 0:
-        return False
-    record = package_dir / TRUSTED_RECORD
-    recorded = record.read_text(encoding='ascii').split() if record.exists() else []
-    if thumbprint not in recorded:
-        with open(record, 'a', encoding='ascii') as f:
-            f.write(thumbprint + '\n')
-    return True
-
-
-def _untrust(machine: Machine, package_dir: pathlib.Path) -> bool:
-    record = package_dir / TRUSTED_RECORD
-    if not record.exists():
-        return True
-    kept = []
-    for thumbprint in record.read_text(encoding='ascii').split():
-        code, out = machine.run('certutil', '-delstore', 'TrustedPublisher', thumbprint)
-        log.info(f'certutil -delstore TrustedPublisher {thumbprint} -> exit {code}\n{out}')
-        if code != 0:
-            kept.append(thumbprint)
-    if kept:
-        record.write_text(''.join(t + '\n' for t in kept), encoding='ascii')
-        return False
-    record.unlink()
-    return True
 
 
 def _export_and_remove_others(machine: Machine, removed_dir: pathlib.Path) -> bool:
@@ -319,13 +294,17 @@ def repair_refusal() -> str | None:
     reason; None where it can.
 
     Repair needs Windows, which binds a driver to each USB device, and an
-    installed build, which carries this step's executable and the signed
-    package beside it; a source run or a build run from ``dist`` has neither.
+    installed build that carries this step's executable and the signed
+    package beside it: a source run or a build run from ``dist`` has
+    neither, and a build made without a signing certificate leaves both out.
     """
     if sys.platform != 'win32':
         return 'repair_needs_windows'
     if app_runtime() is not AppRuntime.INSTALLED:
         return 'repair_needs_installed_build'
+    root = launch_root()
+    if not (root / DRIVER_STEP_EXE).is_file() or not (root / PACKAGE_DIR / PACKAGE_INF).is_file():
+        return 'repair_needs_driver_package'
     return None
 
 
@@ -447,14 +426,22 @@ def main(argv: list[str]) -> int:
             f'LumaViewPro {version} FX2 driver step: {argv[0]}, from {install_dir}, '
             f'PID {os.getpid()}'
         )
-        step = install if argv[0] == 'install' else uninstall
+        package_dir = install_dir / PACKAGE_DIR
+        installed = None
         try:
-            complete = step(WindowsMachine(), install_dir / 'drivers' / 'fx2')
+            if argv[0] == 'install':
+                installed = install(WindowsMachine(), package_dir)
+                complete = installed is Installed.BOUND
+            else:
+                complete = uninstall(WindowsMachine(), package_dir)
         except Exception:
             # The top of the step: the installer ignores the exit code and this
             # executable has no console, so the log is the only place it is told.
             log.exception(f'{argv[0]} stopped on an unexpected error')
             return 1
+        if installed is Installed.NOT_ACCEPTED:
+            log.info(f'{argv[0]} not done: Windows did not accept the package')
+            return NOT_ACCEPTED_EXIT
         log.info(f'{argv[0]} {"complete" if complete else "incomplete: see the errors above"}')
         return 0 if complete else 1
     finally:

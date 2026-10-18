@@ -121,7 +121,7 @@ def refuse_unusable(bindings: dict[str, list[DeviceBinding]]) -> None:
     ]
     if refused:
         raise CameraUsbDriverUnusableError(
-            '; '.join(refused) + '; run the LumaViewPro installer as an administrator to bind it'
+            '; '.join(refused) + "; install LumaViewPro's Lumascope Classic driver to bind it"
         )
 
 

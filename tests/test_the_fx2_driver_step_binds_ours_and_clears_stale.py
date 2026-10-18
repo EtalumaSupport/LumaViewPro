@@ -2,8 +2,8 @@
 """The installer's FX2 driver step binds our package and clears stale ones,
 and never strips a working binding it cannot replace.
 
-``modules/fx2_driver_step.py`` is what the MSI runs elevated at install and
-uninstall. The machine it acts on is stood in by ``_Machine``: a driver store
+``modules/fx2_driver_step.py`` is what the app's Repair runs elevated to
+install, and the MSI to uninstall. The machine it acts on is stood in by ``_Machine``: a driver store
 that is a folder of INF files read through the real ``store_packages``, and
 ``pnputil`` acting on it as Windows does for the commands the step runs
 (add, add and install, delete, export, remove a device). ``/install`` binds
@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import dataclasses
 import datetime
-import hashlib
 import importlib.util
 import pathlib
 import shutil
@@ -56,7 +55,6 @@ class _Machine:
         self.accepts_ours = accepts_ours
         self.devices: list[DeviceBinding] = []
         self.commands: list[tuple[str, ...]] = []
-        self.trusted: list[str] = []
 
     def publish(self, text: str) -> str:
         names = {p.name for p in self.store.glob('oem*.inf')}
@@ -89,14 +87,6 @@ class _Machine:
 
     def run(self, *args):
         self.commands.append(args)
-        if args[0] == 'certutil':
-            if args[1] == '-addstore':
-                self.trusted.append(
-                    hashlib.sha1(pathlib.Path(args[3]).read_bytes()).hexdigest().upper()
-                )
-            else:
-                self.trusted = [t for t in self.trusted if t != args[3]]
-            return 0, ''
         command, rest = args[1], args[2:]
         if command == '/add-driver':
             text = pathlib.Path(rest[0]).read_text(encoding='ascii')
@@ -184,9 +174,9 @@ def test_a_zadig_bound_scope_ends_on_our_package_with_zadigs_kept_for_uninstall(
     machine.plug(FX2_FIRMWARE, inf=zadig)
     package_dir = _package_dir(tmp_path)
 
-    complete = fx2_driver_step.install(machine, package_dir)
+    installed = fx2_driver_step.install(machine, package_dir)
 
-    assert complete is True
+    assert installed is fx2_driver_step.Installed.BOUND
     assert _bound(machine, FX2_FIRMWARE) == [(True, 'Etaluma')]
     assert [p.provider for p in machine.store_packages(FX2_FIRMWARE)] == ['Etaluma']
     assert (package_dir / 'removed' / zadig / zadig).exists()
@@ -197,9 +187,9 @@ def test_a_package_that_cannot_enter_the_store_removes_nothing(tmp_path):
     zadig = machine.publish(ZADIG_FIRMWARE)
     machine.plug(FX2_FIRMWARE, inf=zadig)
 
-    complete = fx2_driver_step.install(machine, _package_dir(tmp_path))
+    installed = fx2_driver_step.install(machine, _package_dir(tmp_path))
 
-    assert complete is False
+    assert installed is fx2_driver_step.Installed.NOT_ACCEPTED
     assert _bound(machine, FX2_FIRMWARE) == [(True, 'libwdi')]
     assert [p.inf for p in machine.store_packages(FX2_FIRMWARE)] == [zadig]
 
@@ -221,9 +211,9 @@ def test_past_devices_and_our_older_package_are_removed(tmp_path):
     machine.plug(FX2_BOOTLOADER, present=False, inf=older)
     machine.plug(FX2_FIRMWARE, present=False, inf=older)
 
-    complete = fx2_driver_step.install(machine, _package_dir(tmp_path))
+    installed = fx2_driver_step.install(machine, _package_dir(tmp_path))
 
-    assert complete is True
+    assert installed is fx2_driver_step.Installed.BOUND
     assert machine.devices == []
     assert [p.driver_ver for p in machine.store_packages(FX2_FIRMWARE)] == ['10/17/2026,4.0.0.38']
 
@@ -235,9 +225,9 @@ def test_a_present_device_left_on_another_package_makes_the_install_incomplete(t
     newer = machine.publish(_inf('libwdi', 'z.cat', '12/31/2026', FX2_BOOTLOADER))
     machine.plug(FX2_BOOTLOADER, inf=newer)
 
-    complete = fx2_driver_step.install(machine, _package_dir(tmp_path))
+    installed = fx2_driver_step.install(machine, _package_dir(tmp_path))
 
-    assert complete is False
+    assert installed is fx2_driver_step.Installed.INCOMPLETE
     assert _bound(machine, FX2_BOOTLOADER) == [(True, 'libwdi')]
 
 
@@ -255,35 +245,53 @@ def test_uninstall_removes_ours_and_restores_what_install_removed(tmp_path):
     assert not (package_dir / 'removed').exists()
 
 
-def test_the_signing_certificate_is_trusted_once_and_removed_at_uninstall(tmp_path):
+def test_install_and_uninstall_never_touch_the_trust_store(tmp_path):
+    # Pre-trusting our certificate would install the driver silently, which
+    # Microsoft says never to do for a driver distributed outside the
+    # organization; Windows asks the person instead.
+    # A signing certificate beside the package is the file the step once
+    # trusted; it is left alone now.
     machine = _machine(tmp_path)
     package_dir = _package_dir(tmp_path)
-    (package_dir / fx2_driver_step.SIGNING_CERTIFICATE).write_bytes(b'DER bytes')
+    (package_dir / 'Etaluma_TrustedPublisher.cer').write_bytes(b'DER bytes')
 
     fx2_driver_step.install(machine, package_dir)
-    fx2_driver_step.install(machine, package_dir)
-    recorded = (package_dir / fx2_driver_step.TRUSTED_RECORD).read_text(encoding='ascii').split()
     fx2_driver_step.uninstall(machine, package_dir)
 
-    assert len(recorded) == 1
-    assert machine.trusted == []
-    assert not (package_dir / fx2_driver_step.TRUSTED_RECORD).exists()
+    assert [args[0] for args in machine.commands] == ['pnputil'] * len(machine.commands)
 
 
-def test_the_step_logs_to_its_install_folder_and_exits_1_when_incomplete(tmp_path, monkeypatch):
+def _run_main(tmp_path, monkeypatch, machine) -> tuple[int, str]:
     package_dir = _package_dir(tmp_path)
     install_dir = package_dir.parent.parent
     (install_dir / 'version.txt').write_text('4.0.0-beta38\n', encoding='ascii')
-    machine = _machine(tmp_path, accepts_ours=False)
     monkeypatch.setattr(sys, 'executable', str(install_dir / 'lvp_fx2_driver_step.exe'))
     monkeypatch.setattr(fx2_driver_step, 'WindowsMachine', lambda: machine)
 
     code = fx2_driver_step.main(['install'])
 
     (log_file,) = (install_dir / 'logs').glob('driver_install_4.0.0-beta38_*.log')
-    text = log_file.read_text(encoding='utf-8')
-    assert code == 1
+    return code, log_file.read_text(encoding='utf-8')
+
+
+def test_a_package_windows_did_not_accept_exits_with_its_own_code(tmp_path, monkeypatch):
+    code, text = _run_main(tmp_path, monkeypatch, _machine(tmp_path, accepts_ours=False))
+
+    assert code == fx2_driver_step.NOT_ACCEPTED_EXIT
     assert 'did not enter the driver store' in text
+    assert text.rstrip().endswith('install not done: Windows did not accept the package')
+
+
+def test_the_step_logs_to_its_install_folder_and_exits_1_when_incomplete(tmp_path, monkeypatch):
+    machine = _machine(tmp_path)
+    # A package dated after the build outranks ours on the bootloader.
+    machine.plug(
+        FX2_BOOTLOADER, inf=machine.publish(_inf('libwdi', 'z.cat', '12/31/2026', FX2_BOOTLOADER))
+    )
+
+    code, text = _run_main(tmp_path, monkeypatch, machine)
+
+    assert code == 1
     assert text.rstrip().endswith('install incomplete: see the errors above')
 
 

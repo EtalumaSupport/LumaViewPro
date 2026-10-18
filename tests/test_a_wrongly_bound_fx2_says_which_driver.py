@@ -81,7 +81,7 @@ def test_bring_up_names_the_driver_not_an_absent_camera(monkeypatch):
     notice = CameraNotAvailableError(cause)
     assert cause == 'camera_driver_unusable'
     assert notice.title == 'Camera driver not usable'
-    assert 'installer as an administrator' in str(notice)
+    assert 'install a LumaViewPro build that carries it' in str(notice)
 
 
 def _binding(identity, *, present, service):
