@@ -20,6 +20,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from modules.exceptions import CaptureError
+from modules.lumascope_api.illumination import LedEndPolicy
 from modules.notification_center import OutcomeKind, outcome_of
 from modules.protocol_state_machine import SequencedCaptureRunMode
 from modules.operation import Operation
@@ -70,8 +71,8 @@ class TestCompositeRunsAsItsOwnKind:
         # policy and would leave an interactive user's channel off.
         runner = _runner()
         runner.run_composite()
-        assert runner._executor.prepare.call_args.kwargs['run_mode'].leds_state_at_end == (
-            'return_to_original'
+        assert runner._executor.prepare.call_args.kwargs['run_mode'].led_end_policy is (
+            LedEndPolicy.RETURN_TO_ORIGINAL
         )
 
     def test_frames_are_saved(self):
@@ -91,12 +92,16 @@ class TestCompositeRunsAsItsOwnKind:
         runner.start_single_scan(
             protocol=protocol,
         )
-        assert runner._executor.prepare.call_args.kwargs['run_mode'].leds_state_at_end == 'off'
+        assert runner._executor.prepare.call_args.kwargs['run_mode'].led_end_policy is (
+            LedEndPolicy.OFF
+        )
 
         runner.start_protocol(
             protocol=protocol,
         )
-        assert runner._executor.prepare.call_args.kwargs['run_mode'].leds_state_at_end == 'off'
+        assert runner._executor.prepare.call_args.kwargs['run_mode'].led_end_policy is (
+            LedEndPolicy.OFF
+        )
 
 
 class TestCompositeOutcomeIsObservable:

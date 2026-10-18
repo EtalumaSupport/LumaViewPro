@@ -19,6 +19,7 @@ import pytest
 
 from modules.exceptions import ArgumentRefusedError
 from modules.labware_loader import WellPlateLoader
+from modules.lumascope_api.illumination import LedEndPolicy
 from modules.protocol_state_machine import SequencedCaptureRunMode
 from tests.scope_fakes import build_scope
 from tests.test_composite_run_config import _settings
@@ -95,7 +96,7 @@ class TestTheRunIsAnAutofocusOfItsOwn:
         # traverse that must end dark.
         runner = _runner()
         runner.start_autofocus(layer='BF')
-        assert _prepared(runner)['run_mode'].leds_state_at_end == 'return_to_original'
+        assert _prepared(runner)['run_mode'].led_end_policy is LedEndPolicy.RETURN_TO_ORIGINAL
 
 
 class TestCharacterizationDataIsOptIn:

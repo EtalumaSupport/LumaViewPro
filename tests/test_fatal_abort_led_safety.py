@@ -150,7 +150,7 @@ def test_latched_record_writes_nothing_but_still_reconciles(tmp_path, monkeypatc
 # ---------------------------------------------------------------------------
 
 
-def _run_cleanup_capture_led_ctx(*, forced_dark, leds_state_at_end):
+def _run_cleanup_capture_led_ctx(*, forced_dark, led_end_policy):
     from modules.protocol_cleanup import run_cleanup
 
     applied = []
@@ -166,7 +166,7 @@ def _run_cleanup_capture_led_ctx(*, forced_dark, leds_state_at_end):
         set_state_fn=lambda s: state.__setitem__(0, s),
         scan_in_progress=threading.Event(),
         forced_dark=forced_dark,
-        leds_state_at_end=leds_state_at_end,
+        led_end_policy=led_end_policy,
         original_led_states=(LedReading(2, 'Blue', LedState.LIT, 42.0),),
         saved_camera_state=None,
         show_pre_run_layer_fn=None,
@@ -187,7 +187,9 @@ def _run_cleanup_capture_led_ctx(*, forced_dark, leds_state_at_end):
 
 
 def test_fatal_cleanup_asserts_dark_regardless_of_end_policy():
-    ctx = _run_cleanup_capture_led_ctx(forced_dark=True, leds_state_at_end='return_to_original')
+    ctx = _run_cleanup_capture_led_ctx(
+        forced_dark=True, led_end_policy=LedEndPolicy.RETURN_TO_ORIGINAL
+    )
     assert ctx.end_policy is LedEndPolicy.OFF
     assert ctx.snapshot_lit == frozenset(), (
         'a fatal abort must ASSERT dark -- restoring pre-run channels after a '
@@ -196,7 +198,9 @@ def test_fatal_cleanup_asserts_dark_regardless_of_end_policy():
 
 
 def test_nonfatal_cleanup_keeps_the_configured_end_policy():
-    ctx = _run_cleanup_capture_led_ctx(forced_dark=False, leds_state_at_end='return_to_original')
+    ctx = _run_cleanup_capture_led_ctx(
+        forced_dark=False, led_end_policy=LedEndPolicy.RETURN_TO_ORIGINAL
+    )
     assert ctx.end_policy is LedEndPolicy.RETURN_TO_ORIGINAL
     assert ctx.snapshot_lit == frozenset({(2, 42.0)}), 'user Stop keeps the configured restore'
 

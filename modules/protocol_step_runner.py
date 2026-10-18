@@ -427,12 +427,10 @@ class ProtocolStepRunner:
                     # RUN_END uses (resolved once), so the boundary and cleanup
                     # cannot disagree about what run-end will light.
                     is_run_end_boundary = True
-                    resolved_policy, snapshot_lit = resolve_end_state(
-                        p._run_mode.leds_state_at_end,
-                        getattr(p, '_original_led_states', None),
+                    end_policy = p._run_mode.led_end_policy
+                    snapshot_lit = resolve_end_state(
+                        end_policy, getattr(p, '_original_led_states', None)
                     )
-                    if resolved_policy is not None:
-                        end_policy = resolved_policy
                 else:
                     # Last step of a non-final scan: the inter-scan idle runs dark.
                     is_scan_boundary = True

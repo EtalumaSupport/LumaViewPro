@@ -298,24 +298,19 @@ def test_resolve_end_state_shared_builder():
     from modules.lumascope_api.illumination import resolve_end_state
 
     # OFF policy: no snapshot walk, empty target.
-    assert resolve_end_state('off', (_lit(GREEN_CH, 'Green', GREEN_MA),)) == (
-        LedEndPolicy.OFF,
-        frozenset(),
-    )
+    lit_green = (_lit(GREEN_CH, 'Green', GREEN_MA),)
+    assert resolve_end_state(LedEndPolicy.OFF, lit_green) == frozenset()
     # Restore policy: every lit address makes the snapshot, named or not; a
     # dark one does not.
-    policy, snapshot = resolve_end_state(
-        'return_to_original',
+    snapshot = resolve_end_state(
+        LedEndPolicy.RETURN_TO_ORIGINAL,
         (
             _lit(GREEN_CH, 'Green', GREEN_MA),
             _dark(BLUE_CH, 'Blue'),
             _lit(UNNAMED_CH, None, 99.0),
         ),
     )
-    assert policy is LedEndPolicy.RETURN_TO_ORIGINAL
     assert snapshot == frozenset({(GREEN_CH, GREEN_MA), (UNNAMED_CH, 99.0)})
-    # Unrecognized policy: None, so the caller can surface the misconfiguration.
-    assert resolve_end_state('bogus', ()) == (None, frozenset())
 
 
 def test_lit_pairs_shared_helper_snapshot_and_restore_agree():
@@ -347,8 +342,7 @@ def test_lit_pairs_shared_helper_snapshot_and_restore_agree():
 
     # drop_nonpositive=False (the restore path): every lit address is taken
     # verbatim, so the zero-current Blue address is restored as-is.
-    policy, restore = resolve_end_state('return_to_original', readings)
-    assert policy is LedEndPolicy.RETURN_TO_ORIGINAL
+    restore = resolve_end_state(LedEndPolicy.RETURN_TO_ORIGINAL, readings)
     assert restore == frozenset({(GREEN_CH, GREEN_MA), (BLUE_CH, 0.0), (UNNAMED_CH, 99.0)})
     assert restore == _lit_channel_pairs(readings, drop_nonpositive=False)
 
@@ -357,7 +351,7 @@ def test_lit_pairs_shared_helper_snapshot_and_restore_agree():
     lit_only = (_lit(GREEN_CH, 'Green', GREEN_MA), _lit(BLUE_CH, 'Blue', BLUE_MA))
     both = frozenset({(GREEN_CH, GREEN_MA), (BLUE_CH, BLUE_MA)})
     assert snapshot_lit_pairs(lit_only) == both
-    assert resolve_end_state('return_to_original', lit_only)[1] == both
+    assert resolve_end_state(LedEndPolicy.RETURN_TO_ORIGINAL, lit_only) == both
 
     # No LED board (None readings) is nothing lit.
     assert snapshot_lit_pairs(None) == frozenset()

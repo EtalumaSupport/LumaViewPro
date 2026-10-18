@@ -4,7 +4,7 @@
 The composite run kind is the one run kind a user triggers while standing
 at the scope with the live preview lit, so its illumination contract is
 different from a scan's: it borrows the LEDs and hands them back the way
-it found them (``leds_state_at_end='return_to_original'``), and only a
+it found them (``led_end_policy`` ``RETURN_TO_ORIGINAL``), and only a
 FATAL abort forces the sample dark. Every other file about this run kind
 checks what reached DISK. Nothing checks what reached the SAMPLE.
 

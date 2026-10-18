@@ -394,11 +394,10 @@ def snapshot_lit_pairs(readings: tuple[LedReading, ...] | None) -> frozenset[tup
 
 
 def resolve_end_state(
-    leds_state_at_end: str,
+    end_policy: LedEndPolicy,
     original_led_states: tuple[LedReading, ...] | None,
-) -> tuple[LedEndPolicy | None, frozenset[tuple[int, float]]]:
-    """Map a run's end-state policy and pre-run snapshot to the LED authority's
-    (end_policy, snapshot_lit).
+) -> frozenset[tuple[int, float]]:
+    """The channels a run's end lights, from its end policy and pre-run snapshot.
 
     The single derivation of a run's end LED state, shared by run cleanup (the
     RUN_END transition) and the final-step boundary (which holds a channel only
@@ -407,21 +406,15 @@ def resolve_end_state(
     answer from the same inputs in two places.
 
     Args:
-        leds_state_at_end: The run's end policy -- 'off' or 'return_to_original'.
+        end_policy: The run's end policy (``SequencedCaptureRunMode.led_end_policy``).
         original_led_states: The pre-run readings (``get_led_states``).
 
     Returns:
-        (end_policy, snapshot_lit). end_policy is None for an unrecognized
-        policy string -- the caller decides how to surface that. snapshot_lit is
-        the (channel, illumination_ma) set to restore, empty for the OFF policy.
+        The (channel, illumination_ma) set to restore, empty for the OFF policy.
     """
-    if leds_state_at_end == 'off':
-        return LedEndPolicy.OFF, frozenset()
-    if leds_state_at_end == 'return_to_original':
-        return LedEndPolicy.RETURN_TO_ORIGINAL, _lit_channel_pairs(
-            original_led_states, drop_nonpositive=False
-        )
-    return None, frozenset()
+    if end_policy is LedEndPolicy.OFF:
+        return frozenset()
+    return _lit_channel_pairs(original_led_states, drop_nonpositive=False)
 
 
 class LedState(enum.StrEnum):

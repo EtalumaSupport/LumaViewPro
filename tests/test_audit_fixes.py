@@ -58,7 +58,7 @@ from modules.exceptions import (
     ConfigError,
     ProtocolError,
 )
-from modules.lumascope_api.illumination import LedReading, LedState
+from modules.lumascope_api.illumination import LedEndPolicy, LedReading, LedState
 from modules.lumascope_api.imaging import ImagingAPI
 from modules.lumascope_api.runtime_state import RuntimeState
 from modules.coord_transformations import PlateLocation
@@ -1265,7 +1265,7 @@ def _run_cleanup_kwargs(**overrides):
         'set_state_fn': MagicMock(),
         'scan_in_progress': threading.Event(),
         'forced_dark': False,
-        'leds_state_at_end': 'off',
+        'led_end_policy': LedEndPolicy.OFF,
         'original_led_states': {},
         'saved_camera_state': {},
         'show_pre_run_layer_fn': None,
@@ -8529,7 +8529,7 @@ class TestProtocolCleanupLedRestoreKey:
         scope = MagicMock()
         apply_calls = []
         kwargs = _run_cleanup_kwargs(
-            leds_state_at_end='return_to_original',
+            led_end_policy=LedEndPolicy.RETURN_TO_ORIGINAL,
             original_led_states=(
                 LedReading(2, 'Red', LedState.LIT, 250.0),
                 LedReading(1, 'Green', LedState.DARK, None),

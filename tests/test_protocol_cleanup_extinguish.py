@@ -22,7 +22,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from modules.lumascope_api.illumination import LedState
+from modules.lumascope_api.illumination import LedEndPolicy, LedState
 
 import modules.sequenced_capture_runner as scr
 from tests.protocol_drives import held_run_claim
@@ -147,7 +147,7 @@ def _cleanup_told(scope, monkeypatch, apply_led_transition_fn):
         set_state_fn=lambda state: None,
         scan_in_progress=threading.Event(),
         forced_dark=False,
-        leds_state_at_end='off',
+        led_end_policy=LedEndPolicy.OFF,
         original_led_states=(),
         saved_camera_state={},
         show_pre_run_layer_fn=None,

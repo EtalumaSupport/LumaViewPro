@@ -27,6 +27,7 @@ import logging
 
 import pytest
 
+from modules.lumascope_api.illumination import LedEndPolicy
 from modules.notification_center import NotificationCenter, Severity, notifications
 from modules.protocol_state_machine import SequencedCaptureRunMode
 from tests.case_walk import failing_cases
@@ -123,13 +124,18 @@ def test_a_run_under_a_borrowed_claim_is_unattended(monkeypatch):
 
 def test_the_same_declaration_decides_how_the_leds_are_left():
     """A one-position run hands the LEDs back as it found them; a plate
-    traverse ends dark. One fact about the run, read in one place."""
+    traverse ends dark. One fact about the run, read in one place, and a
+    policy the LED authority takes as it is, so no caller meets one it
+    cannot apply."""
 
-    def check(run_mode, leds_state_at_end):
-        assert run_mode.leds_state_at_end == leds_state_at_end
+    def check(run_mode, policy):
+        assert run_mode.led_end_policy is policy
 
     failed = failing_cases(
-        [(mode, 'return_to_original' if attended else 'off') for mode, _, attended in _RUN_KINDS],
+        [
+            (mode, LedEndPolicy.RETURN_TO_ORIGINAL if attended else LedEndPolicy.OFF)
+            for mode, _, attended in _RUN_KINDS
+        ],
         check,
     )
     assert not failed, failed

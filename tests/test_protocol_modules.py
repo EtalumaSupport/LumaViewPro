@@ -18,7 +18,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from modules.lumascope_api.illumination import LedReading, LedState
+from modules.lumascope_api.illumination import LedEndPolicy, LedReading, LedState
 
 from tests.protocol_drives import lent_run_claim
 from tests.frame_records import plate
@@ -342,7 +342,7 @@ class TestRunCleanup:
             'set_state_fn': set_state,
             'scan_in_progress': threading.Event(),
             'forced_dark': False,
-            'leds_state_at_end': 'off',
+            'led_end_policy': LedEndPolicy.OFF,
             'original_led_states': (),
             'saved_camera_state': None,
             'show_pre_run_layer_fn': None,

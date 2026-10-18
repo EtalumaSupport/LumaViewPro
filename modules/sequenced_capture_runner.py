@@ -2632,7 +2632,7 @@ class SequencedCaptureRunner:
                 set_state_fn=self._set_state,
                 scan_in_progress=self._scan_in_progress,
                 forced_dark=forced_dark,
-                leds_state_at_end=self._run_mode.leds_state_at_end,
+                led_end_policy=self._run_mode.led_end_policy,
                 original_led_states=self._original_led_states,
                 saved_camera_state=getattr(self, '_saved_camera_state', None),
                 show_pre_run_layer_fn=self._on_run_ending,

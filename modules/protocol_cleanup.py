@@ -20,6 +20,7 @@ from lvp_logger import logger
 from modules.coord_transformations import PlateLocation
 from modules.exceptions import RunCleanupFailedError, SlowFileWritesNotice
 from modules.lumascope_api.illumination import (
+    LedEndPolicy,
     LedReading,
     LedTransition,
     LedTransitionCtx,
@@ -109,7 +110,7 @@ def run_cleanup(
     # decision cannot flip mid-cleanup.
     forced_dark: bool,
     # Saved original states
-    leds_state_at_end: str,
+    led_end_policy: LedEndPolicy,
     original_led_states: tuple[LedReading, ...] | None,
     saved_camera_state: dict,
     # Shows the layer shown before the run at its stored settings, once the
@@ -251,21 +252,16 @@ def run_cleanup(
             # wins). Asserting OFF -- not skipping the restore -- is the point: a
             # skipped restore would leave a raced re-light on forever. User Stop
             # keeps the configured policy.
-            end_policy, snapshot_lit = resolve_end_state(
-                'off' if forced_dark else leds_state_at_end,
-                original_led_states,
+            end_policy = LedEndPolicy.OFF if forced_dark else led_end_policy
+            snapshot_lit = resolve_end_state(end_policy, original_led_states)
+            apply_led_transition_fn(
+                LedTransition.RUN_END,
+                LedTransitionCtx(end_policy=end_policy, snapshot_lit=snapshot_lit),
             )
-            if end_policy is None:
-                logger.error(f'Unsupported LEDs state at end value: {leds_state_at_end}')
-            else:
-                apply_led_transition_fn(
-                    LedTransition.RUN_END,
-                    LedTransitionCtx(end_policy=end_policy, snapshot_lit=snapshot_lit),
-                )
-                led_end_state_applied = True
-                logger.info(
-                    f'[{logger_name}] Cleanup: LED end state applied ({end_policy.name.lower()})'
-                )
+            led_end_state_applied = True
+            logger.info(
+                f'[{logger_name}] Cleanup: LED end state applied ({end_policy.name.lower()})'
+            )
         except CancelledError:
             # The protocol queue was cleared and this restore task cancelled
             # before it ran. A superseding run/abort cycle is one canceller --

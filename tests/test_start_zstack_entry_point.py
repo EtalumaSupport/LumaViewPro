@@ -17,6 +17,7 @@ import pytest
 
 from modules.exceptions import ArgumentRefusedError
 from modules.labware_loader import WellPlateLoader
+from modules.lumascope_api.illumination import LedEndPolicy
 from modules.protocol_state_machine import SequencedCaptureRunMode
 from tests.test_composite_run_config import _settings
 from tests.objective_records import objective
@@ -109,7 +110,7 @@ class TestTheRunIsAZStackOfItsOwn:
     def test_it_hands_the_illumination_back_as_it_found_it(self):
         runner = _runner()
         runner.start_zstack(layer='BF')
-        assert _prepared(runner)['run_mode'].leds_state_at_end == 'return_to_original'
+        assert _prepared(runner)['run_mode'].led_end_policy is LedEndPolicy.RETURN_TO_ORIGINAL
 
 
 class TestTheStageGoesBackWhereTheStackWasCentred:
