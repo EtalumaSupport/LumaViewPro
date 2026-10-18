@@ -134,10 +134,7 @@ def _run_folder(tmp_path, protocol, *, without_groups=False):
             step_name=step['Name'],
             step_index=idx,
             scan_count=0,
-            # A capture's clock reading carries microseconds; a whole second
-            # is written without them and the record's reader refuses it (a
-            # defect of its own, dispositioned apart from this test).
-            timestamp=datetime.datetime(2026, 10, 13, 12, 0, idx, 1),
+            timestamp=datetime.datetime(2026, 10, 13, 12, 0, idx),
         )
     return folder
 
