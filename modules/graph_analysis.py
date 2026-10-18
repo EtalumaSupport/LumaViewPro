@@ -1,5 +1,5 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""The trendlines a graph of results can draw, and the fit behind each one.
+"""A graph of cell-count results: the figure, its trendlines, and the fit behind each one.
 
 A fit the data cannot take is refused in words that say which values and how
 many, never drawn as an arbitrary curve: a log-transformed kind cannot take a
@@ -13,6 +13,8 @@ from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
+from matplotlib.dates import ConciseDateFormatter
+from matplotlib.figure import Figure
 
 from modules.exceptions import PostProcessingOperation, PostProcessingRefusedError
 
@@ -125,3 +127,36 @@ def fit_trendline(kind: str, x: pd.Series, y: pd.Series) -> Trendline:
     else:
         curve = np.poly1d(np.polyfit(np.log(xs), ys, 1))(np.log(xs))
     return Trendline(kind=kind, x=x, y=curve)
+
+
+def draw_graph(
+    table: pd.DataFrame,
+    x: str | None,
+    y: str | None,
+    trendline: Trendline | None,
+    *,
+    x_label: str,
+    y_label: str,
+    title: str,
+) -> Figure:
+    """Draw *y* against *x* from *table*, with *trendline* over it when one is given.
+
+    Built without pyplot, so no figure is held after its last reference
+    goes and two threads can each draw their own. With *x* or *y* None it
+    is the empty frame, labelled, that a graph shows before its axes are
+    chosen.
+    """
+    figure = Figure()
+    axes = figure.add_subplot()
+    axes.set_xlabel(x_label)
+    axes.set_ylabel(y_label)
+    axes.set_title(title)
+    if x is None or y is None:
+        axes.scatter([], [])
+        return figure
+    axes.scatter(table[x], table[y])
+    if pd.api.types.is_datetime64_any_dtype(table[x]):
+        axes.xaxis.set_major_formatter(ConciseDateFormatter(axes.xaxis.get_major_locator()))
+    if trendline is not None:
+        axes.plot(trendline.x, trendline.y, 'r--')
+    return figure

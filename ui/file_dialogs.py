@@ -674,7 +674,6 @@ class FileSaveBTN(HoverBehavior, Button):
         elif self.context == 'save_graph':
             if self.selection:
                 ctx.graphing_controls.save_graph(filepath=self.selection[0])
-                logger.info('[LVP Main  ] Saving Graph PNG to File:' + self.selection[0])
 
         elif self.context == 'saveas_cell_count_method' and self.selection:
             logger.info('[LVP Main  ] Saving Cell Count Method to File:' + self.selection[0])

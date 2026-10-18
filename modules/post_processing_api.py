@@ -32,8 +32,10 @@ import time
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
+from matplotlib.figure import Figure
+
 from lvp_logger import logger
-from modules import live_work, path_utils
+from modules import graph_analysis, live_work, path_utils
 from modules.exceptions import (
     ExcludedInput,
     PostProcessingFailedError,
@@ -140,6 +142,37 @@ class CellCountResult:
     counted: int
 
 
+@api_fields('x_axes', 'y_axes', 'trendlines')
+@dataclasses.dataclass(frozen=True)
+class GraphOptions:
+    """What a graph of a results table can be drawn with.
+
+    Attributes:
+        x_axes: The columns that can be the X axis: numbers and times.
+        y_axes: The columns that can be the Y axis: numbers.
+        trendlines: The trendline kinds the chosen pair takes; empty until
+            both axes are chosen.
+    """
+
+    x_axes: tuple[str, ...]
+    y_axes: tuple[str, ...]
+    trendlines: tuple[str, ...]
+
+
+@api_fields('message', 'path')
+@dataclasses.dataclass(frozen=True)
+class GraphResult:
+    """What a graph save wrote.
+
+    Attributes:
+        message: The outcome in words.
+        path: The PNG it wrote.
+    """
+
+    message: str
+    path: pathlib.Path
+
+
 def _build_result(answer: dict) -> BuildResult:
     """The published record of a builder's answer."""
     root = pathlib.Path(answer['output_root'])
@@ -186,6 +219,70 @@ def _answering[R](record: Callable[[dict], R], build: Callable[..., dict]) -> Ca
 def _existing_file_or_folder(path: pathlib.Path) -> pathlib.Path:
     """*path*, if a file or a folder is there: what an enhance reads."""
     return path if path.is_dir() else path_utils.existing_file(path)
+
+
+def _results_table(results: FilePath):
+    """The cell-count results file at *results*, read as the table a graph draws."""
+    from modules.post_processing import read_cell_count_results
+
+    return read_cell_count_results(path_utils.existing_file(results))
+
+
+def _plottable_axes(table, x: str | None, y: str | None) -> tuple[list[str], list[str]]:
+    """The columns of *table* each axis can take, once *x* and *y* are among them."""
+    from modules.post_processing import results_axes
+
+    x_axes, y_axes = results_axes(table)
+    for axis, column, plottable in (('X', x, x_axes), ('Y', y, y_axes)):
+        if column is not None and column not in plottable:
+            raise PostProcessingRefusedError(
+                operation=PostProcessingOperation.GRAPHING,
+                reason='axis_not_plottable',
+                message=f'{column} cannot be the {axis} axis: the {axis} axis can be '
+                f'{", ".join(plottable) or "no column of this file"}.',
+            )
+    return x_axes, y_axes
+
+
+def _figure(table, x, y, trendline, x_label, y_label, title) -> Figure:
+    """The graph of *y* against *x* from *table*: the axes checked, the trendline fitted."""
+    if table is None or x is None or y is None:
+        return graph_analysis.draw_graph(
+            table,
+            None,
+            None,
+            None,
+            x_label=x_label or '',
+            y_label=y_label or '',
+            title=title,
+        )
+    _plottable_axes(table, x, y)
+    fitted = (
+        None if trendline is None else graph_analysis.fit_trendline(trendline, table[x], table[y])
+    )
+    return graph_analysis.draw_graph(
+        table,
+        x,
+        y,
+        fitted,
+        x_label=x if x_label is None else x_label,
+        y_label=y if y_label is None else y_label,
+        title=title,
+    )
+
+
+def _save_graph(results, path, *, x, y, trendline, x_label, y_label, title, on_progress):
+    """Draw the graph of the *results* file and write it to *path*: ``graph``'s work on the lane."""
+    figure = _figure(_results_table(results), x, y, trendline, x_label, y_label, title)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        figure.savefig(path, format='png')
+    except OSError as e:
+        raise PostProcessingFailedError(
+            operation=PostProcessingOperation.GRAPHING,
+            missing=f'The graph could not be written to {path} ({e.strerror or e}).',
+        ) from e
+    return GraphResult(message=f'Saved the graph of {y} against {x} to {path}.', path=path)
 
 
 class PostProcessingAPI:
@@ -494,6 +591,118 @@ class PostProcessingAPI:
             folder,
             method,
             on_progress=on_progress,
+        )
+
+    @api
+    def graph_options(
+        self, results: FilePath, *, x: str | None = None, y: str | None = None
+    ) -> GraphOptions:
+        """The columns of the cell-count *results* file a graph can take, and,
+        with both axes given, the trendlines that pair takes.
+
+        Read on the caller's thread, not the post-processing lane, so a form
+        filling its choices does not wait behind a build.
+
+        Raises:
+            LiveFolderPathRefusedError: ``'not_found'``, nothing is at
+                *results*; ``'not_a_file'``, a folder is.
+            PostProcessingRefusedError: ``'results_unreadable'``, the file
+                cannot be graphed; ``'axis_not_plottable'``, *x* or *y* is
+                not a column that axis can take.
+        """
+        table = _results_table(results)
+        x_axes, y_axes = _plottable_axes(table, x, y)
+        trendlines = (
+            () if x is None or y is None else graph_analysis.trendline_kinds(table[x], table[y])
+        )
+        return GraphOptions(x_axes=tuple(x_axes), y_axes=tuple(y_axes), trendlines=trendlines)
+
+    @api(in_process=True)
+    def draw_graph(
+        self,
+        results: FilePath | None,
+        *,
+        x: str | None,
+        y: str | None,
+        trendline: str | None = None,
+        x_label: str | None = None,
+        y_label: str | None = None,
+        title: str = '',
+    ) -> Figure:
+        """The figure ``graph`` saves for the same arguments, for a GUI in this process to show.
+
+        With no *results*, or *x* or *y* None, it is the empty frame a
+        graph shows before its axes are chosen. Each label defaults to its
+        column's name.
+
+        Raises:
+            LiveFolderPathRefusedError: ``'not_found'``, nothing is at
+                *results*; ``'not_a_file'``, a folder is.
+            PostProcessingRefusedError: ``'results_unreadable'``, the file
+                cannot be graphed; ``'axis_not_plottable'``, *x* or *y* is
+                not a column that axis can take; ``'fit_impossible'``, the
+                values cannot give the *trendline*.
+        """
+        table = None if results is None else _results_table(results)
+        return _figure(table, x, y, trendline, x_label, y_label, title)
+
+    @api
+    def graph(
+        self,
+        results: FilePath | None,
+        path: FilePath,
+        *,
+        x: str | None,
+        y: str | None,
+        trendline: str | None = None,
+        x_label: str | None = None,
+        y_label: str | None = None,
+        title: str = '',
+    ) -> GraphResult:
+        """Save the graph of column *y* against column *x* of the cell-count
+        *results* file to *path* as a PNG.
+
+        *trendline* is one of the kinds ``graph_options`` names, or None for
+        none. Each label defaults to its column's name. A missing folder is
+        made where *path* sends it.
+
+        Returns:
+            The PNG written and the outcome in words.
+
+        Raises:
+            LiveFolderPathRefusedError: ``'not_found'``, nothing is at
+                *results*; ``'not_a_file'``, a folder is there or at *path*;
+                ``'wrong_extension'``, *path* does not end in ``.png`` (in
+                any case), which is not added; ``'not_a_folder'``, a file is
+                where its folder would be. Nothing is written.
+            PostProcessingRefusedError: ``'graph_incomplete'``, no *results*
+                file or no *x* or *y* is given; ``'results_unreadable'``,
+                the file cannot be graphed; ``'axis_not_plottable'``, *x* or
+                *y* is not a column that axis can take; ``'fit_impossible'``,
+                the values cannot give the *trendline*. Nothing is written.
+            PostProcessingFailedError: the folder or the file could not be
+                written; the message names the file and the system's reason.
+        """
+        if results is None or x is None or y is None:
+            raise PostProcessingRefusedError(
+                operation=PostProcessingOperation.GRAPHING,
+                reason='graph_incomplete',
+                message='There is nothing to graph yet: choose a results file and an X and a Y '
+                'axis first.',
+            )
+        path = path_utils.file_to_write(path, extension='.png')
+        return self._run(
+            _save_graph,
+            'graph',
+            results,
+            path,
+            x=x,
+            y=y,
+            trendline=trendline,
+            x_label=x_label,
+            y_label=y_label,
+            title=title,
+            reads=path_utils.existing_file,
         )
 
     def _run(self, action, member: str, folder, *args, reads=path_utils.existing_folder, **kwargs):

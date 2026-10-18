@@ -7,8 +7,8 @@ with no reason given. An exponential or power fit over a zero, or a NaN in
 either column, gave a curve of NaN or an arbitrary one. A pick with the
 trendline already on fitted twice, because the axis handlers called the fit
 again. The fit now lives in ``modules/graph_analysis.py``. It refuses, naming
-the values and how many, and the widget fits once per gesture and draws what
-it stored.
+the values and how many, and the widget asks the session to draw once per
+gesture and shows the figure it was given.
 """
 
 from __future__ import annotations
@@ -22,6 +22,8 @@ import pytest
 import ui.post_processing as panel_module
 from modules.exceptions import PostProcessingRefusedError
 from modules.graph_analysis import fit_trendline, trendline_kinds
+from modules.scope_session import ScopeSession
+from tests.settings_fixtures import complete_settings
 
 
 def _series(name, values):
@@ -133,18 +135,35 @@ def records(monkeypatch):
     return seen
 
 
-def _graph(monkeypatch):
+@pytest.fixture
+def session(monkeypatch, tmp_path):
+    """A simulated session the panel asks, as the app's context holds it."""
+    s = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
+    monkeypatch.setattr(panel_module._app_ctx, 'ctx', SimpleNamespace(session=s))
+    yield s
+    s.shutdown()
+
+
+def _graph(tmp_path):
     """The widget's state and handlers, with spinners that call back on a change as Kivy's do."""
     cls = panel_module.GraphingControls
+    results = tmp_path / 'results.csv'
+    results.write_text('num_cells,area,perimeter\n1.0,0.0,1.0\n2.0,4.0,2.0\n3.0,6.0,4.0\n')
     graph = SimpleNamespace(
-        graph_df=pd.DataFrame(
-            {'num_cells': [1.0, 2.0, 3.0], 'area': [0.0, 4.0, 6.0], 'perimeter': [1.0, 2.0, 4.0]}
-        ),
+        _results=str(results),
+        _x_axes=['num_cells', 'area', 'perimeter'],
+        _y_axes=['num_cells', 'area', 'perimeter'],
+        _trendline_kinds=('Linear',),
         selected_x_axis='num_cells',
         selected_y_axis='area',
         _trendline_kind='None',
-        _trendline=None,
-        fits=0,
+        _figure=None,
+        x_axis_label='num_cells',
+        y_axis_label='area',
+        graph_title='',
+        # A stand-in by design: the canvas is Kivy's; the figure it is handed is the subject.
+        graph_widget=SimpleNamespace(show=lambda figure: None),
+        drawn=[],
         redraws=0,
     )
     handlers = {
@@ -155,7 +174,7 @@ def _graph(monkeypatch):
 
     class Spinner:
         def __init__(self, key, text):
-            self.key, self._text = key, text
+            self.key, self._text, self.values = key, text, ()
 
         @property
         def text(self):
@@ -179,70 +198,80 @@ def _graph(monkeypatch):
         y_axis_label_input=SimpleNamespace(text=''),
     )
 
-    def fit():
-        graph.fits += 1
-        cls._fit_trendline(graph)
+    def drawn(kind):
+        graph.drawn.append(kind)
+        return cls._drawn(graph, kind)
 
     def redraw():
         graph.redraws += 1
-        graph.ids.graphing_x_axis_spinner.text = graph.selected_x_axis or 'X-Axis'
-        graph.ids.graphing_y_axis_spinner.text = graph.selected_y_axis or 'Y-Axis'
-        graph.ids.trendline_spinner.text = graph._trendline_kind
+        cls._redraw_graph(graph)
 
-    graph._fit_trendline = fit
+    graph._take_axes = lambda: cls._take_axes(graph)
+    graph._draw = lambda: cls._draw(graph)
+    graph._drawn = drawn
     graph._redraw_graph = redraw
     return graph
 
 
+def _trendline_shown(graph):
+    """The trendline on the figure the panel shows, or None."""
+    lines = graph._figure.axes[0].get_lines()
+    return lines[0] if lines else None
+
+
 def test_a_pick_the_data_cannot_take_is_refused_once_and_the_spinner_reads_none(
-    monkeypatch, boundary, records
+    session, tmp_path, boundary, records
 ):
-    graph = _graph(monkeypatch)
+    graph = _graph(tmp_path)
     graph.ids.trendline_spinner.text = 'Exponential'
     assert [label for label, _ in boundary] == ['TRENDLINE']
-    assert isinstance(boundary[0][1], PostProcessingRefusedError)
-    assert graph.fits == 1
+    assert boundary[0][1].reason == 'fit_impossible'
     assert graph.ids.trendline_spinner.text == 'None'
+    assert _trendline_shown(graph) is None
     # The pick is recorded by the spinner itself; the handler, and the
     # redraw's write back to None, record nothing.
     assert records == []
 
 
-def test_an_axis_change_after_a_refused_pick_asks_for_no_fit_again(monkeypatch, boundary, records):
-    graph = _graph(monkeypatch)
+def test_an_axis_change_after_a_refused_pick_asks_for_no_fit_again(
+    session, tmp_path, boundary, records
+):
+    graph = _graph(tmp_path)
     graph.ids.trendline_spinner.text = 'Exponential'
     graph.ids.graphing_x_axis_spinner.text = 'perimeter'
     assert len(boundary) == 1
-    assert graph._trendline is None
+    assert graph.drawn.count('Exponential') == 1
+    assert _trendline_shown(graph) is None
     assert records == []
 
 
-def test_a_pick_fits_once_and_an_axis_change_fits_once_more(monkeypatch, boundary, records):
-    graph = _graph(monkeypatch)
+def test_a_pick_fits_once_and_an_axis_change_fits_once_more(session, tmp_path, boundary, records):
+    graph = _graph(tmp_path)
     graph.ids.trendline_spinner.text = 'Linear'
-    assert (graph.fits, boundary) == (1, [])
-    assert graph._trendline.kind == 'Linear'
+    assert (graph.drawn, boundary) == (['Linear'], [])
     graph.ids.graphing_y_axis_spinner.text = 'perimeter'
-    assert graph.fits == 2
-    assert graph._trendline.y.tolist() == pytest.approx(
-        fit_trendline('Linear', graph.graph_df['num_cells'], graph.graph_df['perimeter']).y.tolist()
+    assert graph.drawn == ['Linear', 'Linear']
+    table = pd.read_csv(graph._results)
+    assert list(_trendline_shown(graph).get_ydata()) == pytest.approx(
+        fit_trendline('Linear', table['num_cells'], table['perimeter']).y.tolist()
     )
 
 
-def test_the_redraw_showing_the_stored_choice_is_not_a_choice(monkeypatch, boundary, records):
-    graph = _graph(monkeypatch)
+def test_the_redraw_showing_the_stored_choice_is_not_a_choice(session, tmp_path, boundary, records):
+    graph = _graph(tmp_path)
     panel_module.GraphingControls.set_x_axis(graph)
     panel_module.GraphingControls.set_y_axis(graph)
     panel_module.GraphingControls.update_trendline(graph)
-    assert (records, graph.fits, graph.redraws) == ([], 0, 0)
+    assert (records, graph.drawn, graph.redraws) == ([], [], 0)
 
 
-def test_a_kind_picked_before_both_axes_waits_for_them(monkeypatch, boundary, records):
-    graph = _graph(monkeypatch)
+def test_a_kind_picked_before_both_axes_waits_for_them(session, tmp_path, boundary, records):
+    graph = _graph(tmp_path)
     graph.selected_y_axis = None
     graph.ids.graphing_y_axis_spinner._text = 'Y-Axis'
     graph.ids.trendline_spinner.text = 'Linear'
-    assert (boundary, graph._trendline, graph._trendline_kind) == ([], None, 'Linear')
+    assert (boundary, graph._trendline_kind) == ([], 'Linear')
+    assert _trendline_shown(graph) is None
     graph.ids.graphing_y_axis_spinner.text = 'perimeter'
     assert boundary == []
-    assert graph._trendline.kind == 'Linear'
+    assert _trendline_shown(graph) is not None

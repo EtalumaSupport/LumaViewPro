@@ -40,6 +40,7 @@ def live(tmp_path):
     (folder / 'a_file.txt').write_text('not an image, not a folder')
     (folder / 'a_folder').mkdir()
     (folder / 'a_folder.tsv').mkdir()
+    (folder / 'results.csv').write_text('count,mean_area\n3,1.5\n5,2.5\n')
     return folder
 
 
@@ -63,7 +64,12 @@ def test_the_cell_count_reader_refuses_a_missing_file(live):
 def _writers(session):
     """Each writer of a named file, with the extension its kind takes."""
     protocol = session.new_protocol()
+    results = f'{session.settings["live_folder"]}/results.csv'
     return {
+        'PostProcessingAPI.graph': (
+            '.png',
+            lambda p: session.post_processing.graph(results, p, x='count', y='mean_area'),
+        ),
         'ScopeSession.save_protocol': ('.tsv', lambda p: session.save_protocol(protocol, p)),
         'Protocol.to_file': ('.tsv', protocol.to_file),
         'save_cell_count_method': (

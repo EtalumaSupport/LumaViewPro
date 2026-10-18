@@ -87,6 +87,8 @@ ENROLLED = (
     'PostProcessingAPI.video',
     'PostProcessingAPI.enhance',
     'PostProcessingAPI.count_cells',
+    'PostProcessingAPI.graph_options',
+    'PostProcessingAPI.graph',
     'MotionAPI.home',
     'MotionAPI.move_absolute',
     'MotionAPI.wait_until_finished_moving',
@@ -217,6 +219,8 @@ def _make_scope(tmp_path: pathlib.Path, model: str = 'LS850', protocol: bool = T
     (live / 'a_folder.tsv').mkdir()
     (live / 'images').mkdir()
     tifffile.imwrite(live / 'images' / 'frame.tif', np.full((64, 64), 100, dtype=np.uint16))
+    # A cell-count results table to graph: a text column and two of numbers.
+    (live / 'results.csv').write_text('file,count,mean_area\na.tif,3,1.5\nb.tif,5,2.5\n')
     session = ScopeSession.create(
         complete_settings(live_folder=str(live), microscope=model, simulator_tier=tier or 'fast'),
         simulate=True,
@@ -463,6 +467,42 @@ def _valid_rows() -> list[Valid]:
             'PostProcessingAPI.count_cells',
             lambda s: s.session.post_processing.count_cells(s.live / 'images', method=method),
             lambda s, result: None if (s.live / 'images' / 'results.csv').is_file() else 'no csv',
+        ),
+        Valid(
+            'graph_options',
+            'PostProcessingAPI.graph_options',
+            lambda s: pp(s).graph_options(s.live / 'results.csv', x='count', y='mean_area'),
+            lambda s, options: (
+                None
+                if (options.x_axes, options.y_axes) == (('count', 'mean_area'),) * 2
+                and 'Linear' in options.trendlines
+                else f'{options}'
+            ),
+            (
+                '/api/v1/post_processing/graph_options',
+                lambda s: {'results': 'results.csv', 'x': 'count', 'y': 'mean_area'},
+            ),
+        ),
+        Valid(
+            'graph',
+            'PostProcessingAPI.graph',
+            lambda s: pp(s).graph(
+                s.live / 'results.csv',
+                s.live / 'graphs' / 'g.png',
+                x='count',
+                y='mean_area',
+                trendline='Linear',
+            ),
+            lambda s, _: None if (s.live / 'graphs' / 'g.png').is_file() else 'no png',
+            (
+                '/api/v1/post_processing/graph',
+                lambda s: {
+                    'results': 'results.csv',
+                    'path': 'wire_graphs/g.png',
+                    'x': 'count',
+                    'y': 'mean_area',
+                },
+            ),
         ),
         Valid(
             'move_absolute',
@@ -716,6 +756,83 @@ def _bad_rows() -> list[Bad]:
             PostProcessingRefusedError,
             'method_invalid',
             ('/api/v1/post_processing/count_cells', lambda s: {'folder': 'images', 'method': {}}),
+        ),
+        Bad(
+            'graph_options of a missing file',
+            'PostProcessingAPI.graph_options',
+            lambda s: pp(s).graph_options(s.live / 'nothing_here.csv'),
+            LiveFolderPathRefusedError,
+            'not_found',
+            ('/api/v1/post_processing/graph_options', lambda s: {'results': 'nothing_here.csv'}),
+        ),
+        Bad(
+            'graph_options with a text column as X',
+            'PostProcessingAPI.graph_options',
+            lambda s: pp(s).graph_options(s.live / 'results.csv', x='file', y='count'),
+            PostProcessingRefusedError,
+            'axis_not_plottable',
+            (
+                '/api/v1/post_processing/graph_options',
+                lambda s: {'results': 'results.csv', 'x': 'file', 'y': 'count'},
+            ),
+        ),
+        Bad(
+            'graph to a name without .png',
+            'PostProcessingAPI.graph',
+            lambda s: pp(s).graph(
+                s.live / 'results.csv', s.live / 'g.v2', x='count', y='mean_area'
+            ),
+            LiveFolderPathRefusedError,
+            'wrong_extension',
+            (
+                '/api/v1/post_processing/graph',
+                lambda s: {
+                    'results': 'results.csv',
+                    'path': 'g.v2',
+                    'x': 'count',
+                    'y': 'mean_area',
+                },
+            ),
+        ),
+        Bad(
+            'graph of a missing file',
+            'PostProcessingAPI.graph',
+            lambda s: pp(s).graph(
+                s.live / 'nothing_here.csv', s.live / 'g.png', x='count', y='mean_area'
+            ),
+            LiveFolderPathRefusedError,
+            'not_found',
+            (
+                '/api/v1/post_processing/graph',
+                lambda s: {
+                    'results': 'nothing_here.csv',
+                    'path': 'g.png',
+                    'x': 'count',
+                    'y': 'mean_area',
+                },
+            ),
+        ),
+        Bad(
+            'graph with no X chosen',
+            'PostProcessingAPI.graph',
+            lambda s: pp(s).graph(s.live / 'results.csv', s.live / 'g.png', x=None, y='mean_area'),
+            PostProcessingRefusedError,
+            'graph_incomplete',
+            (
+                '/api/v1/post_processing/graph',
+                lambda s: {'results': 'results.csv', 'path': 'g.png', 'x': None, 'y': 'mean_area'},
+            ),
+        ),
+        Bad(
+            'graph with a text column as X',
+            'PostProcessingAPI.graph',
+            lambda s: pp(s).graph(s.live / 'results.csv', s.live / 'g.png', x='file', y='count'),
+            PostProcessingRefusedError,
+            'axis_not_plottable',
+            (
+                '/api/v1/post_processing/graph',
+                lambda s: {'results': 'results.csv', 'path': 'g.png', 'x': 'file', 'y': 'count'},
+            ),
         ),
         Bad(
             'home an axis that is not one',

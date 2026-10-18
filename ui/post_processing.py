@@ -6,13 +6,7 @@ import subprocess
 import sys
 from typing import ClassVar
 
-import matplotlib
-
-matplotlib.use('Agg')  # Must be set before pyplot import to avoid Tk/macOS conflict
-import matplotlib.pyplot as plt
-from matplotlib.dates import ConciseDateFormatter
 import numpy as np
-import pandas as pd
 
 from kivy.clock import Clock
 from kivy.properties import BooleanProperty, StringProperty
@@ -295,22 +289,26 @@ class GraphingControls(BoxLayout):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         logger.info('LVP Main: GraphingControls.__init__()')
-        self.fig = None
         self._post = post_processing.PostProcessing()
         self.graphing_area = self.ids.graphing_area
         self.graph_widget = None
-        self.graph_df = None
+        # The form the session draws and saves from; the panel holds no data.
+        self._results = None
         self._x_axes = []
         self._y_axes = []
+        self._trendline_kinds = graph_analysis.TRENDLINE_KINDS
         self.selected_x_axis = None
         self.selected_y_axis = None
         self._trendline_kind = graph_analysis.NO_TRENDLINE
-        self._trendline = None
-        self._redraw_graph()
+        self._figure = None
+
+    def show(self) -> None:
+        """Draw the graph as the form stands: the empty frame until a file and axes are chosen."""
+        run_reported(self._draw, self._redraw_graph, 'OPEN_GRAPHING')
 
     # Each spinner handler returns when the spinner shows what is already
     # chosen: that is the redraw writing the stored choice back, so nothing is
-    # fitted again. A person's pick is recorded by the spinner itself.
+    # drawn again. A person's pick is recorded by the spinner itself.
 
     def set_x_axis(self):
         axis = self.ids['graphing_x_axis_spinner'].text
@@ -318,7 +316,7 @@ class GraphingControls(BoxLayout):
             return
         self.selected_x_axis = axis
         self.ids.x_axis_label_input.text = axis
-        run_reported(self._fit_trendline, self._redraw_graph, 'GRAPHING_X_AXIS')
+        run_reported(self._take_axes, self._redraw_graph, 'GRAPHING_X_AXIS')
 
     def set_y_axis(self):
         axis = self.ids['graphing_y_axis_spinner'].text
@@ -326,64 +324,78 @@ class GraphingControls(BoxLayout):
             return
         self.selected_y_axis = axis
         self.ids.y_axis_label_input.text = axis
-        run_reported(self._fit_trendline, self._redraw_graph, 'GRAPHING_Y_AXIS')
+        run_reported(self._take_axes, self._redraw_graph, 'GRAPHING_Y_AXIS')
 
     def update_trendline(self):
         kind = self.ids.trendline_spinner.text
         if kind == self._trendline_kind:
             return
         self._trendline_kind = kind
-        run_reported(self._fit_trendline, self._redraw_graph, 'TRENDLINE')
+        run_reported(self._draw, self._redraw_graph, 'TRENDLINE')
 
-    def _fit_trendline(self) -> None:
-        """Fit the chosen trendline to the chosen axes.
+    def _take_axes(self) -> None:
+        """Ask the session which trendlines the chosen axes take, then draw them."""
+        if self.selected_x_axis is None or self.selected_y_axis is None:
+            self._trendline_kinds = graph_analysis.TRENDLINE_KINDS
+        else:
+            self._trendline_kinds = _app_ctx.ctx.session.post_processing.graph_options(
+                self._results, x=self.selected_x_axis, y=self.selected_y_axis
+            ).trendlines
+        self._draw()
 
-        A refused fit leaves no trendline chosen, so the spinner reads None
-        and a later axis change does not ask for the refused fit again.
+    def _draw(self) -> None:
+        """Have the session draw what is chosen; the redraw shows it.
+
+        A refused trendline leaves none chosen, so the spinner reads None, the
+        redraw draws the graph without it, and a later axis change does not
+        ask for the refused fit again.
         """
-        self._trendline = None
+        self._figure = None
         if self._trendline_kind == graph_analysis.NO_TRENDLINE:
             return
         if self.selected_x_axis is None or self.selected_y_axis is None:
             return
         kind, self._trendline_kind = self._trendline_kind, graph_analysis.NO_TRENDLINE
-        self._trendline = graph_analysis.fit_trendline(
-            kind, self.graph_df[self.selected_x_axis], self.graph_df[self.selected_y_axis]
-        )
+        self._figure = self._drawn(kind)
         self._trendline_kind = kind
 
+    def _drawn(self, kind: str):
+        """The session's figure of the form, with the *kind* of trendline."""
+        return _app_ctx.ctx.session.post_processing.draw_graph(
+            self._results,
+            x=self.selected_x_axis,
+            y=self.selected_y_axis,
+            trendline=None if kind == graph_analysis.NO_TRENDLINE else kind,
+            x_label=self.x_axis_label,
+            y_label=self.y_axis_label,
+            title=self.graph_title,
+        )
+
     def _redraw_graph(self) -> None:
-        """Draw what is chosen: the data, its two axes and the fitted trendline."""
+        """Show what is chosen: the spinners' choices and the session's figure of them."""
         self.ids.graphing_x_axis_spinner.values = self._x_axes
         self.ids.graphing_y_axis_spinner.values = self._y_axes
         self.ids.graphing_x_axis_spinner.text = self.selected_x_axis or _NO_X_AXIS
         self.ids.graphing_y_axis_spinner.text = self.selected_y_axis or _NO_Y_AXIS
-        self.initialize_graph()
-        kinds = graph_analysis.TRENDLINE_KINDS
-        if self.selected_x_axis is not None and self.selected_y_axis is not None:
-            x = self.graph_df[self.selected_x_axis]
-            y = self.graph_df[self.selected_y_axis]
-            kinds = graph_analysis.trendline_kinds(x, y)
-            self.ax.scatter(x, y)
-            if pd.api.types.is_datetime64_any_dtype(x):
-                self.ax.xaxis.set_major_formatter(
-                    ConciseDateFormatter(self.ax.xaxis.get_major_locator())
-                )
-            if self._trendline is not None:
-                self.ax.plot(self._trendline.x, self._trendline.y, 'r--')
-        self.ids.trendline_spinner.values = (graph_analysis.NO_TRENDLINE, *kinds)
+        self.ids.trendline_spinner.values = (graph_analysis.NO_TRENDLINE, *self._trendline_kinds)
         self.ids.trendline_spinner.text = self._trendline_kind
-        self.update_graph()
+        if self._figure is None:
+            self._figure = self._drawn(self._trendline_kind)
+        if self.graph_widget is None:
+            from ui.figure_canvas import FigureCanvasKivyAgg
+
+            self.graph_widget = FigureCanvasKivyAgg(self._figure)
+            self.graphing_area.add_widget(self.graph_widget)
+        else:
+            self.graph_widget.show(self._figure)
 
     def update_x_axis_label(self):
-        self.ax.set_xlabel(self.ids.x_axis_label_input.text)
         self.x_axis_label = self.ids.x_axis_label_input.text
-        self.update_graph()
+        run_reported(self._draw, self._redraw_graph, 'GRAPH_X_AXIS_LABEL')
 
     def update_y_axis_label(self):
-        self.ax.set_ylabel(self.ids.y_axis_label_input.text)
         self.y_axis_label = self.ids.y_axis_label_input.text
-        self.update_graph()
+        run_reported(self._draw, self._redraw_graph, 'GRAPH_Y_AXIS_LABEL')
 
     def log_text_commit(self, name: str, widget_id: str) -> None:
         """Record a typed commit in one of the graph's three label fields.
@@ -402,37 +414,27 @@ class GraphingControls(BoxLayout):
         gui_logger.text_input(name, self.ids[widget_id].text)
 
     def update_graph_title(self):
-        self.ax.set_title(self.ids.graph_title_input.text)
         self.graph_title = self.ids.graph_title_input.text
-        self.update_graph()
-
-    def initialize_graph(self):
-        # plt.clf() only clears the figure contents; the figure object
-        # itself (along with its GDI handle on Windows) leaks. Close the
-        # previous figure explicitly before allocating a new one.
-        if hasattr(self, 'fig') and self.fig is not None:
-            plt.close(self.fig)
-        graphing_area = self.graphing_area
-        self.fig, self.ax = plt.subplots()
-        self.ax.scatter([], [])
-        self.ax.set_xlabel(self.x_axis_label)
-        self.ax.set_ylabel(self.y_axis_label)
-        self.ax.set_title(self.graph_title)
-
-        if self.graph_widget:
-            graphing_area.remove_widget(self.graph_widget)
-
-        from ui.figure_canvas import FigureCanvasKivyAgg
-
-        self.graph_widget = FigureCanvasKivyAgg(plt.gcf())
-
-        graphing_area.add_widget(self.graph_widget)
-
-    def update_graph(self):
-        self.graph_widget.draw()
+        run_reported(self._draw, self._redraw_graph, 'GRAPH_TITLE')
 
     def save_graph(self, filepath):
-        plt.savefig(filepath)
+        """Have the session save the graph the form describes to *filepath*."""
+        post = _app_ctx.ctx.session.post_processing
+        results, x, y = self._results, self.selected_x_axis, self.selected_y_axis
+        trendline = (
+            None if self._trendline_kind == graph_analysis.NO_TRENDLINE else self._trendline_kind
+        )
+        labels = {
+            'x_label': self.x_axis_label,
+            'y_label': self.y_axis_label,
+            'title': self.graph_title,
+        }
+        submit_reported(
+            lambda: post.graph(results, filepath, x=x, y=y, trendline=trendline, **labels),
+            None,
+            'SAVE_GRAPH',
+            lane=post.lane,
+        )
 
     def set_graphing_source(self, file):
         run_reported(lambda: self._load_source(file), self._redraw_graph, 'LOAD_GRAPHING_DATA')
@@ -443,12 +445,14 @@ class GraphingControls(BoxLayout):
         A second file's columns need not be the first's, so a choice made
         against the first is not carried onto the second.
         """
-        self.graph_df = post_processing.read_cell_count_results(file)
-        self._x_axes, self._y_axes = post_processing.results_axes(self.graph_df)
+        options = _app_ctx.ctx.session.post_processing.graph_options(file)
+        self._results = file
+        self._x_axes, self._y_axes = list(options.x_axes), list(options.y_axes)
+        self._trendline_kinds = graph_analysis.TRENDLINE_KINDS
         self.selected_x_axis = None
         self.selected_y_axis = None
         self._trendline_kind = graph_analysis.NO_TRENDLINE
-        self._trendline = None
+        self._figure = None
 
     def set_post_processing_module(self, postprocessingmodule):
         self._post = postprocessingmodule
@@ -938,6 +942,7 @@ class PostProcessingAccordion(BoxLayout):
                 size_hint=(0.85, 0.85),
                 auto_dismiss=True,
             )
+            ctx.graphing_controls.show()
 
         self._graphing_popup.open()
 

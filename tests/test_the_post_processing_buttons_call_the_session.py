@@ -46,7 +46,8 @@ def session(monkeypatch):
     def inline(call, redraw, label, **kwargs):
         assert kwargs['lane'] is ctx.session.post_processing.lane
         call()
-        redraw()
+        if redraw is not None:
+            redraw()
 
     monkeypatch.setattr(post_processing, 'submit_reported', inline)
     return ctx.session
@@ -103,6 +104,29 @@ def test_cell_count_asks_with_the_panels_method(session):
     )
     session.post_processing.count_cells.assert_called_once_with(
         '/data/cells', method=method, on_progress=ANY
+    )
+
+
+def test_graph_save_asks_with_the_form_the_panel_holds(session):
+    panel = SimpleNamespace(
+        _results='/data/results.csv',
+        selected_x_axis='count',
+        selected_y_axis='area',
+        _trendline_kind='None',
+        x_axis_label='Cells',
+        y_axis_label='Area',
+        graph_title='Growth',
+    )
+    post_processing.GraphingControls.save_graph(panel, '/data/g.v2')
+    session.post_processing.graph.assert_called_once_with(
+        '/data/results.csv',
+        '/data/g.v2',
+        x='count',
+        y='area',
+        trendline=None,
+        x_label='Cells',
+        y_label='Area',
+        title='Growth',
     )
 
 
