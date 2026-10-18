@@ -25,6 +25,7 @@ from modules.protocol import Protocol, ProtocolFormatError, StepEditRefusedError
 from tests.ast_seams import parse_module, walk_defs
 from tests.test_protocol_roundtrip import TILING_CONFIGS, _build_protocol, _make_step
 from tests.case_walk import failing_cases
+from modules.coord_transformations import PlateLocation
 
 
 def _saved(tmp_path, steps) -> pathlib.Path:
@@ -151,7 +152,7 @@ WRITES = {
                 'acquire': 'image',
                 'video_config': {'fps': 5, 'duration': 5},
             },
-            plate_position={'x': 1.0, 'y': 2.0, 'z': 3.0},
+            plate_position=PlateLocation(x_mm=1.0, y_mm=2.0, z_um=3.0),
             objective_id='10x Oly',
             stim_configs={},
         ),
@@ -270,7 +271,7 @@ def test_a_runs_copy_reads_its_cells_as_its_source_does():
                 'video_config': {'fps': 5, 'duration': 5},
                 'focus': None,
             },
-            plate_position={'x': 1.0, 'y': 2.0, 'z': 3.0},
+            plate_position=PlateLocation(x_mm=1.0, y_mm=2.0, z_um=3.0),
             objective_id='10x Oly',
             stim_configs={},
             after_step=1,

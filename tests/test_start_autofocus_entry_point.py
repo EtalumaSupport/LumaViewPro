@@ -23,6 +23,7 @@ from modules.protocol_state_machine import SequencedCaptureRunMode
 from tests.scope_fakes import build_scope
 from tests.test_composite_run_config import _settings
 from tests.objective_records import objective
+from modules.coord_transformations import PlateLocation
 
 
 def _runner(acquiring=('BF',)):
@@ -37,7 +38,7 @@ def _runner(acquiring=('BF',)):
     session.settings = _settings(acquiring=acquiring)
     session.capture_settings_snapshot.return_value = session.settings
     session.get_settings_snapshot.return_value = session.settings
-    session.plate_position_on.return_value = {'x': 1.0, 'y': 2.0, 'z': 3.0}
+    session.plate_position_on.return_value = PlateLocation(x_mm=1.0, y_mm=2.0, z_um=3.0)
     session.objective_helper.get_objective_info.return_value = objective(magnification=10)
     return ProtocolRunner(session)
 
@@ -251,7 +252,7 @@ class TestTheSelectorAndTheGuiStarterAgree:
 
         kwargs = {
             'layer': 'BF',
-            'position': {'x': 1.0, 'y': 2.0, 'z': 3.0},
+            'position': PlateLocation(x_mm=1.0, y_mm=2.0, z_um=3.0),
             'position_name': 'Autofocus',
             'autofocus': True,
             'use_zstacking': False,
@@ -337,7 +338,7 @@ class TestTheConfigActuallyBuildsTheIntendedStep:
 
         kwargs = {
             'layer': 'BF',
-            'position': {'x': 1.0, 'y': 2.0, 'z': 3.0},
+            'position': PlateLocation(x_mm=1.0, y_mm=2.0, z_um=3.0),
             'position_name': 'Autofocus',
             'autofocus': True,
             'use_zstacking': False,

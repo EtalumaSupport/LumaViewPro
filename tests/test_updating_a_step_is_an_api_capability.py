@@ -32,9 +32,10 @@ from tests.test_adding_a_step_is_an_api_capability import (  # noqa: F401 -- pyt
 from tests.test_issue_524_extra_z_step_on_objective_change import _empty_protocol_for_add
 from tests.test_protocol_execution import scope  # noqa: F401 -- pytest fixture
 from tests.test_run_refusal_contract import _capture_notifications
+from modules.coord_transformations import PlateLocation
 
-ADDED_AT = {'x': 10.0, 'y': 20.0, 'z': 5000.0}
-UPDATED_TO = {'x': 30.0, 'y': 40.0, 'z': 6000.0}
+ADDED_AT = PlateLocation(x_mm=10.0, y_mm=20.0, z_um=5000.0)
+UPDATED_TO = PlateLocation(x_mm=30.0, y_mm=40.0, z_um=6000.0)
 OBJECTIVE = '4x Oly'
 
 
@@ -245,7 +246,7 @@ class TestAScriptUpdatesAStepThroughTheSession:
 
         step = _step(protocol)
         position = session.get_current_plate_position()
-        assert (step['X'], step['Y'], step['Z']) == (position['x'], position['y'], position['z'])
+        assert (step['X'], step['Y'], step['Z']) == (position.x_mm, position.y_mm, position.z_um)
         assert step['Objective'] == session.scope.runtime_state.resolve_current_objective()[0]
 
     def test_the_session_passes_the_rename_through(self, session):

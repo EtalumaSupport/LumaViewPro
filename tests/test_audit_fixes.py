@@ -61,6 +61,7 @@ from modules.exceptions import (
 from modules.lumascope_api.illumination import LedReading, LedState
 from modules.lumascope_api.imaging import ImagingAPI
 from modules.lumascope_api.runtime_state import RuntimeState
+from modules.coord_transformations import PlateLocation
 
 
 class TestDomainExceptions:
@@ -1311,7 +1312,7 @@ class TestRule14_A10_ProtocolCleanupErrorCollection:
             cancel_scheduled_events_fn=_raiser('cancel'),
             apply_led_transition_fn=_raiser('led'),
             saved_camera_state={'tag': 'protocol'},
-            return_to_position={'x': 1.0, 'y': 2.0, 'z': 3.0},
+            return_to_position=PlateLocation(x_mm=1.0, y_mm=2.0, z_um=3.0),
             default_move_fn=_raiser('move'),
         )
         kwargs['scope'].imaging.restore_camera_state.side_effect = RuntimeError('camera boom')

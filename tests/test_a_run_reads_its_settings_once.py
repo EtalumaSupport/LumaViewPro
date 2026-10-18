@@ -34,8 +34,9 @@ from tests.test_composite_run_config import _settings as _run_settings
 from tests.test_run_refusal_contract import _build_real_protocol, _make_single_step_protocol
 from tests.case_walk import failing_cases
 from tests.objective_records import objective
+from modules.coord_transformations import PlateLocation
 
-_POSITION = {'x': 1.0, 'y': 2.0, 'z': 3.0}
+_POSITION = PlateLocation(x_mm=1.0, y_mm=2.0, z_um=3.0)
 
 
 def _at_start():
@@ -73,7 +74,7 @@ def _runner_over_a_store_edited_after_the_first_read():
     session.settings = _edited()
     session.capture_settings_snapshot.side_effect = snapshot
     session.get_settings_snapshot.side_effect = snapshot
-    session.plate_position_on.return_value = dict(_POSITION)
+    session.plate_position_on.return_value = _POSITION
     session.objective_helper.get_objective_info.return_value = objective(magnification=10)
     return ProtocolRunner(session)
 

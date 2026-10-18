@@ -57,7 +57,7 @@ def test_after_a_home_the_plate_position_is_read(make_session):
 
     position = session.get_current_plate_position()
 
-    assert set(position) == {'x', 'y', 'z'}
+    assert position.z_um == pytest.approx(session.scope.motion.get_current_position('Z'), abs=0.01)
 
 
 def test_a_pulled_cable_is_the_cable_not_an_unknown_position(make_session, monkeypatch):

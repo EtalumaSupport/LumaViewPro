@@ -64,7 +64,7 @@ def _standalone_config(zstack: dict, *, use_zstacking: bool = True) -> dict:
         objective_helper,
         wellplate_loader,
         layer='BF',
-        position=dict(_POSITION),
+        position=_POSITION,
         position_name='ZStack',
         autofocus=False,
         use_zstacking=use_zstacking,
@@ -170,7 +170,7 @@ class TestTheHeadlessCallerGetsIt:
         session.settings = settings
         session.capture_settings_snapshot.return_value = session.settings
         session.scope = sim_scope
-        session.plate_position_on.return_value = dict(_POSITION)
+        session.plate_position_on.return_value = _POSITION
         session.objective_helper.get_objective_info.return_value = objective(magnification=10)
         session.wellplate_loader = sim_scope.wellplate_loader
         runner = ProtocolRunner(session)

@@ -26,6 +26,7 @@ import pathlib
 from modules.activity_claim import HeldClaim
 from modules.exceptions import CompositeFailedError, RunWaitExpiredError
 from modules.layer_record import refuse_unknown_layer
+from modules.coord_transformations import PlateLocation
 from modules.protocol import Protocol
 from modules.run_events import RunEvents
 from modules.operation import Operation, refuse_waiting_on_ui_thread
@@ -82,7 +83,7 @@ class ProtocolRunner:
         parent_dir: FilePath | None = None,
         enable_image_saving: bool = True,
         events: RunEvents | None = None,
-        return_to_position: dict | None = None,
+        return_to_position: PlateLocation | None = None,
         run_trigger_source: str = 'api_scan',
     ) -> Operation:
         """Run a single scan through the protocol steps.
@@ -94,7 +95,10 @@ class ProtocolRunner:
             parent_dir: Parent directory for output (defaults to settings['live_folder']/ProtocolData)
             enable_image_saving: Whether to save captured images
             events: The run's event handlers (``RunEvents``); None for none.
-            return_to_position: Optional position to return to after scan
+            return_to_position: Where to return once the scan ends, on the
+                protocol's plate, since the run moves in its protocol's
+                frame; an axis that is None is left where the scan left it.
+                None returns nowhere.
             run_trigger_source: Provenance recorded on the run and named
                 in refusals, so the protocol panel's button records its own
                 token rather than the API's.
@@ -530,7 +534,7 @@ class ProtocolRunner:
         parent_dir: FilePath | None = None,
         enable_image_saving: bool = True,
         events: RunEvents | None = None,
-        return_to_position: dict | None = None,
+        return_to_position: PlateLocation | None = None,
         run_trigger_source: str = 'api_scan',
         timeout_s: float | None = None,
     ) -> RunOutcome:
@@ -817,7 +821,7 @@ class ProtocolRunner:
         parent_dir: FilePath | None = None,
         enable_image_saving: bool = True,
         events: RunEvents | None = None,
-        return_to_position: dict | None = None,
+        return_to_position: PlateLocation | None = None,
         composite_thresholds_percent: dict | None = None,
         disable_saving_artifacts: bool = False,
         save_autofocus_data: bool = False,

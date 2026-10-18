@@ -37,7 +37,7 @@ from modules.activity_claim import (
 )
 from modules.autofocus_runner import AutofocusRunner
 from modules.layer_record import ChannelColors
-from modules.coord_transformations import StageOffset
+from modules.coord_transformations import PlateLocation, StageOffset
 from modules.exceptions import (
     CameraSettingRejected,
     CompositeFailedError,
@@ -276,7 +276,7 @@ class RunPlan:
     write_focus_to: Protocol | None
     video_as_frames: bool
     keep_led_between_steps: bool
-    return_to_position: dict | None
+    return_to_position: PlateLocation | None
     stage_offset: StageOffset
     # The per-class AG/AE exposure ceilings ({'fluorescence': 200.0, ...}),
     # read from the scope's settings at prepare as the offset is, so no
@@ -924,7 +924,7 @@ class SequencedCaptureRunner:
         separate_folder_per_channel: bool = False,
         events: RunEvents | None = None,
         max_scans: int | None = None,
-        return_to_position: dict | None = None,
+        return_to_position: PlateLocation | None = None,
         disable_saving_artifacts: bool = False,
         save_autofocus_data: bool = False,
         # Set ONLY by ProtocolRunner.start_autofocus_all_steps, whose completed

@@ -8,6 +8,7 @@ ScopeSession.go_to_step.
 from harness import check, run
 
 import modules.config_helpers as config_helpers
+from modules.coord_transformations import PlateLocation
 
 
 def body(s):
@@ -33,7 +34,7 @@ def body(s):
         s.objective_helper,
         s.wellplate_loader,
         layer='BF',
-        position={'x': 30.0, 'y': 20.0, 'z': 2000.0},
+        position=PlateLocation(x_mm=30.0, y_mm=20.0, z_um=2000.0),
         position_name='A',
         autofocus=False,
         use_zstacking=False,

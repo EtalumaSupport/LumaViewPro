@@ -19,6 +19,7 @@ from tests.settings_fixtures import complete_settings
 # Heavy deps are mocked by tests/conftest.py at module-import time.
 
 import modules.config_helpers as config_helpers
+from modules.coord_transformations import PlateLocation
 from modules.lumascope_api.illumination import LedState
 from modules.scope_session import ScopeSession
 from modules.sequential_io_executor import SequentialIOExecutor
@@ -376,7 +377,7 @@ class TestGetCurrentPlatePosition:
         type(scope).motor_connected = PropertyMock(return_value=False)
         type(scope).motion_expected = PropertyMock(return_value=False)
         result = config_helpers.get_current_plate_position(scope, '96 well microplate')
-        assert result == {'x': 0, 'y': 0, 'z': 0}
+        assert result == PlateLocation(x_mm=0, y_mm=0, z_um=0)
 
     def test_an_unknown_plate_is_refused_not_answered_in_stage_coordinates(self, tmp_path):
         from modules.exceptions import CatalogueNameRefusedError
@@ -401,8 +402,7 @@ class TestGetCurrentPlatePosition:
             session.scope.motion.move_absolute('Z', 500.0)
             result = session.get_current_plate_position()
             z = session.scope.motion.get_current_position('Z')
-        assert set(result) == {'x', 'y', 'z'}
-        assert result['z'] == pytest.approx(z, abs=0.01)
+        assert result.z_um == pytest.approx(z, abs=0.01)
 
 
 class TestLogSystemMetrics:

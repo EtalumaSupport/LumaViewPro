@@ -28,8 +28,9 @@ from tests.scope_fakes import home_sim_scope
 from tests.test_issue_524_extra_z_step_on_objective_change import _empty_protocol_for_add
 from tests.test_protocol_execution import scope  # noqa: F401 -- pytest fixture
 from tests.test_run_refusal_contract import _capture_notifications
+from modules.coord_transformations import PlateLocation
 
-PLATE_POSITION = {'x': 0.0, 'y': 0.0, 'z': 5000.0}
+PLATE_POSITION = PlateLocation(x_mm=0.0, y_mm=0.0, z_um=5000.0)
 OBJECTIVE = '4x Oly'
 
 

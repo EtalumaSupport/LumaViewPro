@@ -59,6 +59,7 @@ from modules.sequenced_capture_runner import (
 )
 from modules.sequential_io_executor import SequentialIOExecutor
 from tests.scope_fakes import configure_turret_like_bringup
+from modules.coord_transformations import PlateLocation
 
 
 # A1 / A2 / added-location PLATE coordinates in mm (from RedStaysOn.tsv).
@@ -163,7 +164,7 @@ def _add_3rd_location_via_insert_step(protocol):
                 'acquire': 'image',
                 'video_config': {'duration': 5, 'fps': 30},
             },
-            plate_position={'x': ADDED_X, 'y': ADDED_Y, 'z': ADDED_Z},
+            plate_position=PlateLocation(x_mm=ADDED_X, y_mm=ADDED_Y, z_um=ADDED_Z),
             objective_id='4x Oly',
             stim_configs={},
             before_step=None,

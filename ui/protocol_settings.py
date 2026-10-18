@@ -1009,7 +1009,7 @@ class ProtocolSettings(FloatLayout):
         if len(of_shown) > 1:
             # A stack's slices: read after the add, which refuses a position
             # no axis vouches for.
-            live_z = session.get_current_plate_position()['z']
+            live_z = session.get_current_plate_position().z_um
             of_shown.sort(key=lambda idx: abs(self._protocol.step(idx)['Z'] - live_z))
         self.curr_step = of_shown[0] if of_shown else first_added
 

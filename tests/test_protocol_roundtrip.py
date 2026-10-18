@@ -46,6 +46,7 @@ from tests.protocol_drives import (
 from tests.scope_fakes import configure_turret_like_bringup
 from unittest.mock import MagicMock
 from modules.layer_record import release_colors
+from modules.coord_transformations import PlateLocation
 
 
 # ---------------------------------------------------------------------------
@@ -1870,7 +1871,7 @@ class TestProtocolInsertStep:
             step_name='new_step',
             layer='Green',
             layer_config=_layer_config(illumination=200.0),
-            plate_position={'x': 30.0, 'y': 40.0, 'z': 5000.0},
+            plate_position=PlateLocation(x_mm=30.0, y_mm=40.0, z_um=5000.0),
             objective_id='10x Oly',
             stim_configs=_default_stim_config(),
             before_step=0,
@@ -1891,7 +1892,7 @@ class TestProtocolInsertStep:
             step_name='appended',
             layer='Red',
             layer_config=_layer_config(illumination=150.0),
-            plate_position={'x': 10.0, 'y': 20.0, 'z': 5000.0},
+            plate_position=PlateLocation(x_mm=10.0, y_mm=20.0, z_um=5000.0),
             objective_id='10x Oly',
             stim_configs=_default_stim_config(),
             before_step=None,
@@ -1916,7 +1917,7 @@ class TestProtocolInsertStep:
             step_name='middle',
             layer='BF',
             layer_config=_layer_config(),
-            plate_position={'x': 10.0, 'y': 20.0, 'z': 5000.0},
+            plate_position=PlateLocation(x_mm=10.0, y_mm=20.0, z_um=5000.0),
             objective_id='10x Oly',
             stim_configs=_default_stim_config(),
             before_step=None,
@@ -1937,7 +1938,7 @@ class TestProtocolInsertStep:
             step_name='video_step',
             layer='Red',
             layer_config=_layer_config(acquire='video', video_config=vc),
-            plate_position={'x': 10.0, 'y': 20.0, 'z': 5000.0},
+            plate_position=PlateLocation(x_mm=10.0, y_mm=20.0, z_um=5000.0),
             objective_id='10x Oly',
             stim_configs=_default_stim_config(),
             before_step=None,
@@ -1957,7 +1958,7 @@ class TestProtocolInsertStep:
             step_name='stim_step',
             layer='Red',
             layer_config=_layer_config(acquire='video'),
-            plate_position={'x': 10.0, 'y': 20.0, 'z': 5000.0},
+            plate_position=PlateLocation(x_mm=10.0, y_mm=20.0, z_um=5000.0),
             objective_id='10x Oly',
             stim_configs=sc,
             before_step=None,
@@ -1976,7 +1977,7 @@ class TestProtocolInsertStep:
             step_name='added_green',
             layer='Green',
             layer_config=_layer_config(illumination=200.0),
-            plate_position={'x': 10.0, 'y': 20.0, 'z': 5000.0},
+            plate_position=PlateLocation(x_mm=10.0, y_mm=20.0, z_um=5000.0),
             objective_id='10x Oly',
             stim_configs=_default_stim_config(),
             before_step=None,
@@ -2061,7 +2062,7 @@ class TestProtocolModifyStep:
             label='modified',
             layer='Green',
             layer_config=_layer_config(illumination=300.0),
-            plate_position={'x': 10.0, 'y': 20.0, 'z': 5000.0},
+            plate_position=PlateLocation(x_mm=10.0, y_mm=20.0, z_um=5000.0),
             objective_id='10x Oly',
             stim_configs=_default_stim_config(),
         )
@@ -2084,7 +2085,7 @@ class TestProtocolModifyStep:
             label='now_video',
             layer='Red',
             layer_config=_layer_config(acquire='video', video_config=vc),
-            plate_position={'x': 10.0, 'y': 20.0, 'z': 5000.0},
+            plate_position=PlateLocation(x_mm=10.0, y_mm=20.0, z_um=5000.0),
             objective_id='10x Oly',
             stim_configs=sc,
         )
@@ -2102,7 +2103,7 @@ class TestProtocolModifyStep:
             label='modified_red',
             layer='Red',
             layer_config=_layer_config(illumination=200.0),
-            plate_position={'x': 10.0, 'y': 20.0, 'z': 5000.0},
+            plate_position=PlateLocation(x_mm=10.0, y_mm=20.0, z_um=5000.0),
             objective_id='10x Oly',
             stim_configs=_default_stim_config(),
         )

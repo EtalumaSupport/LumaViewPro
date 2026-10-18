@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING
 
 from lvp_logger import logger
 
+from modules.coord_transformations import PlateLocation
 from modules.exceptions import RunCleanupFailedError, SlowFileWritesNotice
 from modules.lumascope_api.illumination import (
     LedReading,
@@ -114,7 +115,7 @@ def run_cleanup(
     # Shows the layer shown before the run at its stored settings, once the
     # camera is restored; None when no session composes the run.
     show_pre_run_layer_fn: Callable[[], None] | None,
-    return_to_position: dict | None,
+    return_to_position: PlateLocation | None,
     # Dependencies
     scope: Lumascope,
     # Executor functions
@@ -308,12 +309,13 @@ def run_cleanup(
         if return_to_position is not None:
             logger.info(
                 f'[{logger_name}] Cleanup: returning to position '
-                f'x={return_to_position["x"]}, y={return_to_position["y"]}, z={return_to_position["z"]}'
+                f'x={return_to_position.x_mm}, y={return_to_position.y_mm}, '
+                f'z={return_to_position.z_um}'
             )
             default_move_fn(
-                px=return_to_position['x'],
-                py=return_to_position['y'],
-                z=return_to_position['z'],
+                px=return_to_position.x_mm,
+                py=return_to_position.y_mm,
+                z=return_to_position.z_um,
             )
             logger.info(f'[{logger_name}] Cleanup: return-to-position move issued')
     except CancelledError:

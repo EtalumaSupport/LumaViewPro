@@ -52,6 +52,7 @@ import modules.app_context as _app_ctx
 import ui.protocol_settings as ps
 from modules.notification_center import notifications
 from modules.protocol import Protocol
+from modules.coord_transformations import PlateLocation
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 
@@ -81,7 +82,7 @@ def _protocol(num_steps):
             step_name=None,
             layer='BF',
             layer_config=LAYER_CONFIG,
-            plate_position={'x': float(i), 'y': 0.0, 'z': 0.0},
+            plate_position=PlateLocation(x_mm=float(i), y_mm=0.0, z_um=0.0),
             objective_id='10x Oly',
             stim_configs={},
             after_step=protocol.num_steps() - 1,

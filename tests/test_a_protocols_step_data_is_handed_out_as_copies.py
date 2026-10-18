@@ -23,6 +23,7 @@ import pytest
 
 from modules.protocol import Protocol
 from tests.test_protocol_roundtrip import TILING_CONFIGS, _build_protocol, _make_step
+from modules.coord_transformations import PlateLocation
 
 DICT_COLUMNS = ['Stim_Config', 'Video Config']
 
@@ -140,7 +141,7 @@ class TestEveryStoredCellIsReadOnly:
                 'acquire': 'image',
                 'video_config': {'fps': 5, 'duration': 5},
             },
-            plate_position={'x': step['X'], 'y': step['Y'], 'z': step['Z']},
+            plate_position=PlateLocation(x_mm=step['X'], y_mm=step['Y'], z_um=step['Z']),
             objective_id=step['Objective'],
             stim_configs={'Blue': {'enabled': False}},
         )

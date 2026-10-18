@@ -19,6 +19,7 @@ import modules.common_utils as common_utils
 import modules.image_mode as image_mode
 from lvp_logger import logger, metrics_logger
 from modules.api_surface import api
+from modules.coord_transformations import PlateLocation
 from modules.labware_loader import WellPlateLoader
 from modules.objectives_loader import ObjectiveLoader
 from modules.protocol_state_machine import SequencedCaptureRunMode
@@ -321,7 +322,7 @@ def model_has_turret(scopes: 'Mapping[str, ScopeModel]', model: str | None) -> b
 # ---------------------------------------------------------------------------
 
 
-def get_current_plate_position(scope: 'Lumascope', labware_id: str) -> dict:
+def get_current_plate_position(scope: 'Lumascope', labware_id: str) -> PlateLocation:
     """Get current plate position in plate coordinates.
 
     Args:
@@ -331,8 +332,7 @@ def get_current_plate_position(scope: 'Lumascope', labware_id: str) -> dict:
             the run will not drive it in.
 
     Returns:
-        dict with keys 'x', 'y', 'z' in plate coordinates: x and y in mm,
-        z in um.
+        The position on the plate: X and Y in mm, Z in um.
 
     Raises:
         HardwareCommandRefusedError: ``'not_connected'`` -- this scope's
@@ -350,7 +350,7 @@ def get_current_plate_position(scope: 'Lumascope', labware_id: str) -> dict:
         # record in place of a position is not decided here; until it is,
         # the origin stands in, and is logged as the stand-in it is.
         logger.error('Cannot retrieve current plate position')
-        return {'x': 0, 'y': 0, 'z': 0}
+        return PlateLocation(x_mm=0, y_mm=0, z_um=0)
 
     pos = scope.motion.get_current_positions()
 
@@ -361,11 +361,11 @@ def get_current_plate_position(scope: 'Lumascope', labware_id: str) -> dict:
         pos.get('X', 0), pos.get('Y', 0), labware_id=labware_id
     )
 
-    return {
-        'x': round(plate.x_mm, common_utils.max_decimal_precision('x')),
-        'y': round(plate.y_mm, common_utils.max_decimal_precision('y')),
-        'z': round(pos.get('Z', 0), common_utils.max_decimal_precision('z')),
-    }
+    return PlateLocation(
+        x_mm=round(plate.x_mm, common_utils.max_decimal_precision('x')),
+        y_mm=round(plate.y_mm, common_utils.max_decimal_precision('y')),
+        z_um=round(pos.get('Z', 0), common_utils.max_decimal_precision('z')),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1189,7 +1189,7 @@ def get_composite_image_capture_config_from_settings(
 def get_composite_capture_config_from_settings(
     settings: dict,
     objective_helper: ObjectiveLoader,
-    position: dict,
+    position: PlateLocation,
 ) -> dict:
     """Build the input_config for a composite run at *position*.
 
@@ -1211,8 +1211,8 @@ def get_composite_capture_config_from_settings(
     objective_helper.get_objective_info(objective_id=objective_id)
 
     composite_position = {
-        'x': position['x'],
-        'y': position['y'],
+        'x': position.x_mm,
+        'y': position.y_mm,
         'z': None,
         'name': COMPOSITE_POSITION_NAME,
     }
@@ -1238,7 +1238,7 @@ def get_composite_capture_config_from_settings(
             # hardware at the sample during a composite -- which capturing a
             # multi-channel image has never done and nobody asked it to.
             'stim_config': {},
-            'current_z': position['z'],
+            'current_z': position.z_um,
             'positions': [composite_position],
         }
     )
@@ -1250,7 +1250,7 @@ def get_standalone_capture_config_from_settings(
     wellplate_loader: WellPlateLoader,
     *,
     layer: str,
-    position: dict,
+    position: PlateLocation,
     position_name: str,
     autofocus: bool,
     use_zstacking: bool,
@@ -1311,8 +1311,12 @@ def get_standalone_capture_config_from_settings(
     layer_config['acquire'] = 'image'
     layer_config['autofocus'] = autofocus
 
-    step_position = dict(position)
-    step_position['name'] = position_name
+    step_position = {
+        'x': position.x_mm,
+        'y': position.y_mm,
+        'z': position.z_um,
+        'name': position_name,
+    }
 
     return build_sequenced_capture_config(
         {
@@ -1328,7 +1332,7 @@ def get_standalone_capture_config_from_settings(
             'frame_dimensions': get_frame_dimensions_from_settings(settings),
             'binning_size': get_binning_from_settings(settings),
             'stim_config': stim_config,
-            'current_z': position['z'],
+            'current_z': position.z_um,
             'positions': [step_position],
         }
     )

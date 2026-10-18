@@ -36,7 +36,7 @@ from typing import TYPE_CHECKING
 import modules.common_utils as common_utils
 import modules.path_utils as path_utils
 from modules.finite_number import refuse_unless_finite_number
-from modules.coord_transformations import AxisLimits, StageOffset
+from modules.coord_transformations import AxisLimits, PlateLocation, StageOffset
 from modules.exceptions import (
     ArgumentRefusedError,
     PositionOutOfRangeError,
@@ -293,7 +293,7 @@ class ProtocolsAPI:
         *,
         layer_configs: dict,
         stim_configs: dict,
-        plate_position: dict,
+        plate_position: PlateLocation,
         objective_id: str | None,
         channel_order: list[str] | None = None,
         before_step: int | None = None,
@@ -358,7 +358,7 @@ class ProtocolsAPI:
             Protocol.refuse_unbuildable_zstack(
                 zstack_params,
                 self._travel_limits(),
-                [(f'the new {layer} step', plate_position['z']) for layer in acquiring],
+                [(f'the new {layer} step', plate_position.z_um) for layer in acquiring],
             )
         first_added = before_step if before_step is not None else after_step + 1
 
@@ -432,7 +432,7 @@ class ProtocolsAPI:
         layer: str,
         layer_configs: dict,
         stim_configs: dict,
-        plate_position: dict,
+        plate_position: PlateLocation,
         objective_id: str | None,
         label: str | None = None,
     ) -> str:

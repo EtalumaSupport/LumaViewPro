@@ -32,10 +32,11 @@ import modules.config_helpers as config_helpers
 from modules.layer_record import release_catalogue
 from tests.settings_fixtures import complete_settings
 from tests.objective_records import objective
+from modules.coord_transformations import PlateLocation
 
 # The plate position a composite starts from; every channel step shares
 # it, so only the name and the deferred z carry meaning here.
-_POSITION = {'x': 1234.5, 'y': 678.9, 'z': 4321.0}
+_POSITION = PlateLocation(x_mm=1234.5, y_mm=678.9, z_um=4321.0)
 
 _ALL_LAYERS = release_catalogue()
 
@@ -98,7 +99,7 @@ def _assemble(settings):
     return config_helpers.get_composite_capture_config_from_settings(
         settings,
         _objective_helper(),
-        position=dict(_POSITION),
+        position=_POSITION,
     )
 
 
@@ -143,8 +144,8 @@ class TestCompositeConfigShape:
 
     def test_position_keeps_the_stages_xy(self):
         config = _assemble(_settings(acquiring=('BF', 'Blue')))
-        assert config['positions'][0]['x'] == _POSITION['x']
-        assert config['positions'][0]['y'] == _POSITION['y']
+        assert config['positions'][0]['x'] == _POSITION.x_mm
+        assert config['positions'][0]['y'] == _POSITION.y_mm
 
     def test_each_channel_carries_its_own_focus(self):
         config = _assemble(

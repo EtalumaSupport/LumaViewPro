@@ -84,4 +84,4 @@ def test_the_scopes_position_is_still_read_on_the_scopes_plate(session):
 
     here = session.get_current_plate_position()
 
-    assert (here['x'], here['y']) == ON_SCOPE_PLATE
+    assert (here.x_mm, here.y_mm) == ON_SCOPE_PLATE

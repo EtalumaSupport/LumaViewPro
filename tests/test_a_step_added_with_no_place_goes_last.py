@@ -15,6 +15,7 @@ from modules import config_helpers
 from modules.exceptions import ProtocolError
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
+from modules.coord_transformations import PlateLocation
 
 
 @pytest.fixture
@@ -63,7 +64,7 @@ def test_the_protocols_own_insert_names_its_place(session):
             step_name=None,
             layer='BF',
             layer_config=session.get_layer_configs()['BF'],
-            plate_position={'x': step['X'], 'y': step['Y'], 'z': step['Z']},
+            plate_position=PlateLocation(x_mm=step['X'], y_mm=step['Y'], z_um=step['Z']),
             objective_id=step['Objective'],
             stim_configs=session.get_stim_configs(),
         )

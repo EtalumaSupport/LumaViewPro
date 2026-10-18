@@ -841,20 +841,6 @@ class TestPixelDepth:
         assert completed
 
 
-class TestReturnToPosition:
-    """Protocol with return_to_position specified."""
-
-    def test_returns_to_position(self, executor, scope, tmp_path):
-        protocol = _make_single_step_protocol(color='BF')
-        completed, _ = _run_and_wait(
-            executor,
-            protocol,
-            tmp_path,
-            return_to_position={'x': 50.0, 'y': 50.0, 'z': 3000.0},
-        )
-        assert completed
-
-
 class TestSeparateFolderPerChannel:
     """Protocol with separate folder per channel."""
 

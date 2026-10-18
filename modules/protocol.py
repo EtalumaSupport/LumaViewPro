@@ -45,7 +45,7 @@ from modules.api_surface import FilePath, api, api_fields
 
 if TYPE_CHECKING:
     import modules.labware as labware_module
-    from modules.coord_transformations import AxisLimits, StageOffset
+    from modules.coord_transformations import AxisLimits, PlateLocation, StageOffset
     from modules.objectives_loader import Objective, ObjectiveLoader
     from modules.scope_capabilities import ScopeCapabilities
 
@@ -1952,7 +1952,7 @@ class Protocol:
         step_idx: int,
         layer: str,
         layer_config: dict,
-        plate_position: dict,
+        plate_position: 'PlateLocation',
         objective_id: str,
         stim_configs: dict,
         turret_slot: int,
@@ -1970,9 +1970,9 @@ class Protocol:
         # Every value is read before any is written, so a refused one leaves
         # the step as it was.
         values = {
-            'X': plate_position['x'],
-            'Y': plate_position['y'],
-            'Z': plate_position['z'],
+            'X': plate_position.x_mm,
+            'Y': plate_position.y_mm,
+            'Z': plate_position.z_um,
             'Auto_Focus': layer_config['autofocus'],
             'Color': layer,
             'False_Color': layer_config['false_color'],
@@ -2015,7 +2015,7 @@ class Protocol:
         step_name: str | None,
         layer: str,
         layer_config: dict,
-        plate_position: dict,
+        plate_position: 'PlateLocation',
         objective_id: str,
         stim_configs: dict,
         channel_group_id: int,
@@ -2069,9 +2069,9 @@ class Protocol:
         # for a later autofocus over all steps.
         step_dict = self._create_step_dict(
             label=label,
-            x=plate_position['x'],
-            y=plate_position['y'],
-            z=plate_position['z'],
+            x=plate_position.x_mm,
+            y=plate_position.y_mm,
+            z=plate_position.z_um,
             af=layer_config['autofocus'],
             color=layer,
             fc=layer_config['false_color'],

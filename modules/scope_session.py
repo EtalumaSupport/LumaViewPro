@@ -90,6 +90,7 @@ from modules.notification_center import Notification
 from modules.operation import Operation, refuse_waiting_on_ui_thread
 from modules.manual_recording import ManualRecordingController
 from modules.config_helpers import DisplayRates
+from modules.coord_transformations import PlateLocation
 from modules.metrics_logger import ENGINEERING_METRICS_INTERVAL_S, MetricsLogger
 from modules.plugins import PLUGIN_API_LEVEL, PluginRegistry
 from modules.python_values import python_values
@@ -1704,7 +1705,7 @@ class ScopeSession:
             self.capture_settings_snapshot(),
             objective_helper=self.objective_helper,
             wellplate_loader=self.wellplate_loader,
-            current_z=z.position if z is not None else self.get_current_plate_position()['z'],
+            current_z=z.position if z is not None else self.get_current_plate_position().z_um,
             tiling=tiling,
             use_zstacking=use_zstacking,
         )
@@ -2257,7 +2258,8 @@ class ScopeSession:
         axes = tuple(axes)
         self.scope.motion.refuse_unknown_positions(axes, recording=True, then='save the bookmark')
         position = self.get_current_plate_position()
-        saved = {axis.lower(): position[axis.lower()] for axis in axes}
+        reads = {'x': position.x_mm, 'y': position.y_mm, 'z': position.z_um}
+        saved = {axis.lower(): reads[axis.lower()] for axis in axes}
         with self.settings_lock:
             for key, value in saved.items():
                 self._store_setting(f'bookmark.{key}', value)
@@ -4233,11 +4235,11 @@ class ScopeSession:
             raise HardwareCommandRefusedError('exclusive_activity_running', member, holder)
 
     @api(reads=True)
-    def get_current_plate_position(self) -> dict:
+    def get_current_plate_position(self) -> PlateLocation:
         """The stage's position in plate coordinates, on the session's labware.
 
         Returns:
-            dict: ``'x'`` and ``'y'`` in mm, ``'z'`` in um.
+            Where the scope is on the plate: X and Y in mm, Z in um.
 
         Raises:
             AxisStateUnknownError: an axis the scope has does not know its
@@ -4254,7 +4256,7 @@ class ScopeSession:
         )
         return self.plate_position_on(self.settings['protocol']['labware'])
 
-    def plate_position_on(self, labware_id: str) -> dict:
+    def plate_position_on(self, labware_id: str) -> PlateLocation:
         """The stage's position in plate coordinates, on the plate ``labware_id`` names.
 
         For a caller that states the position on a plate other than the
@@ -4265,7 +4267,7 @@ class ScopeSession:
         through the step and run members that read it.
 
         Returns:
-            dict: ``'x'`` and ``'y'`` in mm, ``'z'`` in um.
+            Where the scope is on that plate: X and Y in mm, Z in um.
 
         Raises:
             HardwareCommandRefusedError: ``'not_connected'``, the model's

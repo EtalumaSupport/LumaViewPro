@@ -43,6 +43,19 @@ class PlatePosition:
     y_mm: float
 
 
+@api_fields('x_mm', 'y_mm', 'z_um')
+@dataclasses.dataclass(frozen=True)
+class PlateLocation:
+    """Where the scope is on a plate, focus included: X and Y in mm on the plate, Z in um.
+
+    None on an axis is no position there: a move to it leaves that axis where it is.
+    """
+
+    x_mm: float | None
+    y_mm: float | None
+    z_um: float | None
+
+
 @api_fields('x_um', 'y_um')
 @dataclasses.dataclass(frozen=True)
 class StageOffset:

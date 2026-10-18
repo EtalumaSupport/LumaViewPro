@@ -25,6 +25,7 @@ from modules.protocol import Protocol, StepEditRefusedError, StepNotFoundError
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 from tests.test_protocol_roundtrip import TILING_CONFIGS, _build_protocol, _make_step
+from modules.coord_transformations import PlateLocation
 
 NUM_STEPS = 3
 OUTSIDE = [NUM_STEPS, NUM_STEPS + 3, -1]
@@ -41,7 +42,7 @@ LAYER_CONFIG = {
     'video_config': {'duration': 5, 'fps': 5},
     'focus': None,
 }
-PLATE_POSITION = {'x': 10.0, 'y': 20.0, 'z': 5000.0}
+PLATE_POSITION = PlateLocation(x_mm=10.0, y_mm=20.0, z_um=5000.0)
 
 
 def _protocol():

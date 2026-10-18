@@ -20,9 +20,10 @@ from modules.labware_loader import WellPlateLoader
 from modules.protocol_state_machine import SequencedCaptureRunMode
 from tests.test_composite_run_config import _settings
 from tests.objective_records import objective
+from modules.coord_transformations import PlateLocation
 
 # Mid-travel in Z, so a stack around it is inside the travel the build judges.
-_POSITION = {'x': 1.0, 'y': 2.0, 'z': 5000.0}
+_POSITION = PlateLocation(x_mm=1.0, y_mm=2.0, z_um=5000.0)
 
 
 def _zstack_settings(**overrides):
@@ -45,7 +46,7 @@ def _runner():
     session.settings = _zstack_settings()
     session.capture_settings_snapshot.return_value = session.settings
     session.get_settings_snapshot.return_value = session.settings
-    session.plate_position_on.return_value = dict(_POSITION)
+    session.plate_position_on.return_value = _POSITION
     session.objective_helper.get_objective_info.return_value = objective(magnification=10)
     return ProtocolRunner(session)
 
@@ -130,7 +131,7 @@ class TestTheStageGoesBackWhereTheStackWasCentred:
         runner.start_zstack(layer='BF')
         built = _built_config(runner)['positions'][0]
         returned = _prepared(runner)['return_to_position']
-        assert (built['x'], built['y']) == (returned['x'], returned['y'])
+        assert (built['x'], built['y']) == (returned.x_mm, returned.y_mm)
 
 
 class TestTheStackIsNotFlattenedByAnAutofocus:
@@ -218,7 +219,7 @@ class TestTheConfigActuallyBuildsASliceEach:
             objective_helper,
             wellplate_loader,
             layer='BF',
-            position=dict(_POSITION),
+            position=_POSITION,
             position_name='ZStack',
             autofocus=False,
             use_zstacking=True,

@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import ast
 import pathlib
+from modules.coord_transformations import PlateLocation
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 PS_SRC = REPO / 'ui' / 'protocol_settings.py'
@@ -80,7 +81,7 @@ def _modify_channel(proto, *, layer, label=None):
         label=label,
         layer=layer,
         layer_config=_modify_layer_config(),
-        plate_position={'x': 0.0, 'y': 0.0, 'z': 5000.0},
+        plate_position=PlateLocation(x_mm=0.0, y_mm=0.0, z_um=5000.0),
         objective_id='4x Oly',
         stim_configs={},
     )

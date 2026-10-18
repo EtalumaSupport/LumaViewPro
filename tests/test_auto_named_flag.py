@@ -20,6 +20,7 @@ from tests.test_issue_524_extra_z_step_on_objective_change import (
     _empty_protocol_for_add,
 )
 from tests.test_protocol_roundtrip import _build_protocol, _make_step, _save_and_reload
+from modules.coord_transformations import PlateLocation
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 TILING_CONFIGS = REPO / 'data' / 'tiling.json'
@@ -35,7 +36,7 @@ def _insert_step(proto, *, step_name):
         step_name=step_name,
         layer='BF',
         layer_config=_add_layer_config(),
-        plate_position={'x': 0.0, 'y': 0.0, 'z': 5000.0},
+        plate_position=PlateLocation(x_mm=0.0, y_mm=0.0, z_um=5000.0),
         objective_id='4x Oly',
         stim_configs={},
         before_step=0,

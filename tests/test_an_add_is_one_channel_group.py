@@ -41,8 +41,9 @@ from tests.test_issue_524_extra_z_step_on_objective_change import _empty_protoco
 from tests.test_protocol_execution import scope  # noqa: F401 -- pytest fixture
 from modules.layer_record import release_color
 from modules.layer_record import release_colors
+from modules.coord_transformations import PlateLocation
 
-AT = {'x': 122.26, 'y': 81.48, 'z': 5000.0}
+AT = PlateLocation(x_mm=122.26, y_mm=81.48, z_um=5000.0)
 OBJECTIVE = '4x Oly'
 # The reporter's four Adds at one position, in order (#772's own files).
 ADDS = (('BF',), ('BF', 'Green'), ('BF', 'Blue', 'Green', 'Red'), ('BF', 'Blue', 'Green', 'Red'))
@@ -82,7 +83,7 @@ def _write_tiff(path, color):
             'gain_db': 1.0,
             'illumination_ma': 5.0,
             'z_pos_um': 5000.0,
-            'plate_pos_mm': {'x': AT['x'], 'y': AT['y']},
+            'plate_pos_mm': {'x': AT.x_mm, 'y': AT.y_mm},
             'datetime': '2026:10:13 12:00:00',
             'camera_make': 'Test',
             'microscope': 'TestScope',
@@ -243,7 +244,7 @@ def _raw_frame(rows):
                 'Color': color,
                 'Objective': OBJECTIVE,
                 'X': x,
-                'Y': AT['y'],
+                'Y': AT.y_mm,
                 'Z-Slice': z_slice,
                 'Tile': tile,
                 'Tile Group ID': -1,
@@ -266,17 +267,17 @@ def _group_sizes(builder, frame):
 class TestTheOtherBuildsGroupByAdd:
     def test_a_z_projection_takes_one_adds_slices_only(self):
         # Two Adds of Green at one position, each z-stacked to two slices.
-        frame = _raw_frame([('Green', g, 0, z, '', AT['x']) for g in (0, 1) for z in (0, 1)])
+        frame = _raw_frame([('Green', g, 0, z, '', AT.x_mm) for g in (0, 1) for z in (0, 1)])
 
         assert _group_sizes(ZProjector, frame) == [2, 2]
 
     def test_a_timelapse_takes_one_adds_stills_only(self):
-        frame = _raw_frame([('Green', g, scan, -1, '', AT['x']) for g in (0, 1) for scan in (0, 1)])
+        frame = _raw_frame([('Green', g, scan, -1, '', AT.x_mm) for g in (0, 1) for scan in (0, 1)])
 
         assert _group_sizes(VideoBuilder, frame) == [2, 2]
 
     def test_a_hyperstack_takes_one_adds_channels_only(self):
-        frame = _raw_frame([(c, g, 0, -1, '', AT['x']) for g in (0, 1) for c in ('BF', 'Green')])
+        frame = _raw_frame([(c, g, 0, -1, '', AT.x_mm) for g in (0, 1) for c in ('BF', 'Green')])
 
         assert _group_sizes(StackBuilder, frame) == [2, 2]
 

@@ -67,6 +67,7 @@ from modules.scope_session import ShownChannel
 from tests.settings_fixtures import protocol_filepath_writer, settings_writer
 from modules.exceptions import ProtocolError
 from modules.protocol import Protocol
+from modules.coord_transformations import PlateLocation
 
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
@@ -92,7 +93,7 @@ def _insert(protocol, *, x, before_step=None, after_step=None):
         step_name=None,
         layer='BF',
         layer_config=LAYER_CONFIG,
-        plate_position={'x': x, 'y': 0.0, 'z': 0.0},
+        plate_position=PlateLocation(x_mm=x, y_mm=0.0, z_um=0.0),
         objective_id='10x Oly',
         stim_configs={},
         before_step=before_step,
@@ -156,7 +157,7 @@ def env(monkeypatch):
             step_idx=step_idx,
             layer=layer,
             layer_config=LAYER_CONFIG,
-            plate_position={'x': 99.0, 'y': 0.0, 'z': 0.0},
+            plate_position=PlateLocation(x_mm=99.0, y_mm=0.0, z_um=0.0),
             objective_id='10x Oly',
             stim_configs={},
             label=label,
@@ -441,7 +442,7 @@ def _add_bf_and_blue(protocol, *, before_step=None, after_step=None, use_zstacki
                 step_name=None,
                 layer=layer,
                 layer_config=LAYER_CONFIG,
-                plate_position={'x': 99.0, 'y': 0.0, 'z': 0.0},
+                plate_position=PlateLocation(x_mm=99.0, y_mm=0.0, z_um=0.0),
                 objective_id='10x Oly',
                 stim_configs={},
                 before_step=before_step,

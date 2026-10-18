@@ -41,6 +41,7 @@ from modules.run_events import RunEvents
 from modules.run_outcome import EndingLatch, RunEnding
 from tests.scope_fakes import swap_lanes
 from modules.layer_record import release_colors
+from modules.coord_transformations import PlateLocation
 
 
 class TestSequencedCaptureRunMode:
@@ -468,7 +469,7 @@ class TestRunCleanup:
         from modules.protocol_cleanup import run_cleanup
 
         moved_to = []
-        pos = {'x': 1.0, 'y': 2.0, 'z': 3.0}
+        pos = PlateLocation(x_mm=1.0, y_mm=2.0, z_um=3.0)
         args, _ = self._make_cleanup_args(
             return_to_position=pos,
             default_move_fn=lambda px=0, py=0, z=0: moved_to.append((px, py, z)),
@@ -666,7 +667,7 @@ class TestRunCleanupCancelledHandoff:
             raise CancelledError()
 
         args, _ = self._args(
-            return_to_position={'x': 1.0, 'y': 2.0, 'z': 3.0},
+            return_to_position=PlateLocation(x_mm=1.0, y_mm=2.0, z_um=3.0),
             default_move_fn=cancelled_move,
         )
         run_cleanup(**args)
