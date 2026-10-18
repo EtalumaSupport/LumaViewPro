@@ -235,6 +235,13 @@ def _running_ask(ask: int | None) -> Iterator[None]:
         _asking.ask = previous
 
 
+@contextlib.contextmanager
+def asked_as_made() -> Iterator[None]:
+    """Run with no ask of its own: work made here is asked as it is made."""
+    with _running_ask(None):
+        yield
+
+
 def refuse_blocking_inline(member: str) -> None:
     """Refuse a blocking call inside the inline boundary, before any wait is made.
 

@@ -59,7 +59,13 @@ from modules.exceptions import (
 from modules.notification_center import notifications
 from modules.activity_claim import Taking, acting, current_taking
 from modules.operation import Operation, refuse_waiting_on_ui_thread
-from modules.sequential_io_executor import IOTask, ask_now, asked_before, slow_task_budget
+from modules.sequential_io_executor import (
+    IOTask,
+    ask_now,
+    asked_as_made,
+    asked_before,
+    slow_task_budget,
+)
 from modules.video_cadence import StallWatch
 
 # Declared costs, module-level because the @slow_task_budget decorators run at
@@ -86,6 +92,24 @@ _NOT_YET_READ = object()
 # below every generation the counter takes, so it reads as stopped against
 # any of them.
 _ASKED_BEFORE_A_STOP = -1
+
+
+def _home_runs_its_own_moves(body):
+    """A home body's own moves are asked as the home makes them.
+
+    A STOP the board cannot take while it homes is refused and the home
+    runs to its end, its Z park and restore included, so nothing a press
+    withholds is the home's own; what was asked after the home began, and
+    waits behind it, is.
+    """
+
+    @functools.wraps(body)
+    def run(*args, **kwargs):
+        with asked_as_made():
+            return body(*args, **kwargs)
+
+    return run
+
 
 # How long the Z overshoot leg may take to reach its point before the move
 # fails. The leg's wait is the one loop in a move with no reply timeout of
@@ -980,6 +1004,7 @@ class MotionAPI:
         logger.info(f'Limit switch status after homing: {after}', extra={'force_error': True})
 
     @slow_task_budget(_HOMING_SLOW_TASK_S)
+    @_home_runs_its_own_moves
     def _home_impl(self) -> None:
         """Home every axis the motor board has.
 
@@ -1128,6 +1153,7 @@ class MotionAPI:
                 )
 
     @slow_task_budget(_HOMING_SLOW_TASK_S)
+    @_home_runs_its_own_moves
     def _home_turret_impl(self) -> None:
         """Home the turret axis. Moves Z to 0 during turret motion for safety.
 
@@ -1651,6 +1677,7 @@ class MotionAPI:
         return AxisLimits(min_um=float(limits['min']), max_um=float(limits['max']))
 
     @slow_task_budget(_HOMING_SLOW_TASK_S)
+    @_home_runs_its_own_moves
     def _zhome_impl(self) -> None:
         """Home the Z axis (focus).
 
