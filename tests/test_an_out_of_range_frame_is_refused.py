@@ -85,8 +85,8 @@ class TestTheFrameWriter:
 
     def test_an_in_range_size_is_delivered_exactly(self, session):
         delivered = session.camera.set_frame_size(1000, 802)
-        assert delivered == session.scope.camera.frame_size.to_dict()
-        assert delivered == {'width': 1000, 'height': 802}
+        assert delivered == session.scope.camera.frame_size
+        assert delivered.to_dict() == {'width': 1000, 'height': 802}
 
     def test_an_unknown_maximum_leaves_the_ceiling_unchecked(self, session, monkeypatch):
         camera = session.scope.camera
@@ -152,7 +152,7 @@ class TestBringUpStoresTheDeliveredFrame:
                 'width': frame['width'],
                 'height': frame['height'],
             } == camera.frame_size.to_dict()
-            assert s.camera.set_frame_size(960, 600) == {'width': 960, 'height': 600}
+            assert s.camera.set_frame_size(960, 600) == FrameSize(960, 600)
             assert (frame['native_width'], frame['native_height']) == (960, 600)
             assert s.camera.frame_at_binning(2) == {'width': 480, 'height': 300}
         finally:

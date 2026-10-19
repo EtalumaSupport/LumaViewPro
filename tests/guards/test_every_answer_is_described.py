@@ -48,8 +48,9 @@ from rest import routes as rest_routes
 # the bench tools' three runs left the wire (C6); 28 since six of the
 # Session's settings documents left it and the turret's slot map is typed
 # (census C's row B9); 27 since the imaging API's scale-bar dict left it
-# for the Session's scale_bar_enabled.
-UNTYPED_PIN = 27
+# for the Session's scale_bar_enabled; 25 since the camera's binning and
+# frame setters answer a FrameSize, over the wire their read's.
+UNTYPED_PIN = 25
 
 _SERVER_MODELS = ('Handle', 'Job', 'JobProgress', 'PathAnswer', 'Versions')
 # A JSON Schema keyword that says what a value is.
@@ -90,8 +91,7 @@ def _url(route: rest_routes.Route) -> str:
 
 
 def _operation(described: dict, route: rest_routes.Route) -> dict:
-    get = route.member.read or route.member.reads
-    return described['paths'][_url(route)]['get' if get else 'post']
+    return described['paths'][_url(route)][route.method]
 
 
 def _json(response: dict) -> dict:

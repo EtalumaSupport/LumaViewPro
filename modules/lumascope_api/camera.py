@@ -1210,7 +1210,7 @@ class CameraAPI:
                 ),
             )
 
-    @api
+    @api(sets='gain_db')
     def set_gain_db(self, gain_db: float) -> float | None:
         """Set the camera gain, wait for it, and answer with the gain in effect.
 
@@ -1258,7 +1258,7 @@ class CameraAPI:
             timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
         )
 
-    @api
+    @api(sets='exposure_ms')
     def set_exposure_ms(self, exposure_ms: float) -> float | None:
         """Set the camera exposure time, wait for it, and answer with the
         exposure in effect.
@@ -1625,7 +1625,7 @@ class CameraAPI:
         except (CameraSettingRejected, HardwareCommandRefusedError) as not_rearmed:
             self._report_refused_write(not_rearmed)
 
-    @api
+    @api(sets='auto_exposure')
     def set_auto_exposure(self, state: bool = True) -> bool | None:
         """Enable or disable automatic exposure adjustment, and wait for it.
 
@@ -1736,7 +1736,7 @@ class CameraAPI:
 
         return write_then_save
 
-    @api
+    @api(sets='high_conversion_gain')
     def set_high_conversion_gain(self, enabled: bool) -> None:
         """Turn the camera's high conversion gain on or off, then save it.
 
@@ -1767,7 +1767,7 @@ class CameraAPI:
             timeout_s=self._CAMERA_GEOMETRY_TIMEOUT_S,
         )
 
-    @api
+    @api(sets='line_noise_reduction')
     def set_line_noise_reduction(self, enabled: bool) -> None:
         """Turn the camera's line-noise filter on or off, then save it.
 
@@ -1795,7 +1795,7 @@ class CameraAPI:
             timeout_s=self._CAMERA_GEOMETRY_TIMEOUT_S,
         )
 
-    @api
+    @api(sets='image_mode')
     def set_image_mode(self, mode: str) -> None:
         """Capture in ``mode``: apply the camera format it needs, then save it.
 
@@ -1833,8 +1833,8 @@ class CameraAPI:
             falsifies_recording=True,
         )
 
-    @api
-    def set_binning(self, size: int) -> dict | None:
+    @api(sets='binning')
+    def set_binning(self, size: int) -> FrameSize | None:
         """Bin the camera by ``size``, keep the framed region, and save both.
 
         The one writer of the binning for every host. The framed region is
@@ -1847,7 +1847,7 @@ class CameraAPI:
         out against a binning the camera has not reached.
 
         Returns:
-            The frame the camera delivers, ``{'width', 'height'}``.
+            The frame the camera delivers.
 
         Raises:
             HardwareCommandRefusedError: A recording holds the scope: its
@@ -1871,7 +1871,7 @@ class CameraAPI:
             falsifies_recording=True,
         )
 
-    def _bin_and_save_impl(self, size: int) -> dict | None:
+    def _bin_and_save_impl(self, size: int) -> FrameSize | None:
         """On the camera lane: bin by ``size`` and save it, then frame the saved region at it."""
         native = self._native_frame()
         if not self._set_binning_impl(size):
@@ -1886,8 +1886,8 @@ class CameraAPI:
         self._scope.store_settings(saved)
         return self._apply_frame_impl(native, self._target_frame(native, size))
 
-    @api
-    def set_frame_size(self, width: int, height: int) -> dict | None:
+    @api(sets='frame_size')
+    def set_frame_size(self, width: int, height: int) -> FrameSize | None:
         """Frame the camera at ``width`` x ``height`` at the binning it holds, and save it.
 
         The one writer of the frame for every host. The size is what the
@@ -1923,7 +1923,7 @@ class CameraAPI:
             falsifies_recording=True,
         )
 
-    def _frame_and_save_impl(self, width: int, height: int) -> dict | None:
+    def _frame_and_save_impl(self, width: int, height: int) -> FrameSize | None:
         """On the camera lane: frame at ``width`` x ``height`` at the binning held, and save it."""
         factor = self._held_or_read('binning')
         native = {'width': width * factor, 'height': height * factor}
@@ -2033,7 +2033,7 @@ class CameraAPI:
                 unit='px',
             )
 
-    def _apply_frame_impl(self, native: dict, target: dict) -> dict | None:
+    def _apply_frame_impl(self, native: dict, target: dict) -> FrameSize | None:
         """On the camera lane: apply the displayed ``target``, then save it and the
         ``native`` region it came from.
 
@@ -2056,7 +2056,7 @@ class CameraAPI:
                 'frame.height': int(delivered['height']),
             }
         )
-        return dict(delivered)
+        return FrameSize(width=int(delivered['width']), height=int(delivered['height']))
 
     def _held_or_read(self, key: str) -> object:
         """The value held for ``key``, read fresh from the camera when it is unknown.
@@ -2472,7 +2472,7 @@ class CameraAPI:
         """
         return self._read_unheld('frame rate', lambda driver: driver.get_resulting_frame_rate())
 
-    @api
+    @api(sets='black_level')
     def set_black_level(self, value: float) -> float | None:
         """Set the camera's black level, wait for it, and answer with the
         value in effect.

@@ -64,7 +64,7 @@ import warnings
 from collections.abc import Callable, Iterable, Mapping
 
 from lib.lumascope_error import Fault
-from modules.api_surface import API, fields_of, is_record, mark_of, reads_of
+from modules.api_surface import API, fields_of, is_record, mark_of, reads_of, sets_of
 from modules.operation import Operation
 
 # The forms a value takes on the wire.
@@ -586,6 +586,10 @@ class WireMember:
         read: A property or published field, read rather than called.
         reads: A method marked ``reads``: it changes nothing, so a host
             answers it to ``GET`` with its arguments in the query string.
+        sets: The read, on the same class, whose setting a method marked
+            ``sets`` writes: a host serves the method as ``PUT`` on the
+            read's path, and answers the read after the write. None
+            otherwise.
         parameters: What a call takes from the client; the parameters the
             host fills (a callback, a run's handlers) are not among them.
         segment: The live object's class a read leads to, when the member is
@@ -608,6 +612,7 @@ class WireMember:
     returns: tuple[Outbound, ...]
     parameters: tuple[WireParameter, ...] = ()
     reads: bool = False
+    sets: str | None = None
     segment: type | None = None
     doc: str = ''
     hands_out: bool = False
@@ -859,6 +864,7 @@ def wire_members(
                 returns=outbound(returns, classes, aliases),
                 parameters=tuple(parameters),
                 reads=reads_of(member),
+                sets=sets_of(member),
                 doc=function.__doc__ or '',
                 hands_out=_hands_out(returns, handed_out, aliases),
                 returns_job=_returns_job(returns, classes, aliases),

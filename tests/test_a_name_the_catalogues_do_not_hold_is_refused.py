@@ -172,13 +172,13 @@ def test_a_retired_plate_name_resolves_and_is_stored_under_its_key(session, z_ch
     ('route', 'body', 'reason', 'argument'),
     [
         (
-            'select_labware',
+            'labware',
             {'labware_name': 'Acme 1536 Ultra Plate'},
             'labware_unknown',
             'plate_key',
         ),
         (
-            'select_objective',
+            'objective_id',
             {'objective_id': '10xOly'},
             'objective_not_in_catalogue',
             'objective_id',
@@ -189,7 +189,7 @@ def test_a_wire_client_is_refused_as_the_request_naming_what_the_catalogue_offer
     session, route, body, reason, argument
 ):
     with TestClient(build_app(session)) as client:
-        answer = client.post(f'/api/v1/{route}', json=body)
+        answer = client.put(f'/api/v1/{route}', json=body)
     assert answer.status_code == 422
     problem = answer.json()
     assert problem['reason'] == reason
@@ -199,8 +199,8 @@ def test_a_wire_client_is_refused_as_the_request_naming_what_the_catalogue_offer
 
 def test_a_wire_slot_out_of_range_is_the_requests(turret_session):
     with TestClient(build_app(turret_session)) as client:
-        answer = client.post(
-            '/api/v1/assign_turret_objective', json={'position': 5, 'objective_id': '10x Oly'}
+        answer = client.put(
+            '/api/v1/turret_objective', json={'position': 5, 'objective_id': '10x Oly'}
         )
     assert answer.status_code == 422
     assert answer.json()['reason'] == 'position_out_of_range'

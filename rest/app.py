@@ -518,10 +518,10 @@ def _add(
     on_handle = route.root is not ScopeSession
     if on_handle:
         path = f'handles/{route.root.__name__}/{{handle_id}}/{route.path}'
-        name = f'handles/{route.root.__name__}/{route.path}'
+        name = f'handles/{route.root.__name__}/{route.name}'
         tag = '/'.join((f'handles/{route.root.__name__}', *route.segments))
     else:
-        path, name, tag = route.path, route.path, '/'.join(route.segments) or 'session'
+        path, name, tag = route.path, route.name, '/'.join(route.segments) or 'session'
     common = {
         'path': f'{PREFIX}/{path}',
         'name': name,
@@ -685,6 +685,20 @@ def _add(
         app.add_api_route(endpoint=read, methods=['GET'], **common)
         return
 
+    def decoded(sent: dict[str, object]) -> dict[str, object]:
+        """The arguments *sent*, checked against the body model, as the member takes them."""
+        return {
+            p.name: wire_encoding.decode(
+                sent[p.name],
+                p.alternatives,
+                resolve_path=session.live_folder_path,
+                handle=registry.get,
+                job=jobs.operation,
+            )
+            for p in member.parameters
+            if p.name in sent
+        }
+
     def invoker(
         sent: dict[str, object],
     ) -> Callable[[object, Progress, Callable[[Operation], dict]], object]:
@@ -693,17 +707,7 @@ def _add(
         def invoke(
             owner: object, progress: Progress, job_of: Callable[[Operation], dict]
         ) -> object:
-            arguments = {
-                p.name: wire_encoding.decode(
-                    sent[p.name],
-                    p.alternatives,
-                    resolve_path=session.live_folder_path,
-                    handle=registry.get,
-                    job=jobs.operation,
-                )
-                for p in member.parameters
-                if p.name in sent
-            }
+            arguments = decoded(sent)
             if member.progress is not None:
                 arguments[member.progress] = progress
             if member.run_events is None:
@@ -747,10 +751,26 @@ def _add(
         request: fastapi.Request, body: pydantic.BaseModel | None, handle_id: str | None = None
     ) -> JSONResponse:
         sent = body.model_dump(include=body.model_fields_set) if body is not None else {}
-        return await answer(request, handle_id, invoker(sent), sent)
+        if route.sets is None:
+            return await answer(request, handle_id, invoker(sent), sent)
+        write, read = invoker(sent), route.sets
+
+        def written(
+            owner: object, progress: Progress, job_of: Callable[[Operation], dict]
+        ) -> object:
+            # The answer is the setting as the read now answers it, not the
+            # setter's own return: the value the scope took, under the URL
+            # the client reads it at.
+            write(owner, progress, job_of)
+            if read.read:
+                return getattr(owner, read.name)
+            key = decoded(sent)
+            return getattr(owner, read.name)(**{p.name: key[p.name] for p in read.parameters})
+
+        return await answer(request, handle_id, written, sent)
 
     _sign(call, on_handle, route)
-    app.add_api_route(endpoint=call, methods=['POST'], **common)
+    app.add_api_route(endpoint=call, methods=[route.method.upper()], **common)
 
 
 def _job_headers(job_id: str) -> dict[str, str]:

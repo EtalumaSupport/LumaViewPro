@@ -29,6 +29,7 @@ from modules.api_surface import (
     is_record,
     mark_of,
     reads_of,
+    sets_of,
 )
 from modules.coord_transformations import StageOffset
 from modules.lumascope_api.illumination import LedReading, LedState
@@ -66,8 +67,9 @@ def _wire_routes(session) -> set[tuple[str, str]]:
     Walked from the marks and the live objects, not from the annotations the
     server reads: a read that holds a live object with members of its own is
     a sub-object, every other read a ``GET`` (an enum is a value, wherever it
-    is declared), every method marked ``reads`` a ``GET``, and every other
-    marked method a ``POST``.
+    is declared), every method marked ``reads`` a ``GET``, every method
+    marked ``sets`` a ``PUT`` on its read's path, and every other marked
+    method a ``POST``.
     """
     found = set()
 
@@ -80,6 +82,8 @@ def _wire_routes(session) -> set[tuple[str, str]]:
                     continue
                 if isinstance(value, property):
                     reads.append(name)
+                elif sets_of(value) is not None:
+                    found.add(('put', f'{prefix}/{sets_of(value)}'))
                 else:
                     found.add(('get' if reads_of(value) else 'post', f'{prefix}/{name}'))
         for name in reads:
@@ -110,6 +114,12 @@ def test_the_routes_are_exactly_the_wire_members(client, session):
     # The sub-objects are reached, not only the Session's own members.
     assert ('post', '/api/v1/scope/motion/move_absolute') in served
     assert ('get', '/api/v1/manual_recording/is_recording') in served
+    # A setting is its read's URL, written by PUT, and its setter has no route.
+    assert {
+        ('get', '/api/v1/scope/camera/binning'),
+        ('put', '/api/v1/scope/camera/binning'),
+    } <= served
+    assert not {p for _, p in served if p.endswith('/set_binning')}
 
 
 def test_every_engineering_member_is_in_process_and_served_nowhere(client, session):

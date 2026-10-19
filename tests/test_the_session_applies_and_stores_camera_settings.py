@@ -69,9 +69,9 @@ class TestTheFrame:
     def test_it_stores_what_the_camera_delivered_and_the_region_it_came_from(self, session):
         delivered = session.camera.set_frame_size(1000, 800)
 
-        assert delivered == session.scope.camera.frame_size.to_dict()
+        assert delivered == session.scope.camera.frame_size
         frame = _stored_frame(session)
-        assert {'width': frame['width'], 'height': frame['height']} == delivered
+        assert {'width': frame['width'], 'height': frame['height']} == delivered.to_dict()
         assert (frame['native_width'], frame['native_height']) == (1000, 800), (
             'the unbinned region is what was asked for at 1x, capped at the sensor'
         )
@@ -80,7 +80,7 @@ class TestTheFrame:
         delivered = session.camera.set_frame_size(1000, 800)
         writes = _spy(monkeypatch, session.scope.camera, '_set_frame_size_impl')
 
-        assert session.camera.set_frame_size(delivered['width'], delivered['height']) == delivered
+        assert session.camera.set_frame_size(delivered.width, delivered.height) == delivered
         assert writes == []
 
     def test_a_refused_frame_raises_and_stores_nothing(self, session, monkeypatch):
@@ -104,7 +104,7 @@ class TestTheFrame:
 
         frame = _stored_frame(session)
         assert (frame['native_width'], frame['native_height']) == (960, 800)
-        assert {'width': frame['width'], 'height': frame['height']} == delivered
+        assert {'width': frame['width'], 'height': frame['height']} == delivered.to_dict()
 
     def test_a_refused_frame_does_not_block_a_retry_of_the_same_size(self, session, monkeypatch):
         # The camera still holds its prior size after a refusal, so the retry
@@ -127,7 +127,7 @@ class TestTheFrame:
 
         assert requests == [(1200, 800), (1200, 800)], 'the retry must reach the camera'
         frame = _stored_frame(session)
-        assert {'width': frame['width'], 'height': frame['height']} == delivered
+        assert {'width': frame['width'], 'height': frame['height']} == delivered.to_dict()
 
     def test_a_disconnected_camera_is_never_reached_and_the_reconnect_applies(
         self, session, monkeypatch
@@ -154,7 +154,7 @@ class TestTheFrame:
             'the post-reconnect apply of the identical size must reach the camera'
         )
         frame = _stored_frame(session)
-        assert {'width': frame['width'], 'height': frame['height']} == delivered
+        assert {'width': frame['width'], 'height': frame['height']} == delivered.to_dict()
 
     def test_a_retype_of_a_clamped_request_reaches_the_camera(self, session, monkeypatch):
         # What the camera delivered is what is in force: a repeat of the
@@ -170,7 +170,7 @@ class TestTheFrame:
 
         monkeypatch.setattr(driver, 'set_frame_size', _clamping)
         delivered = session.camera.set_frame_size(1200, 800)
-        assert delivered == {'width': 1152, 'height': 800}
+        assert delivered.to_dict() == {'width': 1152, 'height': 800}
         requests.clear()
 
         assert session.camera.set_frame_size(1152, 800) == delivered
@@ -204,9 +204,9 @@ class TestTheBinning:
         assert session.settings['binning']['size'] == '2x2'
         frame = _stored_frame(session)
         assert (frame['native_width'], frame['native_height']) == (1200, 800)
-        assert delivered == {'width': frame['width'], 'height': frame['height']}
-        assert delivered == session.scope.camera.frame_size.to_dict()
-        assert delivered['width'] <= 600 and delivered['height'] == 400
+        assert delivered.to_dict() == {'width': frame['width'], 'height': frame['height']}
+        assert delivered == session.scope.camera.frame_size
+        assert delivered.width <= 600 and delivered.height == 400
 
     def test_cycling_the_binning_comes_back_to_the_same_frame(self, session):
         first = session.camera.set_frame_size(1200, 800)
@@ -282,7 +282,7 @@ class TestTheBinning:
 
         assert writes == [], 'a preview must not reach the camera'
         assert (session.settings['binning']['size'], _stored_frame(session)) == before
-        assert session.camera.set_binning(2) == preview
+        assert session.camera.set_binning(2).to_dict() == preview
 
 
 class TestTheImageMode:

@@ -120,7 +120,7 @@ def test_a_restore_puts_back_the_saved_frame_and_the_region_it_came_from(session
     camera.restore_camera_state(snapshot)
 
     assert _saved_geometry(session) == before
-    assert camera.set_binning(2) == {
+    assert camera.set_binning(2).to_dict() == {
         'width': before['frame.native_width'] // 2,
         'height': before['frame.native_height'] // 2,
     }
@@ -310,7 +310,7 @@ def test_over_rest_the_cameras_routes_are_under_scope_camera_and_nowhere_else():
         ScopeSession, wire_encoding.project_classes(), wire_encoding.project_aliases()
     )
     camera_routes = {
-        route.path
+        route.name
         for route in rest_routes.routes(ScopeSession, handed_out=handed_out)
         if route.owner is CameraAPI
     }

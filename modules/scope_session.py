@@ -1868,7 +1868,7 @@ class ScopeSession:
         protocol.to_file(file_path=path, layer_settings=layer_settings)
         return path
 
-    @api
+    @api(sets='layer_acquire')
     def set_layer_acquire(self, layer: str, mode: 'str | None') -> None:
         """Set what a layer captures: ``'image'``, ``'video'``, or None (nothing).
 
@@ -1913,7 +1913,7 @@ class ScopeSession:
         if mode is not None and self.settings[layer].get('stim_config') is not None:
             self._store_setting(f'{layer}.stim_config.enabled', False)
 
-    @api
+    @api(sets='layer_auto_gain')
     def set_layer_auto_gain(self, layer: str, enabled: bool) -> 'AutoGainLock | None':
         """Turn a layer's auto-gain on or off, as the GUI's Auto Gain/Exp box does.
 
@@ -2230,7 +2230,7 @@ class ScopeSession:
         logger.info(f'[Session  ] Focus saved: {layer} Z={z}, and as the Z of step {step_idx}')
         return SavedFocus(z=z, step_idx=step_idx)
 
-    @api
+    @api(sets='saved_focus')
     def save_layer_focus(self, layer: str, z_um: float) -> None:
         """Store ``z_um`` as ``layer``'s focus, the Z every new step of the layer is born at.
 
@@ -3337,7 +3337,7 @@ class ScopeSession:
         if dt > 0.1:
             logger.warning(f'[Session  ] saving the settings to {file} took {dt * 1000:.0f}ms')
 
-    @api
+    @api(sets='model')
     def select_model(self, model: str) -> None:
         """Save the operator's scope model for the next start.
 
@@ -4121,7 +4121,7 @@ class ScopeSession:
         """
         return self.scope.runtime_state.get_current_objective_id()
 
-    @api
+    @api(sets='objective_id')
     def select_objective(self, objective_id: str) -> bool:
         """Make ``objective_id`` the active objective. Returns whether it changed.
 
@@ -4226,7 +4226,7 @@ class ScopeSession:
         """
         return self.settings['protocol']['labware']
 
-    @api
+    @api(sets='labware')
     def select_labware(self, labware_name: str) -> bool:
         """Make ``labware_name`` the current plate. Returns whether it changed.
 
@@ -4271,7 +4271,7 @@ class ScopeSession:
         logger.info(f'[Session  ] Labware set to {labware_name!r}')
         return True
 
-    @api
+    @api(sets='turret_objective')
     def assign_turret_objective(self, position: int, objective_id: str) -> None:
         """Bind ``objective_id`` to turret slot ``position``.
 
@@ -4426,7 +4426,7 @@ class ScopeSession:
     # The camera's capture settings: applied, then stored
     # ------------------------------------------------------------------
 
-    @api
+    @api(sets='scale_bar_enabled')
     def set_scale_bar(self, enabled: bool) -> None:
         """Draw the scale bar on captured images, or stop, and store it.
 
@@ -4452,7 +4452,7 @@ class ScopeSession:
         """
         return self.settings['motion']['acceleration_max_pct']
 
-    @api
+    @api(sets='acceleration_limit_pct')
     def set_acceleration_limit(self, val_pct: int) -> None:
         """Set the motors' acceleration limit, as a percent of the firmware's maximum, and store it.
 

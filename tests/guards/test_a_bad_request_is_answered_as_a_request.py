@@ -117,18 +117,18 @@ def test_no_route_answers_a_bad_request_as_a_fault(session):
         runner = client.post('/api/v1/create_protocol_runner').json()['handle']
         handles = {'/Protocol/': protocol, '/ProtocolRunner/': runner}
         walked = 0
-        for route, operations in sorted(document['paths'].items()):
-            asked = [
-                p for p in operations.get('get', {}).get('parameters', []) if p['in'] == 'query'
-            ]
-            if not ('post' in operations or asked) or _NOT_WALKED.search(route):
+        paths = document['paths']
+        for route, method in sorted((p, m) for p in paths for m in paths[p]):
+            operations = paths[route]
+            asked = [p for p in operations[method].get('parameters', []) if p['in'] == 'query']
+            if not (method in ('post', 'put') or asked) or _NOT_WALKED.search(route):
                 continue
             walked += 1
             handle = next((h for part, h in handles.items() if part in route), '1')
             path = route.replace('{handle_id}', handle)
-            if 'post' in operations:
+            if method in ('post', 'put'):
                 body = (
-                    operations['post']
+                    operations[method]
                     .get('requestBody', {})
                     .get('content', {})
                     .get('application/json', {})
@@ -143,8 +143,9 @@ def test_no_route_answers_a_bad_request_as_a_fault(session):
                     name: protocol if name == 'protocol' else _wrong_value(field, document, variant)
                     for name, field in fields.items()
                 }
-                if 'post' in operations:
-                    answer = client.post(
+                if method in ('post', 'put'):
+                    answer = client.request(
+                        method.upper(),
                         path,
                         content=json.dumps(sent),
                         headers={'content-type': 'application/json', 'Prefer': 'wait=60'},
@@ -160,6 +161,6 @@ def test_no_route_answers_a_bad_request_as_a_fault(session):
             # A run a route started is ended before the next route is posted,
             # so no route is refused for an activity the walk itself left.
             session.create_protocol_runner().sequenced_capture_runner.wait_for_run_idle(1)
-    # 126 routes at this writing: the POSTs, and the reads that take arguments.
+    # Each operation: the POSTs, the PUTs, and the reads that take arguments.
     assert walked >= 120, f'the walk reached only {walked} routes'
     assert not wrong, '\n'.join(wrong)

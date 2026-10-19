@@ -1395,9 +1395,9 @@ class TestSetBinningSizeAnswersByRaising:
             'modules/lumascope_api/camera.py',
             'set_binning',
             params=['self', 'size'],
-            returns='dict | None',
+            returns='FrameSize | None',
             msg=(
-                'CameraAPI.set_binning must declare `-> dict | None`, the frame '
+                'CameraAPI.set_binning must declare `-> FrameSize | None`, the frame '
                 'it delivers, never a status: a failure raises (Rule 37)'
             ),
         )

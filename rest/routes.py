@@ -6,8 +6,10 @@ sub-object reached through a read (``scope``, ``scope.motion``) is a path
 segment, so ``ScopeSession.scope.motion.move_absolute`` is
 ``/api/v1/scope/motion/move_absolute``. Names are the Python names. A read
 -- a property, or a method marked ``reads`` -- is ``GET``, a read method's
-arguments in the query string; any other method is ``POST``, its arguments
-a JSON object by parameter name. Both are described and checked by models
+arguments in the query string; a setter marked ``sets`` is ``PUT`` on its
+read's path, its arguments a JSON object by parameter name, answered with
+the read after the write; any other method is ``POST``, its arguments a
+JSON object by parameter name. Each is described and checked by models
 built here from the parameter's inbound form (``wire_encoding.inbound``).
 Its answer is described by a type built here from the member's outbound
 form (``wire_encoding.outbound``), each record one named model.
@@ -110,6 +112,8 @@ class Route:
         answer: The type its answer is described by (``answer_type``).
         query: The model a read method's query string is read by
             (``query_model``); None for any other member.
+        sets: The read a setter's ``PUT`` sits on and answers after the
+            write; None for any other member.
     """
 
     root: type
@@ -119,11 +123,24 @@ class Route:
     body: type[pydantic.BaseModel] | None
     answer: object
     query: type[pydantic.BaseModel] | None = None
+    sets: WireMember | None = None
 
     @property
     def path(self) -> str:
-        """The route's path below the version prefix."""
+        """The route's path below the version prefix: a setter's is its read's."""
+        return '/'.join((*self.segments, (self.sets or self.member).name))
+
+    @property
+    def name(self) -> str:
+        """The member's own path below the version prefix, which names its operation."""
         return '/'.join((*self.segments, self.member.name))
+
+    @property
+    def method(self) -> str:
+        """The HTTP method the route answers, lower case."""
+        if self.sets is not None:
+            return 'put'
+        return 'get' if self.member.read or self.member.reads else 'post'
 
 
 def routes(root: type, *, handed_out: frozenset[type]) -> list[Route]:
@@ -137,9 +154,10 @@ def routes(root: type, *, handed_out: frozenset[type]) -> list[Route]:
         NoWireFormError: a parameter's type has no inbound form, or a read
             method's has none in a query string (``query_model``).
         TypeError: a sub-object leads back to one of the classes it is
-            reached through, so its routes would never end; or a method
+            reached through, so its routes would never end; a method
             marked ``reads`` can answer a running call or a live object,
-            which a ``GET`` would hand out.
+            which a ``GET`` would hand out; or a setter's ``sets`` names no
+            read it pairs with (``_paired_read``).
     """
     classes = wire_encoding.project_classes()
     aliases = wire_encoding.project_aliases()
@@ -147,7 +165,9 @@ def routes(root: type, *, handed_out: frozenset[type]) -> list[Route]:
     found: list[Route] = []
 
     def walk(cls: type, segments: tuple[str, ...], through: tuple[type, ...]) -> None:
-        for member in wire_encoding.wire_members(cls, classes, aliases, handed_out=handed_out):
+        members = wire_encoding.wire_members(cls, classes, aliases, handed_out=handed_out)
+        by_name = {m.name: m for m in members}
+        for member in members:
             if member.segment is not None:
                 if member.segment in through:
                     raise TypeError(f'{"/".join(segments)}/{member.name} leads back to itself')
@@ -162,12 +182,64 @@ def routes(root: type, *, handed_out: frozenset[type]) -> list[Route]:
                         'a running call or a live object, which a GET would hand out'
                     )
                 query = query_model(cls, member)
+            if member.sets is not None:
+                read = _paired_read(cls, member, by_name)
+                found.append(
+                    Route(root, segments, member, cls, body, answer_type(read.returns), sets=read)
+                )
+                continue
             found.append(
                 Route(root, segments, member, cls, body, answer_type(member.returns), query)
             )
 
     walk(root, (), (root,))
     return sorted(found, key=lambda r: r.path)
+
+
+def _paired_read(owner: type, setter: WireMember, by_name: dict[str, WireMember]) -> WireMember:
+    """The read *setter*'s ``sets`` names, refused unless the two are one setting.
+
+    The read is a published read on the same class; its parameters are the
+    setter's key, by name and type; and what the setter writes is what the
+    read answers: its one other argument is of the read's answer type (the
+    read may add None), or its other arguments are the fields of the record
+    the read answers, by name and type.
+
+    Raises:
+        TypeError: the read is missing, is not a read, or does not pair.
+    """
+    where = f'{owner.__name__}.{setter.name} sets {setter.sets!r}'
+    read = by_name.get(setter.sets)
+    if read is None or not (read.read or read.reads):
+        raise TypeError(f'{where}, which is no read on {owner.__name__}')
+    if setter.reads or setter.returns_job:
+        raise TypeError(f'{where}, but changes nothing or hands out a running call')
+    parameters = {p.name: p for p in setter.parameters}
+    for key in read.parameters:
+        given = parameters.pop(key.name, None)
+        if given is None or _kinds(given.alternatives) != _kinds(key.alternatives):
+            raise TypeError(f'{where}, whose key {key.name!r} the setter does not take alike')
+    answered = _kinds(read.returns) - {_NONE}
+    written = list(parameters.values())
+    if len(written) == 1 and _kinds(written[0].alternatives) - {_NONE} == answered:
+        return read
+    (record,) = [a for a in read.returns if a.form == wire_encoding.RECORD] or [None]
+    if (
+        record is not None
+        and answered == _kinds((record,))
+        and [(p.name, _kinds(p.alternatives)) for p in written]
+        == [(f, _kinds(alts)) for f, alts in record.fields]
+    ):
+        return read
+    raise TypeError(f'{where}, which answers {sorted(answered)}, not what the setter writes')
+
+
+_NONE = (wire_encoding.SCALAR, 'None', None)
+
+
+def _kinds(alternatives: typing.Iterable[object]) -> set[tuple[str, str, type | None]]:
+    """What each alternative is, sent or answered, by its form, its name and its class."""
+    return {(a.form, a.name, a.cls) for a in alternatives}
 
 
 def _body(

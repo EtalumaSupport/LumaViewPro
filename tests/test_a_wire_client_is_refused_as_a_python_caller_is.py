@@ -221,21 +221,24 @@ def test_a_name_that_is_no_axis_answers_with_the_names_the_member_takes(client):
 
 
 @pytest.mark.parametrize(
-    ('route', 'body', 'reason', 'published'),
+    ('method', 'route', 'body', 'reason', 'published'),
     [
         (
-            'set_layer_acquire',
+            'PUT',
+            'layer_acquire',
             {'layer': 'BF', 'mode': 'bogus'},
             'out_of_range',
             {'path': 'BF.acquire', 'member': None},
         ),
         (
-            'scope/camera/set_image_mode',
+            'PUT',
+            'scope/camera/image_mode',
             {'mode': 'bogus'},
             'out_of_range',
             {'path': 'image_mode', 'member': None},
         ),
         (
+            'POST',
             'update_settings',
             {'path': 'image_mode', 'value': '8bit'},
             'has_member',
@@ -244,11 +247,11 @@ def test_a_name_that_is_no_axis_answers_with_the_names_the_member_takes(client):
     ],
 )
 def test_a_session_argument_its_member_refuses_is_422_names_it_and_changes_nothing(
-    client, session, route, body, reason, published
+    client, session, method, route, body, reason, published
 ):
     before = session.get_settings_snapshot()
 
-    answer = _problem(client.post(f'/api/v1/{route}', json=body), 422)
+    answer = _problem(client.request(method, f'/api/v1/{route}', json=body), 422)
 
     assert answer['reason'] == reason
     assert {name: answer[name] for name in published} == published
