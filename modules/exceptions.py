@@ -1991,8 +1991,8 @@ class ExcludedInput:
 
     Attributes:
         kind: What the files are: ``composite``, ``stitched``, ``zproject``,
-            ``video``, ``hyperstack``, or ``other`` (a recording's frames,
-            which only a video or a hyperstack takes).
+            ``video`` or ``hyperstack``. A recording's frames, which only a
+            video or a hyperstack takes, are never among them.
         count: How many.
     """
 

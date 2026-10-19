@@ -313,7 +313,7 @@ class ProtocolPostProcessor(abc.ABC):
         own wording so the shared loop does not hardcode a stitch-only vocabulary
         for zproject / composite / stack outputs.
         """
-        return f'{count} {self._post_function.value.lower()} artifact(s) used a fallback method.'
+        return f'{count} {self.operation_label} artifact(s) used a fallback method.'
 
     @staticmethod
     def _prepend_capture_root(name: str, kwargs: dict) -> str:
@@ -489,7 +489,7 @@ class ProtocolPostProcessor(abc.ABC):
             source_format = unsupported_source.suffix.lstrip('.').upper() or 'unknown'
             raise self._refuse(
                 'unsupported_source_format',
-                f'{self._post_function.value} requires TIFF or OME-TIFF source images. '
+                f'{self.operation_label} requires TIFF or OME-TIFF source images. '
                 f'First unsupported {source_format} file: {unsupported_source.name}. '
                 'Reacquire the scan as TIFF or OME-TIFF before post-processing.',
             )
@@ -529,23 +529,27 @@ class ProtocolPostProcessor(abc.ABC):
         gone = _missing(dropped_rows)
         if gone.any():
             dropped_rows = dropped_rows[~(gone & _derived(dropped_rows))]
+        # A recording's frames are no stills build's input, and nobody looks
+        # for them in one: only Video takes them, so they are not left out.
+        dropped_rows = dropped_rows[~_recording_frames(dropped_rows)]
         # What a chained build carries forward: every input row it does not
         # consume (its filter's drops, a single-image group's, ...), and in
         # place of each group it consumes, that group's output.
         carried = set(pre_filter_df['Filepath'])
-        if select is not None:
-            # A row a chained build's filter drops goes on to the next build
-            # (a recording's frames, which only video takes): carried, not
-            # left out.
-            dropped_rows = dropped_rows.iloc[0:0]
         for _, dropped in dropped_rows.iterrows():
             if dropped[own_flag]:
                 already_made += 1
                 continue
             kind = next((flag for flag in PostFunction.list_values() if dropped[flag]), None)
-            if kind is not None:
-                excluded_kinds.add(PostFunction(kind))
-            word = kind.lower() if kind is not None else 'other'
+            if kind is None:
+                # Every filter drops a row by its output flag or as a
+                # recording's frame, so a dropped row with neither is a filter
+                # this accounting does not know.
+                raise RuntimeError(
+                    f'{self._name}: {dropped["Filepath"]} was dropped with no output kind'
+                )
+            excluded_kinds.add(PostFunction(kind))
+            word = kind.lower()
             left_out_counts[word] = left_out_counts.get(word, 0) + 1
         excluded_inputs = tuple(
             ExcludedInput(kind=word, count=count) for word, count in sorted(left_out_counts.items())
@@ -561,6 +565,16 @@ class ProtocolPostProcessor(abc.ABC):
             logger.info(
                 f'[{self._name} ] {len(dropped_rows)} input file(s) excluded from '
                 f'{own_flag.lower()} generation: {derived_text}'
+            )
+
+        # A folder whose only images are a recording holds nothing a stills
+        # build takes. Asked of the frames present: a recording deleted since
+        # its run is one Video cannot build either.
+        if df.empty and (_recording_frames(pre_filter_df) & ~_missing(pre_filter_df)).any():
+            raise self._refuse(
+                'no_data',
+                f'No {self.operation_label} was generated: this folder holds a recording, '
+                'not stills; Video builds it.',
             )
 
         groups = self._get_groups(df)
@@ -846,7 +860,7 @@ class ProtocolPostProcessor(abc.ABC):
 
         # A removed group is a complete answer, as an output already made is.
         if (new_count == 0) and (existing_count == 0) and not removed_groups:
-            fname = self._post_function.value
+            fname = self.operation_label
             if refused_count > 0 and last_error is None:
                 # Every eligible group collided; nothing could be generated.
                 raise self._refuse(
@@ -862,10 +876,9 @@ class ProtocolPostProcessor(abc.ABC):
                 # users hunting for missing tiles a composite folder has.
                 # Own earlier outputs count here: a folder of nothing else
                 # is explained by them.
-                fname_lower = fname.lower()
                 raise self._refuse(
                     'excluded_inputs',
-                    f'No {fname_lower} was generated: this folder holds only '
+                    f'No {fname} was generated: this folder holds only '
                     f'{derived_text}, which are derived outputs.'
                     f'{remedy}{single_skip_note}',
                 )

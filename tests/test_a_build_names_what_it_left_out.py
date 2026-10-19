@@ -15,6 +15,8 @@ folder written as a run of this release saves it.
 
 from __future__ import annotations
 
+import pathlib
+
 import numpy as np
 import pytest
 
@@ -191,3 +193,94 @@ def test_a_build_with_a_failed_group_still_names_what_it_left_out(session, run_f
 
     assert failed.value.excluded_inputs == (ExcludedInput(kind='composite', count=4),)
     assert '4 composite file(s)' in str(failed.value)
+
+
+@pytest.fixture(scope='module')
+def _recorded_runs(tmp_path_factory):
+    """Two real simulated scans with a recording saved as frames: one with BF
+    and Green stills beside it, one of the recording alone. Run once; each
+    test builds in its own copy."""
+    from tests.test_a_late_write_records_its_frame import _protocol
+    from tests.test_a_late_write_records_its_frame import _step as _run_step
+    from tests.test_composite_run_e2e import headless_settings, open_composite_session
+
+    root = tmp_path_factory.mktemp('recorded_runs')
+    settings = headless_settings(root)
+    settings['video_as_frames'] = True
+    shapes = {
+        'stills_and_recording': (('BF', 'image'), ('Green', 'image'), ('Blue', 'video')),
+        'recording_alone': (('Blue', 'video'),),
+    }
+    folders = {}
+    with open_composite_session(settings) as (_session, runner):
+        for name, shape in shapes.items():
+            steps = []
+            for index, (color, acquire) in enumerate(shape):
+                step = _run_step('P1', index, x=20.0, gain=1.0)
+                step['Color'] = color
+                step['Acquire'] = acquire
+                steps.append(step)
+            pending = runner.start_single_scan(
+                protocol=_protocol(steps), parent_dir=str(root / name)
+            )
+            assert pending.result(timeout=60).status == 'completed'
+            assert pending.files.result(timeout=60) is not None, "the run's files never finished"
+            (record,) = (root / name).rglob('protocol_record.tsv')
+            folders[name] = record.parent
+    return folders
+
+
+@pytest.fixture
+def recorded(_recorded_runs, tmp_path):
+    """A copy of each recorded run, for one test to build in."""
+    import shutil
+
+    return {
+        name: pathlib.Path(shutil.copytree(folder, tmp_path / name))
+        for name, folder in _recorded_runs.items()
+    }
+
+
+def test_a_recordings_frames_are_not_left_out_of_a_composite(session, recorded):
+    """Only Video takes a recording's frames, and nobody looks for them in a
+    composite: the composite beside them names nothing left out."""
+    result = session.post_processing.composite(recorded['stills_and_recording'])
+
+    assert result.message == 'Success.'
+    assert result.excluded_inputs == ()
+
+
+def test_a_folder_holding_only_a_recording_says_video_builds_it(session, recorded):
+    with pytest.raises(PostProcessingRefusedError) as refused:
+        session.post_processing.composite(recorded['recording_alone'])
+
+    assert refused.value.reason == 'no_data'
+    assert 'this folder holds a recording, not stills; Video builds it' in str(refused.value)
+
+
+def test_stills_beside_a_recording_are_not_called_a_recording_or_derived(session, recorded):
+    """Two single stills and a recording: nothing to project, and the answer
+    says so of the stills, not of the recording or of derived outputs."""
+    with pytest.raises(PostProcessingRefusedError) as refused:
+        session.post_processing.zproject(recorded['stills_and_recording'])
+
+    assert refused.value.reason == 'no_data'
+    assert 'holds a recording' not in str(refused.value)
+    assert 'derived outputs' not in str(refused.value)
+    assert '2 single-image group(s) skipped' in str(refused.value)
+
+
+def test_a_deleted_recording_is_not_offered_to_video(session, recorded):
+    """A recording deleted since its run is one Video cannot build: the
+    answer does not send the person there."""
+    import shutil
+
+    folder = recorded['recording_alone']
+    (frames,) = (path for path in folder.iterdir() if path.is_dir())
+    shutil.rmtree(frames)
+
+    with pytest.raises(PostProcessingRefusedError) as refused:
+        session.post_processing.composite(folder)
+
+    assert 'Video builds it' not in str(refused.value)
+    assert 'derived outputs' not in str(refused.value)

@@ -282,7 +282,7 @@ def test_post_processor_all_groups_colliding_refuses_with_reason(tmp_path, monke
         _drive_load_folder(processor, tmp_path, monkeypatch, images_df, post_record)
 
     assert refused.value.reason == 'collision'
-    assert 'No ZProject was generated' in str(refused.value)
+    assert 'No Z-Projection was generated' in str(refused.value)
     assert processor.algorithm_calls == [], 'nothing may be generated when every group collides'
     assert processor.records_added == []
 

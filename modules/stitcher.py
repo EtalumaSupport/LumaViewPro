@@ -41,7 +41,7 @@ class Stitcher(ProtocolPostProcessor):
         # chain, so its degraded outputs are the montages that dropped to
         # unregistered edge-to-edge placement.
         return (
-            f'{count} {self._post_function.value.lower()} artifact(s) used geometry-only '
+            f'{count} {self.operation_label} artifact(s) used geometry-only '
             'fallback stitching. Review the mosaic geometry; the log names each reason.'
         )
 

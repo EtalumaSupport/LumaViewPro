@@ -222,8 +222,8 @@ def _stills_and_a_recording():
 def test_a_recordings_frames_pass_the_stills_builds_to_the_video(tmp_path):
     """A run's recording, saved as frames beside two stills, built composite
     then video in one call: the composite leaves none of the recording's
-    frames out -- it carries them forward, as composite alone does not --
-    and the video is made from them."""
+    frames out -- it carries them forward -- and the video is made from
+    them."""
     from tests.test_a_late_write_records_its_frame import _protocol
     from tests.test_composite_run_e2e import headless_settings, open_composite_session
 
