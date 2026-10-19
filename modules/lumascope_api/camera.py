@@ -1883,7 +1883,8 @@ class CameraAPI:
                 camera does not offer ``size``. Nothing reaches the camera.
             CameraSettingRejected: The camera refused the binning (nothing is
                 saved) or the frame after it (the binning is saved, with the
-                frame the camera reports holding at it).
+                frame the camera reports holding at it, and no frame when it
+                has never reported one).
         """
         self._refuse_unusable_binning(size, 'set_binning_size')
         # One lane task restarts the grab twice: the binning, then the frame.
@@ -1900,14 +1901,14 @@ class CameraAPI:
         native = self._native_frame()
         if not self._set_binning_size_impl(size):
             raise _camera_not_connected('set_binning_size')
-        held = self.frame_size_cached
-        self._scope.store_settings(
-            {
-                'binning.size': binning.binning_size_int_to_str(size),
-                'frame.width': int(held['width']),
-                'frame.height': int(held['height']),
-            }
-        )
+        # The camera's reading, not the cache, whose seed is 0x0 until a
+        # frame is read: a camera that never reported one saves no frame.
+        held = self._get_frame_size()
+        updates = {'binning.size': binning.binning_size_int_to_str(size)}
+        if held is not None:
+            updates['frame.width'] = int(held['width'])
+            updates['frame.height'] = int(held['height'])
+        self._scope.store_settings(updates)
         return self._apply_frame_impl(native, self._target_frame(native, size))
 
     @api
@@ -2098,14 +2099,17 @@ class CameraAPI:
         worked out from what the sensor holds: asked whether or not the
         binning and frame changed, since a settings file saved before the
         region existed takes the shipped one, which need not give its frame.
+        The frame is the camera's reading, not the cache's 0x0 seed: a camera
+        that never reported one gives the binning alone, and no frame or
+        region is saved.
         """
-        delivered = self.frame_size_cached
+        delivered = self._get_frame_size()
         factor = self.get_binning_size()
-        held = {
-            'binning.size': binning.binning_size_int_to_str(factor),
-            'frame.width': int(delivered['width']),
-            'frame.height': int(delivered['height']),
-        }
+        held = {'binning.size': binning.binning_size_int_to_str(factor)}
+        if delivered is None:
+            return held
+        held['frame.width'] = int(delivered['width'])
+        held['frame.height'] = int(delivered['height'])
         native = {'width': meant['frame.native_width'], 'height': meant['frame.native_height']}
         if self._target_frame(native, factor) != delivered:
             native = {'width': delivered['width'] * factor, 'height': delivered['height'] * factor}
