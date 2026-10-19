@@ -2502,10 +2502,11 @@ class AutofocusFailedError(Fault, CaptureError):
     """An autofocus sweep chose no focus; the stage goes back to where it started.
 
     Attributes:
-        reason: ``'flat_focus_curve'`` (the final pass's curve has no peak
-            the fit trusts: every score zero or invalid, or a fit that is
-            not concave, peaks outside the measured range, shifts past twice
-            the step spacing, or cannot be made),
+        reason: ``'flat_focus_curve'`` (the final pass's curve has no peak:
+            every score zero or invalid, a fit that cannot be made, or a
+            curve with no contrast -- every point above half its maximum --
+            whose fit is not concave, peaks outside the measured range, or
+            shifts past twice the step spacing),
             ``'out_of_travel'`` (a window the sweep reached after it moved
             the stage reaches past Z's travel; refused before the stage
             moves there) or
