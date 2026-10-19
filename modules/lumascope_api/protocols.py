@@ -188,8 +188,8 @@ class ProtocolsAPI:
 
         A loaded file may carry a field the run gate rejects, or a Layer
         Settings value no layer setting takes, and an edit composed from
-        live settings may too; neither is refused here, so the value can be
-        fixed in the app: the run start refuses a step's, and
+        live settings may too; neither is refused here: the run start
+        refuses a step's, which can be fixed in the app, and
         ``ScopeSession.apply_layer_settings`` a Layer Settings row's. A
         notice, like the duplicate-filename one the loader reports:
         reported, never raised.
