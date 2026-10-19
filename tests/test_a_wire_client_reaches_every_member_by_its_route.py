@@ -242,6 +242,12 @@ class _NameOrNumber:
         return 0
 
 
+class _TextOrBool:
+    @api(reads=True)
+    def read(self, flag: bool | str = False) -> int:
+        return 0
+
+
 class _RequiredNone:
     @api(reads=True)
     def read(self, run: int | None) -> int:
@@ -256,10 +262,11 @@ class _HandsOutARun:
 
 def test_a_read_a_query_string_cannot_carry_or_that_hands_out_a_run_is_refused_when_built():
     """Each refusal is the routes' build's, so no such read is ever served:
-    text cannot tell the number 3 from the name '3'; a query string says
+    text cannot tell the number 3 from the name '3', nor true from 'true'; a query string says
     None only by leaving the key out; and a GET must hand out nothing."""
     cases = {
         _NameOrNumber: (wire_encoding.NoWireFormError, 'a name or a number'),
+        _TextOrBool: (wire_encoding.NoWireFormError, 'a name or a number'),
         _RequiredNone: (wire_encoding.NoWireFormError, 'required, and may be None'),
         _HandsOutARun: (TypeError, 'marked reads but can answer a running call'),
     }

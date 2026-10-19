@@ -242,12 +242,14 @@ def _refuse_no_query_form(
             single.append(a)
         else:
             raise wire_encoding.NoWireFormError(f'{where} {key}: a {a.form} has no query form')
-    texts = {a.name for a in single if a.form == wire_encoding.SCALAR and a.name == 'str'}
-    texts |= {a.form for a in single if a.form in (wire_encoding.PATH, wire_encoding.HANDLE)}
-    numbers = {
-        a.name for a in single if a.form == wire_encoding.SCALAR and a.name in ('int', 'float')
-    }
-    if texts and numbers:
+    # Text is any value sent as a string: a str, a name, a path, an id.
+    values = [
+        a
+        for a in single
+        if a.form == wire_encoding.SECONDS or (a.form == wire_encoding.SCALAR and a.name != 'str')
+    ]
+    texts = [a for a in single if a not in values]
+    if texts and values:
         raise wire_encoding.NoWireFormError(
             f'{where} {key}: a name or a number, which a query string cannot tell apart'
         )
