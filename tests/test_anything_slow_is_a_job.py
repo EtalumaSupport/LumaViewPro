@@ -533,8 +533,18 @@ def test_a_call_past_the_live_limit_is_refused_before_it_runs(client, held, monk
     assert held.calls == []
 
 
-def test_a_call_that_hands_out_a_job_is_refused_while_the_limit_of_jobs_runs(client, monkeypatch):
-    first = client.post('/api/v1/scope/motion/start_home').json()
+def test_a_call_that_hands_out_a_job_is_refused_while_the_limit_of_jobs_runs(
+    client, session, monkeypatch
+):
+    # The first job is a move held part of the way, so it runs until the
+    # test lets it go: a home on the fast simulator could end before the
+    # second call, and that call would be the one job running, not refused.
+    home_sim_scope(session.scope)
+    held = session.scope.simulation.hold_axis('Z')
+    first = client.post(
+        '/api/v1/scope/motion/start_move_relative', json={'axis': 'Z', 'distance': 100.0}
+    ).json()
+    assert held.wait(10), 'the first job never got part of the way'
     monkeypatch.setattr(rest.jobs, 'LIVE_LIMIT', 1)
 
     refused = client.post('/api/v1/scope/motion/start_home')
@@ -543,6 +553,7 @@ def test_a_call_that_hands_out_a_job_is_refused_while_the_limit_of_jobs_runs(cli
 
     assert (refused.status_code, refused.json()['reason']) == (503, 'overloaded')
     assert answered.status_code == 200
+    session.scope.simulation.clear()
     client.get(f'/api/v1/jobs/{first["id"]}', headers={'Prefer': 'wait=30'})
 
 
