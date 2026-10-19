@@ -488,6 +488,49 @@ class SimulationAPI:
         )
 
     @api(in_process=True)
+    def refuse_camera_read(self, node: str, answer: str, count: int = 1) -> None:
+        """The camera's next ``count`` reads of ``node`` fail as ``answer`` says.
+
+        Args:
+            node: The setting read: ``'gain'``, ``'exposure'``,
+                ``'frame_size'``, ``'binning'``, ``'pixel_format'``,
+                ``'black_level'`` or ``'frame_rate'``.
+            answer: How the read fails: ``'raise'``; ``'sentinel'``, the
+                driver's failed-read value (-1 for the gain, the exposure
+                and the binning, nothing for the frame size; not for the
+                other nodes, whose drivers raise); or ``'removed'``, raising
+                with the camera gone from the bus during the read (it stays
+                removed for the session, as after ``remove_camera``).
+            count: How many reads in a row meet it, 1 or more.
+
+        Raises:
+            ArgumentRefusedError: ``'needs_simulated_scope'``;
+                ``'fault_unknown'`` for a node, or an answer that node's
+                read does not give; ``'fault_bound'`` for a count below 1;
+                ``'not_injectable_on_board'`` on the FX2 camera.
+        """
+        target = self._camera_board('refuse_camera_read')
+        if not isinstance(target, SimulatedCamera):
+            raise self._not_injectable('refuse_camera_read', target)
+        for argument, value, offered in (
+            ('node', node, tuple(SimulatedCamera.READABLE_NODES)),
+            ('answer', answer, SimulatedCamera.read_answers_for(node)),
+        ):
+            if value not in offered:
+                raise ArgumentRefusedError(
+                    'fault_unknown', argument=argument, value=value, offered=offered
+                )
+        self._bound('count', count, 'a number of reads, 1 or more', count >= 1)
+        target.refuse_read(node, answer, count)
+        self._record(
+            'refuse_camera_read',
+            lambda: target.allow_read(node),
+            node=node,
+            answer=answer,
+            count=count,
+        )
+
+    @api(in_process=True)
     def stall_stream(self, after_s: float, for_s: float) -> None:
         """The camera's stream delivers no frame for ``for_s`` seconds,
         starting ``after_s`` seconds from now; it stays connected and grabbing.

@@ -10,7 +10,7 @@ caller meets on hardware. Nothing here reaches a simulated board privately.
 import pytest
 
 from drivers import tmcm6110
-from drivers.exceptions import HardwareError
+from drivers.exceptions import CameraReadFailedError, HardwareError
 from modules.exceptions import (
     ArgumentRefusedError,
     CameraSettingRejected,
@@ -165,6 +165,25 @@ def test_a_refused_write_counted_twice_is_two_writes(scope):
     assert scope.imaging.frame_validity.target('gain') == 9.0
 
 
+@pytest.mark.parametrize('answer', ['raise', 'sentinel', 'removed'])
+def test_a_failed_frame_size_read_fails_the_snapshot_that_reads_it(scope, answer):
+    """Each failed-read answer a driver gives fails the read that met it, once."""
+    bind_settings_like_a_session(scope)
+    scope.simulation.refuse_camera_read('frame_size', answer)
+    with pytest.raises(CameraReadFailedError):
+        scope.camera.save_camera_state('test')
+    if answer != 'removed':
+        assert scope.camera.save_camera_state('test')['frame_size']
+
+
+def test_a_failed_read_counted_twice_is_two_reads(scope):
+    scope.simulation.refuse_camera_read('black_level', 'raise', count=2)
+    for _ in range(2):
+        with pytest.raises(RuntimeError):
+            scope.camera.get_black_level()
+    assert scope.camera.get_black_level() is not None
+
+
 def test_the_fast_led_board_refuses_a_link_fault_by_name(scope):
     for member in (scope.simulation.drop_replies, scope.simulation.unplug):
         refused = _refused(member, 'led')
@@ -193,6 +212,11 @@ def test_the_fast_motor_board_cannot_fail_a_home(scope):
         # A frame-size write answers the window it delivers, never a bare True.
         ('refuse_camera_write', ('frame_size', 'true'), 'fault_unknown', 'answer'),
         ('refuse_camera_write', ('gain', 'false', 0), 'fault_bound', 'count'),
+        ('refuse_camera_read', ('auto_gain', 'raise'), 'fault_unknown', 'node'),
+        ('refuse_camera_read', ('gain', 'false'), 'fault_unknown', 'answer'),
+        # A pixel format read raises when it fails; no driver answers a failed-read value.
+        ('refuse_camera_read', ('pixel_format', 'sentinel'), 'fault_unknown', 'answer'),
+        ('refuse_camera_read', ('gain', 'raise', 0), 'fault_bound', 'count'),
         ('stall_stream', (0.0, 0.0), 'fault_bound', 'for_s'),
         ('reboot', ('motor', -1.0), 'fault_bound', 'booting_for_s'),
     ],
@@ -205,15 +229,18 @@ def test_an_argument_the_fault_does_not_take_is_refused(scope, member, args, rea
 def test_injected_lists_what_was_asked_and_clear_takes_it_all_back(scope):
     scope.simulation.silence('motor')
     scope.simulation.refuse_camera_write('gain', 'none')
+    scope.simulation.refuse_camera_read('black_level', 'raise')
     assert scope.simulation.injected() == (
         InjectedFault('silence', {'board': 'motor'}),
         InjectedFault('refuse_camera_write', {'node': 'gain', 'answer': 'none', 'count': 1}),
+        InjectedFault('refuse_camera_read', {'node': 'black_level', 'answer': 'raise', 'count': 1}),
     )
     scope.simulation.clear()
     assert scope.simulation.injected() == ()
     assert scope.motion.get_actual_position('X') == pytest.approx(0.0, abs=0.1)
     scope.camera.set_gain_db(4.0)
     assert scope.imaging.frame_validity.target('gain') == 4.0
+    assert scope.camera.get_black_level() is not None
 
 
 def test_a_held_axis_says_when_it_halted_and_clear_releases_it(scope):

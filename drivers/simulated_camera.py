@@ -263,6 +263,30 @@ class SimulatedCamera(Camera):
     _ANSWERS_NO_DRIVER_GIVES: ClassVar[dict[str, frozenset[str]]] = {
         'frame_size': frozenset({'true'}),
     }
+    # The nodes a read can be failed on (refuse_read), each by the getter
+    # the API reads it through.
+    READABLE_NODES: ClassVar[dict[str, str]] = {
+        'gain': 'get_gain',
+        'exposure': 'get_exposure_t',
+        'frame_size': 'get_frame_size',
+        'binning': 'get_binning_size',
+        'pixel_format': 'get_pixel_format',
+        'black_level': 'get_black_level',
+        'frame_rate': 'get_resulting_frame_rate',
+    }
+    # What a failed read answers, by name: a real SDK's node read raises;
+    # or answers the driver's failed-read value; or raises because the
+    # camera left the bus during the read.
+    FAILED_READ_ANSWERS: ClassVar[tuple[str, ...]] = ('raise', 'sentinel', 'removed')
+    # The failed-read value each driver answers for a node that has one:
+    # Pylon's gain and exposure answer -1 on a timeout, and a frame-size
+    # read with no window answers nothing.
+    _READ_SENTINELS: ClassVar[dict[str, object]] = {
+        'gain': -1,
+        'exposure': -1,
+        'binning': -1,
+        'frame_size': {},
+    }
 
     def __init__(
         self,
@@ -608,6 +632,54 @@ class SimulatedCamera(Camera):
     def allow_write(self, node: str) -> None:
         """Take back a ``refuse_write`` on ``node`` that no write has met yet."""
         vars(self).pop(self.WRITABLE_NODES[node], None)
+
+    @classmethod
+    def read_answers_for(cls, node: str) -> tuple[str, ...]:
+        """The failed-read answers ``node`` can be given: those a real driver gives for it."""
+        return tuple(
+            a for a in cls.FAILED_READ_ANSWERS if a != 'sentinel' or node in cls._READ_SENTINELS
+        )
+
+    def refuse_read(self, node: str, answer: str, count: int = 1) -> None:
+        """The next ``count`` reads of ``node`` answer ``answer``.
+
+        Args:
+            node: One of ``READABLE_NODES``.
+            answer: One of ``FAILED_READ_ANSWERS``: ``'raise'`` raises
+                ``RuntimeError`` as a failed node read; ``'sentinel'``
+                returns the driver's failed-read value for the node;
+                ``'removed'`` takes the camera off the bus and raises, as
+                a camera pulled during the read does.
+            count: How many reads in a row meet it, 1 or more.
+
+        Raises:
+            ValueError: ``node`` or ``answer`` is not one of those, or the
+                answer is one no real driver gives for that node.
+        """
+        if node not in self.READABLE_NODES:
+            raise ValueError(f'{node!r} is not one of {tuple(self.READABLE_NODES)}')
+        taken = self.read_answers_for(node)
+        if answer not in taken:
+            raise ValueError(f'{answer!r} is not one of {taken} for {node!r}')
+        getter = self.READABLE_NODES[node]
+        left = [count]
+
+        def refused(*args, **kwargs):
+            left[0] -= 1
+            if left[0] <= 0:
+                vars(self).pop(getter, None)
+            logger.warning(f'[CAM Sim   ] {node} read failed ({answer}, simulated)')
+            if answer == 'sentinel':
+                return self._READ_SENTINELS[node]
+            if answer == 'removed':
+                self.leave_bus()
+            raise RuntimeError(f'simulated {node} node read failed')
+
+        vars(self)[getter] = refused
+
+    def allow_read(self, node: str) -> None:
+        """Take back a ``refuse_read`` on ``node`` that no read has met yet."""
+        vars(self).pop(self.READABLE_NODES[node], None)
 
     def hold_frames(self, stall: SimulatedStall) -> None:
         """Stall the stream as ``stall`` says, starting its clock now.
