@@ -104,10 +104,11 @@ _REASON_UNNAMED_PINNED = frozenset(
 # last_capture_info and saturated_fraction, a read and a frame's arithmetic
 # that raise nothing, are marked in-process engineering members (Eric,
 # 2026-10-18); 156 since the Session's stim, auto-gain and enabled-stim
-# reads left the API (census C's row B9: a client reads them by path); the
-# count does not yet tell a member that raises nothing from one that has
-# not said.
-_WITHOUT_A_SECTION_CEILING = 156
+# reads left the API (census C's row B9: a client reads them by path); 162
+# since the Session's named reads of its owned settings, six of which read
+# the store and raise nothing (Eric, 2026-10-19); the count does not yet
+# tell a member that raises nothing from one that has not said.
+_WITHOUT_A_SECTION_CEILING = 162
 
 
 def _sections():

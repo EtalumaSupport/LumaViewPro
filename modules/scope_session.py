@@ -1897,6 +1897,16 @@ class ScopeSession:
         with self.settings_lock:
             self._write_layer_acquire(layer, mode)
 
+    @api(reads=True)
+    def layer_acquire(self, layer: str) -> 'str | None':
+        """What ``layer`` captures: ``'image'``, ``'video'``, or None (nothing).
+
+        Raises:
+            ArgumentRefusedError: ``'layer_unknown'``, ``layer`` is not a layer.
+        """
+        refuse_unknown_layer(layer)
+        return self.settings[layer]['acquire']
+
     def _write_layer_acquire(self, layer: str, mode: 'str | None') -> None:
         """Under ``settings_lock``: ``layer`` acquires ``mode``, and stops stimulating if it does."""
         self._store_setting(f'{layer}.acquire', mode)
@@ -1966,6 +1976,16 @@ class ScopeSession:
             # recorded as holding the layer at the values just stored.
             self.apply_layer_camera(layer)
         return lock
+
+    @api(reads=True)
+    def layer_auto_gain(self, layer: str) -> bool:
+        """Whether ``layer``'s auto-gain is on, as ``set_layer_auto_gain`` set it.
+
+        Raises:
+            ArgumentRefusedError: ``'layer_unknown'``, ``layer`` is not a layer.
+        """
+        refuse_unknown_layer(layer)
+        return self.settings[layer]['auto_gain']
 
     def apply_layer_camera(self, layer: str) -> dict | None:
         """Put ``layer``'s stored exposure, gain and auto-gain on the camera, and wait.
@@ -2279,6 +2299,18 @@ class ScopeSession:
                 self._store_setting(f'bookmark.{key}', value)
         logger.info(f'[Session  ] Bookmark saved: {saved}')
         return saved
+
+    @api
+    @property
+    def bookmark(self) -> PlateLocation:
+        """The bookmark: X and Y in plate millimetres on the selected plate, Z in micrometres.
+
+        What ``save_bookmark`` and ``save_all_bookmarks`` stored, in the
+        frame the go-to-bookmark moves read it in.
+        """
+        with self.settings_lock:
+            stored = self.settings['bookmark']
+            return PlateLocation(x_mm=stored['x'], y_mm=stored['y'], z_um=stored['z'])
 
     @api
     def save_all_bookmarks(self) -> float:
@@ -3344,6 +3376,16 @@ class ScopeSession:
 
     @api
     @property
+    def model(self) -> str:
+        """The saved scope model: the one ``select_model`` saved, brought up at the next start.
+
+        The running scope's model is ``scope.capabilities.model``; the two
+        differ until the next bring-up, which ``model_at_next_start`` says.
+        """
+        return self.settings['microscope']
+
+    @api
+    @property
     def model_at_next_start(self) -> str | None:
         """The saved model when it is not the one running, else None.
 
@@ -4067,6 +4109,19 @@ class ScopeSession:
         return changed
 
     @api
+    @property
+    def objective_id(self) -> str | None:
+        """The active objective's catalogue key, or None while it is not known.
+
+        On a turret scope it is the assignment of the slot in the light path,
+        None while that slot is unknown or unassigned; on a turretless scope,
+        the one ``select_objective`` selected
+        (``scope.runtime_state.resolve_current_objective`` says why it is
+        unknown).
+        """
+        return self.scope.runtime_state.get_current_objective_id()
+
+    @api
     def select_objective(self, objective_id: str) -> bool:
         """Make ``objective_id`` the active objective. Returns whether it changed.
 
@@ -4161,6 +4216,15 @@ class ScopeSession:
     # ------------------------------------------------------------------
     # The labware
     # ------------------------------------------------------------------
+
+    @api
+    @property
+    def labware(self) -> str:
+        """The current plate's catalogue key, the one ``select_labware`` selected.
+
+        Its record is ``scope.runtime_state.get_labware()``.
+        """
+        return self.settings['protocol']['labware']
 
     @api
     def select_labware(self, labware_name: str) -> bool:
@@ -4355,6 +4419,22 @@ class ScopeSession:
         """
         with self.settings_lock:
             self._store_setting('scale_bar.enabled', enabled)
+
+    @api
+    @property
+    def scale_bar_enabled(self) -> bool:
+        """Whether captured images are drawn with the scale bar, as ``set_scale_bar`` set it."""
+        return self.settings['scale_bar']['enabled']
+
+    @api
+    @property
+    def acceleration_limit_pct(self) -> int:
+        """The motors' acceleration limit, as a percent of the firmware's maximum.
+
+        The one ``set_acceleration_limit`` stored, which bring-up gives the
+        motor controller.
+        """
+        return self.settings['motion']['acceleration_max_pct']
 
     @api
     def set_acceleration_limit(self, val_pct: int) -> None:

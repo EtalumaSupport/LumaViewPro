@@ -1422,6 +1422,15 @@ still states the major version.
 ```python
 session.saved_focus('Blue')              # the Z saved as a layer's focus; FocusNotSavedError when none was
                                          # ever saved (a step built for that layer takes the current Z)
+session.layer_acquire('Blue')            # what a layer captures: 'image', 'video' or None (set_layer_acquire)
+session.layer_auto_gain('Blue')          # whether a layer's auto-gain is on (set_layer_auto_gain; turning it
+                                         # off also stores the layer's gain and exposure, read by get_setting)
+session.model                            # the saved model, brought up at the next start (select_model)
+session.objective_id                     # the active objective's key; None while it is not known (select_objective)
+session.labware                          # the current plate's catalogue key (select_labware)
+session.scale_bar_enabled                # whether captures draw the scale bar (set_scale_bar)
+session.acceleration_limit_pct           # the motors' acceleration limit, percent (set_acceleration_limit)
+session.bookmark                         # PlateLocation(x_mm, y_mm, z_um): the saved bookmark (save_bookmark)
 session.scope.runtime_state.resolve_current_objective()  # (id, Objective) of the active objective; ObjectiveUnknownError when unknown
 session.capture_settings_snapshot()      # (in-process) settings snapshot with objective_id set to the active objective,
                                          # for composing a capture or run; not for saving
@@ -3062,6 +3071,7 @@ The API is exactly the members below, and nothing else: each carries `@api` in t
 
 Reached through `ScopeSession.create(settings, ...)`; every L2 caller starts here.
 
+- `acceleration_limit_pct`
 - `add_outcome_listener` (in-process)
 - `add_run_state_listener` (in-process)
 - `add_shown_channel_listener` (in-process)
@@ -3074,6 +3084,7 @@ Reached through `ScopeSession.create(settings, ...)`; every L2 caller starts her
 - `app_runtime`
 - `app_version`
 - `assign_turret_objective`
+- `bookmark`
 - `bring_up_record`
 - `capture_settings_snapshot` (in-process)
 - `channel_colors`
@@ -3100,6 +3111,9 @@ Reached through `ScopeSession.create(settings, ...)`; every L2 caller starts her
 - `go_to_step`
 - `held_by_other`
 - `is_protocol_running`
+- `labware`
+- `layer_acquire`
+- `layer_auto_gain`
 - `light_shown_channel`
 - `live_folder_listing`
 - `live_folder_path` (in-process)
@@ -3111,9 +3125,11 @@ Reached through `ScopeSession.create(settings, ...)`; every L2 caller starts her
 - `make_support_report`
 - `manual_capture`
 - `manual_recording`
+- `model`
 - `model_at_next_start`
 - `motion_enabled`
 - `new_protocol`
+- `objective_id`
 - `objective_question`
 - `plugin_api_level`
 - `plugin_health`
@@ -3141,6 +3157,7 @@ Reached through `ScopeSession.create(settings, ...)`; every L2 caller starts her
 - `save_layer_focus`
 - `save_protocol`
 - `saved_focus`
+- `scale_bar_enabled`
 - `scope`
 - `select_labware`
 - `select_model`
