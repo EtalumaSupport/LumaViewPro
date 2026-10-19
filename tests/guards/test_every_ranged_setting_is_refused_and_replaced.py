@@ -74,8 +74,17 @@ _OUT_OF_RANGE = {
     '*.display_color': '#800080',
 }
 
+# A whole-number setting's fraction, inside its bounds: the board and the
+# encoder each take a whole number, so a fraction is outside the range too.
+_A_FRACTION = {
+    'motion.acceleration_max_pct': 62.5,
+    'jpg_quality': 85.5,
+}
+
 _CASES = sorted(
-    (pattern.replace('*', 'Blue', 1), value) for pattern, value in _OUT_OF_RANGE.items()
+    (pattern.replace('*', 'Blue', 1), value)
+    for table in (_OUT_OF_RANGE, _A_FRACTION)
+    for pattern, value in table.items()
 )
 
 

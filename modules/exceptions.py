@@ -3577,7 +3577,7 @@ class AccelerationLimitRefusedError(Refusal, ValueError):
 
     def __init__(self, value: object, low: int, high: int):
         super().__init__(
-            f'An acceleration limit of {value!r}% cannot be set: it is a number from {low} to {high}.'
+            f'An acceleration limit of {value!r}% cannot be set: it is a whole number from {low} to {high}.'
         )
         self.value = value
 

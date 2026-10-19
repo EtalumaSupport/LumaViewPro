@@ -1513,8 +1513,8 @@ class MotionAPI:
                 ``'axis_absent'``, no motor controller (see
                 ``refuse_absent``); asked before the value, and nothing was
                 sent.
-            AccelerationLimitRefusedError: ``val_pct`` is not a number or
-                is outside ``ACCELERATION_PCT_MIN`` to ``ACCELERATION_PCT_MAX``
+            AccelerationLimitRefusedError: ``val_pct`` is not a whole number
+                or is outside ``ACCELERATION_PCT_MIN`` to ``ACCELERATION_PCT_MAX``
                 (a ValueError). Refused on every board, real or simulated,
                 before it is commanded.
         """

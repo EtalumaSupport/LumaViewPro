@@ -89,14 +89,15 @@ def refuse_acceleration_pct(val_pct: object) -> None:
     session.
 
     Raises:
-        AccelerationLimitRefusedError: ``val_pct`` is not a number, or is
-            outside ``ACCELERATION_PCT_MIN`` to ``ACCELERATION_PCT_MAX``. A
-            ValueError, so a caller catching a bad argument keeps working.
+        AccelerationLimitRefusedError: ``val_pct`` is not a whole number,
+            or is outside ``ACCELERATION_PCT_MIN`` to ``ACCELERATION_PCT_MAX``.
+            A ValueError, so a caller catching a bad argument keeps working.
     """
-    # bool is excluded by name: True is an int, and a number to Real.
+    # bool is excluded by name: True is an int. A fraction is refused: every
+    # board takes a whole percent.
     if (
         isinstance(val_pct, bool)
-        or not isinstance(val_pct, numbers.Real)
+        or not isinstance(val_pct, numbers.Integral)
         or not ACCELERATION_PCT_MIN <= val_pct <= ACCELERATION_PCT_MAX
     ):
         raise AccelerationLimitRefusedError(val_pct, ACCELERATION_PCT_MIN, ACCELERATION_PCT_MAX)

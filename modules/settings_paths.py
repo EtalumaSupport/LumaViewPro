@@ -312,6 +312,10 @@ def _video_max_duration(path: str, value: float) -> None:
 
 
 def _jpg_quality(path: str, value: float) -> None:
+    # The encoder takes a whole quality; a fraction would be truncated.
+    # bool is excluded by name: True is an int.
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise SettingRefusedError('out_of_range', path, f'it must be a whole number, not {value!r}')
     _refuse_outside(path, value, *JPG_QUALITY_RANGE)
 
 
