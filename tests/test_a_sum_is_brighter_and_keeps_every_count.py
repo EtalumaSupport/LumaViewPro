@@ -202,11 +202,14 @@ def _write(
     *,
     white: int | None = None,
     ome: bool = False,
+    frames_summed: int | None = None,
 ):
+    counted = {} if frames_summed is None else {'frames_summed': frames_summed}
     image_utils.write_tiff(
         data=array,
         file_loc=path,
         metadata={
+            **counted,
             'datetime': '2026-10-04T12:00:00',
             'plate_pos_mm': {'x': 0.0, 'y': 0.0},
             'z_pos_um': 0.0,
@@ -279,6 +282,43 @@ def test_a_12bit_sum_projection_is_tagged_by_its_reach_and_reads_back(tmp_path):
     assert int(pixels.max()) == 12000
     # A projected sum is shown against one slice's white, as a captured sum is.
     assert white == 12
+
+
+def _project_summed_slices(tmp_path: pathlib.Path, method: str) -> dict:
+    """Project three slices, each a 4-frame sum, and read back what the output states."""
+    rows = []
+    for z in range(3):
+        name = f'A1_Blue_Z{z}.tiff'
+        _write(
+            tmp_path / name,
+            np.full((8, 8), 4000, dtype=np.uint16),
+            14,
+            'right_aligned',
+            white=12,
+            frames_summed=4,
+        )
+        rows.append({'Color': 'Blue', 'Filepath': name})
+    ZProjector(has_turret=False)._zproject(
+        path=tmp_path,
+        df=pd.DataFrame(rows),
+        method=method,
+        output_file_loc=pathlib.Path('projected.tiff'),
+        channel_colors=release_colors(),
+    )
+    return image_utils.read_postproc_input_metadata(tmp_path / 'projected.tiff')
+
+
+def test_a_sum_projection_states_no_frame_count(tmp_path):
+    # Three slices of four frames each, summed: the slice's count beside a
+    # per-frame exposure would state a third of what each pixel integrates.
+    stated = _project_summed_slices(tmp_path, 'Sum')
+    assert stated['exposure_time_ms'] == 50.0
+    assert 'frames_summed' not in stated
+
+
+def test_a_max_projection_keeps_its_slices_frame_count(tmp_path):
+    # Each output pixel is one slice's pixel, still a sum of four frames.
+    assert _project_summed_slices(tmp_path, 'Max')['frames_summed'] == 4
 
 
 MIXED_PLANES = pytest.mark.parametrize(

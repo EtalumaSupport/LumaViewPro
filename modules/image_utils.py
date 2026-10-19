@@ -1321,9 +1321,9 @@ def build_composite_output_metadata(
     """Build a write_tiff metadata dict for a composite output.
 
     Composite outputs merge multiple input channels with different
-    per-channel exposure / gain / illumination, so the output states none
-    of them -- they describe the source captures, not the merged image,
-    and a zero would read as a setting.
+    per-channel exposure / gain / illumination / frame sum, so the output
+    states none of them -- they describe the source captures, not the
+    merged image, and a zero would read as a setting.
     Shared acquisition context (objective, position, pixel size,
     instrument, plate, well_label) propagates from the reference input;
     composite input channels share these at the same site.
@@ -1347,7 +1347,13 @@ def build_composite_output_metadata(
         channel='Composite',
         significant_bits=significant_bits,
     )
-    for per_channel_field in ('exposure_time_ms', 'gain_db', 'black_level', 'illumination_ma'):
+    for per_channel_field in (
+        'exposure_time_ms',
+        'gain_db',
+        'black_level',
+        'illumination_ma',
+        'frames_summed',
+    ):
         metadata.pop(per_channel_field, None)
     return metadata
 

@@ -123,7 +123,7 @@ def test_an_ome_input_keeps_the_scale_and_exposure_it_states():
     assert 'illumination_ma' not in back
 
 
-def test_a_composite_states_no_exposure_gain_black_level_or_illumination(tmp_path):
+def test_a_composite_states_no_per_channel_acquisition_setting(tmp_path):
     reference = _write(
         tmp_path / 'red.tiff',
         {
@@ -136,12 +136,14 @@ def test_a_composite_states_no_exposure_gain_black_level_or_illumination(tmp_pat
             'gain_db': 3.0,
             'black_level': 4.0,
             'illumination_ma': 120.0,
+            # The sum count is a layer's setting too, so the channels differ in it.
+            'frames_summed': 4,
         },
     )
 
     metadata = image_utils.build_composite_output_metadata(reference, significant_bits=12)
 
-    for field in ('exposure_time_ms', 'gain_db', 'black_level', 'illumination_ma'):
+    for field in ('exposure_time_ms', 'gain_db', 'black_level', 'illumination_ma', 'frames_summed'):
         assert field not in metadata, f'a merged image states one {field}'
     assert metadata['pixel_size_um'] == 0.65
 
