@@ -12,7 +12,6 @@ import modules.app_context as _app_ctx
 import modules.binning as binning
 import modules.common_utils as common_utils
 import modules.layer_record as layer_record
-import modules.config_ui_getters as config_ui_getters
 from modules import gui_logger, path_utils
 from modules.config_helpers import (
     camera_max_exposure_for_ui,
@@ -750,22 +749,9 @@ class MicroscopeSettings(BoxLayout):
             )
 
     def refresh_fov_labels(self) -> None:
-        """Recompute the FOV readout from the current delivered-sourced
-        frame settings and the UI binning. With no known objective there is
-        no field of view to show, so the readout is blank."""
-        ctx = _app_ctx.ctx
-        settings = ctx.settings
-        objective = ctx.scope.runtime_state.get_current_objective()
-        if objective is None:
-            self.ids['field_of_view_width_id'].text = ''
-            self.ids['field_of_view_height_id'].text = ''
-            return
-        fov_size = config_ui_getters.get_field_of_view(
-            focal_length=objective.focal_length_mm,
-            frame_size=settings['frame'],
-            binning_size=ctx.session.camera.binning,
-        )
-        fov_w_text, fov_h_text = common_utils.format_field_of_view(fov_size)
+        """Show the scope's field of view; 'unknown' when it cannot say one."""
+        fov = _app_ctx.ctx.scope.runtime_state.get_field_of_view()
+        fov_w_text, fov_h_text = common_utils.format_field_of_view(fov)
         self.ids['field_of_view_width_id'].text = fov_w_text
         self.ids['field_of_view_height_id'].text = fov_h_text
 

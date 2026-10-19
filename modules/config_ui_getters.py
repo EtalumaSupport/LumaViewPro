@@ -12,7 +12,6 @@ For GUI-independent equivalents, see config_helpers.py.
 import logging
 
 import modules.app_context as _app_ctx
-import modules.common_utils as common_utils
 import modules.config_helpers as config_helpers
 import modules.labware as labware
 
@@ -40,42 +39,6 @@ def _live_scope():
 def _live_capabilities():
     """The capability surface of the LIVE scope, or None if not built yet."""
     return getattr(_live_scope(), 'capabilities', None)
-
-
-# ---------------------------------------------------------------------------
-# Image scale, off the live scope
-# ---------------------------------------------------------------------------
-
-
-def get_pixel_size(focal_length: float, binning_size: int) -> float | None:
-    """Effective um/pixel on the live scope, for the GUI's readouts.
-
-    None when no scope has been built yet or the scope cannot report its
-    optics; the readouts then show no scale rather than an invented one. The
-    resolver itself takes the capabilities as an argument -- the engine's
-    producers hand it the scope they image with -- and this is the one place
-    the GUI resolves them off the live scope.
-    """
-    capabilities = _live_capabilities()
-    if capabilities is None:
-        return None
-    return common_utils.get_pixel_size(
-        focal_length=focal_length, binning_size=binning_size, capabilities=capabilities
-    )
-
-
-def get_field_of_view(focal_length: float, frame_size: dict, binning_size: int) -> dict | None:
-    """Field of view on the live scope, for the GUI's readouts; None when the
-    scope cannot report its scale."""
-    capabilities = _live_capabilities()
-    if capabilities is None:
-        return None
-    return common_utils.get_field_of_view(
-        focal_length=focal_length,
-        frame_size=frame_size,
-        binning_size=binning_size,
-        capabilities=capabilities,
-    )
 
 
 def firmware_stim_supported() -> bool:

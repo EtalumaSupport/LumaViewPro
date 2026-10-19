@@ -21,7 +21,7 @@ from modules.video_cadence import effective_recording_fps
 
 if TYPE_CHECKING:
     from modules.lumascope_api.illumination import IlluminationAPI
-    from modules.scope_capabilities import ScopeCapabilities
+    from modules.scope_capabilities import FieldOfView, ScopeCapabilities
 
 
 # ---------------------------------------------------------------------------
@@ -654,16 +654,15 @@ def get_field_of_view(
 FOV_UNKNOWN_TEXT = 'unknown'
 
 
-def format_field_of_view(fov_size: dict | None) -> tuple[str, str]:
+def format_field_of_view(fov: 'FieldOfView | None') -> tuple[str, str]:
     """Render (width, height) FOV label text for the settings readouts.
 
     Returns the rounded micron strings, or ('unknown', 'unknown') when the
-    scope cannot report a field of view (no known pixel size). The three FOV
-    readouts share this so an unmeasurable scope reads the same everywhere.
+    scope cannot report a field of view (``RuntimeState.get_field_of_view``).
     """
-    if fov_size is None:
+    if fov is None:
         return (FOV_UNKNOWN_TEXT, FOV_UNKNOWN_TEXT)
-    return (str(round(fov_size['width'], 0)), str(round(fov_size['height'], 0)))
+    return (str(round(fov.width_um, 0)), str(round(fov.height_um, 0)))
 
 
 def max_decimal_precision(parameter: str) -> int:

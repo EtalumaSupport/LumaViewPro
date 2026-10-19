@@ -47,7 +47,6 @@ from modules.contrast_stretcher import ContrastStretcher
 from modules import gui_logger
 import modules.image_mode as image_mode
 import modules.autofocus_functions as autofocus_functions
-import modules.config_ui_getters as config_ui_getters
 import modules.image_utils as image_utils
 import modules.app_context as _app_ctx
 from modules.frame_validity import FrameValidity
@@ -413,21 +412,12 @@ class ScopeDisplay(Image):
 
                 from ui.ui_helpers import submit_gesture
 
-                objective = _app_ctx.ctx.scope.runtime_state.get_current_objective()
-                if objective is None:
-                    # No known objective, no pixel size: the same refusal as
-                    # an unknown pixel size below.
-                    gui_logger.button('SCOPE_CLICK_TO_CENTER', 'unavailable: objective unknown')
-                    return
-                pixel_size_um = config_ui_getters.get_pixel_size(
-                    focal_length=objective.focal_length_mm,
-                    binning_size=_app_ctx.ctx.session.camera.binning,
-                )
+                pixel_size_um = _app_ctx.ctx.scope.runtime_state.get_pixel_size_um()
                 if pixel_size_um is None:
                     # Click-to-center converts the click offset into a stage
-                    # move in um; without a known pixel size there is no
-                    # conversion. Do nothing rather than move the stage by a
-                    # guessed distance.
+                    # move in um; without a known pixel size (no known
+                    # objective among the reasons) there is no conversion. Do
+                    # nothing rather than move the stage by a guessed distance.
                     gui_logger.button(
                         'SCOPE_CLICK_TO_CENTER', 'unavailable: scope pixel size unknown'
                     )

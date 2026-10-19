@@ -25,7 +25,6 @@ from unittest.mock import MagicMock
 import pytest
 
 from modules.config_helpers import DEFAULT_MAX_EXPOSURE_MS, camera_max_exposure_for_ui
-from tests.objective_records import objective as objective_record
 
 
 class TestTheSliderRangeWithNoCamera:
@@ -290,33 +289,23 @@ class TestTheFramingRedrawShowsTheStore:
         assert ids['frame_width_id'].text == '960'
         assert ids['frame_height_id'].text == '600'
 
-    def _refresh_fov(self, scale_capabilities, monkeypatch, objective):
-        """Run the refresh against a scope whose active objective is
-        ``objective`` (None when unknown); returns the two label texts."""
+    def _refresh_fov(self, monkeypatch, fov):
+        """Run the refresh against a scope whose field of view is ``fov``
+        (None when it cannot say one); returns the two label texts."""
         from types import SimpleNamespace
 
         import modules.app_context as app_context
         import modules.common_utils as common_utils_real
-        import modules.config_ui_getters as config_ui_getters_real
 
+        # a stand-in by design: the widget's subject is the display of the
+        # scope's answer, which the scope's own test pins on the simulator
         ctx = SimpleNamespace(
-            settings={'frame': {'width': 1896, 'height': 1900}},
-            # The active objective is the runtime state's answer.
-            scope=SimpleNamespace(
-                runtime_state=SimpleNamespace(get_current_objective=lambda: objective)
-            ),
-            # The GUI getter resolves the scale off the LIVE scope.
-            lumaview=SimpleNamespace(scope=SimpleNamespace(capabilities=scale_capabilities)),
-            session=SimpleNamespace(camera=SimpleNamespace(binning=1)),
+            scope=SimpleNamespace(runtime_state=SimpleNamespace(get_field_of_view=lambda: fov))
         )
         monkeypatch.setattr(app_context, 'ctx', ctx)
         fn = _compile_ms_method(
             'refresh_fov_labels',
-            {
-                '_app_ctx': SimpleNamespace(ctx=ctx),
-                'common_utils': common_utils_real,
-                'config_ui_getters': config_ui_getters_real,
-            },
+            {'_app_ctx': SimpleNamespace(ctx=ctx), 'common_utils': common_utils_real},
         )
         ids = {
             'field_of_view_width_id': SimpleNamespace(text='stale'),
@@ -325,25 +314,16 @@ class TestTheFramingRedrawShowsTheStore:
         fn(SimpleNamespace(ids=ids))
         return ids['field_of_view_width_id'].text, ids['field_of_view_height_id'].text
 
-    def testrefresh_fov_labels_computes_from_settings_frame(self, scale_capabilities, monkeypatch):
-        import modules.common_utils as common_utils_real
+    def test_the_readout_shows_the_scopes_field_of_view(self, monkeypatch):
+        from modules.scope_capabilities import FieldOfView
 
-        objective = objective_record(focal_length_mm=9.0)
-        width, height = self._refresh_fov(scale_capabilities, monkeypatch, objective)
+        fov = FieldOfView(width_um=714.6, height_um=716.2)
+        assert self._refresh_fov(monkeypatch, fov) == ('715.0', '716.0')
 
-        expected_fov = common_utils_real.get_field_of_view(
-            focal_length=objective.focal_length_mm,
-            frame_size={'width': 1896, 'height': 1900},
-            binning_size=1,
-            capabilities=scale_capabilities,
-        )
-        assert width == str(round(expected_fov['width'], 0))
-        assert height == str(round(expected_fov['height'], 0))
-
-    def test_an_unknown_objective_blanks_the_readout(self, scale_capabilities, monkeypatch):
-        # No objective, no field of view: the readout says nothing rather
-        # than keep a stale value or compute one from a guess.
-        assert self._refresh_fov(scale_capabilities, monkeypatch, None) == ('', '')
+    def test_a_field_of_view_the_scope_cannot_say_reads_unknown(self, monkeypatch):
+        # No objective, no camera report, no optics: the readout says so
+        # rather than keep a stale value or compute one from a guess.
+        assert self._refresh_fov(monkeypatch, None) == ('unknown', 'unknown')
 
 
 class TestSelectBinningHandler:
