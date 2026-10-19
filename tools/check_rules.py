@@ -1474,22 +1474,31 @@ def _check_build_untracked(paths: list[str]) -> list[Violation]:
 _CHECKER_PATH = 'tools/check_rules.py'
 
 
-def _sibling_checker(sibling_dir: str) -> Path:
-    """The other repo's copy of this checker: the checkout beside this one that
-    carries this checkout's own track suffix.
+def sibling_checkout(sibling_dir: str, top: Path) -> Path:
+    """The other repo's checkout beside `top` carrying `top`'s own track
+    suffix: `<other>-<track>` beside `<repo>-<track>`, the bare `<other>`
+    beside the bare checkout.
 
-    The two repos share this checker by copy, and the copies drifted
-    twice. Every track commits in its own worktree, `<repo>-<track>`, and
-    the shared checkouts move only when someone pulls a pushed trunk, so a
-    track's witness is its own sibling worktree, `<other>-<track>`, the
-    tree it commits the same concern in; the bare checkout's witness is
-    the bare sibling. A witness in the shared checkout made two concerns
-    land as one Firmware commit, with that checkout's tree dirtied to
-    clear the block.
+    Every track commits in its own worktree, `<repo>-<track>`, and the
+    shared checkouts move only when someone pulls a pushed trunk, so what
+    a track reads of the other repo is its own sibling worktree, the tree
+    it commits the same concern in. The one rule serves the checker's
+    mirror witness here and, in Firmware, every test, probe and tool that
+    imports LumaViewPro (`tools/lvp_checkout.py`): reading the shared
+    checkout instead made two concerns land as one Firmware commit, with
+    that checkout's tree dirtied to clear the block, and ran a worktree's
+    tests against production code 17 commits behind its trunk.
     """
-    top = Path(subprocess.check_output(['git', 'rev-parse', '--show-toplevel'], text=True).strip())
     suffix = top.name[top.name.index('-') :] if '-' in top.name else ''
-    return top.parent / f'{sibling_dir}{suffix}' / _CHECKER_PATH
+    return top.parent / f'{sibling_dir}{suffix}'
+
+
+def _sibling_checker(sibling_dir: str) -> Path:
+    """The other repo's copy of this checker, in the checkout `sibling_checkout`
+    names beside the one this process runs in. The two repos share the
+    checker by copy, and the copies drifted twice before the witness."""
+    top = Path(subprocess.check_output(['git', 'rev-parse', '--show-toplevel'], text=True).strip())
+    return sibling_checkout(sibling_dir, top) / _CHECKER_PATH
 
 
 def _check_sibling_copy(staged: str, sibling: Path) -> list[Violation]:
