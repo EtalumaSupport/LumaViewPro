@@ -148,12 +148,12 @@ class TestValidateExposure:
         called valid and refused later by the run."""
         p = _make_protocol([_valid_step(Exposure=0)])
         errors = p.validate_steps(ObjectiveLoader().objectives, led_max_ma=1000)
-        assert any('Exposure must be more than 0 ms' in e for e in errors)
+        assert any('Exposure: it must be above 0' in e for e in errors)
 
     def test_negative_exposure(self):
         p = _make_protocol([_valid_step(Exposure=-10)])
         errors = p.validate_steps(ObjectiveLoader().objectives, led_max_ma=1000)
-        assert any('Exposure must be more than 0 ms' in e for e in errors)
+        assert any('Exposure: it must be above 0' in e for e in errors)
 
     def test_valid_exposure(self):
         p = _make_protocol([_valid_step(Exposure=100.5)])
@@ -164,7 +164,7 @@ class TestValidateIllumination:
     def test_negative_illumination(self):
         p = _make_protocol([_valid_step(Illumination=-1)])
         errors = p.validate_steps(ObjectiveLoader().objectives, led_max_ma=1000)
-        assert any('Illumination must be 0' in e for e in errors)
+        assert any('Illumination: it must be at least 0' in e for e in errors)
 
     def test_over_max_illumination(self):
         p = _make_protocol([_valid_step(Illumination=1001)])
@@ -184,7 +184,7 @@ class TestValidateGain:
     def test_negative_gain(self):
         p = _make_protocol([_valid_step(Gain=-1)])
         errors = p.validate_steps(ObjectiveLoader().objectives, led_max_ma=1000)
-        assert any('Gain must be >= 0' in e for e in errors)
+        assert any('Gain: it must be at least 0' in e for e in errors)
 
     def test_zero_gain_valid(self):
         p = _make_protocol([_valid_step(Gain=0)])
@@ -195,12 +195,12 @@ class TestValidateSum:
     def test_zero_sum(self):
         p = _make_protocol([_valid_step(Sum=0)])
         errors = p.validate_steps(ObjectiveLoader().objectives, led_max_ma=1000)
-        assert any('Sum must be >= 1' in e for e in errors)
+        assert any('Sum: it must be a whole number of at least 1' in e for e in errors)
 
     def test_negative_sum(self):
         p = _make_protocol([_valid_step(Sum=-1)])
         errors = p.validate_steps(ObjectiveLoader().objectives, led_max_ma=1000)
-        assert any('Sum must be >= 1' in e for e in errors)
+        assert any('Sum: it must be a whole number of at least 1' in e for e in errors)
 
     def test_valid_sum(self):
         p = _make_protocol([_valid_step(Sum=3)])
@@ -223,18 +223,38 @@ class TestValidateVideoConfig:
         vc = {'fps': 0, 'duration': 10}
         p = _make_protocol([_valid_step(Acquire='video', **{'Video Config': vc})])
         errors = p.validate_steps(ObjectiveLoader().objectives, led_max_ma=1000)
-        assert any('fps must be > 0' in e for e in errors)
+        assert any('Video Config fps: it must be above 0' in e for e in errors)
 
     def test_video_mode_zero_duration(self):
         vc = {'fps': 30, 'duration': 0}
         p = _make_protocol([_valid_step(Acquire='video', **{'Video Config': vc})])
         errors = p.validate_steps(ObjectiveLoader().objectives, led_max_ma=1000)
-        assert any('duration must be > 0' in e for e in errors)
+        assert any('Video Config duration: it must be above 0' in e for e in errors)
+
+    def test_a_video_longer_than_the_layers_range_is_refused(self):
+        # The layer ranges are the settings', one table: a video past the
+        # longest a step records is refused here as a write of it would be.
+        vc = {'fps': 30, 'duration': 3601}
+        p = _make_protocol([_valid_step(Acquire='video', **{'Video Config': vc})])
+        errors = p.validate_steps(ObjectiveLoader().objectives, led_max_ma=1000)
+        assert any(
+            'Video Config duration: it must be above 0 and at most 3600' in e for e in errors
+        )
 
     def test_a_video_config_that_is_not_a_config_is_refused_on_any_step(self):
         # A cell of the wrong type, whatever the step acquires.
         with pytest.raises(ProtocolFormatError, match='Video Config'):
             _make_protocol([_valid_step(Acquire='image', **{'Video Config': 'garbage'})])
+
+
+class TestValidateStimulation:
+    def test_a_stimulation_outside_its_range_is_refused(self):
+        stim = {'Blue': {'enabled': True, 'frequency': 60.0, 'pulse_width': 10, 'pulse_count': 5}}
+        p = _make_protocol([_valid_step(Stim_Config=stim)])
+        errors = p.validate_steps(ObjectiveLoader().objectives, led_max_ma=1000)
+        assert [e.partition(': ')[2] for e in errors] == [
+            'Stim_Config Blue frequency: it must be between 0.5 and 6.0, not 60.0'
+        ]
 
 
 class TestValidateNameLength:

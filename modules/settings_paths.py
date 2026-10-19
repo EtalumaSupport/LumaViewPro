@@ -33,6 +33,7 @@ from modules.finite_number import is_finite_number
 from modules.layer_record import parse_display_color
 from modules.lumascope_api._constants import SIMULATOR_TIERS, refuse_acceleration_pct
 from modules.protocol import Protocol, ProtocolScheduleRefusedError, schedule_from_units
+from modules.python_values import python_values
 from modules.tiling_config import TilingConfig
 
 
@@ -465,6 +466,39 @@ def nullable_kinds_for(path: str) -> tuple[str, ...] | None:
     """The kinds the setting at ``path``, shipped as null, holds when it is not null."""
     pattern = _pattern_for(_NULLABLE_KINDS, path)
     return _NULLABLE_KINDS[pattern] if pattern else None
+
+
+def refused_layer_values(
+    layer: str, values: typing.Mapping[str, object]
+) -> list[SettingRefusedError]:
+    """Every one of a layer's values the layer rules refuse, each as its refusal.
+
+    The one table of layer ranges, read for values that are not yet in the
+    settings: a protocol step's, or its Layer Settings row's. ``values``
+    maps a ranged number under the layer (``'exposure_ms'``,
+    ``'video_config.fps'``, ``'stim_config.frequency'``) to its value. The
+    rule is the layer's whatever ``layer`` names, so a step whose colour is
+    no layer is still judged; ``layer`` names the refusal's path. A hardware
+    ceiling (the LED board's maximum) is not judged here.
+
+    Returns:
+        A ``SettingRefusedError`` for each refused value, in ``values``'
+        order: ``'wrong_kind'`` for one that is not a finite number,
+        ``'out_of_range'`` for one outside its range. Empty when every value
+        is in range.
+    """
+    refused = []
+    for key, value in values.items():
+        path = f'{layer}.{key}'
+        # As the writer takes it: a protocol's cells may be numpy scalars.
+        value = python_values(value)
+        try:
+            if _kind(value) != 'number':
+                raise SettingRefusedError('wrong_kind', path, f'it must be a number, not {value!r}')
+            _RANGES[f'*.{key}'](path, value)
+        except SettingRefusedError as e:
+            refused.append(e)
+    return refused
 
 
 def refuse_outside_range(path: str, value: object) -> None:

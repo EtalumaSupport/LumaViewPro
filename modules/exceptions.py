@@ -1344,6 +1344,9 @@ class SettingRefusedError(Refusal, ConfigError):
             the setting holds.
             ``'out_of_range'`` -- the value is outside the setting's range.
         path: The dotted path that was written.
+        detail: Why, as a clause about the value (``'it must be above 0,
+            not 0'``), for a caller that names the setting its own way: a
+            protocol step's column.
         member: The member that changes the setting, for ``'has_member'``
             and ``'host_only'``; otherwise None.
 
@@ -1361,6 +1364,7 @@ class SettingRefusedError(Refusal, ConfigError):
         super().__init__(f'{path} was not changed: {detail.removesuffix(".")}.')
         self.reason = reason
         self.path = path
+        self.detail = detail
         self.member = member
 
 

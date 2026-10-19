@@ -28,6 +28,7 @@ from modules.exceptions import (
     ProtocolRunRefusedError,
     Refusal,
     RefusalCause,
+    SettingRefusedError,
 )
 from modules.notification_center import notifications
 
@@ -702,6 +703,53 @@ def _typed_layer_settings_row(row: dict) -> dict:
                 f'the Layer Settings {column} of {layer}, {cell!r}, {e}'
             ) from None
     return typed
+
+
+# Each step column a layer range holds, and the layer setting it is stored as.
+_STEP_LAYER_VALUES = (
+    ('Exposure', 'exposure_ms'),
+    ('Illumination', 'illumination_ma'),
+    ('Gain', 'gain_db'),
+    ('Sum', 'sum'),
+)
+
+_VIDEO_KEYS = ('fps', 'duration')
+_STIM_KEYS = ('frequency', 'pulse_width', 'pulse_count', 'illumination_ma')
+
+
+def step_layer_values_refused(step: Mapping) -> list[tuple[str, SettingRefusedError]]:
+    """Each of a step's values the layer ranges refuse, with the column that holds it.
+
+    The rules a write of them to the layer's settings holds
+    (``settings_paths.refused_layer_values``): the step's exposure,
+    illumination, gain and sum, its video's rate and length (both required
+    when it records video), and each stimulation config it carries.
+    """
+    # Deferred: settings_paths imports this module.
+    from modules.settings_paths import refused_layer_values
+
+    columns = {key: column for column, key in _STEP_LAYER_VALUES}
+    values = {key: step[column] for column, key in _STEP_LAYER_VALUES}
+    video = step.get('Video Config')
+    if isinstance(video, dict) or step['Acquire'] == 'video':
+        video = video if isinstance(video, dict) else {}
+        for part in _VIDEO_KEYS:
+            if part in video or step['Acquire'] == 'video':
+                values[f'video_config.{part}'] = video.get(part)
+                columns[f'video_config.{part}'] = f'Video Config {part}'
+    refused = [
+        (columns[r.path.partition('.')[2]], r) for r in refused_layer_values(step['Color'], values)
+    ]
+    stims = step.get('Stim_Config')
+    for stim_layer, stim in stims.items() if isinstance(stims, dict) else ():
+        if not isinstance(stim, dict):
+            continue
+        stim_values = {f'stim_config.{key}': stim[key] for key in _STIM_KEYS if key in stim}
+        refused.extend(
+            (f'Stim_Config {stim_layer} {r.path.rpartition(".")[2]}', r)
+            for r in refused_layer_values(stim_layer, stim_values)
+        )
+    return refused
 
 
 def _refuse_a_header_row_with_no_value(row: list[str], file_path: object) -> None:
@@ -1441,41 +1489,22 @@ class Protocol:
                 errors.append(f"{label}: Objective '{obj}' not found in objectives.json")
 
             # Every cell is already its column's type (_set_steps); what is
-            # judged here is whether the value is one the run can use.
-
-            # Exposure -- no camera takes 0 ms; the camera's own floor is
+            # judged here is whether the value is one the run can use, by the
+            # layer ranges the settings hold. The camera's own floor is
             # checked when the run is prepared, against the connected body.
-            exposure = step['Exposure']
-            if exposure <= 0:
-                errors.append(f'{label}: Exposure must be more than 0 ms, got {exposure}')
+            for column, refused in step_layer_values_refused(step):
+                errors.append(f'{label}: {column}: {refused.detail}')
 
-            # Illumination -- the cap is the connected board's
+            # The LED cap is the connected board's, not a range.
             illum = step['Illumination']
-            if illum < 0:
-                errors.append(f'{label}: Illumination must be 0 or more mA, got {illum}')
-            elif led_max_ma is not None and illum > led_max_ma:
+            if led_max_ma is not None and illum > led_max_ma:
                 errors.append(f'{label}: Illumination must be 0-{led_max_ma} mA, got {illum}')
 
-            gain = step['Gain']
-            if gain < 0:
-                errors.append(f'{label}: Gain must be >= 0, got {gain}')
-
             sum_count = step['Sum']
-            if sum_count < 1:
-                errors.append(f'{label}: Sum must be >= 1, got {sum_count}')
-            elif sum_count > 100:
+            if sum_count > 100:
                 logger.warning(
                     f'[PROTOCOL] {label}: Sum count {sum_count} is unusually high (> 100). This may cause long capture times.'
                 )
-
-            if step['Acquire'] == 'video':
-                vc = step['Video Config']
-                fps = vc.get('fps', 0)
-                duration = vc.get('duration', 0)
-                if not isinstance(fps, (int, float)) or fps <= 0:
-                    errors.append(f'{label}: Video Config fps must be > 0')
-                if not isinstance(duration, (int, float)) or duration <= 0:
-                    errors.append(f'{label}: Video Config duration must be > 0')
 
             # Name length
             name = step.get('Name', '')

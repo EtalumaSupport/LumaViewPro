@@ -164,7 +164,7 @@ def test_a_step_at_the_cap_given_is_accepted():
 
 def test_a_negative_current_is_refused_under_any_cap():
     errors = _protocol_with(-1).validate_steps(_CATALOGUE, led_max_ma=840)
-    assert any('Illumination must be 0 or more' in e for e in errors), errors
+    assert any('Illumination: it must be at least 0' in e for e in errors), errors
 
 
 def test_the_protocol_carries_no_cap_of_its_own():
