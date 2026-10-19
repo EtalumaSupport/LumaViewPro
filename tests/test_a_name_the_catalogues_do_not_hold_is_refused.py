@@ -18,6 +18,9 @@ slot members are asked on a turret scope: with no turret they refuse the
 absent turret first (``tests/test_turret_objective_assignment.py``).
 """
 
+import threading
+import traceback
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -34,8 +37,22 @@ from tests.test_a_command_for_absent_motion_hardware_is_refused import _session
 
 
 @pytest.fixture(scope='module')
-def session(tmp_path_factory):
+def z_changes():
+    """Each change to the session's Z after its home, with the stack of the thread that made it."""
+    return []
+
+
+@pytest.fixture(scope='module')
+def session(tmp_path_factory, z_changes):
     s = _session(tmp_path_factory.mktemp('c6'), 'LS850')
+
+    def record(axis, at):
+        if axis == 'Z':
+            z_changes.append(
+                (at, threading.current_thread().name, ''.join(traceback.format_stack()))
+            )
+
+    s.scope.motion.add_position_listener(record)
     yield s
     s.shutdown()
 
@@ -132,8 +149,14 @@ def test_a_slot_that_is_not_one_is_refused_as_the_turrets_range(turret_session, 
     assert _selection(turret_session) == before
 
 
-def test_a_retired_plate_name_resolves_and_is_stored_under_its_key(session):
+def test_a_retired_plate_name_resolves_and_is_stored_under_its_key(session, z_changes):
     session.set_layer_acquire('BF', 'image')
+    # The config carries Z only while Z holds its reference, and no test in
+    # this file moves an axis; under the push suite Z has been seen without
+    # one here, so a loss says what Z holds and who changed it.
+    z = session.scope.motion.axis_positions()['Z']
+    seen = '\n'.join(f'{at} on {thread}:\n{stack}' for at, thread, stack in z_changes[-5:])
+    assert z.position is not None, f'Z is {z} after the home; its changes since:\n{seen}'
     config = session.get_sequenced_capture_config()
     config['labware_id'] = 'Center Dish'
     protocol = session.scope.protocols.create_protocol(input_config=config)
