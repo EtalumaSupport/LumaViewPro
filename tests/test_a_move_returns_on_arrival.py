@@ -21,9 +21,9 @@ returning True for an axis a failed home left unknown, or False on a
 timeout its callers discarded.
 """
 
+import contextlib
 import inspect
 import threading
-import time
 
 import pytest
 
@@ -84,11 +84,20 @@ def _far_x(motion) -> float:
     return far
 
 
-def _until(predicate, timeout_s=_TRAVEL_WAIT_S):
-    deadline = time.monotonic() + timeout_s
-    while not predicate():
-        assert time.monotonic() < deadline, 'condition never held'
-        time.sleep(0.005)
+@contextlib.contextmanager
+def _x_moving(motion):
+    """An event set the moment X reads MOVING, told by motion's own position listener."""
+    moving = threading.Event()
+
+    def heard(axis, at):
+        if axis == 'X' and at.state == AxisState.MOVING:
+            moving.set()
+
+    motion.add_position_listener(heard)
+    try:
+        yield moving
+    finally:
+        motion.remove_position_listener(heard)
 
 
 class TestAMoveWaits:
@@ -150,8 +159,9 @@ class TestTheWaitIsOffTheLane:
                 errors.append(e)
 
         mover = threading.Thread(target=_waited_move)
-        mover.start()
-        _until(lambda: motion.get_axis_state('X') == AxisState.MOVING)
+        with _x_moving(motion) as moving:
+            mover.start()
+            assert moving.wait(_TRAVEL_WAIT_S), 'X never read MOVING'
 
         session.io_executor.call(IOTask(action=lambda: None), 'lane_probe', timeout_s=5.0)
         still_travelling = motion.get_axis_state('X') == AxisState.MOVING
@@ -314,8 +324,9 @@ class TestGoingToAStepWaitsOffTheLane:
                 errors.append(e)
 
         going = threading.Thread(target=_go)
-        going.start()
-        _until(lambda: motion.get_axis_state('X') == AxisState.MOVING)
+        with _x_moving(motion) as moving:
+            going.start()
+            assert moving.wait(_TRAVEL_WAIT_S), 'X never read MOVING'
 
         session.scope.illumination.led_on('BF', 10.0)
         still_travelling = motion.get_axis_state('X') == AxisState.MOVING
