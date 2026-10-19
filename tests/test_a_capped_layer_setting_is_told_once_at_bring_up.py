@@ -33,8 +33,9 @@ def test_every_capped_layer_value_is_one_notice_and_the_saved_values_are_kept(tm
     )
     try:
         camera = session.scope.camera
-        max_gain = camera.max_gain_db_cached
-        max_exposure = camera.max_exposure_ms_cached
+        limits = session.scope.capabilities.camera_limits
+        max_gain = limits.gain_db_max
+        max_exposure = limits.exposure_ms_max
         assert max_gain < 1000.0 and max_exposure < 100000.0, 'the test needs a smaller camera'
         (notice,) = _notices(heard)
         assert notice.message == str(

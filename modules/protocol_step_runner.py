@@ -181,8 +181,8 @@ class ProtocolStepRunner:
                     and not p._scope.motion.axes_without_position()
                 ):
                     p._ending.set_if_unset(_ending_of_a_failed_autofocus(_af_exc))
-            _cam_gain = p._scope.camera.gain_db_cached if p._scope.camera.active_cached else '?'
-            _cam_exp = p._scope.camera.exposure_ms_cached if p._scope.camera.active_cached else '?'
+            _cam_gain = p._scope.camera.gain_db
+            _cam_exp = p._scope.camera.exposure_ms
             logger.info(
                 f'[SCAN DIAG] AF gate passed: future.done()=True '
                 f'camera_gain={_cam_gain} camera_exp={_cam_exp} step={p._curr_step}'

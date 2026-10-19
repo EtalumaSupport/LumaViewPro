@@ -1532,10 +1532,11 @@ class SimulatedCamera(Camera):
         max_gain_db: float | None = None,
         ae_max_exposure_ms: float | None = None,
     ) -> bool:
-        """Enable or disable simulated continuous auto-gain.
+        """Enable or disable simulated continuous auto-gain and auto-exposure.
 
-        On enable, the simulator converges immediately by setting gain
-        to the midpoint of [min_gain_db, max_gain_db].
+        The two loops switch together, as a Basler body's ``GainAuto`` and
+        ``ExposureAuto`` do. On enable, the simulator converges immediately
+        by setting gain to the midpoint of [min_gain_db, max_gain_db].
 
         Args:
             state: True to enable, False to disable.
@@ -1550,6 +1551,7 @@ class SimulatedCamera(Camera):
         """
         with self._lock:
             self._auto_gain_enabled = state
+            self._auto_exposure_enabled = state
             if state:
                 self._auto_gain_target_brightness = target_brightness
                 if min_gain_db is not None:

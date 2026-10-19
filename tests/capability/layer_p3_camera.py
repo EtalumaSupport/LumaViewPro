@@ -19,14 +19,14 @@ try:
     im.enable_streaming()
     step(
         'set_gain_db(7.5)',
-        lambda: (im_camera.set_gain_db(7.5), im_camera.read_gain_db(), im_camera.gain_db_cached),
+        lambda: (im_camera.set_gain_db(7.5), im_camera.read_gain_db(), im_camera.gain_db),
     )
     step(
         'set_exposure_ms(123.0)',
         lambda: (
             im_camera.set_exposure_ms(123.0),
             im_camera.read_exposure_ms(),
-            im_camera.exposure_ms_cached,
+            im_camera.exposure_ms,
         ),
     )
     step('set_gain_db(1e6)', lambda: (im_camera.set_gain_db(1e6), im_camera.read_gain_db()))

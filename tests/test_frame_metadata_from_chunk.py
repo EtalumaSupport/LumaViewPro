@@ -57,6 +57,7 @@ def _imaging(chunk_reads=None):
     camera = object.__new__(CameraAPI)
     camera._scope = scope
     camera._camera_cache_lock = threading.Lock()
+    camera._camera_cache_write_gen = {}
     camera._camera_cache = {'binning': 1}
     camera._state_lock = threading.Lock()
     camera._held_layer = None

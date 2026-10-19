@@ -599,7 +599,7 @@ def to_int(val) -> int | None:
 
 def get_pixel_size(
     focal_length: float,
-    binning_size: int,
+    binning_size: int | None,
     *,
     capabilities: 'ScopeCapabilities',
 ) -> float | None:
@@ -608,9 +608,9 @@ def get_pixel_size(
     Reads the tube focal length and sensor pixel size from the scope
     capabilities the caller hands in (the single source of truth for image
     scale). Returns None when the scope cannot report its optics (unknown
-    camera, no declared optics) -- callers then degrade honestly (no scale
-    bar, no field of view, no PhysicalSizeX) rather than using an invented
-    scale. There is deliberately no hardcoded fallback: a guessed pixel size
+    camera, no declared optics) or the binning is unknown -- callers then
+    degrade honestly (no scale bar, no field of view, no PhysicalSizeX)
+    rather than using an invented scale. There is deliberately no hardcoded fallback: a guessed pixel size
     is written into every image and cannot be told from a measured one.
 
     The capabilities are required, never looked up: every producer of a
@@ -620,7 +620,7 @@ def get_pixel_size(
     """
     tube_focal_length = capabilities.lens_focal_length_mm
     pixel_width = capabilities.pixel_size_um
-    if tube_focal_length is None or pixel_width is None:
+    if tube_focal_length is None or pixel_width is None or binning_size is None:
         return None
     magnification = tube_focal_length / focal_length
     um_per_pixel = pixel_width / magnification

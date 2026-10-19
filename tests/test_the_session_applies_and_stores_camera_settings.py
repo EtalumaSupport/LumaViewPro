@@ -69,7 +69,7 @@ class TestTheFrame:
     def test_it_stores_what_the_camera_delivered_and_the_region_it_came_from(self, session):
         delivered = session.camera.set_frame_size(1000, 800)
 
-        assert delivered == session.scope.camera.frame_size_cached
+        assert delivered == session.scope.camera.frame_size.to_dict()
         frame = _stored_frame(session)
         assert {'width': frame['width'], 'height': frame['height']} == delivered
         assert (frame['native_width'], frame['native_height']) == (1000, 800), (
@@ -205,7 +205,7 @@ class TestTheBinning:
         frame = _stored_frame(session)
         assert (frame['native_width'], frame['native_height']) == (1200, 800)
         assert delivered == {'width': frame['width'], 'height': frame['height']}
-        assert delivered == session.scope.camera.frame_size_cached
+        assert delivered == session.scope.camera.frame_size.to_dict()
         assert delivered['width'] <= 600 and delivered['height'] == 400
 
     def test_cycling_the_binning_comes_back_to_the_same_frame(self, session):
@@ -316,13 +316,13 @@ class TestTheImageMode:
     @pytest.mark.parametrize('mode', ['16bit'])
     def test_an_unknown_mode_is_refused_and_nothing_is_applied_or_stored(self, session, mode):
         before = session.settings['image_mode']
-        pixel_format = session.scope.camera.pixel_format_cached
+        pixel_format = session.scope.camera.pixel_format
 
         with pytest.raises(SettingRefusedError) as refused:
             session.camera.set_image_mode(mode)
         assert (refused.value.reason, refused.value.path) == ('out_of_range', 'image_mode')
         assert session.settings['image_mode'] == before
-        assert session.scope.camera.pixel_format_cached == pixel_format
+        assert session.scope.camera.pixel_format == pixel_format
 
 
 class TestTheCameraToggles:

@@ -2,7 +2,7 @@
 
 Facts about the camera body, read at connect: the formats it offers and the
 largest frame the scope delivers, as the scope's capabilities publish them
-(`capabilities.camera_pixel_formats`, `camera_max_frame_size`); and the
+(`capabilities.camera_pixel_formats`, `camera_limits.frame_max`); and the
 frame-size grid, the increment of the camera's Width / Height nodes. The
 API delivers any even frame size by acquiring the next window up and
 cropping, so no API member states the grid: it is read from the driver's
@@ -32,7 +32,7 @@ def _read(session):
         },
     )
     figure('formats the capabilities publish', published)
-    figure('largest frame (unbinned)', caps.camera_max_frame_size)
+    figure('largest frame (unbinned)', caps.camera_limits.frame_max)
     check("the capabilities publish the camera's formats", bool(published))
 
     grid = scope.imaging._driver._frame_grid()

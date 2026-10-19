@@ -36,7 +36,7 @@ def body(session):
                     'median_s': round(statistics.median(samples), 3),
                     'max_s': round(max(samples), 3),
                     'file_kb': round(sizes[-1] / 1024),
-                    'frame': session.scope.camera.frame_size_cached,
+                    'frame': session.scope.camera.frame_size.to_dict(),
                 },
             )
     finally:

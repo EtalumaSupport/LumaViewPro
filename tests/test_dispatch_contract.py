@@ -256,7 +256,7 @@ def test_live_executor_submits_and_blocks(sim_scope, executors, family, member, 
     assert caller not in threads
     if member in _RETURNS_THE_FRAME:
         assert result == (
-            _PROBE_ANSWER[member] if member == 'set_frame_size' else sub.frame_size_cached
+            _PROBE_ANSWER[member] if member == 'set_frame_size' else sub.frame_size.to_dict()
         )
     else:
         assert result is (None if member in _RETURNS_NOTHING else IMPL_RESULT)
@@ -291,7 +291,7 @@ def test_capture_wait_scales_with_the_declared_work(sim_scope, executors):
         imaging.capture_and_wait(timeout_s=5.0, sum_count=10, sum_delay_s=0.2)
 
     frame_cost = max(
-        camera.exposure_ms_cached / 1000.0,
+        camera.exposure_ms / 1000.0,
         imaging._CAPTURE_DEADLINE_MIN_FRAME_PERIOD_S,
     )
     expected = (

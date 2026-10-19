@@ -309,18 +309,17 @@ class ManualRecordingController:
         settings = self._settings
         scope = self._scope
 
-        if not scope.camera.active_cached:
+        if not scope.camera.active:
             raise RecordingRefusedError(
                 reason='camera_inactive',
                 message='The camera is not streaming, so there is nothing to record. '
                 'Check the camera connection and try again.',
             )
 
-        exposure = scope.camera.exposure_ms_cached
-        # The exposure cache seeds 0.0 and keeps the prior value when a
-        # read fails, so a camera whose exposure was never successfully
-        # read reports 0 here; the dead-feed bound derives from it, so
-        # refuse loudly instead of fabricating one.
+        exposure = scope.camera.exposure_ms
+        # A camera whose exposure is unknown (never reported, or lost to a
+        # failed auto read-back) answers None here; the dead-feed bound
+        # derives from it, so refuse loudly instead of fabricating one.
         if exposure is None or exposure <= 0:
             raise RecordingRefusedError(
                 reason='camera_exposure_unknown',
@@ -432,15 +431,17 @@ class ManualRecordingController:
         claimed = {}
 
         def _make_config() -> RecordingConfig:
-            frame_size = scope.camera.frame_size_cached
+            # The size the file is made at: held, else read, so an unknown one is
+            # asked for (CameraReadFailedError when the camera does not answer).
+            frame_size = scope.camera.frame_size or scope.camera.read_frame_size()
             claimed['frame_size'] = frame_size
             claimed['pixel_size_um'] = resolve_recording_pixel_size(scope)
             claimed['to_plate'] = scope.runtime_state.plate_transform() if video_as_frames else None
             claimed['config'] = RecordingConfig(
                 fps=effective_fps,
                 duration_s=duration_s,
-                width=frame_size['width'],
-                height=frame_size['height'],
+                width=frame_size.width,
+                height=frame_size.height,
                 bit_depth=capture_config.capture_depth,
                 output_dir=save_folder,
                 filename_template=manual_frame_filename_template(),
@@ -502,8 +503,8 @@ class ManualRecordingController:
                 writer = VideoWriter(
                     output_path=save_folder / f'Video_{start_time_str}.mp4',
                     fps=effective_fps,
-                    width=claimed['frame_size']['width'],
-                    height=claimed['frame_size']['height'],
+                    width=claimed['frame_size'].width,
+                    height=claimed['frame_size'].height,
                     # Rendering: grey keeps the encoder gray, which is what a
                     # recording with the toggle off must produce.
                     color=layer_record.shown_color(
@@ -670,7 +671,7 @@ class ManualRecordingController:
         if self._elapsed_clock() - start_ts >= config.duration_s:
             self.stop(reason='duration_elapsed')
             return
-        if not self._scope.camera.active_cached:
+        if not self._scope.camera.active:
             self._stop_for_camera_loss(reason='camera_disconnected')
             return
         if stall_watch is None:

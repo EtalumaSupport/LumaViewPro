@@ -4,7 +4,7 @@ E2E: a manual recording on the real simulated stack ends within the
 stall bound when the feed silently dies -- with NO host pump at all.
 
 Production-path injection: disable_streaming halts the sim camera's
-callback pump WITHOUT flipping active_cached -- the silent-stall shape.
+callback pump WITHOUT flipping active -- the silent-stall shape.
 The controller's self-armed health check (real timer scheduler, the
 same one a headless host gets) must stop the recording, keep the
 frames, and record camera_stalled in the manifest. The wait loop below

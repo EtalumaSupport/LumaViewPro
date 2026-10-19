@@ -383,8 +383,8 @@ def test_after_disconnect_no_read_describes_the_camera_that_left(make_session, m
         None,
         None,
     )
-    assert camera.frame_size_cached == {'width': 0, 'height': 0}
-    assert camera.gain_db_cached == -1.0
+    assert camera.frame_size is None
+    assert camera.gain_db is None
     assert scope.diagnostics.get_camera_temperatures_degc() is None
     assert scope.diagnostics.get_camera_link_info() is None
 
@@ -496,12 +496,12 @@ def test_a_write_the_camera_left_during_records_nothing(make_session):
     session = make_session('LS850')
     camera = session.scope.camera
     camera.set_gain_db(3.0)
-    before = (camera.gain_db_cached, camera.frame_validity.target('gain'))
+    before = (camera.gain_db, camera.frame_validity.target('gain'))
     session.scope.simulation.refuse_camera_write('gain', 'removed')
 
     _refused(lambda: camera.set_gain_db(9.0))
 
-    assert (camera.gain_db_cached, camera.frame_validity.target('gain')) == before
+    assert (camera.gain_db, camera.frame_validity.target('gain')) == before
 
 
 def test_a_write_that_raises_as_the_camera_leaves_is_refused_as_an_absent_one(

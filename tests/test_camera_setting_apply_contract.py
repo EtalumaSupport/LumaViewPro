@@ -118,7 +118,7 @@ def test_set_frame_size_rejection_raises_and_preserves_cache(centre_posts):
     _assert_carries_its_words(
         excinfo.value, 'Camera Setting Not Applied', '1900x1900', centre_posts
     )
-    assert camera.frame_size_cached == {'width': 1936, 'height': 1216}, (
+    assert camera.frame_size.to_dict() == {'width': 1936, 'height': 1216}, (
         'a rejected resize must leave the cache at the geometry the hardware still holds'
     )
 
@@ -134,7 +134,7 @@ def test_set_binning_size_rejection_raises_and_preserves_cache(centre_posts):
     assert excinfo.value.setting == 'binning'
     assert excinfo.value.requested == 4
     _assert_carries_its_words(excinfo.value, 'Camera Setting Not Applied', '4x4', centre_posts)
-    assert camera._binning_size == 2, (
+    assert camera.binning == 2, (
         'a rejected binning must not commit the requested factor -- '
         'scale-bar / FOV math reads this value'
     )
@@ -151,7 +151,7 @@ def test_set_pixel_format_rejection_raises_and_preserves_cache(centre_posts):
     assert excinfo.value.setting == 'pixel_format'
     assert excinfo.value.requested == 'Mono8'
     _assert_carries_its_words(excinfo.value, 'Camera Setting Not Applied', 'Mono8', centre_posts)
-    assert camera.pixel_format_cached == 'Mono12'
+    assert camera.pixel_format == 'Mono12'
 
 
 def test_a_reported_rejection_is_shown_once_in_its_own_words(centre_posts):
@@ -192,7 +192,7 @@ def test_set_frame_size_returns_delivered_geometry_and_caches_it(centre_posts):
     delivered = _apply(camera, 'set_frame_size', 1900, 1900)
 
     assert delivered == {'width': 1896, 'height': 1900}
-    assert camera.frame_size_cached == {'width': 1896, 'height': 1900}
+    assert camera.frame_size.to_dict() == {'width': 1896, 'height': 1900}
     assert _posted(centre_posts, Severity.ERROR) == []
 
 
@@ -220,7 +220,7 @@ def test_set_binning_size_driver_raise_becomes_typed_rejection(centre_posts):
     _assert_carries_its_words(
         excinfo.value, 'Camera Setting Not Applied', 'did not accept', centre_posts
     )
-    assert camera._binning_size == 2  # prior factor intact
+    assert camera.binning == 2  # prior factor intact
 
 
 def test_set_pixel_format_driver_raise_becomes_typed_rejection(centre_posts):
@@ -239,7 +239,7 @@ def test_set_pixel_format_driver_raise_becomes_typed_rejection(centre_posts):
     _assert_carries_its_words(
         excinfo.value, 'Camera Setting Not Applied', 'did not accept', centre_posts
     )
-    assert camera.pixel_format_cached == 'Mono12'
+    assert camera.pixel_format == 'Mono12'
 
 
 # --- D. Absent / inactive camera is refused, naming it ---------------------------
@@ -261,9 +261,9 @@ def test_absent_camera_setters_are_refused_and_post_nothing(centre_posts):
     # Reporting the refusal is the caller's: the API posts nothing.
     assert _posted(centre_posts, Severity.WARNING) == []
     # Nothing recorded in the cache: every entry still holds its seed.
-    assert camera.frame_size_cached == {'width': 0, 'height': 0}
-    assert camera._binning_size == 1
-    assert camera.pixel_format_cached is None
+    assert camera.frame_size is None
+    assert camera.binning is None
+    assert camera.pixel_format is None
 
 
 def test_inactive_driver_setters_are_refused_without_reaching_driver(centre_posts):

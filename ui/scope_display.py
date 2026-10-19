@@ -421,7 +421,7 @@ class ScopeDisplay(Image):
                     return
                 pixel_size_um = config_ui_getters.get_pixel_size(
                     focal_length=objective.focal_length_mm,
-                    binning_size=_app_ctx.ctx.session.get_binning_size(),
+                    binning_size=_app_ctx.ctx.session.camera.binning,
                 )
                 if pixel_size_um is None:
                     # Click-to-center converts the click offset into a stage

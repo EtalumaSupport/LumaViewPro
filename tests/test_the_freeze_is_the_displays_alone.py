@@ -95,9 +95,9 @@ def test_a_press_freezes_the_picture_and_leaves_the_lit_led_lit(thread, sim_scop
 
 def test_a_press_with_the_camera_gone_freezes_the_picture(thread):
     # The simulator's gap: its camera's disconnect does not reach
-    # ImagingAPI.active_cached until a reconnect poll.
+    # ImagingAPI.active until a reconnect poll.
     # a stand-in by design: a fault the simulator cannot yet produce
-    scope = SimpleNamespace(imaging=SimpleNamespace(active_cached=False))
+    scope = SimpleNamespace(imaging=SimpleNamespace(active=False))
     display = _main_display(scope)
 
     _press(display)

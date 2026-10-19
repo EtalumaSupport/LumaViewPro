@@ -71,7 +71,7 @@ class TestTheSetterAnswersWithTheValueInEffect:
         monkeypatch.setattr(cam, 'gain', lambda v: 12.4)
 
         assert camera.set_gain_db(12.5) == pytest.approx(12.4)
-        assert camera.gain_db_cached == pytest.approx(12.4)
+        assert camera.gain_db == pytest.approx(12.4)
         assert camera.frame_validity.target('gain') == pytest.approx(12.4)
         assert ('gain', pytest.approx(12.4)) in heard
 
@@ -87,7 +87,7 @@ class TestTheSetterAnswersWithTheValueInEffect:
         monkeypatch.setattr(cam, 'exposure_t', lambda v: 50.0)
 
         assert camera.set_exposure_ms(0.02) == pytest.approx(0.05)
-        assert camera.exposure_ms_cached == pytest.approx(0.05)
+        assert camera.exposure_ms == pytest.approx(0.05)
 
 
 class TestTheApiPostsNothing:
@@ -123,7 +123,7 @@ class TestTheLayerApply:
             camera.apply_layer_camera_settings(gain_db=5.0, exposure_ms=40.0, layer='BF')
 
         assert excinfo.value.setting == 'gain_db'
-        assert camera.exposure_ms_cached == pytest.approx(40.0)
+        assert camera.exposure_ms == pytest.approx(40.0)
         assert _posted(centre_posts) == []
 
 
@@ -229,4 +229,4 @@ def test_a_driver_answering_a_bare_true_leaves_the_request_recorded(sim_camera, 
     monkeypatch.setattr(cam, 'gain', lambda v: True)
 
     assert camera.set_gain_db(12.5) == pytest.approx(12.5)
-    assert camera.gain_db_cached == pytest.approx(12.5)
+    assert camera.gain_db == pytest.approx(12.5)

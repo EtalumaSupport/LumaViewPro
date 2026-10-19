@@ -410,7 +410,7 @@ camera.set_frame_size(960, 600)              # a displayed (post-binning) size a
                                              # the scope's range
 camera.frame_at_binning(2)                   # the frame set_binning_size(2) will ask for; applies nothing;
                                              # refused as set_binning_size refuses the same size
-session.get_binning_size()                   # the binning factor in force, e.g. 2: the one the camera took
+camera.binning                               # the binning factor the camera took, e.g. 2; None when unknown
 ```
 
 The saved frame always carries its unbinned region (`frame.native_width` / `frame.native_height`): the shipped settings hold it, and bring-up saves one that gives the frame the camera delivers. A setting the camera changed at bring-up -- a binning it does not offer, a frame above the scope's maximum, high conversion gain or line-noise reduction saved on for a camera without them (`CameraFeatureAbsentNotice`, saved off) -- is saved as the camera runs it and reported once. A conversion gain or line-noise value the camera refuses at bring-up stays saved and is reported once.
@@ -1387,7 +1387,7 @@ still states the major version.
 
 | Level | Added |
 |---|---|
-| level 1 | `capabilities.camera_analog_gain_max_db`; `capabilities.camera_reports_temperature`, and `get_camera_temperatures_degc` answering `{}` only with no sensor, `None` with no camera, and raising on a failed read; `save_camera_state` / `restore_camera_state` covering pixel format, frame size, binning and black level. |
+| level 1 | `capabilities.camera_limits.analog_gain_db_max`; `capabilities.camera_reports_temperature`, and `get_camera_temperatures_degc` answering `{}` only with no sensor, `None` with no camera, and raising on a failed read; `save_camera_state` / `restore_camera_state` covering pixel format, frame size, binning and black level. |
 | level 2 | `imaging.get_black_level_range()`: the range `set_black_level` accepts for the current pixel format. |
 | level 3 | With no LED board: `led_on` and a lighting transition raise `not_connected`, the LED state reads (`get_led_state`, `get_led_states`, `save_led_state`) answer `None`, and `capabilities.led_max_ma` / `led_channels` are `None`; `led_on` for an LED the model lacks raises `axis_absent`. |
 | level 4 | With no camera: every camera command raises `not_connected` (`MissingPart.CAMERA`) but an off whose end state holds; `get_gain_db`, `get_exposure_ms`, `get_width` and `get_height` answer `None`; after `disconnect()` the camera cache holds the no-camera values and `get_camera_temperatures_degc` / `get_camera_link_info` answer `None`. |
@@ -2035,8 +2035,8 @@ delivered = scope.camera.set_frame_size(2048, 2048)  # saved with the region it 
 # refuses the apply; raises HardwareCommandRefusedError (not_connected)
 # when no camera is connected.
 # Base geometry code on the returned dict, never on the request.
-scope.camera.frame_size_cached                    # {'width': ..., 'height': ...} -- cache read, no driver I/O
-scope.capabilities.camera_max_frame_size           # (width, height) the scope's unbinned frame ceiling: the sensor,
+scope.camera.frame_size                           # FrameSize(width, height) the camera delivers -- held, no driver I/O
+scope.capabilities.camera_limits.frame_max         # FrameSize, the scope's unbinned frame ceiling: the sensor,
                                                    # or the model's smaller one (LS560: 1700); None if unknown
 scope.camera.get_pixel_alignment()                # {'width','height'} deliverable frame-size granularity: {2, 2}, even sides (H.264), on every camera
 
@@ -2053,17 +2053,27 @@ scope.camera.set_image_mode('12bit_scientific')    # the camera's pixel format f
 scope.capabilities.camera_pixel_formats            # e.g. ('Mono8', 'Mono12')
 
 
-# Cache reads, no driver I/O (the *_cached family)
-scope.camera.gain_db_cached
-scope.camera.exposure_ms_cached
-scope.camera.pixel_format_cached
-scope.camera.min_frame_size_cached                # dict, or None when no camera is connected
+# Held reads, no driver I/O: what the camera last reported or took, None
+# whenever that is unknown (before the camera's first report, with no
+# camera, after an auto cycle whose read-back failed)
+scope.camera.gain_db
+scope.camera.exposure_ms
+scope.camera.black_level
+scope.camera.binning
+scope.camera.pixel_format
+scope.camera.auto_gain                            # these four have no driver read: the write
+scope.camera.auto_exposure                        #   the camera took (an auto-gain arm and its
+scope.camera.high_conversion_gain                 #   lock switch auto_exposure with the gain)
+scope.camera.line_noise_reduction
+scope.camera.image_mode                           # the saved mode; the camera holds only its pixel format
+scope.camera.active                               # bool: connected and active, as last found
 
 # The longest exposure the camera may be using now (ms), no driver I/O: the
 # armed auto-gain's exposure ceiling while continuous auto-gain is on (the
-# sensor maximum when it was given none), else exposure_ms_cached. Bound a
-# wait for the next frame by this, not by the cache, which holds the value
-# from before auto-gain was armed. None when neither is known.
+# sensor maximum when it was given none), else the held exposure, or the
+# sensor maximum while that is unknown. Bound a wait for the next frame by
+# this, not by the held value, which holds the one from before auto-gain was
+# armed. None when none of them is known.
 scope.camera.longest_exposure_ms
 
 # Scale bar overlay (burned into frames the imaging paths return when enabled;
@@ -2081,10 +2091,11 @@ The acquisition frame-rate cap lives on the camera driver and clamps frame produ
 Cameras advertise their real limits at connect time. Use these to size UI sliders and clamp auto-exposure / auto-gain:
 
 ```python
-scope.camera.max_exposure_ms_cached                  # ms, None if no camera connected
-scope.camera.max_gain_db_cached                      # dB, None if no camera connected
-scope.camera.min_exposure_ms_cached                  # ms, None if the camera declares no floor
-scope.camera.min_gain_db_cached                      # dB, None if the camera declares no floor
+limits = scope.capabilities.camera_limits           # None if no camera connected
+limits.exposure_ms_max                              # ms
+limits.gain_db_max                                  # dB
+limits.exposure_ms_min                              # ms, None if the camera declares no floor
+limits.gain_db_min                                  # dB, None if the camera declares no floor
 ```
 
 A floor is `None` when the camera declares none, not `0`: a missing floor is not a floor of zero, and nothing checks against it. A run whose steps ask for a gain or exposure outside these limits is refused before it starts (reason `camera_setting_out_of_range`), naming each step; the stored values are left as they are.
@@ -2384,21 +2395,20 @@ caps.camera_binning_sizes       # e.g. (1, 2, 4)
 caps.camera_limits              # CameraLimits: gain_db_min/_max, analog_gain_db_max, exposure_ms_min/_max,
                                 # frame_min, frame_max (FrameSize, unbinned); read once at connect, None with
                                 # no camera. A limit the camera does not declare is None and is not checked.
-caps.camera_max_frame_size      # (width, height) unbinned, in pixels: the smallest of the sensor the profile
+caps.camera_limits.frame_max   # FrameSize unbinned, in pixels: the smallest of the sensor the profile
                                 # documents, the camera's own maximum and the model's (data/scopes.json
                                 # MaxFrame); None if none of them is known
-caps.camera_analog_gain_max_db  # dB: the most gain applied before a digital stage (above it the camera
-                                # multiplies digitised values). The profile's analog maximum, or the camera's
-                                # live maximum where it has no digital stage; None if neither is known.
-                                # The whole range, analog and digital, is scope.camera.max_gain_db_cached
+caps.camera_limits.analog_gain_db_max  # dB: the most gain applied before a digital stage (above it the
+                                # camera multiplies digitised values). The profile's analog maximum, or the
+                                # camera's live maximum where it has no digital stage; None if neither is
+                                # known. The whole range, analog and digital, is camera_limits.gain_db_max
 caps.camera_reports_temperature # the camera has a temperature sensor (probed at connect); False:
                                 # get_camera_temperatures_degc answers {}
-# Exposure ceiling: scope.camera.max_exposure_ms_cached (ms; None if no camera) -- see scope.imaging
 ```
 
 Important consequences:
 
-- **`camera_max_frame_size` is `None` when no camera is connected** (or none of its sources answered). Check it before using it as a `scope.camera.set_frame_size(w, h)` target, and divide by the binning in force; `set_frame_size` raises `HardwareCommandRefusedError` (`not_connected`) when no camera is connected. With a live camera it returns the DELIVERED geometry and raises `CameraSettingRejected` if the apply is refused.
+- **`camera_limits` is `None` when no camera is connected**, and its `frame_max` `None` when none of its sources answered. Check it before using it as a `scope.camera.set_frame_size(w, h)` target, and divide by the binning in force; `set_frame_size` raises `HardwareCommandRefusedError` (`not_connected`) when no camera is connected. With a live camera it returns the DELIVERED geometry and raises `CameraSettingRejected` if the apply is refused.
 - **LED channel count varies by scope, and not only by driver family.** An LS620 (FX2 driver) exposes 4 channels (`BF`, `Blue`, `Green`, `Red`); an **LS560, same driver family, exposes 2** (`BF`, `Green`); RP2040-based scopes expose 6 (`BF`, `PC`, `DF`, `Blue`, `Green`, `Red`). Don't iterate over a hardcoded list — iterate over the layers in `scope.layer_identity.layers` that have an `led_channel`.
 - **Some scopes have no motor at all.** LS560/LS620 have `caps.axes == ()`. Calling `scope.motion.move_absolute('X', …)` against such a scope raises `HardwareCommandRefusedError` (`axis_absent`, `MissingPart.MOTORS`), as a Z-only scope does for X (`MissingPart.X`); hide motion controls based on `caps.has_xy_stage`, `caps.has_focus` and `caps.has_turret`.
 - **Travel limits come from `scope.motion.get_axis_limits(axis)`**, read-only, for present axes; check `caps.has_xy_stage` (or `axis in caps.axes`) before asking about X/Y. A run whose steps lie outside these limits is refused before it starts (reason `positions_outside_travel`), naming each step and the axis; X/Y are judged on the protocol's plate at `scope.runtime_state.get_stage_offset()`, the offset the run moves with. A run whose steps need an axis the scope does not have is refused as `positions_unreachable`: steps at different places on that axis, or, on a scope without X and Y, steps with no X/Y whose wells or tiles differ, since each would be one field saved under a different name.
@@ -3084,7 +3094,6 @@ Reached through `ScopeSession.create(settings, ...)`; every L2 caller starts her
 - `engineering_mode`
 - `exclusive_activity`
 - `get_auto_gain_settings`
-- `get_binning_size`
 - `get_current_plate_position`
 - `get_enabled_stim_configs`
 - `get_layer_configs`
@@ -3238,26 +3247,29 @@ Reached through `session.scope.illumination`.
 
 Reached through `session.scope.camera` (in-process, also `session.camera`).
 
+- `active`
 - `add_camera_listener` (in-process)
 - `applied_auto_gain_for`
 - `applied_exposure_ms_for`
 - `applied_gain_db_for`
 - `apply_layer_camera_settings`
+- `auto_exposure`
+- `auto_gain`
+- `binning`
+- `black_level`
 - `camera_removed`
-- `exposure_ms_cached`
+- `exposure_ms`
 - `frame_at_binning`
-- `frame_size_cached`
-- `gain_db_cached`
+- `frame_size`
+- `gain_db`
 - `get_black_level_range`
 - `get_pixel_alignment`
+- `high_conversion_gain`
+- `image_mode`
+- `line_noise_reduction`
 - `lock_auto_gain`
 - `longest_exposure_ms`
-- `max_exposure_ms_cached`
-- `max_gain_db_cached`
-- `min_exposure_ms_cached`
-- `min_frame_size_cached`
-- `min_gain_db_cached`
-- `pixel_format_cached`
+- `pixel_format`
 - `read_binning`
 - `read_black_level`
 - `read_exposure_ms`
@@ -3380,11 +3392,9 @@ Reached through `session.scope.capabilities`.
 
 - `axes`
 - `buffer_bit_depth`
-- `camera_analog_gain_max_db`
 - `camera_binning_sizes`
 - `camera_has_clock_latch`
 - `camera_limits`
-- `camera_max_frame_size`
 - `camera_max_significant_bits`
 - `camera_model`
 - `camera_pixel_formats`

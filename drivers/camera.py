@@ -1685,7 +1685,10 @@ class Camera(ABC):
         max_gain_db: float | None = None,
         ae_max_exposure_ms: float | None = None,
     ) -> bool | None:
-        """Enable or disable continuous auto-gain.
+        """Enable or disable continuous auto-gain, with auto-exposure.
+
+        The camera's gain and exposure loops switch together (Pylon's
+        ``GainAuto`` and ``ExposureAuto``), so the API records both.
 
         Args:
             state: True to enable, False to disable.

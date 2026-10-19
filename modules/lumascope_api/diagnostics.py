@@ -359,20 +359,22 @@ class DiagnosticsAPI:
             except Exception as e:
                 info[key] = f'Error: {e}'
 
+        camera = self._scope.camera
         info['model'] = self._scope.capabilities.camera_model
-        _try('pixel_format', lambda: self._scope._camera_driver.get_pixel_format())
+        _try('pixel_format', camera.read_pixel_format)
 
         try:
-            fs = self._scope._camera_driver.get_frame_size()
-            info['resolution'] = f'{fs.get("width", "?")}x{fs.get("height", "?")}'
-            info['frame_size'] = fs
+            fs = camera.read_frame_size()
+            info['resolution'] = f'{fs.width}x{fs.height}'
+            info['frame_size'] = fs.to_dict()
         except Exception as e:
             info['resolution'] = f'Error: {e}'
 
-        _try('gain_db', lambda: self._scope.camera.read_gain_db())
-        _try('exposure_ms', lambda: self._scope.camera.read_exposure_ms())
-        _try('max_gain_db', lambda: self._scope._camera_driver.get_max_gain())
-        _try('max_exposure_ms', lambda: self._scope._camera_driver.get_max_exposure())
+        _try('gain_db', camera.read_gain_db)
+        _try('exposure_ms', camera.read_exposure_ms)
+        limits = self._scope.capabilities.camera_limits
+        info['max_gain_db'] = limits.gain_db_max if limits else None
+        info['max_exposure_ms'] = limits.exposure_ms_max if limits else None
 
         # Tag the active imaging-SDK runtime so characterization output
         # (grab-benchmark filenames, tech-support snapshots) ties to the
@@ -1384,7 +1386,11 @@ class DiagnosticsAPI:
             'gain_max_db': profile.gain.total_max_db,
             'exposure_min_us': exposure_min_us,
             'exposure_min_ms': exposure_min_ms,
-            'max_exposure_ms': self._scope.camera.max_exposure_ms_cached,
+            'max_exposure_ms': (
+                self._scope.capabilities.camera_limits.exposure_ms_max
+                if self._scope.capabilities.camera_limits
+                else None
+            ),
         }
 
     def _camera_summary(self) -> dict:

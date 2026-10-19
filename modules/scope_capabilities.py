@@ -177,12 +177,18 @@ class CameraLimits:
     ``gain_db_max`` is the most gain the camera applies, digital stage
     included; ``analog_gain_db_max`` the most before a digital stage, past
     which the camera multiplies digitised values and the noise with the
-    signal. ``frame_max`` is the largest frame the scope delivers,
-    unbinned: the smallest of the sensor size the camera's profile
-    documents, the maximum the camera reports at connect multiplied back
-    by the binning it reported then, and the model's catalogue
-    ``MaxFrame`` (a lens that images less than the sensor: the LS560's
-    1700), each where it is known. ``set_frame_size`` divides it by the
+    signal: the analog maximum the camera's profile documents, or, for a
+    camera whose profile states no digital stage, its total maximum (all
+    its gain is analog), None for a camera with a digital stage and no
+    documented split. ``frame_max`` is the largest frame the scope
+    delivers, unbinned: the smallest of the sensor size the camera's
+    profile documents, the maximum the camera reports at connect
+    multiplied back by the binning it reported then, and the model's
+    catalogue ``MaxFrame`` (a lens that images less than the sensor: the
+    LS560's 1700), each where it is known. The profile stays in that
+    comparison because a camera can report a few rows and columns more
+    than its documented sensor (the LS850T's daA3840 reports 3860 x 2178
+    against 3840 x 2160). ``set_frame_size`` divides it by the
     binning in force. ``frame_min`` is the smallest frame the camera
     reported at connect.
     """
@@ -226,12 +232,10 @@ def _frame(value: object) -> FrameSize | None:
 
 @api_fields(
     'axes',
-    'camera_analog_gain_max_db',
     'camera_binning_sizes',
     'buffer_bit_depth',
     'camera_has_clock_latch',
     'camera_limits',
-    'camera_max_frame_size',
     'camera_max_significant_bits',
     'camera_model',
     'camera_pixel_formats',
@@ -338,19 +342,6 @@ class ScopeCapabilities:
     camera_limits: CameraLimits | None
     """The ranges the attached camera takes, read once at connect; None
     with no camera connected."""
-
-    camera_max_frame_size: tuple[int, int] | None
-    """``camera_limits.frame_max`` as ``(width, height)``, None where it is.
-    The profile stays in that comparison because a camera can report a few
-    rows and columns more than its documented sensor (the LS850T's daA3840
-    reports 3860 x 2178 against 3840 x 2160)."""
-
-    camera_analog_gain_max_db: float | None
-    """``camera_limits.analog_gain_db_max``: the analog maximum the camera's
-    profile documents, or, for a camera whose profile states no digital
-    stage, its total maximum (all its gain is analog). None when neither
-    is known: no camera, or a camera with a digital stage and no documented
-    split."""
 
     camera_reports_temperature: bool
     """True if the camera has a temperature sensor, probed from its
@@ -614,8 +605,6 @@ class ScopeCapabilities:
             camera_pixel_formats=camera_pixel_formats,
             camera_binning_sizes=camera_binning_sizes,
             camera_limits=camera_limits,
-            camera_max_frame_size=camera_max_frame_size,
-            camera_analog_gain_max_db=camera_analog_gain_max_db,
             camera_reports_temperature=camera_reports_temperature,
             is_color_native=is_color_native,
             buffer_bit_depth=buffer_bit_depth,

@@ -2388,7 +2388,7 @@ class ScopeSession:
             protocol,
             tiling,
             frame_dimensions=config_helpers.get_frame_dimensions_from_settings(self.settings),
-            binning_size=self.get_binning_size(),
+            binning_size=config_helpers.get_binning_from_settings(self.settings),
             overlap_percent=self.settings['tiling_overlap_percent'],
         )
 
@@ -4381,18 +4381,6 @@ class ScopeSession:
         self.scope.motion.set_acceleration_limit(val_pct=val_pct)
         with self.settings_lock:
             self._store_setting('motion.acceleration_max_pct', val_pct)
-
-    @api(reads=True)
-    def get_binning_size(self) -> int:
-        """The binning factor in force: the one the camera took and the store holds.
-
-        ``set_binning_size`` stores a factor only once the camera took it, so
-        the store is the camera's binning; every pixel-size and tile-spacing
-        reader asks here.
-        """
-        import modules.config_helpers as config_helpers
-
-        return config_helpers.get_binning_from_settings(self.settings)
 
     # --- Hardware commands: NOT forwarded ---
     # The Session surface deliberately carries no hardware-command

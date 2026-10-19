@@ -71,7 +71,7 @@ def test_a_stack_refusal_names_five_steps_in_protocol_order():
 
 
 def test_a_camera_range_refusal_names_five_steps_then_the_rest(scope):
-    maximum = scope.camera.max_gain_db_cached
+    maximum = scope.capabilities.camera_limits.gain_db_max
     proto = _make_multi_step_protocol(
         [{'name': f'Step {n}', 'gain_db': maximum + 10.0, 'well': f'A{n}'} for n in range(1, 9)]
     )

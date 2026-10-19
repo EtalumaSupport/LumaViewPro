@@ -52,6 +52,7 @@ from modules.layer_record import release_colors
 from tests.camera_fakes import delivered_frame
 from tests.objective_records import objective
 from modules.coord_transformations import PlateLocation
+from modules.scope_capabilities import FrameSize
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 TILING_CONFIGS = REPO / 'data' / 'tiling.json'
@@ -469,7 +470,7 @@ def test_video_step_row_records_writers_actual_path(tmp_path, monkeypatch):
     scope = MagicMock()
     answer_auto_gain_like_the_api(scope.camera)
     scope.imaging.frames_until_valid.return_value = 0
-    scope.camera.active_cached = True
+    scope.camera.active = True
     scope.runtime_state.resolve_current_objective.return_value = (
         '4x Oly',
         objective(focal_length_mm=45.0),
@@ -477,7 +478,7 @@ def test_video_step_row_records_writers_actual_path(tmp_path, monkeypatch):
     scope.capabilities.camera_model = 'sim'
     scope.capabilities.camera_serial_number = '0'
     scope.capabilities.camera_timestamp_tick_hz = None
-    scope.camera.frame_size_cached = {'width': 8, 'height': 8}
+    scope.camera.frame_size = FrameSize(8, 8)
     scope.imaging.add_frame_listener = lambda cb, name=None: listeners.update(cb=cb)
 
     clock = {'t': 1000.0}

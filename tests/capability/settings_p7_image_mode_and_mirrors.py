@@ -31,8 +31,8 @@ try:
     im_camera.set_image_mode(mode)
     _common.ok(
         '12-bit pixel format applied',
-        im_camera.pixel_format_cached == target,
-        f'cached={im_camera.pixel_format_cached}',
+        im_camera.pixel_format == target,
+        f'cached={im_camera.pixel_format}',
     )
     _common.ok('image_mode recorded in the store', s.get_settings_snapshot()['image_mode'] == mode)
     print('significant_bits after the mode change:', im.significant_bits)

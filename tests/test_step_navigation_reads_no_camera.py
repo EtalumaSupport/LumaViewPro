@@ -22,9 +22,9 @@ from tests.test_a_refused_step_navigation_changes_nothing import (  # noqa: F401
 
 def test_going_to_a_step_asks_the_camera_nothing(nav_env):
     imaging = SimpleNamespace(
-        active_cached=True,
-        gain_db_cached=4.0,
-        exposure_ms_cached=25.0,
+        active=True,
+        gain_db=4.0,
+        exposure_ms=25.0,
         get_gain_db=MagicMock(return_value=4.0),
         get_exposure_ms=MagicMock(return_value=25.0),
     )

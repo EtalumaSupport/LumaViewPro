@@ -61,7 +61,7 @@ class TestTheFrameWriter:
         # the sim's minimum is one grid step, which the grid snap alone meets.
         set_camera_limits(monkeypatch, session.scope, frame_min=FrameSize(width=48, height=64))
         before = copy.deepcopy(session.settings['frame'])
-        delivered_before = camera.frame_size_cached
+        delivered_before = camera.frame_size.to_dict()
         writes = _camera_writes(monkeypatch, camera)
 
         with pytest.raises(CameraSettingOutOfRangeError) as refused:
@@ -74,18 +74,18 @@ class TestTheFrameWriter:
         ), 'the refusal states the range'
         assert writes == []
         assert session.settings['frame'] == before
-        assert camera.frame_size_cached == delivered_before
+        assert camera.frame_size.to_dict() == delivered_before
 
     def test_the_ceiling_follows_the_binning(self, session):
         session.camera.set_binning_size(2)
-        width, _ = session.scope.capabilities.camera_max_frame_size
+        width = session.scope.capabilities.camera_limits.frame_max.width
         with pytest.raises(CameraSettingOutOfRangeError) as refused:
             session.camera.set_frame_size(width, 400)
         assert refused.value.maximum == width // 2
 
     def test_an_in_range_size_is_delivered_exactly(self, session):
         delivered = session.camera.set_frame_size(1000, 802)
-        assert delivered == session.scope.camera.frame_size_cached
+        assert delivered == session.scope.camera.frame_size.to_dict()
         assert delivered == {'width': 1000, 'height': 802}
 
     def test_an_unknown_maximum_leaves_the_ceiling_unchecked(self, session, monkeypatch):
@@ -121,7 +121,7 @@ class TestBringUpStoresTheDeliveredFrame:
         # A frame wider than the simulated 3840x2160 sensor.
         s = self._create(tmp_path, (4000, 1900))
         try:
-            delivered = s.scope.camera.frame_size_cached
+            delivered = s.scope.camera.frame_size.to_dict()
             assert (delivered['width'], delivered['height']) != (4000, 1900)
             frame = s.settings['frame']
             assert {'width': frame['width'], 'height': frame['height']} == delivered
@@ -133,7 +133,7 @@ class TestBringUpStoresTheDeliveredFrame:
         try:
             frame = s.settings['frame']
             assert (frame['width'], frame['height']) == (960, 600)
-            assert s.scope.camera.frame_size_cached == {'width': 960, 'height': 600}
+            assert s.scope.camera.frame_size.to_dict() == {'width': 960, 'height': 600}
         finally:
             s.shutdown()
 
@@ -148,7 +148,10 @@ class TestBringUpStoresTheDeliveredFrame:
             assert camera.read_binning() == 1
             assert s.settings['binning']['size'] == '1x1'
             frame = s.settings['frame']
-            assert {'width': frame['width'], 'height': frame['height']} == camera.frame_size_cached
+            assert {
+                'width': frame['width'],
+                'height': frame['height'],
+            } == camera.frame_size.to_dict()
             assert s.camera.set_frame_size(960, 600) == {'width': 960, 'height': 600}
             assert (frame['native_width'], frame['native_height']) == (960, 600)
             assert s.camera.frame_at_binning(2) == {'width': 480, 'height': 300}

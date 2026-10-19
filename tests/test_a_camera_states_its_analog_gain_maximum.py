@@ -23,7 +23,8 @@ def _capabilities(profile):
     camera = SimpleNamespace(
         model_name='STUB',
         device_serial=None,
-        active=None,
+        # The limits are read from a connected camera.
+        active=True,
         get_binning_size=lambda: 1,
         timestamp_tick_frequency_hz=None,
         profile=profile,
@@ -41,7 +42,7 @@ def _capabilities(profile):
 
 
 def test_the_simulated_camera_states_the_profiles_analog_maximum(sim_scope):
-    assert sim_scope.capabilities.camera_analog_gain_max_db == 24.0
+    assert sim_scope.capabilities.camera_limits.analog_gain_db_max == 24.0
 
 
 def test_a_camera_with_no_digital_stage_states_its_live_maximum():
@@ -49,21 +50,21 @@ def test_a_camera_with_no_digital_stage_states_its_live_maximum():
     assert profile.gain.analog_max_db is None and profile.gain.has_digital is False
     profile.gain.total_max_db = 29.99
 
-    assert _capabilities(profile).camera_analog_gain_max_db == 29.99
+    assert _capabilities(profile).camera_limits.analog_gain_db_max == 29.99
 
 
 def test_a_digital_stage_with_no_documented_split_states_none():
     profile = copy.deepcopy(lookup_profile('U3-34L0XCP-M'))
     profile.gain = replace(profile.gain, has_digital=True, total_max_db=48.0)
 
-    assert _capabilities(profile).camera_analog_gain_max_db is None
+    assert _capabilities(profile).camera_limits.analog_gain_db_max is None
 
 
 def test_a_camera_whose_maximum_was_not_read_states_none():
     profile = copy.deepcopy(lookup_profile('U3-34L0XCP-M'))
     profile.gain = GainInfo(has_digital=False)
 
-    assert _capabilities(profile).camera_analog_gain_max_db is None
+    assert _capabilities(profile).camera_limits.analog_gain_db_max is None
 
 
 def test_no_camera_states_none():
@@ -74,4 +75,4 @@ def test_no_camera_states_none():
         layer_identity=UNRESOLVED,
         scope_models={},
     )
-    assert caps.camera_analog_gain_max_db is None
+    assert caps.camera_limits is None

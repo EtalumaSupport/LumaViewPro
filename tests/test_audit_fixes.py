@@ -2945,7 +2945,7 @@ class TestPF5_ImageBufferRetired:
         # A pixel format is set only through the image mode; 12-bit
         # scientific selects Mono12 on the simulated camera.
         camera.set_image_mode('12bit_scientific')
-        assert camera.pixel_format_cached == 'Mono12'
+        assert camera.pixel_format == 'Mono12'
         grab_a_frame_made_after_now(cam)
         sentinel = np.full((4, 4), 7, dtype=np.uint8)
         monkeypatch.setattr(
@@ -8263,50 +8263,6 @@ class TestLedSentinelReturnsAreNone:
         assert sim_scope.illumination.get_led_state('Blue').illumination_ma is None
 
 
-class TestCameraMaxFrameSizeOnCapabilities:
-    """Freeze audit Finding #4 (sub-item: camera_max_frame_size) +
-    sibling shape to #21. The property lived on ImagingAPI but read
-    per-camera-immutable data sourced from the camera driver at boot.
-    Canonical home is now capabilities.camera_max_frame_size:
-    tuple[int, int]. The ImagingAPI wrapper is retired."""
-
-    def test_imaging_class_does_not_carry_camera_max_frame_size(self):
-        from modules.lumascope_api.camera import CameraAPI
-        from modules.lumascope_api.imaging import ImagingAPI
-
-        # The camera's members moved to CameraAPI (W3b): neither class carries it.
-        assert not hasattr(CameraAPI, 'camera_max_frame_size'), (
-            'camera_max_frame_size came back on CameraAPI'
-        )
-        assert not hasattr(ImagingAPI, 'camera_max_frame_size'), (
-            'ImagingAPI.camera_max_frame_size must be retired per audit #4; '
-            'callers read scope.capabilities.camera_max_frame_size instead.'
-        )
-
-    def test_capabilities_camera_max_frame_size_is_tuple(self, sim_scope):
-        size = sim_scope.capabilities.camera_max_frame_size
-        assert isinstance(size, tuple)
-        assert len(size) == 2
-        # Sim camera reports nonzero max size
-        assert size[0] > 0
-        assert size[1] > 0
-
-    def test_no_camera_yields_no_max_frame_size(self):
-        from drivers.null_motorboard import NullMotionBoard
-        from drivers.null_ledboard import NullLEDBoard
-        from modules.layer_record import UNRESOLVED
-        from modules.scope_capabilities import ScopeCapabilities
-
-        caps = ScopeCapabilities.from_drivers(
-            motion=NullMotionBoard(),
-            led=NullLEDBoard(),
-            camera=None,
-            layer_identity=UNRESOLVED,
-            scope_models={},
-        )
-        assert caps.camera_max_frame_size is None
-
-
 class TestSessionCarriesNoHardwareForwarders:
     """The Session surface carries NO hardware-command members: every
     command has exactly one public spelling, on the sub-APIs of the
@@ -8467,11 +8423,6 @@ class TestLumascopeSkillsApiPluginDocBatch:
             'on_frame(frame',
         ):
             assert sig in doc, f'listener overview missing {sig!r}'
-
-    def test_camera_max_frame_size_unknown_is_documented(self):
-        # An unknown maximum is None, never a size a caller could use.
-        doc = self._doc()
-        assert 'camera_max_frame_size` is `None` when no camera is connected' in doc
 
 
 class TestGetLedStateShape:

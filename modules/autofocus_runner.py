@@ -131,7 +131,7 @@ class AutofocusRunner:
         if self._past_travel(z_min, z_max, 'the first window'):
             raise AutofocusOutOfTravelError()
         resolution = self._objective.autofocus_step_max_um
-        exposure = self._scope.camera.exposure_ms_cached
+        exposure = self._scope.camera.exposure_ms
 
         self._params = {
             'center': center,
@@ -623,8 +623,8 @@ class AutofocusRunner:
                         )
                 _af_log.info(
                     f'[AF DIAG] Clearing _af_in_progress -- '
-                    f'camera now at gain={self._scope.camera.gain_db_cached} '
-                    f'exp={self._scope.camera.exposure_ms_cached}'
+                    f'camera now at gain={self._scope.camera.gain_db} '
+                    f'exp={self._scope.camera.exposure_ms}'
                 )
             finally:
                 self._af_in_progress.clear()

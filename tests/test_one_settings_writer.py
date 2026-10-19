@@ -243,8 +243,8 @@ def test_a_protocol_schedule_no_protocol_can_run_is_refused(session):
 def test_a_layer_exposure_or_gain_above_the_camera_is_stored_as_the_intent(session):
     # The camera's limit is the apply's to hold (applied_exposure_ms_for),
     # with the stored value kept for a camera that can reach it.
-    assert session.scope.camera.max_exposure_ms_cached == 1000.0
-    assert session.scope.camera.max_gain_db_cached == 48.0
+    assert session.scope.capabilities.camera_limits.exposure_ms_max == 1000.0
+    assert session.scope.capabilities.camera_limits.gain_db_max == 48.0
     session.update_settings('Blue.exposure_ms', 1500.0)
     session.update_settings('Blue.gain_db', 60.0)
     assert session.settings['Blue']['exposure_ms'] == 1500.0

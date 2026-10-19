@@ -45,6 +45,7 @@ from tests.camera_fakes import bare_pylon_camera
 from tests.scope_fakes import give_camera_and_imaging, give_camera_capabilities
 from modules.layer_record import release_colors
 from tests.objective_records import objective
+from modules.scope_capabilities import FrameSize
 
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
@@ -300,7 +301,7 @@ def _video_session_autogain_call(autogain_settings):
 
     scope = MagicMock()
     scope.imaging.frames_until_valid.return_value = 0
-    scope.camera.active_cached = False  # wait loop exits on its first tick
+    scope.camera.active = False  # wait loop exits on its first tick
     scope.runtime_state.resolve_current_objective.return_value = (
         '4x Oly',
         objective(focal_length_mm=45.0),
@@ -308,7 +309,7 @@ def _video_session_autogain_call(autogain_settings):
     scope.capabilities.camera_model = 'sim'
     scope.capabilities.camera_serial_number = '0'
     scope.capabilities.camera_timestamp_tick_hz = None
-    scope.camera.frame_size_cached = {'width': 8, 'height': 8}
+    scope.camera.frame_size = FrameSize(8, 8)
     step = {
         'Auto_Gain': True,
         'Exposure': 10.0,

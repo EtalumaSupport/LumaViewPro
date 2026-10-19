@@ -374,7 +374,7 @@ class TestSubstitutions:
         try:
             sub = s.bring_up_record().substitution('frame')
             assert (sub.saved, sub.used) == ((1900, 1100), (1700, 1100))
-            assert s.scope.camera.frame_size_cached == {'width': 1700, 'height': 1100}
+            assert s.scope.camera.frame_size.to_dict() == {'width': 1700, 'height': 1100}
             assert s.settings['frame']['width'] == 1700, 'the frame that ran is stored'
             notices = [n for n in centre_posts if n.reason == 'frame_refitted']
             assert len(notices) == 1

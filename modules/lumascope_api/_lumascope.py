@@ -1155,7 +1155,7 @@ class Lumascope:
         if self.camera_connected:
             available_binning = self.capabilities.camera_binning_sizes
             if binning_size not in available_binning:
-                camera_binning = self.camera._binning_size
+                camera_binning = self.camera._held_or_read('binning')
                 # The persisted frame is a DISPLAYED size at the persisted
                 # factor; at a different factor it would come up as a
                 # fraction-area ROI (driver clamping only protects against
@@ -1250,16 +1250,20 @@ class Lumascope:
             ]
             if pixel_format is not None:
                 applies.append(lambda: self.camera._set_pixel_format_impl(pixel_format))
-            # Each toggle only where the camera has it: the impl refuses a
-            # mode the camera lacks with CameraSettingUnsupportedError, which
-            # is not a CameraSettingRejected and would abort bring-up.
-            if self.capabilities.camera_supports_conversion_gain_mode:
-                mode = 'High' if config.high_conversion_gain else 'Low'
-                applies.append(lambda: self.camera._set_conversion_gain_mode_impl(mode))
-            if self.capabilities.camera_supports_line_noise_reduction:
-                applies.append(
-                    lambda: self.camera._set_line_noise_reduction_impl(config.line_noise_reduction)
-                )
+            # A camera without a toggle is at its standard setting, which is
+            # applied as its state (nothing is written, and the camera holds
+            # it): the impl refuses the other setting on such a camera with
+            # CameraSettingUnsupportedError, which is not a
+            # CameraSettingRejected and would abort bring-up.
+            caps = self.capabilities
+            mode = (
+                'High'
+                if config.high_conversion_gain and caps.camera_supports_conversion_gain_mode
+                else 'Low'
+            )
+            applies.append(lambda: self.camera._set_conversion_gain_mode_impl(mode))
+            filtered = config.line_noise_reduction and caps.camera_supports_line_noise_reduction
+            applies.append(lambda: self.camera._set_line_noise_reduction_impl(filtered))
             for apply_fn in applies:
                 try:
                     apply_fn()

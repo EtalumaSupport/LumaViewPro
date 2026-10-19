@@ -91,7 +91,7 @@ def test_the_layer_apply_names_a_refused_auto_gain(sim_camera, monkeypatch):
         )
 
     assert excinfo.value.setting == 'auto_gain'
-    assert camera.gain_db_cached == pytest.approx(5.0), 'the other writes still ran'
+    assert camera.gain_db == pytest.approx(5.0), 'the other writes still ran'
 
 
 def test_the_locks_refused_disarm_is_reported(sim_camera, reported, monkeypatch):

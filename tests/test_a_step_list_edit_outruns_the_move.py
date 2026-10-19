@@ -173,7 +173,7 @@ def env(monkeypatch):
         scope=SimpleNamespace(
             protocols=SimpleNamespace(refuse_unaddressable_objectives=lambda objectives: None),
             capabilities=SimpleNamespace(has_turret=False, axes=('X', 'Y', 'Z')),
-            imaging=SimpleNamespace(active_cached=False),
+            imaging=SimpleNamespace(active=False),
             motor_connected=True,
             motion=MagicMock(),
             illumination=MagicMock(),

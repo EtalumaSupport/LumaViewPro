@@ -24,6 +24,7 @@ from tests.scope_fakes import answer_auto_gain_like_the_api
 from modules.layer_record import GREY, release_color
 from modules.layer_record import release_colors
 from tests.objective_records import objective
+from modules.scope_capabilities import FrameSize
 
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -65,7 +66,7 @@ def _video_step(monkeypatch, tmp_path, *, timestamp_overlay, false_color=False):
     scope = MagicMock()
     answer_auto_gain_like_the_api(scope.camera)
     scope.imaging.frames_until_valid.return_value = 0
-    scope.camera.active_cached = False  # wait loop exits on its first tick
+    scope.camera.active = False  # wait loop exits on its first tick
     scope.runtime_state.resolve_current_objective.return_value = (
         '4x Oly',
         objective(focal_length_mm=45.0),
@@ -73,7 +74,7 @@ def _video_step(monkeypatch, tmp_path, *, timestamp_overlay, false_color=False):
     scope.capabilities.camera_model = 'sim'
     scope.capabilities.camera_serial_number = '0'
     scope.capabilities.camera_timestamp_tick_hz = None
-    scope.camera.frame_size_cached = {'width': 64, 'height': 48}
+    scope.camera.frame_size = FrameSize(64, 48)
 
     capture_config = MagicMock()
     capture_config.capture_depth = 8

@@ -185,7 +185,7 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
     def fit_image(self):
         gui_logger.button('FIT_IMAGE')
         logger.info('[LVP Main  ] MainDisplay.fit_image()')
-        if not self.scope.camera.active_cached:
+        if not self.scope.camera.active:
             return
         self.ids['viewer_id'].scale = 1
         self.ids['viewer_id'].pos = (0, self.status_line_height)
@@ -193,16 +193,16 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
     def one2one_image(self):
         gui_logger.button('ONE_TO_ONE_IMAGE')
         logger.info('[LVP Main  ] MainDisplay.one2one_image()')
-        if not self.scope.camera.active_cached:
+        frame = self.scope.camera.frame_size
+        if not self.scope.camera.active or frame is None:
             return
-        scope = _app_ctx.ctx.scope
         # The viewer's own size: the status line below it takes a line of the window.
         w, h = self.ids['viewer_id'].size
-        # The cached size the camera delivers, not a live read: a live read
-        # waits on the camera, which a grab stop can hold for seconds.
-        frame = scope.camera.frame_size_cached
-        scale_hor = float(frame['width']) / float(w)
-        scale_ver = float(frame['height']) / float(h)
+        # The size the camera delivers, held, not a live read (read above):
+        # a live read waits on the camera, which a grab stop can hold for
+        # seconds.
+        scale_hor = float(frame.width) / float(w)
+        scale_ver = float(frame.height) / float(h)
         scale = max(scale_hor, scale_ver)
         self.ids['viewer_id'].scale = scale
         self.ids['viewer_id'].pos = (

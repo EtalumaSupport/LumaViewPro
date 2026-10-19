@@ -15,7 +15,7 @@ s, live = _common.make_session()
 im_camera = s.scope.camera
 try:
     caps = s.scope.capabilities
-    native = caps.camera_max_frame_size
+    native = caps.camera_limits.frame_max
     print('largest frame         :', native)
     print('available binning     :', caps.camera_binning_sizes)
     print('supported pix formats :', caps.camera_pixel_formats)
@@ -35,7 +35,7 @@ try:
         (im_camera.read_frame_size().width, im_camera.read_frame_size().height) == (800, 600),
         f'{im_camera.read_frame_size().width}x{im_camera.read_frame_size().height}',
     )
-    print('frame_size_cached     :', im_camera.frame_size_cached)
+    print('frame_size_cached     :', im_camera.frame_size.to_dict())
 
     # --- frame size, OUT OF RANGE (the 13414 shape) ----------------------
     from modules.exceptions import CameraSettingOutOfRangeError, CameraSettingUnsupportedError
@@ -93,8 +93,8 @@ try:
         im_camera.set_image_mode('12bit_scientific')
         _common.ok(
             f'pixel format {chosen} applied by the full-depth mode',
-            im_camera.pixel_format_cached == chosen,
-            f'read-back={im_camera.pixel_format_cached}',
+            im_camera.pixel_format == chosen,
+            f'read-back={im_camera.pixel_format}',
         )
     try:
         im_camera.set_image_mode('Mono99')

@@ -97,7 +97,7 @@ def nav_env(monkeypatch):
             refuse_unknown_positions=MagicMock(),
         ),
         motor_connected=True,
-        imaging=SimpleNamespace(active_cached=False),
+        imaging=SimpleNamespace(active=False),
         illumination=SimpleNamespace(
             color2ch=MagicMock(return_value=3),
             apply_transition=MagicMock(),

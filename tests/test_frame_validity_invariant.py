@@ -238,7 +238,7 @@ class TestGeometryFormatInvalidates:
         # A pixel format is set only through the image mode; 12-bit
         # scientific selects Mono12 on the simulated camera.
         camera.set_image_mode('12bit_scientific')
-        assert camera.pixel_format_cached == 'Mono12'
+        assert camera.pixel_format == 'Mono12'
         assert 'pixel_format' in camera.frame_validity.pending_sources
 
     def test_set_binning_size_turns_marker_red(self, sim_camera):
@@ -295,9 +295,7 @@ class TestRejectedSettingRaisesAndKeepsCache:
 
         captured = [n for n in centre_posts if n.severity == Severity.ERROR]
         assert not captured, 'A confirmed gain rejection is shown by its reporter, not the API'
-        assert camera.gain_db_cached == 2.0, (
-            'A rejected gain write must not be recorded in the cache'
-        )
+        assert camera.gain_db == 2.0, 'A rejected gain write must not be recorded in the cache'
 
     def test_rejected_exposure_raises_and_keeps_cache(self, sim_camera, monkeypatch, centre_posts):
         camera, cam = sim_camera
@@ -311,6 +309,6 @@ class TestRejectedSettingRaisesAndKeepsCache:
 
         captured = [n for n in centre_posts if n.severity == Severity.ERROR]
         assert not captured, 'A confirmed exposure rejection is shown by its reporter, not the API'
-        assert camera.exposure_ms_cached == 20.0, (
+        assert camera.exposure_ms == 20.0, (
             'A rejected exposure write must not be recorded in the cache'
         )

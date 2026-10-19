@@ -138,7 +138,7 @@ class TestWhatIsNotAStall:
         camera = scope.camera
         at_change = scope._frames_delivered()
         camera.set_exposure_ms(800.0)
-        assert camera.exposure_ms_cached == 800.0, 'precondition: the long exposure took'
+        assert camera.exposure_ms == 800.0, 'precondition: the long exposure took'
         # The frames the camera had started come at the old, short exposure.
         in_flight = SimulatedCamera.SENSOR_PIPELINE_FRAMES
         assert _wait_for(lambda: scope._frames_delivered() > at_change + in_flight, 3.0)

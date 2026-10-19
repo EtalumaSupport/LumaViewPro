@@ -48,7 +48,8 @@ try:
     print('session/API members mentioning "layer":', sorted(set(names)))
 
     # Range refusal on the per-layer values the drawer renders
-    print('max gain / max exposure cached:', im.max_gain_db_cached, im.max_exposure_ms_cached)
+    limits = s.scope.capabilities.camera_limits
+    print('max gain / max exposure:', limits.gain_db_max, limits.exposure_ms_max)
     # The camera's range refuses each of them (CameraSettingOutOfRangeError).
     for fn, bad, label in (
         (im.set_gain_db, 999.0, 'gain 999 dB'),

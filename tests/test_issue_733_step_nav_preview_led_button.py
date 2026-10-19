@@ -87,7 +87,7 @@ def stepnav_env(monkeypatch):
         # stand has the step's glass selected.
         runtime_state=SimpleNamespace(get_current_objective_id=lambda: 'obj1'),
         motor_connected=False,
-        imaging=SimpleNamespace(active_cached=False),
+        imaging=SimpleNamespace(active=False),
         illumination=SimpleNamespace(
             color2ch=MagicMock(return_value=3),
             apply_transition=MagicMock(),

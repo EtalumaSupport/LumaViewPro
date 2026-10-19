@@ -193,9 +193,9 @@ class MicroscopeSettings(BoxLayout):
         # applies the documented no-camera fallback; #616). The gain cap
         # keeps the slider honest per-camera -- a universal 48 dB let LS620
         # users overdrive past the usable range and black out the image.
-        max_exposure = camera_max_exposure_for_ui(lumaview.scope.camera)
+        max_exposure = camera_max_exposure_for_ui(lumaview.scope.capabilities.camera_limits)
         ctx.max_exposure = max_exposure
-        max_gain = camera_max_gain_for_ui(lumaview.scope.camera)
+        max_gain = camera_max_gain_for_ui(lumaview.scope.capabilities.camera_limits)
         ctx.max_gain = max_gain
 
         if not settings['video_as_frames']:
@@ -763,7 +763,7 @@ class MicroscopeSettings(BoxLayout):
         fov_size = config_ui_getters.get_field_of_view(
             focal_length=objective.focal_length_mm,
             frame_size=settings['frame'],
-            binning_size=ctx.session.get_binning_size(),
+            binning_size=ctx.session.camera.binning,
         )
         fov_w_text, fov_h_text = common_utils.format_field_of_view(fov_size)
         self.ids['field_of_view_width_id'].text = fov_w_text

@@ -15,6 +15,7 @@ from drivers.null_motorboard import NullMotionBoard
 from drivers.simulated_camera import SimulatedCamera
 from modules.layer_record import UNRESOLVED
 from modules.scope_capabilities import ScopeCapabilities
+from modules.scope_capabilities import FrameSize
 
 
 def _capabilities(camera):
@@ -29,6 +30,8 @@ def _capabilities(camera):
 
 def _camera_reporting(width, height):
     camera = SimulatedCamera()
+    # The limits are read from a connected camera.
+    camera.active = True
     camera.get_max_frame_size = lambda: {'width': width, 'height': height}
     return camera
 
@@ -37,25 +40,25 @@ def test_a_camera_reporting_more_than_its_sensor_is_bounded_by_the_sensor():
     # The LS850T's daA3840 reports 3860 x 2178; its sensor is 3840 x 2160.
     camera = _camera_reporting(3860, 2178)
     assert camera.profile.native_resolution == {'width': 3840, 'height': 2160}
-    assert _capabilities(camera).camera_max_frame_size == (3840, 2160)
+    assert _capabilities(camera).camera_limits.frame_max == FrameSize(3840, 2160)
 
 
 def test_a_camera_reporting_less_than_its_sensor_is_bounded_by_what_it_reports():
     camera = _camera_reporting(1920, 1080)
-    assert _capabilities(camera).camera_max_frame_size == (1920, 1080)
+    assert _capabilities(camera).camera_limits.frame_max == FrameSize(1920, 1080)
 
 
 def test_a_camera_with_no_documented_sensor_is_bounded_by_what_it_reports():
     camera = _camera_reporting(3860, 2178)
     camera.profile.native_resolution = {}
-    assert _capabilities(camera).camera_max_frame_size == (3860, 2178)
+    assert _capabilities(camera).camera_limits.frame_max == FrameSize(3860, 2178)
 
 
 def test_a_camera_whose_maximum_is_unknown_has_no_maximum():
     camera = _camera_reporting(0, 0)
     camera.get_max_frame_size = lambda: {}
     camera.profile.native_resolution = {}
-    assert _capabilities(camera).camera_max_frame_size is None
+    assert _capabilities(camera).camera_limits.frame_max is None
 
 
 def test_the_camera_identity_is_what_the_camera_reported():

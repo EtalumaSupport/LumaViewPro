@@ -206,7 +206,7 @@ class TestGeometrySetterSequences:
         cam = camera_plain._driver
         cam.set_frame_size = lambda w, h: {'width': 624, 'height': 480}
         camera_plain.set_frame_size(640, 482)
-        assert camera_plain.frame_size_cached == {'width': 624, 'height': 480}
+        assert camera_plain.frame_size.to_dict() == {'width': 624, 'height': 480}
 
     def test_set_frame_size_rejected_write_keeps_prior_cache(self, plain_scope):
         """A rejected frame-size write still invalidates 'frame_size' (the
@@ -222,7 +222,7 @@ class TestGeometrySetterSequences:
         assert caught.value.setting == 'frame_size'
         assert fv.invalidation_counts == _grown_by_one(before, 'frame_size')
         assert 'frame_size' in fv.pending_sources
-        assert camera.frame_size_cached == {'width': 624, 'height': 480}
+        assert camera.frame_size.to_dict() == {'width': 624, 'height': 480}
 
     def test_binning_read_failure_sentinel_not_committed(self, camera_plain):
         camera_plain.set_binning_size(2)
@@ -236,11 +236,11 @@ class TestGeometrySetterSequences:
         # A failed read returns the out-of-band -1 sentinel and must leave the
         # last-known factor in place -- committing it (or an in-band 1) would
         # silently de-bin the scale-bar / FOV math for a 2x camera.
-        assert camera_plain._binning_size == 2
+        assert camera_plain.binning == 2
 
     def test_gain_exposure_read_failure_not_cached(self, camera_plain):
-        prior_gain = camera_plain.gain_db_cached
-        prior_exposure = camera_plain.exposure_ms_cached
+        prior_gain = camera_plain.gain_db
+        prior_exposure = camera_plain.exposure_ms
         cam = camera_plain._driver
         orig_gain, orig_exp = cam.get_gain, cam.get_exposure_t
         cam.get_gain = lambda: -1.0
@@ -253,10 +253,10 @@ class TestGeometrySetterSequences:
         # `or 0.0` idiom passed it through (-1.0 is truthy) and latched -1
         # into the UI gain/exposure readout; a failed read must leave the
         # last-known values in place.
-        assert camera_plain.gain_db_cached == prior_gain
-        assert camera_plain.exposure_ms_cached == prior_exposure
-        assert camera_plain.gain_db_cached >= 0
-        assert camera_plain.exposure_ms_cached >= 0
+        assert camera_plain.gain_db == prior_gain
+        assert camera_plain.exposure_ms == prior_exposure
+        assert camera_plain.gain_db >= 0
+        assert camera_plain.exposure_ms >= 0
 
     def test_rejected_binning_write_keeps_prior_factor(self, camera_plain):
         camera_plain.set_binning_size(2)
@@ -271,17 +271,15 @@ class TestGeometrySetterSequences:
             cam.set_binning_size = orig
         # A rejected write must not commit the requested factor: the hardware
         # is still at the previous binning and scale-bar math reads this value.
-        assert camera_plain._binning_size == 2
+        assert camera_plain.binning == 2
 
     def test_set_binning_size_refreshes_geometry_caches(self, camera_plain):
         camera_plain.set_frame_size(3840, 2160)
         camera_plain.set_binning_size(2)
         # Binning 2x halves the sim's post-binning ceiling (3840x2160 native)
-        # and the driver clamps the current frame down to it; both
-        # binning-dependent geometry caches must reflect the driver's
-        # post-binning reality, not the 1x values.
-        assert camera_plain.frame_size_cached == {'width': 1920, 'height': 1080}
-        assert camera_plain.min_frame_size_cached == (camera_plain._driver.get_min_frame_size())
+        # and the driver clamps the current frame down to it; the held frame
+        # reflects the driver's post-binning reality, not the 1x value.
+        assert camera_plain.frame_size.to_dict() == {'width': 1920, 'height': 1080}
 
 
 class TestSdkPerfSetterSequences:

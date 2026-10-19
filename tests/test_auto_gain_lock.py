@@ -411,7 +411,7 @@ def test_arm_clamps_exposure_above_the_class_cap():
         resume_after_capture=True,
     )
     assert cam._exposure_us == 50000.0
-    assert camera.exposure_ms_cached == 50.0
+    assert camera.exposure_ms == 50.0
     assert imaging.frame_validity.target('exposure') == 50000.0
     clamp_lines = [m for m in _logged('info') if '[AG ARM]' in m]
     assert len(clamp_lines) == 1, _logged('info')
@@ -468,7 +468,7 @@ def test_run_restore_re_arms_the_live_view_arm():
     _arm(camera, AG_SETTINGS_TRANSMITTED, resume_after_capture=False)
     camera.restore_camera_state({'tag': 't', 'exposure_ms': 12.0})
     assert cam._auto_gain_enabled is True
-    assert camera.exposure_ms_cached == 12.0
+    assert camera.exposure_ms == 12.0
 
 
 def test_a_restore_that_disarms_puts_back_the_snapshots_gain():

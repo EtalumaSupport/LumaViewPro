@@ -47,7 +47,7 @@ def body(session):
     im_camera = session.scope.camera
     im_camera.set_exposure_ms(10.0)
     figure('S11.camera_frame_rate_reported', im_camera.read_frame_rate())
-    figure('S11.frame', im_camera.frame_size_cached)
+    figure('S11.frame', im_camera.frame_size.to_dict())
     counter = {'n': 0}
     lock = threading.Lock()
 

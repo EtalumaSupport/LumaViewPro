@@ -25,6 +25,7 @@ from modules.lumascope_api.illumination import LedReading, LedState
 from modules.manual_recording import ManualRecordingController
 from modules.notification_center import Severity
 from modules.recording_frames import MANUAL_HYPERSTACK_FILENAME
+from modules.scope_capabilities import FrameSize
 from tests.scope_fakes import identity_with_layers
 from tests.settings_fixtures import complete_settings
 from tests.video_engine_harness import FakeClock, ManualFireScheduler, NotifyRecorder
@@ -47,20 +48,20 @@ def _healthy_disk(monkeypatch):
 
 class _FakeCamera:
     def __init__(self, exposure_ms=100.0, width=32, height=24):
-        self.active_cached = True
-        self.exposure_ms_cached = exposure_ms
-        self._frame_size = {'width': width, 'height': height}
+        self.active = True
+        self.exposure_ms = exposure_ms
+        self._frame_size = FrameSize(width, height)
         # Read at recording start to resolve the frames' image scale.
-        self._binning_size = 1
+        self.binning = 1
 
     @property
     def longest_exposure_ms(self):
         # No auto-gain arm in this fake: the exposure in force is the cache.
-        return self.exposure_ms_cached
+        return self.exposure_ms
 
     @property
-    def frame_size_cached(self):
-        return dict(self._frame_size)
+    def frame_size(self):
+        return self._frame_size
 
 
 class _FakeImaging:
@@ -252,14 +253,14 @@ def finish(controller, timeout=15.0):
 class TestStartRefusals:
     def test_inactive_camera_refused(self, tmp_path):
         controller, scope, _ = make_controller(tmp_path)
-        scope.camera.active_cached = False
+        scope.camera.active = False
         with pytest.raises(RecordingRefusedError) as e:
             controller.start()
         assert e.value.reason == 'camera_inactive'
 
     def test_unknown_exposure_refused(self, tmp_path):
         controller, scope, _ = make_controller(tmp_path)
-        scope.camera.exposure_ms_cached = 0.0
+        scope.camera.exposure_ms = 0.0
         with pytest.raises(RecordingRefusedError) as e:
             controller.start()
         assert e.value.reason == 'camera_exposure_unknown'
@@ -275,7 +276,7 @@ class TestStartRefusals:
 
     def test_refusal_commits_nothing(self, tmp_path):
         controller, scope, _ = make_controller(tmp_path)
-        scope.camera.active_cached = False
+        scope.camera.active = False
         with pytest.raises(RecordingRefusedError):
             controller.start()
         assert scope.imaging.listener is None
@@ -1116,7 +1117,7 @@ class TestFeedLossDetection:
     """tick() ends a recording whose camera died -- by event or silently.
 
     The disconnect latch is the fast path; the stall watch catches the
-    feed that stops delivering while active_cached stays True. Either
+    feed that stops delivering while active stays True. Either
     way the user gets one loss notification and kept frames stay.
     """
 
@@ -1153,7 +1154,7 @@ class TestFeedLossDetection:
         # Started at 100 ms: the bound is the 5 s floor. Raised to 8 s, the
         # next frame is 8 s away; judged by the start exposure, the live
         # feed would be stopped as dead at 5 s.
-        scope.camera.exposure_ms_cached = 8000.0
+        scope.camera.exposure_ms = 8000.0
         controller._scheduler.fire()
         clock.advance(7.5)
         controller._scheduler.fire()
@@ -1166,7 +1167,7 @@ class TestFeedLossDetection:
 
     def test_a_dead_feed_is_still_caught_at_the_raised_bound(self, tmp_path, centre_posts):
         controller, scope, clock, _notify = self._recording_controller(tmp_path, centre_posts)
-        scope.camera.exposure_ms_cached = 800.0  # bound 10 x 0.8 s = 8 s
+        scope.camera.exposure_ms = 800.0  # bound 10 x 0.8 s = 8 s
         controller._scheduler.fire()
         clock.advance(8.5)
         controller._scheduler.fire()
@@ -1178,7 +1179,7 @@ class TestFeedLossDetection:
         self, tmp_path, centre_posts
     ):
         controller, scope, clock, notify = self._recording_controller(tmp_path, centre_posts)
-        scope.camera.active_cached = False
+        scope.camera.active = False
         clock.advance(0.2)
         controller._scheduler.fire()
         assert not controller.is_recording

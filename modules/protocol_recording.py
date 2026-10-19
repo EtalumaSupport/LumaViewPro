@@ -284,7 +284,9 @@ class ProtocolVideoStep:
 
         scope = self._scope
         camera = scope.capabilities
-        frame_size = scope.camera.frame_size_cached
+        # The size the file is made at: held, else read, so an unknown one is
+        # asked for (CameraReadFailedError when the camera does not answer).
+        frame_size = scope.camera.frame_size or scope.camera.read_frame_size()
         self._tick_freq_hz = camera.camera_timestamp_tick_hz
         # One scale snapshot per step, alongside the other start-of-recording
         # camera facts: the objective cannot change while a step records.
@@ -302,8 +304,8 @@ class ProtocolVideoStep:
         config = RecordingConfig(
             fps=fps,
             duration_s=duration_s,
-            width=frame_size['width'],
-            height=frame_size['height'],
+            width=frame_size.width,
+            height=frame_size.height,
             bit_depth=self._capture_config.capture_depth,
             output_dir=self._output_dir,
             filename_template=protocol_frame_filename_template(self._name),
@@ -338,8 +340,8 @@ class ProtocolVideoStep:
             self._writer = VideoWriter(
                 output_path=self._output_dir / f'{self._name}.mp4',
                 fps=fps,
-                width=frame_size['width'],
-                height=frame_size['height'],
+                width=frame_size.width,
+                height=frame_size.height,
                 # Grey (a gray encode) when false color is off -- the same
                 # contract the manual leg encodes with.
                 color=layer_record.shown_color(step['Color'], false_color_on, self._channel_colors),
@@ -500,7 +502,7 @@ class ProtocolVideoStep:
         order is the precedence: Stop always wins, the disconnect latch
         is the fast camera-death path, and the stall watch catches the
         feed that dies without an event -- delivery just stops while
-        ``active_cached`` stays True.
+        ``active`` stays True.
         """
         start_ts = self._elapsed_clock()
         last_progress_ts = 0.0
@@ -512,7 +514,7 @@ class ProtocolVideoStep:
             if self._stop_requested():
                 outcome, end_reason = CANCELLED, 'run_stop'
                 break
-            if not self._scope.camera.active_cached:
+            if not self._scope.camera.active:
                 logger.warning(
                     '[PROTOCOL-VIDEO] Camera went inactive mid-step; ending the recording'
                 )

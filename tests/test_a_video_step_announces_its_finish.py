@@ -28,6 +28,7 @@ from tests.protocol_drives import run_identity
 from tests.camera_fakes import delivered_frame
 from modules.layer_record import release_colors
 from tests.objective_records import objective
+from modules.scope_capabilities import FrameSize
 
 WAIT_S = 10.0
 
@@ -43,11 +44,11 @@ def _scope(listeners):
     scope.runtime_state.plate_transform = lambda: None
     scope.illumination.get_led_states = lambda: {}
     scope.imaging.frames_until_valid.return_value = 0
-    scope.camera.active_cached = True
+    scope.camera.active = True
     scope.capabilities.camera_model = 'sim'
     scope.capabilities.camera_serial_number = '0'
     scope.capabilities.camera_timestamp_tick_hz = None
-    scope.camera.frame_size_cached = {'width': 8, 'height': 8}
+    scope.camera.frame_size = FrameSize(8, 8)
     scope.imaging.add_frame_listener = lambda cb, name=None: listeners.update(cb=cb)
     return scope
 

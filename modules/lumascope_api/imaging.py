@@ -1190,7 +1190,7 @@ class ImagingAPI:
             camera_timestamp_ticks=int(ticks) if ticks is not None else None,
             camera_tick_hz=camera.camera_timestamp_tick_hz,
             frame_id=int(frame_id) if frame_id is not None else None,
-            binning_size=self._camera._binning_size,
+            binning_size=self._camera._held_or_read('binning'),
             camera_model=camera.camera_model,
             clock_mapping=self._clock_mapping_for_record(),
             judgments=judgments,
@@ -1267,7 +1267,7 @@ class ImagingAPI:
         # exposure ceiling) surfaces to the caller as an executor
         # TimeoutError instead of the body's own 'deadline_expired'.
         frame_cost_s = max(
-            self._camera.exposure_ms_cached / 1000.0,
+            self._camera._grab_sizing_exposure_s(),
             self._CAPTURE_DEADLINE_MIN_FRAME_PERIOD_S,
         )
         wait_s = (
@@ -1674,7 +1674,7 @@ class ImagingAPI:
             image = image_utils.add_scale_bar(
                 image=image,
                 objective=objective,
-                binning_size=self._camera._binning_size,
+                binning_size=self._camera.binning,
                 color=scale_bar.get('color'),
                 significant_bits=significant_bits,
                 capabilities=self._scope.capabilities,
@@ -1843,7 +1843,7 @@ class ImagingAPI:
             tmp = image_utils.add_scale_bar(
                 image=tmp,
                 objective=objective,
-                binning_size=self._camera._binning_size,
+                binning_size=self._camera.binning,
                 color=scale_bar.get('color'),
                 significant_bits=frame.significant_bits,
                 capabilities=self._scope.capabilities,
@@ -1882,7 +1882,7 @@ class ImagingAPI:
         driver = self._driver
         if driver is None:
             raise _camera_not_connected('significant_bits')
-        return driver.significant_bits_for_format(self._camera.pixel_format_cached)
+        return driver.significant_bits_for_format(self._camera.pixel_format)
 
     @api(in_process=True, reads=True)
     def capture_frame_depth(self, array: np.ndarray | None) -> int:
@@ -1986,8 +1986,8 @@ class ImagingAPI:
     def is_streaming(self) -> bool:
         """Whether the camera is currently acquiring frames.
 
-        Queries the driver directly (unlike ``active_cached``, which reads
-        the cached connected-state). False when no camera is attached.
+        Queries the driver directly (unlike ``scope.camera.active``, which
+        reads the held connected-state). False when no camera is attached.
         """
         driver = self._driver
         if driver is None:

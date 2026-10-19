@@ -151,7 +151,7 @@ def _scope_with_depth(significant_bits: int = _CAMERA_DEPTH, frame=None):
 
     imaging = SimpleNamespace(
         significant_bits=significant_bits,
-        _binning_size=1,
+        binning=1,
         _capture_and_wait_impl=lambda **kwargs: frame,
         _state_lock=threading.Lock(),
         _last_frame_summing=None,

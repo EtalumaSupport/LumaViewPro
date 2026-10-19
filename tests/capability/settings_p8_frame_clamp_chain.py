@@ -15,8 +15,8 @@ s, live = _common.make_session()
 try:
     im = s.scope.imaging
     im_camera = s.scope.camera
-    before = im_camera.frame_size_cached
-    print('largest frame     :', s.scope.capabilities.camera_max_frame_size)
+    before = im_camera.frame_size.to_dict()
+    print('largest frame     :', s.scope.capabilities.camera_limits.frame_max)
     try:
         delivered = im_camera.set_frame_size(13414, 13414)
         _common.ok('13414 is REFUSED by the API', False, f'delivered {delivered}')
@@ -24,8 +24,8 @@ try:
         _common.ok('13414 is REFUSED by the API', True, str(e))
     _common.ok(
         'a refused frame leaves the frame as it was',
-        im_camera.frame_size_cached == before,
-        f'{before} -> {im_camera.frame_size_cached}',
+        im_camera.frame_size.to_dict() == before,
+        f'{before} -> {im_camera.frame_size.to_dict()}',
     )
 except Exception:
     import traceback

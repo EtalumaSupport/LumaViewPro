@@ -20,7 +20,7 @@ import logging as _logging
 import threading
 import time
 from collections.abc import Callable, Iterator
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import modules.binning as binning
 import modules.common_utils as common_utils
@@ -67,15 +67,19 @@ _DECIDED_IN_BODY = object()
 
 # The camera cache with no camera behind it: at construction, and again when
 # the scope disconnects, so no read describes a camera that has left. Every
-# value is one the matching is_valid_* predicate rejects, except 'binning',
-# whose absent default is also a legal factor (see ImagingAPI.__init__).
+# value is None, unknown, until the camera reports it or takes a write.
 _NO_CAMERA_CACHE = {
     'active': False,
-    'gain_db': -1.0,
-    'exposure_ms': 0.0,
-    'frame_size': {'width': 0, 'height': 0},
+    'gain_db': None,
+    'exposure_ms': None,
+    'frame_size': None,
     'pixel_format': None,
-    'binning': 1,
+    'binning': None,
+    'black_level': None,
+    'auto_gain': None,
+    'auto_exposure': None,
+    'high_conversion_gain': None,
+    'line_noise_reduction': None,
 }
 
 
@@ -90,8 +94,8 @@ def _camera_not_connected(member: str) -> HardwareCommandRefusedError:
 
 
 def _no_camera_cache() -> dict:
-    """A fresh copy of ``_NO_CAMERA_CACHE``: its frame dicts are not shared."""
-    return {k: dict(v) if isinstance(v, dict) else v for k, v in _NO_CAMERA_CACHE.items()}
+    """A fresh copy of ``_NO_CAMERA_CACHE``."""
+    return dict(_NO_CAMERA_CACHE)
 
 
 class AutoGainConvergence(enum.Enum):
@@ -514,19 +518,12 @@ class CameraAPI:
         # researchers who type microsecond values thinking ms.
         self._suppress_value_warnings = False
 
-        # Camera state cache -- the single store every public camera getter
-        # answers from. Updated when the camera connects, after every
-        # set_gain_db/set_exposure/etc. write-through, and by each getter's
-        # validated live read. Every entry is either a validated hardware
-        # reading or its seed below, and the seeds are the documented
-        # camera-absent defaults -- so a driver failure sentinel can never
-        # be cached or returned, and for every key except 'binning' the
-        # matching is_valid_* predicate rejects the seed, making "never
-        # successfully read" detectable from the value itself. gain_db
-        # seeds to -1.0 (not 0.0) because 0 dB is a legal gain and would
-        # read as hardware truth. 'binning' seeds to 1, which is also its
-        # absent default AND a legal factor: never-read and genuinely-1x1
-        # are indistinguishable by design -- both honestly answer 1.
+        # Camera state cache -- the single store every held read answers
+        # from. Updated when the camera connects, after every write the
+        # camera took, and by each fresh read. Every entry is a validated
+        # hardware reading, a value the camera took, or None: unknown, so a
+        # driver failure sentinel can never be cached or returned, and
+        # never-read is told from a real value (a 1x binning, a 0 dB gain).
         self._camera_cache_lock = threading.Lock()
         self._camera_cache = _no_camera_cache()
         # Per-key write generation, bumped by every authoritative cache
@@ -548,16 +545,6 @@ class CameraAPI:
         """
         return self._scope._camera_driver
 
-    @property
-    def _binning_size(self) -> int:
-        """The binning factor the camera last reported or took (cache-backed; no SDK read).
-
-        Per-frame consumers (scale-bar sizing, FOV math) read this instead
-        of ``read_binning()`` so the hot path never touches the SDK.
-        """
-        with self._camera_cache_lock:
-            return self._camera_cache['binning']
-
     def _populate_camera_cache(self) -> None:
         """Populate camera cache from hardware. Called at init and on reconnect.
 
@@ -573,6 +560,10 @@ class CameraAPI:
             return
         for key in _LIVE_SETTING_READS:
             self._refresh_held(key)
+        try:
+            self.read_black_level()
+        except CameraReadFailedError as failed:
+            logger.warning(f'[SCOPE API ] {failed}; the black level held stays unknown')
         with self._camera_cache_lock:
             self._camera_cache['active'] = True
         logger.info('[SCOPE API ] Camera cache populated')
@@ -590,9 +581,8 @@ class CameraAPI:
         run capturing at an unintended exposure inherited from a
         pre-scan live-mode AG cycle.
 
-        Soft-fails on hardware-read exceptions by clearing the cached
-        values to a sentinel so the next setter falls through (better
-        than a stale cached value silently passing the equality check).
+        A read-back that fails leaves both unknown (None): the camera holds
+        values the auto cycle chose, and the pre-auto ones are known-stale.
         """
         if not self._driver or not self._driver.active:
             return
@@ -600,25 +590,24 @@ class CameraAPI:
             gain = self._driver.get_gain()
             exp = self._driver.get_exposure_t()
         except Exception as e:
-            self._commit_camera_writes({'gain_db': -1.0, 'exposure_ms': -1.0})
+            self._commit_camera_writes({'gain_db': None, 'exposure_ms': None})
             logger.warning(
                 f'[SCOPE API ] cache refresh after auto-off failed: {e}; '
-                f'cache invalidated to force next setter through.'
+                f'the gain and exposure held are unknown until the camera reports them'
             )
             return
         # A non-physical reading (the drivers' negative failed-read
-        # sentinel) routes to the SAME -1.0 invalidation the exception
-        # path above writes -- NOT keep-prior: the pre-auto cached value
-        # is known-stale here (hardware moved during the auto cycle), and
-        # keeping it would let the setter equality check short-circuit.
+        # sentinel) is unknown, as the exception path above writes -- NOT
+        # keep-prior: the pre-auto cached value is known-stale here
+        # (hardware moved during the auto cycle).
         # Committed as an authoritative write (generation bump): a stale
         # getter read racing this resync must not resurrect the pre-auto
         # value.
         resync = {}
         if gain is not None:
-            resync['gain_db'] = float(gain) if common_utils.is_valid_gain_db(gain) else -1.0
+            resync['gain_db'] = float(gain) if common_utils.is_valid_gain_db(gain) else None
         if exp is not None:
-            resync['exposure_ms'] = float(exp) if common_utils.is_valid_exposure_ms(exp) else -1.0
+            resync['exposure_ms'] = float(exp) if common_utils.is_valid_exposure_ms(exp) else None
         if resync:
             self._commit_camera_writes(resync)
         # Diagnostic: record where hardware auto-gain/exposure actually
@@ -914,7 +903,7 @@ class CameraAPI:
         # skips a truly redundant SDK write; the cache-equality check here gates
         # only the UI listener + info log, where a missed redundant update is
         # harmless.
-        prior = self.gain_db_cached
+        prior = self.gain_db
 
         def _write_gain():
             with self._cam_lock:
@@ -930,7 +919,7 @@ class CameraAPI:
         )
         applied = _value_in_effect(ok, float(gain_db))
         self._commit_camera_writes({'gain_db': applied})
-        if abs(applied - prior) >= 0.001:
+        if prior is None or abs(applied - prior) >= 0.001:
             _api_log.info(f'set_gain_db {applied}dB')
             self._fire_camera_listeners('gain', applied)
         return applied
@@ -965,7 +954,7 @@ class CameraAPI:
         # a cache desynced from hardware once short-circuited it, capturing a
         # frame at a stale exposure as valid. Always invalidate + drive the
         # setter; the cache-equality check gates only the UI listener + log.
-        prior = self.exposure_ms_cached
+        prior = self.exposure_ms
         # Sanity-check threshold: 5 microseconds. Pylon physical
         # ExposureTime minimum across Basler USB3 sensors is 10-35 us;
         # below 5 us is impossible on any sensor we ship with and
@@ -1003,7 +992,7 @@ class CameraAPI:
         )
         applied = _value_in_effect(ok, float(exposure_ms), scale=0.001)
         self._commit_camera_writes({'exposure_ms': applied})
-        if abs(applied - prior) >= 0.001:
+        if prior is None or abs(applied - prior) >= 0.001:
             _api_log.info(f'set_exposure {applied}ms')
             self._fire_camera_listeners('exposure', applied)
         return applied
@@ -1386,6 +1375,7 @@ class CameraAPI:
                     offered=(False,),
                     consequence=_AUTO_MODE_STAYS,
                 )
+            self._commit_camera_writes({'auto_gain': False})
             return True
 
         def _write_auto_gain():
@@ -1412,6 +1402,8 @@ class CameraAPI:
             refusal=lambda: _mode_rejection('auto_gain', state, 'auto-gain'),
             force_invalidate=('gain', 'auto_gain') if arm_settle else ('gain',),
             force_clear=('gain',),
+            # Continuous auto-gain runs the camera's exposure loop with it.
+            cache_update={'auto_gain': state, 'auto_exposure': state},
         )
         with self._state_lock:
             self._auto_gain_arm = (
@@ -1480,8 +1472,8 @@ class CameraAPI:
         elif isinstance(exp_us, (int, float)) and isinstance(gain, (int, float)):
             exp_ms = exp_us / 1000.0
         else:
-            exp_ms = self.exposure_ms_cached
-            gain = self.gain_db_cached
+            exp_ms = self.exposure_ms
+            gain = self.gain_db
         if not (common_utils.is_valid_exposure_ms(exp_ms) and common_utils.is_valid_gain_db(gain)):
             # No usable achieved value: drop the stale exposure target too
             # (the disarm dropped the gain target) so the capture proceeds
@@ -1580,13 +1572,13 @@ class CameraAPI:
         ordinary setter re-targets the gate to the ceiling as well, so the
         next frame proves it. The cache is a setter's write or a hardware
         resync at every arm (both arming callers write the exposure just
-        before; every disarm resyncs), so the sentinel guard is the only
+        before; every disarm resyncs), so an unknown exposure is the only
         skip.
         """
         if not isinstance(ceiling_ms, (int, float)) or ceiling_ms <= 0:
             return
-        current_ms = self.exposure_ms_cached
-        if not common_utils.is_valid_exposure_ms(current_ms) or current_ms <= ceiling_ms:
+        current_ms = self.exposure_ms
+        if current_ms is None or current_ms <= ceiling_ms:
             return
         logger.info(
             f'[AG ARM] exposure {current_ms:.3f} ms above the class ceiling '
@@ -1681,6 +1673,7 @@ class CameraAPI:
                     offered=(False,),
                     consequence=_AUTO_MODE_STAYS,
                 )
+            self._commit_camera_writes({'auto_exposure': False})
             return True
         # Auto-exposure dynamically adjusts the value, so clear the manual
         # exposure target (chunk-match falls back to skip-frames calibration).
@@ -1692,6 +1685,7 @@ class CameraAPI:
             refusal=lambda: _mode_rejection('auto_exposure', state, 'auto-exposure'),
             force_invalidate=('exposure',),
             force_clear=('exposure',),
+            cache_update={'auto_exposure': state},
         )
         # Hardware-truth wins over cache after the auto cycle ends.
         if not state:
@@ -1871,14 +1865,14 @@ class CameraAPI:
         native = self._native_frame()
         if not self._set_binning_size_impl(size):
             raise _camera_not_connected('set_binning_size')
-        held = self.frame_size_cached
-        self._scope.store_settings(
-            {
-                'binning.size': binning.binning_size_int_to_str(size),
-                'frame.width': int(held['width']),
-                'frame.height': int(held['height']),
-            }
-        )
+        # The frame the camera holds at the new binning, saved beside it; one
+        # whose read-back failed is unknown, and the frame apply below saves
+        # the frame it writes.
+        held = self._held('frame_size')
+        saved = {'binning.size': binning.binning_size_int_to_str(size)}
+        if held is not None:
+            saved.update({'frame.width': int(held['width']), 'frame.height': int(held['height'])})
+        self._scope.store_settings(saved)
         return self._apply_frame_impl(native, self._target_frame(native, size))
 
     @api
@@ -1920,7 +1914,7 @@ class CameraAPI:
 
     def _frame_and_save_impl(self, width: int, height: int) -> dict | None:
         """On the camera lane: frame at ``width`` x ``height`` at the binning held, and save it."""
-        factor = self._binning_size
+        factor = self._held_or_read('binning')
         native = {'width': width * factor, 'height': height * factor}
         target = binning.native_to_displayed(native, factor, self.get_pixel_alignment())
         return self._apply_frame_impl(native, target)
@@ -2017,7 +2011,7 @@ class CameraAPI:
         limits = self._scope.capabilities.camera_limits
         minimum = limits.frame_min if limits else None
         maximum = limits.frame_max if limits else None
-        factor = self._binning_size
+        factor = self._held_or_read('binning')
         for axis in ('width', 'height'):
             self._refuse_out_of_range(
                 f'frame_{axis}',
@@ -2036,7 +2030,7 @@ class CameraAPI:
         saved with its region; the lane task asked for the camera first, so
         nothing is saved for a camera that is not there.
         """
-        if target == self.frame_size_cached:
+        if target == self._held('frame_size'):
             delivered = target
         else:
             self._refuse_frame_out_of_range(target)
@@ -2052,6 +2046,18 @@ class CameraAPI:
             }
         )
         return dict(delivered)
+
+    def _held_or_read(self, key: str) -> object:
+        """The value held for ``key``, read fresh from the camera when it is unknown.
+
+        For a write that needs the camera's geometry: an unknown one is asked
+        for rather than assumed.
+
+        Raises:
+            CameraReadFailedError: It is unknown and the camera does not answer.
+        """
+        value = self._held(key)
+        return value if value is not None else self._read_setting_live(key)
 
     def _delivered_geometry(self, meant: dict) -> dict:
         """The saved geometry keys for the binning and frame the camera holds.
@@ -2069,17 +2075,21 @@ class CameraAPI:
         worked out from what the sensor holds: asked whether or not the
         binning and frame changed, since a settings file saved before the
         region existed takes the shipped one, which need not give its frame.
-        The frame is the camera's reading, not the cache's 0x0 seed: a camera
-        that never reported one gives the binning alone, and no frame or
-        region is saved.
+
+        The values held, with no camera read: a restore asks this from its
+        failure path, where a read could only fail again. A frame not known
+        (never reported, or a write landed and its read-back failed) saves
+        the binning alone, and nothing is saved while the binning is unknown.
         """
-        delivered = self.frame_size_cached
-        factor = self._binning_size
-        held = {
-            'binning.size': binning.binning_size_int_to_str(factor),
-            'frame.width': int(delivered['width']),
-            'frame.height': int(delivered['height']),
-        }
+        delivered = self._held('frame_size')
+        factor = self._held('binning')
+        if factor is None:
+            return {}
+        held = {'binning.size': binning.binning_size_int_to_str(factor)}
+        if delivered is None:
+            return held
+        held['frame.width'] = int(delivered['width'])
+        held['frame.height'] = int(delivered['height'])
         native = {'width': meant['frame.native_width'], 'height': meant['frame.native_height']}
         if self._target_frame(native, factor) != delivered:
             native = {'width': delivered['width'] * factor, 'height': delivered['height'] * factor}
@@ -2234,6 +2244,7 @@ class CameraAPI:
         # refresh reads the camera -- a deliberate exception to the
         # no-read-back preference, accepted because binning changes are
         # rare user actions, not per-frame traffic.
+        self._commit_camera_writes({'frame_size': None})
         self._refresh_held('frame_size')
         _api_log.info(f'set_binning {size}x{size} -> True')
         return True
@@ -2308,6 +2319,7 @@ class CameraAPI:
             return False
         if not self._scope.capabilities.camera_supports_conversion_gain_mode:
             if mode == 'Low':
+                self._commit_camera_writes({'high_conversion_gain': False})
                 return True
             raise _absent_mode_refusal(
                 'conversion_gain_mode',
@@ -2328,6 +2340,7 @@ class CameraAPI:
             member='set_conversion_gain_mode',
             refusal=lambda: _mode_rejection('conversion_gain_mode', mode, 'conversion gain mode'),
             invalidates=('conversion_gain_mode',),
+            cache_update={'high_conversion_gain': mode == 'High'},
         )
         return True
 
@@ -2357,6 +2370,7 @@ class CameraAPI:
             return False
         if not self._scope.capabilities.camera_supports_line_noise_reduction:
             if not enabled:
+                self._commit_camera_writes({'line_noise_reduction': False})
                 return True
             raise _absent_mode_refusal(
                 'line_noise_reduction',
@@ -2372,6 +2386,7 @@ class CameraAPI:
                 'line_noise_reduction', enabled, 'line noise reduction'
             ),
             invalidates=('line_noise_reduction',),
+            cache_update={'line_noise_reduction': bool(enabled)},
         )
         return True
 
@@ -2393,7 +2408,10 @@ class CameraAPI:
         Raises:
             CameraReadFailedError: The camera did not answer the read.
         """
-        return self._read_unheld('black level', lambda driver: driver.get_black_level())
+        value = self._read_unheld('black level', lambda driver: driver.get_black_level())
+        if self._driver and self._driver.active:
+            self._commit_camera_writes({'black_level': value})
+        return value
 
     @api(reads=True)
     def get_black_level_range(self) -> tuple[float, float] | None:
@@ -2499,12 +2517,14 @@ class CameraAPI:
             with self._cam_lock:
                 return self._driver.set_black_level(float(value))
 
-        return self._camera_write(
+        result = self._camera_write(
             _write_black_level,
             member='set_black_level',
             refusal=lambda: _value_rejection('black_level', value),
             invalidates=('black_level',),
         )
+        self._commit_camera_writes({'black_level': _value_in_effect(result, float(value))})
+        return result
 
     def _read_fresh(self, key: str) -> object | None:
         """Read ``key`` from the camera now, and hold what it answered.
@@ -2668,27 +2688,113 @@ class CameraAPI:
         except (AttributeError, TypeError):
             return default
 
-    # --- State / lifecycle properties ---
-    @property
-    def active_cached(self) -> bool:
-        """Whether the camera is connected and active (reads cache).
+    # --- Held reads ---
+    # Each answers what the camera last reported (a fresh read, the populate
+    # at connect) or took (a write it accepted), with no camera read, and
+    # None whenever that is unknown: before the camera's first report, with
+    # no camera, after an auto cycle whose read-back failed.
 
-        Returns:
-            bool: True if the camera is currently active.
-        """
+    def _held(self, key: str) -> Any:
+        """The camera cache's value for ``key``."""
         with self._camera_cache_lock:
-            return self._camera_cache['active']
+            return self._camera_cache[key]
 
     @api
     @property
-    def gain_db_cached(self) -> float:
-        """Current camera gain in dB (reads cache).
+    def active(self) -> bool:
+        """Whether the camera is connected and active, as last found; no camera read."""
+        return bool(self._held('active'))
 
-        Returns:
-            float: Cached gain value in dB.
+    @api
+    @property
+    def gain_db(self) -> float | None:
+        """The gain in dB the camera last reported or took; None when unknown."""
+        return self._held('gain_db')
+
+    @api
+    @property
+    def exposure_ms(self) -> float | None:
+        """The exposure in ms the camera last reported or took; None when unknown.
+
+        Under a continuous auto-gain arm the camera chooses its own exposure,
+        and this is the one from before the arm; ``longest_exposure_ms``
+        bounds what it may be using.
         """
-        with self._camera_cache_lock:
-            return self._camera_cache['gain_db']
+        return self._held('exposure_ms')
+
+    @api
+    @property
+    def black_level(self) -> float | None:
+        """The black level the camera last reported or took (see
+        ``read_black_level``); None when unknown or the camera reports none."""
+        return self._held('black_level')
+
+    @api
+    @property
+    def binning(self) -> int | None:
+        """The binning factor the camera last reported or took; None when unknown."""
+        return self._held('binning')
+
+    @api
+    @property
+    def frame_size(self) -> FrameSize | None:
+        """The size of the frames the camera delivers, as it last reported or
+        took it, in pixels after binning; None when unknown."""
+        size = self._held('frame_size')
+        return FrameSize(size['width'], size['height']) if size is not None else None
+
+    @api
+    @property
+    def pixel_format(self) -> str | None:
+        """The pixel format the camera last reported or took (e.g. ``'Mono12'``),
+        chosen by ``set_image_mode``; None when unknown."""
+        return self._held('pixel_format')
+
+    @api
+    @property
+    def auto_gain(self) -> bool | None:
+        """Whether the camera's continuous auto-gain is on, as the camera last
+        took it; None when unknown. No driver reads it back, so this is the
+        write the camera accepted: an arm, the lock that ends it, a one-shot."""
+        return self._held('auto_gain')
+
+    @api
+    @property
+    def auto_exposure(self) -> bool | None:
+        """Whether the camera's auto-exposure is on, as the camera last took it;
+        None when unknown. No driver reads it back. It has two writers:
+        ``set_auto_exposure_time``, and auto-gain, whose arm and lock switch
+        exposure with the gain."""
+        return self._held('auto_exposure')
+
+    @api
+    @property
+    def high_conversion_gain(self) -> bool | None:
+        """Whether the camera's high conversion gain is on, as the camera last
+        took it; None when unknown, as after a value the camera refused. No
+        driver reads it back. A camera without the mode is at its standard
+        conversion gain: False."""
+        return self._held('high_conversion_gain')
+
+    @api
+    @property
+    def line_noise_reduction(self) -> bool | None:
+        """Whether the camera's line-noise filter is on, as the camera last took
+        it; None when unknown. No driver reads it back. A camera without the
+        filter reads unfiltered: False."""
+        return self._held('line_noise_reduction')
+
+    @api
+    @property
+    def image_mode(self) -> str:
+        """The image mode captures are taken in: the saved one, which
+        ``set_image_mode`` writes. The camera holds no copy of a mode, only
+        the pixel format the mode chose (``pixel_format``).
+
+        Raises:
+            ConfigError: ``'scope_not_composed'``, no session bound this scope.
+        """
+        return self._scope.read_setting('image_mode')
 
     @api
     @property
@@ -2697,93 +2803,28 @@ class CameraAPI:
 
         While continuous auto-gain is armed the camera picks its own
         exposure up to the ceiling the arm was given (the sensor maximum
-        when it was given none), and the cached exposure is the value from
-        before the arm; otherwise the cached exposure is the one in force.
-        A consumer bounding how long a frame may take -- a feed-death
-        watch -- needs the former, not the cache.
+        when it was given none), and the held exposure is the value from
+        before the arm; otherwise the held exposure is the one in force.
+        With the exposure unknown it is the sensor maximum, the longest a
+        frame can take. A consumer bounding how long a frame may take -- a
+        feed-death watch, a grab's wait -- needs this, not the held value.
 
         Returns:
-            float | None: The bound in ms; None when the arm has no ceiling
-                and no camera reports a maximum.
+            float | None: The bound in ms; None when it is unknown and no
+                camera reports a maximum.
         """
         with self._state_lock:
             arm = self._auto_gain_arm
         if arm is None:
-            return self.exposure_ms_cached
-        ceiling = arm.settings.get('max_exposure_ms')
-        if ceiling:
-            return float(ceiling)
+            exposure = self.exposure_ms
+            if exposure is not None:
+                return exposure
+        else:
+            ceiling = arm.settings.get('max_exposure_ms')
+            if ceiling:
+                return float(ceiling)
         limits = self._scope.capabilities.camera_limits
         return limits.exposure_ms_max if limits else None
-
-    @api
-    @property
-    def exposure_ms_cached(self) -> float:
-        """Current camera exposure time in ms (reads cache).
-
-        Returns:
-            float: Cached exposure time in milliseconds.
-        """
-        with self._camera_cache_lock:
-            return self._camera_cache['exposure_ms']
-
-    @api
-    @property
-    def frame_size_cached(self) -> dict:
-        """Current camera frame size as {'width': int, 'height': int} (reads cache).
-
-        Returns:
-            dict: Copy of the cached frame size dict.
-        """
-        with self._camera_cache_lock:
-            return dict(self._camera_cache['frame_size'])
-
-    @api
-    @property
-    def min_frame_size_cached(self) -> dict | None:
-        """``capabilities.camera_limits.frame_min`` as ``{'width', 'height'}``,
-        or None when it is unknown or no camera is connected.
-        """
-        limits = self._scope.capabilities.camera_limits
-        if limits is None or limits.frame_min is None:
-            return None
-        return {'width': limits.frame_min.width, 'height': limits.frame_min.height}
-
-    @api
-    @property
-    def max_exposure_ms_cached(self) -> float | None:
-        """``capabilities.camera_limits.exposure_ms_max``, or None when it is
-        unknown or no camera is connected.
-        """
-        limits = self._scope.capabilities.camera_limits
-        return limits.exposure_ms_max if limits else None
-
-    @api
-    @property
-    def max_gain_db_cached(self) -> float | None:
-        """``capabilities.camera_limits.gain_db_max``, or None when it is
-        unknown or no camera is connected.
-        """
-        limits = self._scope.capabilities.camera_limits
-        return limits.gain_db_max if limits else None
-
-    @api
-    @property
-    def min_gain_db_cached(self) -> float | None:
-        """``capabilities.camera_limits.gain_db_min``, or None when the camera
-        declares none or no camera is connected: a missing floor is not a
-        floor of zero.
-        """
-        limits = self._scope.capabilities.camera_limits
-        return limits.gain_db_min if limits else None
-
-    @api
-    @property
-    def min_exposure_ms_cached(self) -> float | None:
-        """``capabilities.camera_limits.exposure_ms_min``, or None when the
-        camera declares none or no camera is connected."""
-        limits = self._scope.capabilities.camera_limits
-        return limits.exposure_ms_min if limits else None
 
     @api(reads=True)
     def applied_gain_db_for(self, stored_gain_db: float) -> AppliedCameraSetting:
@@ -2842,31 +2883,13 @@ class CameraAPI:
         (``capabilities.camera_supports_auto_exposure``)."""
         return self._scope.capabilities.camera_supports_auto_exposure
 
-    @api
-    @property
-    def pixel_format_cached(self) -> str | None:
-        """Current camera pixel format (e.g. 'Mono8', 'Mono12') (reads cache).
-
-        Returns:
-            str | None: Cached pixel format string, or None when no format
-                has ever been successfully read or configured. A failed
-                driver read never overwrites this entry
-                (validate-before-store at cache population), so a known
-                format survives transient read failures.
-        """
-        with self._camera_cache_lock:
-            return self._camera_cache['pixel_format']
-
     # --- Save / restore ---
     def save_camera_state(self, tag: str) -> dict:
         """Snapshot every camera setting with a getter, for restoration.
 
-        Omit-if-unknown: the gain and exposure are the values held (the last
-        the camera reported or took, with no read of the camera now), and a
-        field enters the snapshot only when one is held, so a missing field
-        means the camera never reported it. Restore can
-        therefore trust every field it finds, and name the ones it
-        cannot restore. ``auto_gain_arm`` is always present: the standing
+        The gain and exposure are the values held (the last the camera
+        reported or took, with no read of the camera now), None for one that
+        is unknown, which the restore leaves as it is. ``auto_gain_arm`` is always present: the standing
         continuous arm, or None when none stood -- a run that ends with
         its step-end disarm otherwise leaves the loop off while the layer
         toggle shows on, until a slider write happens to re-arm it.
@@ -2893,10 +2916,8 @@ class CameraAPI:
         """
         snapshot = {'tag': tag}
         snapshot.update(self._camera_geometry_now())
-        gain_db = self.gain_db_cached
-        if common_utils.is_valid_gain_db(gain_db):
-            snapshot['gain_db'] = gain_db
-        else:
+        snapshot['gain_db'] = gain_db = self.gain_db
+        if gain_db is None:
             # The warning belongs HERE, not at restore: an absent field at
             # restore time can be a deliberate caller trim (autofocus keeps
             # the fields its run explicitly targeted), but at save time a
@@ -2904,18 +2925,14 @@ class CameraAPI:
             # reported it -- and a later partial restore would otherwise be
             # untraceable.
             logger.warning(
-                f'[SCOPE API ] save_camera_state tag={tag}: gain has never '
-                f'been successfully read; snapshot omits it and the restore '
-                f'will leave gain unchanged'
+                f'[SCOPE API ] save_camera_state tag={tag}: the gain is '
+                f'unknown; the restore will leave gain unchanged'
             )
-        exposure_ms = self.exposure_ms_cached
-        if common_utils.is_valid_exposure_ms(exposure_ms):
-            snapshot['exposure_ms'] = exposure_ms
-        else:
+        snapshot['exposure_ms'] = exposure_ms = self.exposure_ms
+        if exposure_ms is None:
             logger.warning(
-                f'[SCOPE API ] save_camera_state tag={tag}: exposure has '
-                f'never been successfully read; snapshot omits it and the '
-                f'restore will leave exposure unchanged'
+                f'[SCOPE API ] save_camera_state tag={tag}: the exposure is '
+                f'unknown; the restore will leave exposure unchanged'
             )
         if snapshot.keys() & set(_GEOMETRY_ORDER):
             # The saved settings the restore puts back beside the camera's:
@@ -2929,8 +2946,8 @@ class CameraAPI:
             snapshot['held_layer'] = self._held_layer
         _api_log.info(
             f'save_camera_state tag={tag}: '
-            f'gain={snapshot.get("gain_db", "never-read")} '
-            f'exp={snapshot.get("exposure_ms", "never-read")} '
+            f'gain={gain_db if gain_db is not None else "unknown"} '
+            f'exp={exposure_ms if exposure_ms is not None else "unknown"} '
             f'arm={snapshot["auto_gain_arm"] is not None} '
             f'{_describe_geometry(snapshot)}'
         )
@@ -3007,10 +3024,11 @@ class CameraAPI:
         value now: an unchanged frame size, format or binning write would
         restart grabbing for nothing. Then gain, exposure and the arm.
 
-        Fields absent from the snapshot are skipped and named in the log:
-        either the caller deliberately trimmed them (autofocus keeps the
-        values its run explicitly targeted) or they were never readable at
-        save time -- save_camera_state already WARNed about the latter.
+        Fields absent from the snapshot, or recorded as None, are skipped
+        and named in the log: either the caller deliberately trimmed them
+        (autofocus keeps the values its run explicitly targeted) or they were
+        unknown at save time -- save_camera_state already WARNed about the
+        latter.
         The auto-gain loop goes back to the snapshot's state: re-armed after
         the setters when an arm was recorded; disarmed before them when none
         was and one stands now (a run aborted between a step's arm and its
@@ -3035,9 +3053,10 @@ class CameraAPI:
         # no camera holds no setting and no arm, and restoring it is
         # satisfied with none connected.
         if not self._scope.camera_connected:
-            if any(key in snapshot for key in ('gain_db', 'exposure_ms', *_GEOMETRY_ORDER)) or (
-                snapshot.get('auto_gain_arm') is not None
-            ):
+            if any(
+                snapshot.get(key) is not None
+                for key in ('gain_db', 'exposure_ms', *_GEOMETRY_ORDER)
+            ) or (snapshot.get('auto_gain_arm') is not None):
                 raise _camera_not_connected('restore_camera_state')
             return
         # An ABSENT field is a legitimate trim (skip quietly); a PRESENT
@@ -3045,14 +3064,14 @@ class CameraAPI:
         # producer only ever emits valid fields -- so that case warns.
         gain_db = snapshot.get('gain_db')
         gain_known = common_utils.is_valid_gain_db(gain_db)
-        if not gain_known and 'gain_db' in snapshot:
+        if not gain_known and snapshot.get('gain_db') is not None:
             logger.warning(
                 f'[SCOPE API ] restore_camera_state tag={tag}: snapshot '
                 f'carries a non-physical gain ({gain_db!r}); gain left as-is'
             )
         exposure_ms = snapshot.get('exposure_ms')
         exposure_known = common_utils.is_valid_exposure_ms(exposure_ms)
-        if not exposure_known and 'exposure_ms' in snapshot:
+        if not exposure_known and snapshot.get('exposure_ms') is not None:
             logger.warning(
                 f'[SCOPE API ] restore_camera_state tag={tag}: snapshot '
                 f'carries a non-physical exposure ({exposure_ms!r}); '
@@ -3278,7 +3297,7 @@ class CameraAPI:
                 auto_gain_settings=request.auto_gain_settings,
             )
         except CameraSettingRejected:
-            now = {'gain_db': self.gain_db_cached, 'exposure_ms': self.exposure_ms_cached}
+            now = {'gain_db': self.gain_db, 'exposure_ms': self.exposure_ms}
             with self._state_lock:
                 self._held_layer = _HeldLayer(layer, None, now)
             raise
@@ -3602,6 +3621,8 @@ class CameraAPI:
             refusal=lambda: _mode_rejection('auto_gain', state, 'one-shot auto-gain'),
             force_invalidate=('gain', 'exposure'),
             force_clear=('gain', 'exposure'),
+            # The one-shot runs both loops once, and the camera turns them off.
+            cache_update={'auto_gain': False, 'auto_exposure': False},
         )
         with self._state_lock:
             self._auto_gain_arm = None

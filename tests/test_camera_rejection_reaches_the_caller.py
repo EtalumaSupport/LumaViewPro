@@ -151,7 +151,7 @@ class TestARefusalIsNotRecordedAsTruth:
         with pytest.raises(CameraSettingRejected):
             camera.set_gain_db(9.0)
 
-        assert camera.gain_db_cached == 3.0
+        assert camera.gain_db == 3.0
         assert camera.frame_validity.target('gain') == 3.0
 
     def test_an_applied_gain_moves_both(self, sim_camera):
@@ -160,7 +160,7 @@ class TestARefusalIsNotRecordedAsTruth:
 
         camera.set_gain_db(9.0)
 
-        assert camera.gain_db_cached == 9.0
+        assert camera.gain_db == 9.0
         assert camera.frame_validity.target('gain') == 9.0
 
     def test_a_driver_that_cannot_confirm_is_believed(self, sim_camera, monkeypatch):
@@ -171,7 +171,7 @@ class TestARefusalIsNotRecordedAsTruth:
 
         camera.set_gain_db(9.0)
 
-        assert camera.gain_db_cached == 9.0
+        assert camera.gain_db == 9.0
 
 
 class TestOneChannel:
@@ -317,7 +317,7 @@ class TestTheCallersThatGoOn:
             camera.apply_layer_camera_settings(4.0, 30.0, layer='BF')
 
         assert (rejected.value.setting, rejected.value.reason) == ('gain_db', 'camera_rejected')
-        assert camera.exposure_ms_cached == 30.0, 'the exposure was left at a previous layer'
+        assert camera.exposure_ms == 30.0, 'the exposure was left at a previous layer'
 
     def test_a_layer_apply_with_any_part_unanswered_is_not_answered(self, sim_scope):
         camera = sim_scope.camera
@@ -398,5 +398,5 @@ class TestTheRestTheApiCarriesOnFrom:
 
         camera.restore_camera_state(snapshot)
 
-        assert camera.exposure_ms_cached == 20.0
+        assert camera.exposure_ms == 20.0
         assert [n.title for n in _errors(centre_posts)] == ['Camera Setting Not Applied']

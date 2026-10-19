@@ -1277,8 +1277,8 @@ class ProtocolImageWriter:
             # the values the camera holds beside the step's intent.
             if logger.isEnabledFor(logging.DEBUG):
                 _ag = step['Auto_Gain']
-                _curr_gain = self._scope.camera.gain_db_cached
-                _curr_exp = self._scope.camera.exposure_ms_cached
+                _curr_gain = self._scope.camera.gain_db
+                _curr_exp = self._scope.camera.exposure_ms
                 logger.debug(
                     f'[CAPTURE DIAG] step={step.get("Name", "?")} color={step["Color"]} '
                     f'Auto_Gain={_ag!r} (type={type(_ag).__name__}) '

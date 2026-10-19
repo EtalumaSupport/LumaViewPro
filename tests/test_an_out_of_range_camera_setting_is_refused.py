@@ -46,8 +46,9 @@ def sim_camera():
 def test_a_gain_above_the_maximum_is_refused_naming_the_range(sim_camera, monkeypatch):
     camera, cam = sim_camera
     camera.set_gain_db(3.0)
-    maximum = camera.max_gain_db_cached
-    minimum = camera.min_gain_db_cached
+    limits = camera._scope.capabilities.camera_limits
+    maximum = limits.gain_db_max
+    minimum = limits.gain_db_min
     written = []
     monkeypatch.setattr(cam, 'gain', lambda v: written.append(v) or v)
 
@@ -65,7 +66,7 @@ def test_a_gain_above_the_maximum_is_refused_naming_the_range(sim_camera, monkey
     )
     assert f'{minimum:g} to {maximum:g} dB' in str(refusal)
     assert written == [], 'nothing reaches the camera'
-    assert camera.gain_db_cached == 3.0
+    assert camera.gain_db == 3.0
     assert camera.frame_validity.target('gain') == 3.0
 
 
@@ -81,13 +82,14 @@ def test_a_gain_below_a_declared_floor_is_refused(sim_camera, monkeypatch):
 
 def test_an_exposure_above_the_maximum_is_refused(sim_camera):
     camera, _cam = sim_camera
-    maximum = camera.max_exposure_ms_cached
+    limits = camera._scope.capabilities.camera_limits
+    maximum = limits.exposure_ms_max
 
     with pytest.raises(CameraSettingOutOfRangeError) as excinfo:
         camera.set_exposure_ms(maximum + 1.0)
 
     assert excinfo.value.reason == 'exposure_ms_out_of_range'
-    minimum = camera.min_exposure_ms_cached
+    minimum = limits.exposure_ms_min
     assert excinfo.value.minimum == minimum
     assert f'{minimum:g} to {maximum:g} ms' in str(excinfo.value)
 
@@ -101,4 +103,5 @@ def test_an_undeclared_floor_is_not_checked(sim_camera, monkeypatch):
 
 def test_a_value_in_range_is_applied(sim_camera):
     camera, _cam = sim_camera
-    assert camera.set_gain_db(camera.max_gain_db_cached) == pytest.approx(camera.max_gain_db_cached)
+    maximum = camera._scope.capabilities.camera_limits.gain_db_max
+    assert camera.set_gain_db(maximum) == pytest.approx(maximum)

@@ -270,14 +270,14 @@ class TestTheLongestExposure:
 
     def test_it_is_the_cached_exposure_with_no_auto_gain_armed(self, sim_session):
         camera = sim_session.scope.camera
-        assert camera.longest_exposure_ms == camera.exposure_ms_cached
+        assert camera.longest_exposure_ms == camera.exposure_ms
 
     def test_it_is_the_arms_ceiling_while_auto_gain_is_armed(self, sim_session):
         camera = sim_session.scope.camera
         camera.set_auto_gain(True, {**_AUTO_GAIN, 'max_exposure_ms': 150.0})
         assert camera.longest_exposure_ms == 150.0
         camera.set_auto_gain(False, dict(_AUTO_GAIN))
-        assert camera.longest_exposure_ms == camera.exposure_ms_cached
+        assert camera.longest_exposure_ms == camera.exposure_ms
 
 
 class TestReselectingThePlateInPlace:

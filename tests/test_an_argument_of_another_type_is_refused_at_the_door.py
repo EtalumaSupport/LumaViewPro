@@ -44,11 +44,11 @@ def _refused(call, member, argument):
 def test_a_number_reaches_the_member_as_the_python_number_it_means(session):
     camera = session.scope.camera
     camera.set_exposure_ms(np.float64(12.5))
-    assert type(camera.exposure_ms_cached) is float
-    assert camera.exposure_ms_cached == 12.5
+    assert type(camera.exposure_ms) is float
+    assert camera.exposure_ms == 12.5
     camera.set_exposure_ms(20)
-    assert type(camera.exposure_ms_cached) is float
-    assert camera.exposure_ms_cached == 20.0
+    assert type(camera.exposure_ms) is float
+    assert camera.exposure_ms == 20.0
 
 
 def test_a_setting_written_as_a_numpy_number_is_stored_as_the_python_one(session):
@@ -65,14 +65,14 @@ def test_a_numpy_index_reaches_a_protocol_step_as_an_int():
 
 
 def test_a_bool_is_never_a_number(session):
-    before = session.scope.camera.exposure_ms_cached
+    before = session.scope.camera.exposure_ms
     refused = _refused(
         lambda: session.scope.camera.set_exposure_ms(True),
         'CameraAPI.set_exposure_ms',
         'exposure_ms',
     )
     assert refused.declared == 'float'
-    assert session.scope.camera.exposure_ms_cached == before
+    assert session.scope.camera.exposure_ms == before
 
 
 def test_a_float_is_not_a_whole_number(session):

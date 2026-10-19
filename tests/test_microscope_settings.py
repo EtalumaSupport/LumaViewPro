@@ -11,9 +11,9 @@ max_exposure` branch where `max_exposure == 0` caused every stored
 exposure to be clamped to 0. Shutdown's `save_settings()` then wrote
 zeros back to disk, corrupting the settings file for future sessions.
 
-Structural fix (4.1): `CameraAPI.max_exposure_ms_cached` now returns `None`
-(not 0.0) when no camera is connected, so callers can distinguish
-"camera missing" from a real driver value. The exposure slider's range is
+Structural fix (4.1): the camera's limits (`capabilities.camera_limits`)
+are `None` (not 0.0) when no camera is connected, so callers can
+distinguish "camera missing" from a real driver value. The exposure slider's range is
 sized through `camera_max_exposure_for_ui`, which substitutes
 `DEFAULT_MAX_EXPOSURE_MS` only for `None`: a slider needs some range to draw,
 and a cap of 0 is a cap, not a missing one.
@@ -36,8 +36,8 @@ class TestTheSliderRangeWithNoCamera:
         [(None, DEFAULT_MAX_EXPOSURE_MS), (500.0, 500.0), (0.0, 0.0)],
     )
     def test_only_a_missing_cap_takes_the_default(self, cached, expected):
-        camera = SimpleNamespace(max_exposure_ms_cached=cached)
-        assert camera_max_exposure_for_ui(camera) == expected
+        limits = SimpleNamespace(exposure_ms_max=cached)
+        assert camera_max_exposure_for_ui(limits) == expected
 
 
 class TestCoalescingApplier:
@@ -307,7 +307,7 @@ class TestTheFramingRedrawShowsTheStore:
             ),
             # The GUI getter resolves the scale off the LIVE scope.
             lumaview=SimpleNamespace(scope=SimpleNamespace(capabilities=scale_capabilities)),
-            session=SimpleNamespace(get_binning_size=lambda: 1),
+            session=SimpleNamespace(camera=SimpleNamespace(binning=1)),
         )
         monkeypatch.setattr(app_context, 'ctx', ctx)
         fn = _compile_ms_method(

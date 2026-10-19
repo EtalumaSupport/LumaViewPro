@@ -41,7 +41,7 @@ def test_a_camera_binned_at_connect_records_the_sensors_frame(camera):
 
     at_2x = _capabilities(camera)
 
-    assert at_2x.camera_max_frame_size == at_1x.camera_max_frame_size
+    assert at_2x.camera_limits.frame_max == at_1x.camera_limits.frame_max
     assert at_2x.camera_limits.frame_max == at_1x.camera_limits.frame_max
     assert at_1x.camera_limits.frame_max == FrameSize(*SimulatedCamera._SENSOR.values())
 

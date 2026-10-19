@@ -33,9 +33,8 @@ if typing.TYPE_CHECKING:
     from modules.executor_registry import ExecutorBundle
     from modules.layer_record import ScopeModel
     from modules.lumascope_api._lumascope import Lumascope
-    from modules.lumascope_api.camera import CameraAPI
     from modules.protocol import Protocol
-    from modules.scope_capabilities import ScopeCapabilities
+    from modules.scope_capabilities import CameraLimits, ScopeCapabilities
 
 # ---------------------------------------------------------------------------
 # Protocol / Step helpers
@@ -839,9 +838,8 @@ def focus_log(positions, values, focus_round: int, source_path: str) -> int:
 # Used by the REST API and any non-GUI context.
 # ---------------------------------------------------------------------------
 
-# Fallback exposure slider upper bound used when no camera is connected.
-# Lumascope.max_exposure_ms_cached returns None in that case; callers pattern
-# is `scope.camera.max_exposure_ms_cached or DEFAULT_MAX_EXPOSURE_MS`. See #616.
+# Fallback exposure slider upper bound used when no camera is connected:
+# capabilities.camera_limits is None then, or its maximum unknown. See #616.
 DEFAULT_MAX_EXPOSURE_MS = 1000.0
 
 # The usable exposure FLOOR per channel class (ms): see
@@ -857,14 +855,14 @@ DEFAULT_AG_AE_MIN_EXPOSURE_MS = {
 # Fallback gain slider upper bound used when no camera is connected.
 # Matches the legacy kv default (48 dB); the actual per-camera cap is
 # derived from profile.gain.total_max_db and flows through
-# Lumascope.max_gain_db_cached at connect time.
+# capabilities.camera_limits at connect time.
 DEFAULT_MAX_GAIN_DB = 48.0
 
 
 def _camera_cap_for_ui(value: float | None, default: float) -> float:
     """A live camera cap, or the no-camera default.
 
-    camera_max_* return None by design when no camera is connected (so callers
+    The limits are None by design when no camera is connected (so callers
     can tell "missing" from a real value; #616); this applies the documented
     UI fallback in one place for both the exposure and gain resolvers.
     """
@@ -873,16 +871,17 @@ def _camera_cap_for_ui(value: float | None, default: float) -> float:
     return default
 
 
-def camera_max_exposure_for_ui(camera: 'CameraAPI') -> float:
-    """The exposure-slider upper bound from the live camera, or the no-camera
-    default. The single UI-facing resolver, so the connect (load_settings) and
-    reconnect paths can't apply the fallback differently.
+def camera_max_exposure_for_ui(limits: 'CameraLimits | None') -> float:
+    """The exposure-slider upper bound from the camera's limits
+    (``capabilities.camera_limits``), or the no-camera default. The single
+    UI-facing resolver, so the connect (load_settings) and reconnect paths
+    can't apply the fallback differently.
     """
-    return _camera_cap_for_ui(camera.max_exposure_ms_cached, DEFAULT_MAX_EXPOSURE_MS)
+    return _camera_cap_for_ui(limits.exposure_ms_max if limits else None, DEFAULT_MAX_EXPOSURE_MS)
 
 
-def camera_max_gain_for_ui(camera: 'CameraAPI') -> float:
-    """The gain-slider upper bound from the live camera, or the no-camera
+def camera_max_gain_for_ui(limits: 'CameraLimits | None') -> float:
+    """The gain-slider upper bound from the camera's limits, or the no-camera
     default. Parallel to camera_max_exposure_for_ui.
 
     Normalised to the same precision every other gain number in the app
@@ -903,7 +902,7 @@ def camera_max_gain_for_ui(camera: 'CameraAPI') -> float:
     driver's own short-circuit tolerance, so it cannot produce a request the
     camera treats as a change.
     """
-    cap = _camera_cap_for_ui(camera.max_gain_db_cached, DEFAULT_MAX_GAIN_DB)
+    cap = _camera_cap_for_ui(limits.gain_db_max if limits else None, DEFAULT_MAX_GAIN_DB)
     return round(cap, common_utils.max_decimal_precision('gain'))
 
 

@@ -98,9 +98,11 @@ _REASON_UNNAMED_PINNED = frozenset(
 # remove that raise nothing (Eric, 2026-10-13); 160 since
 # MotionAPI.get_target_positions, a read of the axes the scope has that
 # raises nothing (Eric, 2026-10-17); 156 since the camera's fresh reads
-# state the raise of a read the camera did not answer; the count does not
-# yet tell a member that raises nothing from one that has not said.
-_WITHOUT_A_SECTION_CEILING = 156
+# state the raise of a read the camera did not answer; 157 since the
+# camera's held reads, which read no camera and raise nothing, replace the
+# _cached properties (Eric, 2026-10-18); the count does not yet tell a
+# member that raises nothing from one that has not said.
+_WITHOUT_A_SECTION_CEILING = 157
 
 
 def _sections():

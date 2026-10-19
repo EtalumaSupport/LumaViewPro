@@ -123,7 +123,7 @@ class TestTheRegistrantHearsTheRefusal:
         self, tmp_path, monkeypatch
     ):
         clock = {'t': 1000.0}
-        recorder = _make_recorder(tmp_path, clock, active_cached=True)
+        recorder = _make_recorder(tmp_path, clock, active=True)
         recorder._scope.imaging.add_frame_listener.side_effect = FrameListenerNotRegisteredError(
             'protocol_video:clip'
         )
@@ -349,7 +349,7 @@ class TestTheUnwindAndRemovalEdges:
         # Refused before it records, the step sent no phase, so it owes no
         # 'ended': 'ended' follows a recording or writing phase only.
         clock = {'t': 1000.0}
-        recorder = _make_recorder(tmp_path, clock, active_cached=True)
+        recorder = _make_recorder(tmp_path, clock, active=True)
         recorder._scope.imaging.add_frame_listener.side_effect = FrameListenerNotRegisteredError(
             'protocol_video:clip'
         )

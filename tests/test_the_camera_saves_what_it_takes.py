@@ -82,26 +82,26 @@ def test_the_image_mode_and_the_format_the_camera_delivers_agree(session):
     expected = image_mode.select_capture_pixel_format(
         12, session.scope.capabilities.camera_pixel_formats
     )
-    assert expected is not None and expected != camera.pixel_format_cached
+    assert expected is not None and expected != camera.pixel_format
 
     camera.set_image_mode('12bit_scientific')
 
     assert session.settings['image_mode'] == '12bit_scientific'
-    assert camera.pixel_format_cached == expected
+    assert camera.pixel_format == expected
 
 
 def test_a_restore_puts_back_the_saved_image_mode_with_the_format(session):
     """Three 12-bit modes share one format, so the mode is saved in the snapshot."""
     camera = session.camera
     camera.set_image_mode('12bit_scaled')
-    format_before = camera.pixel_format_cached
+    format_before = camera.pixel_format
     snapshot = camera.save_camera_state('test')
 
     camera.set_image_mode('8bit')
     camera.restore_camera_state(snapshot)
 
     assert session.settings['image_mode'] == '12bit_scaled'
-    assert camera.pixel_format_cached == format_before
+    assert camera.pixel_format == format_before
 
 
 def test_a_restore_puts_back_the_saved_frame_and_the_region_it_came_from(session):
@@ -164,7 +164,7 @@ def test_every_saving_setter_saves_on_the_camera_lane_inside_its_own_task(sessio
 def test_the_frame_already_held_is_refused_while_an_activity_holds_the_scope(session):
     """No storing setter answers past a hold, so a run's restore has nothing to put back."""
     camera = session.camera
-    held_frame = camera.frame_size_cached
+    held_frame = camera.frame_size.to_dict()
     before = _saved_geometry(session)
     claim = session.activity_claim.try_claim('diagnostic')
     try:
@@ -245,7 +245,7 @@ def test_a_format_the_camera_refuses_at_bring_up_leaves_the_saved_mode_and_is_to
     rejected = [p for p in centre_posts if p.reason == 'camera_rejected']
     assert len(rejected) == 1
     asked = image_mode.select_capture_pixel_format(12, scope.capabilities.camera_pixel_formats)
-    assert scope.camera.pixel_format_cached != asked
+    assert scope.camera.pixel_format != asked
 
 
 def test_a_feature_saved_on_for_a_camera_without_it_is_saved_off_and_told_once(centre_posts):
@@ -264,7 +264,7 @@ def test_a_frame_bring_up_refits_is_saved_with_a_region_that_gives_it():
     """A frame above the scope's maximum runs at the maximum, and that is what is saved."""
     scope, saved = _bring_up(frame={'width': 9000, 'height': 9000})
 
-    delivered = scope.camera.frame_size_cached
+    delivered = scope.camera.frame_size.to_dict()
     assert {key: saved['frame'][key] for key in ('width', 'height')} == delivered
     factor = int(saved['binning']['size'][0])
     assert saved['frame']['native_width'] == delivered['width'] * factor
@@ -332,7 +332,7 @@ def _the_camera_holds_what_is_saved(session):
     saved = session.settings
     factor = camera.read_binning()
     assert saved['binning']['size'] == f'{factor}x{factor}'
-    held = camera.frame_size_cached
+    held = camera.frame_size.to_dict()
     assert {key: saved['frame'][key] for key in ('width', 'height')} == held
     region = {'width': saved['frame']['native_width'], 'height': saved['frame']['native_height']}
     assert camera._target_frame(region, factor) == held
@@ -357,27 +357,19 @@ def test_a_restore_whose_compare_read_fails_saves_the_binning_the_camera_took(se
     """A read that fails after the binning write landed still saves the binning the camera holds.
 
     The frame the camera holds after it is not known while its reads fail,
-    which push 2's held reads answer (None whenever unknown); the binning is
-    known, from the write the camera took.
+    so it is held as None; the binning is known, from the write the camera
+    took, and is saved alone.
     """
     camera = session.camera
     snapshot = camera.save_camera_state('test')
     camera.set_binning_size(2)
-    driver = session.scope._camera_driver
-    real_binning_write = driver.set_binning_size
-
-    def binning_then_no_frame_reads(*args, **kwargs):
-        taken = real_binning_write(*args, **kwargs)
-        # a stand-in by design: the simulator has no camera read fault until push 2
-        monkeypatch.setattr(driver, 'get_frame_size', lambda: {})
-        return taken
-
-    monkeypatch.setattr(driver, 'set_binning_size', binning_then_no_frame_reads)
+    session.scope.simulation.refuse_camera_read('frame_size', 'sentinel', count=5)
 
     with pytest.raises(CameraReadFailedError):
         camera.restore_camera_state(snapshot)
 
-    factor = driver.get_binning_size()
+    assert camera.frame_size is None
+    factor = camera.read_binning()
     assert factor == 1
     assert session.settings['binning']['size'] == f'{factor}x{factor}'
 

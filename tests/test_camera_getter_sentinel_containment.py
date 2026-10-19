@@ -187,9 +187,9 @@ def test_pixel_format_none_read_does_not_clobber_known_mono8():
     # cached None, and every reader of the format then saw no format at all.
     driver = steady_good_driver({'get_pixel_format': ['Mono8', None]})
     camera = _build_camera(driver)
-    assert camera.pixel_format_cached == 'Mono8'
+    assert camera.pixel_format == 'Mono8'
     camera._populate_camera_cache()
-    assert camera.pixel_format_cached == 'Mono8'
+    assert camera.pixel_format == 'Mono8'
 
 
 def test_save_camera_state_snapshot_not_poisoned_by_failing_reads():
@@ -211,9 +211,9 @@ def test_populate_none_frame_size_read_keeps_cached_geometry():
     # behavior stored zero dims over the known-good size.
     driver = steady_good_driver({'get_frame_size': [{'width': 1936, 'height': 1216}, None]})
     camera = _build_camera(driver)
-    assert camera.frame_size_cached == {'width': 1936, 'height': 1216}
+    assert camera.frame_size.to_dict() == {'width': 1936, 'height': 1216}
     camera._populate_camera_cache()
-    assert camera.frame_size_cached == {'width': 1936, 'height': 1216}
+    assert camera.frame_size.to_dict() == {'width': 1936, 'height': 1216}
 
 
 # --- Write-generation guard ---------------------------------------------------
@@ -250,7 +250,7 @@ def test_authoritative_write_beats_in_flight_stale_read():
         f'a racing read must answer the newer authoritative write, '
         f'not its stale hardware read; got {result["value"]}'
     )
-    assert camera.gain_db_cached == 20.0
+    assert camera.gain_db == 20.0
 
 
 # --- Populate resilience --------------------------------------------------------
@@ -263,10 +263,10 @@ def test_populate_survives_raising_key_and_caches_the_rest():
     # read silently dropped every remaining key.
     driver = steady_good_driver({'get_frame_size': [RAISE]})
     camera = _build_camera(driver)
-    assert camera.gain_db_cached == 12.5
-    assert camera.exposure_ms_cached == 50.0
-    assert camera.pixel_format_cached == 'Mono12'
-    assert camera.frame_size_cached == {'width': 0, 'height': 0}  # seed intact
+    assert camera.gain_db == 12.5
+    assert camera.exposure_ms == 50.0
+    assert camera.pixel_format == 'Mono12'
+    assert camera.frame_size is None  # seed intact
 
 
 # --- Depth property (significant_bits) ---------------------------------------------
@@ -474,11 +474,11 @@ SHIPPED_STORED = {
 }
 
 
-def test_save_camera_state_omits_never_read_fields_and_warns(monkeypatch):
-    # Cold cache, gain and exposure reads fail: the snapshot must carry NO
-    # gain/exposure keys (omit-if-unknown -- the old shape stored gain -1 and
-    # a later restore drove the sentinel back toward the camera), and a
-    # WARNING names each omitted field at SAVE time.
+def test_save_camera_state_records_unknown_fields_as_none_and_warns(monkeypatch):
+    # Cold cache, gain and exposure reads fail: the snapshot records each as
+    # None, unknown, which the restore leaves alone (the old shape stored gain
+    # -1 and a later restore drove the sentinel back toward the camera), and
+    # a WARNING names each unknown field at SAVE time.
     camera = _build_camera(steady_good_driver({'get_gain': [RAISE], 'get_exposure_t': [RAISE]}))
     warnings = []
     monkeypatch.setattr('modules.lumascope_api.camera.logger', _recording_logger(warnings))
@@ -487,6 +487,8 @@ def test_save_camera_state_omits_never_read_fields_and_warns(monkeypatch):
 
     assert snapshot == {
         'tag': 't',
+        'gain_db': None,
+        'exposure_ms': None,
         'auto_gain_arm': None,
         'held_layer': None,
         'frame_size': {'width': 1936, 'height': 1216},

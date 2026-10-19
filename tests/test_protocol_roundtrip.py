@@ -2453,7 +2453,7 @@ class TestFeedLossEndsVideoStep:
     """E2E: a silently dead feed ends a video step within the stall bound.
 
     Production-path injection: disable_streaming halts the sim camera's
-    callback pump WITHOUT flipping active_cached -- exactly the shape of
+    callback pump WITHOUT flipping active -- exactly the shape of
     a feed that dies with no disconnect event. The run must survive (the
     step strikes, the run completes) and the recording's manifest must
     say camera_stalled.
