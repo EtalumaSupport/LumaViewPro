@@ -19,8 +19,10 @@ import enum
 import pytest
 from fastapi.testclient import TestClient
 
+from modules import wire_encoding
 from modules.api_surface import (
     API,
+    api,
     IN_PROCESS,
     fields_of,
     is_engineering,
@@ -30,8 +32,10 @@ from modules.api_surface import (
 )
 from modules.coord_transformations import StageOffset
 from modules.lumascope_api.illumination import LedReading, LedState
+from modules.operation import Operation
 from modules.scope_session import ScopeSession
 from rest.app import SERVER_SEGMENTS, build_app
+from rest.routes import routes
 from tests.settings_fixtures import complete_settings
 
 
@@ -230,6 +234,45 @@ def test_a_read_method_is_a_get_its_arguments_converted_from_the_query(client, s
         refused = client.get(path, params={k: v for k, v in params.items() if v is not None})
         assert refused.status_code == 422, refused.text
         assert key in refused.json()['detail'], refused.text
+
+
+class _NameOrNumber:
+    @api(reads=True)
+    def read(self, channel: int | str) -> int:
+        return 0
+
+
+class _RequiredNone:
+    @api(reads=True)
+    def read(self, run: int | None) -> int:
+        return 0
+
+
+class _HandsOutARun:
+    @api(reads=True)
+    def read(self) -> Operation:
+        raise NotImplementedError
+
+
+def test_a_read_a_query_string_cannot_carry_or_that_hands_out_a_run_is_refused_when_built():
+    """Each refusal is the routes' build's, so no such read is ever served:
+    text cannot tell the number 3 from the name '3'; a query string says
+    None only by leaving the key out; and a GET must hand out nothing."""
+    cases = {
+        _NameOrNumber: (wire_encoding.NoWireFormError, 'a name or a number'),
+        _RequiredNone: (wire_encoding.NoWireFormError, 'required, and may be None'),
+        _HandsOutARun: (TypeError, 'marked reads but can answer a running call'),
+    }
+    wrong = []
+    for cls, (refusal, words) in cases.items():
+        try:
+            routes(cls, handed_out=frozenset())
+        except refusal as e:
+            if words not in str(e):
+                wrong.append(f'{cls.__name__}: refused for another reason: {e}')
+            continue
+        wrong.append(f'{cls.__name__}: built')
+    assert wrong == []
 
 
 def test_a_sub_objects_method_is_called_with_its_arguments_by_name(client, session):
