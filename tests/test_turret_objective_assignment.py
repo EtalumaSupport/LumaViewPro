@@ -194,7 +194,7 @@ class TestATurretScopeReportsTheSlotsObjective:
     def test_the_setting_and_the_snapshot_answer_the_slot_in_the_light_path(self, turret_session):
         turret_session.scope.motion.move_turret(3)
 
-        assert turret_session.get_setting('objective_id') == '4x Oly'
+        assert turret_session.objective_id == '4x Oly'
         assert turret_session.get_settings_snapshot()['objective_id'] == '4x Oly'
 
 

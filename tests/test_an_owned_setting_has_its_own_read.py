@@ -10,14 +10,19 @@ Each now has a named read on the Session, beside its setter.
 import logging
 
 import pytest
+from fastapi.testclient import TestClient
 
+from modules import settings_paths
+from modules.api_surface import sets_of
 from modules.coord_transformations import PlateLocation
 from modules.exceptions import (
     ArgumentRefusedError,
     HardwareCommandRefusedError,
     PositionOutOfRangeError,
 )
+from modules.lumascope_api.camera import CameraAPI
 from modules.scope_session import ScopeSession
+from rest.app import build_app
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
 
@@ -130,3 +135,39 @@ def test_a_turret_slot_is_refused_on_a_scope_with_no_turret(session):
     with pytest.raises(HardwareCommandRefusedError) as refused:
         session.turret_objective(1)
     assert refused.value.reason == 'axis_absent'
+
+
+def test_get_setting_refuses_a_setting_with_its_own_read_and_names_it(session):
+    # The table's paths, a layer's for '*': each owned setting with a read
+    # is refused, naming it; an action's setting and a host's are answered.
+    wrong = {}
+    for pattern, member in settings_paths.SETTINGS_WITH_A_MEMBER.items():
+        path = pattern.replace('*', 'Blue', 1)
+        owner = ScopeSession if member.owner == 'ScopeSession' else CameraAPI
+        read = sets_of(getattr(owner, member.name))
+        try:
+            session.get_setting(path)
+        except ArgumentRefusedError as refused:
+            answered = (refused.reason, refused.member)
+        else:
+            answered = 'answered'
+        expected = 'answered' if read is None else ('has_member', member.path_of(read))
+        if answered != expected:
+            wrong[path] = (answered, expected)
+    assert wrong == {}
+    # Below an owned key as at it: the refusal is the setting's.
+    with pytest.raises(ArgumentRefusedError) as refused:
+        session.get_setting('binning.size')
+    assert (refused.value.reason, refused.value.member) == ('has_member', 'scope.camera.binning')
+
+
+def test_a_wire_get_setting_of_an_owned_setting_names_its_read(session):
+    with TestClient(build_app(session)) as client:
+        refused = client.get('/api/v1/get_setting', params={'path': 'scale_bar.enabled'})
+        answered = client.get('/api/v1/get_setting', params={'path': 'live_folder'})
+    assert refused.status_code == 422
+    assert (refused.json()['reason'], refused.json()['member']) == (
+        'has_member',
+        'scale_bar_enabled',
+    )
+    assert answered.status_code == 200

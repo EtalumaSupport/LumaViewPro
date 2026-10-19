@@ -95,7 +95,15 @@ from modules.python_values import python_values
 from modules.scheduler import Scheduler, ThreadingTimerScheduler
 from modules.settings_saver import SettingsSaver, write_whole
 from modules.sequential_io_executor import IOTask, refuse_blocking_on_a_worker, slow_task_budget
-from modules.api_surface import IN_PROCESS, FilePath, ProgressCallback, api, api_fields, mark_of
+from modules.api_surface import (
+    IN_PROCESS,
+    FilePath,
+    ProgressCallback,
+    api,
+    api_fields,
+    mark_of,
+    sets_of,
+)
 
 # How long a diagnostic's end waits for a run it lent its claim to. The
 # window of one autofocus inside a characterization. Per
@@ -191,6 +199,11 @@ def _apply_logging(settings: dict) -> None:
         logging.getLogger(name).setLevel(level)
     logger.info(f'[Session  ] Log level {level}')
     autofocus_functions.enable_af_score_logging(enable=bool(settings['logging']['autofocus']))
+
+
+def _owner_of(member: settings_paths.SettingMember) -> type:
+    """The class an owned setting's member is declared on, which the table names by its name."""
+    return {'ScopeSession': ScopeSession, 'CameraAPI': CameraAPI}[member.owner]
 
 
 def _tell_stored_replacements(pending: list[tuple[str, object, object]]) -> None:
@@ -2924,23 +2937,29 @@ class ScopeSession:
 
     @api(reads=True)
     def get_setting(self, path: str) -> 'SettingValue':
-        """A copy of one setting, named by its dotted path: ``'stage_offset'``, ``'scale_bar.enabled'``.
+        """A copy of one setting, named by its dotted path: ``'stage_offset'``, ``'video.max_fps'``.
 
         Taken under the lock, so it is never a value part-way through a
         write; a copy, so changing it changes no setting (``update_settings``
         and the Session's members do).
 
-        ``'objective_id'`` is the active objective: on a turret scope, the
-        slot's in the light path, or None while that is unknown. The stored
-        id is a turretless scope's selection, which a turret scope does not
-        read.
+        A setting with a read of its own is read there, so one setting has
+        one read: ``get_setting('binning')`` is refused for
+        ``scope.camera.binning``, ``get_setting('objective_id')`` for
+        ``objective_id``. The live folder and the protocol file, which only
+        the host moves, are read here.
 
         Raises:
             ArgumentRefusedError: ``'not_a_setting'``, the settings have no
-                value at ``path``.
+                value at ``path``; ``'has_member'``, the setting at or above
+                ``path`` has its own read, named in ``member``.
         """
-        if path == 'objective_id':
-            return self.scope.runtime_state.get_current_objective_id()
+        member = settings_paths.member_for(path)
+        read = sets_of(getattr(_owner_of(member), member.name)) if member else None
+        if read is not None:
+            raise ArgumentRefusedError(
+                'has_member', argument='path', value=path, member=member.path_of(read)
+            )
         return self._read_stored_setting(path)
 
     def _read_stored_setting(self, path: str) -> 'SettingValue':
@@ -3014,10 +3033,7 @@ class ScopeSession:
         """
         value = python_values(value)
         member = settings_paths.member_for(path)
-        owner = (
-            {'ScopeSession': ScopeSession, 'CameraAPI': CameraAPI}[member.owner] if member else None
-        )
-        if member is not None and mark_of(getattr(owner, member.name)) == IN_PROCESS:
+        if member is not None and mark_of(getattr(_owner_of(member), member.name)) == IN_PROCESS:
             # The live folder confines every path a wire caller sends, so only
             # the host moves it; advice naming the member alone sends a REST
             # client to a route that does not exist.

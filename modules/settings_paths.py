@@ -53,7 +53,11 @@ class SettingMember:
 
     @property
     def path(self) -> str:
-        return self.name if self.owner == 'ScopeSession' else f'scope.camera.{self.name}'
+        return self.path_of(self.name)
+
+    def path_of(self, name: str) -> str:
+        """The path from the API root of the owner's member ``name``: the setter's read, say."""
+        return name if self.owner == 'ScopeSession' else f'scope.camera.{name}'
 
     @property
     def words(self) -> str:

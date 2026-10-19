@@ -3215,7 +3215,7 @@ class SessionClosingError(Refusal, Exception):
         self.activity = activity
 
 
-@api_fields('argument', 'limits', 'offered')
+@api_fields('argument', 'limits', 'member', 'offered')
 class ArgumentRefusedError(Refusal, ValueError):
     """An argument the scope cannot act on: it breaks a fixed rule, whatever the scope's state.
 
@@ -3272,6 +3272,9 @@ class ArgumentRefusedError(Refusal, ValueError):
               The same fact a write is refused for as
               ``SettingRefusedError('not_a_setting')``; this type says a
               read asked it.
+            - ``'has_member'`` -- a dotted path to a setting that has a read
+              of its own, named in ``member`` by its path from the session,
+              so one setting has one read.
             - ``'refused_beside_scope'`` -- an argument that applies only
               to a scope a session's factory builds, given with a scope
               already built.
@@ -3323,15 +3326,18 @@ class ArgumentRefusedError(Refusal, ValueError):
             ``'wrong_kind'`` and ``'fault_bound'``; the simulated board,
             in words, for ``'not_injectable_on_board'`` and
             ``'argument_not_on_board'``; None otherwise.
+        member: The member to read instead, for ``'has_member'``; None
+            otherwise.
 
-    ``argument``, ``offered`` and ``limits`` are published, so a REST
-    problem carries them beside the words; the client already holds the
-    value it sent.
+    ``argument``, ``offered``, ``limits`` and ``member`` are published, so
+    a REST problem carries them beside the words; the client already holds
+    the value it sent.
     """
 
     argument: str
     offered: tuple[str | int, ...] | None
     limits: tuple[float, float] | None
+    member: str | None
     cause = RefusalCause.REQUEST
     _WORDS: ClassVar[dict[str, tuple[str, str]]] = {
         'not_a_number': (
@@ -3408,6 +3414,11 @@ class ArgumentRefusedError(Refusal, ValueError):
             'Not a Setting',
             '{argument} names no setting; {value!r} is not a dotted path to one.',
         ),
+        'has_member': (
+            'Setting Has Its Own Read',
+            "{value!r} is read by {member}, the setting's own read; {argument} reads a "
+            'setting that has none.',
+        ),
         'refused_beside_scope': (
             'Not Taken Beside a Scope',
             '{argument} is refused beside a scope you built: it applies only to a scope '
@@ -3483,6 +3494,7 @@ class ArgumentRefusedError(Refusal, ValueError):
         offered: tuple[str | int, ...] | None = None,
         limits: tuple[float, float] | None = None,
         kind: str | None = None,
+        member: str | None = None,
     ):
         if reason not in self._WORDS:
             raise TypeError(f'ArgumentRefusedError has no words for the reason {reason!r}')
@@ -3499,6 +3511,10 @@ class ArgumentRefusedError(Refusal, ValueError):
             raise TypeError(
                 f'ArgumentRefusedError({reason!r}) takes a kind exactly when its words name it'
             )
+        if ('{member}' in words) != (member is not None):
+            raise TypeError(
+                f'ArgumentRefusedError({reason!r}) takes a member exactly when its words name it'
+            )
         low, high = limits or (None, None)
         super().__init__(
             words.format(
@@ -3508,6 +3524,7 @@ class ArgumentRefusedError(Refusal, ValueError):
                 low=low,
                 high=high,
                 kind=kind,
+                member=member,
             )
         )
         self.reason = reason
@@ -3516,6 +3533,7 @@ class ArgumentRefusedError(Refusal, ValueError):
         self.offered = offered
         self.limits = limits
         self.kind = kind
+        self.member = member
 
 
 @api_fields('member', 'argument', 'declared')

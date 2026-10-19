@@ -99,7 +99,7 @@ def test_the_close_saves_with_no_write_so_a_first_run_leaves_its_file(saving_ses
     saving_session.shutdown()
 
     with open(tmp_path / 'current.json') as f:
-        assert json.load(f)['microscope'] == saving_session.get_setting('microscope')
+        assert json.load(f)['microscope'] == saving_session.model
 
 
 def test_a_save_the_drive_refuses_leaves_the_previous_file_whole_and_is_reported(
