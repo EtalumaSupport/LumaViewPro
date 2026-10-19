@@ -2963,7 +2963,11 @@ class ScopeSession:
         illumination on its lit LED, when this returns; a write to a hidden
         layer, or one made while a run, a diagnostic or a home holds the
         scope, is stored only. Such a write waits on the camera or LED lane,
-        so a caller on the UI thread hands it to a worker.
+        so a caller on the UI thread hands it to a worker. Each auto-gain
+        bound is stored alone; a minimum left above the maximum is refused
+        when auto-gain is armed with them (``ArgumentRefusedError``,
+        ``'gain_range_inverted'``), so this write raises it after the store
+        while the shown layer is on auto-gain, and the camera keeps its arm.
         The log level and the autofocus score log (``'logging.*'``) take
         effect as they are written.
         """

@@ -74,6 +74,14 @@ def _rows(session):
             lambda: scope.camera.set_auto_gain(True, {**_AUTO_GAIN, 'max_exposure_ms': 'x'}),
         ),
         (
+            'set_auto_gain, minimum gain above maximum',
+            ArgumentRefusedError,
+            'gain_range_inverted',
+            lambda: scope.camera.set_auto_gain(
+                True, {**_AUTO_GAIN, 'min_gain_db': 25.0, 'max_gain_db': 20.0}
+            ),
+        ),
+        (
             'apply_layer_camera_settings, empty auto-gain settings',
             ArgumentRefusedError,
             'missing_key',

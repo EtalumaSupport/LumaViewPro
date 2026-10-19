@@ -273,6 +273,13 @@ def _positive(path: str, value: float) -> None:
     _refuse_below(path, value, 0, inclusive=False)
 
 
+def _fraction(path: str, value: float) -> None:
+    if not 0 < value <= 1:
+        raise SettingRefusedError(
+            'out_of_range', path, f'it must be above 0 and at most 1, not {value!r}'
+        )
+
+
 def _metrics_interval(path: str, value: object) -> None:
     # Shipped null, the default cadence; a value set is seconds between samples.
     if value is None:
@@ -348,6 +355,13 @@ _RANGES: typing.Final[dict[str, typing.Callable[[str, typing.Any], None]]] = {
     'video.max_duration_seconds': _video_max_duration,
     'jpg_quality': _jpg_quality,
     'live_view_fps': _non_negative,
+    'zstack.step_size': _non_negative,
+    'zstack.range': _non_negative,
+    'protocol.autogain.target_brightness': _fraction,
+    'protocol.autogain.max_duration_seconds': _positive,
+    'protocol.autogain.min_gain_db': _non_negative,
+    'protocol.autogain.max_gain_db': _non_negative,
+    'profiling.handle_trace_obj_sample_every': _refuse_non_count,
     'profiling.metrics_interval_s': _metrics_interval,
     'ag_ae_max_exposure_ms.transmitted': _positive,
     'ag_ae_max_exposure_ms.fluorescence': _positive,

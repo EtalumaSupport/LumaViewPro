@@ -3295,6 +3295,9 @@ class ArgumentRefusedError(Refusal, ValueError):
             - ``'turret_position_required'`` -- an objective confirmed on
               a turret scope with no slot named; the confirmation records
               the glass in a slot.
+            - ``'gain_range_inverted'`` -- an auto-gain settings dictionary
+              whose ``min_gain_db`` is above its ``max_gain_db``; ``value``
+              holds the two.
         argument: The name of the argument refused.
         value: What was given, as given.
         offered: The values the argument takes, where it takes a list;
@@ -3444,6 +3447,10 @@ class ArgumentRefusedError(Refusal, ValueError):
             'Objective Not on the Turret',
             '{value!r} is in no turret slot; the turret holds {offered}. Assign it to the '
             'slot it is installed in.',
+        ),
+        'gain_range_inverted': (
+            'Auto-Gain Range Inverted',
+            '{argument} sets a minimum gain above its maximum: {value!r}.',
         ),
         'turret_position_required': (
             'Turret Slot Not Named',

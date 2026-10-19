@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from modules.operation import Operation
 from modules.run_events import RunEvents
 from ui.ui_helpers import (
+    run_reported,
     set_last_save_folder,
     show_captured_frame,
     show_video_progress,
@@ -52,10 +53,15 @@ class ZStack(FloatLayout):
         # events so it reads the box first.
         typed = {wid: self.ids[wid].text for wid in ('zstack_stepsize_id', 'zstack_range_id')}
 
-        # A number is stored as typed, whatever its sign: a stack whose step
-        # or range is not above zero is refused when it is built, naming the
-        # values the person entered, and the Steps field reads 0 meanwhile.
-        for wid, key in (('zstack_stepsize_id', 'step_size'), ('zstack_range_id', 'range')):
+        # The writer holds the range: a negative number is refused, named in
+        # its words, and the box shows what is stored. A stack whose step or
+        # range is 0 is refused when it is built, and the Steps field reads 0
+        # meanwhile.
+        fields = (
+            ('zstack_stepsize_id', 'step_size', 'ZSTACK_STEP_SIZE'),
+            ('zstack_range_id', 'range', 'ZSTACK_RANGE'),
+        )
+        for wid, key, name in fields:
             box = self.ids[wid]
 
             def put_back(box=box, key=key):
@@ -63,12 +69,15 @@ class ZStack(FloatLayout):
 
             value = typed_number(box.text, float, put_back)
             if value is not None:
-                _app_ctx.ctx.update_settings(f'zstack.{key}', value)
+                run_reported(
+                    lambda key=key, value=value: _app_ctx.ctx.update_settings(
+                        f'zstack.{key}', value
+                    ),
+                    put_back,
+                    name,
+                )
 
-        for wid, name in (
-            ('zstack_stepsize_id', 'ZSTACK_STEP_SIZE'),
-            ('zstack_range_id', 'ZSTACK_RANGE'),
-        ):
+        for wid, _key, name in fields:
             if self.ids[wid].text != typed[wid]:
                 gui_logger.text_input(f'{name}_APPLIED', self.ids[wid].text)
 

@@ -34,6 +34,7 @@ from lib import profile_trace
 from lib.lumascope_error import Fault
 from lvp_logger import logger
 from modules.exceptions import (
+    ArgumentRefusedError,
     AutoGainNotSettledError,
     CameraSettingOutOfRangeError,
     CameraSettingRejected,
@@ -290,13 +291,23 @@ def _refuse_unless_auto_gain_settings(settings: object, argument: str) -> None:
 
     Raises:
         ArgumentRefusedError: ``'wrong_kind'``, ``'missing_key'`` or
-            ``'not_a_number'``, naming the key's path under ``argument``.
+            ``'not_a_number'``, naming the key's path under ``argument``;
+            ``'gain_range_inverted'``, a minimum gain above the maximum.
     """
     refuse_unless_kind(settings, 'dict', argument)
     for key in ('target_brightness', 'min_gain_db', 'max_gain_db'):
         refuse_unless_kind(required(settings, key, argument), 'number', key_path(argument, key))
     for key in ('max_exposure_ms', 'min_exposure_ms'):
         refuse_unless_kind(settings.get(key), 'number', key_path(argument, key), nullable=True)
+    # The pair is judged here, where every arm passes, and not at the
+    # settings write: each bound is written alone, so a write judging the
+    # pair would make a client order its two writes.
+    if settings['min_gain_db'] > settings['max_gain_db']:
+        raise ArgumentRefusedError(
+            'gain_range_inverted',
+            argument=argument,
+            value={key: settings[key] for key in ('min_gain_db', 'max_gain_db')},
+        )
 
 
 def _no_answer_rejection(rejected: CameraSettingRejected) -> CameraSettingRejected:
@@ -1343,8 +1354,11 @@ class CameraAPI:
                 camera, for turning auto-gain on with no camera connected or
                 one removed during the write; turning it off is satisfied
                 either way.
-            ArgumentRefusedError: ``settings`` lacks a key the write reads,
-                or one is not a number.
+            ArgumentRefusedError: ``'missing_key'``, ``settings`` lacks a
+                key the write reads; ``'wrong_kind'`` or ``'not_a_number'``,
+                it or one of its values is not of the kind read;
+                ``'gain_range_inverted'``, its minimum gain is above its
+                maximum.
         """
         _refuse_unless_auto_gain_settings(settings, 'settings')
         return self._dispatch_camera(
@@ -3461,7 +3475,8 @@ class CameraAPI:
         Raises:
             ArgumentRefusedError: ``'missing_key'``, ``auto_gain_settings``
                 lacks a key the auto-gain write reads; ``'not_a_number'``,
-                one is not a number.
+                one is not a number; ``'gain_range_inverted'``, its minimum
+                gain is above its maximum.
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera, with none connected; nothing was written.
             CameraSettingRejected: The camera refused the gain, the
