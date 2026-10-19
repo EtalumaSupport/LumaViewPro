@@ -18,7 +18,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import rest.handles
-from modules.api_surface import API, fields_of, mark_of
+from modules.api_surface import API, fields_of, mark_of, reads_of
 from modules.protocol import Protocol
 from modules.protocol_runner import ProtocolRunner
 from modules.scope_session import ScopeSession
@@ -53,7 +53,8 @@ def _members(cls) -> set[tuple[str, str]]:
     for klass in cls.__mro__:
         for name, value in vars(klass).items():
             if mark_of(value) == API:
-                found.add(('get' if isinstance(value, property) else 'post', name))
+                get = isinstance(value, property) or reads_of(value)
+                found.add(('get' if get else 'post', name))
     return found
 
 
@@ -88,7 +89,7 @@ def test_one_object_has_one_id(client):
 def test_a_handles_members_are_reached_through_it(client):
     protocol = client.post('/api/v1/create_empty_protocol').json()
 
-    steps = client.post(f'/api/v1/handles/Protocol/{protocol["handle"]}/num_steps')
+    steps = client.get(f'/api/v1/handles/Protocol/{protocol["handle"]}/num_steps')
 
     assert steps.json() == 0
 
@@ -107,7 +108,7 @@ def test_a_handle_is_passed_as_an_argument_by_its_id(client, live):
 def test_an_id_not_held_for_its_type_is_404(client):
     protocol = client.post('/api/v1/create_empty_protocol').json()
 
-    assert client.post('/api/v1/handles/Protocol/999/num_steps').status_code == 404
+    assert client.get('/api/v1/handles/Protocol/999/num_steps').status_code == 404
     wrong_type = client.post(
         f'/api/v1/handles/ProtocolRunner/{protocol["handle"]}/start_single_scan',
         json={'protocol': protocol['handle']},
@@ -123,7 +124,7 @@ def test_forgetting_an_id_lets_go_of_the_id_and_the_shared_runner_is_kept(client
 
     assert client.delete(f'/api/v1/handles/Protocol/{protocol["handle"]}').status_code == 204
     assert client.delete(f'/api/v1/handles/Protocol/{protocol["handle"]}').status_code == 404
-    assert client.post(f'/api/v1/handles/Protocol/{protocol["handle"]}/num_steps').status_code == (
+    assert client.get(f'/api/v1/handles/Protocol/{protocol["handle"]}/num_steps').status_code == (
         404
     )
     assert client.delete(f'/api/v1/handles/ProtocolRunner/{runner["handle"]}').status_code == 409

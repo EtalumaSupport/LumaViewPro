@@ -250,14 +250,14 @@ class TestTheRefusals:
             loaded = client.post('/api/v1/load_protocol', json={'file_path': 'one_step.tsv'}).json()
             asked = {'protocol': loaded['handle'], 'step_idx': 0}
             assert (
-                client.post('/api/v1/scope/protocols/step_targets', json=asked).status_code == 200
+                client.get('/api/v1/scope/protocols/step_targets', params=asked).status_code == 200
             )
 
             turret_session.clear_turret_objective(int(slot))
 
             with pytest.raises(ProtocolRunRefusedError) as refused:
                 turret_session.scope.protocols.step_targets(protocol, 0)
-            answer = client.post('/api/v1/scope/protocols/step_targets', json=asked)
+            answer = client.get('/api/v1/scope/protocols/step_targets', params=asked)
         assert refused.value.reason == 'turret_objectives_unassigned'
         assert (answer.status_code, answer.json()['reason']) == (409, refused.value.reason)
 

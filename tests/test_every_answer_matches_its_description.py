@@ -94,8 +94,8 @@ def test_every_answer_a_simulated_session_gives_matches_its_route(tmp_path):
             s.shutdown()
 
     assert not mismatched, '\n'.join(mismatched)
-    # 96 to 99 answers a model at this writing.
-    assert min(checked.values()) >= 90, checked
+    # 105 to 109 answers a model at this writing.
+    assert min(checked.values()) >= 100, checked
 
 
 def _check_every_answer(session, model: str, mismatched: list[str]) -> int:
@@ -119,17 +119,21 @@ def _check_every_answer(session, model: str, mismatched: list[str]) -> int:
     with TestClient(app) as client:
         for route in rest_routes.routes(ScopeSession, handed_out=handed_out):
             member = route.member
-            asks = not any(p.required for p in member.parameters) and _ASKS.match(member.name)
+            get = member.read or member.reads
+            needs = any(p.required for p in member.parameters)
+            # A read changes nothing, so every one that needs no argument is
+            # asked; any other call only when its name says it asks.
+            asks = not needs and (member.reads or _ASKS.match(member.name))
             if not (member.read or asks):
                 continue
             path = f'/api/v1/{route.path}'
-            if member.read:
+            if get:
                 response = client.get(path)
             else:
                 response = client.post(path, json={})
             if response.status_code != 200:
                 continue
-            method = 'get' if member.read else 'post'
+            method = 'get' if get else 'post'
             check(response.json(), _answer(described, path, method), path)
 
         from modules.protocol import Protocol

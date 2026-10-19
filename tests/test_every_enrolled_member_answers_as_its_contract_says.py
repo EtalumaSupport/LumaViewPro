@@ -183,9 +183,28 @@ def _state(scope: Scope) -> tuple[dict, list[str]]:
     return copy.deepcopy(scope.session.settings), files
 
 
+def _ask(scope: Scope, route: str, body: dict):
+    """Call ``route`` as a wire client does: a read with GET, its arguments in
+    the query string, any other member with POST and a JSON body; which, the
+    route's own description says."""
+    described = scope.client.app.openapi()['paths'][route.replace('{handle}', '{handle_id}')]
+    path = _route(scope, route)
+    if 'post' in described:
+        return scope.client.post(path, json=body)
+    query = []
+    for name, value in body.items():
+        if isinstance(value, dict):
+            query += [(f'{name}.{field}', each) for field, each in value.items()]
+        else:
+            query += [(name, each) for each in (value if isinstance(value, list) else [value])]
+    return scope.client.get(
+        path, params=[(k, str(v).lower() if isinstance(v, bool) else str(v)) for k, v in query]
+    )
+
+
 def _wire_matches(scope: Scope, route: str, body: dict, expected: BaseException) -> str | None:
     """Why the REST answer differs from the problem the server makes of ``expected``, or None."""
-    answer = scope.client.post(route, json=body)
+    answer = _ask(scope, route, body)
     got = answer.json()
     if answer.status_code == 202:
         # Still running when the route stopped waiting: its job's end is
@@ -1029,7 +1048,7 @@ def test_every_enrolled_member_answers_as_its_contract_says(scopes, run_folders)
             wrong.append(f'{row.case}: {missing}')
         if row.wire is not None:
             route, body = row.wire
-            answer = scope.client.post(_route(scope, route), json=body(scope))
+            answer = _ask(scope, route, body(scope))
             if answer.status_code != 200:
                 wrong.append(f'{row.case}: over REST answered {answer.status_code} {answer.json()}')
     for row in _bad_rows():
@@ -1050,7 +1069,7 @@ def test_every_enrolled_member_answers_as_its_contract_says(scopes, run_folders)
                 wrong.append(f'{row.case}: the refusal changed the settings or the live folder')
             if row.wire is not None:
                 route, body = row.wire
-                differs = _wire_matches(scope, _route(scope, route), body(scope), raised)
+                differs = _wire_matches(scope, route, body(scope), raised)
                 if differs:
                     wrong.append(f'{row.case}: {differs}')
         else:
@@ -1086,7 +1105,7 @@ def test_every_injected_fault_answers_as_the_contract_says(scopes):
                 # hold or a failed home holds until it is cleared.
                 scope.session.scope.simulation.clear()
                 row.cause(scope)
-                differs = _wire_matches(scope, _route(scope, route), body(scope), raised)
+                differs = _wire_matches(scope, route, body(scope), raised)
                 if differs:
                     wrong.append(f'{row.case}: {differs}')
         else:

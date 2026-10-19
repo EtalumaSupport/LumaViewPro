@@ -5,11 +5,12 @@ The Session is the root: its member ``m`` is ``/api/v1/m``, and a
 sub-object reached through a read (``scope``, ``scope.motion``) is a path
 segment, so ``ScopeSession.scope.motion.move_absolute`` is
 ``/api/v1/scope/motion/move_absolute``. Names are the Python names. A read
-is ``GET``; a method is ``POST``, its arguments a JSON object by parameter
-name, described and checked by a model built here from the parameter's
-inbound form (``wire_encoding.inbound``). Its answer is described by a
-type built here from the member's outbound form (``wire_encoding.outbound``),
-each record one named model.
+-- a property, or a method marked ``reads`` -- is ``GET``, a read method's
+arguments in the query string; any other method is ``POST``, its arguments
+a JSON object by parameter name. Both are described and checked by models
+built here from the parameter's inbound form (``wire_encoding.inbound``).
+Its answer is described by a type built here from the member's outbound
+form (``wire_encoding.outbound``), each record one named model.
 """
 
 from __future__ import annotations
@@ -39,6 +40,19 @@ _SCALARS: dict[str, type] = {
 # No NaN or infinity: Python's JSON reader takes both, and no member's
 # number means either.
 _MODEL_CONFIG = pydantic.ConfigDict(strict=True, extra='forbid', allow_inf_nan=False)
+# A query string carries only text, so its model converts: '2' to a
+# number, 'true' to a bool. What it reads is then checked against the
+# member's strict body model, as a sent body is.
+_QUERY_CONFIG = pydantic.ConfigDict(strict=False, extra='forbid', allow_inf_nan=False)
+# The forms a query value can carry, one text value each.
+_QUERY_SCALARS = (
+    wire_encoding.SCALAR,
+    wire_encoding.SECONDS,
+    wire_encoding.ENUM,
+    wire_encoding.PATH,
+    wire_encoding.HANDLE,
+    wire_encoding.JOB,
+)
 # An answer's model only describes: the server sends what ``encode`` made,
 # never checked against it. Open, since a record's subclass is sent with
 # the keys it adds, and the description must not refuse what is sent.
@@ -91,8 +105,11 @@ class Route:
         segments: The reads from the root to the member's owner.
         member: The member.
         owner: The class that declares it.
-        body: The model a call's JSON body is checked against; None for a read.
+        body: The model a call's arguments are checked against, sent as a
+            JSON body or read from the query; None for a property.
         answer: The type its answer is described by (``answer_type``).
+        query: The model a read method's query string is read by
+            (``query_model``); None for any other member.
     """
 
     root: type
@@ -101,6 +118,7 @@ class Route:
     owner: type
     body: type[pydantic.BaseModel] | None
     answer: object
+    query: type[pydantic.BaseModel] | None = None
 
     @property
     def path(self) -> str:
@@ -116,9 +134,12 @@ def routes(root: type, *, handed_out: frozenset[type]) -> list[Route]:
     other live object's class is not sent.
 
     Raises:
-        NoWireFormError: a parameter's type has no inbound form.
+        NoWireFormError: a parameter's type has no inbound form, or a read
+            method's has none in a query string (``query_model``).
         TypeError: a sub-object leads back to one of the classes it is
-            reached through, so its routes would never end.
+            reached through, so its routes would never end; or a method
+            marked ``reads`` can answer a running call or a live object,
+            which a ``GET`` would hand out.
     """
     classes = wire_encoding.project_classes()
     aliases = wire_encoding.project_aliases()
@@ -133,7 +154,17 @@ def routes(root: type, *, handed_out: frozenset[type]) -> list[Route]:
                 walk(member.segment, (*segments, member.name), (*through, member.segment))
                 continue
             body = None if member.read else _body(cls, member, records)
-            found.append(Route(root, segments, member, cls, body, answer_type(member.returns)))
+            query = None
+            if member.reads:
+                if member.returns_job or member.hands_out:
+                    raise TypeError(
+                        f'{"/".join((*segments, member.name))} is marked reads but can answer '
+                        'a running call or a live object, which a GET would hand out'
+                    )
+                query = query_model(cls, member)
+            found.append(
+                Route(root, segments, member, cls, body, answer_type(member.returns), query)
+            )
 
     walk(root, (), (root,))
     return sorted(found, key=lambda r: r.path)
@@ -146,6 +177,97 @@ def _body(
     return pydantic.create_model(
         f'{owner.__name__}_{member.name}', __config__=_MODEL_CONFIG, **fields
     )
+
+
+def query_model(owner: type, member: WireMember) -> type[pydantic.BaseModel]:
+    """The model a read method's arguments are read from a query string by.
+
+    One key a parameter, its text converted to the parameter's type; a
+    list is its key repeated; a record is one key a field,
+    ``<parameter>.<field>``, which ``sent_of_query`` puts back together. A
+    key the member does not take is refused.
+
+    Raises:
+        NoWireFormError: a parameter has no form in a query string: an
+            object, a list of anything but single values, a record of
+            anything but single values; a required one that may be None,
+            since a query string says None only by leaving its key out; or
+            one a value could be read as either a name or a number, since
+            text carries no type to tell them apart.
+    """
+    where = f'{owner.__name__}.{member.name}'
+    fields: dict[str, tuple[object, object]] = {}
+    for p in member.parameters:
+        present = [a for a in p.alternatives if not _is_none(a)]
+        nullable = len(present) < len(p.alternatives)
+        if p.required and nullable:
+            raise wire_encoding.NoWireFormError(
+                f'{where} parameter {p.name}: required, and may be None, which a query '
+                'string can say only by leaving the key out'
+            )
+        if any(a.form == wire_encoding.RECORD for a in present):
+            if len(present) != 1:
+                raise wire_encoding.NoWireFormError(
+                    f'{where} parameter {p.name}: a record or something else, in a query'
+                )
+            for field, alternatives in present[0].fields:
+                _refuse_no_query_form(where, f'{p.name}.{field}', alternatives)
+                kind = _type(alternatives, {})
+                fields[f'{p.name}__{field}'] = (
+                    typing.Optional[kind],  # noqa: UP045 -- kind may be Annotated
+                    pydantic.Field(default=None, alias=f'{p.name}.{field}'),
+                )
+            continue
+        _refuse_no_query_form(where, p.name, present)
+        fields[p.name] = _field(p, {})
+    return pydantic.create_model(
+        f'{owner.__name__}_{member.name}_query', __config__=_QUERY_CONFIG, **fields
+    )
+
+
+def _is_none(a: wire_encoding.Inbound) -> bool:
+    return a.form == wire_encoding.SCALAR and a.name == 'None'
+
+
+def _refuse_no_query_form(
+    where: str, key: str, alternatives: typing.Iterable[wire_encoding.Inbound]
+) -> None:
+    single = []
+    for a in alternatives:
+        if _is_none(a):
+            continue
+        if a.form == wire_encoding.ARRAY and all(i.form in _QUERY_SCALARS for i in a.items):
+            single += list(a.items)
+        elif a.form in _QUERY_SCALARS:
+            single.append(a)
+        else:
+            raise wire_encoding.NoWireFormError(f'{where} {key}: a {a.form} has no query form')
+    texts = {a.name for a in single if a.form == wire_encoding.SCALAR and a.name == 'str'}
+    texts |= {a.form for a in single if a.form in (wire_encoding.PATH, wire_encoding.HANDLE)}
+    numbers = {
+        a.name for a in single if a.form == wire_encoding.SCALAR and a.name in ('int', 'float')
+    }
+    if texts and numbers:
+        raise wire_encoding.NoWireFormError(
+            f'{where} {key}: a name or a number, which a query string cannot tell apart'
+        )
+
+
+def sent_of_query(query: pydantic.BaseModel) -> dict[str, object]:
+    """The arguments a read's query string gave, as a JSON body would give them.
+
+    A record's ``<parameter>.<field>`` keys are put back together as the
+    record's object; a record given in part is given so, and the member's
+    body model refuses it.
+    """
+    sent: dict[str, object] = {}
+    for key, value in query.model_dump(by_alias=True, include=query.model_fields_set).items():
+        parameter, dot, field = key.partition('.')
+        if dot:
+            sent.setdefault(parameter, {})[field] = value
+        else:
+            sent[key] = value
+    return sent
 
 
 def _field(

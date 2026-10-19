@@ -24,6 +24,7 @@ import dataclasses
 import inspect
 import logging
 import time
+import typing
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 
@@ -46,7 +47,7 @@ from rest.handles import HandleRegistry
 from rest.jobs import RETRY_AFTER_S as JOB_RETRY_AFTER_S
 from rest.jobs import JobRegistry, Progress, Wait
 from rest.problems import Answer, ServerRefusedError
-from rest.routes import ANSWER_CONFIG, Handle, Job, Route, routes
+from rest.routes import ANSWER_CONFIG, Handle, Job, Route, routes, sent_of_query
 
 # The REST log: a child of lvp_logger's logger, whose REST handler keeps
 # only the records marked api_request.
@@ -550,7 +551,8 @@ def _add(
         *sent* is a POST's body, which a key is held with; a read has none,
         and runs again whatever key it is sent.
         """
-        _refuse_query(request)
+        if route.query is None:
+            _refuse_query(request)
         if closing.begun:
             raise problems.server_closing()
         if member.hands_out:
@@ -683,10 +685,10 @@ def _add(
         app.add_api_route(endpoint=read, methods=['GET'], **common)
         return
 
-    async def call(
-        request: fastapi.Request, body: pydantic.BaseModel | None, handle_id: str | None = None
-    ) -> JSONResponse:
-        sent = body.model_dump(include=body.model_fields_set) if body is not None else {}
+    def invoker(
+        sent: dict[str, object],
+    ) -> Callable[[object, Progress, Callable[[Operation], dict]], object]:
+        """How to call the member with the arguments *sent*, checked against its body model."""
 
         def invoke(
             owner: object, progress: Progress, job_of: Callable[[Operation], dict]
@@ -718,7 +720,34 @@ def _add(
             tag.settle({'job': job_of(value)['id']} if isinstance(value, Operation) else None)
             return value
 
-        return await answer(request, handle_id, invoke, sent)
+        return invoke
+
+    if member.reads:
+
+        async def asked(
+            request: fastapi.Request, query: pydantic.BaseModel, handle_id: str | None = None
+        ) -> JSONResponse:
+            try:
+                checked = route.body.model_validate(sent_of_query(query))
+            except pydantic.ValidationError as e:
+                raise RequestValidationError(
+                    [
+                        {**err, 'loc': ('query', '.'.join(str(p) for p in err['loc']))}
+                        for err in e.errors()
+                    ]
+                ) from e
+            sent = checked.model_dump(include=checked.model_fields_set)
+            return await answer(request, handle_id, invoker(sent))
+
+        _sign(asked, on_handle, route, query=True)
+        app.add_api_route(endpoint=asked, methods=['GET'], **common)
+        return
+
+    async def call(
+        request: fastapi.Request, body: pydantic.BaseModel | None, handle_id: str | None = None
+    ) -> JSONResponse:
+        sent = body.model_dump(include=body.model_fields_set) if body is not None else {}
+        return await answer(request, handle_id, invoker(sent), sent)
 
     _sign(call, on_handle, route)
     app.add_api_route(endpoint=call, methods=['POST'], **common)
@@ -814,18 +843,27 @@ def _add_job_routes(app: fastapi.FastAPI, jobs: JobRegistry, closing: Closing) -
     )
 
 
-def _sign(endpoint: Callable, on_handle: bool, route: Route | None) -> None:
-    """Give *endpoint* the parameters FastAPI reads: the handle's id, and a call's body.
+def _sign(endpoint: Callable, on_handle: bool, route: Route | None, *, query: bool = False) -> None:
+    """Give *endpoint* the parameters FastAPI reads: the handle's id, and a call's body or query.
 
     The body's model is the route's own, so FastAPI checks and describes it;
     a member every one of whose parameters has a default also takes no body.
+    A read's query model is read from the query string, one key a field.
     """
     parameters = [
         inspect.Parameter(
             'request', inspect.Parameter.POSITIONAL_OR_KEYWORD, annotation=fastapi.Request
         )
     ]
-    if route is not None:
+    if query:
+        parameters.append(
+            inspect.Parameter(
+                'query',
+                inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                annotation=typing.Annotated[route.query, fastapi.Query()],
+            )
+        )
+    elif route is not None:
         required = any(p.required for p in route.member.parameters)
         parameters.append(
             inspect.Parameter(
@@ -848,7 +886,9 @@ def _sign(endpoint: Callable, on_handle: bool, route: Route | None) -> None:
 
 
 def _refuse_query(request: fastapi.Request) -> None:
+    """Refuse a query string where a route reads none: a property, or a call's JSON body."""
     if request.url.query:
         raise problems.invalid_request(
-            'A member takes no query string: send its arguments as a JSON object.'
+            'This route takes no query string: a property takes no arguments, and a '
+            "call's arguments are a JSON object; only a read method's are in the query."
         )

@@ -194,7 +194,7 @@ def test_a_client_waiting_on_a_job_is_answered_when_the_close_finishes(session, 
     answers = []
     try:
         with _serving(session) as (server, client, _closing):
-            job = client.post(
+            job = client.get(
                 '/api/v1/scope/camera/read_gain_db', headers={'Prefer': 'respond-async'}
             ).json()
             polling = threading.Thread(

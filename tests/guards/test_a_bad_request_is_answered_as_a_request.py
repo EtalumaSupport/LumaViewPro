@@ -10,8 +10,9 @@ client got a 500 titled ``KeyError`` or ``ZeroDivisionError`` with
 never sent: the census of 2026-10-11 found six such routes behind one
 another, each hidden by the last.
 
-The walk posts every POST route of the OpenAPI document three times, each
-argument given a value of its schema's kind that is wrong for most members
+The walk posts every POST route of the OpenAPI document three times, and
+asks every read that takes arguments three times through its query string,
+each argument given a value of its schema's kind that is wrong for most members
 (empty, negative, huge, an unknown name, a path that leaves the live
 folder), against the simulated scope, and names every route that answers
 500 or ``about:blank``. Each is asked with the longest wait, so a blocking
@@ -69,6 +70,15 @@ def _wrong_value(schema: dict, document: dict, variant: int) -> object:
     return _WRONG.get(schema.get('type'), ('bogus',) * 3)[variant]
 
 
+def _as_query(sent: dict) -> dict:
+    """*sent* as query text: a list as its key repeated, a bool as ``true``, the rest as text."""
+    query = {}
+    for name, value in sent.items():
+        values = value if isinstance(value, list) else [value]
+        query[name] = [str(v).lower() if isinstance(v, bool) else str(v) for v in values]
+    return query
+
+
 def _ending(client, answer) -> tuple[int, dict]:
     """The status and problem a call was answered.
 
@@ -96,7 +106,7 @@ def session(tmp_path):
     s.shutdown()
 
 
-# Slow: it posts every route three times (4 to 6 s), so it runs in the
+# Slow: it asks every route three times (4 to 6 s), so it runs in the
 # whole suite, which the trunk push gate requires every tenth commit.
 @pytest.mark.slow
 def test_no_route_answers_a_bad_request_as_a_fault(session):
@@ -108,29 +118,39 @@ def test_no_route_answers_a_bad_request_as_a_fault(session):
         handles = {'/Protocol/': protocol, '/ProtocolRunner/': runner}
         walked = 0
         for route, operations in sorted(document['paths'].items()):
-            if 'post' not in operations or _NOT_WALKED.search(route):
+            asked = [
+                p for p in operations.get('get', {}).get('parameters', []) if p['in'] == 'query'
+            ]
+            if not ('post' in operations or asked) or _NOT_WALKED.search(route):
                 continue
             walked += 1
             handle = next((h for part, h in handles.items() if part in route), '1')
             path = route.replace('{handle_id}', handle)
-            body = (
-                operations['post']
-                .get('requestBody', {})
-                .get('content', {})
-                .get('application/json', {})
-                .get('schema', {})
-            )
-            fields = _schema(body, document).get('properties', {}) if body else {}
+            if 'post' in operations:
+                body = (
+                    operations['post']
+                    .get('requestBody', {})
+                    .get('content', {})
+                    .get('application/json', {})
+                    .get('schema', {})
+                )
+                fields = _schema(body, document).get('properties', {}) if body else {}
+            else:
+                # A read's arguments are its query string's keys.
+                fields = {p['name']: p['schema'] for p in asked}
             for variant in range(3):
                 sent = {
                     name: protocol if name == 'protocol' else _wrong_value(field, document, variant)
                     for name, field in fields.items()
                 }
-                answer = client.post(
-                    path,
-                    content=json.dumps(sent),
-                    headers={'content-type': 'application/json', 'Prefer': 'wait=60'},
-                )
+                if 'post' in operations:
+                    answer = client.post(
+                        path,
+                        content=json.dumps(sent),
+                        headers={'content-type': 'application/json', 'Prefer': 'wait=60'},
+                    )
+                else:
+                    answer = client.get(path, params=_as_query(sent), headers={'Prefer': 'wait=60'})
                 status, problem = _ending(client, answer)
                 if status >= 500 or problem.get('type') == 'about:blank':
                     wrong.append(
@@ -140,5 +160,6 @@ def test_no_route_answers_a_bad_request_as_a_fault(session):
             # A run a route started is ended before the next route is posted,
             # so no route is refused for an activity the walk itself left.
             session.create_protocol_runner().sequenced_capture_runner.wait_for_run_idle(1)
-    assert walked >= 180, f'the walk reached only {walked} routes'
+    # 126 routes at this writing: the POSTs, and the reads that take arguments.
+    assert walked >= 120, f'the walk reached only {walked} routes'
     assert not wrong, '\n'.join(wrong)

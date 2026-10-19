@@ -223,7 +223,6 @@ def test_a_name_that_is_no_axis_answers_with_the_names_the_member_takes(client):
 @pytest.mark.parametrize(
     ('route', 'body', 'reason', 'published'),
     [
-        ('get_setting', {'path': 'bogus'}, 'not_a_setting', {'argument': 'path'}),
         (
             'set_layer_acquire',
             {'layer': 'BF', 'mode': 'bogus'},
@@ -254,6 +253,13 @@ def test_a_session_argument_its_member_refuses_is_422_names_it_and_changes_nothi
     assert answer['reason'] == reason
     assert {name: answer[name] for name in published} == published
     assert session.get_settings_snapshot() == before
+
+
+def test_a_reads_argument_its_member_refuses_is_422_and_names_it(client):
+    """A read's query argument the member refuses is the member's refusal, as a body's is."""
+    answer = _problem(client.get('/api/v1/get_setting', params={'path': 'bogus'}), 422)
+
+    assert (answer['reason'], answer['argument']) == ('not_a_setting', 'path')
 
 
 def test_a_setting_only_the_host_moves_is_refused_as_host_only_not_sent_to_a_missing_route(
@@ -298,7 +304,7 @@ def test_a_refusals_remedy_is_sent_as_the_record_apply_remedy_takes(client, sess
     [
         (lambda c: c.get('/api/v1/no_such_member'), 404, 'not_found'),
         (lambda c: c.get('/api/v1/scope/illumination/leds_off'), 405, 'method_not_allowed'),
-        (lambda c: c.post('/api/v1/handles/Protocol/9/num_steps'), 404, 'not_found'),
+        (lambda c: c.get('/api/v1/handles/Protocol/9/num_steps'), 404, 'not_found'),
         (lambda c: c.get('/api/v1/status?verbose=1'), 422, 'invalid_request'),
         (
             lambda c: c.post(
@@ -316,7 +322,7 @@ def test_a_refusals_remedy_is_sent_as_the_record_apply_remedy_takes(client, sess
         ),
         (
             lambda c: c.post(
-                '/api/v1/scope/illumination/get_led_state',
+                '/api/v1/scope/illumination/led_off',
                 content='channel=Red',
                 headers={'content-type': 'text/plain'},
             ),

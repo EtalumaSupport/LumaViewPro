@@ -186,7 +186,7 @@ def test_an_answer_the_wire_cannot_carry_is_a_failed_job_and_the_listing_still_r
         return float('nan')
 
     monkeypatch.setattr(session.scope.camera, 'read_gain_db', answers_nan)
-    accepted = client.post('/api/v1/scope/camera/read_gain_db', headers={'Prefer': 'wait=0'})
+    accepted = client.get('/api/v1/scope/camera/read_gain_db', headers={'Prefer': 'wait=0'})
     release.set()
 
     ended = client.get(accepted.headers['Location'], headers={'Prefer': 'wait=10'})
@@ -446,14 +446,14 @@ def test_a_job_is_passed_as_an_argument_by_its_id(client, session, monkeypatch):
         assert reached.wait(30)
 
         # The scope is held by the run itself, and by something else for anything else.
-        assert client.post('/api/v1/held_by_other', json={'run': run['id']}).json() is False
-        assert client.post('/api/v1/held_by_other', json={'run': None}).json() is True
-        unknown = client.post('/api/v1/held_by_other', json={'run': '999'})
+        assert client.get('/api/v1/held_by_other', params={'run': run['id']}).json() is False
+        assert client.get('/api/v1/held_by_other').json() is True
+        unknown = client.get('/api/v1/held_by_other', params={'run': '999'})
         assert (unknown.status_code, unknown.json()['reason']) == (404, 'not_found')
         adopted = client.post(
             '/api/v1/make_logs_zip', json={'output_dir': 'reports'}, headers={'Prefer': 'wait=0'}
         ).json()
-        no_operation = client.post('/api/v1/held_by_other', json={'run': adopted['id']})
+        no_operation = client.get('/api/v1/held_by_other', params={'run': adopted['id']})
         assert (no_operation.status_code, no_operation.json()['reason']) == (
             422,
             'invalid_request',

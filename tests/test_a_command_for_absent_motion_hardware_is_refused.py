@@ -184,7 +184,7 @@ def test_the_travel_of_an_axis_the_tmcm_stage_lacks_is_refused_over_the_wire(mak
     assert (python.value.reason, python.value.missing) == ('axis_absent', MissingPart.TURRET)
 
     with TestClient(build_app(session)) as client:
-        answer = client.post('/api/v1/scope/motion/get_axis_limits', json={'axis': 'T'})
+        answer = client.get('/api/v1/scope/motion/get_axis_limits', params={'axis': 'T'})
 
     assert answer.status_code == 422
     assert (answer.json()['reason'], answer.json()['detail']) == ('axis_absent', str(python.value))

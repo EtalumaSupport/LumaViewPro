@@ -89,7 +89,8 @@ def _url(route: rest_routes.Route) -> str:
 
 
 def _operation(described: dict, route: rest_routes.Route) -> dict:
-    return described['paths'][_url(route)]['get' if route.member.read else 'post']
+    get = route.member.read or route.member.reads
+    return described['paths'][_url(route)]['get' if get else 'post']
 
 
 def _json(response: dict) -> dict:
