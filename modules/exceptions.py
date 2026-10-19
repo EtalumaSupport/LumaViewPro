@@ -359,31 +359,21 @@ class DuplicateCaptureFilenamesNotice(Notice, Exception):  # noqa: N818 -- a not
 
 
 class ProtocolStepsInvalidNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error
-    """A protocol holds a value it will be refused for, after a load or an edit.
+    """A protocol holds a step the run will refuse, after a load or an edit.
 
-    The load and the edit still succeed: a step's value is refused when the
-    protocol is run, until every step is valid, and can be fixed in the app;
-    a Layer Settings row's is refused when its settings are applied, which
-    the GUI's Load does. The words are the validator's own lines, one per
-    field.
+    The load and the edit still succeed, so the step can be fixed in the
+    app; the run is refused at start until every step is valid. The words
+    are the validator's own lines, one per field.
     """
 
-    title = 'Protocol has values that cannot be used'
+    title = 'Protocol has steps that cannot run'
     reason = 'protocol_steps_invalid'
 
-    def __init__(self, *, errors: list[str], layer_errors: list[str] = ()):
-        parts = []
-        if errors:
-            parts.append(
-                f'{len(errors)} step field(s) will be refused when the protocol is run. '
-                'The protocol can be edited; fix these first:\n' + '\n'.join(errors)
-            )
-        if layer_errors:
-            parts.append(
-                f'{len(layer_errors)} Layer Settings value(s) will be refused when they '
-                'are applied; fix these first:\n' + '\n'.join(layer_errors)
-            )
-        super().__init__('\n'.join(parts))
+    def __init__(self, *, errors: list[str]):
+        super().__init__(
+            f'{len(errors)} step field(s) will be refused when the protocol is run. '
+            'The protocol can be edited; fix these first:\n' + '\n'.join(errors)
+        )
 
 
 class SlowFileWritesNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error

@@ -1181,6 +1181,14 @@ class Protocol:
             return self._layer_settings_inferred_from_steps()
         return {name: _typed_layer_settings_row(row) for name, row in rows.items()}
 
+    def has_saved_layer_settings(self) -> bool:
+        """Whether the protocol carries its own Layer Settings block.
+
+        False for a v5 file or a protocol built in memory, whose
+        ``layer_settings()`` are inferred from its steps.
+        """
+        return self._config.get('layer_settings') is not None
+
     def _layer_settings_inferred_from_steps(self) -> dict:
         """Each Color's row, typed, from its steps.
 

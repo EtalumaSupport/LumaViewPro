@@ -1744,7 +1744,9 @@ class ScopeSession:
                 ``'objectives_require_turret'``,
                 ``'turret_objectives_unassigned'`` or
                 ``'layer_not_on_scope'``: the file holds a step this scope
-                cannot perform, as ``ProtocolsAPI.load_protocol``.
+                cannot perform; ``'values_out_of_range'``, its Layer
+                Settings hold a value no layer setting takes; each as
+                ``ProtocolsAPI.load_protocol``.
             ConfigError: As ``select_labware``; the scope stays on the
                 plate it had.
             HardwareCommandRefusedError: ``'exclusive_activity_running'``,
@@ -1800,19 +1802,12 @@ class ScopeSession:
             ProtocolRunRefusedError: ``'values_out_of_range'``, a row it
                 would apply holds a value outside its layer setting's range,
                 each named by layer, column and bound; no layer is changed.
-                The load told them (``ProtocolStepsInvalidNotice``).
+                A loaded protocol was refused at load.
         """
-        from modules.protocol import layer_settings_values_refused, refuse_values_out_of_range
-
+        self.scope.protocols.refuse_layer_settings_out_of_range(protocol)
         rows = protocol.layer_settings()
         layers = common_utils.get_layers()
         present = self._layers_on_scope()
-        refuse_values_out_of_range(
-            layer_settings_values_refused(
-                {name: row for name, row in rows.items() if name in layers and name in present}
-            ),
-            "The protocol's Layer Settings",
-        )
         with self.settings_lock:
             for name in layers:
                 self._store_setting(f'{name}.acquire', None)
@@ -3189,9 +3184,8 @@ class ScopeSession:
                 ``'objectives_require_turret'``,
                 ``'turret_objectives_unassigned'`` or
                 ``'layer_not_on_scope'``: the file holds a step this scope
-                cannot perform, as ``load_protocol``; ``'values_out_of_range'``,
-                its Layer Settings hold a value no layer setting takes, as
-                ``apply_layer_settings``, and no layer is changed.
+                cannot perform, or Layer Settings no layer setting takes
+                (``'values_out_of_range'``), as ``load_protocol``.
             ConfigError: As ``load_protocol`` and ``apply_layer_settings``.
             HardwareCommandRefusedError: ``'exclusive_activity_running'``,
                 as ``load_protocol`` and ``apply_layer_settings``.

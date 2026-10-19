@@ -67,6 +67,7 @@ NOT_WRITERS = frozenset(
         'estimate_write_mb',
         'from_config',
         'from_file',
+        'has_saved_layer_settings',
         'labware',
         'layer_acquires',
         'layer_settings',

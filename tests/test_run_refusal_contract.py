@@ -688,7 +688,7 @@ RUNNER_REFUSAL_COVERAGE = {
     ),
     'values_out_of_range': (
         'tests/test_a_protocols_out_of_range_values_are_refused_before_any_store.py::'
-        'test_the_load_tells_the_layer_settings_values_and_the_apply_refuses_them_all_storing_none'
+        'test_a_file_whose_layer_settings_are_out_of_range_is_refused_at_load_naming_each'
     ),
     'tiles_outside_travel': (
         'tests/test_a_build_outside_the_travel_is_refused.py::'

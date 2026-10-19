@@ -163,7 +163,11 @@ class ProtocolsAPI:
                 scope does not have, with the reason a run would give for
                 the same file. Refused for the same reason the plate is: a
                 caller must not be handed a protocol it can edit, navigate
-                and save but never perform.
+                and save but never perform. ``'values_out_of_range'``, its
+                Layer Settings block holds a value no layer setting takes,
+                each named: applying them would be refused. A file with no
+                block (v5) has its rows inferred from its steps, whose
+                values are told, not refused.
         """
         from modules.protocol import Protocol
 
@@ -177,6 +181,10 @@ class ProtocolsAPI:
         # return, so no caller ever holds an inadmissible protocol.
         self.refuse_unaddressable_objectives(protocol.steps()['Objective'].to_list())
         self.refuse_absent_layers(protocol)
+        # The file's own block alone: rows inferred from its steps are the
+        # steps' values, lenient here and told below.
+        if protocol.has_saved_layer_settings():
+            self.refuse_layer_settings_out_of_range(protocol)
         self._fill_turret_slots(protocol)
         # Unsolicited, as the loader's duplicate-filename notice is: a load
         # may be the startup adoption, which nobody asked for.
@@ -184,31 +192,22 @@ class ProtocolsAPI:
         return protocol
 
     def _report_invalid_steps(self, protocol: Protocol, *, solicited: bool) -> None:
-        """Tell the caller once when the protocol holds a value it will be refused for.
+        """Tell the caller once when the protocol holds a step the run will refuse.
 
-        A loaded file may carry a field the run gate rejects, or a Layer
-        Settings value no layer setting takes, and an edit composed from
-        live settings may too; neither is refused here: the run start
-        refuses a step's, which can be fixed in the app, and
-        ``ScopeSession.apply_layer_settings`` a Layer Settings row's. A
-        notice, like the duplicate-filename one the loader reports:
-        reported, never raised.
+        A loaded file may carry a field the run gate rejects, and an edit
+        composed from live settings may too; neither is refused here, so
+        the step can be fixed in the app, and the run start is where the
+        refusal lives. A notice, like the duplicate-filename one the loader
+        reports: reported, never raised.
         """
         from modules.notification_center import notifications
-        from modules.protocol import layer_settings_values_refused
 
         errors = protocol.validate_steps(
             self._scope.objectives, led_max_ma=self._scope.capabilities.led_max_ma
         )
-        layer_errors = [
-            f'{where}: {refused.detail}'
-            for where, refused in layer_settings_values_refused(protocol.layer_settings())
-        ]
-        if errors or layer_errors:
+        if errors:
             notifications.report_outcome(
-                ProtocolStepsInvalidNotice(errors=errors, layer_errors=layer_errors),
-                solicited=solicited,
-                category='Protocol',
+                ProtocolStepsInvalidNotice(errors=errors), solicited=solicited, category='Protocol'
             )
 
     @api
@@ -935,6 +934,32 @@ class ProtocolsAPI:
                     'Set a channel to Image or Video first.'
                 ),
             )
+
+    def refuse_layer_settings_out_of_range(self, protocol: Protocol) -> None:
+        """Refuse a protocol whose Layer Settings hold a value no layer setting takes.
+
+        Judged by the settings' layer ranges, for the rows a session applies:
+        those of the layers this scope has, the others being dropped when
+        applied. Asked where a protocol's Layer Settings arrive: a loaded
+        file's own block, and ``ScopeSession.apply_layer_settings`` before
+        it stores anything, for a protocol built in memory or one whose rows
+        are inferred from its steps.
+
+        A consult seam, not part of the L2 API surface: an L2 caller meets
+        this refusal through ``ScopeSession.load_protocol`` and
+        ``apply_layer_settings``.
+
+        Raises:
+            ProtocolRunRefusedError: ``'values_out_of_range'``, naming each
+                value by layer, column and bound.
+        """
+        from modules.protocol import layer_settings_values_refused, refuse_values_out_of_range
+
+        present = {record.key_name for record in self._scope.layer_identity.layers}
+        rows = {name: row for name, row in protocol.layer_settings().items() if name in present}
+        refuse_values_out_of_range(
+            layer_settings_values_refused(rows), "The protocol's Layer Settings"
+        )
 
     def refuse_absent_layers(self, protocol: Protocol) -> None:
         """Refuse a protocol with a step on a layer this scope does not have.

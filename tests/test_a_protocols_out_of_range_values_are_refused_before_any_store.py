@@ -4,18 +4,20 @@
 A protocol whose BF Layer Settings row held Exposure 0, Sum 0 and Gain -3
 loaded, and ``apply_layer_settings`` stored all three in the live
 settings, values no write of them could store; going to a step stored the
-step's own the same way, once its moves had started. The load still takes
-the file, so a person can fix it in the app, and tells the values in its
-notice; applying the row, or going to such a step, is refused whole by the
-settings' layer ranges, naming each value, before any store or move.
+step's own the same way, once its moves had started. Each is now judged by
+the settings' layer ranges first: such a file is refused at load, naming
+each value, with no notice beside the refusal; a protocol built in memory
+is refused by the apply; going to such a step is refused before any move.
+A step's values stay lenient at load: the run refuses them.
 """
 
 import pytest
 
-from modules.exceptions import ProtocolRunRefusedError, ProtocolStepsInvalidNotice
+from modules.exceptions import ProtocolRunRefusedError
 from modules.notification_center import notifications
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
+from tests.test_validate_steps import _make_protocol, _valid_step
 
 
 @pytest.fixture(scope='module')
@@ -52,7 +54,7 @@ def _edited(session, tmp_path, block_row, cells):
     return edited
 
 
-def test_the_load_tells_the_layer_settings_values_and_the_apply_refuses_them_all_storing_none(
+def test_a_file_whose_layer_settings_are_out_of_range_is_refused_at_load_naming_each(
     session, tmp_path, monkeypatch
 ):
     edited = _edited(
@@ -62,23 +64,34 @@ def test_the_load_tells_the_layer_settings_values_and_the_apply_refuses_them_all
     monkeypatch.setattr(
         notifications, 'report_outcome', lambda outcome, **kw: heard.append(outcome)
     )
+    before = session.get_settings_snapshot()
 
-    protocol = session.load_protocol(str(edited))
+    with pytest.raises(ProtocolRunRefusedError) as refused:
+        session.load_protocol(str(edited))
 
-    (notice,) = [n for n in heard if isinstance(n, ProtocolStepsInvalidNotice)]
+    assert refused.value.reason == 'values_out_of_range'
     for words in (
         'BF Exposure: it must be above 0',
         'BF Gain: it must be at least 0',
         'BF Sum: it must be a whole number of at least 1',
     ):
-        assert words in str(notice), str(notice)
+        assert words in str(refused.value), str(refused.value)
+    # Raised, and nothing told beside it: one answer to one load.
+    assert heard == []
+    assert session.get_settings_snapshot() == before
 
+
+def test_a_protocol_built_in_memory_is_refused_by_the_apply_storing_nothing(session):
+    # Built from steps alone, its Layer Settings are inferred from its first
+    # BF step, Exposure 0 among them.
+    protocol = _make_protocol([_valid_step(Color='BF', Exposure=0)])
     before = session.get_settings_snapshot()
+
     with pytest.raises(ProtocolRunRefusedError) as refused:
         session.apply_layer_settings(protocol)
+
     assert refused.value.reason == 'values_out_of_range'
-    for words in ('BF Exposure:', 'BF Gain:', 'BF Sum:'):
-        assert words in str(refused.value), str(refused.value)
+    assert 'BF Exposure:' in str(refused.value), str(refused.value)
     assert session.get_settings_snapshot() == before
 
 
