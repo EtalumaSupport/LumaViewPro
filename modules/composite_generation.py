@@ -8,6 +8,7 @@ import modules.common_utils as common_utils
 from modules.finite_number import is_finite_number
 from modules.composite_builder import (
     CompositeChannel,
+    TransmittedBase,
     brightness_cutoff_from_percent,
     build_composite,
 )
@@ -251,20 +252,18 @@ class CompositeGeneration(ProtocolPostProcessor):
         # ceremony to undo it). Mirrors the manual composite path's
         # in-memory mono inputs so build_composite consumes the same
         # shape from both orchestrators.
+        # Each file keeps its own depth and white: the sum count is set per
+        # layer, so the layers of one composite can each have their own.
         images = {}
-        input_depths = []
+        scales = {}
         for _, row in df.iterrows():
             image_filepath = path / row['Filepath']
-            image, significant_bits = image_utils.load_pixels(
+            image, significant_bits, white_bits = image_utils.load_pixels(
                 image_filepath, collapse_legacy_false_color=False
             )
             images[row['Filepath']] = image
-            input_depths.append(significant_bits)
-        # Empty after layer filtering is a handled no-op below (status=False,
-        # no write), so only resolve a depth when inputs were actually loaded.
-        output_depth = image_utils.resolve_output_depth(input_depths) if input_depths else None
+            scales[row['Filepath']] = (significant_bits, white_bits)
         # The composite's own depth, set from the built array (always 8-bit).
-        # Distinct from output_depth, which is the INPUT depth driving downconvert.
         composite_significant_bits = None
 
         # Validated before the try, not inside it: a missing threshold is the
@@ -316,7 +315,7 @@ class CompositeGeneration(ProtocolPostProcessor):
         status = True
 
         try:
-            transmitted_image = None
+            transmitted = None
             channel_images = {}
             brightness_thresholds = {}
             img_dtype = None
@@ -336,7 +335,10 @@ class CompositeGeneration(ProtocolPostProcessor):
                 # detects the single-populated-plane case and uses
                 # max-axis extraction instead, preserving the full
                 # value. Mono 2D inputs (the common path) pass through.
-                transmitted_image = image_utils.rgb_image_to_gray(BF_image, baked=True)
+                transmitted = TransmittedBase(
+                    image_utils.rgb_image_to_gray(BF_image, baked=True),
+                    *scales[BF_image_filename],
+                )
             else:
                 logger.info('CompositeGeneration] Generating fluorescent channel composite')
 
@@ -362,7 +364,9 @@ class CompositeGeneration(ProtocolPostProcessor):
                 # 41-89% of single-plane signal pre-fix.
                 img_gray = image_utils.rgb_image_to_gray(f_image, baked=True)
 
-                channel_images[layer] = CompositeChannel(img_gray, channel_colors[layer])
+                channel_images[layer] = CompositeChannel(
+                    img_gray, channel_colors[layer], *scales[row['Filepath']]
+                )
 
                 # The mapping onto the composite's 8-bit output scale belongs to
                 # the builder, which owns that scale and the comparison the
@@ -373,7 +377,7 @@ class CompositeGeneration(ProtocolPostProcessor):
                         brightness_thresholds_percent[layer]
                     )
 
-            if not channel_images and transmitted_image is None:
+            if not channel_images and transmitted is None:
                 status = False
                 error = 'Composite Generation Error: no channel images available for this group'
             else:
@@ -398,8 +402,7 @@ class CompositeGeneration(ProtocolPostProcessor):
                 )
                 img = build_composite(
                     channels=channel_images,
-                    significant_bits=output_depth,
-                    transmitted_image=transmitted_image,
+                    transmitted=transmitted,
                     brightness_thresholds=brightness_thresholds,
                 )
                 composite_significant_bits = img.dtype.itemsize * 8
@@ -434,6 +437,8 @@ class CompositeGeneration(ProtocolPostProcessor):
                         save_encoding=image_mode.save_encoding_for_derived_output(
                             img, image_mode.IMAGE_MODE_8BIT
                         ),
+                        # Already rendered for display, shown as it is.
+                        white_bits=None,
                     )
 
         except Exception as e:

@@ -95,6 +95,7 @@ def _write_tiff(path, color):
         color=release_color(color),
         significant_bits=8,
         save_encoding='right_aligned',
+        white_bits=None,
     )
 
 

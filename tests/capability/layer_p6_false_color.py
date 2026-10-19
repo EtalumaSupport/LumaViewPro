@@ -42,6 +42,7 @@ try:
             frame_record=frame_record(),
             labware=plate(),
             well_label=None,
+            white_bits=None,
         )
         outs[fc] = hashlib.sha256(pathlib.Path(p).read_bytes()).hexdigest()[:16]
         import tifffile

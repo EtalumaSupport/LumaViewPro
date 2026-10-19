@@ -341,6 +341,7 @@ class ManualCaptureController:
             append=append,
             tail_id_mode='increment',
             significant_bits=significant_bits,
+            white_bits=frame_record.frame_significant_bits,
             channel=channel,
             false_color_on=request.false_color_on,
             channel_colors=request.channel_colors,
@@ -380,6 +381,8 @@ class ManualCaptureController:
                     append=f'{raw_stem}_overlay',
                     tail_id_mode='if_collision',
                     significant_bits=scope.imaging.capture_frame_depth(overlay),
+                    # Already the 8-bit rendering, shown as it is.
+                    white_bits=None,
                     channel=channel,
                     false_color_on=request.false_color_on,
                     channel_colors=request.channel_colors,

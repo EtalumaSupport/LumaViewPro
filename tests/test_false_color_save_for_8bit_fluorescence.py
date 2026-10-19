@@ -82,6 +82,7 @@ class TestWriteTiffFalseColorAppliesForUint8:
             color=release_color('Red'),
             significant_bits=8,
             save_encoding='8bit',
+            white_bits=None,
         )
         result = _read_back(tmp_tiff)
         assert result.ndim == 2, (
@@ -101,6 +102,7 @@ class TestWriteTiffFalseColorAppliesForUint8:
             color=release_color('BF'),
             significant_bits=8,
             save_encoding='rgb',
+            white_bits=None,
         )
         result = _read_back(tmp_tiff)
         assert result.ndim == 2, (

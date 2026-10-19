@@ -47,6 +47,7 @@ def _capture(path, pixel_size_um):
         color=release_color('Green'),
         significant_bits=8,
         save_encoding='right_aligned',
+        white_bits=None,
     )
     return path
 

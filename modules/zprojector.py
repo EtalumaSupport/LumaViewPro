@@ -224,14 +224,20 @@ class ZProjector(ProtocolPostProcessor):
 
         orig_images = []
         input_depths = []
+        input_scales = []
         for _, row in df.iterrows():
             image_filepath = path / row['Filepath']
-            image, significant_bits = image_utils.load_pixels(
+            image, significant_bits, white_bits = image_utils.load_pixels(
                 image_filepath, collapse_legacy_false_color=False
             )
             orig_images.append(image)
             input_depths.append(significant_bits)
+            input_scales.append((significant_bits, white_bits))
         input_depth = image_utils.resolve_output_depth(input_depths)
+        # Every method is shown against its slices' white: a Sum is a sum, shown
+        # against one slice's white as a captured sum is against one frame's,
+        # and every other method keeps its values within its slices' range.
+        output_white = image_utils.resolve_output_white(input_scales)
         # A Sum reaches past its inputs' range and is tagged with the bits it
         # can reach, by the rule a summed capture is tagged with; every other
         # method keeps its values within the inputs' range.
@@ -277,6 +283,7 @@ class ZProjector(ProtocolPostProcessor):
             color=layer_record.output_color(first_slice_row['Color'], channel_colors),
             significant_bits=metadata['significant_bits'],
             save_encoding=derived_output_encoding.resolve_output_save_encoding(result['image']),
+            white_bits=output_white,
         )
 
         del result['image']

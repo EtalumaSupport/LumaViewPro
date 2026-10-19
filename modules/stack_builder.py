@@ -407,7 +407,7 @@ class StackBuilder(ProtocolPostProcessor):
 
         row0 = df.iloc[0]
         sample_image_file_loc = path / row0['Filepath']
-        sample_image, _ = image_utils.load_pixels(
+        sample_image, _, _ = image_utils.load_pixels(
             sample_image_file_loc, collapse_legacy_false_color=False
         )
         h, w = sample_image.shape[0], sample_image.shape[1]
@@ -471,7 +471,7 @@ class StackBuilder(ProtocolPostProcessor):
             # dense 0..N-1 range.
             for _, row in df.iterrows():
                 t, z, c = row['Scan Count'], row['Z-Slice'], row['Color Index']
-                image, _ = image_utils.load_pixels(
+                image, _, _ = image_utils.load_pixels(
                     path / row['Filepath'], collapse_legacy_false_color=False
                 )
 

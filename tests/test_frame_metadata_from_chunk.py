@@ -122,7 +122,9 @@ def test_tiff_write_path_tolerates_omitted_gain_exposure(sim_scope):
     )
     metadata['significant_bits'] = 8  # write_tiff supplies this in production
     data = np.zeros((4, 4), dtype=np.uint8)
-    tiff = generate_tiff_data(data, metadata=metadata, image_type='ome', color=release_color('BF'))
+    tiff = generate_tiff_data(
+        data, metadata=metadata, image_type='ome', color=release_color('BF'), white_bits=None
+    )
     plane = tiff['metadata']['Plane']
     assert 'ExposureTime' not in plane
     assert 'Gain' not in plane

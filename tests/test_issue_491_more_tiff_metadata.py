@@ -89,6 +89,7 @@ def _gen(image_type: str, dtype=np.uint8):
         metadata=_build_metadata(),
         image_type=image_type,
         color=release_color('BF'),
+        white_bits=None,
     )
 
 
@@ -139,7 +140,7 @@ def test_ome_path_omits_plate_when_dimensions_missing():
     md['plate'] = {'name': 'Slide', 'rows': None, 'columns': None}
     data = np.zeros((128, 128), dtype=np.uint8)
     result = image_utils.generate_tiff_data(
-        data=data, metadata=md, image_type='ome', color=release_color('BF')
+        data=data, metadata=md, image_type='ome', color=release_color('BF'), white_bits=None
     )
     assert 'Plate' not in result['metadata'], (
         'Plate block should be omitted when rows/columns are unset; '
@@ -173,7 +174,7 @@ def test_ome_path_without_instrument_dict_does_not_crash():
     del md['plate']
     data = np.zeros((128, 128), dtype=np.uint8)
     result = image_utils.generate_tiff_data(
-        data=data, metadata=md, image_type='ome', color=release_color('BF')
+        data=data, metadata=md, image_type='ome', color=release_color('BF'), white_bits=None
     )
     assert 'Instrument' not in result['metadata']
     assert 'Plate' not in result['metadata']

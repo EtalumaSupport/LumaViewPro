@@ -122,6 +122,7 @@ class TestIlluminationAbsentWhenUnknown:
             metadata=metadata,
             image_type='ome',
             color=release_color('Green'),
+            white_bits=None,
         )
         plane = tiff_data['metadata']['Plane']
         assert 'Illumination' not in plane
@@ -149,6 +150,7 @@ class TestWrittenFileRoundTrip:
             color=release_color('Green'),
             significant_bits=12,
             save_encoding='right_aligned',
+            white_bits=None,
         )
         return path
 
@@ -215,6 +217,7 @@ class TestDerivedOutputs:
             color=release_color('Green'),
             significant_bits=12,
             save_encoding='right_aligned',
+            white_bits=None,
         )
         out = image_utils.build_postproc_output_metadata(Path(path), 'Green', significant_bits=12)
         assert out['channel_display'] == '488 nm'
@@ -238,6 +241,7 @@ class TestDerivedOutputs:
             color=release_color('Green'),
             significant_bits=12,
             save_encoding='right_aligned',
+            white_bits=None,
         )
         out = image_utils.build_postproc_output_metadata(
             Path(path), 'Composite', significant_bits=12
@@ -265,6 +269,7 @@ class TestDerivedOutputs:
             color=release_color('Green'),
             significant_bits=12,
             save_encoding='right_aligned',
+            white_bits=None,
         )
         out = image_utils.build_hyperstack_output_metadata(
             Path(path),

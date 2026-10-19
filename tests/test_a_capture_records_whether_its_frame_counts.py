@@ -179,6 +179,7 @@ def test_the_saved_file_carries_the_judgments(sim_scope, tmp_path):
         color=release_color('BF'),
         significant_bits=8,
         save_encoding='8bit',
+        white_bits=None,
     )
 
     saved = image_utils.read_postproc_input_metadata(path)

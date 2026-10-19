@@ -359,6 +359,7 @@ class TestTheEngineMatchesTheWorkerItReplaces:
         import modules.layer_record as layer_record
         from modules.composite_builder import (
             CompositeChannel,
+            TransmittedBase,
             brightness_cutoff_from_percent,
             build_composite,
         )
@@ -387,13 +388,13 @@ class TestTheEngineMatchesTheWorkerItReplaces:
         # comparison green through a change to the real one.
         thresholds = dict.fromkeys(fluorescence, brightness_cutoff_from_percent(25))
 
+        bits = 8 if transmitted.dtype == np.uint8 else 12
         expected = build_composite(
             channels={
-                name: CompositeChannel(arr, layer_record.release_color(name))
+                name: CompositeChannel(arr, layer_record.release_color(name), bits, None)
                 for name, arr in fluorescence.items()
             },
-            significant_bits=8 if transmitted.dtype == np.uint8 else 12,
-            transmitted_image=transmitted,
+            transmitted=TransmittedBase(transmitted, bits, None),
             brightness_thresholds=thresholds,
         )
 

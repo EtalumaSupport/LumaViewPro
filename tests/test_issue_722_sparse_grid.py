@@ -70,6 +70,7 @@ def _write_frame(
         },
         ome=False,
         color=release_color(color),
+        white_bits=None,
     )
 
 

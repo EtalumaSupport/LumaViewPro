@@ -183,6 +183,7 @@ class TestSavePathNativeDepth:
             color=release_color('Green'),
             significant_bits=significant_bits,
             save_encoding='right_aligned',
+            white_bits=None,
         )
         return path
 
@@ -242,6 +243,7 @@ class TestNonOmeNativeDepth:
             color=release_color('Green'),
             significant_bits=significant_bits,
             save_encoding='right_aligned',
+            white_bits=None,
         )
         return path
 
@@ -283,6 +285,7 @@ class TestLoadPixelsBoundary:
             color=release_color('Green'),
             significant_bits=significant_bits,
             save_encoding='8bit' if arr.dtype == np.uint8 else 'right_aligned',
+            white_bits=None,
         )
         return path
 
@@ -291,7 +294,7 @@ class TestLoadPixelsBoundary:
         from modules import image_utils
 
         path = self._write_tiff(tmp_path, 4095, significant_bits=12, ome=True)
-        image, sig = image_utils.load_pixels(path)
+        image, sig, _ = image_utils.load_pixels(path)
         assert sig == 12
         assert int(image.max()) == 4095  # raw right-aligned, not left-justified
 
@@ -300,7 +303,7 @@ class TestLoadPixelsBoundary:
         from modules import image_utils
 
         path = self._write_tiff(tmp_path, 4095, significant_bits=12, ome=False)
-        image, sig = image_utils.load_pixels(path)
+        image, sig, _ = image_utils.load_pixels(path)
         assert sig == 12
         assert int(image.max()) == 4095
 
@@ -309,7 +312,7 @@ class TestLoadPixelsBoundary:
         from modules import image_utils
 
         path = self._write_tiff(tmp_path, 4095 * 16, significant_bits=16, ome=True)
-        image, sig = image_utils.load_pixels(path)
+        image, sig, _ = image_utils.load_pixels(path)
         assert sig == 16
         assert int(image.max()) == 65520
 
@@ -318,7 +321,7 @@ class TestLoadPixelsBoundary:
         from modules import image_utils
 
         path = self._write_tiff(tmp_path, 255, significant_bits=8, ome=True, dtype=np.uint8)
-        image, sig = image_utils.load_pixels(path)
+        image, sig, _ = image_utils.load_pixels(path)
         assert sig == 8
         assert image.dtype == np.uint8
 
@@ -331,7 +334,7 @@ class TestLoadPixelsBoundary:
         arr = np.full((8, 8), 200, dtype=np.uint8)
         path = tmp_path / 'frame.png'
         cv2.imwrite(str(path), arr)
-        image, sig = image_utils.load_pixels(path)
+        image, sig, _ = image_utils.load_pixels(path)
         assert sig == 8
         assert int(image.max()) == 200
 
@@ -341,7 +344,7 @@ class TestLoadPixelsBoundary:
         from modules import image_utils
 
         path = self._write_tiff(tmp_path, 4095, significant_bits=12, ome=False)
-        image, sig = image_utils.load_pixels(path)
+        image, sig, _ = image_utils.load_pixels(path)
         assert int(image_utils.convert_to_8bit(image, sig).max()) == 255
 
     def test_missing_file_raises(self, tmp_path):
@@ -370,7 +373,7 @@ class TestLoadPixelsBoundary:
         from modules import image_utils
 
         path = self._write_single_channel_rgb(tmp_path)
-        image, _ = image_utils.load_pixels(path)
+        image, _, _ = image_utils.load_pixels(path)
         assert image.ndim == 2
 
     def test_collapse_off_preserves_three_channel_shape(self, tmp_path):
@@ -380,7 +383,7 @@ class TestLoadPixelsBoundary:
         from modules import image_utils
 
         path = self._write_single_channel_rgb(tmp_path)
-        image, _ = image_utils.load_pixels(path, collapse_legacy_false_color=False)
+        image, _, _ = image_utils.load_pixels(path, collapse_legacy_false_color=False)
         assert image.shape == (8, 8, 3)
 
     @pytest.mark.parametrize('collapse', [True, False])
@@ -407,7 +410,7 @@ class TestLoadPixelsBoundary:
             return real_tifffile(arg, *args, **kwargs)
 
         monkeypatch.setattr(image_utils.tf, 'TiffFile', counting_tifffile)
-        image, sig = image_utils.load_pixels(path, collapse_legacy_false_color=collapse)
+        image, sig, _ = image_utils.load_pixels(path, collapse_legacy_false_color=collapse)
 
         assert len(opens) == 1
         assert sig == expected_sig
@@ -432,6 +435,7 @@ class TestWriteTiffDepthRequired:
                 metadata=_save_meta(),
                 ome=True,
                 color=release_color('Green'),
+                white_bits=None,
             )
 
     def test_stated_depth_is_recorded(self, tmp_path):
@@ -448,6 +452,7 @@ class TestWriteTiffDepthRequired:
             color=release_color('Green'),
             significant_bits=12,
             save_encoding='right_aligned',
+            white_bits=None,
         )
         assert image_utils.read_tiff_significant_bits(path) == 12
 
@@ -533,6 +538,7 @@ class TestVideoFrameCarriesDepth:
             significant_bits=significant_bits,
             save_encoding='right_aligned',
             video_frame=True,
+            white_bits=None,
         )
         return path
 
@@ -546,7 +552,7 @@ class TestVideoFrameCarriesDepth:
         from modules import image_utils
 
         path = self._write_video_frame(tmp_path, 4095, significant_bits=12)
-        _, sig = image_utils.load_pixels(path)
+        _, sig, _ = image_utils.load_pixels(path)
         assert sig == 12
 
 

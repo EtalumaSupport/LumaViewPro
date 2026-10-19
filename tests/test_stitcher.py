@@ -598,7 +598,7 @@ class TestSimplePositionStitcher:
 
         monkeypatch.setattr(
             'modules.stitching_core._read_tile_with_depth',
-            lambda *_: (np.ones((100, 100), dtype=np.uint8), 8),
+            lambda *_: (np.ones((100, 100), dtype=np.uint8), 8, None),
         )
         monkeypatch.setattr(
             'modules.stitching_core.bf_feature_stitcher',
@@ -676,7 +676,7 @@ class TestSimplePositionStitcher:
         monkeypatch.setattr('modules.stitching_core.stage_position_stitcher', stage_success)
         monkeypatch.setattr(
             'modules.stitching_core._read_tile_with_depth',
-            lambda *_: (np.ones((100, 100), dtype=np.uint8), 8),
+            lambda *_: (np.ones((100, 100), dtype=np.uint8), 8, None),
         )
 
         with caplog.at_level(logging.WARNING, logger='LVP.modules.stitching_core'):
@@ -749,7 +749,7 @@ class TestSimplePositionStitcher:
         monkeypatch.setattr('modules.stitching_core.simple_position_stitcher', simple_success)
         monkeypatch.setattr(
             'modules.stitching_core._read_tile_with_depth',
-            lambda *_: (np.ones((100, 100), dtype=np.uint8), 8),
+            lambda *_: (np.ones((100, 100), dtype=np.uint8), 8, None),
         )
 
         result = channel_aware_stitcher(
@@ -825,7 +825,7 @@ class TestSimplePositionStitcher:
         monkeypatch.setattr('modules.stitching_core.simple_position_stitcher', simple_success)
         monkeypatch.setattr(
             'modules.stitching_core._read_tile_with_depth',
-            lambda *_args, **_kwargs: (np.zeros((100, 100), dtype=np.uint8), 8),
+            lambda *_args, **_kwargs: (np.zeros((100, 100), dtype=np.uint8), 8, None),
         )
 
         result = channel_aware_stitcher(
@@ -875,6 +875,7 @@ class TestGroupAlgorithmPixelSize:
             },
             ome=False,
             color=release_color('BF'),
+            white_bits=None,
         )
 
     def test_pixel_size_read_from_tile_metadata_not_rederived(self, tmp_path, monkeypatch):
@@ -1479,7 +1480,7 @@ class TestStageConstrainedStitchModes:
 
         monkeypatch.setattr(
             'modules.stitching_core._read_tile_with_depth',
-            lambda *_: (np.ones((100, 100), dtype=np.uint8), 8),
+            lambda *_: (np.ones((100, 100), dtype=np.uint8), 8, None),
         )
         monkeypatch.setattr('modules.stitching_core.bf_feature_stitcher', should_not_run)
         monkeypatch.setattr('modules.stitching_core.overlap_stitcher', should_not_run)
@@ -1554,7 +1555,7 @@ class TestStageConstrainedStitchModes:
 
         monkeypatch.setattr(
             'modules.stitching_core._read_tile_with_depth',
-            lambda *_: (np.ones((100, 100), dtype=np.uint8), 8),
+            lambda *_: (np.ones((100, 100), dtype=np.uint8), 8, None),
         )
         monkeypatch.setattr('modules.stitching_core.fft_phase_stitcher', fft_success)
         monkeypatch.setattr(

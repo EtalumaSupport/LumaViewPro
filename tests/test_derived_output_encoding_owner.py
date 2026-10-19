@@ -128,6 +128,7 @@ class TestTheGuiPostProcessorsHonourTheLiveMode:
             significant_bits=16,
             algorithm='test',
             channel_colors=release_colors(),
+            white_bits=None,
         )
 
         assert recorded_writes[0]['save_encoding'] == 'rgb'
@@ -148,6 +149,7 @@ class TestTheGuiPostProcessorsHonourTheLiveMode:
             significant_bits=16,
             algorithm='test',
             channel_colors=release_colors(),
+            white_bits=None,
         )
 
         assert recorded_writes[0]['save_encoding'] == 'right_aligned'

@@ -45,7 +45,7 @@ def _center_metadata(df: pd.DataFrame) -> dict:
     }
 
 
-def _read_tile_with_depth(path: pathlib.Path, filename: str) -> tuple[np.ndarray, int]:
+def _read_tile_with_depth(path: pathlib.Path, filename: str) -> tuple[np.ndarray, int, int | None]:
     return image_utils.load_pixels(path / filename, collapse_legacy_false_color=False)
 
 
@@ -101,6 +101,7 @@ def _write_output(
     channel_colors: layer_record.ChannelColors,
     center: dict,
     significant_bits: int,
+    white_bits: int | None,
     algorithm: str,
 ) -> np.ndarray | None:
     if output_file_loc is None:
@@ -124,6 +125,7 @@ def _write_output(
         color=layer_record.output_color(color, channel_colors),
         significant_bits=metadata['significant_bits'],
         save_encoding=derived_output_encoding.resolve_output_save_encoding(image),
+        white_bits=white_bits,
     )
     logger.info(
         '[StitchPerf] write output %.1fms file=%s shape=%s dtype=%s',
@@ -143,6 +145,7 @@ def _result(
     df: pd.DataFrame,
     metadata: dict,
     significant_bits: int,
+    white_bits: int | None,
     channel_colors: layer_record.ChannelColors,
 ) -> dict:
     first_row = df.iloc[0]
@@ -157,6 +160,7 @@ def _result(
         channel_colors=channel_colors,
         center=center,
         significant_bits=significant_bits,
+        white_bits=white_bits,
         algorithm=metadata['algorithm'],
     )
     return {
@@ -338,6 +342,8 @@ def bf_feature_stitcher(
         # 8-bit BGR regardless of input depth. Tagging this uint8 montage with a
         # 16-bit input depth would render it ~256x dark on read-back.
         significant_bits=stitched_img.dtype.itemsize * 8,
+        # Each montage is stretched to its own range, so it is shown at its depth.
+        white_bits=None,
     )
 
 
@@ -365,10 +371,12 @@ def overlap_stitcher(
         read_t0 = time.perf_counter()
         images = {}
         input_depths = []
+        input_scales = []
         for _, row in frame.iterrows():
-            image, significant_bits = _read_tile_with_depth(path, row['Filepath'])
+            image, significant_bits, white_bits = _read_tile_with_depth(path, row['Filepath'])
             images[row['Filepath']] = image
             input_depths.append(significant_bits)
+            input_scales.append((significant_bits, white_bits))
         tile_bytes = sum(int(image.nbytes) for image in images.values())
         logger.info(
             '[StitchPerf] overlap read %.1fms tiles=%d bytes=%d',
@@ -435,6 +443,7 @@ def overlap_stitcher(
             'registered_tiles': registered_tiles,
         },
         significant_bits=image_utils.resolve_output_depth(input_depths),
+        white_bits=image_utils.resolve_output_white(input_scales),
     )
 
 
@@ -479,10 +488,12 @@ def stage_position_stitcher(
         read_t0 = time.perf_counter()
         images = {}
         input_depths = []
+        input_scales = []
         for _, row in frame.iterrows():
-            image, significant_bits = _read_tile_with_depth(path, row['Filepath'])
+            image, significant_bits, white_bits = _read_tile_with_depth(path, row['Filepath'])
             images[row['Filepath']] = image
             input_depths.append(significant_bits)
+            input_scales.append((significant_bits, white_bits))
         tile_bytes = sum(int(image.nbytes) for image in images.values())
         logger.info(
             '[StitchPerf] stage-position read %.1fms tiles=%d bytes=%d',
@@ -558,6 +569,7 @@ def stage_position_stitcher(
             'placements': placements,
         },
         significant_bits=image_utils.resolve_output_depth(input_depths),
+        white_bits=image_utils.resolve_output_white(input_scales),
     )
 
 
@@ -577,7 +589,7 @@ def simple_position_stitcher(
 
         sample_row = frame.iloc[0]
         sample_filename = sample_row['Filepath']
-        sample, sample_depth = _read_tile_with_depth(path, sample_filename)
+        sample, sample_depth, sample_white = _read_tile_with_depth(path, sample_filename)
         source_image_h = sample.shape[0]
         source_image_w = sample.shape[1]
 
@@ -606,12 +618,14 @@ def simple_position_stitcher(
         tile_count = 0
         tile_bytes = 0
         input_depths = []
+        input_scales = []
         for _, row in frame.iterrows():
             if row['Filepath'] == sample_filename:
-                image, significant_bits = sample, sample_depth
+                image, significant_bits, white_bits = sample, sample_depth, sample_white
             else:
-                image, significant_bits = _read_tile_with_depth(path, row['Filepath'])
+                image, significant_bits, white_bits = _read_tile_with_depth(path, row['Filepath'])
             input_depths.append(significant_bits)
+            input_scales.append((significant_bits, white_bits))
             tile_count += 1
             tile_bytes += int(image.nbytes)
             im_x = image.shape[1]
@@ -664,6 +678,7 @@ def simple_position_stitcher(
         channel_colors=channel_colors,
         metadata={'center': center, 'algorithm': 'simple_position_stitcher'},
         significant_bits=image_utils.resolve_output_depth(input_depths),
+        white_bits=image_utils.resolve_output_white(input_scales),
     )
 
 
@@ -685,7 +700,7 @@ def channel_aware_stitcher(
     mode = str(stitching_mode or 'quality').lower()
     if mode not in {'quality', 'fast_preview'}:
         return _failure('channel_aware_stitcher', f'unknown stitching mode: {mode}')
-    sample, _ = _read_tile_with_depth(path, df.iloc[0]['Filepath'])
+    sample, _, _ = _read_tile_with_depth(path, df.iloc[0]['Filepath'])
     overlap = infer_stage_overlap(df, pixel_size_um=pixel_size_um, tile_shape=sample.shape[:2])
     logger.info(
         '[Stitch] mode=%s inferred_overlap x=%s%% y=%s%% has_overlap=%s source=%s',

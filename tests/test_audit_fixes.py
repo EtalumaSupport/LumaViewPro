@@ -2380,6 +2380,7 @@ class TestPIW3_FalseColor16bitCachedAtRunStart:
             labware=plate(),
             well_label=None,
             channel_colors=release_colors(),
+            white_bits=None,
         )
         assert recorded.get('save_encoding') == 'rgb', (
             'save_image must thread the resolved save_encoding through to '
@@ -9315,11 +9316,10 @@ class TestCompositeOrchestrationByteEqualManualVsProtocol:
         # Path A: manual composite path. build_composite -> tifffile.
         manual_rgb = build_composite(
             channels={
-                name: CompositeChannel(image, layer_record.release_color(name))
+                name: CompositeChannel(image, layer_record.release_color(name), 8, None)
                 for name, image in channel_images.items()
             },
-            significant_bits=8,
-            transmitted_image=None,
+            transmitted=None,
             brightness_thresholds=None,
         )
 

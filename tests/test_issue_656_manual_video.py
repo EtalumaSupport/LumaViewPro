@@ -91,6 +91,7 @@ def _write_manual_frame(folder, frame_num, *, include_iso=True, value=20000):
         video_frame=True,
         significant_bits=16,
         save_encoding='right_aligned',
+        white_bits=None,
     )
     return file_loc, ts
 

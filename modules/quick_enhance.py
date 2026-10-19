@@ -373,7 +373,9 @@ class QuickEnhancer:
     ) -> dict:
         source_path = pathlib.Path(source_path)
         try:
-            source_pixels, significant_bits = image_utils.load_pixels(
+            # The white is not used: the enhance stretches its output across
+            # the depth's whole range, so the output is shown at its depth.
+            source_pixels, significant_bits, _ = image_utils.load_pixels(
                 source_path, collapse_legacy_false_color=False
             )
         except ValueError as e:
@@ -434,6 +436,7 @@ class QuickEnhancer:
                 color=render_color,
                 significant_bits=significant_bits,
                 save_encoding='right_aligned',
+                white_bits=None,
             )
             recipe = self.recipe_dict(
                 source_path=source_path,

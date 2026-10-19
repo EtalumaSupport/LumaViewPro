@@ -1809,6 +1809,7 @@ class ProtocolImageWriter:
                     stage_z_um=captured_image.position.z_um,
                     save_encoding=self._config.save_encoding,
                     significant_bits=captured_image.significant_bits,
+                    white_bits=captured_image.record.frame_significant_bits,
                     objective_id=captured_image.objective_id,
                     frame_record=captured_image.record,
                     labware=self._labware,

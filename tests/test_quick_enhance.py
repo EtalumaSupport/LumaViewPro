@@ -41,6 +41,7 @@ def _write_source(path, data: np.ndarray, significant_bits: int, channel: str = 
         color=GREY if data.ndim == 3 else release_color(channel),
         significant_bits=significant_bits,
         save_encoding='right_aligned',
+        white_bits=None,
     )
 
 
@@ -105,7 +106,7 @@ def test_representative_bf_fluorescence_and_composite_exports_preserve_sources(t
         exported = enhancer.export_file(
             source, QuickEnhanceSettings(), channel_colors=release_colors()
         )
-        output, bits = image_utils.load_pixels(
+        output, bits, _ = image_utils.load_pixels(
             exported['output_path'], collapse_legacy_false_color=False
         )
 
@@ -124,7 +125,7 @@ def test_png_and_jpeg_load_preview_and_export_as_derived_tiff(tmp_path, suffix):
     image[..., 2] = 220
     assert cv2.imwrite(str(source), image)
 
-    loaded, significant_bits = image_utils.load_pixels(source)
+    loaded, significant_bits, _ = image_utils.load_pixels(source)
     before, after = QuickEnhancer().preview(loaded, QuickEnhanceSettings(), significant_bits)
     exported = QuickEnhancer().export_file(
         source, QuickEnhanceSettings(), channel_colors=release_colors()
@@ -264,7 +265,7 @@ def test_export_preserves_tiff_depth_writes_recipe_and_never_overwrites(tmp_path
     assert source.read_bytes() == original_bytes
     assert first['output_path'].name == 'original_enhanced.tif'
     assert second['output_path'].name == 'original_enhanced_2.tif'
-    out, significant_bits = image_utils.load_pixels(first['output_path'])
+    out, significant_bits, _ = image_utils.load_pixels(first['output_path'])
     assert out.dtype == np.uint16
     assert significant_bits == 12
     recipe_path = first['output_path'].with_suffix('.recipe.json')
@@ -280,7 +281,7 @@ def test_brightfield_tiff_stays_monochrome_and_preserves_payload_depth(tmp_path)
     exported = QuickEnhancer().export_file(
         source, QuickEnhanceSettings(), channel_colors=release_colors()
     )
-    output, significant_bits = image_utils.load_pixels(exported['output_path'])
+    output, significant_bits, _ = image_utils.load_pixels(exported['output_path'])
 
     assert output.ndim == 2
     assert output.dtype == np.uint16
@@ -298,7 +299,7 @@ def test_composite_tiff_stays_rgb_and_retains_composite_channel_metadata(tmp_pat
     exported = QuickEnhancer().export_file(
         source, QuickEnhanceSettings(), channel_colors=release_colors()
     )
-    output, significant_bits = image_utils.load_pixels(exported['output_path'])
+    output, significant_bits, _ = image_utils.load_pixels(exported['output_path'])
     metadata = image_utils.read_postproc_input_metadata(exported['output_path'])
 
     assert output.shape == source_data.shape
@@ -318,7 +319,7 @@ def test_rgba_composite_exports_as_rgb_without_rejecting_composite_metadata(tmp_
     exported = QuickEnhancer().export_file(
         source, QuickEnhanceSettings(), channel_colors=release_colors()
     )
-    output, significant_bits = image_utils.load_pixels(
+    output, significant_bits, _ = image_utils.load_pixels(
         exported['output_path'], collapse_legacy_false_color=False
     )
 
@@ -337,7 +338,7 @@ def test_rgba_composite_png_drops_alpha_before_rgb_tiff_export(tmp_path):
     exported = QuickEnhancer().export_file(
         source, QuickEnhanceSettings(), channel_colors=release_colors()
     )
-    output, significant_bits = image_utils.load_pixels(
+    output, significant_bits, _ = image_utils.load_pixels(
         exported['output_path'], collapse_legacy_false_color=False
     )
 
@@ -374,7 +375,7 @@ def test_green_export_is_rgb_and_a_second_run_keeps_green_metadata(tmp_path):
     enhancer = QuickEnhancer()
 
     first = enhancer.export_file(source, QuickEnhanceSettings(), channel_colors=release_colors())
-    output, significant_bits = image_utils.load_pixels(
+    output, significant_bits, _ = image_utils.load_pixels(
         first['output_path'], collapse_legacy_false_color=False
     )
     metadata = image_utils.read_postproc_input_metadata(first['output_path'])
@@ -398,7 +399,7 @@ def test_metadata_less_legacy_green_rgb_with_numeric_prefix_exports_green(tmp_pa
     exported = QuickEnhancer().export_file(
         source, QuickEnhanceSettings(), channel_colors=release_colors()
     )
-    output, significant_bits = image_utils.load_pixels(
+    output, significant_bits, _ = image_utils.load_pixels(
         exported['output_path'], collapse_legacy_false_color=False
     )
     metadata = image_utils.read_postproc_input_metadata(exported['output_path'])

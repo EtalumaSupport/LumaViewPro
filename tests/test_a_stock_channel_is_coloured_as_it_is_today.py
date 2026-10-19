@@ -106,6 +106,7 @@ def test_a_tiff_carries_the_channels_colour_map_or_none(tmp_path):
                 color=release_color(channel),
                 significant_bits=8,
                 save_encoding='right_aligned',
+                white_bits=None,
             )
             with tifffile.TiffFile(path) as written:
                 page = written.pages[0]
@@ -174,6 +175,7 @@ def test_a_16_bit_imagej_tiff_carries_the_channels_lut(tmp_path):
             color=release_color(channel),
             significant_bits=12,
             save_encoding='right_aligned',
+            white_bits=None,
         )
         with tifffile.TiffFile(path) as written:
             page = written.pages[0]
@@ -207,6 +209,7 @@ def test_a_16_bit_false_colour_tiff_bakes_the_channels_colour(tmp_path):
             color=release_color(channel),
             significant_bits=12,
             save_encoding='rgb',
+            white_bits=None,
         )
         pixels = tifffile.imread(path)
         want = filled if colour is None else np.stack([filled * c for c in colour], axis=-1)
@@ -226,6 +229,7 @@ def test_a_hyperstack_names_each_channels_colour_in_its_ome_metadata(tmp_path):
         color=release_color('BF'),
         significant_bits=8,
         save_encoding='right_aligned',
+        white_bits=None,
     )
 
     def rgba(colour):

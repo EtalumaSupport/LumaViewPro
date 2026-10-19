@@ -477,7 +477,7 @@ class TestBuildVideoSignificantBits:
                 # authority after close.
                 self.output_path = kwargs.get('output_path') or (args[0] if args else None)
 
-            def add_frame(self, image=None, timestamp=None, significant_bits=None):
+            def add_frame(self, image=None, timestamp=None, significant_bits=None, white_bits=None):
                 captured.append(significant_bits)
 
             def close(self):

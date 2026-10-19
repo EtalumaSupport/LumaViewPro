@@ -200,6 +200,7 @@ class TestVideoWellStackBuild:
                 significant_bits=8,
                 save_encoding='8bit',
                 video_frame=True,
+                white_bits=None,
             )
         df = _stack_df(rows)
 

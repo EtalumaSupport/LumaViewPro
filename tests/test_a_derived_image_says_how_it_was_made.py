@@ -111,6 +111,7 @@ def run_folder(tmp_path):
             color=release_color(color),
             significant_bits=8,
             save_encoding='right_aligned',
+            white_bits=None,
         )
         record_rows.append(
             f'{filename}\t{name}\t{index}\t0\t2026-10-18 12:00:{index:02d}.000001\t1\t0.0\n'

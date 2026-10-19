@@ -62,6 +62,7 @@ def _save(scope, folder, **position) -> str:
         output_format='TIFF',
         save_encoding='8bit',
         significant_bits=8,
+        white_bits=None,
         **position,
         frame_record=frame_record(),
         labware=plate(),

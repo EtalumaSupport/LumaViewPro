@@ -28,6 +28,8 @@ def test_a_run_saves_the_mode_the_session_was_set_to(tmp_path):
 
     saved = sorted((tmp_path / 'runs').rglob('*.tif*'))
     assert saved, 'the run saved no image'
-    pixels, significant_bits = load_pixels(saved[0])
+    pixels, significant_bits, white_bits = load_pixels(saved[0])
     assert significant_bits == 12, f'{saved[0].name} holds {significant_bits}-bit pixels'
     assert pixels.dtype.itemsize == 2
+    # The file states the white its frames were delivered at, from the run's record.
+    assert white_bits == 12

@@ -63,7 +63,7 @@ def main() -> int:
 
     post = PostProcessing()
     source = sorted(folder.glob('*.tiff'))[0]
-    image, bits = image_utils.load_pixels(source)
+    image, bits, _ = image_utils.load_pixels(source)
 
     # 6a -- one image
     preview, stats = post.preview_cell_count(

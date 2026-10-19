@@ -247,6 +247,7 @@ class VideoWriter:
         image: np.ndarray,
         timestamp: datetime.datetime | float | None = None,
         significant_bits: int | None = None,
+        white_bits: int | None = None,
     ) -> None:
         """Add a frame to the video.
 
@@ -261,6 +262,11 @@ class VideoWriter:
         than guessing, because either guess (full-width scale or a raw
         truncating cast) silently corrupts every pixel. None is legal
         only for uint8 input, which needs no scaling.
+
+        white_bits is the depth whose full scale is white, below
+        significant_bits for a sum (one frame's white), so a video built from
+        summed frames shows them as they were captured. None renders at
+        significant_bits: a frame that is not a sum.
 
         In VFR mode ``timestamp`` (datetime or epoch seconds) is REQUIRED:
         it is the frame's presentation time, not decoration. A missing
@@ -307,7 +313,7 @@ class VideoWriter:
                         f'for {image.dtype} frames -- scaling without the true '
                         'payload depth corrupts every pixel'
                     )
-                image = image_utils.convert_to_8bit(image, significant_bits)
+                image = image_utils.convert_to_8bit(image, significant_bits, white_bits=white_bits)
 
             # Mono + a colour -> apply false-color inside the writer.
             # Mono + grey -> pass through; gray encode.

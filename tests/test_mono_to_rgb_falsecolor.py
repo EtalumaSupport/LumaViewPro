@@ -140,6 +140,7 @@ class TestAColourIsAValue:
             color=self.ORANGE,
             significant_bits=8,
             save_encoding='right_aligned',
+            white_bits=None,
         )
         with tifffile.TiffFile(path) as written:
             page = written.pages[0]
@@ -156,6 +157,7 @@ class TestAColourIsAValue:
             color=self.ORANGE,
             significant_bits=12,
             save_encoding='right_aligned',
+            white_bits=None,
         )
         with tifffile.TiffFile(path) as written:
             lut = np.asarray(written.imagej_metadata['LUTs']).reshape(3, 256)
@@ -172,6 +174,7 @@ class TestAColourIsAValue:
             color=GREY,
             significant_bits=8,
             save_encoding='right_aligned',
+            white_bits=None,
         )
         metadata = image_utils.build_hyperstack_output_metadata(
             reference,

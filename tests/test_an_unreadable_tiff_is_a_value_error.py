@@ -47,6 +47,7 @@ def _saved_12bit_tiff(path):
         color=release_color('BF'),
         significant_bits=12,
         save_encoding='right_aligned',
+        white_bits=None,
     )
     return path.read_bytes()
 
@@ -114,6 +115,6 @@ def test_an_undecodable_tiff_is_a_value_error_naming_the_file(tmp_path, reader, 
 def test_a_whole_file_still_loads(tmp_path):
     path = tmp_path / 'A1_BF_0000.tif'
     _saved_12bit_tiff(path)
-    image, significant_bits = image_utils.load_pixels(path)
+    image, significant_bits, _ = image_utils.load_pixels(path)
     assert image.shape == (256, 256)
     assert significant_bits == 12

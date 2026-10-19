@@ -6,7 +6,10 @@ tagged with the bits it can reach, N x (2^b - 1); every 8-bit rendering of it
 is drawn against one frame's white, so it looks N times brighter; and its
 saturation is measured against what it can hold, not against its tag's power
 of two. The count and the per-frame depth are the capture's own, recorded with
-the frame, so no caller restates them.
+the frame, so no caller restates them. A saved sum states that white beside
+its depth, so it reopens as it was taken, in LVP and in Fiji, and a product
+that keeps its inputs' values (a stitch, a projection, a video, each channel
+of a composite) shows them against it too.
 
 Before this, an 8-bit camera's sum was clipped to 255 (the counts lost from
 every file), a 12-bit sum was tagged 16 (rendered at about a quarter of one
@@ -190,7 +193,16 @@ def test_a_jpg_beside_a_full_depth_mode_is_warned(mode, formats, warned):
 # --- the products -------------------------------------------------------------
 
 
-def _write(path: pathlib.Path, array: np.ndarray, bits: int, encoding: str, color: str = 'Blue'):
+def _write(
+    path: pathlib.Path,
+    array: np.ndarray,
+    bits: int,
+    encoding: str,
+    color: str = 'Blue',
+    *,
+    white: int | None = None,
+    ome: bool = False,
+):
     image_utils.write_tiff(
         data=array,
         file_loc=path,
@@ -220,10 +232,11 @@ def _write(path: pathlib.Path, array: np.ndarray, bits: int, encoding: str, colo
             'plate': {'name': '96-well', 'rows': 8, 'columns': 12},
             'well_label': 'A1',
         },
-        ome=False,
+        ome=ome,
         color=release_color(color),
         significant_bits=bits,
         save_encoding=encoding,
+        white_bits=white,
     )
 
 
@@ -261,9 +274,11 @@ def test_a_12bit_sum_projection_is_tagged_by_its_reach_and_reads_back(tmp_path):
         channel_colors=release_colors(),
     )
     assert result['significant_bits'] == 14
-    pixels, bits = image_utils.load_pixels(tmp_path / 'projected.tiff')
+    pixels, bits, white = image_utils.load_pixels(tmp_path / 'projected.tiff')
     assert bits == 14
     assert int(pixels.max()) == 12000
+    # A projected sum is shown against one slice's white, as a captured sum is.
+    assert white == 12
 
 
 MIXED_PLANES = pytest.mark.parametrize(
@@ -339,6 +354,157 @@ def test_a_manual_recordings_stack_is_built_in_its_encoding(tmp_path, encoding, 
     assert _plane_maxima(tmp_path / 'stack.ome.tiff') == sorted([unsummed, summed])
 
 
+# --- reopened: the white saved beside the depth --------------------------------
+
+# A 4-sum of 12-bit frames, black to one frame's white and on past it.
+_FOUR_SUM = np.tile(np.linspace(0, 16380, 64).astype(np.uint16), (8, 1))
+
+
+@pytest.mark.parametrize(
+    ('encoding', 'ome', 'stored_white', 'tolerance'),
+    [
+        # Each container and shift is its own path through the write and read.
+        ('right_aligned', False, 12, 0),
+        ('right_aligned', True, 12, 0),
+        # The fill shifts the payload by 2; the white moves with it, and the
+        # rendering is one count off where 4095 << 2 is 16380, not 16383.
+        ('msb_aligned', False, 14, 1),
+        ('rgb', False, 14, 1),
+    ],
+)
+def test_a_saved_sum_reopens_against_one_frames_white(
+    tmp_path, encoding, ome, stored_white, tolerance
+):
+    file = tmp_path / ('sum.ome.tiff' if ome else 'sum.tiff')
+    _write(file, _FOUR_SUM, 14, encoding, white=12, ome=ome)
+
+    pixels, bits, white = image_utils.load_pixels(file)
+
+    assert white == stored_white
+    reopened = image_utils.convert_to_8bit(pixels, bits, white_bits=white)
+    captured = image_utils.convert_sum_to_8bit(_FOUR_SUM, 4, 12)
+    assert int(np.abs(reopened.astype(int) - captured.astype(int)).max()) <= tolerance
+
+
+def test_a_file_that_states_no_white_renders_at_its_depth(tmp_path):
+    _write(tmp_path / 'enhanced.tiff', _FOUR_SUM, 14, 'right_aligned', white=None)
+    _, bits, white = image_utils.load_pixels(tmp_path / 'enhanced.tiff')
+    assert (bits, white) == (14, None)
+
+
+def test_a_white_above_its_depth_is_refused(tmp_path):
+    with pytest.raises(ValueError, match='white at 14 bits lies above the 12-bit payload'):
+        _write(tmp_path / 'bad.tiff', np.zeros((4, 4), np.uint16), 12, 'right_aligned', white=14)
+
+
+def test_fiji_opens_a_file_at_the_white_lvp_shows_it_against(tmp_path):
+    """Fiji stretches a file that states no display range to its own darkest
+    and brightest pixel, which LVP never does; every ImageJ-container write
+    states the range LVP renders against."""
+    cases = {
+        'a 4-sum of 12-bit frames': (_FOUR_SUM, 14, 'right_aligned', 12, 4095),
+        'one 12-bit frame': (np.full((8, 8), 1000, np.uint16), 12, 'right_aligned', 12, 4095),
+        'a scaled 4-sum': (_FOUR_SUM, 14, 'msb_aligned', 12, 16383),
+        'a file that states no white': (_FOUR_SUM, 14, 'right_aligned', None, 16383),
+    }
+    wrong = {}
+    for name, (array, bits, encoding, white, expected_max) in cases.items():
+        file = tmp_path / f'{name}.tiff'
+        _write(file, array, bits, encoding, white=white)
+        with tf.TiffFile(file) as tif:
+            shown = (tif.imagej_metadata['min'], tif.imagej_metadata['max'])
+        if shown != (0, expected_max):
+            wrong[name] = shown
+    assert not wrong, wrong
+
+
+def test_a_video_of_summed_frames_shows_them_as_taken(tmp_path):
+    import av
+
+    from modules.video_builder import VideoBuilder
+
+    # Four frames of 1024 each: one frame's white, about a quarter of the sum's tag.
+    rows = []
+    for scan in range(2):
+        name = f'A1_BF_{scan}.tiff'
+        _write(
+            tmp_path / name, np.full((24, 32), 4096, np.uint16), 14, 'right_aligned', 'BF', white=12
+        )
+        rows.append({'Filepath': name, 'Scan Count': scan, 'Color': 'BF'})
+
+    VideoBuilder(has_turret=False)._create_video(
+        path=tmp_path,
+        df=pd.DataFrame(rows),
+        frames_per_sec=10,
+        enable_timestamp_overlay=False,
+        output_file_loc=pathlib.Path('out.mp4'),
+        channel_colors=release_colors(),
+    )
+
+    with av.open(str(tmp_path / 'out.mp4')) as container:
+        frame = next(iter(container.decode(video=0))).to_ndarray(format='gray')
+    assert frame.mean() > 200
+
+
+def test_each_channel_of_a_composite_is_shown_at_its_own_sum(tmp_path):
+    """A 4-sum Green beside an unsummed Red, each at one frame's white: both
+    render full, where one shared depth showed the unsummed channel dark."""
+    from modules.composite_generation import CompositeGeneration
+
+    _write(
+        tmp_path / 'green.tiff',
+        np.full((8, 8), 4095, np.uint16),
+        14,
+        'right_aligned',
+        'Green',
+        white=12,
+    )
+    _write(
+        tmp_path / 'red.tiff',
+        np.full((8, 8), 4095, np.uint16),
+        12,
+        'right_aligned',
+        'Red',
+        white=12,
+    )
+    df = pd.DataFrame(
+        [{'Filepath': 'green.tiff', 'Color': 'Green'}, {'Filepath': 'red.tiff', 'Color': 'Red'}]
+    )
+
+    result = CompositeGeneration._create_composite_image(
+        path=tmp_path,
+        df=df,
+        brightness_thresholds_percent={},
+        channel_colors=release_colors(),
+    )
+
+    assert result['status'] is True, result['error']
+    red, green = result['image'][..., 0], result['image'][..., 1]
+    assert int(red.min()) == 255
+    assert int(green.min()) == 255
+
+
+def test_a_stitch_keeps_its_tiles_white(tmp_path):
+    from modules.stitching_core import simple_position_stitcher
+
+    rows = []
+    for i, x in enumerate((0.0, 1.0)):
+        name = f'tile{i}.tiff'
+        _write(tmp_path / name, np.full((8, 8), 4095, np.uint16), 14, 'right_aligned', white=12)
+        rows.append({'Filepath': name, 'X': x, 'Y': 0.0, 'Color': 'Blue'})
+
+    result = simple_position_stitcher(
+        tmp_path,
+        pd.DataFrame(rows),
+        pathlib.Path('stitched.tiff'),
+        channel_colors=release_colors(),
+    )
+
+    assert result['status'] is True, result['error']
+    _, bits, white = image_utils.load_pixels(tmp_path / 'stitched.tiff')
+    assert (bits, white) == (14, 12)
+
+
 # --- the renderings and the hand-offs -----------------------------------------
 
 
@@ -364,6 +530,7 @@ def test_a_sums_jpg_is_rendered_against_one_frames_white(tmp_path):
         jpeg_quality=95,
         save_encoding='right_aligned',
         significant_bits=10,
+        white_bits=8,
         objective_id='4x Oly',
         frame_record=frame_record(frames_summed=3, frame_significant_bits=8),
         labware=plate(),

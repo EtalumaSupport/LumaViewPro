@@ -117,6 +117,8 @@ def write_video_frame(
         video_frame=True,
         significant_bits=significant_bits,
         save_encoding=save_encoding,
+        # A recorded frame is one frame, never a sum: white is its depth.
+        white_bits=None,
     )
 
 
@@ -627,6 +629,7 @@ def save_image(
     rgb_buf: np.ndarray | None = None,
     jpeg_quality: int = 90,
     significant_bits: int,
+    white_bits: int | None,
     objective_id: str,
     frame_record: FrameRecord,
     labware: WellPlate | None,
@@ -666,6 +669,12 @@ def save_image(
         jpeg_quality: JPEG quality 1-100, used only when output_format
             is "JPG".
         significant_bits: Payload depth the frame was captured at.
+        white_bits: The depth whose full scale is white in ``array``: one
+            frame's depth for a capture, below ``significant_bits`` for a sum.
+            None for an array already rendered for display (an overlay), shown
+            at its depth. Required, from the caller: the frame record
+            describes the frame, and an overlay saved beside it is not that
+            frame.
         objective_id: The objective in the light path when the frame was
             taken; recorded as the file's scale. Required: read by the
             caller when it takes the frame, never at save time.
@@ -760,7 +769,7 @@ def save_image(
                 _apply_save_orientation(array),
                 render_color,
                 significant_bits=significant_bits,
-                white_bits=frame_record.frame_significant_bits,
+                white_bits=white_bits,
                 jpeg_quality=jpeg_quality,
             )
             pathlib.Path(file_loc).write_bytes(jpg_bytes)
@@ -773,6 +782,7 @@ def save_image(
                 color=render_color,
                 significant_bits=metadata['significant_bits'],
                 save_encoding=save_encoding,
+                white_bits=white_bits,
                 false_color_buf=false_color_buf,
                 rgb_buf=rgb_buf,
             )

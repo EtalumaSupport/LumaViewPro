@@ -136,6 +136,7 @@ def _add_an_ordinary_step(folder: pathlib.Path) -> None:
             color=release_color(color),
             significant_bits=8,
             save_encoding='right_aligned',
+            white_bits=None,
         )
         # Steps 24 and 25, after the stack's 24.
         lines += f'{name}_0000.tiff\t{name}\t{24 + offset}\t0\t2026-10-18 12:01:0{offset}.000001\t1\t0.0\n'

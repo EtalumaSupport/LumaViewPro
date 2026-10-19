@@ -208,13 +208,13 @@ class VideoBuilder(ProtocolPostProcessor):
         """
         try:
             if enable_timestamp_overlay:
-                image, significant_bits, frame_ts = image_utils.load_pixels_with_timestamp(
-                    image_path
+                image, significant_bits, white_bits, frame_ts = (
+                    image_utils.load_pixels_with_timestamp(image_path)
                 )
                 if frame_ts is None:
                     frame_ts = fallback_timestamp
             else:
-                image, significant_bits = image_utils.load_pixels(image_path)
+                image, significant_bits, white_bits = image_utils.load_pixels(image_path)
                 frame_ts = None
         except Exception as e:
             logger.error(f'[{self._name}] Failed to read image: {image_path}: {e}')
@@ -222,8 +222,14 @@ class VideoBuilder(ProtocolPostProcessor):
 
         # image is mono 2D (a legacy 3-channel replica collapses to mono inside
         # load_pixels). VideoWriter applies the layer false-color, the 8-bit
-        # downconvert scaled by significant_bits, and any cv2 BGR-swap internally.
-        writer.add_frame(image=image, timestamp=frame_ts, significant_bits=significant_bits)
+        # downconvert scaled by significant_bits against white_bits (one frame's
+        # white, for a sum), and any cv2 BGR-swap internally.
+        writer.add_frame(
+            image=image,
+            timestamp=frame_ts,
+            significant_bits=significant_bits,
+            white_bits=white_bits,
+        )
         return True
 
     def _create_video(

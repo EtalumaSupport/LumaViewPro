@@ -351,6 +351,7 @@ class TestReadPixelSizeUm:
             color=release_color('Green'),
             significant_bits=8,
             save_encoding='8bit',
+            white_bits=None,
         )
 
         assert image_utils.read_pixel_size_um(path) == pytest.approx(0.41423)
@@ -389,6 +390,7 @@ class TestSaveWithoutScale:
             color=release_color('Green'),
             significant_bits=8,
             save_encoding='8bit',
+            white_bits=None,
         )
 
         assert path.exists()

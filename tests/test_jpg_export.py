@@ -125,6 +125,7 @@ def test_save_image_routes_jpg_to_encoder(tmp_path):
         labware=plate(),
         well_label=None,
         channel_colors=release_colors(),
+        white_bits=None,
     )
     saved = pathlib.Path(path)
     assert saved.suffix == '.jpg', 'JPG format must resolve a .jpg extension'

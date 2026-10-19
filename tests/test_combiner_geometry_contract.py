@@ -18,9 +18,9 @@ from modules.zprojection import ZProjectMethod, zproject
 
 
 def _in_release_colours(images):
-    """Each image as a composite channel in its layer's release colour."""
+    """Each image as an 8-bit composite channel in its layer's release colour."""
     return {
-        key: CompositeChannel(image, layer_record.release_color(key))
+        key: CompositeChannel(image, layer_record.release_color(key), 8, None)
         for key, image in images.items()
     }
 
@@ -49,7 +49,7 @@ def test_build_composite_rejects_mismatched_channels():
         'Green': np.zeros((9, 7), np.uint8),
     }
     with pytest.raises(ValueError, match=r'not stitched to one geometry'):
-        build_composite(channels=_in_release_colours(channels), significant_bits=8)
+        build_composite(channels=_in_release_colours(channels))
 
 
 def test_zproject_rejects_mismatched_slices():

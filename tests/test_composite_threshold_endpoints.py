@@ -24,6 +24,7 @@ import pytest
 import modules.layer_record as layer_record
 from modules.composite_builder import (
     CompositeChannel,
+    TransmittedBase,
     brightness_cutoff_from_percent,
     build_composite,
 )
@@ -33,9 +34,9 @@ from modules.layer_record import release_colors
 
 
 def _in_release_colours(images):
-    """Each image as a composite channel in its layer's release colour."""
+    """Each image as an 8-bit composite channel in its layer's release colour."""
     return {
-        key: CompositeChannel(image, layer_record.release_color(key))
+        key: CompositeChannel(image, layer_record.release_color(key), 8, None)
         for key, image in images.items()
     }
 
@@ -77,8 +78,7 @@ class TestTheLayerSurvivesTheTopOfTheSlider:
 
         img = build_composite(
             channels=_in_release_colours({'Red': red}),
-            significant_bits=8,
-            transmitted_image=transmitted,
+            transmitted=TransmittedBase(transmitted, 8, None),
             brightness_thresholds={'Red': brightness_cutoff_from_percent(100)},
         )
 
@@ -91,8 +91,7 @@ class TestTheLayerSurvivesTheTopOfTheSlider:
 
         img = build_composite(
             channels=_in_release_colours({'Red': red}),
-            significant_bits=8,
-            transmitted_image=transmitted,
+            transmitted=TransmittedBase(transmitted, 8, None),
             brightness_thresholds={'Red': brightness_cutoff_from_percent(100)},
         )
 

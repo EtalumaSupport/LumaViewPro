@@ -101,7 +101,7 @@ def test_each_unit_has_a_block_and_a_colour_for_every_channel(installation, mode
 
 
 def _gray(path: pathlib.Path) -> np.ndarray:
-    image, bits = image_utils.load_pixels(path, collapse_legacy_false_color=False)
+    image, bits, _ = image_utils.load_pixels(path, collapse_legacy_false_color=False)
     return image_utils.convert_to_8bit(image_utils.rgb_image_to_gray(image, baked=True), bits)
 
 

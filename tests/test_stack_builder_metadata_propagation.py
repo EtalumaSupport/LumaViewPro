@@ -86,6 +86,7 @@ def _write_structured_input(
         },
         ome=False,
         color=release_color(channel),
+        white_bits=None,
     )
 
 

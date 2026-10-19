@@ -166,6 +166,7 @@ class TestTheWholeSaveChainCarriesOneFrame:
             labware=plate(),
             well_label=None,
             channel_colors=release_colors(),
+            white_bits=None,
         )
 
         plane = _read_plane(path)

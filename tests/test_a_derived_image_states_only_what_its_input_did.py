@@ -33,6 +33,7 @@ def _write(path, metadata, *, ome=False):
         color=release_color('Green'),
         significant_bits=12,
         save_encoding='right_aligned',
+        white_bits=None,
     )
     return path
 

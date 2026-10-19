@@ -281,3 +281,7 @@ class TestASumsOverlayIsDrawnAsItIsShown:
         overlay = save_one.call_args_list[1].args[1]
         assert overlay.dtype == np.uint8
         assert int(overlay[0, 0].min()) == 255
+        # The sum is saved stating one frame's white; the overlay, already the
+        # 8-bit rendering, states none.
+        assert save_one.call_args_list[0].kwargs['white_bits'] == 8
+        assert save_one.call_args_list[1].kwargs['white_bits'] is None

@@ -87,6 +87,7 @@ def test_pure_blue_16bit_falsecolor_tiff_roundtrip(tmp_path):
         color=release_color('Blue'),
         significant_bits=16,
         save_encoding='rgb',
+        white_bits=None,
     )
 
     result = tf.imread(str(out_path))
@@ -235,6 +236,7 @@ def rgb_run_folder(tmp_path):
             color=release_color(color),
             significant_bits=8,
             save_encoding='right_aligned',
+            white_bits=None,
         )
         record_rows.append(
             f'{filename}\t{name}\t{index}\t0\t2026-10-13 12:00:{index:02d}.000001\t1\t0.0\n'
@@ -289,6 +291,7 @@ def test_pure_color_16bit_falsecolor_tiff_roundtrip(tmp_path, color):
         color=release_color(color),
         significant_bits=16,
         save_encoding='rgb',
+        white_bits=None,
     )
 
     result = tf.imread(str(out_path))
@@ -426,6 +429,7 @@ def test_piw6_buffer_allocation_o1(tmp_path):
                 false_color_buf=scratch,
                 significant_bits=16,
                 save_encoding='rgb',
+                white_bits=None,
             )
 
     # O(1) frame-sized allocations: the (H, W, 3) scratch fits the widen

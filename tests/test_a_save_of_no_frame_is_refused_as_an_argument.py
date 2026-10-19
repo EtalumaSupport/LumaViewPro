@@ -36,6 +36,7 @@ def test_a_none_array_is_refused_as_the_wrong_kind_and_nothing_is_written(tmp_pa
             labware=plate(),
             well_label=None,
             channel_colors=release_colors(),
+            white_bits=None,
         )
 
     assert (refused.value.reason, refused.value.argument) == ('wrong_kind', 'array')

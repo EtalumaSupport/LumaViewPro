@@ -52,6 +52,7 @@ def _write_timestamped_frames(tmp_path, df, base_s=1_755_000_000.0, spacing_s=0.
             significant_bits=8,
             save_encoding='8bit',
             video_frame=True,
+            white_bits=None,
         )
 
 

@@ -353,6 +353,7 @@ def test_save_encoding_scaled_is_msb_aligned_and_recoverable(tmp_path):
         color=release_color('BF'),
         significant_bits=12,
         save_encoding='msb_aligned',
+        white_bits=None,
     )
 
     arr = tf.imread(str(out_path))
@@ -440,6 +441,7 @@ def test_save_encoding_right_aligned_is_raw(tmp_path):
         color=release_color('BF'),
         significant_bits=12,
         save_encoding='right_aligned',
+        white_bits=None,
     )
 
     with tf.TiffFile(str(out_path)) as t:
@@ -468,6 +470,7 @@ def test_save_encoding_rgb_widens_fluorescence(tmp_path):
         color=release_color('Blue'),
         significant_bits=16,
         save_encoding='rgb',
+        white_bits=None,
     )
 
     result = tf.imread(str(out_path))
@@ -492,6 +495,7 @@ def test_save_encoding_rgb_keeps_transmitted_mono(tmp_path):
         color=release_color('BF'),
         significant_bits=16,
         save_encoding='rgb',
+        white_bits=None,
     )
 
     result = tf.imread(str(out_path))
@@ -550,6 +554,7 @@ def test_write_tiff_video_frame_rgb_widens_uint16(tmp_path):
         video_frame=True,
         significant_bits=16,
         save_encoding='rgb',
+        white_bits=None,
     )
 
     arr = tf.imread(str(out_path))
@@ -575,6 +580,7 @@ def test_write_tiff_video_frame_8bit_has_no_palette(tmp_path):
         video_frame=True,
         significant_bits=8,
         save_encoding='8bit',
+        white_bits=None,
     )
 
     arr = tf.imread(str(out_path))
@@ -747,6 +753,7 @@ def test_write_tiff_requires_save_encoding(tmp_path):
             ome=False,
             color=release_color('BF'),
             significant_bits=12,
+            white_bits=None,
         )
 
 
@@ -760,6 +767,7 @@ def test_save_image_requires_save_encoding():
             None,
             array=np.zeros((4, 4), dtype=np.uint8),
             channel_colors=release_colors(),
+            white_bits=None,
         )
 
 
@@ -796,6 +804,7 @@ def test_post_processor_uint16_save_is_verbatim(tmp_path):
         color=release_color('BF'),
         significant_bits=12,
         save_encoding=encoding_for_array(data),
+        white_bits=None,
     )
     arr = tf.imread(str(out_path))
     assert arr[0, 0] == 4095, 'derived uint16 output must stay right-aligned (verbatim)'
@@ -890,6 +899,7 @@ def test_derived_fluorescence_widens_to_rgb_under_false_color_mode(tmp_path):
             color=release_color('Blue'),
             significant_bits=16,
             save_encoding=encoding,
+            white_bits=None,
         )
 
     arr = tf.imread(str(out_path))

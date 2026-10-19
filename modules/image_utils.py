@@ -392,6 +392,13 @@ def _collapse_legacy_false_color(img: np.ndarray, path: pathlib.Path) -> np.ndar
 # range (32768-65535); FIJI / ImageJ / Windows Preview ignore unknown tags.
 _TIFF_TAG_SIGNIFICANT_BITS = 65123
 
+# Private TIFF tag carrying the depth whose full scale is white in the stored
+# pixels, when that lies below the payload depth: a sum of 12-bit frames is
+# tagged 14 bits and shown against one frame's 4095. A tag rather than a
+# structured-metadata key because the OME container keeps only schema
+# attributes, and this has to survive every container.
+_TIFF_TAG_WHITE_BITS = 65124
+
 
 def read_tiff_significant_bits(path: pathlib.Path) -> int:
     """Meaningful payload bits recorded in a TIFF.
@@ -464,12 +471,23 @@ def _significant_bits_from_open(tif: 'tf.TiffFile') -> int:
     return tif.pages[0].dtype.itemsize * 8
 
 
+def _white_bits_from_open(tif: 'tf.TiffFile') -> int | None:
+    """The white a file states for its stored pixels, or None when it states none.
+
+    None is a file written before the white was recorded, or one whose values
+    were remapped; either renders at its payload depth, as convert_to_8bit
+    does by default.
+    """
+    tag = tif.pages[0].tags.get(_TIFF_TAG_WHITE_BITS)
+    return int(tag.value) if tag is not None else None
+
+
 def load_pixels(
     path: pathlib.Path,
     *,
     collapse_legacy_false_color: bool = True,
-) -> tuple[np.ndarray, int]:
-    """Load a saved frame's pixels together with their significant-bit depth.
+) -> tuple[np.ndarray, int, int | None]:
+    """Load a saved frame's pixels together with their significant-bit depth and white.
 
     The one sanctioned read for saved pixel data: it returns the array AND the
     meaningful payload depth in a single call, so a caller cannot obtain the
@@ -485,6 +503,11 @@ def load_pixels(
     legacy left-justified (SignificantBits=16), and 8-bit. Non-TIFF files
     (PNG / JPEG) carry no depth tag, so their container width is the depth.
 
+    The white is returned with them for the same reason: a sum is stored at the
+    bits it can reach and shown against one frame's white, so a caller that
+    renders it against its depth alone shows it about N times dimmer than it
+    was captured.
+
     Args:
         path: Path to a saved pixel file (TIFF, PNG, or JPEG).
         collapse_legacy_false_color: When True (the mono-uniform consumers --
@@ -496,28 +519,31 @@ def load_pixels(
             returned either way.
 
     Returns:
-        (image, significant_bits). image is the stored array with values
-        verbatim (right-aligned, dtype preserved); significant_bits is the
-        payload depth to hand to convert_to_8bit and the display path.
+        (image, significant_bits, white_bits). image is the stored array with
+        values verbatim (right-aligned, dtype preserved); significant_bits is
+        the payload depth to hand to convert_to_8bit and the display path;
+        white_bits is the depth whose full scale is white, for
+        convert_to_8bit's ``white_bits``, or None when the file states none
+        and renders at its depth.
 
     Raises:
         InputFramesUnusableError: ``'unreadable'``, the path does not exist
             or the file cannot be decoded as an image (a ValueError).
     """
-    image, sig, _ = _load_pixels_and_timestamp(
+    image, sig, white, _ = _load_pixels_and_timestamp(
         path,
         collapse_legacy_false_color=collapse_legacy_false_color,
         read_timestamp=False,
     )
-    return image, sig
+    return image, sig, white
 
 
 def load_pixels_with_timestamp(
     path: pathlib.Path,
     *,
     collapse_legacy_false_color: bool = True,
-) -> tuple[np.ndarray, int, 'datetime.datetime | None']:
-    """Load a frame's pixels, significant-bit depth, and capture time in one open.
+) -> tuple[np.ndarray, int, int | None, 'datetime.datetime | None']:
+    """Load a frame's pixels, significant-bit depth, white and capture time in one open.
 
     The video builder needs all three per frame: the pixels to encode, the depth
     to scale them to 8-bit, and the per-frame capture time for the optional
@@ -527,13 +553,13 @@ def load_pixels_with_timestamp(
     inputs (PNG / JPEG), which carry no per-frame timestamp metadata, the
     timestamp is None.
 
-    See load_pixels for the pixel + depth contract (the array and depth are
+    See load_pixels for the pixel + depth + white contract (the three are
     identical to what load_pixels returns) and read_frame_timestamp for the
     metadata shapes the timestamp is recovered from.
 
     Returns:
-        (image, significant_bits, timestamp). timestamp is None when the file
-        carries no readable per-frame capture time.
+        (image, significant_bits, white_bits, timestamp). timestamp is None
+        when the file carries no readable per-frame capture time.
     """
     return _load_pixels_and_timestamp(
         path,
@@ -547,7 +573,7 @@ def _load_pixels_and_timestamp(
     *,
     collapse_legacy_false_color: bool,
     read_timestamp: bool,
-) -> tuple[np.ndarray, int, 'datetime.datetime | None']:
+) -> tuple[np.ndarray, int, int | None, 'datetime.datetime | None']:
     """Shared loader behind load_pixels and load_pixels_with_timestamp.
 
     Keeps a single source of truth for the pixel + depth read so the two public
@@ -576,6 +602,7 @@ def _load_pixels_and_timestamp(
                 # ValueError) for an LZW strip that cannot be reshaped.
                 raise _unreadable(path, str(ex)) from ex
             sig = _significant_bits_from_open(tif)
+            white = _white_bits_from_open(tif)
             if read_timestamp:
                 try:
                     timestamp = _timestamp_from_structured(_structured_metadata(tif))
@@ -588,10 +615,10 @@ def _load_pixels_and_timestamp(
         # (depth + whether a false-color file collapsed to mono) when diagnosing.
         logger.debug(
             f'[ImageLoad tiff] {path.name} dtype={image.dtype} shape={image.shape} '
-            f'color={is_color_image(image)} significant_bits={sig} '
+            f'color={is_color_image(image)} significant_bits={sig} white_bits={white} '
             f'collapse={collapse_legacy_false_color}'
         )
-        return image, sig, timestamp
+        return image, sig, white, timestamp
 
     # Non-TIFF (PNG / JPEG): no depth carrier, so the container width is the
     # depth, and no per-frame timestamp metadata to recover. cv2 returns color
@@ -606,7 +633,7 @@ def _load_pixels_and_timestamp(
         f'color={is_color_image(image)} significant_bits={sig} '
         f'collapse={collapse_legacy_false_color}'
     )
-    return image, sig, None
+    return image, sig, None, None
 
 
 def read_image_geometry(path: pathlib.Path) -> tuple[tuple[int, ...], np.dtype]:
@@ -640,7 +667,7 @@ def read_image_geometry(path: pathlib.Path) -> tuple[tuple[int, ...], np.dtype]:
         with _open_saved_tiff(path) as tif:
             page = tif.pages[0]
             return tuple(page.shape), page.dtype
-    image, _ = load_pixels(path, collapse_legacy_false_color=False)
+    image, _, _ = load_pixels(path, collapse_legacy_false_color=False)
     return image.shape, image.dtype
 
 
@@ -675,6 +702,27 @@ def resolve_output_depth(input_depths) -> int:
             f'{sorted(depths)}; tagging the output as {max(depths)}-bit.'
         )
     return max(depths)
+
+
+def resolve_output_white(inputs: Iterable[tuple[int, int | None]]) -> int | None:
+    """The white a derived output that keeps its inputs' values should state.
+
+    A stitch or a projection copies its inputs' pixel values, so it is shown
+    against the white they were shown against; an input that states none is
+    shown at its depth, so that depth is its white. Inputs whose whites differ
+    give the output no single white to state, and it then renders at its depth.
+
+    Args:
+        inputs: (significant_bits, white_bits) for each input, as load_pixels
+            returned them.
+
+    Raises:
+        ValueError: No inputs were supplied (no inputs were loaded).
+    """
+    whites = {depth if white is None else white for depth, white in inputs}
+    if not whites:
+        raise ValueError('resolve_output_white needs at least one input')
+    return whites.pop() if len(whites) == 1 else None
 
 
 def summed_significant_bits(frames_summed: int, frame_bits: int) -> int:
@@ -2067,11 +2115,22 @@ def write_tiff(
     color: Color,
     significant_bits: int,
     save_encoding: str,
+    white_bits: int | None,
     video_frame: bool = False,
     extratags: list | None = None,
     false_color_buf: np.ndarray | None = None,
     rgb_buf: np.ndarray | None = None,
 ) -> None:
+    # The white travels with the depth, for the same reason: a sum is tagged at
+    # the bits it can reach and shown against one frame's white, and a file
+    # that drops the white reopens about N times dimmer than it was taken.
+    # Required, None for a file whose values were remapped (a composite, an
+    # enhanced or feature-stitched image) and so are shown at their depth.
+    if white_bits is not None and white_bits > significant_bits:
+        raise ValueError(
+            f'white at {white_bits} bits lies above the {significant_bits}-bit payload it describes'
+        )
+
     # Depth travels with the pixels. A uint16 frame stored right-aligned
     # (0..4095 for a 12-bit sensor) is bit-identical to a dark 16-bit image, so
     # a write that does not state its significant-bit depth cannot label the
@@ -2096,6 +2155,9 @@ def write_tiff(
     # the depth tag, not a shift, carries their scale.
     if encoding_fills_container_dtype(save_encoding, data.dtype, is_color_image(data)):
         data, sig = _msb_align_to_container(data, metadata['significant_bits'])
+        # The white moves with the pixels it describes.
+        if white_bits is not None:
+            white_bits += sig - metadata['significant_bits']
         metadata = {**metadata, 'significant_bits': sig}
 
     use_false_color_16bit = save_encoding == image_mode.SAVE_ENCODING_RGB
@@ -2148,7 +2210,7 @@ def write_tiff(
     image_type = _validate_type()
 
     support_data = generate_tiff_data(
-        data=data, metadata=metadata, image_type=image_type, color=color
+        data=data, metadata=metadata, image_type=image_type, color=color, white_bits=white_bits
     )
 
     with _written_whole(file_loc) as tmp_loc, tf.TiffWriter(str(tmp_loc), **kwargs) as tif:
@@ -2214,6 +2276,8 @@ def generate_tiff_data(
     metadata: dict,
     image_type: str,
     color: Color,
+    *,
+    white_bits: int | None,
 ) -> dict:
 
     axes = 'YX'
@@ -2259,9 +2323,7 @@ def generate_tiff_data(
             # metadata is otherwise passed through untouched, so this tag is the
             # only depth carrier these files get; without it a right-aligned
             # narrow frame reads back as full container width (~16x dark).
-            'extratags': [
-                (_TIFF_TAG_SIGNIFICANT_BITS, 3, 1, int(metadata['significant_bits']), True)
-            ],
+            'extratags': _depth_extratags(metadata['significant_bits'], white_bits),
             'options': options,
             'resolution': (
                 resolution_for_pixel_size(pixel_size_um) if pixel_size_um is not None else None
@@ -2450,6 +2512,14 @@ def generate_tiff_data(
     # ImageJ adds unit, channel modality, LUT, and document block
     if image_type == 'imagej':
         tiff_metadata['unit'] = 'um'
+        # The display range Fiji opens the file at: the white LVP shows it
+        # against. A file that states none is stretched by Fiji to its own
+        # darkest and brightest pixel, which LVP never does, so a dim frame
+        # opened there looked brighter than it was taken.
+        tiff_metadata['min'] = 0
+        tiff_metadata['max'] = (
+            1 << (metadata['significant_bits'] if white_bits is None else white_bits)
+        ) - 1
         # Modality states WHAT was imaged, so it is derived from the acquiring
         # channel -- the same value Channel.Name carries. Deriving it from the
         # render color instead made a false-color-off fluorescence frame record
@@ -2529,13 +2599,23 @@ def generate_tiff_data(
     # outputs (which have no OME-XML) recover it on read-back; OME files get it
     # too, harmlessly, and the reader prefers their OME-XML value. SHORT (type
     # 3), one value, written to the first page only.
-    significant_bits = metadata['significant_bits']
     return {
         'metadata': tiff_metadata,
-        'extratags': [(_TIFF_TAG_SIGNIFICANT_BITS, 3, 1, int(significant_bits), True)],
+        'extratags': _depth_extratags(metadata['significant_bits'], white_bits),
         'options': options,
         'resolution': resolution,
     }
+
+
+def _depth_extratags(significant_bits: int, white_bits: int | None) -> list[tuple]:
+    """The private tags stating a file's depth and, when it states one, its white.
+
+    SHORT (type 3), one value each, on the first page only.
+    """
+    tags = [(_TIFF_TAG_SIGNIFICANT_BITS, 3, 1, int(significant_bits), True)]
+    if white_bits is not None:
+        tags.append((_TIFF_TAG_WHITE_BITS, 3, 1, int(white_bits), True))
+    return tags
 
 
 def ms_exposure_to_rational(ms_exposure):

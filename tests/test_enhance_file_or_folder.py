@@ -48,6 +48,7 @@ def _write_source(path):
         color=release_color('BF'),
         significant_bits=8,
         save_encoding='right_aligned',
+        white_bits=None,
     )
 
 

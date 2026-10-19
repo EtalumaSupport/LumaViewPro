@@ -282,6 +282,10 @@ def read_cell_count_image(path: str | os.PathLike) -> tuple[np.ndarray, int]:
     right-aligned 12-bit TIFF scales to 8-bit by its true depth and the two
     can never be read out of sync.
 
+    The file's white is not returned: a count is measured against the depth,
+    so a summed file is counted on the scale its values reach, not clipped
+    at one frame's white.
+
     Raises:
         LiveFolderPathRefusedError: ``'not_found'``, nothing is at ``path``;
             ``'not_a_file'``, a folder is.
@@ -290,7 +294,8 @@ def read_cell_count_image(path: str | os.PathLike) -> tuple[np.ndarray, int]:
     """
     path = path_utils.existing_file(path)
     try:
-        return image_utils.load_pixels(path)
+        image, significant_bits, _ = image_utils.load_pixels(path)
+        return image, significant_bits
     except (FileNotFoundError, ValueError) as e:
         raise PostProcessingRefusedError(
             operation=CELL_COUNT_OPERATION,
