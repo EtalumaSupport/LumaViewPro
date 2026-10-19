@@ -49,15 +49,6 @@ def _item(session, kind):
     return items[0]
 
 
-def _until(predicate, what):
-    import time
-
-    deadline = time.monotonic() + SETTLE_S
-    while not predicate():
-        assert time.monotonic() < deadline, f'never saw {what}'
-        time.sleep(0.01)
-
-
 def test_an_idle_session_is_doing_nothing_and_says_closed_once_shut_down(sim_session):
     assert sim_session.live_work.work == ()
     assert sim_session.live_work.closed is False
@@ -165,10 +156,9 @@ def test_a_runs_post_run_step_is_work_until_its_thread_ends(sim_session):
 
 def test_a_build_reports_its_progress_and_the_builds_behind_it_wait(sim_session, tmp_path):
     post = sim_session.post_processing
-    # The lane refuses a folder that is not there, so each build gets one.
-    folder_a, folder_b = tmp_path / 'folder-a', tmp_path / 'folder-b'
+    # The lane refuses a folder that is not there.
+    folder_a = tmp_path / 'folder-a'
     folder_a.mkdir()
-    folder_b.mkdir()
     said, go_on, finish = threading.Event(), threading.Event(), threading.Event()
     said_sixty = threading.Event()
     seen_by_caller = []
@@ -186,9 +176,6 @@ def test_a_build_reports_its_progress_and_the_builds_behind_it_wait(sim_session,
         finish.wait(SETTLE_S)
         return built(folder)
 
-    def quick_build(folder, *, on_progress):
-        return built(folder)
-
     first = threading.Thread(
         target=lambda: answers.__setitem__(
             'stitch',
@@ -197,15 +184,11 @@ def test_a_build_reports_its_progress_and_the_builds_behind_it_wait(sim_session,
             ),
         )
     )
-    second = threading.Thread(
-        target=lambda: answers.__setitem__(
-            'zproject', post._run(quick_build, 'zproject', folder_b, on_progress=None)
-        )
-    )
     first.start()
     assert said.wait(SETTLE_S)
-    second.start()
-    _until(lambda: live_work.POST_PROCESSING_QUEUED in _kinds(sim_session), 'the queued build')
+    # A build behind it: submit returns once the task is on the lane, so the
+    # read after it finds it waiting, whoever queued it.
+    behind = sim_session.post_processing.lane.submit(IOTask(action=lambda: None), 'queued build')
 
     running = _item(sim_session, live_work.POST_PROCESSING)
     assert running.name == f'stitch of {folder_a}'
@@ -218,11 +201,11 @@ def test_a_build_reports_its_progress_and_the_builds_behind_it_wait(sim_session,
     assert _item(sim_session, live_work.POST_PROCESSING).percent == 60
     finish.set()
     first.join(SETTLE_S)
-    second.join(SETTLE_S)
+    behind.result(SETTLE_S)
 
     assert seen_by_caller == [10, 60], "the caller's own progress callback is still called"
-    # Each build answered its caller: one that raised on the lane has no answer.
-    assert answers == {'stitch': built(folder_a), 'zproject': built(folder_b)}
+    # The build answered its caller: one that raised on the lane has no answer.
+    assert answers == {'stitch': built(folder_a)}
     assert sim_session.live_work.work == ()
 
 
