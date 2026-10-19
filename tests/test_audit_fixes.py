@@ -8726,19 +8726,6 @@ class TestAutoGainArmedInScanIterate:
             'AG-step capture must not drive manual gain/exposure either'
         )
 
-    def test_capture_applies_settings_for_manual_step(self):
-        """Control: a non-AG step applies its gain and exposure in one
-        apply, with auto-gain off and no auto-gain settings, so the
-        auto-gain mode is not written."""
-        camera = self._drive_capture(auto_gain=False)
-        camera.apply.assert_called_once()
-        kwargs = camera.apply.call_args.kwargs
-        assert (kwargs['gain_db'], kwargs['exposure_ms']) == (2.0, 10.0)
-        assert kwargs['auto_gain'] is False and kwargs['auto_gain_settings'] is None
-        assert not camera.set_gain_db.called and not camera.set_exposure_ms.called, (
-            "the manual step's writes go through the one apply, not the raw setters"
-        )
-
     def test_arm_block_returns_after_arming(self):
         """The arm tick must NOT capture -- the next scan_iterate tick
         falls through to capture, where the auto_gain settle drain runs

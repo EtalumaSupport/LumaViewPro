@@ -13,6 +13,10 @@ and no image. Three in a row end the run, naming the last cause. Only the
 arm stops an Auto_Gain step: its starting gain or exposure only seeds what
 auto-gain then chooses, so one not taken is told and the step captures.
 
+A manual step's gain and exposure reach the camera through one batched
+apply that carries no auto-gain settings, so the auto-gain mode is not
+written for it at all.
+
 Driven end to end on the simulated scope; each refusal is the simulator's
 own fault on the node, met by the first write of that node the run makes,
 which in a run with no live-view arm is its first step's.
@@ -20,6 +24,7 @@ which in a run with no live-view arm is its first step's.
 
 import pathlib
 
+from modules.image_utils import read_postproc_input_metadata
 from modules.notification_center import Severity
 
 from tests.test_a_late_write_records_its_frame import _protocol, _step
@@ -58,6 +63,26 @@ def test_a_manual_step_whose_exposure_was_not_taken_is_not_captured(tmp_path):
     assert failed.cause.startswith('The camera rejected the exposure change to 10 ms.'), failed
     images = _images(tmp_path / 'runs')
     assert len(images) == 1 and 'C1' in images[0], images
+
+
+def test_a_manual_step_writes_its_gain_and_exposure_and_no_auto_gain_mode(tmp_path):
+    """A manual step's gain and exposure go through the one batched apply,
+    with no auto-gain settings, so the auto-gain mode is never written: an
+    auto-gain node that refuses every write fails no manual step."""
+    with open_composite_session(headless_settings(tmp_path)) as (session, runner):
+        session.scope.simulation.refuse_camera_write('auto_gain', 'raise', count=10)
+        outcome = _run(
+            runner,
+            tmp_path / 'runs',
+            [_step('C0', 0, x=20.0, gain=3.0), _step('C1', 1, x=30.0, gain=5.0)],
+        )
+
+    assert (outcome.status, outcome.captures.captured) == ('completed', 2), outcome
+    taken = {}
+    for path in (tmp_path / 'runs').rglob('*.tiff'):
+        metadata = read_postproc_input_metadata(path) or {}
+        taken[path.name.split('_')[0]] = (metadata.get('gain_db'), metadata.get('exposure_time_ms'))
+    assert taken == {'C0': (3.0, 10.0), 'C1': (5.0, 10.0)}
 
 
 def test_an_auto_gain_step_whose_arm_was_refused_is_not_captured(tmp_path):
