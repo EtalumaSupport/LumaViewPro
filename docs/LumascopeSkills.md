@@ -1075,14 +1075,21 @@ pp.enhance(target)                           # Quick Enhance: one image, or ever
                                              # is a file that is not an image
 pp.count_cells(folder, method=method_dict)   # writes results.csv into the folder
 
+from modules.post_processing_api import ZProject, Stitch, Video
+pp.build(folder, zproject=ZProject(method='Max'),  # several builds in one call, in the
+         stitch=Stitch(mode='quality'),            # order that keeps the data honest
+         composite=True, video=Video())
+
 def on_progress(percent, text):              # optional on every member: percent done, and a
     print(percent, text)                     # status line or None; called on the build's thread
 pp.stitch(folder, on_progress=on_progress)
 ```
 
-Each member blocks until its build finishes and returns a published record whose `message` says what was made, in words written for a person: `stitch`, `zproject`, `composite` and `video` return a `BuildResult` -- `new_count`, the files made; `output_root`, the folder; `artifact_paths`, each file made, where it landed; `degraded_outputs`, a `DegradedOutput(path, algorithm, fallback_from, fallback_reason)` for each file a fallback algorithm made -- a video built from a manual recording names its file as a protocol folder's build does; `excluded_inputs`, an `ExcludedInput(kind, count)` for each kind of file in the folder the build did not take -- a stitch takes no composites, because a stitched composite is built by Composite from the stitched channels, so stitch first and run Composite on the folder after; a build's own earlier outputs are not among them, and the message names the same files with that route; `enhance` returns an `EnhanceResult` -- `output_folder`, and `created`, an `EnhancedFile(source_path, output_path, recipe_path)` for each derived file; `count_cells` returns a `CellCountResult` -- `results_path` and `counted`, the images counted. Every path in them is a `pathlib.Path`. A folder that is not there, or a file given as the folder, is refused as any path is (`LiveFolderPathRefusedError`, `not_found` or `not_a_folder`), asked on the build's lane when the build starts. It raises `PostProcessingRefusedError` (`modules.exceptions`) when the folder is there and cannot yield the output (no images, no groups the build can combine, or a setting it cannot use: an unknown stitch mode or projection method, a playback rate below 1). A build stays inside the folder it was given: a run record that is malformed, or that names its protocol outside the run folder, or a run protocol with a step cell that is neither blank nor its column's type, is refused as `protocol_data_unreadable`, its message saying which; a post-processing record the build cannot read is moved aside as `protocol_post_record.tsv.unreadable` (`.unreadable_001` and on when that name is taken, so no earlier copy is replaced) and a new record is started; a protocol whose steps would name an output outside the folder is refused as `output_outside_folder` before any output is written. A group whose images cannot be used -- a frame that is missing or will not decode (a write cut short), frames of different sizes, or pixel types that cannot share one output -- is not built and leaves no file behind, and the build goes on with the other groups; so is a video none of whose frames could be read. So is a group missing a frame its run recorded -- one deleted from the folder since, or a capture that failed during the run -- named with the frame and why: a group is built from every frame its run recorded or not at all. So is a group missing a derived image the folder's post-processing record names -- a projection deleted since it was made -- named with the image and the build that makes it again; a group every one of whose derived images is gone was removed, not damaged: it is not built, the message names it ("2 group(s) not built: their Z-Projection images were removed from the folder"), and the build is complete. A group spanning scans (a stills hyperstack, a timelapse video, and the run-end hyperstack) is not built for one missing scan; its frames stay on disk. A frame the run recorded for a group the build would not have combined (one image) fails nothing. It raises `PostProcessingFailedError` when the build did not produce everything asked of it, its message naming each group it could not build and why; its `produced_paths` lists what was written, and its `excluded_inputs` what the build did not take, as a complete build's result does. A cell count refuses a folder with nothing it could read before touching `results.csv`, and replaces an existing `results.csv` only with a complete new one.
+Each member blocks until its build finishes and returns a published record whose `message` says what was made, in words written for a person: `stitch`, `zproject`, `composite` and `video` return a `BuildResult` -- `new_count`, the files made; `output_root`, the folder; `artifact_paths`, each file made, where it landed; `degraded_outputs`, a `DegradedOutput(path, algorithm, fallback_from, fallback_reason)` for each file a fallback algorithm made -- a video built from a manual recording names its file as a protocol folder's build does; `excluded_inputs`, an `ExcludedInput(kind, count)` for each kind of file in the folder the build did not take -- a stitch takes no composites, because a stitched composite is built by Composite from the stitched channels, so stitch first and run Composite on the folder after, or both in one call with `build`; a build's own earlier outputs are not among them, and the message names the same files with that route; `enhance` returns an `EnhanceResult` -- `output_folder`, and `created`, an `EnhancedFile(source_path, output_path, recipe_path)` for each derived file; `count_cells` returns a `CellCountResult` -- `results_path` and `counted`, the images counted. Every path in them is a `pathlib.Path`. A folder that is not there, or a file given as the folder, is refused as any path is (`LiveFolderPathRefusedError`, `not_found` or `not_a_folder`), asked on the build's lane when the build starts. It raises `PostProcessingRefusedError` (`modules.exceptions`) when the folder is there and cannot yield the output (no images, no groups the build can combine, or a setting it cannot use: an unknown stitch mode or projection method, a playback rate below 1). A build stays inside the folder it was given: a run record that is malformed, or that names its protocol outside the run folder, or a run protocol with a step cell that is neither blank nor its column's type, is refused as `protocol_data_unreadable`, its message saying which; a post-processing record the build cannot read is moved aside as `protocol_post_record.tsv.unreadable` (`.unreadable_001` and on when that name is taken, so no earlier copy is replaced) and a new record is started; a protocol whose steps would name an output outside the folder is refused as `output_outside_folder` before any output is written. A group whose images cannot be used -- a frame that is missing or will not decode (a write cut short), frames of different sizes, or pixel types that cannot share one output -- is not built and leaves no file behind, and the build goes on with the other groups; so is a video none of whose frames could be read. So is a group missing a frame its run recorded -- one deleted from the folder since, or a capture that failed during the run -- named with the frame and why: a group is built from every frame its run recorded or not at all. So is a group missing a derived image the folder's post-processing record names -- a projection deleted since it was made -- named with the image and the build that makes it again; a group every one of whose derived images is gone was removed, not damaged: it is not built, the message names it ("2 group(s) not built: their Z-Projection images were removed from the folder"), and the build is complete. A group spanning scans (a stills hyperstack, a timelapse video, and the run-end hyperstack) is not built for one missing scan; its frames stay on disk. A frame the run recorded for a group the build would not have combined (one image) fails nothing. It raises `PostProcessingFailedError` when the build did not produce everything asked of it, its message naming each group it could not build and why; its `produced_paths` lists what was written, and its `excluded_inputs` what the build did not take, as a complete build's result does. A cell count refuses a folder with nothing it could read before touching `results.csv`, and replaces an existing `results.csv` only with a complete new one.
 
 A derived file's name says how it was made, oldest build first: a stitch of Max projections is `..._zproj_max_stitched.tiff`, a Max projection of Fast Preview mosaics `..._stitched_FastPreview_zproj_max.tiff`. A composite's name, and a video's, ends in a short code of the settings that decided its pixels (a composite's format and each channel's colour and blend threshold; a video's frame rate, timestamp overlay and colour), so a rebuild with new settings makes a new file beside the old one, and a rebuild with the same settings makes nothing new, unless the file was deleted since: an output the record names and the folder lacks is built again. A folder holding two derivations of the same images (Max and Sum projections of one stack, Quality and Fast Preview mosaics of one scan) builds from each on its own: a stitch makes a mosaic of each projection, never one of both. A group that still holds two images for one place -- one tile position in a stitch, one slice in a projection, one scan in a timelapse video, one plane in a composite or a hyperstack -- is not built: the build fails that group, its message naming the files and why (two acquisitions, where steps Added together make one output, or two derivations an earlier release made without recording how, to be built again with this release), and builds the rest. The folder's `protocol_post_record.tsv` (version 4) keeps each derived file's `Derivation`: its builds in order with every setting, `ZProject(method=max)>Stitched(mode=quality)`. A record an earlier release wrote is read with each setting unknown (`ZProject(?)`), and an output built from one carries the bare token (`..._zproj_stitched.tiff`); a release from before version 4 sets a version-4 record aside as unreadable.
+
+`build` runs the builds whose settings records it is given -- `ZProject(method)`, `Stitch(mode)`, `Video(frames_per_sec, timestamp_overlay)`, each defaulting as its own member does, and `composite=True`, a composite having no settings of its own; one left None is not run -- in the one order that keeps the data honest: z-project, stitch, composite, video. A projection is made of raw slices, never of mosaics, and a stitched composite from the stitched channels, never by stitching composites. Each build takes only what the build before it in the call carried forward -- what that build made, and the images it did not consume, such as an ordinary Add step's images beside a tiled stack -- so the call makes the chain's product and its inputs, not every combination the folder allows: z-project, stitch and composite of a 2x2 tiled, 3-slice, 2-channel scan make 8 projections, 2 stitched projections and 1 composite, where the three members run one by one make 36 files. An image already in the folder from an earlier build is not the chain's input. Every chosen build's settings are checked before any build starts (`invalid_setting`, the build's `operation` named; a call that chooses no build is refused with `operation` `Post-Processing`), and the call runs as one task on the post-processing lane, so no other build touches the folder between its steps; `work()` names the build it is on ("Building 2 of 3: Stitch"). It returns a `BuildsResult`: `built`, a `BuildStep(operation, result)` for each build run in order, its `result` the `BuildResult` that build's own member returns; `skipped`, a `SkippedBuild(operation, message)` for each build that had nothing to do in the folder (a video on a single-scan run, the build's own `no_data`), the next build taking what the skipped one was given; and `message`. Any other refusal or failure stops the call and is raised as that build's own outcome, unchanged, its `operation` naming it; the files the earlier builds made are in the folder and its record, and the same call made again rebuilds nothing already made and resumes at the build that stopped once its cause is gone. One that does not go -- a raw slice missing, which fails its projection every time -- stops the call there on every run: build that folder with the members one by one. A folder of a manual recording takes `video` alone.
 
 A cell-count method is a dict; start from `modules.post_processing.default_cell_count_method()` (a new copy on every call; the method LumaViewPro's panel starts from) and change what you need:
 
@@ -3432,6 +3439,7 @@ Reached through `session.scope.layer_identity`.
 
 Reached through `session.post_processing`.
 
+- `build`
 - `composite`
 - `count_cells`
 - `draw_graph` (in-process)
@@ -3632,6 +3640,21 @@ Reached through returned by `session.post_processing.stitch`, `zproject`, `compo
 - `message`
 - `new_count`
 - `output_root`
+
+### BuildStep
+
+Reached through each item of `BuildsResult.built`.
+
+- `operation`
+- `result`
+
+### BuildsResult
+
+Reached through returned by `session.post_processing.build`.
+
+- `built`
+- `message`
+- `skipped`
 
 ### CameraChanged
 
@@ -4114,6 +4137,13 @@ Reached through `session.shown_channel`, returned by `session.show_channel` and 
 - `layer`
 - `lit`
 
+### SkippedBuild
+
+Reached through each item of `BuildsResult.skipped`.
+
+- `message`
+- `operation`
+
 ### StageOffset
 
 Reached through returned by `session.scope.runtime_state.get_stage_offset`.
@@ -4151,6 +4181,12 @@ Reached through returned by `scope.protocols.step_targets`.
 - `x`
 - `y`
 - `z`
+
+### Stitch
+
+Taken by `session.post_processing.build`.
+
+- `mode`
 
 ### TakenCapture
 
@@ -4227,6 +4263,13 @@ Reached through returned by `session.scope.diagnostics.get_camera_usb_bindings`.
 - `needs`
 - `usable`
 
+### Video
+
+Taken by `session.post_processing.build`.
+
+- `frames_per_sec`
+- `timestamp_overlay`
+
 ### VideoProgress
 
 Reached through delivered to `RunEvents.video_progress`'s handler.
@@ -4265,6 +4308,12 @@ Reached through `LiveWork.work`.
 - `left`
 - `name`
 - `percent`
+
+### ZProject
+
+Taken by `session.post_processing.build`.
+
+- `method`
 
 ## Appendix A: Internal serial-protocol interfaces (firmware tooling only)
 

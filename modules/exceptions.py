@@ -1930,6 +1930,8 @@ class PostProcessingOperation(StrEnum):
     GRAPHING = 'Graphing'
     TRENDLINE = 'Trendline'
     QUICK_ENHANCE = 'Quick Enhance'
+    # Several builds in one call (PostProcessingAPI.build), for its own refusals.
+    POST_PROCESSING = 'Post-Processing'
 
 
 class PostProcessingRefusedError(Refusal, CaptureError):

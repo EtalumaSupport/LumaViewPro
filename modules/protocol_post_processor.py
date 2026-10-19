@@ -4,6 +4,7 @@ import abc
 import datetime
 import pathlib
 import time
+from collections.abc import Callable
 
 import pandas as pd
 
@@ -333,6 +334,7 @@ class ProtocolPostProcessor(abc.ABC):
         path: str | pathlib.Path,
         tiling_configs_file_loc: pathlib.Path,
         on_progress: ProgressCallback | None = None,
+        select: Callable[[pd.DataFrame], pd.Series] | None = None,
         **kwargs: dict,
     ) -> dict:
         """Run this operation over a captured folder; return the complete result.
@@ -344,6 +346,14 @@ class ProtocolPostProcessor(abc.ABC):
         never posts, because only the caller knows whether someone is
         waiting on it.
 
+        Args:
+            select: Which of the folder's rows this build takes, for a build
+                in a chain (``PostProcessingAPI.build``); None takes every
+                row. A chained build's answer says what it carries forward
+                (``carried_forward``): its input with the rows it consumed
+                replaced by what it made from them. A row its own filter
+                drops is carried, not left out.
+
         Raises:
             PostProcessingRefusedError: The folder cannot yield this output.
             PostProcessingFailedError: The build did not produce everything
@@ -353,6 +363,7 @@ class ProtocolPostProcessor(abc.ABC):
             path=path,
             tiling_configs_file_loc=tiling_configs_file_loc,
             on_progress=on_progress,
+            select=select,
             **kwargs,
         )
 
@@ -430,6 +441,7 @@ class ProtocolPostProcessor(abc.ABC):
         path: str | pathlib.Path,
         tiling_configs_file_loc: pathlib.Path,
         on_progress: ProgressCallback | None = None,
+        select: Callable[[pd.DataFrame], pd.Series] | None = None,
         **kwargs: dict,
     ) -> dict:
         start_ts = datetime.datetime.now()
@@ -455,6 +467,11 @@ class ProtocolPostProcessor(abc.ABC):
                 'No image files were found in the selected folder. '
                 'Check that the folder contains captured scan images.',
             )
+        if select is not None:
+            # A chained build takes only what the build before it carried
+            # forward; the rest of the folder is not its input, so not an
+            # input it left out either.
+            df = df[select(df)]
 
         # Composite, stitch, and z-projection re-read the source frames via
         # tifffile, which cannot decode JPG. A scan saved as JPG has no
@@ -512,6 +529,15 @@ class ProtocolPostProcessor(abc.ABC):
         gone = _missing(dropped_rows)
         if gone.any():
             dropped_rows = dropped_rows[~(gone & _derived(dropped_rows))]
+        # What a chained build carries forward: every input row it does not
+        # consume (its filter's drops, a single-image group's, ...), and in
+        # place of each group it consumes, that group's output.
+        carried = set(pre_filter_df['Filepath'])
+        if select is not None:
+            # A row a chained build's filter drops goes on to the next build
+            # (a recording's frames, which only video takes): carried, not
+            # left out.
+            dropped_rows = dropped_rows.iloc[0:0]
         for _, dropped in dropped_rows.iterrows():
             if dropped[own_flag]:
                 already_made += 1
@@ -605,6 +631,7 @@ class ProtocolPostProcessor(abc.ABC):
             # is named too.
             if _removed(group):
                 removed_groups.append(_made_by(group.iloc[0]['Derivation']))
+                carried -= set(group['Filepath'])
                 logger.info(
                     f'[{self._name} ] Not building from {group.iloc[0]["Filepath"]} and the '
                     f'{len(group) - 1} other image(s) of its group: all removed from the folder.'
@@ -658,6 +685,8 @@ class ProtocolPostProcessor(abc.ABC):
                 existing_count += (
                     1  # Count this so we don't error out if no other matches are found
                 )
+                carried -= set(group['Filepath'])
+                carried.add(output_file_loc_rel)
                 continue
 
             doubled = self._two_images_in_one_place(group)
@@ -752,6 +781,8 @@ class ProtocolPostProcessor(abc.ABC):
             # Recorded after the relocation resolve above, so the path names
             # the file that actually exists rather than the one requested.
             artifact_paths.append(str(root_path / output_file_loc_rel))
+            carried -= set(group['Filepath'])
+            carried.add(output_file_loc_rel)
 
             new_count += 1
             current_group += 1
@@ -885,6 +916,7 @@ class ProtocolPostProcessor(abc.ABC):
                 'new_count': new_count,
                 'output_root': str(root_path),
                 'artifact_paths': artifact_paths,
+                'carried_forward': frozenset(carried),
                 'accounting_note': accounting_note,
                 'excluded_inputs': excluded_inputs,
             }
@@ -894,6 +926,7 @@ class ProtocolPostProcessor(abc.ABC):
             'new_count': new_count,
             'output_root': str(root_path),
             'artifact_paths': artifact_paths,
+            'carried_forward': frozenset(carried),
             'accounting_note': accounting_note,
             'excluded_inputs': excluded_inputs,
         }

@@ -48,6 +48,7 @@ from modules.api_surface import FilePath, api, api_fields
 
 if TYPE_CHECKING:
     import numpy as np
+    import pandas as pd
 
     from modules.api_surface import ProgressCallback
     from modules.layer_record import ChannelColors
@@ -171,6 +172,99 @@ class GraphResult:
 
     message: str
     path: pathlib.Path
+
+
+@api_fields('method')
+@dataclasses.dataclass(frozen=True)
+class ZProject:
+    """A z-projection, as ``build`` takes it: each Z-stack to one image.
+
+    Attributes:
+        method: One of ``ZProjector.methods()``.
+    """
+
+    method: str = 'Max'
+
+
+@api_fields('mode')
+@dataclasses.dataclass(frozen=True)
+class Stitch:
+    """A stitch, as ``build`` takes it: each tiled scan to one mosaic.
+
+    Attributes:
+        mode: ``'quality'`` or ``'fast_preview'``.
+    """
+
+    mode: str = 'quality'
+
+
+@api_fields('frames_per_sec', 'timestamp_overlay')
+@dataclasses.dataclass(frozen=True)
+class Video:
+    """A video, as ``build`` takes it: each position's time series to one video.
+
+    Attributes:
+        frames_per_sec: The playback rate, a number of at least 1 or its
+            text; None plays a recording at its own measured rate.
+        timestamp_overlay: Whether each frame shows its time.
+    """
+
+    frames_per_sec: float | str | None = None
+    timestamp_overlay: bool = False
+
+
+@api_fields('operation', 'result')
+@dataclasses.dataclass(frozen=True)
+class BuildStep:
+    """One build ``build`` ran, and what it made.
+
+    Attributes:
+        operation: The build.
+        result: What it made.
+    """
+
+    operation: PostProcessingOperation
+    result: BuildResult
+
+
+@api_fields('operation', 'message')
+@dataclasses.dataclass(frozen=True)
+class SkippedBuild:
+    """A build ``build`` was asked for that had nothing to do in the folder.
+
+    Attributes:
+        operation: The build.
+        message: Why, in the build's own words.
+    """
+
+    operation: PostProcessingOperation
+    message: str
+
+
+@api_fields('message', 'built', 'skipped')
+@dataclasses.dataclass(frozen=True)
+class BuildsResult:
+    """What ``build`` made.
+
+    Attributes:
+        message: Each build's outcome in words, in the order run.
+        built: Each build run and what it made, in the order run.
+        skipped: Each build that had nothing to do, and why.
+    """
+
+    message: str
+    built: tuple[BuildStep, ...]
+    skipped: tuple[SkippedBuild, ...]
+
+
+def _raw_rows(images: pd.DataFrame) -> pd.Series:
+    """The raw captures among a folder's images: a raw capture's derivation is empty."""
+    return images['Derivation'].astype(str) == ''
+
+
+def _rows_among(files: frozenset[pathlib.Path], images: pd.DataFrame) -> pd.Series:
+    """The images among *files*: what the build before carried forward."""
+    return images['Filepath'].isin(files)
 
 
 def _build_result(answer: dict) -> BuildResult:
@@ -354,7 +448,7 @@ class PostProcessingAPI:
         self,
         folder: FilePath,
         *,
-        mode: str = 'quality',
+        mode: str = Stitch.mode,
         on_progress: ProgressCallback | None = None,
     ) -> BuildResult:
         """Stitch each tiled scan in *folder* into one mosaic per group.
@@ -374,24 +468,11 @@ class PostProcessingAPI:
             PostProcessingFailedError: some groups could not be built; the
                 files that were are named.
         """
-        from modules.stitcher import Stitcher
-
-        modes = (Stitcher.QUALITY_MODE, Stitcher.FAST_PREVIEW_MODE)
-        if mode not in modes:
-            raise PostProcessingRefusedError(
-                operation=PostProcessingOperation.STITCH,
-                reason='invalid_setting',
-                message=f'{mode!r} is not a stitching mode; use one of {", ".join(modes)}.',
-            )
-        stitcher = Stitcher(has_turret=self._has_turret())
         return self._run(
-            _answering(_build_result, stitcher.load_folder),
+            _answering(_build_result, self._stitch_build(Stitch(mode=mode))),
             'stitch',
             pathlib.Path(folder),
-            tiling_configs_file_loc=self._tiling_configs_path(),
             on_progress=on_progress,
-            stitching_mode=mode,
-            channel_colors=self._channel_colors(),
         )
 
     @api
@@ -399,7 +480,7 @@ class PostProcessingAPI:
         self,
         folder: FilePath,
         *,
-        method: str,
+        method: str = ZProject.method,
         on_progress: ProgressCallback | None = None,
     ) -> BuildResult:
         """Project each Z-stack in *folder* to one image by *method*
@@ -417,26 +498,11 @@ class PostProcessingAPI:
             PostProcessingFailedError: some groups could not be built; the
                 files that were are named.
         """
-        from modules.zprojector import ZProjector
-
-        if method not in ZProjector.methods():
-            raise PostProcessingRefusedError(
-                operation=PostProcessingOperation.Z_PROJECTION,
-                reason='invalid_setting',
-                message=(
-                    f'{method!r} is not a projection method; use one of '
-                    f'{", ".join(ZProjector.methods())}.'
-                ),
-            )
-        zprojector = ZProjector(has_turret=self._has_turret())
         return self._run(
-            _answering(_build_result, zprojector.load_folder),
+            _answering(_build_result, self._zproject_build(ZProject(method=method))),
             'zproject',
             pathlib.Path(folder),
-            tiling_configs_file_loc=self._tiling_configs_path(),
             on_progress=on_progress,
-            method=method,
-            channel_colors=self._channel_colors(),
         )
 
     @api
@@ -463,20 +529,11 @@ class PostProcessingAPI:
             PostProcessingFailedError: some groups could not be built; the
                 files that were are named.
         """
-        import modules.config_helpers as config_helpers
-        from modules.composite_generation import CompositeGeneration
-
-        settings = self._settings_snapshot()
-        composite_gen = CompositeGeneration(has_turret=self._has_turret())
         return self._run(
-            _answering(_build_result, composite_gen.load_folder),
+            _answering(_build_result, self._composite_build()),
             'composite',
             pathlib.Path(folder),
-            tiling_configs_file_loc=self._tiling_configs_path(),
             on_progress=on_progress,
-            output_format=settings['image_output_format']['sequenced'],
-            brightness_thresholds_percent=config_helpers.get_composite_blend_thresholds(settings),
-            channel_colors=self._channel_colors(),
         )
 
     @api
@@ -484,8 +541,8 @@ class PostProcessingAPI:
         self,
         folder: FilePath,
         *,
-        frames_per_sec: float | str | None = None,
-        timestamp_overlay: bool = False,
+        frames_per_sec: float | str | None = Video.frames_per_sec,
+        timestamp_overlay: bool = Video.timestamp_overlay,
         on_progress: ProgressCallback | None = None,
     ) -> BuildResult:
         """Build video(s) from *folder*: a protocol scan's time series, or a
@@ -508,18 +565,198 @@ class PostProcessingAPI:
             PostProcessingFailedError: some groups could not be built; the
                 files that were are named.
         """
+        build = self._video_build(
+            Video(frames_per_sec=frames_per_sec, timestamp_overlay=timestamp_overlay)
+        )
+        return self._run(
+            _answering(_build_result, build), 'video', pathlib.Path(folder), on_progress=on_progress
+        )
+
+    @api
+    def build(
+        self,
+        folder: FilePath,
+        *,
+        zproject: ZProject | None = None,
+        stitch: Stitch | None = None,
+        composite: bool = False,
+        video: Video | None = None,
+        on_progress: ProgressCallback | None = None,
+    ) -> BuildsResult:
+        """Run the chosen builds over *folder* in one call, in the order that
+        keeps the data honest: z-project, stitch, composite, video.
+
+        A projection is made of raw slices, never of mosaics; a stitched
+        composite is made from the stitched channels, never by stitching
+        composites. Each build takes only what the build before it in this
+        call carried forward -- what that build made, and the images it did
+        not consume (an ordinary Add step's image beside a tiled stack) --
+        so the call makes the chain's product and its inputs, not every
+        combination the folder's images allow: z-project, stitch and
+        composite of a 2x2 tiled, 3-slice, 2-channel scan make 8
+        projections, 2 stitched projections and 1 composite, where the three
+        builds run one by one make 36 files. A build is chosen by passing its
+        settings record (*composite*, which has no settings of its own -- its
+        format and thresholds are the user's configuration -- by True); one
+        left None is not run. Every chosen build's
+        settings are checked before any build starts, and the call runs as
+        one task on the post-processing lane, so no other build touches the
+        folder between its steps. Each build alone (``stitch``,
+        ``zproject``, ``composite``, ``video``) is unchanged.
+
+        A build with nothing to do in the folder -- video on a single-scan
+        run -- is skipped and named in the answer, and the next build takes
+        what it was given. Any other refusal or failure stops the call and is
+        raised as that build's own outcome, unchanged; the files the earlier
+        builds made are in the folder and its record, and the same call made
+        again rebuilds nothing already made and resumes at the build that
+        stopped, once its cause is gone. One that does not go -- a raw slice
+        missing -- stops the call there every time; build that folder with
+        the members one by one.
+
+        Raises:
+            LiveFolderPathRefusedError: ``'not_found'``, nothing is at
+                *folder*; ``'not_a_folder'``, a file is.
+            PostProcessingRefusedError: reason ``invalid_setting``, no build
+                is chosen, or a chosen build's setting is one its own member
+                refuses, before anything is queued; or the refusal of the
+                build that stopped the call (its ``operation`` names it).
+            PostProcessingFailedError: the build that stopped the call did not
+                produce everything; its ``operation`` names it.
+        """
+        # Each chosen build made now, so every one's settings are checked
+        # before any is queued.
+        made = (
+            (PostProcessingOperation.Z_PROJECTION, zproject and self._zproject_build(zproject)),
+            (PostProcessingOperation.STITCH, stitch and self._stitch_build(stitch)),
+            (PostProcessingOperation.COMPOSITE, composite and self._composite_build()),
+            (PostProcessingOperation.VIDEO, video and self._video_build(video)),
+        )
+        chosen = [(operation, run) for operation, run in made if run]
+        if not chosen:
+            raise PostProcessingRefusedError(
+                operation=PostProcessingOperation.POST_PROCESSING,
+                reason='invalid_setting',
+                message='No build was chosen: pass the settings of at least one build.',
+            )
+        return self._run(
+            functools.partial(self._chain, folder=pathlib.Path(folder), chosen=chosen),
+            'build',
+            pathlib.Path(folder),
+            on_progress=on_progress,
+        )
+
+    def _chain(
+        self,
+        path: pathlib.Path,
+        *,
+        folder: pathlib.Path,
+        chosen: list[tuple[PostProcessingOperation, Callable[..., dict]]],
+        on_progress: ProgressCallback,
+    ) -> BuildsResult:
+        """The chosen builds, in order, on the lane task ``build`` submitted."""
+        built: list[BuildStep] = []
+        skipped: list[SkippedBuild] = []
+        # The first build takes the raw captures: a derived image already in
+        # the folder is no input of this chain's.
+        takes: Callable = _raw_rows
+        for index, (operation, run) in enumerate(chosen):
+            stage = f'Building {index + 1} of {len(chosen)}: {operation}'
+            self._name_running_build(f'{stage}, of {folder}')
+
+            def stage_progress(percent: float, detail: str | None = None, index=index, stage=stage):
+                said = stage if detail is None else f'{stage}\n{detail}'
+                on_progress((index + percent / 100) / len(chosen) * 100, said)
+
+            try:
+                answer = run(path, select=takes, on_progress=stage_progress)
+            except PostProcessingRefusedError as refused:
+                if refused.reason != 'no_data':
+                    raise
+                skipped.append(SkippedBuild(operation=operation, message=str(refused)))
+                continue
+            built.append(BuildStep(operation=operation, result=_build_result(answer)))
+            if index + 1 < len(chosen):
+                # Only a build another follows hands on what it carries: a
+                # video is last, and one of a manual recording reads no
+                # protocol folder to carry anything from.
+                takes = functools.partial(_rows_among, answer['carried_forward'])
+        said = [f'{step.operation}: {step.result.message}' for step in built]
+        said += [f'{step.operation}: skipped -- {step.message}' for step in skipped]
+        return BuildsResult(message=' '.join(said), built=tuple(built), skipped=tuple(skipped))
+
+    def _name_running_build(self, name: str) -> None:
+        """Rename the build the lane is running, for ``work`` to say."""
+        with self._builds_lock:
+            running = self.lane.running_task
+            if running in self._builds:
+                self._builds[running] = dataclasses.replace(self._builds[running], name=name)
+
+    def _stitch_build(self, settings: Stitch) -> Callable[..., dict]:
+        """The stitch of *settings*, its mode checked before anything is queued."""
+        from modules.stitcher import Stitcher
+
+        modes = (Stitcher.QUALITY_MODE, Stitcher.FAST_PREVIEW_MODE)
+        if settings.mode not in modes:
+            raise PostProcessingRefusedError(
+                operation=PostProcessingOperation.STITCH,
+                reason='invalid_setting',
+                message=f'{settings.mode!r} is not a stitching mode; use one of {", ".join(modes)}.',
+            )
+        return functools.partial(
+            Stitcher(has_turret=self._has_turret()).load_folder,
+            tiling_configs_file_loc=self._tiling_configs_path(),
+            stitching_mode=settings.mode,
+            channel_colors=self._channel_colors(),
+        )
+
+    def _zproject_build(self, settings: ZProject) -> Callable[..., dict]:
+        """The z-projection of *settings*, its method checked before anything is queued."""
+        from modules.zprojector import ZProjector
+
+        if settings.method not in ZProjector.methods():
+            raise PostProcessingRefusedError(
+                operation=PostProcessingOperation.Z_PROJECTION,
+                reason='invalid_setting',
+                message=(
+                    f'{settings.method!r} is not a projection method; use one of '
+                    f'{", ".join(ZProjector.methods())}.'
+                ),
+            )
+        return functools.partial(
+            ZProjector(has_turret=self._has_turret()).load_folder,
+            tiling_configs_file_loc=self._tiling_configs_path(),
+            method=settings.method,
+            channel_colors=self._channel_colors(),
+        )
+
+    def _composite_build(self) -> Callable[..., dict]:
+        """The composite, its format and thresholds read from the live settings now.
+
+        Nothing is checked here: the stored values are kept in range where
+        they are written and loaded.
+        """
+        import modules.config_helpers as config_helpers
+        from modules.composite_generation import CompositeGeneration
+
+        live = self._settings_snapshot()
+        return functools.partial(
+            CompositeGeneration(has_turret=self._has_turret()).load_folder,
+            tiling_configs_file_loc=self._tiling_configs_path(),
+            output_format=live['image_output_format']['sequenced'],
+            brightness_thresholds_percent=config_helpers.get_composite_blend_thresholds(live),
+            channel_colors=self._channel_colors(),
+        )
+
+    def _video_build(self, settings: Video) -> Callable[..., dict]:
+        """The video of *settings*, its rate checked before anything is queued."""
         from modules.video_builder import VideoBuilder
 
-        rate = self._playback_rate(frames_per_sec)
-        video_builder = VideoBuilder(has_turret=self._has_turret())
-        return self._run(
-            _answering(_build_result, video_builder.build_from_folder),
-            'video',
-            pathlib.Path(folder),
+        return functools.partial(
+            VideoBuilder(has_turret=self._has_turret()).build_from_folder,
             tiling_configs_file_loc=self._tiling_configs_path(),
-            on_progress=on_progress,
-            frames_per_sec=rate,
-            enable_timestamp_overlay=timestamp_overlay,
+            frames_per_sec=self._playback_rate(settings.frames_per_sec),
+            enable_timestamp_overlay=settings.timestamp_overlay,
             channel_colors=self._channel_colors(),
         )
 

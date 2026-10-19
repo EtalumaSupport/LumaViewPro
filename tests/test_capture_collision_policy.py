@@ -354,6 +354,11 @@ def test_post_processor_resume_skip_unaffected_by_collision_check(tmp_path, monk
         # Everything was already in the record, so nothing was produced this
         # run -- the empty list is the honest answer, not a missing key.
         'artifact_paths': [],
+        # Each group's output, already made, in place of the two frames it
+        # was made from: what a chained build hands the next.
+        'carried_forward': frozenset(
+            {pathlib.Path('ZProject/A1_BF_zproj.tiff'), pathlib.Path('ZProject/A2_BF_zproj.tiff')}
+        ),
         'accounting_note': '',
         'excluded_inputs': (),
     }
