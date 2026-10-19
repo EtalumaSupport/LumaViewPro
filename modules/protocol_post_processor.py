@@ -77,10 +77,11 @@ _MULTI_FRAME_REQUIREMENT = {
 
 
 def _missing(df: pd.DataFrame) -> pd.Series:
-    """Which rows stand for frames the run recorded and the folder lacks.
+    """Which rows stand for images the records name and the folder lacks.
 
-    The loader marks them (``Missing``); a table with no such column, and a
-    post-processed output's row, holds none.
+    The loader marks them (``Missing``): a raw frame the run recorded, or a
+    derived image the post-processing record names; a table with no such
+    column holds none.
     """
     marks = df.get('Missing')
     if marks is None:
@@ -90,19 +91,58 @@ def _missing(df: pd.DataFrame) -> pd.Series:
 
 def _recording_frames(df: pd.DataFrame) -> pd.Series:
     """Which rows are a recording's frames: told by the frame's file name,
-    or, for a frame the folder lacks, by its step."""
+    or, for a raw frame the folder lacks, by its step."""
     # astype(bool): on an EMPTY frame map() cannot infer a dtype, and
     # indexing with the resulting non-bool series degrades from a row
     # mask to column selection -- silently dropping every column.
     frames = df['Filepath'].map(recording_frames.is_video_frame).astype(bool)
+    # Only a raw row has a step's Acquire: a derived image is never a
+    # recording's frame, and a folder of derived images alone (a selected
+    # 'ZProject/') has no Acquire column at all.
     missing = _missing(df)
     if missing.any():
-        frames = frames | (missing & (df['Acquire'] == 'video'))
+        missing_raw = missing & ~_derived(df)
+        if missing_raw.any():
+            frames = frames | (missing_raw & (df['Acquire'] == 'video'))
     return frames
 
 
+def _derived(df: pd.DataFrame) -> pd.Series:
+    """Which rows are derived images: a raw capture's derivation is empty.
+
+    Asked only of a table holding a missing row: what a gone image is
+    decides how it is answered, and a table the loader marked carries
+    every row's derivation.
+    """
+    return df['Derivation'].astype(str) != ''
+
+
+def _made_by(derivation: str) -> PostProcessingOperation:
+    """The build that made an image derived as *derivation*."""
+    return _OPERATION_LABELS[post_derivation.steps(derivation)[-1].kind]
+
+
+def _removed(group: pd.DataFrame) -> bool:
+    """Whether every image of *group* is a derived image gone from the folder.
+
+    A build's outputs deleted whole -- its folder emptied -- were removed,
+    not damaged: the group is named and not built, where a group missing
+    only some of its images fails. A group never mixes raw and derived
+    images (every build groups by Derivation), and a raw frame gone is
+    always a failure: nothing builds it again.
+    """
+    return bool(_missing(group).all() and _derived(group).all())
+
+
 def _missing_frames_error(missing: pd.DataFrame) -> str:
-    """Why a group was not built: each recorded frame it lacks, and why."""
+    """Why a group was not built: each recorded image it lacks, and why."""
+    if _derived(missing).all():
+        named = [
+            f'{row["Filepath"]} (not in the folder; build '
+            f'{_made_by(row["Derivation"])} again to restore it)'
+            for _, row in missing.iterrows()
+        ]
+        return f'{len(named)} image(s) its record names are missing -- ' + '; '.join(named)
     named = []
     for _, row in missing.iterrows():
         if row['Missing'] == 'not_on_disk':
@@ -467,6 +507,11 @@ class ProtocolPostProcessor(abc.ABC):
         excluded_kinds: set = set()
         already_made = 0
         dropped_rows = pre_filter_df.loc[pre_filter_df.index.difference(df.index)]
+        # A derived image gone from the folder is not a file in it: neither
+        # an output already made nor an input left out.
+        gone = _missing(dropped_rows)
+        if gone.any():
+            dropped_rows = dropped_rows[~(gone & _derived(dropped_rows))]
         for _, dropped in dropped_rows.iterrows():
             if dropped[own_flag]:
                 already_made += 1
@@ -510,7 +555,7 @@ class ProtocolPostProcessor(abc.ABC):
         # group is checked before any is built, so a refusal writes no output.
         planned_names = {}
         for _, group in groups:
-            if len(group) <= 1:
+            if len(group) <= 1 or _removed(group):
                 continue
             name, _derivation, output_file_loc = self._planned_output(root_path, group, **kwargs)
             if not path_utils.resolves_inside(root_path, output_file_loc):
@@ -543,6 +588,8 @@ class ProtocolPostProcessor(abc.ABC):
         output_significant_bits = None
         completed_group_ms = []
         skipped_single_paths = []
+        # The build that made each removed group's images (``_removed``).
+        removed_groups: list[PostProcessingOperation] = []
         # Where each produced artifact landed. The return used to carry only
         # the output ROOT, which tells a caller a directory was touched but
         # not whether its own file exists -- an unattended caller could not
@@ -552,6 +599,16 @@ class ProtocolPostProcessor(abc.ABC):
 
         for _, group in groups:
             if len(group) == 0:
+                continue
+
+            # Before the single-image skip, so a removed group of one image
+            # is named too.
+            if _removed(group):
+                removed_groups.append(_made_by(group.iloc[0]['Derivation']))
+                logger.info(
+                    f'[{self._name} ] Not building from {group.iloc[0]["Filepath"]} and the '
+                    f'{len(group) - 1} other image(s) of its group: all removed from the folder.'
+                )
                 continue
 
             # A row for a missing recording stands for its frames, so the
@@ -589,7 +646,12 @@ class ProtocolPostProcessor(abc.ABC):
             )
             group_label = f'{held} images={len(group)} output={output_file_loc_rel}'
 
-            if protocol_post_record.file_exists_in_records(filepath=output_file_loc_rel):
+            # Already made only while its file is there: one deleted since is
+            # built again, and the record's row for it replaced.
+            if (
+                protocol_post_record.file_exists_in_records(filepath=output_file_loc_rel)
+                and (root_path / output_file_loc_rel).is_file()
+            ):
                 logger.info(
                     f'[{self._name} ] {output_file_loc_rel} already exists in record, skipping for generation.'
                 )
@@ -742,9 +804,17 @@ class ProtocolPostProcessor(abc.ABC):
         excluded_note = (
             f' Excluded from this operation: {excluded_text}.{remedy}' if excluded_text else ''
         )
-        accounting_note = f'{single_skip_note}{excluded_note}'
+        removed_note = ''
+        if removed_groups:
+            makers = ', '.join(sorted(set(removed_groups)))
+            removed_note = (
+                f' {len(removed_groups)} group(s) not built: their {makers} images were '
+                'removed from the folder.'
+            )
+        accounting_note = f'{single_skip_note}{excluded_note}{removed_note}'
 
-        if (new_count == 0) and (existing_count == 0):
+        # A removed group is a complete answer, as an output already made is.
+        if (new_count == 0) and (existing_count == 0) and not removed_groups:
             fname = self._post_function.value
             if refused_count > 0 and last_error is None:
                 # Every eligible group collided; nothing could be generated.

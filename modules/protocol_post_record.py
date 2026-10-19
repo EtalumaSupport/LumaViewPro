@@ -108,6 +108,10 @@ class ProtocolPostRecord:
         else:
             self._records = records
         self._pending_records = []  # Accumulated dicts, merged lazily
+        # A row replaced in place (an output built again after its file was
+        # deleted) cannot be appended; the file is rewritten once, at
+        # complete(), however many rows were replaced.
+        self._rewrite_due = False
 
     def _initialize_outfile(self, outfile: pathlib.Path):
         self._outfile_fp = open(outfile, 'w')  # noqa: SIM115 -- instance-lifetime handle closed in _close_outfile()
@@ -122,7 +126,10 @@ class ProtocolPostRecord:
         self._outfile_fp = open(outfile, 'a')  # noqa: SIM115 -- instance-lifetime handle closed in _close_outfile()
         self._outfile_csv = csv.writer(self._outfile_fp, delimiter='\t', lineterminator='\n')
 
-    def complete(self):
+    def complete(self) -> None:
+        if self._rewrite_due:
+            self._rewrite_outfile()
+            self._rewrite_due = False
         self._close_outfile()
 
     def _close_outfile(self):
@@ -265,8 +272,16 @@ class ProtocolPostRecord:
         derivation: str,
     ) -> None:
 
-        if self.file_exists_in_records(filepath=file_path):
-            logger.info(f'[{self._name} ] File {file_path} already exists in records. Skipping.')
+        # One row per file: a file already recorded was built again (its
+        # earlier file was gone), so its row is replaced, not doubled.
+        replacing = self.file_exists_in_records(filepath=file_path)
+        if replacing:
+            logger.info(f'[{self._name} ] File {file_path} was built again; replacing its record.')
+            self._flush_pending()
+            self._records = self._records[self._records['Filepath'] != file_path].reset_index(
+                drop=True
+            )
+            self._rewrite_due = True
 
         record_dict = self._create_record_dict(
             root_path=root_path,
@@ -290,6 +305,8 @@ class ProtocolPostRecord:
         )
 
         self._pending_records.append(record_dict)
+        if replacing:
+            return
 
         self._add_record_to_file(
             file_path=file_path,

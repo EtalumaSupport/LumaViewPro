@@ -335,9 +335,14 @@ def test_post_processor_records_writer_relocated_output(tmp_path, monkeypatch):
 def test_post_processor_resume_skip_unaffected_by_collision_check(tmp_path, monkeypatch):
     processor = _FakePostProcessor()
     post_record = MagicMock()
-    # Distinct names, both already in the record from a previous session.
+    # Distinct names, both already made by a previous session: in the
+    # record, and their files in the folder (a z-projection's land in
+    # ZProject/).
     post_record.file_exists_in_records.return_value = True
     images_df = _fake_images_df(['A1_BF_zproj.tiff', 'A2_BF_zproj.tiff'])
+    (tmp_path / 'ZProject').mkdir()
+    for name in ('A1_BF_zproj.tiff', 'A2_BF_zproj.tiff'):
+        (tmp_path / 'ZProject' / name).write_bytes(b'')
 
     result = _drive_load_folder(processor, tmp_path, monkeypatch, images_df, post_record)
 

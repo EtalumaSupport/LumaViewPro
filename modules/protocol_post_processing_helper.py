@@ -272,20 +272,33 @@ class ProtocolPostProcessingHelper:
         self,
         image_names: list[pathlib.Path],
         protocol_post_record: ProtocolPostRecord,
+        *,
+        include_subpaths: list[str],
     ) -> pd.DataFrame | None:
+        """The record's derived images the build may take, as rows.
 
+        An image the disk walk found is taken. One the record names and the
+        folder lacks is taken too, marked ``Missing`` ``'not_on_disk'`` as a
+        raw frame the run recorded is, so the group it belongs to fails
+        instead of building short -- under the walk's own filters: only an
+        image the walk would have taken (a TIFF), and only in the selected
+        subfolder when one is selected.
+        """
         df = protocol_post_record.records()
         if len(df) == 0:
             return df
 
-        # Filter out any images that are missing from the filesystem
-        # This is not strictly needed since the following filter using 'image_names'
-        # will also inherently remove non-existent files
-        df = df[df['File Exists'] == True]  # noqa: E712 -- pandas mask
+        def walk_would_take(path) -> bool:
+            path = pathlib.Path(path)
+            return path.suffix.lower() in image_utils.TIFF_SUFFIXES and (
+                not include_subpaths or str(path.parent) in include_subpaths
+            )
 
-        # Filter out any images that are not path of the selected images provided
-        df = df[df['Filepath'].isin(image_names)]
-
+        found = df['Filepath'].isin(image_names)
+        gone = ~df['File Exists'].astype(bool) & df['Filepath'].map(walk_would_take).astype(bool)
+        df = df[found | gone].copy()
+        df['Missing'] = gone[found | gone].map({True: 'not_on_disk', False: ''})
+        df['Frames'] = 1
         return df
 
     @staticmethod
@@ -439,6 +452,7 @@ class ProtocolPostProcessingHelper:
         post_images_df = self._get_post_images_df(
             image_names=image_names['post'],
             protocol_post_record=protocol_post_record,
+            include_subpaths=include_subpaths,
         )
         post_images_df['Raw'] = False
 
