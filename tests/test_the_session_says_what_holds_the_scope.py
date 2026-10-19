@@ -85,6 +85,8 @@ class TestHeldByOther:
         held = session.activity_claim.try_claim(kind, run=run)
         try:
             assert session.held_by_other(None) is True
+            # Left out is None: a query string says None by omission.
+            assert session.held_by_other() is True
         finally:
             held.release()
 

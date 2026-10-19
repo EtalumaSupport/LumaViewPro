@@ -691,11 +691,12 @@ class ScopeSession:
         return self.sequenced_capture_runner.run_in_progress()
 
     @api(reads=True)
-    def held_by_other(self, run: 'Operation | None') -> bool:
+    def held_by_other(self, run: 'Operation | None' = None) -> bool:
         """Whether the scope is held by anything but *run*, the operation a run member returned.
 
         What a run control greys on while leaving its own run's Stop live;
-        None asks whether anything holds the scope at all.
+        None, or no run given, asks whether anything holds the scope at all
+        (``exclusive_activity`` names what does).
         """
         return self.sequenced_capture_runner.held_by_other(run)
 
