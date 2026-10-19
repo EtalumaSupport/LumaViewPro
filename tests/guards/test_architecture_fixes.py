@@ -731,7 +731,7 @@ _GUI_ORCHESTRATION_PIN = {
 }
 
 _MODULES_CONTEXT_READ_PIN = {
-    'modules/config_ui_getters.py': 4,
+    'modules/config_ui_getters.py': 3,
     'modules/derived_output_encoding.py': 3,
     'modules/executor_registry.py': 0,
     'modules/metrics_logger.py': 0,
@@ -858,9 +858,9 @@ def _twin_answerer_names():
 # GUI at it -- the set went 5 -> 6 there and no instrument in this file
 # moved -- and it left when the protocol panel was routed at the Session
 # member and the forwarder deleted, the remedy below applied as written.
-_TWIN_ANSWERER_PIN = {
-    'get_layer_configs': 1,
-}
+# Empty since `get_layer_configs`' forwarder, dead since 6d29326c, went: a
+# pin kept at zero, so the next twin is a rise from it.
+_TWIN_ANSWERER_PIN: dict[str, int] = {}
 
 # Empty, and empty is the achieved state: nothing under modules/ or
 # drivers/ imports ui/. The pin stays so the next one is a rise from zero.

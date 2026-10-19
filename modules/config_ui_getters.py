@@ -107,17 +107,6 @@ def is_image_saving_enabled() -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Layer / channel configuration
-# ---------------------------------------------------------------------------
-
-
-def get_layer_configs(
-    specific_layers: list | None = None,
-) -> dict[dict]:
-    return config_helpers.get_layer_configs(_app_ctx.ctx.settings, specific_layers)
-
-
-# ---------------------------------------------------------------------------
 # Position / labware
 # ---------------------------------------------------------------------------
 
