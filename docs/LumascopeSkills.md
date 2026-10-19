@@ -2547,6 +2547,21 @@ render a 12-bit frame ~16x too dark. A sum's tag is the bits it can reach
 returns the tag (falling back to the container width for older files that were
 left-justified into the 16-bit range and carry no payload-depth tag).
 
+A still's exposure is one frame's (``ExposureTime``); ``FramesSummed`` says how
+many frames the sum holds. An OME-TIFF keeps the exposure and the position in
+its OME ``Plane``, and every other acquisition fact of the frame in the image's
+``MapAnnotation`` with namespace ``etaluma.com/lvp``, one key each, the value
+JSON text: ``FramesSummed``, ``Gain`` and ``GainUnit``, ``Illumination`` and
+``IlluminationUnit``, ``BlackLevel``, ``Binning``, ``Objective``, the timestamps
+and ``FrameID``, ``FrameValidity``, ``SaturatedFraction``, ``Dark``,
+``CameraHeldALayer`` and ``CameraHeldLayer``. Bio-Formats (Fiji, QuPath,
+OMERO) shows the annotation; a plain or ImageJ TIFF carries the same keys in
+its ``Plane`` block. A key the frame did not know is absent, never a stand-in.
+A Sum z-projection and a composite state no ``FramesSummed``: a sum of slices,
+or a merge of channels each with its own count, is not one capture's sum.
+An OME-TIFF from an earlier release carries no annotation, so it states only
+its exposure and position.
+
 ### Coordinate transformations
 
 Stage and plate positions convert through `scope.runtime_state.stage_to_plate` and `plate_to_stage` (above): plate millimetres from the plate's top-left, stage micrometres, on the selected plate and live offset unless `labware_id=` or `stage_offset=` names another.
