@@ -157,6 +157,15 @@ class FrameSize:
     height: int
 
 
+@api_fields('width_um', 'height_um')
+@dataclass(frozen=True)
+class FieldOfView:
+    """The area a frame covers on the sample, in micrometres."""
+
+    width_um: float
+    height_um: float
+
+
 @api_fields(
     'gain_db_min',
     'gain_db_max',

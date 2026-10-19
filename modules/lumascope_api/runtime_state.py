@@ -33,6 +33,7 @@ import threading
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
+import modules.common_utils as common_utils
 import modules.coord_transformations as coord_transformations
 from lvp_logger import logger
 from modules.exceptions import (
@@ -40,6 +41,7 @@ from modules.exceptions import (
     ObjectiveUnknownError,
 )
 from modules.api_surface import api
+from modules.scope_capabilities import FieldOfView
 
 if TYPE_CHECKING:
     from modules.labware import WellPlate
@@ -220,6 +222,56 @@ class RuntimeState:
                 known (``resolve_current_objective`` says why).
         """
         return self._derive_current_objective()[1]
+
+    @api(reads=True)
+    def get_pixel_size_um(self) -> float | None:
+        """The effective pixel size: micrometres per pixel at the current
+        objective and the camera's binning, the scale a saved image carries.
+
+        Returns:
+            float | None: None when it cannot be known: no objective is
+                known (``resolve_current_objective`` says why), there is no
+                camera, the camera has not reported its binning, or the
+                scope cannot report its optics.
+
+        Raises:
+            ConfigError: No session has bound this scope.
+        """
+        objective = self.get_current_objective()
+        if objective is None:
+            return None
+        return common_utils.get_pixel_size(
+            objective.focal_length_mm,
+            self._scope.camera.binning,
+            capabilities=self._scope.capabilities,
+        )
+
+    @api(reads=True)
+    def get_field_of_view(self) -> FieldOfView | None:
+        """The area the camera's frame covers on the sample, at the current
+        objective and the camera's binning.
+
+        Returns:
+            FieldOfView | None: Width and height in micrometres; None when
+                the pixel size cannot be known (``get_pixel_size_um``) or the
+                camera has not reported its frame.
+
+        Raises:
+            ConfigError: No session has bound this scope.
+        """
+        objective = self.get_current_objective()
+        frame = self._scope.camera.frame_size
+        if objective is None or frame is None:
+            return None
+        extent = common_utils.get_field_of_view(
+            focal_length=objective.focal_length_mm,
+            frame_size={'width': frame.width, 'height': frame.height},
+            binning_size=self._scope.camera.binning,
+            capabilities=self._scope.capabilities,
+        )
+        if extent is None:
+            return None
+        return FieldOfView(width_um=extent['width'], height_um=extent['height'])
 
     @api(reads=True)
     def get_turret_config(self) -> dict:

@@ -262,6 +262,8 @@ Labware / turret-config / stage-offset are runtime-mutable microscope configurat
 ```python
 scope.runtime_state.is_turreted()                      # True when the objective is derived from the turret slot
 scope.runtime_state.resolve_current_objective()        # (id, Objective), or raises ObjectiveUnknownError saying why
+scope.runtime_state.get_pixel_size_um()                # µm per pixel at the current objective and the camera's binning; None when unknown
+scope.runtime_state.get_field_of_view()                # FieldOfView(width_um, height_um) the camera's frame covers; None when unknown
 
 # Turret integration
 scope.runtime_state.get_turret_config()                # {1: '4x Oly', 2: '10x Oly', 3: None, 4: None}, a copy
@@ -1406,6 +1408,7 @@ still states the major version.
 | level 18 | A capture's `frame_record` carries `held_layer`, the layer whose stored settings the camera held (None after a raw camera write), and its saved file `camera_held_a_layer` (and `camera_held_layer` when one was). A manual still has the camera hold its name's layer for its frame, and is refused while a manual recording runs when that would change the camera. |
 | level 19 | The camera is its own object, `scope.camera` (`CameraAPI`; in-process also `session.camera`): every camera setter, read, hold, apply, save and restore moved there from `scope.imaging`, and the Session's `set_frame_size`, `set_binning_size`, `set_image_mode`, `set_high_conversion_gain`, `set_line_noise_reduction` and `frame_at_binning` with them, under the same names. Each storing setter saves what the camera took, whoever calls it, and `restore_camera_state` saves the binning, frame, unbinned region and image mode it puts back; the unsaved `imaging.set_frame_size`, `set_binning_size`, `set_pixel_format`, `set_conversion_gain_mode` and `set_line_noise_reduction` are gone, and a pixel format is chosen only through `set_image_mode`. `update_settings`' `has_member` refusal names the camera's members by their path, `scope.camera.<name>`. |
 | level 20 | The camera's reads are the pair: a held property (`gain_db`, `exposure_ms`, `black_level`, `binning`, `frame_size`, `pixel_format`, `auto_gain`, `auto_exposure`, `high_conversion_gain`, `line_noise_reduction`), `None` whenever unknown (`active` a held `bool`), and a fresh `read_*` (`read_gain_db`, `read_exposure_ms`, `read_black_level`, `read_binning`, `read_frame_size`, `read_pixel_format`, `read_frame_rate`) that raises `CameraReadFailedError` when the camera does not answer; the `get_*` getters, `get_live_camera_settings` and the `*_cached` properties are gone, and a frame whose exposure or gain cannot be read fails its capture. `set_binning` and `set_auto_exposure` replace `set_binning_size` and `set_auto_exposure_time`, and `apply` replaces `apply_layer_camera_settings`. `save_camera_state`, `restore_camera_state`, `last_capture_info` and `saturated_fraction` are in-process engineering members, so each refuses an argument of another type (`restore_camera_state(None)` included). |
+| level 21 | `runtime_state.get_pixel_size_um()` and `runtime_state.get_field_of_view()`: the effective pixel size and the `FieldOfView(width_um, height_um)` at the current objective and the camera's held binning and frame, each `None` when it cannot be known; a plugin reads the scale here instead of computing it from an objective and a binning. |
 
 ### Configuration queries
 
@@ -2262,7 +2265,7 @@ scope.diagnostics.get_led_info()           # firmware_version, connected, comman
                                            #   'legacy' (INFO only: firmware before v2),
                                            #   None (no text commands, e.g. an FX2 scope)
 scope.diagnostics.get_system_info()        # combined summary
-scope.capabilities.pixel_size_um           # raw per-installation um/pixel, or None if the scope cannot report it (unknown camera / no declared optics). For an objective-adjusted effective um/pixel, call common_utils.get_pixel_size(focal_length, binning_size).
+scope.capabilities.pixel_size_um           # raw per-installation um/pixel, or None if the scope cannot report it (unknown camera / no declared optics). The effective um/pixel at the current objective and binning is scope.runtime_state.get_pixel_size_um().
 scope.capabilities.lens_focal_length_mm    # tube-lens focal length, mm, or None if the scope cannot report it
 ```
 
@@ -2527,24 +2530,14 @@ left-justified into the 16-bit range and carry no payload-depth tag).
 
 Stage and plate positions convert through `scope.runtime_state.stage_to_plate` and `plate_to_stage` (above): plate millimetres from the plate's top-left, stage micrometres, on the selected plate and live offset unless `labware_id=` or `stage_offset=` names another.
 
-### Optical calculations (`modules.common_utils`)
+### Image scale
 
 ```python
-import modules.common_utils as common_utils
-
-# Pixel size (µm per pixel)
-px_um = common_utils.get_pixel_size(focal_length=4.78, binning_size=1)
-
-# Field of view (µm)
-fov = common_utils.get_field_of_view(
-    focal_length=4.78,
-    frame_size={'width': 2048, 'height': 2048},
-    binning_size=1,
-)
-# Returns: {'width': ..., 'height': ...} in µm, or None if scale is unknown
+scope.runtime_state.get_pixel_size_um()   # µm per pixel at the current objective and the camera's binning
+scope.runtime_state.get_field_of_view()   # FieldOfView(width_um, height_um): what the camera's frame covers
 ```
 
-These helpers read `scope.capabilities.pixel_size_um` / `scope.capabilities.lens_focal_length_mm` from the active scope. Both return `None` when there is no active scope, or when the scope cannot report its optics (unknown camera, no declared optics) — `get_pixel_size` and `get_field_of_view` then return `None` rather than an invented scale, and callers degrade honestly (no scale bar, no field of view, no `PhysicalSizeX`). There is deliberately no hardcoded fallback: a guessed pixel size is written into every image and cannot be told from a measured one. Note: `capabilities.pixel_size_um` is the raw per-installation pixel pitch; for an effective µm/px adjusted for current objective + binning, call `common_utils.get_pixel_size(focal_length, binning_size)`.
+The scale every saved image carries, published so no caller recomputes it. Each answers `None` when it cannot be known: no objective is known (`resolve_current_objective` says why), there is no camera, the camera has not reported its binning (or, for the field of view, its frame), or the scope cannot report its optics (unknown camera, no declared optics). There is deliberately no fallback: a guessed pixel size is written into every image and cannot be told from a measured one, so a `None` here means no scale bar, no field of view and no `PhysicalSizeX`. `scope.capabilities.pixel_size_um` is the sensor's raw pitch, before the objective and the binning.
 
 ### Composite capture (`modules.composite_builder`)
 
@@ -3355,7 +3348,9 @@ Reached through `session.scope.protocols`.
 
 Reached through `session.scope.runtime_state`.
 
+- `get_field_of_view`
 - `get_labware`
+- `get_pixel_size_um`
 - `get_stage_offset`
 - `get_turret_config`
 - `get_well_label`
@@ -3763,6 +3758,13 @@ Reached through each item of `CaptureTally.failed`.
 - `scan`
 - `step_index`
 - `step_name`
+
+### FieldOfView
+
+Reached through `RuntimeState.get_field_of_view`.
+
+- `height_um`
+- `width_um`
 
 ### FilesWritten
 
