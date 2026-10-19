@@ -519,7 +519,7 @@ class TestEveryStepValueReachesTheLayer:
                 'Sum': 4,
                 'Acquire': 'video',
                 'Z': 1234.0,
-                'Video Config': {'duration': 30},
+                'Video Config': {'fps': 15, 'duration': 30},
                 'Stim_Config': {'Green': {'enabled': True, 'illumination_ma': 200}},
             }
         )

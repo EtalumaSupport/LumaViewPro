@@ -686,6 +686,10 @@ RUNNER_REFUSAL_COVERAGE = {
         'tests/test_a_protocols_configuration_is_refused_at_the_door.py::'
         'test_an_overlap_outside_0_to_50_is_refused_and_posts_nothing'
     ),
+    'values_out_of_range': (
+        'tests/test_a_protocols_out_of_range_values_are_refused_before_any_store.py::'
+        'test_the_load_tells_the_layer_settings_values_and_the_apply_refuses_them_all_storing_none'
+    ),
     'tiles_outside_travel': (
         'tests/test_a_build_outside_the_travel_is_refused.py::'
         'test_a_grid_with_a_tile_outside_the_travel_is_refused'

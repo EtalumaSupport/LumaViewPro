@@ -1242,8 +1242,8 @@ class TestVideoWithStimulation:
             'Blue': {
                 'enabled': True,
                 'illumination_ma': 100,
-                'frequency': 10,
-                'pulse_width': 50,
+                'frequency': 5,
+                'pulse_width': 20,
                 'pulse_count': 3,
             }
         }
@@ -1261,8 +1261,8 @@ class TestVideoWithStimulation:
             'Blue': {
                 'enabled': False,
                 'illumination_ma': 100,
-                'frequency': 10,
-                'pulse_width': 50,
+                'frequency': 5,
+                'pulse_width': 20,
                 'pulse_count': 3,
             }
         }

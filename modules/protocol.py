@@ -752,6 +752,50 @@ def step_layer_values_refused(step: Mapping) -> list[tuple[str, SettingRefusedEr
     return refused
 
 
+def layer_settings_values_refused(
+    rows: Mapping[str, Mapping],
+) -> list[tuple[str, SettingRefusedError]]:
+    """Each Layer Settings value the layer ranges refuse, with the layer and column holding it.
+
+    ``rows`` are ``Protocol.layer_settings()``' rows, or those of them a
+    caller will apply. A blank cell holds no value and is not judged.
+    """
+    # Deferred: settings_paths imports this module.
+    from modules.settings_paths import refused_layer_values
+
+    columns = {key: column for column, key in _STEP_LAYER_VALUES}
+    refused = []
+    for name, row in rows.items():
+        values = {
+            key: row[column] for column, key in _STEP_LAYER_VALUES if row.get(column) is not None
+        }
+        refused.extend(
+            (f'{name} {columns[r.path.partition(".")[2]]}', r)
+            for r in refused_layer_values(name, values)
+        )
+    return refused
+
+
+def refuse_values_out_of_range(refused: list[tuple[str, SettingRefusedError]], what: str) -> None:
+    """Refuse a call that would store ``refused``, naming each value; nothing has changed.
+
+    ``refused`` is what ``step_layer_values_refused`` or
+    ``layer_settings_values_refused`` found; ``what`` names what holds the
+    values, as a person reads it.
+
+    Raises:
+        ProtocolRunRefusedError: ``'values_out_of_range'``, when ``refused``
+            is not empty.
+    """
+    if refused:
+        raise ProtocolRunRefusedError(
+            reason='values_out_of_range',
+            message=f'{what} holds values no layer setting can take, so nothing was changed: '
+            + '; '.join(f'{where}: {r.detail}' for where, r in refused)
+            + '.',
+        )
+
+
 def _refuse_a_header_row_with_no_value(row: list[str], file_path: object) -> None:
     """Refuse a protocol header row that holds its name and no value cell.
 

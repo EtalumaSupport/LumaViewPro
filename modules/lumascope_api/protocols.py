@@ -184,22 +184,31 @@ class ProtocolsAPI:
         return protocol
 
     def _report_invalid_steps(self, protocol: Protocol, *, solicited: bool) -> None:
-        """Tell the caller once when the protocol holds a step the run will refuse.
+        """Tell the caller once when the protocol holds a value it will be refused for.
 
-        A loaded file may carry a field the run gate rejects, and an edit
-        composed from live settings may too; neither is refused here, so
-        the step can be fixed in the app, and the run start is where the
-        refusal lives. A notice, like the duplicate-filename one the loader
-        reports: reported, never raised.
+        A loaded file may carry a field the run gate rejects, or a Layer
+        Settings value no layer setting takes, and an edit composed from
+        live settings may too; neither is refused here, so the value can be
+        fixed in the app: the run start refuses a step's, and
+        ``ScopeSession.apply_layer_settings`` a Layer Settings row's. A
+        notice, like the duplicate-filename one the loader reports:
+        reported, never raised.
         """
         from modules.notification_center import notifications
+        from modules.protocol import layer_settings_values_refused
 
         errors = protocol.validate_steps(
             self._scope.objectives, led_max_ma=self._scope.capabilities.led_max_ma
         )
-        if errors:
+        layer_errors = [
+            f'{where}: {refused.detail}'
+            for where, refused in layer_settings_values_refused(protocol.layer_settings())
+        ]
+        if errors or layer_errors:
             notifications.report_outcome(
-                ProtocolStepsInvalidNotice(errors=errors), solicited=solicited, category='Protocol'
+                ProtocolStepsInvalidNotice(errors=errors, layer_errors=layer_errors),
+                solicited=solicited,
+                category='Protocol',
             )
 
     @api

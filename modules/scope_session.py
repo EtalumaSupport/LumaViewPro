@@ -1797,10 +1797,22 @@ class ScopeSession:
             ProtocolFormatError: A protocol built in memory carries a
                 Layer Settings cell that is not of its column's type; no
                 layer is changed. A loaded protocol was refused at load.
+            ProtocolRunRefusedError: ``'values_out_of_range'``, a row it
+                would apply holds a value outside its layer setting's range,
+                each named by layer, column and bound; no layer is changed.
+                The load told them (``ProtocolStepsInvalidNotice``).
         """
+        from modules.protocol import layer_settings_values_refused, refuse_values_out_of_range
+
         rows = protocol.layer_settings()
         layers = common_utils.get_layers()
         present = self._layers_on_scope()
+        refuse_values_out_of_range(
+            layer_settings_values_refused(
+                {name: row for name, row in rows.items() if name in layers and name in present}
+            ),
+            "The protocol's Layer Settings",
+        )
         with self.settings_lock:
             for name in layers:
                 self._store_setting(f'{name}.acquire', None)
@@ -2495,6 +2507,10 @@ class ScopeSession:
             ArgumentRefusedError: ``'layer_unknown'``, the step's
                 stimulation names a layer this release has not. Nothing
                 changes.
+            ProtocolRunRefusedError: ``'values_out_of_range'``, a value
+                the step would store in its layers is outside its layer
+                setting's range, each named by column and bound. Nothing
+                changes.
             ConfigurationDefectError: ``'layers_unresolved'``, this scope's
                 layers could not be resolved. Nothing changes.
             AxisStateUnknownError: an axis the step moves does not know
@@ -2525,6 +2541,8 @@ class ScopeSession:
 
     def _start_moving_to_step(self, protocol: 'Protocol', step_idx: int) -> Operation:
         """The IO-lane task of going to a step, and the operation of its moves."""
+        from modules.protocol import refuse_values_out_of_range, step_layer_values_refused
+
         step = protocol.step(idx=step_idx)
         # Converted here, from the step read above, so the lane moves to the
         # step this call was made for whatever the list holds by then; the
@@ -2544,6 +2562,9 @@ class ScopeSession:
                     value=unknown[0],
                     offered=tuple(common_utils.get_layers()),
                 )
+        # Before the lane starts a move: the lane stores the step's values
+        # into its layers once the moves are under way.
+        refuse_values_out_of_range(step_layer_values_refused(step), f'Step {step_idx + 1}')
         # Every member inside bounds its own wait, so the task has no bound
         # of its own to add.
         moves = self.io_executor.call(
@@ -3168,7 +3189,9 @@ class ScopeSession:
                 ``'objectives_require_turret'``,
                 ``'turret_objectives_unassigned'`` or
                 ``'layer_not_on_scope'``: the file holds a step this scope
-                cannot perform, as ``load_protocol``.
+                cannot perform, as ``load_protocol``; ``'values_out_of_range'``,
+                its Layer Settings hold a value no layer setting takes, as
+                ``apply_layer_settings``, and no layer is changed.
             ConfigError: As ``load_protocol`` and ``apply_layer_settings``.
             HardwareCommandRefusedError: ``'exclusive_activity_running'``,
                 as ``load_protocol`` and ``apply_layer_settings``.
