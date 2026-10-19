@@ -246,6 +246,8 @@ session.select_objective('10x Oly')                # True when the objective cha
                                                    # the move's own refusals (an unhomed turret: AxisStateUnknownError)
 session.select_labware('384 well microplate')      # True when the plate changed; a retired spelling is accepted and stored under its catalogue key; both stores are written either way
 session.assign_turret_objective(2, '10x Oly')      # slot 1-4 (PositionOutOfRangeError otherwise)
+session.turret_objective(2)                        # '10x Oly': what the slot holds, None for none;
+                                                   # refused as the assignment is, for a scope with no turret or a bad slot
 session.clear_turret_objective(2)
 session.clear_current_turret_objective()          # clear the slot in the light path;
                                                    # ObjectiveUnknownError while that slot is unknown
@@ -266,7 +268,8 @@ scope.runtime_state.get_pixel_size_um()                # µm per pixel at the cu
 scope.runtime_state.get_field_of_view()                # FieldOfView(width_um, height_um) the camera's frame covers; None when unknown
 
 # Turret integration
-scope.runtime_state.get_turret_config()                # {1: '4x Oly', 2: '10x Oly', 3: None, 4: None}, a copy
+scope.runtime_state.get_turret_config()                # (in-process) {1: '4x Oly', 2: '10x Oly', 3: None, 4: None}, a copy;
+                                                       # a wire client reads a slot as session.turret_objective(position)
 scope.motion.is_current_turret_position_objective_set()        # False when the CURRENT turret slot has no configured objective
 
 # Labware + stage offset -- the plate-coordinate inputs
@@ -2098,7 +2101,8 @@ scope.camera.longest_exposure_ms
 # Whether it is drawn is the session's setting (session.set_scale_bar); the
 # colour is the imaging API's own.
 scope.imaging.set_scale_bar_color('Red')
-scope.imaging.scale_bar_config                     # {'enabled': bool, 'color': str | None}
+scope.imaging.scale_bar_config                     # (in-process) {'enabled': bool, 'color': str | None};
+                                                   # a wire client reads session.scale_bar_enabled
 ```
 
 The acquisition frame-rate cap lives on the camera driver and clamps frame production regardless of sensor-readout capability. It is a driver-level control with no public API member -- described here only to explain the behavior. Used by the manual-record path to match user-requested video FPS, and by characterization tools to bound capture rate during long-running probes. No-op on drivers that do not implement the underlying setter (warning logged). Distinct from `set_exposure_ms` (per-frame integration time) and from any host-side throttling.
@@ -3178,6 +3182,7 @@ Reached through `ScopeSession.create(settings, ...)`; every L2 caller starts her
 - `start_application_session` (in-process)
 - `start_go_to_step`
 - `status`
+- `turret_objective`
 - `unload_plugins` (in-process)
 - `update_settings`
 - `update_step`
@@ -3324,7 +3329,7 @@ Reached through `session.scope.imaging`.
 - `last_capture_info` (in-process)
 - `remove_frame_listener` (in-process)
 - `saturated_fraction` (in-process)
-- `scale_bar_config`
+- `scale_bar_config` (in-process)
 - `set_scale_bar_color`
 - `significant_bits`
 
@@ -3371,7 +3376,7 @@ Reached through `session.scope.runtime_state`.
 - `get_labware`
 - `get_pixel_size_um`
 - `get_stage_offset`
-- `get_turret_config`
+- `get_turret_config` (in-process)
 - `get_well_label`
 - `is_turreted`
 - `plate_to_stage`

@@ -12,7 +12,11 @@ import logging
 import pytest
 
 from modules.coord_transformations import PlateLocation
-from modules.exceptions import ArgumentRefusedError
+from modules.exceptions import (
+    ArgumentRefusedError,
+    HardwareCommandRefusedError,
+    PositionOutOfRangeError,
+)
 from modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
@@ -105,3 +109,24 @@ def test_the_objective_is_none_while_the_turret_slot_is_unknown(tmp_path):
         assert turreted.objective_id == '10x Oly'
     finally:
         _shutdown(turreted)
+
+
+def test_a_turret_slot_reads_what_was_bound_to_it(tmp_path):
+    turreted = ScopeSession.create(
+        complete_settings(live_folder=str(tmp_path), microscope='LS850T'), simulate=True
+    )
+    try:
+        turreted.assign_turret_objective(2, '10x Oly')
+        assert turreted.turret_objective(2) == '10x Oly'
+        assert turreted.turret_objective(3) is None
+        with pytest.raises(PositionOutOfRangeError) as refused:
+            turreted.turret_objective(5)
+        assert (refused.value.axis, refused.value.position) == ('T', 5)
+    finally:
+        _shutdown(turreted)
+
+
+def test_a_turret_slot_is_refused_on_a_scope_with_no_turret(session):
+    with pytest.raises(HardwareCommandRefusedError) as refused:
+        session.turret_objective(1)
+    assert refused.value.reason == 'axis_absent'

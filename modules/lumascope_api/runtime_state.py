@@ -273,7 +273,7 @@ class RuntimeState:
             return None
         return FieldOfView(width_um=extent['width'], height_um=extent['height'])
 
-    @api(reads=True)
+    @api(in_process=True, reads=True)
     def get_turret_config(self) -> dict[int, str | None]:
         """The turret's objective assignments, from the settings.
 

@@ -47,8 +47,9 @@ from rest import routes as rest_routes
 # held frame size answers one too, and the frame-limit view went; 35 since
 # the bench tools' three runs left the wire (C6); 28 since six of the
 # Session's settings documents left it and the turret's slot map is typed
-# (census C's row B9).
-UNTYPED_PIN = 28
+# (census C's row B9); 27 since the imaging API's scale-bar dict left it
+# for the Session's scale_bar_enabled.
+UNTYPED_PIN = 27
 
 _SERVER_MODELS = ('Handle', 'Job', 'JobProgress', 'PathAnswer', 'Versions')
 # A JSON Schema keyword that says what a value is.

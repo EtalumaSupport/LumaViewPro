@@ -4299,6 +4299,22 @@ class ScopeSession:
             slots = {**self.settings['turret_objectives'], position: objective_id}
             self._store_setting('turret_objectives', slots)
 
+    @api(reads=True)
+    def turret_objective(self, position: int) -> 'str | None':
+        """The objective bound to turret slot ``position``, or None while it holds none.
+
+        What ``assign_turret_objective`` bound; the active objective is the
+        slot's in the light path (``objective_id``).
+
+        Raises:
+            HardwareCommandRefusedError: ``'axis_absent'``, the scope has no
+                turret, said before ``position`` is judged.
+            PositionOutOfRangeError: ``position`` is not a slot number 1-4.
+        """
+        self._refuse_without_a_turret('turret_objective')
+        refuse_unless_turret_slot(position)
+        return self.settings['turret_objectives'][position]
+
     @api
     def clear_turret_objective(self, position: int) -> None:
         """Leave turret slot ``position`` unassigned.

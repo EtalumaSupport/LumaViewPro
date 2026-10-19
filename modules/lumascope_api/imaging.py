@@ -2130,7 +2130,7 @@ class ImagingAPI:
             )
         return False
 
-    @api
+    @api(in_process=True)
     @property
     def scale_bar_config(self) -> dict:
         """Whether the scale bar is drawn on captured images, and in what colour.
