@@ -1311,18 +1311,22 @@ class ProtocolImageWriter:
                 # `requires_buffer_realloc=True` audit. Per Basler convention
                 # both should be live-changeable.
                 #
-                # Both writes run even when one is not taken, so the camera is
-                # left at the step's other value; the step is then not
-                # captured (below).
-                camera = self._scope.camera
-                for setter, value in (
-                    (camera.set_gain_db, step['Gain']),
-                    (camera.set_exposure_ms, step['Exposure']),
-                ):
-                    try:
-                        setter(value)
-                    except CameraSettingRejected as rejected:
-                        not_applied.append(rejected)
+                # The apply runs both writes even when one is not taken, so the
+                # camera is left at the step's other value; the step is then
+                # not captured (below). No auto-gain settings, so the auto-gain
+                # mode is not written: an auto-gain write and the resync after
+                # it, which can leave the exposure unknown, would run for every
+                # manual step.
+                try:
+                    self._scope.camera.apply(
+                        gain_db=step['Gain'],
+                        exposure_ms=step['Exposure'],
+                        auto_gain=False,
+                        auto_gain_settings=None,
+                        layer=step['Color'],
+                    )
+                except CameraSettingRejected as rejected:
+                    not_applied.append(rejected)
             else:
                 # Auto_Gain step: scan_iterate already lit the LED and armed AG
                 # against the lit scene; the apply is skipped here to avoid

@@ -5,7 +5,7 @@ A member's contract is its docstring's ``Raises:`` section (W0-R25). This is
 the walk that holds a member to it, on the simulated scope, for the members
 W0 changed the answers of: the path members, the motion members W0 gave
 their stops and waits, ``frame_at_binning`` and
-``apply_layer_camera_settings``. For each:
+``apply``. For each:
 
 - **A valid call** answers, and its read-back shows what it did.
 - **A bad argument** answers the refusal its contract names, with the
@@ -93,7 +93,7 @@ ENROLLED = (
     'MotionAPI.move_absolute',
     'MotionAPI.wait_until_finished_moving',
     'CameraAPI.frame_at_binning',
-    'CameraAPI.apply_layer_camera_settings',
+    'CameraAPI.apply',
     'ProtocolsAPI.step_targets',
     'ProtocolsAPI.tiling_config',
 )
@@ -357,16 +357,16 @@ def _valid_rows() -> list[Valid]:
             ('/api/v1/scope/camera/frame_at_binning', lambda s: {'size': 2}),
         ),
         Valid(
-            'apply_layer_camera_settings',
-            'CameraAPI.apply_layer_camera_settings',
-            lambda s: s.session.scope.camera.apply_layer_camera_settings(2.0, 20.0),
+            'apply',
+            'CameraAPI.apply',
+            lambda s: s.session.scope.camera.apply(2.0, 20.0),
             lambda s, applied: (
                 None
                 if math.isclose(s.session.scope.camera.read_gain_db(), 2.0, abs_tol=0.5)
                 else f'gain read back {s.session.scope.camera.read_gain_db()}'
             ),
             (
-                '/api/v1/scope/camera/apply_layer_camera_settings',
+                '/api/v1/scope/camera/apply',
                 lambda s: {'gain_db': 2.0, 'exposure_ms': 20.0},
             ),
         ),
@@ -579,15 +579,13 @@ def _bad_rows() -> list[Bad]:
             ('/api/v1/scope/camera/frame_at_binning', lambda s: {'size': 0}),
         ),
         Bad(
-            'apply_layer_camera_settings, empty auto-gain settings',
-            'CameraAPI.apply_layer_camera_settings',
-            lambda s: s.session.scope.camera.apply_layer_camera_settings(
-                1.0, 5.0, auto_gain=True, auto_gain_settings={}
-            ),
+            'apply, empty auto-gain settings',
+            'CameraAPI.apply',
+            lambda s: s.session.scope.camera.apply(1.0, 5.0, auto_gain=True, auto_gain_settings={}),
             ArgumentRefusedError,
             'missing_key',
             (
-                '/api/v1/scope/camera/apply_layer_camera_settings',
+                '/api/v1/scope/camera/apply',
                 lambda s: {
                     'gain_db': 1.0,
                     'exposure_ms': 5.0,
@@ -941,15 +939,15 @@ def _fault_rows() -> list[Fault]:
             ('/api/v1/scope/camera/frame_at_binning', lambda s: {'size': 2}),
         ),
         Fault(
-            'apply_layer_camera_settings, the camera refusing the gain',
-            'CameraAPI.apply_layer_camera_settings',
+            'apply, the camera refusing the gain',
+            'CameraAPI.apply',
             'LS850',
             lambda s: s.session.scope.simulation.refuse_camera_write('gain', 'false'),
-            lambda s: s.session.scope.camera.apply_layer_camera_settings(3.0, 20.0),
+            lambda s: s.session.scope.camera.apply(3.0, 20.0),
             CameraSettingRejected,
             None,
             (
-                '/api/v1/scope/camera/apply_layer_camera_settings',
+                '/api/v1/scope/camera/apply',
                 lambda s: {'gain_db': 3.0, 'exposure_ms': 20.0},
             ),
         ),

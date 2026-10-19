@@ -10,19 +10,19 @@ Before the fix at LVP `<commit>` (commit message references #673), the
 
 Combined with the gate at `ui/layer_control.py::apply_settings`
 (`if not protocol_running_global.is_set():`) which short-circuits the
-only other call site for `apply_layer_camera_settings`, no code path
+only other call site for `camera.apply`, no code path
 ever fired `set_auto_gain(state=True, ...)` during a protocol scan.
 The result: every Auto_Gain protocol step inherited the previous
 step's / live-mode's gain + exposure (frequently overexposed).
 
 Fix: the `else` branch now routes through
-`apply_layer_camera_settings(auto_gain=True, auto_gain_settings=...)`,
+`camera.apply(auto_gain=True, auto_gain_settings=...)`,
 which is the same path live-mode AE/AG uses. The runner's existing
 `_auto_gain_deadline` loop in `scan_iterate` handles convergence wait.
 
 This test runs a single-step protocol with `Auto_Gain=True` on the
 simulator and asserts that the api-log captures the
-`apply_layer_camera_settings ... auto_gain=True` event within the
+`camera.apply ... auto_gain=True` event within the
 protocol's `save_camera_state -> restore_camera_state` window.
 """
 
@@ -227,7 +227,7 @@ def _run_protocol(executor, protocol, tmp_path):
 
 class TestProtocolAutoGainFires:
     """When a protocol step has Auto_Gain=True, the capture path must
-    fire `set_auto_gain(state=True, ...)` (via apply_layer_camera_settings).
+    fire `set_auto_gain(state=True, ...)` (via camera.apply).
     The pre-fix codebase silently SKIPPED the camera settings on the
     Auto_Gain branch, leaving the camera at inherited gain/exposure.
     """
@@ -250,7 +250,7 @@ class TestProtocolAutoGainFires:
 
         # Find save_camera_state(protocol) and restore_camera_state(protocol);
         # the protocol's execution window lives between them. Within that
-        # window we expect at least one `apply_layer_camera_settings ...
+        # window we expect at least one `camera.apply ...
         # auto_gain=True` event for the single Auto_Gain step.
         save_idx = None
         restore_idx = None
@@ -273,13 +273,13 @@ class TestProtocolAutoGainFires:
         auto_gain_true_events = [
             i
             for i in range(save_idx, restore_idx)
-            if 'apply_layer_camera_settings' in capture.records[i][1]
+            if 'camera.apply ' in capture.records[i][1]
             and 'auto_gain=True' in capture.records[i][1]
         ]
 
         assert len(auto_gain_true_events) >= 1, (
             f'#673 reproduced: protocol step with Auto_Gain=True did NOT '
-            f'fire `apply_layer_camera_settings ... auto_gain=True` '
+            f'fire `camera.apply ... auto_gain=True` '
             f'within the protocol window (save_idx={save_idx}, '
             f'restore_idx={restore_idx}). This means set_auto_gain '
             f'never fired and the camera held inherited gain/exposure.\n'
@@ -292,7 +292,7 @@ class TestProtocolAutoGainFires:
         settles against the lit scene rather than a dark frame (the #673 root
         cause: arming AG dark rails gain/exposure on noise). Within the
         protocol window the led_on event must precede the
-        apply_layer_camera_settings ... auto_gain=True event.
+        apply ... auto_gain=True event.
         """
         protocol = _build_single_step_ag_protocol(color='BF', auto_gain=True)
 
@@ -327,7 +327,7 @@ class TestProtocolAutoGainFires:
             (
                 i
                 for i in range(save_idx, restore_idx)
-                if 'apply_layer_camera_settings' in capture.records[i][1]
+                if 'camera.apply ' in capture.records[i][1]
                 and 'auto_gain=True' in capture.records[i][1]
             ),
             None,
@@ -370,12 +370,12 @@ class TestProtocolAutoGainFires:
 
         assert save_idx is not None and restore_idx is not None
 
-        # Within the protocol window, no apply_layer_camera_settings with
+        # Within the protocol window, no camera.apply with
         # auto_gain=True should fire.
         bad_events = [
             capture.records[i][1]
             for i in range(save_idx, restore_idx)
-            if 'apply_layer_camera_settings' in capture.records[i][1]
+            if 'camera.apply ' in capture.records[i][1]
             and 'auto_gain=True' in capture.records[i][1]
         ]
         assert not bad_events, (

@@ -82,7 +82,7 @@ def test_the_layer_apply_names_a_refused_auto_gain(sim_camera, monkeypatch):
     monkeypatch.setattr(cam, 'auto_gain', lambda *a, **kw: False)
 
     with pytest.raises(CameraSettingRejected) as excinfo:
-        camera.apply_layer_camera_settings(
+        camera.apply(
             gain_db=5.0,
             exposure_ms=40.0,
             auto_gain=True,

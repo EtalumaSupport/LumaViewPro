@@ -163,7 +163,7 @@ def _logged(level: str) -> list[str]:
 
 
 def _arm(camera, settings, *, resume_after_capture):
-    camera._apply_layer_camera_settings_impl(
+    camera._apply_settings_impl(
         layer='BF',
         gain_db=1.0,
         exposure_ms=100.0,
@@ -402,7 +402,7 @@ def test_arm_clamps_exposure_above_the_class_cap():
     alone."""
     imaging, camera, cam = _build_inert()
     lvp_logger.logger.reset_mock()
-    camera._apply_layer_camera_settings_impl(
+    camera._apply_settings_impl(
         layer='BF',
         gain_db=1.0,
         exposure_ms=100.0,
@@ -423,7 +423,7 @@ def test_arm_clamps_exposure_above_the_class_cap():
 
     imaging, camera, cam = _build_inert()
     lvp_logger.logger.reset_mock()
-    camera._apply_layer_camera_settings_impl(
+    camera._apply_settings_impl(
         layer='BF',
         gain_db=1.0,
         exposure_ms=20.0,
@@ -493,7 +493,7 @@ def test_restore_re_arm_clamps_a_trimmed_snapshot():
     the sweep left in the cache; above the class ceiling it is clamped like
     any arm."""
     _imaging, camera, cam = _build_inert()
-    camera._apply_layer_camera_settings_impl(
+    camera._apply_settings_impl(
         layer='BF',
         gain_db=1.0,
         exposure_ms=20.0,
@@ -604,7 +604,7 @@ def test_apply_layer_camera_settings_names_the_layer_it_applied_to():
     api_log.addHandler(collector)
     try:
         for layer in ('Red', 'Lumi'):
-            camera._apply_layer_camera_settings_impl(
+            camera._apply_settings_impl(
                 layer=layer,
                 gain_db=20.0,
                 exposure_ms=100.0,
@@ -614,7 +614,7 @@ def test_apply_layer_camera_settings_names_the_layer_it_applied_to():
         api_log.removeHandler(collector)
         api_log.setLevel(previous_level)
 
-    applied = [m for m in collector.messages if m.startswith('apply_layer_camera_settings')]
+    applied = [m for m in collector.messages if m.startswith('camera.apply ')]
     assert len(applied) == 2, f'expected one line per layer, got {applied}'
     assert applied[0] != applied[1], (
         f'both layers logged the same line, so the log cannot tell one apply '

@@ -120,7 +120,7 @@ class TestTheLayerApply:
         monkeypatch.setattr(cam, 'gain', lambda v: False)
 
         with pytest.raises(CameraSettingRejected) as excinfo:
-            camera.apply_layer_camera_settings(gain_db=5.0, exposure_ms=40.0, layer='BF')
+            camera.apply(gain_db=5.0, exposure_ms=40.0, layer='BF')
 
         assert excinfo.value.setting == 'gain_db'
         assert camera.exposure_ms == pytest.approx(40.0)
@@ -150,7 +150,7 @@ class TestTheRunReportsAndCarriesOn:
 
         runner = scan_ready_runner(protocol_step(Auto_Gain=True))
         refusal = _rejected()
-        runner._scope.camera.apply_layer_camera_settings.side_effect = refusal
+        runner._scope.camera.apply.side_effect = refusal
 
         runner._step_executor.scan_iterate()
 

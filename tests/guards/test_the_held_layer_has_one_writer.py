@@ -28,7 +28,7 @@ _WRITE_BODIES = {
     '_update_auto_gain_target_brightness_impl',
     '_auto_gain_once_impl',
     '_lock_auto_gain_impl',
-    '_apply_layer_camera_settings_impl',
+    '_apply_settings_impl',
     '_restore_camera_state_impl',
 }
 
@@ -37,7 +37,7 @@ _RECORD_KEPT_IN = {
     '_hold_layer_impl': 'the record writer',
     'restore_camera_state': "dispatches the restore, which sets the snapshot's record",
     '_restore_camera_state_impl': "clears the record, then sets the snapshot's once it is whole",
-    '_apply_layer_camera_settings_impl': 'its own steps, under whichever door called it',
+    '_apply_settings_impl': 'its own steps, under whichever door called it',
     '_lock_auto_gain_impl': 'its own steps, under whichever door called it',
     '_capture_and_wait_impl': "a capture's lock of the standing arm, resumed after",
     '_resume_auto_gain_impl': 'the re-arm of the arm a capture locked',

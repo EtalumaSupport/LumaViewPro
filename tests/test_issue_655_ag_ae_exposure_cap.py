@@ -206,7 +206,7 @@ def test_protocol_caller_injects_per_class_cap(monkeypatch):
     )
     runner = scan_ready_runner(protocol_step(Auto_Gain=True))
     runner._step_executor.scan_iterate()
-    applies = runner._scope.camera.apply_layer_camera_settings.call_args_list
+    applies = runner._scope.camera.apply.call_args_list
     assert applies, 'the AG step must make the apply'
     assert applies[0].kwargs['auto_gain_settings']['max_exposure_ms'] == 456.0, (
         "the step's channel-class cap must reach the AG apply. (#655)"
@@ -283,7 +283,7 @@ def test_protocol_arm_resolves_the_cap_from_the_run():
         _ag_ae_max_exposure_ms={'fluorescence': 123.0},
     )
     runner._step_executor.scan_iterate()
-    applies = runner._scope.camera.apply_layer_camera_settings.call_args_list
+    applies = runner._scope.camera.apply.call_args_list
     assert applies, 'the AG step must make the apply'
     assert applies[0].kwargs['auto_gain_settings']['max_exposure_ms'] == 123.0, (
         "the run's per-install fluorescence ceiling must reach the AG apply. (#655)"

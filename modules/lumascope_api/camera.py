@@ -3214,8 +3214,8 @@ class CameraAPI:
             str | None: The layer the Session last put on the camera whole;
                 None when the camera holds no layer's settings: a raw camera
                 write came after it (``set_gain_db``, ``set_exposure_ms``,
-                ``apply_layer_camera_settings`` and the other raw doors), a
-                restore was trimmed or refused, the camera refused part of the
+                ``apply`` and the other raw doors), a restore was trimmed
+                or refused, the camera refused part of the
                 layer, or no camera is connected.
         """
         with self._state_lock:
@@ -3276,11 +3276,11 @@ class CameraAPI:
 
         Returns:
             The gain and exposure in effect, as
-            ``_apply_layer_camera_settings_impl`` returns them; None when no
+            ``_apply_settings_impl`` returns them; None when no
             camera is active.
 
         Raises:
-            CameraSettingRejected: as ``_apply_layer_camera_settings_impl``
+            CameraSettingRejected: as ``_apply_settings_impl``
                 says. The camera is recorded as holding ``layer`` at what it
                 took, with no request, so the next ask writes again.
         """
@@ -3289,7 +3289,7 @@ class CameraAPI:
             return held.taken
         self._forget_held_layer()
         try:
-            taken = self._apply_layer_camera_settings_impl(
+            taken = self._apply_settings_impl(
                 request.gain_db,
                 request.exposure_ms,
                 layer=layer,
@@ -3307,7 +3307,7 @@ class CameraAPI:
         return taken
 
     @api
-    def apply_layer_camera_settings(
+    def apply(
         self,
         gain_db: float,
         exposure_ms: float,
@@ -3318,7 +3318,7 @@ class CameraAPI:
     ) -> dict | None:
         """Apply per-layer camera settings in one batched call, and wait.
 
-        See ``_apply_layer_camera_settings_impl`` for the contract; this
+        See ``_apply_settings_impl`` for the contract; this
         adds only the dispatch described on ``_dispatch_camera``. The
         batch is one dispatched task, so the three writes stay atomic on
         the camera lane.
@@ -3339,13 +3339,13 @@ class CameraAPI:
                 camera, with none connected; nothing was written.
             CameraSettingRejected: The camera refused the gain, the
                 exposure or the auto-gain change, as
-                ``_apply_layer_camera_settings_impl`` says.
+                ``_apply_settings_impl`` says.
         """
         if auto_gain_settings is not None:
             _refuse_unless_auto_gain_settings(auto_gain_settings, 'auto_gain_settings')
         return self._dispatch_camera(
-            self._no_layers_write(self._apply_layer_camera_settings_impl),
-            'apply_layer_camera_settings',
+            self._no_layers_write(self._apply_settings_impl),
+            'apply',
             args=(gain_db, exposure_ms),
             kwargs={
                 'layer': layer,
@@ -3356,7 +3356,7 @@ class CameraAPI:
             timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
         )
 
-    def _apply_layer_camera_settings_impl(
+    def _apply_settings_impl(
         self,
         gain_db: float,
         exposure_ms: float,
@@ -3454,7 +3454,7 @@ class CameraAPI:
         if auto.capped:
             capped_note += ' capped(stored auto_gain=True: no hardware auto-gain)'
         _api_log.info(
-            f'apply_layer_camera_settings layer={layer} gain={gain.applied}dB '
+            f'camera.apply layer={layer} gain={gain.applied}dB '
             f'exp={exposure.applied}ms auto_gain={auto.applied}{capped_note}'
         )
         if len(refused) == 1:

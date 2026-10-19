@@ -96,7 +96,7 @@ def ag_less_camera(ag_less_profile, asked):
 
 class TestTheLayerApply:
     def test_auto_gain_off_asks_nothing_and_refuses_nothing(self, ag_less_camera, asked):
-        applied = ag_less_camera.apply_layer_camera_settings(
+        applied = ag_less_camera.apply(
             gain_db=5.0,
             exposure_ms=10.0,
             auto_gain=False,
@@ -108,7 +108,7 @@ class TestTheLayerApply:
         assert asked == []
 
     def test_a_stored_auto_gain_on_is_applied_as_manual(self, ag_less_camera, asked):
-        applied = ag_less_camera.apply_layer_camera_settings(
+        applied = ag_less_camera.apply(
             gain_db=5.0,
             exposure_ms=10.0,
             auto_gain=True,
@@ -228,7 +228,7 @@ def test_the_layer_apply_says_when_the_camera_held_auto_gain_down(ag_less_camera
     api_log.setLevel(logging.INFO)
     api_log.addHandler(collector)
     try:
-        ag_less_camera.apply_layer_camera_settings(
+        ag_less_camera.apply(
             gain_db=5.0,
             exposure_ms=10.0,
             auto_gain=True,
@@ -239,7 +239,7 @@ def test_the_layer_apply_says_when_the_camera_held_auto_gain_down(ag_less_camera
         api_log.removeHandler(collector)
         api_log.setLevel(previous_level)
 
-    (line,) = [m for m in collector.messages if m.startswith('apply_layer_camera_settings')]
+    (line,) = [m for m in collector.messages if m.startswith('camera.apply ')]
     assert 'auto_gain=False' in line, line
     assert 'capped(stored auto_gain=True: no hardware auto-gain)' in line, line
 

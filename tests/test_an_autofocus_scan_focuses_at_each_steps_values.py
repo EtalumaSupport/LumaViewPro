@@ -30,7 +30,7 @@ def _sweep_targets(tmp_path, run_mode):
         return source
 
     rig.af_runner._apply_sweep_camera_targets = record
-    rig.scope.camera._apply_layer_camera_settings_impl(
+    rig.scope.camera._apply_settings_impl(
         layer='BF',
         gain_db=7.0,
         exposure_ms=40.0,

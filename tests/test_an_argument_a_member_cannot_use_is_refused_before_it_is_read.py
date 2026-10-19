@@ -82,12 +82,10 @@ def _rows(session):
             ),
         ),
         (
-            'apply_layer_camera_settings, empty auto-gain settings',
+            'apply, empty auto-gain settings',
             ArgumentRefusedError,
             'missing_key',
-            lambda: scope.camera.apply_layer_camera_settings(
-                1.0, 5.0, auto_gain=True, auto_gain_settings={}
-            ),
+            lambda: scope.camera.apply(1.0, 5.0, auto_gain=True, auto_gain_settings={}),
         ),
         (
             'frame_at_binning, 0',

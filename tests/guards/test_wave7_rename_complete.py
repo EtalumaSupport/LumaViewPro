@@ -339,7 +339,7 @@ IMAGING_ONLY_METHODS = frozenset(
 CAMERA_ONLY_METHODS = frozenset(
     {
         'add_camera_listener',
-        'apply_layer_camera_settings',
+        'apply',
         'auto_gain_once',
         'active',
         'binning',

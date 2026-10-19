@@ -69,9 +69,7 @@ REFUSED = {
     'set_binning': lambda s: s.camera.set_binning(1),
     'set_high_conversion_gain': lambda s: s.camera.set_high_conversion_gain(False),
     'set_line_noise_reduction': lambda s: s.camera.set_line_noise_reduction(False),
-    'apply_layer_camera_settings': lambda s: s.camera.apply_layer_camera_settings(
-        5.0, 20.0, layer='BF'
-    ),
+    'apply': lambda s: s.camera.apply(5.0, 20.0, layer='BF'),
     'capture_and_wait': lambda s: s.imaging.capture_and_wait(),
 }
 

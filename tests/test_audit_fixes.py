@@ -7851,7 +7851,7 @@ class TestImagingParamNamesUseUnitSuffix:
         # (method, expected_param_name_set, banned_param_name_set)
         ('set_gain_db', frozenset({'gain_db'}), frozenset({'gain'})),
         ('set_exposure_ms', frozenset({'exposure_ms'}), frozenset({'t', 'exposure'})),
-        ('apply_layer_camera_settings', frozenset({'gain_db', 'exposure_ms'}), frozenset({'gain'})),
+        ('apply', frozenset({'gain_db', 'exposure_ms'}), frozenset({'gain'})),
         (
             'auto_gain_once',
             frozenset({'min_gain_db', 'max_gain_db'}),
@@ -8649,7 +8649,7 @@ class TestAutoGainArmedInScanIterate:
     def _queued_ag_applies(runner):
         # The run arms through the public member, under its taking; the
         # member's own dispatch puts the apply on the lane.
-        return runner._scope.camera.apply_layer_camera_settings.call_args_list
+        return runner._scope.camera.apply.call_args_list
 
     def test_run_loop_resets_armed_step_per_scan(self):
         """Each scan must re-arm AG: a two-scan run queues the AG apply
@@ -8719,19 +8719,25 @@ class TestAutoGainArmedInScanIterate:
         scene; a re-apply here would restart AG mid-grab and discard the
         settling the capture_and_wait drain produced."""
         camera = self._drive_capture(auto_gain=True)
-        assert (
-            not camera.apply_layer_camera_settings.called
-            and not camera._apply_layer_camera_settings_impl.called
-        ), 'AG-step capture must not re-apply layer camera settings'
+        assert not camera.apply.called and not camera._apply_settings_impl.called, (
+            'AG-step capture must not re-apply layer camera settings'
+        )
         assert not camera.set_gain_db.called and not camera.set_exposure_ms.called, (
             'AG-step capture must not drive manual gain/exposure either'
         )
 
     def test_capture_applies_settings_for_manual_step(self):
-        """Control: a non-AG step DOES drive the step gain/exposure."""
+        """Control: a non-AG step applies its gain and exposure in one
+        apply, with auto-gain off and no auto-gain settings, so the
+        auto-gain mode is not written."""
         camera = self._drive_capture(auto_gain=False)
-        camera.set_gain_db.assert_called_once_with(2.0)
-        camera.set_exposure_ms.assert_called_once_with(10.0)
+        camera.apply.assert_called_once()
+        kwargs = camera.apply.call_args.kwargs
+        assert (kwargs['gain_db'], kwargs['exposure_ms']) == (2.0, 10.0)
+        assert kwargs['auto_gain'] is False and kwargs['auto_gain_settings'] is None
+        assert not camera.set_gain_db.called and not camera.set_exposure_ms.called, (
+            "the manual step's writes go through the one apply, not the raw setters"
+        )
 
     def test_arm_block_returns_after_arming(self):
         """The arm tick must NOT capture -- the next scan_iterate tick

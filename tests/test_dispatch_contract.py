@@ -107,7 +107,7 @@ FAMILIES = [
     ),
     (
         'camera',
-        'apply_layer_camera_settings',
+        'apply',
         {'gain_db': 1.0, 'exposure_ms': 10.0, 'layer': 'BF'},
         'camera',
     ),
@@ -141,8 +141,10 @@ _PROBE_ANSWER = {'set_frame_size': {'width': 640, 'height': 480}, 'set_binning':
 # A member whose body is not named after it: the start members share the
 # move bodies with the waited members, and the image mode and the high
 # conversion gain are applied by the pixel-format and conversion-gain
-# bodies.
+# bodies; the camera's apply body is named apart from the LED lease's
+# _apply_impl.
 _BODY_OF = {
+    'apply': '_apply_settings_impl',
     'start_move_absolute': '_move_absolute_impl',
     'set_image_mode': '_set_pixel_format_impl',
     'set_high_conversion_gain': '_set_conversion_gain_mode_impl',

@@ -64,7 +64,7 @@ def _arm_call_kwargs(func: ast.FunctionDef) -> dict:
         if not (
             isinstance(node, ast.Call)
             and isinstance(node.func, ast.Attribute)
-            and node.func.attr == 'apply_layer_camera_settings'
+            and node.func.attr == 'apply'
         ):
             continue
         kws = {kw.arg: kw.value for kw in node.keywords}

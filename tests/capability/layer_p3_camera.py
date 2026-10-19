@@ -36,8 +36,8 @@ try:
     step('set_auto_gain(True, ag)', lambda: im_camera.set_auto_gain(True, ag))
     step('lock_auto_gain()', lambda: im_camera.lock_auto_gain())
     step(
-        'apply_layer_camera_settings(Blue)',
-        lambda: im_camera.apply_layer_camera_settings(
+        'camera.apply(Blue)',
+        lambda: im_camera.apply(
             layer='Blue', gain_db=3.0, exposure_ms=50.0, auto_gain=False, auto_gain_settings=None
         ),
     )

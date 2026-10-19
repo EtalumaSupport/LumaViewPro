@@ -263,18 +263,18 @@ class TestTheHeldLayer:
 
     def test_a_refused_layer_is_not_held_and_is_written_again(self, session, monkeypatch):
         camera = session.scope.camera
-        real = camera._apply_layer_camera_settings_impl
+        real = camera._apply_settings_impl
         # a stand-in by design: the simulated camera takes every in-range value
         monkeypatch.setattr(
             camera,
-            '_apply_layer_camera_settings_impl',
+            '_apply_settings_impl',
             MagicMock(side_effect=CameraSettingRejected('gain_db', 10.0, message='x')),
         )
         with pytest.raises(CameraSettingRejected):
             session.apply_layer_camera('Blue')
         assert camera.get_held_layer() is None
 
-        monkeypatch.setattr(camera, '_apply_layer_camera_settings_impl', real)
+        monkeypatch.setattr(camera, '_apply_settings_impl', real)
         session.apply_layer_camera('Blue')
 
         assert camera.get_held_layer() == 'Blue'
@@ -288,7 +288,7 @@ def test_no_gui_module_puts_a_layer_on_the_camera_itself():
     callers = [
         str(path.relative_to(REPO_ROOT))
         for path in sorted((REPO_ROOT / 'ui').rglob('*.py'))
-        if 'apply_layer_camera_settings(' in path.read_text()
+        if 'camera.apply(' in path.read_text()
     ]
     assert callers == []
 

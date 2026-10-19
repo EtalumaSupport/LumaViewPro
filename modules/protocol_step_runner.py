@@ -324,7 +324,7 @@ class ProtocolStepRunner:
                 step['Color']
             )
             try:
-                p._scope.camera.apply_layer_camera_settings(
+                p._scope.camera.apply(
                     layer=step['Color'],
                     gain_db=step['Gain'],
                     exposure_ms=step['Exposure'],
