@@ -19,7 +19,6 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import threading
-import time
 
 import cv2
 import httpx
@@ -104,13 +103,7 @@ def _frame_width(session) -> int:
     return image.shape[1]
 
 
-def _until(condition, what: str, timeout_s: float = 10.0) -> None:
-    # The view's watchers change on the server's loop when it sees the
-    # client go; nothing signals the test thread, so this waits, bounded.
-    deadline = time.monotonic() + timeout_s
-    while not condition():
-        assert time.monotonic() < deadline, f'never {what}'
-        time.sleep(0.01)
+_LET_GO_S = 10.0
 
 
 def test_a_snapshot_is_the_newest_frame_at_half_its_width(session):
@@ -165,9 +158,14 @@ def test_the_listener_is_attached_only_while_someone_watches(session):
             parts = _Parts(response)
             parts.next()
             watching = live.watchers
-        _until(lambda: live.watchers == 0, 'let go of the listener')
+            unwatched_while_held = live.wait_unwatched(0.1)
+        # The server sees the client go on its own loop; the view says when.
+        let_go = live.wait_unwatched(_LET_GO_S)
 
     assert (before, watching) == (0, 1)
+    assert not unwatched_while_held, 'the view said nobody watched while a stream was open'
+    assert let_go, 'never let go of the listener'
+    assert live.watchers == 0
 
 
 def test_a_client_ready_for_a_frame_gets_the_newest_skipping_the_rest(session):
@@ -232,8 +230,9 @@ def test_the_close_refuses_a_new_watch_and_ends_the_open_ones(session):
             with pytest.raises(AssertionError, match='the stream ended'):
                 while True:
                     parts.next()
-        _until(lambda: app.state.live.watchers == 0, 'let go of the listener')
+        let_go = app.state.live.wait_unwatched(_LET_GO_S)
 
+    assert let_go, 'never let go of the listener'
     assert [(r.status_code, r.json()['reason']) for r in refused] == [(503, 'server_closing')] * 2
 
 

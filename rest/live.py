@@ -78,6 +78,10 @@ class LiveView:
         self._newest: Frame | None = None
         self._ordinal = 0
         self._watchers = 0
+        # Set while nobody watches and the frame listener is off: a threading
+        # Event, since who waits for it is a thread other than the server's loop.
+        self._unwatched = threading.Event()
+        self._unwatched.set()
         self._finished = False
         self._loop: asyncio.AbstractEventLoop | None = None
         self._wake: asyncio.Event | None = None
@@ -87,6 +91,15 @@ class LiveView:
     def watchers(self) -> int:
         """How many clients watch: a stream each, and each snapshot while it waits."""
         return self._watchers
+
+    def wait_unwatched(self, timeout_s: float) -> bool:
+        """True once nobody watches and the frame listener is removed; False on timeout.
+
+        For a thread off the server's loop, which sees a client go only
+        once the loop has; a listener whose removal raised is never let go,
+        so the wait times out.
+        """
+        return self._unwatched.wait(timeout_s)
 
     async def watch(self) -> None:
         """Join the watchers; the first attaches the frame listener.
@@ -103,6 +116,7 @@ class LiveView:
                 await asyncio.to_thread(
                     self._imaging.add_frame_listener, self._on_frame, 'REST live view'
                 )
+                self._unwatched.clear()
             self._watchers += 1
 
     async def leave(self) -> None:
@@ -114,6 +128,7 @@ class LiveView:
                 with self._lock:
                     # Not shown to the next watcher: the scope may have moved since.
                     self._newest = None
+                self._unwatched.set()
 
     def finish(self) -> None:
         """End every stream and snapshot: the server is closing. Called on the server's loop."""
