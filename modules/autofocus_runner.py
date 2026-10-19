@@ -317,8 +317,8 @@ class AutofocusRunner:
             self._sweep_targets_source = self._apply_sweep_camera_targets(auto_gain_lock)
             _af_log.info(
                 f'[AF DIAG] Saved pre-AF camera state: '
-                f'gain={self._saved_camera_state.get("gain_db", "?")} '
-                f'exp={self._saved_camera_state.get("exposure_ms", "?")} '
+                f'gain={self._saved_camera_state["gain_db"]} '
+                f'exp={self._saved_camera_state["exposure_ms"]} '
                 f'(sweep at gain={self._camera_gain} exp={self._camera_exposure} '
                 f'source={self._sweep_targets_source})'
             )

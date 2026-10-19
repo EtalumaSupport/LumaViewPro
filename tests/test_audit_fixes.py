@@ -975,7 +975,6 @@ class TestIssue602_AFExecutorLED:
         abort_event.set()  # pre-set so AFE.run() unwinds via abort path
         with (
             patch.object(af, '_move_absolute_position'),
-            patch.object(scope.camera, 'save_camera_state', return_value={}),
             patch.object(scope.motion, 'set_precision_mode'),
             patch.object(scope.camera, 'restore_camera_state'),
         ):
@@ -1041,7 +1040,6 @@ class TestAFPrecisionModeRestoresOn:
             patch.object(scope.motion, 'set_precision_mode') as mock_set,
             patch.object(af, '_move_absolute_position'),
             patch.object(scope.illumination, 'save_led_state', return_value={}),
-            patch.object(scope.camera, 'save_camera_state', return_value={}),
             patch.object(scope.illumination, 'restore_led_state'),
             patch.object(scope.camera, 'restore_camera_state'),
         ):
