@@ -14,7 +14,7 @@ from modules.lumascope_api.illumination import LedState
 # Heavy deps are mocked by tests/conftest.py at module-import time.
 
 from tests.protocol_drives import held_run_claim
-from tests.scope_fakes import bind_settings_like_a_session, build_scope
+from tests.scope_fakes import bind_settings_like_a_session, build_scope, led_reading
 
 
 # ---------------------------------------------------------------------------
@@ -94,7 +94,7 @@ class TestLEDListener:
         scope.illumination.add_led_listener(bad_listener)
         # Should not raise
         scope.illumination.led_on(channel=0, illumination_ma=100)
-        assert scope.illumination.get_led_state(0).state is LedState.LIT
+        assert led_reading(scope, 0).state is LedState.LIT
 
     def test_listener_fires_from_multiple_threads(self, scope):
         """Listeners fire for every caller, whichever thread calls led_on.
@@ -134,7 +134,7 @@ class TestLEDOwnership:
         lease = scope.illumination.acquire_led_lease('autofocus', claim=held_run_claim())
         scope.illumination._led_on_impl(channel=0, illumination_ma=100, _lease=lease)
         scope.illumination._led_off_impl(channel=0, _lease=lease)
-        assert scope.illumination.get_led_state(0).state is LedState.DARK
+        assert led_reading(scope, 0).state is LedState.DARK
 
     def test_no_owner_off_is_unconditional(self, scope):
         """led_off without a lease works on a channel a (released) lease lit."""
@@ -142,18 +142,18 @@ class TestLEDOwnership:
         scope.illumination._led_on_impl(channel=0, illumination_ma=100, _lease=lease)
         lease.release(leave_on=True)
         scope.illumination.led_off(channel=0)  # no lease = unconditional
-        assert scope.illumination.get_led_state(0).state is LedState.DARK
+        assert led_reading(scope, 0).state is LedState.DARK
 
     def test_leds_off_nuclear_clears_all(self, scope):
         protocol = scope.illumination.acquire_led_lease('protocol', claim=held_run_claim())
         scope.illumination._led_on_impl(channel=1, illumination_ma=50, _lease=protocol)
         autofocus = protocol.acquire_child('autofocus')
         scope.illumination._led_on_impl(channel=0, illumination_ma=100, _lease=autofocus)
-        assert scope.illumination.get_led_state(0).state is LedState.LIT
-        assert scope.illumination.get_led_state(1).state is LedState.LIT
+        assert led_reading(scope, 0).state is LedState.LIT
+        assert led_reading(scope, 1).state is LedState.LIT
         scope.illumination.leds_off()  # nuclear
-        assert scope.illumination.get_led_state(0).state is LedState.DARK
-        assert scope.illumination.get_led_state(1).state is LedState.DARK
+        assert led_reading(scope, 0).state is LedState.DARK
+        assert led_reading(scope, 1).state is LedState.DARK
 
 
 # ---------------------------------------------------------------------------
@@ -170,10 +170,10 @@ class TestLEDSaveRestore:
         scope.illumination.led_on(channel=1, illumination_ma=50)
         snapshot = scope.illumination.save_led_state('test')
         scope.illumination.leds_off()
-        assert scope.illumination.get_led_state(0).state is LedState.DARK
+        assert led_reading(scope, 0).state is LedState.DARK
         scope.illumination.restore_led_state(snapshot)
-        assert scope.illumination.get_led_state(0).state is LedState.LIT
-        assert scope.illumination.get_led_state(1).state is LedState.LIT
+        assert led_reading(scope, 0).state is LedState.LIT
+        assert led_reading(scope, 1).state is LedState.LIT
 
     def test_restoring_an_all_dark_snapshot_darkens_what_was_lit_since(self, scope):
         """A snapshot holds every address, so one taken with nothing lit
@@ -181,7 +181,7 @@ class TestLEDSaveRestore:
         snapshot = scope.illumination.save_led_state('dark')
         scope.illumination.led_on(channel=0, illumination_ma=100)
         scope.illumination.restore_led_state(snapshot)
-        assert scope.illumination.get_led_state(0).state is LedState.DARK
+        assert led_reading(scope, 0).state is LedState.DARK
 
     def test_af_pattern_save_restore(self, scope):
         """Simulate the AF pattern: save -> own LED on -> do work -> release -> restore."""
@@ -193,11 +193,11 @@ class TestLEDSaveRestore:
         scope.illumination._led_on_impl(channel=3, illumination_ma=200, _lease=lease)  # BF for AF
         # AF finishes
         lease.release()  # only kills the LED the AF lease lit
-        assert scope.illumination.get_led_state(0).state is LedState.LIT  # user's Blue still on
-        assert scope.illumination.get_led_state(3).state is LedState.DARK  # AF's BF off
+        assert led_reading(scope, 0).state is LedState.LIT  # user's Blue still on
+        assert led_reading(scope, 3).state is LedState.DARK  # AF's BF off
         # Restore (should be a no-op since user's LED was never touched)
         scope.illumination.restore_led_state(snapshot)
-        assert scope.illumination.get_led_state(0).state is LedState.LIT  # still on
+        assert led_reading(scope, 0).state is LedState.LIT  # still on
 
 
 # ---------------------------------------------------------------------------

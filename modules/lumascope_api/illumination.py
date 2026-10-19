@@ -1146,35 +1146,32 @@ class IlluminationAPI:
         return tuple(self._reading(address) for address in addresses)
 
     @api(reads=True)
-    def get_led_state(self, channel: int | str) -> LedReading | None:
-        """Read one LED address: lit with its current, dark, or unknown.
+    def get_led_state(self, channel: str) -> LedReading | None:
+        """Read one channel's LED: lit with its current, dark, or unknown.
 
-        Reads from the API-level store, not the board.
+        Reads from the API-level store, not the board. A channel is named;
+        every board address, named or not, is in ``get_led_states()``.
 
         Args:
-            channel: A layer name, read through the unit's identity, or an
-                address on the attached board's table.
+            channel: A layer name, read through the unit's identity.
 
         Returns:
-            The address's reading, named through the unit's identity; None
-            when no LED board is installed (none came up, or after
-            ``disconnect()``).
+            The LED's reading; None when no LED board is installed (none
+            came up, or after ``disconnect()``).
 
         Raises:
-            ArgumentRefusedError: ``'layer_unknown'`` or
-                ``'led_channel_unknown'``, ``channel`` names no channel.
+            ArgumentRefusedError: ``'layer_unknown'``, ``channel`` names no
+                layer.
             HardwareCommandRefusedError: ``'axis_absent'``, the unit's
                 identity gives the layer no LED.
         """
-        self._refuse_not_a_channel(channel)
+        refuse_unknown_layer(channel, argument='channel')
         if not self._has_board():
             return None
-        address = channel
-        if isinstance(channel, str):
-            address = self.color2ch(color=channel)
-            if address is None:
-                part = MissingPart.led(channel)
-                raise HardwareCommandRefusedError(part.reason, 'get_led_state', missing=part)
+        address = self.color2ch(color=channel)
+        if address is None:
+            part = MissingPart.led(channel)
+            raise HardwareCommandRefusedError(part.reason, 'get_led_state', missing=part)
         with self._led_state_lock:
             return self._reading(address)
 

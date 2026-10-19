@@ -19,7 +19,7 @@ import pytest
 from modules.exceptions import ArgumentRefusedError, HardwareCommandRefusedError, MissingPart
 from modules.layer_record import UNRESOLVED
 from modules.lumascope_api.illumination import LedReading, LedState
-from tests.scope_fakes import build_scope
+from tests.scope_fakes import build_scope, led_reading
 
 
 @pytest.fixture
@@ -78,7 +78,7 @@ class TestTwoResolverSplit:
         scope.refresh_layer_identity(override_model='LS850-0')
         assert LedReading(1, None, LedState.LIT, 50.0) in scope.illumination.get_led_states()
         scope.illumination.led_off(channel=1)
-        assert scope.illumination.get_led_state(1).state is LedState.DARK
+        assert led_reading(scope, 1).state is LedState.DARK
 
     def test_an_address_no_identity_names_is_reported_lit_by_address(self, scope):
         """With no layer identity every address is the board's: one lit,
@@ -107,7 +107,7 @@ class TestTwoResolverSplit:
             with pytest.raises(HardwareCommandRefusedError) as refused:
                 light()
             assert refused.value.missing == MissingPart.led(1)
-        assert scope.illumination.get_led_state(1).state is LedState.DARK
+        assert led_reading(scope, 1).state is LedState.DARK
 
 
 class TestOverrideScope:

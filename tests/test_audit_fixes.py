@@ -24,7 +24,12 @@ from unittest.mock import MagicMock
 import pytest
 
 from tests.af_drives import park_z
-from tests.scope_fakes import home_sim_scope, bind_settings_like_a_session, give_camera_and_imaging
+from tests.scope_fakes import (
+    home_sim_scope,
+    bind_settings_like_a_session,
+    give_camera_and_imaging,
+    led_reading,
+)
 from tests.protocol_drives import lent_run_claim
 from tests.frame_records import frame_record, plate, unpositioned
 from modules.protocol_image_writer import RunWriteBatch
@@ -7743,7 +7748,7 @@ class TestSessionLedOnArgNameIsMa:
         # proving the value reaches the LED state.
         for method_name in ('led_on',):
             getattr(sim_scope.illumination, method_name)(channel=0, illumination_ma=42.0)
-            assert sim_scope.illumination.get_led_state(0).illumination_ma == 42.0, (
+            assert led_reading(sim_scope, 0).illumination_ma == 42.0, (
                 f'illumination.{method_name} must accept mA by keyword and apply it'
             )
             sim_scope.illumination.leds_off()

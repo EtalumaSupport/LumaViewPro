@@ -21,6 +21,7 @@ import pytest
 
 from modules.exceptions import (
     ArgumentRefusedError,
+    ArgumentTypeRefusedError,
     HardwareCommandRefusedError,
     MissingPart,
     RefusalCause,
@@ -99,6 +100,19 @@ def test_a_number_off_the_boards_table_lights_nothing(session, channel):
     assert refusal.offered == (0, 1, 2, 3, 4, 5, 6, 7)
     assert _lit(session) == []
     _refused(lambda: session.scope.illumination.ch2color(channel), 'led_channel_unknown')
+
+
+def test_one_leds_read_takes_its_channels_name_not_a_board_address(session):
+    """``get_led_state`` names a channel (C11): a query string cannot tell
+    the number 3 from the name '3', so the one read takes the name, and
+    every address, named or not, is ``get_led_states()``'s."""
+    with pytest.raises(ArgumentTypeRefusedError) as refused:
+        session.scope.illumination.get_led_state(3)
+    assert (refused.value.reason, refused.value.argument) == ('wrong_argument_type', 'channel')
+
+    by_name = session.scope.illumination.get_led_state('BF')
+    (by_address,) = [r for r in session.scope.illumination.get_led_states() if r.name == 'BF']
+    assert by_name == by_address
 
 
 @pytest.mark.parametrize('member', ABSENT_MEMBERS)

@@ -119,8 +119,10 @@ class UIListenerBridge:
             if not self._ctx.ready:
                 return
             # Re-read: the event's fields may be stale by now. None with
-            # no LED board installed, after disconnect.
-            reading = self._scope.illumination.get_led_state(channel=a)
+            # no LED board installed, after disconnect. Read by address,
+            # since the event's address may have no name.
+            readings = self._scope.illumination.get_led_states() or ()
+            reading = next((r for r in readings if r.address == a), None)
             if reading is not None and reading.name is not None:
                 self._write_led_button(reading.name, lit=reading.state is LedState.LIT)
 

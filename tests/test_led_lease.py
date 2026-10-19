@@ -22,7 +22,7 @@ from modules.lumascope_api.illumination import LedState
 
 from modules.exceptions import HardwareCommandRefusedError
 from tests.protocol_drives import held_run_claim
-from tests.scope_fakes import build_scope
+from tests.scope_fakes import build_scope, led_reading
 
 
 @pytest.fixture
@@ -34,7 +34,7 @@ def scope():
 
 def _lit(scope, ch):
     """Whether the channel at *ch* is currently lit (API source of truth)."""
-    return scope.illumination.get_led_state(ch).state is LedState.LIT
+    return led_reading(scope, ch).state is LedState.LIT
 
 
 def test_acquire_when_unleased_returns_token(scope):

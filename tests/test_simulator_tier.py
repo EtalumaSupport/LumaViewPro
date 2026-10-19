@@ -33,7 +33,7 @@ from modules.lumascope_api import Lumascope
 from modules.lumascope_api.illumination import LedState
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
-from tests.scope_fakes import build_scope
+from tests.scope_fakes import build_scope, led_reading
 
 if not (sys.platform == 'darwin' or sys.platform.startswith('linux')):
     pytest.skip(
@@ -210,7 +210,7 @@ class TestTheSessionReadsTheTier:
             # The firmware answered the write: the driver holds no command
             # error, and the API's store reads the address lit at 100 mA.
             assert led.last_command_error is None
-            reading = session.scope.illumination.get_led_state(3)
+            reading = led_reading(session.scope, 3)
             assert (reading.state, reading.illumination_ma) == (LedState.LIT, 100)
         finally:
             session.shutdown()

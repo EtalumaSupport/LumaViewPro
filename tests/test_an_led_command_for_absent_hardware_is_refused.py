@@ -44,6 +44,7 @@ from tests.test_a_command_for_absent_motion_hardware_is_refused import (
     make_session,  # noqa: F401 -- the fixture this file's tests take
 )
 from tests.log_capture import capture_module_log, messages
+from tests.scope_fakes import led_reading
 from tests.test_run_refusal_contract import _build_real_protocol, _make_single_step_protocol
 
 
@@ -112,7 +113,7 @@ def test_an_led_the_model_lacks_is_refused_by_name_and_lights_nothing(
 
     assert (refusal.reason, refusal.missing) == ('axis_absent', part)
     assert sent == []
-    assert scope.illumination.get_led_state(2) == LedReading(2, None, LedState.DARK, None)
+    assert led_reading(scope, 2) == LedReading(2, None, LedState.DARK, None)
 
 
 def test_a_read_of_an_led_the_model_lacks_is_refused_by_name(make_session):

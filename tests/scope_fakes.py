@@ -354,6 +354,16 @@ def home_sim_scope(scope):
     return scope
 
 
+def led_reading(scope, address):
+    """The reading of one LED board address, named or not, from ``get_led_states()``.
+
+    ``get_led_state`` takes a channel's name; a test about an address, or
+    about one the unit's identity does not name, reads it here.
+    """
+    (reading,) = [r for r in scope.illumination.get_led_states() if r.address == address]
+    return reading
+
+
 def record_turret_answer(scope):
     """Record whether a bare simulated scope has a turret, and return it.
 

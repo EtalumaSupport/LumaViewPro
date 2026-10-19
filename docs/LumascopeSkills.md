@@ -1787,8 +1787,8 @@ Each read answers an `LedReading`: the `address`, the layer `name` the identity 
 
 ```python
 scope.illumination.get_led_state('Blue')               # LedReading(address=0, name='Blue', state=LedState.LIT, illumination_ma=200.0)
-scope.illumination.get_led_state(0)                    # the same address, by number
-scope.illumination.get_led_states()                    # one LedReading per address of the board (0-7 on the EL-0940 board, 0-3 on FX2)
+scope.illumination.get_led_states()                    # one LedReading per address of the board (0-7 on the EL-0940 board, 0-3 on FX2),
+                                                       # named or not: the read of an address by its number
 scope.illumination.save_led_state('mine')              # an LedSnapshot(tag, readings) for restore_led_state
 ```
 
