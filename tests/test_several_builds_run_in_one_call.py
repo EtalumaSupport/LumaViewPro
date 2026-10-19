@@ -201,3 +201,44 @@ def test_the_live_work_names_the_build_the_call_is_on(session, run_folder):
 
     assert any(name.startswith('Building 1 of 2: Z-Projection') for name in seen), seen
     assert any(name.startswith('Building 2 of 2: Stitch') for name in seen), seen
+
+
+def _stills_and_a_recording():
+    """BF and Green stills and a Blue recording, all at one place."""
+    from tests.test_a_late_write_records_its_frame import _step
+
+    steps = []
+    for index, (color, acquire) in enumerate(
+        (('BF', 'image'), ('Green', 'image'), ('Blue', 'video'))
+    ):
+        step = _step('P1', index, x=20.0, gain=1.0)
+        step['Color'] = color
+        step['Acquire'] = acquire
+        steps.append(step)
+    return steps
+
+
+def test_a_recordings_frames_pass_the_stills_builds_to_the_video(tmp_path):
+    """A run's recording, saved as frames beside two stills, built composite
+    then video in one call: the composite leaves none of the recording's
+    frames out -- it carries them forward, as composite alone does not --
+    and the video is made from them."""
+    from tests.test_a_late_write_records_its_frame import _protocol
+    from tests.test_composite_run_e2e import headless_settings, open_composite_session
+
+    settings = headless_settings(tmp_path)
+    settings['video_as_frames'] = True
+    with open_composite_session(settings) as (session, runner):
+        pending = runner.start_single_scan(
+            protocol=_protocol(_stills_and_a_recording()), parent_dir=str(tmp_path / 'runs')
+        )
+        assert pending.result(timeout=60).status == 'completed'
+        assert pending.files.result(timeout=60) is not None, "the run's files never finished"
+        (record,) = (tmp_path / 'runs').rglob('protocol_record.tsv')
+
+        result = session.post_processing.build(record.parent, composite=True, video=Video())
+
+    composite, _video = result.built
+    assert composite.result.excluded_inputs == ()
+    (video,) = _made(result)[PostProcessingOperation.VIDEO]
+    assert video.startswith('Video/P1_Blue_10xOly_Z0_0000_video'), video
