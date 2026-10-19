@@ -2884,6 +2884,7 @@ class CameraAPI:
         return self._scope.capabilities.camera_supports_auto_exposure
 
     # --- Save / restore ---
+    @api(in_process=True, engineering=True)
     def save_camera_state(self, tag: str) -> dict:
         """Snapshot every camera setting with a getter, for restoration.
 
@@ -2990,6 +2991,7 @@ class CameraAPI:
             )
         return value
 
+    @api(in_process=True, engineering=True)
     def restore_camera_state(self, snapshot: dict) -> None:
         """Restore every camera setting a saved state holds, and wait.
 

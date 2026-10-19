@@ -100,9 +100,12 @@ _REASON_UNNAMED_PINNED = frozenset(
 # raises nothing (Eric, 2026-10-17); 156 since the camera's fresh reads
 # state the raise of a read the camera did not answer; 157 since the
 # camera's held reads, which read no camera and raise nothing, replace the
-# _cached properties (Eric, 2026-10-18); the count does not yet tell a
-# member that raises nothing from one that has not said.
-_WITHOUT_A_SECTION_CEILING = 157
+# _cached properties (Eric, 2026-10-18); 159 since ImagingAPI's
+# last_capture_info and saturated_fraction, a read and a frame's arithmetic
+# that raise nothing, are marked in-process engineering members (Eric,
+# 2026-10-18); the count does not yet tell a member that raises nothing
+# from one that has not said.
+_WITHOUT_A_SECTION_CEILING = 159
 
 
 def _sections():

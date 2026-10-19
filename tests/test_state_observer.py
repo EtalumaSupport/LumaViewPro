@@ -268,9 +268,13 @@ class TestCameraSaveRestore:
         assert abs(scope.camera.read_exposure_ms() - 25.0) < 0.01
 
     def test_restore_empty_snapshot(self, scope):
+        from modules.exceptions import ArgumentTypeRefusedError
+
         scope.camera.set_gain_db(5.0)
-        scope.camera.restore_camera_state(None)
-        assert abs(scope.camera.read_gain_db() - 5.0) < 0.01  # unchanged
+        # No snapshot is not a snapshot: the member takes a dict.
+        with pytest.raises(ArgumentTypeRefusedError) as refused:
+            scope.camera.restore_camera_state(None)
+        assert (refused.value.reason, refused.value.argument) == ('wrong_argument_type', 'snapshot')
         scope.camera.restore_camera_state({})
         assert abs(scope.camera.read_gain_db() - 5.0) < 0.01  # unchanged
 

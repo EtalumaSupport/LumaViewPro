@@ -3278,6 +3278,8 @@ Reached through `session.scope.camera` (in-process, also `session.camera`).
 - `read_gain_db`
 - `read_pixel_format`
 - `remove_camera_listener` (in-process)
+- `restore_camera_state` (in-process)
+- `save_camera_state` (in-process)
 - `set_auto_exposure`
 - `set_auto_gain`
 - `set_binning`
@@ -3307,7 +3309,9 @@ Reached through `session.scope.imaging`.
 - `get_image_from_buffer` (in-process)
 - `is_streaming`
 - `judge_frame` (in-process)
+- `last_capture_info` (in-process)
 - `remove_frame_listener` (in-process)
+- `saturated_fraction` (in-process)
 - `scale_bar_config`
 - `set_scale_bar_color`
 - `significant_bits`

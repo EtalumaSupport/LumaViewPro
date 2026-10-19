@@ -1298,6 +1298,7 @@ class ImagingAPI:
     # of them make a frame blown is the record's (``BLOWN_FRACTION``).
     _SATURATION_NEAR_MAX_FRACTION = 0.99
 
+    @api(in_process=True, engineering=True)
     @staticmethod
     def saturated_fraction(arr: np.ndarray | None, significant_bits: int) -> float:
         """Fraction of pixels at or above the near-full-scale threshold.
@@ -2077,6 +2078,7 @@ class ImagingAPI:
             exclude_sources=exclude_sources,
         )
 
+    @api(in_process=True, engineering=True)
     @property
     def last_capture_info(self) -> dict | None:
         """Evidence about the most recent capture_and_wait on this scope.
