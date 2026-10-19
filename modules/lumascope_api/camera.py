@@ -697,6 +697,7 @@ class CameraAPI:
         force_clear: tuple[str, ...] = (),
         cache_update: dict[str, object] | None = None,
         target_from_result: tuple[str, ...] = (),
+        holds: tuple[str, ...] = (),
     ) -> object:
         """Single sanctioned path for a camera-state write and its validity
         consequence. Every camera setter routes its hardware write through here
@@ -718,8 +719,9 @@ class CameraAPI:
         refusal is not resent, since the camera would refuse it again. Not
         answered the second time either, its value is not known, so the
         chunk target of each source it would have recorded is cleared (the
-        next captures settle by frame count), its applied-only invalidations
-        fire, and the refusal is raised as ``'camera_no_answer'``. A write
+        next captures settle by frame count), each value it would have held
+        is held as None, its applied-only invalidations fire, and the
+        refusal is raised as ``'camera_no_answer'``. A write
         that raises anything else is refused as ``refusal()``; each raise
         carries the driver's exception as its cause, so no setter lets a
         driver's own exception out of the API.
@@ -768,6 +770,10 @@ class CameraAPI:
                 mismatch. A driver returning a non-numeric result (applied, but
                 unable to report a value) falls back to the ``targets`` entry
                 for that source.
+            holds: Held keys the caller records itself from the write's
+                result, which ``cache_update`` cannot name in advance. With
+                the ``cache_update`` keys, these are held as None when the
+                camera answers neither try.
 
         Returns:
             The driver write's result, never ``False``, so the caller can
@@ -797,6 +803,9 @@ class CameraAPI:
                 self.frame_validity.set_target(source, None)
             for source in invalidates:
                 self.frame_validity.invalidate(source)
+            unknown = (*(cache_update or ()), *holds)
+            if unknown:
+                self._commit_camera_writes(dict.fromkeys(unknown))
             if self.camera_removed:
                 raise _camera_not_connected(member) from ex
             raise _no_answer_rejection(refusal()) from ex
@@ -916,6 +925,7 @@ class CameraAPI:
             force_invalidate=('gain',),
             targets=(('gain', float(gain_db)),),
             target_from_result=('gain',),
+            holds=('gain_db',),
         )
         applied = _value_in_effect(ok, float(gain_db))
         self._commit_camera_writes({'gain_db': applied})
@@ -989,6 +999,7 @@ class CameraAPI:
             force_invalidate=('exposure',),
             targets=(('exposure', float(exposure_ms) * 1000.0),),
             target_from_result=('exposure',),
+            holds=('exposure_ms',),
         )
         applied = _value_in_effect(ok, float(exposure_ms), scale=0.001)
         self._commit_camera_writes({'exposure_ms': applied})
@@ -2187,6 +2198,7 @@ class CameraAPI:
             member='set_frame_size',
             refusal=_refused,
             force_invalidate=('frame_size',),
+            holds=('frame_size',),
         )
         if not delivered:
             raise _refused()
@@ -2524,6 +2536,7 @@ class CameraAPI:
             member='set_black_level',
             refusal=lambda: _value_rejection('black_level', value),
             invalidates=('black_level',),
+            holds=('black_level',),
         )
         self._commit_camera_writes({'black_level': _value_in_effect(result, float(value))})
         return result

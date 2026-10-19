@@ -19,6 +19,7 @@ import threading
 
 import pytest
 
+from modules.exceptions import CameraSettingRejected
 from modules.lumascope_api.camera import CameraAPI
 from modules.scope_capabilities import FrameSize
 from modules.scope_session import ScopeSession
@@ -107,6 +108,38 @@ def test_a_fresh_read_is_held(session):
     camera = session.camera
     camera.set_gain_db(5.0)
     assert camera.read_gain_db() == camera.gain_db == 5.0
+
+
+# Each write the camera holds a value from: the simulator node it writes, the
+# write, and the held reads it records.
+_HELD_WRITES = (
+    ('gain', lambda camera: camera.set_gain_db(7.0), ('gain_db',)),
+    ('exposure', lambda camera: camera.set_exposure_ms(30.0), ('exposure_ms',)),
+    ('black_level', lambda camera: camera.set_black_level(4.0), ('black_level',)),
+    ('frame_size', lambda camera: camera.set_frame_size(800, 600), ('frame_size',)),
+    ('binning', lambda camera: camera.set_binning(2), ('binning',)),
+    ('auto_exposure', lambda camera: camera.set_auto_exposure(True), ('auto_exposure',)),
+    (
+        'auto_gain',
+        lambda camera: camera.set_auto_gain(True, _AUTO_GAIN),
+        ('auto_gain', 'auto_exposure'),
+    ),
+)
+
+
+def test_a_write_the_camera_never_answered_leaves_its_value_unknown(session):
+    camera = session.camera
+    still_known = {}
+    for node, write, held in _HELD_WRITES:
+        # Unanswered twice: the write and the API's one resend.
+        session.scope.simulation.refuse_camera_write(node, 'no_answer', count=2)
+        with pytest.raises(CameraSettingRejected) as refused:
+            write(camera)
+        assert refused.value.reason == 'camera_no_answer', node
+        known = {name: getattr(camera, name) for name in held if getattr(camera, name) is not None}
+        if known:
+            still_known[node] = known
+    assert still_known == {}
 
 
 @pytest.mark.parametrize(
