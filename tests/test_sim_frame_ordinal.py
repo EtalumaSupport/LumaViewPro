@@ -191,15 +191,26 @@ class TestFieldsSurviveConcurrentStores:
         assert polls >= 10
 
     def test_the_ordinal_never_runs_backwards_under_concurrency(self):
+        """Read back to back until ten distinct frames are seen. A reader that
+        has caught up with the stream waits on the camera's own store, which
+        bounds the read: a poller descheduled through the stores sees fewer
+        distinct frames in the same number of stores, so ten stores is no
+        count of what was read."""
         cam = _cam()
         cam.exposure_t(1.0)
+        handler = cam.cam_image_handler
         seen = []
         try:
             grab_a_frame_made_after_now(cam)
-            _poll_across_ten_stores(cam, lambda: seen.append(cam.grab().seq))
+            while len(set(seen)) < 10:
+                seq = cam.grab().seq
+                if seen and seq == seen[-1]:
+                    assert handler.wait_for_frame_after(seq, 5.0), (
+                        'the camera stopped storing frames'
+                    )
+                seen.append(seq)
         finally:
             cam.stop_grabbing()
-        assert len(set(seen)) >= 10, 'too few distinct frames for the check to mean anything'
         assert all(b >= a for a, b in itertools.pairwise(seen)), 'an ordinal went backwards'
 
 
