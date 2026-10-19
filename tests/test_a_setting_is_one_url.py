@@ -17,7 +17,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from modules.api_surface import api
-from modules.scope_capabilities import FrameSize
+from modules.scope_capabilities import FieldOfView, FrameSize
 from modules.scope_session import ScopeSession
 from rest.app import build_app
 from rest.routes import routes
@@ -200,6 +200,17 @@ class _NotTheRecordsFields:
         pass
 
 
+class _TwoRecords:
+    @api
+    @property
+    def frame(self) -> FrameSize | FieldOfView:
+        return FrameSize(0, 0)
+
+    @api(sets='frame')
+    def set_frame(self, width: int, height: int) -> None:
+        pass
+
+
 class _Pairs:
     @api(reads=True)
     def level(self, channel: str) -> int | None:
@@ -222,8 +233,16 @@ class _Pairs:
 def test_a_setter_that_does_not_pair_with_its_read_is_refused_when_built():
     """Each refusal is the routes' build's, so no such setter is ever served:
     its read is missing or is not a read, writes another kind than the read
-    answers, takes another key, or sets a record's fields under other names."""
-    unpaired = (_NoSuchRead, _NotARead, _AnotherKind, _AnotherKey, _NotTheRecordsFields)
+    answers, takes another key, sets a record's fields under other names, or
+    answers one of two records."""
+    unpaired = (
+        _NoSuchRead,
+        _NotARead,
+        _AnotherKind,
+        _AnotherKey,
+        _NotTheRecordsFields,
+        _TwoRecords,
+    )
     wrong = []
     for cls in unpaired:
         try:

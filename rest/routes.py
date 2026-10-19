@@ -223,7 +223,8 @@ def _paired_read(owner: type, setter: WireMember, by_name: dict[str, WireMember]
     written = list(parameters.values())
     if len(written) == 1 and _kinds(written[0].alternatives) - {_NONE} == answered:
         return read
-    (record,) = [a for a in read.returns if a.form == wire_encoding.RECORD] or [None]
+    records = [a for a in read.returns if a.form == wire_encoding.RECORD]
+    record = records[0] if len(records) == 1 else None
     if (
         record is not None
         and answered == _kinds((record,))
@@ -231,7 +232,8 @@ def _paired_read(owner: type, setter: WireMember, by_name: dict[str, WireMember]
         == [(f, _kinds(alts)) for f, alts in record.fields]
     ):
         return read
-    raise TypeError(f'{where}, which answers {sorted(answered)}, not what the setter writes')
+    answers = sorted(name for _, name, _ in answered)
+    raise TypeError(f'{where}, which answers {answers}, not what the setter writes')
 
 
 _NONE = (wire_encoding.SCALAR, 'None', None)
