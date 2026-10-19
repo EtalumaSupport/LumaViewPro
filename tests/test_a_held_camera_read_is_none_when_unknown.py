@@ -15,6 +15,8 @@ conversion gain or line-noise reduction.
 
 from __future__ import annotations
 
+import threading
+
 import pytest
 
 from modules.lumascope_api.camera import CameraAPI
@@ -105,3 +107,38 @@ def test_a_fresh_read_is_held(session):
     camera = session.camera
     camera.set_gain_db(5.0)
     assert camera.read_gain_db() == camera.gain_db == 5.0
+
+
+@pytest.mark.parametrize(
+    ('read', 'write', 'getter', 'held'),
+    [
+        ('read_black_level', 'set_black_level', 'get_black_level', 'black_level'),
+        ('read_gain_db', 'set_gain_db', 'get_gain', 'gain_db'),
+    ],
+)
+def test_a_fresh_read_that_a_write_overtakes_holds_the_write(
+    session, monkeypatch, read, write, getter, held
+):
+    camera = session.camera
+    driver = session.scope._camera_driver
+    getattr(camera, write)(2.0)
+    answered = getattr(driver, getter)
+    in_flight, release = threading.Event(), threading.Event()
+
+    def slow_read():
+        value = answered()
+        in_flight.set()
+        release.wait(5.0)
+        return value
+
+    # a stand-in by design: the simulator has no door that holds a read open
+    monkeypatch.setattr(driver, getter, slow_read)
+    reader = threading.Thread(target=getattr(camera, read))
+    reader.start()
+    assert in_flight.wait(5.0), 'the read never reached the camera'
+    monkeypatch.setattr(driver, getter, answered)
+    getattr(camera, write)(4.0)
+    release.set()
+    reader.join(5.0)
+
+    assert getattr(camera, held) == 4.0

@@ -2408,10 +2408,12 @@ class CameraAPI:
         Raises:
             CameraReadFailedError: The camera did not answer the read.
         """
-        value = self._read_unheld('black level', lambda driver: driver.get_black_level())
-        if self._driver and self._driver.active:
-            self._commit_camera_writes({'black_level': value})
-        return value
+        if not self._driver or not self._driver.active:
+            return None
+        return self._hold_read(
+            'black_level',
+            lambda: self._read_unheld('black level', lambda driver: driver.get_black_level()),
+        )
 
     @api(reads=True)
     def get_black_level_range(self) -> tuple[float, float] | None:
@@ -2529,11 +2531,8 @@ class CameraAPI:
     def _read_fresh(self, key: str) -> object | None:
         """Read ``key`` from the camera now, and hold what it answered.
 
-        The one fresh read of a held camera setting (``_LIVE_SETTING_READS``).
-        The commit is generation-guarded: if an authoritative write
-        (``_commit_camera_writes``) landed while the driver read was in
-        flight, the read is discarded and the newer value is answered, so a
-        slow read never overwrites a setter's write-through.
+        The one fresh read of a held camera setting (``_LIVE_SETTING_READS``),
+        held through ``_hold_read``.
 
         Returns:
             The coerced value; None when no camera is active.
@@ -2546,17 +2545,35 @@ class CameraAPI:
         if not driver or not driver.active:
             return None
         noun, reader, is_valid, coerce = _LIVE_SETTING_READS[key]
+
+        def read():
+            try:
+                live = reader(driver)
+            except Exception as ex:
+                raise CameraReadFailedError(f"The camera's {noun} could not be read: {ex}") from ex
+            if not is_valid(live):
+                raise CameraReadFailedError(
+                    f"The camera's {noun} could not be read: it answered {live!r}"
+                )
+            return coerce(live)
+
+        return self._hold_read(key, read)
+
+    def _hold_read(self, key: str, read: Callable[[], object]) -> object:
+        """Run ``read`` and hold its answer as ``key``, unless a write landed meanwhile.
+
+        Fresh reads run on the caller's thread, not the camera lane, so a
+        setter's write-through can land while one is in flight. The hold is
+        generation-guarded: if an authoritative write (``_commit_camera_writes``)
+        landed during the read, the read is discarded and the newer value is
+        answered, so a slow read never overwrites a setter's write.
+
+        Raises:
+            CameraReadFailedError: As ``read`` raises it; nothing is held.
+        """
         with self._camera_cache_lock:
             gen_before = self._camera_cache_write_gen.get(key, 0)
-        try:
-            live = reader(driver)
-        except Exception as ex:
-            raise CameraReadFailedError(f"The camera's {noun} could not be read: {ex}") from ex
-        if not is_valid(live):
-            raise CameraReadFailedError(
-                f"The camera's {noun} could not be read: it answered {live!r}"
-            )
-        value = coerce(live)
+        value = read()
         with self._camera_cache_lock:
             if self._camera_cache_write_gen.get(key, 0) == gen_before:
                 self._camera_cache[key] = value
