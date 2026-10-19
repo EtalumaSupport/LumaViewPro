@@ -44,8 +44,9 @@ from rest import routes as rest_routes
 # untyped read (get_zstack_params, a dict) in unnoticed. A typed answer
 # lowers the pin in the same commit; get_zstack_params is W3's to type.
 # 40 since the camera's frame size read answers a FrameSize; 38 since the
-# held frame size answers one too, and the frame-limit view went.
-UNTYPED_PIN = 38
+# held frame size answers one too, and the frame-limit view went; 35 since
+# the bench tools' three runs left the wire (C6).
+UNTYPED_PIN = 35
 
 _SERVER_MODELS = ('Handle', 'Job', 'JobProgress', 'PathAnswer', 'Versions')
 # A JSON Schema keyword that says what a value is.

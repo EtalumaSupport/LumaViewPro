@@ -3320,8 +3320,8 @@ Reached through `session.scope.imaging`.
 
 Reached through `session.scope.diagnostics`.
 
-- `enter_led_engineering_mode`
-- `exit_led_engineering_mode`
+- `enter_led_engineering_mode` (in-process)
+- `exit_led_engineering_mode` (in-process)
 - `get_camera_diagnostic_info`
 - `get_camera_link_info`
 - `get_camera_profile_info`
@@ -3330,14 +3330,14 @@ Reached through `session.scope.diagnostics`.
 - `get_led_info`
 - `get_motor_info`
 - `get_system_info`
-- `motor_fan_spin_times`
-- `read_led_currents_ma`
-- `read_motor_drv_status`
-- `read_motor_fan_rpm`
-- `run_camera_bandwidth_test`
-- `run_grab_lifecycle_benchmark`
-- `run_pylon_diagnostic_probe`
-- `set_motor_fan_duty`
+- `motor_fan_spin_times` (in-process)
+- `read_led_currents_ma` (in-process)
+- `read_motor_drv_status` (in-process)
+- `read_motor_fan_rpm` (in-process)
+- `run_camera_bandwidth_test` (in-process)
+- `run_grab_lifecycle_benchmark` (in-process)
+- `run_pylon_diagnostic_probe` (in-process)
+- `set_motor_fan_duty` (in-process)
 
 ### ProtocolsAPI
 

@@ -386,7 +386,7 @@ class DiagnosticsAPI:
         _try('temperatures', self.get_camera_temperatures_degc)
         return info
 
-    @api(engineering=True)
+    @api(in_process=True, engineering=True)
     def run_camera_bandwidth_test(
         self,
         num_frames: int,
@@ -505,7 +505,7 @@ class DiagnosticsAPI:
         )
         return results
 
-    @api(engineering=True)
+    @api(in_process=True, engineering=True)
     def run_grab_lifecycle_benchmark(
         self,
         num_cycles: int = 100,
@@ -753,7 +753,7 @@ class DiagnosticsAPI:
         )
         return results
 
-    @api(engineering=True)
+    @api(in_process=True, engineering=True)
     def run_pylon_diagnostic_probe(
         self,
         duration_s: float = 3.0,
@@ -1102,7 +1102,7 @@ class DiagnosticsAPI:
     # write that did not happen raises, so a caller cannot read a status
     # for one that did.
 
-    @api(reads=True, engineering=True)
+    @api(in_process=True, reads=True, engineering=True)
     def read_motor_drv_status(self, axis: str) -> int | None:
         """Read TMC5072 DRV_STATUS register for an axis.
 
@@ -1119,7 +1119,7 @@ class DiagnosticsAPI:
             return None
         return drv.read_drv_status(axis)
 
-    @api(reads=True, engineering=True)
+    @api(in_process=True, reads=True, engineering=True)
     def read_motor_fan_rpm(self) -> int | None:
         """Read motor-board fan tachometer RPM.
 
@@ -1131,7 +1131,7 @@ class DiagnosticsAPI:
             return None
         return drv.read_fanspeed()
 
-    @api(reads=True, engineering=True)
+    @api(in_process=True, reads=True, engineering=True)
     def motor_fan_spin_times(self) -> dict[str, float] | None:
         """How long the motor-board fan takes to reach a new duty, in seconds.
 
@@ -1147,7 +1147,7 @@ class DiagnosticsAPI:
             return None
         return {'spin_up_s': drv.fan_spin_up_s, 'spin_down_s': drv.fan_spin_down_s}
 
-    @api(engineering=True)
+    @api(in_process=True, engineering=True)
     def set_motor_fan_duty(self, duty_pct: int) -> None:
         """Set motor-board fan PWM duty cycle (0..100), and wait for the board to take it.
 
@@ -1202,7 +1202,7 @@ class DiagnosticsAPI:
             part = MissingPart.LED_ENGINEERING_MODE
             raise HardwareCommandRefusedError(part.reason, member, missing=part)
 
-    @api(engineering=True)
+    @api(in_process=True, engineering=True)
     def enter_led_engineering_mode(self, timeout_s: float = 5.0) -> None:
         """Enter LED engineering mode via the driver-canonical handshake, and wait for it.
 
@@ -1233,7 +1233,7 @@ class DiagnosticsAPI:
     def _enter_led_engineering_mode_impl(drv, timeout_s: float) -> None:
         drv.enter_engineering_mode(timeout=timeout_s)
 
-    @api(engineering=True)
+    @api(in_process=True, engineering=True)
     def exit_led_engineering_mode(self) -> None:
         """Exit LED engineering mode via the driver-canonical handshake, and wait for it.
 
@@ -1328,7 +1328,7 @@ class DiagnosticsAPI:
             'command_set': command_set,
         }
 
-    @api(reads=True, engineering=True)
+    @api(in_process=True, reads=True, engineering=True)
     def read_led_currents_ma(self) -> dict[int, float | None]:
         """Read the measured current of every LED channel, in mA.
 

@@ -378,14 +378,14 @@ class TestTheSession:
             assert isinstance(refused, HardwareCommandRefusedError), (name, refused)
             assert (refused.reason, refused.holder) == ('exclusive_activity_running', 'diagnostic')
 
-    def test_a_wire_clients_bandwidth_test_is_refused_under_a_hold(self, sim_session):
+    def test_a_wire_clients_move_is_refused_under_a_hold(self, sim_session):
         from fastapi.testclient import TestClient
 
         from rest.app import build_app
 
         with TestClient(build_app(sim_session)) as client, sim_session.diagnostic_claim():
             answer = client.post(
-                '/api/v1/scope/diagnostics/run_camera_bandwidth_test', json={'num_frames': 5}
+                '/api/v1/scope/motion/move_absolute', json={'axis': 'Z', 'position': 2000.0}
             )
         assert answer.status_code == 409, answer.text
         assert answer.json()['reason'] == 'exclusive_activity_running'
