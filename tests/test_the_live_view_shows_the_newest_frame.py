@@ -210,11 +210,13 @@ def test_a_camera_that_is_not_connected_is_refused_before_any_frame(make_session
         watched = client.get('/api/v1/live')
         shot = client.get('/api/v1/live.jpg')
         watchers = app.state.live.watchers
+        unwatched = app.state.live.wait_unwatched(0)
 
     for refused in (watched, shot):
         assert refused.headers['content-type'] == 'application/problem+json'
         assert refused.json()['reason'] == 'not_connected'
     assert watchers == 0
+    assert unwatched, 'a refused watch left the view marked watched'
 
 
 def test_the_close_refuses_a_new_watch_and_ends_the_open_ones(session):

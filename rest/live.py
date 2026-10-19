@@ -113,10 +113,16 @@ class LiveView:
             self._attaching = asyncio.Lock()
         async with self._attaching:
             if self._watchers == 0:
-                await asyncio.to_thread(
-                    self._imaging.add_frame_listener, self._on_frame, 'REST live view'
-                )
+                # Cleared before the listener goes on, so no waiter is told
+                # nobody watches while it is on; a refused add leaves it off.
                 self._unwatched.clear()
+                try:
+                    await asyncio.to_thread(
+                        self._imaging.add_frame_listener, self._on_frame, 'REST live view'
+                    )
+                except BaseException:
+                    self._unwatched.set()
+                    raise
             self._watchers += 1
 
     async def leave(self) -> None:
