@@ -1245,7 +1245,7 @@ class Lumascope:
             # In this order: the frame limits depend on the binning, and the
             # format follows the geometry it is applied at.
             applies = [
-                lambda: self.camera._set_binning_size_impl(binning_size),
+                lambda: self.camera._set_binning_impl(binning_size),
                 lambda: self.camera._set_frame_size_impl(frame_width, frame_height),
             ]
             if pixel_format is not None:

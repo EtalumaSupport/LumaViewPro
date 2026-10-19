@@ -389,7 +389,7 @@ class TestSelectBinningHandler:
         session = SimpleNamespace(
             camera=SimpleNamespace(
                 frame_at_binning=_frame_at_binning,
-                set_binning_size=lambda size: applies.append(size),
+                set_binning=lambda size: applies.append(size),
             )
         )
         ctx = SimpleNamespace(

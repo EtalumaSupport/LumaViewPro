@@ -220,7 +220,7 @@ class MicroscopeSettings(BoxLayout):
         # the size the camera delivers.
         self._write_frame_text(settings['frame']['width'], settings['frame']['height'])
 
-        # Pixel Binning -- UI recalculation only, scope.camera.set_binning_size()
+        # Pixel Binning -- UI recalculation only, scope.camera.set_binning()
         # was applied by the Session's bring-up. Writing the spinner runs its
         # handler, once; the kv starts it on 'Select', so the write always does.
         self.ids['binning_spinner'].text = binning_size_str
@@ -534,7 +534,7 @@ class MicroscopeSettings(BoxLayout):
             self._redraw_framing()
             return
         submit_reported(
-            lambda: session.camera.set_binning_size(size),
+            lambda: session.camera.set_binning(size),
             self._framing_applied,
             'BINNING',
             lane=ctx.camera_executor,

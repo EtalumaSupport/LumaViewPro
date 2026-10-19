@@ -143,7 +143,7 @@ def test_a_raising_binning_write_is_a_chained_rejection(scope):
     bind_settings_like_a_session(scope)
     scope.simulation.refuse_camera_write('binning', 'raise')
     with pytest.raises(CameraSettingRejected) as rejected:
-        scope.camera.set_binning_size(2)
+        scope.camera.set_binning(2)
     assert rejected.value.setting == 'binning'
     assert isinstance(rejected.value.__cause__, RuntimeError)
 

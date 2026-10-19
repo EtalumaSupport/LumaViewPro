@@ -81,9 +81,9 @@ FAMILIES = [
         },
         'camera',
     ),
-    ('camera', 'set_auto_exposure_time', {'state': True}, 'camera'),
+    ('camera', 'set_auto_exposure', {'state': True}, 'camera'),
     ('camera', 'set_frame_size', {'width': 640, 'height': 480}, 'camera'),
-    ('camera', 'set_binning_size', {'size': 1}, 'camera'),
+    ('camera', 'set_binning', {'size': 1}, 'camera'),
     ('camera', 'set_image_mode', {'mode': '8bit'}, 'camera'),
     ('camera', 'set_high_conversion_gain', {'enabled': True}, 'camera'),
     ('camera', 'set_line_noise_reduction', {'enabled': True}, 'camera'),
@@ -135,8 +135,8 @@ _RETURNS_NOTHING = frozenset(
 # setter's body is the frame write, so its probe answers a frame; the
 # binning setter's body answers only whether the camera was there, and the
 # frame it then applies at the new binning is the camera's own.
-_RETURNS_THE_FRAME = frozenset({'set_frame_size', 'set_binning_size'})
-_PROBE_ANSWER = {'set_frame_size': {'width': 640, 'height': 480}, 'set_binning_size': True}
+_RETURNS_THE_FRAME = frozenset({'set_frame_size', 'set_binning'})
+_PROBE_ANSWER = {'set_frame_size': {'width': 640, 'height': 480}, 'set_binning': True}
 
 # A member whose body is not named after it: the start members share the
 # move bodies with the waited members, and the image mode and the high

@@ -157,7 +157,7 @@ class TestThePublicSetters:
         assert writes == []
 
     def test_turning_auto_exposure_off_is_not_a_refusal(self, ag_less_camera, asked):
-        ag_less_camera.set_auto_exposure_time(False)
+        ag_less_camera.set_auto_exposure(False)
 
         assert asked == []
 
@@ -166,8 +166,8 @@ class TestThePublicSetters:
         [
             ('set_auto_gain', lambda camera: camera.set_auto_gain(True, AG_SETTINGS), 'auto_gain'),
             (
-                'set_auto_exposure_time',
-                lambda camera: camera.set_auto_exposure_time(True),
+                'set_auto_exposure',
+                lambda camera: camera.set_auto_exposure(True),
                 'auto_exposure',
             ),
             (

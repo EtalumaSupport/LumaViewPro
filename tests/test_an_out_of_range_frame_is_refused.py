@@ -77,7 +77,7 @@ class TestTheFrameWriter:
         assert camera.frame_size.to_dict() == delivered_before
 
     def test_the_ceiling_follows_the_binning(self, session):
-        session.camera.set_binning_size(2)
+        session.camera.set_binning(2)
         width = session.scope.capabilities.camera_limits.frame_max.width
         with pytest.raises(CameraSettingOutOfRangeError) as refused:
             session.camera.set_frame_size(width, 400)

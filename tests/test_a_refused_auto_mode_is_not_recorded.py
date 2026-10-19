@@ -62,7 +62,7 @@ def test_a_refused_auto_exposure_raises(sim_camera, monkeypatch):
     monkeypatch.setattr(cam, 'auto_exposure_t', lambda state=True: False)
 
     with pytest.raises(CameraSettingRejected) as excinfo:
-        camera.set_auto_exposure_time(True)
+        camera.set_auto_exposure(True)
 
     assert excinfo.value.setting == 'auto_exposure'
 

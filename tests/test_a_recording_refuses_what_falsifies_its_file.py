@@ -129,10 +129,10 @@ _FALSIFIERS = [
         lambda sc: sc.camera.set_frame_size(640, 480),
     ),
     (
-        'set_binning_size',
+        'set_binning',
         'camera',
-        '_set_binning_size_impl',
-        lambda sc: sc.camera.set_binning_size(2),
+        '_set_binning_impl',
+        lambda sc: sc.camera.set_binning(2),
     ),
     (
         'set_image_mode',
@@ -210,13 +210,13 @@ class TestTheSessionStores:
     @pytest.mark.parametrize(
         'call',
         [
-            lambda s: s.camera.set_binning_size(2),
+            lambda s: s.camera.set_binning(2),
             lambda s: s.camera.set_frame_size(640, 480),
             lambda s: s.camera.set_image_mode(
                 '12bit_scientific' if s.settings['image_mode'] == '8bit' else '8bit'
             ),
         ],
-        ids=['set_binning_size', 'set_frame_size', 'set_image_mode'],
+        ids=['set_binning', 'set_frame_size', 'set_image_mode'],
     )
     def test_a_refused_camera_write_stores_nothing(self, sim_session, recording, call):
         before = copy.deepcopy(

@@ -1615,10 +1615,10 @@ class CameraAPI:
             self._report_refused_write(not_rearmed)
 
     @api
-    def set_auto_exposure_time(self, state: bool = True) -> bool | None:
+    def set_auto_exposure(self, state: bool = True) -> bool | None:
         """Enable or disable automatic exposure adjustment, and wait for it.
 
-        See ``_set_auto_exposure_time_impl`` for the value contract; this
+        See ``_set_auto_exposure_impl`` for the value contract; this
         adds the dispatch described on ``_dispatch_camera`` and the raise
         below.
 
@@ -1636,14 +1636,14 @@ class CameraAPI:
                 either way.
         """
         return self._dispatch_camera(
-            self._no_layers_write(self._set_auto_exposure_time_impl),
-            'set_auto_exposure_time',
+            self._no_layers_write(self._set_auto_exposure_impl),
+            'set_auto_exposure',
             args=(state,),
             timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
             satisfied_when_absent=_REFUSED_WHEN_ABSENT if state else True,
         )
 
-    def _set_auto_exposure_time_impl(self, state: bool = True) -> bool | None:
+    def _set_auto_exposure_impl(self, state: bool = True) -> bool | None:
         """Enable or disable automatic exposure adjustment.
 
         Args:
@@ -1681,7 +1681,7 @@ class CameraAPI:
         # invalidate + target-clear are forced, not gated on a value delta.
         result = self._camera_write(
             lambda: self._driver.auto_exposure_t(state),
-            member='set_auto_exposure_time',
+            member='set_auto_exposure',
             refusal=lambda: _mode_rejection('auto_exposure', state, 'auto-exposure'),
             force_invalidate=('exposure',),
             force_clear=('exposure',),
@@ -1823,7 +1823,7 @@ class CameraAPI:
         )
 
     @api
-    def set_binning_size(self, size: int) -> dict | None:
+    def set_binning(self, size: int) -> dict | None:
         """Bin the camera by ``size``, keep the framed region, and save both.
 
         The one writer of the binning for every host. The framed region is
@@ -1850,11 +1850,11 @@ class CameraAPI:
                 frame the camera reports holding at it, and no frame when it
                 has never reported one).
         """
-        self._refuse_unusable_binning(size, 'set_binning_size')
+        self._refuse_unusable_binning(size, 'set_binning')
         # One lane task restarts the grab twice: the binning, then the frame.
         return self._dispatch_camera(
             self._bin_and_save_impl,
-            'set_binning_size',
+            'set_binning',
             args=(size,),
             timeout_s=2 * self._CAMERA_GEOMETRY_TIMEOUT_S,
             falsifies_recording=True,
@@ -1863,8 +1863,8 @@ class CameraAPI:
     def _bin_and_save_impl(self, size: int) -> dict | None:
         """On the camera lane: bin by ``size`` and save it, then frame the saved region at it."""
         native = self._native_frame()
-        if not self._set_binning_size_impl(size):
-            raise _camera_not_connected('set_binning_size')
+        if not self._set_binning_impl(size):
+            raise _camera_not_connected('set_binning')
         # The frame the camera holds at the new binning, saved beside it; one
         # whose read-back failed is unknown, and the frame apply below saves
         # the frame it writes.
@@ -1921,7 +1921,7 @@ class CameraAPI:
 
     @api(reads=True)
     def frame_at_binning(self, size: int) -> dict:
-        """The frame ``set_binning_size(size)`` will ask the camera for; nothing is applied.
+        """The frame ``set_binning(size)`` will ask the camera for; nothing is applied.
 
         The same arithmetic the apply uses, answered from the saved region
         and the camera's limits, so a display can show the new frame beside
@@ -1933,7 +1933,7 @@ class CameraAPI:
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera, with none connected.
             CameraSettingUnsupportedError: ``'binning_unsupported'``, this
-                camera does not offer ``size``, as ``set_binning_size`` refuses
+                camera does not offer ``size``, as ``set_binning`` refuses
                 it.
         """
         self._refuse_unusable_binning(size, 'frame_at_binning')
@@ -2194,7 +2194,7 @@ class CameraAPI:
         self._commit_camera_writes({'frame_size': dict(delivered_size)})
         return delivered_size
 
-    def _set_binning_size_impl(self, size: int) -> bool:
+    def _set_binning_impl(self, size: int) -> bool:
         """Set camera pixel binning size.
 
         Args:
@@ -2233,7 +2233,7 @@ class CameraAPI:
         # is still at the previous binning.
         self._camera_write(
             lambda: self._driver.set_binning_size(size=size),
-            member='set_binning_size',
+            member='set_binning',
             refusal=_refused,
             invalidates=('binning',),
             cache_update={'binning': int(size)},
@@ -2763,7 +2763,7 @@ class CameraAPI:
     def auto_exposure(self) -> bool | None:
         """Whether the camera's auto-exposure is on, as the camera last took it;
         None when unknown. No driver reads it back. It has two writers:
-        ``set_auto_exposure_time``, and auto-gain, whose arm and lock switch
+        ``set_auto_exposure``, and auto-gain, whose arm and lock switch
         exposure with the gain."""
         return self._held('auto_exposure')
 
@@ -3180,7 +3180,7 @@ class CameraAPI:
             if now == wanted:
                 continue
             if key == 'binning':
-                self._set_binning_size_impl(wanted)
+                self._set_binning_impl(wanted)
             elif key == 'frame_size':
                 self._set_frame_size_impl(wanted['width'], wanted['height'])
             elif key == 'pixel_format':

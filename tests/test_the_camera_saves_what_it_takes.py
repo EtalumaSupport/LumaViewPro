@@ -120,7 +120,7 @@ def test_a_restore_puts_back_the_saved_frame_and_the_region_it_came_from(session
     camera.restore_camera_state(snapshot)
 
     assert _saved_geometry(session) == before
-    assert camera.set_binning_size(2) == {
+    assert camera.set_binning(2) == {
         'width': before['frame.native_width'] // 2,
         'height': before['frame.native_height'] // 2,
     }
@@ -146,7 +146,7 @@ def test_every_saving_setter_saves_on_the_camera_lane_inside_its_own_task(sessio
     monkeypatch.setattr(session.scope, 'store_settings', spying)
     for name, call in (
         ('set_image_mode', lambda: camera.set_image_mode('12bit_scientific')),
-        ('set_binning_size', lambda: camera.set_binning_size(2)),
+        ('set_binning', lambda: camera.set_binning(2)),
         ('set_frame_size', lambda: camera.set_frame_size(800, 600)),
         ('set_frame_size at the frame held', lambda: camera.set_frame_size(800, 600)),
         ('set_high_conversion_gain', lambda: camera.set_high_conversion_gain(False)),
@@ -194,8 +194,8 @@ def test_a_saved_camera_setting_written_through_update_settings_names_the_camera
         session.update_settings('binning.size', '2x2')
 
     assert refused.value.reason == 'has_member'
-    assert refused.value.member == 'scope.camera.set_binning_size'
-    assert 'scope.camera.set_binning_size' in str(refused.value)
+    assert refused.value.member == 'scope.camera.set_binning'
+    assert 'scope.camera.set_binning' in str(refused.value)
 
 
 def test_a_scope_no_session_composed_refuses_to_save(diagnostic_scope):
@@ -343,7 +343,7 @@ def test_a_restore_the_camera_refuses_part_way_saves_what_the_camera_holds(sessi
     """The restore stops at the refusal; what the camera took before it is saved, not left unsaved."""
     camera = session.camera
     snapshot = camera.save_camera_state('test')
-    camera.set_binning_size(2)
+    camera.set_binning(2)
     camera.set_frame_size(400, 300)
     session.scope.simulation.refuse_camera_write(node, 'false')
 
@@ -362,7 +362,7 @@ def test_a_restore_whose_compare_read_fails_saves_the_binning_the_camera_took(se
     """
     camera = session.camera
     snapshot = camera.save_camera_state('test')
-    camera.set_binning_size(2)
+    camera.set_binning(2)
     session.scope.simulation.refuse_camera_read('frame_size', 'sentinel', count=5)
 
     with pytest.raises(CameraReadFailedError):

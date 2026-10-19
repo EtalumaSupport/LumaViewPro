@@ -2,7 +2,7 @@
 """The camera API applies a camera setting and stores it only once the camera took it.
 
 The image mode, the binning and the frame each have one writer for every
-host: CameraAPI.set_image_mode / set_binning_size / set_frame_size, reached
+host: CameraAPI.set_image_mode / set_binning / set_frame_size, reached
 as ``session.camera``. The GUI used to write the settings store before the
 camera answered and undo it on failure; a REST or SDK caller had no writer
 at all. Each member applies to the camera, stores on success, and raises on
@@ -99,7 +99,7 @@ class TestTheFrame:
         assert _stored_frame(session) == before
 
     def test_the_size_is_read_at_the_binning_the_camera_holds(self, session):
-        session.camera.set_binning_size(2)
+        session.camera.set_binning(2)
         delivered = session.camera.set_frame_size(480, 400)
 
         frame = _stored_frame(session)
@@ -184,11 +184,11 @@ class TestTheBinning:
     def test_a_binning_the_camera_does_not_offer_is_refused_before_the_camera(
         self, session, monkeypatch
     ):
-        writes = _spy(monkeypatch, session.scope.camera, '_set_binning_size_impl')
+        writes = _spy(monkeypatch, session.scope.camera, '_set_binning_impl')
         before = (session.settings['binning']['size'], _stored_frame(session))
 
         with pytest.raises(CameraSettingUnsupportedError) as refused:
-            session.camera.set_binning_size(8)
+            session.camera.set_binning(8)
 
         assert isinstance(refused.value, Refusal)
         assert refused.value.title == 'Not Available on This Camera'
@@ -199,7 +199,7 @@ class TestTheBinning:
 
     def test_it_keeps_the_framed_region_and_divides_it(self, session):
         session.camera.set_frame_size(1200, 800)
-        delivered = session.camera.set_binning_size(2)
+        delivered = session.camera.set_binning(2)
 
         assert session.settings['binning']['size'] == '2x2'
         frame = _stored_frame(session)
@@ -210,29 +210,29 @@ class TestTheBinning:
 
     def test_cycling_the_binning_comes_back_to_the_same_frame(self, session):
         first = session.camera.set_frame_size(1200, 800)
-        session.camera.set_binning_size(4)
-        session.camera.set_binning_size(2)
+        session.camera.set_binning(4)
+        session.camera.set_binning(2)
 
-        assert session.camera.set_binning_size(1) == first
+        assert session.camera.set_binning(1) == first
 
     def test_a_refused_binning_stores_nothing(self, session, monkeypatch):
         before = (session.settings['binning']['size'], _stored_frame(session))
         monkeypatch.setattr(session.scope._camera_driver, 'set_binning_size', lambda size: False)
 
         with pytest.raises(CameraSettingRejected):
-            session.camera.set_binning_size(2)
+            session.camera.set_binning(2)
         assert (session.settings['binning']['size'], _stored_frame(session)) == before
 
     def test_no_camera_stores_nothing(self, session, monkeypatch):
         before = (session.settings['binning']['size'], _stored_frame(session))
         monkeypatch.setattr(
             session.scope.camera,
-            '_set_binning_size_impl',
-            _gone_before_the_body('set_binning_size'),
+            '_set_binning_impl',
+            _gone_before_the_body('set_binning'),
         )
 
         with pytest.raises(HardwareCommandRefusedError) as caught:
-            session.camera.set_binning_size(2)
+            session.camera.set_binning(2)
         assert caught.value.reason == 'not_connected'
         assert (session.settings['binning']['size'], _stored_frame(session)) == before
 
@@ -242,11 +242,11 @@ class TestTheBinning:
         # The saved region is the intent. A hardware read that lags the
         # store (the IDS non-square 2x bug) must not re-derive it; the saved
         # frame always carries it, so nothing is rebuilt from the frame.
-        session.camera.set_binning_size(2)
+        session.camera.set_binning(2)
         session.camera.set_frame_size(480, 400)
         monkeypatch.setattr(session.scope.camera, 'read_binning', lambda: 4)
 
-        session.camera.set_binning_size(1)
+        session.camera.set_binning(1)
 
         frame = _stored_frame(session)
         assert (frame['native_width'], frame['native_height']) == (960, 800)
@@ -254,10 +254,10 @@ class TestTheBinning:
     def test_the_binning_reaches_the_camera_before_the_frame(self, session, monkeypatch):
         order = []
         camera = session.scope.camera
-        real_binning, real_frame = camera._set_binning_size_impl, camera._set_frame_size_impl
+        real_binning, real_frame = camera._set_binning_impl, camera._set_frame_size_impl
         monkeypatch.setattr(
             camera,
-            '_set_binning_size_impl',
+            '_set_binning_impl',
             lambda size: order.append('binning') or real_binning(size),
         )
         monkeypatch.setattr(
@@ -266,7 +266,7 @@ class TestTheBinning:
         session.camera.set_frame_size(1200, 800)
         order.clear()
 
-        session.camera.set_binning_size(2)
+        session.camera.set_binning(2)
         assert order == ['binning', 'frame']
 
     def test_the_preview_names_the_frame_the_apply_delivers_and_applies_nothing(
@@ -276,13 +276,13 @@ class TestTheBinning:
         # apply runs; an edit typed meanwhile must be read against it.
         session.camera.set_frame_size(1200, 800)
         before = (session.settings['binning']['size'], _stored_frame(session))
-        writes = _spy(monkeypatch, session.scope.camera, '_set_binning_size_impl')
+        writes = _spy(monkeypatch, session.scope.camera, '_set_binning_impl')
 
         preview = session.camera.frame_at_binning(2)
 
         assert writes == [], 'a preview must not reach the camera'
         assert (session.settings['binning']['size'], _stored_frame(session)) == before
-        assert session.camera.set_binning_size(2) == preview
+        assert session.camera.set_binning(2) == preview
 
 
 class TestTheImageMode:

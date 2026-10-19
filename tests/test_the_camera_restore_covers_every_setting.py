@@ -22,7 +22,7 @@ from drivers.exceptions import CameraReadFailedError, HardwareError
 
 
 def _changed(camera):
-    camera.set_binning_size(2)
+    camera.set_binning(2)
     camera.set_frame_size(800, 600)
     # A pixel format is set only through the image mode; 12-bit scientific
     # selects Mono12 on the simulated camera.

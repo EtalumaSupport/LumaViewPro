@@ -190,7 +190,7 @@ class TestAutoSetterSequences:
         camera_plain.set_exposure_ms(2.5)
         assert fv.target('exposure') == 2500.0, 'precondition: a manual exposure target'
         before = fv.invalidation_counts
-        camera_plain.set_auto_exposure_time(True)
+        camera_plain.set_auto_exposure(True)
         assert fv.invalidation_counts == _grown_by_one(before, 'exposure')
         assert fv.target('exposure') is None
 
@@ -225,7 +225,7 @@ class TestGeometrySetterSequences:
         assert camera.frame_size.to_dict() == {'width': 624, 'height': 480}
 
     def test_binning_read_failure_sentinel_not_committed(self, camera_plain):
-        camera_plain.set_binning_size(2)
+        camera_plain.set_binning(2)
         cam = camera_plain._driver
         orig = cam.get_binning_size
         cam.get_binning_size = lambda: -1
@@ -259,23 +259,23 @@ class TestGeometrySetterSequences:
         assert camera_plain.exposure_ms >= 0
 
     def test_rejected_binning_write_keeps_prior_factor(self, camera_plain):
-        camera_plain.set_binning_size(2)
+        camera_plain.set_binning(2)
         cam = camera_plain._driver
         orig = cam.set_binning_size
         cam.set_binning_size = lambda size: False
         try:
             # Rejection surfaces as the typed raise (the apply contract).
             with pytest.raises(CameraSettingRejected):
-                camera_plain.set_binning_size(4)
+                camera_plain.set_binning(4)
         finally:
             cam.set_binning_size = orig
         # A rejected write must not commit the requested factor: the hardware
         # is still at the previous binning and scale-bar math reads this value.
         assert camera_plain.binning == 2
 
-    def test_set_binning_size_refreshes_geometry_caches(self, camera_plain):
+    def test_set_binning_refreshes_geometry_caches(self, camera_plain):
         camera_plain.set_frame_size(3840, 2160)
-        camera_plain.set_binning_size(2)
+        camera_plain.set_binning(2)
         # Binning 2x halves the sim's post-binning ceiling (3840x2160 native)
         # and the driver clamps the current frame down to it; the held frame
         # reflects the driver's post-binning reality, not the 1x value.
@@ -393,7 +393,7 @@ class TestTheImplsAbsentAnswerIsRefused:
     @pytest.mark.parametrize(
         ('member', 'value'),
         [
-            ('set_binning_size', 2),
+            ('set_binning', 2),
             ('set_image_mode', '8bit'),
             ('set_high_conversion_gain', True),
             ('set_line_noise_reduction', True),
@@ -463,7 +463,7 @@ class TestCameraWriteAuthority:
         before = fv.invalidation_counts
         plain_scope.simulation.refuse_camera_write('auto_exposure', 'false')
         with pytest.raises(CameraSettingRejected) as caught:
-            camera.set_auto_exposure_time(True)
+            camera.set_auto_exposure(True)
         assert caught.value.setting == 'auto_exposure'
         assert fv.invalidation_counts == _grown_by_one(before, 'exposure')
         assert fv.target('exposure') is None

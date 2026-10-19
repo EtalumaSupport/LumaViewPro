@@ -66,7 +66,7 @@ try:
 
     # --- binning ---------------------------------------------------------
     supported = caps.camera_binning_sizes
-    im_camera.set_binning_size(2)
+    im_camera.set_binning(2)
     _common.ok(
         'binning 2 applied',
         im_camera.read_binning() == 2,
@@ -74,7 +74,7 @@ try:
     )
     bad_bin = next(x for x in (3, 5, 7, 16) if x not in supported)
     try:
-        im_camera.set_binning_size(bad_bin)
+        im_camera.set_binning(bad_bin)
         _common.check(
             f'unsupported binning {bad_bin} refused',
             False,
@@ -82,7 +82,7 @@ try:
         )
     except CameraSettingUnsupportedError as e:
         _common.check(f'unsupported binning {bad_bin} refused', True, f'{e.reason}: {e}')
-    im_camera.set_binning_size(1)
+    im_camera.set_binning(1)
 
     # --- pixel format, chosen by the image mode -------------------------
     from modules import image_mode

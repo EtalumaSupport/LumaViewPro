@@ -4,7 +4,7 @@
 The GUI read it through a ``config_ui_getters`` forwarder of its own, so a
 script had no read and the GUI's pixel-size and field-of-view readouts
 had a second door onto the store. ``ScopeSession.get_binning_size`` is the
-one: it answers the factor ``scope.camera.set_binning_size`` stored, which
+one: it answers the factor ``scope.camera.set_binning`` stored, which
 is stored only once the camera took it.
 """
 
@@ -37,7 +37,7 @@ def test_it_answers_the_binning_the_camera_took(session):
     offered = session.scope.capabilities.camera_binning_sizes
     size = max(offered)
 
-    session.camera.set_binning_size(size)
+    session.camera.set_binning(size)
 
     assert session.camera.binning == size
 
@@ -47,7 +47,7 @@ def test_a_refused_binning_leaves_the_answer_as_it_was(session):
     unsupported = max(session.scope.capabilities.camera_binning_sizes) * 16
 
     with pytest.raises(CameraSettingUnsupportedError):
-        session.camera.set_binning_size(unsupported)
+        session.camera.set_binning(unsupported)
 
     assert session.camera.binning == before
 
@@ -57,7 +57,7 @@ def test_with_no_camera_nothing_is_binned_and_nothing_is_stored(session, monkeyp
     monkeypatch.setattr(type(session.scope), 'camera_connected', property(lambda self: False))
 
     with pytest.raises(HardwareCommandRefusedError) as exc:
-        session.camera.set_binning_size(1)
+        session.camera.set_binning(1)
     assert exc.value.missing == MissingPart.CAMERA
 
     assert session.camera.binning == before

@@ -141,8 +141,8 @@ def test_a_refused_write_names_why_and_writes_nothing(session, path, value, reas
         (
             'binning.size',
             CameraAPI,
-            'scope.camera.set_binning_size',
-            'scope.camera.set_binning_size',
+            'scope.camera.set_binning',
+            'scope.camera.set_binning',
             'has_member',
         ),
         (

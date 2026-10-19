@@ -217,9 +217,9 @@ class TestARaisingWriteIsARejection:
         setters = {
             'gain': lambda: camera.set_gain_db(9.0),
             'exposure': lambda: camera.set_exposure_ms(20.0),
-            'auto_exposure': lambda: camera.set_auto_exposure_time(True),
+            'auto_exposure': lambda: camera.set_auto_exposure(True),
             'frame_size': lambda: camera.set_frame_size(1024, 1024),
-            'binning': lambda: camera.set_binning_size(2),
+            'binning': lambda: camera.set_binning(2),
             'pixel_format': lambda: camera.set_image_mode('12bit_scientific'),
             'black_level': lambda: camera.set_black_level(10.0),
             'auto_gain': lambda: camera.set_auto_gain(True, _AUTO_GAIN),
@@ -340,8 +340,8 @@ def test_every_setter_raises_a_refusal_as_rejected(sim_scope):
     camera = sim_scope.camera
     setters = {
         'exposure': lambda: camera.set_exposure_ms(20.0),
-        'auto_exposure': lambda: camera.set_auto_exposure_time(True),
-        'binning': lambda: camera.set_binning_size(2),
+        'auto_exposure': lambda: camera.set_auto_exposure(True),
+        'binning': lambda: camera.set_binning(2),
         'pixel_format': lambda: camera.set_image_mode('12bit_scientific'),
         'black_level': lambda: camera.set_black_level(10.0),
         'auto_gain': lambda: camera.set_auto_gain(True, _AUTO_GAIN),

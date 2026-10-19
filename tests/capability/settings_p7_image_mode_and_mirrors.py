@@ -69,7 +69,7 @@ try:
         (im_camera.read_frame_size().width, im_camera.read_frame_size().height) != (0, 0),
         f'API {im_camera.read_frame_size().width}x{im_camera.read_frame_size().height}, settings {after["frame"]}',
     )
-    im_camera.set_binning_size(2)
+    im_camera.set_binning(2)
     _common.ok(
         'the API knows the delivered binning after an apply',
         im_camera.read_binning() == 2,

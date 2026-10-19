@@ -569,7 +569,7 @@ _UI_ANSWERER_CALL_PIN = {
 # is recomputed by whichever rule ships today and gains no discontinuity here.
 # `_private_reaches_in_source` carries the rule.
 _UI_PRIVATE_REACH_PIN = {
-    ('ui/microscope_settings.py', '_set_binning_size_impl'): 0,
+    ('ui/microscope_settings.py', '_set_binning_impl'): 0,
     ('ui/microscope_settings.py', '_set_frame_size_impl'): 0,
     ('ui/microscope_settings.py', '_set_pixel_format_impl'): 0,
 }

@@ -241,10 +241,10 @@ class TestGeometryFormatInvalidates:
         assert camera.pixel_format == 'Mono12'
         assert 'pixel_format' in camera.frame_validity.pending_sources
 
-    def test_set_binning_size_turns_marker_red(self, sim_camera):
+    def test_set_binning_turns_marker_red(self, sim_camera):
         camera, _cam = sim_camera
         camera.frame_validity.reset()
-        camera.set_binning_size(2)
+        camera.set_binning(2)
         assert camera.read_binning() == 2
         assert 'binning' in camera.frame_validity.pending_sources
 

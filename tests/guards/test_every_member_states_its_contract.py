@@ -45,7 +45,7 @@ _AT_ENTRY_INDENT = re.compile(r'^ {4}\S.*$', re.M)
 _REASON_UNNAMED_PINNED = frozenset(
     {
         ('DiagnosticsAPI.exit_led_engineering_mode', 'HardwareCommandRefusedError'),
-        ('CameraAPI.set_auto_exposure_time', 'CameraSettingUnsupportedError'),
+        ('CameraAPI.set_auto_exposure', 'CameraSettingUnsupportedError'),
         ('CameraAPI.set_auto_gain', 'CameraSettingUnsupportedError'),
         ('CameraAPI.set_black_level', 'CameraSettingOutOfRangeError'),
         ('CameraAPI.set_black_level', 'CameraSettingUnsupportedError'),

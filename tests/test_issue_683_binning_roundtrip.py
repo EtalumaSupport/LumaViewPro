@@ -170,7 +170,7 @@ class TestDeliverableAlignmentFloor:
     def test_the_frame_and_binning_members_floor_to_the_drivers_alignment(self, tmp_path):
         # Pin the fix where the displayed size is derived: both frame-size
         # paths (a frame edit and a binning change, CameraAPI.set_frame_size
-        # / set_binning_size) floor to the ACTIVE driver's deliverable
+        # / set_binning) floor to the ACTIVE driver's deliverable
         # granularity via camera.get_pixel_alignment(), not a hardcoded grid
         # -- else a non-cropping driver persists an undeliverable size (the
         # reviewed regression). The simulator's own grid is 48x4; the driver
@@ -188,12 +188,12 @@ class TestDeliverableAlignmentFloor:
             camera._set_frame_size_impl = lambda w, h: requests.append((w, h)) or real(w, h)
 
             session.camera.set_frame_size(1150, 802)
-            session.camera.set_binning_size(2)
+            session.camera.set_binning(2)
         finally:
             session.shutdown()
 
         assert requests == [(1150, 802), (574, 400)], (
-            'set_frame_size and set_binning_size must floor to '
+            'set_frame_size and set_binning must floor to '
             'camera.get_pixel_alignment() (per-driver), not a hardcoded alignment; '
             f'the camera was asked for {requests}'
         )

@@ -59,14 +59,14 @@ REFUSED = {
     'set_exposure_ms': lambda s: s.camera.set_exposure_ms(20.0),
     'set_black_level': lambda s: s.camera.set_black_level(10.0),
     'set_auto_gain_on': lambda s: s.camera.set_auto_gain(True, _AUTO_GAIN),
-    'set_auto_exposure_time_on': lambda s: s.camera.set_auto_exposure_time(True),
+    'set_auto_exposure_on': lambda s: s.camera.set_auto_exposure(True),
     'update_auto_gain_target_brightness': lambda s: s.camera.update_auto_gain_target_brightness(
         0.5
     ),
     'auto_gain_once': lambda s: s.camera.auto_gain_once(True, 0.5, 0.0, 20.0),
     'enable_streaming': lambda s: s.imaging.enable_streaming(),
     'set_frame_size': lambda s: s.camera.set_frame_size(1024, 1024),
-    'set_binning_size': lambda s: s.camera.set_binning_size(1),
+    'set_binning': lambda s: s.camera.set_binning(1),
     'set_high_conversion_gain': lambda s: s.camera.set_high_conversion_gain(False),
     'set_line_noise_reduction': lambda s: s.camera.set_line_noise_reduction(False),
     'apply_layer_camera_settings': lambda s: s.camera.apply_layer_camera_settings(
@@ -84,7 +84,7 @@ IMAGE_MODE = {'set_image_mode': lambda s: s.camera.set_image_mode('8bit')}
 SATISFIED = {
     'disable_streaming': lambda s: s.imaging.disable_streaming(),
     'set_auto_gain_off': lambda s: s.camera.set_auto_gain(False, _AUTO_GAIN),
-    'set_auto_exposure_time_off': lambda s: s.camera.set_auto_exposure_time(False),
+    'set_auto_exposure_off': lambda s: s.camera.set_auto_exposure(False),
     'lock_auto_gain': lambda s: s.camera.lock_auto_gain(),
 }
 
@@ -302,7 +302,7 @@ def test_with_no_camera_the_session_binning_is_refused_naming_it(make_session, m
     session = _camera_less(make_session, monkeypatch, 'LS850')
     before = _camera_store(session)
 
-    _assert_names_the_camera(_refused(lambda: session.camera.set_binning_size(1)))
+    _assert_names_the_camera(_refused(lambda: session.camera.set_binning(1)))
 
     assert _camera_store(session) == before
 
@@ -443,9 +443,9 @@ REMOVED_DURING = {
     'gain': 'set_gain_db',
     'exposure': 'set_exposure_ms',
     'black_level': 'set_black_level',
-    'auto_exposure': 'set_auto_exposure_time_on',
+    'auto_exposure': 'set_auto_exposure_on',
     'frame_size': 'set_frame_size',
-    'binning': 'set_binning_size',
+    'binning': 'set_binning',
     'pixel_format': 'set_image_mode',
     'auto_gain': 'set_auto_gain_on',
     'auto_gain_once': 'auto_gain_once',
@@ -483,13 +483,13 @@ def test_an_off_is_satisfied_when_the_camera_leaves_during_it(make_session):
     answers = {}
     for node, name in (
         ('auto_gain', 'set_auto_gain_off'),
-        ('auto_exposure', 'set_auto_exposure_time_off'),
+        ('auto_exposure', 'set_auto_exposure_off'),
     ):
         session = make_session('LS850')
         session.scope.simulation.refuse_camera_write(node, 'removed')
         answers[name] = SATISFIED[name](session.scope)
 
-    assert answers == {'set_auto_gain_off': True, 'set_auto_exposure_time_off': True}
+    assert answers == {'set_auto_gain_off': True, 'set_auto_exposure_off': True}
 
 
 def test_a_write_the_camera_left_during_records_nothing(make_session):

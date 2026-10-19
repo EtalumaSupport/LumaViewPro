@@ -1375,7 +1375,7 @@ class TestRule14_A10_ProtocolCleanupErrorCollection:
 
 
 class TestSetBinningSizeAnswersByRaising:
-    """CameraAPI.set_binning_size returns only when the camera took it.
+    """CameraAPI.set_binning returns only when the camera took it.
 
     Bench session 2026-05-05 surfaced a phantom-failure bug where the API
     method dropped the driver's True return and implicitly returned None;
@@ -1385,21 +1385,21 @@ class TestSetBinningSizeAnswersByRaising:
     failure raises, so there is no status to misread.
     """
 
-    def test_set_binning_size_declares_no_status(self):
+    def test_set_binning_declares_no_status(self):
         from tests.ast_seams import assert_def
 
         assert_def(
             'modules/lumascope_api/camera.py',
-            'set_binning_size',
+            'set_binning',
             params=['self', 'size'],
             returns='dict | None',
             msg=(
-                'CameraAPI.set_binning_size must declare `-> dict | None`, the frame '
+                'CameraAPI.set_binning must declare `-> dict | None`, the frame '
                 'it delivers, never a status: a failure raises (Rule 37)'
             ),
         )
 
-    def test_set_binning_size_returns_driver_value(self):
+    def test_set_binning_returns_driver_value(self):
         """Success must surface as True and rejection must be impossible to
         mistake for success -- dropping the outcome (implicit None) made
         char-tool's `if not ok:` misreport every successful binning op as
@@ -1410,19 +1410,19 @@ class TestSetBinningSizeAnswersByRaising:
         from modules.exceptions import CameraSettingRejected
 
         _imaging, camera, _cam = _sim_backed_imaging()
-        camera.set_binning_size(2)
+        camera.set_binning(2)
         assert camera.read_binning() == 2, 'a driver-accepted binning change is recorded'
         # The driver's own rejection, so the body on the lane: the storing
         # setter refuses a size the camera does not offer before the write.
         with pytest.raises(CameraSettingRejected):
             camera._dispatch_camera(
-                camera._set_binning_size_impl,
-                'set_binning_size',
+                camera._set_binning_impl,
+                'set_binning',
                 args=(5,),  # sim supports 1-4
                 timeout_s=camera._CAMERA_GEOMETRY_TIMEOUT_S,
             )
 
-    def test_set_binning_size_has_returns_docstring_section(self):
+    def test_set_binning_has_returns_docstring_section(self):
         """Rule 38: public methods declare what they return."""
         import pathlib
 
@@ -1432,12 +1432,10 @@ class TestSetBinningSizeAnswersByRaising:
         # dispatcher whose docstring points here, the same shape as the
         # other dispatched setters.
         source = pathlib.Path('modules/lumascope_api/camera.py').read_text()
-        idx = source.find('def _set_binning_size_impl(self, size: int) -> bool:')
+        idx = source.find('def _set_binning_impl(self, size: int) -> bool:')
         next_def = source.find('\n    def ', idx + 1)
         body = source[idx:next_def] if next_def != -1 else source[idx : idx + 2000]
-        assert 'Returns:' in body, (
-            'set_binning_size docstring must have a Returns: section (Rule 38)'
-        )
+        assert 'Returns:' in body, 'set_binning docstring must have a Returns: section (Rule 38)'
 
     def test_pyloncamera_set_binning_size_raises_hardware_error(self):
         """Tier 3a / C2: PylonCamera.set_binning_size must raise HardwareError

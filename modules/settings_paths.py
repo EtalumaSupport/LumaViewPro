@@ -82,7 +82,7 @@ SETTINGS_WITH_A_MEMBER: typing.Final[dict[str, SettingMember]] = {
     'turret_objectives': _session('assign_turret_objective'),
     'protocol.labware': _session('select_labware'),
     'image_mode': _camera('set_image_mode'),
-    'binning': _camera('set_binning_size'),
+    'binning': _camera('set_binning'),
     'frame': _camera('set_frame_size'),
     'camera.high_conversion_gain': _camera('set_high_conversion_gain'),
     'camera.line_noise_reduction': _camera('set_line_noise_reduction'),

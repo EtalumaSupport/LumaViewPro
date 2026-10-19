@@ -68,8 +68,8 @@ class ApplyDriver(ScriptedCameraDriver):
 def _apply(camera, member: str, *args):
     """Run the camera's ``member`` body on its camera lane, as an outside command runs.
 
-    ``set_frame_size`` / ``set_binning_size`` / ``set_pixel_format`` name
-    the bodies ``_set_frame_size_impl`` / ``_set_binning_size_impl`` /
+    ``set_frame_size`` / ``set_binning`` / ``set_pixel_format`` name
+    the bodies ``_set_frame_size_impl`` / ``_set_binning_impl`` /
     ``_set_pixel_format_impl``, dispatched as the camera's storing setters
     dispatch them.
     """
@@ -123,13 +123,13 @@ def test_set_frame_size_rejection_raises_and_preserves_cache(centre_posts):
     )
 
 
-def test_set_binning_size_rejection_raises_and_preserves_cache(centre_posts):
+def test_set_binning_rejection_raises_and_preserves_cache(centre_posts):
     driver = apply_driver()
     camera = _build_camera(driver)  # populate caches binning 2
     driver.apply_binning = lambda size: False
 
     with pytest.raises(CameraSettingRejected) as excinfo:
-        _apply(camera, 'set_binning_size', 4)
+        _apply(camera, 'set_binning', 4)
 
     assert excinfo.value.setting == 'binning'
     assert excinfo.value.requested == 4
@@ -164,7 +164,7 @@ def test_a_reported_rejection_is_shown_once_in_its_own_words(centre_posts):
     camera = _build_camera(driver)
     driver.apply_binning = lambda size: False
     with pytest.raises(CameraSettingRejected) as excinfo:
-        _apply(camera, 'set_binning_size', 4)
+        _apply(camera, 'set_binning', 4)
 
     centre = NotificationCenter(dedup_window_s=10.0)
     shown = []
@@ -199,7 +199,7 @@ def test_set_frame_size_returns_delivered_geometry_and_caches_it(centre_posts):
 # --- C. Driver-raise paths -----------------------------------------------------
 
 
-def test_set_binning_size_driver_raise_becomes_typed_rejection(centre_posts):
+def test_set_binning_driver_raise_becomes_typed_rejection(centre_posts):
     driver = apply_driver()
     camera = _build_camera(driver)
 
@@ -209,7 +209,7 @@ def test_set_binning_size_driver_raise_becomes_typed_rejection(centre_posts):
     driver.apply_binning = _boom
 
     with pytest.raises(CameraSettingRejected) as excinfo:
-        _apply(camera, 'set_binning_size', 4)
+        _apply(camera, 'set_binning', 4)
 
     assert isinstance(excinfo.value.__cause__, RuntimeError), (
         'the driver exception must be chained onto the typed rejection'
@@ -255,7 +255,7 @@ def test_absent_camera_setters_are_refused_and_post_nothing(centre_posts):
     camera = _build_camera(None)
 
     _refused_for_the_camera(lambda: _apply(camera, 'set_frame_size', 1900, 1900))
-    _refused_for_the_camera(lambda: _apply(camera, 'set_binning_size', 2))
+    _refused_for_the_camera(lambda: _apply(camera, 'set_binning', 2))
     _refused_for_the_camera(lambda: _apply(camera, 'set_pixel_format', 'Mono8'))
 
     # Reporting the refusal is the caller's: the API posts nothing.
@@ -268,7 +268,7 @@ def test_absent_camera_setters_are_refused_and_post_nothing(centre_posts):
 
 def test_inactive_driver_setters_are_refused_without_reaching_driver(centre_posts):
     # The presence question reads driver.active too: an inactive driver used
-    # to fall through to the driver's own False (and set_binning_size then
+    # to fall through to the driver's own False (and set_binning then
     # treated it as a live rejection).
     driver = apply_driver(active=False)
     reached = []
@@ -278,7 +278,7 @@ def test_inactive_driver_setters_are_refused_without_reaching_driver(centre_post
     camera = _build_camera(driver)
 
     _refused_for_the_camera(lambda: _apply(camera, 'set_frame_size', 1900, 1900))
-    _refused_for_the_camera(lambda: _apply(camera, 'set_binning_size', 2))
+    _refused_for_the_camera(lambda: _apply(camera, 'set_binning', 2))
     _refused_for_the_camera(lambda: _apply(camera, 'set_pixel_format', 'Mono8'))
     assert reached == [], 'an inactive driver must never receive the apply'
     assert _posted(centre_posts, Severity.WARNING) == []
@@ -302,7 +302,7 @@ def _init_config(binning_size: int, frame_width: int = 1900, frame_height: int =
 
 def _drive_initialize(config, monkeypatch, *, no_camera: bool = False, prepare=None):
     """Full Lumascope(simulate=True).initialize with spies on
-    set_binning_size / set_frame_size (delegating to the real setters), a
+    set_binning / set_frame_size (delegating to the real setters), a
     recorder on the _lumascope logger, and an accel-limit spy marking that
     bring-up reached its final step.
 
@@ -317,10 +317,10 @@ def _drive_initialize(config, monkeypatch, *, no_camera: bool = False, prepare=N
         # initialize is bring-up and binds the impl seams (it runs before
         # executor registration by design), so the spies sit there.
         applied_binnings = []
-        real_set_binning = scope.camera._set_binning_size_impl
+        real_set_binning = scope.camera._set_binning_impl
         monkeypatch.setattr(
             scope.camera,
-            '_set_binning_size_impl',
+            '_set_binning_impl',
             lambda size: applied_binnings.append(size) or real_set_binning(size),
         )
         applied_frames = []
