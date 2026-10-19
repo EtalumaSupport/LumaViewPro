@@ -42,7 +42,7 @@ from rest import routes as rest_routes
 # route's 200 and 202 and every event, each component counted once. An
 # equality, not a ceiling: a ceiling left two above the count let a new
 # untyped read (get_zstack_params, a dict) in unnoticed. A typed answer
-# lowers the pin in the same commit; get_zstack_params is W3's to type.
+# lowers the pin in the same commit, as an answer leaving the wire does.
 # 40 since the camera's frame size read answers a FrameSize; 38 since the
 # held frame size answers one too, and the frame-limit view went; 35 since
 # the bench tools' three runs left the wire (C6); 28 since six of the
