@@ -114,6 +114,12 @@ def _missing_frames_error(missing: pd.DataFrame) -> str:
 
 
 class ProtocolPostProcessor(abc.ABC):
+    # The place an image fills in this build's output, as a person reads it.
+    _PLACE = 'place'
+    # What two acquisitions in one place should have been, for a build that
+    # groups by Add; empty for one that does not.
+    _ONE_PER_ADD = ''
+
     def __init__(
         self,
         post_function: PostFunction,
@@ -168,6 +174,42 @@ class ProtocolPostProcessor(abc.ABC):
     def _derivation_step(self, group: pd.DataFrame, **kwargs) -> post_derivation.Step:
         """This build of ``group``: every setting that decides the output's pixels."""
         raise NotImplementedError('Implement in child class')
+
+    @abc.abstractmethod
+    def _places(self, group: pd.DataFrame) -> pd.Series | None:
+        """The place each image of ``group`` fills in the output; None when each has its own."""
+        raise NotImplementedError('Implement in child class')
+
+    def _two_images_in_one_place(self, group: pd.DataFrame) -> str | None:
+        """Why ``group`` is not built because two of its images fill one place, or None.
+
+        An output takes one image per place: a mosaic one per tile position,
+        a projection one per slice, a video one per scan, a composite and a
+        hyperstack one per plane. Two in one place are two acquisitions (a
+        run folder from before steps recorded their Add) or two derivations
+        an earlier release made without recording how; building from both
+        would keep one and drop the other, or mix them.
+        """
+        places = self._places(group)
+        if places is None:
+            return None
+        doubled = places[places.duplicated(keep=False)]
+        if doubled.empty:
+            return None
+        named = '; '.join(
+            ', '.join(str(path) for path in group.loc[rows.index, 'Filepath'])
+            for _, rows in doubled.groupby(doubled, sort=False)
+        )
+        said = f'Not built: more than one image for one {self._PLACE} ({named}).'
+        if any(
+            post_derivation.made_unrecorded(derivation)
+            for derivation in group.loc[doubled.index, 'Derivation']
+        ):
+            return (
+                f'{said} An earlier release made them without recording how; build them '
+                'again with this release.'
+            )
+        return f'{said}{self._ONE_PER_ADD}'
 
     @abc.abstractmethod
     def _filter_ignored_types(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -554,6 +596,13 @@ class ProtocolPostProcessor(abc.ABC):
                 existing_count += (
                     1  # Count this so we don't error out if no other matches are found
                 )
+                continue
+
+            doubled = self._two_images_in_one_place(group)
+            if doubled is not None:
+                last_error = doubled
+                group_errors.append(f'{output_file_loc_rel}: {doubled}')
+                logger.error(f'Not generating {output_file_loc_rel}: {doubled}')
                 continue
 
             # Built whole or not at all: a group missing a frame the run

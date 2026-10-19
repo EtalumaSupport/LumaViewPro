@@ -192,26 +192,23 @@ class TestTheCompositeRefusesADoubledPlane:
             rows.append({'Color': color, 'Filepath': f'{i}_{color}.tiff'})
         return pd.DataFrame(rows)
 
+    @pytest.mark.usefixtures('turret_in_a_known_slot')
     @pytest.mark.parametrize(
-        'colors',
-        [('BF', 'Red', 'Red'), ('BF', 'PC', 'Red'), ('BF', 'BF', 'Red')],
+        'adds',
+        [(('BF', 'Red'), ('Red',)), (('BF', 'PC', 'Red'),), (('BF', 'Red'), ('BF',))],
         ids=['two-of-one-color', 'two-transmitted-layers', 'two-of-the-transmitted-layer'],
     )
-    def test_a_group_with_two_images_for_one_plane_is_not_composited(self, tmp_path, colors):
-        df = self._files(tmp_path, colors)
-        out = tmp_path / 'composite.tiff'
+    def test_a_group_with_two_images_for_one_plane_is_not_composited(self, scope, tmp_path, adds):
+        # Two Adds' steps are one group only in a folder from before steps
+        # recorded their Add.
+        protocol = _added(scope, adds=adds)
+        folder = _run_folder(tmp_path, protocol, without_groups=len(adds) > 1)
 
-        result = CompositeGeneration._create_composite_image(
-            path=tmp_path,
-            df=df,
-            brightness_thresholds_percent=THRESHOLDS,
-            output_file_loc=out,
-            channel_colors=release_colors(),
-        )
+        with pytest.raises(PostProcessingFailedError) as failed:
+            _composite(folder)
 
-        assert result['status'] is False
-        assert 'more than one image for one plane' in result['error']
-        assert not out.exists()
+        assert 'more than one image for one plane' in str(failed.value)
+        assert failed.value.produced_paths == ()
 
     def test_one_image_per_plane_is_composited(self, tmp_path):
         df = self._files(tmp_path, ('BF', 'Green', 'Red'))
@@ -296,30 +293,45 @@ class TestTheOtherBuildsGroupByAdd:
 
 
 class TestADoubledStillIsRefusedByTheVideoAndTheStack:
-    def test_a_timelapse_with_two_stills_in_one_scan_is_refused_naming_them(self, tmp_path):
-        for name in ('a.tiff', 'b.tiff', 'c.tiff'):
-            _write_tiff(tmp_path / name, 'Green')
-        df = pd.DataFrame(
-            {
-                'Filepath': ['a.tiff', 'b.tiff', 'c.tiff'],
-                'Scan Count': [0, 0, 1],
-                'Timestamp': ['', '', ''],
-                'Color': ['Green'] * 3,
-            }
-        )
+    @pytest.mark.usefixtures('turret_in_a_known_slot')
+    def test_a_timelapse_with_two_stills_in_one_scan_is_refused_naming_them(self, scope, tmp_path):
+        # Two Adds' stills are one group only in a folder from before steps
+        # recorded their Add.
+        protocol = _added(scope, adds=(('Green',), ('Green',)))
+        folder = _run_folder(tmp_path, protocol, without_groups=True)
 
-        result = VideoBuilder(has_turret=False)._create_video(
-            path=tmp_path,
-            df=df,
-            frames_per_sec=1,
-            enable_timestamp_overlay=False,
-            output_file_loc=pathlib.Path('out.mp4'),
-            channel_colors=release_colors(),
-        )
+        with pytest.raises(PostProcessingFailedError) as failed:
+            VideoBuilder(has_turret=False).load_folder(
+                path=folder,
+                tiling_configs_file_loc=TILING_CONFIGS,
+                frames_per_sec=1,
+                enable_timestamp_overlay=False,
+                channel_colors=release_colors(),
+            )
 
-        assert result['status'] is False
-        assert 'a.tiff' in result['error'] and 'b.tiff' in result['error']
-        assert not (tmp_path / 'out.mp4').exists()
+        message = str(failed.value)
+        assert 'more than one image for one scan' in message
+        for idx in (0, 1):
+            assert protocol.step(idx=idx)['Name'] in message
+        assert failed.value.produced_paths == ()
+
+    @pytest.mark.usefixtures('turret_in_a_known_slot')
+    def test_a_stack_with_two_stills_for_one_plane_is_refused_naming_them(self, scope, tmp_path):
+        protocol = _added(scope, adds=(('Green',), ('Green',)))
+        folder = _run_folder(tmp_path, protocol, without_groups=True)
+
+        with pytest.raises(PostProcessingFailedError) as failed:
+            StackBuilder(has_turret=False).load_folder(
+                path=folder,
+                tiling_configs_file_loc=TILING_CONFIGS,
+                channel_colors=release_colors(),
+            )
+
+        message = str(failed.value)
+        assert 'more than one image for one plane' in message
+        for idx in (0, 1):
+            assert protocol.step(idx=idx)['Name'] in message
+        assert failed.value.produced_paths == ()
 
 
 @pytest.mark.usefixtures('turret_in_a_known_slot')

@@ -94,6 +94,9 @@ def build_hyperstacks_for_run(
 
 
 class StackBuilder(ProtocolPostProcessor):
+    _PLACE = 'plane'
+    _ONE_PER_ADD = ' Steps Added together make one hyperstack.'
+
     def __init__(self, *args, **kwargs):
         super().__init__(
             *args,
@@ -130,6 +133,14 @@ class StackBuilder(ProtocolPostProcessor):
         # A hyperstack holds its raw planes as captured; nothing it is given
         # changes their pixels.
         return post_derivation.Step(PostFunction.HYPERSTACK)
+
+    def _places(self, group: pd.DataFrame) -> pd.Series:
+        # One image per scan, slice and channel; a recording's frames are its
+        # scans, numbered as the frames are.
+        scan = group['Scan Count']
+        if recording_frames.is_video_frame(group['Filepath'].iloc[0]):
+            scan = group['Filepath'].map(recording_frames.frame_number)
+        return scan.astype(str) + ',' + group['Z-Slice'].astype(str) + ',' + group['Color']
 
     def _generate_filename(self, df: pd.DataFrame, post: tuple[str, ...], **kwargs) -> str:
         row0 = df.iloc[0]
@@ -368,20 +379,6 @@ class StackBuilder(ProtocolPostProcessor):
         # while it recorded, which each frame's row records truthfully.
         expected_planes = num_t * num_z * num_c
         captured_cells = df.groupby(['Scan Count', 'Z-Slice', 'Color']).ngroups
-        doubled = [
-            rows for _, rows in df.groupby(['Scan Count', 'Z-Slice', 'Color']) if len(rows) > 1
-        ]
-        if doubled:
-            # Two images for one plane is not a gap to align but two
-            # acquisitions in one group (a run folder from before steps
-            # recorded their Add); naming them says which.
-            named = '; '.join(', '.join(str(p) for p in rows['Filepath']) for rows in doubled)
-            where = f' for well {df["Well"].iloc[0]}' if df['Well'].iloc[0] else ''
-            error = (
-                f'Cannot build a hyperstack{where}: more than one image was captured for '
-                f'one plane ({named}). Steps Added together make one hyperstack.'
-            )
-            return {'status': False, 'error': error, 'metadata': {}}
         if len(df) != expected_planes or captured_cells != expected_planes:
             if 'Well' in df.columns:
                 # A custom step has no well, and is named by nothing here.

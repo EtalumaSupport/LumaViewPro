@@ -26,6 +26,7 @@ logger = logging.getLogger('LVP.modules.stitcher')
 class Stitcher(ProtocolPostProcessor):
     QUALITY_MODE = 'quality'
     FAST_PREVIEW_MODE = 'fast_preview'
+    _PLACE = 'tile position'
 
     def __init__(self, *args, **kwargs):
         super().__init__(
@@ -66,6 +67,10 @@ class Stitcher(ProtocolPostProcessor):
             PostFunction.STITCHED,
             (('mode', kwargs.get('stitching_mode', self.QUALITY_MODE)),),
         )
+
+    def _places(self, group: pd.DataFrame) -> pd.Series:
+        # By stage position, not tile name: an inserted step has none.
+        return group['X'].astype(str) + ',' + group['Y'].astype(str)
 
     def _generate_filename(self, df: pd.DataFrame, post: tuple[str, ...], **kwargs) -> str:
         row0 = df.iloc[0]

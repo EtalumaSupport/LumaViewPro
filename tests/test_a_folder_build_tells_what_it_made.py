@@ -234,6 +234,7 @@ class _ScriptedBuild:
                 '_derivation_step': lambda self, group, **kw: post_derivation.Step(
                     self._post_function, None
                 ),
+                '_places': lambda self, group: None,
                 '_group_algorithm': lambda self, path, df, **kw: PostProcResult.ok(
                     significant_bits=8
                 ),

@@ -106,6 +106,11 @@ def kinds(derivation: str) -> dict[str, bool]:
     return {kind.value: kind in made for kind in PostFunction}
 
 
+def made_unrecorded(derivation: str) -> bool:
+    """Whether a step of ``derivation`` was recorded before settings were kept."""
+    return any(step.settings is None for step in steps(derivation))
+
+
 def raw_columns() -> dict[str, object]:
     """A raw capture's row columns for how it was made: no derivation, no kind."""
     return {'Derivation': '', **kinds('')}

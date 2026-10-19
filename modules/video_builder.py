@@ -29,6 +29,9 @@ DEFAULT_BUILD_FPS = 5
 
 
 class VideoBuilder(ProtocolPostProcessor):
+    _PLACE = 'scan'
+    _ONE_PER_ADD = ' Steps Added together make one video.'
+
     def __init__(self, *args, **kwargs):
         super().__init__(
             *args,
@@ -72,6 +75,13 @@ class VideoBuilder(ProtocolPostProcessor):
                 ('color', post_derivation.color_text(color)),
             ),
         )
+
+    def _places(self, group: pd.DataFrame) -> pd.Series | None:
+        # A timelapse takes one still per scan; interleaving two would make a
+        # video of neither. A recording's frames are each their own.
+        if recording_frames.is_video_frame(group['Filepath'].iloc[0]):
+            return None
+        return group['Scan Count']
 
     def _generate_filename(self, df: pd.DataFrame, post: tuple[str, ...], **kwargs) -> str:
         row0 = df.iloc[0]
@@ -235,21 +245,6 @@ class VideoBuilder(ProtocolPostProcessor):
             df = df.sort_values(by=['Frame Num'], ascending=True)
 
         else:
-            doubled = df[df['Scan Count'].duplicated(keep=False)]
-            if not doubled.empty:
-                # A timelapse takes one still per scan; two in one scan are
-                # two acquisitions in one group (a run folder from before
-                # steps recorded their Add), and interleaving them would make
-                # a video of neither.
-                named = ', '.join(str(p) for p in doubled['Filepath'])
-                return {
-                    'status': False,
-                    'error': (
-                        f'Cannot build a video: more than one image was captured in one '
-                        f'scan ({named}). Steps Added together make one video.'
-                    ),
-                    'metadata': {},
-                }
             df = df.sort_values(by=['Scan Count'], ascending=True)
 
         # Layer color drives VideoWriter's internal false-color application.

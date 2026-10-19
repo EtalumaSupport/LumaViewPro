@@ -23,6 +23,7 @@ import pytest
 import tifffile
 
 from modules import image_utils
+from modules.exceptions import PostProcessingFailedError
 from modules.layer_record import release_color
 
 _COLUMNS = [
@@ -248,3 +249,61 @@ def test_a_projection_an_earlier_release_made_is_stitched_and_named_for_no_metho
     record = (run_folder / 'protocol_post_record.tsv').read_text()
     assert 'Version\t4' in record
     assert 'ZProject(?)>Stitched(mode=quality)' in record
+
+
+def test_two_projections_an_earlier_release_made_are_not_stitched_into_one(session, run_folder):
+    """Two projections an earlier release made, with no record of which
+    method made which, fill each tile position twice: the stitch builds
+    neither mosaic, names the files and says to build them again, and still
+    stitches the slices."""
+    session.post_processing.zproject(run_folder, method='Max')
+    session.post_processing.zproject(run_folder, method='Sum')
+    _as_written_by_release_3(run_folder)
+
+    with pytest.raises(PostProcessingFailedError) as failed:
+        session.post_processing.stitch(run_folder)
+
+    message = str(failed.value)
+    assert 'more than one image for one tile position' in message
+    assert 'custom0000_BF_TA1_0000_zproj_max.tiff' in message
+    assert 'custom0000_BF_TA1_0000_zproj_sum.tiff' in message
+    assert 'build them again with this release' in message
+    assert sorted(path.split('/')[-2] for path in failed.value.produced_paths) == ['Stitched'] * 6
+
+
+def test_two_stitches_an_earlier_release_made_are_not_projected_into_one(session, run_folder):
+    """Quality and Fast Preview mosaics an earlier release made, with no
+    record of which mode made which, fill each slice twice: the projection
+    of them is not built, and names the files."""
+    session.post_processing.stitch(run_folder, mode='quality')
+    session.post_processing.stitch(run_folder, mode='fast_preview')
+    _as_written_by_release_3(run_folder)
+
+    with pytest.raises(PostProcessingFailedError) as failed:
+        session.post_processing.zproject(run_folder, method='Sum')
+
+    message = str(failed.value)
+    assert 'more than one image for one slice' in message
+    assert 'custom0000_BF_Z0_0000_stitched_FastPreview.tiff' in message
+    assert all('Stitched-ZProject' not in path for path in failed.value.produced_paths)
+
+
+def test_steps_inserted_without_a_tile_name_are_stitched_by_their_position(session, run_folder):
+    """Inserted steps carry no tile name and no tile group; the stitch takes
+    each by its stage position, so four of them at four positions are one
+    mosaic a channel and slice."""
+    run = run_folder / 'run.tsv'
+    head, _, steps = run.read_text().partition('Steps\n')
+    lines = steps.splitlines()
+    columns = lines[0].split('\t')
+    tile, group = columns.index('Tile'), columns.index('Tile Group ID')
+    rows = []
+    for line in lines[1:]:
+        cells = line.split('\t')
+        cells[tile], cells[group] = '', '-1'
+        rows.append('\t'.join(cells))
+    run.write_text(head + 'Steps\n' + '\n'.join([lines[0], *rows]) + '\n')
+
+    stitched = session.post_processing.stitch(run_folder)
+
+    assert stitched.new_count == 6

@@ -45,6 +45,9 @@ class _NameOnlyPostProcessor(ProtocolPostProcessor):
         # a stand-in by design: this build has no settings of its own.
         return post_derivation.Step(self._post_function, None)
 
+    def _places(self, group):
+        return None
+
     def _group_algorithm(self, path, df: pd.DataFrame):
         raise NotImplementedError
 

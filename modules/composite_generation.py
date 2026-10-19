@@ -36,6 +36,9 @@ def _is_valid_threshold_percent(value: object) -> bool:
 
 
 class CompositeGeneration(ProtocolPostProcessor):
+    _PLACE = 'plane'
+    _ONE_PER_ADD = ' Steps Added together make one composite.'
+
     def __init__(self, *args, **kwargs):
         super().__init__(
             *args,
@@ -75,6 +78,8 @@ class CompositeGeneration(ProtocolPostProcessor):
                 (f'{layer}.color', post_derivation.color_text(kwargs['channel_colors'][layer]))
             )
             if blended:
+                # A missing threshold is refused by the build itself, before
+                # anything is written; this only names the group's output.
                 settings.append((f'{layer}.threshold', str(thresholds.get(layer))))
         return post_derivation.Step(PostFunction.COMPOSITE, tuple(settings))
 
@@ -190,35 +195,14 @@ class CompositeGeneration(ProtocolPostProcessor):
             **kwargs,
         )
 
-    @staticmethod
-    def _more_than_one_image_per_plane(df: pd.DataFrame, transmitted_layers) -> str | None:
-        """Why this group cannot be one composite, or None when it can.
-
-        A composite takes one transmitted image and one image per other
-        channel key; channels that share a colour add. A group holding two
-        images for one key, or two different transmitted layers, has no one
-        answer for that input, and keeping one of them would discard an
-        acquired image behind a composite that looks complete. The data that
-        reaches here doubled is a run folder from before steps recorded their
-        Add.
-        """
-        transmitted = df[df['Color'].isin(transmitted_layers)]
-        others = df[~df['Color'].isin(transmitted_layers)]
-        doubled = []
-        if len(transmitted) > 1:
-            doubled.append(transmitted)
-        doubled += [rows for _, rows in others.groupby('Color') if len(rows) > 1]
-        if not doubled:
-            return None
-        named = '; '.join(
-            f'{", ".join(rows["Color"].unique())}: {", ".join(str(p) for p in rows["Filepath"])}'
-            for rows in doubled
-        )
-        return (
-            'Not composited: this group holds more than one image for one plane of the '
-            f'composite ({named}). A composite takes one transmitted image and one '
-            'image per other channel; steps Added together make one composite.'
-        )
+    def _places(self, group: pd.DataFrame) -> pd.Series:
+        # A composite takes one transmitted image and one image per other
+        # channel, so every transmitted layer fills the one transmitted
+        # plane: two of them, or two of one channel, have no one answer, and
+        # keeping one would discard an acquired image behind a composite
+        # that looks complete.
+        transmitted = group['Color'].isin(common_utils.get_transmitted_layers())
+        return group['Color'].where(~transmitted, 'transmitted')
 
     @staticmethod
     def _create_composite_image(
@@ -252,16 +236,6 @@ class CompositeGeneration(ProtocolPostProcessor):
             *common_utils.get_luminescence_layers(),
         ]
         img = None
-
-        refusal = CompositeGeneration._more_than_one_image_per_plane(df, allowed_BF_layers)
-        if refusal is not None:
-            return {
-                'status': False,
-                'error': refusal,
-                'image': None,
-                'significant_bits': None,
-                'metadata': {'color': 'Composite'},
-            }
 
         for layer in allowed_BF_layers:
             if (df['Color'] == layer).any():

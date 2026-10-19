@@ -22,6 +22,9 @@ from lvp_logger import logger
 
 
 class ZProjector(ProtocolPostProcessor):
+    _PLACE = 'slice'
+    _ONE_PER_ADD = ' Steps Added together make one projection.'
+
     def __init__(
         self,
         *args,
@@ -55,6 +58,10 @@ class ZProjector(ProtocolPostProcessor):
 
     def _derivation_step(self, group: pd.DataFrame, **kwargs) -> post_derivation.Step:
         return post_derivation.Step(PostFunction.ZPROJECT, (('method', kwargs['method'].lower()),))
+
+    def _places(self, group: pd.DataFrame) -> pd.Series:
+        # By the slice's Z, not its index: an inserted step's index is -1.
+        return group['Z']
 
     def _generate_filename(self, df: pd.DataFrame, post: tuple[str, ...], **kwargs) -> str:
         row0 = df.iloc[0]

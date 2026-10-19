@@ -221,6 +221,9 @@ class _FakePostProcessor(ProtocolPostProcessor):
         # a stand-in by design: this build has no settings of its own.
         return post_derivation.Step(self._post_function, None)
 
+    def _places(self, group):
+        return None
+
     def _group_algorithm(self, path, df, **kwargs):
         self.algorithm_calls.append(df.iloc[0]['OutName'])
         actual = df.iloc[0].get('ActualOutPath')
