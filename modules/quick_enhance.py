@@ -289,34 +289,6 @@ class QuickEnhancer:
         plane = plane.astype(np.float32, copy=False)
         return np.maximum(plane, 1.0 / 65535.0, out=plane)
 
-    def preview(
-        self,
-        image: np.ndarray,
-        settings: QuickEnhanceSettings,
-        significant_bits: int,
-        max_dimension: int = 1200,
-    ) -> tuple[np.ndarray, np.ndarray]:
-        """Return 8-bit before/after display arrays; intended for a worker task."""
-        preview_source = self._downsample(image, max_dimension)
-        preview_after = self.apply(preview_source, settings, significant_bits)
-        return (
-            image_utils.convert_to_8bit(preview_source, significant_bits),
-            image_utils.convert_to_8bit(preview_after, significant_bits),
-        )
-
-    @staticmethod
-    def _downsample(image: np.ndarray, max_dimension: int) -> np.ndarray:
-        height, width = image.shape[:2]
-        current = max(height, width)
-        if current <= max_dimension:
-            return image.copy()
-        scale = max_dimension / current
-        return cv2.resize(
-            image,
-            (max(1, round(width * scale)), max(1, round(height * scale))),
-            interpolation=cv2.INTER_AREA,
-        )
-
     def recipe_dict(
         self,
         *,

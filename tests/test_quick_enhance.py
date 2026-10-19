@@ -117,7 +117,7 @@ def test_representative_bf_fluorescence_and_composite_exports_preserve_sources(t
 
 
 @pytest.mark.parametrize('suffix', ('.png', '.jpg'))
-def test_png_and_jpeg_load_preview_and_export_as_derived_tiff(tmp_path, suffix):
+def test_png_and_jpeg_export_as_derived_tiff(tmp_path, suffix):
     source = tmp_path / f'color{suffix}'
     image = np.zeros((24, 32, 3), dtype=np.uint8)
     image[..., 0] = 30
@@ -125,16 +125,15 @@ def test_png_and_jpeg_load_preview_and_export_as_derived_tiff(tmp_path, suffix):
     image[..., 2] = 220
     assert cv2.imwrite(str(source), image)
 
-    loaded, significant_bits, _ = image_utils.load_pixels(source)
-    before, after = QuickEnhancer().preview(loaded, QuickEnhanceSettings(), significant_bits)
     exported = QuickEnhancer().export_file(
         source, QuickEnhanceSettings(), channel_colors=release_colors()
     )
 
-    assert before.shape == loaded.shape
-    assert after.shape == loaded.shape
     assert exported['output_path'].suffix == '.tif'
-    assert exported['output_path'].exists()
+    output, _bits, _white = image_utils.load_pixels(
+        exported['output_path'], collapse_legacy_false_color=False
+    )
+    assert output.shape == image_utils.load_pixels(source)[0].shape
 
 
 def test_invalid_settings_are_rejected_before_processing():
