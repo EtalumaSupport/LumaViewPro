@@ -399,6 +399,16 @@ _TIFF_TAG_SIGNIFICANT_BITS = 65123
 # attributes, and this has to survive every container.
 _TIFF_TAG_WHITE_BITS = 65124
 
+# The values the OME schema's Plane has attributes for, each with its unit.
+# tifffile's OME writer keeps these and drops every other Plane key without a
+# word, so write_tiff carries the rest in the image's MapAnnotation in LVP's
+# namespace: OME's own key/value slot, which Bio-Formats shows.
+_OME_PLANE_VALUES = ('DeltaT', 'ExposureTime', 'PositionX', 'PositionY', 'PositionZ')
+_OME_PLANE_ATTRIBUTES = frozenset(
+    _OME_PLANE_VALUES + tuple(f'{value}Unit' for value in _OME_PLANE_VALUES)
+)
+_LVP_OME_ANNOTATION_NAMESPACE = 'etaluma.com/lvp'
+
 
 def read_tiff_significant_bits(path: pathlib.Path) -> int:
     """Meaningful payload bits recorded in a TIFF.
@@ -771,15 +781,19 @@ def summed_full_scale(frames_summed: int, frame_bits: int) -> int:
 def _read_ome_input_metadata(ome_xml: str, datetime_value) -> dict | None:
     """Recover the flat metadata dict from a tifffile-auto-OME description.
 
-    tifffile's auto-OME serializer preserves only a subset of the structured
-    metadata into the ImageDescription XML: Plane PositionX/Y/Z + ExposureTime,
-    Pixels PhysicalSizeX, and Channel Name. Gain/Illumination, Objective,
-    Instrument, and Plate are dropped at write and cannot be recovered, so the
-    result states none of them, and a scale or exposure the XML does not carry
-    is absent too: a derived output states only what its input did. Returns
-    None on a parse failure, or when there is no Pixels / Plane element to read
-    at all. A Plane that simply states no position is NOT a parse failure:
-    the position is optional here because it is optional at the writer.
+    The Plane is the schema's Plane attributes (the position and the exposure)
+    together with every other Plane fact, which write_tiff carries in the
+    image's LVP MapAnnotation; read through the one Plane reading the
+    structured containers use, an OME file states what an ImageJ file of the
+    same frame does. Pixels PhysicalSizeX and Channel Name come from the XML.
+    Instrument, Plate, the Channel's DisplayName and the FilterSet are dropped
+    at write and cannot be recovered, so the result states none of them; nor
+    does a file written before the annotation state its Plane's other facts:
+    a derived output states only what its input did. Returns None on a parse
+    failure, an annotated value that is not JSON among them, or when there is
+    no Pixels / Plane element to read at all. A Plane that simply states no
+    position is NOT a parse failure: the position is optional here because it
+    is optional at the writer.
     """
     try:
         root = ET.fromstring(ome_xml)
@@ -789,7 +803,12 @@ def _read_ome_input_metadata(ome_xml: str, datetime_value) -> dict | None:
     def _local(tag: str) -> str:
         return tag.rsplit('}', 1)[-1]
 
-    pixels = next((el for el in root.iter() if _local(el.tag) == 'Pixels'), None)
+    image = next((el for el in root.iter() if _local(el.tag) == 'Image'), None)
+    pixels = (
+        next((el for el in image if _local(el.tag) == 'Pixels'), None)
+        if image is not None
+        else None
+    )
     if pixels is None:
         return None
     plane = next((el for el in pixels if _local(el.tag) == 'Plane'), None)
@@ -804,25 +823,28 @@ def _read_ome_input_metadata(ome_xml: str, datetime_value) -> dict | None:
         except (TypeError, ValueError):
             return None
 
-    pos_x = _float(plane.attrib, 'PositionX')
-    pos_y = _float(plane.attrib, 'PositionY')
-    pos_z = _float(plane.attrib, 'PositionZ')
-    exposure = _float(plane.attrib, 'ExposureTime')
-    pixel_size = _float(pixels.attrib, 'PhysicalSizeX')
+    plane_block = {
+        key: value for key in _OME_PLANE_VALUES if (value := _float(plane.attrib, key)) is not None
+    }
+    referenced = {el.get('ID') for el in image if _local(el.tag) == 'AnnotationRef'}
+    for annotation in root.iter():
+        if (
+            _local(annotation.tag) == 'MapAnnotation'
+            and annotation.get('ID') in referenced
+            and annotation.get('Namespace') == _LVP_OME_ANNOTATION_NAMESPACE
+        ):
+            try:
+                plane_block |= {
+                    entry.get('K'): json.loads(entry.text or '')
+                    for entry in annotation.iter()
+                    if _local(entry.tag) == 'M'
+                }
+            except json.JSONDecodeError:
+                return None
 
-    # The objective is dropped by tifffile's auto-OME serializer; {} is the
-    # writer's "none". The scale is a hard key whose None the writer reads as
-    # no PhysicalSize.
-    flat: dict = {'objective': {}, 'pixel_size_um': pixel_size}
-    if exposure is not None:
-        flat['exposure_time_ms'] = exposure
-    # Position is optional on the way in because it is optional on the way
-    # out: a capture with no coordinate writes no Plane position, and a file
-    # that honestly states no position must not be discarded for it.
-    if pos_x is not None and pos_y is not None:
-        flat['plate_pos_mm'] = {'x': pos_x, 'y': pos_y}
-    if pos_z is not None:
-        flat['z_pos_um'] = pos_z
+    # The scale is a hard key whose None the writer reads as no PhysicalSize.
+    flat: dict = {'pixel_size_um': _float(pixels.attrib, 'PhysicalSizeX')}
+    flat |= _plane_facts(plane_block)
     if channel is not None and channel.attrib.get('Name'):
         flat['channel'] = channel.attrib['Name']
         # ExcitationWavelength is a schema OME Channel attribute, so it
@@ -834,6 +856,66 @@ def _read_ome_input_metadata(ome_xml: str, datetime_value) -> dict | None:
     if datetime_value is not None:
         flat['datetime'] = datetime_value
     return flat
+
+
+def _plane_facts(plane: dict) -> dict:
+    """The flat facts one Plane block states, whichever container held it.
+
+    The one reading of a Plane, for the shaped and ImageJ descriptions and for
+    the OME container's schema attributes with its LVP annotation. The
+    objective is a hard key, {} being the writer's "none"; every other fact is
+    present only when the Plane states it.
+    """
+    facts: dict = {'objective': plane.get('Objective', {})}
+    # Position, exposure, gain and illumination are the writer's optional
+    # fields: the producer omits the key when the value was genuinely unknown
+    # at capture (a failed camera read; an LED that was off, as on every dark
+    # or luminescence frame; an axis that had lost its reference, or a scope
+    # with no X and Y). Mirror that here -- reconstruct them only
+    # when present -- so such a frame still forwards everything it DOES state
+    # and no fabricated stand-in is invented on the way back out to a derived
+    # output. Discarding the whole file over one absent field is the
+    # expensive failure: the derived output then loses everything the
+    # file did state.
+    if 'PositionX' in plane and 'PositionY' in plane:
+        facts['plate_pos_mm'] = {'x': plane['PositionX'], 'y': plane['PositionY']}
+    if 'PositionZ' in plane:
+        facts['z_pos_um'] = plane['PositionZ']
+    if 'Illumination' in plane:
+        facts['illumination_ma'] = plane['Illumination']
+    if 'ExposureTime' in plane:
+        facts['exposure_time_ms'] = plane['ExposureTime']
+    if 'Gain' in plane:
+        facts['gain_db'] = plane['Gain']
+    if 'BlackLevel' in plane:
+        facts['black_level'] = plane['BlackLevel']
+    if 'FramesSummed' in plane:
+        facts['frames_summed'] = plane['FramesSummed']
+    if 'Binning' in plane:
+        facts['binning_size'] = plane['Binning']
+
+    # Per-frame markers travel with the original capture, not with
+    # derived outputs. Read them so the helper is reusable; the builder
+    # for derived outputs strips them before passing to write_tiff.
+    if 'Timestamp' in plane:
+        facts['timestamp_iso'] = plane['Timestamp']
+    if 'TimestampCameraTicks' in plane:
+        facts['timestamp_camera_ticks'] = plane['TimestampCameraTicks']
+    if 'TimestampCameraTickHz' in plane:
+        facts['timestamp_camera_tick_hz'] = plane['TimestampCameraTickHz']
+    if 'FrameID' in plane:
+        facts['frame_id'] = plane['FrameID']
+    if 'FrameValidity' in plane:
+        facts['frame_validity'] = plane['FrameValidity']
+    if 'SaturatedFraction' in plane:
+        facts['saturated_fraction'] = plane['SaturatedFraction']
+    if 'Dark' in plane:
+        facts['dark'] = plane['Dark']
+    if 'CameraHeldALayer' in plane:
+        facts['camera_held_a_layer'] = plane['CameraHeldALayer']
+    if 'CameraHeldLayer' in plane:
+        facts['camera_held_layer'] = plane['CameraHeldLayer']
+    return facts
 
 
 # A numpy scalar left in the metadata dict (e.g. a stage position that stayed
@@ -1000,10 +1082,8 @@ def read_postproc_input_metadata(path: pathlib.Path) -> dict | None:
         # producer; no acquisition context to forward.
         return None
 
-    plane = structured['Plane']
     try:
         flat: dict = {
-            'objective': plane.get('Objective', {}),
             'pixel_size_um': _stated_pixel_size_um(structured, None),
             'channel': structured['Channel']['Name'][0],
         }
@@ -1014,32 +1094,7 @@ def read_postproc_input_metadata(path: pathlib.Path) -> dict | None:
         # rather than crashing the post-processing job, per this
         # function's documented contract.
         return None
-    # Position, exposure, gain and illumination are the writer's optional
-    # fields: the producer omits the key when the value was genuinely unknown
-    # at capture (a failed camera read; an LED that was off, as on every dark
-    # or luminescence frame; an axis that had lost its reference, or a scope
-    # with no X and Y). Mirror that here -- reconstruct them only
-    # when present -- so such a frame still forwards everything it DOES state
-    # and no fabricated stand-in is invented on the way back out to a derived
-    # output. Discarding the whole file over one absent field is the
-    # expensive failure: the derived output then loses everything the
-    # file did state.
-    if 'PositionX' in plane and 'PositionY' in plane:
-        flat['plate_pos_mm'] = {'x': plane['PositionX'], 'y': plane['PositionY']}
-    if 'PositionZ' in plane:
-        flat['z_pos_um'] = plane['PositionZ']
-    if 'Illumination' in plane:
-        flat['illumination_ma'] = plane['Illumination']
-    if 'ExposureTime' in plane:
-        flat['exposure_time_ms'] = plane['ExposureTime']
-    if 'Gain' in plane:
-        flat['gain_db'] = plane['Gain']
-    if 'BlackLevel' in plane:
-        flat['black_level'] = plane['BlackLevel']
-    if 'FramesSummed' in plane:
-        flat['frames_summed'] = plane['FramesSummed']
-    if 'Binning' in plane:
-        flat['binning_size'] = plane['Binning']
+    flat |= _plane_facts(structured['Plane'])
     if datetime_value is not None:
         flat['datetime'] = datetime_value
 
@@ -1052,28 +1107,6 @@ def read_postproc_input_metadata(path: pathlib.Path) -> dict | None:
         flat['excitation_nm'] = channel_block['ExcitationWavelength'][0]
     if 'FilterSet' in structured:
         flat['filterset'] = structured['FilterSet']
-
-    # Per-frame markers travel with the original capture, not with
-    # derived outputs. Read them so the helper is reusable; the builder
-    # for derived outputs strips them before passing to write_tiff.
-    if 'Timestamp' in plane:
-        flat['timestamp_iso'] = plane['Timestamp']
-    if 'TimestampCameraTicks' in plane:
-        flat['timestamp_camera_ticks'] = plane['TimestampCameraTicks']
-    if 'TimestampCameraTickHz' in plane:
-        flat['timestamp_camera_tick_hz'] = plane['TimestampCameraTickHz']
-    if 'FrameID' in plane:
-        flat['frame_id'] = plane['FrameID']
-    if 'FrameValidity' in plane:
-        flat['frame_validity'] = plane['FrameValidity']
-    if 'SaturatedFraction' in plane:
-        flat['saturated_fraction'] = plane['SaturatedFraction']
-    if 'Dark' in plane:
-        flat['dark'] = plane['Dark']
-    if 'CameraHeldALayer' in plane:
-        flat['camera_held_a_layer'] = plane['CameraHeldALayer']
-    if 'CameraHeldLayer' in plane:
-        flat['camera_held_layer'] = plane['CameraHeldLayer']
 
     if 'Instrument' in structured:
         inst = structured['Instrument']
@@ -2431,7 +2464,7 @@ def generate_tiff_data(
     # is a schema OME Channel attribute, so the OME container serializes
     # it into real OME-XML; DisplayName is not schema and survives only in
     # the structured (shaped/ImageJ) containers -- the same partial-
-    # survival contract as gain and instrument on the OME path.
+    # survival contract as instrument on the OME path.
     channel_block: dict = {'Name': [metadata['channel']]}
     if 'channel_display' in metadata:
         channel_block['DisplayName'] = [metadata['channel_display']]
@@ -2449,6 +2482,25 @@ def generate_tiff_data(
         'Channel': channel_block,
         'Plane': plane,
     }
+    # The OME container keeps only the schema's Plane attributes, so every other
+    # Plane fact rides in the image's LVP MapAnnotation: without it a summed
+    # frame states its per-frame exposure and no count, and a dark or unsettled
+    # frame reads as a good one. Each value is JSON, so a count, a flag, the
+    # objective and the frame-validity list read back as written. Set in this
+    # arm only: tifffile would also serialize the key into the ImageJ and
+    # shaped descriptions.
+    if image_type == 'ome':
+        tiff_metadata['Plane'] = {
+            key: value for key, value in plane.items() if key in _OME_PLANE_ATTRIBUTES
+        }
+        tiff_metadata['MapAnnotation'] = {
+            'Namespace': _LVP_OME_ANNOTATION_NAMESPACE,
+            'Value': {
+                key: json.dumps(value, ensure_ascii=False, default=_numpy_scalar_value)
+                for key, value in plane.items()
+                if key not in _OME_PLANE_ATTRIBUTES
+            },
+        }
     # The filterset is a unit-level fact, not per-channel; it rides as its
     # own structured key (the OME container drops it, like Instrument).
     if 'filterset' in metadata:
@@ -2611,6 +2663,18 @@ def generate_tiff_data(
         'options': options,
         'resolution': resolution,
     }
+
+
+def _numpy_scalar_value(value):
+    """A numpy scalar as the Python number it holds, for the JSON of a saved annotation.
+
+    A producer's value can stay a numpy scalar (a stage position left
+    np.float64), and the JSON encoder refuses np.int64 and np.bool_, which
+    would fail a good save over the type of a number.
+    """
+    if isinstance(value, np.generic):
+        return value.item()
+    raise TypeError(f'a saved file cannot state a {type(value).__name__}')
 
 
 def _depth_extratags(significant_bits: int, white_bits: int | None) -> list[tuple]:

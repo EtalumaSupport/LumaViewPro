@@ -1034,26 +1034,6 @@ class TestOmeMetadataReadback:
         assert recovered['exposure_time_ms'] == pytest.approx(metadata['exposure_time_ms'])
         assert recovered['pixel_size_um'] == pytest.approx(metadata['pixel_size_um'])
 
-    def test_ome_input_defaults_dropped_fields(self, img_16bit, metadata, tmp_tiff):
-        path = tmp_tiff()
-        image_utils.write_tiff(
-            data=img_16bit,
-            file_loc=path,
-            metadata=metadata,
-            ome=True,
-            color=release_color('Green'),
-            significant_bits=16,
-            save_encoding='right_aligned',
-            white_bits=None,
-        )
-        recovered = image_utils.read_postproc_input_metadata(path)
-        # Gain / Illumination / Objective are dropped by tifffile's auto-OME
-        # serializer, so the read-back states none of them: no invented zero
-        # gain or illumination, and the writer's empty objective.
-        assert 'gain_db' not in recovered
-        assert 'illumination_ma' not in recovered
-        assert recovered['objective'] == {}
-
 
 class TestStructuredReadbackOptionalGainExposure:
     """A structured TIFF whose writer omitted the optional ExposureTime /
