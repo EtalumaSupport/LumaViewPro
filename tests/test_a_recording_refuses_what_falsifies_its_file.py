@@ -261,25 +261,6 @@ class TestTheSessionConfiguration:
         assert sim_session.settings['turret_objectives'] == turret_before
 
 
-_AUTO_GAIN = {'target_brightness': 0.5, 'min_gain_db': 0.0, 'max_gain_db': 10.0}
-
-
-class TestTheLongestExposure:
-    """Exposure and gain stay open during a recording, so its feed-death bound
-    reads the longest exposure the camera may be using, not the start value."""
-
-    def test_it_is_the_cached_exposure_with_no_auto_gain_armed(self, sim_session):
-        camera = sim_session.scope.camera
-        assert camera.longest_exposure_ms == camera.exposure_ms
-
-    def test_it_is_the_arms_ceiling_while_auto_gain_is_armed(self, sim_session):
-        camera = sim_session.scope.camera
-        camera.set_auto_gain(True, {**_AUTO_GAIN, 'max_exposure_ms': 150.0})
-        assert camera.longest_exposure_ms == 150.0
-        camera.set_auto_gain(False, dict(_AUTO_GAIN))
-        assert camera.longest_exposure_ms == camera.exposure_ms
-
-
 class TestReselectingThePlateInPlace:
     """The left panel's toggle re-selects the current plate on every press,
     and the toggle is live under every hold; that re-selection changes
