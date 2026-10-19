@@ -2250,10 +2250,10 @@ class CameraAPI:
             invalidates=('binning',),
             cache_update={'binning': int(size)},
         )
-        # The delivered frame size is binning-dependent: it halves at 2x.
-        # Left stale, FOV math reads the 1x frame size until the next full
-        # hardware refresh. set_binning_size returns no geometry, so this
-        # refresh reads the camera -- a deliberate exception to the
+        # The delivered frame size is binning-dependent: it halves at 2x, so
+        # the size held before the write no longer describes the camera and
+        # is dropped. The driver's set_binning_size returns no geometry, so
+        # this refresh reads the camera -- a deliberate exception to the
         # no-read-back preference, accepted because binning changes are
         # rare user actions, not per-frame traffic.
         self._commit_camera_writes({'frame_size': None})
@@ -2436,7 +2436,7 @@ class CameraAPI:
         the range changes with the format. ``set_black_level`` refuses a value
         outside it before anything reaches the camera.
 
-        Not cached: a failed read has no last-known-good to answer with.
+        Read live, never held: the range follows the pixel format.
 
         Returns:
             tuple[float, float] | None: ``(minimum, maximum)``; None when no
@@ -2628,9 +2628,10 @@ class CameraAPI:
         """The exposure in seconds, for sizing a grab's wait and a frame's cost.
 
         The longest exposure the camera may be using (``longest_exposure_ms``),
-        with no read of the camera. 0 when it is unknown: every wait sized
-        from it has a floor of its own, and with no exposure to scale it is
-        the floor that sizes it.
+        with no read of the camera. 0 when even that is unknown (no exposure
+        held and no maximum reported): every wait sized from it has a floor
+        of its own, and with no exposure to scale it is the floor that sizes
+        it.
         """
         exposure_ms = self.longest_exposure_ms
         return exposure_ms / 1000 if common_utils.is_valid_exposure_ms(exposure_ms) else 0.0
@@ -2916,7 +2917,7 @@ class CameraAPI:
     # --- Save / restore ---
     @api(in_process=True, engineering=True)
     def save_camera_state(self, tag: str) -> dict:
-        """Snapshot every camera setting with a getter, for restoration.
+        """Snapshot the camera's settings, for restoration.
 
         The gain and exposure are the values held (the last the camera
         reported or took, with no read of the camera now), None for one that

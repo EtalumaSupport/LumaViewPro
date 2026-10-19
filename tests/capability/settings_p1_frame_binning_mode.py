@@ -35,7 +35,7 @@ try:
         (im_camera.read_frame_size().width, im_camera.read_frame_size().height) == (800, 600),
         f'{im_camera.read_frame_size().width}x{im_camera.read_frame_size().height}',
     )
-    print('frame_size_cached     :', im_camera.frame_size.to_dict())
+    print('frame_size            :', im_camera.frame_size.to_dict())
 
     # --- frame size, OUT OF RANGE (the 13414 shape) ----------------------
     from modules.exceptions import CameraSettingOutOfRangeError, CameraSettingUnsupportedError

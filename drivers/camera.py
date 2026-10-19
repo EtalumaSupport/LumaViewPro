@@ -1090,8 +1090,8 @@ class Camera(ABC):
         not follow the format string (FX2 delivers Mono8 regardless; a
         converting driver could deliver a fixed depth) override this so
         every depth consumer -- including the API layer, which calls this
-        with its validated last-known-good format so a transient format
-        read cannot change the answer -- honors the driver's word.
+        with its held format so a transient format read cannot change the
+        answer -- honors the driver's word.
         """
         return self.format_significant_bits(pixel_format, self.native_bit_depth)
 

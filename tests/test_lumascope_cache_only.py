@@ -83,12 +83,12 @@ def scope_with_io_traps(monkeypatch):
 
 
 class TestCameraPropertiesCacheOnly:
-    """LV-11: frame_size_cached and pixel_format are read per-frame
+    """LV-11: the held frame_size and pixel_format are read per-frame
     from the scope_display thread; they must be cache reads.
     """
 
     def test_camera_frame_size_no_io(self, scope_with_io_traps):
-        """Reading frame_size_cached must not call any driver-side SDK
+        """Reading the held frame_size must not call any driver-side SDK
         method. If this fails, scope_display's per-frame readout has
         become a per-frame Pylon SDK call."""
         result = scope_with_io_traps.camera.frame_size.to_dict()
@@ -96,7 +96,7 @@ class TestCameraPropertiesCacheOnly:
 
     def test_camera_pixel_format_no_io(self, scope_with_io_traps):
         """Reading pixel_format must not call any driver-side SDK
-        method. Same risk as frame_size_cached."""
+        method. Same risk as frame_size."""
         result = scope_with_io_traps.camera.pixel_format
         assert isinstance(result, str)
 

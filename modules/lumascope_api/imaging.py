@@ -1091,9 +1091,9 @@ class ImagingAPI:
         removed = failed is not None and failed.removed
         try:
             if failed is None:
-                # The record's black level read raises on a failed read and
-                # fails the capture; one that failed because the camera left
-                # between the grab and the read is that removal.
+                # The record's gain, exposure and black level reads raise on a
+                # failed read and fail the capture; one that failed because the
+                # camera left between the grab and the read is that removal.
                 judgments = self.frame_validity.judgments(grabbed.earliest)
                 try:
                     extra['frame_record'] = self._build_frame_record(
