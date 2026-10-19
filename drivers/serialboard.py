@@ -981,11 +981,14 @@ class SerialBoard:
                 # Drain any remaining data from multi-line response bursts.
                 # Old firmware (pre-v3.0) sends multi-line INFO/STATUS even
                 # when we only requested 1 line. Without this drain, leftover
-                # lines pollute the next command's response.
+                # lines pollute the next command's response. What is drained
+                # is logged: it can be the rest of the board's answer, such
+                # as every line after the first of a firmware traceback.
                 time.sleep(0.02)  # Brief pause for remaining lines to arrive
                 remaining = self.driver.in_waiting
                 if remaining > 0:
-                    self.driver.read(remaining)
+                    drained = self.driver.read(remaining)
+                    _serial_log.info(f'{self._label} {command} DRAIN {remaining}B: {drained!r}')
 
                 elapsed_ms = (time.monotonic() - t_start) * 1000
 
