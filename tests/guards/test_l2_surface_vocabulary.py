@@ -6,11 +6,18 @@ The L2 surface converged on one word per fact:
     LED drive current   mA        -> illumination_ma
     turret move         tmove     -> move_turret
     turret homed query  has_thomed -> position_is_known('T')
+    camera reads        *_cached, get_gain_db, get_exposure_ms
+                                  -> the held property or read_*
+    camera writes       set_auto_exposure_time, apply_layer_camera_settings
+                                  -> set_auto_exposure, apply
 
 Drivers deliberately keep the old vocabulary -- `mA` mirrors the board
 command format and `thome` / `has_thomed` are the motor board's own
 names -- so `drivers/` is NOT swept. The translation happens at the
-facade, whose call into the driver is positional.
+facade, whose call into the driver is positional. The camera's
+get_binning_size, get_black_level, get_resulting_frame_rate and
+set_binning_size are the drivers' own names, which the API calls, so
+they are not retired here.
 
 This is an AST sweep, not a grep, and the distinction is the whole
 point. `mA` is also a legitimate UNIT: it is the value of the
@@ -37,6 +44,21 @@ RETIRED = {
     '_tmove_impl': '_move_turret_impl',
     'has_thomed': "position_is_known('T')",
     '_thome_impl': '_home_turret_impl',
+    'active_cached': 'camera.active',
+    'gain_db_cached': 'camera.gain_db',
+    'exposure_ms_cached': 'camera.exposure_ms',
+    'frame_size_cached': 'camera.frame_size',
+    'pixel_format_cached': 'camera.pixel_format',
+    'min_frame_size_cached': 'capabilities.camera_limits.frame_min',
+    'min_gain_db_cached': 'capabilities.camera_limits.gain_db_min',
+    'max_gain_db_cached': 'capabilities.camera_limits.gain_db_max',
+    'min_exposure_ms_cached': 'capabilities.camera_limits.exposure_ms_min',
+    'max_exposure_ms_cached': 'capabilities.camera_limits.exposure_ms_max',
+    'get_gain_db': 'camera.read_gain_db',
+    'get_exposure_ms': 'camera.read_exposure_ms',
+    'get_live_camera_settings': 'camera.read_gain_db and its siblings',
+    'set_auto_exposure_time': 'camera.set_auto_exposure',
+    'apply_layer_camera_settings': 'camera.apply',
 }
 
 
