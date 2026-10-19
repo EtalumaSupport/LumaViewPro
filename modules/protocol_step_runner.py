@@ -699,16 +699,22 @@ class ProtocolStepRunner:
         enqueued without waiting, because on the failure-retry path the
         executor carrying it may be the very thing that wedged the scan and
         FIFO ordering already places the off before anything later.
+
+        A waited transition's failure is its waiter's to report, so its task
+        is silent and the lane does not report it a second time; a
+        fire-and-forget one has no waiter, and the lane is its reporter.
         """
         p = self._p
         lease = getattr(p, '_led_lease', None)
         if lease is None:
             return
+        waited = transition not in FIRE_AND_FORGET_TRANSITIONS
         fut = p._io_executor.protocol_put(
-            IOTask(action=lease.apply, args=(transition, ctx)), return_future=True
+            IOTask(action=lease.apply, args=(transition, ctx), silent_on_failure=waited),
+            return_future=True,
         )
         if fut:
-            if transition not in FIRE_AND_FORGET_TRANSITIONS:
+            if waited:
                 try:
                     fut.result(timeout=30)
                 except CancelledError:
