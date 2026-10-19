@@ -16,6 +16,7 @@ import pathlib
 
 import pytest
 
+from modules import post_derivation
 from modules.common_utils import PostFunction
 from modules.exceptions import InstallationFileError
 from modules.objectives_loader import ObjectiveLoader, objective_short_name
@@ -58,6 +59,10 @@ class _NameOnly(ProtocolPostProcessor):
 
     def _generate_filename(self, df, **kwargs):
         raise NotImplementedError
+
+    def _derivation_step(self, group, **kwargs):
+        # a stand-in by design: this build has no settings of its own.
+        return post_derivation.Step(self._post_function, None)
 
     def _group_algorithm(self, *args, **kwargs):
         raise NotImplementedError

@@ -8,6 +8,7 @@ import pathlib
 import numpy as np
 import pandas as pd
 
+from modules import post_derivation
 from modules.common_utils import PostFunction, read_table, recover_step_label, to_int
 from modules.protocol import _bool_cell, _float_cell, _int_cell
 from modules.protocol_execution_record import ProtocolExecutionRecord
@@ -51,7 +52,12 @@ class ProtocolPostRecord:
     # v3 adds Channel Group ID: the Add an output's source steps came from,
     # so a composite built from stitched or projected outputs groups by Add
     # as one built from raw images does. -1: no single Add.
-    CURRENT_VERSION = 3
+    # v4 replaces the five kind columns with Derivation: the builds that made
+    # the output, in order, with their settings (``post_derivation``). The
+    # kinds are read from it, so two outputs of the same source made two
+    # ways are told apart, and a v1-v3 row's kinds become its derivation
+    # with each setting unknown.
+    CURRENT_VERSION = 4
     DEFAULT_FILENAME = 'protocol_post_record.tsv'
 
     def __del__(self):
@@ -84,7 +90,7 @@ class ProtocolPostRecord:
         'Tile',
         'Custom Step',
         'Channel Group ID',
-        *PostFunction.list_values(),
+        'Derivation',
     )
 
     def __init__(self, file_loc: pathlib.Path, records: pd.DataFrame | None = None):
@@ -149,6 +155,7 @@ class ProtocolPostRecord:
                 ('Tile', str),
                 ('Custom Step', bool),
                 ('Channel Group ID', int),
+                ('Derivation', str),
                 *post_function_tuples,
             ]
         )
@@ -209,7 +216,7 @@ class ProtocolPostRecord:
         tile: str,
         custom_step: bool,
         channel_group_id: int,
-        **kwargs: dict,
+        derivation: str,
     ) -> dict:
         abs_path = root_path / file_path
 
@@ -230,9 +237,10 @@ class ProtocolPostRecord:
             'Tile': tile,
             'Custom Step': custom_step,
             'Channel Group ID': channel_group_id,
+            'Derivation': derivation,
+            **post_derivation.kinds(derivation),
             'Raw': False,
             'File Exists': abs_path.exists(),
-            **kwargs,
         }
 
     def add_record(
@@ -254,7 +262,7 @@ class ProtocolPostRecord:
         tile: str,
         custom_step: bool,
         channel_group_id: int,
-        **kwargs: dict,
+        derivation: str,
     ) -> None:
 
         if self.file_exists_in_records(filepath=file_path):
@@ -278,7 +286,7 @@ class ProtocolPostRecord:
             tile=tile,
             custom_step=custom_step,
             channel_group_id=channel_group_id,
-            **kwargs,
+            derivation=derivation,
         )
 
         self._pending_records.append(record_dict)
@@ -300,7 +308,7 @@ class ProtocolPostRecord:
             tile=tile,
             custom_step=custom_step,
             channel_group_id=channel_group_id,
-            **kwargs,
+            derivation=derivation,
         )
 
     def _add_record_to_file(
@@ -321,7 +329,7 @@ class ProtocolPostRecord:
         tile: str,
         custom_step: bool,
         channel_group_id: int,
-        **kwargs: dict,
+        derivation: str,
     ) -> None:
 
         self._outfile_csv.writerow(
@@ -342,7 +350,7 @@ class ProtocolPostRecord:
                 tile,
                 custom_step,
                 channel_group_id,
-                *kwargs.values(),
+                derivation,
             ]
         )
         self._outfile_fp.flush()
@@ -360,7 +368,7 @@ class ProtocolPostRecord:
                 raise Exception('Version key not found')
 
             file_version = int(version[1])
-            if file_version not in (1, 2, 3):
+            if file_version not in (1, 2, 3, 4):
                 raise Exception('Unsupported protocol post-processing record version')
 
             # Search for "Images" to indicate start of images data
@@ -429,6 +437,15 @@ class ProtocolPostRecord:
                 # Pre-v3 records never carried the Add an output came from.
                 df['Channel Group ID'] = pd.Series([-1] * len(df), index=df.index, dtype=int)
 
+            if len(df) > 0:
+                if 'Derivation' not in df.columns:
+                    # Pre-v4 records kept each output's kinds, not how it was made.
+                    df['Derivation'] = [post_derivation.from_kinds(row) for _, row in df.iterrows()]
+                df[PostFunction.list_values()] = pd.DataFrame(
+                    [post_derivation.kinds(derivation) for derivation in df['Derivation']],
+                    index=df.index,
+                )
+
             record = ProtocolPostRecord(
                 file_loc=file_path,
                 records=df,
@@ -452,7 +469,6 @@ class ProtocolPostRecord:
         """
         self._close_outfile()
         tmp_loc = self._file_loc.with_name(self._file_loc.name + '.tmp')
-        post_function_columns = PostFunction.list_values()
         try:
             self._initialize_outfile(outfile=tmp_loc)
             for _, row in self.records().iterrows():
@@ -473,7 +489,7 @@ class ProtocolPostRecord:
                     tile=row['Tile'],
                     custom_step=row['Custom Step'],
                     channel_group_id=row['Channel Group ID'],
-                    **{column: row[column] for column in post_function_columns},
+                    derivation=row['Derivation'],
                 )
             self._close_outfile()
             os.replace(tmp_loc, self._file_loc)

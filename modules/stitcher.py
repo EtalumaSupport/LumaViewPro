@@ -8,6 +8,7 @@ import pandas as pd
 
 import modules.common_utils as common_utils
 import modules.image_utils as image_utils
+import modules.post_derivation as post_derivation
 from modules.stitching_core import (
     channel_aware_stitcher,
     simple_position_stitcher,
@@ -25,7 +26,6 @@ logger = logging.getLogger('LVP.modules.stitcher')
 class Stitcher(ProtocolPostProcessor):
     QUALITY_MODE = 'quality'
     FAST_PREVIEW_MODE = 'fast_preview'
-    _FAST_PREVIEW_SUFFIX = 'FastPreview'
 
     def __init__(self, *args, **kwargs):
         super().__init__(
@@ -56,12 +56,18 @@ class Stitcher(ProtocolPostProcessor):
                 'Tile Group ID',
                 'Custom Step',
                 'Raw',
-                *PostFunction.list_values(),
+                'Derivation',
             ],
             dropna=False,
         )
 
-    def _generate_filename(self, df: pd.DataFrame, **kwargs) -> str:
+    def _derivation_step(self, group: pd.DataFrame, **kwargs) -> post_derivation.Step:
+        return post_derivation.Step(
+            PostFunction.STITCHED,
+            (('mode', kwargs.get('stitching_mode', self.QUALITY_MODE)),),
+        )
+
+    def _generate_filename(self, df: pd.DataFrame, post: tuple[str, ...], **kwargs) -> str:
         row0 = df.iloc[0]
         objective_short_name = self._get_objective_short_name_if_has_turret(
             objective_id=row0['Objective']
@@ -73,9 +79,6 @@ class Stitcher(ProtocolPostProcessor):
         # a single-channel stitch keeps its channel, and a composite-stitch
         # carries 'Composite' automatically (its Color is 'Composite'), so no
         # leaked channel token needs removing.
-        post = ('stitched',)
-        if kwargs.get('stitching_mode') == self.FAST_PREVIEW_MODE:
-            post = ('stitched', self._FAST_PREVIEW_SUFFIX)
         name = common_utils.build_step_name(
             common_utils.step_components(
                 row0,

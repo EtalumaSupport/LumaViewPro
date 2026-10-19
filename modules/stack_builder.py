@@ -8,6 +8,7 @@ import pandas as pd
 
 import modules.image_utils as image_utils
 import modules.layer_record as layer_record
+import modules.post_derivation as post_derivation
 import modules.image_mode as image_mode
 import modules.common_utils as common_utils
 import modules.recording_frames as recording_frames
@@ -120,12 +121,17 @@ class StackBuilder(ProtocolPostProcessor):
                 'Channel Group ID',
                 'Raw',
                 'Recording Scan',
-                *PostFunction.list_values(),
+                'Derivation',
             ],
             dropna=False,
         )
 
-    def _generate_filename(self, df: pd.DataFrame, **kwargs) -> str:
+    def _derivation_step(self, group: pd.DataFrame, **kwargs) -> post_derivation.Step:
+        # A hyperstack holds its raw planes as captured; nothing it is given
+        # changes their pixels.
+        return post_derivation.Step(PostFunction.HYPERSTACK)
+
+    def _generate_filename(self, df: pd.DataFrame, post: tuple[str, ...], **kwargs) -> str:
         row0 = df.iloc[0]
 
         objective_short_name = self._get_objective_short_name_if_has_turret(
@@ -152,7 +158,7 @@ class StackBuilder(ProtocolPostProcessor):
                 z_index=None,
                 objective=objective_short_name,
                 scan_count=scan_count,
-                post=('hyperstack',),
+                post=post,
             )
         )
 

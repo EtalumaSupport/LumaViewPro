@@ -7,6 +7,7 @@ import pandas as pd
 
 import modules.image_utils as image_utils
 import modules.layer_record as layer_record
+import modules.post_derivation as post_derivation
 from modules.layer_record import GREY, ChannelColors
 import modules.common_utils as common_utils
 import modules.recording_frames as recording_frames
@@ -54,23 +55,32 @@ class VideoBuilder(ProtocolPostProcessor):
                 'Channel Group ID',
                 'Raw',
                 'Recording Scan',
-                *PostFunction.list_values(),
+                'Derivation',
             ],
             dropna=False,
         )
 
-    def _generate_filename(self, df: pd.DataFrame, **kwargs) -> str:
+    def _derivation_step(self, group: pd.DataFrame, **kwargs) -> post_derivation.Step:
+        # A video's frames are drawn at its rate, with or without the time
+        # stamped on them, in its layer's colour.
+        color = layer_record.output_color(group.iloc[0]['Color'], kwargs['channel_colors'])
+        return post_derivation.Step(
+            PostFunction.VIDEO,
+            (
+                ('fps', f'{float(kwargs["frames_per_sec"]):g}'),
+                ('timestamp', 'on' if kwargs['enable_timestamp_overlay'] else 'off'),
+                ('color', post_derivation.color_text(color)),
+            ),
+        )
+
+    def _generate_filename(self, df: pd.DataFrame, post: tuple[str, ...], **kwargs) -> str:
         row0 = df.iloc[0]
         objective_short_name = self._get_objective_short_name_if_has_turret(
             objective_id=row0['Objective']
         )
 
-        # Post-output suffixes chain: a video of an already-stitched output
-        # carries both ('stitched', 'video'). channel, tile and z come from the
-        # authoritative columns (a video keeps the source slice's z token,
-        # matching the per-image save).
-        post = ('stitched',) if row0['Stitched'] else ()
-        post = (*post, common_utils.POST_TOKEN_VIDEO)
+        # channel, tile and z come from the authoritative columns (a video
+        # keeps the source slice's z token, matching the per-image save).
 
         # One output per recording means one output PER SCAN for recorded
         # video frames; the scan token keeps those names distinct (and

@@ -10,9 +10,13 @@ the time it was written with.
 import datetime
 import pathlib
 
+from modules import post_derivation
 from modules.common_utils import PostFunction
 from modules.protocol_execution_record import ProtocolExecutionRecord
 from modules.protocol_post_record import ProtocolPostRecord
+
+# A stitched output's derivation, as a Quality stitch of raw tiles records it.
+_STITCHED = post_derivation.Step(PostFunction.STITCHED, (('mode', 'quality'),)).text()
 
 WRITTEN = (
     datetime.datetime(2026, 10, 18, 9, 30, 0),
@@ -59,7 +63,7 @@ def test_a_post_record_row_written_on_a_whole_second_reads_back_with_its_time(tm
             tile='',
             custom_step=False,
             channel_group_id=-1,
-            **dict.fromkeys(PostFunction.list_values(), False) | {'Stitched': True},
+            derivation=_STITCHED,
         )
     record.complete()
 

@@ -26,6 +26,7 @@ import numpy as np
 import pandas as pd
 import tifffile as tf
 
+from modules import post_derivation
 from modules import image_utils
 from modules.stack_builder import StackBuilder
 from modules.layer_record import release_color
@@ -172,7 +173,6 @@ def test_sparse_stills_still_refuse_beside_a_building_video_group(tmp_path):
     # recording refuses the stills group exactly as before while the
     # video group builds. Grouping keeps them apart; neither outcome
     # leaks into the other.
-    from modules.common_utils import PostFunction
 
     rows = []
     for z_idx in range(3):
@@ -195,8 +195,7 @@ def test_sparse_stills_still_refuse_beside_a_building_video_group(tmp_path):
     df['Custom Step'] = False
     df['Channel Group ID'] = 0
     df['Raw'] = True
-    for column in PostFunction.list_values():
-        df[column] = False
+    df = df.assign(**post_derivation.raw_columns())
 
     builder = StackBuilder(has_turret=False)
     groups = StackBuilder._get_groups(df)

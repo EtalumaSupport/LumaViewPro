@@ -17,6 +17,7 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
+from modules import post_derivation
 from modules.video_builder import VideoBuilder
 from modules.layer_record import release_colors
 
@@ -116,7 +117,6 @@ def _protocol_df(rows):
     rows: (filepath, scan_count) pairs. Carries every column the video
     grouping and filename generation read.
     """
-    from modules.common_utils import PostFunction
 
     data = {
         'Filepath': [],
@@ -143,9 +143,7 @@ def _protocol_df(rows):
             'Raw': [True] * n,
         }
     )
-    for column in PostFunction.list_values():
-        data[column] = [False] * n
-    return pd.DataFrame(data)
+    return pd.DataFrame(data).assign(**post_derivation.raw_columns())
 
 
 class TestMultiScanVideoGrouping:
@@ -178,7 +176,9 @@ class TestMultiScanVideoGrouping:
 
         builder = VideoBuilder(has_turret=False)
         names = {
-            builder._generate_filename(df=group.reset_index(drop=True), capture_root=None)
+            builder._generate_filename(
+                df=group.reset_index(drop=True), post=('video',), capture_root=None
+            )
             for _, group in VideoBuilder._get_groups(df)
         }
 
@@ -197,5 +197,7 @@ class TestMultiScanVideoGrouping:
         assert len(groups) == 1
         builder = VideoBuilder(has_turret=False)
         ((_, group),) = groups
-        name = builder._generate_filename(df=group.reset_index(drop=True), capture_root=None)
+        name = builder._generate_filename(
+            df=group.reset_index(drop=True), post=('video',), capture_root=None
+        )
         assert name == 'A1_BF_video.mp4'

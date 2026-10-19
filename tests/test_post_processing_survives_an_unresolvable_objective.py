@@ -18,6 +18,7 @@ a step naming an unknown objective is refused before any run starts.
 import pandas as pd
 import pytest
 
+from modules import post_derivation
 from modules.protocol_post_processor import ProtocolPostProcessor
 from modules.common_utils import PostFunction
 from modules.objectives_loader import objective_short_name
@@ -39,6 +40,10 @@ class _NameOnlyPostProcessor(ProtocolPostProcessor):
 
     def _generate_filename(self, df: pd.DataFrame, **kwargs) -> str:
         raise NotImplementedError
+
+    def _derivation_step(self, group, **kwargs):
+        # a stand-in by design: this build has no settings of its own.
+        return post_derivation.Step(self._post_function, None)
 
     def _group_algorithm(self, path, df: pd.DataFrame):
         raise NotImplementedError

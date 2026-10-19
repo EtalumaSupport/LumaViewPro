@@ -17,6 +17,7 @@ import os
 import numpy as np
 import pytest
 
+from modules import post_derivation
 from modules import image_utils
 from modules.exceptions import PostProcessingFailedError, PostProcessingRefusedError
 from modules.post_processing import PostProcessing, default_cell_count_method
@@ -230,6 +231,9 @@ class _ScriptedBuild:
                 '_get_groups': _groups,
                 '_generate_filename': lambda self, df, **kw: df.iloc[0]['OutName'],
                 '_filter_ignored_types': lambda self, df: df,
+                '_derivation_step': lambda self, group, **kw: post_derivation.Step(
+                    self._post_function, None
+                ),
                 '_group_algorithm': lambda self, path, df, **kw: PostProcResult.ok(
                     significant_bits=8
                 ),
@@ -241,7 +245,7 @@ class _ScriptedBuild:
         for g in range(2):
             for i in range(2):
                 row = {'Filepath': f'g{g}_f{i}.tiff', 'GroupKey': g, 'OutName': f'out{g}.tiff'}
-                row.update(dict.fromkeys(PostFunction.list_values(), False))
+                row.update(post_derivation.raw_columns())
                 rows.append(row)
         return build, pd.DataFrame(rows)
 

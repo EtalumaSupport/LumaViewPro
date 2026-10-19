@@ -11,7 +11,7 @@ import modules.path_utils as path_utils
 import modules.recording_frames as recording_frames
 from modules.protocol import Protocol
 from modules.protocol_execution_record import ProtocolExecutionRecord
-from modules.common_utils import PostFunction
+from modules import post_derivation
 from modules.protocol_post_record import ProtocolPostRecord
 
 from lvp_logger import logger
@@ -434,9 +434,7 @@ class ProtocolPostProcessingHelper:
         raw_images_df = pd.DataFrame(raw_images).fillna('')
 
         raw_images_df['Raw'] = True
-
-        post_processing_names = PostFunction.list_values()
-        raw_images_df[post_processing_names] = False
+        raw_images_df = raw_images_df.assign(**post_derivation.raw_columns())
 
         post_images_df = self._get_post_images_df(
             image_names=image_names['post'],

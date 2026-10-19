@@ -8,6 +8,7 @@ import time
 import pandas as pd
 
 import modules.image_utils as image_utils
+import modules.post_derivation as post_derivation
 import modules.path_utils as path_utils
 import modules.recording_frames as recording_frames
 from modules.api_surface import ProgressCallback
@@ -159,7 +160,13 @@ class ProtocolPostProcessor(abc.ABC):
         return df[~_recording_frames(df)]
 
     @abc.abstractmethod
-    def _generate_filename(self, df: pd.DataFrame, **kwargs) -> str:
+    def _generate_filename(self, df: pd.DataFrame, post: tuple[str, ...], **kwargs) -> str:
+        """The output's file name, its post tokens ``post`` rendered from its derivation."""
+        raise NotImplementedError('Implement in child class')
+
+    @abc.abstractmethod
+    def _derivation_step(self, group: pd.DataFrame, **kwargs) -> post_derivation.Step:
+        """This build of ``group``: every setting that decides the output's pixels."""
         raise NotImplementedError('Implement in child class')
 
     @abc.abstractmethod
@@ -181,17 +188,25 @@ class ProtocolPostProcessor(abc.ABC):
 
     def _planned_output(
         self, root_path: pathlib.Path, group: pd.DataFrame, **kwargs
-    ) -> tuple[str, pd.Series, pathlib.Path]:
-        """What ``group`` builds: its file name, the flags its record carries, and where it lands."""
-        output_filename = self._generate_filename(df=group, **kwargs)
-        record_data_post_functions = group.iloc[0][PostFunction.list_values()]
-        record_data_post_functions[self._post_function.value] = True
+    ) -> tuple[str, str, pathlib.Path]:
+        """What ``group`` builds: its file name, its derivation, and where it lands.
+
+        A group's images share one derivation (every build groups by it), so
+        the output's is theirs extended by this build, and its name and
+        folder are rendered from that.
+        """
+        derivation = post_derivation.extended(
+            group.iloc[0]['Derivation'], self._derivation_step(group, **kwargs)
+        )
+        output_filename = self._generate_filename(
+            df=group, post=post_derivation.name_tokens(derivation), **kwargs
+        )
         output_subfolder = self._post_processing_helper.generate_output_dir_name(
-            record=record_data_post_functions
+            record=pd.Series(post_derivation.kinds(derivation))
         )
         return (
             output_filename,
-            record_data_post_functions,
+            derivation,
             root_path / output_subfolder / output_filename,
         )
 
@@ -455,7 +470,7 @@ class ProtocolPostProcessor(abc.ABC):
         for _, group in groups:
             if len(group) <= 1:
                 continue
-            name, _flags, output_file_loc = self._planned_output(root_path, group, **kwargs)
+            name, _derivation, output_file_loc = self._planned_output(root_path, group, **kwargs)
             if not path_utils.resolves_inside(root_path, output_file_loc):
                 raise self._refuse(
                     'output_outside_folder',
@@ -509,7 +524,7 @@ class ProtocolPostProcessor(abc.ABC):
                     )
                 continue
 
-            output_filename, record_data_post_functions, output_file_loc = self._planned_output(
+            output_filename, derivation, output_file_loc = self._planned_output(
                 root_path, group, **kwargs
             )
             if output_filename in colliding_names:
@@ -620,7 +635,7 @@ class ProtocolPostProcessor(abc.ABC):
                 root_path=root_path,
                 file_path=output_file_loc_rel,
                 row0=row0,
-                **record_data_post_functions.to_dict(),
+                derivation=derivation,
             )
 
             # Recorded after the relocation resolve above, so the path names

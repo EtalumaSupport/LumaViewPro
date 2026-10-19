@@ -28,6 +28,7 @@ from unittest.mock import MagicMock
 import pandas as pd
 import pytest
 
+from modules import post_derivation
 from modules.common_utils import PostFunction, build_step_name, recover_step_label, step_components
 from modules.coord_transformations import AxisLimits, StageOffset
 from modules.exceptions import ProtocolError
@@ -36,6 +37,9 @@ from modules.protocol_post_record import ProtocolPostRecord
 
 from tests.test_protocol_roundtrip import _build_protocol, _make_step
 from modules.coord_transformations import PlateLocation
+
+# A stitched output's derivation, as a Quality stitch of raw tiles records it.
+_STITCHED = post_derivation.Step(PostFunction.STITCHED, (('mode', 'quality'),)).text()
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 TILING_CONFIGS = REPO / 'data' / 'tiling.json'
@@ -353,7 +357,7 @@ def test_post_record_v1_upgrades_in_place_and_appends_aligned(tmp_path):
         tile='',
         custom_step=True,
         channel_group_id=-1,
-        **dict.fromkeys(PostFunction.list_values(), False) | {'Stitched': True},
+        derivation=_STITCHED,
     )
     record.complete()
 
@@ -367,7 +371,7 @@ def test_post_record_v1_upgrades_in_place_and_appends_aligned(tmp_path):
     row_map = dict(zip(columns, appended, strict=True))
     assert row_map['Filepath'] == 'stitched.tiff'
     assert row_map['Label'] == 'Treatment_10x'
-    assert row_map['Stitched'] == 'True'
+    assert row_map['Derivation'] == _STITCHED
     assert row_map['Custom Step'] == 'True'
 
     # And the reloaded (now-v2) file parses cleanly with the appended row.
@@ -538,10 +542,10 @@ def test_numeric_looking_label_survives_post_record_reload(tmp_path):
         'LumaViewPro Protocol Post-Processing Record\n'
         'Version\t2\n'
         '\n'
-        # The v2 columns: v3 added Channel Group ID.
         'Images\n'
-        + '\t'.join(c for c in ProtocolPostRecord.COLUMNS if c != 'Channel Group ID')
-        + '\n'
+        'Filepath\tTimestamp\tName\tLabel\tScan Count\tX\tY\tZ\tZ-Slice\tWell\tColor\t'
+        'Objective\tTile Group ID\tTile\tCustom Step\tComposite\tStitched\tZProject\tVideo\t'
+        'Hyperstack\n'
     )
     rows = (
         'img1.tiff\t2026-06-01 10:00:00\t0600_BF\t0600\t0\t1.0\t2.0\t3.0\t-1\t\tBF\t4x\t-1\t\t'
@@ -697,7 +701,7 @@ def test_header_only_v1_post_record_loads_and_upgrades(tmp_path):
         tile='',
         custom_step=False,
         channel_group_id=-1,
-        **dict.fromkeys(PostFunction.list_values(), False) | {'Stitched': True},
+        derivation=_STITCHED,
     )
     record.complete()
 

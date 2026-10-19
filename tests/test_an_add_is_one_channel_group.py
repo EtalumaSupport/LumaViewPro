@@ -21,6 +21,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from modules import post_derivation
 import modules.config_helpers as config_helpers
 from modules import image_utils
 from modules.composite_generation import CompositeGeneration
@@ -230,7 +231,6 @@ class TestTheCompositeRefusesADoubledPlane:
 
 def _raw_frame(rows):
     """Post-processing's raw-image frame for ``rows`` of (color, group, scan, z_slice, tile, x)."""
-    from modules.common_utils import PostFunction
 
     frame = pd.DataFrame(
         [
@@ -252,8 +252,7 @@ def _raw_frame(rows):
         ]
     )
     frame['Raw'] = True
-    for column in PostFunction.list_values():
-        frame[column] = False
+    frame = frame.assign(**post_derivation.raw_columns())
     return frame
 
 
@@ -392,7 +391,6 @@ class TestAGeneratedProtocolKeepsAPositionTogether:
 
 def _frame_of(steps):
     """The raw-image frame post-processing builds from these protocol steps."""
-    from modules.common_utils import PostFunction
 
     frame = steps[
         ['Well', 'Color', 'Objective', 'X', 'Y', 'Z-Slice', 'Tile', 'Tile Group ID',
@@ -401,8 +399,7 @@ def _frame_of(steps):
     frame['Filepath'] = [f'{i}.tiff' for i in range(len(frame))]
     frame['Scan Count'] = 0
     frame['Raw'] = True
-    for column in PostFunction.list_values():
-        frame[column] = False
+    frame = frame.assign(**post_derivation.raw_columns())
     return frame
 
 

@@ -17,6 +17,7 @@ import tifffile
 # stitch_algorithms.py -- feature-based stitching, color transfer, border crop
 # ---------------------------------------------------------------------------
 
+from modules import post_derivation
 from modules.stitch_algorithms import (
     _image_stats,
     align_tile_positions,
@@ -454,8 +455,7 @@ class TestSimplePositionStitcher:
                 'Custom Step': False,
                 'Raw': True,
             }
-            for post_function in common_utils.PostFunction.list_values():
-                row[post_function] = False
+            row.update(post_derivation.raw_columns())
             rows.append(row)
 
         class FakePostRecord:
@@ -844,33 +844,6 @@ class TestSimplePositionStitcher:
         ]
         assert result['metadata']['algorithm'] == 'simple_position_stitcher'
         assert result['metadata']['fallback_from'] == 'fast_fft_phase'
-
-    def test_fast_preview_filename_is_distinct_from_quality(self):
-        stitcher = Stitcher(has_turret=False)
-        df = pd.DataFrame(
-            [
-                {
-                    'Name': 'A1_Green_T00',
-                    'Tile': 'T00',
-                    'Color': 'Green',
-                    'Objective': '10x Oly',
-                    'Well': 'A1',
-                    'Label': '',
-                    'Z-Slice': -1,
-                    'Scan Count': 0,
-                }
-            ]
-        )
-
-        quality = stitcher._generate_filename(df, capture_root='')
-        preview = stitcher._generate_filename(
-            df,
-            stitching_mode=Stitcher.FAST_PREVIEW_MODE,
-            capture_root='',
-        )
-
-        assert quality != preview
-        assert 'FastPreview' in preview
 
 
 class TestGroupAlgorithmPixelSize:

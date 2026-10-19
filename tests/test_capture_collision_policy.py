@@ -32,6 +32,7 @@ import pandas as pd
 import pytest
 
 from tests.protocol_drives import lent_run_claim
+from modules import post_derivation
 from modules.common_utils import PostFunction
 from modules.run_events import RunEvents
 from modules.exceptions import PostProcessingFailedError, PostProcessingRefusedError
@@ -216,6 +217,10 @@ class _FakePostProcessor(ProtocolPostProcessor):
     def _filter_ignored_types(self, df):
         return df
 
+    def _derivation_step(self, group, **kwargs):
+        # a stand-in by design: this build has no settings of its own.
+        return post_derivation.Step(self._post_function, None)
+
     def _group_algorithm(self, path, df, **kwargs):
         self.algorithm_calls.append(df.iloc[0]['OutName'])
         actual = df.iloc[0].get('ActualOutPath')
@@ -239,7 +244,7 @@ def _fake_images_df(group_out_names):
                 'GroupKey': group_key,
                 'OutName': out_name,
             }
-            row.update(dict.fromkeys(PostFunction.list_values(), False))
+            row.update(post_derivation.raw_columns())
             rows.append(row)
     return pd.DataFrame(rows)
 

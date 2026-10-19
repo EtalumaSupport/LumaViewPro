@@ -21,6 +21,7 @@ from unittest.mock import MagicMock
 import pandas as pd
 import pytest
 
+from modules import post_derivation
 import modules.stack_builder as stack_builder
 from modules.common_utils import PostFunction
 from modules.exceptions import (
@@ -54,6 +55,10 @@ class _Processor(ProtocolPostProcessor):
     def _filter_ignored_types(self, df):
         return df
 
+    def _derivation_step(self, group, **kwargs):
+        # a stand-in by design: this build has no settings of its own.
+        return post_derivation.Step(self._post_function, None)
+
     def _group_algorithm(self, path, df, **kwargs):
         return self._outcomes.pop(0)
 
@@ -66,7 +71,7 @@ def _images_df(groups):
     for g in range(groups):
         for i in range(2):  # two frames per group, so each group is eligible
             row = {'Filepath': f'g{g}_f{i}.tiff', 'GroupKey': g, 'OutName': f'out{g}.tiff'}
-            row.update(dict.fromkeys(PostFunction.list_values(), False))
+            row.update(post_derivation.raw_columns())
             rows.append(row)
     return pd.DataFrame(rows)
 

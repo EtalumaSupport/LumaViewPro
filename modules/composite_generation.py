@@ -14,6 +14,7 @@ from modules.composite_builder import (
 import modules.image_mode as image_mode
 import modules.image_utils as image_utils
 import modules.layer_record as layer_record
+import modules.post_derivation as post_derivation
 from modules.layer_record import GREY
 from modules.common_utils import PostFunction
 from modules.exceptions import ConfigurationDefectError
@@ -57,12 +58,27 @@ class CompositeGeneration(ProtocolPostProcessor):
                 'Custom Step',
                 'Channel Group ID',
                 'Raw',
-                *PostFunction.list_values(),
+                'Derivation',
             ],
             dropna=False,
         )
 
-    def _generate_filename(self, df: pd.DataFrame, **kwargs) -> str:
+    def _derivation_step(self, group: pd.DataFrame, **kwargs) -> post_derivation.Step:
+        # What decides a composite's pixels: its container, and each colour
+        # channel's colour and, over a transmitted base, its blend threshold.
+        transmitted = common_utils.get_transmitted_layers()
+        blended = group['Color'].isin(transmitted).any()
+        thresholds = kwargs['brightness_thresholds_percent']
+        settings = [('format', kwargs.get('output_format', 'TIFF'))]
+        for layer in sorted(set(group['Color']) - set(transmitted)):
+            settings.append(
+                (f'{layer}.color', post_derivation.color_text(kwargs['channel_colors'][layer]))
+            )
+            if blended:
+                settings.append((f'{layer}.threshold', str(thresholds.get(layer))))
+        return post_derivation.Step(PostFunction.COMPOSITE, tuple(settings))
+
+    def _generate_filename(self, df: pd.DataFrame, post: tuple[str, ...], **kwargs) -> str:
         row0 = df.iloc[0]
 
         objective_short_name = self._get_objective_short_name_if_has_turret(
@@ -79,7 +95,7 @@ class CompositeGeneration(ProtocolPostProcessor):
                 channel='Composite',
                 scan_count=row0['Scan Count'],
                 objective=objective_short_name,
-                post=('stitched',) if row0['Stitched'] else (),
+                post=post,
             )
         )
 

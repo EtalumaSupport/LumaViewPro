@@ -9,6 +9,7 @@ import modules.common_utils as common_utils
 import modules.derived_output_encoding as derived_output_encoding
 import modules.image_utils as image_utils
 import modules.layer_record as layer_record
+import modules.post_derivation as post_derivation
 
 from modules.common_utils import PostFunction
 from modules.protocol_post_processor import ProtocolPostProcessor
@@ -47,12 +48,15 @@ class ZProjector(ProtocolPostProcessor):
                 'Custom Step',
                 'Channel Group ID',
                 'Raw',
-                *PostFunction.list_values(),
+                'Derivation',
             ],
             dropna=False,
         )
 
-    def _generate_filename(self, df: pd.DataFrame, **kwargs) -> str:
+    def _derivation_step(self, group: pd.DataFrame, **kwargs) -> post_derivation.Step:
+        return post_derivation.Step(PostFunction.ZPROJECT, (('method', kwargs['method'].lower()),))
+
+    def _generate_filename(self, df: pd.DataFrame, post: tuple[str, ...], **kwargs) -> str:
         row0 = df.iloc[0]
         objective_short_name = self._get_objective_short_name_if_has_turret(
             objective_id=row0['Objective']
@@ -61,10 +65,6 @@ class ZProjector(ProtocolPostProcessor):
         # A z-projection collapses every z-slice into one image, so the z token
         # is omitted (z_index=None) -- a single slice index would mislabel the
         # projection. channel and tile are kept (per-channel, per-tile output).
-        # Post-output suffixes chain: a z-projection of an already-stitched
-        # output carries both ('stitched', 'zproj_<method>').
-        post = ('stitched',) if row0['Stitched'] else ()
-        post = (*post, f'zproj_{kwargs["method"].lower()}')
         name = common_utils.build_step_name(
             common_utils.step_components(
                 row0,

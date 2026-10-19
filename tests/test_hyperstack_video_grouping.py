@@ -19,9 +19,9 @@ import numpy as np
 import pandas as pd
 import tifffile as tf
 
+from modules import post_derivation
 from modules import image_utils
 from modules import recording_frames
-from modules.common_utils import PostFunction
 from modules.stack_builder import StackBuilder
 from modules.recording_frames import FrameFact
 from modules.layer_record import release_color
@@ -70,9 +70,7 @@ def _stack_df(rows):
             'Raw': [True] * n,
         }
     )
-    for column in PostFunction.list_values():
-        data[column] = [False] * n
-    return pd.DataFrame(data)
+    return pd.DataFrame(data).assign(**post_derivation.raw_columns())
 
 
 def _write_frames(tmp_path, df):
@@ -135,7 +133,9 @@ class TestVideoWellGrouping:
 
         builder = StackBuilder(has_turret=False)
         names = {
-            builder._generate_filename(df=group.reset_index(drop=True), capture_root=None)
+            builder._generate_filename(
+                df=group.reset_index(drop=True), post=('hyperstack',), capture_root=None
+            )
             for _, group in StackBuilder._get_groups(df)
         }
 
