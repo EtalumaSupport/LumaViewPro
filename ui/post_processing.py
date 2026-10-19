@@ -16,7 +16,7 @@ from kivy.uix.popup import Popup
 
 from ui.progress_popup import show_popup
 from modules import gui_logger
-from modules.post_processing_api import BuildResult
+from modules.post_processing_api import BuildResult, ZProject
 from modules.stitcher import Stitcher
 import modules.zprojector as zprojector
 import modules.graph_analysis as graph_analysis
@@ -140,7 +140,7 @@ class StitchControls(BoxLayout):
     @show_popup
     def run_stitcher(self, popup, path):
         mode_label = self.stitching_mode
-        stitching_mode = self._MODE_VALUES.get(mode_label, Stitcher.QUALITY_MODE)
+        stitching_mode = self._MODE_VALUES[mode_label]
         gui_logger.button('RUN_STITCHER', f'path={path} mode={stitching_mode}')
         ctx = _app_ctx.ctx
         popup.title = f'{mode_label} Stitch'
@@ -172,7 +172,8 @@ class ZProjectionControls(BoxLayout):
     def _init_ui(self, dt=0):
         methods = zprojector.ZProjector.methods()
         self.ids['zprojection_method_spinner'].values = methods
-        self.ids['zprojection_method_spinner'].text = methods[1]
+        # Opens on the API's default projection, as a REST or script caller's does.
+        self.ids['zprojection_method_spinner'].text = ZProject.method
 
     @show_popup
     def run_zprojection(self, popup, path):
