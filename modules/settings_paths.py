@@ -115,6 +115,55 @@ INSTALLATION_ONLY: typing.Final[frozenset[str]] = frozenset(
     }
 )
 
+# A setting derived from the release when the template is read, never a
+# person's: ``step_channel_order``, from the catalogue's ``LayerOrder``. No
+# write changes it, and a stored copy that differs is replaced at load by
+# the derived one.
+DERIVED: typing.Final[frozenset[str]] = frozenset({'step_channel_order'})
+
+# A switch: its kind, true or false, is its whole range. ``*`` stands for
+# any layer.
+KIND_IS_THE_RANGE: typing.Final[frozenset[str]] = frozenset(
+    {
+        'separate_folder_per_channel',
+        '*.autofocus',
+        '*.false_color',
+        '*.stim_config.enabled',
+        'logging.autofocus',
+        'focus_score_enabled',
+        'preview_host_downscale',
+        'profiling.enabled',
+        'profiling.handle_trace_enabled',
+        'profiling.open_files_enabled',
+        'video_as_frames',
+        'video.timestamp_overlay',
+        'show_tooltips',
+        'show_step_locations',
+        'protocol_led_on',
+        'keep_led_between_steps',
+        'stimulation_enabled',
+    }
+)
+
+# Any finite number, whose bound another owner holds where it is used: the
+# stage offset, whose position past travel is ``MotionAPI.get_axis_limits``'
+# refusal at the move.
+BOUND_AT_USE: typing.Final[frozenset[str]] = frozenset({'stage_offset.x', 'stage_offset.y'})
+
+# The kinds a setting shipped as null holds when it is not null. ``*`` stands
+# for any layer as a first segment, and for any key as a last one.
+_NULLABLE_KINDS: typing.Final[dict[str, tuple[str, ...]]] = {
+    '*.acquire': ('string',),
+    '*.focus': ('number',),
+    '*.display_color': ('string',),
+    'turret_objectives.*': ('string',),
+    # True is a confirmation stored before the topology was recorded.
+    'objective_confirmed': ('bool', 'string'),
+    'profiling.metrics_interval_s': ('number',),
+    'profile_trace_output_dir': ('string',),
+    'rest_api.api_key': ('string',),
+}
+
 VIDEO_MAX_FPS_LIMIT: typing.Final = 200
 """The highest recording-rate cap a person may set; 0 means no cap."""
 
@@ -280,15 +329,10 @@ def _fraction(path: str, value: float) -> None:
         )
 
 
-def _metrics_interval(path: str, value: object) -> None:
+def _metrics_interval(path: str, value: float | None) -> None:
     # Shipped null, the default cadence; a value set is seconds between samples.
-    if value is None:
-        return
-    if _kind(value) != 'number':
-        raise SettingRefusedError(
-            'wrong_kind', path, f'it holds a number of seconds or null, not {value!r}'
-        )
-    _positive(path, value)
+    if value is not None:
+        _positive(path, value)
 
 
 def _video_step_duration(path: str, value: float) -> None:
@@ -382,13 +426,45 @@ _RANGES: typing.Final[dict[str, typing.Callable[[str, typing.Any], None]]] = {
 }
 
 
+def _pattern_for(patterns: typing.Collection[str], path: str) -> str | None:
+    """The one of ``patterns`` naming ``path``: itself, else its layer's ``*.``, else its block's ``.*``."""
+    layer, _, rest = path.partition('.')
+    block, _, _key = path.rpartition('.')
+    for pattern in (
+        path,
+        f'*.{rest}' if rest and layer in common_utils.get_layers() else None,
+        f'{block}.*' if block else None,
+    ):
+        if pattern in patterns:
+            return pattern
+    return None
+
+
 def _range_for(path: str) -> typing.Callable[[str, typing.Any], None] | None:
-    rule = _RANGES.get(path)
-    if rule is None:
-        layer, _, rest = path.partition('.')
-        if rest and layer in common_utils.get_layers():
-            rule = _RANGES.get(f'*.{rest}')
-    return rule
+    pattern = _pattern_for(_RANGES, path)
+    return _RANGES[pattern] if pattern else None
+
+
+def is_classified(path: str) -> bool:
+    """Whether the setting at ``path`` says what holds it beyond its kind.
+
+    A member, the installation, the release's derivation, a range, a switch's
+    kind, or an owner that bounds it where it is used.
+    """
+    return (
+        member_for(path) is not None
+        or is_installation_only(path)
+        or path in DERIVED
+        or _range_for(path) is not None
+        or _pattern_for(KIND_IS_THE_RANGE, path) is not None
+        or path in BOUND_AT_USE
+    )
+
+
+def nullable_kinds_for(path: str) -> tuple[str, ...] | None:
+    """The kinds the setting at ``path``, shipped as null, holds when it is not null."""
+    pattern = _pattern_for(_NULLABLE_KINDS, path)
+    return _NULLABLE_KINDS[pattern] if pattern else None
 
 
 def refuse_outside_range(path: str, value: object) -> None:
@@ -453,7 +529,8 @@ def check_write(
 
     ``template`` is the shipped ``settings.json``, which describes every
     setting there is. A leaf the template holds as null is one with no
-    shipped value; it takes any scalar. ``led_max_ma`` is the current the
+    shipped value; it takes null or the kinds declared for it
+    (``_NULLABLE_KINDS``). ``led_max_ma`` is the current the
     attached LED board declares it can drive, or None with no board: a
     layer's illumination above it is refused, since the board refuses to
     drive it and over-driving an LED is a damage mode; a camera's limits
@@ -462,8 +539,9 @@ def check_write(
 
     Raises:
         SettingRefusedError: ``path`` is owned by a member (named),
-            is set only by the installation's settings file, is not a
-            setting, or names a block rather than one setting; or ``value``
+            is set only by the installation's settings file, is derived
+            from the release (``'derived'``), is not a setting, or names a
+            block rather than one setting; or ``value``
             is not the setting's kind, or is outside its range (a protocol
             period or duration no protocol can run, and an illumination
             above the attached board's maximum, among them).
@@ -477,6 +555,8 @@ def check_write(
         raise SettingRefusedError(
             'installation_only', path, "it is read from the installation's settings file"
         )
+    if path in DERIVED:
+        raise SettingRefusedError('derived', path, "it is derived from the release's catalogue")
     shipped: object = template
     for segment in path.split('.'):
         if not isinstance(shipped, dict) or segment not in shipped:
@@ -506,11 +586,21 @@ def is_led_current(path: str) -> bool:
 
 def _refuse_kind_or_range(shipped: object, path: str, value: object) -> None:
     want, got = _kind(shipped), _kind(value)
-    scalar = ('bool', 'number', 'string', 'null')
-    if want == 'null' and got not in scalar:
-        raise SettingRefusedError('wrong_kind', path, f'it holds a single value, not a {got}')
-    if want != 'null' and got != want:
+    if want == 'null':
+        # A leaf shipped null with no kind declared holds null alone; the
+        # guard over the template's leaves keeps every one declared.
+        kinds = nullable_kinds_for(path) or ()
+        if got != 'null' and got not in kinds:
+            held = ' or '.join(f'a {kind}' for kind in kinds)
+            raise SettingRefusedError(
+                'wrong_kind', path, f'it holds {held + " or " if held else ""}null, not {value!r}'
+            )
+    elif got != want:
         raise SettingRefusedError('wrong_kind', path, f'it holds a {want}, not {value!r}')
+    if path in DERIVED and value != shipped:
+        raise SettingRefusedError(
+            'derived', path, f"it is derived from the release's catalogue as {shipped!r}"
+        )
     rule = _range_for(path)
     if rule is not None:
         rule(path, value)

@@ -74,6 +74,9 @@ def test_a_leaf_with_no_shipped_value_takes_a_number(session):
         ('video.max_duration_seconds', 0, 'out_of_range'),
         ('tiling_overlap_percent', 75.0, 'out_of_range'),
         ('image_output_format.live', 'BMP', 'out_of_range'),
+        # A leaf shipped null takes null or the kind it holds when set.
+        ('Blue.display_color', 7, 'wrong_kind'),
+        ('step_channel_order', ['BF'], 'derived'),
     ],
 )
 def test_a_refused_write_names_why_and_writes_nothing(session, path, value, reason):

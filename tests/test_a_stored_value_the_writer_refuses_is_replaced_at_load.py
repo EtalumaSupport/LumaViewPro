@@ -49,6 +49,11 @@ def _prepare(tmp_path, edit):
         # Valid JSON no float can hold: replaced, not a crash before the fallback.
         ('zstack', 'range', 10**400),
         ('scale_bar', 'enabled', 'yes'),
+        # A leaf shipped null is held to the kind it holds when set.
+        ('BF', 'acquire', 5),
+        ('BF', 'focus', 'abc'),
+        ('BF', 'focus', True),
+        ('BF', 'display_color', 7),
     ],
 )
 def test_that_key_alone_takes_the_shipped_value_and_is_told(tmp_path, section, key, saved):
@@ -145,3 +150,17 @@ def test_values_in_range_are_kept_and_nothing_is_told(tmp_path):
     assert settings['motion']['acceleration_max_pct'] == 37
     assert settings['image_output_format']['live'] == 'JPG'
     assert told == []
+
+
+def test_a_stored_step_order_that_is_not_the_releases_takes_the_derived_one_and_is_told(tmp_path):
+    """The step order is derived from the catalogue when the template is read,
+    so a stored one that differs is no person's choice: no write reaches it."""
+    template = settings_init.load_template(logging.getLogger(__name__), str(TEMPLATE))
+    derived = template['step_channel_order']
+    stored = list(reversed(derived))
+
+    settings, told = _prepare(tmp_path, lambda current: current.update(step_channel_order=stored))
+
+    assert settings['step_channel_order'] == derived
+    (notice,) = told
+    assert notice.replacements == [('step_channel_order', stored, derived)]

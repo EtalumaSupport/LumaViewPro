@@ -405,6 +405,12 @@ def normalize_loaded_settings(settings_dict: dict) -> bool:
         settings_dict['objective_confirmed'] = None
         changed = True
 
+    # The camera driver once chosen in the settings, which nothing read:
+    # bring-up asks the camera registry, and a host that wants one driver
+    # names it to Lumascope itself.
+    if settings_dict.pop('camera_type', None) is not None:
+        changed = True
+
     # A top-level binning factor that nothing writes and no shipped template
     # carries. It was read as the headless binning and always answered 1;
     # binning lives at settings['binning']['size'] as the selector's label.
@@ -554,7 +560,9 @@ def _give_the_shipped_step_order(template: dict, template_path: str) -> None:
     The catalogue's record is the one place a layer's step order is said, so
     a key added there takes its place without an edit here. A template that
     states its own order would be a second, unread source of it, and is
-    refused. A user's stored order is theirs, and is untouched.
+    refused. A stored order is not a person's either: no write reaches it
+    (``settings_paths.DERIVED``), and one that differs is replaced at load
+    by this one and told.
 
     Raises:
         InstallationFileError: the template states ``step_channel_order``.

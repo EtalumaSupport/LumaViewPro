@@ -172,10 +172,11 @@ def test_a_stored_bf_focus_for_fluorescence_is_dropped():
 
 
 def test_the_settings_nothing_reads_are_dropped_from_a_stored_file():
-    # Seven shipped keys had no reader; a file that still carries them loads
+    # Eight shipped keys had no reader; a file that still carries them loads
     # without them, and the autofocus and stage blocks they filled go whole.
     with open(SHIPPED_TEMPLATE) as f:
         stored = json.load(f)
+    stored['camera_type'] = 'pylon'
     stored['profiling']['stim_profiling'] = False
     stored['autofocus'] = {
         'one_af_per_well': True,
@@ -186,6 +187,7 @@ def test_the_settings_nothing_reads_are_dropped_from_a_stored_file():
     stored['stage'] = {'plate_bottom_z_estimate': None, 'focus_safety_margin_um': 500}
 
     assert settings_init.normalize_loaded_settings(stored) is True
+    assert 'camera_type' not in stored
     assert 'stim_profiling' not in stored['profiling']
     assert 'autofocus' not in stored
     assert 'stage' not in stored

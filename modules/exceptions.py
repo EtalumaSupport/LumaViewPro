@@ -1337,8 +1337,11 @@ class SettingRefusedError(Refusal, ConfigError):
             setting has this path. ``'block'`` -- the path names a block of
             settings, which is written one setting at a time.
             ``'installation_only'`` -- the setting is read only from the
-            installation's settings file. ``'wrong_kind'`` -- the value is
-            not the kind the setting holds.
+            installation's settings file. ``'derived'`` -- the setting is
+            derived from the release when the template is read
+            (``step_channel_order``); a handed dict's differing copy is
+            refused for it too. ``'wrong_kind'`` -- the value is not the kind
+            the setting holds.
             ``'out_of_range'`` -- the value is outside the setting's range.
         path: The dotted path that was written.
         member: The member that changes the setting, for ``'has_member'``

@@ -75,10 +75,11 @@ RETIRED_PER_LAYER = {
     'profiling': {'stim_profiling'},
 }
 
-# Top-level blocks the loader drops whole, under the same terms:
+# Top-level keys the loader drops whole, under the same terms:
 # - autofocus, stage: six shipped keys with no reader; the autofocus
 #   optimisation work adds each back with its reader.
-RETIRED_TOP_LEVEL = {'autofocus', 'stage'}
+# - camera_type: no reader; bring-up asks the camera registry.
+RETIRED_TOP_LEVEL = {'autofocus', 'stage', 'camera_type'}
 
 requires_current_json = pytest.mark.skipif(
     not CURRENT_PATH.exists(),

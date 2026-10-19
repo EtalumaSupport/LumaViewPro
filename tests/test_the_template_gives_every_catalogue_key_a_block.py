@@ -186,17 +186,6 @@ def test_a_template_that_states_a_step_order_is_refused_naming_it(tmp_path):
     assert 'step_channel_order' in str(refused.value)
 
 
-def test_a_stored_step_order_is_kept(tmp_path):
-    data = _installation(tmp_path)
-    stored = settings_init.load_template(logger, str(SHIPPED_TEMPLATE))
-    stored['step_channel_order'] = ['Blue', 'BF']
-    (data / 'current.json').write_text(json.dumps(stored))
-
-    prepared, _ = settings_init.prepare_settings(logger, str(tmp_path), fall_back_to_template=False)
-
-    assert prepared['step_channel_order'] == ['Blue', 'BF']
-
-
 def test_a_stored_red_illumination_is_kept(tmp_path):
     # The shared default is 250 mA where Red once shipped 350; nothing
     # migrates a stored value, so a user's 350 stays theirs.

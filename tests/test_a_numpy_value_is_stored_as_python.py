@@ -63,15 +63,11 @@ def sim_session(tmp_path):
 
 
 class TestTheSettings:
-    def test_a_written_list_stores_python_values(self, sim_session):
-        order = list(sim_session.get_setting('step_channel_order'))
-        handed = [np.str_(layer) for layer in order]
+    def test_a_written_numpy_scalar_is_stored_as_python(self, sim_session):
+        sim_session.update_settings('video.max_fps', np.int64(25))
 
-        sim_session.update_settings('step_channel_order', handed)
-
-        stored = sim_session.get_setting('step_channel_order')
-        assert stored == order
-        assert all(type(layer) is str for layer in stored), stored
+        stored = sim_session.get_setting('video.max_fps')
+        assert (type(stored), stored) == (int, 25)
 
     def test_a_handed_dict_is_stored_as_python_in_the_same_object(self, tmp_path):
         from modules.scope_session import ScopeSession

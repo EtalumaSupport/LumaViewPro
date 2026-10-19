@@ -64,16 +64,20 @@ def test_a_hand_dict_comes_up_with_every_template_key_and_is_told_nothing(tmp_pa
 
 
 @pytest.mark.parametrize(
-    ('path', 'value'),
+    ('path', 'value', 'reason'),
     [
-        ('jpg_quality', 500),
-        ('motion.acceleration_max_pct', ACCELERATION_PCT_MAX + 400),
-        ('motion.acceleration_max_pct', '50'),
-        ('motion.acceleration_max_pct', None),
-        ('zstack.range', 10**400),
+        ('jpg_quality', 500, 'out_of_range'),
+        ('motion.acceleration_max_pct', ACCELERATION_PCT_MAX + 400, 'out_of_range'),
+        ('motion.acceleration_max_pct', '50', 'wrong_kind'),
+        ('motion.acceleration_max_pct', None, 'wrong_kind'),
+        ('zstack.range', 10**400, 'wrong_kind'),
+        ('BF.focus', 'abc', 'wrong_kind'),
+        ('step_channel_order', ['BF'], 'derived'),
     ],
 )
-def test_a_value_the_writer_refuses_is_refused_as_a_write_is_and_nothing_is_built(path, value):
+def test_a_value_the_writer_refuses_is_refused_as_a_write_is_and_nothing_is_built(
+    path, value, reason
+):
     settings = complete_settings()
     block, _, leaf = path.rpartition('.')
     (settings[block] if block else settings)[leaf] = value
@@ -81,7 +85,7 @@ def test_a_value_the_writer_refuses_is_refused_as_a_write_is_and_nothing_is_buil
     with pytest.raises(SettingRefusedError) as refused:
         ScopeSession.create(settings, simulate=True)
     assert refused.value.path == path
-    assert refused.value.reason in ('out_of_range', 'wrong_kind')
+    assert refused.value.reason == reason
     # Only the threads this create started count: a thread another test on
     # the same worker left running may end during this one.
     assert [t.name for t in threading.enumerate() if t not in before] == []
