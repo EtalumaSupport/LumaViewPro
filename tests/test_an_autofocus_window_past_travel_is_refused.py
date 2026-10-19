@@ -20,7 +20,7 @@ import time
 import pytest
 
 import modules.autofocus_runner as autofocus_runner_module
-from modules.autofocus_runner import AutofocusRunner
+from modules.autofocus_runner import AutofocusRunner, FocusPick
 from modules.autofocus_thread import AutofocusThread
 from modules.coord_transformations import AxisLimits
 from modules.exceptions import AutofocusFailedError, CaptureError, RefusalCause
@@ -121,7 +121,7 @@ def reported(monkeypatch):
 
 
 def _z_moves(scope):
-    return [c.args[1] for c in scope.motion.move_absolute.call_args_list if c.args[0] == 'Z']
+    return [c.args[1] for c in scope.motion.start_move_absolute.call_args_list if c.args[0] == 'Z']
 
 
 def test_a_final_approach_past_the_travel_minimum_is_refused(monkeypatch, reported):
@@ -132,7 +132,7 @@ def test_a_final_approach_past_the_travel_minimum_is_refused(monkeypatch, report
     runner, scope = af_runner_and_scope()
     floor = AF_CENTER_Z - 30.0  # the refined window's floor: centre - AF_max
     scope.motion.get_axis_limits.return_value = AxisLimits(min_um=floor, max_um=14000.0)
-    bests = iter([AF_CENTER_Z, floor])
+    bests = iter([FocusPick(AF_CENTER_Z, None), FocusPick(floor, None)])
     runner._find_best = lambda df: next(bests)
 
     with pytest.raises(AutofocusFailedError) as refused:

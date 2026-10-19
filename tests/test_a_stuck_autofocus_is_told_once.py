@@ -41,6 +41,12 @@ def af_session(tmp_path, monkeypatch):
         # Clear of the travel limit the home leaves Z at, so the sweep's
         # window fits and it reaches its first capture.
         session.scope.motion.move_absolute('Z', 3000.0)
+        # A scene with a focus where the sweep starts, so a sweep left to
+        # finish finds a peak: a featureless frame has none, and an
+        # autofocus over it fails.
+        camera = session.scope._camera_driver
+        camera.set_test_pattern(enabled=True, pattern='focus_target')
+        camera.set_focal_z(3000.0)
         yield session, runner
 
 

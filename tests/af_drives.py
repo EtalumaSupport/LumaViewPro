@@ -61,7 +61,7 @@ def af_runner_and_scope():
     """Real AutofocusRunner wired to a MagicMock scope that run() can
     drive headlessly. The scope's objective catalogue is a stub, so no
     objective config file is read."""
-    from modules.autofocus_runner import AutofocusRunner
+    from modules.autofocus_runner import AutofocusRunner, FocusPick
 
     scope = MagicMock()
     scope.led_connected = False
@@ -80,7 +80,7 @@ def af_runner_and_scope():
     )
     # The Gaussian fit needs a dense real curve; these drives feed 1-2
     # samples per pass, so pin the fit result to the scan center.
-    runner._find_best = lambda df: AF_CENTER_Z
+    runner._find_best = lambda df: FocusPick(AF_CENTER_Z, None)
     return runner, scope
 
 

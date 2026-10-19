@@ -16,6 +16,14 @@ def body(s):
     m.move_absolute('Z', 3000.0)
     m.move_absolute('X', 40.0, frame='plate')
     m.move_absolute('Y', 30.0, frame='plate')
+    # Simulated, the camera shows a focus target focused inside the sweep's
+    # window, off its start so the stage has somewhere to go: a featureless
+    # frame has no peak, and an autofocus over it fails. On hardware the
+    # sample under the objective is the scene.
+    camera = s.scope._camera_driver
+    if hasattr(camera, 'set_focal_z'):
+        camera.set_test_pattern(enabled=True, pattern='focus_target')
+        camera.set_focal_z(3030.0)
 
     runner = ProtocolRunner(s)
     z_before = m.get_current_position('Z')
