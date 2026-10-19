@@ -148,7 +148,8 @@ def test_a_finished_runs_images_count_down(sim_session):
         assert _item(sim_session, live_work.RUN_FILES).left == 3
     finally:
         gate.set()
-    _until(lambda: live_work.RUN_FILES not in _kinds(sim_session), 'the images land')
+    assert batch.wait_complete(SETTLE_S), 'the images never landed'
+    assert live_work.RUN_FILES not in _kinds(sim_session)
 
 
 def test_a_runs_post_run_step_is_work_until_its_thread_ends(sim_session):
@@ -169,6 +170,7 @@ def test_a_build_reports_its_progress_and_the_builds_behind_it_wait(sim_session,
     folder_a.mkdir()
     folder_b.mkdir()
     said, go_on, finish = threading.Event(), threading.Event(), threading.Event()
+    said_sixty = threading.Event()
     seen_by_caller = []
     answers = {}
 
@@ -180,6 +182,7 @@ def test_a_build_reports_its_progress_and_the_builds_behind_it_wait(sim_session,
         said.set()
         go_on.wait(SETTLE_S)
         on_progress(60, 'Image 6 of 10')
+        said_sixty.set()
         finish.wait(SETTLE_S)
         return built(folder)
 
@@ -210,7 +213,9 @@ def test_a_build_reports_its_progress_and_the_builds_behind_it_wait(sim_session,
     assert _item(sim_session, live_work.POST_PROCESSING_QUEUED).left == 1
 
     go_on.set()
-    _until(lambda: _item(sim_session, live_work.POST_PROCESSING).percent == 60, 'progress move')
+    # The build's own report has returned, so the lane has recorded it.
+    assert said_sixty.wait(SETTLE_S), 'the build never reported 60'
+    assert _item(sim_session, live_work.POST_PROCESSING).percent == 60
     finish.set()
     first.join(SETTLE_S)
     second.join(SETTLE_S)
@@ -222,11 +227,17 @@ def test_a_build_reports_its_progress_and_the_builds_behind_it_wait(sim_session,
 
 
 def test_a_protocols_processors_on_the_lane_are_named_without_progress(sim_session):
-    gate = threading.Event()
+    gate, started = threading.Event(), threading.Event()
     lane = sim_session.post_processing.lane
-    waiter = lane.submit(IOTask(action=lambda: gate.wait(SETTLE_S)), 'processors')
+
+    def processors():
+        started.set()
+        gate.wait(SETTLE_S)
+
+    waiter = lane.submit(IOTask(action=processors), 'processors')
     try:
-        _until(lambda: live_work.POST_PROCESSING in _kinds(sim_session), 'the processors')
+        assert started.wait(SETTLE_S), 'the processors never started'
+        assert live_work.POST_PROCESSING in _kinds(sim_session)
         item = _item(sim_session, live_work.POST_PROCESSING)
         assert item.name == "a protocol's post-processing"
         assert item.percent is None
