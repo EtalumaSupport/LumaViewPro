@@ -35,7 +35,8 @@ try:
         s.get_layer_configs([lay])[lay]['acquire'],
         s.get_layer_configs([lay])[lay]['stim_config']['enabled'],
     )
-    print('3: session.get_enabled_stim_configs:', list(s.get_enabled_stim_configs().keys()))
+    enabled = [layer for layer, cfg in s.get_stim_configs().items() if cfg['enabled']]
+    print('3: session.get_stim_configs, enabled:', enabled)
     cfg = config_helpers.get_composite_capture_config_from_settings(
         s.settings, s.objective_helper, position=s.get_current_plate_position()
     )

@@ -274,11 +274,11 @@ class RuntimeState:
         return FieldOfView(width_um=extent['width'], height_um=extent['height'])
 
     @api(reads=True)
-    def get_turret_config(self) -> dict:
+    def get_turret_config(self) -> dict[int, str | None]:
         """The turret's objective assignments, from the settings.
 
         Returns:
-            dict: Turret position (1-4) to objective ID, None for an
+            Turret position (1-4) to objective ID, None for an
                 unassigned slot. A copy: changing it changes no assignment
                 (``ScopeSession.assign_turret_objective`` does).
 

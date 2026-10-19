@@ -138,6 +138,30 @@ def test_every_engineering_member_is_in_process_and_served_nowhere(client, sessi
     assert served & {n.split('.')[-1] for n in engineering} == set()
 
 
+def test_a_wire_client_reads_settings_by_path_or_whole_not_by_document(client, session):
+    """The Session's slices of the settings store are not served: a wire
+    client reads one setting by its path, or every setting at once from the
+    snapshot (census C's row B9: retire the documents, keep the one
+    whole-store read)."""
+    documents = {
+        'get_layer_configs',
+        'get_stim_configs',
+        'get_enabled_stim_configs',
+        'get_auto_gain_settings',
+        'capture_settings_snapshot',
+        'get_zstack_params',
+    }
+    paths = client.get('/api/v1/openapi.json').json()['paths']
+    assert {path.rsplit('/', 1)[-1] for path in paths} & documents == set()
+
+    whole = client.post('/api/v1/get_settings_snapshot')
+    assert whole.status_code == 200, whole.text
+    assert whole.json()['protocol']['autogain'] == session.get_setting('protocol.autogain')
+    one = client.post('/api/v1/get_setting', json={'path': 'BF.exposure_ms'})
+    assert one.status_code == 200, one.text
+    assert one.json() == whole.json()['BF']['exposure_ms']
+
+
 def test_the_versions_are_answered_unversioned(client):
     assert client.get('/api').json() == {'versions': ['v1']}
 

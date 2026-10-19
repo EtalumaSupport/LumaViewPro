@@ -103,9 +103,11 @@ _REASON_UNNAMED_PINNED = frozenset(
 # _cached properties (Eric, 2026-10-18); 159 since ImagingAPI's
 # last_capture_info and saturated_fraction, a read and a frame's arithmetic
 # that raise nothing, are marked in-process engineering members (Eric,
-# 2026-10-18); the count does not yet tell a member that raises nothing
-# from one that has not said.
-_WITHOUT_A_SECTION_CEILING = 159
+# 2026-10-18); 156 since the Session's stim, auto-gain and enabled-stim
+# reads left the API (census C's row B9: a client reads them by path); the
+# count does not yet tell a member that raises nothing from one that has
+# not said.
+_WITHOUT_A_SECTION_CEILING = 156
 
 
 def _sections():

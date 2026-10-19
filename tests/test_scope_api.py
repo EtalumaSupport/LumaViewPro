@@ -284,15 +284,6 @@ class TestGetStimConfigs:
         assert stim == {}
 
 
-class TestGetEnabledStimConfigs:
-    def test_filters_disabled(self):
-        settings = _make_settings(with_stim=True)
-        settings['Red']['stim_config']['enabled'] = False
-        enabled = config_helpers.get_enabled_stim_configs(settings)
-        assert 'Red' not in enabled
-        assert 'BF' in enabled
-
-
 class TestGetAutoGainSettings:
     def test_converts_seconds_to_timedelta(self):
         settings = _make_settings()

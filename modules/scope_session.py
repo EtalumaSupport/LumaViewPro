@@ -1575,7 +1575,6 @@ class ScopeSession:
             raise RemedyUnknownError(remedy.member, remedies)
         return action()
 
-    @api(reads=True)
     def get_layer_configs(self, specific_layers: list | None = None) -> dict:
         """The stored settings of each layer, or of ``specific_layers``.
 
@@ -1625,7 +1624,7 @@ class ScopeSession:
             raise FocusNotSavedError(layer)
         return focus
 
-    @api(reads=True)
+    @api(in_process=True, reads=True)
     def get_zstack_params(self) -> dict:
         """The stored z-stack, what New and Add stack with.
 
@@ -1669,19 +1668,11 @@ class ScopeSession:
                 colors[key] = parse_display_color(override)
         return colors
 
-    @api(reads=True)
     def get_stim_configs(self) -> dict:
         import modules.config_helpers as config_helpers
 
         return config_helpers.get_stim_configs(self.settings)
 
-    @api(reads=True)
-    def get_enabled_stim_configs(self) -> dict:
-        import modules.config_helpers as config_helpers
-
-        return config_helpers.get_enabled_stim_configs(self.settings)
-
-    @api(reads=True)
     def get_auto_gain_settings(self) -> dict:
         import modules.config_helpers as config_helpers
 
@@ -3852,7 +3843,7 @@ class ScopeSession:
         """
         return settings_init.retire_rejected_current_json()
 
-    @api(reads=True)
+    @api(in_process=True, reads=True)
     def capture_settings_snapshot(self) -> dict:
         """A settings snapshot for composing a capture or a run.
 

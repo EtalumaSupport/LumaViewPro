@@ -425,7 +425,7 @@ A sum (`sum_count` > 1) is stored in a uint16 array on every camera, an 8-bit on
 ### Reading and persisting configuration
 
 ```python
-config = session.get_layer_configs()          # read, in API names
+session.get_setting('BF')                      # one layer's settings, by its path, in API names
 session.update_settings('BF.sum', 3)           # write one setting, from any thread
 session.update_settings('video.max_fps', 30)  # a nested setting, by its dotted path
 session.set_live_folder('/data/run7')          # where captures and runs are saved; relative means the installation's
@@ -1420,11 +1420,10 @@ still states the major version.
 ### Configuration queries
 
 ```python
-session.get_layer_configs()              # all layer settings
 session.saved_focus('Blue')              # the Z saved as a layer's focus; FocusNotSavedError when none was
                                          # ever saved (a step built for that layer takes the current Z)
 session.scope.runtime_state.resolve_current_objective()  # (id, Objective) of the active objective; ObjectiveUnknownError when unknown
-session.capture_settings_snapshot()      # settings snapshot with objective_id set to the active objective,
+session.capture_settings_snapshot()      # (in-process) settings snapshot with objective_id set to the active objective,
                                          # for composing a capture or run; not for saving
 session.get_current_plate_position()     # PlateLocation(x_mm, y_mm, z_um): where the scope is on the selected plate, focus
                                          # included, the record start_single_scan's return_to_position takes;
@@ -1434,14 +1433,13 @@ session.get_current_plate_position()     # PlateLocation(x_mm, y_mm, z_um): wher
                                          # model has a motor controller and none is connected;
                                          # AxisStateUnknownError when an axis does not know its position
                                          # (before a home) -- never a converted number nobody read
-session.get_auto_gain_settings()         # auto-gain config
-session.get_stim_configs()               # stim settings per layer
+session.get_setting('protocol.autogain') # auto-gain config
+session.get_setting('Blue.stim_config')  # one layer's stim settings
 session.channel_colors()                 # every layer's colour, (r, g, b) weights 0-1: what captures, recordings,
                                          # builds and the view are coloured in, read by each as it starts
 session.update_settings('Red.display_color', '#ff00ff')  # override a layer's colour; None gives the unit's back
                                          # (its board block's, else the catalogue's).
                                          # '#rrggbb', lower case, brightest component ff, else SettingRefusedError
-session.get_enabled_stim_configs()       # only the enabled ones
 ```
 
 Assembling the configuration a sequenced run takes:
@@ -1456,8 +1454,8 @@ config = session.get_sequenced_capture_config()
 config = session.get_sequenced_capture_config(tiling='2x2', use_zstacking=True)
 ```
 
-A layer whose focus was never saved (`get_layer_configs()[layer]['focus']`
-is `None`) is imaged at the stage's Z when the config was built: the
+A layer whose focus was never saved (`saved_focus(layer)` raises
+`FocusNotSavedError`) is imaged at the stage's Z when the config was built: the
 config carries it as `current_z`, Z's position from `scope.motion.axis_positions()`,
 or `None` while Z does not know it (before a home); a scope with no Z motor
 carries the plate position's Z. A layer with a saved focus keeps it.
@@ -3076,7 +3074,7 @@ Reached through `ScopeSession.create(settings, ...)`; every L2 caller starts her
 - `app_version`
 - `assign_turret_objective`
 - `bring_up_record`
-- `capture_settings_snapshot`
+- `capture_settings_snapshot` (in-process)
 - `channel_colors`
 - `clear_current_turret_objective`
 - `clear_turret_objective`
@@ -3093,15 +3091,11 @@ Reached through `ScopeSession.create(settings, ...)`; every L2 caller starts her
 - `enable_metrics` (in-process)
 - `engineering_mode`
 - `exclusive_activity`
-- `get_auto_gain_settings`
 - `get_current_plate_position`
-- `get_enabled_stim_configs`
-- `get_layer_configs`
 - `get_sequenced_capture_config`
 - `get_setting`
 - `get_settings_snapshot`
-- `get_stim_configs`
-- `get_zstack_params`
+- `get_zstack_params` (in-process)
 - `go_to_step`
 - `held_by_other`
 - `is_protocol_running`

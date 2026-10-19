@@ -129,12 +129,6 @@ def get_stim_configs(settings: dict) -> dict:
     return stim_configs
 
 
-def get_enabled_stim_configs(settings: dict) -> dict:
-    """Return only stim configs where enabled is True."""
-    stim_configs = get_stim_configs(settings)
-    return {layer: cfg for layer, cfg in stim_configs.items() if cfg['enabled']}
-
-
 def get_auto_gain_settings(settings: dict) -> dict:
     """Extract auto gain settings, converting max_duration_seconds to timedelta."""
     autogain_settings = settings['protocol']['autogain'].copy()
