@@ -128,7 +128,7 @@ def test_a_save_after_the_next_turret_move_keeps_its_own_objective(tmp_path, mon
         assert result is not None and result.status == 'completed', result
         assert files_written.wait(MOVE_TIMEOUT_S), "the run's files were never written"
 
-        binning = session.scope.camera.get_binning_size()
+        binning = session.scope.camera.read_binning()
         capabilities = session.scope.capabilities
 
     assert len(held) == 1 and _token(FIRST) in held[0], held

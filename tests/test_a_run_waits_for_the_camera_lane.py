@@ -175,7 +175,7 @@ class TestAHeldLane:
         # lit, not read the missing snapshot as "nothing was lit" and
         # darken the sample.
         scope.illumination.led_on('BF', 20.0)
-        gain_before = scope.camera.get_gain_db()
+        gain_before = scope.camera.read_gain_db()
         leds_before = scope.illumination.get_led_states()
         assert scope.illumination.get_led_state('BF').state is LedState.LIT, (
             'the fixture could not light a channel'
@@ -192,7 +192,7 @@ class TestAHeldLane:
         result = outcome.result(timeout=RESULT_TIMEOUT_S)
         assert result is not None and result.status == 'aborted', result
         assert result.reason == 'stopped'
-        assert scope.camera.get_gain_db() == gain_before, 'cleanup wrote the camera'
+        assert scope.camera.read_gain_db() == gain_before, 'cleanup wrote the camera'
         assert scope.illumination.get_led_states() == leds_before, 'cleanup changed an LED'
 
     def test_a_stuck_lane_ends_the_run_failed_and_names_the_lane(self, lane_session):

@@ -101,7 +101,7 @@ def _measure(session):
     )
 
     objective = scope.runtime_state.get_current_objective()
-    binning = camera_api.get_binning_size()
+    binning = camera_api.read_binning()
 
     def bar(image):
         return image_utils.add_scale_bar(

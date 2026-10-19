@@ -171,7 +171,7 @@ def test_a_client_waiting_on_a_job_is_answered_when_the_close_finishes(session, 
     in a driver would be: the close finishes the session's own work first.
     """
     release = threading.Event()
-    real = session.scope.camera.get_gain_db
+    real = session.scope.camera.read_gain_db
 
     def hung():
         assert release.wait(30)
@@ -179,7 +179,7 @@ def test_a_client_waiting_on_a_job_is_answered_when_the_close_finishes(session, 
 
     # a stand-in by design: a call that outlives the close, of a member the
     # close itself never calls; no simulated member hangs.
-    monkeypatch.setattr(session.scope.camera, 'get_gain_db', hung)
+    monkeypatch.setattr(session.scope.camera, 'read_gain_db', hung)
     waiting = threading.Event()
     real_get = rest.jobs.JobRegistry.get
 
@@ -195,7 +195,7 @@ def test_a_client_waiting_on_a_job_is_answered_when_the_close_finishes(session, 
     try:
         with _serving(session) as (server, client, _closing):
             job = client.post(
-                '/api/v1/scope/camera/get_gain_db', headers={'Prefer': 'respond-async'}
+                '/api/v1/scope/camera/read_gain_db', headers={'Prefer': 'respond-async'}
             ).json()
             polling = threading.Thread(
                 target=lambda: answers.append(

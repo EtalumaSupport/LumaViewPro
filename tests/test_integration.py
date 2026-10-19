@@ -615,8 +615,8 @@ class TestIntegrationAutofocus:
         # contract: explicit AF targets (the committed layer/step
         # values, 1.0 dB / 2.0 ms here) are KEPT after AF rather than
         # reverted to the pre-AF snapshot (20.0 / 100.0).
-        actual_gain = scope.camera.get_gain_db()
-        actual_exp = scope.camera.get_exposure_ms()
+        actual_gain = scope.camera.read_gain_db()
+        actual_exp = scope.camera.read_exposure_ms()
         assert abs(actual_gain - 1.0) < 0.1, (
             f'Camera gain should remain at the committed AF target 1.0 '
             f'when the AF Future resolves, but got {actual_gain}'
@@ -803,7 +803,7 @@ class TestRestAPIPrep:
     def test_get_pixel_format(self):
         """_get_pixel_format() should return format string from simulated camera."""
         session = ScopeSession.create(complete_settings(), simulate=True)
-        fmt = session.scope.camera._get_pixel_format()
+        fmt = session.scope.camera.read_pixel_format()
         assert isinstance(fmt, str)
         assert fmt in ('Mono8', 'Mono10', 'Mono12')
 
@@ -812,7 +812,7 @@ class TestRestAPIPrep:
         through it, and 12-bit scientific selects Mono12 on the simulated camera."""
         session = ScopeSession.create(complete_settings(), simulate=True)
         session.scope.camera.set_image_mode('12bit_scientific')
-        assert session.scope.camera._get_pixel_format() == 'Mono12'
+        assert session.scope.camera.read_pixel_format() == 'Mono12'
 
     def test_set_pixel_format_invalid(self):
         """The pixel-format write with an unsupported format raises the typed
@@ -845,7 +845,7 @@ class TestRestAPIPrep:
 
         session = ScopeSession.create(complete_settings(), simulate=True)
         session.scope._camera_driver = None
-        assert session.scope.camera._get_pixel_format() is None
+        assert session.scope.camera.read_pixel_format() is None
         with pytest.raises(HardwareCommandRefusedError) as exc:
             session.scope.camera.set_image_mode('8bit')
         assert exc.value.missing == MissingPart.CAMERA

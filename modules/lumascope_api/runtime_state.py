@@ -172,7 +172,7 @@ class RuntimeState:
             config_helpers.log_resolved_optics(
                 objective_id,
                 objective.focal_length_mm,
-                self._scope.camera.get_binning_size(),
+                self._scope.camera.read_binning(),
                 capabilities=self._scope.capabilities,
             )
         except Exception:

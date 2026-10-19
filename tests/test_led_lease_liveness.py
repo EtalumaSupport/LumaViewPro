@@ -145,8 +145,8 @@ def test_refused_af_acquire_aborts_the_af_run(scope, monkeypatch, centre_posts):
     monkeypatch.setattr(scope.motion, 'move_absolute', _recording_move)
 
     pre_z = scope.motion.get_current_position('Z')
-    pre_gain = scope.camera.get_gain_db()
-    pre_exposure = scope.camera.get_exposure_ms()
+    pre_gain = scope.camera.read_gain_db()
+    pre_exposure = scope.camera.read_exposure_ms()
 
     with pytest.raises(AutofocusAborted) as aborted:
         runner.run(
@@ -170,8 +170,8 @@ def test_refused_af_acquire_aborts_the_af_run(scope, monkeypatch, centre_posts):
     assert all(abs(pos - pre_z) < 1e-6 for pos in z_targets), (
         f'the stage must not walk the AF z range on a refused run; Z moves: {z_targets}'
     )
-    assert scope.camera.get_gain_db() == pre_gain, 'camera gain must be restored'
-    assert scope.camera.get_exposure_ms() == pre_exposure, 'camera exposure must be restored'
+    assert scope.camera.read_gain_db() == pre_gain, 'camera gain must be restored'
+    assert scope.camera.read_exposure_ms() == pre_exposure, 'camera exposure must be restored'
     assert scope.imaging.is_focusing is False
     assert not runner.in_progress(), 'the in-progress flag must clear on the refused run'
     # The lease is refused only once the run that handed it over has ended,

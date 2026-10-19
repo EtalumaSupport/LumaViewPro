@@ -19,7 +19,11 @@ try:
     print('largest frame         :', native)
     print('available binning     :', caps.camera_binning_sizes)
     print('supported pix formats :', caps.camera_pixel_formats)
-    print('start w/h             :', im_camera.get_width(), im_camera.get_height())
+    print(
+        'start w/h             :',
+        im_camera.read_frame_size().width,
+        im_camera.read_frame_size().height,
+    )
 
     # --- frame size, in range -------------------------------------------
     delivered = im_camera.set_frame_size(800, 600)
@@ -28,8 +32,8 @@ try:
     )
     _common.check(
         'frame read-back',
-        (im_camera.get_width(), im_camera.get_height()) == (800, 600),
-        f'{im_camera.get_width()}x{im_camera.get_height()}',
+        (im_camera.read_frame_size().width, im_camera.read_frame_size().height) == (800, 600),
+        f'{im_camera.read_frame_size().width}x{im_camera.read_frame_size().height}',
     )
     print('frame_size_cached     :', im_camera.frame_size_cached)
 
@@ -46,7 +50,11 @@ try:
         )
     except CameraSettingOutOfRangeError as e:
         _common.check('13414 refused (not silently clamped)', True, str(e))
-    print('after oversize, read-back:', im_camera.get_width(), im_camera.get_height())
+    print(
+        'after oversize, read-back:',
+        im_camera.read_frame_size().width,
+        im_camera.read_frame_size().height,
+    )
 
     # --- frame size, zero / negative ------------------------------------
     for bad in ((0, 0), (-10, 600)):
@@ -61,8 +69,8 @@ try:
     im_camera.set_binning_size(2)
     _common.ok(
         'binning 2 applied',
-        im_camera.get_binning_size() == 2,
-        f'read-back={im_camera.get_binning_size()}',
+        im_camera.read_binning() == 2,
+        f'read-back={im_camera.read_binning()}',
     )
     bad_bin = next(x for x in (3, 5, 7, 16) if x not in supported)
     try:
@@ -70,7 +78,7 @@ try:
         _common.check(
             f'unsupported binning {bad_bin} refused',
             False,
-            f'accepted; read-back {im_camera.get_binning_size()}',
+            f'accepted; read-back {im_camera.read_binning()}',
         )
     except CameraSettingUnsupportedError as e:
         _common.check(f'unsupported binning {bad_bin} refused', True, f'{e.reason}: {e}')

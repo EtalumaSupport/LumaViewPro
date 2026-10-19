@@ -145,7 +145,7 @@ class TestBringUpStoresTheDeliveredFrame:
         s = self._create(tmp_path, (1900, 1900), binning='3x3')
         try:
             camera = s.scope.camera
-            assert camera.get_binning_size() == 1
+            assert camera.read_binning() == 1
             assert s.settings['binning']['size'] == '1x1'
             frame = s.settings['frame']
             assert {'width': frame['width'], 'height': frame['height']} == camera.frame_size_cached
@@ -165,7 +165,7 @@ class TestBringUpStoresTheDeliveredFrame:
             try:
                 # The unfocused BF steps take the current Z, which needs a home.
                 home_sim_scope(s.scope)
-                assert s.scope.camera.get_binning_size() == 1
+                assert s.scope.camera.read_binning() == 1
                 protocol = s.scope.protocols.create_protocol(
                     input_config=s.get_sequenced_capture_config(tiling='3x3')
                 )

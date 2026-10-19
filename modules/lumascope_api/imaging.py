@@ -19,7 +19,6 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-import modules.common_utils as common_utils
 from modules.finite_number import refuse_unless_finite_number
 import modules.image_utils as image_utils
 from drivers import camera_profiles
@@ -1158,40 +1157,22 @@ class ImagingAPI:
 
         Exposure and gain come from the frame's own chunk values where the
         camera stamps them (Pylon ace 2 / dart, the simulated camera), which
-        are what frame validity checked the frame against. A camera without
-        chunks (IDS, FX2) answers from a live read here, beside the grab -- the
-        nearest the frame has to its own account, and nothing queued behind
-        the grab on this lane can reach it. The live-confirmed surface, not
-        the value getters: those answer last-known-good after a failed read,
-        which is right for control flow and wrong for a record.
+        are what frame validity checked the frame against. A frame without
+        them (IDS, FX2, a Basler frame whose chunk was not delivered) takes
+        a fresh read here, beside the grab -- the nearest the frame has to
+        its own account, and nothing queued behind the grab on this lane can
+        reach it. A read the camera does not answer raises
+        ``CameraReadFailedError`` and fails the capture, as a failed black
+        level read does, rather than saving a frame whose exposure or gain
+        is unknown.
         """
         exposure_us = chunks.get('ExposureTime')
+        exposure_ms = (
+            exposure_us / 1000.0 if exposure_us is not None else self._camera.read_exposure_ms()
+        )
         gain_db = chunks.get('Gain')
-        if exposure_us is None or gain_db is None:
-            live = self._camera.get_live_camera_settings()
-        else:
-            live = {}
-        exposure_ms = exposure_us / 1000.0 if exposure_us is not None else live.get('exposure_ms')
         if gain_db is None:
-            gain_db = live.get('gain_db')
-
-        # A non-physical value -- a failed read's negative sentinel, or the
-        # zero exposure an inactive camera reports -- is not a setting the
-        # frame had; unknown stays unknown rather than being written into a
-        # file as a measurement.
-        if not common_utils.is_valid_exposure_ms(exposure_ms):
-            logger.warning(
-                '[SCOPE API ] Exposure for this frame is unknown (no chunk data and '
-                'the live camera read failed or the camera is inactive); its record '
-                'carries none'
-            )
-            exposure_ms = None
-        if not common_utils.is_valid_gain_db(gain_db):
-            logger.warning(
-                '[SCOPE API ] Gain for this frame is unknown (no chunk data and the '
-                'live camera read failed); its record carries none'
-            )
-            gain_db = None
+            gain_db = self._camera.read_gain_db()
 
         ticks = chunks.get('Timestamp')
         frame_id = chunks.get('FrameID')
@@ -1239,13 +1220,13 @@ class ImagingAPI:
         )
 
     def _black_level_for_record(self) -> float | None:
-        """The black level a frame's record carries: a live read beside the
+        """The black level a frame's record carries: a fresh read beside the
         grab, None when the camera reports none. A setter makes it a capture
         variable, so a frame states it as it states its gain; a failed read
-        raises ``HardwareError`` and fails the capture rather than saving a
-        frame whose black level is unknown.
+        raises ``CameraReadFailedError`` and fails the capture rather than
+        saving a frame whose black level is unknown.
         """
-        return self._driver.get_black_level()
+        return self._camera.read_black_level()
 
     @api(in_process=True)
     def capture_and_wait(
@@ -1884,7 +1865,8 @@ class ImagingAPI:
         by this -- ``capture_frame_depth`` answers for it. The deepest the
         camera offers is ``capabilities.camera_max_significant_bits``.
 
-        Derived from the CACHED pixel format (the validated last-known-good)
+        Derived from the HELD pixel format (the one the camera last reported
+        or took)
         via the driver's own depth rule (``significant_bits_for_format``, so
         a constant-depth driver like FX2 stays authoritative), not a live
         driver read: a transient format-read failure once made a 12-bit
@@ -1900,7 +1882,7 @@ class ImagingAPI:
         driver = self._driver
         if driver is None:
             raise _camera_not_connected('significant_bits')
-        return driver.significant_bits_for_format(self._camera._get_pixel_format())
+        return driver.significant_bits_for_format(self._camera.pixel_format_cached)
 
     @api(in_process=True, reads=True)
     def capture_frame_depth(self, array: np.ndarray | None) -> int:

@@ -49,7 +49,7 @@ def _frames_from(scope, change, wanted: int) -> list:
 
 def test_a_backlog_delivers_frames_made_before_the_change(sim_scope):
     camera = sim_scope.camera
-    before = camera.get_gain_db()
+    before = camera.read_gain_db()
     sim_scope.simulation.delay_delivery(BACKLOG)
     # The backlog stands once a frame arrives after it: none is delivered
     # until BACKLOG are held.

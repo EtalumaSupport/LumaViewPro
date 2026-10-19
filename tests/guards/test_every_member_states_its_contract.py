@@ -97,9 +97,10 @@ _REASON_UNNAMED_PINNED = frozenset(
 # ScopeSession.shown_channel and its listener pair, a read and an add and
 # remove that raise nothing (Eric, 2026-10-13); 160 since
 # MotionAPI.get_target_positions, a read of the axes the scope has that
-# raises nothing (Eric, 2026-10-17); the count does not yet tell a member
-# that raises nothing from one that has not said.
-_WITHOUT_A_SECTION_CEILING = 160
+# raises nothing (Eric, 2026-10-17); 156 since the camera's fresh reads
+# state the raise of a read the camera did not answer; the count does not
+# yet tell a member that raises nothing from one that has not said.
+_WITHOUT_A_SECTION_CEILING = 156
 
 
 def _sections():

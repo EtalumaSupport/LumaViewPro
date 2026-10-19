@@ -244,7 +244,7 @@ class TestTheBinning:
         # frame always carries it, so nothing is rebuilt from the frame.
         session.camera.set_binning_size(2)
         session.camera.set_frame_size(480, 400)
-        monkeypatch.setattr(session.scope.camera, 'get_binning_size', lambda: 4)
+        monkeypatch.setattr(session.scope.camera, 'read_binning', lambda: 4)
 
         session.camera.set_binning_size(1)
 

@@ -74,13 +74,13 @@ def test_the_predicate(value, finite):
 @pytest.mark.parametrize('value', NOT_FINITE)
 def test_the_camera_setters_refuse_and_the_camera_keeps_its_values(session, value):
     camera = session.scope.camera
-    before = (camera.get_gain_db(), camera.get_exposure_ms(), camera.get_black_level())
+    before = (camera.read_gain_db(), camera.read_exposure_ms(), camera.read_black_level())
 
     _refused(lambda: camera.set_gain_db(value), 'gain_db')
     _refused(lambda: camera.set_exposure_ms(value), 'exposure_ms')
     _refused(lambda: camera.set_black_level(value), 'black_level')
     _refused(lambda: camera.update_auto_gain_target_brightness(value), 'target_brightness')
-    assert (camera.get_gain_db(), camera.get_exposure_ms(), camera.get_black_level()) == before
+    assert (camera.read_gain_db(), camera.read_exposure_ms(), camera.read_black_level()) == before
 
 
 @pytest.mark.parametrize('value', NOT_FINITE)

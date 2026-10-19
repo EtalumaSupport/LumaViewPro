@@ -261,18 +261,18 @@ class TestCameraSaveRestore:
         # Change to different values
         scope.camera.set_gain_db(10.0)
         scope.camera.set_exposure_ms(50.0)
-        assert scope.camera.get_gain_db() != 5.0
+        assert scope.camera.read_gain_db() != 5.0
         # Restore
         scope.camera.restore_camera_state(snapshot)
-        assert abs(scope.camera.get_gain_db() - 5.0) < 0.01
-        assert abs(scope.camera.get_exposure_ms() - 25.0) < 0.01
+        assert abs(scope.camera.read_gain_db() - 5.0) < 0.01
+        assert abs(scope.camera.read_exposure_ms() - 25.0) < 0.01
 
     def test_restore_empty_snapshot(self, scope):
         scope.camera.set_gain_db(5.0)
         scope.camera.restore_camera_state(None)
-        assert abs(scope.camera.get_gain_db() - 5.0) < 0.01  # unchanged
+        assert abs(scope.camera.read_gain_db() - 5.0) < 0.01  # unchanged
         scope.camera.restore_camera_state({})
-        assert abs(scope.camera.get_gain_db() - 5.0) < 0.01  # unchanged
+        assert abs(scope.camera.read_gain_db() - 5.0) < 0.01  # unchanged
 
     def test_snapshot_contains_tag(self, scope):
         snapshot = scope.camera.save_camera_state('protocol')

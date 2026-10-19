@@ -87,19 +87,19 @@ CASES = (
     Case(
         'exposure',
         lambda s: s.camera.set_exposure_ms(10.0),
-        lambda s: (s.camera.set_exposure_ms(20.0), s.camera.get_exposure_ms())[1],
+        lambda s: (s.camera.set_exposure_ms(20.0), s.camera.read_exposure_ms())[1],
         lambda e, ms: _same(e.exposure_us, ms * 1000.0),
     ),
     Case(
         'gain',
         lambda s: s.camera.set_gain_db(0.0),
-        lambda s: (s.camera.set_gain_db(6.0), s.camera.get_gain_db())[1],
+        lambda s: (s.camera.set_gain_db(6.0), s.camera.read_gain_db())[1],
         lambda e, db: _same(e.gain_db, db),
     ),
     Case(
         'black_level',
         lambda s: s.camera.set_black_level(2.0),
-        lambda s: (s.camera.set_black_level(4.0), s.camera.get_black_level())[1],
+        lambda s: (s.camera.set_black_level(4.0), s.camera.read_black_level())[1],
         lambda e, level: _same(e.black_level, level),
     ),
     # From one lit current to another: a dark frame would be refused by the

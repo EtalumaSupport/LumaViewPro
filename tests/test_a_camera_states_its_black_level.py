@@ -28,11 +28,11 @@ from tests.settings_fixtures import complete_settings
 def test_the_simulated_camera_offers_it_and_offsets_its_frames(sim_scope):
     imaging = sim_scope.imaging
     assert sim_scope.capabilities.camera_supports_black_level is True
-    assert sim_scope.camera.get_black_level() == 0.0
+    assert sim_scope.camera.read_black_level() == 0.0
     sim_scope._camera_driver.set_test_pattern(enabled=True, pattern='Black')
 
     assert sim_scope.camera.set_black_level(4.0) == 4.0
-    assert sim_scope.camera.get_black_level() == 4.0
+    assert sim_scope.camera.read_black_level() == 4.0
     image = imaging.capture_and_wait(force_to_8bit=False, accept_dark=True, timeout_s=2.0)
 
     assert image is not None
@@ -76,7 +76,7 @@ def test_a_value_outside_the_range_is_refused_and_nothing_moves(sim_scope):
     camera = sim_scope.camera
     with pytest.raises(CameraSettingOutOfRangeError):
         camera.set_black_level(1000.0)
-    assert camera.get_black_level() == 0.0
+    assert camera.read_black_level() == 0.0
 
 
 def test_the_range_is_the_one_the_setter_refuses_outside(sim_scope):
@@ -130,7 +130,7 @@ def fx2_session():
 def test_the_fx2_reports_its_row_black_target_and_offers_no_setting(fx2_session):
     scope = fx2_session.scope
     assert scope.capabilities.camera_supports_black_level is False
-    assert scope.camera.get_black_level() == 0.0
+    assert scope.camera.read_black_level() == 0.0
     assert scope.camera.get_black_level_range() is None
     with pytest.raises(CameraSettingUnsupportedError) as caught:
         scope.camera.set_black_level(4.0)

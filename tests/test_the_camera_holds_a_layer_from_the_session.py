@@ -32,7 +32,7 @@ _BLUE = {'exposure_ms': 100.0, 'gain_db': 10.0, 'auto_gain': False}
 
 def _camera(session) -> tuple[float, float]:
     camera = session.scope.camera
-    return round(float(camera.get_exposure_ms()), 3), round(float(camera.get_gain_db()), 3)
+    return round(float(camera.read_exposure_ms()), 3), round(float(camera.read_gain_db()), 3)
 
 
 def _said(monkeypatch) -> list[str]:

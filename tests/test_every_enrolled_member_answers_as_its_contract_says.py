@@ -362,8 +362,8 @@ def _valid_rows() -> list[Valid]:
             lambda s: s.session.scope.camera.apply_layer_camera_settings(2.0, 20.0),
             lambda s, applied: (
                 None
-                if math.isclose(s.session.scope.camera.get_gain_db(), 2.0, abs_tol=0.5)
-                else f'gain read back {s.session.scope.camera.get_gain_db()}'
+                if math.isclose(s.session.scope.camera.read_gain_db(), 2.0, abs_tol=0.5)
+                else f'gain read back {s.session.scope.camera.read_gain_db()}'
             ),
             (
                 '/api/v1/scope/camera/apply_layer_camera_settings',

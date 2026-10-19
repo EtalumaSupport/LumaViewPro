@@ -236,20 +236,17 @@ def test_lock_result_carries_the_value_to_store():
     assert camera._lock_auto_gain_impl().stored_exposure_ms == 62.003
 
 
-def test_auto_gain_capture_failed_readback_still_captures():
+def test_auto_gain_capture_failed_readback_fails_the_capture():
     """No chunks and a failed hardware readback leave nothing to lock: the
-    state is FAILED, no exposure/gain target is recorded, the capture still
-    returns a frame, and the lock line is logged."""
+    state is FAILED, no exposure/gain target is recorded, the lock line is
+    logged, and the capture fails, since its frame's exposure cannot be read."""
     imaging, camera, cam = _build(ae_lands_on_ms=62.0)
     lvp_logger.logger.reset_mock()
     _arm(camera, AG_SETTINGS_FLUORESCENCE, resume_after_capture=False)
     cam.chunks_absent = True
     cam.fail_readback = True
-    image = imaging._capture_and_wait_impl(timeout_s=1.0)
-    assert image is not None
-    info = imaging.last_capture_info
-    assert info['auto_gain'] == 'FAILED'
-    assert info['auto_gain_exposure_ms'] is None
+    with pytest.raises(CameraReadFailedError, match='exposure'):
+        imaging._capture_and_wait_impl(timeout_s=1.0)
     assert imaging.frame_validity.target('exposure') is None
     assert imaging.frame_validity.target('gain') is None
     assert any('[AG CONVERGE] locked: state=FAILED' in m for m in _logged('warning'))
@@ -313,8 +310,8 @@ def test_failed_lock_under_a_live_view_arm_is_an_error_to_the_user(centre_posts)
     _arm(camera, AG_SETTINGS_TRANSMITTED, resume_after_capture=True)
     cam.chunks_absent = True
     cam.fail_readback = True
-    assert imaging._capture_and_wait_impl(timeout_s=1.0) is not None
-    assert imaging.last_capture_info['auto_gain'] == 'FAILED'
+    with pytest.raises(CameraReadFailedError):
+        imaging._capture_and_wait_impl(timeout_s=1.0)
     assert [(n.kind, n.reason) for n in centre_posts] == [
         (OutcomeKind.FAULT, 'auto_gain_not_settled')
     ]

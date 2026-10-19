@@ -687,8 +687,8 @@ class TestRunGrabLifecycleBenchmark:
             os.remove(r['written_to'])
 
         assert r['errors'] == []
-        assert scope.camera.get_gain_db() == pytest.approx(2.5)
-        assert scope.camera.get_exposure_ms() == pytest.approx(20.0)
+        assert scope.camera.read_gain_db() == pytest.approx(2.5)
+        assert scope.camera.read_exposure_ms() == pytest.approx(20.0)
 
     def test_writes_json_artifact(self, tmp_path, monkeypatch):
         """Persists results to data/camera_timing/. Filename includes camera

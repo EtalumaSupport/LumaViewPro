@@ -31,13 +31,13 @@ try:
     _common.ok('exactly the target layer is lit', lit == [target], f'lit={lit}')
     _common.ok(
         'camera took the layer gain',
-        abs(im.get_gain_db() - float(cfg['gain_db'])) < 0.51,
-        f'gain={im.get_gain_db()} wanted={cfg["gain_db"]}',
+        abs(im.read_gain_db() - float(cfg['gain_db'])) < 0.51,
+        f'gain={im.read_gain_db()} wanted={cfg["gain_db"]}',
     )
     _common.ok(
         'camera took the layer exposure',
-        abs(im.get_exposure_ms() - float(cfg['exposure_ms'])) < 0.51,
-        f'exp={im.get_exposure_ms()} wanted={cfg["exposure_ms"]}',
+        abs(im.read_exposure_ms() - float(cfg['exposure_ms'])) < 0.51,
+        f'exp={im.read_exposure_ms()} wanted={cfg["exposure_ms"]}',
     )
     s.light_shown_channel(False)
 
@@ -60,7 +60,7 @@ try:
             _common.ok(f'{label} refused', False, f'returned {r}')
         except Exception as e:
             _common.ok(f'{label} refused', True, f'{type(e).__name__}: {e}')
-    print('gain/exposure after the bad writes:', im.get_gain_db(), im.get_exposure_ms())
+    print('gain/exposure after the bad writes:', im.read_gain_db(), im.read_exposure_ms())
 except Exception:
     import traceback
 

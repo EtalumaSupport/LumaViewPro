@@ -116,7 +116,7 @@ def test_lighting_the_shown_channel_leaves_the_camera_on_its_layer(session):
     session.light_shown_channel(True)
 
     assert camera.get_held_layer() == 'BF'
-    assert round(camera.get_exposure_ms(), 3) == session.settings['BF']['exposure_ms']
+    assert round(camera.read_exposure_ms(), 3) == session.settings['BF']['exposure_ms']
 
 
 def test_bring_up_again_shows_bf_dark(session):
@@ -164,7 +164,7 @@ def test_a_runs_end_shows_the_layer_shown_before_it(tmp_path):
 
         assert built.shown_channel.layer == 'BF'
         assert built.scope.camera.get_held_layer() == 'BF'
-        assert round(built.scope.camera.get_exposure_ms(), 3) == 2.0
+        assert round(built.scope.camera.read_exposure_ms(), 3) == 2.0
     finally:
         built.shutdown()
 
@@ -180,7 +180,7 @@ def test_a_write_during_a_run_to_the_layer_shown_before_it_is_on_the_camera_afte
     try:
         _run_one_blue_step(built, tmp_path)
 
-        assert round(built.scope.camera.get_exposure_ms(), 3) == 7.0
+        assert round(built.scope.camera.read_exposure_ms(), 3) == 7.0
     finally:
         built.remove_shown_channel_listener(write_while_the_step_is_lit)
         built.shutdown()

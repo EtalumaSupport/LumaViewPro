@@ -544,7 +544,7 @@ class TestT14OpticsRecord:
             optics = [line for line in _lines() if line.startswith('[Optics')]
             assert len(optics) == 1, _lines()
             assert 'um/px' in optics[0] and 'no image scale' not in optics[0], optics[0]
-            assert f'binning={session.scope.camera.get_binning_size()}' in optics[0]
+            assert f'binning={session.scope.camera.read_binning()}' in optics[0]
         finally:
             session.shutdown()
 

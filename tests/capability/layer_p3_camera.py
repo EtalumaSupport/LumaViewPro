@@ -19,17 +19,17 @@ try:
     im.enable_streaming()
     step(
         'set_gain_db(7.5)',
-        lambda: (im_camera.set_gain_db(7.5), im_camera.get_gain_db(), im_camera.gain_db_cached),
+        lambda: (im_camera.set_gain_db(7.5), im_camera.read_gain_db(), im_camera.gain_db_cached),
     )
     step(
         'set_exposure_ms(123.0)',
         lambda: (
             im_camera.set_exposure_ms(123.0),
-            im_camera.get_exposure_ms(),
+            im_camera.read_exposure_ms(),
             im_camera.exposure_ms_cached,
         ),
     )
-    step('set_gain_db(1e6)', lambda: (im_camera.set_gain_db(1e6), im_camera.get_gain_db()))
+    step('set_gain_db(1e6)', lambda: (im_camera.set_gain_db(1e6), im_camera.read_gain_db()))
     print('camera_supports_auto_gain:', s.scope.capabilities.camera_supports_auto_gain, flush=True)
     ag = s.get_auto_gain_settings()
     print('session.get_auto_gain_settings():', ag, flush=True)
@@ -42,7 +42,11 @@ try:
         ),
     )
     print(
-        'after apply: gain', im_camera.get_gain_db(), 'exp', im_camera.get_exposure_ms(), flush=True
+        'after apply: gain',
+        im_camera.read_gain_db(),
+        'exp',
+        im_camera.read_exposure_ms(),
+        flush=True,
     )
     harness.assert_no_ui()
 except Exception:

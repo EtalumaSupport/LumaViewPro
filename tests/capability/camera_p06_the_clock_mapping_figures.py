@@ -75,7 +75,7 @@ def _measure(session):
     imaging = session.scope.imaging
     camera_api = session.scope.camera
     figure('camera', session.scope.capabilities.camera_model)
-    figure('exposure_ms', camera_api.get_exposure_ms())
+    figure('exposure_ms', camera_api.read_exposure_ms())
 
     start = time.monotonic()
     mappings = [_mapping(imaging) for _ in range(CAPTURES)]

@@ -6,9 +6,9 @@ frame (the same values frame_validity checks the camera settled to). The
 record used to be built when the file was written, re-reading gain/exposure
 live and racing the next step's settings. The capture now builds the frame's
 record beside the grab: from the grab-time chunk (microseconds -> ms for
-exposure, dB for gain), falling back to the live-confirmed surface
-(get_live_camera_settings, which omits a field whose read did not just
-succeed) only when no chunk is present. The save writes what the record says.
+exposure, dB for gain), falling back to a fresh read of the camera
+(``read_exposure_ms`` / ``read_gain_db``) only when no chunk is present. The
+save writes what the record says.
 
 Driven behaviorally: a stub imaging API provides distinct chunk vs live
 values so each test proves which source won.
@@ -30,10 +30,10 @@ LIVE_GAIN_DB = 4.5
 GRABBED_AT = datetime.datetime(2026, 9, 29, 12, 0, 0)
 
 
-def _imaging(live=None, chunk_reads=None):
+def _imaging(chunk_reads=None):
     """An imaging API and its camera API, with just what building a frame's record touches.
 
-    live: what the camera's get_live_camera_settings answers (default: both fields read).
+    The camera's fresh reads answer ``LIVE_EXPOSURE_MS`` and ``LIVE_GAIN_DB``.
     chunk_reads: optional list that records each read of the camera's chunks.
     """
 
@@ -49,6 +49,7 @@ def _imaging(live=None, chunk_reads=None):
             camera_has_clock_latch=False,
         ),
         _camera_driver=SimpleNamespace(
+            active=True,
             get_black_level=lambda: None,
             cam_image_handler=SimpleNamespace(get_last_chunks=get_last_chunks),
         ),
@@ -59,8 +60,8 @@ def _imaging(live=None, chunk_reads=None):
     camera._camera_cache = {'binning': 1}
     camera._state_lock = threading.Lock()
     camera._held_layer = None
-    answer = {'gain_db': LIVE_GAIN_DB, 'exposure_ms': LIVE_EXPOSURE_MS} if live is None else live
-    camera.get_live_camera_settings = lambda: answer
+    camera.read_exposure_ms = lambda: LIVE_EXPOSURE_MS
+    camera.read_gain_db = lambda: LIVE_GAIN_DB
     imaging = object.__new__(ImagingAPI)
     imaging._scope = scope
     imaging._camera = camera
@@ -96,30 +97,6 @@ def test_gain_metadata_prefers_chunk_with_live_fallback():
     no_chunk = _record(_imaging(), None)
     assert no_chunk.exposure_ms == LIVE_EXPOSURE_MS
     assert no_chunk.gain_db == LIVE_GAIN_DB
-
-
-def test_failed_live_read_omits_gain_exposure_keys():
-    """A failed live read must never be written into saved metadata as if it
-    were a real acquisition setting. get_live_camera_settings answers {} when
-    no field's read just succeeded; unknown -> the record carries none."""
-    record = _record(_imaging(live={}), None)
-    assert record.exposure_ms is None, (
-        f'failed exposure read must leave the record empty, not {record.exposure_ms}'
-    )
-    assert record.gain_db is None, (
-        f'failed gain read must leave the record empty, not {record.gain_db}'
-    )
-
-
-def test_inactive_camera_zero_exposure_omitted():
-    """Belt and braces: get_live_camera_settings can only return validated
-    values by contract, but the record keeps its own validity guard. If a
-    non-physical value (zero exposure, negative gain) ever slips through the
-    live surface, the record still carries none -- a capture racing a
-    disconnect must not fabricate exposure_time_ms=0.0 in frame metadata."""
-    record = _record(_imaging(live={'exposure_ms': 0.0, 'gain_db': -1.0}), None)
-    assert record.exposure_ms is None
-    assert record.gain_db is None
 
 
 def test_tiff_write_path_tolerates_omitted_gain_exposure(sim_scope):

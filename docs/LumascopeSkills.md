@@ -1933,16 +1933,13 @@ image = scope.imaging.capture_and_wait(
 
 # Exposure (milliseconds) + gain (dB)
 scope.camera.set_exposure_ms(exposure_ms=50)
-scope.camera.get_exposure_ms()                  # last-known-good on transient read failure; None camera-absent
+scope.camera.read_exposure_ms()                 # read from the camera now; None with no camera;
+                                                   #   raises CameraReadFailedError when the camera does not answer
 scope.camera.set_gain_db(gain_db=10.0)
-scope.camera.get_gain_db()                           # last-known-good on transient read failure; None camera-absent
-
-# Live-confirmed readings for metadata / records: only fields whose
-# driver read succeeded RIGHT NOW; a field whose read failed is omitted
-# (the value getters above would answer last-known-good instead).
-scope.camera.get_live_camera_settings()           # any of: gain_db, exposure_ms,
-                                                   #   frame_size {'width','height'}, pixel_format;
-                                                   #   {} when no camera is active
+scope.camera.read_gain_db()                       # read from the camera now; None with no camera;
+                                                   #   raises CameraReadFailedError when the camera does not answer
+scope.camera.read_frame_size()                    # FrameSize(width, height), read from the camera now
+scope.camera.read_pixel_format()                  # e.g. 'Mono12', read from the camera now
 
 # `set_exposure_ms` warns + logs a stack trace at < 0.005 ms (the
 # common L1 failure is typing 0.05 thinking microseconds and getting
@@ -1996,8 +1993,8 @@ scope.camera.set_line_noise_reduction(True)        # same contract
 # DN of the current pixel format; FX2: the sensor's Row Black Target, fixed).
 # Recorded with every frame (FrameRecord.black_level) and in saved metadata;
 # a failed read at capture raises CameraReadFailedError and fails the capture.
-scope.camera.get_black_level()                    # live read; None when no camera or none reported;
-                                                   #   raises CameraReadFailedError when the read fails (no cache)
+scope.camera.read_black_level()                   # read from the camera now; None when no camera or none reported;
+                                                   #   raises CameraReadFailedError when the camera does not answer
 scope.camera.get_black_level_range()              # (minimum, maximum) set_black_level accepts, live, for the
                                                    #   current pixel format; None when no camera or none settable;
                                                    #   raises CameraReadFailedError when the read fails
@@ -2011,8 +2008,8 @@ scope.camera.set_black_level(value=4.0)           # value in effect; probe
 # (Basler: the resulting acquisition frame rate; IDS: AcquisitionFrameRate's
 # maximum; the simulator: its pacing). The rate frames actually reach the
 # host at is get_delivered_rate, below.
-scope.camera.get_resulting_frame_rate()           # fps; None when no camera or none reported (FX2);
-                                                   #   raises CameraReadFailedError when the read fails (no cache)
+scope.camera.read_frame_rate()                    # fps; None when no camera or none reported (FX2);
+                                                   #   raises CameraReadFailedError when the camera does not answer
 
 # Delivered rate: what the camera delivered to the host over the last
 # second, counted from the frames every driver stores, in every host -- the
@@ -2049,7 +2046,8 @@ scope.camera.set_binning_size(2)
 # CameraSettingRejected when a live camera refuses. set_image_mode raises it
 # the same way. Success is observed by the return value, rejection by the
 # typed raise -- a dropped return cannot silently record a rejected apply.
-scope.camera.get_binning_size()                   # always >= 1 (last-known-good on failed read)
+scope.camera.read_binning()                       # read from the camera now; None with no camera;
+                                                   #   raises CameraReadFailedError when the camera does not answer
 scope.capabilities.camera_binning_sizes            # e.g. (1, 2, 4)
 scope.camera.set_image_mode('12bit_scientific')    # the camera's pixel format for the mode, then saved; raises CameraSettingRejected on refusal
 scope.capabilities.camera_pixel_formats            # e.g. ('Mono8', 'Mono12')
@@ -3250,14 +3248,8 @@ Reached through `session.scope.camera` (in-process, also `session.camera`).
 - `frame_at_binning`
 - `frame_size_cached`
 - `gain_db_cached`
-- `get_binning_size`
-- `get_black_level`
 - `get_black_level_range`
-- `get_exposure_ms`
-- `get_gain_db`
-- `get_live_camera_settings`
 - `get_pixel_alignment`
-- `get_resulting_frame_rate`
 - `lock_auto_gain`
 - `longest_exposure_ms`
 - `max_exposure_ms_cached`
@@ -3266,6 +3258,13 @@ Reached through `session.scope.camera` (in-process, also `session.camera`).
 - `min_frame_size_cached`
 - `min_gain_db_cached`
 - `pixel_format_cached`
+- `read_binning`
+- `read_black_level`
+- `read_exposure_ms`
+- `read_frame_rate`
+- `read_frame_size`
+- `read_gain_db`
+- `read_pixel_format`
 - `remove_camera_listener` (in-process)
 - `set_auto_exposure_time`
 - `set_auto_gain`

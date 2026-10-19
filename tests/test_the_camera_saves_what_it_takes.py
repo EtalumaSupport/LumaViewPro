@@ -323,16 +323,14 @@ def test_over_rest_the_cameras_routes_are_under_scope_camera_and_nowhere_else():
         for route in rest_routes.routes(ScopeSession, handed_out=handed_out)
         if route.owner is not CameraAPI
     }
-    # The Session's get_binning_size is the store's own read, not a camera
-    # door; push 2 retires it with the camera's (plan F9).
-    assert root_names & marked == {'get_binning_size'}
+    assert root_names & marked == set()
 
 
 def _the_camera_holds_what_is_saved(session):
     """The saved binning and frame are the camera's, and the region gives the frame."""
     camera = session.camera
     saved = session.settings
-    factor = camera.get_binning_size()
+    factor = camera.read_binning()
     assert saved['binning']['size'] == f'{factor}x{factor}'
     held = camera.frame_size_cached
     assert {key: saved['frame'][key] for key in ('width', 'height')} == held

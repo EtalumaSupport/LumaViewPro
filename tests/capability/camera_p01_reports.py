@@ -1,8 +1,8 @@
 """Camera P01: the camera reports its black level, frame rate and link, and every frame records the black level.
 
 The figures a camera states about itself, read through the API: the black
-level (`get_black_level`) and the one each captured frame's record carries,
-the frame rate its settings allow (`get_resulting_frame_rate`; the FX2
+level (`read_black_level`) and the one each captured frame's record carries,
+the frame rate its settings allow (`read_frame_rate`; the FX2
 reports none), the frame rate the stream delivers (frame arrivals counted
 by a frame listener, at the session's exposure and at 1 ms), and the link
 (`diagnostics.get_camera_link_info`). Reads only; a scope with a stage does
@@ -74,7 +74,7 @@ def main():
             },
         )
 
-        level = camera_api.get_black_level()
+        level = camera_api.read_black_level()
         figure('black level', level)
         imaging.capture_and_wait(accept_dark=True, timeout_s=5.0)
         record = (imaging.last_capture_info or {}).get('frame_record')
@@ -86,13 +86,13 @@ def main():
             recorded,
         )
 
-        figure('resulting frame rate (camera)', camera_api.get_resulting_frame_rate())
-        exposure = camera_api.get_exposure_ms()
+        figure('resulting frame rate (camera)', camera_api.read_frame_rate())
+        exposure = camera_api.read_exposure_ms()
         figure('exposure ms', exposure)
         figure('delivered fps at the session exposure', _delivered_fps(imaging))
         camera_api.set_exposure_ms(1.0)
         try:
-            figure('resulting frame rate (camera) at 1 ms', camera_api.get_resulting_frame_rate())
+            figure('resulting frame rate (camera) at 1 ms', camera_api.read_frame_rate())
             figure('delivered fps at 1 ms', _delivered_fps(imaging))
         finally:
             camera_api.set_exposure_ms(exposure)

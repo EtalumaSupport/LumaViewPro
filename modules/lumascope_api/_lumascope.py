@@ -1155,7 +1155,7 @@ class Lumascope:
         if self.camera_connected:
             available_binning = self.capabilities.camera_binning_sizes
             if binning_size not in available_binning:
-                camera_binning = self.camera.get_binning_size()
+                camera_binning = self.camera._binning_size
                 # The persisted frame is a DISPLAYED size at the persisted
                 # factor; at a different factor it would come up as a
                 # fraction-area ROI (driver clamping only protects against

@@ -202,7 +202,7 @@ def _pixel_size(scope) -> float:
     objective = scope.objectives[scope.runtime_state.get_current_objective_id()]
     return common_utils.get_pixel_size(
         objective.focal_length_mm,
-        scope.camera.get_binning_size(),
+        scope.camera.read_binning(),
         capabilities=scope.capabilities,
     )
 

@@ -1,14 +1,14 @@
 # Copyright Etaluma, Inc.
-"""Regression test: the per-step CAPTURE DIAG camera reads are debug-gated.
+"""Regression test: the per-step CAPTURE DIAG line reads no camera.
 
 The #610 capture diagnostic compares the step's intended gain/exposure
-against the camera's ACTUAL (live) values, so the reads must stay live --
-but they were firing on every protocol step even in normal operation,
-because the f-string arguments evaluate before logger.debug decides to drop
-the line. The two live SDK reads are now gated on debug being enabled.
+against the camera's. Its reads once fired on every protocol step, even
+with the line dropped, because the f-string arguments evaluate before
+logger.debug decides; they were then gated on debug. The line now logs the
+values the camera holds, so no step reads the camera for it, debug or not.
 
-Driven behaviorally: capture() runs once with debug off and once with debug
-on (a stub logger controls isEnabledFor), counting the live driver reads.
+Driven behaviorally: capture() runs once with debug on (a stub logger
+controls isEnabledFor), counting the fresh camera reads.
 """
 
 import threading
@@ -103,22 +103,9 @@ def _drive_capture(monkeypatch, debug_enabled):
     return scope.camera
 
 
-def test_camera_reads_skipped_when_debug_disabled(monkeypatch):
-    camera = _drive_capture(monkeypatch, debug_enabled=False)
-    assert camera.get_gain_db.call_count == 0, (
-        'the diagnostic live gain read must not run when debug is off'
-    )
-    assert camera.get_exposure_ms.call_count == 0, (
-        'the diagnostic live exposure read must not run when debug is off'
-    )
-
-
-def test_camera_reads_run_when_debug_enabled(monkeypatch):
+def test_the_diagnostic_reads_no_camera_with_debug_on(monkeypatch):
     camera = _drive_capture(monkeypatch, debug_enabled=True)
-    assert camera.get_gain_db.call_count == 1, (
-        'with debug on, the diagnostic must read the live gain '
-        '(comparing intended vs actual is the whole point)'
-    )
-    assert camera.get_exposure_ms.call_count == 1, (
-        'with debug on, the diagnostic must read the live exposure'
+    assert camera.read_gain_db.call_count == 0, 'the diagnostic read the gain from the camera'
+    assert camera.read_exposure_ms.call_count == 0, (
+        'the diagnostic read the exposure from the camera'
     )

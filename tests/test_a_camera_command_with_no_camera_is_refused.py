@@ -147,9 +147,10 @@ def test_with_its_camera_every_command_and_read_answers_as_before(make_session, 
 
     assert camera.set_gain_db(5.0) == pytest.approx(5.0, abs=0.5)
     assert camera.set_exposure_ms(20.0) == pytest.approx(20.0, rel=0.1)
-    assert camera.get_gain_db() == pytest.approx(5.0, abs=0.5)
-    assert camera.get_exposure_ms() == pytest.approx(20.0, rel=0.1)
-    assert camera.get_width() > 0 and camera.get_height() > 0
+    assert camera.read_gain_db() == pytest.approx(5.0, abs=0.5)
+    assert camera.read_exposure_ms() == pytest.approx(20.0, rel=0.1)
+    size = camera.read_frame_size()
+    assert size.width > 0 and size.height > 0
     assert im.capture_and_wait() is not None
     im.disable_streaming()
     im.enable_streaming()
@@ -268,12 +269,10 @@ def test_with_no_camera_the_value_reads_answer_none(make_session, monkeypatch, m
     camera = scope.camera
 
     assert (
-        camera.get_gain_db(),
-        camera.get_exposure_ms(),
-        camera.get_width(),
-        camera.get_height(),
+        camera.read_gain_db(),
+        camera.read_exposure_ms(),
+        camera.read_frame_size(),
     ) == (
-        None,
         None,
         None,
         None,
@@ -376,12 +375,10 @@ def test_after_disconnect_no_read_describes_the_camera_that_left(make_session, m
     camera = scope.camera
 
     assert (
-        camera.get_gain_db(),
-        camera.get_exposure_ms(),
-        camera.get_width(),
-        camera.get_height(),
+        camera.read_gain_db(),
+        camera.read_exposure_ms(),
+        camera.read_frame_size(),
     ) == (
-        None,
         None,
         None,
         None,

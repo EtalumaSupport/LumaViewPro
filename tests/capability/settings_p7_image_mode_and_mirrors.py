@@ -66,14 +66,14 @@ try:
     after = s.get_settings_snapshot()
     _common.ok(
         'the API knows the delivered frame size after an apply',
-        (im_camera.get_width(), im_camera.get_height()) != (0, 0),
-        f'API {im_camera.get_width()}x{im_camera.get_height()}, settings {after["frame"]}',
+        (im_camera.read_frame_size().width, im_camera.read_frame_size().height) != (0, 0),
+        f'API {im_camera.read_frame_size().width}x{im_camera.read_frame_size().height}, settings {after["frame"]}',
     )
     im_camera.set_binning_size(2)
     _common.ok(
         'the API knows the delivered binning after an apply',
-        im_camera.get_binning_size() == 2,
-        f'API {im_camera.get_binning_size()}, settings {s.get_settings_snapshot()["binning"]}',
+        im_camera.read_binning() == 2,
+        f'API {im_camera.read_binning()}, settings {s.get_settings_snapshot()["binning"]}',
     )
     print("settings['frame'] native keys:", dict(after['frame']))
 except Exception:

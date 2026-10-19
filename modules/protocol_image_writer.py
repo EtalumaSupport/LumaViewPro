@@ -1273,15 +1273,12 @@ class ProtocolImageWriter:
         try:
             is_video = step['Acquire'] == 'video'
 
-            # #610 diagnostic: trace camera settings decision at each capture.
-            # camera_gain/camera_exp are read LIVE on purpose (the point is the
-            # ACTUAL camera state vs the step's intent), so the reads are gated
-            # on debug being enabled -- otherwise two SDK reads run every step
-            # even though the line is dropped in normal operation.
+            # #610 diagnostic: trace camera settings decision at each capture,
+            # the values the camera holds beside the step's intent.
             if logger.isEnabledFor(logging.DEBUG):
                 _ag = step['Auto_Gain']
-                _curr_gain = self._scope.camera.get_gain_db()
-                _curr_exp = self._scope.camera.get_exposure_ms()
+                _curr_gain = self._scope.camera.gain_db_cached
+                _curr_exp = self._scope.camera.exposure_ms_cached
                 logger.debug(
                     f'[CAPTURE DIAG] step={step.get("Name", "?")} color={step["Color"]} '
                     f'Auto_Gain={_ag!r} (type={type(_ag).__name__}) '

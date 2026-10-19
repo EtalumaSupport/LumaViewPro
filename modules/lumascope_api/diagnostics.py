@@ -369,8 +369,8 @@ class DiagnosticsAPI:
         except Exception as e:
             info['resolution'] = f'Error: {e}'
 
-        _try('gain_db', lambda: self._scope.camera.get_gain_db())
-        _try('exposure_ms', lambda: self._scope.camera.get_exposure_ms())
+        _try('gain_db', lambda: self._scope.camera.read_gain_db())
+        _try('exposure_ms', lambda: self._scope.camera.read_exposure_ms())
         _try('max_gain_db', lambda: self._scope._camera_driver.get_max_gain())
         _try('max_exposure_ms', lambda: self._scope._camera_driver.get_max_exposure())
 

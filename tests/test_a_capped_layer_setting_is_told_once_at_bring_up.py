@@ -50,8 +50,8 @@ def test_every_capped_layer_value_is_one_notice_and_the_saved_values_are_kept(tm
         assert session.settings['BF']['exposure_ms'] == 100000.0
         assert session.settings['Blue']['exposure_ms'] == 100000.0
         # BF is the layer bring-up applies: the camera runs at its limit.
-        assert camera.get_gain_db() == max_gain
-        assert camera.get_exposure_ms() == max_exposure
+        assert camera.read_gain_db() == max_gain
+        assert camera.read_exposure_ms() == max_exposure
     finally:
         session.shutdown()
 

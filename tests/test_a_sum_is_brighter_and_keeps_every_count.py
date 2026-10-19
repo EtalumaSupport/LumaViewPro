@@ -49,7 +49,8 @@ def sim_camera():
         scope._camera_driver.profile.pixel_formats = [pixel_format]
         cam = scope._camera_driver
         cam.set_timing_mode('fast')
-        cam.set_pixel_format(pixel_format)
+        # The format is chosen through the image mode, as a caller chooses it.
+        scope.camera.set_image_mode({'Mono8': '8bit', 'Mono12': '12bit_scientific'}[pixel_format])
         cam.set_test_pattern(True, 'White')
         scope.imaging.enable_streaming()
         return scope

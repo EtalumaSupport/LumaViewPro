@@ -245,7 +245,7 @@ class TestGeometryFormatInvalidates:
         camera, _cam = sim_camera
         camera.frame_validity.reset()
         camera.set_binning_size(2)
-        assert camera.get_binning_size() == 2
+        assert camera.read_binning() == 2
         assert 'binning' in camera.frame_validity.pending_sources
 
 

@@ -1411,7 +1411,7 @@ class TestSetBinningSizeAnswersByRaising:
 
         _imaging, camera, _cam = _sim_backed_imaging()
         camera.set_binning_size(2)
-        assert camera.get_binning_size() == 2, 'a driver-accepted binning change is recorded'
+        assert camera.read_binning() == 2, 'a driver-accepted binning change is recorded'
         # The driver's own rejection, so the body on the lane: the storing
         # setter refuses a size the camera does not offer before the write.
         with pytest.raises(CameraSettingRejected):

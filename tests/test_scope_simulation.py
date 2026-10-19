@@ -179,9 +179,9 @@ def test_a_failed_frame_size_read_fails_the_snapshot_that_reads_it(scope, answer
 def test_a_failed_read_counted_twice_is_two_reads(scope):
     scope.simulation.refuse_camera_read('black_level', 'raise', count=2)
     for _ in range(2):
-        with pytest.raises(RuntimeError):
-            scope.camera.get_black_level()
-    assert scope.camera.get_black_level() is not None
+        with pytest.raises(CameraReadFailedError):
+            scope.camera.read_black_level()
+    assert scope.camera.read_black_level() is not None
 
 
 def test_the_fast_led_board_refuses_a_link_fault_by_name(scope):
@@ -240,7 +240,7 @@ def test_injected_lists_what_was_asked_and_clear_takes_it_all_back(scope):
     assert scope.motion.get_actual_position('X') == pytest.approx(0.0, abs=0.1)
     scope.camera.set_gain_db(4.0)
     assert scope.imaging.frame_validity.target('gain') == 4.0
-    assert scope.camera.get_black_level() is not None
+    assert scope.camera.read_black_level() is not None
 
 
 def test_a_held_axis_says_when_it_halted_and_clear_releases_it(scope):
