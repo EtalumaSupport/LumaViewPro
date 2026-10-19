@@ -45,6 +45,7 @@ from unittest.mock import patch
 import pytest
 
 from modules.exceptions import HardwareCommandRefusedError
+from modules.scope_capabilities import FrameSize
 from tests.scope_fakes import homed_sim_scope
 
 # Sentinel returned by the probe. The dispatcher must hand it back on both
@@ -258,7 +259,7 @@ def test_live_executor_submits_and_blocks(sim_scope, executors, family, member, 
     assert caller not in threads
     if member in _RETURNS_THE_FRAME:
         assert result == (
-            _PROBE_ANSWER[member] if member == 'set_frame_size' else sub.frame_size.to_dict()
+            FrameSize(**_PROBE_ANSWER[member]) if member == 'set_frame_size' else sub.frame_size
         )
     else:
         assert result is (None if member in _RETURNS_NOTHING else IMPL_RESULT)
