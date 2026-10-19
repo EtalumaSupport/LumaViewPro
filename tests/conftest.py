@@ -459,7 +459,9 @@ def _disconnect_the_scopes_a_test_built():
     tests that each leave one behind accumulates them in every worker; the
     lanes `give_stub_lanes` gave a stub are shut the same way. A
     module-scoped fixture's scope was built before this mark and is left to
-    the fixture.
+    the fixture, when the test asks for it as an argument: fetched inside the
+    test with `request.getfixturevalue`, it is built after the mark, and this
+    test's end shuts it down under the module's later tests.
     """
     from tests.scope_fakes import tear_down_since, teardown_mark
 

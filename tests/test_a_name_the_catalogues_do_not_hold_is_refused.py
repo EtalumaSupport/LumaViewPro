@@ -109,8 +109,13 @@ def test_a_plate_the_catalogue_lacks_is_refused_offering_its_plates(session, mem
 
 @pytest.mark.parametrize('name', ['zzz-no-such-objective', '10x', '10xOly'])
 @pytest.mark.parametrize('member', OBJECTIVE_MEMBERS)
-def test_an_objective_the_catalogue_lacks_is_refused_offering_its_keys(request, member, name):
-    session = request.getfixturevalue('turret_session' if member in _SLOT_WRITERS else 'session')
+def test_an_objective_the_catalogue_lacks_is_refused_offering_its_keys(
+    session, turret_session, member, name
+):
+    # Both are arguments, not fetched with request.getfixturevalue: a module
+    # session built inside a test is built after the conftest's teardown mark,
+    # so that test's teardown shut it down under the tests after it.
+    session = turret_session if member in _SLOT_WRITERS else session
     before = _selection(session)
     with pytest.raises(CatalogueNameRefusedError) as refused:
         OBJECTIVE_MEMBERS[member](session, name)
