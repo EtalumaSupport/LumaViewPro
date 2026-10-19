@@ -3,7 +3,7 @@
 
 The guard (``tests/guards/test_every_answer_is_described``) holds every
 route and event to a declared schema; this holds the bodies to it. Over a
-simulated session, every read and every call that needs no argument and
+simulated session of each shipped model, every read and every call that needs no argument and
 asks rather than acts (``get_``, ``is_``, ``list``...), and every read of
 a protocol's handle, is answered and checked against its route's 200 with
 ``jsonschema``, formats checked, so a time sent without its offset fails a
@@ -17,6 +17,7 @@ body rather than read from it.
 
 from __future__ import annotations
 
+import json
 import re
 import threading
 
@@ -28,6 +29,7 @@ from modules import wire_encoding
 from modules.scope_session import ScopeSession
 from rest import routes as rest_routes
 from rest.app import build_app
+from tests.installation_fixtures import SHIPPED_DATA
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
 from tests.test_the_event_stream_carries_what_the_scope_tells import _reading, _serving
@@ -74,22 +76,44 @@ def test_a_time_without_its_offset_fails_a_declared_date_time():
 
 
 @pytest.mark.slow
-def test_every_answer_a_simulated_session_gives_matches_its_route(session):
+def test_every_answer_a_simulated_session_gives_matches_its_route(tmp_path):
+    """On every shipped model, since an answer's nulls follow the model: no
+    objective until a turret slot is assigned, no position on an axis the
+    scope lacks. One model answered only what that model answers."""
+    models = json.loads((SHIPPED_DATA / 'scopes.json').read_text(encoding='utf-8'))['Models']
+    checked, mismatched = {}, []
+    for model in models:
+        live = tmp_path / model
+        live.mkdir()
+        s = ScopeSession.create(
+            complete_settings(live_folder=str(live), microscope=model), simulate=True
+        )
+        try:
+            checked[model] = _check_every_answer(s, model, mismatched)
+        finally:
+            s.shutdown()
+
+    assert not mismatched, '\n'.join(mismatched)
+    # 96 to 99 answers a model at this writing.
+    assert min(checked.values()) >= 90, checked
+
+
+def _check_every_answer(session, model: str, mismatched: list[str]) -> int:
     app = build_app(session)
     described = app.openapi()
     handed_out = wire_encoding.handed_out(
         ScopeSession, wire_encoding.project_classes(), wire_encoding.project_aliases()
     )
-    checked, mismatched = 0, []
+    checked = 0
 
     def check(body: object, schema: dict, where: str) -> None:
         nonlocal checked
         if schema == {}:
             # Anything matches a schema that says nothing.
-            mismatched.append(f'{where}: declares nothing')
+            mismatched.append(f'{model} {where}: declares nothing')
         errors = list(_checker(described, schema).iter_errors(body))
         if errors:
-            mismatched.append(f'{where}: {errors[0].message[:200]}')
+            mismatched.append(f'{model} {where}: {errors[0].message[:200]}')
         checked += 1
 
     with TestClient(app) as client:
@@ -119,9 +143,7 @@ def test_every_answer_a_simulated_session_gives_matches_its_route(session):
             template = f'/api/v1/handles/Protocol/{{handle_id}}/{route.path}'
             check(response.json(), _answer(described, template, 'get'), template)
 
-    assert not mismatched, '\n'.join(mismatched)
-    # 97 answers at this writing.
-    assert checked >= 90, checked
+    return checked
 
 
 @pytest.mark.slow
