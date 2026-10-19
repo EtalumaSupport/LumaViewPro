@@ -27,12 +27,15 @@ there to answer. A walk that ends in ``quit`` or presses ``close`` is one
 nobody watches, so a stop at a failed step also stops the app, with a picture
 of the window; any other walk leaves the app open. Each step's outcome is logged to the main log under ``[SIM WALK  ]``.
 
-``wait`` ends when nothing a gesture started is still in flight: no popup is
-open and the app's ``in_flight`` names nothing (what holds the scope, a lane
-with a task running or queued, an axis moving, an autofocus sweep). Each
-owner answers for its own work; the walk asks and decides nothing. A
-``wait`` that times out names what it was still waiting on, so a stuck walk
-says which. A turret pick, a jog, a go-to, a build: the step after the
+``wait`` ends when nothing a gesture started is still in flight: no progress
+popup is open and the app's ``in_flight`` names nothing (what holds the
+scope, a lane with a task running or queued, an axis moving, an autofocus
+sweep). Each owner answers for its own work; the walk asks and decides
+nothing. A ``wait`` that times out names what it was still waiting on, so a
+stuck walk says which. Any other popup is a question only a person answers,
+so a ``wait`` that finds one stops the walk at once, as a press under it
+does; a touch that closes a popup waits until it is gone, so the next step
+never meets one the walk has answered. A turret pick, a jog, a go-to, a build: the step after the
 ``wait`` reads the state after the work, however long it took.
 
 Walk files are read and checked by ``ui.sim_walk_file``.
@@ -56,6 +59,7 @@ from kivy.uix.textinput import TextInput
 
 from modules import gui_logger
 from ui import file_dialogs
+from ui.progress_popup import CustomPopup
 from ui.sim_walk_file import DEFAULT_SETTLE_S, ends_in_quit, unattended
 
 logger = logging.getLogger('LVP.sim_walk')
@@ -232,15 +236,7 @@ class SimWalk:
             ]
             if buttons:
                 button = _one(buttons, repr(step['button']), 'the open popups')
-                view = next(v for v in open_popups() if _contains(v, button))
-                dismissed = []
-                uid = view.fbind('on_pre_dismiss', lambda *_, d=dismissed: d.append(True))
-                try:
-                    yield from self._touch(button, f'popup button {step["button"]!r}')
-                finally:
-                    view.unbind_uid('on_pre_dismiss', uid)
-                if dismissed:
-                    yield from self._until_closed(view)
+                yield from self._touch(button, f'popup button {step["button"]!r}')
                 return
             if time.monotonic() > deadline:
                 if optional:
@@ -309,6 +305,11 @@ class SimWalk:
         timeout = step.get('timeout_s', _WAIT_TIMEOUT_S)
         deadline = time.monotonic() + timeout
         while True:
+            # A progress popup closes itself when its work ends; any other is
+            # a question only a person answers, so the walk stops at it now.
+            questions = [view for view in open_popups() if not isinstance(view, CustomPopup)]
+            if questions:
+                raise WalkStepError(_answer_it_first(questions[0]))
             still = [f'a popup ({getattr(view, "title", "")!r})' for view in open_popups()]
             still.extend(self._in_flight())
             if not still:
@@ -358,9 +359,7 @@ class SimWalk:
                 )
         popups = open_popups()
         if popups and not _contains(popups[0], _placed_by(target)):
-            raise WalkStepError(
-                f'a popup is open ({getattr(popups[0], "title", "")!r}); answer it first'
-            )
+            raise WalkStepError(_answer_it_first(popups[0]))
 
     def _touch(self, target, path: str):
         self._check_reachable(target, path)
@@ -391,6 +390,13 @@ class SimWalk:
             if widget.collide_point(*touch.pos):
                 arrived.append(True)
 
+        # The popup the target sits in, which the reachability check put on
+        # top: a touch that closes it waits out its fade, so the next step
+        # never meets a popup the walk itself has answered.
+        popups = open_popups()
+        view = popups[0] if popups else None
+        dismissed = []
+        uid = view.fbind('on_pre_dismiss', lambda *_: dismissed.append(True)) if view else None
         target.fbind('on_touch_down', arrival)
         try:
             touch = UnitTestTouch(x, y)
@@ -401,8 +407,12 @@ class SimWalk:
                 yield _POLL_S
         finally:
             target.funbind('on_touch_down', arrival)
+            if view is not None:
+                view.unbind_uid('on_pre_dismiss', uid)
         if not arrived:
             raise WalkStepError(f'{path}: the touch at ({x:.0f}, {y:.0f}) did not reach it')
+        if dismissed:
+            yield from self._until_closed(view)
 
 
 def _stop_the_app() -> None:
@@ -432,6 +442,11 @@ def _class_matches(widget, segment: str) -> bool:
         return True
     attr, _, value = condition.rstrip(']').partition('=')
     return str(getattr(widget, attr, None)) == value
+
+
+def _answer_it_first(view) -> str:
+    """Why a step stops at an open popup: the press's words and the wait's."""
+    return f'a popup is open ({getattr(view, "title", "")!r}); answer it first'
 
 
 def open_popups() -> list:

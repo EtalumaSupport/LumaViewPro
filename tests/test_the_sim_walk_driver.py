@@ -201,6 +201,12 @@ Builder.load_string('''
         size_hint: None, None
         size: 100, 40
         pos: 740, 200
+    Button:
+        id: progbtn
+        text: 'prog'
+        size_hint: None, None
+        size: 100, 40
+        pos: 500, 200
 ''')
 
 root = FloatLayout()
@@ -272,6 +278,16 @@ ids.busybtn.bind(on_release=lambda *_: lane.put(IOTask(action=busy, args=(1.5,))
 ids.longbtn.bind(on_release=lambda *_: lane.put(IOTask(action=busy, args=(5.0,))))
 def in_flight():
     return [f'the IO lane ({lane.describe_running_task()})'] if lane.is_busy() else []
+
+# The app's progress popup, as a build opens it: it closes itself when the
+# work behind it ends, so a wait holds for it; its close recorded in wall time.
+from ui.progress_popup import CustomPopup
+def open_progress(*_):
+    p = CustomPopup(title='Building', auto_dismiss=False)
+    p.bind(on_dismiss=lambda *_: frames.__setitem__('progress_closed', time.time()))
+    p.open()
+    Clock.schedule_once(lambda dt: p.dismiss(), 1.0)
+ids.progbtn.bind(on_release=open_progress)
 
 def native():
     raise AssertionError('the native picker ran during a scripted walk')
@@ -637,6 +653,54 @@ def test_a_wait_holds_while_a_lane_works_and_names_it_at_the_timeout(tmp_path):
         r'stopped at step 2 \(wait\): still in flight after 1 s: the IO lane \(busy \ds in flight\)',
         stopped['outcome'],
     ), stopped['outcome']
+
+
+def test_a_wait_stops_at_once_at_a_popup_that_waits_for_a_person(tmp_path):
+    """A refusal or a question is answered by nobody but a person, so a
+    ``wait`` behind one stops the walk in the next press's words, not at its
+    timeout (Eric, 2026-10-08: "No Steps" held a walk until the app was
+    closed, "Not Enough Channels" held one for its 180 s)."""
+    result = _run(tmp_path, [{'do': 'press', 'path': 'Panel/modalbtn'}, {'do': 'wait'}])
+
+    assert result['outcome'] == (
+        "stopped at step 2 (wait): a popup is open ('Busy'); answer it first"
+    ), result
+    started = next(t for line, t in result['walk_times'].items() if ' step 1 ' in line)
+    stopped = next(t for line, t in result['walk_times'].items() if 'stopped at step 2' in line)
+    assert stopped - started < 5.0, 'the wait held behind the popup'
+
+
+def test_a_wait_after_a_press_that_closed_a_popup_runs_on(tmp_path):
+    """The popup a press inside it dismissed fades before it leaves the
+    window; the press waits that out, so the wait after it finds no popup."""
+    result = _run(
+        tmp_path,
+        [
+            {'do': 'press', 'path': 'Panel/popbtn'},
+            {'do': 'press', 'path': 'Popup/Button[text=OK]', 'settle_s': 0},
+            {'do': 'wait'},
+        ],
+    )
+
+    assert result['outcome'] == 'done', result
+    assert result['hits'] == ['ok'], result
+
+
+def test_a_wait_holds_for_a_progress_popup_until_it_closes_itself(tmp_path):
+    result = _run(
+        tmp_path,
+        [
+            {'do': 'press', 'path': 'Panel/progbtn'},
+            {'do': 'wait'},
+            {'do': 'read', 'path': 'Panel/field', 'props': ['text']},
+        ],
+    )
+
+    assert result['outcome'] == 'done', result
+    read_line = next(line for line in result['walk_lines'] if ' step 3 read ' in line)
+    assert result['walk_times'][read_line] > result['frames']['progress_closed'], (
+        'the read ran before the progress popup closed'
+    )
 
 
 def test_a_press_waits_for_the_drawer_it_sits_in_to_settle(tmp_path):
