@@ -46,6 +46,7 @@ CLASSIFIED = {
     'modules/autofocus_runner.py::AutofocusRunner._iterate': RUN,
     'modules/config_helpers.py::get_current_plate_position': FEEDS_A_REFUSING_API,
     'modules/lumascope_api/_lumascope.py::Lumascope.__init__._sim_stage_xy': DISPLAYS,
+    'modules/lumascope_api/_lumascope.py::Lumascope.__init__._sim_stage_z': DISPLAYS,
     'modules/lumascope_api/protocols.py::ProtocolsAPI.focus_z': SAVES,
     'modules/lumascope_api/runtime_state.py::RuntimeState.get_well_label': CAPTURE_METADATA,
     'modules/recording_frames.py::frame_fact': CAPTURE_METADATA,
@@ -61,11 +62,15 @@ CLASSIFIED = {
 
 
 def _own_nodes(fn):
-    """The function's own body, nested defs excluded."""
+    """The function's own body, nested defs excluded.
+
+    A lambda is part of the body that writes it: it has no name of its own
+    to classify, so its reads are the enclosing function's.
+    """
     stack = list(fn.body)
     while stack:
         node = stack.pop()
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
             continue
         yield node
         stack.extend(ast.iter_child_nodes(node))

@@ -804,6 +804,11 @@ class Lumascope:
                 self.motion.get_current_position('Y'),
             )
 
+        def _sim_stage_z() -> float | None:
+            """Where Z stands, so the simulated sample's focus follows it; a
+            scope with no focus axis answers None."""
+            return self.motion.get_current_position('Z')
+
         def _sim_pixel_size() -> float | None:
             """The image scale the simulators draw the sample at: the one every
             saved image carries, for the current objective at binning 1 (a
@@ -855,7 +860,7 @@ class Lumascope:
         camera_kwargs: dict = {}
         if simulate and sim_fx2 is None:
             camera_kwargs['timing'] = _camera_timing(sim_tier)
-            camera_kwargs['z_position_func'] = lambda: self.motion.get_current_position('Z')
+            camera_kwargs['z_position_func'] = _sim_stage_z
             # The sample follows the stage the same way, at the objective's
             # image scale.
             camera_kwargs['xy_position_func'] = _sim_stage_xy
