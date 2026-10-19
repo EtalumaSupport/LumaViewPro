@@ -86,3 +86,16 @@ def test_a_number_is_stored_and_counted(panel):
     zstack.set_steps()
     assert settings['zstack']['step_size'] == 2.5
     assert zstack.ids['zstack_steps_id'].text == '21'
+
+
+def test_a_number_taken_stays_as_typed_and_records_no_put_back(panel, monkeypatch):
+    # The box is redrawn from the store only when the store did not take the
+    # entry: a taken '5' redrawn as '5.0' was recorded as a put-back, and so
+    # was the range box nobody touched.
+    zstack, _settings = panel
+    recorded = []
+    monkeypatch.setattr(zstack_module.gui_logger, 'text_input', lambda *a: recorded.append(a))
+    zstack.set_steps()
+    assert zstack.ids['zstack_stepsize_id'].text == '5'
+    assert zstack.ids['zstack_range_id'].text == '50'
+    assert recorded == []

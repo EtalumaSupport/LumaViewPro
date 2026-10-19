@@ -73,9 +73,13 @@ class ZStack(FloatLayout):
                     lambda key=key, value=value: _app_ctx.ctx.update_settings(
                         f'zstack.{key}', value
                     ),
-                    put_back,
+                    None,
                     name,
                 )
+                # Redrawn only when the store did not take what was typed: a
+                # number taken stays as typed, so its record is not a put-back.
+                if settings['zstack'][key] != value:
+                    put_back()
 
         for wid, _key, name in fields:
             if self.ids[wid].text != typed[wid]:
