@@ -17,7 +17,7 @@ import enum
 import pytest
 from fastapi.testclient import TestClient
 
-from modules.api_surface import API, fields_of, is_record, mark_of
+from modules.api_surface import API, IN_PROCESS, fields_of, is_record, mark_of
 from modules.lumascope_api.illumination import LedReading, LedState
 from modules.scope_session import ScopeSession
 from rest.app import SERVER_SEGMENTS, build_app
@@ -94,6 +94,30 @@ def test_the_routes_are_exactly_the_wire_members(client, session):
     # The sub-objects are reached, not only the Session's own members.
     assert ('post', '/api/v1/scope/motion/move_absolute') in served
     assert ('get', '/api/v1/manual_recording/is_recording') in served
+
+
+def test_the_camera_s_engineering_members_are_in_process_and_served_nowhere(client):
+    """The camera's save and restore and the last capture's internals are the
+    engineering plugin's, called in-process; a wire client reaches none of them.
+
+    The test above holds the routes equal to the members marked for the wire,
+    so a member marked back onto it would pass there; these four are named.
+    """
+    from modules.lumascope_api.camera import CameraAPI
+    from modules.lumascope_api.imaging import ImagingAPI
+
+    engineering = {
+        'save_camera_state': CameraAPI,
+        'restore_camera_state': CameraAPI,
+        'last_capture_info': ImagingAPI,
+        'saturated_fraction': ImagingAPI,
+    }
+    marks = {name: mark_of(vars(owner)[name]) for name, owner in engineering.items()}
+    assert marks == dict.fromkeys(engineering, IN_PROCESS)
+
+    paths = client.get('/api/v1/openapi.json').json()['paths']
+    served = {path.rsplit('/', 1)[-1] for path in paths}
+    assert served & set(engineering) == set()
 
 
 def test_the_versions_are_answered_unversioned(client):
