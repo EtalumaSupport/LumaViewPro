@@ -34,6 +34,8 @@ import traceback
 
 from harness import HARDWARE, check, figure, hardware_session, make_session, report
 
+from modules.frame_validity import FrameValidity
+
 MOVE_TIMEOUT_S = 10.0
 SPAN_UM = 20000.0
 Z_SPAN_UM = 3000.0
@@ -57,20 +59,44 @@ def _arrive(motion, handle, timeout_s=MOVE_TIMEOUT_S):
 
 
 def _capture_behind(session, start_move):
-    """Start a move, capture at once; return (move s, capture s, answer)."""
+    """Start a move, capture at once; return (move s, capture s, answer, predates).
+
+    ``predates``: the frame arrived no later than the command's first motion
+    change was recorded, so it shows the stage before anything moved, which
+    is true. A capture asked as the command starts can return it before the
+    move does; that is not a capture that failed to wait.
+    """
     motion = session.scope.motion
+    fv = session.scope.frame_validity
+    first = []
+
+    def observed(source):
+        change = FrameValidity.invalidate(fv, source)
+        if source in FrameValidity.MOTION_SOURCES and not first:
+            first.append(change.at_seq)
+        return change
+
+    # An observer on this probe's own scope, passing each call through.
+    fv.invalidate = observed
     arrived = {}
-    start = time.monotonic()
-    handle = start_move()
-    handle.add_done_callback(lambda _h: arrived.setdefault('at', time.monotonic()))
     try:
-        image = session.scope.imaging.capture_and_wait()
-        answer = f'frame {image.shape}'
-    except Exception as e:
-        answer = f'{type(e).__name__}: {getattr(e, "reason", e)}'
-    captured = time.monotonic() - start
-    _arrive(motion, handle)
-    return arrived['at'] - start, captured, answer
+        start = time.monotonic()
+        handle = start_move()
+        handle.add_done_callback(lambda _h: arrived.setdefault('at', time.monotonic()))
+        try:
+            image = session.scope.imaging.capture_and_wait()
+            answer = f'frame {image.shape}'
+        except Exception as e:
+            answer = f'{type(e).__name__}: {getattr(e, "reason", e)}'
+        captured = time.monotonic() - start
+        _arrive(motion, handle)
+    finally:
+        del fv.invalidate
+    predates = False
+    if answer.startswith('frame'):
+        frame_seq = session.scope.imaging.last_capture_info['frame_record'].judgments[0].frame_seq
+        predates = not first or frame_seq <= first[0]
+    return arrived['at'] - start, captured, answer, predates
 
 
 def _capture_behind_a_move(session, axis):
@@ -87,14 +113,14 @@ def _capture_behind_a_move(session, axis):
     return result
 
 
-def _judge(name, moved, captured, answer, bound_s):
+def _judge(name, moved, captured, answer, predates, bound_s):
     figure(f'{name} move s / capture s', (round(moved, 2), round(captured, 2)))
     figure(f'{name} capture answered', answer)
     check(f'{name}: the capture returned a frame', answer.startswith('frame'), answer)
     check(
-        f'{name}: the capture waited the move out',
-        captured >= moved,
-        f'capture {captured:.2f} s, move {moved:.2f} s',
+        f'{name}: the capture waited the move out, or its frame predates the move',
+        captured >= moved or predates,
+        f'capture {captured:.2f} s, move {moved:.2f} s, frame predates the move: {predates}',
     )
 
 
@@ -127,11 +153,11 @@ def main():
             limits = motion.get_axis_limits(axis)
             if limits is None:
                 continue
-            moved, captured, answer = _capture_behind_a_move(session, axis)
+            moved, captured, answer, predates = _capture_behind_a_move(session, axis)
             span = Z_SPAN_UM if axis == 'Z' else 2 * SPAN_UM
             speed = span / moved
             full_s = (limits.max_um - limits.min_um) / speed
-            _judge(axis, moved, captured, answer, bound_s)
+            _judge(axis, moved, captured, answer, predates, bound_s)
             figure(f'{axis} um/s over the span', round(speed))
             figure(f'{axis} whole range s (derived)', round(full_s, 1))
             check(
@@ -146,10 +172,10 @@ def main():
             # move_turret waits for the change, so it runs on its own thread
             # and the capture is asked as it starts.
             with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                moved, captured, answer = _capture_behind(
+                moved, captured, answer, predates = _capture_behind(
                     session, lambda: pool.submit(motion.move_turret, other)
                 )
-            _judge(f'turret {slot} to {other}', moved, captured, answer, bound_s)
+            _judge(f'turret {slot} to {other}', moved, captured, answer, predates, bound_s)
             check(
                 'a slot change is inside the capture bound',
                 moved < bound_s,
