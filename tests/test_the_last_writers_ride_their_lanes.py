@@ -253,7 +253,7 @@ class TestTheSupportReportDuringARun:
 
         assert led_sent == [] and led_multi_sent == [], 'an LED command went out during a run'
         assert motor_sent == [] and motor_multi_sent == [], 'a motor command went out during a run'
-        assert sn == sc.diagnostics.get_motor_info()['serial_number']
+        assert sn == sc.diagnostics.get_motor_info().serial_number
         motor_info = (tmp_path / 'firmware_info' / 'motor_info.txt').read_text()
         assert sn in motor_info and 'SKIPPED' in motor_info
         for rel in (

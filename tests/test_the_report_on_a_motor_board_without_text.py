@@ -71,17 +71,17 @@ def _report(session, tmp_path):
 
 class TestTheMotorInfoNamesTheCommandSet:
     def test_a_text_board_names_its_set(self, session):
-        assert session.scope.diagnostics.get_motor_info()['command_set'] == MOTOR_COMMANDS_TEXT
+        assert session.scope.diagnostics.get_motor_info().command_set == MOTOR_COMMANDS_TEXT
 
     def test_a_board_without_text_names_none(self, session, monkeypatch):
         monkeypatch.delattr(SimulatedMotorBoard, 'exchange_multiline')
 
-        assert session.scope.diagnostics.get_motor_info()['command_set'] is None
+        assert session.scope.diagnostics.get_motor_info().command_set is None
 
     def test_no_board_names_none(self, session, monkeypatch):
         monkeypatch.setattr(type(session.scope), 'motor_connected', property(lambda self: False))
 
-        assert session.scope.diagnostics.get_motor_info()['command_set'] is None
+        assert session.scope.diagnostics.get_motor_info().command_set is None
 
 
 def test_every_text_section_says_not_applicable_and_the_board_is_sent_no_text(

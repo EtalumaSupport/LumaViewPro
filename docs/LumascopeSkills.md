@@ -1500,7 +1500,7 @@ screen are assembled identically.
 # (create() with no scope=) also: LEDs off, motion stopped, scope disconnected,
 # which shuts its IO and CAMERA lanes. Reading that scope afterwards:
 # motor_connected is False, imaging.is_streaming() is False,
-# diagnostics.get_motor_info()['model'] is None. A second shutdown() logs one
+# diagnostics.get_motor_info().model is None. A second shutdown() logs one
 # info line and does nothing.
 session.shutdown()
 ```
@@ -2289,14 +2289,18 @@ turret     — turret move
 Hardware diagnostic probes and identity getters live on the `scope.diagnostics` sub-API. Per-call (no persistent state); meant for tech-support reports, bench tooling, and bring-up scripts that want one-shot snapshots of camera / motor / LED state.
 
 ```python
-scope.diagnostics.get_motor_info()         # the model the board reports ('LS850'), serial, firmware, axis config,
-                                           #   command_set: 'text' (the EL-0940's INFO, FULLINFO, ACTUAL_R, ...),
-                                           #   None (no text commands, e.g. the LS720's TMCM-6110; or no board)
+scope.diagnostics.get_motor_info()         # MotorBoardInfo, as the board reported at connect: model (its own
+                                           #   report, 'LS850'), serial_number, firmware_version ('original' for
+                                           #   the original firmware), firmware_date, command_set: 'text' (the
+                                           #   EL-0940's INFO, FULLINFO, ACTUAL_R, ...) or None (no text commands,
+                                           #   e.g. the LS720's TMCM-6110). Each field None when unknown, all of
+                                           #   them with no board.
 scope.capabilities.model                   # the model the scope runs as: the board's, else the selection
-scope.diagnostics.get_led_info()           # firmware_version, connected, command_set:
+scope.diagnostics.get_led_info()           # LedBoardInfo: firmware_version, firmware_date, command_set:
                                            #   'v2' (INFO, SELFTEST, I2CSCAN, LEDREAD),
                                            #   'legacy' (INFO only: firmware before v2),
-                                           #   None (no text commands, e.g. an FX2 scope)
+                                           #   None (no text commands, e.g. an FX2 scope). Each field None
+                                           #   when unknown; whether a board is there is scope.led_connected
 scope.diagnostics.get_system_info()        # combined summary
 scope.capabilities.pixel_size_um           # raw per-installation um/pixel, or None if the scope cannot report it (unknown camera / no declared optics). The effective um/pixel at the current objective and binning is scope.runtime_state.get_pixel_size_um().
 scope.capabilities.lens_focal_length_mm    # tube-lens focal length, mm, or None if the scope cannot report it
@@ -2463,7 +2467,7 @@ Trigger devices, USB-to-IO trigger boards and external sync are not in LumaViewP
 
 Mutable counterpart to `scope.capabilities`: the runtime-mutable user configuration (labware, objective, turret, stage).
 
-Firmware versions are a live query: `scope.diagnostics.get_motor_info()['firmware_version']` / `scope.diagnostics.get_led_info()['firmware_version']`.
+Firmware versions are what each board reported at connect: `scope.diagnostics.get_motor_info().firmware_version` / `scope.diagnostics.get_led_info().firmware_version`.
 
 ---
 
@@ -3950,6 +3954,14 @@ Reached through returned by `scope.layer_identity.find` and `layers`.
 - `led_channel`
 - `modality`
 
+### LedBoardInfo
+
+Reached through returned by `scope.diagnostics.get_led_info`.
+
+- `command_set`
+- `firmware_date`
+- `firmware_version`
+
 ### LedReading
 
 Reached through returned by `scope.illumination.get_led_state` and `get_led_states`, and the event `scope.illumination.add_led_listener` delivers.
@@ -3982,6 +3994,16 @@ Reached through `session.live_work`.
 - `closed`
 - `closing`
 - `work`
+
+### MotorBoardInfo
+
+Reached through returned by `scope.diagnostics.get_motor_info`.
+
+- `command_set`
+- `firmware_date`
+- `firmware_version`
+- `model`
+- `serial_number`
 
 ### NamespaceHealth
 

@@ -62,12 +62,12 @@ def test_the_channels_stand_ins_are_not_replies():
 
 
 def test_a_v2_board_carries_every_led_command(session):
-    assert session.scope.diagnostics.get_led_info()['command_set'] == LED_COMMANDS_V2
+    assert session.scope.diagnostics.get_led_info().command_set == LED_COMMANDS_V2
 
 
 def test_a_pre_v2_board_keeps_its_info_and_says_what_it_cannot_do(session, monkeypatch):
     monkeypatch.setattr(session.scope._led_driver, 'firmware_version', '1.4')
-    assert session.scope.diagnostics.get_led_info()['command_set'] == LED_COMMANDS_LEGACY
+    assert session.scope.diagnostics.get_led_info().command_set == LED_COMMANDS_LEGACY
 
     diag = FirmwareDiagnostics(scope=session.scope)
     info = diag.get_led_info()
@@ -81,7 +81,7 @@ def test_a_pre_v2_board_keeps_its_info_and_says_what_it_cannot_do(session, monke
 def test_an_fx2_led_board_is_not_asked_for_text_commands(session, monkeypatch, fx2_led, tmp_path):
     monkeypatch.setattr(session.scope, '_led_driver', fx2_led)
     try:
-        assert session.scope.diagnostics.get_led_info()['command_set'] is None
+        assert session.scope.diagnostics.get_led_info().command_set is None
         diag = FirmwareDiagnostics(scope=session.scope)
         for answer in (
             diag.get_led_info(),
@@ -220,8 +220,7 @@ def test_with_no_led_board_the_api_reads_nothing_and_names_no_command_set(sessio
     monkeypatch.setattr(type(session.scope), 'led_connected', property(lambda self: False))
     monkeypatch.setattr(session.scope._led_driver, 'is_connected', lambda: False)
     assert session.scope.diagnostics.read_led_currents_ma() == {}
-    info = session.scope.diagnostics.get_led_info()
-    assert info['connected'] is False and info['command_set'] is None
+    assert session.scope.diagnostics.get_led_info().command_set is None
 
 
 def test_a_retry_that_builds_the_scope_clears_the_failure(monkeypatch):

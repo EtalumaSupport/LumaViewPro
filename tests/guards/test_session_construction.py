@@ -85,7 +85,7 @@ class TestCreateTakesTheHostInjections:
             assert session.engineering_mode is True
             assert session.no_engineering is True
             assert session.scope.no_hardware is False, 'simulate=True reached the scope'
-            assert session.scope.diagnostics.get_motor_info()['model'] is not None
+            assert session.scope.diagnostics.get_motor_info().model is not None
         finally:
             session.shutdown()
             session.scope.disconnect()

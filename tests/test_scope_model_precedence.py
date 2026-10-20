@@ -10,6 +10,8 @@ configured for the wrong axes -- the GUI corrected that in its own copy of
 the bring-up, and a headless host never did.
 """
 
+import dataclasses
+
 import pytest
 
 from modules.scope_session import ScopeSession
@@ -41,14 +43,14 @@ class TestASimulatedScopeReportsItsDeclaredModel:
         monkeypatch.setattr(settings_init, 'settings', {'microscope': 'LS850T'})
         scope = _sim_scope(configured_model='LS850')
         try:
-            assert scope.diagnostics.get_motor_info()['model'] == 'LS850'
+            assert scope.diagnostics.get_motor_info().model == 'LS850'
         finally:
             scope.disconnect()
 
     def test_sim_model_still_outranks_configured_model(self):
         scope = _sim_scope(sim_model='LS850T', configured_model='LS850')
         try:
-            assert scope.diagnostics.get_motor_info()['model'] == 'LS850T'
+            assert scope.diagnostics.get_motor_info().model == 'LS850T'
         finally:
             scope.disconnect()
 
@@ -59,7 +61,7 @@ class TestASimulatedScopeReportsItsDeclaredModel:
         session = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
         try:
             assert session.settings['microscope'] == 'LS850'
-            assert session.scope.diagnostics.get_motor_info()['model'] == 'LS850'
+            assert session.scope.diagnostics.get_motor_info().model == 'LS850'
             assert session.scope.capabilities.has_turret is False
         finally:
             session.shutdown()
@@ -110,7 +112,9 @@ class TestTheBringUpAdoptsTheReportedModel:
         session = self._caller_scope_session(tmp_path, scope, microscope='LS850T')
         reported = scope.diagnostics.get_motor_info
         monkeypatch.setattr(
-            scope.diagnostics, 'get_motor_info', lambda: {**reported(), 'model': 'LS999'}
+            scope.diagnostics,
+            'get_motor_info',
+            lambda: dataclasses.replace(reported(), model='LS999'),
         )
         try:
             session.configure_scope()
@@ -125,7 +129,7 @@ class TestTheBringUpAdoptsTheReportedModel:
         session = self._caller_scope_session(tmp_path, scope, microscope='LS850T')
         reported = scope.diagnostics.get_motor_info
         monkeypatch.setattr(
-            scope.diagnostics, 'get_motor_info', lambda: {**reported(), 'model': None}
+            scope.diagnostics, 'get_motor_info', lambda: dataclasses.replace(reported(), model=None)
         )
         try:
             session.configure_scope()

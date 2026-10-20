@@ -1005,7 +1005,7 @@ class FirmwareDiagnostics:
         unread = self._unread_motor_board()
         if unread is not None:
             return unread
-        if self._scope.diagnostics.get_motor_info()['command_set'] is None:
+        if self._scope.diagnostics.get_motor_info().command_set is None:
             return {'not_applicable': NO_MOTOR_TEXT}
         return None
 
@@ -1031,7 +1031,7 @@ class FirmwareDiagnostics:
         """
         if not self._led_ok():
             return {'error': 'LED board not connected'}
-        command_set = self._scope.diagnostics.get_led_info()['command_set']
+        command_set = self._scope.diagnostics.get_led_info().command_set
         if command_set is None:
             return {'not_applicable': 'Not supported on this LED board (no text command channel)'}
         if needs_v2 and command_set != LED_COMMANDS_V2:
@@ -1188,7 +1188,7 @@ class FirmwareDiagnostics:
         connect, or ``'UNKNOWN'``.
         """
         if self._no_motor_text() is not None:
-            return self._scope.diagnostics.get_motor_info()['serial_number'] or 'UNKNOWN'
+            return self._scope.diagnostics.get_motor_info().serial_number or 'UNKNOWN'
         fullinfo = self.get_motor_fullinfo()
         if not is_board_reply(fullinfo):
             return 'UNKNOWN'
@@ -1793,7 +1793,7 @@ class TechSupportReport:
         """
         d = tmp / 'firmware_info'
         d.mkdir()
-        led_info = self.scope.diagnostics.get_led_info()
+        led_info = self.scope.diagnostics.get_led_info().to_dict()
         skipped = (
             f'SKIPPED board queries: {refusal.message}\n'
             'The microscope was in use; these are the values cached at connect.\n'
@@ -1805,8 +1805,8 @@ class TechSupportReport:
             sn = 'UNKNOWN'
             self._write_no_motor_board(d, sn)
         else:
-            motor_info = self.scope.diagnostics.get_motor_info()
-            sn = motor_info.get('serial_number') or 'UNKNOWN'
+            motor_info = self.scope.diagnostics.get_motor_info().to_dict()
+            sn = motor_info['serial_number'] or 'UNKNOWN'
             with open(d / 'motor_info.txt', 'w') as f:
                 f.write(f'Motor Board (cached at connect):\n{motor_info}\n\n')
                 f.write(f'Serial Number: {sn}\n\n{skipped}')

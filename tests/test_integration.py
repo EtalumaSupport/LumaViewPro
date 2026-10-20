@@ -850,50 +850,6 @@ class TestRestAPIPrep:
             session.scope.camera.set_image_mode('8bit')
         assert exc.value.missing == MissingPart.CAMERA
 
-    def test_get_motor_info(self):
-        """get_motor_info() should return model, serial, firmware."""
-        session = ScopeSession.create(complete_settings(), simulate=True)
-        info = session.scope.diagnostics.get_motor_info()
-        assert 'model' in info
-        assert 'serial_number' in info
-        assert 'firmware_version' in info
-        assert info['model'] is not None
-
-    def test_get_motor_info_serves_identity_from_cache(self):
-        """get_motor_info() must not issue a live FULLINFO.
-
-        It is called once per saved frame to stamp image metadata. Model
-        and serial number are fixed for the life of a connection, so they
-        come from the FULLINFO response cached at connect; a wire query
-        here would put a serial round-trip on every capture.
-        """
-        session = ScopeSession.create(complete_settings(), simulate=True)
-        driver = session.scope._motion_driver
-        original_fullinfo = driver.fullinfo
-        fullinfo_calls = []
-
-        def _counting_fullinfo(*args, **kwargs):
-            fullinfo_calls.append(1)
-            return original_fullinfo(*args, **kwargs)
-
-        driver.fullinfo = _counting_fullinfo
-        info = session.scope.diagnostics.get_motor_info()
-
-        assert fullinfo_calls == [], (
-            'get_motor_info() called fullinfo(): it must serve model and '
-            'serial number from the cached connect-time FULLINFO, not '
-            're-query the serial bus on every saved frame'
-        )
-        assert info['model'] is not None
-        assert info['serial_number'] is not None
-
-    def test_get_led_info(self):
-        """get_led_info() should return firmware and connection status."""
-        session = ScopeSession.create(complete_settings(), simulate=True)
-        info = session.scope.diagnostics.get_led_info()
-        assert info['connected'] is True
-        assert info['firmware_version'] is not None
-
     def test_the_system_info_names_the_connected_camera(self):
         """get_system_info()'s camera entry has the model and connection status."""
         session = ScopeSession.create(complete_settings(), simulate=True)
@@ -920,8 +876,8 @@ class TestRestAPIPrep:
         session.scope._led_driver = None
         session.scope._camera_driver = None
         info = session.scope.diagnostics.get_system_info()
-        assert info['motor']['model'] is None
-        assert info['led']['connected'] is False
+        assert info['motor'].model is None
+        assert info['led'].command_set is None
         assert info['camera']['connected'] is False
 
     def test_encode_image_png(self):

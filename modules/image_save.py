@@ -384,13 +384,9 @@ def generate_image_metadata(
     # with no motor board (every FX2 model), so it cannot name the scope.
     microscope_model = scope.layer_identity.model
 
-    # Instrument + Plate metadata for OME-XML compatibility (#491).
-    # Sourced from diagnostics + runtime_state; failures are non-fatal
-    # since the per-image save must not block on diagnostics flakes.
-    try:
-        motor_info = scope.diagnostics.get_motor_info()
-    except Exception:
-        motor_info = {'serial_number': None}
+    # Instrument + Plate metadata for OME-XML compatibility (#491). The
+    # board's identity is what it reported at connect: no serial traffic.
+    motor_info = scope.diagnostics.get_motor_info()
     # The frame's own exposure and gain, from its record: the capture took
     # them from the frame's chunks, or beside the grab on a camera without
     # chunks, and left out a value it could not read -- so an absent key
@@ -462,7 +458,7 @@ def generate_image_metadata(
         'instrument': {
             'manufacturer': 'Etaluma',
             'model': microscope_model,
-            'serial_number': motor_info.get('serial_number'),
+            'serial_number': motor_info.serial_number,
             'camera_model': frame_record.camera_model,
         },
         'plate': {

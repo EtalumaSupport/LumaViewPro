@@ -293,13 +293,13 @@ def test_an_image_that_is_not_the_shipped_firmware_is_refused():
 def test_the_fx2_led_controller_reports_no_firmware_version(session):
     # It has no firmware of its own; the scope's model names it an FX2 scope.
     info = session.scope.diagnostics.get_led_info()
-    assert info['firmware_version'] is None
-    assert info['firmware_date'] is None
+    assert info.firmware_version is None
+    assert info.firmware_date is None
 
 
 def test_the_support_report_says_the_led_diagnostics_are_not_supported(session):
     from modules.tech_support_report import FirmwareDiagnostics
 
-    assert session.scope.diagnostics.get_led_info()['command_set'] is None
+    assert session.scope.diagnostics.get_led_info().command_set is None
     answer = FirmwareDiagnostics(scope=session.scope).get_led_info()
     assert answer.startswith('Not supported on this LED board'), answer

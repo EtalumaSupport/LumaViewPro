@@ -3558,7 +3558,7 @@ class ScopeSession:
         # read is synchronous; no board (or a board with no model) reports
         # None and the stored selection stands. The board's own report, not
         # the scope's resolved model, which falls back to the selection.
-        detected = self.scope.diagnostics.get_motor_info()['model']
+        detected = self.scope.diagnostics.get_motor_info().model
         stored = self.settings.get('microscope')
         if detected is not None and detected in scope_models and detected != stored:
             with self.settings_lock:

@@ -113,6 +113,57 @@ class UsbIdentityBindings:
     devices: tuple[UsbDeviceBinding, ...]
 
 
+@api_fields('model', 'serial_number', 'firmware_version', 'firmware_date', 'command_set')
+@dataclass(frozen=True)
+class MotorBoardInfo:
+    """The motor board's identity, as it reported it at connect.
+
+    Each field is None when it is unknown: no board, a board that did not
+    answer, or a reply that could not be read.
+
+    Attributes:
+        model: The scope model the board reports (``'LS850T'``), the board's
+            own report and not ``capabilities.model``, which falls back to the
+            operator's selection.
+        serial_number: The board's serial number.
+        firmware_version: The parsed version, or ``ORIGINAL_FIRMWARE``
+            (``'original'``) for a board that answered INFO with no version
+            string.
+        firmware_date: The date INFO carried.
+        command_set: ``MOTOR_COMMANDS_TEXT`` for a board with a text command
+            channel; None for one without (the TMCM-6110, which speaks binary
+            datagrams) and for no board.
+    """
+
+    model: str | None
+    serial_number: str | None
+    firmware_version: str | None
+    firmware_date: str | None
+    command_set: str | None
+
+
+@api_fields('firmware_version', 'firmware_date', 'command_set')
+@dataclass(frozen=True)
+class LedBoardInfo:
+    """The LED board's firmware, as it reported it at connect.
+
+    Each field is None when it is unknown: no board, a board that did not
+    answer, or one with no firmware of its own (an FX2 scope's LED
+    peripheral). Whether a board is connected is ``led_connected``.
+
+    Attributes:
+        firmware_version: As ``MotorBoardInfo.firmware_version``.
+        firmware_date: As ``MotorBoardInfo.firmware_date``.
+        command_set: ``LED_COMMANDS_V2`` (INFO, SELFTEST, I2CSCAN, LEDREAD),
+            ``LED_COMMANDS_LEGACY`` (INFO only: firmware older than v2), or
+            None: no text command channel, as on an FX2 scope, or no board.
+    """
+
+    firmware_version: str | None
+    firmware_date: str | None
+    command_set: str | None
+
+
 def _refuse_outside(value: object, argument: str, limits: tuple[float, float]) -> None:
     """Refuse ``value`` unless it is a finite number within ``limits``, ends included.
 
@@ -130,14 +181,14 @@ NO_REPLY = 'None'  # a single-line read that timed out
 NO_RESPONSE = 'No response'  # a multi-line read that returned nothing
 ERROR_PREFIX = 'Error: '
 
-# The LED board's text command set, as ``get_led_info()['command_set']``
+# The LED board's text command set, as ``get_led_info().command_set``
 # names it. INFO predates the v2 firmware; SELFTEST, I2CSCAN and the
 # LEDREAD current reads came with it. A board with no text command channel
 # at all (the FX2's LED peripheral) answers None.
 LED_COMMANDS_LEGACY = 'legacy'
 LED_COMMANDS_V2 = 'v2'
 
-# The motor board's text command set, as ``get_motor_info()['command_set']``
+# The motor board's text command set, as ``get_motor_info().command_set``
 # names it: the EL-0940's (INFO, FULLINFO, ACTUAL_R, SPI and the rest). A
 # board with no text command channel (the TMCM-6110, which speaks binary
 # datagrams), or no board connected, answers None.
@@ -1254,58 +1305,37 @@ class DiagnosticsAPI:
     # they retire.
 
     @api(reads=True)
-    def get_motor_info(self) -> dict:
-        """Get motor controller information.
+    def get_motor_info(self) -> MotorBoardInfo:
+        """The motor board's identity.
 
-        Identity fields are constant for the life of a connection, so
-        they are served from the values FULLINFO cached at connect rather
-        than re-queried over the serial bus. This method is called once
-        per saved frame to stamp image metadata; a live FULLINFO here
-        would add a serial round-trip to every capture.
+        Served from what FULLINFO and INFO cached at connect, never re-queried
+        over the serial bus: identity is fixed for the life of a connection,
+        and this is read for every saved frame's metadata.
 
         Returns:
-            dict: Keys 'model', 'serial_number', 'firmware_version',
-                  'firmware_date' and 'command_set' (``MOTOR_COMMANDS_TEXT``,
-                  or None: no text command channel, or no board connected).
-                  model/serial are the real strings on a
-                  connected board, and None when they are unknown: a
-                  connected board's FULLINFO failed to parse, or no board
-                  is present (the null driver).
-                  firmware_version is the parsed version, ``'original'``
-                  (ORIGINAL_FIRMWARE) for a board that answered INFO with
-                  no version string, or None when it did not answer;
-                  firmware_date is the date INFO carried, or None.
+            MotorBoardInfo: Each field None when unknown, all of them with
+                no board.
         """
         driver = self._scope._motion_driver
         speaks_text = self._scope.motor_connected and hasattr(driver, 'exchange_multiline')
-        return {
-            'model': driver.get_microscope_model(),
-            'serial_number': driver.get_serial_number(),
+        return MotorBoardInfo(
+            model=driver.get_microscope_model(),
+            serial_number=driver.get_serial_number(),
             **_firmware_identity(driver),
-            'command_set': MOTOR_COMMANDS_TEXT if speaks_text else None,
-        }
+            command_set=MOTOR_COMMANDS_TEXT if speaks_text else None,
+        )
 
     @api(reads=True)
-    def get_led_info(self) -> dict:
-        """Get LED controller information.
+    def get_led_info(self) -> LedBoardInfo:
+        """The LED board's firmware and command set.
 
         Returns:
-            dict: Keys 'firmware_version' and 'firmware_date' (as
-                ``get_motor_info`` names them), 'connected' and
-                'command_set':
-                ``LED_COMMANDS_V2`` (INFO, SELFTEST, I2CSCAN, LEDREAD),
-                ``LED_COMMANDS_LEGACY`` (INFO only: firmware older than v2),
-                or None (no text command channel, as on an FX2 scope, or no
-                board connected).
+            LedBoardInfo: Each field None when unknown, all of them with no
+                board connected.
         """
         drv = self._scope._led_driver
         if not drv or not drv.is_connected():
-            return {
-                'firmware_version': None,
-                'firmware_date': None,
-                'connected': False,
-                'command_set': None,
-            }
+            return LedBoardInfo(firmware_version=None, firmware_date=None, command_set=None)
 
         if not hasattr(drv, 'exchange_multiline'):
             command_set = None
@@ -1313,11 +1343,7 @@ class DiagnosticsAPI:
             command_set = LED_COMMANDS_V2
         else:
             command_set = LED_COMMANDS_LEGACY
-        return {
-            **_firmware_identity(drv),
-            'connected': True,
-            'command_set': command_set,
-        }
+        return LedBoardInfo(**_firmware_identity(drv), command_set=command_set)
 
     @api(in_process=True, reads=True, engineering=True)
     def read_led_currents_ma(self) -> dict[int, float | None]:
