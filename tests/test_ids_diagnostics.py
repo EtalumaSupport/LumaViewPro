@@ -31,6 +31,28 @@ class _ValueNode:
         return self._value
 
 
+class _RangeNode:
+    def __init__(self, value, maximum):
+        self._value = value
+        self._maximum = maximum
+
+    def Value(self):
+        return self._value
+
+    def Maximum(self):
+        return self._maximum
+
+
+class _SequenceNode:
+    """A counter that answers each read with the next of its values."""
+
+    def __init__(self, values):
+        self._values = iter(values)
+
+    def Value(self):
+        return next(self._values)
+
+
 class _EnumNode:
     def __init__(self, symbolic):
         self._symbolic = symbolic
@@ -290,6 +312,116 @@ class TestReadDiagnosticSnapshot:
         snap = cam.read_diagnostic_snapshot(duration_s=0)
         assert '_access_error' in snap['stats_pre']
         assert all(v is None for v in snap['deltas'].values())
+
+    def test_snapshot_records_the_ceilings_the_rate_runs_against(self):
+        # A frame-rate reading means nothing without what bounded it: the
+        # camera's own maximum rate, the bandwidth limit's ceiling, and the
+        # sensor's readout mode, each read off the camera.
+        cam = bare_ids_camera()
+        nodemap = _snapshot_nodemap()
+        nodemap._special = {
+            'AcquisitionFrameRate': _RangeNode(31.4, 31.4),
+            'DeviceLinkThroughputLimit': _RangeNode(300000000, 420000000),
+        }
+        nodemap._enums['SensorOperationMode'] = 'Default'
+        cam.remote_nodemap = nodemap
+        cam.get_all_temperatures = lambda: {}
+        cam._read_stream_stats = lambda: {}
+        snap = cam.read_diagnostic_snapshot(duration_s=0)
+        assert snap['config']['acquisition_frame_rate_max'] == 31.4
+        assert snap['config']['dltl_max_bps'] == 420000000
+        assert snap['config']['sensor_operation_mode'] == 'Default'
+
+    def test_a_failed_rate_ceiling_read_is_recorded_not_raised(self):
+        # One unreadable node never aborts the snapshot: the failed maximum
+        # read is named in the record and the rest is still read.
+        class _MaximumFails(_RangeNode):
+            def Maximum(self):
+                raise RuntimeError('peak: read failed')
+
+        cam = bare_ids_camera()
+        nodemap = _snapshot_nodemap()
+        nodemap._special = {'AcquisitionFrameRate': _MaximumFails(31.4, None)}
+        cam.remote_nodemap = nodemap
+        cam.get_all_temperatures = lambda: {}
+        cam._read_stream_stats = lambda: {}
+        snap = cam.read_diagnostic_snapshot(duration_s=0)
+        assert snap['config']['acquisition_frame_rate_max'] == '<missing: CameraReadFailedError>'
+        assert snap['config']['width'] == 1900
+
+    def test_snapshot_counts_incomplete_and_dropped_frames(self):
+        cam = bare_ids_camera()
+        cam.remote_nodemap = _snapshot_nodemap()
+        cam.get_all_temperatures = lambda: {}
+        # Each counter answers its reading at the window's start, then its end.
+        stream_nm = _Nodemap(
+            special={
+                'StreamIncompleteFrameCount': _SequenceNode([2, 5]),
+                'StreamDroppedFrameCount': _SequenceNode([0, 4]),
+            }
+        )
+        cam.data_stream.NodeMaps.return_value = [stream_nm]
+        snap = cam.read_diagnostic_snapshot(duration_s=0)
+        assert snap['deltas']['StreamIncompleteFrameCount'] == 3
+        assert snap['deltas']['StreamDroppedFrameCount'] == 4
+
+    @pytest.mark.parametrize(
+        ('lost', 'underrun', 'is_camera_rate'),
+        [(0, 0, True), (3, 0, False), (0, 2, False)],
+    )
+    def test_observed_fps_is_the_camera_rate_only_with_no_lost_or_underrun_frame(
+        self, monkeypatch, lost, underrun, is_camera_rate
+    ):
+        # A frame the host lost or had no buffer for never reaches the
+        # delivered count, so a window with either is the host's rate, not
+        # the camera's.
+        from types import SimpleNamespace
+
+        import drivers.idscamera as idscamera
+
+        cam = bare_ids_camera()
+        cam.remote_nodemap = _snapshot_nodemap()
+        cam.get_all_temperatures = lambda: {}
+        polls = [
+            {
+                'StreamDeliveredFrameCount': 0,
+                'StreamLostFrameCount': 0,
+                'StreamUnderrunCount': 0,
+            },
+            {
+                'StreamDeliveredFrameCount': 93,
+                'StreamLostFrameCount': lost,
+                'StreamUnderrunCount': underrun,
+            },
+        ]
+        cam._read_stream_stats = lambda: polls.pop(0)
+        clock = iter([1000.0, 1003.0])
+        monkeypatch.setattr(
+            idscamera, 'time', SimpleNamespace(monotonic=lambda: next(clock), sleep=lambda s: None)
+        )
+        snap = cam.read_diagnostic_snapshot(duration_s=3.0)
+        assert snap['derived']['observed_fps'] == pytest.approx(31.0)
+        assert snap['derived']['observed_fps_is_camera_rate'] is is_camera_rate
+
+    def test_camera_rate_is_unknown_when_a_loss_counter_is_unread(self, monkeypatch):
+        from types import SimpleNamespace
+
+        import drivers.idscamera as idscamera
+
+        cam = bare_ids_camera()
+        cam.remote_nodemap = _snapshot_nodemap()
+        cam.get_all_temperatures = lambda: {}
+        polls = [
+            {'StreamDeliveredFrameCount': 0, 'StreamLostFrameCount': 0},
+            {'StreamDeliveredFrameCount': 93, 'StreamLostFrameCount': 0},
+        ]
+        cam._read_stream_stats = lambda: polls.pop(0)
+        clock = iter([1000.0, 1003.0])
+        monkeypatch.setattr(
+            idscamera, 'time', SimpleNamespace(monotonic=lambda: next(clock), sleep=lambda s: None)
+        )
+        snap = cam.read_diagnostic_snapshot(duration_s=3.0)
+        assert snap['derived']['observed_fps_is_camera_rate'] is None
 
 
 # --- optional-feature node probe (bench-confirms candidate nodes) ------------

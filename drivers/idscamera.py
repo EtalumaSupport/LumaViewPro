@@ -244,6 +244,8 @@ _DIAG_STREAM_COUNTERS = (
     'StreamDeliveredFrameCount',
     'StreamLostFrameCount',
     'StreamUnderrunCount',
+    'StreamIncompleteFrameCount',
+    'StreamDroppedFrameCount',
     'StreamStartedFrameCount',
     'StreamAnnouncedBufferCount',
 )
@@ -839,13 +841,14 @@ class IDSCamera(Camera):
             return False
         return not self._device_removed
 
-    def _diag_node_value(self, name: str, enum: bool = False):
+    def _diag_node_value(self, name: str, enum: bool = False, maximum: bool = False):
         """Read one remote-nodemap value for the snapshot, sentinel on failure.
 
         Mirrors the Pylon snapshot's ``_safe_node``: a missing/unreadable node
         records a ``<missing>`` string instead of raising, so one absent node
         never aborts the whole snapshot. ``enum=True`` reads the current
-        symbolic entry (PixelFormat, throughput component).
+        symbolic entry (PixelFormat, throughput component); ``maximum=True``
+        reads the node's maximum instead of its value.
         """
         try:
             node = self.remote_nodemap.FindNode(name)
@@ -853,6 +856,8 @@ class IDSCamera(Camera):
                 return '<missing>'
             if enum:
                 return node.CurrentEntry().SymbolicValue()
+            if maximum:
+                return node.Maximum()
             return node.Value()
         except Exception as e:
             return f'<missing: {type(e).__name__}>'
@@ -977,7 +982,13 @@ class IDSCamera(Camera):
         configuration, temperatures, and buffer-pool state, then samples the
         GenTL DataStream statistics counters across a ``duration_s`` window and
         computes per-counter deltas + derived rates (observed_fps,
-        loss_rate_pct, losses_per_second). Does NOT change grab state; when the
+        loss_rate_pct, losses_per_second). ``observed_fps`` counts the frames
+        the camera delivered to the host's buffers, before the unpack keeps
+        only the newest, so it is the camera's rate, not the display's;
+        ``observed_fps_is_camera_rate`` is True only when no frame was lost or
+        underrun in the window. The config carries the ceilings that rate
+        runs against: ``acquisition_frame_rate_max``, ``dltl_max_bps`` and
+        ``sensor_operation_mode``. Does NOT change grab state; when the
         camera is not grabbing the deltas are near-zero (counters do not
         advance without an active grab loop), a sentinel rather than an error.
 
@@ -1029,8 +1040,18 @@ class IDSCamera(Camera):
             ('PayloadSize', 'payload_size_bytes', False),
             ('BinningVertical', 'binning_vertical', False),
             ('BinningHorizontal', 'binning_horizontal', False),
+            ('SensorOperationMode', 'sensor_operation_mode', True),
         ):
             result['config'][key] = self._diag_node_value(name, enum=is_enum)
+        # The ceilings a measured rate runs against, so a reading names what
+        # bounded it.
+        result['config']['dltl_max_bps'] = self._diag_node_value(
+            'DeviceLinkThroughputLimit', maximum=True
+        )
+        try:
+            result['config']['acquisition_frame_rate_max'] = self.get_resulting_frame_rate()
+        except Exception as e:
+            result['config']['acquisition_frame_rate_max'] = f'<missing: {type(e).__name__}>'
 
         result['temperatures'] = self.get_all_temperatures()
 
@@ -1081,9 +1102,19 @@ class IDSCamera(Camera):
         # measured-and-clean stream that was never actually observed.
         delivered_d = result['deltas'].get('StreamDeliveredFrameCount')
         lost_d = result['deltas'].get('StreamLostFrameCount')
+        underrun_d = result['deltas'].get('StreamUnderrunCount')
         if duration_s > 0 and dt > 0:
             if isinstance(delivered_d, (int, float)):
                 result['derived']['observed_fps'] = delivered_d / dt
+                # A frame the host lost, or had no free buffer for, never
+                # reaches the delivered count: only a window with neither is
+                # the camera's own rate. None when either count was unread.
+                if isinstance(lost_d, (int, float)) and isinstance(underrun_d, (int, float)):
+                    result['derived']['observed_fps_is_camera_rate'] = (
+                        lost_d == 0 and underrun_d == 0
+                    )
+                else:
+                    result['derived']['observed_fps_is_camera_rate'] = None
                 total = delivered_d + lost_d if isinstance(lost_d, (int, float)) else None
                 if isinstance(total, (int, float)) and total > 0:
                     result['derived']['loss_rate_pct'] = 100.0 * lost_d / total
