@@ -55,6 +55,11 @@ TIMING_MEASURES = ('apply_delay_us', 'delivered_frames')
 TIMING_PROVENANCE = ('run_id', 'host', 'os', 'lvp_version', 'plugin_version', 'measured_date')
 
 
+def _is_amount(value) -> bool:
+    """Whether a timing record's measured number is a number, 0 or more."""
+    return isinstance(value, int | float) and not isinstance(value, bool) and value >= 0
+
+
 class Counter(enum.Enum):
     """Who counted a frame toward a change: the capture's drain, a grab
     (a capture's own, or an ungated ``get_image``), or the live preview.
@@ -703,14 +708,18 @@ class FrameValidity:
 
         A record (``data/camera_timing/<model>.json``) states, in its
         ``validity`` group, how late each change reaches a frame: per source
-        and direction, either the delay on the camera's clock from the write
-        to the first frame exposed under it (``apply_delay_us``) or, for a
-        camera without a clock, the frames delivered after the change's
-        arrival position before the first that shows it
-        (``delivered_frames``), each as ``{'p50', 'p95', 'max'}`` over
-        ``trials``, and each with the ``provenance`` of the run that measured
-        it. A value with no run behind it is not a measurement. The gate's
-        own counts are ``SKIP_FRAMES``; nothing here changes them.
+        and direction, either ``apply_delay_us``, the least start over the
+        ``trials``, on the camera's clock and after the change was in force,
+        of the first frame showing it -- a bound the sensor's true delay never
+        exceeds, so a frame starting after it shows the change, where the
+        latest start of a frame still showing the old state is a bound from
+        below that lets a stale frame through -- or, for a camera without a
+        clock, the frames delivered after the change's arrival position before
+        the first that shows it (``delivered_frames``) as
+        ``{'p50', 'p95', 'max'}`` over its ``trials``; each with the
+        ``provenance`` of the run that measured it. A value with no run
+        behind it is not a measurement. The gate's own counts are
+        ``SKIP_FRAMES``; nothing here changes them.
 
         Raises:
             ValueError: the record is not ``TIMING_RECORD_SCHEMA``, names a
@@ -739,14 +748,14 @@ class FrameValidity:
                     raise ValueError(
                         f'{where} holds {measures or "no measure"}, not one of {TIMING_MEASURES}'
                     )
-                spread = value[measures[0]]
-                if not (
-                    isinstance(spread, dict)
-                    and set(spread) == {'p50', 'p95', 'max'}
-                    and all(
-                        isinstance(v, int | float) and not isinstance(v, bool) and v >= 0
-                        for v in spread.values()
-                    )
+                measured = value[measures[0]]
+                if measures[0] == 'apply_delay_us':
+                    if not _is_amount(measured):
+                        raise ValueError(f'{where}.apply_delay_us is not one number, 0 or more')
+                elif not (
+                    isinstance(measured, dict)
+                    and set(measured) == {'p50', 'p95', 'max'}
+                    and all(_is_amount(v) for v in measured.values())
                 ):
                     raise ValueError(
                         f'{where}.{measures[0]} is not p50, p95 and max, each 0 or more'

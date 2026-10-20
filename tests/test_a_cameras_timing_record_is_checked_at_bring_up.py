@@ -41,6 +41,10 @@ def _measured(**overrides):
     return value
 
 
+def _delay(apply_delay_us):
+    return {'apply_delay_us': apply_delay_us, 'trials': 40, 'provenance': dict(_PROVENANCE)}
+
+
 def _record(validity):
     return {'schema': 2, 'camera_model': 'daA3840-45um', 'validity': validity}
 
@@ -64,21 +68,15 @@ def test_every_shipped_record_is_one_this_release_reads():
 
 
 def test_a_measured_value_with_its_provenance_is_accepted():
-    delay = {
-        'apply_delay_us': {'p50': 120.5, 'p95': 300.0, 'max': 410.0},
-        'trials': 40,
-        'provenance': dict(_PROVENANCE),
-    }
-
     FrameValidity.check_timing_record(
-        _record({'gain': {'up': _measured()}, 'exposure': {'long_to_short': delay}})
+        _record({'gain': {'up': _measured()}, 'exposure': {'long_to_short': _delay(410.0)}})
     )
 
 
 def test_a_record_that_is_no_measurement_is_refused_naming_why():
     no_provenance = _measured()
     del no_provenance['provenance']
-    both = _measured(apply_delay_us={'p50': 1, 'p95': 1, 'max': 1})
+    both = _measured(apply_delay_us=1.0)
     no_measure = {'trials': 1, 'provenance': dict(_PROVENANCE)}
     refused = {
         'the old schema': ({'skip_frames': {'gain': 3}}, 'schema None'),
@@ -98,6 +96,16 @@ def test_a_record_that_is_no_measurement_is_refused_naming_why():
         'a negative count': (
             _record({'gain': {'up': _measured(delivered_frames={'p50': -1, 'p95': 2, 'max': 2})}}),
             'each 0 or more',
+        ),
+        # A delay is the least first-new start over the trials, one bound; a
+        # spread is the old latest-stale measure, a bound from below.
+        'a delay given as a spread': (
+            _record({'exposure': {'up': _delay({'p50': 1, 'p95': 2, 'max': 2})}}),
+            'apply_delay_us is not one number',
+        ),
+        'a negative delay': (
+            _record({'exposure': {'up': _delay(-5.0)}}),
+            'apply_delay_us is not one number, 0 or more',
         ),
         'no trials': (_record({'gain': {'up': _measured(trials=0)}}), 'no trials'),
         'no provenance': (_record({'gain': {'up': no_provenance}}), 'has no provenance'),
