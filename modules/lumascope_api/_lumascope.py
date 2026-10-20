@@ -830,10 +830,45 @@ class Lumascope:
                 self.motion.get_current_position('Y'),
             )
 
-        def _sim_stage_z() -> float | None:
-            """Where Z stands, so the simulated sample's focus follows it; a
-            scope with no focus axis answers None."""
-            return self.motion.get_current_position('Z')
+        def _sim_sensor_inputs() -> dict[str, tuple[object, int | None]]:
+            """Z, the stage's (X, Y) and the light on the simulated sample, each
+            with when this scope recorded it changing, as frame validity holds
+            it: a move when its axis came to rest, the LED when it was written.
+            None for a time it cannot say (a move still under way). Read as
+            each exposure starts, so a change recorded on a loaded host after a
+            delay is still timed by its record.
+
+            Light reaches the simulated sensor this way, not from the board:
+            the composition root is the only object holding both halves and no
+            driver may reach into a peer, and the illumination API is where
+            which channel is lit is decided; the board holds no state.
+
+            Ordering: this reads the sub-APIs built further down, and is safe
+            because it runs only while a frame is being made and nothing starts
+            the camera grabbing during construction."""
+            # Imported here like the other illumination references in this
+            # file: at module scope it closes an import cycle.
+            from modules.lumascope_api.illumination import live_lit_pairs
+
+            changes = self.frame_validity.changes()
+
+            def settled_at(source: str) -> int | None:
+                change = changes.get(source)
+                return None if change is None else change.in_force_ns
+
+            led = changes.get('led')
+            lit = live_lit_pairs(self.illumination)
+            return {
+                'z_um': (self.motion.get_current_position('Z'), settled_at('z_move')),
+                'stage_xy': (_sim_stage_xy(), settled_at('xy_move')),
+                'illumination': (
+                    (
+                        sum(ma for _, ma in lit),
+                        sum(ma * _sim_light_of(address) for address, ma in lit),
+                    ),
+                    None if led is None else led.written_ns,
+                ),
+            }
 
         def _sim_pixel_size() -> float | None:
             """The image scale the simulators draw the sample at: the one every
@@ -886,32 +921,10 @@ class Lumascope:
         camera_kwargs: dict = {}
         if simulate and sim_fx2 is None:
             camera_kwargs['timing'] = _camera_timing(sim_tier)
-            camera_kwargs['z_position_func'] = _sim_stage_z
-            # The sample follows the stage the same way, at the objective's
+            # The sample follows the stage and the light, at the objective's
             # image scale.
-            camera_kwargs['xy_position_func'] = _sim_stage_xy
+            camera_kwargs['scope_inputs'] = _sim_sensor_inputs
             camera_kwargs['pixel_size_func'] = _sim_pixel_size
-            # Light reaches the simulated sensor the same way Z does: the
-            # composition root hands it over, because it is the only object
-            # holding both halves and no driver may reach into a peer. The
-            # illumination API is asked rather than the board -- it is where
-            # which channel is lit is decided, and the board holds no state.
-            # Imported here like the other illumination references in this
-            # file: at module scope it closes an import cycle.
-            #
-            # Ordering: this reads self.illumination, which is built further
-            # down, and is safe because the callable only runs while a frame
-            # is being generated and nothing starts the camera grabbing
-            # during construction. Anything that begins streaming before the
-            # sub-APIs exist breaks that, so start it after them.
-            from modules.lumascope_api.illumination import live_lit_pairs
-
-            camera_kwargs['illumination_func'] = lambda: sum(
-                ma for _, ma in live_lit_pairs(self.illumination)
-            )
-            camera_kwargs['light_func'] = lambda: sum(
-                ma * _sim_light_of(address) for address, ma in live_lit_pairs(self.illumination)
-            )
 
             # Focus falls off as the objective's depth of field says, asked
             # the same way and under the same ordering: runtime_state is

@@ -63,19 +63,19 @@ AG_SETTINGS_TRANSMITTED = {
 class _ChunkHandler(_SimImageHandler):
     """The simulator's own frame handler, stamping each stored frame with the
     exposure (us) and gain (dB) the camera holds when it is stored, as a
-    Basler's chunks do (the simulator stamps none of its own yet).
-    Everything else (the frame count frame validity reads, the record) is
-    the real handler's."""
+    Basler's chunks do, beside the simulator's own frame counter and
+    exposure start; a camera with ``chunks_absent`` stamps no exposure or
+    gain. Everything else (the frame count frame validity reads, the record)
+    is the real handler's."""
 
     def __init__(self, cam):
         super().__init__()
         self._cam = cam
 
     def _store_frame(self, image, timestamp, chunks=None, **kwargs):
-        if self._cam.chunks_absent:
-            chunks = {}
-        else:
-            chunks = {'ExposureTime': self._cam._exposure_us, 'Gain': self._cam._gain}
+        chunks = {k: v for k, v in (chunks or {}).items() if k not in ('ExposureTime', 'Gain')}
+        if not self._cam.chunks_absent:
+            chunks.update(ExposureTime=self._cam._exposure_us, Gain=self._cam._gain)
         return super()._store_frame(image, timestamp, chunks, **kwargs)
 
 

@@ -313,7 +313,7 @@ class DriverRegistry:
                 Not forwarded to the driver.
             **kwargs: Forwarded to the driver constructor. Callers can
                 pass driver-specific args like `model='LS850T'` for
-                SimulatedMotorBoard or `z_position_func=...` for
+                SimulatedMotorBoard or `pixel_size_func=...` for
                 SimulatedCamera.
 
         Returns:

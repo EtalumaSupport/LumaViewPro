@@ -38,8 +38,8 @@ from tests.settings_fixtures import complete_settings
 
 
 def test_the_light_scales_with_the_led_current():
-    current = [SimulatedCamera.REFERENCE_ILLUMINATION_MA]
-    cam = SimulatedCamera(width=64, height=48, illumination_func=lambda: current[0])
+    cam = SimulatedCamera(width=64, height=48)
+    cam.set_illumination(SimulatedCamera.REFERENCE_ILLUMINATION_MA)
     # Short enough that doubled light stays below full scale, where each
     # pixel would saturate on its own.
     cam.set_test_pattern(enabled=True, pattern='focus_target')
@@ -48,9 +48,9 @@ def test_the_light_scales_with_the_led_current():
     cam.open_and_start()
     try:
         at_reference = float(grab_a_frame_made_after_now(cam).image.mean())
-        current[0] = 2 * SimulatedCamera.REFERENCE_ILLUMINATION_MA
+        cam.set_illumination(2 * SimulatedCamera.REFERENCE_ILLUMINATION_MA)
         doubled = float(grab_a_frame_made_after_now(cam).image.mean())
-        current[0] = 0.0
+        cam.set_illumination(0.0)
         unlit = float(grab_a_frame_made_after_now(cam).image.max())
     finally:
         cam.stop_grabbing()
@@ -72,16 +72,16 @@ def _shift_between(before: np.ndarray, after: np.ndarray, reach: int) -> tuple[i
 
 
 def test_the_field_follows_the_stage():
-    stage = [0.0, 0.0]
     # Big enough to hold a few cells: a sensor smaller than a cell sees
     # only the medium, which a shift barely changes.
-    cam = SimulatedCamera(width=192, height=128, xy_position_func=lambda: (stage[0], stage[1]))
+    cam = SimulatedCamera(width=192, height=128)
+    cam.set_stage_xy(0.0, 0.0)
     cam.exposure_t(10.0)
     cam.open_and_start()
     try:
         before = grab_a_frame_made_after_now(cam).image
         # 20 px of travel in X at the scale of a camera no objective is known to.
-        stage[0] = 20.0 * NOMINAL_UM_PER_PX
+        cam.set_stage_xy(20.0 * NOMINAL_UM_PER_PX, 0.0)
         after = grab_a_frame_made_after_now(cam).image
     finally:
         cam.stop_grabbing()
@@ -103,13 +103,13 @@ def test_one_frame_width_of_travel_does_not_bring_the_same_field_back():
     the sensor's edge showed the same cells again, which a stitch or a
     likeness judge reads as a match one period away.
     """
-    stage = [0.0, 0.0]
-    cam = SimulatedCamera(width=192, height=128, xy_position_func=lambda: (stage[0], stage[1]))
+    cam = SimulatedCamera(width=192, height=128)
+    cam.set_stage_xy(0.0, 0.0)
     cam.exposure_t(10.0)
     cam.open_and_start()
     try:
         here = grab_a_frame_made_after_now(cam).image
-        stage[0] = 192 * NOMINAL_UM_PER_PX
+        cam.set_stage_xy(192 * NOMINAL_UM_PER_PX, 0.0)
         a_frame_away = grab_a_frame_made_after_now(cam).image
     finally:
         cam.stop_grabbing()
@@ -121,33 +121,26 @@ def test_one_frame_width_of_travel_does_not_bring_the_same_field_back():
 
 def test_a_frame_after_a_move_is_drawn_where_the_stage_went_in_focus_or_not():
     """No frame after a move is served from the old position's cut or blur."""
-    stage = [0.0, 0.0]
-    defocused = {'func': lambda: 4.0}
 
-    def camera():
-        cam = SimulatedCamera(
-            width=192,
-            height=128,
-            xy_position_func=lambda: (stage[0], stage[1]),
-            depth_of_field_func=defocused['func'],
-        )
+    def camera(x_um: float):
+        cam = SimulatedCamera(width=192, height=128, depth_of_field_func=lambda: 4.0)
+        cam.set_stage_xy(x_um, 0.0)
         cam.set_focal_z(5000.0)
         cam.exposure_t(10.0)
         cam.open_and_start()
         return cam
 
     for z in (5000.0, 5006.0):  # in focus, then a depth and a half of field off
-        stage[:] = [0.0, 0.0]
-        moved = camera()
+        moved = camera(0.0)
         moved.set_z_position(z)
         try:
             for _ in range(4):  # every drift step's frame cut and blurred here
                 grab_a_frame_made_after_now(moved)
-            stage[0] = 300.0
+            moved.set_stage_xy(300.0, 0.0)
             after = grab_a_frame_made_after_now(moved).image
         finally:
             moved.stop_grabbing()
-        fresh = camera()
+        fresh = camera(300.0)
         fresh.set_z_position(z)
         try:
             there = grab_a_frame_made_after_now(fresh).image

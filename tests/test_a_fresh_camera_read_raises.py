@@ -80,12 +80,18 @@ def test_a_chunkless_still_whose_exposure_read_fails_saves_nothing(session, monk
     driver = session.scope._camera_driver
     real = driver.grab_new_capture
     # a stand-in by design: the simulated camera always stamps a Basler body's
-    # chunks; a chunkless simulated camera is the simulator's gap
+    # chunks; a camera whose frames carry no exposure is the simulator's gap.
+    # Its frame counter and exposure start stay, which the frame rule reads.
     monkeypatch.setattr(
         driver,
         'grab_new_capture',
         lambda timeout_s: (
-            frame if (frame := real(timeout_s)) is None else dataclasses.replace(frame, chunks=None)
+            frame
+            if (frame := real(timeout_s)) is None
+            else dataclasses.replace(
+                frame,
+                chunks={k: v for k, v in frame.chunks.items() if k not in ('ExposureTime', 'Gain')},
+            )
         ),
     )
     session.scope.simulation.refuse_camera_read('exposure', 'raise', count=10)

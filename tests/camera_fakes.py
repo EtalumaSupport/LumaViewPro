@@ -457,21 +457,30 @@ def bare_grab_worker():
 
 
 def grab_a_frame_made_after_now(cam, timeout_s: float = 5.0) -> Frame:
-    """Read a frame a free-running simulated camera made after this call, the way frame validity drains.
+    """Read a frame a free-running simulated camera exposed under every change made before this call.
 
-    A camera that streams hands back the latest frame it has, and the frames
-    it had started when a setting changed come out under the old setting:
-    the one being made, and the simulated camera's pipeline behind it. So those first stores after the call may predate a change made just
-    before it; the one after them cannot. Returns that ``Frame``.
+    The simulated sensor shows a change only in exposures starting
+    ``SENSOR_APPLY_DELAY_US`` after it, and frames already started come out
+    after the call under the state they started with. So a frame shows what
+    was set before the call exactly when its exposure started that long
+    after the call, which its ``Timestamp`` chunk says on the camera's
+    clock. Returns the first stored frame that did.
     """
-    handler = cam.cam_image_handler
-    since = handler.frames_delivered + cam.SENSOR_PIPELINE_FRAMES
-    assert handler.wait_for_frame_after(since + 1, timeout_s), (
-        f'the camera stored no new frame within {timeout_s} s'
+    applied_from = cam.camera_clock_ticks() + (
+        cam.SENSOR_APPLY_DELAY_US * cam.TIMESTAMP_TICK_HZ // 1_000_000
     )
-    frame = cam.grab()
-    assert frame is not None, 'the camera stopped before its frame could be read'
-    return frame
+    handler = cam.cam_image_handler
+    deadline = time.monotonic() + timeout_s
+    while True:
+        seen = handler.frames_delivered
+        remaining = deadline - time.monotonic()
+        assert remaining > 0 and handler.wait_for_frame_after(seen, remaining), (
+            f'the camera stored no frame exposed after the change within {timeout_s} s'
+        )
+        frame = cam.grab()
+        assert frame is not None, 'the camera stopped before its frame could be read'
+        if frame.chunks['Timestamp'] >= applied_from:
+            return frame
 
 
 def delivered_frame(

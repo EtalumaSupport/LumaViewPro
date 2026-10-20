@@ -117,6 +117,38 @@ class SensorExposure:
     pixel_size_um: float | None
 
 
+class _SensorInput:
+    """A value the simulated sensor applies ``SENSOR_APPLY_DELAY_US`` after it changes.
+
+    Every assignment is recorded in the input's history as changed now, so a
+    write site added later cannot leave a change the sensor never sees.
+    ``take`` records one with the time its owner says it changed.
+
+    Args:
+        name: The input's name in the camera's history, which
+            ``_start_exposure`` reads it by.
+    """
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+
+    def __set_name__(self, owner: type, attribute: str) -> None:
+        self._slot = f'_input{attribute}'
+
+    def __get__(self, obj, objtype=None):
+        if obj is None:
+            return self
+        return obj.__dict__[self._slot]
+
+    def __set__(self, obj: 'SimulatedCamera', value: object) -> None:
+        self.take(obj, value, None)
+
+    def take(self, obj: 'SimulatedCamera', value: object, changed_ns: int | None) -> None:
+        """Set the input on ``obj``, changed at ``changed_ns`` (None for now)."""
+        obj.__dict__[self._slot] = value
+        obj._input_changed(self.name, value, changed_ns)
+
+
 class _SimImageHandler(ImageHandlerBase):
     """The real drivers' frame buffer, with a wait for the next stored frame.
 
@@ -195,6 +227,31 @@ class SimulatedCamera(Camera):
     # frame reading out; frames held on the way to the host are the
     # simulated backlog's.
     SENSOR_PIPELINE_FRAMES = 2
+
+    # How long after a change the sensor's exposures show it: a register
+    # write, the LED, and the stage's X, Y and Z. An exposure starting
+    # sooner is made under the state as it stood this long before it began.
+    # The simulated camera's own constant, never read from its timing record
+    # (that record is measured from this camera, so a rule run on it is
+    # tested against something it did not set). Longer than one frame
+    # interval at the delivery ceiling (25 ms) and off its grid, so a frame
+    # rule without the delay term returns a stale frame on every run.
+    SENSOR_APPLY_DELAY_US = 37_000
+
+    # The sensor's inputs, each recorded in its history when it changes:
+    # the registers, Z, the stage's (X, Y), and the light as (the lit
+    # current summed over the lit addresses, the light it makes).
+    _exposure_us = _SensorInput('exposure_us')
+    _gain = _SensorInput('gain_db')
+    _black_level = _SensorInput('black_level')
+    _z_position = _SensorInput('z_um')
+    _stage_xy = _SensorInput('stage_xy')
+    _illumination = _SensorInput('illumination')
+    _SCOPE_INPUTS: ClassVar[dict[str, str]] = {
+        'z_um': '_z_position',
+        'stage_xy': '_stage_xy',
+        'illumination': '_illumination',
+    }
 
     # The LED current a camera built with no scope around it is lit at.
     REFERENCE_ILLUMINATION_MA = 10.0
@@ -294,15 +351,16 @@ class SimulatedCamera(Camera):
         width: int = _SENSOR['width'],
         height: int = _SENSOR['height'],
         grab_delay: float = 0.0,
-        z_position_func: Callable[[], float | None] | None = None,
-        xy_position_func: Callable[[], tuple[float | None, float | None]] | None = None,
-        illumination_func: Callable[[], float] | None = None,
-        light_func: Callable[[], float] | None = None,
+        scope_inputs: Callable[[], dict[str, tuple[object, int | None]]] | None = None,
         depth_of_field_func: Callable[[], float | None] | None = None,
         pixel_size_func: Callable[[], float | None] | None = None,
         focal_spread_um: float = 0.0,
         timing: str = 'fast',
     ):
+        # Each input's values as it changed, oldest first: (host monotonic
+        # ns, the value from then on), by input name.
+        self._input_history: dict[str, collections.deque] = {}
+        self._lock = threading.RLock()
         # Native (unbinned) sensor size -- the fixed ceiling. _width/_height
         # below are the CURRENT frame size in post-binning (displayed) pixels,
         # matching the Pylon driver's convention: set_frame_size takes the
@@ -328,8 +386,6 @@ class SimulatedCamera(Camera):
         self._auto_exposure_enabled = False
         self._frame_rate_limit_enabled = False
         self._frame_rate_target = 30.0
-
-        self._lock = threading.RLock()
 
         # The camera's clock: its own epoch, unrelated to the host's, so a
         # mapping between the two has to be measured, as on a real body.
@@ -388,17 +444,22 @@ class SimulatedCamera(Camera):
         self._z_position = self._NOMINAL_FOCAL_Z_UM
         self._focal_z = self._NOMINAL_FOCAL_Z_UM + random.uniform(-focal_spread_um, focal_spread_um)
         logger.info(f'[SimCamera ] The simulated sample is in focus at Z {self._focal_z:.1f} um')
-        self._z_position_func = z_position_func  # Optional: auto-query Z from motor
-        # Optional: auto-query the stage's X and Y, so the field follows them.
-        self._xy_position_func = xy_position_func
-        # Optional: auto-query how much light is on the sample. Unwired, the
-        # camera renders as though the field were lit, which is what a camera
-        # constructed on its own with no scope around it has to assume.
-        self._illumination_func = illumination_func
-        # Optional: auto-query the light on the sample (the lit currents
-        # times their layers' light). Unwired, the current is taken at
-        # _UNWIRED_LIGHT_PER_MA_S.
-        self._light_func = light_func
+        # The stage's X and Y, told by set_stage_xy so the field follows
+        # them; (None, None) holds the field still, as on a scope with no
+        # XY stage.
+        self._stage_xy = (None, None)
+        # The light on the sample, told by set_illumination: the lit current
+        # summed over the lit addresses, and the light it makes. A camera
+        # constructed on its own with no scope around it renders as though
+        # the field were lit at the reference current.
+        self._illumination = (
+            self.REFERENCE_ILLUMINATION_MA,
+            self.REFERENCE_ILLUMINATION_MA * self._UNWIRED_LIGHT_PER_MA_S,
+        )
+        # Optional: the scope's Z, stage and light, each with when its owner
+        # recorded it changing (None when it cannot say), read as each
+        # exposure starts; on a scope they replace what the setters told.
+        self._scope_inputs = scope_inputs
         # Optional: auto-query the objective's depth of field (um); None when
         # no objective is known.
         self._depth_of_field_func = depth_of_field_func
@@ -1093,12 +1154,84 @@ class SimulatedCamera(Camera):
     # Z-dependent focus simulation
     # ------------------------------------------------------------------
     def set_z_position(self, z: float) -> None:
-        """Set current Z position (um) for focus simulation.
+        """Tell the sensor where Z stands now (um), for focus simulation.
+
+        Exposures starting ``SENSOR_APPLY_DELAY_US`` or more from now are
+        focused at it.
 
         Args:
             z: Current Z stage position in micrometers.
         """
-        self._z_position = float(z)
+        with self._lock:
+            self._z_position = float(z)
+
+    def set_stage_xy(self, x_um: float | None, y_um: float | None) -> None:
+        """Tell the sensor where the stage's X and Y stand now (um).
+
+        The field follows them in exposures starting ``SENSOR_APPLY_DELAY_US``
+        or more from now. None for an axis the scope lacks holds the field
+        still along it.
+        """
+        with self._lock:
+            self._stage_xy = (x_um, y_um)
+
+    def set_illumination(self, lit_ma: float, light: float | None = None) -> None:
+        """Tell the sensor the light on the sample now.
+
+        Exposures starting ``SENSOR_APPLY_DELAY_US`` or more from now are
+        lit by it.
+
+        Args:
+            lit_ma: The LED current lighting the sample, summed over the lit
+                addresses; 0 for an unlit field.
+            light: Each lit address's current times its layer's light per
+                mA-second, summed. None takes the current at the light of a
+                camera with no scope around it.
+        """
+        if light is None:
+            light = float(lit_ma) * self._UNWIRED_LIGHT_PER_MA_S
+        with self._lock:
+            self._illumination = (float(lit_ma), float(light))
+
+    def _input_changed(self, name: str, value: object, changed_ns: int | None) -> None:
+        """Record that input ``name`` holds ``value``, changed at ``changed_ns``.
+
+        ``changed_ns`` is the host monotonic time its owner recorded the
+        change, or None for now. A value equal to the newest recorded is no
+        change. A time no later than the newest record's is now: the value
+        was seen to change since that record, and the owner's time is a
+        change before it.
+        """
+        with self._lock:
+            history = self._input_history.setdefault(name, collections.deque())
+            if history and history[-1][1] == value:
+                return
+            now = time.monotonic_ns()
+            at = now if changed_ns is None else min(changed_ns, now)
+            if history and at <= history[-1][0]:
+                at = now
+            history.append((at, value))
+
+    def _input_at(self, name: str, at_ns: int) -> object:
+        """Input ``name``'s value as it stood at ``at_ns``. Call with ``_lock`` held.
+
+        The newest recorded no later than ``at_ns``, or the oldest kept when
+        every record is newer. Records older than that one can never be read
+        again and are dropped.
+        """
+        history = self._input_history[name]
+        while len(history) > 1 and history[1][0] <= at_ns:
+            history.popleft()
+        return history[0][1]
+
+    def _read_scope_inputs(self) -> None:
+        """Take the scope's Z, stage and light, each with when it changed. Call with ``_lock`` held."""
+        if self._scope_inputs is None:
+            return
+        for name, (value, changed_ns) in self._scope_inputs().items():
+            if value is None:
+                continue
+            getattr(type(self), self._SCOPE_INPUTS[name]).take(self, value, changed_ns)
 
     def get_z_position(self) -> float:
         """Return the current Z position used for focus simulation.
@@ -1215,46 +1348,37 @@ class SimulatedCamera(Camera):
         return time.monotonic_ns() + self._clock_offset_ns
 
     def _start_exposure(self) -> SensorExposure:
-        """Start a frame's exposure under the settings in force now. Call with ``_lock`` held.
+        """Start a frame's exposure. Call with ``_lock`` held.
 
-        Z and the objective are asked here, as the frame starts; a Z the
-        scope cannot read (no focus axis) and an unknown objective are
-        None, which render in focus. Unwired, the camera stands at its own
-        Z with a nominal depth of field, as a camera built with no scope
-        around it must.
+        The registers, Z, the stage and the light are each as they stood
+        ``SENSOR_APPLY_DELAY_US`` before now, read against the time each
+        changed (``_input_at``). The objective is asked here, as the frame
+        starts: the glass in the light path is not a setting the sensor
+        applies. An unknown objective is None, which renders in focus;
+        unwired, the camera has a nominal depth of field, as a camera built
+        with no scope around it must.
         """
-        if self._z_position_func is not None:
-            z = self._z_position_func()
-            if z is not None:
-                self._z_position = z
-        else:
-            z = self._z_position
+        self._read_scope_inputs()
+        applied_at = time.monotonic_ns() - self.SENSOR_APPLY_DELAY_US * 1_000
+        x_um, y_um = self._input_at('stage_xy', applied_at)
+        illumination_ma, light = self._input_at('illumination', applied_at)
         if self._depth_of_field_func is None:
             dof = self._UNWIRED_DOF_UM
         else:
             dof = self._depth_of_field_func()
-        if self._illumination_func is None:
-            lit_ma = self.REFERENCE_ILLUMINATION_MA
-        else:
-            lit_ma = float(self._illumination_func())
-        if self._light_func is None:
-            light = lit_ma * self._UNWIRED_LIGHT_PER_MA_S
-        else:
-            light = float(self._light_func())
-        x, y = (None, None) if self._xy_position_func is None else self._xy_position_func()
         um_per_px = None if self._pixel_size_func is None else self._pixel_size_func()
         self._frames_started += 1
         return SensorExposure(
             frame_id=self._frames_started,
             started_ticks=self.camera_clock_ticks(),
-            exposure_us=self._exposure_us,
-            gain_db=self._gain,
-            black_level=self._black_level,
-            illumination_ma=lit_ma,
+            exposure_us=self._input_at('exposure_us', applied_at),
+            gain_db=self._input_at('gain_db', applied_at),
+            black_level=self._input_at('black_level', applied_at),
+            illumination_ma=illumination_ma,
             light=light,
-            x_um=x,
-            y_um=y,
-            z_um=z,
+            x_um=x_um,
+            y_um=y_um,
+            z_um=self._input_at('z_um', applied_at),
             z_end_um=None,
             depth_of_field_um=dof,
             pixel_size_um=um_per_px,

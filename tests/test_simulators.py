@@ -1125,22 +1125,20 @@ class TestNoPatternRequestedRendersTheSpecimen:
         ratio = score_below / score_above if score_above != 0 else float('inf')
         assert 0.8 < ratio < 1.2, f'Asymmetric: below={score_below}, above={score_above}'
 
-    def test_z_position_func_callback(self):
-        """Camera auto-queries Z from callback when generating focus_target."""
-        z_val = [5000.0]
-        cam = SimulatedCamera(width=480, height=300, grab_delay=0, z_position_func=lambda: z_val[0])
+    def test_a_z_told_to_the_sensor_is_where_the_next_frames_are_exposed(self):
+        """The scope tells the sensor where Z stands; frames exposed after it are made there."""
+        cam = SimulatedCamera(width=480, height=300, grab_delay=0)
+        cam.set_z_position(5000.0)
         cam.open_and_start()
-        cam.set_test_pattern(enabled=True, pattern='focus_target')
-        cam.set_focal_z(5000.0)
+        try:
+            at_focus = grab_a_frame_made_after_now(cam)
+            cam.set_z_position(3000.0)
+            moved = grab_a_frame_made_after_now(cam)
+        finally:
+            cam.stop_grabbing()
 
-        # At focus
-        grab_a_frame_made_after_now(cam)
-        assert cam.get_z_position() == 5000.0
-
-        # Move via callback
-        z_val[0] = 3000.0
-        grab_a_frame_made_after_now(cam)
-        assert cam.get_z_position() == 3000.0
+        assert cam.exposed_under(at_focus.chunks['FrameID']).z_um == 5000.0
+        assert cam.exposed_under(moved.chunks['FrameID']).z_um == 3000.0
 
     def test_the_specimen_is_sharpest_at_the_focal_plane(self):
         """The specimen a live view shows blurs with defocus, so a sweep's
@@ -1394,15 +1392,19 @@ class TestTheSpecimenField:
         from modules.autofocus_functions import focus_vollath4_original
 
         cam = SimulatedCamera(width=480, height=300, depth_of_field_func=lambda: 4.0)
-        cam.open_and_start()
         cam.set_focal_z(5000.0)
         cam.set_z_position(5000.0)
-        at_focus = [
-            focus_vollath4_original(image=cam._generate_image(cam._start_exposure()))
-            for _ in range(4)
-        ]
-        cam.set_z_position(5001.0)
-        quarter_dof_off = focus_vollath4_original(image=cam._generate_image(cam._start_exposure()))
+        cam.open_and_start()
+        try:
+            # Four frames, each its own drift step.
+            at_focus = [
+                focus_vollath4_original(image=grab_a_frame_made_after_now(cam).image)
+                for _ in range(4)
+            ]
+            cam.set_z_position(5001.0)
+            quarter_dof_off = focus_vollath4_original(image=grab_a_frame_made_after_now(cam).image)
+        finally:
+            cam.stop_grabbing()
         drift_spread = max(at_focus) - min(at_focus)
         assert drift_spread < (min(at_focus) - quarter_dof_off) / 10
 
@@ -1819,14 +1821,14 @@ class TestAnUnlitFieldIsDark:
     """
 
     def test_the_same_camera_is_dark_unlit_and_bright_lit(self):
-        lit = {'on': False}
-        cam = SimulatedCamera(illumination_func=lambda: 50.0 if lit['on'] else 0.0)
+        cam = SimulatedCamera()
+        cam.set_illumination(0.0)
         cam.open_and_start()
 
         frame = grab_a_frame_made_after_now(cam)
         dark = frame.image.max()
 
-        lit['on'] = True
+        cam.set_illumination(50.0)
         frame = grab_a_frame_made_after_now(cam)
         bright = frame.image.max()
 

@@ -11,13 +11,16 @@ and the frame it returned is judged by what the simulated sensor made it
 under (``scope.simulation.exposed_under``): never by the gate's own answer,
 never by pixels.
 
-Every case fails today, and the fix that turns them green is step 8 of the
-stale-frame capture plan, where the camera's clock decides. Black level, the
-LED and the three moves return a frame made before the change; exposure and
-gain give up instead, on the first frame whose chunk names the old value,
-while the frame the capture waited for is still on its way. Conversion gain
-mode and line noise reduction have no case: the simulated camera is the
-dart's, which has neither, and they are not simulated (Eric, 2026-10-11).
+The camera's clock decides: the simulated sensor shows a change only in
+exposures starting its apply delay after it, and a source whose delay the
+simulator's timing record holds is judged by when its frame began. The
+turret has no measured delay of its own on the simulator: the
+characterization tool's window ends before a six-second turret move comes
+into force. A turret move parks and restores Z inside its span, so its frame
+waits out Z's measured delay, which comes into force at the same instant.
+Conversion gain mode and line noise reduction have no case: the simulated
+camera is the dart's, which has neither, and they are not simulated (Eric,
+2026-10-11).
 """
 
 from __future__ import annotations
@@ -195,8 +198,8 @@ class Delivered:
     def next_one(self):
         """Wait for the next frame to arrive; a backlog asked for stands once one does.
 
-        Raises TimeoutError, not an assertion, so the expected failure
-        cannot be met by a camera that stopped delivering.
+        Raises TimeoutError, not an assertion, so a camera that stopped
+        delivering fails as itself, never as a stale frame.
         """
         with self._arrived:
             seen = self._count
@@ -215,12 +218,8 @@ def delivered(realistic_session):
 
 
 @pytest.mark.slow
-@pytest.mark.xfail(
-    raises=AssertionError,
-    strict=True,
-    reason='the gate credits a frame by its arrival; step 8 of the stale-frame plan judges by the camera clock',
-)
-@pytest.mark.parametrize('case', CASES, ids=lambda c: c.member)
+# parametrize-justified: each member is its own change and its own session state.
+@pytest.mark.parametrize('case', CASES, ids=lambda case: case.member)
 def test_a_capture_after_a_change_returns_a_frame_exposed_after_it(
     realistic_session, live_view, delivered, case
 ):
@@ -234,12 +233,11 @@ def test_a_capture_after_a_change_returns_a_frame_exposed_after_it(
         try:
             scope.imaging.capture_and_wait()
         except CaptureFailedError as failed:
-            # A frame whose chunk names the old exposure or gain ends the
-            # capture at once (its bound is the caller's timeout_s, 0 here)
-            # while the frame it waited for is still on its way: the
-            # contract's other side, a capture that takes the next frame,
-            # missed. Any other failure is not the one this test expects.
-            if failed.reason != 'chunk_rejected':
+            # No frame made after the change within the capture's bound:
+            # the contract's other side, a capture that takes the next
+            # frame, missed. Any other failure is not the one this test
+            # expects.
+            if failed.reason != 'no_fresh_frame':
                 raise
             raise AssertionError(
                 f'the capture gave up on {failed.setting} ({failed.reason})'

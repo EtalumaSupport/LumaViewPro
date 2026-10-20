@@ -1,5 +1,5 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""A frame the simulated sensor starts after an LED change is recorded is lit by it.
+"""A frame the simulated sensor starts its delay after an LED change is recorded is lit by it.
 
 A frame counts for an LED change by when it began against the change's
 record, so every state the light is made from must hold the change by
@@ -7,12 +7,19 @@ then. The simulated sensor reads the light from the illumination API's
 store; the API wrote the store after recording the change, and a frame
 begun between the two was made under the old light while counting for
 the new one. The store is written first.
+
+The simulated sensor shows a change in exposures starting its apply delay
+after the change, timed by the change's record however late the sensor
+reads it, so a host slow between the record and the rest of the write
+cannot give a frame counted for the change the old light.
 """
 
 from __future__ import annotations
 
 import threading
 import time
+
+from drivers.simulated_camera import SimulatedCamera
 
 # How long the LED write is held after its change is recorded: a loaded
 # host's gap between the record and the rest of the write, several frames
@@ -56,7 +63,10 @@ def test_a_frame_started_after_an_led_change_is_recorded_is_lit_by_it(sim_scope,
     finally:
         scope.imaging.remove_frame_listener(on_frame)
 
-    after = mapping.camera_ticks_at(recorded[0]) + mapping.uncertainty_ns * mapping.tick_hz // 10**9
+    delay_ns = SimulatedCamera.SENSOR_APPLY_DELAY_US * 1_000
+    after = mapping.camera_ticks_at(recorded[0] + delay_ns) + (
+        mapping.uncertainty_ns * mapping.tick_hz // 10**9
+    )
     begun_after = [frame for frame in frames if frame.chunks['Timestamp'] > after]
     lit = [scope.simulation.exposed_under(frame).illumination_ma for frame in begun_after]
     assert begun_after and all(ma == 100.0 for ma in lit), lit
