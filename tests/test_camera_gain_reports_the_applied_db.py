@@ -112,7 +112,7 @@ class TestIDS:
 
 
 @pytest.mark.skipif(
-    not fx2driver._FX2_AVAILABLE,
+    not fx2driver._FX2_GATE.available,
     reason='FX2 prerequisites (pyusb / libusb1) not installed',
 )
 class TestFX2:

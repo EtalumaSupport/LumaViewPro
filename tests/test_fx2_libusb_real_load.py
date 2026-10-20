@@ -26,7 +26,7 @@ import usb.backend.libusb1 as ub
 from drivers import fx2driver
 backend = ub._lib_object
 argtypes = backend.lib.libusb_get_device_descriptor.argtypes
-print('refusal', fx2driver._LIBUSB_REFUSAL)
+print('refusal', fx2driver._FX2_GATE.library_refusal)
 print('own-declarations', argtypes[1]._type_ is ub._libusb_device_descriptor)
 print('file', backend.lib._name)
 """

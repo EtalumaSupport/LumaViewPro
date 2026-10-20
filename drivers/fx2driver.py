@@ -231,8 +231,10 @@ except ImportError:
     _HAS_USB1 = False
 
 
-def _load_bundled_libusb():
+def _load_bundled_libusb(usb1_module):
     """Bind pyusb and python-libusb1 to libusb-package's library.
+
+    ``usb1_module`` is python-libusb1, or None where it is not installed.
 
     Returns ``(path, None)`` when both bindings run on the bundled file, or
     ``(None, reason)`` when they cannot. Which libusb a host happens to have
@@ -272,71 +274,116 @@ def _load_bundled_libusb():
     # on the functions of the handle it holds, so one shared handle leaves
     # pyusb calling with python-libusb1's declarations and every descriptor
     # read fails. The OS loader still maps the file once.
-    if _HAS_USB1:
+    if usb1_module is not None:
         try:
             usb1_handle = ctypes.CDLL(path)
         except OSError as ex:
             return None, f'the bundled libusb at {path} did not load for python-libusb1: {ex}'
-        if not usb1.loadLibrary(usb1_handle):
+        if not usb1_module.loadLibrary(usb1_handle):
             return None, 'python-libusb1 had already loaded another libusb'
     return path, None
+
+
+class _Fx2Gate(NamedTuple):
+    """Whether this install can reach FX2 hardware, and why not.
+
+    FX2 (LumaviewClassic) drivers require pyusb plus a loadable libusb-1.0
+    native backend on every platform, plus libusb1 on macOS / Linux for ISO
+    streaming. On systems missing those, FX2 hardware fundamentally cannot
+    be reached -- registering the drivers anyway causes the registry to
+    attempt instantiation on every auto-detect run, raise NoBackendError /
+    ImportError, and dump a confusing traceback on systems that simply
+    don't have LVC hardware. Skip-with-INFO-log is the right
+    classification: this driver class isn't applicable to this install.
+
+    Attributes:
+        has_usb: pyusb imports.
+        has_usb1: python-libusb1 imports.
+        library_path: The bundled libusb both bindings run on; None when it
+            is not in use.
+        library_refusal: Why the bundled libusb is not in use; None when it is.
+        library_version: The bundled libusb's version as python-libusb1
+            reads it; None where it is not in use or there is no libusb1.
+        available: The FX2 drivers register.
+        unavailable_reason: Why not, in a few words, for the registry to
+            carry beside the drivers it declines: an LS560 / LS620 / LS720
+            whose camera is not found then says which driver did not load.
+    """
+
+    has_usb: bool
+    has_usb1: bool
+    library_path: str | None
+    library_refusal: str | None
+    library_version: str | None
+    available: bool
+    unavailable_reason: str | None
+
+
+def _fx2_gate(has_usb: bool, usb1_module, platform: str) -> _Fx2Gate:
+    """Decide the gate from what imported: pyusb (``has_usb``), python-libusb1
+    (``usb1_module``, None when absent) and the host ``platform``.
+
+    Binds the bundled libusb when pyusb is present (``_load_bundled_libusb``,
+    with its ordering invariant), so it runs once, at import.
+    """
+    has_usb1 = usb1_module is not None
+    library_path, library_refusal = None, 'pyusb is not installed'
+    if has_usb:
+        library_path, library_refusal = _load_bundled_libusb(usb1_module)
+    has_backend = library_path is not None
+    available = has_usb and has_backend and (platform == 'win32' or has_usb1)
+    if available:
+        reason = None
+    elif not has_usb:
+        reason = 'pyusb is not installed'
+    elif not has_backend:
+        reason = f'bundled libusb not in use: {library_refusal}'
+    else:
+        reason = 'libusb1 is not installed'
+    return _Fx2Gate(
+        has_usb=has_usb,
+        has_usb1=has_usb1,
+        library_path=library_path,
+        library_refusal=library_refusal,
+        library_version=usb1_module.getVersion() if has_backend and has_usb1 else None,
+        available=available,
+        unavailable_reason=reason,
+    )
+
+
+def _log_fx2_gate(gate: _Fx2Gate) -> None:
+    """Say at INFO which prerequisite kept the FX2 drivers out, and which libusb is loaded."""
+    if not gate.available:
+        if not gate.has_usb:
+            logger.info(
+                '[FX2 Driver] pyusb not installed -- FX2 (LumaviewClassic) '
+                'drivers will not be registered. Install pyusb to enable '
+                'LVC hardware support: pip install pyusb'
+            )
+        elif gate.library_path is None:
+            logger.info(
+                f'[FX2 Driver] bundled libusb not in use: {gate.library_refusal} -- '
+                'FX2 (LumaviewClassic) drivers will not be registered.'
+            )
+        elif not gate.has_usb1:
+            logger.info(
+                '[FX2 Driver] libusb1 not installed -- FX2 (LumaviewClassic) '
+                'drivers will not be registered on macOS/Linux. Install '
+                'libusb1 (pip install -r requirements.txt) to enable LVC '
+                'hardware support.'
+            )
+    if gate.library_path is not None:
+        logger.info(
+            f'[FX2 Driver] libusb {gate.library_version or "(version unread)"} '
+            f'loaded from {gate.library_path}'
+        )
 
 
 # Resolved at import so a host without a usable libusb is classified as
 # "FX2 not applicable to this install" here, instead of the first
 # usb.core.find() raising NoBackendError mid-connect on every startup.
-_LIBUSB_PATH = None
-_LIBUSB_REFUSAL = 'pyusb is not installed'
-if _HAS_USB:
-    _LIBUSB_PATH, _LIBUSB_REFUSAL = _load_bundled_libusb()
-_HAS_USB_BACKEND = _LIBUSB_PATH is not None
-
-
-# FX2 (LumaviewClassic) drivers require pyusb plus a loadable libusb-1.0
-# native backend on every platform, plus libusb1 on macOS / Linux for ISO
-# streaming. On systems missing those, FX2 hardware fundamentally cannot
-# be reached -- registering the drivers anyway causes the registry to
-# attempt instantiation on every auto-detect run, raise NoBackendError /
-# ImportError, and dump a confusing traceback on systems that simply
-# don't have LVC hardware. Skip-with-INFO-log is the right
-# classification: this driver class isn't applicable to this install.
-_FX2_AVAILABLE = _HAS_USB and _HAS_USB_BACKEND and (sys.platform == 'win32' or _HAS_USB1)
-# Why, in a few words, for the registry to carry beside the drivers it
-# declines: an LS560 / LS620 / LS720 whose camera is not found then says
-# which driver did not load.
-_FX2_UNAVAILABLE_REASON = (
-    None
-    if _FX2_AVAILABLE
-    else 'pyusb is not installed'
-    if not _HAS_USB
-    else f'bundled libusb not in use: {_LIBUSB_REFUSAL}'
-    if not _HAS_USB_BACKEND
-    else 'libusb1 is not installed'
-)
-if not _FX2_AVAILABLE:
-    if not _HAS_USB:
-        logger.info(
-            '[FX2 Driver] pyusb not installed -- FX2 (LumaviewClassic) '
-            'drivers will not be registered. Install pyusb to enable '
-            'LVC hardware support: pip install pyusb'
-        )
-    elif not _HAS_USB_BACKEND:
-        logger.info(
-            f'[FX2 Driver] bundled libusb not in use: {_LIBUSB_REFUSAL} -- '
-            'FX2 (LumaviewClassic) drivers will not be registered.'
-        )
-    elif not _HAS_USB1:
-        logger.info(
-            '[FX2 Driver] libusb1 not installed -- FX2 (LumaviewClassic) '
-            'drivers will not be registered on macOS/Linux. Install '
-            'libusb1 (pip install -r requirements.txt) to enable LVC '
-            'hardware support.'
-        )
-if _HAS_USB_BACKEND:
-    logger.info(
-        f'[FX2 Driver] libusb {usb1.getVersion() if _HAS_USB1 else "(version unread)"} '
-        f'loaded from {_LIBUSB_PATH}'
-    )
+_FX2_GATE = _fx2_gate(_HAS_USB, usb1 if _HAS_USB1 else None, sys.platform)
+_log_fx2_gate(_FX2_GATE)
 
 
 def fx2_readiness() -> dict[str, bool | None]:
@@ -349,9 +396,9 @@ def fx2_readiness() -> dict[str, bool | None]:
     probing on its own, so what it prints is what the driver will do.
     """
     return {
-        'pyusb': _HAS_USB,
-        'libusb-package': _HAS_USB_BACKEND,
-        'libusb1': None if sys.platform == 'win32' else _HAS_USB1,
+        'pyusb': _FX2_GATE.has_usb,
+        'libusb-package': _FX2_GATE.library_path is not None,
+        'libusb1': None if sys.platform == 'win32' else _FX2_GATE.has_usb1,
     }
 
 
@@ -361,10 +408,10 @@ def fx2_readiness_line() -> str:
         f'{name} {"not needed" if present is None else "present" if present else "missing"}'
         for name, present in fx2_readiness().items()
     )
-    verdict = 'ready' if _FX2_AVAILABLE else 'NOT ready'
+    verdict = 'ready' if _FX2_GATE.available else 'NOT ready'
     line = f'FX2 (LS560/LS620/LS720) support: {verdict} -- {terms}'
-    if _HAS_USB and not _HAS_USB_BACKEND:
-        line += f' ({_LIBUSB_REFUSAL})'
+    if _FX2_GATE.has_usb and _FX2_GATE.library_path is None:
+        line += f' ({_FX2_GATE.library_refusal})'
     return line
 
 
@@ -375,9 +422,9 @@ def _register_if_fx2_available(registry, name, **kwargs):
     registry never tries the FX2 on such an install, and a part it does not
     find is told beside the driver that did not load.
     """
-    if _FX2_AVAILABLE:
+    if _FX2_GATE.available:
         return registry.register(name, **kwargs)
-    return registry.decline(name, _FX2_UNAVAILABLE_REASON)
+    return registry.decline(name, _FX2_GATE.unavailable_reason)
 
 
 # ---------------------------------------------------------------------------

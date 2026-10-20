@@ -4,8 +4,9 @@
 ``scripts/install_mac.sh`` tells the user whether an LS560/LS620/LS720
 will connect, from
 ``fx2driver.fx2_readiness()`` and ``fx2_readiness_line()``. The gate is
-computed at import, so each case sets the module's term constants (and
-the gate they produce) rather than the imports.
+decided at import, so each case sets the module's gate record, with the
+terms it names, rather than the imports; ``_fx2_gate`` itself is pinned
+in ``test_fx2_driver.py``.
 """
 
 from __future__ import annotations
@@ -14,20 +15,25 @@ import pytest
 
 from drivers import fx2driver
 
-TERMS = ('_HAS_USB', '_HAS_USB_BACKEND', '_HAS_USB1')
-
 
 def _set_gate(monkeypatch, platform: str, refusal: str | None = None, **terms: bool) -> None:
     monkeypatch.setattr(fx2driver.sys, 'platform', platform)
-    for name in TERMS:
-        monkeypatch.setattr(fx2driver, name, terms.get(name, True))
-    monkeypatch.setattr(fx2driver, '_LIBUSB_REFUSAL', refusal)
-    available = (
-        fx2driver._HAS_USB
-        and fx2driver._HAS_USB_BACKEND
-        and (platform == 'win32' or fx2driver._HAS_USB1)
+    has_usb = terms.get('_HAS_USB', True)
+    has_backend = terms.get('_HAS_USB_BACKEND', True)
+    has_usb1 = terms.get('_HAS_USB1', True)
+    monkeypatch.setattr(
+        fx2driver,
+        '_FX2_GATE',
+        fx2driver._Fx2Gate(
+            has_usb=has_usb,
+            has_usb1=has_usb1,
+            library_path='/bundled/libusb-1.0.dylib' if has_backend else None,
+            library_refusal=refusal,
+            library_version=None,
+            available=has_usb and has_backend and (platform == 'win32' or has_usb1),
+            unavailable_reason=None,
+        ),
     )
-    monkeypatch.setattr(fx2driver, '_FX2_AVAILABLE', available)
 
 
 def test_all_present_on_macos_reads_ready(monkeypatch):

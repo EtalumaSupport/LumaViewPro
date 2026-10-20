@@ -92,7 +92,7 @@ def fake_fx2_conn(monkeypatch):
 
 
 @pytest.mark.skipif(
-    not fx2driver._FX2_AVAILABLE,
+    not fx2driver._FX2_GATE.available,
     reason='FX2 prerequisites (pyusb / libusb1) not installed -- drivers '
     'intentionally not registered (issue #635)',
 )
@@ -124,29 +124,16 @@ class TestRegistryGatedOnPrereqs:
     are unavailable. Otherwise the registry attempts instantiation, raises
     ImportError, and dumps a confusing traceback on every no-LVC install."""
 
-    def test_fx2_available_flag_matches_imports(self):
-        # _FX2_AVAILABLE is the gate; it must follow _HAS_USB AND
-        # _HAS_USB_BACKEND AND (win or _HAS_USB1). _HAS_USB_BACKEND
-        # was added for issue #645 Bug A: pyusb imports successfully
-        # without the native libusb-1.0 binary on the path, so the
-        # missing-DLL case has to be caught explicitly via
-        # usb.backend.libusb1.get_backend() probe at module load,
-        # otherwise NoBackendError surfaces mid-_connect with a
-        # confusing traceback.
-        import sys as _sys
-
-        expected = (
-            fx2driver._HAS_USB
-            and fx2driver._HAS_USB_BACKEND
-            and (_sys.platform == 'win32' or fx2driver._HAS_USB1)
-        )
-        assert expected == fx2driver._FX2_AVAILABLE
-
     def test_an_unavailable_fx2_is_declined_with_its_reason(self, monkeypatch):
         # Not registered, so the registry never tries it; declined, so a
         # camera that is not found says which driver did not load and why.
-        monkeypatch.setattr(fx2driver, '_FX2_AVAILABLE', False)
-        monkeypatch.setattr(fx2driver, '_FX2_UNAVAILABLE_REASON', 'pyusb is not installed')
+        monkeypatch.setattr(
+            fx2driver,
+            '_FX2_GATE',
+            fx2driver._FX2_GATE._replace(
+                available=False, unavailable_reason='pyusb is not installed'
+            ),
+        )
         registry = DriverRegistry('camera')
 
         class Dummy:
@@ -157,19 +144,6 @@ class TestRegistryGatedOnPrereqs:
         with pytest.raises(NoLiveDriverError) as caught:
             registry.create('auto')
         assert caught.value.fallback.declined == ('fx2: pyusb is not installed',)
-
-    def test_register_helper_uses_real_registry_when_available(self, monkeypatch):
-        monkeypatch.setattr(fx2driver, '_FX2_AVAILABLE', True)
-        sentinel_registry = MagicMock()
-        sentinel_registry.register.return_value = lambda cls: cls
-
-        decorator = fx2driver._register_if_fx2_available(sentinel_registry, 'fx2', priority=80)
-
-        class Dummy:
-            pass
-
-        decorator(Dummy)
-        sentinel_registry.register.assert_called_once_with('fx2', priority=80)
 
 
 # ---------------------------------------------------------------------------
@@ -979,36 +953,20 @@ def test_a_frame_size_the_fx2_does_not_answer_stores_frames_as_they_arrive(
 
 
 class TestFx2DriverLibusbBackendProbe:
-    """fx2driver.py must resolve its libusb at module
-    load so a host without a usable one is classified as 'FX2 not
-    applicable to this install' rather than crashing with NoBackendError
-    mid-_connect. The library is libusb-package's bundled copy and never a
-    host copy: each way the bundled load can fail -- package absent, no
-    library file, the backend bound to another file, python-libusb1 already
-    holding another -- classifies unavailable and logs why.
+    """The FX2 gate resolves its libusb so a host without a usable one is
+    classified as 'FX2 not applicable to this install' rather than crashing
+    with NoBackendError mid-_connect. The library is libusb-package's bundled
+    copy and never a host copy: each way the bundled load can fail --
+    package absent, no library file, the backend bound to another file,
+    python-libusb1 already holding another -- classifies unavailable, and
+    the log says why.
 
-    Behavioral: the module is executed FRESH under a controlled fake
-    usb / usb1 / libusb_package tree and fake registries, so the load-time
-    classification itself is what's proven -- on this machine's real state
-    it would be environment-dependent.
+    ``_fx2_gate`` is the decision the driver makes once at import; it is
+    called here under a controlled fake usb / usb1 / libusb_package tree,
+    since on this machine's real state it would be environment-dependent.
     """
 
     _BUNDLED = '/site-packages/libusb_package/libusb-1.0.dylib'
-
-    @pytest.fixture(autouse=True)
-    def _the_fresh_driver_is_gone_after_each_case(self):
-        """The fresh copy defines its own outcome classes beside the loaded
-        driver's: while it lives, two classes share each name, and REST,
-        which reads every outcome class by name, refuses to build. The copy
-        is a cycle of classes and functions, so it goes at a collection;
-        this case leaves none behind, and says so here if it does."""
-        yield
-        import gc
-
-        from rest import problems
-
-        gc.collect()
-        problems.outcome_classes()
 
     @staticmethod
     def _backend_on(path):
@@ -1017,7 +975,7 @@ class TestFx2DriverLibusbBackendProbe:
         return types.SimpleNamespace(lib=types.SimpleNamespace(_name=path))
 
     @classmethod
-    def _load_fx2_module(
+    def _gate(
         cls,
         monkeypatch,
         *,
@@ -1026,16 +984,17 @@ class TestFx2DriverLibusbBackendProbe:
         library_path=_BUNDLED,
         usb1_loads=True,
         usb1_opens=True,
+        has_usb=True,
+        has_usb1=True,
+        platform='darwin',
     ):
-        import importlib.util
+        """The gate over a fake binding tree, with what the bindings were handed."""
+        import ctypes
         import types
 
-        # Fake pyusb tree: importable, with a controllable backend load.
+        # A stand-in by design: the subject is the gate's classification of
+        # the bindings' answers, which no installed library can be made to give.
         usb_mod = types.ModuleType('usb')
-        usb_core = types.ModuleType('usb.core')
-        usb_core.USBError = type('USBError', (OSError,), {})
-        usb_core.USBTimeoutError = type('USBTimeoutError', (OSError,), {})
-        usb_util = types.ModuleType('usb.util')
         usb_backend = types.ModuleType('usb.backend')
         usb_libusb1 = types.ModuleType('usb.backend.libusb1')
         found = []
@@ -1046,8 +1005,6 @@ class TestFx2DriverLibusbBackendProbe:
 
         usb_libusb1.get_backend = get_backend
         usb_backend.libusb1 = usb_libusb1
-        usb_mod.core = usb_core
-        usb_mod.util = usb_util
         usb_mod.backend = usb_backend
         usb1_mod = types.ModuleType('usb1')
         handed_to_usb1 = []
@@ -1058,71 +1015,55 @@ class TestFx2DriverLibusbBackendProbe:
 
         usb1_mod.loadLibrary = load_library
         usb1_mod.getVersion = lambda: '1.0.30'
+
         # The fake library path cannot be opened; python-libusb1's own
         # handle is recorded by the path it was opened on instead.
-        import ctypes
-
         def open_handle(path):
             if not usb1_opens:
                 raise OSError(f'dlopen({path}) failed')
             return ('CDLL', path)
 
         monkeypatch.setattr(ctypes, 'CDLL', open_handle)
-
-        modules = [
+        for name, mod in (
             ('usb', usb_mod),
-            ('usb.core', usb_core),
-            ('usb.util', usb_util),
             ('usb.backend', usb_backend),
             ('usb.backend.libusb1', usb_libusb1),
-            ('usb1', usb1_mod),
-        ]
+        ):
+            monkeypatch.setitem(sys.modules, name, mod)
         if package:
             package_mod = types.ModuleType('libusb_package')
             package_mod.get_library_path = lambda: library_path
-            modules.append(('libusb_package', package_mod))
+            monkeypatch.setitem(sys.modules, 'libusb_package', package_mod)
         else:
             # None in sys.modules makes the import raise ImportError.
-            modules.append(('libusb_package', None))
-        for name, mod in modules:
-            monkeypatch.setitem(sys.modules, name, mod)
+            monkeypatch.setitem(sys.modules, 'libusb_package', None)
 
-        # Recording logger, and the real registries with their register
-        # recorded, so the fresh module exec reaches no real driver entry.
+        gate = fx2driver._fx2_gate(has_usb, usb1_mod if has_usb1 else None, platform)
+        return gate, found, handed_to_usb1
+
+    @staticmethod
+    def _logged(monkeypatch, gate):
         records = []
 
         class _Recorder:
             def __getattr__(self, level):
                 return lambda msg, *a, **k: records.append((level.upper(), str(msg)))
 
-        lvp_logger_mod = types.ModuleType('lvp_logger')
-        lvp_logger_mod.logger = _Recorder()
-        lvp_logger_mod.camera_logger = _Recorder()
-        monkeypatch.setitem(sys.modules, 'lvp_logger', lvp_logger_mod)
+        monkeypatch.setattr(fx2driver, 'logger', _Recorder())
+        fx2driver._log_fx2_gate(gate)
+        return records
 
-        from drivers import registry
+    @staticmethod
+    def _registered(monkeypatch, gate):
+        """Whether the driver registers under ``gate``, and what a registry declining it was told."""
+        monkeypatch.setattr(fx2driver, '_FX2_GATE', gate)
+        registry = DriverRegistry('camera')
 
-        registered = []
+        class Dummy:
+            pass
 
-        def _record(name, **kwargs):
-            registered.append(name)
-            return lambda cls: cls
-
-        def _decline(name, reason):
-            # Kept off the process's registries, which the real import fed.
-            return lambda cls: cls
-
-        monkeypatch.setattr(registry.camera_registry, 'register', _record)
-        monkeypatch.setattr(registry.led_registry, 'register', _record)
-        monkeypatch.setattr(registry.camera_registry, 'decline', _decline)
-        monkeypatch.setattr(registry.led_registry, 'decline', _decline)
-
-        spec = importlib.util.spec_from_file_location(
-            'fx2driver_backend_probe_under_test', 'drivers/fx2driver.py'
-        )
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        return module, records, registered, found, handed_to_usb1
+        fx2driver._register_if_fx2_available(registry, 'fx2', priority=80)(Dummy)
+        return registry.registered_names()
 
     @pytest.mark.parametrize(
         ('case', 'kwargs', 'reason'),
@@ -1149,37 +1090,48 @@ class TestFx2DriverLibusbBackendProbe:
         backend = kwargs.pop('backend', self._backend_on(self._BUNDLED))
         if backend == 'OTHER':
             backend = self._backend_on('/opt/homebrew/lib/libusb-1.0.dylib')
-        module, records, registered, _found, _handed = self._load_fx2_module(
-            monkeypatch, backend=backend, **kwargs
-        )
-        assert module._HAS_USB is True
-        assert module._HAS_USB_BACKEND is False, case
-        assert module._FX2_AVAILABLE is False, case
-        assert registered == [], f'{case}: no driver may register; got {registered}'
-        assert reason in module._LIBUSB_REFUSAL, (case, module._LIBUSB_REFUSAL)
+        gate, _found, _handed = self._gate(monkeypatch, backend=backend, **kwargs)
+        assert gate.library_path is None, case
+        assert gate.available is False, case
+        assert reason in gate.library_refusal, (case, gate.library_refusal)
+        assert gate.unavailable_reason == f'bundled libusb not in use: {gate.library_refusal}'
+        records = self._logged(monkeypatch, gate)
         assert any(
             lvl == 'INFO' and 'bundled libusb not in use' in msg and reason in msg
             for lvl, msg in records
         ), f'{case}: the refusal must be logged with its reason; got {records}'
+        assert self._registered(monkeypatch, gate) == [], f'{case}: no driver may register'
+
+    @pytest.mark.parametrize(
+        ('case', 'kwargs', 'available', 'reason'),
+        [
+            ('no pyusb', {'has_usb': False}, False, 'pyusb is not installed'),
+            ('no libusb1 off Windows', {'has_usb1': False}, False, 'libusb1 is not installed'),
+            ('no libusb1 on Windows', {'has_usb1': False, 'platform': 'win32'}, True, None),
+        ],
+    )
+    def test_the_bindings_each_platform_needs(self, monkeypatch, case, kwargs, available, reason):
+        gate, _found, _handed = self._gate(
+            monkeypatch, backend=self._backend_on(self._BUNDLED), **kwargs
+        )
+        assert (gate.available, gate.unavailable_reason) == (available, reason), case
 
     def test_the_bundled_library_binds_both_bindings_and_is_named(self, monkeypatch):
         """The backend is asked for the bundled file and nothing else, the
         gate opens, the drivers register, and the log names the file."""
         backend = self._backend_on(self._BUNDLED)
-        module, records, registered, found, handed = self._load_fx2_module(
-            monkeypatch, backend=backend
-        )
+        gate, found, handed = self._gate(monkeypatch, backend=backend)
         assert handed == [('CDLL', self._BUNDLED)] and handed[0] is not backend.lib, (
             f'python-libusb1 must get its own handle to the bundled file; got {handed}'
         )
         assert found == [self._BUNDLED], (
             f'pyusb must be handed the bundled path, never a search; got {found}'
         )
-        assert module._HAS_USB_BACKEND is True
-        assert module._LIBUSB_PATH == self._BUNDLED
-        assert module._FX2_AVAILABLE is True
-        assert registered, 'FX2 drivers must register when prerequisites are met'
-        assert any(
-            lvl == 'INFO' and f'loaded from {self._BUNDLED}' in msg and '1.0.30' in msg
-            for lvl, msg in records
-        ), f'the loaded library must be named once; got {records}'
+        assert gate.library_path == self._BUNDLED
+        assert gate.available is True
+        assert ('INFO', f'[FX2 Driver] libusb 1.0.30 loaded from {self._BUNDLED}') in self._logged(
+            monkeypatch, gate
+        )
+        assert self._registered(monkeypatch, gate) == ['fx2'], (
+            'FX2 drivers must register when prerequisites are met'
+        )
