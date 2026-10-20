@@ -2634,18 +2634,18 @@ class ScopeSession:
             # before anything moves; a dark one needs no board.
             self.scope.illumination.refuse_controller_not_connected('go_to_step')
         # The turret included: a failed turret home leaves T unknown
-        # while the stage axes still know theirs.
-        motion.refuse_unknown_positions(
-            self.scope.capabilities.axes, recording=False, then='go to the step'
-        )
-        if targets.turret_slot is not None:
-            # The step's own Z move follows, so the turret need not put Z back.
-            motion.move_turret(targets.turret_slot, restore_z=False)
-        moves = tuple(
-            motion.start_move_absolute(axis, target)
-            for axis, target in (('X', targets.x), ('Y', targets.y), ('Z', targets.z))
-            if target is not None
-        )
+        # while the stage axes still know theirs. One command, so a capture
+        # asked while the turret turns waits for the step's moves rather
+        # than taking the new objective at the previous step's position.
+        with motion.one_command(self.scope.capabilities.axes, then='go to the step'):
+            if targets.turret_slot is not None:
+                # The step's own Z move follows, so the turret need not put Z back.
+                motion.move_turret(targets.turret_slot, restore_z=False)
+            moves = tuple(
+                motion.start_move_absolute(axis, target)
+                for axis, target in (('X', targets.x), ('Y', targets.y), ('Z', targets.z))
+                if target is not None
+            )
         self._load_step_into_layer(step)
         self._last_step_gone_to = (protocol, step_idx)
         if not moves_light:

@@ -1002,6 +1002,12 @@ class Lumascope:
         # Lumascope wires up the motion-settle check against the
         # frame_validity instance below.
         def _motion_settle_check(source: str) -> bool:
+            # No motion change settles while a several-move command is open:
+            # between two of its moves every axis can be at rest, and a frame
+            # taken there is of neither where the command began nor where it
+            # ends.
+            if source in FrameValidity.MOTION_SOURCES and self.motion._command_open():
+                return False
             # For absent axes (e.g., LS820 has no X/Y), treat UNKNOWN as settled.
             # Axes that were never homed or moved stay UNKNOWN -- they shouldn't
             # block frame validity for sources that don't apply.

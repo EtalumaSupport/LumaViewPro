@@ -12,6 +12,7 @@ moves went through.
 
 from __future__ import annotations
 
+import contextlib
 import threading
 import types
 from unittest.mock import MagicMock
@@ -45,6 +46,16 @@ def env(monkeypatch, lane, centre_posts):
             side_effect=lambda axes, **kw: record.append(('ask', tuple(axes), kw))
         ),
     )
+
+    @contextlib.contextmanager
+    def one_command(axes, *, then):
+        # A stand-in by design: the subject is the gesture's lane task. The
+        # command's own hold is pinned in
+        # test_a_capture_never_returns_a_frame_from_between_a_commands_moves.
+        motion.refuse_unknown_positions(axes, recording=False, then=then)
+        yield
+
+    motion.one_command = one_command
     vertical_control = types.SimpleNamespace(
         update_gui=MagicMock(side_effect=lambda: record.append(('draw', 'Z'))),
         show_turret_state=MagicMock(side_effect=lambda: record.append(('draw', 'T'))),

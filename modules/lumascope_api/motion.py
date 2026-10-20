@@ -3,7 +3,7 @@
 
 MotionAPI owns the motion state slots (_pos_cache, _axis_state,
 _arrival_events, _position_listeners, _motion_wake,
-_motion_monitor_stop, _motion_monitor_thread, _turreting_event) and
+_motion_monitor_stop, _motion_monitor_thread, _commands_open) and
 the bodies of all stage / focus / turret methods. Lumascope keeps a
 small set of one-line method-name forwarders (home, move_absolute, etc.)
 for production callers; those retire as production migrates.
@@ -291,7 +291,12 @@ class MotionAPI:
         self._stop_press_listeners_lock = threading.Lock()
         self._stop_press_listeners: list = []
 
-        self._turreting_event = threading.Event()  # set => turret move in progress
+        # The several-move commands open now (``one_command``): while any is,
+        # no motion change settles, so a capture cannot take a frame from
+        # between a command's moves. A count, since a turret change opens
+        # its own inside going to a step's.
+        self._commands_lock = threading.Lock()
+        self._commands_open = 0
 
         # Motion monitor thread handle -- populated by _start_monitor().
         # Not started at __init__ because the motion driver and per-axis
@@ -1100,10 +1105,12 @@ class MotionAPI:
 
         Use as ``with scope.motion._safe_turret_move() as stop_generation:
         ... move turret ...``; it yields the stop generation read before Z
-        was parked, the one a caller judges the whole change by. Sets
-        ``_is_turreting`` for the duration and restores the original Z
-        position even if the body raises -- unless a stop landed since Z
-        was parked: the person stopped the scope, so Z stays parked.
+        was parked, the one a caller judges the whole change by. Holds the
+        change open as one command from the park to the restore's arrival
+        (``_command``), so no capture returns a frame with Z parked or at
+        the old slot, and restores the original Z position even if the body
+        raises -- unless a stop landed since Z was parked: the person
+        stopped the scope, so Z stays parked.
 
         Args:
             restore_z: When True (default), restore the original Z
@@ -1120,41 +1127,41 @@ class MotionAPI:
         logger.info('[SCOPE API ] Moving Z to 0', extra={'force_error': True})
         initial_z = self.get_target_position(axis='Z')
         stop_generation = self._generation_asked()
-        # force: this retract is the turret-safety move, and it is also
-        # the first motion of the turret-home recovery -- the case where
-        # Z is legitimately still unknown because the home that would
-        # have established it is the operation being recovered. Refusing
-        # here would mean an UNKNOWN Z could never be re-homed without
-        # restarting the application.
-        self._move_absolute_impl('Z', position=0, force=True).result()
-        self._is_turreting = True
-        try:
-            yield stop_generation
-        finally:
-            # Always clear the flag, even if the body raised (e.g. driver
-            # HardwareError from the turret home). Without this, a failed turret
-            # home would leave _is_turreting=True and the stage stuck at
-            # Z=0.
-            self._is_turreting = False
-            # The restore is a new move, which reads the generation after
-            # the stop and so is not withheld by it; this is what keeps a
-            # stopped change from driving Z back up.
-            if self._stopped_since(stop_generation):
-                logger.info(
-                    '[SCOPE API ] Leaving Z parked -- a stop landed during the turret change',
-                    extra={'force_error': True},
-                )
-            elif restore_z:
-                logger.info(f'[SCOPE API ] Restoring Z to {initial_z}', extra={'force_error': True})
-                # force for the same reason as the retract: this is the
-                # other half of one recovery, and refusing it would park
-                # the stage at Z=0 with no way back.
-                self._move_absolute_impl('Z', position=initial_z, force=True).result()
-            else:
-                logger.info(
-                    '[SCOPE API ] Skipping Z restore -- caller will overwrite Z next',
-                    extra={'force_error': True},
-                )
+        # The park inside the command too: a park that raises or is stopped
+        # still closes it, and a capture cannot land between the park and
+        # the turret's move.
+        with self._command():
+            # force: this retract is the turret-safety move, and it is also
+            # the first motion of the turret-home recovery -- the case where
+            # Z is legitimately still unknown because the home that would
+            # have established it is the operation being recovered. Refusing
+            # here would mean an UNKNOWN Z could never be re-homed without
+            # restarting the application.
+            self._move_absolute_impl('Z', position=0, force=True).result()
+            try:
+                yield stop_generation
+            finally:
+                # The restore is a new move, which reads the generation after
+                # the stop and so is not withheld by it; this is what keeps a
+                # stopped change from driving Z back up.
+                if self._stopped_since(stop_generation):
+                    logger.info(
+                        '[SCOPE API ] Leaving Z parked -- a stop landed during the turret change',
+                        extra={'force_error': True},
+                    )
+                elif restore_z:
+                    logger.info(
+                        f'[SCOPE API ] Restoring Z to {initial_z}', extra={'force_error': True}
+                    )
+                    # force for the same reason as the retract: this is the
+                    # other half of one recovery, and refusing it would park
+                    # the stage at Z=0 with no way back.
+                    self._move_absolute_impl('Z', position=initial_z, force=True).result()
+                else:
+                    logger.info(
+                        '[SCOPE API ] Skipping Z restore -- caller will overwrite Z next',
+                        extra={'force_error': True},
+                    )
 
     @slow_task_budget(_HOMING_SLOW_TASK_S)
     @_home_runs_its_own_moves
@@ -1534,28 +1541,78 @@ class MotionAPI:
     # Stateful method bodies.
     #
     # State slots (_pos_cache, _axis_state, _arrival_events,
-    # _position_listeners, _motion_wake, _motion_monitor_*, _turreting_event)
+    # _position_listeners, _motion_wake, _motion_monitor_*, _commands_open)
     # live on this surface.
     # ------------------------------------------------------------------
 
-    # --- CR-2: Thread-safe properties for shared state ---
+    def _command_open(self) -> bool:
+        """Whether a several-move command is open (``one_command``).
 
-    @property
-    def _is_turreting(self) -> bool:
-        """True while the turret is moving.
-
-        Returns:
-            bool: True if a turret motion is in progress.
+        Takes no lock: frame validity's settle check asks it under frame
+        validity's own lock, and a lock here would be taken in the opposite
+        order by a command closing.
         """
-        return self._turreting_event.is_set()
+        return self._commands_open > 0
 
-    @_is_turreting.setter
-    def _is_turreting(self, value: bool) -> None:
-        """Set the turret-motion-in-progress flag."""
-        if value:
-            self._turreting_event.set()
-        else:
-            self._turreting_event.clear()
+    @contextlib.contextmanager
+    def one_command(self, axes: Iterable[str], *, then: str) -> Iterator[None]:
+        """Run a person's several-move command as one change.
+
+        Use as ``with motion.one_command(axes, then=...): ...start the
+        moves...``. Asks ``refuse_unknown_positions(axes, recording=False,
+        then=then)`` once, then holds the command open until the body
+        returns or raises. While it is open no motion change settles, so a
+        capture asked during it waits until its last move is under way and
+        then for that move: it never returns a frame from between two of
+        its moves, such as Z parked during a turret change or the new X at
+        the old Y. A capture asked before the command's first move may
+        return the frame from before it, which is true.
+
+        A seam for the session's and the GUI's gestures, not part of the L2
+        API surface, as ``refuse_unknown_positions`` is not.
+
+        Args:
+            axes: The axes the command needs; see ``refuse_unknown_positions``.
+            then: What the user does once the scope knows its position.
+
+        Raises:
+            ArgumentRefusedError: ``'axis_unknown'``, a name in *axes* is no
+                axis name; nothing was opened.
+            AxisStateUnknownError: Naming every refused axis; nothing was
+                opened.
+        """
+        self.refuse_unknown_positions(axes, recording=False, then=then)
+        with self._command():
+            yield
+
+    @contextlib.contextmanager
+    def _command(self) -> Iterator[None]:
+        """Hold a command open around its moves; ``one_command`` without the question.
+
+        For a command whose moves ask for themselves (the turret change's
+        pre-drive gate). When the last open command closes, each motion
+        change whose axis arrived while it was open, and so was given no
+        in-force time, is given the close's: the moment its frames began to
+        count. A change stamped before the command keeps its own time, so a
+        command never moves the in-force time of a change it did not make.
+        """
+        with self._commands_lock:
+            self._commands_open += 1
+        try:
+            yield
+        finally:
+            with self._commands_lock:
+                self._commands_open -= 1
+                closed = self._commands_open == 0
+            if closed:
+                closed_ns = time.monotonic_ns()
+                frame_validity = self._scope.frame_validity
+                for source, change in frame_validity.changes().items():
+                    # motion_settled stamps only a change that waits on an
+                    # axis now settled; an axis still moving is stamped by
+                    # its own arrival, which comes later.
+                    if change.in_force_ns is None:
+                        frame_validity.motion_settled(source, closed_ns)
 
     def _home_moves_turret(self, action) -> bool:
         """Whether the home body ``action`` moves the turret.

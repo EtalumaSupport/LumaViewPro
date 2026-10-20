@@ -437,8 +437,10 @@ def submit_gesture(
     """Run a person's several-axis gesture as one task on the IO lane.
 
     The lane asks the motion API once whether every axis the gesture needs
-    knows where it is, then runs *moves*, whose members run inline there. A
-    home or a stop can no longer land between the question and the moves,
+    knows where it is, then runs *moves*, whose members run inline there,
+    as one command (``motion.one_command``): a capture asked during the
+    gesture waits for all its moves, never taking the new X at the old Y.
+    A home or a stop can no longer land between the question and the moves,
     and a refusal is shown once by the reporter instead of once per axis.
     A move refused part way leaves the axes that already moved where they
     went.
@@ -460,9 +462,11 @@ def submit_gesture(
     axes = tuple(axes)
 
     def call() -> None:
-        if axes:
-            _app_ctx.ctx.scope.motion.refuse_unknown_positions(axes, recording=False, then=then)
-        moves()
+        if not axes:
+            moves()
+            return
+        with _app_ctx.ctx.scope.motion.one_command(axes, then=then):
+            moves()
 
     submit_move(label, axes=axes, call=call, lane=_app_ctx.ctx.io_executor, on_moved=on_moved)
 
