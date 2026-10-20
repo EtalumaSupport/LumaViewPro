@@ -829,9 +829,9 @@ class DiagnosticsAPI:
             dict: Snapshot from driver plus host / timestamps /
                 output_path metadata. Returns
                 ``{'connected': False, 'errors': [...]}`` if no
-                camera is active. A driver that does not implement the
-                probe returns the ``{'supported': False, 'reason': ...}``
-                shape, passed through unchanged.
+                camera is active, and ``{'connected': False, 'supported':
+                False, 'errors': [...]}`` for a camera whose driver has no
+                probe.
         """
         if progress_cb is not None:
             try:
@@ -857,15 +857,6 @@ class DiagnosticsAPI:
             duration_s=duration_s,
             drain_camera_side_errors=drain_camera_side_errors,
         )
-
-        # Non-Pylon stub returns supported=False; pass through unchanged
-        if snapshot.get('supported') is False:
-            if progress_cb is not None:
-                try:
-                    progress_cb(100, 'driver does not support diagnostic probe')
-                except Exception:
-                    pass
-            return snapshot
 
         if progress_cb is not None:
             try:

@@ -3739,7 +3739,7 @@ class TestPylonDiagnosticProbe:
     scripts (Rule 22).
 
     Tests focus on the API-layer wiring: schema, filename pattern,
-    DLTL token, no-camera fallback, IDS supported=False passthrough.
+    DLTL token, no-camera fallback, a driver with no probe.
     Driver-level node reading is exercised on real hardware
     (bench-only); these tests stub the driver via a minimal fake.
     """
@@ -3792,33 +3792,6 @@ class TestPylonDiagnosticProbe:
                 duration_s=0.0
             )
         assert exc.value.missing == MissingPart.CAMERA
-
-    def test_unsupported_driver_returns_supported_false(self):
-        """Driver returning supported=False (e.g. IDSCamera stub) is
-        passed through unchanged; API does NOT add host/timestamps/
-        output_path because the snapshot is incomplete."""
-
-        class _StubDriver:
-            active = True  # truthy
-
-            def is_connected(self):
-                return True
-
-            def read_diagnostic_snapshot(self, duration_s, drain_camera_side_errors):
-                return {
-                    'connected': True,
-                    'supported': False,
-                    'reason': 'stub driver',
-                    'errors': [],
-                }
-
-        result = self._make_scope_with_fake_camera(
-            _StubDriver()
-        ).diagnostics.run_pylon_diagnostic_probe(duration_s=0.0)
-        assert result.get('supported') is False
-        assert 'output_path' not in result, (
-            'supported=False driver responses must NOT trigger JSON write'
-        )
 
     def test_no_read_diagnostic_snapshot_method(self):
         """If the driver does not implement read_diagnostic_snapshot at
