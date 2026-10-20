@@ -18,7 +18,8 @@ device, the data stream, the device's transport layer) is recorded at 2x2
 before and after its drain, and the nodes whose value changed across the
 drain are named, which shows any frame counter the camera keeps. Then the
 sweep: at 2x2, for each pair of the data stream's transfer request count and
-bulk transfer size across what the nodes allow, the stream is restarted with
+bulk transfer size from the current values up to what the nodes allow (a
+smaller one only slows the stream), the stream is restarted with
 the pair written, the values read back, and a drain timed. A pair that
 drains at the camera's maximum names the setting to change; none doing so
 leaves the buffer count (fixed in the driver at the minimum plus 5) and the
@@ -137,12 +138,20 @@ _TRANSFER = ('U3vStreamChannelTransferRequestCount', 'U3vStreamChannelBulkTransf
 
 
 def _steps(info):
-    """The values a sweep tries for one node: its minimum, current and maximum."""
-    values = {info.get('minimum'), info.get('value'), info.get('maximum')}
-    count_like = info.get('maximum') is not None and info['maximum'] <= 64
-    if count_like:
-        values |= set(range(int(info.get('minimum') or 1), int(info['maximum']) + 1))
-    return sorted(int(v) for v in values if isinstance(v, (int, float)))
+    """The values a sweep tries for one node: from its current value up to its maximum.
+
+    Only upward: the current setting already falls short, and a smaller one
+    only slows the stream (the minimums, one 1024-byte transfer, delivered
+    nothing in the first sweep, each drain running out its 300 waits). The
+    value doubles, kept on the node's increment.
+    """
+    current, top = int(info['value']), int(info['maximum'])
+    step = int(info.get('increment') or 1)
+    values, size = {current, top}, current * 2
+    while size < top:
+        values.add(size - size % step)
+        size *= 2
+    return sorted(values)
 
 
 def _sweep(scope, dump):
@@ -166,6 +175,7 @@ def _sweep(scope, dump):
                     )
                 nodemap = driver.data_stream.NodeMaps()[0]
                 read = tuple(driver._diag_probe_node(nodemap, n).get('value') for n in _TRANSFER)
+                print(f'SWEEP: count {count}, size {size}, read back {read}', flush=True)
                 time.sleep(SETTLE_S)
                 drain = _drain(scope, f'sweep_c{count}_s{size}')
                 rows.append(
