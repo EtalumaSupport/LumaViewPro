@@ -34,12 +34,14 @@ THE RECORD. Every run leaves two files under ``<log folder>/bench_results/``,
 one stamp for both: ``<probe>_<stamp>_console.log``, every line the probe
 printed to stdout and stderr, written as it is printed, so a refusal, a crash
 or a hand-timed step is in it; and ``<probe>_<stamp>_verdict.json``, the checks
-and figures, written by `report()`. The support zip carries the log folder,
+and figures, written by `report()`, or at exit by a run that never reached
+it (a Ctrl-C, a raise, a refusal). The support zip carries the log folder,
 so a bench run reaches the reader with nothing copied off a terminal. The
 suite runs each probe from a folder of links into the checkout, so its runs
 write into that folder and never into the checkout's own logs.
 """
 
+import atexit
 import contextlib
 import datetime
 import json
@@ -216,7 +218,7 @@ def report():
     return 1 if failed else 0
 
 
-def _write_verdict(failed):
+def _write_verdict(failed, ended='reported'):
     """Leave the run's verdict in the log folder, beside its console file.
 
     Stamped with the build and the scope it ran on (empty on the simulator),
@@ -225,10 +227,13 @@ def _write_verdict(failed):
     """
     import lvp_logger
 
+    global _VERDICT_WRITTEN
+    _VERDICT_WRITTEN = True
     verdict = {
         'probe': PROBE,
         'target': 'hardware' if HARDWARE else 'simulator',
         'passed': not failed,
+        'ended': ended,
         'lvp_commit': lvp_logger.git_revision(),
         'scope': IDENTITY,
         'checks': [{'name': n, 'passed': p, 'kind': k} for n, p, k in RESULTS],
@@ -239,6 +244,21 @@ def _write_verdict(failed):
     path.write_text(json.dumps(verdict, indent=2, default=str))
     print(f'VERDICT FILE: {path}', flush=True)
     print(f'LOG FOLDER: {lvp_logger.log_dir}', flush=True)
+
+
+_VERDICT_WRITTEN = False
+
+
+@atexit.register
+def _verdict_at_exit():
+    """A run that never reached `report()` still leaves what it measured.
+
+    A Ctrl-C, an uncaught raise or a refusal ends a probe before its
+    verdict; the checks and figures recorded until then are written,
+    failed, with how the run ended.
+    """
+    if not _VERDICT_WRITTEN:
+        _write_verdict(True, ended='before report(): interrupted, raised or refused')
 
 
 def _refuse_hardware():

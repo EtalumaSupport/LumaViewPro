@@ -129,3 +129,30 @@ def test_a_probe_run_leaves_its_console_and_its_verdict_in_the_log_folder(folder
     verdict = json.loads(verdict_path.read_text())
     assert verdict['target'] == 'simulator'
     assert verdict['checks'] == [{'name': 'a check', 'passed': True, 'kind': 'check'}]
+
+
+def test_a_probe_ended_before_its_report_still_leaves_what_it_measured(folder):
+    # A Ctrl-C mid-run: the figure recorded before it is in the verdict.
+    code = (
+        'import sys\n'
+        "sys.path.insert(0, 'tests/capability')\n"
+        "sys.argv = ['interrupted_probe']\n"
+        'import harness\n'
+        "harness.figure('measured before the interrupt', 7)\n"
+        'raise KeyboardInterrupt\n'
+    )
+    done = subprocess.run(
+        [sys.executable, '-c', code],
+        cwd=str(folder),
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+
+    assert done.returncode != 0, done.stdout[-3000:] + done.stderr[-3000:]
+    results = folder / 'logs' / 'LVP_Log' / 'bench_results'
+    (verdict_path,) = results.glob('interrupted_probe_*_verdict.json')
+    verdict = json.loads(verdict_path.read_text())
+    assert verdict['figures'] == {'measured before the interrupt': 7}
+    assert verdict['passed'] is False
+    assert verdict['ended'].startswith('before report()')
