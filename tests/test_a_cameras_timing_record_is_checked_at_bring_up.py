@@ -67,6 +67,14 @@ def test_every_shipped_record_is_one_this_release_reads():
         FrameValidity.check_timing_record(json.loads(path.read_text()))
 
 
+def test_the_simulator_reads_a_record_of_its_own():
+    """The simulated sensor's delays are its own: the record it brings up
+    with names the simulated camera, not the dart it was built from."""
+    simulated = camera_profiles.simulated_profile()
+
+    assert camera_profiles.timing_record(simulated)['camera_model'] == simulated.model_name
+
+
 def test_a_measured_value_with_its_provenance_is_accepted():
     FrameValidity.check_timing_record(
         _record({'gain': {'up': _measured()}, 'exposure': {'long_to_short': _delay(410.0)}})

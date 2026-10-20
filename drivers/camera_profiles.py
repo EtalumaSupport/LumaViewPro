@@ -254,11 +254,14 @@ _U3_34L0XCP_M = CameraProfile(
 # meets on the bench. Built from that profile, so every field an API caller
 # reads is the dart's by construction; replaced are the identity, the ranges
 # the real camera fills at connect (given as what it advertises: 0-48 dB,
-# 14 us - 1 s), and the formats the simulator renders (it has no packed
-# Mono12p). The simulated camera reads its size, name and formats from here.
+# 14 us - 1 s), the formats the simulator renders (it has no packed
+# Mono12p), and the timing record: the simulated sensor's delays are its own,
+# so a measurement of it never stands as the dart's, nor the dart's as its.
+# The simulated camera reads its size, name and formats from here.
 _simulated = replace(
     copy.deepcopy(_daA3840_45um),
     model_name='SimulatedCamera-3840x2160',
+    timing_model='SimulatedCamera-3840x2160',
     sensor='Simulated',
     driver='simulated',
     pixel_formats=['Mono8', 'Mono12'],
