@@ -198,6 +198,8 @@ def test_a_read_answers_its_encoded_value(client, session):
     assert client.get('/api/v1/engineering_mode').json() is False
     assert set(client.get('/api/v1/status').json()) == {
         'live_work',
+        'lock',
+        'run_refused',
         'axes',
         'parts',
         'camera_streaming',

@@ -109,10 +109,12 @@ _REASON_UNNAMED_PINNED = frozenset(
 # the store and raise nothing (Eric, 2026-10-19); 163 since ImagingAPI's
 # recorded_changes, a read of frame validity's record that raises nothing
 # (Eric, 2026-10-20); 160 since the camera's diagnostic snapshot, its
-# profile and the system summary left for published reads (W3c part E); the
+# profile and the system summary left for published reads (W3c part E); 162
+# since the Session's controls lock and its record's two answers, reads that
+# raise nothing, while the status gained its section (Eric, 2026-10-20); the
 # count does not yet tell a member that raises nothing from one that has not
 # said.
-_WITHOUT_A_SECTION_CEILING = 160
+_WITHOUT_A_SECTION_CEILING = 162
 
 
 def _sections():

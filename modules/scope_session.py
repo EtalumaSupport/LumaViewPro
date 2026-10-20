@@ -66,6 +66,7 @@ from modules.exceptions import (
     MoveStoppedError,
     ObjectiveUnknownError,
     ProtocolNotLoadedError,
+    ProtocolRunRefusedError,
     Remedy,
     RemedyUnknownError,
     ScopeDisconnectError,
@@ -267,7 +268,46 @@ class SavedFocus:
     step_idx: int | None
 
 
-@api_fields('live_work', 'axes', 'parts', 'camera_streaming')
+@api_fields('run_named', 'recording')
+@dataclasses.dataclass(frozen=True)
+class ControlsLock:
+    """Which of a person's controls the Session locks now, and why.
+
+    The Session's editing policy for the controls a person works, not an
+    API refusal: a REST client may still make any call the API accepts,
+    and what the API refuses it refuses whatever this says.
+
+    Attributes:
+        run_named: What holds the run surface -- a run, a diagnostic, a
+            home, or a finished run's files still writing -- as a sentence
+            a person reads; None while nothing does.
+        recording: Whether a manual recording is live. Its drain is not: a
+            draining recording frees the controls while its claim still
+            refuses new runs.
+    """
+
+    run_named: str | None
+    recording: bool
+
+    @api
+    @property
+    def run_lockout(self) -> bool:
+        """True while something holds the run surface (``run_named``).
+
+        A finished run's files hold it until the last one is written,
+        though the run has freed its claim: the controls stay locked until
+        the queue empties.
+        """
+        return self.run_named is not None
+
+    @api
+    @property
+    def controls_locked(self) -> bool:
+        """True while the whole control surface locks: the run surface is held, or a recording is live."""
+        return self.run_lockout or self.recording
+
+
+@api_fields('live_work', 'lock', 'run_refused', 'axes', 'parts', 'camera_streaming')
 @dataclasses.dataclass(frozen=True)
 class Status:
     """What the scope is doing, in one read, for a client that has just connected.
@@ -280,6 +320,14 @@ class Status:
     Attributes:
         live_work: Everything the session is still doing
             (``ScopeSession.live_work``).
+        lock: Which of a person's controls the Session locks, and why
+            (``ScopeSession.controls_lock``): its editing policy, not a
+            refusal.
+        run_refused: The refusal a run would get now for the scope's state
+            alone, None when the state refuses none
+            (``SequencedCaptureRunner.state_refusal``). None does not
+            promise a run starts: the protocol, an axis's position, the
+            camera feed and the interlocks are judged when the run is asked.
         axes: Each axis's state and position, None where the position is
             not known (``MotionAPI.axis_positions``); um for X/Y/Z, the
             slot for T.
@@ -290,6 +338,8 @@ class Status:
     """
 
     live_work: LiveWork
+    lock: ControlsLock
+    run_refused: ProtocolRunRefusedError | None
     axes: dict[str, AxisPosition]
     parts: tuple[PartStatus, ...]
     camera_streaming: bool
@@ -802,9 +852,16 @@ class ScopeSession:
         The read a client makes first and polls as its health check. Each
         field comes from its owner, one after another rather than under one
         lock (``Status``); no field does serial I/O.
+
+        Raises:
+            RunCheckFailedError: ``'hardware_state_unknown'``, the
+                connection read behind ``run_refused`` crashed instead of
+                answering.
         """
         return Status(
             live_work=self.live_work,
+            lock=self.controls_lock,
+            run_refused=self.sequenced_capture_runner.state_refusal(self.activity_claim),
             axes=self.scope.motion.axis_positions(),
             parts=self.scope.bring_up_record().parts,
             camera_streaming=self.scope.imaging.is_streaming(),
@@ -871,40 +928,45 @@ class ScopeSession:
         """The write in flight on the file lane, named for a stall report."""
         return self.file_io_executor.describe_running_task()
 
+    @api(in_process=True)
+    @property
+    def controls_lock(self) -> ControlsLock:
+        """Which of a person's controls the Session locks now, and why: its editing policy, not a refusal.
+
+        The run surface is held by a run by its kind, a diagnostic as one (a
+        characterization and the support report share its claim), a home,
+        or a finished run's files still writing; the whole surface also by
+        a live manual recording. The one rule every lock read reads; a wire
+        client reads it in ``status``.
+        """
+        holder = self.activity_claim.holder
+        if holder is not None and holder.kind in SCOPE_HOLDING_KINDS:
+            run_named = f'{the_holder_named(holder)} is in progress.'
+        elif self.protocol_files_draining:
+            run_named = "A protocol's files are still being written."
+        else:
+            run_named = None
+        return ControlsLock(run_named=run_named, recording=self.manual_recording.is_recording)
+
     @api
     @property
     def run_lockout(self) -> bool:
         """True while a run, a diagnostic, a home, or a run's post-run file
-        drain owns the scope.
-
-        The drain term encodes a deliberate asymmetry: a finished
-        protocol frees its claim while its files drain, but the control
-        surface stays locked until the queue empties.
-        """
-        return self.run_lockout_named is not None
+        drain owns the scope (``ControlsLock.run_lockout``)."""
+        return self.controls_lock.run_lockout
 
     @api
     @property
     def run_lockout_named(self) -> str | None:
-        """What locks the controls, as a sentence a person reads; None while nothing does.
-
-        The run by its kind, a diagnostic as one (a characterization and the
-        support report share its claim), a home, or a finished run's files
-        still writing. The one rule ``run_lockout`` reads.
-        """
-        holder = self.activity_claim.holder
-        if holder is not None and holder.kind in SCOPE_HOLDING_KINDS:
-            return f'{the_holder_named(holder)} is in progress.'
-        if self.protocol_files_draining:
-            return "A protocol's files are still being written."
-        return None
+        """What locks the controls, as a sentence a person reads; None while nothing does (``ControlsLock.run_named``)."""
+        return self.controls_lock.run_named
 
     def in_flight_named(self) -> list[str]:
         """What a gesture started that is still running, each as a sentence; empty when nothing is.
 
         The read a sim walk's ``wait`` makes before its next step, and the
         one place the answer is composed, so the GUI reads nothing below the
-        Session: what holds the scope (``run_lockout_named``); each queued
+        Session: what holds the scope (``controls_lock``); each queued
         lane with a task running or queued, since a turret pick or a build
         blocks on its lane; an axis still travelling, since a jog, a go-to
         or a stage click starts its move on the lane and the lane is idle
@@ -914,7 +976,7 @@ class ScopeSession:
         report.
         """
         still = []
-        holding = self.run_lockout_named
+        holding = self.controls_lock.run_named
         if holding is not None:
             still.append(holding)
         for name, lane in self.executor_bundle.queued_executors():
@@ -941,9 +1003,8 @@ class ScopeSession:
     @property
     def controls_locked(self) -> bool:
         """True while the full control surface locks: any run lockout,
-        or a live manual recording (a draining recording frees the
-        controls while its claim still refuses new runs)."""
-        return self.run_lockout or self.recording_active
+        or a live manual recording (``ControlsLock.controls_locked``)."""
+        return self.controls_lock.controls_locked
 
     @api
     @property

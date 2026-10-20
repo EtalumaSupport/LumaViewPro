@@ -1171,8 +1171,13 @@ session.live_work                # everything the session is still doing, one re
                                  # frames discard_close_drain drops; .closing while the close runs,
                                  # .closed once the session shut down
 session.status                   # what the scope is doing, one read, the first a client makes: Status(live_work,
-                                 # axes, parts, camera_streaming) -- live_work as above; axes as
-                                 # scope.motion.axis_positions(); parts as bring_up_record().parts;
+                                 # lock, run_refused, axes, parts, camera_streaming) -- live_work as above;
+                                 # lock as session.controls_lock, ControlsLock(run_named, recording) with
+                                 # run_lockout and controls_locked read from those two, the Session's policy
+                                 # for a person's controls and not a refusal; run_refused the refusal a run
+                                 # would get now for the scope's state alone, sent as a refused call's problem
+                                 # less type, status and instance, or None (None does not promise a run starts);
+                                 # axes as scope.motion.axis_positions(); parts as bring_up_record().parts;
                                  # camera_streaming as scope.imaging.is_streaming(); each read from its owner in
                                  # turn, not under one lock, so two fields can be a moment apart
 session.discard_close_drain()    # the escape from a wait on video frames: drop every queued frame of a recording's
@@ -3125,6 +3130,7 @@ Reached through `ScopeSession.create(settings, ...)`; every L2 caller starts her
 - `clear_current_turret_objective`
 - `clear_turret_objective`
 - `confirm_objective`
+- `controls_lock` (in-process)
 - `controls_locked`
 - `create` (in-process)
 - `create_empty_protocol`
@@ -3791,6 +3797,15 @@ Reached through `scope.imaging.judge_frame`'s `mapping`, and a capture's `frame_
 - `tick_hz`
 - `uncertainty_ns`
 
+### ControlsLock
+
+Reached through `Status.lock`.
+
+- `controls_locked`
+- `recording`
+- `run_lockout`
+- `run_named`
+
 ### Credit
 
 Reached through each value of a `Change`'s `credits`.
@@ -4264,7 +4279,9 @@ Reached through `session.status`.
 - `axes`
 - `camera_streaming`
 - `live_work`
+- `lock`
 - `parts`
+- `run_refused`
 
 ### StepStarted
 

@@ -131,7 +131,14 @@ def test_the_first_event_is_the_status_with_the_current_id(client):
 
     assert first['event'] == 'status'
     assert first['id'].isdigit()
-    assert set(first['data']) == {'live_work', 'axes', 'parts', 'camera_streaming'}
+    assert set(first['data']) == {
+        'live_work',
+        'lock',
+        'run_refused',
+        'axes',
+        'parts',
+        'camera_streaming',
+    }
 
 
 def test_a_listener_members_event_is_its_record(client):
