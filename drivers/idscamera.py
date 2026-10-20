@@ -1407,7 +1407,7 @@ class IDSCamera(Camera):
             ('the 1900x1900 frame', lambda: self.set_frame_size(1900, 1900)),
             ('free-run acquisition', self._configure_free_run),
             # One-shot diagnostic so a bundle shows why the free-run rate is
-            # what it is (esp. whether the Component=Link keystone applied).
+            # what it is, beginning with the limiter the camera reports.
             ('the free-run state log', self._log_free_run_state),
         ]
         try:
@@ -1709,28 +1709,21 @@ class IDSCamera(Camera):
         as fast as they arrive and the converter sees only the newest frame, so
         no software cap is needed to keep the buffer pool from exhausting.
 
-        Three throttles, set in order (each is an independent ceiling; the
-        lowest wins, so all must be lifted):
-          - DeviceLinkThroughputLimitComponent = 'Link': the default 'Sensor'
-            mode computes the limit against the full raw sensor readout even for
-            a smaller ROI, capping fps; 'Link' applies it to the actual USB
-            transfer instead. This is the keystone -- without it the limit
-            throttles the rate no matter how high the limit value is.
+        Two throttles, set in order (each is an independent ceiling; the
+        lowest wins, so both must be lifted):
           - DeviceLinkThroughputLimit = Maximum(): no bandwidth throttle.
           - AcquisitionFrameRateTarget disabled, then AcquisitionFrameRate
             maximized: the UserSetDefault enables a low rate-target limiter;
             disabling it and pushing the rate to its max lets the camera
             free-run at whatever the throughput ceiling allows.
+
+        ``DeviceLinkThroughputLimitComponent`` is not a throttle: it is a
+        read-only report of which component limits the rate, the USB link or
+        the sensor readout (IDS manual, IDS peak 26.06), so nothing is written
+        to it; ``_log_free_run_state`` logs what it reports.
         """
         if not self.active or self.remote_nodemap is None:
             return
-
-        try:
-            comp = self.remote_nodemap.FindNode('DeviceLinkThroughputLimitComponent')
-            comp.SetCurrentEntry('Link')
-            logger.info('[CAM Class ] DeviceLinkThroughputLimitComponent set to Link')
-        except Exception as e:
-            logger.debug(f'[CAM Class ] DeviceLinkThroughputLimitComponent not available: {e}')
 
         try:
             node = self.remote_nodemap.FindNode('DeviceLinkThroughputLimit')
@@ -1770,44 +1763,22 @@ class IDSCamera(Camera):
 
     def _log_free_run_state(self):
         """One-shot diagnostic of the throttles that govern the free-run rate, so
-        a log bundle is self-sufficient about why the rate is what it is. The
-        keystone is DeviceLinkThroughputLimitComponent='Link': if it did not
-        apply (node absent, or no 'Link' entry on this body), the limit is
-        computed against the full raw readout and the rate stays Sensor-throttled
-        well below the wire ceiling -- so its failure is logged at WARNING with
-        the node's available entries, not swallowed."""
+        a log bundle is self-sufficient about why the rate is what it is,
+        beginning with the component the camera reports as its limit: the USB
+        link or the sensor readout (DeviceLinkThroughputLimitComponent, a
+        read-only report). Either answer is the camera working as built, so it
+        is logged at INFO."""
         if not self.active or self.remote_nodemap is None:
             return
 
         try:
             comp = self.remote_nodemap.FindNode('DeviceLinkThroughputLimitComponent')
-            entries = [e.SymbolicValue() for e in comp.AvailableEntries()]
-            current = comp.CurrentEntry().SymbolicValue()
-            # The node's access status tells WHY a non-Link current persisted: a
-            # read-only node is a firmware/body limitation we cannot lift, while a
-            # writable one means the 'Link' set failed for another reason -- so the
-            # bundle distinguishes the two without a probe. The U3-34L reports this
-            # ReadOnly (bench 2026-06-28), locking the rate to Sensor mode.
-            access = (
-                _access_status_name(comp.AccessStatus())
-                if hasattr(comp, 'AccessStatus')
-                else '<no AccessStatus>'
-            )
-            if current == 'Link':
-                logger.info(
-                    f'[CAM Class ] Free-run: ThroughputLimitComponent=Link applied '
-                    f'(available={entries}, access={access})'
-                )
-            else:
-                _cam_log.warning(
-                    f'[CAM Class ] Free-run: ThroughputLimitComponent={current}, NOT Link '
-                    f'(available={entries}, access={access}) -- rate stays Sensor-throttled '
-                    f'below the wire ceiling'
-                )
+            limiter = comp.CurrentEntry().SymbolicValue()
+            logger.info(f'[CAM Class ] Free-run: the camera reports its rate limited by {limiter}')
         except Exception as e:
-            _cam_log.warning(
-                f'[CAM Class ] Free-run: DeviceLinkThroughputLimitComponent node '
-                f'unavailable on this body ({type(e).__name__}: {e}) -- cannot switch to Link'
+            logger.info(
+                f'[CAM Class ] Free-run: the camera does not report its rate limiter '
+                f'({type(e).__name__}: {e})'
             )
 
         def _value_and_max(name):

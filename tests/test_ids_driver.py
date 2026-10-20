@@ -216,11 +216,10 @@ class TestFrameRateCap:
 
 
 class TestFreeRunConfig:
-    """_configure_free_run lifts every throttle so the camera free-runs:
-    DeviceLinkThroughputLimitComponent -> Link (the keystone -- in the default
-    Sensor mode the limit is computed against the full raw readout and caps
-    fps), the link limit to its max, the rate-target limiter off, and
-    AcquisitionFrameRate to its max."""
+    """_configure_free_run lifts every throttle so the camera free-runs: the
+    link limit to its max, the rate-target limiter off, and
+    AcquisitionFrameRate to its max. DeviceLinkThroughputLimitComponent is a
+    read-only report of the limiting component, never written."""
 
     def _cam(self):
         cam = bare_ids_camera()
@@ -232,10 +231,10 @@ class TestFreeRunConfig:
         )
         return cam
 
-    def test_sets_throughput_component_to_link(self):
+    def test_writes_nothing_to_the_reported_limiter(self):
         cam = self._cam()
         cam._configure_free_run()
-        assert cam.remote_nodemap.nodes['DeviceLinkThroughputLimitComponent'].entry == 'Link'
+        assert 'DeviceLinkThroughputLimitComponent' not in cam.remote_nodemap.nodes
 
     def test_maximizes_throughput_limit(self):
         cam = self._cam()
