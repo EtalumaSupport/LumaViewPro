@@ -1392,7 +1392,7 @@ class DiagnosticsAPI:
         # Exposure floor: the driver's LIVE minimum. The ExposureTime node
         # minimum drifts above the connect-time value once other settings
         # change, so the cached profile floor goes stale; get_min_exposure
-        # reads the live node (and itself falls back to the cached floor).
+        # reads the live node, and raises when that read fails.
         exposure_min_ms = driver.get_min_exposure()
         exposure_min_us = exposure_min_ms * 1000.0 if exposure_min_ms is not None else None
         return {

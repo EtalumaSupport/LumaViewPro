@@ -2746,15 +2746,21 @@ class IDSCamera(Camera):
         The ExposureTime node minimum drifts above the connect-time value once
         other settings change (pixel clock, frame rate, AOI), so read it live
         each call rather than trusting the value cached in the profile at
-        connect. Falls back to the cached profile floor if the node read fails.
+        connect. A read that fails raises: the cached floor in its place
+        would be answered as the live one, and could be the stale value the
+        live read exists to replace.
+
+        Raises:
+            CameraReadFailedError: The node read failed.
         """
         if not self.active:
             return super().get_min_exposure()
         try:
             return self.remote_nodemap.FindNode('ExposureTime').Minimum() / 1000.0
         except Exception as e:
-            _cam_log.warning(f'[CAM Class ] get_min_exposure live read failed: {e}')
-            return super().get_min_exposure()
+            raise CameraReadFailedError(
+                f'Minimum exposure read failed: {type(e).__name__}: {e}'
+            ) from e
 
     def get_exposure_t(self):
         if not self.active:

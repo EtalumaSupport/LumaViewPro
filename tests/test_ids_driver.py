@@ -1927,18 +1927,22 @@ class TestLiveExposureMinimum:
 
         assert cam.get_min_exposure() == pytest.approx(0.031)
 
-    def test_falls_back_to_cached_floor_when_node_read_fails(self):
+    def test_a_failed_node_read_raises_rather_than_answering_the_cached_floor(self):
+        """The cached floor answered in its place would be told as the live
+        one, and can be the stale value the live read exists to replace."""
         from types import SimpleNamespace
 
+        from drivers.exceptions import CameraReadFailedError
+
         cam = bare_ids_camera()
-        # Minimum() returns a non-numeric, so the live read raises and the
-        # accessor falls back to the cached profile floor rather than crashing.
+        # Minimum() returns a non-numeric, so the live read raises.
         cam.remote_nodemap = _RecordingNodemap(
             preset={'ExposureTime': _RecordingNode(minimum=None)}
         )
         cam.profile = SimpleNamespace(exposure_min_us=31.0)
 
-        assert cam.get_min_exposure() == pytest.approx(0.031)
+        with pytest.raises(CameraReadFailedError, match='Minimum exposure read failed'):
+            cam.get_min_exposure()
 
 
 def _unanswered() -> RuntimeError:
