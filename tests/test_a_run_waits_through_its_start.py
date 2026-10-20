@@ -13,6 +13,7 @@ import inspect
 
 import pytest
 
+from modules import live_work
 from modules.api_surface import IN_PROCESS, mark_of
 from modules.exceptions import RunWaitExpiredError
 from modules.notification_center import OutcomeKind, outcome_of
@@ -63,7 +64,7 @@ def test_run_single_scan_returns_the_run_s_outcome(session_and_runner, tmp_path)
     outcome = runner.run_single_scan(_one_step(session), parent_dir=str(tmp_path))
 
     assert (outcome.status, outcome.reason) == ('completed', 'completed')
-    assert not session.run_in_progress
+    assert not session.live_work.has(live_work.PROTOCOL)
 
 
 def test_a_wait_that_runs_out_hands_back_the_run_still_going(session_and_runner, tmp_path):
@@ -79,6 +80,6 @@ def test_a_wait_that_runs_out_hands_back_the_run_still_going(session_and_runner,
     assert expired.value.reason == 'still_running'
     assert outcome_of(expired.value).kind == OutcomeKind.QUIET
     run = expired.value.operation
-    assert not run.done() and session.run_in_progress
+    assert not run.done() and session.live_work.has(live_work.PROTOCOL)
     run.stop()
     assert (run.result(timeout=_RUN_S).status, run.result().reason) == ('aborted', 'stopped')

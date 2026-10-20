@@ -63,14 +63,14 @@ def test_the_startup_motion_holds_the_scope_until_it_ends(session, monkeypatch):
     told = threading.Event()
 
     def on_done(_done):
-        locked_when_settled.append(session.controls_locked)
+        locked_when_settled.append(session.controls_lock.controls_locked)
         told.set()
 
     started.add_done_callback(on_done)
     try:
         assert held.entered.wait(HOME_S)
         assert not started.done()
-        assert session.controls_locked
+        assert session.controls_lock.controls_locked
         with pytest.raises(HardwareCommandRefusedError) as pick:
             scope.motion.move_turret(3)
         assert 'home' in str(pick.value).lower(), str(pick.value)
@@ -81,7 +81,7 @@ def test_the_startup_motion_holds_the_scope_until_it_ends(session, monkeypatch):
     assert told.wait(ASKED_S), 'the done-callback never ran'
 
     assert locked_when_settled == [False]
-    assert not session.controls_locked
+    assert not session.controls_lock.controls_locked
     assert scope.motion.has_homed()
     assert scope.motion.get_turret_slot() == 1
 

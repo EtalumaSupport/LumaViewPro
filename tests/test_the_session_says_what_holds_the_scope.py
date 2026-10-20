@@ -12,10 +12,9 @@ than the run this control started? Its own run leaves it live as that run's
 Stop; anything else holding the scope greys it.
 """
 
-from types import SimpleNamespace
-
 import pytest
 
+from modules import live_work
 from modules.protocol_image_writer import RunWriteBatch
 from modules.run_outcome import PendingRunOutcome
 from modules.sequenced_capture_runner import EngineRun
@@ -29,21 +28,23 @@ class TestALentRun:
         with session.diagnostic_claim() as held:
             run = held.lend().try_claim('protocol', run=run_identity('api_autofocus'))
             try:
-                assert session.is_protocol_running is True
+                assert session.live_work.has(live_work.PROTOCOL)
                 assert session.sequenced_capture_runner.run_trigger_source() == 'api_autofocus'
-                assert session.exclusive_activity == 'diagnostic', (
+                assert session.activity_claim.owner == 'diagnostic', (
                     'the holder stays the diagnostic, which a refusal names'
                 )
                 assert session.activity_claim.blocking_holder.kind == 'diagnostic'
             finally:
                 run.release()
-            assert session.is_protocol_running is False
+            assert not session.live_work.has(live_work.PROTOCOL)
             assert session.sequenced_capture_runner.run_trigger_source() is None
 
     def test_the_lend_and_the_return_are_each_announced(self):
         session = _make_session()
         heard = []
-        session.add_run_state_listener(lambda: heard.append(session.is_protocol_running))
+        session.add_run_state_listener(
+            lambda: heard.append(session.live_work.has(live_work.PROTOCOL))
+        )
         heard.clear()
         with session.diagnostic_claim() as held:
             heard.clear()
@@ -57,10 +58,10 @@ class TestALentRun:
         run = session.activity_claim.try_claim('protocol', run=run_identity('scan'))
         try:
             recording = run.lend().try_claim('recording')
-            assert session.is_protocol_running is True
+            assert session.live_work.has(live_work.PROTOCOL)
             assert session.sequenced_capture_runner.run_trigger_source() == 'scan'
             recording.release()
-            assert session.is_protocol_running is True
+            assert session.live_work.has(live_work.PROTOCOL)
         finally:
             run.release()
 
@@ -68,7 +69,7 @@ class TestALentRun:
         session = _make_session()
         with session.diagnostic_claim() as held:
             held.lend().try_claim('protocol', run=run_identity('api_autofocus'))
-        assert session.is_protocol_running is False, (
+        assert not session.live_work.has(live_work.PROTOCOL), (
             'the diagnostic released its claim, and the run it lent still reads running'
         )
 
@@ -105,22 +106,3 @@ class TestHeldByOther:
         ).operation
         assert session.held_by_other(run) is True
         assert asked == [run]
-
-
-class TestWhatTheGuiDerivesToday:
-    def test_a_live_recording_is_recording_active_and_its_drain_is_not(self, monkeypatch):
-        session = _make_session()
-        held = session.activity_claim.try_claim('recording')
-        try:
-            monkeypatch.setattr(session, 'manual_recording', SimpleNamespace(is_recording=True))
-            assert session.recording_active is True
-            monkeypatch.setattr(session, 'manual_recording', SimpleNamespace(is_recording=False))
-            assert session.recording_active is False
-        finally:
-            held.release()
-
-    def test_a_run_in_progress_is_the_engines(self, monkeypatch):
-        session = _make_session()
-        assert session.run_in_progress is False
-        monkeypatch.setattr(session.sequenced_capture_runner, 'run_in_progress', lambda: True)
-        assert session.run_in_progress is True

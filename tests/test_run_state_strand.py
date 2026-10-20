@@ -21,6 +21,7 @@ import pytest
 from tests.settings_fixtures import complete_settings
 
 
+from modules import live_work
 from modules.exceptions import ProtocolRunRefusedError
 from tests.protocol_drives import wait_until_not_running
 from tests.scope_fakes import home_sim_scope
@@ -137,7 +138,7 @@ class TestClaimRefusalLeavesNoState:
             # The completed run is still writing its files, and prepare()
             # refuses a new run until they land -- a refusal this test is
             # not about.
-            while session.protocol_files_draining:
+            while session.live_work.has(live_work.RUN_FILES):
                 assert time.monotonic() < deadline, 'first run never finished writing its files'
                 time.sleep(0.02)
 
@@ -161,9 +162,9 @@ class TestClaimRefusalLeavesNoState:
             assert excinfo.value.holder == 'recording'
             assert excinfo.value.holder_trigger is None
 
-            assert not session.is_protocol_running, (
-                'a claim-refused run must not leave session.protocol_running '
-                'set: no run exists to ever clear it, so every reader of the '
+            assert not session.live_work.has(live_work.PROTOCOL), (
+                'a claim-refused run must not leave the session naming a run: '
+                'no run exists to ever clear it, so every reader of the '
                 'protocol-running state is wedged until app restart'
             )
 

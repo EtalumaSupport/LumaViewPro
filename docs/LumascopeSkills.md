@@ -1065,7 +1065,7 @@ Both refusal errors say busy-with-what: `holder` carries what holds the microsco
 
 **Opening hyperstacks in Fiji:** the container is OME-TIFF; channel color travels as OME `Channel.Color`. Open via `Plugins > Bio-Formats > Importer` with **Color mode = Composite** (the choice persists per user through that dialog). A plain `File > Open` renders ImageJ's default LUTs, not the file's channel colors.
 
-**Run-state semantics:** `session.is_protocol_running` (a property, not a call) reports True while a run holds the session's exclusive-activity claim -- protocol runs, single scans, z-stacks, autofocus scans, and the standalone Autofocus button's run included -- and a run started inside `session.diagnostic_claim()`, whose holder stays `'diagnostic'` (so a refusal still names the diagnostic) while the run is live. It releases at run-cleanup end; the short post-run file-drain window (files still writing after the run finished) reads False here and True on `session.run_lockout` / `session.protocol_files_draining`, so a poller that must wait for the disk to settle checks those. A live video recording is not a run: it reads False here and is visible on `session.exclusive_activity == 'recording'`.
+**Run-state semantics:** `session.live_work` lists a `'protocol'` item while a run is under way -- protocol runs, single scans, z-stacks, autofocus scans, and the standalone Autofocus button's run included -- from its claim's grant until its cleanup has ended, and for a run started inside `session.diagnostic_claim()` beside the `'diagnostic'` item, whose holder stays the diagnostic (so a refusal still names the diagnostic). The short post-run file-drain window (files still writing after the run finished) lists no run and a `'run_files'` item instead, its `left` counting the writes still to land, and `session.controls_lock.run_lockout` stays True through it, so a poller that must wait for the disk to settle waits for that item to go. A live video recording is not a run: it is a `'recording'` item. Over REST all of it is `GET /api/v1/status`.
 
 ### Post-processing
 
@@ -1136,38 +1136,32 @@ The builds run on the session's own post-processing lane, one at a time in the o
 
 ### Run state and locks
 
-The session derives all run and lock state from its activity claim.
-These are the members a GUI-quality client binds its widget state to --
-the same derivations LVP's own GUI mirrors into kv properties
-(alongside the run predicates shown under Running protocols):
+The session derives all run and lock state from its owners: the activity
+claim, the recording, the run's file writer. These are the members a
+GUI-quality client binds its widget state to -- the records LVP's own GUI
+writes into its kv properties at each run-state edge:
 
 ```python
-session.run_lockout              # True during a run, a diagnostic, a home, OR a run's post-run file drain
-session.run_lockout_named        # that lockout as a sentence a person reads ('The Z-stack run is in
-                                 # progress.', 'A diagnostic is in progress.', 'A home is in progress.',
-                                 # "A protocol's files are still being written."); None while nothing locks
-session.is_protocol_running      # True while a protocol-class run holds the scope (a run lent a
-                                 # diagnostic's claim included)
-session.run_in_progress          # the engine's run in any phase, its teardown included
+session.controls_lock            # in-process; over the wire status.lock. ControlsLock(run_named, recording):
+                                 # run_named what holds the run surface as a sentence a person reads ('The
+                                 # Z-stack run is in progress.', 'A diagnostic is in progress.', 'A home is in
+                                 # progress.', "A protocol's files are still being written."), None while
+                                 # nothing does; recording a manual recording is live (not its file drain);
+                                 # .run_lockout (run_named is not None) and .controls_locked (that, or
+                                 # recording) read from them
 session.held_by_other(run)       # the scope is held by anything but `run` (the run's operation);
                                  # False for the run itself, so its Stop stays live; None: held at all
-session.protocol_files_draining  # run files still writing after a run finished
-session.protocol_files_pending   # how many of those writes are left (0 when not draining); poll it --
-                                 # the count changes between transitions, the listener fires only on them
 session.protocol_files_stalled   # the drain's write in flight has stopped progressing, judged by the
                                  # same threshold that refuses a new run (files_writing_stalled)
 session.protocol_files_stuck_write  # the write in flight, named for a stall report
-session.exclusive_activity       # None | 'protocol' | 'recording' | 'diagnostic' | 'home'
-session.controls_locked          # full control-surface lock (any run lockout, or a live recording)
-session.motion_enabled           # user stage motion allowed right now
 session.manual_recording.is_recording  # a manual recording is LIVE (not its file drain)
-session.recording_active         # a manual recording holds the scope and is live (False in its drain)
 session.live_work                # everything the session is still doing, one read: .work is a tuple of
                                  # WorkItem(kind, name, left, percent, discardable) -- what holds the scope, a run starting
                                  # or ending, a recording's file, a run's video, a run's images, its post-run
                                  # builds, post-processing builds running and queued, a support report or logs
                                  # zip, a still being saved; left counts frames, images or builds still to
-                                 # finish, percent is a build's last progress, discardable marks the video
+                                 # finish (poll it: the count changes between edges, the listener fires
+                                 # only on them), percent is a build's last progress, discardable marks the video
                                  # frames discard_close_drain drops; .closing while the close runs,
                                  # .closed once the session shut down
 session.status                   # what the scope is doing, one read, the first a client makes: Status(live_work,
@@ -1184,7 +1178,7 @@ session.discard_close_drain()    # the escape from a wait on video frames: drop 
                                  # file and a run's video; each file finishes with what was written
 
 def on_run_state():              # called on EVERY run-state transition: an activity taking
-    print(session.run_lockout)   # or releasing the scope, a manual recording going live, going
+    print(session.controls_lock) # or releasing the scope, a manual recording going live, going
                                  # to its drain and finishing, a run's video step finishing,
                                  # a run's files all landing, the close beginning
                                  # (live_work.closing) and ending (live_work.closed): stop
@@ -1299,12 +1293,12 @@ except DiagnosticRefusedError as e:    # a run, a recording or another diagnosti
 ```
 
 While the diagnostic holds the claim it counts as holding the whole scope:
-`exclusive_activity` reads `'diagnostic'`, `run_lockout` and
-`controls_locked` read True, a run start is refused
+`live_work` lists a `'diagnostic'` item, `controls_lock.run_lockout` and
+`controls_lock.controls_locked` read True, a run start is refused
 (`ProtocolRunRefusedError`, `exclusive_activity_running`), a recording start
 is refused (`RecordingRefusedError`, `holder='diagnostic'`), and an objective
-or labware change raises `HardwareCommandRefusedError`. `is_protocol_running` stays
-False: a diagnostic is not a run.
+or labware change raises `HardwareCommandRefusedError`. `live_work` lists no
+`'protocol'` item for it: a diagnostic is not a run.
 
 A diagnostic that needs autofocus runs the public one under its own claim,
 `runner.start_autofocus(layer, claim=held)` with the `held` the block yields.
@@ -1437,6 +1431,7 @@ still states the major version.
 | level 24 | Each frame-validity source runs one of two rules, published as `capabilities.frame_rules` (a `FrameRule` per source: `rule` `Rule.CLOCK` or `Rule.CREDIT`, and under the clock rule its `delay_us` and `provenance`): the clock rule where the camera has a clock latch and its timing record holds a measured delay, the credit rule (the source's frame count) everywhere else. `imaging.judge_frame(frame, mapping)` takes the camera's clock mapping (a capture's `frame_record.clock_mapping`); a `Change` carries its `rule`, and a `Judgment` its `frame_start_ticks` and `qualifies_after_ticks` under the clock rule, in its `fields()` too. `imaging.recorded_changes()` answers each source's last `Change`. |
 | level 25 | The diagnostics answers are records or published reads (W3c part E): `get_camera_link_info` answers a `CameraLink`, `get_motor_info` a `MotorBoardInfo` and `get_led_info` a `LedBoardInfo` (no `connected`: that is `led_connected`), each field `None` when unknown, an FX2 LED controller's and a missing motor board's firmware version included; `get_camera_temperatures_degc` is a `dict[str, float]`; `get_camera_diagnostic_info`, `get_camera_profile_info` and `get_system_info` are gone, their facts read from `capabilities` (`camera_model`, `camera_limits`, `pixel_size_um`, and new `camera_sensor`, `camera_shutter`, `camera_sdk_version`) and the camera's reads, the live exposure floor from `scope.camera.read_exposure_ms_min()`, which raises `CameraReadFailedError` when the camera does not answer. |
 | level 26 | `session.controls_lock` answers a `ControlsLock` (`run_named`, `recording`, and `run_lockout` and `controls_locked` read from them): which of a person's controls the Session locks now, the one read every lock read reads; a plugin greys its own controls from it. |
+| level 27 | The Session's ten run-state reads are gone: `is_protocol_running`, `run_in_progress`, `exclusive_activity`, `protocol_files_draining`, `protocol_files_pending`, `run_lockout`, `run_lockout_named`, `recording_active`, `controls_locked` and `motion_enabled`. `controls_lock` answers the lock, `live_work` what holds the scope and a finished run's files still to write, and a stage gesture reads `capabilities.has_xy_stage` beside the lock. |
 
 ### Configuration queries
 
@@ -3132,7 +3127,6 @@ Reached through `ScopeSession.create(settings, ...)`; every L2 caller starts her
 - `clear_turret_objective`
 - `confirm_objective`
 - `controls_lock` (in-process)
-- `controls_locked`
 - `create` (in-process)
 - `create_empty_protocol`
 - `create_protocol_runner`
@@ -3143,7 +3137,6 @@ Reached through `ScopeSession.create(settings, ...)`; every L2 caller starts her
 - `discard_close_drain`
 - `enable_metrics` (in-process)
 - `engineering_mode`
-- `exclusive_activity`
 - `get_current_plate_position`
 - `get_sequenced_capture_config`
 - `get_setting`
@@ -3151,7 +3144,6 @@ Reached through `ScopeSession.create(settings, ...)`; every L2 caller starts her
 - `get_zstack_params` (in-process)
 - `go_to_step`
 - `held_by_other`
-- `is_protocol_running`
 - `labware`
 - `layer_acquire`
 - `layer_auto_gain`
@@ -3168,19 +3160,15 @@ Reached through `ScopeSession.create(settings, ...)`; every L2 caller starts her
 - `manual_recording`
 - `model`
 - `model_at_next_start`
-- `motion_enabled`
 - `new_protocol`
 - `objective_id`
 - `objective_question`
 - `plugin_api_level`
 - `plugin_health`
 - `post_processing`
-- `protocol_files_draining`
-- `protocol_files_pending`
 - `protocol_files_stalled`
 - `protocol_files_stuck_write`
 - `protocol_size_advisory`
-- `recording_active`
 - `recover_file_writer`
 - `remove_outcome_listener` (in-process)
 - `remove_run_state_listener` (in-process)
@@ -3189,9 +3177,6 @@ Reached through `ScopeSession.create(settings, ...)`; every L2 caller starts her
 - `repair_camera_driver`
 - `retire_rejected_settings`
 - `run_application_session` (in-process)
-- `run_in_progress`
-- `run_lockout`
-- `run_lockout_named`
 - `save_all_bookmarks`
 - `save_bookmark`
 - `save_focus`

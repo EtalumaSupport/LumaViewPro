@@ -28,7 +28,6 @@ from tests.scope_fakes import (
     real_executor_bundle,
     swap_lanes,
 )
-from tests.protocol_drives import run_identity
 
 
 # ---------------------------------------------------------------------------
@@ -523,7 +522,6 @@ class TestScopeSession:
         assert session.io_executor is io
         assert session.camera_executor is cam
         assert session.source_path == scope.source_path
-        assert session.is_protocol_running is False
 
     def test_get_layer_configs_delegates(self):
         session = self._make_session()
@@ -564,12 +562,3 @@ class TestScopeSession:
         session = self._make_session()
         with pytest.raises(ObjectiveUnknownError):
             session.scope.runtime_state.resolve_current_objective()
-
-    def test_protocol_running_derives_from_the_claim(self):
-        session = self._make_session()
-        assert session.is_protocol_running is False
-        held = session.activity_claim.try_claim('protocol', run=run_identity())
-        assert held
-        assert session.is_protocol_running is True
-        held.release()
-        assert session.is_protocol_running is False

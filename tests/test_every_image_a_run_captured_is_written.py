@@ -20,6 +20,7 @@ import time
 
 import pytest
 
+from modules import live_work
 import modules.protocol_image_writer as protocol_image_writer
 import modules.protocol_run_loop as protocol_run_loop
 from modules.run_events import RunEvents
@@ -283,14 +284,15 @@ class TestANewRunWhileTheLastRunsFilesWrite:
             # Read the moment the outcome releases its caller: an L2 script
             # waits on the outcome and then asks whether the disk has
             # settled, and must not be told it has.
-            assert session.protocol_files_draining, (
+            assert session.live_work.has(live_work.RUN_FILES), (
                 'the outcome released its caller before the run closed its writes'
             )
             assert engine.wait_for_run_idle(WAIT_S)
             assert started.acquire(timeout=WAIT_S)
 
-            assert session.protocol_files_draining
-            assert session.protocol_files_pending == 1
+            assert [
+                item.left for item in session.live_work.work if item.kind == live_work.RUN_FILES
+            ] == [1]
             with pytest.raises(ProtocolRunRefusedError) as refused:
                 runner.start_single_scan(
                     protocol=_protocol([_step('C2', 0, x=20.0, gain=1.0)]),
@@ -300,7 +302,7 @@ class TestANewRunWhileTheLastRunsFilesWrite:
 
             release.set()
             assert heard_events.files_done.wait(WAIT_S)
-            assert not session.protocol_files_draining
+            assert not session.live_work.has(live_work.RUN_FILES)
             second = runner.start_single_scan(
                 protocol=_protocol([_step('C3', 0, x=20.0, gain=1.0)]),
                 parent_dir=str(run_parent),
@@ -521,5 +523,5 @@ class TestAWriteWhoseFailureReportRaises:
             assert outcome.result(timeout=WAIT_S) is not None
             assert runner.sequenced_capture_runner.wait_for_run_idle(WAIT_S)
             assert heard_events.files_done.wait(WAIT_S), 'the failed write left the batch owing it'
-            assert not session.protocol_files_draining
+            assert not session.live_work.has(live_work.RUN_FILES)
         assert reports, "the save's failure was never reported"

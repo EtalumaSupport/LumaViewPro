@@ -44,8 +44,8 @@ def test_a_woken_waiter_finds_the_scope_free_and_starts_the_next_run(tmp_path, m
 
         first = runner.start_autofocus(layer='BF')
         assert first.result(timeout=WAIT_S) is not None
-        assert session.exclusive_activity is None, (
-            f'the wait returned while {session.exclusive_activity!r} still held the scope'
+        assert session.activity_claim.owner is None, (
+            f'the wait returned while {session.activity_claim.owner!r} still held the scope'
         )
         second = runner.start_autofocus(layer='BF')
         assert second.result(timeout=WAIT_S) is not None

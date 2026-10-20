@@ -39,7 +39,7 @@ try:
     print('earlier:', earlier.result(timeout=120).status)
     deadline = time.time() + 90
     # A new run is refused while the earlier run's files still write.
-    while time.time() < deadline and session.run_lockout:
+    while time.time() < deadline and session.controls_lock.run_lockout:
         time.sleep(0.5)
 
     banner('start a long protocol, then stop it')
@@ -49,8 +49,8 @@ try:
     )
     time.sleep(3)
     print(
-        'is_protocol_running:',
-        session.is_protocol_running,
+        'live_work:',
+        [item.kind for item in session.live_work.work],
         '| out.is_live:',
         out.progress().is_live,
     )
@@ -63,7 +63,7 @@ try:
     out.stop()
     s = out.result(timeout=120)
     print('status:', s.status, s.reason)
-    print('ASSERT stopped:', 'PASS' if not session.is_protocol_running else 'FAIL')
+    print('ASSERT stopped:', 'PASS' if session.activity_claim.run_holder is None else 'FAIL')
 finally:
     session.shutdown()
 print('\nPROBE 09 DONE')

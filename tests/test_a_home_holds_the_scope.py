@@ -79,15 +79,15 @@ def _refused_by_the_home(ask):
 def test_a_home_holds_the_scope_until_it_ends(session, monkeypatch):
     scope = session.scope
     edges = []
-    session.add_run_state_listener(lambda: edges.append(session.controls_locked))
+    session.add_run_state_listener(lambda: edges.append(session.controls_lock.controls_locked))
     held = _HeldHome(scope, monkeypatch)
 
     home = scope.motion.start_home('ALL')
     try:
         assert held.entered.wait(HOME_S)
 
-        assert session.controls_locked
-        assert session.run_lockout_named == 'A home is in progress.'
+        assert session.controls_lock.controls_locked
+        assert session.controls_lock.run_named == 'A home is in progress.'
         _refused_by_the_home(lambda: scope.motion.start_move_relative('Z', 10.0))
         _refused_by_the_home(lambda: scope.illumination.led_on('BF', 10.0))
         _refused_by_the_home(lambda: scope.camera.set_gain_db(1.0))
@@ -101,7 +101,7 @@ def test_a_home_holds_the_scope_until_it_ends(session, monkeypatch):
         home.exception(timeout=HOME_S)
     home.result(timeout=HOME_S)
 
-    assert not session.controls_locked
+    assert not session.controls_lock.controls_locked
     assert True in edges and edges[-1] is False
     scope.motion.start_move_relative('Z', 10.0).result()
 
@@ -111,5 +111,5 @@ def test_a_home_inside_a_diagnostic_runs_under_it(session):
     # diagnostic's work, so it takes no claim of its own and is not refused.
     with session.diagnostic_claim():
         session.scope.motion.home('Z')
-        assert session.run_lockout_named == 'A diagnostic is in progress.'
-    assert not session.controls_locked
+        assert session.controls_lock.run_named == 'A diagnostic is in progress.'
+    assert not session.controls_lock.controls_locked

@@ -111,10 +111,11 @@ _REASON_UNNAMED_PINNED = frozenset(
 # (Eric, 2026-10-20); 160 since the camera's diagnostic snapshot, its
 # profile and the system summary left for published reads (W3c part E); 162
 # since the Session's controls lock and its record's two answers, reads that
-# raise nothing, while the status gained its section (Eric, 2026-10-20); the
+# raise nothing, while the status gained its section (Eric, 2026-10-20); 152
+# since the ten run-state reads the records replaced left (W3d part D); the
 # count does not yet tell a member that raises nothing from one that has not
 # said.
-_WITHOUT_A_SECTION_CEILING = 162
+_WITHOUT_A_SECTION_CEILING = 152
 
 
 def _sections():

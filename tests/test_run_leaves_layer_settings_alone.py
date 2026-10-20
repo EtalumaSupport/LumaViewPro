@@ -99,7 +99,6 @@ class TestRunNavigationLeavesLayerSettingsAlone:
         included. Recorded so a future caller cannot lose the display
         silently by flipping that flag."""
         env = stepnav_env
-        env.ctx.session.run_lockout = True
         before = copy.deepcopy(env.ctx.settings['Green'])
 
         _go_to_step(_make_step(), include_move=False)

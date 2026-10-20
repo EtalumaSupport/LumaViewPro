@@ -57,7 +57,7 @@ def report_and_calls(monkeypatch):
     for name in WRITING_STEPS + READING_STEPS:
 
         def _spy(tmp, *_args, _name=name):
-            calls.append((_name, session.exclusive_activity))
+            calls.append((_name, session.activity_claim.owner))
             return 'SN0000' if _name == '_step_firmware_info' else None
 
         monkeypatch.setattr(report, name, _spy)
@@ -73,7 +73,7 @@ def test_the_writing_steps_run_while_the_report_holds_the_scope(report_and_calls
     held_during = dict(calls)
     for name in WRITING_STEPS:
         assert held_during[name] == 'diagnostic', f'{name} ran without the scope held'
-    assert session.exclusive_activity is None, 'the report left the scope held'
+    assert session.activity_claim.owner is None, 'the report left the scope held'
 
 
 def test_during_a_recording_the_board_steps_are_skipped_and_say_so(report_and_calls, tmp_path):

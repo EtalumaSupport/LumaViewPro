@@ -47,7 +47,7 @@ def main() -> int:
             print('composite outcome:', type(e).__name__, e)
             # Composite groups by the run's record, not by the files on
             # disk: the rows it read are the evidence for a failed merge.
-            print('files still draining at the merge:', session.protocol_files_draining)
+            print('live work at the merge:', session.live_work)
             print('protocol_record.tsv:')
             print((folder / 'protocol_record.tsv').read_text())
             print('PROBE RESULT: FAIL')

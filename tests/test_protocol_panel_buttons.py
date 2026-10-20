@@ -112,10 +112,9 @@ class _Session(SimpleNamespace):
 
     def __init__(self, member):
         super().__init__(
-            protocol_files_draining=False,
-            is_protocol_running=False,
+            files_draining=False,
             protocol_files_stalled=False,
-            protocol_files_pending=0,
+            files_left=0,
             # Nothing holds the scope.
             held_by_other=lambda run: False,
             create_protocol_runner=lambda: member,
@@ -124,8 +123,8 @@ class _Session(SimpleNamespace):
     @property
     def live_work(self):
         files = (
-            (WorkItem(live_work.RUN_FILES, "A run's images", left=self.protocol_files_pending),)
-            if self.protocol_files_draining
+            (WorkItem(live_work.RUN_FILES, "A run's images", left=self.files_left),)
+            if self.files_draining
             else ()
         )
         return LiveWork(work=files, closing=False, closed=False)
@@ -349,8 +348,8 @@ def test_a_finished_runs_drain_shows_its_count(app_ctx, engine, session):
     finished = _run(engine)
     panel._runs_started_here['protocol'] = finished.operation
     _live(engine, last=finished)
-    session.protocol_files_draining = True
-    session.protocol_files_pending = 7
+    session.files_draining = True
+    session.files_left = 7
 
     panel.draw_protocol_buttons()
 
@@ -362,7 +361,7 @@ def test_a_finished_runs_drain_shows_its_count(app_ctx, engine, session):
     panel.draw_protocol_buttons()
     assert panel.ids['run_protocol_btn'].text == 'File writer stalled'
 
-    session.protocol_files_draining = False
+    session.files_draining = False
     session.protocol_files_stalled = False
     panel.draw_protocol_buttons()
     assert panel.ids['run_protocol_btn'].text == 'Run Full Protocol'
@@ -386,10 +385,10 @@ def test_each_button_records_what_it_shows_and_whether_it_is_held(app_ctx, engin
     panel._runs_started_here['protocol'] = finished.operation
     _live(engine, last=finished)
     session.held_by_other = lambda run: run is None
-    session.protocol_files_draining = True
+    session.files_draining = True
 
     for pending in (12, 7, 3):
-        session.protocol_files_pending = pending
+        session.files_left = pending
         panel.draw_protocol_buttons()
 
     lines = [r.getMessage() for r in caplog.records if r.name == 'LVP.gui_interactions']
@@ -406,8 +405,7 @@ def test_a_live_runs_own_writes_do_not_disable_its_stop(app_ctx, engine, session
     run = _run(engine)
     panel._runs_started_here['scan'] = run.operation
     _live(engine, run)
-    session.protocol_files_draining = True
-    session.is_protocol_running = True
+    session.files_draining = True
 
     panel.draw_protocol_buttons()
 
@@ -423,7 +421,7 @@ def test_a_stalled_drain_opens_no_offer_of_its_own(app_ctx, session, monkeypatch
         notification_popup, 'show_confirmation_popup', lambda **kw: offers.append(kw)
     )
     panel = _Panel()
-    session.protocol_files_draining = True
+    session.files_draining = True
     session.protocol_files_stalled = True
 
     panel._drain_tick(0)
@@ -503,8 +501,8 @@ def test_a_press_during_a_finished_runs_drain_is_the_engines_to_refuse(
     """A finished run's files draining is no reason for the panel to say no:
     the press reaches the engine, whose refusal every client gets, and it is
     shown once."""
-    session.protocol_files_draining = True
-    session.protocol_files_pending = 3
+    session.files_draining = True
+    session.files_left = 3
     engine.prepare.side_effect = ProtocolRunRefusedError(
         'files_writing', 'The last run is still writing its files.'
     )

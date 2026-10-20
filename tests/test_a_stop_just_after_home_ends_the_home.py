@@ -176,7 +176,7 @@ def _stop_as_the_scope_is_let_go(session, started):
     asked = []
 
     def stop_when_free():
-        if started and not asked and session.exclusive_activity is None:
+        if started and not asked and session.activity_claim.owner is None:
             asked.append(True)
             sent.clear()
             started[0].stop()

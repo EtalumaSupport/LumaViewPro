@@ -13,6 +13,7 @@ import threading
 
 import pytest
 
+from modules import live_work
 import modules.image_mode as image_mode
 import modules.protocol_image_writer as protocol_image_writer
 import modules.stack_builder as stack_builder
@@ -54,7 +55,7 @@ def test_the_files_wait_returns_once_the_images_land_and_the_next_run_is_admitte
         first = _scan(runner, tmp_path / 'runs', 'C1')
         assert first.result(timeout=WAIT_S) is not None
         # The positive control: the Session's drain poll sees the held write.
-        assert session.protocol_files_draining, 'the held save did not hold the drain'
+        assert session.live_work.has(live_work.RUN_FILES), 'the held save did not hold the drain'
 
         assert not first.files.done(), (
             "the run's files were done while an image was still unwritten"

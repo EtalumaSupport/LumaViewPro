@@ -384,7 +384,7 @@ class TestHeadlessRefusalDoesNotHang:
                     parent_dir=str(tmp_path),
                 )
             assert excinfo.value.reason == 'empty_protocol'
-            assert not session.is_protocol_running, (
+            assert session.activity_claim.run_holder is None, (
                 'a refused run must not leave the session reporting a live run'
             )
 

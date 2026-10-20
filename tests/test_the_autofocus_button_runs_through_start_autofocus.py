@@ -31,7 +31,7 @@ from modules.run_outcome import PendingRunOutcome
 from modules.protocol_image_writer import RunWriteBatch
 from modules.sequenced_capture_runner import EngineRun, RunProgress
 from tests.pool_fakes import run_task_now
-from modules.scope_session import ShownChannel
+from modules.scope_session import ControlsLock, ShownChannel
 
 
 class _Button(vc.VerticalControl):
@@ -335,8 +335,9 @@ def test_a_press_during_a_finished_runs_drain_reaches_the_api(pressed):
     """A finished run's files draining is the API's to refuse, not the button's."""
     import modules.app_context as app_context
 
-    app_context.ctx.session.protocol_files_draining = True
-    app_context.ctx.session.protocol_files_pending = 3
+    app_context.ctx.session.controls_lock = ControlsLock(
+        run_named="A protocol's files are still being written.", recording=False
+    )
 
     pressed.button.run_autofocus_from_ui()
 

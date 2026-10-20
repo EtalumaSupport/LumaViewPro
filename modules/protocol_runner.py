@@ -110,8 +110,8 @@ class ProtocolRunner:
 
         Raises:
             ProtocolRunRefusedError: The run was refused before any state
-                was committed; no operation is returned and
-                session.is_protocol_running stays False.
+                was committed; no operation is returned and no run is
+                started.
         """
         return self._run(
             settings=self.session.get_settings_snapshot(),
@@ -156,8 +156,8 @@ class ProtocolRunner:
 
         Raises:
             ProtocolRunRefusedError: The run was refused before any state
-                was committed; no operation is returned and
-                session.is_protocol_running stays False.
+                was committed; no operation is returned and no run is
+                started.
         """
         return self._run(
             settings=self.session.get_settings_snapshot(),

@@ -170,7 +170,7 @@ try:
     print('run_dir:', run_dir)
     deadline = time.time() + 90
     # Until the run has let go of the scope AND its files have landed.
-    while time.time() < deadline and session.run_lockout:
+    while time.time() < deadline and session.controls_lock.run_lockout:
         time.sleep(0.5)
     files = sorted(p for p in pathlib.Path(run_dir).rglob('*') if p.is_file())
     imgs = [p for p in files if p.suffix.lower() in ('.tiff', '.tif')]

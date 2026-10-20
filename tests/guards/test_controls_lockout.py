@@ -182,8 +182,9 @@ _RETIRED_READS = re.compile(
 class TestTheGuiReadsTheLockRecord:
     """The GUI reads the lock through the record -- ``app.lock`` on an
     edge, ``session.controls_lock`` or ``session.live_work`` at a fresh
-    read -- and none of the Session's one-fact reads the record replaces,
-    which retire once nothing reads them."""
+    read -- and none of the Session's one-fact reads the record replaced,
+    which are gone: a read of one under a test's stand-in session would
+    pass, and fail only in the running app."""
 
     def test_the_pattern_finds_a_retired_read(self):
         # The instrument's known positive: a clean sweep below means

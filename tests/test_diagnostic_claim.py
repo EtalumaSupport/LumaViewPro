@@ -25,12 +25,10 @@ from tests.protocol_drives import run_identity
 def _make_session():
     from modules.scope_session import ScopeSession
 
-    scope = spec_scope()
-    scope.capabilities.has_xy_stage = True
     file_io_executor = MagicMock()
     return ScopeSession(
         settings={},
-        scope=scope,
+        scope=spec_scope(),
         executor_bundle=real_executor_bundle(file_io_executor=file_io_executor),
     )
 
@@ -64,9 +62,9 @@ class TestTheDiagnosticHoldsTheScope:
         session = _make_session()
         with session.diagnostic_claim() as held:
             assert held.holds
-            assert session.exclusive_activity == 'diagnostic'
+            assert session.activity_claim.owner == 'diagnostic'
         assert not held.holds
-        assert session.exclusive_activity is None
+        assert session.activity_claim.owner is None
 
     def test_a_raise_inside_the_block_still_releases(self):
         session = _make_session()
@@ -75,7 +73,7 @@ class TestTheDiagnosticHoldsTheScope:
             session.diagnostic_claim(),
         ):
             raise RuntimeError('the diagnostic failed')
-        assert session.exclusive_activity is None, (
+        assert session.activity_claim.owner is None, (
             'a diagnostic that raised left the claim held, which refuses every '
             'run and recording for the life of the process'
         )
@@ -83,13 +81,12 @@ class TestTheDiagnosticHoldsTheScope:
     def test_the_controls_lock_while_it_holds_and_listeners_see_both_edges(self):
         session = _make_session()
         seen = []
-        session.add_run_state_listener(lambda: seen.append(session.controls_locked))
+        session.add_run_state_listener(lambda: seen.append(session.controls_lock.controls_locked))
         seen.clear()
         with session.diagnostic_claim():
-            assert session.run_lockout is True
-            assert session.controls_locked is True
-            assert session.motion_enabled is False
-        assert session.controls_locked is False
+            assert session.controls_lock.run_lockout is True
+            assert session.controls_lock.controls_locked is True
+        assert session.controls_lock.controls_locked is False
         assert seen == [True, False], f'a listener must see the lock set and cleared; saw {seen}'
 
     @pytest.mark.parametrize(
@@ -221,7 +218,7 @@ class TestTheDiagnosticEndsOnlyWhenItsRunDoes:
             pass
         assert kept.value.reason == 'claim_still_lent'
         assert isinstance(kept.value, RuntimeError), 'still what it was documented as'
-        assert session.exclusive_activity == 'diagnostic', (
+        assert session.activity_claim.owner == 'diagnostic', (
             'the claim was released underneath a run still acting under it'
         )
 
@@ -230,7 +227,7 @@ class TestTheDiagnosticEndsOnlyWhenItsRunDoes:
         monkeypatch.setattr(runner, '_state', ProtocolState.IDLE)
         runner._on_run_idle()
 
-        assert session.exclusive_activity is None, 'the claim was left with nobody to release it'
+        assert session.activity_claim.owner is None, 'the claim was left with nobody to release it'
 
     def test_a_block_that_raised_keeps_its_own_exception_and_the_kept_claim_is_told_once(
         self, monkeypatch, centre_posts
@@ -250,7 +247,7 @@ class TestTheDiagnosticEndsOnlyWhenItsRunDoes:
 
         told = [n for n in centre_posts if n.reason == 'claim_still_lent']
         assert [n.title for n in told] == [ClaimStillLentError.title]
-        assert session.exclusive_activity == 'diagnostic'
+        assert session.activity_claim.owner == 'diagnostic'
         _end_the_run(runner, monkeypatch)
 
     def test_a_clean_block_inside_a_callers_except_still_raises_the_kept_claim(self, monkeypatch):
@@ -275,11 +272,11 @@ class TestTheDiagnosticEndsOnlyWhenItsRunDoes:
         order = []
 
         def _wait(timeout_s):
-            order.append(('wait', session.exclusive_activity))
+            order.append(('wait', session.activity_claim.owner))
             return True
 
         monkeypatch.setattr(session.sequenced_capture_runner, 'wait_for_run_idle', _wait)
         with session.diagnostic_claim():
             pass
         assert order == [('wait', 'diagnostic')], order
-        assert session.exclusive_activity is None
+        assert session.activity_claim.owner is None

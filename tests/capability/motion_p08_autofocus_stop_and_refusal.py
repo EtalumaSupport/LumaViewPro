@@ -55,7 +55,7 @@ def body(s):
     )
 
     # --- a STOP after the run ended does nothing and raises nothing ---
-    check('the run let go of the scope when its wait returned', not s.is_protocol_running)
+    check('the run let go of the scope when its wait returned', s.activity_claim.run_holder is None)
     late_stop = pending.stop()
     check(
         'a STOP naming a run that has ended returns None',

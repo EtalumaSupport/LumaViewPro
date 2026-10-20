@@ -1,42 +1,35 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""Session run-state facts and derivations.
+"""Session run-state facts and the records derived from them.
 
 Each run-state FACT has exactly one owner -- the activity claim
 (arbitration), the recording engine (live-vs-drain), the file writer
-(pending work), the motion driver (XY stage) -- and every consumer
-truth is a synchronous derivation over them:
+(pending work) -- and the Session's records are synchronous derivations
+over them: ``controls_lock`` and ``live_work`` (each state's answer:
+``test_each_run_state_is_read_in_the_records.py``).
 
-    is_protocol_running = owner == 'protocol'
-    run_lockout         = owner == 'protocol' or protocol_files_draining
-    controls_locked     = run_lockout or (owner == 'recording' and manual_recording.is_recording)
-    motion_enabled      = capabilities.has_xy_stage and not run_lockout
-
-The drain terms encode today's documented asymmetry: a draining
-recording HOLDS its claim while the controls free; a finished protocol
-FREES its claim while the controls stay locked until its write batch
-completes. Transitions notify level-read listeners (they re-read the
-derivations when they fire, so out-of-order delivery degrades to
-bounded staleness, never a permanently wrong publish).
+The drain terms encode the documented asymmetry: a draining recording
+HOLDS its claim while the controls free; a finished protocol FREES its
+claim while the controls stay locked until its write batch completes.
+Transitions notify level-read listeners (they re-read the records when
+they fire, so out-of-order delivery degrades to bounded staleness, never
+a permanently wrong publish).
 """
 
 from unittest.mock import MagicMock
 
 import pytest
 
+from modules import live_work
 from tests.scope_fakes import real_executor_bundle, spec_scope
 from tests.protocol_drives import run_identity
 
 
-def _make_session(has_xy_stage=True):
+def _make_session():
     from modules.scope_session import ScopeSession
 
-    # motion_enabled reads the XY fact off the live scope, so the double
-    # has to carry it explicitly rather than leaving it to autospec truthiness.
-    scope = spec_scope()
-    scope.capabilities.has_xy_stage = has_xy_stage
     return ScopeSession(
         settings={},
-        scope=scope,
+        scope=spec_scope(),
         executor_bundle=real_executor_bundle(file_io_executor=MagicMock()),
     )
 
@@ -54,47 +47,6 @@ def _draining_run(session, writes=1):
 
 
 class TestDerivations:
-    def test_idle_session_is_fully_unlocked(self):
-        session = _make_session()
-        assert session.exclusive_activity is None
-        assert session.is_protocol_running is False
-        assert session.run_lockout is False
-        assert session.controls_locked is False
-        assert session.motion_enabled is True
-
-    def test_protocol_claim_locks_everything(self):
-        session = _make_session()
-        held = session.activity_claim.try_claim('protocol', run=run_identity())
-        assert held
-        assert session.run_lockout is True
-        assert session.controls_locked is True
-        assert session.motion_enabled is False
-        held.release()
-
-    @pytest.mark.slow
-    def test_protocol_drain_holds_lockout_after_claim_release(self):
-        # A finished protocol frees its claim while files drain; the
-        # control surface stays locked until its files are written.
-        session = _make_session()
-        batch = _draining_run(session)
-        assert session.exclusive_activity is None
-        assert session.run_lockout is True
-        assert session.controls_locked is True
-        assert session.motion_enabled is False
-        batch.abandon('the test is over')
-
-    def test_live_recording_locks_controls_but_not_run_lockout(self, monkeypatch):
-        session = _make_session()
-        held = session.activity_claim.try_claim('recording')
-        assert held
-        monkeypatch.setattr(session.manual_recording, '_engine', MagicMock(is_recording=True))
-        assert session.manual_recording.is_recording is True
-        assert session.run_lockout is False, (
-            'a recording is not a run: run_lockout carries only runs and the protocol file drain'
-        )
-        assert session.controls_locked is True
-        held.release()
-
     def test_draining_recording_frees_controls_while_claim_refuses(self, monkeypatch):
         # The recording drain window: claim held (new runs refuse), but
         # capturing is over so the control surface frees.
@@ -104,20 +56,17 @@ class TestDerivations:
         monkeypatch.setattr(
             session.manual_recording, '_engine', MagicMock(is_recording=False, is_draining=True)
         )
-        assert session.exclusive_activity == 'recording'
-        assert session.controls_locked is False
+        assert session.live_work.has(live_work.RECORDING), (
+            'the draining recording let go of its claim'
+        )
+        assert session.controls_lock.controls_locked is False
         held.release()
-
-    def test_no_xystage_disables_motion_even_unlocked(self):
-        session = _make_session(has_xy_stage=False)
-        assert session.run_lockout is False
-        assert session.motion_enabled is False
 
     @pytest.mark.slow
     def test_the_pending_count_is_the_write_batchs_own(self):
         session = _make_session()
         batch = _draining_run(session, writes=7)
-        assert session.protocol_files_pending == 7
+        assert [item.left for item in session.live_work.work] == [7]
         batch.abandon('the test is over')
 
     def test_a_live_runs_writes_are_not_counted_as_draining(self):
@@ -131,8 +80,8 @@ class TestDerivations:
         session.sequenced_capture_runner._write_batch = batch
         assert batch.pending == 1
 
-        assert session.protocol_files_draining is False
-        assert session.protocol_files_pending == 0
+        assert session.live_work.work == ()
+        assert session.controls_lock.run_lockout is False
         batch.abandon('the test is over')
         # Planted as a live run's: end it as the run's cleanup would.
         batch.close()
@@ -183,7 +132,7 @@ class TestTransitionNotification:
         assert fired, 'registration must invoke the listener once (level sync)'
 
     def test_the_write_batchs_completion_is_one_run_state_edge(self):
-        # The drain's end is a run-state change: run_lockout drops with it,
+        # The drain's end is a run-state change: the run lockout drops with it,
         # so the Session must hear it -- once, when the run's last write
         # lands, not when the run closes its writes.
         from modules.protocol_image_writer import RunWriteBatch
@@ -199,13 +148,13 @@ class TestTransitionNotification:
         batch.submit(lambda: None, {}, what='an image', pace_until=None)
         (task,) = [c.args[0] for c in session.file_io_executor.put.call_args_list]
         fired = []
-        session._run_state_listeners.append(lambda: fired.append(session.run_lockout))
+        session._run_state_listeners.append(lambda: fired.append(session.controls_lock.run_lockout))
 
         files_written = runner._close_run_writes(batch, MagicMock(), MagicMock())
         # The run's end hands the batch its completion, after the release.
         batch.when_complete(files_written)
         assert fired == [], 'closing with a write outstanding is not the drain ending'
-        assert session.run_lockout is True
+        assert session.controls_lock.run_lockout is True
 
         task.action(**task.kwargs)
 
@@ -231,55 +180,3 @@ class TestTransitionNotification:
         session._run_state_listeners.append(lambda: fired.append(True))
         session.notify_run_state()
         assert fired
-
-
-class TestTheLockoutNamesWhatHoldsTheScope:
-    """What locks the controls, in the words the close prompt shows: a
-    characterization or the support report is not 'a protocol', and a
-    finished run's files still writing are not a run in progress."""
-
-    def test_nothing_locking_names_nothing(self):
-        assert _make_session().run_lockout_named is None
-
-    def test_a_run_is_named_by_its_kind(self):
-        from modules.activity_claim import the_run_named
-
-        session = _make_session()
-        run = run_identity()
-        held = session.activity_claim.try_claim('protocol', run=run)
-        assert held
-        assert session.run_lockout_named == (
-            f'{the_run_named(run, sentence_start=True)} is in progress.'
-        )
-        held.release()
-
-    def test_a_diagnostic_is_named_as_one(self):
-        session = _make_session()
-        held = session.activity_claim.try_claim('diagnostic')
-        assert held
-        assert session.run_lockout_named == 'A diagnostic is in progress.'
-        assert session.run_lockout is True
-        held.release()
-
-    def test_a_home_is_named_as_one(self):
-        session = _make_session()
-        held = session.activity_claim.try_claim('home')
-        assert held
-        assert session.run_lockout_named == 'A home is in progress.'
-        assert session.controls_locked is True
-        held.release()
-
-    def test_a_recording_is_not_a_lockout(self):
-        session = _make_session()
-        held = session.activity_claim.try_claim('recording')
-        assert held
-        assert session.run_lockout_named is None
-        held.release()
-
-    @pytest.mark.slow
-    def test_a_finished_runs_files_are_named_as_files(self):
-        session = _make_session()
-        batch = _draining_run(session)
-        assert session.run_lockout_named == "A protocol's files are still being written."
-        assert session.run_lockout is True
-        batch.abandon('the test is over')

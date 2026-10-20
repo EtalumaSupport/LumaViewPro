@@ -11,6 +11,7 @@ logged. Each is now contained on its own, and reported.
 
 import time
 
+from modules import live_work
 import modules.protocol_cleanup as protocol_cleanup
 import modules.run_events as run_events
 from modules.notification_center import notifications
@@ -74,7 +75,7 @@ def test_a_raising_run_ended_send_still_tells_the_files_and_ends_the_drain(tmp_p
             time.sleep(0.02)
 
         assert files == ['written'], 'files_written never came after run_ended raised'
-        assert not session.protocol_files_draining
+        assert not session.live_work.has(live_work.RUN_FILES)
     assert reported, 'the raise was not reported'
 
 

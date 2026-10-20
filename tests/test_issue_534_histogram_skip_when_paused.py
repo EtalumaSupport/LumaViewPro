@@ -15,7 +15,7 @@ Fix
 ---
 Two early-return guards inside Histogram.histogram():
 - Skip if ctx.scope_display_thread.is_paused (the picture is frozen)
-- Skip if session.run_lockout (protocol acquisition)
+- Skip if session.controls_lock.run_lockout (protocol acquisition)
 
 Behavior-preserving for the happy path (preview running, no protocol).
 
@@ -60,7 +60,7 @@ def test_histogram_skips_during_protocol():
     method = _histogram_method()
     src = ast.unparse(method)
     assert 'run_lockout' in src, (
-        'Histogram.histogram must check session.run_lockout '
+        'Histogram.histogram must check session.controls_lock.run_lockout '
         'to skip the histogram work during a protocol acquisition. (#534)'
     )
 

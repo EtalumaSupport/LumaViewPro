@@ -46,8 +46,8 @@ def lent_run_claim():
 def wait_until_not_running(session, timeout: float = 5.0) -> bool:
     """Wait for a finished run to release the activity claim.
 
-    `run_ended` and `handle.wait()` come only once the claim -- and
-    with it `session.is_protocol_running` -- is released, so after either
+    `run_ended` and `handle.wait()` come only once the claim's run --
+    `session.activity_claim.run_holder` -- is released, so after either
     this returns at once; it confirms the release for a test that asserts
     the state without having waited on the run itself.
 
@@ -55,7 +55,7 @@ def wait_until_not_running(session, timeout: float = 5.0) -> bool:
     completed run, and a second copy is a second thing to drift.
     """
     deadline = time.monotonic() + timeout
-    while session.is_protocol_running:
+    while session.activity_claim.run_holder is not None:
         if time.monotonic() > deadline:
             return False
         time.sleep(0.02)

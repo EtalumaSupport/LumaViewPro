@@ -244,7 +244,7 @@ class TestAbortMidComposite:
     def test_the_run_releases_the_scope(self, aborted_composite):
         # A stop that leaves the activity claim held refuses every later
         # run and recording with nothing to point at.
-        assert not aborted_composite['session'].is_protocol_running, (
+        assert aborted_composite['session'].activity_claim.run_holder is None, (
             'the aborted run still holds the activity claim'
         )
 

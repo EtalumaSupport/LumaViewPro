@@ -160,7 +160,7 @@ def test_at_the_live_edge_the_session_reads_the_recording_live(tmp_path):
     heard = []
 
     def on_edge():
-        heard.append((session.exclusive_activity, session.controls_lock.recording))
+        heard.append((session.activity_claim.owner, session.controls_lock.recording))
 
     try:
         session.add_run_state_listener(on_edge)

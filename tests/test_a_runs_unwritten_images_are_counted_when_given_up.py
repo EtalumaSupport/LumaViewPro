@@ -20,6 +20,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from modules import live_work
 import modules.protocol_image_writer as protocol_image_writer
 from modules.exceptions import FileWriterNotStuckError, Notice, RunFilesNotWrittenError
 from modules.protocol_image_writer import RunWriteBatch
@@ -79,7 +80,7 @@ class TestRecoveringAStuckWriter:
             abandoned = session.recover_file_writer()
 
             assert abandoned == 1
-            assert not session.protocol_files_draining
+            assert not session.live_work.has(live_work.RUN_FILES)
             deadline = time.monotonic() + WAIT_S
             while not files and time.monotonic() < deadline:
                 time.sleep(0.02)

@@ -55,7 +55,7 @@ try:
     run_dir = outcome.progress().run_dir
     deadline = time.time() + 90
     # Until the run has let go of the scope AND its files have landed.
-    while time.time() < deadline and session.run_lockout:
+    while time.time() < deadline and session.controls_lock.run_lockout:
         time.sleep(0.5)
     imgs = images_under(run_dir)
     print('run_dir:', run_dir)

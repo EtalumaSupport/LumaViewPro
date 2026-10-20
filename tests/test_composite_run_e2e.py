@@ -202,7 +202,7 @@ class TestCompositeRunEndToEnd:
 
         runner.run_composite(sequence_name='e2e', parent_dir=str(tmp_path))
 
-        assert not session.is_protocol_running, (
+        assert session.activity_claim.run_holder is None, (
             'run_composite returned while the run still held the activity claim'
         )
         outcome = runner._executor._last_run().operation

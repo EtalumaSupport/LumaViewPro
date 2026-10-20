@@ -19,6 +19,7 @@ import time
 
 import pytest
 
+from modules import live_work
 from modules.exceptions import PostProcessingRefusedError, RefusalCause
 from modules.sequential_io_executor import IOTask
 from modules.scope_session import ScopeSession
@@ -51,7 +52,7 @@ def test_a_build_asked_while_a_runs_files_are_written_is_refused(session, tmp_pa
     runner = session.sequenced_capture_runner
     held, runner._write_batch = runner._write_batch, _a_closed_batch_still_writing()
     try:
-        assert session.protocol_files_draining
+        assert session.live_work.has(live_work.RUN_FILES)
         with pytest.raises(PostProcessingRefusedError) as refused:
             session.post_processing.zproject(tmp_path)
     finally:

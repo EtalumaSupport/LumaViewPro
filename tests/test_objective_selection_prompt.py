@@ -39,7 +39,6 @@ class _ScriptedSession:
         self.provisional = provisional
         self.confirmed = []
         self.cleared = []
-        self.is_protocol_running = False
 
     def objective_question(self):
         if isinstance(self.question, Exception):

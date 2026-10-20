@@ -42,7 +42,7 @@ This tutorial covers `post_processing` end-to-end. UI / live / REST
 shapes are documented elsewhere as those surfaces land. One rule of the
 `ui` mount: the host does not lock a mounted widget while a run or a
 diagnostic holds the scope. A plugin greys its own controls from
-`ctx.add_run_state_listener` and `ctx.controls_locked`,
+`ctx.add_run_state_listener` and `ctx.controls_lock.controls_locked`,
 as the built-in regions do, so a control that must stay live during a
 run, such as its own Stop, stays live.
 

@@ -7,8 +7,7 @@ session, live = make_session('smoke', home=True)
 try:
     banner('session up')
     print('live_folder      :', live)
-    print('is_protocol_running:', session.is_protocol_running)
-    print('exclusive_activity :', session.exclusive_activity)
+    print('controls_lock      :', session.controls_lock)
 
     banner('video close members')
     print('live_work          :', session.live_work)

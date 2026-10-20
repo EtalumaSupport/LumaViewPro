@@ -152,6 +152,7 @@ if TYPE_CHECKING:
     from modules.lumascope_api.camera import AutoGainLock
     from modules.objectives_loader import ObjectiveLoader
     from modules.protocol import Protocol, ProtocolSizeAdvisory
+    from modules.protocol_image_writer import RunWriteBatch
     from modules.lumascope_api.protocols import StepTargets
     from modules.protocol_runner import ProtocolRunner
     from modules.sequential_io_executor import SequentialIOExecutor
@@ -501,7 +502,7 @@ class ScopeSession:
             channel_colors=self.channel_colors,
             # Read as each build starts; the claim is made further down.
             scope_holder=lambda: self.activity_claim.holder,
-            files_draining=lambda: self.protocol_files_draining,
+            files_draining=lambda: self._draining_batch() is not None,
         )
         # Run-state listeners: zero-argument callables notified on every
         # run-state transition edge (claim grant/release, a run's return
@@ -732,37 +733,13 @@ class ScopeSession:
             else:
                 held.release()
 
-    @api
-    @property
-    def is_protocol_running(self) -> bool:
-        """True while a protocol-class run holds the scope.
-
-        Scans, full protocols, zstacks, and autofocus runs all hold the
-        'protocol' claim, so all read True here -- and so does a run acting
-        under a diagnostic's lent claim, whose holder stays the diagnostic.
-        The claim releases at run-cleanup end; the post-run file drain is
-        visible on run_lockout / protocol_files_draining, not here.
-        """
-        return self.activity_claim.run_holder is not None
-
-    @api
-    @property
-    def run_in_progress(self) -> bool:
-        """True while the engine's run is in any phase, its teardown included.
-
-        Wider than is_protocol_running, which the claim answers: a run is in
-        progress from its start until its cleanup has finished, the moment
-        after its claim is handed back included.
-        """
-        return self.sequenced_capture_runner.run_in_progress()
-
     @api(reads=True)
     def held_by_other(self, run: 'Operation | None' = None) -> bool:
         """Whether the scope is held by anything but *run*, the operation a run member returned.
 
         What a run control greys on while leaving its own run's Stop live;
         None, or no run given, asks whether anything holds the scope at all
-        (``exclusive_activity`` names what does).
+        (``live_work`` names what does).
         """
         return self.sequenced_capture_runner.held_by_other(run)
 
@@ -775,13 +752,6 @@ class ScopeSession:
     # attribute/queue reads, so these properties are safe from any
     # thread, including inside a transition listener.
     # ------------------------------------------------------------------
-
-    @api
-    @property
-    def exclusive_activity(self) -> 'str | None':
-        """The current exclusive-activity owner: None, 'protocol',
-        'recording', 'diagnostic' or 'home'."""
-        return self.activity_claim.owner
 
     @api
     @property
@@ -831,10 +801,9 @@ class ScopeSession:
                     discardable=True,
                 )
             )
-        if self.protocol_files_draining:
-            work.append(
-                WorkItem(live_work.RUN_FILES, "A run's images", left=self.protocol_files_pending)
-            )
+        files = self._draining_batch()
+        if files is not None:
+            work.append(WorkItem(live_work.RUN_FILES, "A run's images", left=files.pending))
         work.extend(
             WorkItem(live_work.POST_RUN_STEP, f"A run's {step}")
             for step in runner.post_run_steps_running
@@ -915,24 +884,14 @@ class ScopeSession:
         self.manual_recording.discard_pending()
         self.sequenced_capture_runner.discard_video_pending()
 
-    @api
-    @property
-    def protocol_files_draining(self) -> bool:
-        """True from the end of a run until its last file is written.
+    def _draining_batch(self) -> 'RunWriteBatch | None':
+        """A finished run's write batch from the run's end until its last file is written; else None.
 
-        False while the run is live -- the run's own state answers then --
+        None while the run is live -- the run's own state answers then --
         and once its files are all on disk or given up on.
         """
         batch = self.sequenced_capture_runner.write_batch()
-        return batch is not None and batch.draining
-
-    @api
-    @property
-    def protocol_files_pending(self) -> int:
-        """How many of a finished run's file writes are still to finish, the
-        one in flight included; 0 when nothing is draining."""
-        batch = self.sequenced_capture_runner.write_batch()
-        return batch.pending if batch is not None and batch.draining else 0
+        return batch if batch is not None and batch.draining else None
 
     @api
     @property
@@ -943,9 +902,8 @@ class ScopeSession:
         new run is refused for cannot disagree."""
         from modules.protocol_image_writer import WRITE_STALL_FATAL_S
 
-        return self.protocol_files_draining and self.sequenced_capture_runner.write_batch().stalled(
-            WRITE_STALL_FATAL_S
-        )
+        batch = self._draining_batch()
+        return batch is not None and batch.stalled(WRITE_STALL_FATAL_S)
 
     @api
     @property
@@ -967,24 +925,11 @@ class ScopeSession:
         holder = self.activity_claim.holder
         if holder is not None and holder.kind in SCOPE_HOLDING_KINDS:
             run_named = f'{the_holder_named(holder)} is in progress.'
-        elif self.protocol_files_draining:
+        elif self._draining_batch() is not None:
             run_named = "A protocol's files are still being written."
         else:
             run_named = None
         return ControlsLock(run_named=run_named, recording=self.manual_recording.is_recording)
-
-    @api
-    @property
-    def run_lockout(self) -> bool:
-        """True while a run, a diagnostic, a home, or a run's post-run file
-        drain owns the scope (``ControlsLock.run_lockout``)."""
-        return self.controls_lock.run_lockout
-
-    @api
-    @property
-    def run_lockout_named(self) -> str | None:
-        """What locks the controls, as a sentence a person reads; None while nothing does (``ControlsLock.run_named``)."""
-        return self.controls_lock.run_named
 
     def in_flight_named(self) -> list[str]:
         """What a gesture started that is still running, each as a sentence; empty when nothing is.
@@ -1012,38 +957,6 @@ class ScopeSession:
         if self.autofocus_thread.is_running:
             still.append('an autofocus sweep')
         return still
-
-    @api
-    @property
-    def recording_active(self) -> bool:
-        """True while a manual recording is LIVE; its drain reads False, with
-        its claim still held and still refusing new runs.
-
-        Live implies it holds the claim: the engine takes the claim before
-        it goes live and releases it only after selection has closed.
-        """
-        return self.manual_recording.is_recording
-
-    @api
-    @property
-    def controls_locked(self) -> bool:
-        """True while the full control surface locks: any run lockout,
-        or a live manual recording (``ControlsLock.controls_locked``)."""
-        return self.controls_lock.controls_locked
-
-    @api
-    @property
-    def motion_enabled(self) -> bool:
-        """True when user stage motion is allowed: the scope actually has
-        an XY stage and no run lockout holds. Evaluated at read -- there
-        is no cached copy to mis-restore.
-
-        The stage fact is read from the driver rather than from the
-        configured scope model. The model is user-editable while the
-        app runs, so a copy of it kept here goes stale the moment
-        someone selects a different scope, and then reports stage
-        motion available on a scope that has no stage."""
-        return self.scope.capabilities.has_xy_stage and not self.run_lockout
 
     @api(in_process=True, event=Status)
     def add_run_state_listener(self, listener: Callable[[], None]) -> None:
