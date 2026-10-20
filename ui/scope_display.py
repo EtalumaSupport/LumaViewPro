@@ -386,7 +386,9 @@ class ScopeDisplay(Image):
             # Not offered without an XY stage to centre, or while the
             # controls are locked.
             if not xy_gestures_offered():
-                gui_logger.button('SCOPE_CLICK_TO_CENTER', 'unavailable: no stage motion')
+                gui_logger.button(
+                    'SCOPE_CLICK_TO_CENTER', 'unavailable: no XY stage or controls locked'
+                )
                 return
             norm_texture_width, norm_texture_height = self.norm_image_size
             norm_texture_x_min = self.center_x - norm_texture_width / 2
