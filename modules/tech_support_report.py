@@ -2653,8 +2653,7 @@ class TechSupportReport:
         with open(d / 'summary.txt', 'w') as f:
             f.write('Camera Bandwidth Test\n' + '=' * 40 + '\n\n')
             f.write(f'Resolution:      {results.get("resolution", "?")}\n')
-            f.write(f'Pixel format:    {results.get("pixel_format", "?")}\n')
-            f.write(f'Configured FPS:  {results.get("configured_fps", "?")}\n\n')
+            f.write(f'Pixel format:    {results.get("pixel_format", "?")}\n\n')
             f.write(f'Frames requested: {results["num_frames_requested"]}\n')
             f.write(f'Frames received:  {results["num_frames_received"]}\n')
             f.write(f'Frames failed:    {results["num_frames_failed"]}\n')

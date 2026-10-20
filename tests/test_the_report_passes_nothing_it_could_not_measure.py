@@ -320,3 +320,23 @@ def test_with_every_led_and_fan_call_raising_the_steps_still_write(session, monk
         'hardware_checks/fan_test.txt',
     ):
         assert 'the board did not answer' in (tmp_path / rel).read_text(), rel
+
+
+def test_the_bandwidth_summary_states_only_what_the_test_measured(session, monkeypatch, tmp_path):
+    # It printed a configured frame rate that no camera and no API path ever
+    # filled, so every summary said "Configured FPS: ?".
+    # A stand-in by design: the subject is the summary, and the report's
+    # 5,000 frames take minutes on the simulator; three come from the same
+    # API test.
+    monkeypatch.setattr(
+        tech_support_report.CameraBandwidthTest,
+        'run',
+        lambda self, progress_callback=None: session.scope.diagnostics.run_camera_bandwidth_test(
+            num_frames=3
+        ),
+    )
+    report = TechSupportReport(scope=session.scope)
+    report._step_bandwidth(tmp_path, lambda *_: None)
+    summary = (tmp_path / 'bandwidth_test' / 'summary.txt').read_text()
+    assert '?' not in summary, summary
+    assert 'Configured FPS' not in summary, summary
