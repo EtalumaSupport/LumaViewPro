@@ -365,9 +365,10 @@ class FrameValidity:
         """Record that a frame was grabbed from the camera.
 
         Call this after every successful camera grab (grab() or grab_new_capture()).
-        A frame credits only the sources whose write it POSTDATES; a source
-        clears once its skip count has been met that way. Motion sources
-        clear only when both that count AND the settle check pass.
+        A frame credits only the sources whose write it POSTDATES, and only
+        when it is newer than every frame already counted toward that
+        source; a source clears once its skip count has been met that way. Motion
+        sources clear only when both that count AND the settle check pass.
 
         Args:
             frame_seq: The frame's arrival ordinal, from the grab that
@@ -404,7 +405,15 @@ class FrameValidity:
                     # It goes on seeing frames for the length of the move, and what
                     # it publishes is frames STILL NEEDED -- a count that stops at
                     # zero rather than running down one per frame into nonsense.
-                    credited = frame_seq > pending.at_seq and pending.remaining > 0
+                    # A frame no newer than the last one credited is one the
+                    # wait already holds, or older: the preview can count a
+                    # frame it grabbed before the drain's newer one, after it,
+                    # and the dedupe above sees only the last count.
+                    credited = (
+                        frame_seq > pending.at_seq
+                        and pending.remaining > 0
+                        and (not pending.credits or frame_seq > pending.credits[-1].seq)
+                    )
                     if credited:
                         pending = dataclasses.replace(
                             pending, credits=(*pending.credits, Credit(frame_seq, by))

@@ -708,6 +708,19 @@ class TestFramesOlderThanTheWriteDoNotCount:
         fv.count_frame(between, by=Counter.GRAB)
         assert fv.pending_sources == {'led': 1, 'gain': 2}
 
+    def test_a_frame_counted_again_after_a_newer_one_does_not_credit_twice(self):
+        """The drain counts two frames, and the preview's count of the first,
+        grabbed before the second arrived, lands last. Two frames have
+        arrived, so exposure's three-frame wait is not met: crediting the
+        late count would let a capture take a frame one short of its wait."""
+        fv = FrameValidity(_frames)
+        fv.invalidate('exposure')
+        first, second = _f(), _f()
+        fv.count_frame(first, by=Counter.DRAIN)
+        fv.count_frame(second, by=Counter.DRAIN)
+        fv.count_frame(first, by=Counter.PREVIEW)
+        assert fv.frames_until_valid() == 1
+
     def test_an_ordinal_is_required(self):
         """A caller with no ordinal cannot be told apart from one holding a
         stale frame, so there is no safe way to credit it."""
