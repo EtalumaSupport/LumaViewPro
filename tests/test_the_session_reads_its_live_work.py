@@ -69,6 +69,25 @@ def test_what_holds_the_scope_is_named(sim_session):
     assert sim_session.live_work.work == ()
 
 
+def test_a_run_lent_a_diagnostics_claim_is_named_beside_it(sim_session):
+    from tests.protocol_drives import run_identity
+
+    held = sim_session.activity_claim.try_claim('diagnostic')
+    try:
+        run = held.lend().try_claim('protocol', run=run_identity('api_autofocus'))
+        try:
+            work = sim_session.live_work.work
+        finally:
+            run.release()
+        after = _kinds(sim_session)
+    finally:
+        held.release()
+
+    assert [item.kind for item in work] == [live_work.DIAGNOSTIC, live_work.PROTOCOL]
+    assert work[1].name == 'The scan run'
+    assert after == [live_work.DIAGNOSTIC]
+
+
 def test_a_run_unwinding_after_its_claim_is_still_work(sim_session, monkeypatch):
     from modules.protocol_state_machine import ProtocolState
 

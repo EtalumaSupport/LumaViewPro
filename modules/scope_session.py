@@ -788,8 +788,9 @@ class ScopeSession:
     def live_work(self) -> LiveWork:
         """Everything the session is still doing, each piece from its owner.
 
-        What holds the scope (a run, a recording, a home, a diagnostic --
-        and a run starting or unwinding with no holder yet or any more);
+        What holds the scope (a run, a recording, a home, a diagnostic and
+        any run acting under its lent claim -- and a run starting or
+        unwinding with no holder yet or any more);
         then what finishes after it lets go: a recording's file, a run's
         video steps, a finished run's images and its post-run builds;
         post-processing builds running and queued; a support report or logs
@@ -803,6 +804,12 @@ class ScopeSession:
         holder = self.activity_claim.holder
         if holder is not None:
             work.append(WorkItem(holder.kind, the_holder_named(holder)))
+            # A run lent the holder's claim (an autofocus inside a
+            # diagnostic) holds no claim of its own, so it is named here
+            # beside the activity it runs inside.
+            lent_run = self.activity_claim.run_holder
+            if lent_run is not None and lent_run is not holder:
+                work.append(WorkItem(live_work.PROTOCOL, the_holder_named(lent_run)))
         elif runner.run_live:
             work.append(WorkItem(live_work.PROTOCOL, 'A run, starting or ending'))
         recording = self.manual_recording
