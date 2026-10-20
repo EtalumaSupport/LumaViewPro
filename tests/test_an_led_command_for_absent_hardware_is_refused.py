@@ -231,6 +231,7 @@ def test_a_scope_that_came_up_without_its_board_has_no_led_cap_or_channels(make_
         camera=None,
         layer_identity=scope.layer_identity,
         scope_models=scope.scope_models,
+        timing_record=None,
     )
 
     assert (caps.led_max_ma, caps.led_channels) == (None, None)

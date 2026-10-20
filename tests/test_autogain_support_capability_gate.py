@@ -138,7 +138,12 @@ class TestCapabilityMapping:
             significant_bits_for_format=lambda name: Camera.format_significant_bits(name, 16),
         )
         return ScopeCapabilities.from_drivers(
-            motion=motion, led=led, camera=camera, layer_identity=UNRESOLVED, scope_models={}
+            motion=motion,
+            led=led,
+            camera=camera,
+            layer_identity=UNRESOLVED,
+            scope_models={},
+            timing_record=None,
         )
 
     def test_ids_reports_no_hardware_autogain(self):

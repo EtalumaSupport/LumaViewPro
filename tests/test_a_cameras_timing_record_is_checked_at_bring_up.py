@@ -18,7 +18,7 @@ import pytest
 
 from drivers import camera_profiles
 from modules.exceptions import InstallationFileError
-from modules.frame_validity import FrameValidity
+from modules.frame_validity import FrameValidity, Rule
 from tests.scope_fakes import build_scope
 
 _PROVENANCE = {
@@ -153,10 +153,54 @@ def test_a_broken_timing_record_is_refused_at_bring_up(tmp_path, monkeypatch):
 
 
 def test_the_simulated_dart_drains_at_the_gates_own_counts():
-    """The simulated camera reads the dart's shipped record, whose 2026-05
-    counts (gain 3, exposure 2) it drained at before they were dropped."""
+    """The simulated camera's shipped record holds no measured value, so it
+    drains at the gate's own counts, as the dart's once did not: its 2026-05
+    counts (gain 3, exposure 2) were dropped."""
     scope = build_scope(simulate=True, sim_model='LS850T')
     try:
         assert scope.imaging.frame_validity.SKIP_FRAMES == FrameValidity.SKIP_FRAMES
     finally:
         scope.disconnect()
+
+
+def _delays(**by_direction):
+    """A source's directions, each a delay with its own run."""
+    return {
+        direction: _delay(us) | {'provenance': _PROVENANCE | {'run_id': f'run-{direction}'}}
+        for direction, us in by_direction.items()
+    }
+
+
+def test_a_source_runs_the_clock_rule_only_with_a_latch_and_a_measured_delay():
+    """The slower direction sets the delay, with the run that measured it: a
+    capture waits one delay per source whichever way the change went."""
+    record = _record({'exposure': _delays(up=300.0, down=500.0), 'gain': {'up': _measured()}})
+
+    latched = FrameValidity.rules_from_record(record, has_clock_latch=True)
+    unlatched = FrameValidity.rules_from_record(record, has_clock_latch=False)
+
+    exposure = latched['exposure']
+    assert (exposure.rule, exposure.delay_us, exposure.provenance['run_id']) == (
+        Rule.CLOCK,
+        500.0,
+        'run-down',
+    )
+    assert {s for s, rule in latched.items() if rule.rule is Rule.CLOCK} == {'exposure'}
+    assert set(latched) == set(FrameValidity.SKIP_FRAMES)
+    assert {rule.rule for rule in unlatched.values()} == {Rule.CREDIT}
+
+
+def test_bring_up_publishes_each_sources_rule_and_a_change_is_judged_by_it(tmp_path, monkeypatch):
+    _bring_up_with(tmp_path, monkeypatch, json.dumps(_record({'exposure': _delays(up=500.0)})))
+
+    scope = build_scope(simulate=True, sim_model='LS850T')
+    try:
+        published = scope.capabilities.frame_rules
+        scope.camera.set_exposure_ms(scope.camera.read_exposure_ms() + 1.0)
+        changes = scope.imaging.recorded_changes()
+    finally:
+        scope.disconnect()
+
+    assert (published['exposure'].rule, published['exposure'].delay_us) == (Rule.CLOCK, 500.0)
+    assert published['gain'].rule is Rule.CREDIT
+    assert changes['exposure'].rule == published['exposure']

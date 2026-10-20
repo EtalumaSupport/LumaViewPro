@@ -15,6 +15,7 @@ import datetime
 import types
 from collections.abc import Mapping
 
+from modules.api_surface import api_fields
 from modules.frame_validity import Judgment
 
 # A frame with at least this fraction of its pixels saturated is blown -- a
@@ -25,6 +26,7 @@ from modules.frame_validity import Judgment
 BLOWN_FRACTION = 0.98
 
 
+@api_fields('host_ns', 'camera_ticks', 'tick_hz', 'uncertainty_ns')
 @dataclasses.dataclass(frozen=True)
 class ClockMapping:
     """The camera's timestamp clock against the host's steady clock, measured once.

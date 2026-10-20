@@ -211,6 +211,7 @@ def give_camera_capabilities(scope, camera):
         camera=camera,
         layer_identity=UNRESOLVED,
         scope_models={},
+        timing_record=None,
     )
     return scope
 

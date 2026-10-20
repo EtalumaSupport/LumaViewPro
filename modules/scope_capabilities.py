@@ -31,7 +31,7 @@ properties, not frozen snapshot fields.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from drivers.exceptions import HardwareError
@@ -39,6 +39,7 @@ from drivers.null_ledboard import NullLEDBoard
 from lvp_logger import logger
 from modules import common_utils
 from modules.api_surface import api_fields
+from modules.frame_validity import FrameRule, FrameValidity
 
 if TYPE_CHECKING:
     from drivers.protocols import LEDBoardProtocol, MotorBoardProtocol
@@ -256,6 +257,7 @@ def _frame(value: object) -> FrameSize | None:
     'camera_supports_conversion_gain_mode',
     'camera_supports_line_noise_reduction',
     'camera_timestamp_tick_hz',
+    'frame_rules',
     'has_firmware_stim',
     'has_focus',
     'has_turret',
@@ -399,6 +401,14 @@ class ScopeCapabilities:
     (IDS, the FX2), or whose tick rate is unknown, whose frames carry no
     mapping."""
 
+    frame_rules: Mapping[str, FrameRule] = field(default_factory=FrameValidity.credit_rules)
+    """Per frame-validity source, the rule a frame is judged by against its
+    changes (``FrameValidity.judge``): the clock rule, with its measured
+    delay and the run that measured it, where the camera has a clock latch
+    and its timing record holds a delay for the source; the credit rule,
+    the source's frame count, everywhere else. Read once at bring-up from
+    the camera's timing record."""
+
     camera_supports_black_level: bool = False
     """True if the camera's black level can be set
     (``scope.camera.set_black_level``). The black level is read with
@@ -423,6 +433,7 @@ class ScopeCapabilities:
         camera: object | None,
         layer_identity: LayerIdentity,
         scope_models: Mapping[str, ScopeModel],
+        timing_record: dict | None,
     ) -> ScopeCapabilities:
         """Build a ScopeCapabilities snapshot from the three drivers.
 
@@ -444,6 +455,9 @@ class ScopeCapabilities:
                 the capabilities' model, so the two cannot disagree.
             scope_models: The scope's model catalogue, read once at its
                 construction; the model's declared optics come from it.
+            timing_record: The camera's timing record, read and checked at
+                bring-up (``FrameValidity.check_timing_record``); None for a
+                camera that names none, or no camera.
         """
         # Motion
         axes = _probe('detect_present_axes', lambda: tuple(motion.detect_present_axes()), ())
@@ -622,4 +636,5 @@ class ScopeCapabilities:
             camera_supports_line_noise_reduction=camera_supports_line_noise_reduction,
             camera_supports_black_level=camera_supports_black_level,
             camera_has_clock_latch=camera_has_clock_latch,
+            frame_rules=FrameValidity.rules_from_record(timing_record, camera_has_clock_latch),
         )

@@ -327,6 +327,7 @@ class TestFrameValidityDuringHoming:
             camera=scope._camera_driver,
             layer_identity=scope.layer_identity,
             scope_models=scope.scope_models,
+            timing_record=None,
         )
         captured = {}
 
@@ -791,6 +792,7 @@ class TestScopeCapabilities:
             camera=scope._camera_driver,
             layer_identity=scope.layer_identity,
             scope_models=scope.scope_models,
+            timing_record=None,
         )
         assert scope.capabilities.axes == ('X', 'Y', 'Z', 'T')
         assert scope.capabilities.has_turret is True
@@ -808,6 +810,7 @@ class TestScopeCapabilities:
             camera=scope._camera_driver,
             layer_identity=scope.layer_identity,
             scope_models=scope.scope_models,
+            timing_record=None,
         )
         assert scope.capabilities.axes == ('Z',)
         assert scope.capabilities.has_focus is True
@@ -824,6 +827,7 @@ class TestScopeCapabilities:
             camera=None,
             layer_identity=UNRESOLVED,
             scope_models={},
+            timing_record=None,
         )
         assert caps.axes == ()
         assert caps.has_focus is False
@@ -842,6 +846,7 @@ class TestScopeCapabilities:
             camera=None,
             layer_identity=UNRESOLVED,
             scope_models={},
+            timing_record=None,
         )
         assert caps.led_channels is None
         assert caps.led_max_ma is None
@@ -874,6 +879,7 @@ class TestScopeCapabilities:
                 report=refuse_a_report,
             ),
             scope_models=load_scope_models(),
+            timing_record=None,
         )
         assert caps.led_channels == (0, 1, 2, 3)
         assert set(caps.led_colors) == {'Blue', 'Green', 'Red', 'BF'}

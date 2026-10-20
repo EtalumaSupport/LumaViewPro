@@ -34,7 +34,12 @@ def _capabilities(camera):
     led.available_channels.return_value = ()
     led.supports_firmware_stim.return_value = False
     return ScopeCapabilities.from_drivers(
-        motion=motion, led=led, camera=camera, layer_identity=UNRESOLVED, scope_models={}
+        motion=motion,
+        led=led,
+        camera=camera,
+        layer_identity=UNRESOLVED,
+        scope_models={},
+        timing_record=None,
     )
 
 

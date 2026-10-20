@@ -21,7 +21,6 @@ import numpy as np
 
 from modules.finite_number import refuse_unless_finite_number
 import modules.image_utils as image_utils
-from drivers import camera_profiles
 from drivers.camera import Frame
 from drivers.exceptions import CameraReadFailedError, HardwareError
 from lib import profile_trace
@@ -32,9 +31,8 @@ from modules.exceptions import (
     FrameHandlerRemovedError,
     FrameListenerNotRegisteredError,
     HardwareCommandRefusedError,
-    InstallationFileError,
 )
-from modules.frame_validity import Counter, FrameValidity, Judgment
+from modules.frame_validity import Change, Counter, FrameValidity, Judgment
 from modules.lumascope_api.camera import AutoGainLock, LayerCameraRequest, _camera_not_connected
 from modules.lumascope_api.frame_record import BLOWN_FRACTION, ClockMapping, FrameRecord
 from modules.lumascope_api.illumination import live_lit_pairs
@@ -382,33 +380,6 @@ class ImagingAPI:
         here keeps ImagingAPI in sync without rebinding.
         """
         return self._scope._camera_driver
-
-    def _check_camera_timing(self) -> None:
-        """Refuse the camera's measured timing record at bring-up if it is not one this release reads.
-
-        The record is the one its profile names (``timing_model``); a camera
-        with none has nothing to check. Frame validity drains at its own
-        counts either way; the record's measured delays are checked here
-        (``FrameValidity.check_timing_record``) so a record written wrong is
-        refused where the installation is read, not where it is used.
-
-        Raises:
-            InstallationFileError: the profile names a record that is
-                missing, unreadable, of another schema, or holds a value
-                that is not a measurement.
-        """
-        if not self._driver or not self._driver.active:
-            return
-        profile = self._driver.profile
-        path = camera_profiles.timing_record_path(profile)
-        try:
-            record = camera_profiles.timing_record(profile)
-            if record is None:
-                return
-            self.frame_validity.check_timing_record(record)
-        except (OSError, ValueError) as e:
-            raise InstallationFileError(path, f'could not be read ({e})') from e
-        logger.info(f'[SCOPE API ] Camera timing record {path} checked')
 
     def _chunk_target_mismatch(self, chunks: Mapping[str, Any] | None) -> str | None:
         """Name the first chunk-validatable source whose value in ``chunks``
@@ -1094,12 +1065,15 @@ class ImagingAPI:
                 # The record's gain, exposure and black level reads raise on a
                 # failed read and fail the capture; one that failed because the
                 # camera left between the grab and the read is that removal.
-                judgments = self.frame_validity.judgments(grabbed.earliest)
+                # The frame is judged against the mapping its record carries.
+                mapping = self._clock_mapping_for_record()
+                judgments = self.frame_validity.judgments(grabbed.earliest, mapping)
                 try:
                     extra['frame_record'] = self._build_frame_record(
                         chunks=chunks,
                         lit=lit,
                         captured_at=grabbed_at,
+                        clock_mapping=mapping,
                         judgments=judgments,
                         saturated_fraction=grabbed.saturated_fraction,
                         dark=grabbed.dark,
@@ -1149,6 +1123,7 @@ class ImagingAPI:
         chunks: dict,
         lit: frozenset[tuple[int, float]],
         captured_at: datetime.datetime,
+        clock_mapping: ClockMapping | None,
         judgments: tuple[Judgment, ...],
         saturated_fraction: float | None,
         dark: bool | None,
@@ -1192,7 +1167,7 @@ class ImagingAPI:
             frame_id=int(frame_id) if frame_id is not None else None,
             binning_size=self._camera._held_or_read('binning'),
             camera_model=camera.camera_model,
-            clock_mapping=self._clock_mapping_for_record(),
+            clock_mapping=clock_mapping,
             judgments=judgments,
             saturated_fraction=saturated_fraction,
             dark=dark,
@@ -1696,25 +1671,43 @@ class ImagingAPI:
         )
 
     @api(in_process=True)
-    def judge_frame(self, frame: Frame) -> tuple[Judgment, ...]:
+    def judge_frame(self, frame: Frame, mapping: ClockMapping | None) -> tuple[Judgment, ...]:
         """Whether ``frame`` counts for each source's last change, by the rule a capture waits on.
 
         The one decision (``FrameValidity.judge``), asked of every change
-        recorded so far (gain, exposure, black level, LED, a move, ...): a
+        recorded so far (gain, exposure, black level, LED, a move, ...), by
+        the rule each change's source runs (``capabilities.frame_rules``): a
         capture's record carries it for the frame it returns, and a frame
         listener can ask it of any frame it receives. Each ``Judgment``
         carries the change it was judged against: the frame the camera had
-        delivered when it was recorded, when it was recorded, the frames it
-        needed and who counted them, and for a move when its axis settled.
+        delivered when it was recorded, when it was recorded, its rule, the
+        frames it needed and who counted them, and for a move when its axis
+        settled.
 
         Args:
             frame: A frame the camera delivered (a frame listener's ``Frame``).
+            mapping: The camera's clock mapped onto the host's, which the
+                clock rule judges a frame's start by: a capture's
+                ``frame_record.clock_mapping``. None for a camera without a
+                latch; a clock-rule change then counts no frame.
 
         Raises:
             ArgumentTypeRefusedError: ``'wrong_argument_type'``, ``frame`` is
-                not a ``Frame``; the API's door refuses it before the body.
+                not a ``Frame`` or ``mapping`` not a ``ClockMapping``; the
+                API's door refuses it before the body.
         """
-        return self.frame_validity.judgments(frame)
+        return self.frame_validity.judgments(frame, mapping)
+
+    @api(in_process=True)
+    def recorded_changes(self) -> dict[str, Change]:
+        """Each source's last recorded change, settled or not, by source.
+
+        What a frame is judged against (``judge_frame``): when the change was
+        recorded, the frame the camera had delivered then, its rule, and for
+        a move when its axis settled. A change stays its source's until the
+        next one replaces it.
+        """
+        return self.frame_validity.changes()
 
     @api(in_process=True)
     def get_image(

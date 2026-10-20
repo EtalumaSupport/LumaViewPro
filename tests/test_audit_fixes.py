@@ -8021,6 +8021,7 @@ class TestAxisTravelLimitsOnCapabilities:
             camera=None,
             layer_identity=UNRESOLVED,
             scope_models={},
+            timing_record=None,
         )
         # tiling_config / motion_settings / stage consumers gate on the
         # capability and fall back to DEFAULT_STAGE_TRAVEL_UM.
@@ -8086,6 +8087,7 @@ class TestOpticsOnCapabilities:
             camera=None,
             layer_identity=UNRESOLVED,
             scope_models={},
+            timing_record=None,
         )
         assert caps.pixel_size_um is None
         assert caps.lens_focal_length_mm is None

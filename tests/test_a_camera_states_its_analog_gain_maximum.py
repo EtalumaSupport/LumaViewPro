@@ -38,6 +38,7 @@ def _capabilities(profile):
         camera=camera,
         layer_identity=UNRESOLVED,
         scope_models={},
+        timing_record=None,
     )
 
 
@@ -74,5 +75,6 @@ def test_no_camera_states_none():
         camera=None,
         layer_identity=UNRESOLVED,
         scope_models={},
+        timing_record=None,
     )
     assert caps.camera_limits is None

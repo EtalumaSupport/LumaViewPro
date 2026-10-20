@@ -680,23 +680,29 @@ image = session.scope.imaging.capture_and_wait(timeout_s=2.0)
 
 # Whether a frame counts for a change. Every gain, exposure, black level,
 # LED, Z, XY and turret change is recorded, and one function decides
-# whether a frame counts for it: judge_frame(frame) asks it against every
-# source's last change.
+# whether a frame counts for it: judge_frame(frame, mapping) asks it against
+# every source's last change (recorded_changes()). Each source runs one rule
+# (capabilities.frame_rules): the clock rule, where the camera has a clock
+# latch and a measured delay for the source, counts a frame that started
+# exposing after the change plus that delay; the credit rule counts one once
+# the source's frame count was met before it.
 # A capture judges the frame it returns (a sum's first frame) against each
 # source's last change; the answers ride its record
 # (last_capture_info['frame_record'].judgments), its saved file
 # ('frame_validity' in the metadata) and one line in api.log. A Judgment
 # carries counts, frames_after, ms_after_write, ms_after_in_force (motion:
-# from the axis settling) and the change's credits, each frame counted
-# toward its wait with who counted it (drain, grab or preview).
+# from the axis settling), under the clock rule frame_start_ticks and
+# qualifies_after_ticks, and the change's rule and credits, each frame
+# counted toward its wait with who counted it (drain, grab or preview).
 # Beside each grab a capture maps the camera's timestamp clock onto the
 # host's steady clock (time.monotonic_ns): the record's clock_mapping, a
 # ClockMapping (host_ns, camera_ticks, tick_hz, uncertainty_ns, half the
 # latch's bracket), None on a camera without a latch
 # (capabilities.camera_has_clock_latch: Basler yes, IDS and the FX2 no).
 # mapping.camera_ticks_at(host_ns) is the camera's clock at a host time.
-for judgment in session.scope.imaging.judge_frame(frame):   # frame: from a listener
-    print(judgment.change.source, judgment.counts)
+mapping = session.scope.imaging.last_capture_info['frame_record'].clock_mapping
+for judgment in session.scope.imaging.judge_frame(frame, mapping):   # frame: from a listener
+    print(judgment.change.source, judgment.change.rule.rule, judgment.counts)
 ```
 
 ### Capture
@@ -1423,6 +1429,7 @@ still states the major version.
 | level 21 | `runtime_state.get_pixel_size_um()` and `runtime_state.get_field_of_view()`: the effective pixel size and the `FieldOfView(width_um, height_um)` at the current objective and the camera's held binning and frame, each `None` when it cannot be known; a plugin reads the scale here instead of computing it from an objective and a binning. |
 | level 22 | Each setting the Session owns has its own read: `model`, `objective_id`, `turret_objective(position)`, `labware`, `scale_bar_enabled`, `acceleration_limit_pct`, `layer_acquire(layer)`, `layer_auto_gain(layer)` and `bookmark` (a `PlateLocation`), beside the existing `saved_focus(layer)` and the camera's reads; `runtime_state.get_turret_config()` and `imaging.scale_bar_config` are in-process. `camera.set_binning` and `camera.set_frame_size` answer the delivered `FrameSize`, not a dict. `get_setting` of a setting with its own read is refused `ArgumentRefusedError` (`has_member`), its `member` naming the read: `get_setting('scale_bar.enabled')` for `scale_bar_enabled`, `get_setting('image_mode')` for `scope.camera.image_mode`. |
 | level 23 | A camera timing record's `apply_delay_us` is one number, 0 or more: the least start over its `trials`, on the camera's clock and after the change was in force, of the first frame showing the change, which the sensor's delay never exceeds; `delivered_frames` stays a `p50`, `p95`, `max` spread. `FrameValidity.check_timing_record` refuses a delay given as a spread. |
+| level 24 | Each frame-validity source runs one of two rules, published as `capabilities.frame_rules` (a `FrameRule` per source: `rule` `Rule.CLOCK` or `Rule.CREDIT`, and under the clock rule its `delay_us` and `provenance`): the clock rule where the camera has a clock latch and its timing record holds a measured delay, the credit rule (the source's frame count) everywhere else. `imaging.judge_frame(frame, mapping)` takes the camera's clock mapping (a capture's `frame_record.clock_mapping`); a `Change` carries its `rule`, and a `Judgment` its `frame_start_ticks` and `qualifies_after_ticks` under the clock rule, in its `fields()` too. `imaging.recorded_changes()` answers each source's last `Change`. |
 
 ### Configuration queries
 
@@ -3347,6 +3354,7 @@ Reached through `session.scope.imaging`.
 - `is_streaming`
 - `judge_frame` (in-process)
 - `last_capture_info` (in-process)
+- `recorded_changes` (in-process)
 - `remove_frame_listener` (in-process)
 - `saturated_fraction` (in-process)
 - `scale_bar_config` (in-process)
@@ -3449,6 +3457,7 @@ Reached through `session.scope.capabilities`.
 - `camera_supports_conversion_gain_mode`
 - `camera_supports_line_noise_reduction`
 - `camera_timestamp_tick_hz`
+- `frame_rules`
 - `has_firmware_stim`
 - `has_focus`
 - `has_turret`
@@ -3753,10 +3762,20 @@ Reached through each `Judgment`'s `change`, from `scope.imaging.judge_frame`.
 - `credits`
 - `in_force_ns`
 - `needs_in_force`
+- `rule`
 - `skip`
 - `source`
 - `written_at`
 - `written_ns`
+
+### ClockMapping
+
+Reached through `scope.imaging.judge_frame`'s `mapping`, and a capture's `frame_record.clock_mapping`.
+
+- `camera_ticks`
+- `host_ns`
+- `tick_hz`
+- `uncertainty_ns`
 
 ### Credit
 
@@ -3857,6 +3876,14 @@ Reached through the event `scope.imaging.add_frame_listener` delivers.
 
 - `frame`
 
+### FrameRule
+
+Reached through each value of `ScopeCapabilities.frame_rules`, and a `Change`'s `rule`.
+
+- `delay_us`
+- `provenance`
+- `rule`
+
 ### FrameSize
 
 Reached through `CameraLimits.frame_min` and `CameraLimits.frame_max`.
@@ -3899,9 +3926,11 @@ Reached through each value of `scope.imaging.judge_frame(frame)`.
 - `change`
 - `counts`
 - `frame_seq`
+- `frame_start_ticks`
 - `frames_after`
 - `ms_after_in_force`
 - `ms_after_write`
+- `qualifies_after_ticks`
 
 ### LayerRecord
 

@@ -77,6 +77,7 @@ def _record(imaging, chunks):
         chunks=chunks or {},
         lit=frozenset({(3, 50.0)}),
         captured_at=GRABBED_AT,
+        clock_mapping=None,
         judgments=(),
         saturated_fraction=None,
         dark=None,

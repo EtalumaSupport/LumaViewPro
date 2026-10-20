@@ -2,10 +2,12 @@
 """A capture records whether the frame it returns counts for each change.
 
 Whether a frame counts for a change is decided in one place,
-``FrameValidity.judge``, from facts the frame and the change both carry: the
-frame arrived after the change, the change's count was met by frames that
-arrived before it, and an axis the change waits on had settled before it
-arrived. A capture judges the frame it returns against each source's last
+``FrameValidity.judge``, from facts the frame, the change and the clock
+mapping carry, by the rule the change's source runs. Under the credit rule
+the frame arrived after the change, the change's count was met by frames
+that arrived before it, and an axis the change waits on had settled before
+it arrived; under the clock rule it started exposing, on the camera's clock,
+after the change plus the source's measured delay. A capture judges the frame it returns against each source's last
 change and keeps the answers in its record, its saved file and one line of
 ``api.log``, naming who counted each frame toward the wait.
 """
@@ -19,7 +21,8 @@ import pytest
 
 from modules import image_save, image_utils
 from modules.exceptions import ArgumentTypeRefusedError
-from modules.frame_validity import Counter, FrameValidity
+from modules.frame_validity import Counter, FrameRule, FrameValidity, Rule
+from modules.lumascope_api.frame_record import ClockMapping
 from modules.labware_loader import WellPlateLoader
 from modules.layer_record import release_color
 from tests.camera_fakes import delivered_frame
@@ -27,8 +30,35 @@ from tests.camera_fakes import delivered_frame
 _PIXELS = np.zeros((2, 2), dtype=np.uint8)
 
 
-def _frame(seq: int, arrived_ns: int | None = None):
-    return delivered_frame(_PIXELS, seq=seq, arrived_ns=arrived_ns)
+def _frame(seq: int, arrived_ns: int | None = None, started_ticks: int | None = None):
+    chunks = None if started_ticks is None else {'Timestamp': started_ticks}
+    return delivered_frame(_PIXELS, seq=seq, arrived_ns=arrived_ns, chunks=chunks)
+
+
+_PROVENANCE = {
+    'run_id': 'run-1',
+    'host': 'bench-pc',
+    'os': 'Windows 11',
+    'lvp_version': '4.0.0',
+    'plugin_version': '1.0.85',
+    'measured_date': '2026-10-20',
+}
+
+
+def _clocked(source: str, delay_us: float, settle_check=None) -> FrameValidity:
+    """Frame validity whose ``source`` runs the clock rule at ``delay_us``."""
+    fv = FrameValidity(lambda: 0)
+    if settle_check is not None:
+        fv.set_settle_check(settle_check)
+    rules = dict(fv.credit_rules())
+    rules[source] = FrameRule(rule=Rule.CLOCK, delay_us=delay_us, provenance=_PROVENANCE)
+    fv.use_rules(rules)
+    return fv
+
+
+def _mapping_at(host_ns: int) -> ClockMapping:
+    """A nanosecond camera clock reading 1_000_000 at ``host_ns``, known to 50 ns."""
+    return ClockMapping(host_ns=host_ns, camera_ticks=1_000_000, tick_hz=10**9, uncertainty_ns=50)
 
 
 def _judgment(record, source: str):
@@ -40,9 +70,9 @@ def test_a_frame_counts_only_once_the_count_was_met_before_it():
     fv.invalidate('gain')  # skip 2, recorded at frame 0
     fv.count_frame(1, by=Counter.GRAB)
 
-    early = fv.judge(_frame(2), fv.changes()['gain'])
+    early = fv.judge(_frame(2), fv.changes()['gain'], None)
     fv.count_frame(2, by=Counter.DRAIN)
-    late = fv.judge(_frame(3), fv.changes()['gain'])
+    late = fv.judge(_frame(3), fv.changes()['gain'], None)
 
     assert (early.counts, early.frames_after) == (False, 2)
     assert (late.counts, late.frames_after) == (True, 3)
@@ -50,6 +80,75 @@ def test_a_frame_counts_only_once_the_count_was_met_before_it():
         (1, Counter.GRAB),
         (2, Counter.DRAIN),
     ]
+
+
+def test_a_clock_rule_frame_counts_once_it_started_after_the_change_plus_its_delay():
+    """No frame need be counted first: the frame's own start decides, on the
+    camera's clock, against the write plus the measured delay plus the
+    mapping's uncertainty."""
+    fv = _clocked('gain', delay_us=1000.0)
+    change = fv.invalidate('gain')
+    mapping = _mapping_at(change.written_ns)
+    qualifies_after = 1_000_000 + 1_000_000 + 50
+
+    at = fv.judge(_frame(2, started_ticks=qualifies_after), change, mapping)
+    after = fv.judge(_frame(2, started_ticks=qualifies_after + 1), change, mapping)
+
+    assert change.rule.rule is Rule.CLOCK
+    assert (at.counts, at.qualifies_after_ticks) == (False, qualifies_after)
+    assert (after.counts, after.frame_start_ticks) == (True, qualifies_after + 1)
+    assert after.fields()['rule'] == 'clock'
+    assert after.fields()['qualifies_after_ticks'] == qualifies_after
+
+
+def test_a_clock_rule_frame_whose_start_cannot_be_known_does_not_count():
+    """Nothing shows such a frame started late enough: without the mapping
+    or the frame's ``Timestamp`` chunk it is not taken."""
+    fv = _clocked('gain', delay_us=0.0)
+    change = fv.invalidate('gain')
+    late = 10**15
+
+    no_mapping = fv.judge(_frame(2, started_ticks=late), change, None)
+    no_chunk = fv.judge(_frame(2), change, _mapping_at(change.written_ns))
+
+    assert (no_mapping.counts, no_mapping.qualifies_after_ticks) == (False, None)
+    assert (no_chunk.counts, no_chunk.frame_start_ticks) == (False, None)
+
+
+def test_a_clock_rule_move_is_judged_from_its_settle():
+    settled = threading.Event()
+    fv = _clocked('z_move', delay_us=0.0, settle_check=lambda source: settled.is_set())
+    fv.invalidate('z_move')
+    late = 10**15
+
+    moving = fv.judge(_frame(2, started_ticks=late), fv.changes()['z_move'], None)
+    settled.set()
+    at_ns = time.monotonic_ns()
+    fv.motion_settled('z_move', at_ns)
+    change = fv.changes()['z_move']
+    mapping = _mapping_at(at_ns)
+    before = fv.judge(_frame(2, started_ticks=1_000_000), change, mapping)
+    after = fv.judge(_frame(2, started_ticks=1_000_000 + 51), change, mapping)
+
+    assert (moving.counts, moving.qualifies_after_ticks) == (False, None)
+    assert (before.counts, after.counts) == (False, True)
+
+
+def test_a_rule_states_its_delay_and_provenance_under_the_clock_only():
+    wrong = {
+        'a clock rule without a delay': (Rule.CLOCK, None, _PROVENANCE),
+        'a clock rule without provenance': (Rule.CLOCK, 1.0, None),
+        'a credit rule with a delay': (Rule.CREDIT, 1.0, None),
+    }
+    accepted = []
+    for name, fields in wrong.items():
+        try:
+            FrameRule(*fields)
+            accepted.append(name)
+        except ValueError:
+            pass
+
+    assert accepted == []
 
 
 def test_a_motion_frame_counts_only_once_its_axis_settled_before_it():
@@ -60,12 +159,12 @@ def test_a_motion_frame_counts_only_once_its_axis_settled_before_it():
     for seq in (1, 2):
         fv.count_frame(seq, by=Counter.DRAIN)
 
-    moving = fv.judge(_frame(3), fv.changes()['z_move'])
+    moving = fv.judge(_frame(3), fv.changes()['z_move'], None)
     settled.set()
     at_ns = time.monotonic_ns()
     fv.motion_settled('z_move', at_ns)
-    before = fv.judge(_frame(3, arrived_ns=at_ns - 1), fv.changes()['z_move'])
-    after = fv.judge(_frame(3, arrived_ns=at_ns + 1), fv.changes()['z_move'])
+    before = fv.judge(_frame(3, arrived_ns=at_ns - 1), fv.changes()['z_move'], None)
+    after = fv.judge(_frame(3, arrived_ns=at_ns + 1), fv.changes()['z_move'], None)
 
     assert moving.counts is False and moving.ms_after_in_force is None
     assert before.counts is False
@@ -204,7 +303,7 @@ def test_a_listeners_frame_is_judged_through_the_api(sim_scope):
     assert arrived.wait(5.0), 'no frame arrived after the gain write'
     imaging.remove_frame_listener(on_frame)
 
-    gain = next(j for j in imaging.judge_frame(later[0]) if j.change.source == 'gain')
+    gain = next(j for j in imaging.judge_frame(later[0], None) if j.change.source == 'gain')
 
     assert gain.frame_seq == later[0].seq
     assert gain.frames_after == later[0].seq - at_seq
@@ -214,5 +313,5 @@ def test_a_listeners_frame_is_judged_through_the_api(sim_scope):
 
 def test_judging_something_that_is_not_a_frame_is_refused(sim_scope):
     with pytest.raises(ArgumentTypeRefusedError) as refused:
-        sim_scope.imaging.judge_frame(_PIXELS)
+        sim_scope.imaging.judge_frame(_PIXELS, None)
     assert refused.value.reason == 'wrong_argument_type'

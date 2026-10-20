@@ -29,6 +29,7 @@ except ImportError as _fx2_exc:
     # Same silent-degradation shape as the IDS guard below: without this
     # line a Classic scope's missing camera has no named cause anywhere.
     logger.warning(f'[SCOPE API ] FX2 (Classic) drivers unavailable: {_fx2_exc}')
+from drivers import camera_profiles
 from drivers.camera import Camera
 from drivers.exceptions import (
     CameraFirmwareMissingError,
@@ -312,6 +313,34 @@ class Lumascope:
     # the records, ``labware`` and ``objectives``.
     objective_helper: 'ObjectiveLoader'
     wellplate_loader: 'WellPlateLoader'
+
+    def _read_camera_timing(self) -> dict | None:
+        """The camera's measured timing record, read once at bring-up and checked.
+
+        The record is the one its profile names (``timing_model``); a camera
+        with none, or no camera, has none. Which rule each frame-validity
+        source runs comes from it (``capabilities.frame_rules``), so a record
+        written wrong is refused where the installation is read
+        (``FrameValidity.check_timing_record``), not where a frame is judged.
+
+        Raises:
+            InstallationFileError: the profile names a record that is
+                missing, unreadable, of another schema, or holds a value
+                that is not a measurement.
+        """
+        camera = self._camera_driver
+        if camera is None or not camera.active:
+            return None
+        path = camera_profiles.timing_record_path(camera.profile)
+        try:
+            record = camera_profiles.timing_record(camera.profile)
+            if record is None:
+                return None
+            FrameValidity.check_timing_record(record)
+        except (OSError, ValueError) as e:
+            raise InstallationFileError(path, f'could not be read ({e})') from e
+        logger.info(f'[SCOPE API ] Camera timing record {path} checked')
+        return record
 
     def _read_catalogues(self, source_path: 'str | os.PathLike') -> dict:
         """Read the installation's files once, from ``source_path``; return the motor defaults.
@@ -952,7 +981,9 @@ class Lumascope:
             camera=self._camera_driver,
             layer_identity=self.layer_identity,
             scope_models=self._scope_models,
+            timing_record=self._read_camera_timing(),
         )
+        self.frame_validity.use_rules(self.capabilities.frame_rules)
 
         # ----- Sub-API wiring -----
         # motion was already constructed above (it needs earlier
@@ -1024,8 +1055,6 @@ class Lumascope:
             return True
 
         self.frame_validity.set_settle_check(_motion_settle_check)
-        # The camera's timing record, checked against frame validity.
-        self.imaging._check_camera_timing()
 
         # LVP-A-7: register the emergency-shutdown atexit hook so EVERY
         # Lumascope user (Kivy app, REST server, headless tests, CLI
@@ -2007,6 +2036,7 @@ class Lumascope:
             camera=None,
             layer_identity=instance.layer_identity,
             scope_models=instance._scope_models,
+            timing_record=None,
         )
 
         # Sub-API wiring -- diagnostic instances are first-class enough

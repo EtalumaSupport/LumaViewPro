@@ -148,6 +148,7 @@ class TestScopeCapabilitiesPlumbing:
             camera=None,
             layer_identity=UNRESOLVED,
             scope_models={},
+            timing_record=None,
         )
 
     def test_has_firmware_stim_true_when_driver_reports_true(self):
@@ -189,5 +190,6 @@ class TestScopeCapabilitiesPlumbing:
             camera=None,
             layer_identity=UNRESOLVED,
             scope_models={},
+            timing_record=None,
         )
         assert caps.has_firmware_stim is False
