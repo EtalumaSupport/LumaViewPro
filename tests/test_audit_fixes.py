@@ -1827,48 +1827,6 @@ class TestEnterEngineeringModeRaises:
         )
 
 
-class TestF7_ProtocolHomingInterlock:
-    """F7: Homing/bookmark must be blocked during protocol execution."""
-
-    def test_z_home_checks_protocol_running(self):
-        """vertical_control home() must check protocol_running."""
-        import pathlib
-
-        source = pathlib.Path('ui/vertical_control.py').read_text()
-        # Find the home method
-        idx = source.find('def home(self):')
-        assert idx != -1
-        method_body = source[idx : idx + 300]
-        assert 'session.controls_locked' in method_body, (
-            'Z home() must check the exclusive-activity lock before homing (F7)'
-        )
-
-    def test_goto_bookmark_checks_protocol_running(self):
-        """vertical_control goto_bookmark() must check protocol_running."""
-        import pathlib
-
-        source = pathlib.Path('ui/vertical_control.py').read_text()
-        idx = source.find('def goto_bookmark(self):')
-        assert idx != -1
-        method_body = source[idx : idx + 300]
-        assert 'session.controls_locked' in method_body, (
-            'goto_bookmark() must check the exclusive-activity lock (F7)'
-        )
-
-    def test_xy_home_checks_protocol_running(self):
-        """motion_settings home() must check protocol_running."""
-        import pathlib
-
-        source = pathlib.Path('ui/motion_settings.py').read_text()
-        # Find the XYStageControl home method (after line 460)
-        idx = source.find('def home(self):')
-        assert idx != -1
-        method_body = source[idx : idx + 300]
-        assert 'session.controls_locked' in method_body, (
-            'XY home() must check the exclusive-activity lock before homing (F7)'
-        )
-
-
 class TestG4_MotorLogSuppression:
     """G4: Motor board should suppress only connect errors, not entire thread logging."""
 

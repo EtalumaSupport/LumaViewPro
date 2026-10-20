@@ -21,29 +21,6 @@ logger = logging.getLogger('LVP.ui.file_dialogs')
 _IMAGE_FILETYPES = [('Images', ' '.join(sorted(image_utils.IMAGE_SUFFIXES)))]
 
 
-# Folder-picker contexts that hand work to the file IO executor for
-# post-processing. The executor refuses new work while a protocol owns it,
-# so these are blocked up front with a message -- otherwise the action's
-# progress popup opens but never completes (the task is silently dropped).
-# The disabled buttons are the primary stop; this is the backstop for any
-# path that reaches the funnel anyway (e.g. an async dialog callback).
-_POST_PROCESSING_CONTEXTS = (
-    'apply_cell_count_method_to_folder',
-    'apply_stitching_to_folder',
-    'apply_composite_gen_to_folder',
-    'apply_video_gen_to_folder',
-    'apply_zprojection_to_folder',
-    'apply_quick_enhance_to_folder',
-)
-# The FILE-choose funnel needs the same backstop. The Quick Enhance preview
-# marks its panel busy BEFORE an executor put() that the file executor
-# silently drops while a protocol owns it -- the preview callback then never
-# fires, busy sticks True, and the panel's disabled binding wedges until
-# restart. The other file contexts run synchronously on selection and cannot
-# wedge, so only the executor-backed one is listed.
-_POST_PROCESSING_FILE_CONTEXTS = ('load_quick_enhance_input_image',)
-
-
 def _zprojection_picker_default_path(live_folder: pathlib.Path) -> str:
     """Return the Z-stack folder the projection picker should open at.
 
@@ -501,17 +478,6 @@ class FileChooseBTN(HoverBehavior, Button):
             gui_logger.select('FILE_CHOOSE', f'context={self.context} path={self.selection[0]}')
         ctx = _app_ctx.ctx
 
-        if self.context in _POST_PROCESSING_FILE_CONTEXTS and ctx.session.run_lockout:
-            from modules.notification_center import notifications
-
-            notifications.warning(
-                'Post-Processing',
-                'Protocol running',
-                'Post-processing cannot run while a protocol scan is in '
-                'progress. Stop or finish the protocol first, then retry.',
-            )
-            return
-
         if self.selection:
             if self.context == 'load_protocol':
                 ctx.motion_settings.ids['protocol_settings_id'].load_protocol(
@@ -595,17 +561,6 @@ class FolderChooseBTN(HoverBehavior, Button):
             path = self.selection[0]
             gui_logger.select('FOLDER_CHOOSE', f'context={self.context} path={path}')
         else:
-            return
-
-        if self.context in _POST_PROCESSING_CONTEXTS and ctx.session.run_lockout:
-            from modules.notification_center import notifications
-
-            notifications.warning(
-                'Post-Processing',
-                'Protocol running',
-                'Post-processing cannot run while a protocol scan is in '
-                'progress. Stop or finish the protocol first, then retry.',
-            )
             return
 
         if self.context == 'live_folder':

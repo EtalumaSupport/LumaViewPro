@@ -133,8 +133,6 @@ class VerticalControl(BoxLayout):
             overshoot_enabled: Enable backlash compensation overshoot.
         """
         ctx = _app_ctx.ctx
-        if ctx.session.controls_locked:
-            return
         label = f'Z_{"COARSE" if coarse else "FINE"}_{"UP" if direction > 0 else "DOWN"}'
         gui_logger.button(label)
         logger.info(f'[LVP Main  ] VerticalControl._z_jog({label})')
@@ -164,8 +162,8 @@ class VerticalControl(BoxLayout):
     def coarse_down(self, overshoot_enabled: bool = False):
         self._z_jog(-1, coarse=True, overshoot_enabled=overshoot_enabled)
 
-    def _queue_z_move(self, pos: float):
-        """Queue the move to a committed Z value; None when controls are locked.
+    def _queue_z_move(self, pos: float) -> None:
+        """Queue the move to a committed Z value.
 
         The slider and the text box share the move but not the record. The
         slider reports the value it resolved to; the box reports what the user
@@ -173,20 +171,14 @@ class VerticalControl(BoxLayout):
         distinguishable in the bundle, so each caller writes its own line and
         only the move lives here.
         """
-        ctx = _app_ctx.ctx
-        if ctx.session.controls_locked:
-            return None
-
         logger.info('[LVP Main  ] VerticalControl.set_position()')
         self._next_pos = pos
         self.queue_slider_position_trigger()
-        return self._next_pos
 
     def set_position(self, pos):
         """The SLIDER's commit -- the kv binds this to its on_release."""
-        resolved = self._queue_z_move(pos)
-        if resolved is not None:
-            gui_logger.slider('Z_POSITION', resolved)
+        self._queue_z_move(pos)
+        gui_logger.slider('Z_POSITION', pos)
 
     def set_position_text(self, text):
         """The BOX's commit -- what was typed is recorded before the move.
@@ -226,8 +218,6 @@ class VerticalControl(BoxLayout):
     def goto_bookmark(self):
         gui_logger.button('GOTO_Z_BOOKMARK')
         ctx = _app_ctx.ctx
-        if ctx.session.controls_locked:
-            return
         logger.info('[LVP Main  ] VerticalControl.goto_bookmark()')
         with ctx.settings_lock:
             pos = ctx.settings['bookmark']['z']
@@ -236,9 +226,6 @@ class VerticalControl(BoxLayout):
     @debounce(1.0)
     def home(self):
         gui_logger.button('HOME_Z')
-        ctx = _app_ctx.ctx
-        if ctx.session.controls_locked:
-            return
         logger.info('[LVP Main  ] VerticalControl.home()')
         run_reported(lambda: move_home(axis='Z'), None, 'HOME_Z')
 

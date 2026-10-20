@@ -194,7 +194,7 @@ void main (void) {
             if 'ctrl' in Window.modifiers:
                 # Focus control -- accumulate scroll ticks, debounce into single
                 # move. Not offered on a scope with no Z motor.
-                if ctx.session.controls_locked or not ctx.scope.capabilities.has_focus:
+                if not ctx.scope.capabilities.has_focus:
                     return
 
                 # The tick records only the gesture: its direction, how fast

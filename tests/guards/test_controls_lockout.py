@@ -69,6 +69,8 @@ class TestTheLockRecord:
         # recording mirror would be a second answer with no reader.
         assert 'recording_active = BooleanProperty' not in APP_SRC
         assert 'self.recording_active' not in APP_SRC, 'publish_run_state writes a dropped mirror'
+        main_display = (REPO_ROOT / 'ui' / 'main_display.py').read_text()
+        assert 'app.recording_active = value' not in main_display
 
     def test_the_app_holds_the_two_records_and_no_lock_flag(self):
         # The lock is the Session's one record, copied whole on each edge:
@@ -110,15 +112,6 @@ class TestTheLockRecord:
             for text in kv_sources.values()
         )
         assert bound == 100, f'{bound} lock bindings; each greyed surface binds the record'
-
-    def test_main_display_supplies_no_run_state_edge(self):
-        # A recording announces its own edges (live, draining, finish
-        # ended) through the claim, so a headless listener hears them
-        # too; a republish from the GUI would be an edge only the GUI
-        # can see.
-        src = (REPO_ROOT / 'ui' / 'main_display.py').read_text()
-        assert 'notify_run_state' not in src
-        assert 'app.recording_active = value' not in src
 
 
 class TestKvBindingTopology:
@@ -177,6 +170,46 @@ class TestKvBindingTopology:
         snippet = KV_SRC[idx : idx + 120]
         assert 'disabled: app.lock.run_lockout' in snippet
         assert 'controls_locked' not in snippet
+
+
+_RETIRED_READS = re.compile(
+    r'session\.(run_lockout|run_lockout_named|controls_locked|motion_enabled|exclusive_activity'
+    r'|protocol_files_draining|protocol_files_pending|is_protocol_running|run_in_progress'
+    r'|recording_active)\b'
+)
+
+
+class TestTheGuiReadsTheLockRecord:
+    """The GUI reads the lock through the record -- ``app.lock`` on an
+    edge, ``session.controls_lock`` or ``session.live_work`` at a fresh
+    read -- and none of the Session's one-fact reads the record replaces,
+    which retire once nothing reads them."""
+
+    def test_the_pattern_finds_a_retired_read(self):
+        # The instrument's known positive: a clean sweep below means
+        # nothing matched, not that the pattern cannot.
+        assert _RETIRED_READS.search('if ctx.session.run_lockout:')
+        assert _RETIRED_READS.search('session.protocol_files_pending)')
+        assert not _RETIRED_READS.search('session.controls_lock.run_lockout')
+
+    def test_no_gui_file_reads_a_retired_read(self):
+        offenders = [
+            f'{path.relative_to(REPO_ROOT)}:{number}: {line.strip()}'
+            for path in [*sorted((REPO_ROOT / 'ui').glob('*.py')), REPO_ROOT / 'lumaviewpro.py']
+            for number, line in enumerate(path.read_text().splitlines(), 1)
+            if _RETIRED_READS.search(line)
+        ]
+        assert not offenders, offenders
+
+    def test_no_gui_file_announces_a_run_state_edge(self):
+        # Every edge is the Session's own (a claim, a drain, a recording);
+        # a republish from the GUI is an edge only the GUI can see.
+        offenders = [
+            str(path.relative_to(REPO_ROOT))
+            for path in [*sorted((REPO_ROOT / 'ui').glob('*.py')), REPO_ROOT / 'lumaviewpro.py']
+            if 'notify_run_state' in path.read_text()
+        ]
+        assert not offenders, offenders
 
 
 class TestNoCallerSideRunStateCommit:

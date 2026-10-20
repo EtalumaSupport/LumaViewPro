@@ -280,8 +280,6 @@ class XYStageControl(BoxLayout):
             coarse: True for coarse step, False for fine step.
         """
         ctx = _app_ctx.ctx
-        if ctx.session.controls_locked:
-            return
         dir_names = {('X', 1): 'RIGHT', ('X', -1): 'LEFT', ('Y', 1): 'FWD', ('Y', -1): 'BACK'}
         label = f'XY_{"COARSE" if coarse else "FINE"}_{dir_names[(axis, direction)]}'
         gui_logger.button(label)
@@ -325,9 +323,6 @@ class XYStageControl(BoxLayout):
         self._xy_jog('Y', +1, coarse=True)
 
     def set_xposition(self, x_pos):
-        ctx = _app_ctx.ctx
-        if ctx.session.controls_locked:
-            return
         logger.info('[LVP Main  ] XYStageControl.set_xposition()')
         typed = x_pos
         x_pos = typed_number(typed, float, self.update_gui)
@@ -346,9 +341,6 @@ class XYStageControl(BoxLayout):
         move_absolute('X', x_pos, frame='plate')
 
     def set_yposition(self, y_pos):
-        ctx = _app_ctx.ctx
-        if ctx.session.controls_locked:
-            return
         logger.info('[LVP Main  ] XYStageControl.set_yposition()')
         typed = y_pos
         y_pos = typed_number(typed, float, self.update_gui)
@@ -420,9 +412,6 @@ class XYStageControl(BoxLayout):
     @debounce(1.0)
     def home(self):
         gui_logger.button('HOME_XY')
-        ctx = _app_ctx.ctx
-        if ctx.session.controls_locked:
-            return
         logger.info('[LVP Main  ] XYStageControl.home()')
         # The home's display shows every axis, the turret included: the
         # firmware's home returns the turret to position 1. With no motor
