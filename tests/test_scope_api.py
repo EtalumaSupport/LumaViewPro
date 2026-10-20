@@ -330,16 +330,6 @@ class TestFindNearestStep:
         assert config_helpers.find_nearest_step(100, 100, proto) == 2
 
 
-class TestFocusLog:
-    def test_increments_round(self):
-        result = config_helpers.focus_log([1, 2], [0.5, 0.7], focus_round=3, source_path='.')
-        assert result == 4
-
-    def test_increments_from_zero(self):
-        result = config_helpers.focus_log([], [], focus_round=0, source_path='.')
-        assert result == 1
-
-
 class TestGetCurrentPlatePosition:
     def test_an_expected_motor_board_that_is_absent_is_refused(self):
         # The model has a motor controller and none answers: there is no

@@ -93,7 +93,6 @@ class AppContext:
     max_exposure: float = 0.0
     max_gain: float = 0.0
     live_view_fps: int = 30
-    focus_round: int = 0
 
     # Initialization flag (replaces _app_initializing)
     _ready: bool = False

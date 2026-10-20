@@ -8,7 +8,6 @@ used by LumaViewPro, the REST API, or standalone scripts.
 """
 
 import datetime
-import os
 import pathlib
 import typing
 
@@ -805,24 +804,6 @@ def log_system_metrics(
             type(e).__name__,
             e,
         )
-
-
-def focus_log(positions, values, focus_round: int, source_path: str) -> int:
-    """Log autofocus positions and scores to file. Returns incremented focus_round."""
-    if False:  # disabled -- kept for future use
-        log_file = os.path.join(source_path, 'logs', 'focus_log.txt')
-        try:
-            file = open(log_file, 'a')  # noqa: SIM115 -- inside an unreachable block and closed explicitly; context manager not applicable
-        except Exception as e:
-            if not os.path.isdir(os.path.join(source_path, 'logs')):
-                raise FileNotFoundError("Couldn't find 'logs' directory.") from e
-            else:
-                raise
-        for i, p in enumerate(positions):
-            mssg = str(focus_round) + '\t' + str(p) + '\t' + str(values[i]) + '\n'
-            file.write(mssg)
-        file.close()
-    return focus_round + 1
 
 
 # ---------------------------------------------------------------------------

@@ -546,7 +546,7 @@ _UI_ANSWERER_CALL_PIN = {
     'ui/microscope_settings.py': 3,
     'ui/protocol_settings.py': 1,
     'ui/stage.py': 4,
-    'ui/ui_helpers.py': 2,
+    'ui/ui_helpers.py': 1,
     'ui/zstack.py': 1,
 }
 

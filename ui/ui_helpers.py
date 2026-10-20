@@ -299,11 +299,6 @@ def set_last_save_folder(dir):
 # ============================================================================
 
 
-def focus_log(positions, values):
-    ctx = _app_ctx.ctx
-    ctx.focus_round = config_helpers.focus_log(positions, values, ctx.focus_round, ctx.source_path)
-
-
 def sync_layer_widgets_from_settings():
     """Every layer's panel shows its stored settings again.
 

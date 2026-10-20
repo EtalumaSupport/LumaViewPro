@@ -932,11 +932,10 @@ class LumaViewProApp(TooltipMixin, App):
         global Window
         global ctx
 
-        # AppContext binds these three as kwargs below; declared as locals here
+        # AppContext binds these two as kwargs below; declared as locals here
         # so the kwargs don't NameError at runtime.
         live_histo_setting = False
         last_save_folder = None
-        focus_round = 0
 
         self.icon = './data/icons/icon.png'
 
@@ -1091,7 +1090,6 @@ class LumaViewProApp(TooltipMixin, App):
             live_histo_setting=live_histo_setting,
             last_save_folder=last_save_folder,
             live_view_fps=live_view_fps,
-            focus_round=focus_round,
         )
         app_context.ctx = ctx  # Publish to module-level singleton for extracted modules
         app_context.apply_early_registrations()  # Copy widgets registered during KV construction
