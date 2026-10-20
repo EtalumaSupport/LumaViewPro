@@ -73,7 +73,13 @@ from modules.lumascope_api.diagnostics import (
     NOT_CONNECTED,
     is_board_reply,
 )
-from modules.path_utils import desktop_folder, folder_to_make, get_script_root, get_source_root
+from modules.path_utils import (
+    desktop_folder,
+    folder_to_make,
+    get_log_dir,
+    get_script_root,
+    get_source_root,
+)
 from modules.protocol import Protocol
 from modules.protocol_execution_record import ProtocolExecutionRecord
 from modules.api_surface import ProgressCallback, api, api_fields
@@ -161,8 +167,8 @@ def _get_lvp_data_dir():
 
 
 def _get_lvp_logs_dir():
-    """Return the LVP logs/ directory, or None."""
-    logs_dir = get_source_root() / 'logs'
+    """Return the LVP logs/ directory, the log folder's parent, or None."""
+    logs_dir = get_log_dir().parent
     return logs_dir if logs_dir.is_dir() else None
 
 

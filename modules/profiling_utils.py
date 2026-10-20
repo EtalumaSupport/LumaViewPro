@@ -4,7 +4,7 @@ import datetime
 import pathlib
 import pstats
 
-from lib import profile_trace
+from modules.path_utils import get_log_dir
 
 
 class ProfilingHelper:
@@ -18,12 +18,7 @@ class ProfilingHelper:
             # directory: an installed build runs with its CWD in the install
             # folder, where mkdir is denied, and this constructor's mkdir is
             # unguarded on a path reached at startup whenever the flag is set.
-            self._profile_artifact_path = (
-                pathlib.Path(profile_trace._appdata_root())
-                / 'logs'
-                / 'cprofile'
-                / self._get_timestamp()
-            )
+            self._profile_artifact_path = get_log_dir().parent / 'cprofile' / self._get_timestamp()
         else:
             self._profile_artifact_path = pathlib.Path(save_path)
 
