@@ -2667,7 +2667,7 @@ class CameraAPI:
         On IDS bodies the floor rises above the value read at connect
         (``capabilities.camera_limits.exposure_ms_min``) as the pixel clock,
         frame rate and frame size change, and this reads the camera's live
-        floor; every other camera's floor is fixed, and this answers it.
+        floor; every other driver answers the floor it read at connect.
 
         Returns:
             float | None: The floor; None when no camera is active or the
