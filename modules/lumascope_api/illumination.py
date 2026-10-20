@@ -765,7 +765,6 @@ class IlluminationAPI:
         with self._led_lock:
             self._driver.led_on(channel, commanded_ma, block=block)
         self._notify_if_led_command_failed()
-        self._scope.frame_validity.invalidate('led')
         requested = (
             f' (requested {illumination_ma})' if abs(commanded_ma - illumination_ma) >= 0.01 else ''
         )
@@ -780,6 +779,10 @@ class IlluminationAPI:
             self._led_state[channel] = _Held(LedState.LIT, commanded_ma)
             self._lit_by[channel] = _lease
             reading = self._reading(channel)
+        # The change is recorded once the store holds it: a frame counts for
+        # it by when it began against the record, and the light it is made
+        # under is the store's (the simulated sensor reads it).
+        self._scope.frame_validity.invalidate('led')
         self._fire_led_listeners(reading)
         return commanded_ma
 
@@ -848,16 +851,17 @@ class IlluminationAPI:
         with self._led_lock:
             self._driver.led_off(channel)
         self._notify_if_led_command_failed()
-        self._scope.frame_validity.invalidate('led')
         _api_log.info(
             f'led_off ch={channel}{f" lease={_lease.purpose!r}" if _lease is not None else ""}'
         )
 
-        # Clear from the API-level state store
+        # Clear from the API-level state store, then record the change (see
+        # _led_on_impl).
         with self._led_state_lock:
             self._led_state.pop(channel, None)
             self._lit_by.pop(channel, None)
             reading = self._reading(channel)
+        self._scope.frame_validity.invalidate('led')
         self._fire_led_listeners(reading)
 
     def _leds_off_impl(self) -> None:
