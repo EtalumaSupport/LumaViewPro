@@ -11,8 +11,8 @@ illumination API.
     python tests/capability/autofocus_p01_ends_with_the_light_it_found.py             # a simulated LS850T
     python tests/capability/autofocus_p01_ends_with_the_light_it_found.py --hardware  # the connected scope
 
-On hardware the stage homes at bring-up and Z sweeps twice; the layer's LED
-is lit throughout.
+On hardware the stage homes at bring-up, Z moves to the middle of its
+travel, and Z sweeps twice; the layer's LED is lit throughout.
 """
 
 import sys
@@ -87,6 +87,14 @@ def main():
         session_cm = _sim()
 
     with session_cm as (session, runner):
+        # Bring-up leaves Z at its home, the bottom of travel, where every
+        # autofocus window reaches past the floor and the run is refused
+        # before it sweeps. The middle of travel has room for any
+        # objective's window.
+        motion = session.scope.motion
+        z_limits = motion.get_axis_limits('Z')
+        motion.move_absolute('Z', (z_limits.min_um + z_limits.max_um) / 2)
+        figure('Z start um', motion.get_current_position('Z'))
         current_ma = float(session.settings[LAYER]['illumination_ma'])
         figure(f'{LAYER} saved current mA', current_ma)
         try:
