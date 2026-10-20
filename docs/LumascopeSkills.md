@@ -1589,7 +1589,7 @@ scope.motion.axes_without_position()             # {axis: 'unknown' | 'homing'};
 # Position queries (µm for XYZ, 1–4 for turret). Read cache, no serial I/O.
 scope.motion.axis_positions()                    # {axis: AxisPosition(state, position)} in ONE snapshot; position is None unless the axis is IDLE or MOVING -- the read for a caller writing a position into a file
 scope.runtime_state.plate_transform()            # (x_um, y_um) -> PlatePosition, BOUND to the plate and offset of this call. For a caller converting many positions over time (a recording, one per frame): every frame is stated in one frame of reference
-scope.motion.get_target_position('Z')            # the commanded target, moving or arrived; the polled position when none was reached (before a first move, after a home, a STOP or a fault)
+scope.motion.get_target_position('Z')            # the commanded target, moving or arrived; the polled position when none was reached (before a first move, after a home, a STOP or a fault); 0.0, read by nothing, for an axis UNKNOWN because its bring-up read failed
 scope.motion.get_target_positions()              # {axis: target} for every axis the scope has a position for
 scope.motion.get_actual_position('Z')            # hardware position via serial (slow; use sparingly)
 # A position with no hardware behind it is None: an axis the scope does not

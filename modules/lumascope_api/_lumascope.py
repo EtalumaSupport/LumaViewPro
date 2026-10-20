@@ -764,8 +764,8 @@ class Lumascope:
 
         # ----- MotionAPI -----
         # Constructed AFTER the motion driver so _driver resolves correctly.
-        # _init_axes() sizes per-axis dicts to detect_present_axes() and seeds
-        # each axis known/unknown from detect_homed_axes(); then
+        # _init_axes() sizes per-axis dicts to detect_present_axes(), reads
+        # each axis's position, and seeds known only a homed axis it read; then
         # _start_monitor() spawns the background poll thread. NullMotionBoard
         # returns [] from detect_present_axes(), so a system with no motor
         # hardware ends up with empty dicts throughout.
@@ -1026,16 +1026,6 @@ class Lumascope:
         self.frame_validity.set_settle_check(_motion_settle_check)
         # The camera's timing record, checked against frame validity.
         self.imaging._check_camera_timing()
-
-        # Populate position cache from firmware so get_current_position()
-        # returns correct values immediately (not 0.0 from empty cache).
-        # Critical for standalone scripts that read position right after
-        # creating Lumascope (e.g., backlash characterization).
-        if self.motor_connected:
-            try:
-                self.motion._refresh_position_cache()
-            except Exception:
-                pass  # OK -- cache stays at 0.0 if firmware unresponsive
 
         # LVP-A-7: register the emergency-shutdown atexit hook so EVERY
         # Lumascope user (Kivy app, REST server, headless tests, CLI

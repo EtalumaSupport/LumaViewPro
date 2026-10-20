@@ -75,33 +75,30 @@ class TestAxisStateSeeding:
     """_init_axes trusts the hardware's answer, in both directions."""
 
     @staticmethod
-    def _seed(motion, present, homed):
+    def _seed(present, homed):
+        """The state store of a simulated scope rebuilt from ``present`` and
+        ``homed``, every position read succeeding (``_init_axes`` reads each
+        axis before it calls one known)."""
+        from tests.scope_fakes import build_scope
+
+        motion = build_scope(simulate=True).motion
         motion._init_axes(present, homed)
         return motion._axis_state
 
-    def test_homed_hardware_seeds_idle_so_the_gate_permits_motion(self, monkeypatch):
-        from modules.lumascope_api.motion import MotionAPI
-
-        motion = MotionAPI.__new__(MotionAPI)
-        state = self._seed(motion, ['X', 'Y', 'Z'], ['X', 'Y', 'Z'])
+    def test_homed_hardware_seeds_idle_so_the_gate_permits_motion(self):
+        state = self._seed(['X', 'Y', 'Z'], ['X', 'Y', 'Z'])
         assert state == dict.fromkeys(['X', 'Y', 'Z'], AxisState.IDLE), (
             'a fresh process attaching to an already-homed scope must not call its position unknown'
         )
 
     def test_unhomed_hardware_still_seeds_unknown(self):
-        from modules.lumascope_api.motion import MotionAPI
-
-        motion = MotionAPI.__new__(MotionAPI)
-        state = self._seed(motion, ['X', 'Y', 'Z'], [])
+        state = self._seed(['X', 'Y', 'Z'], [])
         assert state == dict.fromkeys(['X', 'Y', 'Z'], AxisState.UNKNOWN), (
             'the gate must still refuse a scope that has never been homed'
         )
 
     def test_partially_homed_hardware_seeds_each_axis_on_its_own_answer(self):
-        from modules.lumascope_api.motion import MotionAPI
-
-        motion = MotionAPI.__new__(MotionAPI)
-        state = self._seed(motion, ['X', 'Y', 'Z'], ['Z'])
+        state = self._seed(['X', 'Y', 'Z'], ['Z'])
         assert state == {
             'X': AxisState.UNKNOWN,
             'Y': AxisState.UNKNOWN,

@@ -167,7 +167,7 @@ def _entries_with_a_site() -> set[str]:
 
 # Seeded at LVP dev/4.0.0 b17419cc (2026-10-09) with 237 entries. Only shrinks: a
 # commit that takes a stand-in to the simulator deletes its entry and lowers this.
-ALLOWED_ENTRIES = 212
+ALLOWED_ENTRIES = 209
 ALLOWED = frozenset(
     {
         'tests/af_drives.py::af_runner_and_scope',
@@ -273,10 +273,7 @@ ALLOWED = frozenset(
         'tests/test_firmware_updater.py::TestUpdateFirmwareSameVersion.test_same_version_returns_success',
         'tests/test_frame_carries_depth.py::TestGetImageFromBufferUsesFrameDepth.test_downconvert_uses_frame_depth_not_live_driver',
         'tests/test_frame_validity.py::TestCaptureTimeChunkVerification._make_imaging',
-        'tests/test_fresh_process_reads_homed_state.py::TestAxisStateSeeding.test_homed_hardware_seeds_idle_so_the_gate_permits_motion',
-        'tests/test_fresh_process_reads_homed_state.py::TestAxisStateSeeding.test_partially_homed_hardware_seeds_each_axis_on_its_own_answer',
         'tests/test_fresh_process_reads_homed_state.py::TestAxisStateSeeding.test_seeding_requires_the_hardware_answer',
-        'tests/test_fresh_process_reads_homed_state.py::TestAxisStateSeeding.test_unhomed_hardware_still_seeds_unknown',
         'tests/test_issue_239_first_interval_anchor.py::_make_parent',
         'tests/test_issue_653_skip_guard.py::handler_and_log',
         'tests/test_issue_653_skip_guard.py::test_live_skip_is_logged',

@@ -399,6 +399,13 @@ class MotionAPI:
         the gate. Neither is acceptable, so the state store is told the
         truth instead.
 
+        Homed is not enough on its own: IDLE says the cache holds where the
+        axis is, so each axis's position is read here, and only a homed
+        axis whose read succeeded starts IDLE. One whose read failed starts
+        UNKNOWN, holding the 0.0 seed, which nothing read. The read is here
+        rather than a later call so that no constructor can skip it and
+        leave a homed axis IDLE on the seed.
+
         homed_axes is required rather than defaulted: a caller that
         forgets it would silently reintroduce the blind seeding, and
         that failure is invisible until a headless run is refused.
@@ -408,13 +415,16 @@ class MotionAPI:
             homed_axes: Those axes the hardware reports as already homed.
         """
         self._pos_cache = dict.fromkeys(present_axes, 0.0)
-        self._axis_state = {
-            ax: (AxisState.IDLE if ax in homed_axes else AxisState.UNKNOWN) for ax in present_axes
-        }
+        self._axis_state = dict.fromkeys(present_axes, AxisState.UNKNOWN)
         self._arrival_events = {ax: threading.Event() for ax in present_axes}
         for ev in self._arrival_events.values():
             ev.set()  # Start as "arrived" (not moving)
         self._current_move = dict.fromkeys(present_axes)
+        read = self._refresh_position_cache()
+        with self._axis_state_lock:
+            for ax in present_axes:
+                if ax in homed_axes and ax in read:
+                    self._axis_state[ax] = AxisState.IDLE
 
     def _start_monitor(self) -> None:
         """Spawn the motion monitor thread.
@@ -1907,7 +1917,7 @@ class MotionAPI:
     def _refresh_position_cache(self) -> set[str]:
         """Read every axis's position from the hardware into the cache.
 
-        Called after a home, and once at construction, to sync the cache
+        Called after a home, and by ``_init_axes``, to sync the cache
         with the hardware; during normal operation the cache is updated
         by move commands and the motion monitor. An axis whose read fails
         is set UNKNOWN, a move it ends ending ``'position_unread'``, and its
@@ -1915,11 +1925,14 @@ class MotionAPI:
         a number nobody read is not a position, and a caller that writes
         positions into a file would otherwise record it as one.
 
+        The axes are the state store's own, the present axes ``_init_axes``
+        was given: it runs before the scope's capabilities exist.
+
         Returns:
             set[str]: The axes whose position was read.
         """
         positions = {}
-        for ax in self._scope.capabilities.axes:
+        for ax in list(self._axis_state):
             try:
                 positions[ax] = self._driver.target_pos(axis=ax)
             except HardwareError as e:
@@ -1956,8 +1969,10 @@ class MotionAPI:
         target's microstep rounding. Where no target was reached it is the
         polled position: before the axis's first move, after a home, after a
         STOP ended the move, while the axis is UNKNOWN, and while a move has
-        not yet written its final target (a Z backlash leg). A refused move
-        writes nothing, so the previous target stands. No serial I/O. T
+        not yet written its final target (a Z backlash leg). An axis whose
+        position has not been read since bring-up -- its bring-up read
+        failed -- is UNKNOWN and answers 0.0, which nothing read. A refused
+        move writes nothing, so the previous target stands. No serial I/O. T
         answers its slot as a float.
 
         Args:
@@ -2014,7 +2029,8 @@ class MotionAPI:
         Returns:
             float | None: The position in um, or None for an axis with no
                 hardware behind it (see ``_has_position``); a present axis
-                keeps its number, its reference lost or not.
+                keeps its number, its reference lost or not, and one never
+                read since bring-up is UNKNOWN at 0.0, which nothing read.
 
         Raises:
             ArgumentRefusedError: ``'axis_unknown'``, ``axis`` is no axis
