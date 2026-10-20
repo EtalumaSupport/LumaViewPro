@@ -986,7 +986,7 @@ class IDSCamera(Camera):
         the camera delivered to the host's buffers, before the unpack keeps
         only the newest, so it is the camera's rate, not the display's;
         ``observed_fps_is_camera_rate`` is True only when no frame was lost or
-        underrun in the window. The config carries the ceilings that rate
+        dropped in the window. The config carries the ceilings that rate
         runs against: ``acquisition_frame_rate_max``, ``dltl_max_bps`` and
         ``sensor_operation_mode``. Does NOT change grab state; when the
         camera is not grabbing the deltas are near-zero (counters do not
@@ -1102,16 +1102,18 @@ class IDSCamera(Camera):
         # measured-and-clean stream that was never actually observed.
         delivered_d = result['deltas'].get('StreamDeliveredFrameCount')
         lost_d = result['deltas'].get('StreamLostFrameCount')
-        underrun_d = result['deltas'].get('StreamUnderrunCount')
+        dropped_d = result['deltas'].get('StreamDroppedFrameCount')
         if duration_s > 0 and dt > 0:
             if isinstance(delivered_d, (int, float)):
                 result['derived']['observed_fps'] = delivered_d / dt
-                # A frame the host lost, or had no free buffer for, never
-                # reaches the delivered count: only a window with neither is
-                # the camera's own rate. None when either count was unread.
-                if isinstance(lost_d, (int, float)) and isinstance(underrun_d, (int, float)):
+                # A frame the host lost for want of a free buffer, or dropped,
+                # never reaches the delivered count: only a window with
+                # neither is the camera's own rate. None when either count was
+                # unread. (StreamUnderrunCount is not among them: the U3-34L
+                # has no such node.)
+                if isinstance(lost_d, (int, float)) and isinstance(dropped_d, (int, float)):
                     result['derived']['observed_fps_is_camera_rate'] = (
-                        lost_d == 0 and underrun_d == 0
+                        lost_d == 0 and dropped_d == 0
                     )
                 else:
                     result['derived']['observed_fps_is_camera_rate'] = None

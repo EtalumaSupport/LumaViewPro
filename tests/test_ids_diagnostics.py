@@ -366,15 +366,17 @@ class TestReadDiagnosticSnapshot:
         assert snap['deltas']['StreamDroppedFrameCount'] == 4
 
     @pytest.mark.parametrize(
-        ('lost', 'underrun', 'is_camera_rate'),
+        ('lost', 'dropped', 'is_camera_rate'),
         [(0, 0, True), (3, 0, False), (0, 2, False)],
     )
-    def test_observed_fps_is_the_camera_rate_only_with_no_lost_or_underrun_frame(
-        self, monkeypatch, lost, underrun, is_camera_rate
+    def test_observed_fps_is_the_camera_rate_only_with_no_lost_or_dropped_frame(
+        self, monkeypatch, lost, dropped, is_camera_rate
     ):
-        # A frame the host lost or had no buffer for never reaches the
-        # delivered count, so a window with either is the host's rate, not
-        # the camera's.
+        # A frame the host lost for want of a buffer, or dropped, never
+        # reaches the delivered count, so a window with either is the host's
+        # rate, not the camera's. The U3-34L has no StreamUnderrunCount node
+        # (bench, firmware 3.80.26143), so its read is the absent-node
+        # sentinel and plays no part.
         from types import SimpleNamespace
 
         import drivers.idscamera as idscamera
@@ -386,12 +388,14 @@ class TestReadDiagnosticSnapshot:
             {
                 'StreamDeliveredFrameCount': 0,
                 'StreamLostFrameCount': 0,
-                'StreamUnderrunCount': 0,
+                'StreamDroppedFrameCount': 0,
+                'StreamUnderrunCount': '<missing: NotFoundException>',
             },
             {
                 'StreamDeliveredFrameCount': 93,
                 'StreamLostFrameCount': lost,
-                'StreamUnderrunCount': underrun,
+                'StreamDroppedFrameCount': dropped,
+                'StreamUnderrunCount': '<missing: NotFoundException>',
             },
         ]
         cam._read_stream_stats = lambda: polls.pop(0)
