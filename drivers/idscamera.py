@@ -3898,14 +3898,21 @@ class ImageHandler(ImageHandlerBase):
         # only signal we get for USB packet loss / bandwidth saturation;
         # throttling loses the cause distribution.
         # The SDK's own names (ids_peak Buffer): DeliveredDataSize short of
-        # ExpectedDataSize is the loss.
-        try:
-            fill = (
-                f'delivered={buffer.DeliveredDataSize()} expected={buffer.ExpectedDataSize()} '
-                f'capacity={buffer.Size()}'
-            )
-        except Exception as _bintrospect:
-            fill = f'<introspect failed: {_bintrospect!r}>'
+        # ExpectedDataSize is the loss. Each is read on its own: IDS peak 26.06
+        # answers one of an incomplete buffer's sizes (BUFFER_INFO_DATA_SIZE)
+        # with GC_ERR_NOT_AVAILABLE, and the sizes it can give still describe
+        # it.
+        def _size(read):
+            try:
+                return read()
+            except Exception as e:
+                return f'<not available: {type(e).__name__}>'
+
+        fill = (
+            f'delivered={_size(buffer.DeliveredDataSize)} '
+            f'expected={_size(buffer.ExpectedDataSize)} '
+            f'capacity={_size(buffer.Size)}'
+        )
         _cam_log.warning(f'[CAM Class ] IDS buffer.IsIncomplete()=True {fill}')
 
     def frame_generation(self) -> int:

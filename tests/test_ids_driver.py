@@ -1773,6 +1773,28 @@ class TestPipelineLifecycle:
         (line,), _ = cam_log.warning.call_args
         assert 'delivered=3 expected=4 capacity=2' in line
 
+    def test_a_size_the_sdk_cannot_give_is_named_and_the_others_still_logged(self, monkeypatch):
+        # IDS peak 26.06 on the U3-34L answers one of an incomplete buffer's
+        # sizes with GC_ERR_NOT_AVAILABLE (bench, 2026-10-20); the sizes it can
+        # give still describe the loss.
+        from unittest.mock import MagicMock
+
+        import drivers.idscamera as idscamera
+
+        class _ExpectedUnavailable(_FakeBuffer):
+            def ExpectedDataSize(self):
+                raise RuntimeError('GC_ERR_NOT_AVAILABLE')
+
+        cam_log = MagicMock()
+        monkeypatch.setattr(idscamera, '_cam_log', cam_log)
+        _ids_handler(_FakeDataStream([]))._log_incomplete(
+            _ExpectedUnavailable('bad', complete=False)
+        )
+        (line,), _ = cam_log.warning.call_args
+        assert 'delivered=3' in line
+        assert 'capacity=2' in line
+        assert 'expected=<not available: RuntimeError>' in line
+
     def test_newest_wins_requeues_every_buffer_exactly_once(self):
         bufs = [_FakeBuffer(f'b{i}') for i in range(3)]
         ds = _FakeDataStream(list(bufs))
