@@ -25,6 +25,10 @@ The forms:
 - A dict, mapping or ``pandas.Series``: an object, keys as strings (an
   enum key in its own form).
 - An ``Operation``: a job, from the host's job registry.
+- A refusal (an exception of the ``Refusal`` kind): an object as REST
+  sends a refused call's problem, its ``kind``, ``reason``, ``title``,
+  ``detail`` and ``remedy`` beside the fields its type publishes
+  (``outcome_fields``); in the same process, the exception itself.
 - Any other object with wire members: a handle, from the host's registry.
 - A callable parameter (an ``on_progress``, a run's ``RunEvents``): not
   on the wire; the host passes its own.
@@ -65,6 +69,8 @@ from collections.abc import Callable, Iterable, Mapping
 
 from lib.lumascope_error import Fault
 from modules.api_surface import API, fields_of, is_record, mark_of, reads_of, sets_of
+from modules.exceptions import Refusal
+from modules.notification_center import outcome_of
 from modules.operation import Operation
 
 # The forms a value takes on the wire.
@@ -78,6 +84,7 @@ ARRAY = 'array'
 OBJECT = 'object'
 JOB = 'job'
 HANDLE = 'handle'
+REFUSAL = 'refusal'
 SERVER_SUPPLIED = 'server_supplied'
 
 # The forms of the names an annotation uses that are not project classes,
@@ -200,6 +207,8 @@ def class_form(cls: type) -> str | None:
     """
     if issubclass(cls, Operation):
         return JOB
+    if issubclass(cls, Refusal):
+        return REFUSAL
     if issubclass(cls, enum.Enum):
         return ENUM
     if is_record(cls):
@@ -442,6 +451,31 @@ def plain(value: object) -> object:
     return _walk(value, wire=False, live_folder=None, handle=None, job=None)
 
 
+def outcome_fields(exception: BaseException, form: Callable[[object], object]) -> dict[str, object]:
+    """What a wire client is told of *exception*: each field its type publishes, then the outcome its type declares.
+
+    The one composition of the keys a REST problem carries for an
+    outcome and a record carries for a refusal it holds: ``kind``,
+    ``reason`` (None when the type declares none), ``title`` (the type's
+    name when it declares none), ``detail`` (its words) and ``remedy``.
+    *form* gives each value its wire form.
+    """
+    found: dict[str, object] = {}
+    for klass in type(exception).__mro__:
+        for name in fields_of(klass):
+            if name not in found:
+                found[name] = form(getattr(exception, name))
+    outcome = outcome_of(exception)
+    return {
+        **found,
+        'kind': outcome.kind.value,
+        'reason': outcome.reason or None,
+        'title': outcome.title or type(exception).__name__,
+        'detail': outcome.words,
+        'remedy': form(outcome.remedy),
+    }
+
+
 def _walk(
     value: object,
     *,
@@ -472,6 +506,8 @@ def _walk(
             return _path(v, live_folder) if wire else v
         if isinstance(v, Operation):
             return job(v) if wire else v
+        if isinstance(v, Refusal):
+            return outcome_fields(v, form) if wire else v
         cls = type(v)
         if is_record(cls):
             names = _fields(cls) + tuple(_wire_properties(cls))

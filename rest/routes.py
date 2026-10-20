@@ -84,6 +84,29 @@ class PathAnswer(pydantic.BaseModel):
     host_path: str
 
 
+class RemedyAnswer(pydantic.BaseModel):
+    """The one action that answers a refusal: the Session member to call, and the words that offer it."""
+
+    model_config = ANSWER_CONFIG
+    member: str
+    confirm_text: str
+    cancel_text: str
+
+
+class RefusalAnswer(pydantic.BaseModel):
+    """A refusal a record holds, as a refused call's problem carries it.
+
+    Beside these keys, any field the refusal's type publishes.
+    """
+
+    model_config = ANSWER_CONFIG
+    kind: str
+    reason: str | None
+    title: str
+    detail: str
+    remedy: RemedyAnswer | None
+
+
 class JobProgress(pydantic.BaseModel):
     """How far a job's call has got, as its member last said."""
 
@@ -435,6 +458,8 @@ def _answer(a: wire_encoding.Outbound) -> object:
         return Handle
     if a.form == wire_encoding.JOB:
         return Job
+    if a.form == wire_encoding.REFUSAL:
+        return RefusalAnswer
     if a.form == wire_encoding.ENUM:
         return typing.Literal[tuple(wire_form(m) for m in a.cls)]
     if a.form == wire_encoding.ARRAY:

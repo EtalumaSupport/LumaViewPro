@@ -34,9 +34,9 @@ from typing import ClassVar
 
 from fastapi.responses import JSONResponse
 
-from modules import notification_center
+from modules import notification_center, wire_encoding
 from lib.lumascope_error import Fault, LumascopeError
-from modules.api_surface import fields_of, raises_of
+from modules.api_surface import raises_of
 from modules.exceptions import Refusal, RefusalCause
 from modules.notification_center import OutcomeKind, outcome_of
 from rest.routes import wire_form
@@ -340,27 +340,13 @@ def answered_by_member(exception: Exception, request_id: str) -> Answer:
         status = _CAUSE_STATUS[outcome.cause]
     else:
         status = _FAULT_STATUS
-    body = _problem(
-        type_=TYPE_PREFIX + outcome.reason if outcome.reason else 'about:blank',
-        title=outcome.title or type(exception).__name__,
-        detail=outcome.words,
-        status=status,
-        request_id=request_id,
-        kind=outcome.kind,
-        reason=outcome.reason or None,
-        remedy=wire_form(outcome.remedy),
-    )
-    return Answer(status, {**_published(exception), **body})
-
-
-def _published(exception: Exception) -> dict[str, object]:
-    """Each field *exception*'s type publishes, in its wire form."""
-    found: dict[str, object] = {}
-    for klass in type(exception).__mro__:
-        for name in fields_of(klass):
-            if name not in found:
-                found[name] = wire_form(getattr(exception, name))
-    return found
+    body = {
+        'type': TYPE_PREFIX + outcome.reason if outcome.reason else 'about:blank',
+        **wire_encoding.outcome_fields(exception, wire_form),
+        'status': status,
+        'instance': f'urn:uuid:{request_id}',
+    }
+    return Answer(status, body)
 
 
 def _problem(
