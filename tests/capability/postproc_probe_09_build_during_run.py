@@ -1,13 +1,19 @@
-"""Does a cell-count build alongside a protocol run harm the run? (#812)
+"""Does a cell-count build started before a protocol run harm the run? (#812)
 
 Three runs of one protocol, in order: A alone; B with cell-count builds on A's
-folder running back to back on the post-processing lane, the first started
+folder asked back to back on the post-processing lane, the first started
 before B; C alone. A and C bracket B, so B's difference is the build and not
 warm-up or drift. Each run reports its outcome, its files against its record,
 and the interval between captures from the record's own timestamps, taken at
-the grab. The figures are printed for a person to judge; the checks are only
-that every run completed with every file written and that completed builds
-covered all of B.
+the grab.
+
+A build does not start while a run holds the scope (``'scope_held'``), so
+only the build already running when B starts overlaps it: the overlap is
+the case that rule leaves open, which the one post-processing path decides
+(W4). The figures, the overlap among them, are printed for a person to
+judge; the checks are that every run completed with every file written,
+that the first build started before B, and that every later build was
+refused for the hold, not for anything else.
 
 What it measures is a headless host: no live-view display, no Kivy. A run
 unharmed here says the build does not starve the capture path; it says
@@ -155,10 +161,9 @@ class _Builds:
             try:
                 self._session.post_processing.count_cells(self._folder, method=METHOD)
             except Exception as outcome:
-                # A refused or failed build is not cover for the run; it is
-                # recorded and the loop ends, since every next one would be
-                # the same refusal.
-                self.failed.append(f'{type(outcome).__name__}: {outcome}')
+                # Recorded and the loop ends: every next build would meet the
+                # same refusal or failure.
+                self.failed.append(outcome)
                 return
             self.completed.append((began, time.monotonic()))
 
@@ -189,15 +194,18 @@ def main():
         builds.stop()
         _report_run('B', outcome_b, start_b, end_b, record_b)
         figure('B.builds_completed', len(builds.completed))
-        if builds.failed:
-            figure('B.build_failed', builds.failed[0])
-        covered = (
-            not builds.failed
-            and bool(builds.completed)
-            and builds.completed[0][0] <= start_b
-            and builds.completed[-1][1] >= end_b
+        if builds.completed:
+            first_began, first_ended = builds.completed[0]
+            figure('B.first_build_overlap_s', round(max(0.0, min(first_ended, end_b) - start_b), 3))
+            check('B: the first build started before the run', first_began <= start_b)
+        else:
+            check('B: the first build completed', False, builds.failed)
+        refused = builds.failed[0] if builds.failed else None
+        check(
+            'B: a build asked during the run was refused for the hold',
+            refused is None or getattr(refused, 'reason', None) == 'scope_held',
+            f'{type(refused).__name__}: {refused}' if refused is not None else '',
         )
-        check('B: completed builds covered the whole run', covered)
 
         outcome_c, start_c, end_c, record_c = _run(session, runner, protocol, live / 'C', 'probe_C')
         _report_run('C', outcome_c, start_c, end_c, record_c)

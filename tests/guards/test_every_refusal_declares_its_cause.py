@@ -33,6 +33,7 @@ from modules.exceptions import (
     HardwareCommandRefusedError,
     LiveFolderPathRefusedError,
     MissingPart,
+    PostProcessingRefusedError,
     ProtocolRunRefusedError,
     Quiet,
     Refusal,
@@ -76,6 +77,9 @@ _FACTORIES = {
     'ProtocolRunRefusedError': lambda reason: ProtocolRunRefusedError(reason, 'm'),
     'HardwareCommandRefusedError': lambda reason: HardwareCommandRefusedError(reason, 'member'),
     'BlockingCallRefusedError': lambda reason: BlockingCallRefusedError(reason, 'member'),
+    'PostProcessingRefusedError': lambda reason: PostProcessingRefusedError(
+        operation='Stitch', reason=reason, message='m'
+    ),
 }
 
 

@@ -18,6 +18,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from modules import live_work
+from modules.exceptions import PostProcessingOperation
 from modules.post_processing_api import BuildResult
 from modules.sequential_io_executor import IOTask
 
@@ -180,7 +181,11 @@ def test_a_build_reports_its_progress_and_the_builds_behind_it_wait(sim_session,
         target=lambda: answers.__setitem__(
             'stitch',
             post._run(
-                slow_build, 'stitch', folder_a, on_progress=lambda p, d: seen_by_caller.append(p)
+                slow_build,
+                'stitch',
+                folder_a,
+                operation=PostProcessingOperation.STITCH,
+                on_progress=lambda p, d: seen_by_caller.append(p),
             ),
         )
     )

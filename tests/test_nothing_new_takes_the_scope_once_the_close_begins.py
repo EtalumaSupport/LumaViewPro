@@ -16,7 +16,7 @@ import pathlib
 
 import pytest
 
-from modules.exceptions import SessionClosingError
+from modules.exceptions import PostProcessingOperation, SessionClosingError
 from tests.protocol_drives import run_identity
 
 
@@ -113,7 +113,12 @@ def test_a_post_processing_build_is_not_refused(sim_session, tmp_path):
     def build(folder, *, on_progress):
         return built
 
-    assert sim_session.post_processing._run(build, 'stitch', tmp_path) is built
+    assert (
+        sim_session.post_processing._run(
+            build, 'stitch', tmp_path, operation=PostProcessingOperation.STITCH
+        )
+        is built
+    )
 
 
 def test_a_run_state_listener_hears_the_close_begin_and_end(tmp_path):

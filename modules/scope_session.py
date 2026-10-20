@@ -449,6 +449,9 @@ class ScopeSession:
             has_turret=lambda: scope.capabilities.has_turret,
             settings_snapshot=self.get_settings_snapshot,
             channel_colors=self.channel_colors,
+            # Read as each build starts; the claim is made further down.
+            scope_holder=lambda: self.activity_claim.holder,
+            files_draining=lambda: self.protocol_files_draining,
         )
         # Run-state listeners: zero-argument callables notified on every
         # run-state transition edge (claim grant/release, a run's return

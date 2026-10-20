@@ -36,6 +36,7 @@ from matplotlib.figure import Figure
 
 from lvp_logger import logger
 from modules import graph_analysis, live_work, path_utils
+from modules.activity_claim import ActivityHolder, the_holder_named
 from modules.exceptions import (
     ExcludedInput,
     PostProcessingFailedError,
@@ -390,6 +391,8 @@ class PostProcessingAPI:
         has_turret: Callable[[], bool],
         settings_snapshot: Callable[[], dict],
         channel_colors: Callable[[], ChannelColors],
+        scope_holder: Callable[[], ActivityHolder | None],
+        files_draining: Callable[[], bool],
     ):
         """
         Args:
@@ -403,12 +406,18 @@ class PostProcessingAPI:
                 and blend thresholds).
             channel_colors: Every layer's colour, from the Session's one
                 read of it, read as each build is asked for.
+            scope_holder: What holds the scope now -- a run, a recording, a
+                diagnostic, a home -- or None; asked as each build starts.
+            files_draining: Whether a finished run's files are still being
+                written; asked as each build starts.
         """
         self.lane = lane
         self._tiling_configs_path = tiling_configs_path
         self._has_turret = has_turret
         self._settings_snapshot = settings_snapshot
         self._channel_colors = channel_colors
+        self._scope_holder = scope_holder
+        self._files_draining = files_draining
         # Each build submitted through _run, by its lane task, with its
         # progress as its own callback last said; kept from the submit until
         # the call returns, so the lane's running task is named by it.
@@ -472,6 +481,7 @@ class PostProcessingAPI:
             _answering(_build_result, self._stitch_build(Stitch(mode=mode))),
             'stitch',
             pathlib.Path(folder),
+            operation=PostProcessingOperation.STITCH,
             on_progress=on_progress,
         )
 
@@ -502,6 +512,7 @@ class PostProcessingAPI:
             _answering(_build_result, self._zproject_build(ZProject(method=method))),
             'zproject',
             pathlib.Path(folder),
+            operation=PostProcessingOperation.Z_PROJECTION,
             on_progress=on_progress,
         )
 
@@ -533,6 +544,7 @@ class PostProcessingAPI:
             _answering(_build_result, self._composite_build()),
             'composite',
             pathlib.Path(folder),
+            operation=PostProcessingOperation.COMPOSITE,
             on_progress=on_progress,
         )
 
@@ -569,7 +581,11 @@ class PostProcessingAPI:
             Video(frames_per_sec=frames_per_sec, timestamp_overlay=timestamp_overlay)
         )
         return self._run(
-            _answering(_build_result, build), 'video', pathlib.Path(folder), on_progress=on_progress
+            _answering(_build_result, build),
+            'video',
+            pathlib.Path(folder),
+            operation=PostProcessingOperation.VIDEO,
+            on_progress=on_progress,
         )
 
     @api
@@ -643,6 +659,7 @@ class PostProcessingAPI:
             functools.partial(self._chain, folder=pathlib.Path(folder), chosen=chosen),
             'build',
             pathlib.Path(folder),
+            operation=PostProcessingOperation.POST_PROCESSING,
             on_progress=on_progress,
         )
 
@@ -791,6 +808,7 @@ class PostProcessingAPI:
             self._enhance,
             'enhance',
             pathlib.Path(target),
+            operation=PostProcessingOperation.QUICK_ENHANCE,
             reads=_existing_file_or_folder,
             on_progress=on_progress,
             on_derived_image=on_derived_image,
@@ -827,6 +845,7 @@ class PostProcessingAPI:
             'count_cells',
             folder,
             method,
+            operation=PostProcessingOperation.CELL_COUNT,
             on_progress=on_progress,
         )
 
@@ -933,6 +952,7 @@ class PostProcessingAPI:
             'graph',
             results,
             path,
+            operation=PostProcessingOperation.GRAPHING,
             x=x,
             y=y,
             trendline=trendline,
@@ -942,7 +962,44 @@ class PostProcessingAPI:
             reads=path_utils.existing_file,
         )
 
-    def _run(self, action, member: str, folder, *args, reads=path_utils.existing_folder, **kwargs):
+    def _refuse_while_busy(self, operation: PostProcessingOperation) -> None:
+        """Refuse a build that would start while the scope's own work needs the host.
+
+        Raises:
+            PostProcessingRefusedError: ``'scope_held'``, naming what holds
+                the scope; ``'files_writing'``, a finished run's files are
+                still being written.
+        """
+        holder = self._scope_holder()
+        if holder is not None:
+            raise PostProcessingRefusedError(
+                operation=operation,
+                reason='scope_held',
+                message=(
+                    f'{the_holder_named(holder)} is using the microscope, and a build now '
+                    'would slow it down. Try again when it ends.'
+                ),
+            )
+        if self._files_draining():
+            raise PostProcessingRefusedError(
+                operation=operation,
+                reason='files_writing',
+                message=(
+                    "A protocol's files are still being written, and a build now would slow "
+                    'the writing down. Try again when they are written.'
+                ),
+            )
+
+    def _run(
+        self,
+        action,
+        member: str,
+        folder,
+        *args,
+        operation: PostProcessingOperation,
+        reads=path_utils.existing_folder,
+        **kwargs,
+    ):
         """Run *action* on the post-processing lane and return its answer.
 
         The build says on the lane when it starts and how it ends, so a
@@ -955,7 +1012,11 @@ class PostProcessingAPI:
         the ``on_progress`` it is handed, the caller's own still called.
         *reads* refuses a *folder* that is not there to read; it is asked
         on the lane, where the build reads it, so the answer cannot go
-        stale while an earlier build runs.
+        stale while an earlier build runs. So is the scope's state: a build
+        does not start while something holds the scope or a run's files are
+        still being written, since it would share the cores, the
+        interpreter lock and the disk with that work. A build already
+        running when a run starts runs on.
         """
         caller_progress = kwargs.get('on_progress')
 
@@ -968,6 +1029,7 @@ class PostProcessingAPI:
 
         @functools.wraps(action)
         def build(path, *a, **kw):
+            self._refuse_while_busy(operation)
             logger.info(f'[PostProc  ] {member} started on {folder}')
             started = time.monotonic()
             try:

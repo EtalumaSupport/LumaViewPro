@@ -383,7 +383,14 @@ def test_every_reason_keyed_table_on_a_class_names_one_vocabulary():
     (a reason with a cause and no status is a KeyError at the raise)."""
     apart = []
     for cls in RAISABLE:
-        tables = {name: set(vars(cls)[name]) for name in _REASON_TABLES if name in vars(cls)}
+        # A table keyed by anything but plain reason strings is keyed by
+        # something else: PostProcessingRefusedError's _WORDS is its headings,
+        # by operation and (operation, reason).
+        tables = {
+            name: set(vars(cls)[name])
+            for name in _REASON_TABLES
+            if name in vars(cls) and all(type(key) is str for key in vars(cls)[name])
+        }
         keys = list(tables.values())
         if any(table != keys[0] for table in keys[1:]):
             union = set().union(*keys)

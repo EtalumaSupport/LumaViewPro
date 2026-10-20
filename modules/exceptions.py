@@ -1955,14 +1955,38 @@ class PostProcessingRefusedError(Refusal, CaptureError):
     data that could not be loaded, or outputs the folder's protocol would
     name outside the folder; or the cell-count method it was
     given cannot be used. The message says which, in words written for the
-    person, and what to do.
+    person, and what to do. Or the scope's state refused it: a build
+    started while something holds the scope or a run's files are still
+    being written would share the process's cores, interpreter lock and
+    disk with that work (``'scope_held'``, ``'files_writing'``), and the
+    same request may succeed once it ends.
 
     Attributes:
         operation: The operation's name as a person reads it ("Stitch").
         reason: Machine-readable refusal code.
     """
 
-    cause = RefusalCause.REQUEST
+    causes: ClassVar[dict[str, RefusalCause]] = {
+        'axis_not_plottable': RefusalCause.REQUEST,
+        'collision': RefusalCause.REQUEST,
+        'excluded_inputs': RefusalCause.REQUEST,
+        'fit_impossible': RefusalCause.REQUEST,
+        'graph_incomplete': RefusalCause.REQUEST,
+        'invalid_path': RefusalCause.REQUEST,
+        'invalid_setting': RefusalCause.REQUEST,
+        'method_invalid': RefusalCause.REQUEST,
+        'method_unreadable': RefusalCause.REQUEST,
+        'no_data': RefusalCause.REQUEST,
+        'no_images': RefusalCause.REQUEST,
+        'no_scale': RefusalCause.REQUEST,
+        'output_outside_folder': RefusalCause.REQUEST,
+        'protocol_data_unreadable': RefusalCause.REQUEST,
+        'results_unreadable': RefusalCause.REQUEST,
+        'unreadable': RefusalCause.REQUEST,
+        'unsupported_source_format': RefusalCause.REQUEST,
+        'scope_held': RefusalCause.STATE,
+        'files_writing': RefusalCause.STATE,
+    }
 
     # Refused for lack of Z-stack data, a z-projection names the thing the
     # folder is missing and where such a folder lives, rather than leaving
@@ -1986,6 +2010,7 @@ class PostProcessingRefusedError(Refusal, CaptureError):
     }
 
     def __init__(self, *, operation: str, reason: str, message: str):
+        reason = self._declared(reason)
         operation = PostProcessingOperation(operation)
         key = (operation, reason) if (operation, reason) in self._WORDS else operation
         self.title, advice = self._WORDS[key]

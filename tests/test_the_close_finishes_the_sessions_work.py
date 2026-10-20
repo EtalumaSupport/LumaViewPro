@@ -19,7 +19,11 @@ import time
 
 import pytest
 
-from modules.exceptions import PluginProcessorSkippedError, SessionClosingError
+from modules.exceptions import (
+    PluginProcessorSkippedError,
+    PostProcessingOperation,
+    SessionClosingError,
+)
 from modules.post_processing_api import BuildResult
 
 SETTLE_S = 30.0
@@ -183,7 +187,9 @@ def test_a_running_and_a_queued_build_both_finish(sim_session, tmp_path):
         # The lane refuses a folder that is not there, so each build gets one.
         folder = tmp_path / name
         folder.mkdir()
-        results[name] = post._run(slow, 'stitch', folder).message
+        results[name] = post._run(
+            slow, 'stitch', folder, operation=PostProcessingOperation.STITCH
+        ).message
 
     threads = [threading.Thread(target=build, args=(name,)) for name in ('a', 'b')]
     threads[0].start()

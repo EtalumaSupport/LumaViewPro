@@ -143,6 +143,9 @@ def test_the_session_refuses_a_bad_method_before_the_count_is_queued(tmp_path):
         has_turret=lambda: False,
         settings_snapshot=dict,
         channel_colors=release_colors,
+        # a stand-in by design: no scope here holds anything or drains files.
+        scope_holder=lambda: None,
+        files_draining=lambda: False,
     )
     with pytest.raises(PostProcessingRefusedError) as refused:
         api.count_cells(tmp_path, method=_method(pixels_per_um=0))
