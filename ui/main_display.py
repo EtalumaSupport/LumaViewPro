@@ -105,11 +105,11 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
         """
         controller = _app_ctx.ctx.session.manual_recording
         button = self.ids['record_btn']
-        # Greyed by the run lockout (kv: disabled: app.run_lockout).
+        # Greyed by the run lockout (kv: disabled: app.lock.run_lockout).
         gui_logger.display(
             'RECORD_BUTTON',
             f'{"Stop" if controller.is_recording else "Record"} '
-            f'held={_app_ctx.ctx.session.run_lockout}',
+            f'held={_app_ctx.ctx.session.controls_lock.run_lockout}',
         )
         if not controller.is_recording:
             button.state = 'normal'

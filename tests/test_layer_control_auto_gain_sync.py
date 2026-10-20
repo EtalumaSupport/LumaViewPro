@@ -23,9 +23,9 @@ sync the CheckBox .active to the API's answer for the stored preference
 binds on_release, not on_active), so this does not re-enter the
 update_auto_gain callback path. The gain/exposure widgets' enabled
 state follows the box through ONE kv rule,
-``disabled: app.run_lockout or auto_gain.active``: an imperative
+``disabled: app.lock.run_lockout or auto_gain.active``: an imperative
 ``.disabled`` write from Python was erased at every run boundary, because
-the widgets' ``disabled: app.run_lockout`` rule re-fires when the lockout
+the widgets' ``disabled: app.lock.run_lockout`` rule re-fires when the lockout
 clears and overwrites whatever Python last wrote.
 
 Test approach
@@ -140,7 +140,8 @@ class TestTheShownLayerSyncsItsAutoGainCheckbox:
         editable under a live auto-gain after a run."""
         block = _kv_widget_block(widget_id)
         assert (
-            'disabled: app.run_lockout or auto_gain.active or not root.camera_connected' in block
+            'disabled: app.lock.run_lockout or auto_gain.active or not root.camera_connected'
+            in block
         ), block
 
     def test_no_imperative_disabled_write_for_the_gain_exposure_widgets(self):

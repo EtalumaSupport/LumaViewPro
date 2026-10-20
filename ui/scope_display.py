@@ -381,9 +381,11 @@ class ScopeDisplay(Image):
 
     def touch(self, target: Widget, event: MotionEvent):
         if event.is_touch and (event.device == 'mouse') and (event.button == 'right'):
-            # Not offered without an XY stage to centre, or while a run
-            # holds the stage.
-            if not _app_ctx.ctx.session.motion_enabled:
+            from ui.ui_helpers import xy_gestures_offered
+
+            # Not offered without an XY stage to centre, or while the
+            # controls are locked.
+            if not xy_gestures_offered():
                 gui_logger.button('SCOPE_CLICK_TO_CENTER', 'unavailable: no stage motion')
                 return
             norm_texture_width, norm_texture_height = self.norm_image_size

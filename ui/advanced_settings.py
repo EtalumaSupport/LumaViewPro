@@ -432,7 +432,7 @@ kv = Builder.load_string(
                         font_size: '12sp'
                     PickSpinner:
                         id: scope_spinner
-                        disabled: app.run_lockout
+                        disabled: app.lock.run_lockout
                         sync_height: True
                         text: 'Select'
                         font_size: '12sp'
@@ -458,7 +458,7 @@ kv = Builder.load_string(
                         font_size: '12sp'
                     ModSlider:
                         id: acceleration_pct_slider
-                        disabled: app.run_lockout
+                        disabled: app.lock.run_lockout
                         min: 1
                         max: 100
                         value: 100
@@ -470,7 +470,7 @@ kv = Builder.load_string(
                         on_release: root.acceleration_pct_slider()
                     TextInput:
                         id: acceleration_pct_text
-                        disabled: app.run_lockout
+                        disabled: app.lock.run_lockout
                         size_hint_x: None
                         width: '40dp'
                         multiline: False
@@ -501,7 +501,7 @@ kv = Builder.load_string(
                         text_size: self.size
                     ToggleButton:
                         id: stimulation_settings_btn
-                        disabled: app.run_lockout
+                        disabled: app.lock.run_lockout
                         size_hint: None, None
                         tooltip_text: 'Enable stimulation features globally'
                         width: '45dp'
@@ -537,7 +537,7 @@ kv = Builder.load_string(
                         text_size: self.size
                     CheckBox:
                         id: high_conversion_gain
-                        disabled: app.run_lockout
+                        disabled: app.lock.run_lockout
                         size_hint_x: None
                         width: '25dp'
                         active: False
@@ -558,7 +558,7 @@ kv = Builder.load_string(
                         text_size: self.size
                     CheckBox:
                         id: line_noise_reduction
-                        disabled: app.run_lockout
+                        disabled: app.lock.run_lockout
                         size_hint_x: None
                         width: '25dp'
                         active: False
@@ -577,7 +577,7 @@ kv = Builder.load_string(
                         font_size: '12sp'
                     TextInput:
                         id: video_max_fps_input
-                        disabled: app.run_lockout
+                        disabled: app.lock.run_lockout
                         size_hint_x: None
                         width: '45dp'
                         multiline: False
@@ -601,7 +601,7 @@ kv = Builder.load_string(
                         font_size: '12sp'
                     TextInput:
                         id: video_max_duration_input
-                        disabled: app.run_lockout
+                        disabled: app.lock.run_lockout
                         size_hint_x: None
                         width: '45dp'
                         multiline: False
@@ -625,7 +625,7 @@ kv = Builder.load_string(
                         font_size: '12sp'
                     CheckBox:
                         id: video_timestamp_overlay_id
-                        disabled: app.run_lockout
+                        disabled: app.lock.run_lockout
                         size_hint_x: None
                         width: '25dp'
                         active: True
@@ -644,7 +644,7 @@ kv = Builder.load_string(
                         font_size: '12sp'
                     ModSlider:
                         id: live_view_fps_slider
-                        disabled: app.run_lockout
+                        disabled: app.lock.run_lockout
                         min: 5
                         max: 65
                         value: 30
@@ -686,7 +686,7 @@ kv = Builder.load_string(
                         text_size: self.size
                     ToggleButton:
                         id: protocol_led_on_btn
-                        disabled: app.run_lockout
+                        disabled: app.lock.run_lockout
                         size_hint: None, None
                         tooltip_text: "Keep the step's LED on while manually navigating through protocol steps so you can preview the illumination. Does not affect LED behavior during a protocol scan."
                         size: '45dp', '30dp'
@@ -709,7 +709,7 @@ kv = Builder.load_string(
                         text_size: self.size
                     ToggleButton:
                         id: keep_led_between_steps_btn
-                        disabled: app.run_lockout
+                        disabled: app.lock.run_lockout
                         size_hint: None, None
                         tooltip_text: "During a protocol scan, keep the LED on while the stage moves between steps instead of switching it off and back on. Speeds up brightfield scans; off by default."
                         size: '45dp', '30dp'
@@ -734,7 +734,7 @@ kv = Builder.load_string(
                         font_size: '12sp'
                     PickSpinner:
                         id: tiling_overlap_spinner
-                        disabled: app.run_lockout
+                        disabled: app.lock.run_lockout
                         sync_height: True
                         text: '0%'
                         font_size: '12sp'
@@ -788,7 +788,7 @@ kv = Builder.load_string(
                         text_size: self.size
                     ToggleButton:
                         id: separate_folder_per_channel_id
-                        disabled: app.run_lockout
+                        disabled: app.lock.run_lockout
                         size_hint: None, None
                         tooltip_text: "Save each channels' images in separate folders"
                         size: '45dp', '30dp'

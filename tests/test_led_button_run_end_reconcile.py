@@ -61,6 +61,8 @@ _real_base_module('kivy.uix.scrollview', ScrollView=_StubWidget)
 _real_base_module('kivy.uix.widget', Widget=_StubWidget)
 
 import modules.app_context as _app_ctx
+from modules.live_work import LiveWork
+from modules.scope_session import ControlsLock
 import ui.protocol_settings as ps_module
 import ui.ui_helpers as ui_helpers
 from ui.listener_bridge import UIListenerBridge
@@ -144,7 +146,11 @@ def _build_env(monkeypatch, files_draining=False, run_in_progress=False):
 def test_run_end_reconciles_stale_toggle_to_driver_truth(monkeypatch):
     _stand, layers = _build_env(monkeypatch)
 
-    ui_helpers.draw_shared_run_displays()
+    # The idle edge: nothing holds the scope, nothing is still writing.
+    ui_helpers.draw_shared_run_displays(
+        ControlsLock(run_named=None, recording=False),
+        LiveWork(work=(), closing=False, closed=False),
+    )
 
     assert layers['BF'].ids['enable_led_btn'].state == 'normal', (
         'run-complete must reconcile enable-toggles from driver truth; '

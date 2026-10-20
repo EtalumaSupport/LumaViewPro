@@ -957,7 +957,7 @@ class LayerControl(BoxLayout):
         # the box is synced here. Programmatic .active = bool fires no
         # on_release (CheckBox only binds on_release in the .kv), so this
         # does not re-enter. The gain/exposure widgets' enabled state follows
-        # this box through the kv rule (`disabled: app.run_lockout or
+        # this box through the kv rule (`disabled: app.lock.run_lockout or
         # auto_gain.active`): an imperative .disabled write here was erased
         # whenever the run lockout cleared, because that rule re-fires on the
         # edge.

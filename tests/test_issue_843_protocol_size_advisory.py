@@ -29,6 +29,7 @@ from modules.common_utils import (
     estimate_step_write_mb,
     format_disk_size_mb,
 )
+from modules.scope_session import ControlsLock
 from tests.test_protocol_roundtrip import _build_protocol, _make_step
 from ui.protocol_settings import ProtocolSettings
 
@@ -145,7 +146,10 @@ class TestTheGuiRendersAndDecidesNothing:
 
         return SimpleNamespace(
             session=SimpleNamespace(
-                run_lockout=run_lockout,
+                controls_lock=ControlsLock(
+                    run_named='A protocol run is in progress.' if run_lockout else None,
+                    recording=False,
+                ),
                 protocol_size_advisory=protocol_size_advisory,
             )
         )

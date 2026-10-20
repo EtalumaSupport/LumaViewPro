@@ -318,7 +318,6 @@ if __name__ == '__main__':
     from kivy.input.motionevent import MotionEvent
     from kivy.metrics import dp
     from kivy.properties import (
-        BooleanProperty,
         ListProperty,
         ObjectProperty,
         StringProperty,
@@ -384,7 +383,6 @@ else:
     from modules.subprocess_stubs import (
         AccordionItem,
         App,
-        BooleanProperty,
         BoxLayout,
         Button,
         Clock,
@@ -422,7 +420,7 @@ else:
 # Imports -- extracted modules (must be after Kivy init)
 # ============================================================================
 
-from modules import gui_logger
+from modules import gui_logger, live_work
 from modules.app_config import (
     load_mode as _load_mode,
 )
@@ -472,7 +470,6 @@ from ui.ui_helpers import (
     LoggedAccordionItem,
     _handle_ui_update_for_axis,
     draw_shared_run_displays,
-    homing_banner_shown,
     run_reported,
     run_unasked,
 )
@@ -503,19 +500,17 @@ class LumaViewProApp(TooltipMixin, App):
     # ask the objective question cannot each re-load over the user's work.
     _persisted_protocol_loaded = False
 
-    # kv mirrors of the session's run-state derivations, published by
-    # the ONE run-state listener below (worker-side truth lives on the
-    # session; a kv binding cannot read it directly). run_lockout
-    # carries the session derivation of the same name (a run or its
-    # post-run file drain); controls_locked is the full-surface lock.
-    # Never add a second per-site flag -- bind to these. A run control
-    # binds its own held flag instead, drawn from the Session for the run
-    # that control started.
-    run_lockout = BooleanProperty(False)
-    controls_locked = BooleanProperty(False)
-    # Whether the middle of the window shows the homing banner. Written on
-    # the same edge as the two above.
-    homing = BooleanProperty(False)
+    # The Session's lock record (``ControlsLock``) and its live work
+    # (``LiveWork``) as of the last run-state edge, written whole by the ONE
+    # run-state listener below; a kv binding cannot read the Session
+    # directly. A greyed control binds ``app.lock.run_lockout`` (the run
+    # surface) or ``app.lock.controls_locked`` (the whole surface) -- never
+    # a per-site flag. A run control binds its own held flag instead, drawn
+    # from the Session for the run that control started. rebind, so a
+    # binding through a record's field re-evaluates when the record is
+    # replaced. Written in build() before any widget binds them.
+    lock = ObjectProperty(None, rebind=True)
+    live_work = ObjectProperty(None, rebind=True)
 
     # The thread the window's close runs the session's close on, or None
     # before one has begun. Declared here so the close handler can read it
@@ -529,38 +524,30 @@ class LumaViewProApp(TooltipMixin, App):
 
         Session transitions (claim grant/release, file-drain exit, scope
         rebind) schedule a single main-thread closure that re-reads the
-        derivations at fire time and writes the kv mirrors. Level-read at
+        Session at fire time and writes the two records. Level-read at
         fire time means out-of-order delivery degrades to bounded staleness,
         never a permanently wrong publish; registration itself level-syncs
-        the mirrors to current truth. The draw is contained: a raise out of a
+        the records to current truth. The draw is contained: a raise out of a
         clock callback closes the application. A member, not a lambda, so the
         close can remove it.
         """
         Clock.schedule_once(lambda dt: run_unasked(self.publish_run_state, 'RUN_STATE'), 0)
 
     def publish_run_state(self, dt: float = 0) -> None:
-        """Write the kv mirrors from the session derivations.
+        """Write the Session's lock record and live work, then draw the edge.
 
-        One closure writes the two locks, in fail-safe order: Kivy
-        dispatches bindings synchronously inside each setattr, so a handler
-        observing a torn pair must see OVER-locked, never under-locked --
-        the tightening property writes first on lock, last on unlock. The
-        homing banner is written after them; nothing locks on it.
+        The lock is one record, so its two surfaces change in one write and
+        no binding sees one without the other. The live work is written
+        after it; nothing locks on it.
         """
         session = ctx.session
-        run_lockout = session.run_lockout
-        locked = session.controls_locked
-        if locked:
-            self.controls_locked = True
-            self.run_lockout = run_lockout
-        else:
-            self.run_lockout = run_lockout
-            self.controls_locked = False
-        self.homing = homing_banner_shown(session)
+        self.lock = session.controls_lock
+        self.live_work = session.live_work
         gui_logger.display(
-            'CONTROLS_LOCKED', f'{locked} by={session.run_lockout_named if locked else None}'
+            'CONTROLS_LOCKED',
+            f'{self.lock.controls_locked} by={self.lock.run_named if self.lock.controls_locked else None}',
         )
-        gui_logger.display('HOMING_BANNER', self.homing)
+        gui_logger.display('HOMING_BANNER', self.live_work.has(live_work.HOME))
         self._draw_run_controls()
         # The objective question is withheld while an activity holds the
         # scope; this edge is the one that fires when the hold ends, so the
@@ -581,7 +568,7 @@ class LumaViewProApp(TooltipMixin, App):
         ctx.motion_settings.ids['protocol_settings_id'].draw_protocol_buttons()
         ctx.motion_settings.ids['verticalcontrol_id'].ids['zstack_id'].draw_zstack_button()
         ctx.motion_settings.ids['verticalcontrol_id'].draw_autofocus_button()
-        draw_shared_run_displays()
+        draw_shared_run_displays(self.lock, self.live_work)
 
     def on_start(self) -> None:
         """Kivy lifecycle hook: fires after build() and before the main loop runs."""
@@ -1054,6 +1041,8 @@ class LumaViewProApp(TooltipMixin, App):
             # the rejected values.
             fall_back_to_template(logger, source_path, str(unusable))
             scope_session = _compose(settings)
+        self.lock = scope_session.controls_lock
+        self.live_work = scope_session.live_work
         lumaview = MainDisplay(scope=scope_session.scope)
         cell_count_content = CellCountControls()
         graphing_controls = GraphingControls()
@@ -1241,7 +1230,7 @@ class LumaViewProApp(TooltipMixin, App):
         returns.
         """
         work = ctx.session.live_work.work
-        scope_held = ctx.session.run_lockout_named is not None
+        scope_held = ctx.session.controls_lock.run_lockout
         # Crash-forensics: log the close request to BOTH the main log
         # (so post-mortem can correlate against the shutdown sequence)
         # and the GUI interactions log (so the gui-log timeline names

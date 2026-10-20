@@ -14,7 +14,7 @@ import typing
 from kivy.properties import StringProperty
 from kivy.uix.accordion import AccordionItem
 from kivy.uix.scrollview import ScrollView
-from modules import gui_logger
+from modules import gui_logger, live_work
 from modules.kivy_utils import schedule_ui as _schedule_ui
 
 import modules.app_context as _app_ctx
@@ -342,25 +342,36 @@ def _handle_ui_update_for_axis(axis: str, vertical_control: bool = False):
 
 
 def _user_motion_locked(axis: str) -> bool:
-    """True while an exclusive activity locks the control surface.
+    """True while the Session's lock record locks the whole control surface.
 
     kv ``disabled:`` reaches widgets, but bound input observers (the
     viewer's right-click-to-center, scroll-to-focus) fire before any
     widget's disabled state is consulted -- so the user-gesture motion
-    funnel enforces the lock itself, once, for every gesture path.
-    Headless callers run without a Kivy app and are never locked here.
+    funnel obeys the lock (``app.lock``) itself, once, for every gesture
+    path; it decides nothing of its own. Headless callers run without a
+    Kivy app and are never locked here.
     """
     from kivy.app import App
 
     app = App.get_running_app()
-    locked = getattr(app, 'controls_locked', False) if app is not None else False
-    # The lock engages only on the App property's explicit True: the
-    # real BooleanProperty always yields a bool, and anything else means
-    # there is no real app (headless / mocked hosts are never locked).
-    if locked is not True:
+    if app is None or not app.lock.controls_locked:
         return False
     logger.info(f'[UI] {axis} move blocked: controls locked (protocol run or recording active)')
     return True
+
+
+def xy_gestures_offered() -> bool:
+    """Whether a gesture on the stage map or the viewer is offered: the scope has an XY stage and the controls are not locked.
+
+    Read from the scope's capability and the lock record (``app.lock``); a
+    move asked anyway meets the funnel and the API.
+    """
+    from kivy.app import App
+
+    return (
+        _app_ctx.ctx.scope.capabilities.has_xy_stage
+        and not App.get_running_app().lock.controls_locked
+    )
 
 
 def move_absolute(
@@ -659,42 +670,34 @@ def live_histo_reverse():
 _DRAIN_TITLE = 'Writing protocol scan files to disk...'
 
 
-def draw_shared_run_displays() -> None:
+def draw_shared_run_displays(lock, work) -> None:
     """Draw the displays every run shares -- equalization, title, LED toggles.
 
     Their only writer. Each run control redraws on every run-state edge,
     including the edge where ANOTHER run takes the scope, so a control
     that wrote these while drawing its own idle state would undo the live
-    run's display. These are drawn from what the session says holds the
-    scope, never from any one control's run.
+    run's display. These are drawn from the edge's lock record (``lock``,
+    a ``ControlsLock``) and live work (``work``, a ``LiveWork``), never
+    from any one control's run.
 
     While anything holds the scope its own writers title the window, so
     the title is left to them; the LED toggles are reconciled only once
     nothing holds the scope, after the run's hardware restore has settled
-    and with no diagnostic lighting the LEDs underneath them.
+    and with no diagnostic lighting the LEDs underneath them. A run still
+    unwinding at its release edge holds it here; the idle edge that
+    follows draws the same.
     """
-    ctx = _app_ctx.ctx
-    session = ctx.session
-    if session.run_lockout:
+    if lock.run_lockout:
         live_histo_off()
     else:
         live_histo_reverse()
-    if session.exclusive_activity is not None:
+    if any(work.has(kind) for kind in live_work.SCOPE_HOLDERS):
         return
-    if session.protocol_files_draining:
+    if work.has(live_work.RUN_FILES):
         set_title_event_text(_DRAIN_TITLE)
     else:
         reset_title()
-    ctx.ui_listener_bridge.reconcile_led_buttons()
-
-
-def homing_banner_shown(session) -> bool:
-    """Whether the middle of the window shows the homing banner: while a home holds the scope.
-
-    A home only: a run shows its own progress, and a banner over the live
-    view would hide the images it captures.
-    """
-    return session.exclusive_activity == 'home'
+    _app_ctx.ctx.ui_listener_bridge.reconcile_led_buttons()
 
 
 # ============================================================================

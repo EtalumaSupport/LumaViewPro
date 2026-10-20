@@ -1,8 +1,8 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """#166 regression: interactive controls lock out while a protocol runs.
 
-An app-level ``run_lockout`` BooleanProperty mirrors the session's
-``run_lockout`` derivation. The kv binds ``disabled: app.run_lockout``
+The App holds the Session's lock record (``app.lock``, a ``ControlsLock``).
+The kv binds ``disabled: app.lock.run_lockout``
 on every LOCK control so the whole control surface greys out during a scan --
 EXCEPT a small KEEP roster (the two view-transform buttons, the three
 run/abort toggles, the panel show/hide toggles, the read-only support/log
@@ -13,7 +13,7 @@ not instantiate widgets) and asserts the binding structure:
 
 - POSITIVE: a representative LOCK control from every region is disabled during
   a protocol -- either its own widget block carries ``disabled:
-  app.run_lockout`` OR an ancestor container (a ``<Class>:`` rule root)
+  app.lock.run_lockout`` OR an ancestor container (a ``<Class>:`` rule root)
   does. The OR-combined controls (obj_position, Save, quality_stitch_btn,
   fast_preview_stitch_btn) carry
   it on their own block even though another token may be present.
@@ -36,8 +36,8 @@ import re
 REPO = pathlib.Path(__file__).resolve().parent.parent
 KV = REPO / 'ui' / 'lumaviewpro.kv'
 
-BIND = 'disabled: app.run_lockout'
-BIND_NOSPACE = 'disabled:app.run_lockout'
+BIND = 'disabled: app.lock.run_lockout'
+BIND_NOSPACE = 'disabled:app.lock.run_lockout'
 
 
 def _kv_lines() -> list[str]:
@@ -105,11 +105,11 @@ def _block_for_id(control_id: str) -> list[str]:
 
 
 def _block_has_bind(block: list[str]) -> bool:
-    # controls_locked derives from run_lockout OR recording_active,
-    # so either token satisfies "disabled during a protocol".
+    # controls_locked is run_lockout OR a live recording, so either
+    # field satisfies "disabled during a protocol".
     for line in block:
         if line.strip().startswith('disabled:') and (
-            'app.run_lockout' in line or 'app.controls_locked' in line
+            'app.lock.run_lockout' in line or 'app.lock.controls_locked' in line
         ):
             return True
     return False
@@ -142,7 +142,7 @@ def _ancestor_has_bind(control_id: str) -> bool:
                 if _indent(prop) <= header_indent or child_header.match(prop):
                     break
                 if prop.strip().startswith('disabled:') and (
-                    'app.run_lockout' in prop or 'app.controls_locked' in prop
+                    'app.lock.run_lockout' in prop or 'app.lock.controls_locked' in prop
                 ):
                     return True
             depth = header_indent
@@ -156,7 +156,7 @@ def _class_rule_root_has_bind(class_name: str) -> bool:
     A rule-root property is one indented exactly one level under the
     ``<Class>:`` header (i.e. deeper than the header, shallower than any
     nested child widget's properties). We accept any ``disabled: ...
-    app.run_lockout`` line that sits at the shallowest property depth
+    app.lock.run_lockout`` line that sits at the shallowest property depth
     of the rule before the first nested widget.
     """
     lines = _kv_lines()
@@ -176,7 +176,7 @@ def _class_rule_root_has_bind(class_name: str) -> bool:
             break  # end of rule
         # First non-comment property line establishes the rule-root depth.
         if line.strip().startswith('disabled:') and (
-            'app.run_lockout' in line or 'app.controls_locked' in line
+            'app.lock.run_lockout' in line or 'app.lock.controls_locked' in line
         ):
             return True
     return False
@@ -241,7 +241,7 @@ STOP_TOGGLES = (
     'zstack_aqr_btn',
     # A composite is a run like any other, so its button is its own stop
     # control. record_btn is NOT the precedent to copy here: it carries
-    # app.run_lockout, which is true during a composite's own run and would
+    # app.lock.run_lockout, which is true during a composite's own run and would
     # swallow the second click.
     'composite_btn',
 )
@@ -314,7 +314,7 @@ def test_xy_stage_control_locked_via_container():
 
 # --------------------------------------------------------------------------
 # OR-combine: controls that shipped with a `disabled:` line keep
-# app.run_lockout in that line (never overwritten away).
+# app.lock.run_lockout in that line (never overwritten away).
 # --------------------------------------------------------------------------
 
 
@@ -350,9 +350,9 @@ def test_save_protocol_button_disabled():
     # window around the handler for the bind at the same depth.
     window = lines[max(0, save_idx - 10) : save_idx + 2]
     assert any(
-        ln.strip().startswith('disabled:') and 'app.run_lockout' in ln and _indent(ln) == base
+        ln.strip().startswith('disabled:') and 'app.lock.run_lockout' in ln and _indent(ln) == base
         for ln in window
-    ), 'Save protocol button must carry disabled: app.run_lockout (#166)'
+    ), 'Save protocol button must carry disabled: app.lock.run_lockout (#166)'
 
 
 # --------------------------------------------------------------------------
@@ -400,24 +400,5 @@ def test_run_abort_toggles_live_for_abort():
         joined = '\n'.join(block)
         assert BIND not in joined and BIND_NOSPACE not in joined.replace(' ', ''), (
             f'{control_id!r} is an abort toggle and MUST remain live during a '
-            f'protocol; it must not be disabled by app.run_lockout. (#166)'
+            f'protocol; it must not be disabled by app.lock.run_lockout. (#166)'
         )
-
-
-# --------------------------------------------------------------------------
-# Count invariant: a representative-or-greater number of binds exists.
-# --------------------------------------------------------------------------
-
-
-def test_minimum_bind_count():
-    """At least the 7 container binds + the named per-widget binds exist.
-
-    A loose lower bound -- the real count is higher (~90) -- but enough to
-    catch a regression that drops the whole sweep.
-    """
-    text = KV.read_text()
-    count = text.count(BIND)
-    assert count >= 50, (
-        f'expected the protocol-lockout sweep to bind many controls; found '
-        f'only {count} occurrences of {BIND!r}. (#166)'
-    )

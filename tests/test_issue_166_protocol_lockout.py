@@ -1,12 +1,10 @@
 """Regression tests for the protocol-running UI lockout (issue #166, #704).
 
-A `run_lockout` BooleanProperty on the App mirrors the session's
-`run_lockout` derivation so kv `disabled:` bindings grey out interactive
-controls during a scan. The property must be published True at every run
-start and False at every run-reset (the abort-safe convergence point), or
-controls would either never lock or stay stuck disabled after a scan. These
-assert on source structure (the suite mocks Kivy; widgets are not built),
-ruff-format-agnostic.
+The App holds the Session's lock record (``app.lock``) so kv ``disabled:``
+bindings grey out interactive controls during a scan. It must be written at
+every run-state edge, from the Session's listener, or controls would either
+never lock or stay stuck disabled after a scan. These assert on source
+structure (the suite mocks Kivy; widgets are not built), ruff-format-agnostic.
 """
 
 import ast
@@ -41,26 +39,11 @@ def _method_in_class(src, class_name, method_name):
     return None
 
 
-def test_app_defines_run_lockout_boolean_property():
-    src = _read('lumaviewpro.py')
-    tree = ast.parse(src)
-    cls = next(
-        n for n in ast.walk(tree) if isinstance(n, ast.ClassDef) and n.name == 'LumaViewProApp'
-    )
-    found = any(
-        isinstance(node, ast.Assign)
-        and any(isinstance(t, ast.Name) and t.id == 'run_lockout' for t in node.targets)
-        and 'BooleanProperty' in ast.unparse(node.value)
-        for node in cls.body
-    )
-    assert found, 'LumaViewProApp must define run_lockout = BooleanProperty(...)'
-
-
 def test_mirror_is_listener_published_not_caller_pushed():
-    """The kv mirror properties are written by the App's run-state
-    publisher, fed by the session's transition listener -- no caller
-    push helper remains. A reappearing per-caller publisher is a second
-    writer for the mirror and the drift it caused."""
+    """The App's lock record is written by its run-state publisher, fed
+    by the session's transition listener -- no caller push helper
+    remains. A reappearing per-caller publisher is a second writer for
+    the record and the drift it caused."""
     helpers = _read('ui/ui_helpers.py')
     assert 'def publish_protocol_running' not in helpers
     app_src = _read('lumaviewpro.py')

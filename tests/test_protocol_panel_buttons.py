@@ -50,7 +50,9 @@ for _name, _attr in (
 import modules.app_context as _app_ctx
 import ui.protocol_settings as ps
 import ui.ui_helpers as ui_helpers
+from modules import live_work
 from modules.exceptions import ProtocolRunRefusedError
+from modules.live_work import LiveWork, WorkItem
 from modules.run_outcome import PendingRunOutcome
 from modules.protocol_image_writer import RunWriteBatch
 from modules.sequenced_capture_runner import EngineRun, RunProgress
@@ -101,15 +103,32 @@ def session(engine):
             engine.prepare(protocol=protocol, **kw)
         )
     member.run_dir.side_effect = engine.run_dir
-    return SimpleNamespace(
-        protocol_files_draining=False,
-        is_protocol_running=False,
-        protocol_files_stalled=False,
-        protocol_files_pending=0,
-        # Nothing holds the scope.
-        held_by_other=lambda run: False,
-        create_protocol_runner=lambda: member,
-    )
+    return _Session(member)
+
+
+class _Session(SimpleNamespace):
+    """The session the panel reads: a finished run's drain as the tests set
+    it, answered in the live work as the Session's ``RUN_FILES`` item."""
+
+    def __init__(self, member):
+        super().__init__(
+            protocol_files_draining=False,
+            is_protocol_running=False,
+            protocol_files_stalled=False,
+            protocol_files_pending=0,
+            # Nothing holds the scope.
+            held_by_other=lambda run: False,
+            create_protocol_runner=lambda: member,
+        )
+
+    @property
+    def live_work(self):
+        files = (
+            (WorkItem(live_work.RUN_FILES, "A run's images", left=self.protocol_files_pending),)
+            if self.protocol_files_draining
+            else ()
+        )
+        return LiveWork(work=files, closing=False, closed=False)
 
 
 @pytest.fixture

@@ -6,17 +6,20 @@ window title, so a person saw a greyed window and no reason. A banner over
 the middle of the window -- "System Homing..." beside a turning arc -- is
 shown while a home holds the scope, and at no other time: a run shows its
 own progress, and a banner over the live view would hide what it captures.
+
+The banner binds the Session's live work as of the last edge
+(``app.live_work``): shown while it holds a home item.
 """
 
 from __future__ import annotations
 
-import ast
+import pathlib
 import threading
 
 import pytest
 
+from modules import live_work
 from modules.scope_session import ScopeSession
-from tests.ast_seams import find_def
 from tests.settings_fixtures import complete_settings
 
 HOME_S = 60.0
@@ -35,9 +38,11 @@ def session(tmp_path):
         s.shutdown()
 
 
-def test_the_banner_names_a_home_while_it_holds_the_scope(session, monkeypatch):
-    from ui.ui_helpers import homing_banner_shown
+def _a_home_is_named(session) -> bool:
+    return session.live_work.has(live_work.HOME)
 
+
+def test_the_banner_names_a_home_while_it_holds_the_scope(session, monkeypatch):
     entered, release = threading.Event(), threading.Event()
     real = session.scope._motion_driver.home
 
@@ -47,39 +52,34 @@ def test_the_banner_names_a_home_while_it_holds_the_scope(session, monkeypatch):
         return real(*args, **kwargs)
 
     monkeypatch.setattr(session.scope._motion_driver, 'home', held)
-    assert homing_banner_shown(session) is False
+    assert _a_home_is_named(session) is False
 
     home = session.scope.motion.start_home('ALL')
     try:
         assert entered.wait(HOME_S)
-        assert homing_banner_shown(session) is True
+        assert _a_home_is_named(session) is True
     finally:
         release.set()
         home.exception(timeout=HOME_S)
-    assert homing_banner_shown(session) is False
+    assert _a_home_is_named(session) is False
 
 
 @pytest.mark.parametrize('kind', ['protocol', 'diagnostic', 'recording'])
 def test_no_other_holder_shows_it(session, kind):
     from tests.protocol_drives import run_identity
-    from ui.ui_helpers import homing_banner_shown
 
     held = session.activity_claim.try_claim(
         kind, run=run_identity() if kind == 'protocol' else None
     )
     try:
-        assert homing_banner_shown(session) is False
+        assert _a_home_is_named(session) is False
     finally:
         held.release()
 
 
-def test_the_run_state_publisher_writes_the_banner():
-    publish = find_def('lumaviewpro.py', 'publish_run_state', class_name='LumaViewProApp')
-    assert publish is not None, 'LumaViewProApp.publish_run_state is gone'
-    writes = [
-        ast.unparse(node.value)
-        for node in ast.walk(publish)
-        if isinstance(node, ast.Assign)
-        and any(isinstance(t, ast.Attribute) and t.attr == 'homing' for t in node.targets)
-    ]
-    assert writes == ['homing_banner_shown(session)'], writes
+def test_the_banner_binds_the_home_in_the_live_work():
+    kv = (pathlib.Path(__file__).resolve().parent.parent / 'ui' / 'lumaviewpro.kv').read_text()
+    banner = kv[kv.index('HomingBanner:') :]
+    banner = banner[: banner.index('pos_hint')]
+    assert 'active: app.live_work.has(live_work.HOME)' in banner
+    assert '#:import live_work modules.live_work' in kv

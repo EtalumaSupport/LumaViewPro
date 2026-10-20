@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     from modules.sequenced_capture_runner import RunProgress
 from ui.step_navigation import go_to_step
 from modules.timedelta_formatter import strfdelta
-from modules import gui_logger
+from modules import gui_logger, live_work
 from modules.run_events import RunEvents
 from ui.ui_helpers import (
     refused_in_this_input,
@@ -224,7 +224,7 @@ class ProtocolSettings(FloatLayout):
         # this the estimate would recompute at the step-navigation refresh rate
         # for the whole length of every run. The label keeps its last text,
         # which stays correct.
-        if ctx.session.run_lockout:
+        if ctx.session.controls_lock.run_lockout:
             return
 
         advisory = ctx.session.protocol_size_advisory(self._protocol)
@@ -1051,9 +1051,13 @@ class ProtocolSettings(FloatLayout):
         """
         ctx = _app_ctx.ctx
         session = ctx.session
-        # A finished run's writes still going. A start pressed now is the
-        # engine's to refuse; the button that started the run shows the count.
-        draining = session.protocol_files_draining
+        # A finished run's writes still going, read from the Session at each
+        # draw, since the half-second tick redraws the count between edges.
+        # A start pressed now is the engine's to refuse; the button that
+        # started the run shows the count.
+        files = next(
+            (item for item in session.live_work.work if item.kind == live_work.RUN_FILES), None
+        )
 
         for trigger, look in _PANEL_RUN_BUTTONS.items():
             button = self.ids[look.button_id]
@@ -1070,12 +1074,10 @@ class ProtocolSettings(FloatLayout):
                 stage = label if label in ('Stopping...', look.running_text) else 'running'
             else:
                 button.state = 'normal'
-                if draining and run is not None and run.progress().is_last_run:
+                if files is not None and run is not None and run.progress().is_last_run:
                     stalled = session.protocol_files_stalled
                     button.text = (
-                        'File writer stalled'
-                        if stalled
-                        else f'Writing Files... ({session.protocol_files_pending})'
+                        'File writer stalled' if stalled else f'Writing Files... ({files.left})'
                     )
                     stage = button.text if stalled else 'Writing Files...'
                 else:
@@ -1089,7 +1091,7 @@ class ProtocolSettings(FloatLayout):
                 stage=f'{stage} held={held}',
             )
 
-        if draining:
+        if files is not None:
             self._drain_tick_trigger()
 
     def _drain_tick(self, dt) -> None:

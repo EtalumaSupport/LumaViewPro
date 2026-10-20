@@ -36,6 +36,10 @@ SUPPORT_REPORT = 'support_report'
 LOGS_ZIP = 'logs_zip'
 STILL = 'still'
 
+# The kinds that hold the scope: a holder's item, or a run acting under a
+# holder's lent claim or starting or ending with none.
+SCOPE_HOLDERS = frozenset({PROTOCOL, RECORDING, HOME, DIAGNOSTIC})
+
 
 @api_fields('kind', 'name', 'left', 'percent', 'discardable')
 @dataclasses.dataclass(frozen=True)
@@ -81,3 +85,11 @@ class LiveWork:
     work: tuple[WorkItem, ...]
     closing: bool
     closed: bool
+
+    def has(self, kind: str) -> bool:
+        """Whether any item of the work is of ``kind``, one of this module's kind names.
+
+        A reading of ``work``, kept off the API surface: a client reads the
+        items' kinds there.
+        """
+        return any(item.kind == kind for item in self.work)

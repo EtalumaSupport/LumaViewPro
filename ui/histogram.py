@@ -63,7 +63,7 @@ class Histogram(Widget):
         # the capture / protocol pipeline for get_image_from_buffer and
         # the texture isn't user-visible during a run anyway.
         session = getattr(ctx, 'session', None)
-        if session is not None and session.run_lockout:
+        if session is not None and session.controls_lock.run_lockout:
             return
 
         # The histogram is a live-image tool: compute only when it is

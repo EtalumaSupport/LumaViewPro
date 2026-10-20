@@ -10,7 +10,7 @@ import modules.app_context as _app_ctx
 from modules import gui_logger
 from modules.config_ui_getters import get_selected_labware
 from ui.step_navigation import go_to_step
-from ui.ui_helpers import find_nearest_step, run_unasked, submit_gesture
+from ui.ui_helpers import find_nearest_step, run_unasked, submit_gesture, xy_gestures_offered
 
 logger = logging.getLogger('LVP.ui.stage')
 
@@ -145,14 +145,10 @@ class Stage(Widget):
         self.ROI_max = [x_max, y_max]
         self.ROIs.append([self.ROI_min, self.ROI_max])
 
-    def motion_capability(self) -> bool:
-        session = getattr(_app_ctx.ctx, 'session', None)
-        return session.motion_enabled if session is not None else True
-
     def on_touch_down(self, touch):
         logger.debug('[LVP Main  ] Stage.on_touch_down()')
 
-        if not self.motion_capability():
+        if not xy_gestures_offered():
             return
 
         if self.collide_point(*touch.pos) and (touch.button == 'left' or touch.button == 'right'):

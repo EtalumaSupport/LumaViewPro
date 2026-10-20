@@ -1,15 +1,17 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""Full-lockout contract: one derived lock, bound at the containers.
+"""Full-lockout contract: one lock record, bound at the containers.
 
 While an exclusive activity runs (protocol run OR live manual
 recording), the whole control surface locks except the record/stop
-toggle. The design is ONE derived App property (``controls_locked``)
-that kv bindings and the gesture-motion funnel read -- never a second
-per-site flag. kv is declarative source with no headless seam, so the
-binding topology is pinned on the source text (established precedent);
-the gesture funnel is pinned behaviorally.
+toggle. The Session answers the lock as one record
+(``ScopeSession.controls_lock``, a ``ControlsLock``); the App holds the
+last edge's copy (``app.lock``) that kv bindings and the gesture-motion
+funnel read -- never a second per-site flag. kv is declarative source
+with no headless seam, so the binding topology is pinned on the source
+text (established precedent); the gesture funnel is pinned behaviorally.
 """
 
+import re
 import sys
 from types import ModuleType
 from unittest import mock
@@ -60,7 +62,7 @@ APP_SRC = (REPO_ROOT / 'lumaviewpro.py').read_text()
 KV_SRC = (REPO_ROOT / 'ui' / 'lumaviewpro.kv').read_text()
 
 
-class TestDerivedLockProperty:
+class TestTheLockRecord:
     def test_the_app_publishes_no_recording_mirror(self):
         # Each run control greys through its own held flag, which the
         # Session answers for a recording live or draining; an App-level
@@ -68,30 +70,46 @@ class TestDerivedLockProperty:
         assert 'recording_active = BooleanProperty' not in APP_SRC
         assert 'self.recording_active' not in APP_SRC, 'publish_run_state writes a dropped mirror'
 
-    def test_controls_locked_is_listener_published(self):
-        # The derivation lives on the session; the App property is a
-        # plain mirror the one run-state listener writes. An
-        # AliasProperty here would re-derive from the OTHER mirrors and
-        # drift from session truth in the drain windows.
-        assert 'controls_locked = BooleanProperty(False)' in APP_SRC
+    def test_the_app_holds_the_two_records_and_no_lock_flag(self):
+        # The lock is the Session's one record, copied whole on each edge:
+        # its two surfaces change in one write, so no binding sees one
+        # without the other, and no per-flag mirror can drift from it.
+        # rebind, so a binding through a field of the record re-evaluates
+        # when the record is replaced (the kv test below runs it).
+        assert 'lock = ObjectProperty(None, rebind=True)' in APP_SRC
+        assert 'live_work = ObjectProperty(None, rebind=True)' in APP_SRC
+        for flag in ('run_lockout', 'controls_locked', 'homing'):
+            assert f'{flag} = BooleanProperty' not in APP_SRC, (
+                f'{flag} is a mirror of the lock record'
+            )
         assert 'AliasProperty' not in APP_SRC
-        assert 'def publish_run_state' in APP_SRC
-
-    def test_publish_order_is_fail_safe(self):
-        # Kivy dispatches bindings synchronously inside each setattr; a
-        # torn observer must see OVER-locked, never under-locked: the
-        # tightening property (controls_locked) writes first on lock
-        # and last on unlock.
         body = APP_SRC[APP_SRC.index('def publish_run_state') :]
-        body = body[: body.index('def on_start')]
-        lock_branch = body[body.index('if locked:') : body.index('else:')]
-        unlock_branch = body[body.index('else:') :]
-        assert lock_branch.index('controls_locked') < lock_branch.index('run_lockout'), (
-            'locking must write controls_locked first'
+        body = body[: body.index('def _draw_run_controls')]
+        assert 'self.lock = session.controls_lock' in body
+        assert 'self.live_work = session.live_work' in body
+
+    def test_every_lock_binding_reads_the_record(self):
+        # kv in the main file and in the advanced settings' inline rules:
+        # a binding to a bare App flag would read a property nothing writes.
+        kv_sources = {
+            'ui/lumaviewpro.kv': KV_SRC,
+            # pin-justified: the advanced settings' kv rules are a string in
+            # the .py, read as the kv file is; kv has no headless seam.
+            'ui/advanced_settings.py': (REPO_ROOT / 'ui' / 'advanced_settings.py').read_text(),
+        }
+        bare = re.compile(r'app\.(run_lockout|controls_locked|homing)\b')
+        offenders = [
+            f'{name}:{number}: {line.strip()}'
+            for name, text in kv_sources.items()
+            for number, line in enumerate(text.splitlines(), 1)
+            if bare.search(line)
+        ]
+        assert not offenders, offenders
+        bound = sum(
+            len(re.findall(r'app\.lock\.(run_lockout|controls_locked)\b', text))
+            for text in kv_sources.values()
         )
-        assert unlock_branch.index('run_lockout') < unlock_branch.index(
-            'controls_locked = False'
-        ), 'unlocking must write controls_locked last'
+        assert bound == 100, f'{bound} lock bindings; each greyed surface binds the record'
 
     def test_main_display_supplies_no_run_state_edge(self):
         # A recording announces its own edges (live, draining, finish
@@ -110,7 +128,7 @@ class TestKvBindingTopology:
         # bind -- it holds no stop-capable toggle.
         image_idx = KV_SRC.find('id: accordion_id')
         assert image_idx > 0
-        assert 'disabled: app.controls_locked' in KV_SRC[image_idx : image_idx + 120]
+        assert 'disabled: app.lock.controls_locked' in KV_SRC[image_idx : image_idx + 120]
 
     def test_motion_accordion_carries_no_lock(self):
         # The motion sidebar holds the run/stop toggles; an accordion-level
@@ -131,7 +149,7 @@ class TestKvBindingTopology:
         for marker in ('<MicroscopeSettings>:', '<PostProcessingAccordion>:'):
             idx = KV_SRC.find(marker)
             assert idx > 0, marker
-            assert 'disabled: app.controls_locked' in KV_SRC[idx : idx + 200], (
+            assert 'disabled: app.lock.controls_locked' in KV_SRC[idx : idx + 200], (
                 f'{marker} must lock at its root during any exclusive activity'
             )
 
@@ -147,7 +165,7 @@ class TestKvBindingTopology:
             idx = KV_SRC.find(f'id: {btn}')
             assert idx > 0, btn
             snippet = KV_SRC[idx : idx + 120]
-            assert 'disabled: app.controls_locked' in snippet, (
+            assert 'disabled: app.lock.controls_locked' in snippet, (
                 f'{btn} must lock during any exclusive activity'
             )
 
@@ -157,7 +175,7 @@ class TestKvBindingTopology:
         idx = KV_SRC.find('id: record_btn')
         assert idx > 0
         snippet = KV_SRC[idx : idx + 120]
-        assert 'disabled: app.run_lockout' in snippet
+        assert 'disabled: app.lock.run_lockout' in snippet
         assert 'controls_locked' not in snippet
 
 
@@ -274,12 +292,16 @@ class TestStandaloneAfLockout:
 class TestGestureMotionFunnel:
     """Bound input observers (viewer right-click, scroll-to-focus) fire
     before any widget's disabled state is consulted, so the shared
-    ui_helpers movers enforce the lock themselves."""
+    ui_helpers movers obey the App's lock record themselves."""
 
-    def _locked_app(self, locked):
+    def _locked_app(self, recording):
+        from modules.scope_session import ControlsLock
+
         app_cls = sys.modules['kivy.app'].App
+        # a stand-in by design: the App exists only when lumaviewpro.py runs
+        # as the program; the funnel reads one attribute of it, the record.
         stub = mock.Mock()
-        stub.controls_locked = locked
+        stub.lock = ControlsLock(run_named=None, recording=recording)
         app_cls.get_running_app = mock.Mock(return_value=stub)
         return app_cls
 
@@ -287,6 +309,7 @@ class TestGestureMotionFunnel:
         from ui import ui_helpers
 
         self._locked_app(True)
+        assert ui_helpers._user_motion_locked('X') is True
         # No ctx is wired in this test process: reaching past the guard
         # would raise on ctx access, so returning cleanly IS the proof.
         ui_helpers.move_relative('X', 5.0)
@@ -297,12 +320,10 @@ class TestGestureMotionFunnel:
         self._locked_app(False)
         assert ui_helpers._user_motion_locked('X') is False
 
-    def test_mocked_nonbool_lock_reads_unlocked(self):
-        # Headless / mocked hosts (no real BooleanProperty) must never
-        # read as locked: only an explicit True engages the lock.
+    def test_a_headless_host_is_never_locked(self):
         from ui import ui_helpers
 
-        self._locked_app(mock.MagicMock())
+        sys.modules['kivy.app'].App.get_running_app = mock.Mock(return_value=None)
         assert ui_helpers._user_motion_locked('X') is False
 
     def test_all_three_movers_guard(self):
