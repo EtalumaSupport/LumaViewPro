@@ -148,3 +148,28 @@ class TestTheController:
 
         assert made['engine'].wait_for_drain(timeout=5)
         assert not controller.is_busy, 'a finish that never started is still pending'
+
+
+def test_at_the_live_edge_the_session_reads_the_recording_live(tmp_path):
+    """The live edge is announced from inside the engine's start; the Session reads it live there."""
+    from modules.scope_session import ScopeSession
+    from tests.settings_fixtures import complete_settings
+    from tests.test_a_run_needs_every_axis_position import _settings
+
+    session = ScopeSession.create(complete_settings(**_settings(tmp_path)), simulate=True)
+    heard = []
+
+    def on_edge():
+        heard.append((session.exclusive_activity, session.controls_lock.recording))
+
+    try:
+        session.add_run_state_listener(on_edge)
+        operation = session.manual_recording.start()
+        at_start = list(heard)
+        operation.stop()
+        operation.result(timeout=30)
+    finally:
+        session.remove_run_state_listener(on_edge)
+        session.shutdown()
+
+    assert ('recording', True) in at_start, at_start

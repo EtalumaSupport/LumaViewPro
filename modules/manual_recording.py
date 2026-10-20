@@ -474,10 +474,18 @@ class ManualRecordingController:
         operation = Operation(stop=lambda: engine.stop('user_stop'))
 
         # Engine start is the commit point: it acquires the claim or
-        # raises. Assign controller state only after it succeeds.
+        # raises. Assign the rest of the controller's state only after it
+        # succeeds. The engine itself is stored first: it announces the
+        # recording live from inside start, and a listener told of that
+        # edge reads is_recording through this controller. A start that
+        # raises puts back the engine that was there.
+        with self._state_lock:
+            previous_engine, self._engine = self._engine, engine
         try:
             engine.start(_make_config)
         except BaseException:
+            with self._state_lock:
+                self._engine = previous_engine
             _discard_if_empty(frames_folder)
             raise
         writer = None
@@ -514,7 +522,6 @@ class ManualRecordingController:
                     vfr=True,
                 )
             with self._state_lock:
-                self._engine = engine
                 self._config = config
                 self._plan = plan
                 self._writer = writer
