@@ -50,8 +50,10 @@ from rest import routes as rest_routes
 # (census C's row B9); 27 since the imaging API's scale-bar dict left it
 # for the Session's scale_bar_enabled; 25 since the camera's binning and
 # frame setters answer a FrameSize, over the wire their read's; 23 since
-# the motor and LED boards' identities are records.
-UNTYPED_PIN = 23
+# the motor and LED boards' identities are records; 18 since the camera's
+# link is a record, its temperatures a typed mapping, and its diagnostic
+# snapshot, profile and the system summary left for published reads.
+UNTYPED_PIN = 18
 
 _SERVER_MODELS = ('Handle', 'Job', 'JobProgress', 'PathAnswer', 'Versions')
 # A JSON Schema keyword that says what a value is.

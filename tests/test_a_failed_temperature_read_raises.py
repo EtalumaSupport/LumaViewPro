@@ -20,7 +20,6 @@ from pypylon import genicam
 from drivers.exceptions import CameraReadFailedError, HardwareError
 from drivers.fx2driver import FX2Camera
 from tests.camera_fakes import bare_ids_camera, bare_pylon_camera
-from tests.scope_fakes import spec_scope
 from tests.test_ids_diagnostics import _Nodemap, _temp_nodemap, _TempNode, _TempSelector
 
 
@@ -169,18 +168,6 @@ def test_no_active_camera_answers_none_at_the_api(sim_scope):
     assert sim_scope.diagnostics.get_camera_temperatures_degc() is None
 
 
-def test_the_diagnostic_snapshot_records_the_failure_in_its_field(sim_scope):
-    with patch.object(
-        sim_scope._camera_driver,
-        'get_all_temperatures',
-        side_effect=CameraReadFailedError('temperature read failed'),
-    ):
-        info = sim_scope.diagnostics.get_camera_diagnostic_info()
-
-    assert info['connected'] is True
-    assert info['temperatures'] == 'Error: temperature read failed'
-
-
 def test_a_failed_read_on_a_tick_reaches_the_scheduler(sim_scope):
     """The session's scheduler reports a raising tick and keeps the schedule."""
     with (
@@ -210,19 +197,19 @@ def test_a_failed_startup_sample_is_reported_and_the_schedule_starts(sim_scope, 
     schedule.assert_called_once()
 
 
-def test_the_support_report_writes_a_temperature_failure_as_one(tmp_path):
+def test_the_support_report_writes_a_temperature_failure_as_one(sim_scope, tmp_path):
+    """The camera block still writes, and says the temperatures were not read."""
     from modules.tech_support_report import TechSupportReport
 
-    report = TechSupportReport.__new__(TechSupportReport)
-    report.scope = spec_scope()
-    report.scope.diagnostics.get_camera_diagnostic_info.return_value = {
-        'connected': True,
-        'model': 'daA3840-45um',
-        'temperatures': 'Error: temperature read failed',
-    }
-
-    report._step_camera_diagnostics(tmp_path)
+    report = TechSupportReport(scope=sim_scope)
+    with patch.object(
+        sim_scope._camera_driver,
+        'get_all_temperatures',
+        side_effect=CameraReadFailedError('temperature read failed'),
+    ):
+        report._step_camera_diagnostics(tmp_path)
 
     written = (tmp_path / 'camera_info' / 'camera_info.txt').read_text()
-    assert 'temperature read failed' in written
+    assert 'not read: temperature read failed' in written
+    assert 'Gain Db: ' in written
     assert not (tmp_path / 'camera_info' / 'no_camera.txt').exists()

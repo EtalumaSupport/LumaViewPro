@@ -1430,6 +1430,7 @@ still states the major version.
 | level 22 | Each setting the Session owns has its own read: `model`, `objective_id`, `turret_objective(position)`, `labware`, `scale_bar_enabled`, `acceleration_limit_pct`, `layer_acquire(layer)`, `layer_auto_gain(layer)` and `bookmark` (a `PlateLocation`), beside the existing `saved_focus(layer)` and the camera's reads; `runtime_state.get_turret_config()` and `imaging.scale_bar_config` are in-process. `camera.set_binning` and `camera.set_frame_size` answer the delivered `FrameSize`, not a dict. `get_setting` of a setting with its own read is refused `ArgumentRefusedError` (`has_member`), its `member` naming the read: `get_setting('scale_bar.enabled')` for `scale_bar_enabled`, `get_setting('image_mode')` for `scope.camera.image_mode`. |
 | level 23 | A camera timing record's `apply_delay_us` is one number, 0 or more: the least start over its `trials`, on the camera's clock and after the change was in force, of the first frame showing the change, which the sensor's delay never exceeds; `delivered_frames` stays a `p50`, `p95`, `max` spread. `FrameValidity.check_timing_record` refuses a delay given as a spread. |
 | level 24 | Each frame-validity source runs one of two rules, published as `capabilities.frame_rules` (a `FrameRule` per source: `rule` `Rule.CLOCK` or `Rule.CREDIT`, and under the clock rule its `delay_us` and `provenance`): the clock rule where the camera has a clock latch and its timing record holds a measured delay, the credit rule (the source's frame count) everywhere else. `imaging.judge_frame(frame, mapping)` takes the camera's clock mapping (a capture's `frame_record.clock_mapping`); a `Change` carries its `rule`, and a `Judgment` its `frame_start_ticks` and `qualifies_after_ticks` under the clock rule, in its `fields()` too. `imaging.recorded_changes()` answers each source's last `Change`. |
+| level 25 | The diagnostics answers are records or published reads (W3c part E): `get_camera_link_info` answers a `CameraLink`, `get_motor_info` a `MotorBoardInfo` and `get_led_info` a `LedBoardInfo` (no `connected`: that is `led_connected`), each field `None` when unknown, an FX2 LED controller's and a missing motor board's firmware version included; `get_camera_temperatures_degc` is a `dict[str, float]`; `get_camera_diagnostic_info`, `get_camera_profile_info` and `get_system_info` are gone, their facts read from `capabilities` (`camera_model`, `camera_limits`, `pixel_size_um`, and new `camera_sensor`, `camera_shutter`, `camera_sdk_version`) and the camera's reads, the live exposure floor from `scope.camera.read_exposure_ms_min()`, which raises `CameraReadFailedError` when the camera does not answer. |
 
 ### Configuration queries
 
@@ -1970,6 +1971,9 @@ image = scope.imaging.capture_and_wait(
 scope.camera.set_exposure_ms(exposure_ms=50)
 scope.camera.read_exposure_ms()                 # read from the camera now; None with no camera;
                                                    #   raises CameraReadFailedError when the camera does not answer
+scope.camera.read_exposure_ms_min()             # the shortest exposure the camera takes now, read from it: on IDS
+                                                   #   it rises above capabilities.camera_limits.exposure_ms_min
+                                                   #   as the pixel clock, frame rate and frame size change
 scope.camera.set_gain_db(gain_db=10.0)
 scope.camera.read_gain_db()                       # read from the camera now; None with no camera;
                                                    #   raises CameraReadFailedError when the camera does not answer
@@ -2227,14 +2231,11 @@ scope.camera_connected                             # bool property (mirror of mo
 scope.diagnostics.get_camera_temperatures_degc()        # temperature sensors; {} no sensor, None no camera, a failed read raises
 scope.capabilities.camera_model                    # the camera's model, serial number (camera_serial_number) and
                                                    # timestamp clock (camera_timestamp_tick_hz), read at connect
-scope.diagnostics.get_camera_profile_info()        # sensor specs + dynamic ranges; None when no camera is
-                                                   # connected; a failed read of a connected camera raises. Returns:
-# {
-#   'sensor': 'Aptina MT9P031',
-#   'pixel_size_um': 2.2, 'shutter': 'rolling',
-#   'gain_min_db': 0.0, 'gain_max_db': 42.144,
-#   'max_exposure_ms': 1000.0,
-# }
+scope.capabilities.camera_sensor                   # 'Aptina MT9P031', and camera_shutter 'rolling' or 'global', from
+                                                   # the camera's datasheet entry; None for a camera none describes
+scope.capabilities.camera_sdk_version              # the vendor SDK's version, read at connect; None without one
+scope.capabilities.camera_limits                   # the gain and exposure ranges, read at connect (CameraLimits)
+scope.capabilities.pixel_size_um                   # the installation's pixel size
 ```
 
 ### Frame validity
@@ -2301,26 +2302,20 @@ scope.diagnostics.get_led_info()           # LedBoardInfo: firmware_version, fir
                                            #   'legacy' (INFO only: firmware before v2),
                                            #   None (no text commands, e.g. an FX2 scope). Each field None
                                            #   when unknown; whether a board is there is scope.led_connected
-scope.diagnostics.get_system_info()        # combined summary
 scope.capabilities.pixel_size_um           # raw per-installation um/pixel, or None if the scope cannot report it (unknown camera / no declared optics). The effective um/pixel at the current objective and binning is scope.runtime_state.get_pixel_size_um().
 scope.capabilities.lens_focal_length_mm    # tube-lens focal length, mm, or None if the scope cannot report it
 ```
 
 ```python
-# Camera diagnostic snapshot. Returns dict with model, resolution,
-# pixel_format, gain, exposure_ms, max_gain, max_exposure_ms,
-# temperatures (Celsius), and per-field error strings when a probe
-# fails. Returns {'connected': False} when no camera is active.
-info = scope.diagnostics.get_camera_diagnostic_info()
-
-# Camera temperature sensors. Returns dict {sensor_name: degC}; empty only
+# Camera temperature sensors. Returns dict {sensor_name: degC}, each name the
+# camera's own ('FpgaCore' on a Basler body, 'Device' on a one-sensor IDS body); empty only
 # for a camera with no temperature sensor (capabilities.camera_reports_temperature
 # False); None when no camera is connected, after the session's shutdown() too. A read that fails on an active camera
 # raises HardwareError: neither {} nor None ever stands for a failure.
 temps = scope.diagnostics.get_camera_temperatures_degc()
 
-# The camera's link, live: {'transport': 'USB3' | 'GigE' | 'USB2',
-# 'link_speed', 'link_speed_unit', 'packet_size_bytes', 'inter_packet_delay'},
+# The camera's link, live: a CameraLink (transport 'USB3' | 'GigE' | 'USB2',
+# link_speed, link_speed_unit, packet_size_bytes, inter_packet_delay),
 # each None where the camera does not report it (packet size and delay are
 # GigE's). The speed is in the unit the camera declares, never converted:
 # Basler's varies by model; the FX2's is 'Mbps'. A camera that declares no
@@ -3325,6 +3320,7 @@ Reached through `session.scope.camera` (in-process, also `session.camera`).
 - `read_binning`
 - `read_black_level`
 - `read_exposure_ms`
+- `read_exposure_ms_min`
 - `read_frame_rate`
 - `read_frame_size`
 - `read_gain_db`
@@ -3375,14 +3371,11 @@ Reached through `session.scope.diagnostics`.
 
 - `enter_led_engineering_mode` (in-process)
 - `exit_led_engineering_mode` (in-process)
-- `get_camera_diagnostic_info`
 - `get_camera_link_info`
-- `get_camera_profile_info`
 - `get_camera_temperatures_degc`
 - `get_camera_usb_bindings`
 - `get_led_info`
 - `get_motor_info`
-- `get_system_info`
 - `motor_fan_spin_times` (in-process)
 - `read_led_currents_ma` (in-process)
 - `read_motor_drv_status` (in-process)
@@ -3458,7 +3451,10 @@ Reached through `session.scope.capabilities`.
 - `camera_model`
 - `camera_pixel_formats`
 - `camera_reports_temperature`
+- `camera_sdk_version`
+- `camera_sensor`
 - `camera_serial_number`
+- `camera_shutter`
 - `camera_supports_auto_exposure`
 - `camera_supports_auto_gain`
 - `camera_supports_black_level`
@@ -3710,6 +3706,16 @@ Reached through returned by `session.post_processing.build`.
 - `built`
 - `message`
 - `skipped`
+
+### CameraLink
+
+Reached through returned by `scope.diagnostics.get_camera_link_info`.
+
+- `inter_packet_delay`
+- `link_speed`
+- `link_speed_unit`
+- `packet_size_bytes`
+- `transport`
 
 ### CameraChanged
 

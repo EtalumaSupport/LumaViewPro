@@ -2661,6 +2661,24 @@ class CameraAPI:
         return self._read_fresh('exposure_ms')
 
     @api(reads=True)
+    def read_exposure_ms_min(self) -> float | None:
+        """Read from the camera the shortest exposure it takes now, in milliseconds.
+
+        On IDS bodies the floor rises above the value read at connect
+        (``capabilities.camera_limits.exposure_ms_min``) as the pixel clock,
+        frame rate and frame size change, and this reads the camera's live
+        floor; every other camera's floor is fixed, and this answers it.
+
+        Returns:
+            float | None: The floor; None when no camera is active or the
+                camera declares none.
+
+        Raises:
+            CameraReadFailedError: The camera did not answer the read.
+        """
+        return self._read_unheld('minimum exposure', lambda driver: driver.get_min_exposure())
+
+    @api(reads=True)
     def read_binning(self) -> int | None:
         """Read the camera's binning factor from the camera.
 

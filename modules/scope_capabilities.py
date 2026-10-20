@@ -250,7 +250,10 @@ def _frame(value: object) -> FrameSize | None:
     'camera_model',
     'camera_pixel_formats',
     'camera_reports_temperature',
+    'camera_sdk_version',
+    'camera_sensor',
     'camera_serial_number',
+    'camera_shutter',
     'camera_supports_auto_exposure',
     'camera_supports_auto_gain',
     'camera_supports_black_level',
@@ -339,6 +342,20 @@ class ScopeCapabilities:
 
     camera_serial_number: str | None
     """The serial number the camera reports at connect, or None."""
+
+    camera_sensor: str | None
+    """The camera's sensor (``'Sony IMX334LLR-C'``), from the camera's
+    datasheet entry; None for a camera no entry describes, or no camera."""
+
+    camera_shutter: str | None
+    """The sensor's shutter, ``'rolling'`` or ``'global'``, from the same
+    entry; None where ``camera_sensor`` is."""
+
+    camera_sdk_version: str | None
+    """The version of the camera vendor's SDK the camera is driven through,
+    read at connect: a label tying a measurement to the runtime that made it.
+    None when the SDK does not say, for a camera driven without one (the FX2,
+    the simulator), or no camera."""
 
     camera_timestamp_tick_hz: int | None
     """The rate of the camera's frame timestamp clock, in Hz, or None for a
@@ -497,6 +514,9 @@ class ScopeCapabilities:
         # Camera
         camera_model: str | None = None
         camera_serial_number: str | None = None
+        camera_sensor: str | None = None
+        camera_shutter: str | None = None
+        camera_sdk_version: str | None = None
         camera_timestamp_tick_hz: int | None = None
         camera_supports_auto_gain = False
         camera_supports_auto_exposure = False
@@ -516,11 +536,14 @@ class ScopeCapabilities:
         if camera is not None:
             camera_model = camera.model_name or None
             camera_serial_number = camera.device_serial or None
+            camera_sdk_version = camera.get_sdk_info()['version']
             tick_hz = camera.timestamp_tick_frequency_hz
             camera_timestamp_tick_hz = int(tick_hz) if tick_hz is not None else None
             documented: tuple[int, int] | None = None
             profile = getattr(camera, 'profile', None)
             if profile is not None:
+                camera_sensor = profile.sensor
+                camera_shutter = profile.shutter
                 camera_supports_auto_gain = bool(getattr(profile, 'has_auto_gain', False))
                 camera_supports_auto_exposure = bool(getattr(profile, 'has_auto_exposure', False))
                 camera_pixel_formats = tuple(getattr(profile, 'pixel_formats', ()) or ())
@@ -622,6 +645,9 @@ class ScopeCapabilities:
             has_firmware_stim=has_firmware_stim,
             camera_model=camera_model,
             camera_serial_number=camera_serial_number,
+            camera_sensor=camera_sensor,
+            camera_shutter=camera_shutter,
+            camera_sdk_version=camera_sdk_version,
             camera_timestamp_tick_hz=camera_timestamp_tick_hz,
             camera_supports_auto_gain=camera_supports_auto_gain,
             camera_supports_auto_exposure=camera_supports_auto_exposure,

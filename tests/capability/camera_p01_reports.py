@@ -103,7 +103,7 @@ def main():
         if link is not None:
             check(
                 'a link speed carries its unit',
-                (link['link_speed'] is None) == (link['link_speed_unit'] is None),
+                (link.link_speed is None) == (link.link_speed_unit is None),
                 link,
             )
     sys.exit(report())

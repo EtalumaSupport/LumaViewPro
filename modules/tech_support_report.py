@@ -901,6 +901,14 @@ class _SkippedStep:
     consequence: str
 
 
+def _camera_reading(read: Callable[[], object]) -> object:
+    """A camera read's answer, or ``'not read: '`` and the camera's words when
+    the camera did not answer it (``FirmwareDiagnostics._what_the_hardware_said``)."""
+    answer = []
+    said = FirmwareDiagnostics._what_the_hardware_said(lambda: answer.append(read()))
+    return answer[0] if said is None else f'not read: {said}'
+
+
 class FirmwareDiagnostics:
     """Talks to LED and motor boards to collect diagnostic data.
 
@@ -1647,18 +1655,8 @@ class TechSupportReport:
         self._meta = {}
 
     def _camera_active(self) -> bool:
-        """True if a connected camera is reachable through the API.
-
-        Replaces the old ``self._camera is not None`` check. Goes through
-        the scope's diagnostic snapshot rather than reaching for the
-        driver handle directly (LAYER-D / LV-32).
-        """
-        if self.scope is None:
-            return False
-        try:
-            return bool(self.scope.diagnostics.get_camera_diagnostic_info().get('connected', False))
-        except Exception:
-            return False
+        """True when the report has a scope and its camera is connected."""
+        return self.scope is not None and self.scope.camera_connected
 
     def generate(
         self,
@@ -2206,35 +2204,37 @@ class TechSupportReport:
             (d / 'no_camera.txt').write_text('No camera available.\n')
             return
 
-        api_info = self.scope.diagnostics.get_camera_diagnostic_info()
+        camera = self.scope.camera
+        capabilities = self.scope.capabilities
+        limits = capabilities.camera_limits
 
-        # Flatten temperatures into the top-level info block so the
-        # output file format matches the historical layout (one
-        # 'Temperature_<name>' entry per sensor) downstream consumers
-        # may rely on.
-        info: dict = {}
-        for key in (
-            'model',
-            'resolution',
-            'pixel_format',
-            'gain_db',
-            'exposure_ms',
-            'max_gain_db',
-            'max_exposure_ms',
-        ):
-            if key in api_info:
-                info[key] = api_info[key]
-        temperatures = api_info.get('temperatures', {})
+        def frame_size() -> str | None:
+            size = camera.read_frame_size()
+            return f'{size.width}x{size.height}' if size is not None else None
+
+        # A read the camera did not answer is written as such, and the rest
+        # still are. Temperatures are flattened into the block, one
+        # 'Temperature_<name>' entry per sensor, the layout the bundle has
+        # always had.
+        info: dict = {
+            'model': capabilities.camera_model,
+            'resolution': _camera_reading(frame_size),
+            'pixel_format': _camera_reading(camera.read_pixel_format),
+            'gain_db': _camera_reading(camera.read_gain_db),
+            'exposure_ms': _camera_reading(camera.read_exposure_ms),
+            'max_gain_db': limits.gain_db_max if limits else None,
+            'max_exposure_ms': limits.exposure_ms_max if limits else None,
+        }
+        temperatures = _camera_reading(self.scope.diagnostics.get_camera_temperatures_degc)
         if isinstance(temperatures, str):
-            # The snapshot's per-field error string: the read failed.
             info['Temperatures'] = temperatures
         else:
-            for name, temp_c in temperatures.items():
+            for name, temp_c in (temperatures or {}).items():
                 info[f'Temperature_{name}'] = temp_c
 
         with open(d / 'camera_info.txt', 'w') as f:
             f.write('Camera Information\n' + '=' * 40 + '\n\n')
-            f.write(f'Camera model: {api_info.get("model", "?")}\n\n')
+            f.write(f'Camera model: {capabilities.camera_model}\n\n')
             for key, val in info.items():
                 label = key.replace('get_', '').replace('_', ' ').title()
                 f.write(f'  {label}: {val}\n')

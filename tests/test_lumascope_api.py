@@ -713,30 +713,29 @@ class TestRunGrabLifecycleBenchmark:
         except OSError:
             pass
 
-    def test_sdk_version_flows_into_diagnostic_info_and_filename(self, monkeypatch):
-        """The diagnostic snapshot must expose the imaging-SDK version, and
-        the benchmark must carry it into pylon_version + the artifact
-        filename. Without it every characterization file is tagged
-        'unknown_sdk' and can't be tied to the SDK that produced the numbers.
+    def test_the_benchmark_is_tagged_with_the_cameras_sdk_version(self, monkeypatch):
+        """The benchmark carries the capabilities' camera SDK version into
+        pylon_version and the artifact's filename. Without it every
+        characterization file is tagged 'unknown_sdk' and can't be tied to the
+        SDK that produced the numbers.
         """
         import os
 
-        scope = self._scope_with_camera()
-        # Pin a known SDK version via the driver-neutral get_sdk_info (the
-        # active driver names its own SDK), regardless of whether pypylon is
-        # installed on the test host (absent on Mac / CI).
-        monkeypatch.setattr(
-            scope._camera_driver,
-            'get_sdk_info',
-            lambda: {'name': 'Basler pylon', 'version': '11.5.0.1169'},
-        )
+        from drivers.simulated_camera import SimulatedCamera
 
-        info = scope.diagnostics.get_camera_diagnostic_info()
-        assert info.get('sdk_version') == '11.5.0.1169'
+        # The simulated camera is driven without a vendor SDK; this one says
+        # pylon's version at connect, as a Basler body does.
+        monkeypatch.setattr(
+            SimulatedCamera,
+            'get_sdk_info',
+            lambda self: {'name': 'Basler pylon', 'version': '11.5.0.1169'},
+        )
+        scope = self._scope_with_camera()
+        assert scope.capabilities.camera_sdk_version == '11.5.0.1169'
 
         r = scope.diagnostics.run_grab_lifecycle_benchmark(num_cycles=2, inter_cycle_delay_ms=0)
         assert r['pylon_version'] == '11.5.0.1169', (
-            'benchmark must read the SDK version from the diagnostic snapshot'
+            'benchmark must read the SDK version from the capabilities'
         )
         assert r['written_to'] is not None
         filename = os.path.basename(r['written_to'])
@@ -777,6 +776,53 @@ class TestScopeCapabilities:
         assert caps.has_turret is True
         assert caps.led_channels == (0, 1, 2, 3, 4, 5, 6, 7)
         assert caps.led_max_ma == scope._led_driver.max_ma()
+
+    def test_the_cameras_datasheet_facts_are_capabilities(self):
+        """The sensor and its shutter, from the camera's datasheet entry,
+        and the SDK's version, read at connect; the simulated camera is
+        driven without a vendor SDK."""
+        caps = build_scope(simulate=True).capabilities
+        assert (caps.camera_sensor, caps.camera_shutter) == ('Simulated', 'rolling')
+        assert caps.camera_sdk_version is None
+
+    def test_a_camera_no_datasheet_entry_describes_has_no_sensor_or_shutter(self):
+        """An unrecognised camera's profile was given an empty sensor, or
+        'IDS (unrecognized model)', and a 'rolling' shutter nobody knew."""
+        from drivers.camera_profiles import ids_default_profile, lookup_profile
+        from modules.scope_capabilities import ScopeCapabilities
+
+        for profile in (lookup_profile('NoSuchCamera'), ids_default_profile('U3-NoSuch')):
+            assert (profile.sensor, profile.shutter) == (None, None), profile.model_name
+
+        scope = build_scope(simulate=True)
+        scope._camera_driver.profile = lookup_profile('NoSuchCamera')
+        caps = ScopeCapabilities.from_drivers(
+            motion=scope._motion_driver,
+            led=scope._led_driver,
+            camera=scope._camera_driver,
+            layer_identity=scope.layer_identity,
+            scope_models=scope.scope_models,
+            timing_record=None,
+        )
+        assert (caps.camera_sensor, caps.camera_shutter) == (None, None)
+
+    def test_with_no_camera_the_datasheet_facts_are_unknown(self):
+        from modules.layer_record import UNRESOLVED
+        from modules.scope_capabilities import ScopeCapabilities
+
+        caps = ScopeCapabilities.from_drivers(
+            motion=NullMotionBoard(),
+            led=NullLEDBoard(),
+            camera=None,
+            layer_identity=UNRESOLVED,
+            scope_models={},
+            timing_record=None,
+        )
+        assert (caps.camera_sensor, caps.camera_shutter, caps.camera_sdk_version) == (
+            None,
+            None,
+            None,
+        )
 
     def test_ls850t_capabilities_has_turret(self):
         from drivers.simulated_motorboard import SimulatedMotorBoard

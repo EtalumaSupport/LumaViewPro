@@ -850,36 +850,6 @@ class TestRestAPIPrep:
             session.scope.camera.set_image_mode('8bit')
         assert exc.value.missing == MissingPart.CAMERA
 
-    def test_the_system_info_names_the_connected_camera(self):
-        """get_system_info()'s camera entry has the model and connection status."""
-        session = ScopeSession.create(complete_settings(), simulate=True)
-        info = session.scope.diagnostics.get_system_info()['camera']
-        assert info['connected'] is True
-        assert info['model'] is not None
-
-    def test_get_system_info(self):
-        """get_system_info() should return consolidated info for all hardware."""
-        session = ScopeSession.create(complete_settings(), simulate=True)
-        info = session.scope.diagnostics.get_system_info()
-        assert 'motor' in info
-        assert 'led' in info
-        assert 'camera' in info
-        assert info['simulated'] is True
-        assert 'lvp_version' in info
-
-    def test_system_info_no_hardware(self):
-        """get_system_info() should handle missing hardware gracefully."""
-        from drivers.null_motorboard import NullMotionBoard
-
-        session = ScopeSession.create(complete_settings(), simulate=True)
-        session.scope._motion_driver = NullMotionBoard()
-        session.scope._led_driver = None
-        session.scope._camera_driver = None
-        info = session.scope.diagnostics.get_system_info()
-        assert info['motor'].model is None
-        assert info['led'].command_set is None
-        assert info['camera']['connected'] is False
-
     def test_encode_image_png(self):
         """encode_image() should encode numpy array to PNG bytes."""
         from modules.image_utils import encode_image

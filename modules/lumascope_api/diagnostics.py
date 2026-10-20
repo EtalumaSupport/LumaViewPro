@@ -12,12 +12,13 @@ import datetime
 import pathlib
 import re
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import numpy as np
 
-from lvp_logger import log_dir, logger, version
+from lvp_logger import log_dir, logger
 from modules.finite_number import refuse_unless_finite_number
 from modules.api_surface import ProgressCallback, api, api_fields
 from modules.exceptions import (
@@ -111,6 +112,32 @@ class UsbIdentityBindings:
     needs: tuple[str, ...]
     usable: bool
     devices: tuple[UsbDeviceBinding, ...]
+
+
+@api_fields('transport', 'link_speed', 'link_speed_unit', 'packet_size_bytes', 'inter_packet_delay')
+@dataclass(frozen=True)
+class CameraLink:
+    """The camera's link to the host, read live; each field None where the
+    camera does not report it.
+
+    Attributes:
+        transport: ``'USB3'``, ``'GigE'`` or ``'USB2'``; the SDK's own name
+            when it is none of these.
+        link_speed: The negotiated speed, in ``link_speed_unit``, never
+            converted: GenICam's DeviceLinkSpeed has a unit that varies by
+            Basler model, and libusb reports the FX2's in Mbps. A speed whose
+            camera declares no unit is None with its unit, a number no caller
+            could read.
+        link_speed_unit: The unit the camera declares for ``link_speed``.
+        packet_size_bytes: GigE's stream packet size.
+        inter_packet_delay: GigE's inter-packet delay, in the camera's ticks.
+    """
+
+    transport: str | None
+    link_speed: float | None
+    link_speed_unit: str | None
+    packet_size_bytes: int | None
+    inter_packet_delay: int | None
 
 
 @api_fields('model', 'serial_number', 'firmware_version', 'firmware_date', 'command_set')
@@ -260,7 +287,7 @@ class DiagnosticsAPI:
 
     # --- Camera probes ---
     @api(reads=True)
-    def get_camera_temperatures_degc(self) -> dict | None:
+    def get_camera_temperatures_degc(self) -> dict[str, float] | None:
         """Get all camera temperature sensor readings.
 
         Runs on the camera lane, admitted whatever holds the scope: the read
@@ -268,7 +295,9 @@ class DiagnosticsAPI:
         with another camera write, but a run does not stop it.
 
         Returns:
-            dict | None: Mapping of sensor name to temperature in degC. Empty
+            dict[str, float] | None: Each sensor's temperature in degC, by
+            the sensor's name, which is the camera's own (a Basler body's
+            ``'FpgaCore'``; ``'Device'`` on an IDS body with one sensor). Empty
             only for a camera with no temperature sensor
             (``capabilities.camera_reports_temperature`` False). None when no
             camera is connected, after ``disconnect()`` too: a read with no
@@ -281,14 +310,14 @@ class DiagnosticsAPI:
             self._get_camera_temperatures_degc_impl, 'get_camera_temperatures_degc'
         )
 
-    def _get_camera_temperatures_degc_impl(self) -> dict | None:
+    def _get_camera_temperatures_degc_impl(self) -> dict[str, float] | None:
         driver = self._scope._camera_driver
         if not driver or not driver.active:
             return None
         return driver.get_all_temperatures()
 
     @api(reads=True)
-    def get_camera_link_info(self) -> dict | None:
+    def get_camera_link_info(self) -> CameraLink | None:
         """Read the camera's link, live.
 
         Runs on the camera lane, admitted whatever holds the scope, like the
@@ -296,25 +325,16 @@ class DiagnosticsAPI:
         with a camera write, and a run does not stop them.
 
         Returns:
-            dict | None: ``{'transport', 'link_speed', 'link_speed_unit',
-                'packet_size_bytes', 'inter_packet_delay'}``, each None where
-                the camera does not report it. ``transport`` is 'USB3', 'GigE'
-                or 'USB2' (the SDK's own name when it is none of these).
-                ``link_speed`` is the negotiated speed in the unit the camera
-                declares, ``link_speed_unit`` (GenICam's DeviceLinkSpeed,
-                whose unit varies by Basler model; 'Mbps' from libusb on the
-                FX2); it is never converted, and a speed whose camera
-                declares no unit is reported None with its unit, a number
-                no caller could read. The packet size and inter-packet
-                delay are GigE's stream settings. None when no camera is
-                connected, after ``disconnect()`` too.
+            CameraLink | None: The link, each field None where the camera
+                does not report it. None when no camera is connected, after
+                ``disconnect()`` too.
 
         Raises:
             HardwareError: A field the camera reports could not be read.
         """
         return self._read_camera_or_none(self._get_camera_link_info_impl, 'get_camera_link_info')
 
-    def _read_camera_or_none(self, impl, name: str) -> dict | None:
+    def _read_camera_or_none[T](self, impl: Callable[[], T | None], name: str) -> T | None:
         """Run a camera read on the camera lane; None with no camera connected.
 
         Asked before dispatch, so after ``disconnect()`` -- when the lane
@@ -333,11 +353,13 @@ class DiagnosticsAPI:
             satisfied_when_absent=None,
         )
 
-    def _get_camera_link_info_impl(self) -> dict | None:
+    def _get_camera_link_info_impl(self) -> CameraLink | None:
         driver = self._scope._camera_driver
         if not driver or not driver.active:
             return None
-        return driver.get_link_info()
+        # Built by name, so a field the drivers' link_info gains or loses
+        # fails here rather than going unpublished.
+        return CameraLink(**driver.get_link_info())
 
     @api(reads=True)
     def get_camera_usb_bindings(self) -> tuple[UsbIdentityBindings, ...] | None:
@@ -383,60 +405,6 @@ class DiagnosticsAPI:
             )
         return tuple(answer)
 
-    @api(reads=True)
-    def get_camera_diagnostic_info(self) -> dict:
-        """Read-only snapshot of camera state for diagnostics.
-
-        Returns the values that ``modules/tech_support_report.py`` and
-        bench tools used to read directly off the driver. Each field is
-        independently guarded so partial driver support yields a partial
-        dict rather than an exception.
-
-        Returns:
-            dict: Camera diagnostic snapshot. Keys may include
-                'model', 'resolution', 'pixel_format', 'gain_db', 'exposure_ms',
-                'max_gain_db', 'max_exposure_ms', 'temperatures', plus per-key
-                error strings for fields the driver couldn't supply.
-                Returns ``{'connected': False}`` if the camera is inactive.
-        """
-        if not self._scope._camera_driver or not self._scope._camera_driver.active:
-            return {'connected': False}
-
-        info: dict = {'connected': True}
-
-        def _try(key, fn):
-            try:
-                info[key] = fn()
-            except Exception as e:
-                info[key] = f'Error: {e}'
-
-        camera = self._scope.camera
-        info['model'] = self._scope.capabilities.camera_model
-        _try('pixel_format', camera.read_pixel_format)
-
-        try:
-            fs = camera.read_frame_size()
-            info['resolution'] = f'{fs.width}x{fs.height}'
-            info['frame_size'] = fs.to_dict()
-        except Exception as e:
-            info['resolution'] = f'Error: {e}'
-
-        _try('gain_db', camera.read_gain_db)
-        _try('exposure_ms', camera.read_exposure_ms)
-        limits = self._scope.capabilities.camera_limits
-        info['max_gain_db'] = limits.gain_db_max if limits else None
-        info['max_exposure_ms'] = limits.exposure_ms_max if limits else None
-
-        # Tag the active imaging-SDK runtime so characterization output
-        # (grab-benchmark filenames, tech-support snapshots) ties to the
-        # exact camera SDK that produced the numbers. Driver-neutral via
-        # get_sdk_info: the active driver names its own SDK + version (None
-        # when unknown) -- a provenance label, not a control input.
-        info['sdk_version'] = self._scope._camera_driver.get_sdk_info().get('version')
-
-        _try('temperatures', self.get_camera_temperatures_degc)
-        return info
-
     @api(in_process=True, engineering=True)
     def run_camera_bandwidth_test(
         self,
@@ -466,7 +434,8 @@ class DiagnosticsAPI:
                 ``CaptureFailedError``), failed_by_reason (those, counted by
                 the failure's reason), total_bytes, elapsed_seconds,
                 mb_per_second, fps_actual, frame_sizes, errors (the first 20
-                failures' words), passed.
+                failures' words), passed, and resolution (``'WxH'``) and
+                pixel_format, as the camera held them, None when unknown.
 
         Raises:
             ArgumentRefusedError: ``'not_a_number'``, ``timeout_s`` is not a finite
@@ -495,13 +464,12 @@ class DiagnosticsAPI:
             'passed': True,
         }
 
-        # Annotate with current camera state -- same fields the legacy
-        # tech-support test attached to its result dict.
-        cam_info = self.get_camera_diagnostic_info()
-        if cam_info.get('connected'):
-            for key in ('resolution', 'pixel_format'):
-                if key in cam_info:
-                    results[key] = cam_info[key]
+        # What the frames were taken at, so a throughput reads against its
+        # frame size and format: the values the camera holds, which cannot
+        # fail, so a label never ends the test.
+        frame_size = self._scope.camera.frame_size
+        results['resolution'] = f'{frame_size.width}x{frame_size.height}' if frame_size else None
+        results['pixel_format'] = self._scope.camera.pixel_format
 
         frame_size_set = set()
         start = time.monotonic()
@@ -668,9 +636,8 @@ class DiagnosticsAPI:
             results['errors'].append('Camera not active')
             return results
 
-        cam_info = self.get_camera_diagnostic_info()
-        results['camera_model'] = cam_info.get('model')
-        results['pylon_version'] = cam_info.get('sdk_version') or cam_info.get('pylon_version')
+        results['camera_model'] = self._scope.capabilities.camera_model
+        results['pylon_version'] = self._scope.capabilities.camera_sdk_version
 
         cycle_times, stop_times, start_times = [], [], []
         delay_s = max(0.0, float(inter_cycle_delay_ms) / 1000.0)
@@ -1299,10 +1266,7 @@ class DiagnosticsAPI:
     def _exit_led_engineering_mode_impl(drv) -> None:
         drv.exit_engineering_mode()
 
-    # --- Facade getters relocated from Lumascope ---
-    # Six thin getters that report hardware identity / connection state.
-    # Bodies live here; Lumascope keeps thin wrappers calling down until
-    # they retire.
+    # --- Board identity ---
 
     @api(reads=True)
     def get_motor_info(self) -> MotorBoardInfo:
@@ -1370,71 +1334,6 @@ class DiagnosticsAPI:
     @staticmethod
     def _read_led_currents_impl(drv) -> dict[int, float | None]:
         return {ch: drv.read_led_current(ch) for ch in drv.available_channels()}
-
-    @api(reads=True)
-    def get_camera_profile_info(self) -> dict | None:
-        """Get detailed camera profile information for display.
-
-        The camera's model, largest frame and binning sizes are on
-        ``scope.capabilities``; this reports the profile's sensor facts.
-
-        Returns:
-            dict with sensor, pixel_size_um, shutter, the gain range and the
-            exposure bounds. None if no camera.
-
-        Whatever the driver raises reading a connected camera is raised,
-        so a failed read is never mistaken for an absent camera.
-        """
-        if not self._scope._camera_driver or not self._scope._camera_driver.active:
-            return None
-        driver = self._scope._camera_driver
-        profile = driver.profile
-        # Exposure floor: the driver's LIVE minimum. The ExposureTime node
-        # minimum drifts above the connect-time value once other settings
-        # change, so the cached profile floor goes stale; get_min_exposure
-        # reads the live node, and raises when that read fails.
-        exposure_min_ms = driver.get_min_exposure()
-        exposure_min_us = exposure_min_ms * 1000.0 if exposure_min_ms is not None else None
-        return {
-            'sensor': profile.sensor,
-            'pixel_size_um': profile.pixel_size_um,
-            'shutter': profile.shutter,
-            'gain_min_db': profile.gain.total_min_db,
-            'gain_max_db': profile.gain.total_max_db,
-            'exposure_min_us': exposure_min_us,
-            'exposure_min_ms': exposure_min_ms,
-            'max_exposure_ms': (
-                self._scope.capabilities.camera_limits.exposure_ms_max
-                if self._scope.capabilities.camera_limits
-                else None
-            ),
-        }
-
-    def _camera_summary(self) -> dict:
-        """The camera's model (``capabilities.camera_model``), its pixel
-        format now, and whether it is connected."""
-        driver = self._scope._camera_driver
-        connected = bool(driver and driver.active)
-        return {
-            'model': self._scope.capabilities.camera_model if connected else None,
-            'pixel_format': driver.get_pixel_format() if connected else None,
-            'connected': connected,
-        }
-
-    @api(reads=True)
-    def get_system_info(self) -> dict:
-        """Get consolidated system information for all hardware.
-
-        Returns:
-            dict: Keys 'motor', 'led', 'camera', 'simulated', 'lvp_version'.
-        """
-        return {
-            'motor': self.get_motor_info(),
-            'led': self.get_led_info(),
-            'camera': self._camera_summary(),
-            'simulated': self._scope._simulated,
-            'lvp_version': version,
-        }
 
     # --- Phase 5 helper forwarders (5b-introduced; bodies co-relocate 5c) ---
     # These four helpers are exclusive to diagnostic methods. 5b adds

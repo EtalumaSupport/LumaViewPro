@@ -105,9 +105,11 @@ class CameraProfile:
 
     # --- Static (hardcoded per model) ---
     model_name: str = ''
-    sensor: str = ''
+    # The sensor's name and its shutter ('rolling' or 'global'), as the model's
+    # datasheet states them; None for a camera no curated entry describes.
+    sensor: str | None = None
     pixel_size_um: float = 0.0  # Pixel pitch in micrometers
-    shutter: str = 'rolling'  # 'rolling' or 'global'
+    shutter: str | None = None
     native_resolution: dict = field(default_factory=dict)  # {'width': int, 'height': int}
     pixel_formats: list[str] = field(default_factory=list)
     binning_sizes: list[int] = field(default_factory=lambda: [1])
@@ -384,7 +386,6 @@ def ids_default_profile(model_name: str) -> CameraProfile:
     """
     return CameraProfile(
         model_name=model_name,
-        sensor='IDS (unrecognized model)',
         pixel_size_um=0.0,  # filled from SensorPixelWidth at connect
         pixel_formats=[],  # filled from the live PixelFormat node at connect
         binning_sizes=[1],  # widened from the live binning ceiling at connect

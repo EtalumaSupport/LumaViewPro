@@ -437,7 +437,6 @@ def test_no_self_imaging_calls_in_lumascope():
 DIAGNOSTICS_ONLY_METHODS = frozenset(
     {
         'get_camera_temperatures_degc',
-        'get_camera_diagnostic_info',
         'run_camera_bandwidth_test',
         'run_grab_lifecycle_benchmark',
         'run_pylon_diagnostic_probe',
@@ -669,8 +668,6 @@ DIAGNOSTIC_FACADE_GETTERS = frozenset(
     {
         'get_motor_info',
         'get_led_info',
-        'get_camera_profile_info',
-        'get_system_info',
     }
 )
 

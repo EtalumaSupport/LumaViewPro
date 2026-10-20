@@ -1,5 +1,6 @@
 """A camera reports its link: transport, negotiated speed, and GigE's stream
 packet size and inter-packet delay, each None where the camera reports none.
+The API answers it as a ``CameraLink``; a driver as its ``link_info`` dict.
 
 A read that fails raises; it is never turned into None.
 """
@@ -13,13 +14,20 @@ from pypylon import genicam
 from drivers import fx2driver
 from drivers.camera import Camera, link_info
 from drivers.exceptions import HardwareError
+from modules.lumascope_api.diagnostics import CameraLink
 from modules.scope_session import ScopeSession
 from tests.camera_fakes import bare_ids_camera, bare_pylon_camera
 from tests.settings_fixtures import complete_settings
 
 
 def test_the_simulated_camera_is_on_usb3_and_reports_nothing_more(sim_scope):
-    assert sim_scope.diagnostics.get_camera_link_info() == link_info(transport='USB3')
+    assert sim_scope.diagnostics.get_camera_link_info() == CameraLink(
+        transport='USB3',
+        link_speed=None,
+        link_speed_unit=None,
+        packet_size_bytes=None,
+        inter_packet_delay=None,
+    )
 
 
 @pytest.fixture(scope='module')
@@ -32,13 +40,13 @@ def fx2_session():
 
 
 def test_the_fx2_is_usb2_at_the_speed_it_negotiated(fx2_session):
-    assert fx2_session.scope.diagnostics.get_camera_link_info() == {
-        'transport': 'USB2',
-        'link_speed': 480.0,
-        'link_speed_unit': 'Mbps',
-        'packet_size_bytes': None,
-        'inter_packet_delay': None,
-    }
+    assert fx2_session.scope.diagnostics.get_camera_link_info() == CameraLink(
+        transport='USB2',
+        link_speed=480.0,
+        link_speed_unit='Mbps',
+        packet_size_bytes=None,
+        inter_packet_delay=None,
+    )
 
 
 def test_an_fx2_whose_speed_libusb_does_not_know_reports_no_speed_and_no_unit(
@@ -51,7 +59,7 @@ def test_an_fx2_whose_speed_libusb_does_not_know_reports_no_speed_and_no_unit(
 
     info = fx2_session.scope.diagnostics.get_camera_link_info()
 
-    assert (info['link_speed'], info['link_speed_unit']) == (None, None)
+    assert (info.link_speed, info.link_speed_unit) == (None, None)
 
 
 @pytest.mark.parametrize('libusb_speed, mbps', [(0, None), (2, 12.0), (3, 480.0), (4, 5000.0)])
