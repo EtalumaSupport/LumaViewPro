@@ -2550,26 +2550,24 @@ class AutofocusOutOfTravelError(Refusal, CaptureError):
 
 
 class AutofocusZNotRestoredError(Fault, CaptureError):
-    """Autofocus stopped without a result and could not put Z back.
+    """Autofocus stopped without a result and could not put a known Z back.
 
-    What the person must do depends on how the restore failed: a move that
-    faulted has lost Z, and no move is accepted on it until a home; a
-    refused target left Z known, where the sweep parked it.
+    The restore's target was refused, so Z is known, where the sweep parked
+    it. A restore on a lost Z is not this: the fault that lost Z is told
+    where it was found, and the run ends on the lost position.
 
     Attributes:
-        reason: ``'z_position_lost'`` or ``'z_left_at_search_position'``.
+        reason: ``'z_left_at_search_position'``.
     """
 
     title = 'Z Position Not Restored'
 
-    def __init__(self, *, z_lost: bool):
-        if z_lost:
-            reason = 'z_position_lost'
-            what = 'The Z position is now unknown -- home the scope before moving it.'
-        else:
-            reason = 'z_left_at_search_position'
-            what = 'Z was left at the last autofocus search position.'
-        super().__init__(f'Could not restore Z position after autofocus stopped. {what}', reason)
+    def __init__(self):
+        super().__init__(
+            'Could not restore Z position after autofocus stopped. '
+            'Z was left at the last autofocus search position.',
+            'z_left_at_search_position',
+        )
 
 
 class RunWriteRefusedError(Refusal, CaptureError):

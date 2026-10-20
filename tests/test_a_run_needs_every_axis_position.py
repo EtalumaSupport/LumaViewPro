@@ -245,14 +245,11 @@ class TestALostPositionEndsTheRunOnce:
         assert (outcome.status, outcome.reason) == ('failed', 'position_lost')
         assert 'the Z position is unknown' in outcome.message
         assert _images(tmp_path) == [], 'an image was saved at an unknown Z'
-        restore = [
-            message
-            for title, message in _notices(centre_posts)
-            if title == 'Z Position Not Restored'
-        ]
-        assert restore and 'home the scope' in restore[0], (
-            'the restore notice must send the user to home, not to a move the API refuses'
-        )
+        # The ending sends the user to home; a restore notice on the lost Z
+        # would only tell the loss again.
+        assert 'Home the scope' in outcome.message
+        titles = [title for title, _ in _notices(centre_posts)]
+        assert 'Z Position Not Restored' not in titles, titles
 
     def test_a_position_lost_between_scans_ends_the_run_before_the_period(
         self, session_factory, tmp_path

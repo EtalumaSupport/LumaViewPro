@@ -60,8 +60,7 @@ _FAULTS = [
     (exc.AutoGainNotSettledError(), 'auto_gain_not_settled', False),
     (exc.AutofocusFailedError('flat_focus_curve'), 'flat_focus_curve', False),
     (exc.AutofocusFailedError('unexpected_error'), 'unexpected_error', False),
-    (exc.AutofocusZNotRestoredError(z_lost=True), 'z_position_lost', False),
-    (exc.AutofocusZNotRestoredError(z_lost=False), 'z_left_at_search_position', False),
+    (exc.AutofocusZNotRestoredError(), 'z_left_at_search_position', False),
     (
         exc.CompositeFailedError('The run has no directory to merge from.', 'no_run_dir'),
         'no_run_dir',

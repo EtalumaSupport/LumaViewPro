@@ -12,6 +12,7 @@ from matplotlib.figure import Figure
 import numpy as np
 import pandas as pd
 
+from lib.lumascope_error import LumascopeError
 from lvp_logger import logger
 
 import modules.path_utils as path_utils
@@ -29,7 +30,6 @@ from modules.exceptions import (
     AutofocusZNotRestoredError,
     CameraSettingRejected,
     CaptureFailedError,
-    HardwareCommandRefusedError,
 )
 from modules.lumascope_api.illumination import (
     LedTransition,
@@ -437,20 +437,15 @@ class AutofocusRunner:
                 logger.debug('[AF] precision restore in error path failed', exc_info=True)
             self._is_focusing_event.clear()
             self._is_complete_event.clear()
-            if isinstance(
-                ex,
-                (
-                    AutofocusFailedError,
-                    AutofocusOutOfTravelError,
-                    CaptureFailedError,
-                    HardwareCommandRefusedError,
-                ),
-            ):
-                # A refusal the sweep decided, already logged with its
-                # numbers, is reported as itself; so is a command the
-                # hardware refused -- the light that could not go on names
-                # the missing LED controller, not an unexpected error -- and
-                # a capture that got no frame after its retries.
+            if isinstance(ex, LumascopeError):
+                # An outcome with a kind is reported as itself: a refusal the
+                # sweep decided, already logged with its numbers; a command
+                # the hardware refused -- the light that could not go on names
+                # the missing LED controller, not an unexpected error; a
+                # capture that got no frame after its retries; a move fault
+                # the motion monitor reported as it gave the axis up. An
+                # outcome is told once per object, so one already told is
+                # not told again, where a new object around it would be.
                 failed = ex
             else:
                 params_repr = repr(getattr(self, '_params', None))[:500]
@@ -460,9 +455,15 @@ class AutofocusRunner:
                 # Chained, so the one report logs the traceback.
                 failed = AutofocusFailedError('unexpected_error')
                 failed.__cause__ = ex
-            # An unattended run's mute keeps this off the screen; the run
-            # captures at its fallback Z and the report is the record.
-            if _its_run_has_ended():
+            # A sweep that ended on a lost Z tells nothing: the fault that
+            # lost it was told where it was found, a move asked after it is
+            # refused on that loss alone, and the run's position check ends
+            # the run on it, sending the user to home. An unattended run's
+            # mute keeps the rest off the screen; the run captures at its
+            # fallback Z and the report is the record.
+            if 'Z' in self._scope.motion.axes_without_position():
+                _af_log.info(f'[AF] {failed} -- on a lost Z, which was told, so not reported')
+            elif _its_run_has_ended():
                 logger.warning(f'[AF] {failed} -- after its run ended, so not reported')
             else:
                 notifications.report_outcome(failed, solicited=False, category='Autofocus')
@@ -546,23 +547,30 @@ class AutofocusRunner:
                             f'[AF DIAG] Non-success exit: restored Z to pre-AF position {pre_af_z:.2f}'
                         )
                     except Exception as restore_ex:
-                        # Which of two things the user must do depends on how the
-                        # restore failed: a move that faulted has lost Z, and no
-                        # move is accepted on it until a home; a refused target
-                        # left Z known, where the sweep parked it. Chained, so the
-                        # one report logs the restore's traceback.
-                        not_restored = AutofocusZNotRestoredError(
-                            z_lost='Z' in self._scope.motion.axes_without_position()
-                        )
-                        not_restored.__cause__ = restore_ex
-                        if _its_run_has_ended():
-                            logger.warning(
-                                f'[AF] {not_restored} -- after its run ended, so not reported'
+                        # A lost Z is not this restore's news: the fault that
+                        # lost it -- in the sweep or in this move -- was told
+                        # where it was found, no move is accepted on it until
+                        # a home, and the run's position check ends the run on
+                        # it, sending the user to home. A refused target left
+                        # Z known, where the sweep parked it, and only this
+                        # tells that. Chained, so the one report logs the
+                        # restore's traceback.
+                        if 'Z' in self._scope.motion.axes_without_position():
+                            _af_log.info(
+                                f'[AF DIAG] Non-success exit: Z not restored, its position '
+                                f'is lost ({type(restore_ex).__name__}: {restore_ex})'
                             )
                         else:
-                            notifications.report_outcome(
-                                not_restored, solicited=False, category='Autofocus'
-                            )
+                            not_restored = AutofocusZNotRestoredError()
+                            not_restored.__cause__ = restore_ex
+                            if _its_run_has_ended():
+                                logger.warning(
+                                    f'[AF] {not_restored} -- after its run ended, so not reported'
+                                )
+                            else:
+                                notifications.report_outcome(
+                                    not_restored, solicited=False, category='Autofocus'
+                                )
                 # The AF-end LED state is the authority's AF_TO_CAPTURE decision:
                 # hold the AF channel for the following capture, or restore the
                 # pre-AF snapshot. Hold only on success -- after an abort or error
