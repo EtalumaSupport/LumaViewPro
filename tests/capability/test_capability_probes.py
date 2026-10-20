@@ -44,8 +44,9 @@ import sys
 
 import pytest
 
+from tests.bench_results import linked_checkout
+
 HERE = pathlib.Path(__file__).resolve().parent
-REPO = HERE.parents[1]
 
 # The harness and its helpers are not probes.
 _NOT_A_PROBE = {'harness.py', 'runfolder.py', '__init__.py', pathlib.Path(__file__).name}
@@ -62,18 +63,26 @@ def probe_files():
 
 
 def run_probe(path, scratch):
-    """Run one probe in a clean interpreter. Returns (exit code, output)."""
+    """Run one probe in a clean interpreter. Returns (exit code, output).
+
+    From a folder of links into the checkout, so the run's console and
+    verdict files land in that folder's log folder, never the checkout's.
+    """
+    folder = linked_checkout(scratch)
+    capability = folder / 'tests' / 'capability'
     env = dict(os.environ)
     # The probes import `harness` by name, the way they did as standalone
-    # scripts; this directory is what makes that resolve.
-    env['PYTHONPATH'] = os.pathsep.join([str(HERE), str(REPO), env.get('PYTHONPATH', '')])
+    # scripts; this directory is what makes that resolve. `-P` keeps Python
+    # from putting the script's own folder first: it resolves the links, and
+    # the harness would then find the checkout's log folder.
+    env['PYTHONPATH'] = os.pathsep.join([str(capability), str(folder), env.get('PYTHONPATH', '')])
     env['LVP_CAPABILITY_SCRATCH'] = str(scratch)
     proc = subprocess.run(
-        [sys.executable, str(path)],
+        [sys.executable, '-P', str(capability / path.name)],
         capture_output=True,
         text=True,
         timeout=300,
-        cwd=str(REPO),
+        cwd=str(folder),
         env=env,
     )
     return proc.returncode, proc.stdout + proc.stderr

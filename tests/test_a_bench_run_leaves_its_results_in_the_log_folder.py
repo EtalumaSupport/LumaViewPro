@@ -1,10 +1,11 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""A bench run's results land in the one log folder; a simulator run leaves none there.
+"""A bench run's results land in the one log folder; a simulator suite run leaves none there.
 
-A bench run (a pytest run with a hardware flag, or a capability probe under
-``--hardware``) writes its results under ``<log folder>/bench_results/``,
-which the support zip carries with the logs. The simulator suite's writes
-stay in temporary folders, so a suite run puts nothing there.
+A bench run (a pytest run with a hardware flag) and every capability probe
+run, on either target, write their results under
+``<log folder>/bench_results/``, which the support zip carries with the
+logs; a probe leaves its whole console beside its verdict. The simulator
+suite's writes stay in temporary folders, so a suite run puts nothing there.
 
 Each run is a subprocess in a scratch folder of links into the checkout:
 the log folder follows the folder a run is launched from, so the runs write
@@ -93,3 +94,38 @@ def test_a_probe_under_hardware_leaves_its_verdict_in_the_log_folder(folder):
     verdict = json.loads(path.read_text())
     assert verdict['figures'] == {'a figure': 1}
     assert verdict['target'] == 'hardware'
+
+
+def test_a_probe_run_leaves_its_console_and_its_verdict_in_the_log_folder(folder):
+    # A simulator run, ended by a raise the way a crashing probe ends: the
+    # console file holds the traceback and every line before it.
+    code = (
+        'import sys\n'
+        "sys.path.insert(0, 'tests/capability')\n"
+        "sys.argv = ['console_probe']\n"
+        'import harness\n'
+        "harness.check('a check', True)\n"
+        'harness.report()\n'
+        "raise RuntimeError('the probe crashed')\n"
+    )
+    done = subprocess.run(
+        [sys.executable, '-c', code],
+        cwd=str(folder),
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+
+    assert done.returncode == 1, done.stdout[-3000:] + done.stderr[-3000:]
+    results = folder / 'logs' / 'LVP_Log' / 'bench_results'
+    (console,) = results.glob('console_probe_*_console.log')
+    (verdict_path,) = results.glob('console_probe_*_verdict.json')
+    assert console.name.removesuffix('_console.log') == verdict_path.name.removesuffix(
+        '_verdict.json'
+    )
+    text = console.read_text()
+    assert 'PASS a check' in text
+    assert 'RuntimeError: the probe crashed' in text
+    verdict = json.loads(verdict_path.read_text())
+    assert verdict['target'] == 'simulator'
+    assert verdict['checks'] == [{'name': 'a check', 'passed': True, 'kind': 'check'}]

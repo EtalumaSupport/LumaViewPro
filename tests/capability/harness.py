@@ -29,9 +29,19 @@ machine, through `hardware_session()`. That is the only door to hardware. A
 simulated constructor refuses under `--hardware`, so a probe with no hardware
 path can never print a simulator's verdict for a hardware question. The suite
 never passes the flag.
+
+THE RECORD. Every run leaves two files under ``<log folder>/bench_results/``,
+one stamp for both: ``<probe>_<stamp>_console.log``, every line the probe
+printed to stdout and stderr, written as it is printed, so a refusal, a crash
+or a hand-timed step is in it; and ``<probe>_<stamp>_verdict.json``, the checks
+and figures, written by `report()`. The support zip carries the log folder,
+so a bench run reaches the reader with nothing copied off a terminal. The
+suite runs each probe from a folder of links into the checkout, so its runs
+write into that folder and never into the checkout's own logs.
 """
 
 import contextlib
+import datetime
 import json
 import os
 import pathlib
@@ -60,6 +70,41 @@ TILING_JSON = REPO / 'data' / 'tiling.json'
 
 HARDWARE = '--hardware' in sys.argv[1:]
 PROBE = pathlib.Path(sys.argv[0]).stem
+
+
+class _Tee:
+    """A console stream that also writes every line to the run's console file."""
+
+    def __init__(self, stream, file):
+        self._stream = stream
+        self._file = file
+
+    def write(self, text):
+        self._file.write(text)
+        return self._stream.write(text)
+
+    def flush(self):
+        self._file.flush()
+        self._stream.flush()
+
+    def __getattr__(self, name):
+        return getattr(self._stream, name)
+
+
+def _open_record():
+    from tests.bench_results import bench_results_dir
+
+    stamp = datetime.datetime.now(datetime.UTC).strftime('%Y%m%dT%H%M%SZ')
+    stem = bench_results_dir() / f'{PROBE}_{stamp}'
+    console = open(f'{stem}_console.log', 'w', encoding='utf-8', buffering=1)  # noqa: SIM115
+    sys.stdout = _Tee(sys.stdout, console)
+    sys.stderr = _Tee(sys.stderr, console)
+    print(f'CONSOLE FILE: {stem}_console.log', flush=True)
+    return stem
+
+
+# The run's two files share this path stem (THE RECORD).
+RECORD = _open_record()
 
 # (name, passed, kind) where kind is 'check' or 'void'.
 RESULTS: list[tuple[str, bool, str]] = []
@@ -90,10 +135,20 @@ def void(name, cond, reason):
     return bool(cond)
 
 
+# A figure's printed line stops here; the whole value is in the verdict file.
+_FIGURE_LINE_CHARS = 2000
+
+
 def figure(name, value):
     """A measurement the probe reports without judging it."""
     FIGURES[name] = value
-    print(f'FIGURE {name} = {value}', flush=True)
+    text = str(value)
+    if len(text) > _FIGURE_LINE_CHARS:
+        text = (
+            text[:_FIGURE_LINE_CHARS]
+            + f' ... ({len(text)} chars; the whole value is in the verdict file)'
+        )
+    print(f'FIGURE {name} = {text}', flush=True)
     return value
 
 
@@ -157,27 +212,22 @@ def report():
         print(f'UI LEAK: a probe imported {bad}; a capability probe drives modules/ only.')
     failed = bool(failed_checks or filled_voids or bad)
     print(f'TARGET: {"hardware" if HARDWARE else "simulator"}', flush=True)
-    if HARDWARE:
-        _write_verdict(failed)
+    _write_verdict(failed)
     return 1 if failed else 0
 
 
 def _write_verdict(failed):
-    """Leave the hardware run's verdict in the log folder, beside the run's logs.
+    """Leave the run's verdict in the log folder, beside its console file.
 
-    Stamped with the build and the scope it ran on, so the file answers on
-    its own which code asked which instrument. It goes under
-    ``<log folder>/bench_results/``, one file per run, so the support zip
-    carries every bench run's result with the logs; the probe's scratch
-    folder is temporary and nobody collects it.
+    Stamped with the build and the scope it ran on (empty on the simulator),
+    so the file answers on its own which code asked which instrument; the
+    probe's scratch folder is temporary and nobody collects it (THE RECORD).
     """
-    import datetime
-
     import lvp_logger
 
     verdict = {
         'probe': PROBE,
-        'target': 'hardware',
+        'target': 'hardware' if HARDWARE else 'simulator',
         'passed': not failed,
         'lvp_commit': lvp_logger.git_revision(),
         'scope': IDENTITY,
@@ -185,11 +235,7 @@ def _write_verdict(failed):
         'figures': FIGURES,
         'log_folder': lvp_logger.log_dir,
     }
-    from tests.bench_results import bench_results_dir
-
-    folder = bench_results_dir()
-    stamp = datetime.datetime.now(datetime.UTC).strftime('%Y%m%dT%H%M%SZ')
-    path = folder / f'{PROBE}_{stamp}_verdict.json'
+    path = pathlib.Path(f'{RECORD}_verdict.json')
     path.write_text(json.dumps(verdict, indent=2, default=str))
     print(f'VERDICT FILE: {path}', flush=True)
     print(f'LOG FOLDER: {lvp_logger.log_dir}', flush=True)
