@@ -273,6 +273,7 @@ class SimulatedCamera(Camera):
         'pixel_format': 'get_pixel_format',
         'black_level': 'get_black_level',
         'frame_rate': 'get_resulting_frame_rate',
+        'minimum_exposure': 'get_min_exposure',
     }
     # What a failed read answers, by name: a real SDK's node read raises;
     # or answers the driver's failed-read value; or raises because the

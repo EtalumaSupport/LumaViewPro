@@ -494,7 +494,8 @@ class SimulationAPI:
         Args:
             node: The setting read: ``'gain'``, ``'exposure'``,
                 ``'frame_size'``, ``'binning'``, ``'pixel_format'``,
-                ``'black_level'`` or ``'frame_rate'``.
+                ``'black_level'``, ``'frame_rate'`` or ``'minimum_exposure'``
+                (``camera.read_exposure_ms_min``).
             answer: How the read fails: ``'raise'``; ``'sentinel'``, the
                 driver's failed-read value (-1 for the gain, the exposure
                 and the binning, nothing for the frame size; not for the

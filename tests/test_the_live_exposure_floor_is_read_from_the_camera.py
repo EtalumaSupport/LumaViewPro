@@ -25,12 +25,7 @@ def test_no_camera_answers_none(sim_scope):
     assert sim_scope.camera.read_exposure_ms_min() is None
 
 
-def test_a_failed_read_raises(sim_scope, monkeypatch):
-    # A stand-in by design: the simulated camera's floor read cannot fail;
-    # the IDS driver's failing read is pinned in test_ids_driver.py.
-    def unreadable():
-        raise CameraReadFailedError('Minimum exposure read failed: node unreadable')
-
-    monkeypatch.setattr(sim_scope._camera_driver, 'get_min_exposure', unreadable)
-    with pytest.raises(CameraReadFailedError, match='node unreadable'):
+def test_a_failed_read_raises(sim_scope):
+    sim_scope.simulation.refuse_camera_read('minimum_exposure', 'raise')
+    with pytest.raises(CameraReadFailedError, match='minimum exposure'):
         sim_scope.camera.read_exposure_ms_min()
