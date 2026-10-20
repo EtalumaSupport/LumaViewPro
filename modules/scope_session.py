@@ -865,14 +865,32 @@ class ScopeSession:
                 connection read behind ``run_refused`` crashed instead of
                 answering.
         """
-        return Status(
-            live_work=self.live_work,
-            lock=self.controls_lock,
-            run_refused=self.sequenced_capture_runner.state_refusal(self.activity_claim),
-            axes=self.scope.motion.axis_positions(),
-            parts=self.scope.bring_up_record().parts,
-            camera_streaming=self.scope.imaging.is_streaming(),
-        )
+        return self.status_at_edge()()
+
+    def status_at_edge(self) -> Callable[[], Status]:
+        """The status as of now but for the camera's answer, which the returned call reads.
+
+        For a run-state listener, which is told on the thread making the
+        transition and must not wait there: every field but
+        ``camera_streaming`` is read on the calling thread, at the edge, and
+        the camera is asked when the call is made, on a thread that may
+        wait (a grab stop holds the camera SDK for as long as the camera
+        takes to stop). ``status`` makes the call at once. Composition
+        wiring for a host's event stream, not part of the L2 API surface.
+
+        Raises:
+            RunCheckFailedError: ``'hardware_state_unknown'``, the
+                connection read behind ``run_refused`` crashed instead of
+                answering.
+        """
+        at_edge = {
+            'live_work': self.live_work,
+            'lock': self.controls_lock,
+            'run_refused': self.sequenced_capture_runner.state_refusal(self.activity_claim),
+            'axes': self.scope.motion.axis_positions(),
+            'parts': self.scope.bring_up_record().parts,
+        }
+        return lambda: Status(**at_edge, camera_streaming=self.scope.imaging.is_streaming())
 
     @contextlib.contextmanager
     def _report_in_flight(self, kind: str):
@@ -1027,13 +1045,17 @@ class ScopeSession:
         motion available on a scope that has no stage."""
         return self.scope.capabilities.has_xy_stage and not self.run_lockout
 
-    @api(in_process=True, event=LiveWork)
+    @api(in_process=True, event=Status)
     def add_run_state_listener(self, listener: Callable[[], None]) -> None:
         """Register a run-state transition listener and level-sync it.
 
         The immediate call is the level republish: transitions are
         edges, and a listener registered after a grant would otherwise
-        never see it.
+        never see it. A wire client is sent the session's ``status`` at
+        each edge, in the order the edges happen: every field read at the
+        edge but the camera's, which is asked just after
+        (``status_at_edge``); a field that changes with no edge (an axis,
+        a part, the camera) is as of that edge.
         """
         self._run_state_listeners.append(listener)
         listener()

@@ -2220,7 +2220,7 @@ The six listener families each pass a different callback signature -- register a
 | LED / illumination | `scope.illumination.add_led_listener` | `on_led(address: int, name: str \| None, state: LedState, illumination_ma: float \| None)` | `LedReading(address, name, state, illumination_ma)` |
 | Camera params | `scope.camera.add_camera_listener` | `on_camera(param: str, value: float)` | `CameraChanged(setting, value)` |
 | Live frame | `scope.imaging.add_frame_listener` | `on_frame(frame: Frame)` | `FrameDelivered(frame)` |
-| Run state | `session.add_run_state_listener` | `on_run_state()` -- no payload; re-read the session derivations (see Run state and locks above) | `LiveWork`, read as the event is sent |
+| Run state | `session.add_run_state_listener` | `on_run_state()` -- no payload; re-read the session derivations (see Run state and locks above) | `Status`, read at the edge but for `camera_streaming`, asked just after |
 | Outcomes | `ScopeSession.create(outcome_listener=...)` or `session.add_outcome_listener` | `on_outcome(n)` -- one `Notification` (see Outcomes above) | `Notification` itself |
 
 Each event declares its record, published in the reference below: its fields name the callback's arguments in order, so a host that carries an event elsewhere (the REST server's stream) builds the record from the arguments rather than keeping its own table of signatures. A run's events do the same: `RunEvents.scan_started` delivers `ScanStarted(scan_number, scans_remaining, interval)`, `scan_ended` `ScanEnded(...)`, `step_started` `StepStarted(step_idx)`, `frame_captured` `FrameCaptured(image, frames_summed, frame_significant_bits)`, `video_progress` the `VideoProgress` it passes, `run_ended` `RunEnded(outcome, run_dir, protocol)`, `files_written` `FilesWritten(run_dir, files)`. Callbacks keep their signatures; a Python caller need not build any record.
@@ -2735,7 +2735,7 @@ Every answer that is not a result is an RFC 9457 problem, `application/problem+j
 | `position` | `PositionChanged`: an axis's state and position, as `axis_positions` answers |
 | `led` | `LedReading` |
 | `camera` | `CameraChanged`: gain or exposure |
-| `run_state` | `LiveWork`, as `live_work` reads when the event is sent |
+| `run_state` | `Status`, as `status` reads at the edge; `camera_streaming` is asked just after, off the thread that made the transition, and the events keep the edges' order |
 | `outcome` | `Notification`: an outcome nobody asked for, once per `outcome_id` (one a request was refused with is its answer's problem) |
 | `scan_started`, `scan_ended`, `step_started`, `video_progress`, `run_ended`, `files_written` | The run event's record (`ScanStarted`, ...), with `run`, `{"job": "<id>"}`, the job of the run that sent it, as its call answered it (`null` for `run_composite`, which waits for its run and hands out no job). `run_ended` leaves out the run's own copy of its protocol. |
 | `job_ended` | The job, as `GET /api/v1/jobs/<id>` reads it once it has ended: every job, an operation's, a run's (after its `run_ended`) and a call's held as a job |

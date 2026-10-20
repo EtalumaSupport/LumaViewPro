@@ -204,6 +204,77 @@ def test_every_event_of_a_run_names_the_run_its_call_handed_out(client, session,
     assert ended['data']['result']['status'] == 'completed'
 
 
+def _run_one_step(client, session):
+    home_sim_scope(session.scope)
+    session.settings['BF']['acquire'] = 'image'
+    protocol = client.post('/api/v1/create_empty_protocol').json()['handle']
+    assert client.post('/api/v1/add_step', json={'protocol': protocol}).status_code == 200
+    runner = client.post('/api/v1/create_protocol_runner').json()['handle']
+    return client.post(
+        f'/api/v1/handles/ProtocolRunner/{runner}/start_single_scan',
+        json={'protocol': protocol, 'enable_image_saving': False},
+    )
+
+
+def test_each_run_state_edge_sends_the_status_in_the_order_heard(client, session):
+    with _reading(client) as stream:
+        stream.until('status')
+        assert _run_one_step(client, session).status_code in (200, 202)
+        events = stream.until('job_ended')
+
+        def last_state():
+            return [e for e in events if e.get('event') == 'run_state'][-1]['data']
+
+        # The run lets go before its job ends, but a file write can hold the
+        # controls a moment longer; its release is an edge of its own.
+        while last_state()['lock']['run_lockout']:
+            events.append(stream.next())
+
+    states = [e['data'] for e in events if e['event'] == 'run_state']
+    assert {'live_work', 'lock', 'run_refused', 'axes', 'parts', 'camera_streaming'} == set(
+        states[0]
+    )
+    lockouts = [s['lock']['run_lockout'] for s in states]
+    # Held from the run's grant until it lets go, and never held again after.
+    assert True in lockouts, lockouts
+    first_held = lockouts.index(True)
+    last_held = len(lockouts) - 1 - lockouts[::-1].index(True)
+    assert all(lockouts[first_held : last_held + 1]), lockouts
+    assert not any(lockouts[last_held + 1 :]) and not lockouts[-1], lockouts
+    assert states[first_held]['run_refused']['reason'] == 'already_running'
+    assert states[-1]['live_work']['work'] == [] and states[-1]['run_refused'] is None
+
+
+def test_a_status_read_waiting_on_the_camera_does_not_hold_the_edge(client, session, monkeypatch):
+    # A stand-in by design: the simulator cannot yet hold its camera in a
+    # grab stop, which on a Basler makes is_streaming wait (P-16, measured).
+    released = threading.Event()
+    real = session.scope.imaging.is_streaming
+    transitioning = threading.current_thread()
+    asked_on = []
+
+    def waits_on_a_grab_stop():
+        asked_on.append(threading.current_thread())
+        if threading.current_thread() is not transitioning:
+            released.wait(10)
+        return real()
+
+    with _reading(client) as stream:
+        stream.until('status')
+        monkeypatch.setattr(session.scope.imaging, 'is_streaming', waits_on_a_grab_stop)
+        try:
+            with session.diagnostic_claim():
+                pass
+        finally:
+            released.set()
+        events = stream.until('run_state')
+
+    # The grant and the release are made on this thread; the camera is never
+    # asked on it, and the grant's event still says what held the scope.
+    assert asked_on and transitioning not in asked_on, asked_on
+    assert events[-1]['data']['lock']['run_named'] == 'A diagnostic is in progress.'
+
+
 @api_fields('outcome', 'protocol')
 @dataclasses.dataclass(frozen=True)
 class _EndedWithoutProtocol:

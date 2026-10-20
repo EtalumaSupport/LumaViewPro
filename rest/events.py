@@ -40,7 +40,8 @@ import pydantic
 from modules import api_surface, wire_encoding
 from modules.notification_center import Notification
 from modules.run_events import RunEvents
-from modules.scope_session import ScopeSession
+from modules.scope_session import ScopeSession, Status
+from modules.sequential_io_executor import IOTask, SequentialIOExecutor
 from rest import routes
 from rest.jobs import Job
 
@@ -99,11 +100,20 @@ class EventStream:
         self._closing_seq: int | None = None
         # Each job's end being read off the loop, until it is sent.
         self._ending: set[asyncio.Task[None]] = set()
+        # Asks the session the reads an event's arguments do not carry, one
+        # at a time in the order the events were heard; None until ``open``.
+        self._reader: SequentialIOExecutor | None = None
 
     def open(self, loop: asyncio.AbstractEventLoop) -> None:
         """Start hearing every listener member's events, on *loop*."""
         self._loop = loop
         self._wake = asyncio.Event()
+        # Not a lane: it serves no device, and a read it makes asks the
+        # camera's driver, never a lane. No claim is wired to it, so it runs
+        # every read whatever holds the scope, and a raised read is reported
+        # by the executor, once, as every background task's is.
+        self._reader = SequentialIOExecutor(name='EVENT_STREAM_READS', lane=False)
+        self._reader.start()
         for owner, member_name, name, record in _listened(self._session):
             listener = self._listener(name, record)
             getattr(owner, member_name)(listener)
@@ -118,6 +128,8 @@ class EventStream:
         for remove in self._removals:
             remove()
         self._removals.clear()
+        if self._reader is not None:
+            self._reader.shutdown(wait=False)
 
     def finish(self) -> None:
         """Send ``closing`` to every reader, and end each read: the server is closing.
@@ -158,10 +170,29 @@ class EventStream:
 
             return heard_outcome
 
+        if record is Status:
+
+            def heard_edge() -> None:
+                # Read at the edge on the thread that announced it, but for
+                # the camera's answer, which is asked on the stream's reader:
+                # a grab stop holds the camera SDK (measured on the Basler),
+                # and the announcing thread must not wait on it. One reader
+                # keeps the events in the order they were heard.
+                reader = self._reader
+                if reader is not None:
+                    complete = self._session.status_at_edge()
+                    reader.put(IOTask(self._send_completed, args=(name, complete)))
+
+            return heard_edge
+
         def heard(*args: object) -> None:
             self.send(name, self._record(record, args))
 
         return heard
+
+    def _send_completed(self, name: str, complete: Callable[[], object]) -> None:
+        """Complete the edge's status and send it as event *name*."""
+        self.send(name, complete())
 
     def _first(self, outcome_id: int) -> bool:
         with self._lock:
@@ -176,8 +207,6 @@ class EventStream:
         """The event's record, built from its callback's arguments as the API declares."""
         if len(args) == 1 and isinstance(args[0], record):
             return args[0]
-        if not args:
-            return _read_of(self._session, record)
         return record(*args)
 
     def send(self, name: str, record: object, **added: object) -> None:
@@ -480,13 +509,3 @@ def _listeners(cls: type) -> list[tuple[str, type]]:
         if record is not None:
             found.append((name, record))
     return found
-
-
-def _read_of(session: ScopeSession, record: type) -> object:
-    """The session's read whose answer is *record*: the data of an event that carries no arguments."""
-    for name, member in inspect.getmembers(type(session)):
-        if isinstance(member, property) and api_surface.mark_of(member) is not None:
-            returns = member.fget.__annotations__.get('return')
-            if returns is record or returns == record.__name__:
-                return getattr(session, name)
-    raise TypeError(f'No session read answers {record.__name__}')
