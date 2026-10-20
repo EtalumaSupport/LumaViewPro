@@ -278,6 +278,24 @@ class Judgment:
         return out
 
 
+@dataclasses.dataclass(frozen=True)
+class Owed:
+    """What a capture still waits on before a frame can count for every change.
+
+    Attributes:
+        frames: Frames still to be delivered for the changes judged by the
+            credit rule, and 1 while a move's axis has not settled; 0 when
+            none is owed.
+        until_ns: Host ``time.monotonic_ns()`` after which a frame can start
+            late enough for every change judged by the clock rule (its
+            anchor, its delay and the mapping's uncertainty); None when no
+            such change has one.
+    """
+
+    frames: int
+    until_ns: int | None
+
+
 class FrameValidity:
     """Tracks frame validity after hardware state changes.
 
@@ -323,6 +341,24 @@ class FrameValidity:
         'black_level': 2,
         'conversion_gain_mode': 2,
         'line_noise_reduction': 2,
+    }
+
+    # Each source's change as a person says it, for a capture that got no
+    # frame after it (``CaptureFailedError`` ``'no_fresh_frame'``).
+    SOURCE_NAMES: ClassVar[dict] = {
+        'led': 'the LED change',
+        'gain': 'the gain change',
+        'exposure': 'the exposure change',
+        'xy_move': 'the stage move',
+        'z_move': 'the focus move',
+        'turret': 'the turret move',
+        'auto_gain': 'auto gain turning on',
+        'pixel_format': 'the pixel format change',
+        'frame_size': 'the frame size change',
+        'binning': 'the binning change',
+        'black_level': 'the black level change',
+        'conversion_gain_mode': 'the conversion gain mode change',
+        'line_noise_reduction': 'the line noise reduction change',
     }
 
     # One shape for every trace row this class writes. A row records the
@@ -722,6 +758,50 @@ class FrameValidity:
                     if not self._settle_check_fn(source):
                         max_remaining = max(max_remaining, 1)
             return max(0, max_remaining)
+
+    def owed(self, exclude_sources: tuple = (), uncertainty_ns: int = 0) -> Owed:
+        """What a capture waits on, each change by its own rule.
+
+        A change judged by the credit rule is owed its count, as
+        ``frames_until_valid`` counts it: with every source on the credit
+        rule the two are the same number. A change judged by the clock rule
+        is owed time instead -- its anchor plus its delay plus
+        ``uncertainty_ns``, on the host's clock -- whether or not frames have
+        been counted toward it, since a frame counts only once it started
+        after that instant. A move under either rule is also owed a frame
+        while its axis has not settled, and a clock move until its in-force
+        time is stamped: its anchor is not known before.
+
+        Args:
+            exclude_sources: Sources a frame may predate, as for
+                ``frames_until_valid``.
+            uncertainty_ns: The clock mapping's uncertainty, which the clock
+                rule adds (``ClockMapping.uncertainty_ns``); 0 without one.
+        """
+        with self._lock:
+            frames = 0
+            until_ns = None
+            for source, change in self._changes.items():
+                if source in exclude_sources:
+                    continue
+                moving = (
+                    source in self.MOTION_SOURCES
+                    and self._settle_check_fn is not None
+                    and not self._settle_check_fn(source)
+                )
+                if change.rule.rule is Rule.CLOCK:
+                    anchor = change.in_force_ns if change.needs_in_force else change.written_ns
+                    if moving or anchor is None:
+                        frames = max(frames, 1)
+                        continue
+                    qualifies_ns = anchor + math.ceil(change.rule.delay_us * 1000) + uncertainty_ns
+                    until_ns = qualifies_ns if until_ns is None else max(until_ns, qualifies_ns)
+                elif source in self._pending:
+                    if change.remaining > 0:
+                        frames = max(frames, change.remaining)
+                    elif moving:
+                        frames = max(frames, 1)
+            return Owed(frames=frames, until_ns=until_ns)
 
     @property
     def pending_sources(self) -> dict:

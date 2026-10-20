@@ -1492,12 +1492,17 @@ class CaptureFailedError(Fault, CaptureError):
               longer than the capture's budget.
             - ``'chunk_rejected'`` -- frames came, but none was exposed at
               the ``setting`` asked.
+            - ``'no_fresh_frame'`` -- frames came, but none within the
+              capture's bound counted for the ``setting`` changed: each was
+              exposed, by its source's rule, before that change reached it.
             - ``'recording_not_started'`` -- the camera did not take the
               recording's frame listener.
             - ``'unknown_save_encoding'`` -- a frame was handed an encoding
               no writer knows, which the program, not the person, got wrong.
-        setting: The setting no frame matched, ``'exposure'`` or ``'gain'``,
-            for ``'chunk_rejected'``; None otherwise.
+        setting: For ``'chunk_rejected'``, the setting no frame matched,
+            ``'exposure'`` or ``'gain'``; for ``'no_fresh_frame'``, the
+            change no frame came after, as a person says it (``'the focus
+            move'``, ``FrameValidity.SOURCE_NAMES``); None otherwise.
     """
 
     setting: str | None
@@ -1521,6 +1526,12 @@ class CaptureFailedError(Fault, CaptureError):
             '{setting} asked for, so none was captured. Try again; if it repeats, '
             'the camera is holding a different {setting} than was set.',
         ),
+        'no_fresh_frame': (
+            'Capture Failed',
+            'No frame the camera delivered in time was exposed after {setting}, '
+            'so nothing was captured. Try again; if it repeats, check that the '
+            'live view is moving.',
+        ),
         'recording_not_started': (
             'Recording Not Started',
             'The recording did not start: the camera did not accept its frame '
@@ -1536,9 +1547,10 @@ class CaptureFailedError(Fault, CaptureError):
     def __init__(self, reason: str, *, setting: str | None = None, encoding: str | None = None):
         if reason not in self._WORDS:
             raise TypeError(f'CaptureFailedError has no reason {reason!r}')
-        if (setting is None) == (reason == 'chunk_rejected'):
+        if (setting is None) == (reason in ('chunk_rejected', 'no_fresh_frame')):
             raise TypeError(
-                f'a {reason!r} capture failure takes setting= exactly when chunk_rejected'
+                f'a {reason!r} capture failure takes setting= exactly when '
+                'chunk_rejected or no_fresh_frame'
             )
         if (encoding is None) == (reason == 'unknown_save_encoding'):
             raise TypeError(

@@ -108,7 +108,7 @@ Methods on the L2 surface follow one of two contracts; if a method's docstring h
 - **Sentinel-return methods log** at `logger.warning` or `logger.info` per Rule 5; they do **not** fire user notifications (no actionable failure occurred -- the value is just unknown).
 - **`camera_connected` is an instantaneous, non-latching poll.** A `False` can be transient (a single flaky connectivity query on an otherwise healthy camera). Consumers may skip work on `False` and re-poll on their next cycle; they must never latch, self-cancel, or tear anything down on it -- one transient `False` on a multi-day run should cost one skipped cycle, not the rest of the session.
 - **`scope.camera.camera_removed` is the latched answer.** It is True once the camera's driver has declared it removed (unplugged, off the bus), and stays True until the camera connects again. Unlike a `False` from `camera_connected`, it is never transient, so it is safe to act on. A capture that meets a removed camera is refused `HardwareCommandRefusedError` (`not_connected`), and a run that meets it ends at once, `status='failed'`, `reason='hardware_disconnected'`, in words naming the part gone. False on a scope with no camera at all.
-- **Captures return a frame or raise.** `capture_and_wait` and `get_image` never answer None. A capture that got no frame raises `CaptureFailedError` (`modules.exceptions`, a `CaptureError` fault), its `reason` one of `no_frame` (the camera delivered no new frame within its grab window), `deadline_expired` (the scope's state kept changing for longer than the capture's budget) or `chunk_rejected` (frames came, none exposed at the `setting` asked, `'exposure'` or `'gain'`), its title and words the reason's. A camera that is not there, absent at the call or removed during it, is refused `HardwareCommandRefusedError` (`not_connected`), and one connected but not streaming `camera_not_streaming`. Nothing inside the API reports either: the raise is the report, yours to show.
+- **Captures return a frame or raise.** `capture_and_wait` and `get_image` never answer None. A capture that got no frame raises `CaptureFailedError` (`modules.exceptions`, a `CaptureError` fault), its `reason` one of `no_frame` (the camera delivered no new frame within its grab window), `deadline_expired` (the scope's state kept changing for longer than the capture's budget), `no_fresh_frame` (`capture_and_wait` only: frames came, but none within the grab's bound counted for a change by its source's rule, `capabilities.frame_rules`; its `setting` names the change as a person says it, `'the focus move'`) or `chunk_rejected` (frames came, none exposed at the `setting` asked, `'exposure'` or `'gain'`), its title and words the reason's. A camera that is not there, absent at the call or removed during it, is refused `HardwareCommandRefusedError` (`not_connected`), and one connected but not streaming `camera_not_streaming`. Nothing inside the API reports either: the raise is the report, yours to show.
 - **A captured image is read-only.** The array `capture_and_wait` and `get_image` return refuses a write (`ValueError`), whichever path made it: the camera's own frame, a sum, an 8-bit rendering or a scale-bar copy. It is the instrument's account of the frame; to process it in place, work on `image.copy()`.
 
 If you are writing a new wrapper, the `Raises:` section is the canonical declaration of which contract applies.
@@ -749,7 +749,7 @@ would change the recording's frames; a still on the layer the camera holds is
 taken. When it returns, the still is on the camera lane. The operation raises
 `ObjectiveUnknownError` when the objective in the light path is unknown
 (nothing captured), `CaptureFailedError` (the capture's own reason:
-`no_frame`, `deadline_expired`, `chunk_rejected`) when no frame passed, and
+`no_frame`, `deadline_expired`, `no_fresh_frame`, `chunk_rejected`) when no frame passed, and
 `HardwareCommandRefusedError` (`not_connected`, `camera_not_streaming`) when
 the camera is gone or not streaming.
 `session.manual_capture.in_flight` is True from the call until the still
@@ -1919,8 +1919,12 @@ image = scope.imaging.get_image(force_to_8bit=False)   # keep native 12/16-bit
 
 # Frame-validity capture — PREFERRED for all real captures.
 # Waits for all pending changes (LED, gain, exposure, motion) to settle,
-# drains stale frames, returns a valid frame. Raises CaptureFailedError
-# for no frame ('no_frame', 'deadline_expired', 'chunk_rejected') and
+# drains stale frames, returns a valid frame. Each change is waited on by
+# its source's rule (scope.capabilities.frame_rules), and the grab keeps
+# only a frame that imaging.judge_frame counts for every change it does not
+# exclude, taking the next otherwise. Raises CaptureFailedError
+# for no frame ('no_frame', 'deadline_expired', 'no_fresh_frame',
+# 'chunk_rejected') and
 # HardwareCommandRefusedError for a camera gone ('not_connected') or not
 # streaming ('camera_not_streaming').
 # The capture honors invalidation across its WHOLE window: a state change

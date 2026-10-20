@@ -26,6 +26,7 @@ derivation pass (the defect shape that killed two plan drafts).
 
 import dataclasses
 import threading
+import time
 
 import numpy as np
 import pytest
@@ -199,12 +200,16 @@ class TestDrainDeadline:
         # Settled before the capture under test, as a lit scope is: frames
         # still owed to the LED would size its budget past the dark wait.
         assert live_scope.imaging.capture_and_wait(timeout_s=1.0) is not None
-        landed = _during_the_first_grab(
-            live_scope,
-            monkeypatch,
-            lambda: live_scope.imaging.frame_validity.invalidate('turret'),
-            frame=_DARK,
-        )
+        validity = live_scope.imaging.frame_validity
+
+        def a_turret_move_lands():
+            # As the motion API records one: the change, then its in-force
+            # time when the axis settles. A move never in force has no frame
+            # after it, and the capture rightly keeps none.
+            validity.invalidate('turret')
+            validity.motion_settled('turret', time.monotonic_ns())
+
+        landed = _during_the_first_grab(live_scope, monkeypatch, a_turret_move_lands, frame=_DARK)
 
         out = live_scope.imaging.capture_and_wait(timeout_s=0.5)
 

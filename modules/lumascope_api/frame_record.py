@@ -85,7 +85,8 @@ class FrameRecord:
         binning_size: Binning the frame was delivered at.
         camera_model: The camera that took it.
         clock_mapping: The camera's clock mapped onto the host's, latched
-            by the capture beside its grab (``ClockMapping``); None on a
+            by the capture at the top of the cycle that grabbed the frame,
+            before its drain (``ClockMapping``); None on a
             camera without a latch (``capabilities.camera_has_clock_latch``).
         judgments: The frame judged against each source's last change
             (``FrameValidity.judgments``): for a summed capture, the first

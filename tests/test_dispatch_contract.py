@@ -45,6 +45,7 @@ from unittest.mock import patch
 import pytest
 
 from modules.exceptions import HardwareCommandRefusedError
+from modules.frame_validity import FrameRule, Rule
 from modules.scope_capabilities import FrameSize
 from tests.scope_fakes import homed_sim_scope
 
@@ -307,6 +308,34 @@ def test_capture_wait_scales_with_the_declared_work(sim_scope, executors):
         f'the executor wait must be base + content budget + summed-frame '
         f'time + pending settle work; got {recorded["timeout"]}, expected {expected}'
     )
+
+
+def test_capture_wait_carries_the_time_a_clock_rule_change_is_owed(sim_scope, executors):
+    """Under the clock rule a change is owed time, not frames: a frame counts
+    once it starts after the change plus its delay. The executor wait carries
+    that time, as the body's deadline does (one settle term for both), or a
+    long measured delay surfaces as an executor TimeoutError."""
+    imaging = sim_scope.imaging
+    delay_s = 40.0
+    rules = dict(imaging.frame_validity.credit_rules())
+    rules['gain'] = FrameRule(
+        rule=Rule.CLOCK,
+        delay_us=delay_s * 1e6,
+        provenance={'run_id': 'run-1', 'measured_date': '2026-10-20'},
+    )
+    imaging.frame_validity.use_rules(rules)
+    sim_scope.camera.set_gain_db(sim_scope.camera.read_gain_db() + 1.0)
+    recorded = {}
+
+    class _RecordingFuture:
+        def result(self, timeout=None):
+            recorded['timeout'] = timeout
+            return None
+
+    with patch.object(executors['camera'], 'put', return_value=_RecordingFuture()):
+        imaging.capture_and_wait()
+
+    assert recorded['timeout'] > imaging._CAPTURE_WAIT_TIMEOUT_S + delay_s - 1.0
 
 
 def test_no_public_camera_or_imaging_member_writes_the_camera_inline():
