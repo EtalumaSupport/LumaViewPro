@@ -92,9 +92,14 @@ def _the_hand(session, delay=None):
 
 
 def _arm(session):
+    # Auto-gain is armed where the camera has it (a Basler); a camera without
+    # it (the IDS U3-34L) refuses the arm, and its removal is met unarmed.
     scope = session.scope
     scope.illumination.led_on('BF', BF_MA)
-    scope.camera.set_auto_gain(True, AUTO_GAIN)
+    armed = scope.capabilities.camera_supports_auto_gain
+    figure('live-view auto-gain armed', armed)
+    if armed:
+        scope.camera.set_auto_gain(True, AUTO_GAIN)
     scope.imaging.capture_and_wait()
 
 
