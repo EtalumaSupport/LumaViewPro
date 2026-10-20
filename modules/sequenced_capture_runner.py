@@ -795,15 +795,15 @@ class SequencedCaptureRunner:
         """The trigger of the run this runner last started; None before any."""
         return self._run_identity.trigger if self._run_identity is not None else None
 
-    def _refuse_already_running(self) -> typing.NoReturn:
-        """Refuse a start because a run already holds the scope.
+    def _already_running(self) -> ProtocolRunRefusedError:
+        """The refusal of a start because a run already holds the scope.
 
-        Shared by prepare()'s look and start()'s commit, which asked the
+        Shared by the state gates and start()'s commit, which asked the
         same question and printed the same literal in two places -- two
         phases with one answer between them.
         """
         holder = self._run_identity
-        self._refuse(
+        return self._refusal(
             reason='already_running',
             message=(
                 f'{the_run_named(holder, sentence_start=True)} is using the microscope. '
@@ -813,21 +813,24 @@ class SequencedCaptureRunner:
             holder_trigger=holder.trigger if holder is not None else None,
         )
 
-    def _refuse_foreign_holder(self, claim: 'ActivityClaim | BorrowedClaim') -> None:
-        """Refuse when an activity other than a run holds the scope.
+    def _foreign_holder(
+        self, claim: 'ActivityClaim | BorrowedClaim'
+    ) -> ProtocolRunRefusedError | None:
+        """The refusal when an activity other than a run holds the scope, or None.
 
-        Shared by prepare()'s look and start()'s commit, so the two read the
+        Shared by the state gates and start()'s commit, so the two read the
         same holder the same way. A 'protocol' holder is left to the
         already-running and file-drain gates, which describe a run better.
         """
         holder = claim.blocking_holder
         if holder is not None and holder.kind != 'protocol':
-            self._refuse_exclusive_activity(holder)
+            return self._exclusive_activity(holder)
+        return None
 
-    def _refuse_exclusive_activity(self, holder: 'ActivityHolder | None') -> None:
-        """Refuse this run because an exclusive activity holds the session claim.
+    def _exclusive_activity(self, holder: 'ActivityHolder | None') -> ProtocolRunRefusedError:
+        """The refusal of this run because an exclusive activity holds the session claim.
 
-        Shared by the prepare-time look and the start-time claim so the two
+        Shared by the state gates and the start-time claim so the two
         phases cannot describe the same holder in two different ways. The
         holder is the claim's own snapshot, so the kind and the run behind
         it are one fact rather than two reads that can disagree.
@@ -837,7 +840,7 @@ class SequencedCaptureRunner:
         # A recording holding the scope is its own condition, under the
         # reason a recording start already uses for it.
         if kind == 'recording':
-            self._refuse(
+            return self._refusal(
                 reason='recording_active',
                 message=(
                     'A video recording is in progress. Stop it or let it finish, then start the run.'
@@ -845,7 +848,7 @@ class SequencedCaptureRunner:
                 holder=kind,
                 holder_trigger=trigger,
             )
-        self._refuse(
+        return self._refusal(
             reason='exclusive_activity_running',
             message=(
                 f'{the_holder_named(holder)} is using the microscope. '
@@ -873,6 +876,29 @@ class SequencedCaptureRunner:
             ),
         ) from ex
 
+    @staticmethod
+    def _refusal(
+        reason: str,
+        message: str,
+        *,
+        holder: 'str | None' = None,
+        holder_trigger: 'str | None' = None,
+        remedy: Remedy | None = None,
+    ) -> ProtocolRunRefusedError:
+        """The typed refusal, built and not raised.
+
+        The single funnel every refusal gate routes through: the state
+        gates hand theirs to a caller that only asks (``state_refusal``),
+        the rest are raised by ``_refuse``.
+        """
+        return ProtocolRunRefusedError(
+            reason=reason,
+            message=message,
+            holder=holder,
+            holder_trigger=holder_trigger,
+            remedy=remedy,
+        )
+
     def _refuse(
         self,
         reason: str,
@@ -884,17 +910,12 @@ class SequencedCaptureRunner:
     ) -> typing.NoReturn:
         """Raise the typed refusal.
 
-        The single funnel every refusal gate routes through. Raised, not
-        reported: the boundary the caller sits behind reports it -- the
-        GUI's as a person's request, shown even during a run; REST's
-        logged and answered -- so a REST caller is not also shown it.
+        Raised, not reported: the boundary the caller sits behind reports
+        it -- the GUI's as a person's request, shown even during a run;
+        REST's logged and answered -- so a REST caller is not also shown it.
         """
-        raise ProtocolRunRefusedError(
-            reason=reason,
-            message=message,
-            holder=holder,
-            holder_trigger=holder_trigger,
-            remedy=remedy,
+        raise self._refusal(
+            reason, message, holder=holder, holder_trigger=holder_trigger, remedy=remedy
         )
 
     def refuse_unknown_positions(self) -> None:
@@ -925,6 +946,117 @@ class SequencedCaptureRunner:
                     )
                 ),
             )
+
+    def state_refusal(
+        self, claim: 'ActivityClaim | BorrowedClaim'
+    ) -> ProtocolRunRefusedError | None:
+        """The refusal a run would get now for the scope's state alone, or None.
+
+        The gates that need no protocol and make no hardware exchange: what
+        holds ``claim``, a run already live, a run's files still writing, an
+        orphaned autofocus sweep, a part not connected. ``prepare`` raises
+        this first and the session's status reads it, so the two cannot
+        disagree. Read without the run lock: a run-state listener asks it
+        from inside a run's own transition. None does not mean a run would
+        start: the protocol, the positions, the camera feed and the
+        interlocks are ``prepare``'s to judge.
+
+        Raises:
+            RunCheckFailedError: ``'hardware_state_unknown'``, the
+                connection read crashed instead of answering.
+        """
+        # A foreign exclusive activity (a video recording, a diagnostic) is
+        # the durable, user-actionable reason a run cannot start -- so a
+        # refusal for the transient file drain below would report "files
+        # still writing, please wait" while the recording was the real
+        # blocker and waiting could never clear it. Asked before every other
+        # gate so the refusal names what the user has to act on -- including
+        # before already-running: a run inside a diagnostic is live under the
+        # diagnostic's claim, and "a run is using the microscope, stop it
+        # from the control that started it" names a run the user never
+        # started and has no control for. A run that borrows a claim asks
+        # the borrow, which does not count its own lender as in the way. The
+        # claim is still TAKEN in start() under the run lock, and an activity
+        # that begins after this look is caught there.
+        foreign = self._foreign_holder(claim)
+        if foreign is not None:
+            return foreign
+
+        # A 'protocol' holder is a run between taking the claim and setting
+        # its state, which _is_run_live does not see yet.
+        holder = claim.blocking_holder
+        if self._is_run_live() or (holder is not None and holder.kind == 'protocol'):
+            return self._already_running()
+
+        batch = self._write_batch
+        if batch is not None and batch.draining:
+            # A stalled writer will not finish on its own, so its refusal
+            # carries the recovery that answers it, by name: the Session
+            # owns recovery, and this layer cannot reach it.
+            if batch.stalled(WRITE_STALL_FATAL_S):
+                unsaved = batch.pending
+                stalled = FileWriterStalledError.stalled_sentence(
+                    the_run_named(self._run_identity, sentence_start=True),
+                    batch.describe_stuck_write(),
+                )
+                return self._refusal(
+                    holder_trigger=self._last_run_trigger(),
+                    reason='files_writing_stalled',
+                    message=(
+                        f'{stalled} Recover the file writer before starting a new run: '
+                        f'{FileWriterStalledError.cost_sentence(unsaved)}'
+                    ),
+                    remedy=FileWriterStalledError.recovery(unsaved),
+                )
+            return self._refusal(
+                reason='files_writing',
+                message=(
+                    f'{the_run_named(self._run_identity, sentence_start=True)} is still '
+                    'writing its files. Please wait.'
+                ),
+                holder_trigger=self._last_run_trigger(),
+            )
+
+        # A sweep still in flight with no run holding the scope is one its
+        # run's cleanup gave up waiting for: stuck, and recorded as that
+        # run's cleanup failure. (A sweep inside a live run is refused
+        # above, as the run.) Its run's lease and claim are gone, so it
+        # can no longer drive anything, but the one autofocus thread is
+        # still inside it, and a run started now would queue its own
+        # sweeps behind a call that may never return.
+        in_flight_sweep = (
+            self.autofocus_thread.in_flight_sweep if self.autofocus_thread is not None else None
+        )
+        if in_flight_sweep is not None:
+            return self._refusal(
+                reason='autofocus_running',
+                message=(
+                    f'The autofocus sweep from {the_run_named(in_flight_sweep.run)} '
+                    'did not stop when its run ended. Restart LumaViewPro if it '
+                    'does not clear.'
+                ),
+                holder='autofocus',
+                holder_trigger=in_flight_sweep.run.trigger,
+            )
+
+        # Before every protocol gate: a scope missing a part is told that
+        # first, not a symptom of it -- with no LED board there is no current
+        # cap to judge a step's illumination against.
+        try:
+            unconnected = self._scope.unconnected_parts()
+        except Exception as ex:
+            self._hardware_state_unknown('check hardware connection status', ex)
+        named = [f'the {part}' for part in unconnected]
+        if named:
+            parts = named[0] if len(named) == 1 else f'{", ".join(named[:-1])} and {named[-1]}'
+            return self._refusal(
+                reason='hardware_disconnected',
+                message=(
+                    f'{parts[0].upper()}{parts[1:]} {"is" if len(named) == 1 else "are"} '
+                    'not connected. Check connections and try again.'
+                ),
+            )
+        return None
 
     def prepare(
         self,
@@ -982,80 +1114,10 @@ class SequencedCaptureRunner:
                 name). The user has already been notified once when this
                 raises.
         """
-        # A foreign exclusive activity (a video recording, a diagnostic) is
-        # the durable, user-actionable reason a run cannot start, and
-        # start()'s claim is the only thing that used to see it -- so a
-        # prepare() refused for the transient file drain below reported
-        # "files still writing, please wait" while the recording was the
-        # real blocker and waiting could never clear it. Look before every
-        # other gate so the refusal names what the user has to act on --
-        # including before already-running: a run inside a diagnostic is
-        # live under the diagnostic's claim, and "a run is using the
-        # microscope, stop it from the control that started it" names a run
-        # the user never started and has no control for. Only a FOREIGN
-        # holder is read here: a 'protocol' holder is this run subsystem's
-        # own claim, which already_running and the file-drain gates describe
-        # with better messages. A run that borrows a claim asks the borrow,
-        # which does not count its own lender as in the way. The claim is
-        # still TAKEN in start() under the run lock -- prepare() stays a
-        # no-op, and an activity that begins after this look is caught there.
         claim = borrowed_claim if borrowed_claim is not None else self._activity_claim
-        self._refuse_foreign_holder(claim)
-
-        with self._run_lock:
-            if self._is_run_live():
-                self._refuse_already_running()
-
-        batch = self._write_batch
-        if batch is not None and batch.draining:
-            # A stalled writer will not finish on its own, so its refusal
-            # carries the recovery that answers it, by name: the Session
-            # owns recovery, and this layer cannot reach it.
-            if batch.stalled(WRITE_STALL_FATAL_S):
-                unsaved = batch.pending
-                stalled = FileWriterStalledError.stalled_sentence(
-                    the_run_named(self._run_identity, sentence_start=True),
-                    batch.describe_stuck_write(),
-                )
-                self._refuse(
-                    holder_trigger=self._last_run_trigger(),
-                    reason='files_writing_stalled',
-                    message=(
-                        f'{stalled} Recover the file writer before starting a new run: '
-                        f'{FileWriterStalledError.cost_sentence(unsaved)}'
-                    ),
-                    remedy=FileWriterStalledError.recovery(unsaved),
-                )
-            self._refuse(
-                reason='files_writing',
-                message=(
-                    f'{the_run_named(self._run_identity, sentence_start=True)} is still '
-                    'writing its files. Please wait.'
-                ),
-                holder_trigger=self._last_run_trigger(),
-            )
-
-        # A sweep still in flight with no run holding the scope is one its
-        # run's cleanup gave up waiting for: stuck, and recorded as that
-        # run's cleanup failure. (A sweep inside a live run is refused
-        # above, as the run.) Its run's lease and claim are gone, so it
-        # can no longer drive anything, but the one autofocus thread is
-        # still inside it, and a run started now would queue its own
-        # sweeps behind a call that may never return.
-        in_flight_sweep = (
-            self.autofocus_thread.in_flight_sweep if self.autofocus_thread is not None else None
-        )
-        if in_flight_sweep is not None:
-            self._refuse(
-                reason='autofocus_running',
-                message=(
-                    f'The autofocus sweep from {the_run_named(in_flight_sweep.run)} '
-                    'did not stop when its run ended. Restart LumaViewPro if it '
-                    'does not clear.'
-                ),
-                holder='autofocus',
-                holder_trigger=in_flight_sweep.run.trigger,
-            )
+        refusal = self.state_refusal(claim)
+        if refusal is not None:
+            raise refusal
 
         # Ahead of the empty-protocol gate: a composite with no channel set
         # to capture is an empty protocol too, and "turn on another channel"
@@ -1094,24 +1156,6 @@ class SequencedCaptureRunner:
             self._refuse(
                 reason='empty_protocol',
                 message='Protocol has no steps. Add at least one step before running.',
-            )
-
-        # Before the step validation: a scope missing a part is told that
-        # first, not a symptom of it -- with no LED board there is no current
-        # cap to judge a step's illumination against.
-        try:
-            unconnected = self._scope.unconnected_parts()
-        except Exception as ex:
-            self._hardware_state_unknown('check hardware connection status', ex)
-        named = [f'the {part}' for part in unconnected]
-        if named:
-            parts = named[0] if len(named) == 1 else f'{", ".join(named[:-1])} and {named[-1]}'
-            self._refuse(
-                reason='hardware_disconnected',
-                message=(
-                    f'{parts[0].upper()}{parts[1:]} {"is" if len(named) == 1 else "are"} '
-                    'not connected. Check connections and try again.'
-                ),
             )
 
         # A camera that is open but not grabbing delivers no frame, so a run
@@ -1445,9 +1489,11 @@ class SequencedCaptureRunner:
         # concurrently-prepared plans both pass the gate and interleave
         # their field writes onto the same runner.
         with self._run_lock:
-            self._refuse_foreign_holder(claim)
+            foreign = self._foreign_holder(claim)
+            if foreign is not None:
+                raise foreign
             if self._is_run_live():
-                self._refuse_already_running()
+                raise self._already_running()
 
             # The claim carries WHICH run holds the scope, written by the
             # same call that takes it: the holder question has one store,
@@ -1455,7 +1501,7 @@ class SequencedCaptureRunner:
             # the scope at all.
             held = claim.try_claim('protocol', run=self._identity_of(plan))
             if held is None:
-                self._refuse_exclusive_activity(claim.holder)
+                raise self._exclusive_activity(claim.holder)
             self._held_claim = held
 
             # The LED lease covers the whole scan so live UI illumination

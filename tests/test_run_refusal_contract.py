@@ -1082,10 +1082,11 @@ def test_every_runner_refusal_reason_is_covered():
 
         def visit_Call(self, node):
             callee = getattr(node.func, 'attr', None) or getattr(node.func, 'id', None)
-            # Any _refuse* funnel, not one exact spelling: a second refusal
-            # site naming its funnel for what it refuses would otherwise be
-            # invisible to this census, which is the drift it exists to stop.
-            is_funnel = callee is not None and callee.startswith('_refuse')
+            # Any _refuse* funnel or _refusal* builder, not one exact spelling:
+            # a second refusal site naming its funnel for what it refuses would
+            # otherwise be invisible to this census, which is the drift it
+            # exists to stop.
+            is_funnel = callee is not None and callee.startswith('_refus')
             if is_funnel or callee in ('ProtocolRunRefusedError', 'RunCheckFailedError'):
                 for kw in node.keywords:
                     if kw.arg != 'reason':
