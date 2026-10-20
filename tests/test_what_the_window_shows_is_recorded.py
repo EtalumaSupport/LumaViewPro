@@ -79,12 +79,12 @@ def test_a_change_is_recorded_once(record):
 
 
 def test_each_name_is_its_own_record(record):
-    gui_logger.display('CONTROLS_LOCKED', 'True by=A home')
+    gui_logger.display('CONTROLS_LOCKED', 'True by=A home is in progress. recording=False')
     gui_logger.display('TITLE_EVENT', 'Homing, please wait...')
-    gui_logger.display('CONTROLS_LOCKED', 'True by=A home')
+    gui_logger.display('CONTROLS_LOCKED', 'True by=A home is in progress. recording=False')
 
     assert record() == [
-        'DISPLAY CONTROLS_LOCKED True by=A home',
+        'DISPLAY CONTROLS_LOCKED True by=A home is in progress. recording=False',
         'DISPLAY TITLE_EVENT Homing, please wait...',
     ]
 

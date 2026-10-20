@@ -545,7 +545,7 @@ class LumaViewProApp(TooltipMixin, App):
         self.live_work = session.live_work
         gui_logger.display(
             'CONTROLS_LOCKED',
-            f'{self.lock.controls_locked} by={self.lock.run_named if self.lock.controls_locked else None}',
+            f'{self.lock.controls_locked} by={self.lock.run_named} recording={self.lock.recording}',
         )
         gui_logger.display('HOMING_BANNER', self.live_work.has(live_work.HOME))
         self._draw_run_controls()
