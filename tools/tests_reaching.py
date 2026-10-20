@@ -13,15 +13,32 @@ A test file reaches a changed module when any of these holds:
 * it imports a ``tests`` helper module that does (transitively);
 * it requests a conftest fixture whose body imports the module, or whose
   body uses a name the conftest imported from it;
+* it imports a production module that imports the changed module at
+  module level, or one that imports that module, closed over the
+  production graph: the stitcher's tests import the stitcher, and the
+  stitcher imports the post-processor, so a post-processor change reaches
+  them. A module-level import is one that runs when the module is
+  imported (the top-level body, under a top-level ``if`` or ``try`` too),
+  never one under ``if TYPE_CHECKING:`` or inside a function: with
+  function-level imports as edges the production graph is one component,
+  and 49 of 60 commits land on the same 895 of 1,028 files whatever they
+  changed;
+* it imports a package whose ``__init__`` imports the changed module at
+  any depth: a package is what a test names, and its lazy import runs
+  under the test that calls it (the plugin loader). The package is not a
+  seed of the closure; a module importing the package is not reached
+  through its lazy export;
 * it is a guard under ``tests/guards/``: a guard reads source files by
   path and imports nothing it checks, so every guard is in every set.
 
 A changed module that an autouse fixture imports itself is reached by
 every test in the suite; the answer is then the whole of ``tests/`` and the
 reason is printed. (One it reaches only through a package that exports it,
-or through a tests helper, runs it only where the test built something,
-and the test's own imports show that.) What no import can show, a test
-that hand-builds an installation tree or a settings file the changed
+a production module that imports it, or a tests helper, runs it only where
+the test built something, and the test's own imports show that; nearly
+every production module is in the session module's closure, so the other
+reading makes most commits the whole suite.) What no import can show, a
+test that hand-builds an installation tree or a settings file the changed
 member reads, stays a census item for the author.
 
 Usage, from the repository root (one test path per line on stdout, the
@@ -85,6 +102,41 @@ def imported_modules(tree: ast.AST, package: str = '') -> set[str]:
                 found.add(base)
                 found.update(f'{base}.{alias.name}' for alias in node.names)
     return found
+
+
+def _is_type_checking(test: ast.expr) -> bool:
+    return (isinstance(test, ast.Name) and test.id == 'TYPE_CHECKING') or (
+        isinstance(test, ast.Attribute) and test.attr == 'TYPE_CHECKING'
+    )
+
+
+def import_time_modules(tree: ast.Module, package: str = '') -> set[str]:
+    """The modules a file imports when it is imported.
+
+    The import statements of the top-level body, descending into a top-level
+    ``if`` or ``try`` (a guarded import runs), never into ``if TYPE_CHECKING:``
+    (it never runs) and never into a function or class body (it runs only
+    when called).
+    """
+    statements: list[ast.stmt] = []
+
+    def walk(body: list[ast.stmt]) -> None:
+        for node in body:
+            if isinstance(node, (ast.Import, ast.ImportFrom)):
+                statements.append(node)
+            elif isinstance(node, ast.If):
+                if not _is_type_checking(node.test):
+                    walk(node.body)
+                walk(node.orelse)
+            elif isinstance(node, ast.Try):
+                walk(node.body)
+                walk(node.orelse)
+                walk(node.finalbody)
+                for handler in node.handlers:
+                    walk(handler.body)
+
+    walk(tree.body)
+    return imported_modules(ast.Module(body=statements, type_ignores=[]), package)
 
 
 def _reaches(imported: set[str], changed: set[str]) -> set[str]:
@@ -181,6 +233,46 @@ def _packages_exporting(root: Path, changed: set[str]) -> set[str]:
     return aliases
 
 
+def _production_files(root: Path) -> list[str]:
+    """Every production ``.py`` under the production roots, repository-relative."""
+    files: list[str] = []
+    for prefix in PRODUCTION_ROOTS:
+        if prefix.endswith('/'):
+            files.extend(
+                p.relative_to(root).as_posix() for p in sorted((root / prefix).rglob('*.py'))
+            )
+        elif (root / prefix).exists():
+            files.append(prefix)
+    return files
+
+
+def _production_importers(root: Path, edited: set[str]) -> set[str]:
+    """The production modules that import an edited module at module level, closed.
+
+    A module whose import-time imports name an edited module, or a child of
+    it, is reached; a module importing a reached module is reached too; the
+    walk repeats until nothing joins. The edited modules themselves are
+    not in the answer.
+    """
+    imports: dict[str, set[str]] = {}
+    for rel in _production_files(root):
+        try:
+            tree = ast.parse((root / rel).read_text(encoding='utf-8'), filename=rel)
+        except SyntaxError:
+            continue
+        imports[module_name(rel)] = import_time_modules(tree, package_of(rel))
+    reached: set[str] = set()
+    frontier = set(edited)
+    while frontier:
+        frontier = {
+            module
+            for module, names in imports.items()
+            if module not in reached and module not in edited and _reaches(names, frontier)
+        }
+        reached |= frontier
+    return reached
+
+
 @dataclass
 class Reach:
     files: list[str]
@@ -191,7 +283,8 @@ def reach_of(root: Path, changed_paths: list[str]) -> Reach:
     """The test files under ``root`` that reach the changed production paths."""
     edited = {module_name(p) for p in changed_paths if p.endswith('.py')}
     exporting = _packages_exporting(root, edited)
-    changed = edited | exporting
+    importers = _production_importers(root, edited)
+    changed = edited | exporting | importers
     tests_dir = root / 'tests'
     trees: dict[str, ast.Module] = {}
     for path in sorted(tests_dir.rglob('*.py')):
@@ -236,8 +329,18 @@ def reach_of(root: Path, changed_paths: list[str]) -> Reach:
             autouse_direct[fixture.name] = direct
 
     reasons = []
-    if exporting:
-        reasons.append('reached through the package import too: ' + ', '.join(sorted(exporting)))
+    if importers:
+        noun = 'module' if len(importers) == 1 else 'modules'
+        reasons.append(
+            f'reached through {len(importers)} production {noun} importing it at module level: '
+            + ', '.join(sorted(importers))
+        )
+    # A package whose ``__init__`` imports the module at module level is one of
+    # the importers; the package line names the ones found only by the lazy read.
+    if exporting - importers:
+        reasons.append(
+            'reached through the package import too: ' + ', '.join(sorted(exporting - importers))
+        )
     # An autouse fixture that imports the edited module itself runs it in
     # every test. One that reaches it only through a package exporting it
     # (the API package, imported to disconnect the scopes a test built) or
@@ -268,8 +371,9 @@ def reach_of(root: Path, changed_paths: list[str]) -> Reach:
         for kind in ('import', 'fixture', 'guard')
     }
     reasons.append(
-        f'{len(chosen)} test files for {sorted(changed)}: {counts["import"]} by import '
-        f'(module level or inside a function, or through a tests helper), '
+        f'{len(chosen)} test files for {sorted(edited)}: {counts["import"]} by import '
+        f'(module level or inside a function, through a tests helper, or through a '
+        f'production module importing it), '
         f'{counts["fixture"]} through a conftest fixture, {counts["guard"]} guards (always)'
     )
     return Reach(sorted(chosen), reasons)
