@@ -136,6 +136,8 @@ class TestCapabilityMapping:
             get_max_frame_size=lambda: {'width': 1024, 'height': 768},
             # The base driver's depth rule, which a real driver inherits.
             significant_bits_for_format=lambda name: Camera.format_significant_bits(name, 16),
+            # The base driver's SDK label (none), which a real driver inherits.
+            get_sdk_info=lambda: Camera.get_sdk_info(None),
         )
         return ScopeCapabilities.from_drivers(
             motion=motion,

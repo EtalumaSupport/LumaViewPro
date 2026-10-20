@@ -124,7 +124,11 @@ class TestScopeCapabilitiesIntegration:
             # a stand-in by design: the capability reads the driver's depth
             # rule; this one is the base rule (the format name's bit count).
             significant_bits_for_format=lambda name: int(re.search(r'(\d+)', name).group(1)),
+            # The base driver's SDK label (none), which a real driver inherits.
+            get_sdk_info=lambda: Camera.get_sdk_info(None),
             profile=SimpleNamespace(
+                sensor=None,
+                shutter=None,
                 has_auto_gain=False,
                 has_auto_exposure=False,
                 pixel_formats=('Mono8',),
