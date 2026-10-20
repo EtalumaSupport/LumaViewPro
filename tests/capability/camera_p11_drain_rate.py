@@ -11,13 +11,28 @@ buffer and hands it straight back to the camera (the driver's
 DRAIN_FRAMES. A drain at 66 puts the gap in LumaViewPro's pipeline; a drain
 at the normal rate puts it in the stream's configuration.
 
+The first run (2026-10-20, 3.95 camera) drained at 55 against a normal 53,
+so the gap is in the stream's configuration, and the probe now measures that
+itself. Every readable node of the camera's three node maps (the remote
+device, the data stream, the device's transport layer) is recorded at 2x2
+before and after its drain, and the nodes whose value changed across the
+drain are named, which shows any frame counter the camera keeps. Then the
+sweep: at 2x2, for each pair of the data stream's transfer request count and
+bulk transfer size across what the nodes allow, the stream is restarted with
+the pair written, the values read back, and a drain timed. A pair that
+drains at the camera's maximum names the setting to change; none doing so
+leaves the buffer count (fixed in the driver at the minimum plus 5) and the
+camera's own settings, which the dump holds for comparison with Cockpit.
+
     python tests/capability/camera_p11_drain_rate.py --hardware  # the connected IDS scope
 
-The drain reaches the driver directly, as the unpack benchmark does: it is a
-bench instrument, not an API member. While it runs the live view stores no
-frame, so the stream check may report one stall; that report is expected.
-The simulated camera has no drain, so the simulator run is a void. Nothing
-is saved.
+The drain, the dump and the sweep reach the driver directly, as the unpack
+benchmark does: they are a bench instrument, not API members. While a drain
+runs the live view stores no frame, so the stream check may report one
+stall; that report is expected. The stream's transfer settings are restored
+at the end. The simulated camera has no drain, so the simulator run is a
+void. The checks, the figures and the dumps are in the run's verdict file
+(the harness's THE RECORD).
 """
 
 import sys
@@ -72,6 +87,109 @@ def _drain(scope, label):
     return row
 
 
+def _nodes(driver, nodemap):
+    """Every node of one node map: presence, access, value or entries, and range."""
+    nodes = {}
+    for node in nodemap.Nodes():
+        name = node.Name()
+        info = driver._diag_probe_node(nodemap, name)
+        for bound in ('Minimum', 'Maximum', 'Increment'):
+            try:
+                info[bound.lower()] = getattr(nodemap.FindNode(name), bound)()
+            except Exception:
+                pass
+        nodes[name] = info
+    return nodes
+
+
+def _dump(driver):
+    maps = {
+        'remote': lambda: driver.remote_nodemap,
+        'stream': lambda: driver.data_stream.NodeMaps()[0],
+        'device': lambda: driver.active.NodeMaps()[0],
+    }
+    dump = {}
+    for key, nodemap in maps.items():
+        try:
+            dump[key] = _nodes(driver, nodemap())
+        except Exception as e:
+            dump[key] = {'_access_error': f'{type(e).__name__}: {e}'}
+    return dump
+
+
+def _changed(before, after):
+    """The nodes whose value differs between two dumps, as (before, after)."""
+    changed = {}
+    for key, nodes in after.items():
+        for name, info in nodes.items():
+            was = before.get(key, {}).get(name)
+            if (
+                isinstance(info, dict)
+                and isinstance(was, dict)
+                and 'value' in info
+                and info['value'] != was.get('value')
+            ):
+                changed[f'{key}.{name}'] = (was.get('value'), info['value'])
+    return changed
+
+
+_TRANSFER = ('U3vStreamChannelTransferRequestCount', 'U3vStreamChannelBulkTransferSize')
+
+
+def _steps(info):
+    """The values a sweep tries for one node: its minimum, current and maximum."""
+    values = {info.get('minimum'), info.get('value'), info.get('maximum')}
+    count_like = info.get('maximum') is not None and info['maximum'] <= 64
+    if count_like:
+        values |= set(range(int(info.get('minimum') or 1), int(info['maximum']) + 1))
+    return sorted(int(v) for v in values if isinstance(v, (int, float)))
+
+
+def _sweep(scope, dump):
+    driver = scope._camera_driver
+    stream = dump.get('stream', {})
+    count_info = stream.get(_TRANSFER[0], {})
+    size_info = stream.get(_TRANSFER[1], {})
+    figure('sweep_nodes', {'count': count_info, 'size': size_info})
+    if not count_info.get('present') or not size_info.get('present'):
+        check('the transfer nodes are present to sweep', False, str(stream.get('_access_error')))
+        return
+    originals = (int(count_info['value']), int(size_info['value']))
+    rows = []
+    try:
+        for count in _steps(count_info):
+            for size in _steps(size_info):
+                with driver.update_camera_config():
+                    wrote = (
+                        driver.set_num_max_queued_urbs(count),
+                        driver.set_max_transfer_size(size),
+                    )
+                nodemap = driver.data_stream.NodeMaps()[0]
+                read = tuple(driver._diag_probe_node(nodemap, n).get('value') for n in _TRANSFER)
+                time.sleep(SETTLE_S)
+                drain = _drain(scope, f'sweep_c{count}_s{size}')
+                rows.append(
+                    {
+                        'count': count,
+                        'size': size,
+                        'wrote': wrote,
+                        'read_back': read,
+                        'drain': drain,
+                    }
+                )
+    finally:
+        with driver.update_camera_config():
+            driver.set_num_max_queued_urbs(originals[0])
+            driver.set_max_transfer_size(originals[1])
+    figure('sweep', rows)
+    best = max(
+        (r for r in rows if r['drain'] and r['drain']['fps']),
+        key=lambda r: r['drain']['fps'],
+        default=None,
+    )
+    figure('sweep_best', best)
+
+
 def _measure(session):
     scope = session.scope
     cam = scope.camera
@@ -85,8 +203,18 @@ def _measure(session):
 
     cam.set_binning(2)
     _normal(scope, 'B1_binning_2')
+    driver = scope._camera_driver
+    has_nodes = hasattr(driver, 'remote_nodemap')
+    before = _dump(driver) if has_nodes else None
     _drain(scope, 'B1_binning_2')
+    if has_nodes:
+        after = _dump(driver)
+        figure('B1_binning_2_nodes', before)
+        figure('B1_binning_2_changed_across_the_drain', _changed(before, after))
     _normal(scope, 'B1_binning_2_after')
+    if has_nodes:
+        _sweep(scope, before)
+        _normal(scope, 'B1_binning_2_after_the_sweep')
 
     cam.set_binning(1)
     cam.set_frame_size(1900, 1900)
