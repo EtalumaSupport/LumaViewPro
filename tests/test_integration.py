@@ -884,8 +884,8 @@ class TestRestAPIPrep:
             'serial number from the cached connect-time FULLINFO, not '
             're-query the serial bus on every saved frame'
         )
-        assert info['model'] not in (None, 'unknown')
-        assert info['serial_number'] not in (None, 'unknown')
+        assert info['model'] is not None
+        assert info['serial_number'] is not None
 
     def test_get_led_info(self):
         """get_led_info() should return firmware and connection status."""

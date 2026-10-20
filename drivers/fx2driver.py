@@ -3110,8 +3110,10 @@ class FX2LEDController:
         # ``port`` is a human-readable tag for the settings UI.
         self.driver = True
         self.port = 'FX2-USB'
-        self.firmware_version = 'FX2-Classic'
-        # The FX2's LED peripheral has no INFO command, so no date and no answer.
+        # The FX2's LED peripheral has no firmware of its own and no INFO
+        # command, so no version, no date and no answer. The scope's model
+        # says it is an FX2 scope.
+        self.firmware_version = None
         self.firmware_date = None
         self.firmware_responding = False
         self.is_v2 = False

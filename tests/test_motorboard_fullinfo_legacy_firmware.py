@@ -12,7 +12,7 @@ instead of a ``Model:`` / ``Serial:`` line. fullinfo() then failed to find
 On a legacy unit that fired per connect and buried genuine failures -- the
 same noise class the VOLTAGE / DRVSTAT / FANSPEED diagnostic probes already
 suppress. fullinfo() now recognises the UNKNOWN_CMD reply as an expected
-capability gap, logs it at INFO, and falls back to model/serial = 'unknown'.
+capability gap, logs it at INFO, and falls back to model/serial None, unknown.
 A genuinely unparseable response (not an unsupported-command reply) still
 logs ERROR so real faults stay visible.
 
@@ -73,7 +73,7 @@ def test_unknown_cmd_returns_fallback_without_error(monkeypatch):
     # the LOG LEVEL, and the record carries other fields (axis presence, homed
     # state) whose fallback values are pinned in
     # test_fresh_process_reads_homed_state.py.
-    assert (result['model'], result['serial_number']) == ('unknown', 'unknown')
+    assert (result['model'], result['serial_number']) == (None, None)
     # Expected legacy-firmware capability gap -- must NOT log at ERROR.
     assert rec.messages('error') == [], f'unexpected ERROR logs: {rec.messages("error")}'
     # The condition is still recorded, once, at INFO.
@@ -85,7 +85,7 @@ def test_unparseable_response_still_logs_error(monkeypatch):
     # so real parse failures are not silently swallowed by the legacy path.
     board, rec = _make_board('garbage nonsense with no fields', monkeypatch)
     result = board.fullinfo()
-    assert (result['model'], result['serial_number']) == ('unknown', 'unknown')
+    assert (result['model'], result['serial_number']) == (None, None)
     assert any('Failed to parse FULLINFO' in m for m in rec.messages('error'))
 
 

@@ -48,7 +48,7 @@ class NullMotionBoard:
         self.initial_t_homing_complete = True
         self._has_turret = False
         self._connect_fails = 0
-        self.firmware_version = ''
+        self.firmware_version = None
         self.firmware_date = None
         self.firmware_responding = False
         self.is_v3 = False

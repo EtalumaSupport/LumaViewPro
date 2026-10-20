@@ -57,9 +57,12 @@ def test_the_original_led_firmware_is_named_with_its_date(scope):
     assert info['firmware_date'] == '2024-02-01'
 
 
-def test_a_scope_with_no_motor_board_reports_no_firmware_date(scope):
-    # An LS620 or LS560 runs the null motor board.
+def test_a_scope_with_no_motor_board_reports_no_firmware(scope):
+    # An LS620 or LS560 runs the null motor board: no version and no date,
+    # each None, unknown -- never an empty string read as a version.
     from drivers.null_motorboard import NullMotionBoard
 
     scope._motion_driver = NullMotionBoard()
-    assert scope.diagnostics.get_motor_info()['firmware_date'] is None
+    info = scope.diagnostics.get_motor_info()
+    assert info['firmware_version'] is None
+    assert info['firmware_date'] is None

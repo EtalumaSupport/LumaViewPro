@@ -495,7 +495,7 @@ class TestMotorBoardCommands:
         board.timeout = 30
         board.write_timeout = 5
         board.driver = _make_mock_serial()
-        board._fullinfo = {'model': 'unknown', 'serial_number': 'unknown', 'present_axes': []}
+        board._fullinfo = {'model': None, 'serial_number': None, 'present_axes': []}
         board._connect_fails = 0
         board.axes_config = {
             'Z': {'limits': {'min': 0.0, 'max': 14000.0}, 'move_func': board.z_um2ustep},

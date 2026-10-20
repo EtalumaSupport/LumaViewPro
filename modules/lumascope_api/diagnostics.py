@@ -1277,9 +1277,9 @@ class DiagnosticsAPI:
                   'firmware_date' and 'command_set' (``MOTOR_COMMANDS_TEXT``,
                   or None: no text command channel, or no board connected).
                   model/serial are the real strings on a
-                  connected board, 'unknown' when a connected board's
-                  FULLINFO failed to parse (the cached fallback), and None
-                  when no board is present (the null driver).
+                  connected board, and None when they are unknown: a
+                  connected board's FULLINFO failed to parse, or no board
+                  is present (the null driver).
                   firmware_version is the parsed version, ``'original'``
                   (ORIGINAL_FIRMWARE) for a board that answered INFO with
                   no version string, or None when it did not answer;

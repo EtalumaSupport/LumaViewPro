@@ -66,7 +66,7 @@ class TestFullinfoParser:
         # so the fallback must stay at the refusing end of the gate.
         for resp in ('', 'UNKNOWN_CMD', 'garbage without the fields'):
             record = _parse_fullinfo(resp)
-            assert record['model'] == 'unknown', resp
+            assert record['model'] is None, resp
             assert record['homed_axes'] == [], resp
             assert record['present_axes'] == [], resp
 

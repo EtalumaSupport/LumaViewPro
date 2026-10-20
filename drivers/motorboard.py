@@ -75,11 +75,13 @@ _HOME_REPLY_TIMEOUT_S = 240.0
 # What every consumer gets when FULLINFO is missing, unsupported, or
 # unparseable. Every key the parsed record has, so a caller reading a
 # field off a fallback record gets a safe answer instead of a KeyError.
+# The model and serial number are None, unknown, never a string that could
+# be read as a model or stamped into an image as a serial number.
 # No axis is reported homed here, which leaves motion at "position
 # unknown" -- the conservative end of the gate, not a bypass.
 _UNKNOWN_BOARD_RECORD = {
-    'model': 'unknown',
-    'serial_number': 'unknown',
+    'model': None,
+    'serial_number': None,
     'has_turret': False,
     'present_axes': [],
     'homed_axes': [],
@@ -353,7 +355,7 @@ class MotorBoard(SerialBoard):
         """Send FULLINFO and return the parsed board record.
 
         Returns:
-            dict: ``{'model': str, 'serial_number': str, 'present_axes':
+            dict: ``{'model': str | None, 'serial_number': str | None, 'present_axes':
                 list, 'homed_axes': list, '_raw': str}``. Falls back to
                 the unknown record when the response is missing or
                 unparseable.
@@ -375,7 +377,7 @@ class MotorBoard(SerialBoard):
             )
             return _UNKNOWN_BOARD_RECORD.copy()
         record = _parse_fullinfo(info)
-        if record['model'] == 'unknown':
+        if record['model'] is None:
             logger.error(f'[XYZ Class ] Failed to parse FULLINFO response: {info!r}')
             return record
         if record['has_turret']:
@@ -942,7 +944,7 @@ class MotorBoard(SerialBoard):
             logger.info(f'[XYZ Class ] {what}: FULLINFO not supported; home not confirmed')
             return
         record = _parse_fullinfo(info)
-        if record['model'] == 'unknown':
+        if record['model'] is None:
             raise BoardReplyUnreadableError(
                 f'{what}: unreadable FULLINFO {info!r}; the home cannot be confirmed'
             )
