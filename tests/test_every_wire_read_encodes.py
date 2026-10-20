@@ -79,7 +79,7 @@ def test_every_wire_read_from_the_session_encodes(session, tmp_path):
 
     assert not failed, '\n'.join(failed)
     # The walk reached the sub-APIs and the records they hold.
-    assert {'ScopeSession.status', 'ScopeSession.live_work', 'Lumascope.capabilities'} <= set(read)
+    assert {'ScopeSession.status', 'Lumascope.capabilities'} <= set(read)
     # 61 reads over 13 live objects at this writing.
     assert len(seen) >= 10, f'{len(read)} reads over {len(seen)} live objects'
 

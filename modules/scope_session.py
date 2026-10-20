@@ -753,7 +753,7 @@ class ScopeSession:
     # thread, including inside a transition listener.
     # ------------------------------------------------------------------
 
-    @api
+    @api(in_process=True)
     @property
     def live_work(self) -> LiveWork:
         """Everything the session is still doing, each piece from its owner.
@@ -767,7 +767,7 @@ class ScopeSession:
         zip; a still being saved. Each item says how much it has left, and
         a build how far it has got. Read lock-free, owner by owner, from any
         thread; ``closing`` while the close runs, ``closed`` once the
-        session has shut down.
+        session has shut down. A wire client reads it in ``status``.
         """
         work: list[WorkItem] = []
         runner = self.sequenced_capture_runner

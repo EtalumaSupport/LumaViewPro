@@ -1155,7 +1155,8 @@ session.protocol_files_stalled   # the drain's write in flight has stopped progr
                                  # same threshold that refuses a new run (files_writing_stalled)
 session.protocol_files_stuck_write  # the write in flight, named for a stall report
 session.manual_recording.is_recording  # a manual recording is LIVE (not its file drain)
-session.live_work                # everything the session is still doing, one read: .work is a tuple of
+session.live_work                # in-process; over the wire status.live_work. Everything the session is
+                                 # still doing, one read: .work is a tuple of
                                  # WorkItem(kind, name, left, percent, discardable) -- what holds the scope, a run starting
                                  # or ending, a recording's file, a run's video, a run's images, its post-run
                                  # builds, post-processing builds running and queued, a support report or logs
@@ -3150,7 +3151,7 @@ Reached through `ScopeSession.create(settings, ...)`; every L2 caller starts her
 - `light_shown_channel`
 - `live_folder_listing`
 - `live_folder_path` (in-process)
-- `live_work`
+- `live_work` (in-process)
 - `load_plugins` (in-process)
 - `load_protocol`
 - `load_user_settings` (in-process)
@@ -3996,7 +3997,7 @@ Reached through each item returned by `session.live_folder_listing`.
 
 ### LiveWork
 
-Reached through `session.live_work`.
+Reached through `Status.live_work`; in-process also `session.live_work`.
 
 - `closed`
 - `closing`

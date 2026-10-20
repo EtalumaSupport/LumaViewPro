@@ -9,7 +9,8 @@ granted, the engine not yet running), a run, a run unwinding after its
 release, a diagnostic, a run lent a diagnostic's claim, a home, a live
 recording, and a finished run's files still writing. Before the ten one-fact
 reads that once answered these retired, each was shown to answer what the
-records answer in every one of these states; none is reached on the wire now.
+records answer in every one of these states; none is reached on the wire
+now, and neither is ``live_work`` but through ``status``.
 """
 
 import contextlib
@@ -163,6 +164,8 @@ RETIRED_READS = (
     'recording_active',
     'controls_locked',
     'motion_enabled',
+    # In-process only: a wire client reads it in status.
+    'live_work',
 )
 
 
