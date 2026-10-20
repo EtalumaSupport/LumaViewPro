@@ -60,15 +60,19 @@ def _row(scope, label):
     }
     figure(label, row)
     counted = isinstance(row['observed_fps'], (int, float)) and row['observed_fps'] > 0
-    if probe.get('supported') is False or not probe.get('connected', True):
+    if not HARDWARE:
         void(
             f'{label}: the camera counts the frames it delivers',
             counted,
-            'this camera has no stream counters (the simulated camera)',
+            'the simulated camera has no stream counters',
         )
     else:
+        # On hardware a probe that did not reach the camera is a failure:
+        # no camera came up, or its driver has no stream counters.
         check(
-            f'{label}: the camera counts the frames it delivers', counted, str(probe.get('errors'))
+            f'{label}: the camera counts the frames it delivers',
+            counted,
+            f'camera {scope.capabilities.camera_model!r}, probe errors {probe.get("errors")}',
         )
     check(f'{label}: LumaViewPro receives frames', row['lvp_fps'] > 0)
     return row
@@ -94,6 +98,7 @@ def _largest_frame(scope, cam, label):
 def _measure(session):
     scope = session.scope
     cam = scope.camera
+    figure('camera_model', scope.capabilities.camera_model)
     figure('firmware', scope.diagnostics.run_pylon_diagnostic_probe(0).get('camera'))
     if not scope.imaging.is_streaming():
         scope.imaging.enable_streaming()
