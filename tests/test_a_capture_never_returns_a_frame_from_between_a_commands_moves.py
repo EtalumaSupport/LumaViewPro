@@ -168,3 +168,51 @@ def test_a_stop_during_a_turret_changes_park_closes_the_command(scope):
     scope.imaging.capture_and_wait()
 
     assert scope.imaging.frames_until_valid() == 0
+
+
+def _slot_when_the_turret_came_into_force(scope, monkeypatch, command) -> int | None:
+    """Run *command*; the slot the turret answered at the moment its change
+    was given its in-force time.
+
+    The stamps are read as ``motion_settled`` is called: a stand-in by
+    design, an observer that passes each call through unchanged.
+    """
+    fv = scope.frame_validity
+    slot_at = {}
+    motion_settled = fv.motion_settled
+
+    def observed(source, at_ns):
+        if source == 'turret':
+            slot_at[at_ns] = scope.motion.get_turret_slot()
+        motion_settled(source, at_ns)
+
+    monkeypatch.setattr(fv, 'motion_settled', observed)
+    command()
+    return slot_at[fv.changes()['turret'].in_force_ns]
+
+
+@pytest.mark.parametrize(
+    ('command', 'slot'),
+    [
+        (lambda motion: motion.move_turret(2), 2),
+        (lambda motion: motion.home('T'), 1),
+        (lambda motion: motion.home(), 1),
+    ],
+    ids=['move_turret', 'turret home', 'whole-scope home'],
+)
+def test_a_turret_change_is_in_force_only_once_the_turret_answers_its_slot(
+    scope, monkeypatch, command, slot
+):
+    """A frame counts for a turret change once the change is in force, and
+    the objective a frame is made under is the slot's, so the in-force time
+    comes after the slot is recorded: before it, a frame that counts can be
+    made with no objective in the light path. Each command that turns the
+    turret records its slot inside the command that stamps it; each is its
+    own code path, so each is its own case."""
+    scope.motion.move_turret(3)
+
+    answered = _slot_when_the_turret_came_into_force(
+        scope, monkeypatch, lambda: command(scope.motion)
+    )
+
+    assert answered == slot

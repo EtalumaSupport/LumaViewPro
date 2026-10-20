@@ -1060,44 +1060,49 @@ class MotionAPI:
             self._scope.frame_validity.invalidate('xy_move')
         if 'T' in present_axes:
             self._scope.frame_validity.invalidate('turret')
-        try:
-            with (
-                self._reference_position_logger(),
-                self._driving_home('ALL', stops_asked, states_before, turret_before),
-            ):
-                self._driver.home()
-            # The position is read BEFORE an axis says IDLE: a reader that
-            # samples at frame rate would otherwise pair "known" with the
-            # pre-home number for the length of the serial round-trips.
-            read = self._refresh_position_cache()
-            for ax in present_axes:
-                if ax in read:
-                    self._set_axis_state(ax, AxisState.IDLE)
-            self._raise_unread_axes('ALL', present_axes, read)
-            # The firmware homes the turret to slot 1. Recording it also lets
-            # a following move_turret(1) -- e.g. the startup select-slot-1 --
-            # recognise the turret is already there instead of running a
-            # redundant Z-retract / rotate / restore. Not after a stop: a
-            # home the stop cut short did not reach slot 1.
-            if 'T' in present_axes and not self._stopped_since(stop_generation):
-                self._last_turret_position = 1
-        except HomingFailedError:
-            raise
-        except MotionInterlockError as e:
-            self._note_interlock_stop(e)
-            if not e.moved:
-                self._give_back_states(states_before)
-                self._last_turret_position = turret_before
-                raise HardwareCommandRefusedError(e.reason, 'home') from e
-            for ax in present_axes:
-                self._set_axis_state(ax, AxisState.UNKNOWN)
-            raise HomingFaultError('ALL', e.reason, present_axes) from e
-        except Exception as e:
-            for ax in present_axes:
-                self._set_axis_state(ax, AxisState.UNKNOWN)
-            raise self._home_ending('ALL', stops_asked, present_axes) from e
-        finally:
-            _api_log.info('home DONE')
+        # One command, so the axes' changes come into force when it closes,
+        # after the turret's slot is recorded: an axis saying IDLE first
+        # would put the turret's change in force with no slot in the light
+        # path, and a frame made then has no objective.
+        with self._command():
+            try:
+                with (
+                    self._reference_position_logger(),
+                    self._driving_home('ALL', stops_asked, states_before, turret_before),
+                ):
+                    self._driver.home()
+                # The position is read BEFORE an axis says IDLE: a reader that
+                # samples at frame rate would otherwise pair "known" with the
+                # pre-home number for the length of the serial round-trips.
+                read = self._refresh_position_cache()
+                for ax in present_axes:
+                    if ax in read:
+                        self._set_axis_state(ax, AxisState.IDLE)
+                self._raise_unread_axes('ALL', present_axes, read)
+                # The firmware homes the turret to slot 1. Recording it also lets
+                # a following move_turret(1) -- e.g. the startup select-slot-1 --
+                # recognise the turret is already there instead of running a
+                # redundant Z-retract / rotate / restore. Not after a stop: a
+                # home the stop cut short did not reach slot 1.
+                if 'T' in present_axes and not self._stopped_since(stop_generation):
+                    self._last_turret_position = 1
+            except HomingFailedError:
+                raise
+            except MotionInterlockError as e:
+                self._note_interlock_stop(e)
+                if not e.moved:
+                    self._give_back_states(states_before)
+                    self._last_turret_position = turret_before
+                    raise HardwareCommandRefusedError(e.reason, 'home') from e
+                for ax in present_axes:
+                    self._set_axis_state(ax, AxisState.UNKNOWN)
+                raise HomingFaultError('ALL', e.reason, present_axes) from e
+            except Exception as e:
+                for ax in present_axes:
+                    self._set_axis_state(ax, AxisState.UNKNOWN)
+                raise self._home_ending('ALL', stops_asked, present_axes) from e
+            finally:
+                _api_log.info('home DONE')
 
     @contextlib.contextmanager
     def _safe_turret_move(self, restore_z: bool = True) -> Iterator[int]:
@@ -1195,42 +1200,46 @@ class MotionAPI:
         self._last_turret_position = None
         stop_generation = self._stop_generation
         stops_asked = self._stops_asked
-        try:
-            with (
-                self._reference_position_logger(),
-                # Before Z's park, and around it and the restore: a Stop
-                # already pressed parks nothing, and the park is the home's.
-                self._driving_home('T', stops_asked, {'T': state_before}, turret_before),
-                self._safe_turret_move(),
-            ):
-                self._set_axis_state('T', AxisState.HOMING)
-                self._scope.frame_validity.invalidate('turret')
-                homed = False
-                try:
-                    self._driver.thome()
-                    homed = True
-                finally:
-                    # Transition T out of HOMING on EVERY exit, including a
-                    # raised driver call. The motion monitor polls MOVING, not
-                    # HOMING, so nothing else ever takes T out of it: a
-                    # still-HOMING T reads as the scope moving to every
-                    # reader, and holds any wait_until_finished_moving begun
-                    # during the home until its timeout. Failure -> UNKNOWN,
-                    # success -> IDLE; both set the arrival event.
-                    self._set_axis_state('T', AxisState.IDLE if homed else AxisState.UNKNOWN)
-            read = self._refresh_position_cache()
-            self._raise_unread_axes('T', ('T',), read)
-            # Turret homes to slot 1 (see home() for why it is recorded). A
-            # home a stop cut short did not reach it.
-            if not self._stopped_since(stop_generation):
-                self._last_turret_position = 1
-        except HomingFailedError:
-            raise
-        except Exception as e:
-            self._set_axis_state('T', AxisState.UNKNOWN)
-            raise self._home_ending('T', stops_asked, ('T',)) from e
-        finally:
-            _api_log.info('T home DONE')
+        # Outside the park's own command, so the turret's change comes into
+        # force once its slot is recorded, not when the park's command closes
+        # with the turret in no slot (see home()).
+        with self._command():
+            try:
+                with (
+                    self._reference_position_logger(),
+                    # Before Z's park, and around it and the restore: a Stop
+                    # already pressed parks nothing, and the park is the home's.
+                    self._driving_home('T', stops_asked, {'T': state_before}, turret_before),
+                    self._safe_turret_move(),
+                ):
+                    self._set_axis_state('T', AxisState.HOMING)
+                    self._scope.frame_validity.invalidate('turret')
+                    homed = False
+                    try:
+                        self._driver.thome()
+                        homed = True
+                    finally:
+                        # Transition T out of HOMING on EVERY exit, including a
+                        # raised driver call. The motion monitor polls MOVING, not
+                        # HOMING, so nothing else ever takes T out of it: a
+                        # still-HOMING T reads as the scope moving to every
+                        # reader, and holds any wait_until_finished_moving begun
+                        # during the home until its timeout. Failure -> UNKNOWN,
+                        # success -> IDLE; both set the arrival event.
+                        self._set_axis_state('T', AxisState.IDLE if homed else AxisState.UNKNOWN)
+                read = self._refresh_position_cache()
+                self._raise_unread_axes('T', ('T',), read)
+                # Turret homes to slot 1 (see home() for why it is recorded). A
+                # home a stop cut short did not reach it.
+                if not self._stopped_since(stop_generation):
+                    self._last_turret_position = 1
+            except HomingFailedError:
+                raise
+            except Exception as e:
+                self._set_axis_state('T', AxisState.UNKNOWN)
+                raise self._home_ending('T', stops_asked, ('T',)) from e
+            finally:
+                _api_log.info('T home DONE')
 
     @slow_task_budget(_TURRET_MOVE_SLOW_TASK_S)
     def _move_turret_impl(self, position: int, restore_z: bool = True) -> None:
@@ -1284,14 +1293,17 @@ class MotionAPI:
         # park, move, restore -- returned: a raise anywhere in it leaves the
         # turret in no slot anyone can vouch for.
         self._last_turret_position = None
-        with self._safe_turret_move(restore_z=restore_z) as stop_generation:
-            logger.info(f'[SCOPE API ] Moving T to position {position}')
-            self._move_absolute_impl('T', position).result()
-        # T's own wait judges only T; a stop after T arrived, before the
-        # restore, ended the change all the same.
-        if self._stopped_since(stop_generation):
-            raise MoveStoppedError('T', 'stopped')
-        self._last_turret_position = int(position)
+        # Outside the park's own command, so the turret's change comes into
+        # force once its slot is recorded (see home()).
+        with self._command():
+            with self._safe_turret_move(restore_z=restore_z) as stop_generation:
+                logger.info(f'[SCOPE API ] Moving T to position {position}')
+                self._move_absolute_impl('T', position).result()
+            # T's own wait judges only T; a stop after T arrived, before the
+            # restore, ended the change all the same.
+            if self._stopped_since(stop_generation):
+                raise MoveStoppedError('T', 'stopped')
+            self._last_turret_position = int(position)
 
     @api(reads=True)
     def get_turret_slot(self) -> int | None:
