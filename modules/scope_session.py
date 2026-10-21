@@ -131,14 +131,16 @@ SUPPORT_REPORT_SLOW_TASK_S = 600.0
 # for in turn (derived from those declarations, not measured whole).
 STARTUP_MOTION_SLOW_TASK_S = 135.0
 
-# The reports a session counts while they run, by their live-work kind.
 # A Session member that writes settings or files, admitted and counted by the
 # session's claim (``guarded_write``).
 _guarded_write = guarded_write(lambda session: session.activity_claim)
 
-_REPORT_NAMES = {
+# The work a session counts while it runs, by its live-work kind: work that
+# holds no claim for all of its length, so no claim names it.
+_COUNTED_WORK_NAMES = {
     live_work.SUPPORT_REPORT: 'A support report',
     live_work.LOGS_ZIP: 'A logs zip',
+    live_work.PLUGIN_RUN: 'An engineering plugin run',
 }
 
 # A protocol's Layer Settings column beside the layer-settings key it is
@@ -499,12 +501,12 @@ class ScopeSession:
         # rather than waiting on itself.
         self._close_lock = threading.RLock()
         self._close_running = False
-        # Support reports and logs zips in flight, by kind: each runs on its
-        # caller's thread -- the GUI's diagnostics lane, a script's own -- so
-        # the members count them, and the live-work read sees a script's
-        # report as it sees the GUI's.
-        self._reports_in_flight = dict.fromkeys(_REPORT_NAMES, 0)
-        self._reports_lock = threading.Lock()
+        # Support reports, logs zips and plugin runs in flight, by kind: each
+        # runs on its caller's thread -- the GUI's diagnostics lane, a
+        # script's own, a plugin's -- so the members count them, and the
+        # live-work read sees a script's report as it sees the GUI's.
+        self._counted_work = dict.fromkeys(_COUNTED_WORK_NAMES, 0)
+        self._counted_lock = threading.Lock()
         # The file every accepted settings write is saved to, and the thread
         # that saves it: both set by create when its host names a file, and
         # None otherwise, when the session saves nothing.
@@ -949,7 +951,8 @@ class ScopeSession:
         then what finishes after it lets go: a recording's file, a run's
         video steps, a finished run's images and its post-run builds;
         post-processing builds running and queued; a support report or logs
-        zip; a still being saved. Each item says how much it has left, and
+        zip; an engineering plugin run, from its press to its end; a still
+        being saved. Each item says how much it has left, and
         a build how far it has got. Read lock-free, owner by owner, from any
         thread; ``closing`` while the close runs, ``closed`` once the
         session has shut down. A wire client reads it in ``status``.
@@ -972,11 +975,9 @@ class ScopeSession:
             work.append(WorkItem(live_work.PROTOCOL, 'A run, starting or ending'))
         work.extend(self._finishing_work())
         work.extend(self.post_processing.work())
-        with self._reports_lock:
-            reports = dict(self._reports_in_flight)
-        for kind, count in reports.items():
+        for kind, count in self._counted_work_now().items():
             if count:
-                work.append(WorkItem(kind, _REPORT_NAMES[kind], left=count))
+                work.append(WorkItem(kind, _COUNTED_WORK_NAMES[kind], left=count))
         if self.manual_capture.in_flight:
             work.append(WorkItem(live_work.STILL, 'A still being saved'))
         return LiveWork(
@@ -1062,15 +1063,40 @@ class ScopeSession:
         return lambda: Status(**at_edge, camera_streaming=self.scope.imaging.is_streaming())
 
     @contextlib.contextmanager
-    def _report_in_flight(self, kind: str):
-        """Count a support report or logs zip from its call to its return."""
-        with self._reports_lock:
-            self._reports_in_flight[kind] += 1
+    def _count_in_flight(self, kind: str):
+        """Count a support report, logs zip or plugin run from its entry to its exit."""
+        with self._counted_lock:
+            self._counted_work[kind] += 1
         try:
             yield
         finally:
-            with self._reports_lock:
-                self._reports_in_flight[kind] -= 1
+            with self._counted_lock:
+                self._counted_work[kind] -= 1
+
+    def _counted_work_now(self) -> dict[str, int]:
+        """The counted work in flight, by kind, read at once."""
+        with self._counted_lock:
+            return dict(self._counted_work)
+
+    @api(in_process=True)
+    @contextlib.contextmanager
+    def plugin_run_in_flight(self) -> Iterator[None]:
+        """Count a plugin's run as live work from entry to exit, entered and left on any threads.
+
+        For a plugin whose run starts on one thread and ends on a worker it
+        starts: entered at the press, before the worker, and left as the
+        worker ends, so ``live_work`` and ``in_flight_named`` name the run
+        across the gap before its own claim and after it -- a confirmation
+        asked first, the worker's end. A run that holds a claim takes it as
+        it always did; this holds no claim and refuses nothing, and the
+        close waits for it as for any live work, after the plugins are told
+        to stop.
+
+        Raises:
+            Nothing.
+        """
+        with self._count_in_flight(live_work.PLUGIN_RUN):
+            yield
 
     @api
     @_guarded_write
@@ -1163,9 +1189,10 @@ class ScopeSession:
         blocks on its lane; an axis still travelling, since a jog, a go-to
         or a stage click starts its move on the lane and the lane is idle
         while the stage moves; an autofocus sweep, which holds no scope
-        claim. Composition wiring for the walk host, not part of the L2 API
-        surface; the engineering plugin's own test thread is nobody's to
-        report.
+        claim; a plugin run from its press to its end
+        (``plugin_run_in_flight``), which holds its claim for only part of
+        that. Composition wiring for the walk host, not part of the L2 API
+        surface.
         """
         still = []
         holding = self.controls_lock.run_named
@@ -1178,6 +1205,8 @@ class ScopeSession:
             still.append('an axis moving')
         if self.autofocus_thread.is_running:
             still.append('an autofocus sweep')
+        if self._counted_work_now()[live_work.PLUGIN_RUN]:
+            still.append(_COUNTED_WORK_NAMES[live_work.PLUGIN_RUN].lower())
         return still
 
     @api(in_process=True, event=Status)
@@ -4253,7 +4282,7 @@ class ScopeSession:
         from modules.tech_support_report import SupportReportSaved, TechSupportReport
 
         report = TechSupportReport(session=self)
-        with self._report_in_flight(live_work.SUPPORT_REPORT):
+        with self._count_in_flight(live_work.SUPPORT_REPORT):
             return SupportReportSaved(
                 report.generate(
                     callback=on_progress,
@@ -4294,7 +4323,7 @@ class ScopeSession:
         from modules.tech_support_report import SupportReportSaved, TechSupportReport
 
         report = TechSupportReport(session=self)
-        with self._report_in_flight(live_work.LOGS_ZIP):
+        with self._count_in_flight(live_work.LOGS_ZIP):
             return SupportReportSaved(
                 report.generate_logs_only(callback=on_progress, output_dir=output_dir),
                 'logs zip',

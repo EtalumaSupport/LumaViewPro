@@ -75,3 +75,22 @@ def test_a_home_is_named_as_holding_the_scope(session, monkeypatch):
     home.join(HELD_S)
     assert 'home' in still[0].lower(), still
     assert any(item.startswith('the IO lane (') for item in still), still
+
+
+def test_a_plugin_run_is_named_from_its_press_to_its_end_with_no_claim_held(session):
+    """A plugin run is named from the press, before any claim, until its worker leaves it.
+
+    The press enters the count on one thread and the worker leaves it on
+    its own, as the engineering tab does; nothing holds the scope between,
+    so the name is the count's, not a claim's.
+    """
+    run = session.plugin_run_in_flight()
+    run.__enter__()
+    try:
+        assert session.controls_lock.run_named is None
+        assert session.in_flight_named() == ['an engineering plugin run']
+    finally:
+        worker = threading.Thread(target=run.__exit__, args=(None, None, None))
+        worker.start()
+        worker.join(HELD_S)
+    assert session.in_flight_named() == []

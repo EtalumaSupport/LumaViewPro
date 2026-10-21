@@ -1510,6 +1510,7 @@ still states the major version.
 | level 26 | `session.controls_lock` answers a `ControlsLock` (`run_named`, `recording`, and `run_lockout` and `controls_locked` read from them): which of a person's controls the Session locks now, the one read every lock read reads; a plugin greys its own controls from it. |
 | level 27 | The Session's ten run-state reads are gone: `is_protocol_running`, `run_in_progress`, `exclusive_activity`, `protocol_files_draining`, `protocol_files_pending`, `run_lockout`, `run_lockout_named`, `recording_active`, `controls_locked` and `motion_enabled`. `controls_lock` answers the lock, `live_work` what holds the scope and a finished run's files still to write, and a stage gesture reads `capabilities.has_xy_stage` beside the lock. |
 | level 28 | A `Change` carries `earliest_ns`, the earliest moment it could have reached the hardware: a camera or LED write's start, or for a move once in force the start of the last read that saw its axis still moving (else its `written_ns`). A delay measured from it is never short; the clock rule still judges from `written_ns`, or a move's `in_force_ns`, so the pair never accepts a frame early. |
+| level 29 | `session.plugin_run_in_flight()`: a context manager entered when a plugin's run starts and left when its worker ends, on any threads; while it is held, `live_work` lists a `'plugin_run'` item (`'An engineering plugin run'`, `left` its count) and `in_flight_named` names it; it holds no claim and refuses nothing. |
 
 ### Configuration queries
 
@@ -3079,6 +3080,7 @@ Reached through `ScopeSession.create(settings, ...)`; every L2 caller starts her
 - `objective_question`
 - `plugin_api_level`
 - `plugin_health`
+- `plugin_run_in_flight` (in-process)
 - `point_steps_at_turret_slot`
 - `post_processing`
 - `protocol_files_stalled`

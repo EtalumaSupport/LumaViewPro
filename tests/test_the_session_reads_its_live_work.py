@@ -281,3 +281,12 @@ def test_a_still_being_saved_is_work(sim_session):
         assert _kinds(sim_session) == [live_work.STILL]
     finally:
         sim_session.manual_capture._in_flight.release()
+
+
+def test_a_plugin_run_is_work_counted_until_each_ends(sim_session):
+    with sim_session.plugin_run_in_flight():
+        assert _item(sim_session, live_work.PLUGIN_RUN).left == 1
+        with sim_session.plugin_run_in_flight():
+            assert _item(sim_session, live_work.PLUGIN_RUN).left == 2
+        assert _item(sim_session, live_work.PLUGIN_RUN).left == 1
+    assert sim_session.live_work.work == ()

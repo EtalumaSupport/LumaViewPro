@@ -7,10 +7,11 @@ diagnostic holds the scope; a recording's file and a run's video steps
 finish after they let it go; a finished run's images land on the file
 lane and its post-run builds on threads of their own; post-processing
 builds run on their own lane; a support report or a logs zip runs on its
-caller's thread; a still saves on the camera lane. Each of those owners
-answers for its own work; ``ScopeSession.live_work`` asks every one and
-returns their answers together, so a closing host -- the GUI, a script,
-the REST server -- reads one list, and the close waits on exactly it.
+caller's thread, and a plugin's run on its own; a still saves on the
+camera lane. Each of those owners answers for its own work;
+``ScopeSession.live_work`` asks every one and returns their answers
+together, so a closing host -- the GUI, a script, the REST server -- reads
+one list, and the close waits on exactly it.
 """
 
 from __future__ import annotations
@@ -34,6 +35,7 @@ POST_PROCESSING = 'post_processing'
 POST_PROCESSING_QUEUED = 'post_processing_queued'
 SUPPORT_REPORT = 'support_report'
 LOGS_ZIP = 'logs_zip'
+PLUGIN_RUN = 'plugin_run'
 STILL = 'still'
 
 # The kinds that hold the scope: a holder's item, or a run acting under a
