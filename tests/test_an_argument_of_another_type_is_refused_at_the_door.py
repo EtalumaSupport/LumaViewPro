@@ -181,3 +181,11 @@ def test_a_static_and_a_class_member_are_still_reached_through_the_class(tmp_pat
     _refused(
         lambda: ScopeSession.create(settings=7, simulate=True), 'ScopeSession.create', 'settings'
     )
+
+
+def test_a_marked_module_function_holds_its_first_parameter_too():
+    """A function marked at a module's top level has no ``self``: its first
+    parameter is an argument, held at the door like any other."""
+    from rest.app import build_app
+
+    _refused(lambda: build_app(MagicMock()), 'build_app', 'session')
