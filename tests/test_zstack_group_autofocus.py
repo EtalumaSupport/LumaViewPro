@@ -35,9 +35,14 @@ from __future__ import annotations
 import ast
 import pathlib
 
+import pytest
+
 from modules.coord_transformations import AxisLimits
+from modules.lumascope_api.illumination import LedState
+from modules.scope_session import ScopeSession
+from tests.settings_fixtures import complete_settings
 from tests.test_protocol_roundtrip import _build_protocol, _make_step
-from tests.scope_fakes import swap_lanes
+from tests.scope_fakes import home_sim_scope, swap_lanes
 
 
 _WIDE_Z = {'Z': AxisLimits(min_um=0.0, max_um=100_000.0)}
@@ -228,3 +233,49 @@ def test_the_found_focus_lands_on_the_reference_plane_not_the_stack_floor():
     assert z_moves[0] == found - 5.0
     assert z_moves[1] == found
     assert z_moves[2] == found + 5.0
+
+
+@pytest.fixture
+def one_position_session():
+    settings = complete_settings(objective_id='4x Oly')
+    settings['protocol']['labware'] = 'Center Plate'
+    built = ScopeSession.create(settings, simulate=True)
+    home_sim_scope(built.scope)
+    yield built
+    built.shutdown()
+
+
+def test_a_groups_sweep_runs_in_its_reference_slices_light(one_position_session, tmp_path):
+    """A group holds every channel at its position in Z order, so its first
+    slice -- the one that fires the sweep -- can be another channel's. The
+    sweep runs in the reference slice's light all the same: Blue saved 10 um
+    below BF sorts first here, and BF is the channel that autofocuses."""
+    session = one_position_session
+    session.set_layer_acquire('BF', 'image')
+    session.save_layer_focus('BF', 5000.0)
+    session.update_settings('BF.autofocus', True)
+    session.set_layer_acquire('Blue', 'image')
+    session.save_layer_focus('Blue', 4990.0)
+    session.update_settings('zstack.step_size', 10.0)
+    session.update_settings('zstack.range', 20.0)
+    protocol = session.new_protocol(use_zstacking=True)
+    first = protocol.step(idx=0)
+    reference = protocol.step(idx=protocol.zstack_group_focus_anchor(step_idx=0))
+    assert (first['Color'], reference['Color']) == ('Blue', 'BF')
+
+    lit = []
+
+    def on_led(address, name, state, illumination_ma):
+        if state is LedState.LIT:
+            lit.append((name, illumination_ma))
+
+    session.scope.illumination.add_led_listener(on_led)
+    outcome = (
+        session.create_protocol_runner()
+        .start_single_scan(protocol, parent_dir=tmp_path, enable_image_saving=False)
+        .result(timeout=60)
+    )
+
+    assert outcome.status == 'completed', outcome
+    # Nothing is lit before the first slice's sweep, so the first light is the sweep's.
+    assert lit[0] == ('BF', reference['Illumination'])

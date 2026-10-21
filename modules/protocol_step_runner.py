@@ -238,20 +238,27 @@ class ProtocolStepRunner:
             if p._aborted.is_set() or not p._scan_in_progress.is_set():
                 return
 
+            # A group's sweep runs in its reference slice's light. The first
+            # slice fires it, and may be another channel's: a group holds
+            # every channel at the position, in Z order.
+            sweep_step = (
+                step if zstack_focus_anchor is None else p._protocol.step(idx=zstack_focus_anchor)
+            )
             p._af_future = p.autofocus_thread.run_autofocus(
-                objective_id=step['Objective'],
+                objective_id=sweep_step['Objective'],
                 save_results_to_file=p._save_autofocus_data,
                 results_dir=p._parent_dir,
                 write_batch=p._write_batch,
                 run=p._run_identity,
-                led_color=step['Color'],
-                led_illumination=step['Illumination'],
-                camera_gain=step['Gain'],
-                camera_exposure=step['Exposure'],
+                led_color=sweep_step['Color'],
+                led_illumination=sweep_step['Illumination'],
+                camera_gain=sweep_step['Gain'],
+                camera_exposure=sweep_step['Exposure'],
                 # Capture immediately follows AF on the same step, so it
-                # uses the same channel + illumination AF just lit (#612).
+                # mostly uses the same channel + illumination AF just lit.
                 # Tell AF to skip its off + state-restore cycle so the
-                # capture inherits the LED state already established.
+                # capture inherits the LED state already established; a
+                # slice of another channel is switched by its step light.
                 keep_led_on=True,
                 # AF runs inside this protocol step, which holds the LED
                 # lease; AF drives the LEDs through a child of it.
