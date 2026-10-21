@@ -26,6 +26,7 @@ from drivers.exceptions import CameraReadFailedError, HardwareError
 from lib import profile_trace
 from lvp_logger import logger
 from modules.exceptions import (
+    ArgumentRefusedError,
     CameraStreamStalledError,
     CaptureFailedError,
     FrameHandlerRemovedError,
@@ -140,6 +141,19 @@ def _capture_line(grabbed: _Grabbed, record: FrameRecord) -> str:
             f'skip={f["skip"]} by={",".join(f["counted_by"]) or "none"}'
         )
     return ' | '.join(parts)
+
+
+def _refuse_unusable_depth(significant_bits: int) -> None:
+    """Refuse a payload depth no frame has: outside 1 to 16.
+
+    A negative depth raised from the shift that builds full scale, and 0
+    made full scale 0, so every pixel read as saturated. A depth that is
+    not an int is the API door's to refuse.
+    """
+    if not 1 <= significant_bits <= 16:
+        raise ArgumentRefusedError(
+            'out_of_range', argument='significant_bits', value=significant_bits, limits=(1, 16)
+        )
 
 
 @api_fields('bytes_per_s', 'frames_per_s')
@@ -1369,8 +1383,10 @@ class ImagingAPI:
         payload depth is the case this measures wrong.
 
         Raises:
-            Nothing.
+            ArgumentRefusedError: ``'out_of_range'``, *significant_bits* is
+                outside 1 to 16, the depths a frame's 16-bit container holds.
         """
+        _refuse_unusable_depth(significant_bits)
         if arr is None or arr.size == 0:
             return 0.0
         full_scale = (1 << significant_bits) - 1
@@ -1392,8 +1408,10 @@ class ImagingAPI:
         """Fraction of pixels above the dark-floor threshold.
 
         Measured against the frame's payload depth, not the container
-        dtype -- the same depth rule as ``saturated_fraction``.
+        dtype -- the same depth rule as ``saturated_fraction``, and the same
+        refusal of a depth no frame has.
         """
+        _refuse_unusable_depth(significant_bits)
         if arr is None or arr.size == 0:
             return 0.0
         full_scale = (1 << significant_bits) - 1

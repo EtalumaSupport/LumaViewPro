@@ -272,6 +272,23 @@ class TestSaturationGuard:
         assert ImagingAPI.saturated_fraction(blown12, 16) == pytest.approx(0.0)
         assert ImagingAPI.saturated_fraction(None, 8) == 0.0
 
+    def test_a_depth_no_frame_has_is_refused_not_measured(self):
+        # A negative depth raised a bare ValueError from the shift, and 0
+        # made full scale 0, so every pixel read as saturated.
+        from modules.exceptions import ArgumentRefusedError
+
+        frame = np.zeros((2, 2), dtype=np.uint8)
+        refused = []
+        for depth in (-1, 0, 17):
+            with pytest.raises(ArgumentRefusedError) as raised:
+                ImagingAPI.saturated_fraction(frame, depth)
+            refused.append(raised.value.reason)
+        with pytest.raises(ArgumentRefusedError) as dark:
+            ImagingAPI._lit_fraction(frame, 0)
+
+        assert refused == ['out_of_range'] * 3
+        assert dark.value.reason == 'out_of_range'
+
 
 class TestRejectedSettingRaisesAndKeepsCache:
     """A driver that CONFIRMS a settings-write rejection (returns False;
