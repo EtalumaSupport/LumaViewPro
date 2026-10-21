@@ -1140,7 +1140,7 @@ class ScopeSession:
             settings_file: the file the session saves its settings to,
                 one second after the first unsaved write and once at
                 ``shutdown()``, whole or not at all; the hosts name the
-                installation's ``data/current.json``. None (the default)
+                installation's ``user_settings_file(source_path)``. None (the default)
                 saves nothing: a script's or a test's handed dict stays in
                 memory. Writes are kept unsaved, and the session says so
                 once (``SettingsNotSavedNotice``), while the settings are
@@ -1394,6 +1394,19 @@ class ScopeSession:
                 'not_an_installation', argument='source_path', value=source_path
             ) from e
         return settings
+
+    @api(in_process=True)
+    @staticmethod
+    def user_settings_file(source_path: FilePath) -> str:
+        """The file the installation at ``source_path`` keeps its user configuration in.
+
+        For a host that saves accepted writes, to pass to ``create``:
+        ``create(settings, source_path=root,
+        settings_file=ScopeSession.user_settings_file(root))``, as the GUI
+        and the REST server do. ``load_user_settings`` reads this file
+        first. Nothing is read or created here.
+        """
+        return settings_init.current_json_path(source_path)
 
     @staticmethod
     def _report_teardown_failure(teardown: typing.Callable[[], None]) -> None:

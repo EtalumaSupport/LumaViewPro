@@ -146,6 +146,30 @@ def test_a_session_naming_no_file_writes_none_not_even_the_one_it_was_read_from(
     assert (data / 'current.json').read_text() == before
 
 
+def test_the_named_user_settings_file_is_the_one_the_next_launch_reads(tmp_path, monkeypatch):
+    data = tmp_path / 'data'
+    data.mkdir()
+    shutil.copy(os.path.join(REPO_ROOT, 'data', 'settings.json'), data / 'settings.json')
+    shutil.copy(os.path.join(REPO_ROOT, 'data', 'settings.json'), data / 'current.json')
+    copy_installation_files(data)
+    monkeypatch.setattr(settings_init, 'settings', None)
+    monkeypatch.setattr(settings_init, 'rejected_current_json', None)
+    settings = ScopeSession.load_user_settings(str(tmp_path))
+    # The shipped template's firmware tier costs seconds and is not the claim.
+    settings['simulator_tier'] = 'fast'
+    session = ScopeSession.create(
+        settings,
+        source_path=str(tmp_path),
+        simulate=True,
+        settings_file=ScopeSession.user_settings_file(str(tmp_path)),
+    )
+
+    value = _change_the_frame_rate(session)
+    session.shutdown()
+
+    assert ScopeSession.load_user_settings(str(tmp_path))['video']['max_fps'] == value
+
+
 def test_a_provisional_session_keeps_its_writes_unsaved_and_says_so_once(
     tmp_path, heard, monkeypatch
 ):

@@ -54,7 +54,6 @@ def main(argv: list[str] | None = None) -> int:
     # scope's modules and the server's dependencies.
     import uvicorn
 
-    from modules import settings_init
     from modules.scope_session import ScopeSession
     from rest.app import build_app
     from rest.server import Server
@@ -67,7 +66,7 @@ def main(argv: list[str] | None = None) -> int:
         source_path=str(source_path),
         simulate=args.simulate,
         warn_pre_release=False,
-        settings_file=settings_init.current_json_path(source_path),
+        settings_file=ScopeSession.user_settings_file(source_path),
     )
     try:
         app = build_app(session)

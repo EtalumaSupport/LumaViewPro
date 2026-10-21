@@ -429,7 +429,7 @@ from modules.exceptions import (
     ObjectiveUnknownError,
     ScopeModelUnknownError,
 )
-from modules.settings_init import current_json_path, fall_back_to_template
+from modules.settings_init import fall_back_to_template
 
 # Kivy Factory imports: the classes below are referenced from ui/lumaviewpro.kv
 # (and other .kv files Kivy loads at startup). Kivy's Builder.apply() resolves
@@ -1011,7 +1011,7 @@ class LumaViewProApp(TooltipMixin, App):
                 sim_file_stall=sim_file_stall,
                 sim_focal_spread_um=sim_focal_spread_um,
                 outcome_listener=notification_popup_bridge,
-                settings_file=current_json_path(source_path),
+                settings_file=ScopeSession.user_settings_file(source_path),
             )
 
         # A stored value the scope refuses to be configured from -- a model
