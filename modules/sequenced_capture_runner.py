@@ -647,10 +647,30 @@ class SequencedCaptureRunner:
 
     def _end_the_live_run_for_stop(self) -> None:
         """A press of STOP ends the live run, as its own Stop does, recorded ``stage_stopped``."""
+        self._end_the_live_run(_ENDED_BY_STOP)
+
+    def stop_the_run_taken_for(self, session: ControlSession) -> None:
+        """Stop the live run when it was taken for *session*; nothing otherwise.
+
+        For the session ending a control session, which holds no operation
+        of the run taken for it. A run that has ended since, and the next
+        one -- the operator's, admitted once the session ended -- are not
+        it. Ends as the run's own Stop does, naming the stopper
+        (``_stop_run``).
+        """
+        self._end_the_live_run(None, session)
+
+    def _end_the_live_run(
+        self, ending: RunEnding | None, session: ControlSession | None = None
+    ) -> None:
+        """End the live run, or with *session* only the run taken for it (``_stop_run``)."""
         with self._run_lock:
             run = self._run_handle
+            held = self._held_claim
+            if session is not None and (held is None or held.control is not session):
+                return
         if run is not None:
-            self._stop_run(run, _ENDED_BY_STOP)
+            self._stop_run(run, ending)
 
     def _stop_run(self, run: 'EngineRun', ending: RunEnding | None = None) -> None:
         """Stop *run*, the run its start() made. Non-blocking for the caller.

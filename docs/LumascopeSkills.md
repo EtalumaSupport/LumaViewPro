@@ -724,6 +724,23 @@ for judgment in session.scope.imaging.judge_frame(frame, mapping):   # frame: fr
     print(judgment.change.source, judgment.change.rule.rule, judgment.counts)
 ```
 
+### The control session
+
+One client controls the scope at a time. `session.take_control(name)` takes the control session and returns its id, a string told to the taker and to no one else: it is what a call in the session names, and what ends it. `session.control` reads the live session as a `ControlSession` -- the `name` it was taken with, `taken_by` (the host the take came through) and `taken_at` -- and never its id; None when none is held. While it is held, every write that is not the holder's is refused: a hardware command (`HardwareCommandRefusedError`), a setting or a file (`ControlSessionRefusedError`), a run, a recording, a home or a diagnostic (each taker's own refusal), all with `reason` `control_session_held` and the session's name in `control_session`. The display preferences are written by anyone, and a stop is never refused. `session.status` carries the session as `control`.
+
+The holder acts in its session by its id: in process, inside `with session.acting_in_control(session_id):`, where every call the block makes on its thread is the session's; over REST, by sending the id in a `Control-Session` header on each request. A done-callback the API runs on a thread of its own is outside the block and is refused as any non-holder's call. Inside the session the holder works the scope as anyone does without one: its runs, recordings, homes and diagnostics take the scope one at a time, and a recording still refuses the writes that would falsify its file.
+
+```python
+session_id = session.take_control('plate reader')
+with session.acting_in_control(session_id):
+    session.scope.camera.set_gain_db(5.0)
+session.end_control(session_id)
+```
+
+A take is refused with `ControlSessionRefusedError` while anything of anyone else's is under way, so no one's work is ever put under a client's control: `control_session_held` while another session is held; `exclusive_activity_running` while a run, a recording, a home or a diagnostic holds the scope, naming it in `holder`; `write_in_flight` while a setting or a file is being written; `work_finishing` while a run or a recording that has ended is still finishing its images, video, post-run steps or file. Each is a `409` on the wire; take again when the work is done. During the session's close a take raises `SessionClosingError`.
+
+`session.end_control(session_id)` ends the session: its taker ends it, or the person at the scope ("Take back control"), the GUI reading the id in process. It ends at once, and the run or recording taken in it is stopped: it unwinds under its own claim and holds the scope until it has, as any stopped run does. A run or recording begun after the session ended is not stopped. In process, `session.take_back_control()` ends whatever session is held without naming it, as the GUI's close does; it is kept off the wire, so a client ends only the session whose id it was told. A home or a diagnostic taken in it ends on its own, and a write of the session's already under way finishes whole. From then on, a request naming the ended session is refused, `ControlSessionRefusedError` `control_session_ended` (`409`), so a client learns it lost control instead of writing as nobody; an in-process holder is not told, and its next call is anyone's. The session's close ends a held session first.
+
 ### Capture
 
 `session.manual_capture.capture()` captures one still and saves it, the same
@@ -2994,6 +3011,7 @@ The API is exactly the members below, and nothing else: each carries `@api` in t
 Reached through `ScopeSession.create(settings, ...)`; every L2 caller starts here.
 
 - `acceleration_limit_pct`
+- `acting_in_control` (in-process)
 - `add_outcome_listener` (in-process)
 - `add_run_state_listener` (in-process)
 - `add_shown_channel_listener` (in-process)
@@ -3013,6 +3031,7 @@ Reached through `ScopeSession.create(settings, ...)`; every L2 caller starts her
 - `clear_current_turret_objective`
 - `clear_turret_objective`
 - `confirm_objective`
+- `control`
 - `controls_lock` (in-process)
 - `create` (in-process)
 - `create_empty_protocol`
@@ -3023,6 +3042,7 @@ Reached through `ScopeSession.create(settings, ...)`; every L2 caller starts her
 - `disable_metrics` (in-process)
 - `discard_close_drain`
 - `enable_metrics` (in-process)
+- `end_control`
 - `engineering_mode`
 - `get_current_plate_position`
 - `get_setting`
@@ -3096,6 +3116,8 @@ Reached through `ScopeSession.create(settings, ...)`; every L2 caller starts her
 - `start_go_to_bookmark`
 - `start_go_to_step`
 - `status`
+- `take_back_control` (in-process)
+- `take_control`
 - `turret_objective`
 - `unload_plugins` (in-process)
 - `update_settings`
@@ -3721,6 +3743,14 @@ Reached through `scope.imaging.judge_frame`'s `mapping`, and a capture's `frame_
 - `tick_hz`
 - `uncertainty_ns`
 
+### ControlSession
+
+Reached through `session.control`.
+
+- `name`
+- `taken_at`
+- `taken_by`
+
 ### ControlSessionRefusedError
 
 Reached through a REST problem, whose members carry it.
@@ -4255,6 +4285,7 @@ Reached through `session.status`.
 
 - `axes`
 - `camera_streaming`
+- `control`
 - `live_work`
 - `lock`
 - `parts`

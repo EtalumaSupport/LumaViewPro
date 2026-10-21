@@ -56,6 +56,9 @@ _request_log = logging.getLogger('lvp_logger.rest')
 
 VERSION = 'v1'
 PREFIX = f'/api/{VERSION}'
+# The request header naming the control session a call acts in
+# (``ScopeSession.take_control``).
+CONTROL_SESSION_HEADER = 'control-session'
 # The first path segments the server answers itself; a Session member of
 # one of these names would be shadowed, so one fails the build.
 SERVER_SEGMENTS = frozenset({'handles', 'jobs', 'events', 'files', 'live', 'live.jpg'})
@@ -634,14 +637,24 @@ def _add(
 
         # The job of the operation the call handed back, once it has.
         handed: list[str] = []
+        control_id = request.headers.get(CONTROL_SESSION_HEADER)
 
         def work() -> object:
-            owner = registry.get(handle_id, route.root) if on_handle else session
-            for segment in route.segments:
-                owner = getattr(owner, segment)
-                if owner is None:
-                    raise problems.not_found(f'{name}: this scope has no {segment}.')
-            value = act(owner, progress, job_of)
+            # Entered on the call's own thread, before the member is reached,
+            # so the whole call and the lane work it hands on are the
+            # session's; a session no longer live refuses the call here.
+            in_control = (
+                session.acting_in_control(control_id)
+                if control_id is not None
+                else contextlib.nullcontext()
+            )
+            with in_control:
+                owner = registry.get(handle_id, route.root) if on_handle else session
+                for segment in route.segments:
+                    owner = getattr(owner, segment)
+                    if owner is None:
+                        raise problems.not_found(f'{name}: this scope has no {segment}.')
+                value = act(owner, progress, job_of)
             if isinstance(value, Operation):
                 handed.append(job_of(value)['id'])
             return encoded(value)

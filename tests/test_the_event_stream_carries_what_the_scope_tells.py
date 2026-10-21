@@ -134,6 +134,7 @@ def test_the_first_event_is_the_status_with_the_current_id(client):
     assert set(first['data']) == {
         'live_work',
         'lock',
+        'control',
         'run_refused',
         'axes',
         'parts',
@@ -231,9 +232,15 @@ def test_each_run_state_edge_sends_the_status_in_the_order_heard(client, session
             events.append(stream.next())
 
     states = [e['data'] for e in events if e['event'] == 'run_state']
-    assert {'live_work', 'lock', 'run_refused', 'axes', 'parts', 'camera_streaming'} == set(
-        states[0]
-    )
+    assert {
+        'live_work',
+        'lock',
+        'control',
+        'run_refused',
+        'axes',
+        'parts',
+        'camera_streaming',
+    } == set(states[0])
     lockouts = [s['lock']['run_lockout'] for s in states]
     # Held from the run's grant until it lets go, and never held again after.
     assert True in lockouts, lockouts

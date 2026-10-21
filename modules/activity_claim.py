@@ -9,7 +9,7 @@ import uuid
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from typing import Any
-from modules.api_surface import api
+from modules.api_surface import api, api_fields
 from modules.caller import Caller, current_caller
 from modules.exceptions import (
     UNDER_CONTROL_TITLE,
@@ -58,13 +58,18 @@ class FalsifyingChangeInFlightError(Refusal, Exception):
         self.reason = 'falsifying_change_in_flight'
 
 
+# The id is the only proof of holding, so it is told to its taker and
+# never published: a client that read it here could act as the holder.
+@api_fields('name', 'taken_by', 'taken_at')
 @dataclass(frozen=True)
 class ControlSession:
     """The one client controlling the scope: what it was taken as, and by whom.
 
     Attributes:
         id: What a request names to act in this session; a fresh one per
-            take, so an ended session's id never names a later one.
+            take, so an ended session's id never names a later one. Told
+            to the taker by ``take_control`` and read in-process by the
+            GUI; never published.
         name: The name the client took it with, for the person at the scope.
         taken_by: The host the take came through (``modules.caller``).
         taken_at: When it was taken, as ``time.time()``.
@@ -277,6 +282,11 @@ class _Borrowing:
     def claim(self) -> 'ActivityClaim':
         """The claim the lender took, at the root of the lending chain."""
         return self._lender.claim
+
+    @property
+    def control(self) -> ControlSession | None:
+        """The control session the lender was taken for; None when none was held."""
+        return self._lender.control
 
     @property
     def holds(self) -> bool:
@@ -598,17 +608,25 @@ class ActivityClaim:
         control = self._control
         return control[0] if control is not None else None
 
-    def take_control(self, name: str) -> ControllerTaking:
+    def take_control(self, name: str, *, finishing: Callable[[], bool]) -> ControllerTaking:
         """Take the one control session, for the caller this thread acts for.
 
         Taken only while nothing of anyone else's is under way: no other
         session, no activity in the slot -- a run, recording, home or
-        diagnostic, the operator's or a session's still unwinding -- and no
-        guarded write still running, so nothing is ever put under a client's
-        control half done. Announced.
+        diagnostic, the operator's or a session's still unwinding -- no
+        guarded write still running, and no work finishing after it let the
+        slot go, so nothing is ever put under a client's control half done.
+        Announced.
 
         Args:
             name: What the person at the scope is told holds it.
+            finishing: Whether work that has let the slot go is still
+                finishing -- a run's files, video or post-run steps, a
+                recording's file. Asked under this claim's lock, after the
+                slot is read free: such work is begun before its activity
+                releases the slot, which takes the same lock, so no release
+                falls between the two reads. It must not take this claim's
+                lock.
 
         Returns:
             The taking the holder's calls act under (``acting``).
@@ -617,8 +635,8 @@ class ActivityClaim:
             SessionClosingError: the session's close is running or has
                 finished.
             ControlSessionRefusedError: ``'control_session_held'``,
-                ``'exclusive_activity_running'`` or ``'write_in_flight'``.
-                Nothing was taken.
+                ``'exclusive_activity_running'``, ``'write_in_flight'`` or
+                ``'work_finishing'``. Nothing was taken.
         """
         caller = current_caller()
         with self._lock:
@@ -639,6 +657,8 @@ class ActivityClaim:
                 )
             if self._guarded:
                 raise ControlSessionRefusedError('write_in_flight')
+            if finishing():
+                raise ControlSessionRefusedError('work_finishing')
             session = ControlSession(
                 id=uuid.uuid4().hex, name=name, taken_by=caller, taken_at=time.time()
             )
@@ -647,12 +667,25 @@ class ActivityClaim:
         self.announce()
         return controller
 
+    def controller(self, session_id: str) -> ControllerTaking:
+        """The taking that acts in the live control session, named by its id.
+
+        Raises:
+            ControlSessionRefusedError: ``'control_session_ended'`` -- no
+                session is held, or the live one has another id.
+        """
+        with self._lock:
+            control = self._control
+        if control is None or control[0].id != session_id:
+            raise ControlSessionRefusedError('control_session_ended')
+        return control[1]
+
     def end_control(self, session_id: str) -> ControlSession:
-        """End the live control session, named by its id; anyone may. Announced.
+        """End the live control session, named by its id: its taker, or the GUI. Announced.
 
         Ends the session only: what its holder started -- a run, a
-        recording -- is the ender's to stop first, and holds the slot until
-        it has unwound.
+        recording -- is the ender's to stop, and holds the slot until it
+        has unwound.
 
         Returns:
             The session ended.
@@ -666,6 +699,20 @@ class ActivityClaim:
             if control is None or control[0].id != session_id:
                 raise ControlSessionRefusedError('control_session_ended')
             self._control = None
+        self.announce()
+        return control[0]
+
+    def end_live_control(self) -> ControlSession | None:
+        """End whatever control session is held, for the session's close. Announced when one was.
+
+        Returns:
+            The session ended, or None when none was held.
+        """
+        with self._lock:
+            control = self._control
+            self._control = None
+        if control is None:
+            return None
         self.announce()
         return control[0]
 

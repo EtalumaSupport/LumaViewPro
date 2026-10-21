@@ -3322,9 +3322,10 @@ class ControlSessionRefusedError(Refusal, Exception):
     """Control of the scope was not taken or used: someone else's work holds it.
 
     Raised by the activity claim when a control session is asked for while
-    another one is held, while an activity holds the scope, or while a
-    setting or file write is still under way -- so a client never takes the
-    scope over the operator's work, or over a write half done -- and by a
+    another one is held, while an activity holds the scope, while a setting
+    or file write is still under way, or while work that has let the scope
+    go is still finishing -- so a client never takes the scope over the
+    operator's work, or over a write half done -- and by a
     guarded write (a setting, a file) asked for by anyone but the holder
     while a session is held. Raised too for a request naming a control
     session that is not the live one: it was ended, or never was. Nothing
@@ -3352,6 +3353,7 @@ class ControlSessionRefusedError(Refusal, Exception):
         'control_session_held': RefusalCause.STATE,
         'exclusive_activity_running': RefusalCause.STATE,
         'write_in_flight': RefusalCause.STATE,
+        'work_finishing': RefusalCause.STATE,
         'control_session_ended': RefusalCause.STATE,
     }
 
@@ -3359,6 +3361,7 @@ class ControlSessionRefusedError(Refusal, Exception):
         'control_session_held': UNDER_CONTROL_TITLE,
         'exclusive_activity_running': 'Microscope Busy',
         'write_in_flight': 'Microscope Busy',
+        'work_finishing': 'Microscope Busy',
         'control_session_ended': 'Control Session Ended',
     }
 
@@ -3387,6 +3390,10 @@ def _control_refused_sentence(
         return f'{the_activity_named(holder)} is using the microscope. Take control when it ends.'
     if reason == 'write_in_flight':
         return 'A setting or a file is being written. Take control when it finishes.'
+    if reason == 'work_finishing':
+        return (
+            'A run or a recording that has ended is still finishing. Take control when it is done.'
+        )
     return 'That control session has ended. Take control again to go on.'
 
 

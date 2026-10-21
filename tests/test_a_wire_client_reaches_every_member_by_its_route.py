@@ -199,6 +199,7 @@ def test_a_read_answers_its_encoded_value(client, session):
     assert set(client.get('/api/v1/status').json()) == {
         'live_work',
         'lock',
+        'control',
         'run_refused',
         'axes',
         'parts',

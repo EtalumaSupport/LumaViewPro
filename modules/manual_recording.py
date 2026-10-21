@@ -39,7 +39,7 @@ import modules.image_utils as image_utils
 import modules.layer_record as layer_record
 import modules.path_utils as path_utils
 from lvp_logger import logger, version as lvp_version
-from modules.activity_claim import guarded_write
+from modules.activity_claim import ControlSession, guarded_write
 from modules.common_utils import (
     DISK_FLOOR_CHECK_INTERVAL_S,
     MIN_REQUIRED_DISK_MB,
@@ -662,17 +662,27 @@ class ManualRecordingController:
         """
         self._end('user_stop')
 
-    def _end(self, reason: str) -> None:
-        """Close selection as *reason*, the manifest's ``end_reason``."""
+    def stop_the_recording_taken_for(self, session: ControlSession) -> None:
+        """Stop the recording when it was taken for *session*; nothing otherwise.
+
+        For the session ending a control session. A recording that has
+        ended since, and the next one -- the operator's, admitted once the
+        session ended -- are not it. Ends as ``stop`` does, ``'user_stop'``.
+        """
+        self._end('user_stop', session)
+
+    def _end(self, reason: str, taken_for: ControlSession | None = None) -> None:
+        """Close selection as *reason*, the manifest's ``end_reason``; with *taken_for*, only that session's recording."""
         engine = self._engine
-        if engine is None:
+        if engine is None or not engine.stop(reason, taken_for=taken_for):
             return
         logger.info(f'[ManualRecord] stopped by {current_caller().words} ({reason})')
+        # After the stop: a closed engine takes no frame, so a frame that
+        # lands between the two is dropped, as one after the removal is.
         try:
             self._scope.imaging.remove_frame_listener(self._on_camera_frame)
         except Exception as e:
             logger.warning(f'[ManualRecord] remove_frame_listener failed: {e}')
-        engine.stop(reason)
 
     @api
     @property

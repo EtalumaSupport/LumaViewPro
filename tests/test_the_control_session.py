@@ -31,8 +31,11 @@ from modules.exceptions import (
 )
 from modules.sequential_io_executor import IOTask, SequentialIOExecutor
 from modules.wire_encoding import outcome_fields
+from tests.test_a_run_says_when_its_files_are_written import held_saves  # noqa: F401 -- a fixture
 
 _WAIT_S = 2.0
+# Long enough that held work is still held when the test acts on it.
+_HOLD_S = 60.0
 
 
 @pytest.fixture
@@ -51,8 +54,16 @@ def lane(claim):
 
 
 def _take(claim, name='plate reader', caller=Caller.REST):
+    """Take ``claim``'s control session; a claim on its own has no work finishing."""
     with calling(caller):
-        return claim.take_control(name)
+        return claim.take_control(name, finishing=lambda: False)
+
+
+def _take_on(session, name='plate reader', caller=Caller.REST):
+    """Take ``session``'s control session as ``caller``; the taking its holder acts under."""
+    with calling(caller):
+        session_id = session.take_control(name)
+    return session.activity_claim.controller(session_id)
 
 
 def _run_on_lane(lane, taking):
@@ -117,6 +128,12 @@ class TestTheTake:
         finally:
             claim.leave_guarded_write()
         assert _take(claim).session is claim.control, 'the take is admitted once the write returns'
+
+    def test_a_take_is_refused_while_a_run_or_recording_that_ended_is_finishing(self, claim):
+        with pytest.raises(ControlSessionRefusedError) as refused:
+            claim.take_control('plate reader', finishing=lambda: True)
+        assert refused.value.reason == 'work_finishing'
+        assert claim.control is None
 
     def test_a_take_is_refused_while_the_session_closes(self, claim):
         claim.begin_closing()
@@ -207,6 +224,18 @@ class TestTheActivitySlot:
             )
         held.release()
 
+    def test_work_lent_the_holders_activity_was_taken_for_the_session(self, claim):
+        controller = _take(claim)
+        with acting(controller):
+            held = claim.try_claim('diagnostic')
+        try:
+            lent = held.lend().try_claim('recording')
+            assert lent.control is controller.session, (
+                "work lent the activity is the session's, and the take back stops it"
+            )
+        finally:
+            held.release()
+
 
 @pytest.fixture
 def sim_session(tmp_path):
@@ -228,7 +257,7 @@ class TestEachTakerNamesTheSession:
 
     @pytest.fixture
     def held(self, sim_session):
-        controller = _take(sim_session.activity_claim, 'plate reader', Caller.REST)
+        controller = _take_on(sim_session)
         yield controller
         sim_session.activity_claim.end_control(controller.session.id)
 
@@ -309,7 +338,7 @@ class TestGuardedWrites:
 class TestTheSessionsWrites:
     @pytest.fixture
     def held(self, sim_session):
-        controller = _take(sim_session.activity_claim, 'plate reader', Caller.REST)
+        controller = _take_on(sim_session)
         yield controller
         if sim_session.activity_claim.control is controller.session:
             sim_session.activity_claim.end_control(controller.session.id)
@@ -355,3 +384,316 @@ class TestTheSessionsWrites:
     def test_a_non_holder_cannot_give_up_a_recordings_pending_frames(self, sim_session, held):
         with pytest.raises(ControlSessionRefusedError):
             sim_session.discard_close_drain()
+
+
+class TestTheSessionsMembers:
+    """A client takes, acts in and ends the control session through the Session."""
+
+    def test_the_status_names_the_session_and_refuses_no_run_while_nothing_runs(self, sim_session):
+        _take_on(sim_session)
+        status = sim_session.status
+        assert (status.control.name, status.control.taken_by) == ('plate reader', Caller.REST)
+        assert status.run_refused is None, "run_refused is the activity's answer alone"
+
+    def test_the_holder_acts_in_the_session_by_its_id(self, sim_session):
+        with calling(Caller.REST):
+            session_id = sim_session.take_control('plate reader')
+        wanted = 50 if sim_session.settings['jpg_quality'] != 50 else 60
+        with pytest.raises(ControlSessionRefusedError):
+            sim_session.update_settings('jpg_quality', wanted)
+        with sim_session.acting_in_control(session_id):
+            sim_session.update_settings('jpg_quality', wanted)
+        assert sim_session.settings['jpg_quality'] == wanted
+
+    def test_acting_in_an_ended_session_is_refused_before_the_block_runs(self, sim_session):
+        session_id = sim_session.take_control('plate reader')
+        sim_session.end_control(session_id)
+        ran = []
+        with (
+            pytest.raises(ControlSessionRefusedError) as refused,
+            sim_session.acting_in_control(session_id),
+        ):
+            ran.append(True)
+        assert refused.value.reason == 'control_session_ended'
+        assert ran == []
+
+    def test_taking_back_control_stops_the_clients_recording_and_clears_the_session(
+        self, sim_session
+    ):
+        with calling(Caller.REST):
+            session_id = sim_session.take_control('plate reader')
+        with sim_session.acting_in_control(session_id):
+            sim_session.manual_recording.start()
+        assert sim_session.manual_recording.is_recording
+
+        with calling(Caller.GUI):
+            sim_session.end_control(session_id)
+
+        assert sim_session.control is None
+        assert not sim_session.manual_recording.is_recording
+        assert sim_session.manual_recording.end_reason == 'user_stop'
+
+    def test_taking_back_an_ended_session_leaves_the_operators_recording_begun_since(
+        self, sim_session
+    ):
+        session_id = sim_session.take_control('plate reader')
+        ended = sim_session.end_control(session_id)
+        sim_session.manual_recording.start()
+        try:
+            sim_session.manual_recording.stop_the_recording_taken_for(ended)
+            assert sim_session.manual_recording.is_recording, (
+                'the take back stops the recording taken for the session, never one begun after it'
+            )
+        finally:
+            sim_session.manual_recording.stop()
+
+    def test_the_gui_takes_back_control_without_naming_it_and_its_recording_stops(
+        self, sim_session
+    ):
+        with calling(Caller.REST):
+            session_id = sim_session.take_control('plate reader')
+        with sim_session.acting_in_control(session_id):
+            sim_session.manual_recording.start()
+
+        with calling(Caller.GUI):
+            ended = sim_session.take_back_control()
+
+        assert ended.name == 'plate reader'
+        assert sim_session.control is None
+        assert not sim_session.manual_recording.is_recording
+        assert sim_session.take_back_control() is None, 'with none held there is nothing to end'
+
+    def test_the_objective_question_is_put_to_the_holder_and_not_to_anyone_else(self, sim_session):
+        # Never confirmed for this light path, so the question is owed.
+        sim_session.settings['objective_confirmed'] = None
+        assert sim_session.objective_question() is not None
+        with calling(Caller.REST):
+            session_id = sim_session.take_control('plate reader')
+
+        assert sim_session.objective_question() is None, 'its answer would be refused'
+        with sim_session.acting_in_control(session_id):
+            assert sim_session.objective_question() is not None
+
+    def test_the_close_ends_a_held_session_and_closes(self, sim_session):
+        _take_on(sim_session)
+        sim_session.shutdown()
+        assert sim_session.control is None
+        assert sim_session.live_work.closed
+
+
+@pytest.fixture
+def run_session(tmp_path):
+    """A simulated, homed scope with the stage and objective a held run names."""
+    from modules.scope_session import ScopeSession
+    from tests.scope_fakes import home_sim_scope
+    from tests.settings_fixtures import complete_settings
+    from tests.test_a_run_needs_every_axis_position import _settings
+
+    s = ScopeSession.create(complete_settings(**_settings(tmp_path)), simulate=True)
+    try:
+        home_sim_scope(s.scope)
+        yield s
+    finally:
+        s.shutdown()
+
+
+def test_taking_back_control_stops_the_clients_run_and_the_session_is_cleared_at_once(
+    run_session, tmp_path
+):
+    from tests.test_a_run_needs_every_axis_position import COMPLETION_TIMEOUT
+    from tests.test_a_run_records_who_started_it import _start_held
+
+    with calling(Caller.REST):
+        session_id = run_session.take_control('plate reader')
+    with run_session.acting_in_control(session_id):
+        run = _start_held(run_session, tmp_path)
+
+    with calling(Caller.GUI):
+        run_session.end_control(session_id)
+    assert run_session.control is None, 'the session ends before its run has unwound'
+
+    outcome = run.result(timeout=COMPLETION_TIMEOUT)
+    assert (outcome.status, outcome.reason) == ('aborted', 'stopped')
+    assert outcome.message == 'Stopped by LumaViewPro.'
+
+
+def test_taking_back_an_ended_session_leaves_the_operators_run_begun_since(run_session, tmp_path):
+    from tests.test_a_run_needs_every_axis_position import COMPLETION_TIMEOUT
+    from tests.test_a_run_records_who_started_it import _start_held
+
+    session_id = run_session.take_control('plate reader')
+    ended = run_session.end_control(session_id)
+    with calling(Caller.GUI):
+        run = _start_held(run_session, tmp_path)
+
+    run_session.sequenced_capture_runner.stop_the_run_taken_for(ended)
+    # The run stopped would end at its held move; let alone, it goes on to it.
+    run_session.scope.simulation.clear()
+
+    outcome = run.result(timeout=COMPLETION_TIMEOUT)
+    assert outcome.status == 'completed', (
+        'the take back stops the run taken for the session, never one begun after it'
+    )
+
+
+class TestATakeWaitsForWhatIsStillFinishing:
+    """A take is refused ``work_finishing`` while work that let the scope go still finishes.
+
+    Each test holds one kind of that work with the slot already free, so the
+    refusal is the finishing work's and not the activity's, and the take
+    lands once the work is done.
+    """
+
+    def test_a_finished_runs_images(self, tmp_path, held_saves):
+        from tests.test_a_run_says_when_its_files_are_written import WAIT_S, _scan
+        from tests.test_composite_run_e2e import headless_settings, open_composite_session
+
+        with open_composite_session(headless_settings(tmp_path)) as (session, runner):
+            run = _scan(runner, tmp_path / 'runs', 'C1')
+            assert run.result(timeout=WAIT_S) is not None
+            assert session.activity_claim.holder is None
+            assert not session.sequenced_capture_runner.run_live
+
+            with pytest.raises(ControlSessionRefusedError) as refused:
+                session.take_control('plate reader')
+            assert refused.value.reason == 'work_finishing'
+
+            held_saves.set()
+            assert run.files.result(timeout=WAIT_S) is not None
+            assert session.take_control('plate reader')
+
+    def test_a_finished_runs_post_run_step(self, tmp_path, monkeypatch):
+        import modules.image_mode as image_mode
+        import modules.stack_builder as stack_builder
+        from tests.test_a_run_says_when_its_files_are_written import WAIT_S, _scan
+        from tests.test_composite_run_e2e import headless_settings, open_composite_session
+
+        release = threading.Event()
+        real_build = stack_builder.build_hyperstacks_for_run
+
+        def _held_build(**kwargs):
+            release.wait(WAIT_S)
+            real_build(**kwargs)
+
+        monkeypatch.setattr(stack_builder, 'build_hyperstacks_for_run', _held_build)
+        try:
+            with open_composite_session(headless_settings(tmp_path)) as (session, runner):
+                run = _scan(
+                    runner,
+                    tmp_path / 'runs',
+                    'C1',
+                    sequenced_format=image_mode.OUTPUT_FORMAT_HYPERSTACK,
+                )
+                assert run.result(timeout=WAIT_S) is not None
+                assert session.sequenced_capture_runner.write_batch().wait_complete(WAIT_S)
+                assert session.activity_claim.holder is None
+
+                with pytest.raises(ControlSessionRefusedError) as refused:
+                    session.take_control('plate reader')
+                assert refused.value.reason == 'work_finishing'
+
+                release.set()
+                assert run.files.result(timeout=WAIT_S) is not None
+                assert session.take_control('plate reader')
+        finally:
+            release.set()
+
+    def test_a_stopped_recordings_file(self, sim_session, monkeypatch):
+        recording = sim_session.manual_recording
+        closing, release = threading.Event(), threading.Event()
+        done = recording.start()
+        writer = recording._writer
+        assert writer is not None, 'an MP4 recording, whose file is closed after the drain'
+        real_close = writer.close
+
+        def _held_close():
+            closing.set()
+            release.wait(_HOLD_S)
+            real_close()
+
+        # a stand-in by design: the simulator cannot yet hold a recording's
+        # finish open, so its real file close -- after the drain, the claim
+        # let go -- is held here.
+        monkeypatch.setattr(writer, 'close', _held_close)
+        try:
+            recording.stop()
+            assert closing.wait(_HOLD_S), 'the recording never reached its file close'
+            assert sim_session.activity_claim.holder is None
+
+            with pytest.raises(ControlSessionRefusedError) as refused:
+                sim_session.take_control('plate reader')
+            assert refused.value.reason == 'work_finishing'
+        finally:
+            release.set()
+        done.result(timeout=_HOLD_S)
+        assert sim_session.take_control('plate reader')
+
+    def test_a_finished_runs_video(self, sim_session, monkeypatch):
+        from unittest.mock import MagicMock
+
+        # a stand-in by design: the simulator cannot yet hold a run's video
+        # drain open past the run (the live-work tests' gap, the same one).
+        writer = MagicMock(video_busy=True, video_pending_writes=4)
+        monkeypatch.setattr(sim_session.sequenced_capture_runner, '_image_writer', writer)
+
+        with pytest.raises(ControlSessionRefusedError) as refused:
+            sim_session.take_control('plate reader')
+        assert refused.value.reason == 'work_finishing'
+
+        writer.video_busy = False
+        assert sim_session.take_control('plate reader')
+
+
+class TestTheRestDoor:
+    """A request carrying the control id in its header acts in that session."""
+
+    @pytest.fixture
+    def client(self, sim_session):
+        from fastapi.testclient import TestClient
+
+        from rest.app import build_app
+
+        with TestClient(build_app(sim_session)) as client:
+            yield client
+
+    def test_a_request_naming_the_session_writes_and_one_without_it_is_refused(
+        self, sim_session, client
+    ):
+        taken = client.post('/api/v1/take_control', json={'name': 'plate reader'})
+        assert taken.status_code == 200, taken.text
+        session_id = taken.json()
+        assert sim_session.control.taken_by == Caller.REST
+
+        refused = client.put('/api/v1/acceleration_limit_pct', json={'val_pct': 40})
+        assert refused.status_code == 409
+        assert refused.json()['reason'] == 'control_session_held'
+        assert refused.json()['control_session'] == 'plate reader'
+
+        written = client.put(
+            '/api/v1/acceleration_limit_pct',
+            json={'val_pct': 40},
+            headers={'Control-Session': session_id},
+        )
+        assert written.status_code == 200, written.text
+        assert sim_session.acceleration_limit_pct == 40
+
+    def test_the_status_names_the_session_and_never_its_id(self, client):
+        session_id = client.post('/api/v1/take_control', json={'name': 'plate reader'}).json()
+        status = client.get('/api/v1/status')
+        assert status.json()['control']['name'] == 'plate reader'
+        assert session_id not in status.text, (
+            'the id is the only proof of holding: a client that read it could act as the holder'
+        )
+
+    def test_a_request_naming_an_ended_session_is_refused_409(self, sim_session, client):
+        session_id = client.post('/api/v1/take_control', json={'name': 'plate reader'}).json()
+        with calling(Caller.GUI):
+            sim_session.end_control(session_id)
+
+        refused = client.put(
+            '/api/v1/acceleration_limit_pct',
+            json={'val_pct': 40},
+            headers={'Control-Session': session_id},
+        )
+        assert refused.status_code == 409
+        assert refused.json()['reason'] == 'control_session_ended'

@@ -328,7 +328,7 @@ class ControlsLock:
         return self.run_lockout or self.recording
 
 
-@api_fields('live_work', 'lock', 'run_refused', 'axes', 'parts', 'camera_streaming')
+@api_fields('live_work', 'lock', 'control', 'run_refused', 'axes', 'parts', 'camera_streaming')
 @dataclasses.dataclass(frozen=True)
 class Status:
     """What the scope is doing, in one read, for a client that has just connected.
@@ -344,6 +344,8 @@ class Status:
         lock: Which of a person's controls the Session locks, and why
             (``ScopeSession.controls_lock``): its editing policy, not a
             refusal.
+        control: The control session held, None when none is
+            (``ScopeSession.control``).
         run_refused: The refusal a run would get now for the scope's state
             alone, None when the state refuses none
             (``SequencedCaptureRunner.state_refusal``). None does not
@@ -360,6 +362,7 @@ class Status:
 
     live_work: LiveWork
     lock: ControlsLock
+    control: ControlSession | None
     run_refused: ProtocolRunRefusedError | None
     axes: dict[str, AxisPosition]
     parts: tuple[PartStatus, ...]
@@ -767,6 +770,128 @@ class ScopeSession:
             else:
                 held.release()
 
+    @api
+    def take_control(self, name: str) -> str:
+        """Take the one control session: from now on only work in it writes to the scope.
+
+        While it is held every other caller's write -- a lane command, a
+        setting, a file, a run, a recording, a home, a diagnostic -- is
+        refused, the display preferences aside; a stop never is. Work in the
+        session is a call made inside ``acting_in_control`` with its id, or
+        a REST request naming it. Taken only while nothing of anyone else's
+        is under way, so no one's work is ever put under a client's control:
+        no other session, no run, recording, home or diagnostic, no setting
+        or file being written, and no run or recording that has ended still
+        finishing its files.
+
+        Args:
+            name: What the person at the scope is told holds it.
+
+        Returns:
+            The session's id, told to its taker and to no one else: what a
+            call in the session names, and what ends it. ``control`` reads
+            the session without it.
+
+        Raises:
+            ControlSessionRefusedError: ``'control_session_held'``, another
+                session is held; ``'exclusive_activity_running'``, a run, a
+                recording, a home or a diagnostic holds the scope;
+                ``'write_in_flight'``, a setting or a file is being written;
+                ``'work_finishing'``, a run or recording that has ended is
+                still finishing. Nothing was taken.
+            SessionClosingError: ``'session_closing'``, the session's close
+                is running or has finished.
+        """
+        runner = self.sequenced_capture_runner
+        controller = self.activity_claim.take_control(
+            name, finishing=lambda: runner.run_live or bool(self._finishing_work())
+        )
+        return controller.session.id
+
+    @api
+    def end_control(self, session_id: str) -> ControlSession:
+        """End the control session named by its id: its taker ends it, or the person at the scope.
+
+        The session ends at once, and the run or recording taken in it is
+        stopped: it unwinds under its own claim and holds the scope until it
+        has, as any stopped run does. A run or recording begun after it is
+        not stopped. A home or a diagnostic taken in it ends on its own. A
+        write of the session's already under way finishes whole, and no new
+        session is taken until it has. A request naming the ended session
+        is refused from now on.
+
+        Args:
+            session_id: The ``id`` the session was taken with.
+
+        Returns:
+            The session ended.
+
+        Raises:
+            ControlSessionRefusedError: ``'control_session_ended'``, no
+                session is held, or the live one has another id.
+        """
+        ended = self.activity_claim.end_control(session_id)
+        self._stop_the_work_taken_for(ended)
+        return ended
+
+    @api(in_process=True)
+    def take_back_control(self) -> ControlSession | None:
+        """End whatever control session is held, and stop the run or recording taken in it, as ``end_control``.
+
+        The person at the scope taking it back without naming it -- the
+        GUI's close. Kept off the wire: a client ends only the session
+        whose id it was told.
+
+        Returns:
+            The session ended, or None when none was held.
+
+        Raises:
+            Nothing.
+        """
+        ended = self.activity_claim.end_live_control()
+        if ended is not None:
+            self._stop_the_work_taken_for(ended)
+        return ended
+
+    def _stop_the_work_taken_for(self, ended: ControlSession) -> None:
+        """Stop the run or recording taken for the session just ended; nothing begun after it."""
+        # Ended before its work is stopped: the run or recording still holds
+        # the slot until it unwinds, so nothing is taken in between.
+        self.sequenced_capture_runner.stop_the_run_taken_for(ended)
+        self.manual_recording.stop_the_recording_taken_for(ended)
+
+    @api(in_process=True)
+    @contextlib.contextmanager
+    def acting_in_control(self, session_id: str) -> Iterator[ControlSession]:
+        """Act in the control session named by its id for the length of a ``with`` block.
+
+        Every call the block makes on this thread is the session's, and so
+        is the lane work it hands on. A callback the API runs on a thread of
+        its own -- an operation's done-callback -- runs outside the block,
+        and is refused as any non-holder's call while the session is held.
+
+        Yields:
+            The session.
+
+        Raises:
+            ControlSessionRefusedError: ``'control_session_ended'``, no
+                session is held, or the live one has another id. The block
+                did not run.
+        """
+        controller = self.activity_claim.controller(session_id)
+        with acting(controller):
+            yield controller.session
+
+    @api
+    @property
+    def control(self) -> ControlSession | None:
+        """The control session held now, None when none is.
+
+        Raises:
+            Nothing.
+        """
+        return self.activity_claim.control
+
     @api(reads=True)
     def held_by_other(self, run: 'Operation | None' = None) -> bool:
         """Whether the scope is held by anything but *run*, the operation a run member returned.
@@ -822,6 +947,27 @@ class ScopeSession:
                 work.append(WorkItem(live_work.PROTOCOL, the_holder_named(lent_run)))
         elif runner.run_live:
             work.append(WorkItem(live_work.PROTOCOL, 'A run, starting or ending'))
+        work.extend(self._finishing_work())
+        work.extend(self.post_processing.work())
+        with self._reports_lock:
+            reports = dict(self._reports_in_flight)
+        for kind, count in reports.items():
+            if count:
+                work.append(WorkItem(kind, _REPORT_NAMES[kind], left=count))
+        if self.manual_capture.in_flight:
+            work.append(WorkItem(live_work.STILL, 'A still being saved'))
+        return LiveWork(
+            work=tuple(work), closing=self.activity_claim.closing, closed=self._shut_down
+        )
+
+    def _finishing_work(self) -> list[WorkItem]:
+        """What finishes after its activity let the scope go: a recording's file, a run's video, images and post-run steps.
+
+        Read lock-free, and never through the activity claim, so the claim
+        can ask it under its own lock (``take_control``).
+        """
+        work: list[WorkItem] = []
+        runner = self.sequenced_capture_runner
         recording = self.manual_recording
         if recording.is_busy and not recording.is_recording:
             work.append(
@@ -848,17 +994,7 @@ class ScopeSession:
             WorkItem(live_work.POST_RUN_STEP, f"A run's {step}")
             for step in runner.post_run_steps_running
         )
-        work.extend(self.post_processing.work())
-        with self._reports_lock:
-            reports = dict(self._reports_in_flight)
-        for kind, count in reports.items():
-            if count:
-                work.append(WorkItem(kind, _REPORT_NAMES[kind], left=count))
-        if self.manual_capture.in_flight:
-            work.append(WorkItem(live_work.STILL, 'A still being saved'))
-        return LiveWork(
-            work=tuple(work), closing=self.activity_claim.closing, closed=self._shut_down
-        )
+        return work
 
     @api
     @property
@@ -895,6 +1031,7 @@ class ScopeSession:
         at_edge = {
             'live_work': self.live_work,
             'lock': self.controls_lock,
+            'control': self.activity_claim.control,
             'run_refused': self.sequenced_capture_runner.state_refusal(self.activity_claim),
             'axes': self.scope.motion.axis_positions(),
             'parts': self.scope.bring_up_record().parts,
@@ -4372,14 +4509,16 @@ class ScopeSession:
         one (``motion.get_turret_slot``), so an answer names the glass that
         is actually in the light path.
 
-        Three conditions withhold an owed question, each leaving one log
+        Four conditions withhold an owed question, each leaving one log
         line per call so a bundle can say why nothing was asked: with no
         hardware there is nothing in the light path and no capture to
         stamp; while settings are provisional nothing is saved, so an
         answer given now would be lost -- the host re-asks when they
-        resolve; while an activity holds the scope the answer is refused
+        resolve; while an activity holds the scope, or a control session
+        is held by someone other than the caller, the answer is refused
         too (``confirm_objective``), so asking would only ask again after
-        each refusal -- the host re-asks when the hold ends. No line is
+        each refusal -- the host re-asks when the hold or the session
+        ends. No line is
         logged for a returned question: the renderer logs its own show,
         and a polled read must not log per poll.
 
@@ -4417,6 +4556,13 @@ class ScopeSession:
             logger.info(
                 f'[Session  ] objective question deferred -- a {holder} holds the scope and '
                 'would refuse the answer'
+            )
+            return None
+        control = self.activity_claim.refusing_control(current_taking())
+        if control is not None:
+            logger.info(
+                f'[Session  ] objective question deferred -- "{control.name}" has control '
+                'and would refuse the answer'
             )
             return None
         if has_turret and position is None:
@@ -5072,6 +5218,10 @@ class ScopeSession:
         from modules.exceptions import FileWriterNotStuckError
 
         self.activity_claim.begin_closing()
+        # A held control session first, or it would refuse the close's own
+        # writes -- a stuck writer's recovery, a discard. Its run and
+        # recording are stopped below with the rest.
+        self.activity_claim.end_live_control()
         # Plugins first, while everything they hold still runs: an
         # unregister stops its own work and may wait for it.
         self.unload_plugins()

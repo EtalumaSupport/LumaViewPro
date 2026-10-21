@@ -50,6 +50,7 @@ from lvp_logger import logger
 from modules.activity_claim import (
     ActivityClaim,
     BorrowedClaim,
+    ControlSession,
     ControlSessionHeldError,
     FalsifyingChangeInFlightError,
     the_holder_named,
@@ -429,7 +430,7 @@ class VideoRecordingEngine:
             if self._selector.at_capacity:
                 self._close_selection_locked('frame_budget_filled')
 
-    def stop(self, reason: str) -> None:
+    def stop(self, reason: str, *, taken_for: ControlSession | None = None) -> bool:
         """Close selection promptly (within one selection decision).
 
         Drain continues: frames already queued keep writing until the
@@ -441,9 +442,22 @@ class VideoRecordingEngine:
                 ``end_reason``. Required: every stop has a cause, and a
                 defaulted value here would let a new caller silently
                 file its recordings under the wrong one.
+            taken_for: Stop only while this recording holds a claim taken
+                for that control session -- the session's take back, which
+                must not stop a recording begun after it.
+
+        Returns:
+            Whether this stop closed selection, or found it closed: False
+            only when ``taken_for`` names a session this recording was not
+            taken for, and then nothing changed.
         """
         with self._lock:
+            if taken_for is not None:
+                held = self._held_claim
+                if held is None or held.control is not taken_for:
+                    return False
             self._close_selection_locked(reason)
+            return True
 
     def wait_for_drain(self, timeout: float | None = None) -> bool:
         """Block until every queued frame is written; True when drained."""
