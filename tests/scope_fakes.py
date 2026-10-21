@@ -179,14 +179,16 @@ def give_stub_lanes(scope):
     """Give a `Lumascope.__new__` stub the two started lanes a built scope has.
 
     A stub skips the constructor, so it has no lanes, and every dispatcher
-    runs its command on one. The test's teardown shuts them. Returns the
-    scope.
+    runs its command on one; nor has it the claim slot beside them, empty as
+    on a scope no session composes, which every guarded write reads. The
+    test's teardown shuts the lanes. Returns the scope.
     """
     from modules.sequential_io_executor import SequentialIOExecutor
 
     scope._io_executor = SequentialIOExecutor(name='IO')
     scope._camera_executor = SequentialIOExecutor(name='CAMERA')
     scope._camera_override_key = None
+    scope._activity_claim = None
     for lane in (scope._io_executor, scope._camera_executor):
         lane.start()
         _TEARDOWNS.append(lane.shutdown)
@@ -484,6 +486,7 @@ def bind_settings_like_a_session(scope, **overrides) -> dict:
     import threading
     import types
 
+    from modules.activity_claim import ActivityClaim
     from modules.scope_session import ScopeSession
     from tests.settings_fixtures import complete_settings
 
@@ -499,7 +502,10 @@ def bind_settings_like_a_session(scope, **overrides) -> dict:
     settings = complete_settings(**overrides)
     _BOUND_SETTINGS[scope] = settings
     holder = types.SimpleNamespace(
-        settings=settings, settings_lock=threading.Lock(), _settings_saver=None
+        settings=settings,
+        settings_lock=threading.Lock(),
+        _settings_saver=None,
+        activity_claim=ActivityClaim(),
     )
     holder._store_setting = functools.partial(ScopeSession._store_setting, holder)
     scope.bind_settings(

@@ -74,7 +74,6 @@ _VALID_PENDING = {
 }
 
 ENROLLED = (
-    'Protocol.to_file',
     'ScopeSession.save_protocol',
     'ScopeSession.load_protocol',
     'ScopeSession.open_protocol',
@@ -414,16 +413,6 @@ def _valid_rows() -> list[Valid]:
             ('/api/v1/load_protocol', lambda s: {'file_path': 'loaded/p.tsv'}),
         ),
         Valid(
-            'to_file',
-            'Protocol.to_file',
-            lambda s: s.protocol.to_file(s.live / 'to_file' / 'p.tsv'),
-            lambda s, _: None if (s.live / 'to_file' / 'p.tsv').is_file() else 'no file',
-            (
-                '/api/v1/handles/Protocol/{handle}/to_file',
-                lambda s: {'file_path': 'wire_to_file/p.tsv'},
-            ),
-        ),
-        Valid(
             'open_protocol',
             'ScopeSession.open_protocol',
             lambda s: s.session.open_protocol(
@@ -614,21 +603,6 @@ def _bad_rows() -> list[Bad]:
             ),
         ),
         Bad(
-            'to_file into a folder',
-            'Protocol.to_file',
-            lambda s: s.protocol.to_file(s.live / 'a_folder'),
-            LiveFolderPathRefusedError,
-            'not_a_file',
-            ('/api/v1/handles/Protocol/{handle}/to_file', lambda s: {'file_path': 'a_folder'}),
-        ),
-        Bad(
-            'to_file under a file',
-            'Protocol.to_file',
-            lambda s: s.protocol.to_file(s.live / 'a_file.txt' / 'p.tsv'),
-            LiveFolderPathRefusedError,
-            'not_a_folder',
-        ),
-        Bad(
             'save_protocol into a folder',
             'ScopeSession.save_protocol',
             lambda s: s.session.save_protocol(s.protocol, s.live / 'a_folder.tsv'),
@@ -660,14 +634,6 @@ def _bad_rows() -> list[Bad]:
                 '/api/v1/save_protocol',
                 lambda s: {'protocol': s.handle, 'file_path': 'plate1'},
             ),
-        ),
-        Bad(
-            'to_file without .tsv',
-            'Protocol.to_file',
-            lambda s: s.protocol.to_file(s.live / 'plate1.txt'),
-            LiveFolderPathRefusedError,
-            'wrong_extension',
-            ('/api/v1/handles/Protocol/{handle}/to_file', lambda s: {'file_path': 'plate1.txt'}),
         ),
         Bad(
             'load_protocol missing',

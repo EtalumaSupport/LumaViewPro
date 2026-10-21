@@ -22,6 +22,7 @@ import pytest
 
 import modules.app_context as _app_ctx
 import modules.config_helpers as config_helpers
+from modules.activity_claim import ActivityClaim
 from modules.exceptions import (
     ArgumentRefusedError,
     ArgumentTypeRefusedError,
@@ -62,7 +63,7 @@ def _session(settings, lock=None, layers=('BF', 'PC', 'DF', 'Blue', 'Green', 'Re
         settings_lock=threading.Lock(),
         _settings_saver=None,
         _shown_channel=ShownChannel(shown, lit=False),
-        activity_claim=SimpleNamespace(holder=None),
+        activity_claim=ActivityClaim(),
         apply_layer_camera=MagicMock(),
     )
     for name in _MEMBERS:

@@ -44,7 +44,7 @@ from modules.exceptions import (
     HardwareCommandRefusedError,
     MissingPart,
 )
-from modules.activity_claim import ActivityHolder, current_taking
+from modules.activity_claim import ActivityHolder, current_taking, guarded_write
 from modules.frame_validity import FrameValidity
 from modules.scope_capabilities import FrameSize
 from modules.notification_center import notifications
@@ -96,6 +96,11 @@ def _camera_not_connected(member: str) -> HardwareCommandRefusedError:
 def _no_camera_cache() -> dict:
     """A fresh copy of ``_NO_CAMERA_CACHE``."""
     return dict(_NO_CAMERA_CACHE)
+
+
+# A camera member that stores what it writes, admitted and counted by the
+# session's claim (``guarded_write``); a scope no session composes has none.
+_guarded_write = guarded_write(lambda camera: camera._scope._activity_claim)
 
 
 class AutoGainConvergence(enum.Enum):
@@ -1826,6 +1831,7 @@ class CameraAPI:
         return write_then_save
 
     @api(sets='high_conversion_gain')
+    @_guarded_write
     def set_high_conversion_gain(self, enabled: bool) -> None:
         """Turn the camera's high conversion gain on or off, then save it.
 
@@ -1857,6 +1863,7 @@ class CameraAPI:
         )
 
     @api(sets='line_noise_reduction')
+    @_guarded_write
     def set_line_noise_reduction(self, enabled: bool) -> None:
         """Turn the camera's line-noise filter on or off, then save it.
 
@@ -1885,6 +1892,7 @@ class CameraAPI:
         )
 
     @api(sets='image_mode')
+    @_guarded_write
     def set_image_mode(self, mode: str) -> None:
         """Capture in ``mode``: apply the camera format it needs, then save it.
 
@@ -1923,6 +1931,7 @@ class CameraAPI:
         )
 
     @api(sets='binning')
+    @_guarded_write
     def set_binning(self, size: int) -> FrameSize | None:
         """Bin the camera by ``size``, keep the framed region, and save both.
 
@@ -1976,6 +1985,7 @@ class CameraAPI:
         return self._apply_frame_impl(native, self._target_frame(native, size))
 
     @api(sets='frame_size')
+    @_guarded_write
     def set_frame_size(self, width: int, height: int) -> FrameSize | None:
         """Frame the camera at ``width`` x ``height`` at the binning it holds, and save it.
 
@@ -3230,6 +3240,7 @@ class CameraAPI:
         return value
 
     @api(in_process=True, engineering=True)
+    @_guarded_write
     def restore_camera_state(self, snapshot: dict) -> None:
         """Restore every camera setting a saved state holds, and wait.
 

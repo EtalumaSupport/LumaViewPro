@@ -27,8 +27,17 @@ caller (``modules.api_arguments``), with ``ArgumentTypeRefusedError``
 ``Raises:`` section lists it; nor do the hardware lanes' own refusals of a
 command on them, which are every hardware command's: ``HardwareCommandRefusedError``
 ``'exclusive_activity_running'`` while a run, a diagnostic or a home holds
-the scope and the call is not made under it, and ``'scope_disconnected'``
-once the lanes are shut.
+the scope and the call is not made under it, ``'control_session_held'``
+while a control session is held and the call is not its holder's, and
+``'scope_disconnected'`` once the lanes are shut. Nor does the control
+session's refusal of a write: every member that writes a setting, a
+protocol file or a recording's pending frames is a guarded write
+(``activity_claim.guarded_write``), refused with ``ControlSessionRefusedError``
+``'control_session_held'`` while a control session is held and the call is
+not its holder's. The display preferences (``settings_paths.PREFERENCES``)
+are written by anyone; a support report and a logs zip are made by anyone,
+since each writes a support artefact and changes no scope state; and a
+post-processing build is open to anyone.
 
 Four marks say what a member does, each read by its own reader below:
 ``reads`` that it changes nothing, so a host may answer it as a read;

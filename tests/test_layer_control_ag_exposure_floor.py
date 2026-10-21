@@ -31,6 +31,7 @@ from types import SimpleNamespace
 import pytest
 
 import modules.config_helpers as config_helpers
+from modules.activity_claim import ActivityClaim
 from modules.lumascope_api.camera import (
     AutoGainConvergence,
     AutoGainLock,
@@ -85,7 +86,7 @@ def _leave(settings: dict, layer: str, lock: AutoGainLock) -> None:
         _settings_saver=None,
         # The layer is shown, and the camera holds it.
         _shown_channel=ShownChannel(layer, lit=False),
-        activity_claim=SimpleNamespace(holder=None),
+        activity_claim=ActivityClaim(),
         apply_layer_camera=lambda shown: None,
     )
     session._store_setting = ScopeSession._store_setting.__get__(session)

@@ -120,6 +120,20 @@ INSTALLATION_ONLY: typing.Final[frozenset[str]] = frozenset(
     }
 )
 
+# A preference of the person at the display: it changes no capture, no file
+# and no hardware -- each is read only by the GUI's own widgets, or the
+# plugin's -- so it is written by anyone while a control session is held,
+# where every other setting is the session holder's alone.
+PREFERENCES: typing.Final[frozenset[str]] = frozenset(
+    {
+        'show_tooltips',
+        'show_step_locations',
+        'live_view_fps',
+        'stimulation_enabled',
+        'focus_score_enabled',
+    }
+)
+
 # A setting derived from the release when the template is read, never a
 # person's: ``step_channel_order``, from the catalogue's ``LayerOrder``. No
 # write changes it, and a stored copy that differs is replaced at load by

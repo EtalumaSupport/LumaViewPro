@@ -46,9 +46,11 @@ from modules.activity_claim import (
     ControlSession,
     ControlSessionHeldError,
     HeldClaim,
+    a_guarded_write,
     acting,
     command_refused,
     current_taking,
+    guarded_write,
     the_holder_named,
 )
 from modules.caller import Caller
@@ -60,6 +62,7 @@ from modules.exceptions import (
     CameraDriverRepairFailedError,
     CameraDriverRepairRefusedError,
     ConfigError,
+    ControlSessionRefusedError,
     DiagnosticRefusedError,
     FileWriterNotStuckError,
     HARDWARE_STATE_REASONS,
@@ -129,6 +132,10 @@ SUPPORT_REPORT_SLOW_TASK_S = 600.0
 STARTUP_MOTION_SLOW_TASK_S = 135.0
 
 # The reports a session counts while they run, by their live-work kind.
+# A Session member that writes settings or files, admitted and counted by the
+# session's claim (``guarded_write``).
+_guarded_write = guarded_write(lambda session: session.activity_claim)
+
 _REPORT_NAMES = {
     live_work.SUPPORT_REPORT: 'A support report',
     live_work.LOGS_ZIP: 'A logs zip',
@@ -906,6 +913,7 @@ class ScopeSession:
                 self._reports_in_flight[kind] -= 1
 
     @api
+    @_guarded_write
     def discard_close_drain(self) -> None:
         """Drop every video frame still queued in either drain, loudly.
 
@@ -1536,6 +1544,7 @@ class ScopeSession:
     # ------------------------------------------------------------------
 
     @api
+    @_guarded_write
     def recover_file_writer(self) -> int:
         """Give up on a finished run's unwritten images and unlock a stuck writer.
 
@@ -1576,6 +1585,7 @@ class ScopeSession:
         return abandoned
 
     @api
+    @_guarded_write
     def repair_camera_driver(self) -> 'tuple[UsbIdentityBindings, ...]':
         """Install LumaViewPro's driver for a Lumascope Classic and bind its USB identities to it.
 
@@ -1827,6 +1837,7 @@ class ScopeSession:
         )
 
     @api
+    @_guarded_write
     def load_protocol(self, file_path: FilePath) -> 'Protocol':
         """Load the protocol at ``file_path`` and put the scope on its plate.
 
@@ -1889,6 +1900,7 @@ class ScopeSession:
                 self._store_setting(f'{name}.acquire', None)
 
     @api
+    @_guarded_write
     def apply_layer_settings(self, protocol: 'Protocol') -> None:
         """Put a protocol's Layer Settings into this session's layer controls.
 
@@ -1941,6 +1953,7 @@ class ScopeSession:
                     self._store_setting(f'{name}.stim_config.enabled', row['Stim_Enabled'])
 
     @api
+    @_guarded_write
     def save_protocol(self, protocol: 'Protocol', file_path: FilePath) -> pathlib.Path:
         """Write a protocol to a file, with this session's Layer Settings.
 
@@ -1958,7 +1971,7 @@ class ScopeSession:
             LiveFolderPathRefusedError: ``'not_a_file'``, a folder is at
                 ``file_path``; ``'wrong_extension'``, its name does not end
                 in ``.tsv``; ``'not_a_folder'``, a file is where its folder
-                would be. As ``Protocol.to_file``.
+                would be. Nothing is written.
             ProtocolNotSavedError: The file could not be written; a file
                 already at the path is unchanged.
         """
@@ -1982,6 +1995,7 @@ class ScopeSession:
         return path
 
     @api(sets='layer_acquire')
+    @_guarded_write
     def set_layer_acquire(self, layer: str, mode: 'str | None') -> None:
         """Set what a layer captures: ``'image'``, ``'video'``, or None (nothing).
 
@@ -2027,6 +2041,7 @@ class ScopeSession:
             self._store_setting(f'{layer}.stim_config.enabled', False)
 
     @api(sets='layer_auto_gain')
+    @_guarded_write
     def set_layer_auto_gain(self, layer: str, enabled: bool) -> 'AutoGainLock | None':
         """Turn a layer's auto-gain on or off, as the GUI's Auto Gain/Exp box does.
 
@@ -2361,6 +2376,7 @@ class ScopeSession:
         )
 
     @api
+    @_guarded_write
     def save_focus(
         self, protocol: 'Protocol', layer: str, *, step_idx: int | None = None
     ) -> SavedFocus:
@@ -2396,6 +2412,7 @@ class ScopeSession:
         return SavedFocus(z=z, step_idx=step_idx)
 
     @api(sets='saved_focus')
+    @_guarded_write
     def save_layer_focus(self, layer: str, z_um: float) -> None:
         """Store ``z_um`` as ``layer``'s focus, the Z every new step of the layer is born at.
 
@@ -2434,6 +2451,7 @@ class ScopeSession:
         return z
 
     @api
+    @_guarded_write
     def save_bookmark(self, axes: 'Iterable[str]') -> dict:
         """Save where the stage is on ``axes`` as the bookmark, as the bookmark buttons do.
 
@@ -2554,6 +2572,7 @@ class ScopeSession:
         self.start_go_to_bookmark(axes).result()
 
     @api
+    @_guarded_write
     def save_all_bookmarks(self) -> float:
         """Save the live Z as the Z bookmark and as the focus of every layer this scope has.
 
@@ -2574,6 +2593,7 @@ class ScopeSession:
         return z
 
     @api
+    @_guarded_write
     def apply_focus_to_layer_steps(self, protocol: 'Protocol', layer: str) -> int:
         """Save the live Z as ``layer``'s focus and as the Z of its every step.
 
@@ -2747,6 +2767,7 @@ class ScopeSession:
         )
 
     @api
+    @_guarded_write
     def go_to_step(self, protocol: 'Protocol', step_idx: int) -> None:
         """Go to step ``step_idx`` of ``protocol``; return once the camera holds the step's layer and the stage has arrived.
 
@@ -2784,6 +2805,7 @@ class ScopeSession:
                 going.result()
 
     @api(stop='Operation.stop')
+    @_guarded_write
     def start_go_to_step(self, protocol: 'Protocol', step_idx: int) -> Operation:
         """Start going to step ``step_idx`` of ``protocol``, as a click on a step does.
 
@@ -3360,11 +3382,13 @@ class ScopeSession:
             value,
             led_max_ma=self.scope.capabilities.led_max_ma,
         )
-        with self.settings_lock:
-            self._store_setting(path, value)
-            if path.startswith('logging.'):
-                _apply_logging(self.settings)
-        self._put_written_setting_on_the_hardware(path)
+        preference = path in settings_paths.PREFERENCES
+        with contextlib.nullcontext() if preference else a_guarded_write(self.activity_claim):
+            with self.settings_lock:
+                self._store_setting(path, value)
+                if path.startswith('logging.'):
+                    _apply_logging(self.settings)
+            self._put_written_setting_on_the_hardware(path)
 
     def _an_activity_holds_the_scope(self) -> bool:
         """Whether a run, a diagnostic or a home holds the scope: a layer
@@ -3399,6 +3423,7 @@ class ScopeSession:
             self.apply_layer_camera(layer)
 
     @api(in_process=True)
+    @_guarded_write
     def set_live_folder(self, folder: str) -> None:
         """Make ``folder`` the live folder, where captures and runs are saved.
 
@@ -3503,6 +3528,7 @@ class ScopeSession:
         return tuple(entries)
 
     @api(in_process=True)
+    @_guarded_write
     def set_protocol_filepath(self, file_path: str) -> None:
         """Remember ``file_path`` as the protocol to open at the next start; ``''`` forgets it.
 
@@ -3514,6 +3540,7 @@ class ScopeSession:
         with self.settings_lock:
             self._store_setting('protocol.filepath', file_path)
 
+    @_guarded_write
     def open_protocol(self, file_path: FilePath) -> 'Protocol':
         """Load the protocol at ``file_path`` with its Layer Settings, and remember it.
 
@@ -3548,6 +3575,7 @@ class ScopeSession:
         self.set_protocol_filepath(os.fspath(file_path))
         return protocol
 
+    @_guarded_write
     def open_remembered_protocol(self) -> 'Protocol | None':
         """Load the protocol the last start left behind, with its Layer Settings.
 
@@ -3609,7 +3637,24 @@ class ScopeSession:
         The Session's own members write their settings through this,
         past ``update_settings``' refusal of the settings they own. Every
         write wakes the saver, which saves a window later, outside the lock.
+
+        While a control session is held, a write that is not its holder's is
+        refused here too, preferences aside: every member that writes is a
+        guarded write and was refused at its entry, so this refuses only a
+        member that skipped it, loudly, instead of storing.
+
+        Raises:
+            ControlSessionRefusedError: ``'control_session_held'``. Nothing
+                was stored.
         """
+        if path not in settings_paths.PREFERENCES:
+            session = self.activity_claim.refusing_control(current_taking())
+            if session is not None:
+                raise ControlSessionRefusedError(
+                    'control_session_held',
+                    holder_trigger=session.taken_by,
+                    control_session=session.name,
+                )
         *blocks, leaf = path.split('.')
         holder = self.settings
         for block in blocks:
@@ -3667,6 +3712,7 @@ class ScopeSession:
             logger.warning(f'[Session  ] saving the settings to {file} took {dt * 1000:.0f}ms')
 
     @api(sets='model')
+    @_guarded_write
     def select_model(self, model: str) -> None:
         """Save the operator's scope model for the next start.
 
@@ -3820,6 +3866,7 @@ class ScopeSession:
         )
         return [('objective_id', stored, shipped)]
 
+    @_guarded_write
     def configure_scope(self) -> None:
         """Configure the scope from this session's settings -- the bring-up.
 
@@ -4427,6 +4474,7 @@ class ScopeSession:
         return ObjectiveQuestion(turret_position=position, proposed=proposed, choices=choices)
 
     @api
+    @_guarded_write
     def confirm_objective(self, objective_id: str, turret_position: 'int | None' = None) -> bool:
         """Answer the objective question: this objective is in the light path.
 
@@ -4489,6 +4537,7 @@ class ScopeSession:
         return self.scope.runtime_state.get_current_objective_id()
 
     @api(sets='objective_id')
+    @_guarded_write
     def select_objective(self, objective_id: str) -> bool:
         """Make ``objective_id`` the active objective. Returns whether it changed.
 
@@ -4597,6 +4646,7 @@ class ScopeSession:
         return self.settings['protocol']['labware']
 
     @api(sets='labware')
+    @_guarded_write
     def select_labware(self, labware_name: str) -> bool:
         """Make ``labware_name`` the current plate. Returns whether it changed.
 
@@ -4642,6 +4692,7 @@ class ScopeSession:
         return True
 
     @api(sets='turret_objective')
+    @_guarded_write
     def assign_turret_objective(self, position: int, objective_id: str) -> None:
         """Bind ``objective_id`` to turret slot ``position``.
 
@@ -4686,6 +4737,7 @@ class ScopeSession:
         return self.settings['turret_objectives'][position]
 
     @api
+    @_guarded_write
     def clear_turret_objective(self, position: int) -> None:
         """Leave turret slot ``position`` unassigned.
 
@@ -4714,6 +4766,7 @@ class ScopeSession:
         )
 
     @api
+    @_guarded_write
     def clear_current_turret_objective(self) -> None:
         """Leave the turret slot in the light path unassigned.
 
@@ -4797,6 +4850,7 @@ class ScopeSession:
     # ------------------------------------------------------------------
 
     @api(sets='scale_bar_enabled')
+    @_guarded_write
     def set_scale_bar(self, enabled: bool) -> None:
         """Draw the scale bar on captured images, or stop, and store it.
 
@@ -4833,6 +4887,7 @@ class ScopeSession:
         return self.settings['motion']['acceleration_max_pct']
 
     @api(sets='acceleration_limit_pct')
+    @_guarded_write
     def set_acceleration_limit(self, val_pct: int) -> None:
         """Set the motors' acceleration limit, as a percent of the firmware's maximum, and store it.
 

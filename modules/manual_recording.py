@@ -39,6 +39,7 @@ import modules.image_utils as image_utils
 import modules.layer_record as layer_record
 import modules.path_utils as path_utils
 from lvp_logger import logger, version as lvp_version
+from modules.activity_claim import guarded_write
 from modules.common_utils import (
     DISK_FLOOR_CHECK_INTERVAL_S,
     MIN_REQUIRED_DISK_MB,
@@ -122,6 +123,11 @@ def sweep_recording_scratch(live_folder) -> None:
         logger.info(f'[ManualRecord] Deleted leftover recording scratch {path} ({size_mb:.0f} MB)')
     except OSError as e:
         logger.warning(f'[ManualRecord] Could not delete leftover scratch {path}: {e}')
+
+
+# A controller member that gives up a recording's pending frames, admitted
+# and counted by the session's claim (``guarded_write``).
+_guarded_write = guarded_write(lambda controller: controller._claim)
 
 
 class ManualRecordingController:
@@ -743,6 +749,7 @@ class ManualRecordingController:
         )
 
     @api
+    @_guarded_write
     def discard_pending(self) -> None:
         """Drop the unwritten backlog loudly (the app-close discard path).
 

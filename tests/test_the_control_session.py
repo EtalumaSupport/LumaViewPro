@@ -19,6 +19,7 @@ from modules.activity_claim import (
     ActivityClaim,
     ControlSessionHeldError,
     acting,
+    guarded_write,
 )
 from modules.caller import Caller, calling
 from modules.exceptions import (
@@ -277,3 +278,80 @@ class TestGuardedWrites:
         controller = _take(claim)
         claim.enter_guarded_write(controller)
         claim.leave_guarded_write()
+
+    def test_a_take_cannot_land_while_a_guarded_member_is_mid_write(self, claim):
+        # a stand-in by design: the subject is the guarded-write decorator,
+        # and this owner is only what it reads the claim from.
+        class _Owner:
+            activity_claim = claim
+            writing = threading.Event()
+            finish = threading.Event()
+
+            @guarded_write(lambda owner: owner.activity_claim)
+            def write(self):
+                self.writing.set()
+                self.finish.wait(_WAIT_S)
+
+        owner = _Owner()
+        writer = threading.Thread(target=owner.write)
+        writer.start()
+        try:
+            assert owner.writing.wait(_WAIT_S)
+            with pytest.raises(ControlSessionRefusedError) as refused:
+                _take(claim)
+            assert refused.value.reason == 'write_in_flight'
+        finally:
+            owner.finish.set()
+            writer.join(_WAIT_S)
+        assert _take(claim) is not None, 'the write returned, and the take lands'
+
+
+class TestTheSessionsWrites:
+    @pytest.fixture
+    def held(self, sim_session):
+        controller = _take(sim_session.activity_claim, 'plate reader', Caller.REST)
+        yield controller
+        if sim_session.activity_claim.control is controller.session:
+            sim_session.activity_claim.end_control(controller.session.id)
+
+    def test_a_non_holders_setting_is_refused_and_nothing_is_stored(self, sim_session, held):
+        before = sim_session.settings['jpg_quality']
+        with pytest.raises(ControlSessionRefusedError) as refused:
+            sim_session.update_settings('jpg_quality', 50 if before != 50 else 60)
+        assert refused.value.reason == 'control_session_held'
+        assert refused.value.control_session == 'plate reader'
+        assert sim_session.settings['jpg_quality'] == before
+
+    def test_the_holders_setting_is_stored(self, sim_session, held):
+        wanted = 50 if sim_session.settings['jpg_quality'] != 50 else 60
+        with acting(held):
+            sim_session.update_settings('jpg_quality', wanted)
+        assert sim_session.settings['jpg_quality'] == wanted
+
+    def test_a_display_preference_is_written_by_anyone(self, sim_session, held):
+        wanted = not sim_session.settings['show_tooltips']
+        sim_session.update_settings('show_tooltips', wanted)
+        assert sim_session.settings['show_tooltips'] == wanted
+
+    def test_a_member_that_skips_its_admission_is_refused_where_it_stores(self, sim_session, held):
+        before = sim_session.settings['jpg_quality']
+        with pytest.raises(ControlSessionRefusedError), sim_session.settings_lock:
+            sim_session._store_setting('jpg_quality', 50 if before != 50 else 60)
+        assert sim_session.settings['jpg_quality'] == before
+
+    def test_a_non_holders_protocol_save_writes_no_file(self, sim_session, held, tmp_path):
+        protocol = sim_session.create_empty_protocol()
+        target = tmp_path / 'saved.tsv'
+        with pytest.raises(ControlSessionRefusedError):
+            sim_session.save_protocol(protocol, target)
+        assert not target.exists()
+
+    def test_a_non_holders_camera_write_changes_nothing(self, sim_session, held):
+        before = sim_session.scope.camera.frame_size
+        with pytest.raises(ControlSessionRefusedError):
+            sim_session.scope.camera.set_frame_size(before.width // 2, before.height // 2)
+        assert sim_session.scope.camera.frame_size == before
+
+    def test_a_non_holder_cannot_give_up_a_recordings_pending_frames(self, sim_session, held):
+        with pytest.raises(ControlSessionRefusedError):
+            sim_session.discard_close_drain()

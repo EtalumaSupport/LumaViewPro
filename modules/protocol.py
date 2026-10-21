@@ -1435,9 +1435,12 @@ class Protocol:
         new._runnable = self._runnable
         return new
 
-    @api
     def to_file(self, file_path: FilePath, layer_settings: dict | None = None) -> None:
         """Write the protocol to a TSV file, whole or not at all.
+
+        Not published: ``ScopeSession.save_protocol`` is the one way a
+        caller writes a protocol file, so the write is the session's to
+        admit; a run writes its own protocol's file through this.
 
         The file is written beside the target and replaces it only once it is
         complete, so a write that fails part-way leaves a file already there

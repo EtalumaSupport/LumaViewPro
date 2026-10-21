@@ -19,6 +19,7 @@ import modules.app_context as _app_ctx
 import ui.layer_control as layer_control
 import ui.motion_settings as motion_settings
 import ui.vertical_control as vertical_control
+from modules.activity_claim import ActivityClaim
 from modules.exceptions import AxisStateUnknownError
 from modules.layer_record import release_catalogue
 from modules.lumascope_api.protocols import ProtocolsAPI
@@ -94,7 +95,9 @@ def unknown(monkeypatch, centre_posts):
     # members, over the real protocols API, on this scope.
     scope.protocols = ProtocolsAPI(scope)
     scope.layer_identity = identity_with_layers(['BF'], model='LS850')
-    session = SimpleNamespace(scope=scope, settings=settings, settings_lock=MagicMock())
+    session = SimpleNamespace(
+        scope=scope, settings=settings, settings_lock=MagicMock(), activity_claim=ActivityClaim()
+    )
     for name in (
         'save_focus',
         'apply_focus_to_layer_steps',

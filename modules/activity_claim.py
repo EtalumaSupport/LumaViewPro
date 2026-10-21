@@ -2,11 +2,13 @@
 """Atomic compare-and-claim for the session's one exclusive activity."""
 
 import contextlib
+import functools
 import threading
 import time
 import uuid
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
+from typing import Any
 from modules.api_surface import api
 from modules.caller import Caller, current_caller
 from modules.exceptions import (
@@ -407,6 +409,54 @@ def command_refused(
         refusing.kind if refusing is not None else None,
         holder_trigger=refusing.run_started_by if refusing is not None else None,
     )
+
+
+@contextlib.contextmanager
+def a_guarded_write(claim: 'ActivityClaim | None') -> Iterator[None]:
+    """Run the ``with`` block as a guarded write, admitted and counted by ``claim``.
+
+    Refused before the block runs while a control session is held by
+    someone other than this thread's caller, and counted while it runs, so
+    no take lands mid-write. A scope no session composes has no claim, and
+    the block runs as it is.
+
+    Raises:
+        ControlSessionRefusedError: ``'control_session_held'``. The block
+            did not run.
+    """
+    if claim is None:
+        yield
+        return
+    claim.enter_guarded_write(current_taking())
+    try:
+        yield
+    finally:
+        claim.leave_guarded_write()
+
+
+def guarded_write[**P, R](
+    claim_of: 'Callable[[Any], ActivityClaim | None]',
+) -> 'Callable[[Callable[P, R]], Callable[P, R]]':
+    """Make a member that writes settings or files a guarded write, read from its owner's claim.
+
+    The member is admitted at its entry, before its first write, and
+    counted until it returns or raises (``a_guarded_write``). A member that
+    calls another guarded one is counted again for it, on the same thread,
+    so a take never lands between its parts.
+
+    Args:
+        claim_of: The claim the member's owner answers to, from the owner.
+    """
+
+    def decorate(member: 'Callable[P, R]') -> 'Callable[P, R]':
+        @functools.wraps(member)
+        def admitted(*args: P.args, **kwargs: P.kwargs) -> R:
+            with a_guarded_write(claim_of(args[0])):
+                return member(*args, **kwargs)
+
+        return admitted
+
+    return decorate
 
 
 def _root(taking: 'Taking | ControllerTaking | None') -> 'HeldClaim | ControllerTaking | None':
