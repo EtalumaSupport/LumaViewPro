@@ -7,6 +7,9 @@ Exposure and gain stay open during a recording, and continuous auto-gain
 picks its own exposure, so the bound is not the held exposure alone:
 
 - with no auto-gain armed it is the held exposure;
+- right after a write made the exposure shorter it is the exposure the
+  write replaced, until a frame begun before the write has ended: that
+  frame is still exposing under it;
 - while auto-gain is armed it is the arm's exposure ceiling, or the sensor
   maximum when the arm was given none;
 - with the exposure unknown it is the sensor maximum, the longest a frame
@@ -17,6 +20,8 @@ Run on the simulated LS850, whose sensor maximum is 1000 ms.
 """
 
 from __future__ import annotations
+
+import time
 
 import pytest
 
@@ -43,6 +48,17 @@ def _sensor_maximum(session):
 def test_it_is_the_held_exposure_with_no_auto_gain_armed(session):
     session.camera.set_exposure_ms(40.0)
     assert session.camera.longest_exposure_ms == 40.0
+
+
+def test_it_is_the_replaced_exposure_until_a_frame_begun_under_it_has_ended(session):
+    camera = session.camera
+    camera.set_exposure_ms(1000.0)
+    camera.set_exposure_ms(300.0)
+    assert camera.longest_exposure_ms == 1000.0
+    # A frame begun just before the write ends at most the replaced
+    # exposure after it; a sleep never returns early, so this is past it.
+    time.sleep(1.0)
+    assert camera.longest_exposure_ms == 300.0
 
 
 def test_it_is_the_arms_ceiling_while_auto_gain_is_armed(session):

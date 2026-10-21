@@ -533,6 +533,11 @@ class CameraAPI:
         # landed can never overwrite the setter's newer truth with the
         # pre-write hardware value.
         self._camera_cache_write_gen: dict[str, int] = {}
+        # The exposure a write replaced with a shorter one, and the host
+        # monotonic time by which a frame begun under it has ended; None
+        # when none is pending. Guarded by _camera_cache_lock and written
+        # with the cache's exposure (_commit_camera_writes).
+        self._outgoing_exposure: tuple[float, float] | None = None
         self._populate_camera_cache()
 
     @property
@@ -850,8 +855,20 @@ class CameraAPI:
         key's write generation so a validated live read that was already
         in flight when this landed cannot commit its now-stale value over
         the newer truth.
+
+        An exposure made shorter is kept as outgoing until a frame begun
+        before the write has ended, for ``longest_exposure_ms``.
         """
         with self._camera_cache_lock:
+            before = self._camera_cache['exposure_ms']
+            after = updates.get('exposure_ms', before)
+            if before is not None and after is not None and after < before:
+                now = time.monotonic()
+                outgoing = (before, now + before / 1000)
+                pending = self._outgoing_exposure
+                if pending is not None and pending[1] > now:
+                    outgoing = (max(pending[0], outgoing[0]), max(pending[1], outgoing[1]))
+                self._outgoing_exposure = outgoing
             self._camera_cache.update(updates)
             for key in updates:
                 self._camera_cache_write_gen[key] = self._camera_cache_write_gen.get(key, 0) + 1
@@ -2855,25 +2872,35 @@ class CameraAPI:
         when it was given none), and the held exposure is the value from
         before the arm; otherwise the held exposure is the one in force.
         With the exposure unknown it is the sensor maximum, the longest a
-        frame can take. A consumer bounding how long a frame may take -- a
-        feed-death watch, a grab's wait -- needs this, not the held value.
+        frame can take. Right after a write made the exposure shorter, a
+        frame begun before the write is still exposing under the longer one
+        until it ends, so that one answers until then. A consumer bounding
+        how long a frame may take -- a feed-death watch, a grab's wait --
+        needs this, not the held value.
 
         Returns:
             float | None: The bound in ms; None when it is unknown and no
                 camera reports a maximum.
         """
+        with self._camera_cache_lock:
+            outgoing = self._outgoing_exposure
+        if outgoing is not None and time.monotonic() >= outgoing[1]:
+            outgoing = None
         with self._state_lock:
             arm = self._auto_gain_arm
+        bound = None
         if arm is None:
-            exposure = self.exposure_ms
-            if exposure is not None:
-                return exposure
+            bound = self.exposure_ms
         else:
             ceiling = arm.settings.get('max_exposure_ms')
             if ceiling:
-                return float(ceiling)
-        limits = self._scope.capabilities.camera_limits
-        return limits.exposure_ms_max if limits else None
+                bound = float(ceiling)
+        if bound is None:
+            limits = self._scope.capabilities.camera_limits
+            bound = limits.exposure_ms_max if limits else None
+        if bound is not None and outgoing is not None:
+            return max(bound, outgoing[0])
+        return bound
 
     @api(reads=True)
     def applied_gain_db_for(self, stored_gain_db: float) -> AppliedCameraSetting:
