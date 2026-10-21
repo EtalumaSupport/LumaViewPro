@@ -2861,13 +2861,9 @@ class CameraAPI:
         Raises:
             Nothing.
         """
-        default = {'width': 2, 'height': 2}
         if not self._driver or not self._driver.active:
-            return default
-        try:
-            return dict(self._driver.profile.alignment)
-        except (AttributeError, TypeError):
-            return default
+            return {'width': 2, 'height': 2}
+        return dict(self._driver.profile.alignment)
 
     # --- Held reads ---
     # Each answers what the camera last reported (a fresh read, the populate
