@@ -355,12 +355,6 @@ class PostProcessing:
     def __init__(self):
         self._cell_count = CellCount()
 
-    def convert_to_avi(self, filepath):
-        pass
-
-    def stitch(self, filepath):
-        pass
-
     def preview_cell_count(
         self,
         image: np.ndarray,

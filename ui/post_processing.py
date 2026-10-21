@@ -291,7 +291,6 @@ class GraphingControls(BoxLayout):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         logger.info('LVP Main: GraphingControls.__init__()')
-        self._post = post_processing.PostProcessing()
         self.graphing_area = self.ids.graphing_area
         self.graph_widget = None
         # The form the session draws and saves from; the panel holds no data.
@@ -450,9 +449,6 @@ class GraphingControls(BoxLayout):
         self.selected_y_axis = None
         self._trendline_kind = _NO_TRENDLINE
         self._figure = None
-
-    def set_post_processing_module(self, postprocessingmodule):
-        self._post = postprocessingmodule
 
 
 # ============================================================================
@@ -805,26 +801,6 @@ class PostProcessingAccordion(BoxLayout):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.name = self.__class__.__name__
-        self.post = post_processing.PostProcessing()
-        self.raw_images_folder = './capture/'
-        self.combine_colors = False  # True if raw images are in separate red/green/blue channels and need to be first combined
-        self.ext = 'tiff'
-        self.stitching_method = 'position'
-        self.stitched_save_name = 'last_composite_img.tiff'
-        self.positions_file = './capture/2x2.tsv'
-        self.pos2pix = 2630  # relevant if stitching method is position. The scale conversion for pos info into pixels
-
-        from modules.common_utils import DEFAULT_STAGE_TRAVEL_UM
-
-        self.tiling_min = {
-            'x': int(DEFAULT_STAGE_TRAVEL_UM['x']),
-            'y': int(DEFAULT_STAGE_TRAVEL_UM['y']),
-        }
-
-        self.tiling_max = {'x': 0, 'y': 0}
-
-        self.tiling_count = {'x': 1, 'y': 1}
-
         self.accordion_item_states = {
             'cell_count_accordion_id': None,
             'stitch_accordion_id': None,
@@ -889,9 +865,6 @@ class PostProcessingAccordion(BoxLayout):
     def init_cell_count(self):
         self._cell_count_popup = None
 
-    def convert_to_avi(self):
-        logger.debug('[LVP Main  ] PostProcessingAccordian.convert_to_avi() not yet implemented')
-
     def open_cell_count(self):
         gui_logger.button('OPEN_CELL_COUNT')
         ctx = _app_ctx.ctx
@@ -909,7 +882,6 @@ class PostProcessingAccordion(BoxLayout):
         gui_logger.button('OPEN_GRAPHING')
         ctx = _app_ctx.ctx
         if self._graphing_popup is None:
-            ctx.graphing_controls.set_post_processing_module(self.post)
             self._graphing_popup = Popup(
                 title='Post Processing - Object Plotting',
                 content=ctx.graphing_controls,

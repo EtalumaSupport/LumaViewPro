@@ -148,14 +148,6 @@ class ProtocolSettings(FloatLayout):
 
         self.curr_step = -1
 
-        from modules.common_utils import DEFAULT_STAGE_TRAVEL_UM
-
-        self.tiling_min = {
-            'x': int(DEFAULT_STAGE_TRAVEL_UM['x']),
-            'y': int(DEFAULT_STAGE_TRAVEL_UM['y']),
-        }
-        self.tiling_max = {'x': 0, 'y': 0}
-
         # Protocol is owned by AppContext, not this widget.
         # Property delegation below ensures all existing self._protocol
         # references keep working while the canonical owner is ctx.
