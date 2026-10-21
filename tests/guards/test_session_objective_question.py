@@ -548,6 +548,29 @@ class TestT14OpticsRecord:
         finally:
             session.shutdown()
 
+    def test_an_objective_change_records_the_optics_without_asking_the_camera(self):
+        # The record made a fresh camera read inside a swallow on each
+        # objective change; it reads the binning the camera last reported.
+        from drivers.exceptions import CameraReadFailedError
+
+        session = ScopeSession.create(
+            complete_settings(**_turret_settings(microscope=NON_TURRET_MODEL)), simulate=True
+        )
+        try:
+            held = session.scope.camera.binning
+            session.scope.simulation.refuse_camera_read('binning', 'raise')
+
+            session.select_objective('10x Oly')
+            assert session.scope.runtime_state.get_current_objective_id() == '10x Oly'
+
+            optics = [line for line in _lines() if line.startswith('[Optics') and '10x' in line]
+            assert len(optics) == 1, _lines()
+            assert f'binning={held}' in optics[0], optics[0]
+            with pytest.raises(CameraReadFailedError):
+                session.scope.camera.read_binning()  # the fault is still the camera's next read
+        finally:
+            session.shutdown()
+
     def test_the_gui_no_longer_records_the_optics(self):
         # The record fires from the Session's writers, so a GUI call site
         # would be a second home for the same fact.

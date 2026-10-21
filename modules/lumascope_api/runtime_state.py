@@ -35,7 +35,6 @@ from typing import TYPE_CHECKING
 
 import modules.common_utils as common_utils
 import modules.coord_transformations as coord_transformations
-from lvp_logger import logger
 from modules.exceptions import (
     ConfigurationDefectError,
     ObjectiveUnknownError,
@@ -166,22 +165,17 @@ class RuntimeState:
             if objective_id == self._logged_objective_id:
                 return
             self._logged_objective_id = objective_id
-        # A record that cannot be written must not fail the read that
-        # triggered it: the objective is still known and still correct.
-        try:
-            import modules.config_helpers as config_helpers
+        import modules.config_helpers as config_helpers
 
-            config_helpers.log_resolved_optics(
-                objective_id,
-                objective.focal_length_mm,
-                self._scope.camera.read_binning(),
-                capabilities=self._scope.capabilities,
-            )
-        except Exception:
-            logger.warning(
-                f'[LVP API  ] could not record the optics for objective {objective_id!r}',
-                exc_info=True,
-            )
+        # The binning the camera last reported, not a fresh read: an
+        # objective read asks the camera nothing, and an unknown binning is
+        # recorded as the scale it leaves unknown.
+        config_helpers.log_resolved_optics(
+            objective_id,
+            objective.focal_length_mm,
+            self._scope.camera.binning,
+            capabilities=self._scope.capabilities,
+        )
 
     def _derive(self) -> tuple[str | None, Objective | None, ObjectiveUnknownError | None]:
         if self._turreted is None:
