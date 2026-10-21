@@ -79,6 +79,7 @@ class ProtocolRunner:
     def start_single_scan(
         self,
         protocol: Protocol,
+        *,
         sequence_name: str = 'scan',
         parent_dir: FilePath | None = None,
         enable_image_saving: bool = True,
@@ -125,6 +126,7 @@ class ProtocolRunner:
     def start_protocol(
         self,
         protocol: Protocol,
+        *,
         sequence_name: str = 'protocol',
         parent_dir: FilePath | None = None,
         enable_image_saving: bool = True,
@@ -164,6 +166,7 @@ class ProtocolRunner:
     @api(stop='Operation.stop')
     def start_composite(
         self,
+        *,
         sequence_name: str = 'composite',
         parent_dir: FilePath | None = None,
         events: RunEvents | None = None,
@@ -224,6 +227,7 @@ class ProtocolRunner:
     def start_autofocus(
         self,
         layer: str | None,
+        *,
         save_characterization_data: bool = False,
         sequence_name: str = 'autofocus',
         parent_dir: FilePath | None = None,
@@ -339,6 +343,7 @@ class ProtocolRunner:
     def start_autofocus_all_steps(
         self,
         protocol: Protocol,
+        *,
         events: RunEvents | None = None,
     ) -> Operation:
         """Autofocus at every step of *protocol*, and write the focus into it.
@@ -389,6 +394,7 @@ class ProtocolRunner:
     def start_zstack(
         self,
         layer: str | None,
+        *,
         sequence_name: str = 'zstack',
         parent_dir: FilePath | None = None,
         events: RunEvents | None = None,
@@ -501,6 +507,7 @@ class ProtocolRunner:
     def run_single_scan(
         self,
         protocol: Protocol,
+        *,
         sequence_name: str = 'scan',
         parent_dir: FilePath | None = None,
         enable_image_saving: bool = True,
@@ -540,6 +547,7 @@ class ProtocolRunner:
     def run_protocol(
         self,
         protocol: Protocol,
+        *,
         sequence_name: str = 'protocol',
         parent_dir: FilePath | None = None,
         enable_image_saving: bool = True,
@@ -577,6 +585,7 @@ class ProtocolRunner:
     def run_autofocus(
         self,
         layer: str | None,
+        *,
         save_characterization_data: bool = False,
         sequence_name: str = 'autofocus',
         parent_dir: FilePath | None = None,
@@ -616,6 +625,7 @@ class ProtocolRunner:
     def run_autofocus_all_steps(
         self,
         protocol: Protocol,
+        *,
         events: RunEvents | None = None,
         timeout_s: float | None = None,
     ) -> RunOutcome:
@@ -647,6 +657,7 @@ class ProtocolRunner:
     def run_zstack(
         self,
         layer: str | None,
+        *,
         sequence_name: str = 'zstack',
         parent_dir: FilePath | None = None,
         events: RunEvents | None = None,
@@ -695,6 +706,7 @@ class ProtocolRunner:
     @api(in_process=True)
     def run_composite(
         self,
+        *,
         sequence_name: str = 'composite',
         parent_dir: FilePath | None = None,
         events: RunEvents | None = None,

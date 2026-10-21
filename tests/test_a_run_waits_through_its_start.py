@@ -3,10 +3,11 @@
 
 ``ProtocolRunner.run_X(..., timeout_s=None)`` is ``start_X(...)`` followed
 by the started operation's ``result(timeout_s)``, in-process only: it takes
-exactly its start's parameters and ``timeout_s``; it returns the run's
-outcome however the run ended; a wait that runs out raises
-``RunWaitExpiredError``, quiet, a ``TimeoutError``, holding the run's
-operation, which is still running and can be waited on again or stopped.
+exactly its start's parameters, each passed as its start takes it, and
+``timeout_s`` by keyword; it returns the run's outcome however the run
+ended; a wait that runs out raises ``RunWaitExpiredError``, quiet, a
+``TimeoutError``, holding the run's operation, which is still running and
+can be waited on again or stopped.
 """
 
 import inspect
@@ -35,12 +36,14 @@ def test_each_run_x_takes_its_start_s_parameters_and_a_timeout():
             *start.values(),
             inspect.Parameter(
                 'timeout_s',
-                inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                inspect.Parameter.KEYWORD_ONLY,
                 default=None,
                 annotation='float | None',
             ),
         ]
-        if [(p.name, p.default) for p in waits.values()] != [(p.name, p.default) for p in expected]:
+        if [(p.name, p.kind, p.default) for p in waits.values()] != [
+            (p.name, p.kind, p.default) for p in expected
+        ]:
             wrong[run] = (list(start), list(waits))
         if mark_of(getattr(ProtocolRunner, f'run_{run}')) != IN_PROCESS:
             wrong[f'run_{run}'] = 'not marked in-process'
