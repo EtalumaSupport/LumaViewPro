@@ -37,6 +37,12 @@ mentions -- a mirror requiring manual sync, which is the defect class this
 guard is meant to close, not reproduce. Code fences carry the contract the
 guard is actually protecting: a reader copies from an example block.
 
+One prose form is checked too: a backticked path into a project package
+(```modules.x.y```, ``drivers.``, ``rest.``) names something a reader is
+told to import, so it must be API like a fenced import. Retired names are
+written as the call forms above, never as module paths, so this needs no
+allowlist.
+
 ``PLUGIN_API_DESIGN_2026-05-09.md`` is deliberately NOT guarded. It is a
 design and history document; 12 of its 40 call forms name proposals that were
 never built (``scope.is_command_safe_for_rest``,
@@ -45,6 +51,8 @@ accuracy is maintained by review, not by resolution.
 """
 
 import ast
+import enum
+import importlib
 import inspect
 import re
 import warnings
@@ -73,8 +81,8 @@ _CALL_FORM = re.compile(r'\b(scope|session|caps)((?:\.[A-Za-z_][A-Za-z0-9_]*)+)'
 # unlabelled ``` block; the reference uses those for python too, and they
 # resolve today, so including them costs nothing and closes the gap where a
 # forgotten language tag would silence the guard. A fence labelled for another
-# language would be skipped -- its syntax is not ours to resolve -- but the
-# reference has none today: all 65 fences are python or unlabelled.
+# language is skipped -- its syntax is not ours to resolve -- which is how the
+# reference marks its diagrams and file layouts: ```text.
 _CHECKED_FENCES = ('', 'python')
 
 
@@ -368,3 +376,220 @@ class TestLumascopeSkillsCallFormsBind:
             f'no documented calls found for {sorted(expected - receivers)} -- the fence '
             'tracker, the block parser or the call extractor has regressed'
         )
+
+
+# The project's packages. A name a reader imports from one of them, or a path
+# into one written in prose, is something the reader is told to build on, so
+# it must be API -- the receivers above cover only what a reader reaches from
+# a live object, and an internal helper's signature change broke eight
+# examples in its module-level calls with this file green.
+_PROJECT_PACKAGES = ('modules', 'drivers', 'rest')
+_PROSE_PATH = re.compile(r'`((?:modules|drivers|rest)\.[A-Za-z_][A-Za-z0-9_.]*)')
+
+
+def why_not_api(obj):
+    """Why ``obj``, a name from a project package, is not API; None when it is.
+
+    API is an exception, an enum, a class that publishes fields or has marked
+    members, or a marked function. A module is where names live, not a name:
+    each of its names a reader uses is checked where it is used.
+    """
+    from modules.api_surface import fields_of, mark_of
+
+    if inspect.ismodule(obj):
+        return None
+    if inspect.isclass(obj):
+        if issubclass(obj, (BaseException, enum.Enum)):
+            return None
+        if any(fields_of(k) for k in obj.__mro__):
+            return None
+        if any(mark_of(v) for k in obj.__mro__ for v in vars(k).values()):
+            return None
+        return 'a class with no marked members or published fields'
+    if callable(obj):
+        return None if mark_of(obj) else 'an unmarked function'
+    return f'a {type(obj).__name__} value, not a member'
+
+
+def _resolve_project_name(dotted):
+    """The object ``dotted`` names: its longest importable module, then attributes."""
+    parts = dotted.split('.')
+    for cut in range(len(parts), 0, -1):
+        try:
+            found = importlib.import_module('.'.join(parts[:cut]))
+        except ImportError:
+            continue
+        for attr in parts[cut:]:
+            found = getattr(found, attr)
+        return found
+    raise ImportError(dotted)
+
+
+def _project_module(name):
+    """``'<package>.<name>'`` for the first project package with a module ``name``, or None."""
+    return next(
+        (f'{p}.{name}' for p in _PROJECT_PACKAGES if importlib.util.find_spec(f'{p}.{name}')),
+        None,
+    )
+
+
+def project_names(source, start=1, assigned=frozenset()):
+    """``(dotted, positional_count, keyword_names, lineno)`` per project name ``source`` uses.
+
+    A name imported from a project package, and each attribute read on a
+    project module -- one imported in ``source``, or one named bare and never
+    assigned in ``assigned`` (a later fence uses a module an earlier one
+    imported). The counts are the call's when the name is called, else None.
+    """
+    tree = ast.parse(source)
+    assigned = assigned | _assigned_names(tree)
+    bound, imported = {}, []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name.split('.')[0] in _PROJECT_PACKAGES:
+                    bound[alias.asname or alias.name] = alias.name
+        elif isinstance(node, ast.ImportFrom) and (node.module or '').split('.')[0] in (
+            _PROJECT_PACKAGES
+        ):
+            for alias in node.names:
+                bound[alias.asname or alias.name] = f'{node.module}.{alias.name}'
+                imported.append((f'{node.module}.{alias.name}', start + node.lineno - 1))
+
+    def dotted_of(func):
+        if isinstance(func, ast.Name):
+            return bound.get(func.id)
+        if isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name):
+            owner = bound.get(func.value.id)
+            if owner is None and func.value.id not in assigned:
+                owner = _project_module(func.value.id)
+            if owner is not None:
+                return f'{owner}.{func.attr}'
+        return None
+
+    called = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and not any(kw.arg is None for kw in node.keywords):
+            dotted = dotted_of(node.func)
+            if dotted is not None:
+                called.add(id(node.func))
+                kwnames = tuple(kw.arg for kw in node.keywords)
+                yield dotted, len(node.args), kwnames, start + node.lineno - 1
+    for dotted, lineno in imported:
+        yield dotted, None, None, lineno
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute) and id(node) not in called:
+            dotted = dotted_of(node)
+            if dotted is not None:
+                yield dotted, None, None, start + node.lineno - 1
+
+
+def _assigned_names(tree):
+    """Every name ``tree`` assigns or takes as a parameter."""
+    return frozenset(
+        node.id if isinstance(node, ast.Name) else node.arg
+        for node in ast.walk(tree)
+        if (isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store))
+        or isinstance(node, ast.arg)
+    )
+
+
+def _assigned_in(text):
+    """Every name a checked fence of ``text`` assigns or takes as a parameter."""
+    names = frozenset()
+    for _, source in _checked_fence_blocks(text):
+        try:
+            names |= _assigned_names(ast.parse(source))
+        except SyntaxError:
+            continue
+    return names
+
+
+def project_name_failures(label, source, start=1, assigned=frozenset()):
+    """A line per project name in ``source`` that is not API, or whose call does not bind."""
+    failures = []
+    for dotted, nargs, kwnames, lineno in project_names(source, start, assigned):
+        try:
+            found = _resolve_project_name(dotted)
+        except (ImportError, AttributeError):
+            failures.append(f'  {label}:{lineno}  {dotted}  -> does not resolve')
+            continue
+        why = why_not_api(found)
+        if why:
+            failures.append(f'  {label}:{lineno}  {dotted}  -> {why}')
+        elif nargs is not None and callable(found):
+            try:
+                inspect.signature(found).bind(
+                    *(_SENTINEL,) * nargs, **dict.fromkeys(kwnames, _SENTINEL)
+                )
+            except TypeError as exc:
+                failures.append(f'  {label}:{lineno}  {dotted}(...)  -> {exc}')
+    return failures
+
+
+def _doc_project_name_failures(text, label):
+    assigned = _assigned_in(text)
+    failures = []
+    for start, source in _checked_fence_blocks(text):
+        try:
+            failures += project_name_failures(label, source, start, assigned)
+        except SyntaxError as exc:
+            failures.append(
+                f'  {label}:{start}  the fence does not parse ({exc.msg}): label it text'
+            )
+    fence = None
+    for lineno, line in enumerate(text.splitlines(), 1):
+        if line.startswith('```'):
+            fence = line[3:].strip() if fence is None else None
+            continue
+        if fence is not None:
+            continue
+        for match in _PROSE_PATH.finditer(line):
+            dotted = match.group(1).rstrip('.')
+            try:
+                why = why_not_api(_resolve_project_name(dotted))
+            except (ImportError, AttributeError):
+                why = 'does not resolve'
+            if why:
+                failures.append(f'  {label}:{lineno}  {dotted}  -> {why}')
+    return failures
+
+
+class TestLumascopeSkillsTeachesOnlyApi:
+    """What the reference has a reader import from the project, or names by path, is API."""
+
+    def test_every_project_name_the_reference_teaches_is_api(self, doc_text):
+        failures = _doc_project_name_failures(doc_text, DOC)
+        assert not failures, (
+            'LumascopeSkills.md teaches a project name that is not API (an exception, an '
+            'enum, a class with marked members or published fields, or a marked function), '
+            'or calls one with arguments it will not take. Teach the member that does the '
+            'job, or say in words what the API does.\n' + '\n'.join(failures)
+        )
+
+    def test_a_planted_helper_import_call_and_path_are_reported(self):
+        planted = (
+            '```python\n'
+            'from modules.image_save import save_image\n'
+            'from modules import settings_init\n'
+            'save_image(None)\n'
+            'settings_init.current_json_path(".")\n'
+            'from modules.scope_session import ScopeSession\n'
+            'ScopeSession.user_settings_file(".", "extra")\n'
+            '```\n'
+            '\n'
+            'Prose naming `modules.post_processing.check_cell_count_method`.\n'
+            '\n'
+            '```\n'
+            'not python at all (\n'
+            '```\n'
+        )
+        reported = '\n'.join(_doc_project_name_failures(planted, 'planted'))
+        for expected in (
+            'planted:2  modules.image_save.save_image  -> an unmarked function',
+            'planted:5  modules.settings_init.current_json_path  -> an unmarked function',
+            'planted:7  modules.scope_session.ScopeSession.user_settings_file(...)',
+            'planted:10  modules.post_processing.check_cell_count_method',
+            'planted:13  the fence does not parse',
+        ):
+            assert expected in reported, reported

@@ -163,3 +163,92 @@ def test_every_session_call_resolves_and_binds():
 
     failed = failing_cases(EXAMPLES, check)
     assert not failed, failed
+
+
+def _session_and_scope_chains(source):
+    """``(receiver, chain, line)`` for each attribute chain read off ``session`` or ``scope``."""
+    tree = ast.parse(source)
+    inner = {id(node.value) for node in ast.walk(tree) if isinstance(node, ast.Attribute)}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Attribute) or id(node) in inner:
+            continue
+        chain, value = [], node
+        while isinstance(value, ast.Attribute):
+            chain.append(value.attr)
+            value = value.value
+        if isinstance(value, ast.Name) and value.id in ('session', 'scope'):
+            yield value.id, tuple(reversed(chain)), node.lineno
+
+
+@pytest.fixture(scope='module')
+def live_roots(tmp_path_factory):
+    from modules.scope_session import ScopeSession
+    from tests.settings_fixtures import complete_settings
+
+    session = ScopeSession.create(
+        complete_settings(live_folder=str(tmp_path_factory.mktemp('live'))), simulate=True
+    )
+    yield {'session': session, 'scope': session.scope}
+    session.shutdown()
+
+
+def _unmarked_calls(label, source, roots):
+    from tests.guards.test_api_doc_guard import _first_unmarked_step
+
+    return [
+        f'  {label}:{line}  {receiver}.{".".join(chain)}  -> {step}'
+        for receiver, chain, line in _session_and_scope_chains(source)
+        if (step := _first_unmarked_step(roots[receiver], receiver, chain))
+    ]
+
+
+def test_every_example_reads_only_api_off_the_session_and_scope(live_roots):
+    """What an example reaches through the session or the scope is a marked member
+    at every step, so an example cannot teach an internal reader to build on."""
+    failures = [
+        failure
+        for name in EXAMPLES
+        for failure in _unmarked_calls(
+            f'{name}.py', (EXAMPLES_DIR / f'{name}.py').read_text(), live_roots
+        )
+    ]
+    assert not failures, (
+        'A shipped example reaches a member that is not API. Rewrite the EXAMPLE to the '
+        'marked member.\n' + '\n'.join(failures)
+    )
+
+
+def test_every_project_name_an_example_imports_is_api():
+    """A name an example imports from the project is API, and its calls bind."""
+    from tests.guards.test_api_doc_guard import project_name_failures
+
+    failures = [
+        failure
+        for name in EXAMPLES
+        for failure in project_name_failures(
+            f'{name}.py', (EXAMPLES_DIR / f'{name}.py').read_text()
+        )
+    ]
+    assert not failures, (
+        'A shipped example imports or calls a project name that is not API. Rewrite the '
+        'EXAMPLE to the member that does the job.\n' + '\n'.join(failures)
+    )
+
+
+def test_a_planted_unmarked_read_and_import_are_reported(live_roots):
+    from tests.guards.test_api_doc_guard import project_name_failures
+
+    planted = (
+        'from modules.image_save import save_image\n'
+        "z = scope.motion.get_current_position('Z')\n"
+        'session.camera.set_exposure_ms(1)\n'
+    )
+    reported = '\n'.join(
+        _unmarked_calls('planted', planted, live_roots) + project_name_failures('planted', planted)
+    )
+    for expected in (
+        'planted:1  modules.image_save.save_image  -> an unmarked function',
+        'planted:2  scope.motion.get_current_position  -> MotionAPI.get_current_position',
+        'planted:3  session.camera.set_exposure_ms  -> ScopeSession.camera',
+    ):
+        assert expected in reported, reported
