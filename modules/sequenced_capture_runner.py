@@ -29,9 +29,12 @@ from modules.activity_claim import (
     ActivityClaim,
     ActivityHolder,
     BorrowedClaim,
+    ControlSession,
+    ControlSessionHeldError,
     RunIdentity,
     Taking,
     acting,
+    current_taking,
     the_holder_named,
     the_run_named,
 )
@@ -54,6 +57,7 @@ from modules.exceptions import (
     RunStartError,
     SingleScanNotice,
     describe_unknown_positions,
+    under_control_sentence,
 )
 from modules.protocol import Protocol
 import modules.path_utils as path_utils
@@ -871,6 +875,19 @@ class SequencedCaptureRunner:
             holder_trigger=trigger,
         )
 
+    def _under_control(self, session: ControlSession) -> ProtocolRunRefusedError:
+        """The refusal of this run because a control session is held by someone else.
+
+        Shared by ``prepare``'s gate and the start-time take, so the two
+        name the session the same way.
+        """
+        return self._refusal(
+            reason='control_session_held',
+            message=under_control_sentence(session.taken_by, session.name),
+            holder_trigger=session.taken_by,
+            control_session=session.name,
+        )
+
     @staticmethod
     def _hardware_state_unknown(what: str, ex: Exception) -> typing.NoReturn:
         """A hardware read the gate needs crashed instead of answering.
@@ -896,6 +913,7 @@ class SequencedCaptureRunner:
         *,
         holder: 'str | None' = None,
         holder_trigger: Caller | None = None,
+        control_session: str | None = None,
         remedy: Remedy | None = None,
     ) -> ProtocolRunRefusedError:
         """The typed refusal, built and not raised.
@@ -909,6 +927,7 @@ class SequencedCaptureRunner:
             message=message,
             holder=holder,
             holder_trigger=holder_trigger,
+            control_session=control_session,
             remedy=remedy,
         )
 
@@ -961,7 +980,7 @@ class SequencedCaptureRunner:
             )
 
     def state_refusal(
-        self, claim: 'ActivityClaim | BorrowedClaim'
+        self, claim: 'ActivityClaim | BorrowedClaim', *, for_this_caller: bool = False
     ) -> ProtocolRunRefusedError | None:
         """The refusal a run would get now for the scope's state alone, or None.
 
@@ -974,10 +993,22 @@ class SequencedCaptureRunner:
         start: the protocol, the positions, the camera feed and the
         interlocks are ``prepare``'s to judge.
 
+        Args:
+            claim: The claim the run would take, or the one it was lent.
+            for_this_caller: Also refuse while a control session is held by
+                someone other than the caller on this thread. ``prepare``
+                asks it; the status does not, so its answer stays the
+                activity's whoever reads it.
+
         Raises:
             RunCheckFailedError: ``'hardware_state_unknown'``, the
                 connection read crashed instead of answering.
         """
+        if for_this_caller:
+            session = claim.refusing_control(current_taking())
+            if session is not None:
+                return self._under_control(session)
+
         # A foreign exclusive activity (a video recording, a diagnostic) is
         # the durable, user-actionable reason a run cannot start -- so a
         # refusal for the transient file drain below would report "files
@@ -1129,7 +1160,7 @@ class SequencedCaptureRunner:
                 raises.
         """
         claim = borrowed_claim if borrowed_claim is not None else self._activity_claim
-        refusal = self.state_refusal(claim)
+        refusal = self.state_refusal(claim, for_this_caller=True)
         if refusal is not None:
             raise refusal
 
@@ -1514,7 +1545,10 @@ class SequencedCaptureRunner:
             # same call that takes it: the holder question has one store,
             # and it is the one that already knows whether anything holds
             # the scope at all.
-            held = claim.try_claim('protocol', run=self._identity_of(plan))
+            try:
+                held = claim.try_claim('protocol', run=self._identity_of(plan))
+            except ControlSessionHeldError as held_by:
+                raise self._under_control(held_by.session) from None
             if held is None:
                 raise self._exclusive_activity(claim.holder)
             self._held_claim = held

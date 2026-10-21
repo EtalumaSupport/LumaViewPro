@@ -19,7 +19,7 @@ import modules.path_utils as path_utils
 import modules.autofocus_functions as autofocus_functions
 import modules.common_utils as common_utils
 import modules.lumascope_api as lumascope_api
-from modules.activity_claim import current_taking
+from modules.activity_claim import activity_taking, current_taking
 from modules.exceptions import (
     AutofocusAborted,
     AutofocusFailedError,
@@ -85,8 +85,8 @@ def _its_run_has_ended() -> bool:
     person whose run is over; a refused LED lease is kept quiet for the same
     reason.
     """
-    taking = current_taking()
-    return taking is not None and not taking.holds
+    activity = activity_taking(current_taking())
+    return activity is not None and not activity.holds
 
 
 class AutofocusRunner:

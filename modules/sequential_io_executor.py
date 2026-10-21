@@ -17,7 +17,14 @@ from lvp_logger import logger
 from lib import profile_trace
 from modules.kivy_utils import schedule_ui
 from modules.notification_center import notifications
-from modules.activity_claim import ActivityClaim, Taking, acting, current_taking
+from modules.activity_claim import (
+    ActivityClaim,
+    Taking,
+    acting,
+    activity_taking,
+    command_refused,
+    current_taking,
+)
 from modules.exceptions import (
     BlockingCallRefusedError,
     HardwareCommandRefusedError,
@@ -763,7 +770,10 @@ class SequentialIOExecutor:
         # -- an autofocus unwind that outlived the run's cleanup -- and is
         # refused even when nothing holds the scope now: the activity that
         # would have wanted it is gone.
-        if task.taking is not None and not task.taking.holds:
+        # A control session's taking is no activity's, so it never ends as
+        # one: once its session is ended, its work is anyone's.
+        activity = activity_taking(task.taking)
+        if activity is not None and not activity.holds:
             return HardwareCommandRefusedError('activity_ended', who)
         # Put on the lane ahead of any hold, with nothing before it: it runs
         # as the task already running does, and the holder waits for it. A
@@ -771,15 +781,14 @@ class SequentialIOExecutor:
         # falsify the file is counted.
         if task.first_in_line:
             return None
-        holder = self._claim.refusing_holder(
+        refusing = self._claim.refusing_holder(
             task.taking, falsifies_recording=task.falsifies_recording
         )
-        if holder is None:
+        if refusing is None:
             if not door or task.taking is self._protocol_taking:
                 return None
-            holder = self._claim.holder
-        kind = holder.kind if holder is not None else None
-        return HardwareCommandRefusedError('exclusive_activity_running', who, kind)
+            refusing = self._claim.holder
+        return command_refused(refusing, who)
 
     def _admit(self, task: IOTask) -> tuple[HardwareCommandRefusedError | None, bool]:
         """Ask the claim whether ``task`` may run now, as it is about to run.
@@ -798,12 +807,10 @@ class SequentialIOExecutor:
             return refusal, False
         if self._claim is None:
             return None, False
-        holder = self._claim.enter_falsifying_change(task.taking)
-        if holder is not None:
+        refusing = self._claim.enter_falsifying_change(task.taking)
+        if refusing is not None:
             who = getattr(task.action, '__name__', None) or repr(task.action)
-            return HardwareCommandRefusedError(
-                'exclusive_activity_running', who, holder.kind
-            ), False
+            return command_refused(refusing, who), False
         return None, True
 
     def _is_protocol_door_holder(self) -> bool:

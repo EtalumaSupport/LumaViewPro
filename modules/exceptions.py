@@ -24,6 +24,10 @@ if TYPE_CHECKING:
 # start and a capture refused at its call carry the one heading.
 CAMERA_NOT_STREAMING_TITLE = 'Camera Not Streaming'
 
+# A held control session refuses a lane's task, a take of the scope and a
+# guarded write alike: each carries the one heading.
+UNDER_CONTROL_TITLE = 'Under Remote Control'
+
 
 @api_fields('member', 'confirm_text', 'cancel_text')
 @dataclass(frozen=True)
@@ -1589,7 +1593,7 @@ class RunWaitExpiredError(ProtocolError, Quiet, TimeoutError):
         self.operation = operation
 
 
-@api_fields('holder', 'holder_trigger')
+@api_fields('holder', 'holder_trigger', 'control_session')
 class ProtocolRunRefusedError(Refusal, ProtocolError):
     """A sequenced run, or the protocol it would run, was refused before any state was committed.
 
@@ -1616,21 +1620,26 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
             owner; 'autofocus' for a sweep in flight), or None when the
             refusal is not holder-shaped (validation, hardware, file
             drain).
-        holder_trigger: Who started the run that holds the scope --
-            ``'gui'``, ``'rest'`` or ``'api'`` (``modules.caller``); for a
-            file-drain refusal the just-finished run's, for an autofocus
-            sweep the run that dispatched it. None when no run is behind
-            the holder -- a recording's kind IS the holder.
+        holder_trigger: Who holds the scope: the control session's taker
+            for ``'control_session_held'``; otherwise who started the run
+            that holds it -- ``'gui'``, ``'rest'`` or ``'api'``
+            (``modules.caller``); for a file-drain refusal the just-finished
+            run's, for an autofocus sweep the run that dispatched it. None
+            when no run is behind the holder -- a recording's kind IS the
+            holder.
+        control_session: The name of the control session that holds, for
+            ``'control_session_held'``; None otherwise.
         remedy: The action that answers this refusal, or None. A stalled
             file writer has one (recover it); a writer still making
             progress does not, since its files will land.
 
-    ``holder`` and ``holder_trigger`` are published, so a REST problem
-    carries who holds the scope beside the words.
+    ``holder``, ``holder_trigger`` and ``control_session`` are published, so
+    a REST problem carries who holds the scope beside the words.
     """
 
     holder: str | None
     holder_trigger: Caller | None
+    control_session: str | None
 
     # What a protocol holds is the request's, whoever made it: a client
     # changes the protocol, and the scope's state never makes it runnable.
@@ -1639,6 +1648,7 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
     causes: ClassVar[dict[str, RefusalCause]] = {
         'already_running': RefusalCause.STATE,
         'exclusive_activity_running': RefusalCause.STATE,
+        'control_session_held': RefusalCause.STATE,
         'recording_active': RefusalCause.STATE,
         'files_writing': RefusalCause.STATE,
         'files_writing_stalled': RefusalCause.STATE,
@@ -1686,6 +1696,7 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
     _TITLES: ClassVar[dict[str, str]] = {
         'already_running': 'Already Running',
         'exclusive_activity_running': 'Another Activity Running',
+        'control_session_held': UNDER_CONTROL_TITLE,
         'recording_active': 'Recording Active',
         'files_writing': 'Files Still Writing',
         'files_writing_stalled': ENDING_TITLES['file_writer_stalled'],
@@ -1737,6 +1748,7 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
         *,
         holder: 'str | None' = None,
         holder_trigger: Caller | None = None,
+        control_session: str | None = None,
         remedy: Remedy | None = None,
     ):
         super().__init__(message)
@@ -1745,6 +1757,7 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
         self.message = message
         self.holder = holder
         self.holder_trigger = holder_trigger
+        self.control_session = control_session
         self.remedy = remedy
 
 
@@ -1809,7 +1822,7 @@ class RunStartError(Fault, ProtocolError):
         self.message = message
 
 
-@api_fields('holder', 'holder_trigger')
+@api_fields('holder', 'holder_trigger', 'control_session')
 class RecordingRefusedError(Refusal, CaptureError):
     """A video recording start was refused before any state was committed.
 
@@ -1832,20 +1845,25 @@ class RecordingRefusedError(Refusal, CaptureError):
             the exception's message.
         holder: The exclusive-activity claim owner at refusal time, or
             None when the refusal is not claim-shaped.
-        holder_trigger: Who started the holding run (``'gui'``,
-            ``'rest'``, ``'api'``) when the holder is 'protocol'; None for a
-            recording holder.
+        holder_trigger: Who holds the scope: the control session's taker
+            for ``'control_session_held'``; otherwise who started the
+            holding run (``'gui'``, ``'rest'``, ``'api'``) when the holder
+            is 'protocol'; None for a recording holder.
+        control_session: The name of the control session that holds, for
+            ``'control_session_held'``; None otherwise.
 
-    ``holder`` and ``holder_trigger`` are published.
+    ``holder``, ``holder_trigger`` and ``control_session`` are published.
     """
 
     holder: str | None
     holder_trigger: Caller | None
+    control_session: str | None
     cause = RefusalCause.STATE
 
     _TITLES: ClassVar[dict[str, str]] = {
         'recording_active': ProtocolRunRefusedError._TITLES['recording_active'],
         'exclusive_activity_running': ProtocolRunRefusedError._TITLES['exclusive_activity_running'],
+        'control_session_held': UNDER_CONTROL_TITLE,
         'camera_inactive': 'Camera Not Active',
         'camera_exposure_unknown': 'Camera Exposure Unavailable',
         'capture_location_unusable': 'Cannot Save Recording',
@@ -1860,6 +1878,7 @@ class RecordingRefusedError(Refusal, CaptureError):
         *,
         holder: 'str | None' = None,
         holder_trigger: Caller | None = None,
+        control_session: str | None = None,
     ):
         if reason not in self._TITLES:
             raise TypeError(f'RecordingRefusedError has no reason {reason!r}')
@@ -1868,6 +1887,7 @@ class RecordingRefusedError(Refusal, CaptureError):
         self.message = message
         self.holder = holder
         self.holder_trigger = holder_trigger
+        self.control_session = control_session
 
 
 class HyperstackRefusedError(Fault, CaptureError):
@@ -2902,6 +2922,7 @@ class PluginProcessorSkippedError(Fault, PluginError):
         self.folder = folder
 
 
+@api_fields('holder', 'holder_trigger', 'control_session')
 class HardwareCommandRefusedError(Refusal, Exception):
     """A hardware command was refused: something else has the scope, the lane is closed, or nothing is connected to take it.
 
@@ -2911,7 +2932,9 @@ class HardwareCommandRefusedError(Refusal, Exception):
     raise reaches no hardware and reports success. While a run, a
     diagnostic or a home holds the scope, a lane refuses any task not made under
     the holder's taking with this; so do the run's own executor fences,
-    which cannot say who closed them.
+    which cannot say who closed them. While a control session is held, a
+    lane refuses any task not made for its holder (``'control_session_held'``),
+    naming the session.
 
     The Session's objective writers (select, slot assign and slot clear)
     raise it too while a run, a diagnostic or a home holds the scope: the run
@@ -2946,16 +2969,28 @@ class HardwareCommandRefusedError(Refusal, Exception):
         reason: Machine-readable refusal code.
         member: The member or task that was refused, for the log.
         holder: The kind of activity holding the scope, when known.
+        holder_trigger: Who holds the scope: the control session's taker
+            for ``'control_session_held'``, the holding run's starter for a
+            run (``'gui'``, ``'rest'``, ``'api'``); None otherwise.
+        control_session: The name of the control session that holds, for
+            ``'control_session_held'``; None otherwise.
         missing: The part the command needed and the scope does not have,
             for ``'not_connected'`` and ``'axis_absent'``; None otherwise.
         title: The heading shown with the sentence, which follows the reason:
             nothing connected is not a busy microscope.
+
+    ``holder``, ``holder_trigger`` and ``control_session`` are published.
     """
+
+    holder: str | None
+    holder_trigger: Caller | None
+    control_session: str | None
 
     # A part the scope does not have is never found by asking again, and a
     # task made under a taking that has ended is never sent under it.
     causes: ClassVar[dict[str, RefusalCause]] = {
         'exclusive_activity_running': RefusalCause.STATE,
+        'control_session_held': RefusalCause.STATE,
         'capture_in_flight': RefusalCause.STATE,
         'home_in_flight': RefusalCause.STATE,
         'home_not_stoppable': RefusalCause.STATE,
@@ -2976,6 +3011,7 @@ class HardwareCommandRefusedError(Refusal, Exception):
         'activity_ended': 'Microscope Busy',
         'capture_in_flight': 'Microscope Busy',
         'exclusive_activity_running': 'Microscope Busy',
+        'control_session_held': UNDER_CONTROL_TITLE,
         'home_in_flight': 'Microscope Busy',
         'home_not_stoppable': 'Microscope Busy',
         'not_connected': 'Not Connected',
@@ -2995,17 +3031,25 @@ class HardwareCommandRefusedError(Refusal, Exception):
         holder: str | None = None,
         *,
         missing: 'MissingPart | None' = None,
+        holder_trigger: Caller | None = None,
+        control_session: str | None = None,
     ):
         if (missing is None) != (reason not in _MISSING_PART_REASONS):
             raise TypeError(f'a {reason!r} refusal takes missing= exactly when it names a part')
         if missing is not None and missing.reason != reason:
             raise TypeError(f'{missing} is refused as {missing.reason!r}, not {reason!r}')
-        super().__init__(
-            missing.sentence if missing is not None else _command_refused_sentence(reason, holder)
-        )
+        if missing is not None:
+            sentence = missing.sentence
+        elif reason == 'control_session_held':
+            sentence = under_control_sentence(holder_trigger, control_session)
+        else:
+            sentence = _command_refused_sentence(reason, holder)
+        super().__init__(sentence)
         self.reason = self._declared(reason)
         self.member = member
         self.holder = holder
+        self.holder_trigger = holder_trigger
+        self.control_session = control_session
         self.missing = missing
         self.title = self._TITLES[reason]
 
@@ -3138,6 +3182,7 @@ _HOLDER_NOUNS = {
     'diagnostic': 'A diagnostic',
     'recording': 'A recording',
     'home': 'A home',
+    'control': 'Remote control',
 }
 
 
@@ -3184,15 +3229,16 @@ def _command_refused_sentence(reason: str, holder: str | None) -> str:
     return f'{the_activity_named(holder)} is using the microscope. Try again when it ends.'
 
 
-@api_fields('holder', 'holder_trigger')
+@api_fields('holder', 'holder_trigger', 'control_session')
 class DiagnosticRefusedError(Refusal, Exception):
     """A diagnostic could not take the scope: another activity holds it.
 
     Raised by ``ScopeSession.diagnostic_claim()`` when a run, a recording, a
-    home or another diagnostic already holds the session's activity claim. A
-    diagnostic drives the hardware directly (homes, LED modes, forced
-    grabs), so it runs only on a scope nothing else is using, and a caller
-    told why can wait for the holder or stop it. Nothing was committed.
+    home or another diagnostic already holds the session's activity claim,
+    or a control session is held by someone else. A diagnostic drives the
+    hardware directly (homes, LED modes, forced grabs), so it runs only on a
+    scope nothing else is using, and a caller told why can wait for the
+    holder or stop it. Nothing was committed.
 
     Attributes:
         reason: Machine-readable refusal code for callers that map refusals
@@ -3201,19 +3247,24 @@ class DiagnosticRefusedError(Refusal, Exception):
         title: Short user-facing refusal title, the reason's.
         message: One-sentence user-facing refusal body.
         holder: The activity kind holding the claim at refusal time.
-        holder_trigger: Who started the holding run (``'gui'``,
-            ``'rest'``, ``'api'``) when the holder is a run; None otherwise.
+        holder_trigger: Who holds the scope: the control session's taker
+            for ``'control_session_held'``; otherwise who started the
+            holding run (``'gui'``, ``'rest'``, ``'api'``) when the holder is
+            a run; None otherwise.
+        control_session: The name of the control session that holds, for
+            ``'control_session_held'``; None otherwise.
 
-    ``holder`` and ``holder_trigger`` are published.
+    ``holder``, ``holder_trigger`` and ``control_session`` are published.
     """
 
     holder: str | None
     holder_trigger: Caller | None
-    reason = 'exclusive_activity_running'
+    control_session: str | None
     cause = RefusalCause.STATE
 
     _TITLES: ClassVar[dict[str, str]] = {
         'exclusive_activity_running': ProtocolRunRefusedError._TITLES['exclusive_activity_running'],
+        'control_session_held': UNDER_CONTROL_TITLE,
     }
 
     def __init__(
@@ -3223,6 +3274,7 @@ class DiagnosticRefusedError(Refusal, Exception):
         *,
         holder: 'str | None' = None,
         holder_trigger: Caller | None = None,
+        control_session: str | None = None,
     ):
         if reason not in self._TITLES:
             raise TypeError(f'DiagnosticRefusedError has no reason {reason!r}')
@@ -3232,6 +3284,7 @@ class DiagnosticRefusedError(Refusal, Exception):
         self.message = message
         self.holder = holder
         self.holder_trigger = holder_trigger
+        self.control_session = control_session
 
 
 class SessionClosingError(Refusal, Exception):
@@ -3262,6 +3315,86 @@ class SessionClosingError(Refusal, Exception):
         )
         self.reason = 'session_closing'
         self.activity = activity
+
+
+@api_fields('holder', 'holder_trigger', 'control_session')
+class ControlSessionRefusedError(Refusal, Exception):
+    """Control of the scope was not taken or used: someone else's work holds it.
+
+    Raised by the activity claim when a control session is asked for while
+    another one is held, while an activity holds the scope, or while a
+    setting or file write is still under way -- so a client never takes the
+    scope over the operator's work, or over a write half done -- and by a
+    guarded write (a setting, a file) asked for by anyone but the holder
+    while a session is held. Raised too for a request naming a control
+    session that is not the live one: it was ended, or never was. Nothing
+    was taken or written.
+
+    Attributes:
+        reason: One of ``causes``' keys.
+        title: The heading the person reads, the reason's.
+        holder: The kind of activity holding the scope, for
+            ``'exclusive_activity_running'``; None otherwise.
+        holder_trigger: Who holds the scope: the control session's taker,
+            or the holding run's starter (``'gui'``, ``'rest'``, ``'api'``);
+            None when neither is known.
+        control_session: The name of the control session that holds, for
+            ``'control_session_held'``; None otherwise.
+
+    ``holder``, ``holder_trigger`` and ``control_session`` are published.
+    """
+
+    holder: str | None
+    holder_trigger: Caller | None
+    control_session: str | None
+
+    causes: ClassVar[dict[str, RefusalCause]] = {
+        'control_session_held': RefusalCause.STATE,
+        'exclusive_activity_running': RefusalCause.STATE,
+        'write_in_flight': RefusalCause.STATE,
+        'control_session_ended': RefusalCause.STATE,
+    }
+
+    _TITLES: ClassVar[dict[str, str]] = {
+        'control_session_held': UNDER_CONTROL_TITLE,
+        'exclusive_activity_running': 'Microscope Busy',
+        'write_in_flight': 'Microscope Busy',
+        'control_session_ended': 'Control Session Ended',
+    }
+
+    def __init__(
+        self,
+        reason: str,
+        *,
+        holder: str | None = None,
+        holder_trigger: Caller | None = None,
+        control_session: str | None = None,
+    ):
+        self.reason = self._declared(reason)
+        super().__init__(_control_refused_sentence(reason, holder, holder_trigger, control_session))
+        self.title = self._TITLES[reason]
+        self.holder = holder
+        self.holder_trigger = holder_trigger
+        self.control_session = control_session
+
+
+def _control_refused_sentence(
+    reason: str, holder: str | None, holder_trigger: Caller | None, control_session: str | None
+) -> str:
+    if reason == 'control_session_held':
+        return under_control_sentence(holder_trigger, control_session)
+    if reason == 'exclusive_activity_running':
+        return f'{the_activity_named(holder)} is using the microscope. Take control when it ends.'
+    if reason == 'write_in_flight':
+        return 'A setting or a file is being written. Take control when it finishes.'
+    return 'That control session has ended. Take control again to go on.'
+
+
+def under_control_sentence(holder_trigger: Caller | None, control_session: str | None) -> str:
+    """The one sentence for every refusal a held control session makes: who holds, and the way out."""
+    who = f'"{control_session}"' if control_session else 'A client'
+    through = f' ({holder_trigger.words})' if holder_trigger is not None else ''
+    return f'{who}{through} has control of the microscope. Ask it to end, or take back control.'
 
 
 @api_fields('argument', 'limits', 'member', 'offered')

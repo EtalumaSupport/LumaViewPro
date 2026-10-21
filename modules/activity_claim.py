@@ -3,16 +3,22 @@
 
 import contextlib
 import threading
+import time
+import uuid
 from collections.abc import Iterator
 from dataclasses import dataclass
 from modules.api_surface import api
-from modules.caller import Caller
+from modules.caller import Caller, current_caller
 from modules.exceptions import (
+    UNDER_CONTROL_TITLE,
+    ControlSessionRefusedError,
+    HardwareCommandRefusedError,
     RecordingRefusedError,
     Refusal,
     RefusalCause,
     SessionClosingError,
     the_activity_named,
+    under_control_sentence,
 )
 
 # The activity kinds that hold the WHOLE scope: a run and a diagnostic both
@@ -50,13 +56,63 @@ class FalsifyingChangeInFlightError(Refusal, Exception):
         self.reason = 'falsifying_change_in_flight'
 
 
-def current_taking() -> 'Taking | None':
+@dataclass(frozen=True)
+class ControlSession:
+    """The one client controlling the scope: what it was taken as, and by whom.
+
+    Attributes:
+        id: What a request names to act in this session; a fresh one per
+            take, so an ended session's id never names a later one.
+        name: The name the client took it with, for the person at the scope.
+        taken_by: The host the take came through (``modules.caller``).
+        taken_at: When it was taken, as ``time.time()``.
+    """
+
+    id: str
+    name: str
+    taken_by: Caller
+    taken_at: float
+
+
+class ControlSessionHeldError(Refusal, Exception):
+    """An activity was asked for, while a control session is held, by someone other than its holder.
+
+    Raised by ``try_claim``. Each taker answers it with its own typed
+    refusal, as it answers ``FalsifyingChangeInFlightError``: a None from
+    ``try_claim`` means another activity holds the slot, and the slot is
+    free here. Nothing was taken.
+
+    Attributes:
+        reason: ``'control_session_held'``.
+        session: The control session that holds.
+    """
+
+    cause = RefusalCause.STATE
+    title = UNDER_CONTROL_TITLE
+
+    def __init__(self, session: ControlSession):
+        super().__init__(under_control_sentence(session.taken_by, session.name))
+        self.reason = 'control_session_held'
+        self.session = session
+
+
+def current_taking() -> 'Taking | ControllerTaking | None':
     """The taking this thread is acting under, or None."""
     return getattr(_acting, 'taking', None)
 
 
+def activity_taking(taking: 'Taking | ControllerTaking | None') -> 'Taking | None':
+    """``taking`` when it is an activity's -- a held claim or a borrowing of one -- else None.
+
+    The controller's taking is no activity's: it never ends as an activity
+    does, so a reader asking whether an activity has let go reads it as no
+    taking at all.
+    """
+    return taking if isinstance(taking, (HeldClaim, _Borrowing)) else None
+
+
 @contextlib.contextmanager
-def acting(taking: 'Taking | None') -> Iterator[None]:
+def acting(taking: 'Taking | ControllerTaking | None') -> Iterator[None]:
     """Act under ``taking`` on this thread for the length of a ``with`` block.
 
     A lane stamps each task with the taking its submitter acts under, and
@@ -148,15 +204,21 @@ class HeldClaim:
     it does not return this.
     """
 
-    __slots__ = ('_claim',)
+    __slots__ = ('_claim', '_control')
 
-    def __init__(self, claim: 'ActivityClaim') -> None:
+    def __init__(self, claim: 'ActivityClaim', control: ControlSession | None = None) -> None:
         self._claim = claim
+        self._control = control
 
     @property
     def claim(self) -> 'ActivityClaim':
         """The claim this taking was taken from."""
         return self._claim
+
+    @property
+    def control(self) -> ControlSession | None:
+        """The control session this activity was taken for; None when none was held."""
+        return self._control
 
     @api
     @property
@@ -260,6 +322,12 @@ class BorrowedClaim:
             return None
         return self.holder
 
+    def refusing_control(
+        self, taking: 'Taking | ControllerTaking | None'
+    ) -> 'ControlSession | None':
+        """The control session that refuses work made under ``taking``, as ActivityClaim answers it."""
+        return self._lender.claim.refusing_control(taking)
+
     def try_claim(self, owner: str, run: RunIdentity | None = None) -> _Borrowing | None:
         """Act under the lender's taking; None once the lender no longer holds.
 
@@ -282,6 +350,70 @@ class BorrowedClaim:
 # Both answer ``holds``, ``release`` and ``lend`` the same way, so the work
 # they cover is written once for either.
 Taking = HeldClaim | _Borrowing
+
+
+class ControllerTaking:
+    """What the holder of a control session acts under.
+
+    Not an activity: it takes no slot, so it has nothing to release or
+    lend, and it does not end as an activity does. Work made under it is
+    the controller's for as long as its session is the claim's live one;
+    once the session is ended it is no one's in particular, and is admitted
+    or refused as any caller's is. The lanes carry it as they carry every
+    taking, so the controller's lane work is known for its own.
+    """
+
+    __slots__ = ('_claim', '_session')
+
+    def __init__(self, claim: 'ActivityClaim', session: ControlSession) -> None:
+        self._claim = claim
+        self._session = session
+
+    @property
+    def claim(self) -> 'ActivityClaim':
+        """The claim the session was taken from."""
+        return self._claim
+
+    @property
+    def session(self) -> ControlSession:
+        """The control session this taking acts for."""
+        return self._session
+
+
+def command_refused(
+    refusing: 'ActivityHolder | ControlSession | None', member: str
+) -> HardwareCommandRefusedError:
+    """The refusal of a hardware command for what the claim says refuses it.
+
+    The one place a claim's answer becomes the command's refusal, so a
+    control session is named the same at every door that asks: a lane, a
+    write that would falsify a recording, a change of the shown layer.
+
+    Args:
+        refusing: The control session, or the activity holding the scope;
+            None when the holder released before it could be read.
+        member: The member or task refused, for the log.
+    """
+    if isinstance(refusing, ControlSession):
+        return HardwareCommandRefusedError(
+            'control_session_held',
+            member,
+            holder_trigger=refusing.taken_by,
+            control_session=refusing.name,
+        )
+    return HardwareCommandRefusedError(
+        'exclusive_activity_running',
+        member,
+        refusing.kind if refusing is not None else None,
+        holder_trigger=refusing.run_started_by if refusing is not None else None,
+    )
+
+
+def _root(taking: 'Taking | ControllerTaking | None') -> 'HeldClaim | ControllerTaking | None':
+    """The taking a borrowing was lent from, through every lender; any other taking itself."""
+    while isinstance(taking, _Borrowing):
+        taking = taking._lender
+    return taking
 
 
 class ActivityClaim:
@@ -328,6 +460,14 @@ class ActivityClaim:
         # the claim last, so the claim is what refuses it once the session
         # has let go of the scope.
         self._closed = False
+        # The control session and its holder's taking, above the activity
+        # slot: while set, only the holder's work is admitted, and the slot
+        # keeps meaning what is running.
+        self._control: tuple[ControlSession, ControllerTaking] | None = None
+        # The guarded writes -- a setting, a file -- running now. A take
+        # landing mid-write would leave its hardware and its store split, so
+        # a take is refused while any runs; counted under this lock.
+        self._guarded = 0
 
     @property
     def closing(self) -> bool:
@@ -402,8 +542,128 @@ class ActivityClaim:
         borrowing, run = lent
         return run if borrowing.holds else None
 
+    @property
+    def control(self) -> ControlSession | None:
+        """The control session held now, or None."""
+        control = self._control
+        return control[0] if control is not None else None
+
+    def take_control(self, name: str) -> ControllerTaking:
+        """Take the one control session, for the caller this thread acts for.
+
+        Taken only while nothing of anyone else's is under way: no other
+        session, no activity in the slot -- a run, recording, home or
+        diagnostic, the operator's or a session's still unwinding -- and no
+        guarded write still running, so nothing is ever put under a client's
+        control half done. Announced.
+
+        Args:
+            name: What the person at the scope is told holds it.
+
+        Returns:
+            The taking the holder's calls act under (``acting``).
+
+        Raises:
+            SessionClosingError: the session's close is running or has
+                finished.
+            ControlSessionRefusedError: ``'control_session_held'``,
+                ``'exclusive_activity_running'`` or ``'write_in_flight'``.
+                Nothing was taken.
+        """
+        caller = current_caller()
+        with self._lock:
+            if self._closing or self._closed:
+                raise SessionClosingError('control')
+            if self._control is not None:
+                held = self._control[0]
+                raise ControlSessionRefusedError(
+                    'control_session_held',
+                    holder_trigger=held.taken_by,
+                    control_session=held.name,
+                )
+            if self._holder is not None:
+                raise ControlSessionRefusedError(
+                    'exclusive_activity_running',
+                    holder=self._holder.kind,
+                    holder_trigger=self._holder.run_started_by,
+                )
+            if self._guarded:
+                raise ControlSessionRefusedError('write_in_flight')
+            session = ControlSession(
+                id=uuid.uuid4().hex, name=name, taken_by=caller, taken_at=time.time()
+            )
+            controller = ControllerTaking(self, session)
+            self._control = (session, controller)
+        self.announce()
+        return controller
+
+    def end_control(self, session_id: str) -> ControlSession:
+        """End the live control session, named by its id; anyone may. Announced.
+
+        Ends the session only: what its holder started -- a run, a
+        recording -- is the ender's to stop first, and holds the slot until
+        it has unwound.
+
+        Returns:
+            The session ended.
+
+        Raises:
+            ControlSessionRefusedError: ``'control_session_ended'`` -- no
+                session is held, or the live one has another id.
+        """
+        with self._lock:
+            control = self._control
+            if control is None or control[0].id != session_id:
+                raise ControlSessionRefusedError('control_session_ended')
+            self._control = None
+        self.announce()
+        return control[0]
+
+    def enter_guarded_write(self, taking: 'Taking | ControllerTaking | None') -> None:
+        """Admit a guarded write -- a setting, a file -- and count it while it runs.
+
+        Admitted by the control rule alone: while a session is held, only
+        work for its holder. An activity in the slot refuses nothing here;
+        the write's own member says what a run, a diagnostic or a home
+        allows. Every admission is paired with ``leave_guarded_write`` when
+        the write returns or raises, and no take lands while one runs.
+
+        Raises:
+            ControlSessionRefusedError: ``'control_session_held'``. Nothing
+                was counted.
+        """
+        with self._lock:
+            session = self._control_refusing(taking)
+            if session is not None:
+                raise ControlSessionRefusedError(
+                    'control_session_held',
+                    holder_trigger=session.taken_by,
+                    control_session=session.name,
+                )
+            self._guarded += 1
+
+    def refusing_control(self, taking: 'Taking | ControllerTaking | None') -> ControlSession | None:
+        """The control session that refuses work made under ``taking``, or None.
+
+        The control rule alone, read without counting anything: a caller
+        that only asks -- a run's ``prepare`` -- reads what a take of the
+        slot or a lane would answer.
+        """
+        with self._lock:
+            return self._control_refusing(taking)
+
+    def leave_guarded_write(self) -> None:
+        """A write admitted by ``enter_guarded_write`` has returned or raised."""
+        with self._lock:
+            self._guarded -= 1
+
     def try_claim(self, owner: str, run: RunIdentity | None = None) -> HeldClaim | None:
         """Atomically claim for ``owner``; None when already held.
+
+        While a control session is held, only its holder takes the slot --
+        acting under the controller's taking or under an activity taken for
+        the session -- and the activity it takes is recorded as the
+        session's.
 
         Args:
             owner: the kind of activity claiming -- a description for
@@ -419,34 +679,45 @@ class ActivityClaim:
         Raises:
             SessionClosingError: the session's close is running
                 (``begin_closing``) or has finished. Nothing was taken.
+            ControlSessionHeldError: a control session is held and this
+                thread does not act for its holder. Nothing was taken.
             FalsifyingChangeInFlightError: ``owner`` is ``'recording'`` and a
                 write that would falsify it is running.
             ValueError: a run claimed without its identity, or another
                 activity claimed with one.
         """
         holder = ActivityHolder(kind=owner, run=run)
+        taking = current_taking()
         with self._lock:
             if self._closing or self._closed:
                 raise SessionClosingError(owner)
+            session = self._control_refusing(taking)
+            if session is not None:
+                raise ControlSessionHeldError(session)
             if owner == 'recording' and self._falsifying:
                 raise FalsifyingChangeInFlightError()
             if self._holder is not None:
                 return None
-            held = HeldClaim(self)
+            held = HeldClaim(self, self._control[0] if self._control is not None else None)
             self._held = held
             self._holder = holder
         self.announce()
         return held
 
     def refusing_holder(
-        self, taking: Taking | None, *, falsifies_recording: bool = False
-    ) -> ActivityHolder | None:
-        """The holder that refuses work made under ``taking``, or None.
+        self, taking: 'Taking | ControllerTaking | None', *, falsifies_recording: bool = False
+    ) -> ActivityHolder | ControlSession | None:
+        """What refuses work made under ``taking`` -- the control session, or the activity -- or None.
 
-        While a run, a diagnostic or a home holds the scope, only work under its
-        taking -- the HeldClaim, or a borrowing of it that has not ended --
-        is the holder's. Anything else is refused, and the holder is named
-        so the refusal can say who has the scope.
+        While a control session is held, only its holder's work is admitted:
+        work under the controller's taking, or under an activity taken for
+        the session; anything else is refused, and the session is named.
+
+        Then, while a run, a diagnostic or a home holds the scope, only work
+        under its taking -- the HeldClaim, or a borrowing of it that has not
+        ended -- is the holder's. Anything else is refused, the controller's
+        own plain work included, and the holder is named so the refusal can
+        say who has the scope.
 
         A recording refuses only work that would falsify the file it is
         writing (``falsifies_recording``: the frame geometry, the pixel
@@ -455,7 +726,9 @@ class ActivityClaim:
         """
         return self._refusing(self._holder, taking, falsifies_recording)
 
-    def enter_falsifying_change(self, taking: Taking | None) -> ActivityHolder | None:
+    def enter_falsifying_change(
+        self, taking: 'Taking | ControllerTaking | None'
+    ) -> ActivityHolder | ControlSession | None:
         """Admit a write that would falsify a recording, counted while it runs.
 
         The refusal ``refusing_holder`` gives it, decided under the lock that
@@ -465,8 +738,8 @@ class ActivityClaim:
         returns.
 
         Returns:
-            The holder that refuses the write, or None when it is admitted
-            and counted.
+            What refuses the write -- the control session, or the activity
+            holding the scope -- or None when it is admitted and counted.
         """
         with self._lock:
             holder = self._refusing(self._holder, taking, True)
@@ -480,17 +753,43 @@ class ActivityClaim:
             self._falsifying -= 1
 
     def _refusing(
-        self, holder: ActivityHolder | None, taking: Taking | None, falsifies_recording: bool
-    ) -> ActivityHolder | None:
+        self,
+        holder: ActivityHolder | None,
+        taking: 'Taking | ControllerTaking | None',
+        falsifies_recording: bool,
+    ) -> ActivityHolder | ControlSession | None:
+        session = self._control_refusing(taking)
+        if session is not None:
+            return session
         if holder is None:
             return None
         if holder.kind == 'recording':
             return holder if falsifies_recording else None
         if holder.kind not in SCOPE_HOLDING_KINDS:
             return None
-        if taking is not None and taking.claim is self and taking.holds:
+        activity = activity_taking(taking)
+        if activity is not None and activity.holds and _root(activity) is self._held:
             return None
         return holder
+
+    def _control_refusing(
+        self, taking: 'Taking | ControllerTaking | None'
+    ) -> ControlSession | None:
+        """The control session that refuses work made under ``taking``, or None.
+
+        Its holder's work is the controller's taking, or an activity taken
+        for the session that still holds, through every borrowing of it.
+        """
+        control = self._control
+        if control is None:
+            return None
+        session, controller = control
+        root = _root(taking)
+        if root is controller:
+            return None
+        if isinstance(root, HeldClaim) and root.control is session and root.holds:
+            return None
+        return session
 
     def _is_held_by(self, held: HeldClaim) -> bool:
         return self._held is held

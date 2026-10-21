@@ -57,7 +57,14 @@ from modules.exceptions import (
     PositionOutOfRangeError,
 )
 from modules.notification_center import notifications
-from modules.activity_claim import Taking, acting, current_taking
+from modules.activity_claim import (
+    ControlSessionHeldError,
+    Taking,
+    acting,
+    activity_taking,
+    command_refused,
+    current_taking,
+)
 from modules.caller import current_caller
 from modules.operation import Operation, refuse_waiting_on_ui_thread
 from modules.sequential_io_executor import (
@@ -2928,20 +2935,28 @@ class MotionAPI:
         and the taking the home is submitted under, so the lane runs it
         while the claim holds.
 
-        Asked under a live taking, the home is that activity's work: it is
-        submitted under that taking and takes nothing. On a scope no session
-        composes there is no claim, and the home takes nothing either.
+        Asked under a live activity's taking, the home is that activity's
+        work: it is submitted under that taking and takes nothing. Asked by a
+        control session's holder, it is the holder's own home, and takes the
+        scope as any home does. On a scope no session composes there is no
+        claim, and the home takes nothing either.
 
         Raises:
             HardwareCommandRefusedError: ``'home_in_flight'`` while another
                 home holds the scope; ``'exclusive_activity_running'``,
-                naming the holder, while anything else does.
+                naming the holder, while anything else does;
+                ``'control_session_held'``, naming the session, while one is
+                held by someone else.
         """
         current = current_taking()
+        activity = activity_taking(current)
         claim = self._scope._activity_claim
         held = None
-        if claim is not None and (current is None or not current.holds):
-            held = claim.try_claim('home')
+        if claim is not None and (activity is None or not activity.holds):
+            try:
+                held = claim.try_claim('home')
+            except ControlSessionHeldError as held_by:
+                raise command_refused(held_by.session, 'home') from None
             if held is None:
                 holder = claim.holder
                 if holder is not None and holder.kind == 'home':

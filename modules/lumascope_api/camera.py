@@ -44,7 +44,7 @@ from modules.exceptions import (
     HardwareCommandRefusedError,
     MissingPart,
 )
-from modules.activity_claim import current_taking
+from modules.activity_claim import ActivityHolder, current_taking
 from modules.frame_validity import FrameValidity
 from modules.scope_capabilities import FrameSize
 from modules.notification_center import notifications
@@ -3495,15 +3495,18 @@ class CameraAPI:
         if held is None or self._holding(layer, request) is not None:
             return
         claim = self._scope._activity_claim
-        holder = claim.enter_falsifying_change(current_taking()) if claim is not None else None
-        if holder is not None and holder.kind == 'recording':
-            raise HardwareCommandRefusedError('exclusive_activity_running', member, holder.kind)
-        # Any other holder took the scope after this capture was admitted;
-        # while it holds, no recording can start, so the write is not counted.
+        refusing = claim.enter_falsifying_change(current_taking()) if claim is not None else None
+        if isinstance(refusing, ActivityHolder) and refusing.kind == 'recording':
+            raise HardwareCommandRefusedError('exclusive_activity_running', member, refusing.kind)
+        # Any other holder took the scope after this capture was admitted.
+        # An activity holding it lets no recording start, so the write is not
+        # counted; a control session taken since lets its holder start one,
+        # and that recording is not refused for this write -- the capture's
+        # one write, already under way when the session was taken.
         try:
             self._hold_layer_impl(layer, request)
         finally:
-            if claim is not None and holder is None:
+            if claim is not None and refusing is None:
                 claim.leave_falsifying_change()
 
     def _hold_layer_impl(self, layer: str, request: LayerCameraRequest) -> dict | None:

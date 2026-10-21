@@ -43,8 +43,11 @@ from modules.layer_record import refuse_unknown_layer
 from modules.activity_claim import (
     SCOPE_HOLDING_KINDS,
     ActivityClaim,
+    ControlSession,
+    ControlSessionHeldError,
     HeldClaim,
     acting,
+    command_refused,
     current_taking,
     the_holder_named,
 )
@@ -698,15 +701,25 @@ class ScopeSession:
             The held claim.
 
         Raises:
-            DiagnosticRefusedError: A run, a recording, a home or
-                another diagnostic holds the scope. Nothing was taken.
+            DiagnosticRefusedError: ``'exclusive_activity_running'``, a
+                run, a recording, a home or another diagnostic holds the
+                scope; ``'control_session_held'``, a control session is held
+                by someone else. Nothing was taken.
             ClaimStillLentError: ``'claim_still_lent'``, at the end of a
                 block that ended cleanly, a run under this claim was still
                 live after the wait; the claim is released when the run ends.
                 When the block raised, its own exception is raised and this is
                 reported once instead. Still a ``RuntimeError``.
         """
-        held = self.activity_claim.try_claim('diagnostic')
+        try:
+            held = self.activity_claim.try_claim('diagnostic')
+        except ControlSessionHeldError as held_by:
+            raise DiagnosticRefusedError(
+                reason='control_session_held',
+                message=str(held_by),
+                holder_trigger=held_by.session.taken_by,
+                control_session=held_by.session.name,
+            ) from None
         if held is None:
             holder = self.activity_claim.holder
             kind = holder.kind if holder is not None else None
@@ -3099,24 +3112,28 @@ class ScopeSession:
         it would falsify them: it is refused while one runs, before anything
         is changed, and a recording cannot start while it is under way (the
         claim's falsifying-change count). Showing the layer already shown is
-        no change. Any other holder of the scope refuses the change itself,
-        on the lane it reaches.
+        no change. A control session held by someone else refuses it here
+        too, before anything is changed. Any other holder of the scope
+        refuses the change itself, on the lane it reaches.
 
         Raises:
             HardwareCommandRefusedError: ``'exclusive_activity_running'``,
-                naming the recording.
+                naming the recording; ``'control_session_held'``, naming the
+                session.
         """
         if layer == self._shown_channel.layer:
             yield
             return
         claim = self.activity_claim
-        holder = claim.enter_falsifying_change(current_taking())
-        if holder is not None and holder.kind == 'recording':
-            raise HardwareCommandRefusedError('exclusive_activity_running', member, holder.kind)
+        refusing = claim.enter_falsifying_change(current_taking())
+        if isinstance(refusing, ControlSession) or (
+            refusing is not None and refusing.kind == 'recording'
+        ):
+            raise command_refused(refusing, member)
         try:
             yield
         finally:
-            if holder is None:
+            if refusing is None:
                 claim.leave_falsifying_change()
 
     @api

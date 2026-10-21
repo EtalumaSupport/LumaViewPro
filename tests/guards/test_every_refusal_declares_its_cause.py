@@ -30,6 +30,7 @@ from modules.exceptions import (
     AlreadyStartedError,
     BlockingCallRefusedError,
     CameraDriverRepairRefusedError,
+    ControlSessionRefusedError,
     HardwareCommandRefusedError,
     LiveFolderPathRefusedError,
     MissingPart,
@@ -73,6 +74,7 @@ def _mixed(types):
 _FACTORIES = {
     'AlreadyStartedError': lambda reason: AlreadyStartedError(reason, 'm'),
     'CameraDriverRepairRefusedError': CameraDriverRepairRefusedError,
+    'ControlSessionRefusedError': ControlSessionRefusedError,
     'LiveFolderPathRefusedError': lambda reason: LiveFolderPathRefusedError(reason, 'n', 'm'),
     'ProtocolRunRefusedError': lambda reason: ProtocolRunRefusedError(reason, 'm'),
     'HardwareCommandRefusedError': lambda reason: HardwareCommandRefusedError(reason, 'member'),
