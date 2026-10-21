@@ -456,7 +456,7 @@ class TestSingleScanAutoFocusNoneResult:
 
     def test_z_height_not_modified_when_autofocus_returns_none(self, executor, scope, tmp_path):
         protocol = _make_single_step_protocol(color='BF', auto_focus=True)
-        original_z = protocol.step(idx=0)['Z']
+        original_z = protocol.step_row(idx=0)['Z']
 
         af = executor._autofocus_runner
         af.complete.return_value = True
@@ -470,7 +470,7 @@ class TestSingleScanAutoFocusNoneResult:
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
         # Z height should remain unchanged when autofocus returns None
-        assert protocol.step(idx=0)['Z'] == original_z, (
+        assert protocol.step_row(idx=0)['Z'] == original_z, (
             'Z height should not change when autofocus returns None'
         )
 
@@ -700,7 +700,7 @@ class TestSingleScanVideo:
         assert frames, 'the frames leg must write per-frame TIFF artifacts'
         with tifffile.TiffFile(str(frames[0])) as tf:
             described = json.loads(tf.pages[0].tags['ImageDescription'].value)
-        step = protocol.step(idx=0)
+        step = protocol.step_row(idx=0)
         assert described['plate_pos_mm']['x'] == pytest.approx(step['X'], abs=0.01)
         assert described['plate_pos_mm']['y'] == pytest.approx(step['Y'], abs=0.01)
 
@@ -750,7 +750,7 @@ class TestMultiStepMultiChannel:
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
         # Note: the executor deep-copies the protocol at run start (P2-14),
-        # so we cannot spy on the original mock's .step() calls.
+        # so we cannot spy on the original mock's .step_row() calls.
         # Completion of a 3-step protocol without error confirms all steps
         # were visited -- individual step execution is covered by other tests.
 
@@ -924,7 +924,7 @@ class TestTiling2x2:
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
         # P2-14: executor deep-copies the protocol, so we cannot spy on
-        # the original mock's .step() calls.  Completion of a 4-tile
+        # the original mock's .step_row() calls.  Completion of a 4-tile
         # protocol without error confirms all tiles were visited.
 
 
@@ -943,7 +943,7 @@ class TestTilingAsymmetric1x3:
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
         # P2-14: executor deep-copies the protocol, so we cannot spy on
-        # the original mock's .step() calls.  Completion of a 3-tile
+        # the original mock's .step_row() calls.  Completion of a 3-tile
         # protocol without error confirms all tiles were visited.
 
 
@@ -1013,7 +1013,7 @@ class TestZStack:
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
         # P2-14: executor deep-copies the protocol, so we cannot spy on
-        # the original mock's .step() calls.  Completion of a 5-slice
+        # the original mock's .step_row() calls.  Completion of a 5-slice
         # z-stack without error confirms all slices were visited.
 
 
@@ -1574,7 +1574,7 @@ class TestLargeProtocol:
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
         # P2-14: executor deep-copies the protocol, so we cannot spy on
-        # the original mock's .step() calls.  Completion of a 50-step
+        # the original mock's .step_row() calls.  Completion of a 50-step
         # protocol without error confirms all steps were visited.
 
 

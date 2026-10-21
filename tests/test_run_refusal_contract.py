@@ -567,7 +567,9 @@ class TestTheCompositeChannelFloor:
     ):
         # A composite takes one transmitted plane; with BF and PC both set
         # to capture, the run would take both and its composite be refused.
-        steps = [_make_single_step_protocol(c).step(idx=0).to_dict() for c in ('BF', 'PC', 'Red')]
+        steps = [
+            _make_single_step_protocol(c).step_row(idx=0).to_dict() for c in ('BF', 'PC', 'Red')
+        ]
         captured = _capture_notifications(centre_posts)
         with pytest.raises(ProtocolRunRefusedError) as excinfo:
             self._prepare_composite(executor, _build_real_protocol(steps), tmp_path)
@@ -855,7 +857,7 @@ class TestTheRefusalFunnel:
         def layer_not_on_scope(mp):
             # The suite's scope has no Lumi layer.
             return _build_real_protocol(
-                [{**_make_single_step_protocol().step(idx=0), 'Color': 'Lumi'}]
+                [{**_make_single_step_protocol().step_row(idx=0), 'Color': 'Lumi'}]
             )
 
         return [

@@ -236,7 +236,7 @@ class TestALostPositionEndsTheRunOnce:
         home_sim_scope(session.scope)
         dropped = _drop_board_writes(session, 'TARGET_WZ', which=which)
         protocol = _build_real_protocol(
-            [dict(_make_single_step_protocol().step(idx=0), Auto_Focus=True)]
+            [dict(_make_single_step_protocol().step_row(idx=0), Auto_Focus=True)]
         )
 
         outcome = _run(session, tmp_path, protocol=protocol)
@@ -261,7 +261,7 @@ class TestALostPositionEndsTheRunOnce:
         _drop_board_writes(session, 'TARGET_WX', which=2)
         period_min = 1.0
         protocol = _build_real_protocol(
-            [dict(_make_single_step_protocol().step(idx=0))],
+            [dict(_make_single_step_protocol().step_row(idx=0))],
             period_min=period_min,
             duration_hrs=3 * period_min / 60,
         )
@@ -294,7 +294,7 @@ def test_a_scan_that_captured_is_not_a_strike(session_factory, tmp_path, monkeyp
     period_min = 0.02
     scans = 4
     protocol = _build_real_protocol(
-        [dict(_make_single_step_protocol().step(idx=0))],
+        [dict(_make_single_step_protocol().step_row(idx=0))],
         period_min=period_min,
         duration_hrs=scans * period_min / 60,
     )

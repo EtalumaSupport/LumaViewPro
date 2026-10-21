@@ -421,7 +421,7 @@ def test_a_camera_removed_mid_run_ends_the_run_hardware_disconnected(
         return image
 
     monkeypatch.setattr(scope.imaging, '_capture_and_wait_impl', removed_after_this)
-    first = {**_make_single_step_protocol().step(idx=0), 'Z': 3000.0}
+    first = {**_make_single_step_protocol().step_row(idx=0), 'Z': 3000.0}
     second = {**first, 'Name': 'A1_second', 'Label': 'A1_second', 'X': 12.0}
     runner = session.create_protocol_runner()
 
@@ -547,7 +547,7 @@ def test_a_camera_removed_as_the_run_takes_the_auto_gain_arm_ends_the_run_hardwa
     session = make_session('LS850')
     session.scope.camera.set_auto_gain(True, _AUTO_GAIN)
     session.scope.simulation.refuse_camera_write('auto_gain', 'removed')
-    step = {**_make_single_step_protocol().step(idx=0), 'Z': 3000.0}
+    step = {**_make_single_step_protocol().step_row(idx=0), 'Z': 3000.0}
 
     run = session.create_protocol_runner().start_single_scan(
         protocol=_build_real_protocol([step]),

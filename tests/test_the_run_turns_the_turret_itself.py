@@ -45,7 +45,7 @@ def test_a_headless_run_visits_each_steps_slot(tmp_path, monkeypatch):
 
     slots = {obj: slot for slot, obj in TEST_TURRET_OBJECTIVES.items() if obj}
     protocol = _two_objective_protocol()
-    expected = [slots[protocol.step(idx=i)['Objective']] for i in range(protocol.num_steps())]
+    expected = [slots[protocol.step_row(idx=i)['Objective']] for i in range(protocol.num_steps())]
     # Each step's slot, in order; Z is not restored after the safety park
     # because the step's own Z move follows.
     assert [slot for slot, _ in visited][: len(expected)] == expected

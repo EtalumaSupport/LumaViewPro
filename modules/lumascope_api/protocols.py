@@ -424,7 +424,8 @@ class ProtocolsAPI:
             )
             added = len(names) + protocol.num_steps() - steps_before
             names = [
-                protocol.step(idx=idx)['Name'] for idx in range(first_added, first_added + added)
+                protocol.step_row(idx=idx)['Name']
+                for idx in range(first_added, first_added + added)
             ]
         self._report_invalid_steps(protocol, solicited=True)
         return names
@@ -437,7 +438,7 @@ class ProtocolsAPI:
         one plane, refused only after the run has captured both. A step
         recorded before adds were (group -1) has no add to check.
         """
-        group = protocol.step(idx=step_idx)['Channel Group ID']
+        group = protocol.step_row(idx=step_idx)['Channel Group ID']
         if group == -1:
             return
         steps = protocol.steps().reset_index(drop=True)
@@ -497,7 +498,7 @@ class ProtocolsAPI:
         """
         from modules.protocol import Protocol
 
-        step = protocol.step(idx=step_idx)
+        step = protocol.step_row(idx=step_idx)
         self._refuse_unrecordable_step(verb='update', objective_id=objective_id)
 
         stim_config = layer_configs[layer].get('stim_config')
@@ -534,7 +535,7 @@ class ProtocolsAPI:
             turret_slot=self._live_turret_slot(),
         )
         self._report_invalid_steps(protocol, solicited=True)
-        return protocol.step(idx=step_idx)['Name']
+        return protocol.step_row(idx=step_idx)['Name']
 
     @api(reads=True)
     def focus_z(self, *, then: str) -> float:
@@ -640,9 +641,9 @@ class ProtocolsAPI:
                 ``name`` has no letter, digit, dash or underscore (raised
                 by the protocol). The step keeps its name.
         """
-        before = protocol.step(idx=step_idx)[['Label', 'Auto_Named']].tolist()
+        before = protocol.step_row(idx=step_idx)[['Label', 'Auto_Named']].tolist()
         protocol.modify_name(step_idx=step_idx, step_name=name)
-        after = protocol.step(idx=step_idx)
+        after = protocol.step_row(idx=step_idx)
         if after[['Label', 'Auto_Named']].tolist() != before:
             self._report_invalid_steps(protocol, solicited=True)
         return after['Name']
@@ -813,7 +814,7 @@ class ProtocolsAPI:
                 it means (``turret_slot_questions``).
             CatalogueNameRefusedError: as ``stage_targets``.
         """
-        step = protocol.step(idx=step_idx)
+        step = protocol.step_row(idx=step_idx)
         # This step's own fields, not the protocol's frame: a run asks it at every step.
         lacking = [axis for axis in self._driven_axes() if step[axis] is None]
         if lacking:

@@ -75,7 +75,7 @@ def _run_nav(env, preview_on):
     step = {**_make_step(), 'Illumination': 250.0}
     protocol = SimpleNamespace(
         num_steps=MagicMock(return_value=1),
-        step=MagicMock(return_value=step),
+        step_row=MagicMock(return_value=step),
         step_list_revision=0,
     )
     # The panel shows this protocol: a completed move lands only on the

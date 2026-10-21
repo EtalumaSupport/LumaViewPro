@@ -149,7 +149,7 @@ def test_a_fresh_install_adds_a_multi_channel_step_green_before_blue(tmp_path):
 
         session.add_step(protocol)
 
-        assert [protocol.step(idx=i)['Color'] for i in range(3)] == ['BF', 'Green', 'Blue']
+        assert [protocol.step_row(idx=i)['Color'] for i in range(3)] == ['BF', 'Green', 'Blue']
     finally:
         session.shutdown()
         session.scope.disconnect()

@@ -65,7 +65,7 @@ def test_add_stores_the_stage_on_the_protocols_plate(session):
 
     session.add_step(protocol)
 
-    assert _xy(protocol.step(0)) == ON_PROTOCOL_PLATE
+    assert _xy(protocol.step_row(0)) == ON_PROTOCOL_PLATE
 
 
 def test_update_stores_the_stage_on_the_protocols_plate(session):
@@ -75,7 +75,7 @@ def test_update_stores_the_stage_on_the_protocols_plate(session):
 
     session.update_step(protocol, 0, layer='BF')
 
-    assert _xy(protocol.step(0)) == ON_PROTOCOL_PLATE
+    assert _xy(protocol.step_row(0)) == ON_PROTOCOL_PLATE
 
 
 def test_the_scopes_position_is_still_read_on_the_scopes_plate(session):

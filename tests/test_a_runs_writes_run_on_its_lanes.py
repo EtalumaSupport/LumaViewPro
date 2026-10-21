@@ -110,7 +110,7 @@ def sim_session(tmp_path):
 def _steps():
     from tests.test_run_refusal_contract import _make_single_step_protocol
 
-    base = _make_single_step_protocol().step(idx=0)
+    base = _make_single_step_protocol().step_row(idx=0)
     return base, [
         {**base, 'Name': 'A1_af', 'Label': 'A1_af', 'Auto_Focus': True, 'Gain': 3.0},
         {

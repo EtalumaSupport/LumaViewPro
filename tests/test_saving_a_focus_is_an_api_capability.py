@@ -66,8 +66,8 @@ def _protocol_bf_bf_blue(session):
     session.set_layer_acquire('BF', None)
     session.add_step(protocol, after_step=protocol.num_steps() - 1)
     session.set_layer_acquire('BF', 'image')
-    assert [protocol.step(i)['Color'] for i in range(3)] == ['BF', 'BF', 'Blue']
-    assert [protocol.step(i)['Z'] for i in range(3)] == [LAYER_FOCUS] * 3
+    assert [protocol.step_row(i)['Color'] for i in range(3)] == ['BF', 'BF', 'Blue']
+    assert [protocol.step_row(i)['Z'] for i in range(3)] == [LAYER_FOCUS] * 3
     return protocol
 
 
@@ -76,7 +76,7 @@ def _go_to_z(session, z):
 
 
 def _zs(protocol):
-    return [protocol.step(i)['Z'] for i in range(protocol.num_steps())]
+    return [protocol.step_row(i)['Z'] for i in range(protocol.num_steps())]
 
 
 class TestSaveFocus:

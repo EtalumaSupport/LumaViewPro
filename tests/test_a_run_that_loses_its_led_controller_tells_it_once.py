@@ -24,7 +24,9 @@ from tests.test_a_command_for_absent_motion_hardware_is_refused import _protocol
 def test_an_fx2_pulled_mid_run_is_told_by_the_abort_and_the_cleanup(tmp_path, centre_posts):
     session = _session(tmp_path, 'LS620')
     # Two BF steps, so step 0's light is still on when step 1 begins.
-    rows = [{**_protocol().step(idx=0), 'Name': f'A1_s{i}', 'Label': f'A1_s{i}'} for i in range(2)]
+    rows = [
+        {**_protocol().step_row(idx=0), 'Name': f'A1_s{i}', 'Label': f'A1_s{i}'} for i in range(2)
+    ]
 
     def step_started(step_idx):
         if step_idx == 1:

@@ -79,7 +79,7 @@ def go_to_step(
     def on_moved():
         if superseded():
             return
-        step = protocol.step(idx=step_idx)
+        step = protocol.step_row(idx=step_idx)
         protocol_settings.curr_step = step_idx
         protocol_settings.generate_step_name_input()
         protocol_settings.update_step_ui()

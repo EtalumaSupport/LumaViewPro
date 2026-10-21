@@ -71,7 +71,7 @@ class TestReadersHandOutCopies:
 
     def test_a_write_into_a_nested_stim_dict_is_refused(self, protocol):
         before = _snapshot(protocol)
-        stim = protocol.step(0)['Stim_Config']
+        stim = protocol.step_row(0)['Stim_Config']
         layer = next(iter(stim))
 
         with pytest.raises(TypeError):
@@ -84,7 +84,7 @@ class TestReadersHandOutCopies:
         before = _snapshot(protocol)
 
         with pytest.raises(TypeError):
-            protocol.step(0)[column]['written'] = True
+            protocol.step_row(0)[column]['written'] = True
 
         pd.testing.assert_frame_equal(_snapshot(protocol), before)
 
@@ -121,11 +121,11 @@ class TestEveryStoredCellIsReadOnly:
         loaded = Protocol.from_file(path, tiling_configs_file_loc=TILING_CONFIGS)
 
         with pytest.raises(TypeError):
-            loaded.step(0)[column]['written'] = True
+            loaded.step_row(0)[column]['written'] = True
 
     @pytest.mark.parametrize('column', DICT_COLUMNS)
     def test_a_modified_steps_cells_are_read_only(self, protocol, column):
-        step = protocol.step(0)
+        step = protocol.step_row(0)
         protocol.modify_step(
             turret_slot=-1,
             step_idx=0,
@@ -147,29 +147,29 @@ class TestEveryStoredCellIsReadOnly:
         )
 
         with pytest.raises(TypeError):
-            protocol.step(0)[column]['written'] = True
+            protocol.step_row(0)[column]['written'] = True
 
 
 class TestACopyOfACellIsTheCallersOwn:
     @pytest.mark.parametrize('column', DICT_COLUMNS)
     def test_a_deep_copy_is_a_plain_dict_the_caller_can_edit(self, protocol, column):
-        cell = protocol.step(0)[column]
+        cell = protocol.step_row(0)[column]
 
         own = copy.deepcopy(cell)
         own['written'] = True
 
         assert type(own) is dict
-        assert 'written' not in protocol.step(0)[column]
+        assert 'written' not in protocol.step_row(0)[column]
         assert own == {**cell, 'written': True}
 
     def test_a_deep_copy_of_a_stim_config_is_plain_all_the_way_down(self, protocol):
-        own = copy.deepcopy(protocol.step(0)['Stim_Config'])
+        own = copy.deepcopy(protocol.step_row(0)['Stim_Config'])
 
         assert all(type(v) is dict for v in own.values() if isinstance(v, dict))
 
     @pytest.mark.parametrize('column', DICT_COLUMNS)
     def test_a_cell_survives_pickle_unchanged_and_read_only(self, protocol, column):
-        cell = protocol.step(0)[column]
+        cell = protocol.step_row(0)[column]
 
         back = pickle.loads(pickle.dumps(cell))
 

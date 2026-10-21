@@ -89,9 +89,9 @@ def judge(session, label, path, expect=None):
 
 def _steps(session, protocol, colors):
     return {
-        protocol.step(idx=i)['Color']: i
+        protocol.step_row(idx=i)['Color']: i
         for i in range(protocol.num_steps())
-        if protocol.step(idx=i)['Color'] in colors
+        if protocol.step_row(idx=i)['Color'] in colors
     }
 
 
@@ -116,9 +116,12 @@ def body(session, runner):
         scope.motion.move_absolute('X', x0)
         at_here = _steps(session, here, pair)
         at_there = _steps(session, there, pair)
-        figure('steps here (index, X)', {c: (i, here.step(idx=i)['X']) for c, i in at_here.items()})
         figure(
-            'steps there (index, X)', {c: (i, there.step(idx=i)['X']) for c, i in at_there.items()}
+            'steps here (index, X)', {c: (i, here.step_row(idx=i)['X']) for c, i in at_here.items()}
+        )
+        figure(
+            'steps there (index, X)',
+            {c: (i, there.step_row(idx=i)['X']) for c, i in at_there.items()},
         )
 
         # 1. A run, then a still.

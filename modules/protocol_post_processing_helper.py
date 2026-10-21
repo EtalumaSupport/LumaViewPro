@@ -26,7 +26,7 @@ def _raw_row(
     ``Frames`` is how many frames the row stands for.
     """
     step_idx = recorded['Step Index']
-    step = protocol.step(idx=step_idx)
+    step = protocol.step_row(idx=step_idx)
     return {
         'Filepath': image_name,
         'Name': step['Name'],
@@ -253,7 +253,7 @@ class ProtocolPostProcessingHelper:
                 missing = 'not_on_disk'
             else:
                 recorded = pathlib.Path(reason)
-                color = protocol.step(idx=entry['Step Index'])['Color']
+                color = protocol.step_row(idx=entry['Step Index'])['Color']
                 if include_subpaths and color not in include_subpaths:
                     continue
                 missing = reason

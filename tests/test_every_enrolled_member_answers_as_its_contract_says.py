@@ -553,7 +553,7 @@ def _valid_rows() -> list[Valid]:
             lambda s: s.session.scope.protocols.step_targets(s.protocol, 0),
             lambda s, targets: (
                 None
-                if targets.z == s.protocol.step(idx=0)['Z'] and targets.turret_slot is None
+                if targets.z == s.protocol.step_row(idx=0)['Z'] and targets.turret_slot is None
                 else f'{targets}'
             ),
             (

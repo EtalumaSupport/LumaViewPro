@@ -24,7 +24,7 @@ try:
     print('P10: add_step ->', names, 'steps now', protocol.num_steps())
     harness.check(
         'a script can add a step through the Session',
-        protocol.num_steps() == 1 and protocol.step(idx=0)['Color'] == 'BF',
+        protocol.num_steps() == 1 and protocol.step_row(idx=0)['Color'] == 'BF',
     )
 
     from modules.exceptions import ProtocolRunRefusedError

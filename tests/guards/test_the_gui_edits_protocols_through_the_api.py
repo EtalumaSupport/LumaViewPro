@@ -79,6 +79,8 @@ NOT_WRITERS = frozenset(
         'size_advisory',
         'step',
         'step_list_revision',
+        'step_records',
+        'step_row',
         'steps',
         'tiling',
         'to_file',

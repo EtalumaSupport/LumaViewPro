@@ -162,7 +162,7 @@ def env(monkeypatch):
             stim_configs={},
             label=label,
         )
-        return protocol.step(idx=step_idx)['Name']
+        return protocol.step_row(idx=step_idx)['Name']
 
     settings = {'protocol_led_on': False, 'protocol': {'filepath': 'plate.tsv'}}
     ctx = SimpleNamespace(
@@ -187,7 +187,7 @@ def env(monkeypatch):
             is_protocol_running=False,
             run_lockout=False,
             start_go_to_step=lambda protocol, step_idx: loaded.append(
-                protocol.step(idx=step_idx)['X']
+                protocol.step_row(idx=step_idx)['X']
             ),
             add_step=add_step,
             delete_step=lambda protocol, step_idx: protocol.delete_step(step_idx=step_idx),
@@ -291,25 +291,25 @@ def test_a_delete_on_an_empty_protocol_is_the_protocols_refusal(env, refusals):
 def test_a_name_with_nothing_to_keep_is_refused_and_the_step_keeps_its_name(env, refusals):
     panel = env.panel(num_steps=2, curr_step=1)
     panel._protocol.modify_name(step_idx=1, step_name='center')
-    before = panel._protocol.step(1)['Name']
+    before = panel._protocol.step_row(1)['Name']
     panel.ids['step_name_input'].text = '!!!'  # what the person typed
 
     panel.step_name_validation('!!!')
     panel.update_step_ui_immediate()
 
     assert refusals == [('StepEditRefusedError', 'UI:RENAME_STEP')]
-    assert panel._protocol.step(1)['Name'] == before
+    assert panel._protocol.step_row(1)['Name'] == before
     assert panel.ids['step_name_input'].text == 'center', 'the field still shows the refused text'
 
 
 def test_a_blank_name_field_keeps_the_name_without_asking_the_protocol(env, refusals):
     panel = env.panel(num_steps=2, curr_step=1)
-    before = panel._protocol.step(1)['Name']
+    before = panel._protocol.step_row(1)['Name']
 
     panel.step_name_validation('  ')
 
     assert refusals == []
-    assert panel._protocol.step(1)['Name'] == before
+    assert panel._protocol.step_row(1)['Name'] == before
     assert panel.ids['step_name_input'].text == ''
 
 
@@ -322,7 +322,7 @@ def test_a_blank_field_on_a_named_step_shows_its_name_again(env, refusals):
     panel.step_name_validation('')
 
     assert refusals == []
-    assert panel._protocol.step(1)['Label'] == 'center'
+    assert panel._protocol.step_row(1)['Label'] == 'center'
     assert panel.ids['step_name_input'].text == 'center'
 
 
@@ -334,19 +334,19 @@ def test_a_rename_shows_the_label_the_protocol_kept(env, refusals):
     panel.update_step_ui_immediate()
 
     assert refusals == []
-    assert panel._protocol.step(1)['Label'] == 'mystep'
+    assert panel._protocol.step_row(1)['Label'] == 'mystep'
     assert panel.ids['step_name_input'].text == 'mystep'
 
 
 def test_update_with_a_name_of_nothing_to_keep_is_refused(env):
     """The name field reaches Update as typed; the protocol refuses it, not the panel."""
     panel = env.panel(num_steps=2, curr_step=1)
-    before = panel._protocol.step(1)['Name']
+    before = panel._protocol.step_row(1)['Name']
 
     with pytest.raises(ProtocolError, match='at least one letter'):
         panel.modify_step_ex('BF', '!!!')
 
-    assert panel._protocol.step(1)['Name'] == before
+    assert panel._protocol.step_row(1)['Name'] == before
 
 
 def test_update_with_a_blank_name_field_keeps_the_label(env):
@@ -355,7 +355,7 @@ def test_update_with_a_blank_name_field_keeps_the_label(env):
 
     panel.modify_step_ex('BF', '')
 
-    assert panel._protocol.step(1)['Label'] == 'mine'
+    assert panel._protocol.step_row(1)['Label'] == 'mine'
 
 
 def test_an_edit_that_leaves_a_step_invalid_gets_no_popup_from_the_panel(env, monkeypatch):
@@ -473,4 +473,4 @@ def test_add_goes_to_the_new_step_of_the_channel_being_viewed(env, shown, select
 
     assert list(panel._protocol.steps()['Color']) == ['BF', 'BF', 'Blue', 'BF']
     assert panel.curr_step in (1, 2)
-    assert panel._protocol.step(panel.curr_step)['Color'] == selected_color
+    assert panel._protocol.step_row(panel.curr_step)['Color'] == selected_color

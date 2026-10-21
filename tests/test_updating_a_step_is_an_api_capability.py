@@ -88,7 +88,7 @@ def _update(
 
 
 def _step(protocol):
-    return protocol.step(idx=0).to_dict()
+    return protocol.step_row(idx=0).to_dict()
 
 
 @pytest.mark.usefixtures('turret_in_a_known_slot')

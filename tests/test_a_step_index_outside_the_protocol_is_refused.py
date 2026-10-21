@@ -135,7 +135,11 @@ def test_a_frame_with_its_own_index_is_written_by_position():
     protocol.modify_autofocus(step_idx=1, enabled=True)
 
     assert protocol.num_steps() == NUM_STEPS
-    assert [protocol.step(idx=i)['Auto_Focus'] for i in range(NUM_STEPS)] == [False, True, False]
+    assert [protocol.step_row(idx=i)['Auto_Focus'] for i in range(NUM_STEPS)] == [
+        False,
+        True,
+        False,
+    ]
 
 
 def test_deleting_from_an_empty_protocol_is_refused():
@@ -212,7 +216,7 @@ def test_an_insert_at_either_end_lands_there(place, lands_at):
     protocol = _protocol()
     name = _insert(protocol, **place)
     assert protocol.num_steps() == NUM_STEPS + 1
-    assert protocol.step(idx=lands_at)['Name'] == name
+    assert protocol.step_row(idx=lands_at)['Name'] == name
 
 
 @pytest.fixture

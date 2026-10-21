@@ -86,12 +86,12 @@ def body(session):
     settings['Blue']['acquire'] = 'image'
     protocol = scope.protocols.create_protocol(empty_config=session.get_sequenced_capture_config())
     session.add_step(protocol, before_step=0)
-    colors = [protocol.step(idx=i)['Color'] for i in range(protocol.num_steps())]
+    colors = [protocol.step_row(idx=i)['Color'] for i in range(protocol.num_steps())]
     figure('steps', colors)
 
     for color in ('Blue', 'BF'):
         idx = colors.index(color)
-        step = protocol.step(idx=idx)
+        step = protocol.step_row(idx=idx)
         want = (round(float(step['Exposure']), 3), round(float(step['Gain']), 3))
         session.go_to_step(protocol, idx)
         got = _camera(scope)

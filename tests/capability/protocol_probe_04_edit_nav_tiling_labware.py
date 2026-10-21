@@ -60,7 +60,7 @@ try:
         plate_position=pos,
         objective_id=obj_id,
     )
-    s = p.step(idx=1)
+    s = p.step_row(idx=1)
     print('step1 Name/Gain/Exposure:', s['Name'], s['Gain'], s['Exposure'])
     print('ASSERT edit landed:', 'PASS' if (s['Gain'] == 7.5 and s['Exposure'] == 42.0) else 'FAIL')
 
@@ -79,7 +79,7 @@ try:
         [n for n in dir(ProtocolRunner) if 'step' in n.lower()],
     )
     # What a script must do instead: read the step and drive motion itself.
-    st = p.step(idx=0)
+    st = p.step_row(idx=0)
     print('step0 X/Y/Z/Color/Objective:', st['X'], st['Y'], st['Z'], st['Color'], st['Objective'])
     session.scope.motion.move_to_plate(PlateLocation(x_mm=st['X'], y_mm=st['Y'], z_um=None))
     session.scope.motion.move_absolute(axis='Z', position=st['Z'])

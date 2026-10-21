@@ -2372,7 +2372,7 @@ class ScopeSession:
             ConfigError: this scope's layers could not be resolved. Nothing is written.
         """
         self.scope.layer_identity.refuse_unless_on_scope(layer, 'save_focus', then='take a focus')
-        step = None if step_idx is None else protocol.step(idx=step_idx)
+        step = None if step_idx is None else protocol.step_row(idx=step_idx)
         z = self.scope.protocols.focus_z(then='save the focus')
         self._store_layer_focus(layer, z)
         if step is None or step['Color'] != layer:
@@ -2760,7 +2760,7 @@ class ScopeSession:
         refuse_waiting_on_ui_thread('go_to_step')
         # Read before the start, as the start reads it: the step this call
         # was made for, whatever the list holds once the lane has run.
-        layer = protocol.step(idx=step_idx)['Color']
+        layer = protocol.step_row(idx=step_idx)['Color']
         with self._a_layer_change(layer, 'go_to_step'):
             going = self._start_moving_to_step(protocol, step_idx)
             try:
@@ -2841,7 +2841,7 @@ class ScopeSession:
                 the UI thread. Nothing was started.
         """
         refuse_waiting_on_ui_thread('start_go_to_step')
-        layer = protocol.step(idx=step_idx)['Color']
+        layer = protocol.step_row(idx=step_idx)['Color']
         with self._a_layer_change(layer, 'start_go_to_step'):
             going = self._start_moving_to_step(protocol, step_idx)
             self.apply_layer_camera(layer)
@@ -2851,7 +2851,7 @@ class ScopeSession:
         """The IO-lane task of going to a step, and the operation of its moves."""
         from modules.protocol import refuse_values_out_of_range, step_layer_values_refused
 
-        step = protocol.step(idx=step_idx)
+        step = protocol.step_row(idx=step_idx)
         # Converted here, from the step read above, so the lane moves to the
         # step this call was made for whatever the list holds by then; the
         # conversion asks first whether the scope can put the step's

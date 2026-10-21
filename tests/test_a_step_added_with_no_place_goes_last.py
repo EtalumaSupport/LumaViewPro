@@ -46,7 +46,7 @@ def test_steps_added_with_no_place_follow_the_last_step_in_channel_order(session
     second = session.add_step(protocol)
 
     assert list(protocol.steps()['Name']) == first + second
-    assert [protocol.step(idx=i)['Color'] for i in range(3)] == ['BF', 'Blue', 'BF']
+    assert [protocol.step_row(idx=i)['Color'] for i in range(3)] == ['BF', 'Blue', 'BF']
 
 
 def test_the_protocols_own_insert_names_its_place(session):
@@ -55,7 +55,7 @@ def test_the_protocols_own_insert_names_its_place(session):
     protocol = _protocol(session)
     session.settings['BF']['acquire'] = 'image'
     session.add_step(protocol)
-    step = protocol.step(idx=0)
+    step = protocol.step_row(idx=0)
 
     with pytest.raises(ProtocolError):
         protocol.insert_step(

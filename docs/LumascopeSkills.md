@@ -1010,7 +1010,7 @@ session.set_protocol_schedule(protocol, period=timedelta(minutes=10), duration=t
 session.set_protocol_schedule(protocol, period=timedelta(milliseconds=500), duration=timedelta(hours=1))  # ProtocolScheduleRefusedError
 ```
 
-**Reading a protocol's steps.** `protocol.steps()` returns a copy of the steps table, and `protocol.step(i)` a copy of one row; each row `protocol.layer_settings()` returns is a copy too. The dicts in a step's `Video Config` and `Stim_Config` cells are read-only (each a `dict` that refuses writes): a write into one raises `TypeError`, and `copy.deepcopy(cell)` gives a plain dict to edit. A write to a copy changes nothing in the protocol: a protocol changes only through the Session's edits (`session.set_protocol_schedule`, `session.add_step`, ...), which judge each change. A run works on its own copy of the protocol it is handed, so nothing the run writes, such as an autofocus's Z, reaches the caller's protocol either, unless the run is asked to write its focus back (`start_autofocus_all_steps`).
+**Reading a protocol's steps.** `protocol.step(i)` returns step `i` as a `StepRecord` (`modules.protocol`), a field per column of the steps table (`'Z-Stack Group ID'` is `z_stack_group_id`), its video config a `VideoConfig` (`duration_s`, `fps`) and its stimulation, by layer, `Stimulation` records (`enabled`, `illumination_ma`, `frequency_hz`, `pulse_width_ms`, `pulse_count`), None where the step's config does not say; `protocol.step_records()` returns every step's record in order, the table in one read, and over REST as one array. In-process, `protocol.steps()` returns a copy of the steps table and `protocol.step_row(i)` a copy of one row; each row `protocol.layer_settings()` returns is a copy too. The dicts in a row's `Video Config` and `Stim_Config` cells are read-only (each a `dict` that refuses writes): a write into one raises `TypeError`, and `copy.deepcopy(cell)` gives a plain dict to edit. A write to a copy changes nothing in the protocol: a protocol changes only through the Session's edits (`session.set_protocol_schedule`, `session.add_step`, ...), which judge each change. A run works on its own copy of the protocol it is handed, so nothing the run writes, such as an autofocus's Z, reaches the caller's protocol either, unless the run is asked to write its focus back (`start_autofocus_all_steps`).
 
 **A protocol's capture root.** `session.set_protocol_capture_root(protocol, text)` stores the root as given, and `protocol.capture_root()` returns it so. `protocol.capture_prefix()` is that root as the prefix of a saved file's name (only letters, digits, `-` and `_` kept): the one prefix a run's images and post-processing's outputs both carry, so `exp/2026:10` names files `exp202610_...`.
 
@@ -2492,7 +2492,7 @@ Important consequences:
 - **LED channel count varies by scope, and not only by driver family.** An LS620 (FX2 driver) exposes 4 channels (`BF`, `Blue`, `Green`, `Red`); an **LS560, same driver family, exposes 2** (`BF`, `Green`); RP2040-based scopes expose 6 (`BF`, `PC`, `DF`, `Blue`, `Green`, `Red`). Don't iterate over a hardcoded list — iterate over the layers in `scope.layer_identity.layers` that have an `led_channel`.
 - **Some scopes have no motor at all.** LS560/LS620 have `caps.axes == ()`. Calling `scope.motion.move_absolute('X', …)` against such a scope raises `HardwareCommandRefusedError` (`axis_absent`, `MissingPart.MOTORS`), as a Z-only scope does for X (`MissingPart.X`); hide motion controls based on `caps.has_xy_stage`, `caps.has_focus` and `caps.has_turret`.
 - **Travel limits come from `scope.motion.get_axis_limits(axis)`**, read-only, for present axes; check `caps.has_xy_stage` (or `axis in caps.axes`) before asking about X/Y. A run whose steps lie outside these limits is refused before it starts (reason `positions_outside_travel`), naming each step and the axis; X/Y are judged on the protocol's plate at `scope.runtime_state.get_stage_offset()`, the offset the run moves with. A run whose steps need an axis the scope does not have is refused as `positions_unreachable`: steps at different places on that axis, or, on a scope without X and Y, steps with no X/Y whose wells or tiles differ, since each would be one field saved under a different name.
-- **A step may have no position on an axis.** It is recorded on a scope that lacks the axis: blank in the `.tsv`, NaN in `protocol.steps()`'s `X`, `Y` or `Z` column (pandas' missing value, so the column stays a number column), None in `protocol.step(idx)` and null over REST. X and Y are both or neither; a file or frame with one of them is refused (`ProtocolFormatError`). On a scope that has the axis such a step says nothing about where to go, so a run, `step_targets` (and Go To Step), `apply_tiling` and `apply_zstacking` refuse it as `step_position_missing` (`ProtocolRunRefusedError`), naming the steps and the axes; nothing moves or changes. A protocol file with a blank position is refused by LumaViewPro releases before this one, which read every position as a number.
+- **A step may have no position on an axis.** It is recorded on a scope that lacks the axis: blank in the `.tsv`, NaN in `protocol.steps()`'s `X`, `Y` or `Z` column (pandas' missing value, so the column stays a number column), None in `protocol.step(idx)`'s `x`, `y` or `z` and null over REST. X and Y are both or neither; a file or frame with one of them is refused (`ProtocolFormatError`). On a scope that has the axis such a step says nothing about where to go, so a run, `step_targets` (and Go To Step), `apply_tiling` and `apply_zstacking` refuse it as `step_position_missing` (`ProtocolRunRefusedError`), naming the steps and the axes; nothing moves or changes. A protocol file with a blank position is refused by LumaViewPro releases before this one, which read every position as a number.
 - **What a scope without an axis records.** Nothing for that axis, everywhere a position is kept: `session.get_current_plate_position()` answers None for it (a manual LS620 or LS560 answers `PlateLocation(None, None, None)`, a Z-only LS820 X and Y None), so `add_step` and `new_protocol` record no X/Y without an XY stage -- the plate's well centres are not places such a scope reaches; the step keeps its well name -- and no Z without a Z axis, where no focus is asked for either. `update_step` keeps a step's own position on an axis the scope lacks, so a protocol made on a stage scope keeps its X/Y through an update on one without. `new_protocol(tiling=...)` other than `'1x1'` on a scope without X/Y is refused `positions_unreachable`, as `apply_tiling` is; `session.save_focus` on a scope without Z is refused `positions_unreachable`; `session.save_bookmark(axes)` naming an axis the scope has no motor for is refused `HardwareCommandRefusedError` (`axis_absent`). Nothing is written by any of them.
 
 ---
@@ -3436,6 +3436,8 @@ Reached through returned by `session.load_protocol` and `session.new_protocol`.
 - `size_advisory`
 - `step`
 - `step_list_revision`
+- `step_records`
+- `step_row` (in-process)
 - `steps` (in-process)
 - `tiling`
 - `to_file`
@@ -4181,6 +4183,37 @@ Reached through `session.status`.
 - `parts`
 - `run_refused`
 
+### StepRecord
+
+Reached through returned by `Protocol.step` and each item of `Protocol.step_records`.
+
+- `acquire`
+- `auto_focus`
+- `auto_gain`
+- `auto_named`
+- `channel_group_id`
+- `color`
+- `custom_step`
+- `exposure`
+- `false_color`
+- `gain`
+- `illumination`
+- `label`
+- `name`
+- `objective`
+- `stim_config`
+- `sum`
+- `tile`
+- `tile_group_id`
+- `turret_slot`
+- `video_config`
+- `well`
+- `x`
+- `y`
+- `z`
+- `z_slice`
+- `z_stack_group_id`
+
 ### StepStarted
 
 Reached through the event `RunEvents.step_started` delivers.
@@ -4195,6 +4228,16 @@ Reached through returned by `scope.protocols.step_targets`.
 - `x`
 - `y`
 - `z`
+
+### Stimulation
+
+Reached through each value of `StepRecord.stim_config`.
+
+- `enabled`
+- `frequency_hz`
+- `illumination_ma`
+- `pulse_count`
+- `pulse_width_ms`
 
 ### Stitch
 
@@ -4283,6 +4326,13 @@ Taken by `session.post_processing.build`.
 
 - `frames_per_sec`
 - `timestamp_overlay`
+
+### VideoConfig
+
+Reached through `StepRecord.video_config`.
+
+- `duration_s`
+- `fps`
 
 ### VideoProgress
 

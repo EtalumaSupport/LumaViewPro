@@ -85,7 +85,7 @@ def _modify_channel(proto, *, layer, label=None):
         objective_id='4x Oly',
         stim_configs={},
     )
-    return proto.step(idx=0)
+    return proto.step_row(idx=0)
 
 
 def test_channel_change_replaces_token_on_well_step():

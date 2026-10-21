@@ -137,7 +137,7 @@ def nav_env(monkeypatch):
             start_go_to_step=MagicMock(
                 side_effect=lambda protocol, step_idx: (
                     scope.protocols.refuse_unaddressable_objectives(
-                        [protocol.step(idx=step_idx)['Objective']]
+                        [protocol.step_row(idx=step_idx)['Objective']]
                     )
                 )
             ),
@@ -169,7 +169,7 @@ def _navigate(objective: str, *, step_idx: int = 0, include_move: bool = True):
 
     protocol = SimpleNamespace(
         num_steps=MagicMock(return_value=2),
-        step=MagicMock(return_value=_make_step(objective)),
+        step_row=MagicMock(return_value=_make_step(objective)),
         step_list_revision=0,
     )
     # The panel shows this protocol: a completed move lands only on the
@@ -242,7 +242,7 @@ class TestARunNavigationOnlyDisplays:
 
         protocol = SimpleNamespace(
             num_steps=MagicMock(return_value=2),
-            step=MagicMock(return_value=_make_step(ON_TURRET)),
+            step_row=MagicMock(return_value=_make_step(ON_TURRET)),
             step_list_revision=0,
         )
         import modules.app_context as _app_ctx

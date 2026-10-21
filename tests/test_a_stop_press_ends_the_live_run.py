@@ -39,7 +39,7 @@ def session(tmp_path):
 
 
 def _steps(*xs):
-    base = _make_single_step_protocol().step(idx=0)
+    base = _make_single_step_protocol().step_row(idx=0)
     return [
         {**base, 'Name': f'S{i}', 'Label': f'S{i}', 'Well': f'A{i + 1}', 'X': x, 'Y': 20.0}
         for i, x in enumerate(xs)

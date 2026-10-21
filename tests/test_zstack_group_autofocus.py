@@ -259,8 +259,8 @@ def test_a_groups_sweep_runs_in_its_reference_slices_light(one_position_session,
     session.update_settings('zstack.step_size', 10.0)
     session.update_settings('zstack.range', 20.0)
     protocol = session.new_protocol(use_zstacking=True)
-    first = protocol.step(idx=0)
-    reference = protocol.step(idx=protocol.zstack_group_focus_anchor(step_idx=0))
+    first = protocol.step_row(idx=0)
+    reference = protocol.step_row(idx=protocol.zstack_group_focus_anchor(step_idx=0))
     assert (first['Color'], reference['Color']) == ('Blue', 'BF')
 
     lit = []

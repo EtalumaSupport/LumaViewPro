@@ -142,7 +142,7 @@ def _run_manual_nav(env):
 
     protocol = SimpleNamespace(
         num_steps=MagicMock(return_value=1),
-        step=MagicMock(return_value=_make_step()),
+        step_row=MagicMock(return_value=_make_step()),
         step_list_revision=0,
     )
     # The panel shows this protocol: a completed move lands only on the

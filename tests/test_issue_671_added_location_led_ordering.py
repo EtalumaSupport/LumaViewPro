@@ -320,7 +320,7 @@ class TestAddedLocationLedOrdering:
 
         # Sanity-check the added steps are at the 3rd X/Y.
         for i in range(8, 12):
-            step = protocol.step(idx=i)
+            step = protocol.step_row(idx=i)
             assert step['X'] == pytest.approx(ADDED_X)
             assert step['Y'] == pytest.approx(ADDED_Y)
 

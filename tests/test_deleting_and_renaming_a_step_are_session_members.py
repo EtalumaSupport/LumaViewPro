@@ -49,7 +49,7 @@ def _three_bf_steps(session):
 
 
 def _names(protocol):
-    return [protocol.step(i)['Name'] for i in range(protocol.num_steps())]
+    return [protocol.step_row(i)['Name'] for i in range(protocol.num_steps())]
 
 
 class TestDeleteStep:
@@ -87,7 +87,7 @@ class TestRenameStep:
 
         name = session.rename_step(protocol, 1, 'center')
 
-        step = protocol.step(1)
+        step = protocol.step_row(1)
         assert step['Label'] == 'center'
         assert not step['Auto_Named']
         assert name == step['Name']
@@ -98,7 +98,7 @@ class TestRenameStep:
 
         session.rename_step(protocol, 0, 'my step!')
 
-        assert protocol.step(0)['Label'] == 'mystep'
+        assert protocol.step_row(0)['Label'] == 'mystep'
 
     def test_a_name_with_nothing_to_keep_is_refused_and_the_step_keeps_its_name(self, session):
         protocol = _three_bf_steps(session)
@@ -184,19 +184,19 @@ class TestTheInvalidStepNotice:
         name = session.rename_step(protocol, 0, 'first')
 
         assert reported == []
-        assert name == protocol.step(0)['Name']
+        assert name == protocol.step_row(0)['Name']
 
     def test_renaming_an_auto_named_step_to_its_own_base_is_an_edit(self, session, reported):
         """The step stops being auto-named, so a later channel change keeps the label."""
         protocol = _three_bf_steps(session)
-        base = protocol.step(0)['Label']
-        assert protocol.step(0)['Auto_Named']
+        base = protocol.step_row(0)['Label']
+        assert protocol.step_row(0)['Auto_Named']
         protocol._config['steps'].at[2, 'Exposure'] = 0.0
         reported.clear()
 
         session.rename_step(protocol, 0, base)
 
-        assert not protocol.step(0)['Auto_Named']
+        assert not protocol.step_row(0)['Auto_Named']
         assert reported == [True]
 
     def test_a_valid_edit_reports_nothing(self, session, reported):

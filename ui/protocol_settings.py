@@ -203,7 +203,7 @@ class ProtocolSettings(FloatLayout):
         if num_steps <= 0 or self.curr_step < 0:
             label.text = ''
             return
-        step = self._protocol.step(idx=self.curr_step)
+        step = self._protocol.step_row(idx=self.curr_step)
         # A step recorded without Z has no focus to show.
         label.text = '' if step['Z'] is None else f'{float(step["Z"]):.0f} um'
 
@@ -351,7 +351,7 @@ class ProtocolSettings(FloatLayout):
     def step_name_validation_ex(self, new_name: str) -> None:
         """Rename the current step."""
         _app_ctx.ctx.session.rename_step(self._protocol, self.curr_step, new_name)
-        label = self._protocol.step(idx=self.curr_step)['Label']
+        label = self._protocol.step_row(idx=self.curr_step)['Label']
         gui_logger.protocol_action('RENAME_STEP', f'step={self.curr_step} name={label!r}')
 
     def update_capture_root(self, text: str):
@@ -958,7 +958,7 @@ class ProtocolSettings(FloatLayout):
         )
         logger.info(
             "[LVP Main  ] modify_step_ex: channel -> %s; step name -> '%s'",
-            self._protocol.step(idx=self.curr_step)['Color'],
+            self._protocol.step_row(idx=self.curr_step)['Color'],
             name,
         )
 
@@ -1006,12 +1006,12 @@ class ProtocolSettings(FloatLayout):
         first_added = self.curr_step + 1 if after_current_step else max(self.curr_step, 0)
         added = range(first_added, first_added + len(names))
         shown = session.shown_channel.layer
-        of_shown = [idx for idx in added if self._protocol.step(idx)['Color'] == shown]
+        of_shown = [idx for idx in added if self._protocol.step_row(idx)['Color'] == shown]
         if len(of_shown) > 1:
             # A stack's slices: read after the add, which refuses a position
             # no axis vouches for.
             live_z = session.get_current_plate_position().z_um
-            of_shown.sort(key=lambda idx: abs(self._protocol.step(idx)['Z'] - live_z))
+            of_shown.sort(key=lambda idx: abs(self._protocol.step_row(idx)['Z'] - live_z))
         self.curr_step = of_shown[0] if of_shown else first_added
 
         self.go_to_step(step_idx=self.curr_step)
@@ -1036,7 +1036,7 @@ class ProtocolSettings(FloatLayout):
         if self._protocol.num_steps() == 0:
             return None
 
-        return self._protocol.step(idx=self.curr_step)
+        return self._protocol.step_row(idx=self.curr_step)
 
     def draw_protocol_buttons(self) -> None:
         """Show each of the panel's three runs as the engine reports it.

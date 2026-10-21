@@ -92,7 +92,7 @@ def test_modify_name_on_well_step_renders_label_base():
         ]
     )
     proto.modify_name(step_idx=0, step_name='Control_preDose')
-    step = proto.step(idx=0)
+    step = proto.step_row(idx=0)
     assert step['Label'] == 'Control_preDose'
     assert step['Name'] == 'Control_preDose_BF'
     assert not step['Auto_Named']
@@ -286,7 +286,7 @@ def test_token_shaped_label_survives_protocol_roundtrip(tmp_path):
     path = tmp_path / 'p.tsv'
     assert proto.to_file(file_path=path) is None
     reloaded = Protocol.from_file(file_path=path, tiling_configs_file_loc=TILING_CONFIGS)
-    step = reloaded.step(idx=0)
+    step = reloaded.step_row(idx=0)
     assert step['Label'] == 'Assay_Turret3'
     assert step['Name'] == 'Assay_Turret3_BF'
     assert _writer_base(step) == 'Assay_Turret3_BF_0000'
@@ -527,13 +527,13 @@ def test_numeric_looking_label_survives_protocol_roundtrip(tmp_path):
     src.write_text(_V7_TSV)
     proto = Protocol.from_file(file_path=src, tiling_configs_file_loc=TILING_CONFIGS)
     proto.modify_name(step_idx=0, step_name='0600')
-    assert proto.step(idx=0)['Label'] == '0600'
+    assert proto.step_row(idx=0)['Label'] == '0600'
 
     dst = tmp_path / 'v8.tsv'
     assert proto.to_file(file_path=dst) is None
     proto2 = Protocol.from_file(file_path=dst, tiling_configs_file_loc=TILING_CONFIGS)
-    assert proto2.step(idx=0)['Label'] == '0600'
-    assert proto2.step(idx=0)['Name'] == '0600_BF'
+    assert proto2.step_row(idx=0)['Label'] == '0600'
+    assert proto2.step_row(idx=0)['Name'] == '0600_BF'
 
 
 def test_numeric_looking_label_survives_post_record_reload(tmp_path):
@@ -589,8 +589,8 @@ def test_modify_name_refuses_name_that_sanitizes_to_empty():
     proto = _labeled_single_step_protocol()
     with pytest.raises(ProtocolError):
         proto.modify_name(step_idx=0, step_name='###')
-    assert proto.step(idx=0)['Label'] == 'MySpot'
-    assert proto.step(idx=0)['Name'] == 'MySpot_BF'
+    assert proto.step_row(idx=0)['Label'] == 'MySpot'
+    assert proto.step_row(idx=0)['Name'] == 'MySpot_BF'
 
 
 def test_modify_step_refuses_label_that_sanitizes_to_empty():
@@ -617,7 +617,7 @@ def test_modify_step_refuses_label_that_sanitizes_to_empty():
             objective_id='4x Oly',
             stim_configs={},
         )
-    step = proto.step(idx=0)
+    step = proto.step_row(idx=0)
     assert step['Label'] == 'MySpot'
     assert step['Name'] == 'MySpot_BF'
     assert step['Color'] == 'BF', 'refused rename must leave the step unmodified'

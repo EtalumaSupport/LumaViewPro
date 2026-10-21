@@ -187,7 +187,7 @@ def _insert_generated_step(protocol):
         before_step=0,
         after_step=None,
     )
-    return protocol.step(idx=0)['Name']
+    return protocol.step_row(idx=0)['Name']
 
 
 def test_added_step_name_keeps_channel_not_objective():

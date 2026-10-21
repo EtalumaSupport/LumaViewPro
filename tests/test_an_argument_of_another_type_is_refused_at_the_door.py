@@ -61,7 +61,7 @@ def test_a_setting_written_as_a_numpy_number_is_stored_as_the_python_one(session
 def test_a_numpy_index_reaches_a_protocol_step_as_an_int():
     """Post-processing hands a step index read from a table, an ``np.int64``."""
     protocol = _make_single_step_protocol()
-    assert protocol.step(np.int64(0))['Name'] == protocol.step(0)['Name']
+    assert protocol.step_row(np.int64(0))['Name'] == protocol.step_row(0)['Name']
 
 
 def test_a_bool_is_never_a_number(session):

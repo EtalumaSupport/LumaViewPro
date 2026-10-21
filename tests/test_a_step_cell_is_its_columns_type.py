@@ -99,8 +99,8 @@ def test_a_saved_false_autofocus_is_false_once_the_file_is_typed(tmp_path):
     fixed = _with_cell(path, 0, 'Auto_Focus', 'True')
     protocol = _load(fixed)
 
-    assert protocol.step(idx=0)['Auto_Focus'] is True
-    assert protocol.step(idx=1)['Auto_Focus'] is False
+    assert protocol.step_row(idx=0)['Auto_Focus'] is True
+    assert protocol.step_row(idx=1)['Auto_Focus'] is False
 
 
 def test_a_typed_file_loads_with_the_schemas_dtypes(tmp_path):
@@ -229,7 +229,7 @@ def test_post_processing_keeps_a_runs_blank_cell_blank_and_types_the_rest(tmp_pa
 
     assert protocol.steps()['Z-Slice'].tolist() == [-1, 0]
     assert protocol.steps()['Auto_Focus'].tolist() == [True, False]
-    assert protocol.step(idx=0)['X'] == 10.0
+    assert protocol.step_row(idx=0)['X'] == 10.0
 
 
 def test_the_post_processing_reader_is_not_runnable():

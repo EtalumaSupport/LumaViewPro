@@ -148,7 +148,7 @@ class ProtocolRunLoop:
         p = self._p
         if not self._inter_scan_wait_follows():
             return
-        first_step = p._protocol.step(idx=0)
+        first_step = p._protocol.step_row(idx=0)
         p._step_executor.default_move(px=first_step['X'], py=first_step['Y'], z=first_step['Z'])
 
     def _run_loop_inner(self, run: EngineRun) -> RunEnding:

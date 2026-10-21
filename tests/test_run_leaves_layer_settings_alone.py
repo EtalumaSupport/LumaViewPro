@@ -78,7 +78,7 @@ def _go_to_step(step, *, include_move=True):
 
     protocol = SimpleNamespace(
         num_steps=MagicMock(return_value=1),
-        step=MagicMock(return_value=step),
+        step_row=MagicMock(return_value=step),
         step_list_revision=0,
     )
     # The panel shows this protocol: a completed move lands only on the

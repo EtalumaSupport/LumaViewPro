@@ -129,7 +129,9 @@ def test_a_layers_autofocus_switched_during_a_run_is_still_switched_after_it(ses
             session.settings['BF']['autofocus'] = True
 
     run = session.create_protocol_runner().start_single_scan(
-        protocol=_build_real_protocol([copy.deepcopy(_make_single_step_protocol().step(idx=0))]),
+        protocol=_build_real_protocol(
+            [copy.deepcopy(_make_single_step_protocol().step_row(idx=0))]
+        ),
         sequence_name='autofocus_switch',
         parent_dir=str(tmp_path),
         events=RunEvents(

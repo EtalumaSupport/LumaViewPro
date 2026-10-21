@@ -55,7 +55,7 @@ class TestRunLoopInnerClassifiesByConnection:
         # itself at error. Capturing one channel would let a second popup on
         # the other slip past unseen.
         runner = run_loop_ready_runner(protocol_step())
-        runner._protocol.step.side_effect = RuntimeError('serial dropped mid-step')
+        runner._protocol.step_row.side_effect = RuntimeError('serial dropped mid-step')
         runner._scope.unconnected_parts = MagicMock(return_value=() if connected else ('camera',))
         runner._run_loop_executor.run_loop(runner._last_run())
         captured = [
@@ -91,16 +91,16 @@ class TestRunLoopInnerClassifiesByConnection:
         assert runner._state == ProtocolState.ERROR, (
             'a disconnect mid-scan must land the run in ERROR'
         )
-        assert runner._protocol.step.call_count == 1, (
+        assert runner._protocol.step_row.call_count == 1, (
             'a fatal failure must abort, not retry the scan'
         )
         assert runner._cleanup.called
 
     def test_transient_failure_retries_then_escalates(self, centre_posts):
         runner, captured = self._drive_failing_run_loop(centre_posts, connected=True)
-        assert runner._protocol.step.call_count == 3, (
+        assert runner._protocol.step_row.call_count == 3, (
             'transient (still-connected) failures must retry on the next '
-            f'period up to the ceiling; got {runner._protocol.step.call_count} attempts'
+            f'period up to the ceiling; got {runner._protocol.step_row.call_count} attempts'
         )
         assert runner._scan_count == 0, 'failed scans must not count as completed'
         # Told by the run's latch, as a fault is, through the writer this
@@ -128,7 +128,7 @@ class TestScanLoopBehaviorPreserved:
 
         runner = scan_ready_runner(protocol_step())
         runner._step_executor.scan_loop()
-        assert runner._protocol.step.called, (
+        assert runner._protocol.step_row.called, (
             'scan_loop must drive scan_iterate (which fetches the step row)'
         )
         assert not runner._scan_in_progress.is_set(), 'the single-step scan must run to completion'

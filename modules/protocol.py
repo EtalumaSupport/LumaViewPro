@@ -659,6 +659,175 @@ def _read_step_cell(df: pd.DataFrame, column: str, position: int) -> object:
         ) from None
 
 
+@api_fields('duration_s', 'fps')
+@dataclasses.dataclass(frozen=True)
+class VideoConfig:
+    """What a video step records: its length in seconds and its frame rate.
+
+    None where the step's config does not say; a step that records no video
+    may carry neither.
+    """
+
+    duration_s: float | None
+    fps: float | None
+
+
+@api_fields('enabled', 'illumination_ma', 'frequency_hz', 'pulse_width_ms', 'pulse_count')
+@dataclasses.dataclass(frozen=True)
+class Stimulation:
+    """One channel's stimulation for a step: on or off, its current, and its pulses.
+
+    None where the step's config does not say, as in a file from before a
+    value was kept.
+    """
+
+    enabled: bool | None
+    illumination_ma: float | None
+    frequency_hz: float | None
+    pulse_width_ms: float | None
+    pulse_count: int | None
+
+
+@api_fields(
+    'name',
+    'x',
+    'y',
+    'z',
+    'auto_focus',
+    'color',
+    'false_color',
+    'illumination',
+    'gain',
+    'auto_gain',
+    'exposure',
+    'sum',
+    'objective',
+    'well',
+    'tile',
+    'z_slice',
+    'custom_step',
+    'tile_group_id',
+    'z_stack_group_id',
+    'acquire',
+    'video_config',
+    'stim_config',
+    'auto_named',
+    'label',
+    'channel_group_id',
+    'turret_slot',
+)
+@dataclasses.dataclass(frozen=True)
+class StepRecord:
+    """One step of a protocol, a field per column of its steps table.
+
+    Attributes:
+        name: The step's name, rendered from its other fields.
+        x: X in mm on the protocol's plate; None where the step has no
+            position on X.
+        y: Y in mm on the protocol's plate; None as for X.
+        z: Z in um; None as for X.
+        auto_focus: The step is autofocused before its capture.
+        color: The layer the step captures.
+        false_color: The layer's image is false-coloured.
+        illumination: The LED current, in mA.
+        gain: The camera gain, in dB.
+        auto_gain: The camera's auto-gain is on for the step.
+        exposure: The camera exposure, in ms.
+        sum: How many frames the capture sums.
+        objective: The objective's catalogue key.
+        well: The plate's label for the well; '' for a step made at a
+            position of the caller's.
+        tile: The step's tile in its grid; '' for no tile.
+        z_slice: The step's slice in its z-stack; -1 for none.
+        custom_step: The step was made at a position of the caller's, not
+            at a well of the plate.
+        tile_group_id: The tile grid the step is one tile of; -1 for none.
+        z_stack_group_id: The z-stack the step is one slice of; -1 for none.
+        acquire: ``'image'`` or ``'video'``.
+        video_config: What the step records as video; None where the step
+            carries no video config.
+        stim_config: Each channel's stimulation, by layer; None where the
+            step carries no stimulation config.
+        auto_named: The name is rendered from the step's fields.
+        label: The caller's label for the step; '' for none.
+        channel_group_id: The steps captured together as one composite
+            share it; -1 for a step recorded before groups were.
+        turret_slot: The turret slot the step uses; -1 for none.
+    """
+
+    name: str
+    x: float | None
+    y: float | None
+    z: float | None
+    auto_focus: bool
+    color: str
+    false_color: bool
+    illumination: float
+    gain: float
+    auto_gain: bool
+    exposure: float
+    sum: int
+    objective: str
+    well: str
+    tile: str
+    z_slice: int
+    custom_step: bool
+    tile_group_id: int
+    z_stack_group_id: int
+    acquire: str
+    video_config: VideoConfig | None
+    stim_config: dict[str, Stimulation] | None
+    auto_named: bool
+    label: str
+    channel_group_id: int
+    turret_slot: int
+
+
+def _record_field(column: str) -> str:
+    """The step record's field for a steps-table column: 'Z-Stack Group ID' is ``z_stack_group_id``."""
+    return column.lower().replace('-', '_').replace(' ', '_')
+
+
+def _stimulation_records(cell: dict, step_name: str) -> dict[str, Stimulation]:
+    """Each channel's stimulation in a step's Stim_Config cell, as records.
+
+    Raises:
+        ProtocolFormatError: a channel's entry is not a config.
+    """
+    records = {}
+    for layer, entry in cell.items():
+        if not isinstance(entry, dict):
+            raise ProtocolFormatError(
+                f'step {step_name} has a Stim_Config entry for {layer} that is not a config: '
+                f'{entry!r}.'
+            )
+        records[layer] = Stimulation(
+            enabled=entry.get('enabled'),
+            illumination_ma=entry.get('illumination_ma'),
+            frequency_hz=entry.get('frequency'),
+            pulse_width_ms=entry.get('pulse_width'),
+            pulse_count=entry.get('pulse_count'),
+        )
+    return records
+
+
+def _step_record(row: pd.Series) -> StepRecord:
+    """A step row, as ``Protocol.step_row`` answers it, as its record: every column one field.
+
+    Raises:
+        ProtocolFormatError: a stimulation entry is not a config.
+    """
+    fields = {_record_field(column): row[column] for column in _STEP_CELLS}
+    video, stims = row['Video Config'], row['Stim_Config']
+    fields['video_config'] = (
+        None
+        if video is None
+        else VideoConfig(duration_s=video.get('duration'), fps=video.get('fps'))
+    )
+    fields['stim_config'] = None if stims is None else _stimulation_records(stims, row['Name'])
+    return StepRecord(**fields)
+
+
 # Each Layer Settings column after 'Layer', with the type its cell is read
 # as. Every cell but Acquire may be blank, read as None: the layer's control
 # keeps what it holds.
@@ -2315,8 +2484,29 @@ class Protocol:
         return step_dict['Name']
 
     @api(reads=True)
-    def step(self, idx: int) -> pd.Series:
-        """One step, as a DETACHED copy of its row.
+    def step(self, idx: int) -> StepRecord:
+        """Step ``idx``, as its record: what it was when read.
+
+        Raises:
+            StepNotFoundError: ``idx`` is not a step of this protocol.
+            ProtocolFormatError: a stimulation entry of the step is not a
+                config.
+        """
+        return _step_record(self.step_row(idx))
+
+    @api(reads=True)
+    def step_records(self) -> tuple[StepRecord, ...]:
+        """Every step, in order, as its record: the step table in one read.
+
+        Raises:
+            ProtocolFormatError: a stimulation entry of a step is not a
+                config.
+        """
+        return tuple(_step_record(self.step_row(idx)) for idx in range(self.num_steps()))
+
+    @api(in_process=True, reads=True)
+    def step_row(self, idx: int) -> pd.Series:
+        """One step, as a DETACHED copy of its row, keyed by the steps table's columns.
 
         The returned Series is built fresh, so it does NOT track later writes
         to the steps frame. A caller that holds a row across something that
@@ -2631,11 +2821,11 @@ class Protocol:
             self._refuse_unless_in_range(only.start)
             self._refuse_unless_in_range(only[-1])
         expanded = range(self.num_steps()) if only is None else only
-        unstacked = [idx for idx in expanded if self.step(idx=idx)['Z-Slice'] in (None, '', -1)]
+        unstacked = [idx for idx in expanded if self.step_row(idx=idx)['Z-Slice'] in (None, '', -1)]
         Protocol.refuse_unbuildable_zstack(
             zstack_params,
             axis_limits,
-            [(self.step(idx=idx)['Name'], self.step(idx=idx)['Z']) for idx in unstacked],
+            [(self.step_row(idx=idx)['Name'], self.step_row(idx=idx)['Z']) for idx in unstacked],
         )
 
         to_stack = set(unstacked)
@@ -2649,7 +2839,7 @@ class Protocol:
         block_at = None
 
         for row_idx in range(num_steps):
-            orig_step_df = self.step(idx=row_idx)
+            orig_step_df = self.step_row(idx=row_idx)
             orig_step_dict = orig_step_df.to_dict()
 
             # If already part of a Z-Stack, or not asked for, copy it over to the new protocol

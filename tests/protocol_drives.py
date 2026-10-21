@@ -215,7 +215,7 @@ def stand_in_step_targets(scope, *, plate_to_stage=(0.0, 0.0)):
             turret_slot=None,
             x=plate_to_stage[0],
             y=plate_to_stage[1],
-            z=protocol.step(idx=step_idx)['Z'],
+            z=protocol.step_row(idx=step_idx)['Z'],
         )
     )
 
@@ -230,7 +230,7 @@ def scan_ready_runner(step, **state):
     runner._scope.motion.is_moving.return_value = False
     runner._scope.led_connected = False
     protocol = MagicMock()
-    protocol.step.return_value = step
+    protocol.step_row.return_value = step
     protocol.num_steps.return_value = 1
     runner._protocol = protocol
     runner._n_scans = 1

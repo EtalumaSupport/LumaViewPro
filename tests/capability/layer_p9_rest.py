@@ -47,7 +47,7 @@ try:
     show('settings[Blue][focus]', s.get_settings_snapshot()[lay]['focus'])
     proto = sc.protocols.create_protocol(input_config=s.get_sequenced_capture_config())
     show('protocol.modify_step_z_height', proto.modify_step_z_height(step_idx=0, z=z + 5))
-    show('step 0 Z after modify', proto.step(idx=0)['Z'])
+    show('step 0 Z after modify', proto.step_row(idx=0)['Z'])
     show(
         'protocol.apply_focus_all_layer_steps',
         proto.apply_focus_all_layer_steps(layer=lay, z=z + 9),

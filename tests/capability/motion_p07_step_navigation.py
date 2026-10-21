@@ -54,7 +54,7 @@ def body(s):
     idx = config_helpers.find_nearest_step(x=69.0, y=49.0, protocol=protocol)
     check('find_nearest_step resolves a click to a step index', idx >= 0, f'idx={idx}')
 
-    step = protocol.step(idx=idx)
+    step = protocol.step_row(idx=idx)
     s.go_to_step(protocol, idx)
     m.wait_until_finished_moving()
     here = s.get_current_plate_position()

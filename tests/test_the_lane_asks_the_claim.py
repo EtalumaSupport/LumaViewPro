@@ -589,7 +589,7 @@ class TestTheRunsOwnWorkRunsUnderItsClaim:
         session = ScopeSession.create(complete_settings(**_settings(tmp_path)), simulate=True)
         try:
             home_sim_scope(session.scope)
-            base = _make_single_step_protocol().step(idx=0)
+            base = _make_single_step_protocol().step_row(idx=0)
             af_step = {**base, 'Name': 'A1_af', 'Label': 'A1_af', 'Auto_Focus': True}
             video_step = {
                 **base,

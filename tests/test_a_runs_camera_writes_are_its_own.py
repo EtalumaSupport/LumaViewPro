@@ -36,7 +36,7 @@ def test_an_auto_gain_step_arms_captures_and_disarms_inside_its_run(tmp_path):
     session = ScopeSession.create(complete_settings(**_settings(tmp_path)), simulate=True)
     try:
         home_sim_scope(session.scope)
-        step = {**_make_single_step_protocol().step(idx=0), 'Auto_Gain': True}
+        step = {**_make_single_step_protocol().step_row(idx=0), 'Auto_Gain': True}
         runner = session.create_protocol_runner()
         files_written = threading.Event()
         run = runner.start_single_scan(

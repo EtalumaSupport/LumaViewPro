@@ -226,7 +226,7 @@ def test_a_run_arms_the_camera_at_the_ceiling_the_settings_hold(tmp_path, monkey
     from tests.test_a_run_needs_every_axis_position import COMPLETION_TIMEOUT
     from tests.test_run_refusal_contract import _build_real_protocol, _make_single_step_protocol
 
-    step = dict(_make_single_step_protocol(color='Blue').step(0))
+    step = dict(_make_single_step_protocol(color='Blue').step_row(0))
     step['Auto_Gain'] = True
     session = ScopeSession.create(
         complete_settings(

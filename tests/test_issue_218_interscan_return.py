@@ -22,7 +22,7 @@ def _make_loop(remaining, aborted=False):
     p._aborted = MagicMock()
     p._aborted.is_set.return_value = aborted
     p._protocol = MagicMock()
-    p._protocol.step.return_value = {'X': 1.0, 'Y': 2.0, 'Z': 3.0}
+    p._protocol.step_row.return_value = {'X': 1.0, 'Y': 2.0, 'Z': 3.0}
     p._step_executor = MagicMock()
     return ProtocolRunLoop(p), p
 
@@ -30,7 +30,7 @@ def _make_loop(remaining, aborted=False):
 def test_returns_to_first_step_when_scans_remain():
     loop, p = _make_loop(remaining=2)
     loop._return_to_first_step_between_scans()
-    p._protocol.step.assert_called_once_with(idx=0)
+    p._protocol.step_row.assert_called_once_with(idx=0)
     p._step_executor.default_move.assert_called_once_with(px=1.0, py=2.0, z=3.0)
 
 

@@ -128,7 +128,7 @@ def test_a_file_with_a_step_on_a_layer_this_scope_lacks_is_refused_at_load(ls850
     assert refused.value.reason == ABSENT
     words = str(refused.value)
     assert 'Lumi' in words
-    assert protocol.step(idx=1)['Name'] in words
+    assert protocol.step_row(idx=1)['Name'] in words
 
 
 def test_a_scope_runs_the_lumi_steps_its_own_layers_include(lumi, tmp_path):
@@ -194,4 +194,4 @@ def test_a_stim_edit_is_judged_on_the_steps_own_channel(ls850):
 
     ls850.update_step(protocol, 0, layer='Blue')
 
-    assert protocol.step(idx=0)['Color'] == 'BF'
+    assert protocol.step_row(idx=0)['Color'] == 'BF'

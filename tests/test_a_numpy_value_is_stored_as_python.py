@@ -102,7 +102,7 @@ class TestAProtocolsConfigCells:
     def test_a_config_cell_reads_back_as_python_and_the_callers_dict_is_kept(self):
         protocol, video = self._protocol_with_numpy_config()
 
-        cell = protocol.step(0)['Video Config']
+        cell = protocol.step_row(0)['Video Config']
 
         assert cell == {'duration': 1, 'fps': 5.0}
         assert type(cell['duration']) is int and type(cell['fps']) is float
@@ -115,7 +115,7 @@ class TestAProtocolsConfigCells:
         protocol.to_file(path)
 
         reopened = Protocol.from_file(path, TILING_CONFIGS)
-        assert reopened.step(0)['Video Config'] == {'duration': 1, 'fps': 5.0}
+        assert reopened.step_row(0)['Video Config'] == {'duration': 1, 'fps': 5.0}
 
 
 def test_a_method_holding_numpy_is_saved_as_python(tmp_path):

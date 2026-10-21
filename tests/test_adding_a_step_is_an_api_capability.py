@@ -202,7 +202,7 @@ class TestAScriptAddsAStepThroughTheSession:
         names = session.add_step(protocol, before_step=0)
 
         assert len(names) == 1
-        step = protocol.step(idx=0)
+        step = protocol.step_row(idx=0)
         assert step['Color'] == 'BF'
         assert step['Objective'] == session.scope.runtime_state.resolve_current_objective()[0]
 
@@ -288,7 +288,7 @@ class TestAnAddCanBeAZStack:
             empty_config=session.get_sequenced_capture_config()
         )
         session.add_step(protocol)
-        earlier = protocol.step(idx=0).to_dict()
+        earlier = protocol.step_row(idx=0).to_dict()
 
         _only_acquiring(session, 'BF', 'Blue')
         _stack_settings(session, range_um=10.0, step_size_um=5.0)

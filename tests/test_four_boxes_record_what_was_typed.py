@@ -65,7 +65,7 @@ def _step_name_panel(monkeypatch, caplog, typed):
     shown = []
     # a stand-in by design: Kivy is stubbed in the test process; the subject is the handler's record
     panel = SimpleNamespace(
-        _protocol=SimpleNamespace(step=lambda idx: {'Label': labels[idx]}),
+        _protocol=SimpleNamespace(step_row=lambda idx: {'Label': labels[idx]}),
         curr_step=0,
         ids={'step_name_input': SimpleNamespace(text=typed)},
         generate_step_name_input=lambda: shown.append(labels[0]),

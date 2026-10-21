@@ -64,7 +64,7 @@ def _two_step_protocol(session):
         empty_config=session.get_sequenced_capture_config()
     )
     session.add_step(protocol, before_step=0)
-    colors = [protocol.step(idx=i)['Color'] for i in range(protocol.num_steps())]
+    colors = [protocol.step_row(idx=i)['Color'] for i in range(protocol.num_steps())]
     return protocol, colors.index('BF'), colors.index('Blue')
 
 

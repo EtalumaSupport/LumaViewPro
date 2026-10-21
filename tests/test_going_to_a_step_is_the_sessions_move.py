@@ -425,7 +425,7 @@ class TestTheStepIntoItsLayer:
         assert {
             layer: no_motor_session.settings[layer]['stim_config'] for layer in before
         } == before
-        assert protocol.step(idx=0)['Stim_Config'] == {}
+        assert protocol.step_row(idx=0)['Stim_Config'] == {}
 
 
 class TestTheLedPreview:
