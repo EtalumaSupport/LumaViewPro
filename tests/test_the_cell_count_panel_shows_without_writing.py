@@ -38,7 +38,18 @@ def _slider(lo=0, hi=100):
     return SimpleNamespace(min=lo, max=hi, value=(lo, hi))
 
 
-def _panel(method):
+@pytest.fixture
+def size_scale(tmp_path):
+    """The session's size scale with no preview image, as the panel starts with it."""
+    from modules.scope_session import ScopeSession
+    from tests.settings_fixtures import complete_settings
+
+    session = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
+    yield session.post_processing.cell_count_size_scale(CellCountMethod())
+    session.shutdown()
+
+
+def _panel(method, size_scale):
     ids = {f'slider_cell_count_{name}_id': _slider() for name in _RANGE_SLIDERS}
     ids['slider_cell_count_sphericity_id'] = _slider(0, 1.0)
     ids.update(
@@ -51,20 +62,12 @@ def _panel(method):
     panel = SimpleNamespace(
         ids=SimpleNamespace(**ids),
         _method=method,
-        _preview_source_image=None,
-        _preview_pixel_size_um=None,
+        _size_scale=size_scale,
         _regenerate_image_preview=lambda: None,
         ENABLE_PREVIEW_AUTO_REFRESH=False,
     )
     cls = panel_module.CellCountControls
-    for name in (
-        '_show_size_filters',
-        '_size_filter_from_slider',
-        '_size_filter_to_slider',
-        '_preview_shape',
-        '_preview_scale',
-        '_take_filter',
-    ):
+    for name in ('_show_size_filters', '_take_filter'):
         setattr(panel, name, getattr(cls, name).__get__(panel))
     return panel
 
@@ -73,11 +76,13 @@ class _Ids(dict):
     __getattr__ = dict.__getitem__
 
 
-def test_showing_a_method_writes_nothing_and_shows_open_bounds_at_the_stops(monkeypatch):
+def test_showing_a_method_writes_nothing_and_shows_open_bounds_at_the_stops(
+    monkeypatch, size_scale
+):
     records = []
     monkeypatch.setattr(panel_module.gui_logger, 'slider', lambda *a: records.append(a))
     method = CellCountMethod(filters=CellCountFilters(perimeter=FilterBounds(20, None)))
-    panel = _panel(method)
+    panel = _panel(method, size_scale)
     panel.ids = _Ids(vars(panel.ids))
 
     panel_module.CellCountControls._set_ui_to_method(panel, method)
@@ -127,10 +132,12 @@ def test_a_range_slider_releases_only_the_touch_it_grabbed(tmp_path):
     assert grabbed == '1'
 
 
-def test_a_released_size_slider_writes_open_bounds_at_its_stops_and_records_once(monkeypatch):
+def test_a_released_size_slider_writes_open_bounds_at_its_stops_and_records_once(
+    monkeypatch, size_scale
+):
     records = []
     monkeypatch.setattr(panel_module.gui_logger, 'slider', lambda *a: records.append(a))
-    panel = _panel(CellCountMethod())
+    panel = _panel(CellCountMethod(), size_scale)
     panel.ids = _Ids(vars(panel.ids))
     panel._size_bounds_from_slider = (
         panel_module.CellCountControls._size_bounds_from_slider.__get__(panel)

@@ -38,6 +38,7 @@ from lvp_logger import logger
 from modules import graph_analysis, live_work, path_utils
 from modules.activity_claim import ActivityHolder, the_holder_named
 from modules.cell_count_method import CellCountMethod
+from modules.finite_number import is_finite_number
 from modules.exceptions import (
     ExcludedInput,
     PostProcessingFailedError,
@@ -176,6 +177,65 @@ class CellCountPreview:
 
     image: np.ndarray
     counts: CellCounts
+
+
+@api_fields('positions', 'sizes', 'reach')
+@dataclasses.dataclass(frozen=True)
+class SizeSliderStops:
+    """What a size slider's positions stand for: between two stops, a size in proportion.
+
+    Attributes:
+        positions: The slider positions of the stops, ascending.
+        sizes: The size each stop stands for, in microns (square microns
+            for an area), or in pixels when the image has no scale.
+        reach: The largest size the image can hold; the slider goes no
+            further than its position.
+    """
+
+    positions: tuple[float, ...]
+    sizes: tuple[float, ...]
+    reach: float
+
+    @api(in_process=True, reads=True)
+    def size_at(self, positions: tuple[float, float]) -> tuple[float, float]:
+        """The sizes a slider's two positions stand for.
+
+        Raises:
+            Nothing.
+        """
+        import numpy as np
+
+        low, high = np.interp(positions, self.positions, self.sizes)
+        return float(low), float(high)
+
+    @api(in_process=True, reads=True)
+    def positions_of(self, sizes: tuple[float, float]) -> tuple[float, float]:
+        """The slider positions that show two sizes.
+
+        Raises:
+            Nothing.
+        """
+        import numpy as np
+
+        low, high = np.interp(sizes, self.sizes, self.positions)
+        return float(low), float(high)
+
+
+@api_fields('pixels_per_um', 'area', 'perimeter')
+@dataclasses.dataclass(frozen=True)
+class CellCountSizeScale:
+    """The scale an image is counted at, and what its size sliders stand for.
+
+    Attributes:
+        pixels_per_um: The pixels per micron the count measures at, or None
+            when it counts in pixels.
+        area: The area slider's stops.
+        perimeter: The perimeter slider's stops.
+    """
+
+    pixels_per_um: float | None
+    area: SizeSliderStops
+    perimeter: SizeSliderStops
 
 
 @api_fields('x_axes', 'y_axes', 'trendlines')
@@ -345,6 +405,19 @@ def _answering[R](record: Callable[[dict], R], build: Callable[..., dict]) -> Ca
         return record(build(*args, **kwargs))
 
     return answer
+
+
+def _refuse_unusable_image_scale(pixel_size_um: float | None) -> None:
+    """Refuse an image scale a count could not measure at: not a positive number of microns."""
+    if pixel_size_um is not None and (not is_finite_number(pixel_size_um) or pixel_size_um <= 0):
+        raise PostProcessingRefusedError(
+            operation=PostProcessingOperation.CELL_COUNT,
+            reason='invalid_setting',
+            message=(
+                'pixel_size_um must be a positive number of microns per pixel, or None for an '
+                f'image that states no scale, not {pixel_size_um!r}.'
+            ),
+        )
 
 
 def _existing_file_or_folder(path: pathlib.Path) -> pathlib.Path:
@@ -925,6 +998,55 @@ class PostProcessingAPI:
 
         save_cell_count_method(method, path)
 
+    @api
+    def cell_count_size_scale(
+        self,
+        method: CellCountMethod,
+        *,
+        shape: tuple[int, ...] | None = None,
+        pixel_size_um: float | None = None,
+    ) -> CellCountSizeScale:
+        """The scale an image of *shape* is counted at by *method*, and what its size sliders stand for.
+
+        The scale is the one ``preview_cell_count`` and ``count_cells``
+        measure at: the method's *pixels_per_um*, else *pixel_size_um*, the
+        image's own (microns per pixel; None when it states none), else
+        pixels. Each slider's top stop is the largest size the image holds
+        at that scale, and its low end is stretched, so the small sizes most
+        methods bound get most of the travel. With *shape* None (no image
+        yet) a position stands for its own size.
+
+        Raises:
+            PostProcessingRefusedError: reason ``invalid_setting``, *shape*
+                is not an image's rows and columns, each at least one, or
+                *pixel_size_um* is not a positive number of microns.
+        """
+        from modules.post_processing import cell_count_scale, size_slider_stops
+
+        if shape is not None and (
+            len(shape) not in (2, 3) or not all(type(side) is int and side >= 1 for side in shape)
+        ):
+            raise PostProcessingRefusedError(
+                operation=PostProcessingOperation.CELL_COUNT,
+                reason='invalid_setting',
+                message=(
+                    "shape must be an image's rows and columns (and channels), each at "
+                    f'least 1, or None for no image, not {shape!r}.'
+                ),
+            )
+        _refuse_unusable_image_scale(pixel_size_um)
+        pixels_per_um = cell_count_scale(method, pixel_size_um)
+
+        def stops(size: str) -> SizeSliderStops:
+            if shape is None:
+                return SizeSliderStops(positions=(0.0, 100.0), sizes=(0.0, 100.0), reach=100.0)
+            positions, sizes, reach = size_slider_stops(size, shape, pixels_per_um)
+            return SizeSliderStops(positions=positions, sizes=sizes, reach=reach)
+
+        return CellCountSizeScale(
+            pixels_per_um=pixels_per_um, area=stops('area'), perimeter=stops('perimeter')
+        )
+
     @api(in_process=True)
     def preview_cell_count(
         self,
@@ -953,10 +1075,12 @@ class PostProcessingAPI:
         Raises:
             PostProcessingRefusedError: reason ``no_scale``, the image is
                 counted in pixels and *method* bounds an area or a
-                perimeter, which are in microns.
+                perimeter, which are in microns; ``invalid_setting``,
+                *pixel_size_um* is not a positive number of microns.
         """
         from modules.post_processing import PostProcessing, cell_count_scale
 
+        _refuse_unusable_image_scale(pixel_size_um)
         outlined, stats = PostProcessing().preview_cell_count(
             image,
             method,

@@ -149,20 +149,30 @@ def boundary(monkeypatch, post):
 
 def _panel(method: CellCountMethod | None = None) -> SimpleNamespace:
     shown = []
-    return SimpleNamespace(
+    panel = SimpleNamespace(
+        ids={
+            'slider_cell_count_area_id': SimpleNamespace(max=100),
+            'slider_cell_count_perimeter_id': SimpleNamespace(max=100),
+        },
         _method=method or CellCountMethod(),
+        _preview_source_image=None,
+        _preview_pixel_size_um=None,
+        _size_scale=None,
         _set_ui_to_method=shown.append,
         shown=shown,
     )
+    panel._take_size_scale = panel_module.CellCountControls._take_size_scale.__get__(panel)
+    return panel
 
 
-def test_the_panel_holds_a_loaded_method_and_shows_it(tmp_path, boundary):
+def test_the_panel_holds_a_loaded_method_and_shows_it_at_its_scale(tmp_path, boundary):
     panel = _panel()
     path = _write(tmp_path / 'method.json', _saved(pixels_per_um=3.0))
     panel_module.CellCountControls.load_method_from_file(panel, path)
     assert boundary == []
     assert panel._method == CellCountMethod(pixels_per_um=3.0)
     assert panel.shown == [panel._method]
+    assert panel._size_scale.pixels_per_um == 3.0
 
 
 def test_a_refused_file_leaves_the_panels_method_as_it_was(tmp_path, boundary):

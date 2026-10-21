@@ -94,56 +94,21 @@ def perimeter_filter_max(shape: tuple[int, ...], pixels_per_um: float | None) ->
     return max_perimeter_pixels / pixels_per_um
 
 
-def _size_slider_stops(
+def size_slider_stops(
     size: str, shape: tuple[int, ...], pixels_per_um: float | None
-) -> tuple[list[float], list[float]]:
-    """The slider positions and the sizes they stand for, for the ``size`` filter.
+) -> tuple[tuple[float, ...], tuple[float, ...], float]:
+    """The slider positions, the sizes they stand for, and the reach, for the ``size`` filter.
 
     The scale is stretched at its low end, so the small sizes most methods
     bound get most of the slider's travel; the top stop is the image's
-    largest size, kept above the stop below it.
+    largest size, kept above the stop below it. The reach is that largest
+    size, which the top stop may be raised past.
     """
     if size == 'area':
-        top = max(area_filter_max(shape, pixels_per_um), 10001)
-        return [0, 30, 60, 100], [0, 1000, 10000, top]
-    top = max(perimeter_filter_max(shape, pixels_per_um), 101)
-    return [0, 50, 100], [0, 100, top]
-
-
-def size_filter_from_slider(
-    size: str,
-    slider_values: tuple[float, float],
-    shape: tuple[int, ...] | None,
-    pixels_per_um: float | None,
-) -> tuple[float, float]:
-    """The ``size`` ('area' or 'perimeter') bounds a slider's two positions stand for.
-
-    ``shape`` is the preview image's; with no preview the positions are
-    handed back as they are.
-    """
-    if shape is None:
-        return slider_values
-    positions, sizes = _size_slider_stops(size, shape, pixels_per_um)
-    low, high = np.interp(slider_values, positions, sizes)
-    return float(low), float(high)
-
-
-def size_filter_to_slider(
-    size: str,
-    bounds: tuple[float, float],
-    shape: tuple[int, ...] | None,
-    pixels_per_um: float | None,
-) -> tuple[float, float]:
-    """The slider positions that show the ``size`` ('area' or 'perimeter') ``bounds``.
-
-    ``shape`` is the preview image's; with no preview the bounds are handed
-    back as they are.
-    """
-    if shape is None:
-        return bounds
-    positions, sizes = _size_slider_stops(size, shape, pixels_per_um)
-    low, high = np.interp(bounds, sizes, positions)
-    return float(low), float(high)
+        reach = area_filter_max(shape, pixels_per_um)
+        return (0.0, 30.0, 60.0, 100.0), (0.0, 1000.0, 10000.0, max(reach, 10001.0)), reach
+    reach = perimeter_filter_max(shape, pixels_per_um)
+    return (0.0, 50.0, 100.0), (0.0, 100.0, max(reach, 101.0)), reach
 
 
 def _refuse_size_filters_without_a_scale(method: CellCountMethod, name: str) -> None:

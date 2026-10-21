@@ -1050,8 +1050,10 @@ class LumaViewProApp(TooltipMixin, App):
         self.live_work = scope_session.live_work
         self.control = scope_session.control
         lumaview = MainDisplay(scope=scope_session.scope)
+        cell_count_method = scope_session.post_processing.default_cell_count_method()
         cell_count_content = CellCountControls(
-            method=scope_session.post_processing.default_cell_count_method()
+            method=cell_count_method,
+            size_scale=scope_session.post_processing.cell_count_size_scale(cell_count_method),
         )
         graphing_controls = GraphingControls()
 

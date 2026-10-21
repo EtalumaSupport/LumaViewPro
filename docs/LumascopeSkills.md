@@ -1182,6 +1182,8 @@ Over REST a method is sent as an object of every one of its fields, as `GET /api
 
 To see what a method keeps before counting a folder, `pp.preview_cell_count(image, method, significant_bits=..., pixel_size_um=...)` counts one image you hold, as `count_cells` counts each file, and answers a `CellCountPreview`: `image`, the image with the kept regions outlined, and `counts`, a `CellCounts` holding the values of that image's `results.csv` row (`num_cells`, `total_object_area`, `area_unit`, `total_object_intensity`). `significant_bits` is the image's payload depth and `pixel_size_um` the scale it states (microns per pixel, or `None`), which the method's `pixels_per_um` overrides, as in the count. It counts on the caller's thread, not the post-processing lane, so it answers while a build or a run goes on, and it hands back an image array, so it is in-process only.
 
+A form that bounds the area and perimeter with sliders asks `pp.cell_count_size_scale(method, shape=image.shape, pixel_size_um=...)`, the range the panel offers: a `CellCountSizeScale` holding `pixels_per_um`, the scale the count measures at (`None` for pixels), and for `area` and `perimeter` a `SizeSliderStops`: the slider `positions` of its stops, the `sizes` they stand for (stretched at the low end, so small sizes get most of the travel), and `reach`, the largest size the image holds. In Python, `size_at(positions)` and `positions_of(sizes)` map between the two. With no `shape` (no image yet) a position stands for its own size. A `shape` that is not an image's rows and columns, each at least 1, or a `pixel_size_um` that is not a positive number, is refused (`PostProcessingRefusedError`, `invalid_setting`), as `preview_cell_count` refuses that scale.
+
 Each image is measured at the scale it states: a LumaViewPro capture carries its pixel size, so its areas and perimeters are in square microns and microns. An image that states no scale (a PNG, a capture saved without one) is counted in pixels. `results.csv` has one row per image with `file`, `time`, `num_cells`, `total_object_area`, `area_unit` (`um2` or `px2`, that row's unit) and `total_object_intensity`. Setting `pixels_per_um` overrides the scale for every image, for example on external images whose scale you know. The area and perimeter filters are in microns, so an image counted in pixels with either one set is not counted: the count goes on with the rest and raises `PostProcessingFailedError` naming it.
 
 | Field | Meaning |
@@ -3407,6 +3409,7 @@ Reached through `session.scope.layer_identity`.
 Reached through `session.post_processing`.
 
 - `build`
+- `cell_count_size_scale`
 - `composite`
 - `count_cells`
 - `default_cell_count_method`
@@ -3723,6 +3726,14 @@ Reached through a `CellCountPreview`'s `counts`.
 - `num_cells`
 - `total_object_area`
 - `total_object_intensity`
+
+### CellCountSizeScale
+
+Reached through returned by `session.post_processing.cell_count_size_scale`.
+
+- `area`
+- `perimeter`
+- `pixels_per_um`
 
 ### Change
 
@@ -4264,6 +4275,16 @@ Reached through `session.shown_channel`, returned by `session.show_channel` and 
 Reached through built by the caller and passed as `sim_model_answer=` to `ScopeSession.create`.
 
 - `model`
+
+### SizeSliderStops
+
+Reached through a `CellCountSizeScale`'s `area` and `perimeter`.
+
+- `positions`
+- `positions_of` (in-process)
+- `reach`
+- `size_at` (in-process)
+- `sizes`
 
 ### SkippedBuild
 

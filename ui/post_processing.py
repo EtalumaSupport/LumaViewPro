@@ -17,7 +17,7 @@ from kivy.uix.popup import Popup
 from ui.progress_popup import show_popup
 from modules import gui_logger
 from modules.cell_count_method import CellCountMethod, FilterBounds
-from modules.post_processing_api import BuildResult, ZProject
+from modules.post_processing_api import BuildResult, CellCountSizeScale, ZProject
 import modules.post_processing as post_processing
 import modules.image_utils as image_utils
 import ui.image_utils_kivy as image_utils_kivy
@@ -485,7 +485,7 @@ class CellCountControls(BoxLayout):
 
     done = BooleanProperty(False)
 
-    def __init__(self, method: CellCountMethod, **kwargs):
+    def __init__(self, method: CellCountMethod, size_scale: CellCountSizeScale, **kwargs):
         super().__init__(**kwargs)
         logger.info('LVP Main: CellCountControls.__init__()')
         self._preview_source_image = None
@@ -495,6 +495,9 @@ class CellCountControls(BoxLayout):
         self._preview_image = None
         # The method the panel shows and counts by, replaced whole on each change.
         self._method = method
+        # What the size sliders stand for, the session's answer for the
+        # preview image and the method; asked again when either's scale changes.
+        self._size_scale = size_scale
         self._set_ui_to_method(self._method)
 
     def apply_method_to_preview_image(self) -> None:
@@ -520,18 +523,17 @@ class CellCountControls(BoxLayout):
             'APPLY_CELL_COUNT_TO_FOLDER',
         )
 
-    def _preview_shape(self) -> tuple[int, ...] | None:
-        return None if self._preview_source_image is None else self._preview_source_image.shape
-
-    def _size_filter_from_slider(self, size, slider_values):
-        return post_processing.size_filter_from_slider(
-            size, slider_values, self._preview_shape(), self._preview_scale()
+    def _take_size_scale(self) -> None:
+        """Ask what the size sliders stand for at the preview image and the method, and size them."""
+        shape = None if self._preview_source_image is None else self._preview_source_image.shape
+        self._size_scale = _app_ctx.ctx.session.post_processing.cell_count_size_scale(
+            self._method, shape=shape, pixel_size_um=self._preview_pixel_size_um
         )
-
-    def _size_filter_to_slider(self, size, bounds):
-        return post_processing.size_filter_to_slider(
-            size, bounds, self._preview_shape(), self._preview_scale()
-        )
+        for slider_id, stops in (
+            ('slider_cell_count_area_id', self._size_scale.area),
+            ('slider_cell_count_perimeter_id', self._size_scale.perimeter),
+        ):
+            self.ids[slider_id].max = int(stops.positions_of((0, stops.reach))[1])
 
     def _set_ui_to_method(self, method: CellCountMethod):
         """Show the method on the panel. Writes nothing back to it."""
@@ -549,14 +551,10 @@ class CellCountControls(BoxLayout):
             self.ids[slider_id].value = (bounds.min, bounds.max)
         self._regenerate_image_preview()
 
-    def _preview_scale(self) -> float | None:
-        """Pixels per micron the preview counts at, or None for pixels."""
-        return post_processing.cell_count_scale(self._method, self._preview_pixel_size_um)
-
     def _size_bounds_from_slider(self, slider_id, size):
         """The ``size`` bounds a range slider shows; an end at its stop is no bound."""
         slider = self.ids[slider_id]
-        low, high = self._size_filter_from_slider(size, (slider.value[0], slider.value[1]))
+        low, high = getattr(self._size_scale, size).size_at((slider.value[0], slider.value[1]))
         return (
             None if slider.value[0] <= slider.min else low,
             None if slider.value[1] >= slider.max else high,
@@ -584,16 +582,9 @@ class CellCountControls(BoxLayout):
         ):
             slider = self.ids[slider_id]
             bounds = getattr(self._method.filters, size)
-            low = (
-                slider.min
-                if bounds.min is None
-                else self._size_filter_to_slider(size, (bounds.min, 0))[0]
-            )
-            high = (
-                slider.max
-                if bounds.max is None
-                else self._size_filter_to_slider(size, (0, bounds.max))[1]
-            )
+            stops = getattr(self._size_scale, size)
+            low = slider.min if bounds.min is None else stops.positions_of((bounds.min, 0))[0]
+            high = slider.max if bounds.max is None else stops.positions_of((0, bounds.max))[1]
             slider.value = (low, high)
             self.ids[label_id].text = _range_text(bounds.min, bounds.max, unit)
 
@@ -608,19 +599,6 @@ class CellCountControls(BoxLayout):
 
         run_reported(_load, None, 'LOAD_CELL_COUNT_INPUT_IMAGE')
 
-    def update_filter_max(self, image):
-        pixels_per_um = self._preview_scale()
-        max_area_um2 = post_processing.area_filter_max(image.shape, pixels_per_um)
-        max_perimeter_um = post_processing.perimeter_filter_max(image.shape, pixels_per_um)
-
-        self.ids.slider_cell_count_area_id.max = int(
-            self._size_filter_to_slider('area', (0, max_area_um2))[1]
-        )
-        self.ids.slider_cell_count_perimeter_id.max = int(
-            self._size_filter_to_slider('perimeter', (0, max_perimeter_um))[1]
-        )
-        self._show_size_filters()
-
     def set_preview_source(self, image) -> None:
         self._preview_source_image = image
         self._preview_image = image
@@ -633,7 +611,8 @@ class CellCountControls(BoxLayout):
         img_widget.texture = image_utils_kivy.image_to_texture(
             image=display_image, existing=img_widget.texture
         )
-        self.update_filter_max(image=image)
+        self._take_size_scale()
+        self._show_size_filters()
         self._regenerate_image_preview()
 
     def save_method_as(self, file):
@@ -651,7 +630,12 @@ class CellCountControls(BoxLayout):
         def _load():
             self._method = _app_ctx.ctx.session.post_processing.load_cell_count_method(file)
 
-        run_reported(_load, lambda: self._set_ui_to_method(self._method), 'LOAD_CELL_COUNT_METHOD')
+        def _show():
+            # The loaded method may carry its own scale.
+            self._take_size_scale()
+            self._set_ui_to_method(self._method)
+
+        run_reported(_load, _show, 'LOAD_CELL_COUNT_METHOD')
 
     def _regenerate_image_preview(self):
         if self._preview_source_image is None:
@@ -789,7 +773,8 @@ class CellCountControls(BoxLayout):
             gui_logger.text_input('CELL_COUNT_PIXELS_PER_UM_APPLIED', held)
             box.text = held
         if self._preview_image is not None:
-            self.update_filter_max(image=self._preview_image)
+            self._take_size_scale()
+            self._show_size_filters()
 
 
 # ============================================================================

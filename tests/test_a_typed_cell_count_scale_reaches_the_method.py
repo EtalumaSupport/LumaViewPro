@@ -52,9 +52,12 @@ def _panel(typed: str, preview=None, method=None) -> SimpleNamespace:
         ids={'text_cell_count_pixels_per_um_id': SimpleNamespace(text=typed)},
         _method=method or CellCountMethod(),
         _preview_image=preview,
-        filter_max_for=[],
+        size_scale_asked_at=[],
     )
-    panel.update_filter_max = lambda image: panel.filter_max_for.append(image)
+    # a stand-in by design: the subject is when the panel asks for its size
+    # scale, which the session's own test answers
+    panel._take_size_scale = lambda: panel.size_scale_asked_at.append(panel._method.pixels_per_um)
+    panel._show_size_filters = lambda: None
     panel._show_pixels_per_um = lambda: panel_module.CellCountControls._show_pixels_per_um(panel)
     return panel
 
@@ -70,7 +73,7 @@ def test_a_typed_scale_reaches_the_method_with_no_preview_loaded(boundary, recor
     assert panel._method.pixels_per_um == 2.5
     assert panel.ids['text_cell_count_pixels_per_um_id'].text == '2.5'
     assert records == [('CELL_COUNT_PIXELS_PER_UM', '2.5')]
-    assert panel.filter_max_for == []
+    assert panel.size_scale_asked_at == []
 
 
 def test_a_whole_number_is_not_recorded_as_a_correction(boundary, records):
@@ -100,12 +103,11 @@ def test_a_refused_scale_is_reported_and_the_box_shows_the_methods(boundary, rec
     ]
 
 
-def test_with_a_preview_loaded_the_filter_maxima_follow_the_scale(boundary, records):
-    preview = object()
-    panel = _panel('2.0', preview=preview)
+def test_with_a_preview_loaded_the_size_scale_is_asked_at_the_typed_scale(boundary, records):
+    panel = _panel('2.0', preview=object())
     _commit(panel)
     assert panel._method.pixels_per_um == 2.0
-    assert panel.filter_max_for == [preview]
+    assert panel.size_scale_asked_at == [2.0]
 
 
 def test_the_owner_answers_a_new_method_and_leaves_the_one_it_was_given():
