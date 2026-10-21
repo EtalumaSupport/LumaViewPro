@@ -59,12 +59,6 @@ class TestCompositeRunsAsItsOwnKind:
         runner.run_composite()
         assert runner._executor.prepare.call_args.kwargs['max_scans'] == 1
 
-    def test_the_trigger_source_names_the_api_caller(self):
-        runner = _runner()
-        runner.run_composite()
-        trigger = runner._executor.prepare.call_args.kwargs['run_trigger_source']
-        assert trigger == 'api_composite'
-
     def test_pre_run_lit_channels_are_restored_at_the_end(self):
         # A composite ends by handing the scope back as it was found; the
         # scan/protocol default of forcing every LED dark is a different

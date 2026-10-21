@@ -290,7 +290,7 @@ class TestRefusalsAndFailures:
 
     def test_a_still_while_a_run_holds_the_camera_is_refused_at_the_call(self, still_session):
         session, _ = still_session
-        held = session.activity_claim.try_claim('protocol', run=run_identity('test'))
+        held = session.activity_claim.try_claim('protocol', run=run_identity())
         assert held is not None
         try:
             with pytest.raises(HardwareCommandRefusedError) as refused:

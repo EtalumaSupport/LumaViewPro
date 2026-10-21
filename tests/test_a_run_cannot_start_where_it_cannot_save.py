@@ -57,7 +57,6 @@ needs_posix_permissions = pytest.mark.skipif(
 def _prepare(executor, tmp_path, parent_dir, **overrides):
     kwargs = {
         'protocol': _make_single_step_protocol(),
-        'run_trigger_source': 'zstack',
         'run_mode': SequencedCaptureRunMode.SINGLE_SCAN,
         'sequence_name': 'capture_location',
         'image_capture_config': _make_image_capture_config(),
@@ -137,7 +136,6 @@ class TestTheEngineRefuses:
                     tmp_path,
                     read_only / 'Autofocus Characterization',
                     run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS,
-                    run_trigger_source='autofocus',
                     disable_saving_artifacts=True,
                     save_autofocus_data=True,
                 )
@@ -176,7 +174,6 @@ class TestTheCasesThatMustNotBeRefused:
                 tmp_path,
                 None,
                 run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN,
-                run_trigger_source='autofocus_scan',
                 enable_image_saving=False,
             )
         finally:

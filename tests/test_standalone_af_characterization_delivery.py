@@ -135,7 +135,6 @@ class TestStandaloneAfDeliversCharacterizationData:
         try:
             plan = runner.prepare(
                 protocol=_make_af_step_protocol(),
-                run_trigger_source='autofocus',
                 run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS,
                 sequence_name='autofocus',
                 image_capture_config=ImageCaptureConfig.from_image_mode('8bit'),

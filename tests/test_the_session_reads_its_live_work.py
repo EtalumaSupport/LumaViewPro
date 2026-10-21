@@ -74,7 +74,7 @@ def test_a_run_lent_a_diagnostics_claim_is_named_beside_it(sim_session):
 
     held = sim_session.activity_claim.try_claim('diagnostic')
     try:
-        run = held.lend().try_claim('protocol', run=run_identity('api_autofocus'))
+        run = held.lend().try_claim('protocol', run=run_identity())
         try:
             work = sim_session.live_work.work
         finally:

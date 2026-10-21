@@ -87,7 +87,7 @@ def _a_diagnostic(session, monkeypatch):
 @contextlib.contextmanager
 def _a_run_lent_a_diagnostics_claim(session, monkeypatch):
     with session.diagnostic_claim() as held:
-        run = held.lend().try_claim('protocol', run=run_identity('api_autofocus'))
+        run = held.lend().try_claim('protocol', run=run_identity())
         monkeypatch.setattr(session.sequenced_capture_runner, '_state', ProtocolState.RUNNING)
         try:
             yield

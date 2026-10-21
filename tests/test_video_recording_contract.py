@@ -19,6 +19,7 @@ import pytest
 from tests.settings_fixtures import complete_settings
 
 from modules.activity_claim import ActivityClaim
+from modules.caller import Caller
 import modules.video_recording as video_recording_module
 from modules.exceptions import ProtocolRunRefusedError, RecordingRefusedError
 from modules.video_recording import RecordingConfig, VideoRecordingEngine
@@ -521,22 +522,22 @@ class TestExclusivity:
 
     def test_engine_refuses_when_claim_held_by_protocol(self, tmp_path):
         claim = ActivityClaim()
-        assert claim.try_claim('protocol', run=run_identity())
+        assert claim.try_claim('protocol', run=run_identity(Caller.GUI))
         engine, _writer, _clock, _ = make_engine(tmp_path, claim=claim)
         with pytest.raises(RecordingRefusedError) as excinfo:
             engine.start(lambda: make_config(tmp_path, fps=5, duration_s=1))
         assert excinfo.value.reason == 'exclusive_activity_running'
         # Busy-with-what rides the payload: the holder's kind, and the
-        # holding run's trigger -- a run claim cannot be taken without its
-        # run -- with the run named by its kind in the sentence.
+        # caller that started the holding run -- a run claim cannot be taken
+        # without its run -- with the run named by its kind in the sentence.
         assert excinfo.value.holder == 'protocol'
-        assert excinfo.value.holder_trigger == 'test'
+        assert excinfo.value.holder_trigger == Caller.GUI
         assert excinfo.value.message.startswith('The scan run is using the microscope')
 
     @pytest.mark.parametrize(
         ('kind', 'run', 'named'),
         [
-            ('protocol', run_identity('api_zstack', 'Z-stack'), 'The Z-stack run'),
+            ('protocol', run_identity(words='Z-stack'), 'The Z-stack run'),
             ('diagnostic', None, 'A diagnostic'),
             ('home', None, 'A home'),
         ],
@@ -544,7 +545,7 @@ class TestExclusivity:
     )
     def test_the_refusal_names_what_holds_the_scope(self, tmp_path, kind, run, named):
         """One phrasing with every other holder refusal: a run by its kind,
-        another activity by its kind -- never a trigger token."""
+        another activity by its kind -- never who started it."""
         claim = ActivityClaim()
         assert claim.try_claim(kind, run=run)
         engine, _writer, _clock, _ = make_engine(tmp_path, claim=claim)
@@ -556,7 +557,7 @@ class TestExclusivity:
         """A video step records under the run's claim; its end must not
         free the claim the run holds until run end."""
         claim = ActivityClaim()
-        run = claim.try_claim('protocol', run=run_identity('scan'))
+        run = claim.try_claim('protocol', run=run_identity())
         engine, _writer, _clock, _ = make_engine(tmp_path, claim=run.lend())
 
         engine.start(lambda: make_config(tmp_path, fps=5, duration_s=10))
@@ -570,7 +571,7 @@ class TestExclusivity:
 
     def test_a_recording_lent_a_claim_its_run_no_longer_holds_is_refused(self, tmp_path):
         claim = ActivityClaim()
-        run = claim.try_claim('protocol', run=run_identity('scan'))
+        run = claim.try_claim('protocol', run=run_identity())
         lent = run.lend()
         run.release()
         engine, _writer, _clock, _ = make_engine(tmp_path, claim=lent)
@@ -579,14 +580,14 @@ class TestExclusivity:
             engine.start(lambda: make_config(tmp_path, fps=5, duration_s=1))
         assert excinfo.value.reason == 'exclusive_activity_running'
 
-    def test_claim_refusal_names_the_holding_runs_trigger(self, tmp_path):
+    def test_claim_refusal_names_who_started_the_holding_run(self, tmp_path):
         claim = ActivityClaim()
-        assert claim.try_claim('protocol', run=run_identity('autofocus_scan'))
+        assert claim.try_claim('protocol', run=run_identity(Caller.REST))
         engine, _writer, _clock, _ = make_engine(tmp_path, claim=claim)
         with pytest.raises(RecordingRefusedError) as excinfo:
             engine.start(lambda: make_config(tmp_path, fps=5, duration_s=1))
         assert excinfo.value.holder == 'protocol'
-        assert excinfo.value.holder_trigger == 'autofocus_scan'
+        assert excinfo.value.holder_trigger == Caller.REST
 
     def test_concurrent_starts_exactly_one_wins(self, tmp_path):
         claim = ActivityClaim()

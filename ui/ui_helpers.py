@@ -15,6 +15,7 @@ from kivy.properties import StringProperty
 from kivy.uix.accordion import AccordionItem
 from kivy.uix.scrollview import ScrollView
 from modules import gui_logger, live_work
+from modules.caller import Caller, calling
 from modules.kivy_utils import schedule_ui as _schedule_ui
 
 import modules.app_context as _app_ctx
@@ -158,7 +159,9 @@ def submit_reported(
         _schedule_ui(lambda dt: _reported(redraw, label))
 
     def _off_the_gui_thread():
-        _reported(call, label)
+        # The GUI's request, on whichever worker or lane runs it.
+        with calling(Caller.GUI):
+            _reported(call, label)
 
     # The executor names a refused task by its action, so the action carries
     # the gesture's label rather than this wrapper's name.
@@ -183,12 +186,12 @@ def stop_the_stage() -> None:
     held by the very work the person is stopping. Every press sends; the API
     decides what a press stops and what it refuses.
     """
-    threading.Thread(
-        target=_reported,
-        args=(_app_ctx.ctx.scope.motion.stop_motion, 'STOP'),
-        name='STOP',
-        daemon=True,
-    ).start()
+
+    def _press():
+        with calling(Caller.GUI):
+            _reported(_app_ctx.ctx.scope.motion.stop_motion, 'STOP')
+
+    threading.Thread(target=_press, name='STOP', daemon=True).start()
 
 
 def run_unasked(call: typing.Callable[[], object], label: str) -> bool:

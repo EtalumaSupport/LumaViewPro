@@ -55,7 +55,7 @@ def _own_claim(listener):
 
 
 def _lent_run_claim(listener):
-    run = ActivityClaim(on_transition=listener).try_claim('protocol', run=run_identity('scan'))
+    run = ActivityClaim(on_transition=listener).try_claim('protocol', run=run_identity())
     return run.lend()
 
 

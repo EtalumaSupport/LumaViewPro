@@ -52,7 +52,6 @@ def _refused_start(session, tmp_path) -> ProtocolRunRefusedError:
     with pytest.raises(ProtocolRunRefusedError) as refused:
         session.sequenced_capture_runner.prepare(
             protocol=MagicMock(),
-            run_trigger_source='test',
             run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
             sequence_name='t',
             image_capture_config=ImageCaptureConfig.from_image_mode('8bit'),

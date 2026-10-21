@@ -158,7 +158,7 @@ class TestOtherHolds:
     def test_the_run_door_is_closed_to_a_non_holder(self, claim, lane):
         """``protocol_put`` admitted anyone while a run held (route table row 27)."""
         ran = threading.Event()
-        held = claim.try_claim('protocol', run=run_identity('test'))
+        held = claim.try_claim('protocol', run=run_identity())
         lane.protocol_start(held)
         try:
             box = {}
@@ -186,7 +186,7 @@ class TestOtherHolds:
 class TestABorrowing:
     def test_a_run_inside_a_diagnostic_writes_until_it_ends(self, claim, lane):
         held = claim.try_claim('diagnostic')
-        run = held.lend().try_claim('protocol', run=run_identity('api_autofocus'))
+        run = held.lend().try_claim('protocol', run=run_identity())
         try:
             with acting(run):
                 assert lane.put(IOTask(action=lambda: 1), return_future=True).result(_WAIT_S) == 1
@@ -201,7 +201,7 @@ class TestABorrowing:
 
     def test_ending_a_borrowing_ends_what_it_lent(self, claim):
         held = claim.try_claim('diagnostic')
-        run = held.lend().try_claim('protocol', run=run_identity('api_autofocus'))
+        run = held.lend().try_claim('protocol', run=run_identity())
         recording = run.lend().try_claim('recording')
         run.release()
         assert not recording.holds, 'a recording outlived the run it borrowed from'
@@ -404,10 +404,10 @@ class TestEveryHolderThreadActsUnderItsTaking:
 
         af = AutofocusThread(afe=_Sweep())
         af.start()
-        held = claim.try_claim('protocol', run=run_identity('test'))
+        held = claim.try_claim('protocol', run=run_identity())
         try:
             with acting(held):
-                fut = af.run_autofocus(run=run_identity('test'))
+                fut = af.run_autofocus(run=run_identity())
             assert fut.result(timeout=_WAIT_S) == 1.0
             assert seen['taking'] is held, (
                 "the sweep's moves and LED writes are its run's; without its taking a lane "
@@ -498,7 +498,7 @@ class TestRunCleanupIsTheRunsOwnWork:
             '_cleanup_inner',
             lambda ending, run, after_end: seen.setdefault('t', current_taking()),
         )
-        held = session.activity_claim.try_claim('protocol', run=run_identity('test'))
+        held = session.activity_claim.try_claim('protocol', run=run_identity())
         runner._held_claim = held
         try:
             t = threading.Thread(target=runner._cleanup, args=(object(), object()))

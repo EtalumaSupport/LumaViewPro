@@ -5,9 +5,10 @@ There is one implementation of "assemble and start a z-stack". The button
 once built the whole run itself -- objective, stack, capture config, the
 protocol, ``prepare`` and ``start`` -- beside the member built for scripts
 and REST, so the two could drift and only tests ever ran the member. Now the
-button states only what a running GUI knows (the open drawer, its own
-trigger token, the live engineering flag, the engineering panel's saving
-switch) and the member decides everything else, every refusal included.
+button states only what a running GUI knows (the open drawer, the live
+engineering flag, the engineering panel's saving switch), the GUI's stamp
+on the worker says who started the run, and the member decides everything
+else, every refusal included.
 
 The button's "Z n/total" readout asks the run's progress for its step count:
 the member built the protocol, so the widget never holds it, and a second
@@ -24,6 +25,7 @@ import pytest
 
 import modules.app_context as _app_ctx
 import ui.zstack as zs
+from modules.caller import Caller, current_caller
 from modules.exceptions import ProtocolRunRefusedError
 from modules.run_outcome import PendingRunOutcome
 from modules.protocol_image_writer import RunWriteBatch
@@ -81,7 +83,13 @@ def clicked(monkeypatch, centre_posts):
     engine = MagicMock()
     run = EngineRun(engine, PendingRunOutcome(), RunWriteBatch(MagicMock()))
     run._run_dir = '/runs/zstack_1'
-    member_runner.start_zstack.return_value = run.operation
+    starters = []
+
+    def _start_zstack(**_kwargs):
+        starters.append(current_caller())
+        return run.operation
+
+    member_runner.start_zstack.side_effect = _start_zstack
     # The run has ended by the time anything reads it, unless a test says otherwise.
     engine._progress_of.side_effect = lambda asked: _progress(asked, live=False)
     session = MagicMock()
@@ -110,6 +118,7 @@ def clicked(monkeypatch, centre_posts):
         engine=engine,
         run=run,
         linked=linked,
+        starters=starters,
         posts=centre_posts,
         starter=_Starter(),
     )
@@ -121,15 +130,15 @@ def test_the_button_states_only_what_the_gui_knows(clicked):
     clicked.runner.start_zstack.assert_called_once()
     kwargs = clicked.runner.start_zstack.call_args.kwargs
     assert kwargs['layer'] == 'Green'
-    assert kwargs['run_trigger_source'] == 'zstack'
     assert kwargs['enable_image_saving'] is False
-    # Nothing else about the run is the button's to say.
+    # Nothing else about the run is the button's to say; who started it is
+    # the GUI's stamp on the thread that starts it.
     assert set(kwargs) == {
         'layer',
         'events',
-        'run_trigger_source',
         'enable_image_saving',
     }
+    assert clicked.starters == [Caller.GUI]
 
 
 def test_the_button_starts_no_run_of_its_own(clicked):
@@ -238,12 +247,10 @@ class TestTheMemberCarriesWhatTheGuiStates:
         runner.session.engineering_mode = True
         runner.start_zstack(
             layer='BF',
-            run_trigger_source='zstack',
             enable_image_saving=False,
         )
 
         prepared = _prepared(runner)
-        assert prepared['run_trigger_source'] == 'zstack'
         assert prepared['engineering_mode'] is True
         assert prepared['enable_image_saving'] is False
 
@@ -255,7 +262,6 @@ class TestTheMemberCarriesWhatTheGuiStates:
         runner.start_zstack(layer='BF')
 
         prepared = _prepared(runner)
-        assert prepared['run_trigger_source'] == 'api_zstack'
         assert prepared['engineering_mode'] is False
         assert prepared['enable_image_saving'] is True
 

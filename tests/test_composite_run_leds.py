@@ -188,7 +188,6 @@ def aborted_composite(tmp_path):
             sequence_name='abort',
             parent_dir=str(tmp_path),
             events=RunEvents(step_started=_abort_after_the_first_step),
-            run_trigger_source='composite',
         )
         started.append(outcome)
         have_handle.set()

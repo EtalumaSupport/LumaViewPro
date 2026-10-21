@@ -1,11 +1,11 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""A protocol run and a single scan say who asked for them and in which mode.
+"""A protocol run and a single scan run in the session's mode, on the protocol handed in.
 
 The protocol panel's Run and Scan start through these two members, the same
-calls a script makes, so the members take what the panel knows and a script
-does not: the trigger the panel's strings are named by, and the engineering
-mode a plugin may have flipped after the session was built. A caller that
-passes neither gets the API's own trigger and the session's mode.
+calls a script makes. The engineering mode is the session's, read at the
+start, so a plugin that flipped it after the session was built is obeyed.
+Who started the run is not the member's to say: ``prepare`` reads it from
+the host's stamp on the calling thread (``modules.caller``).
 """
 
 import pytest
@@ -20,30 +20,18 @@ def _run(runner, member, **kwargs):
     return protocol
 
 
-@pytest.mark.parametrize(
-    'member, api_trigger',
-    [('start_protocol', 'api_protocol'), ('start_single_scan', 'api_scan')],
-)
-class TestTheCallerNamesItsRun:
-    def test_a_script_gets_the_apis_trigger_and_the_sessions_mode(self, member, api_trigger):
+@pytest.mark.parametrize('member', ['start_protocol', 'start_single_scan'])
+class TestTheRunIsTheSessions:
+    @pytest.mark.parametrize('mode', [True, False])
+    def test_the_run_gets_the_sessions_mode(self, member, mode):
         runner = _runner()
-        runner.session.engineering_mode = True
+        runner.session.engineering_mode = mode
 
         _run(runner, member)
 
-        assert _prepared(runner)['run_trigger_source'] == api_trigger
-        assert _prepared(runner)['engineering_mode'] is True
+        assert _prepared(runner)['engineering_mode'] is mode
 
-    def test_the_panel_gets_its_own_trigger_and_the_sessions_mode(self, member, api_trigger):
-        runner = _runner()
-        runner.session.engineering_mode = False
-
-        _run(runner, member, run_trigger_source='protocol')
-
-        assert _prepared(runner)['run_trigger_source'] == 'protocol'
-        assert _prepared(runner)['engineering_mode'] is False
-
-    def test_the_run_is_of_the_protocol_handed_in(self, member, api_trigger):
+    def test_the_run_is_of_the_protocol_handed_in(self, member):
         runner = _runner()
 
         protocol = _run(runner, member)

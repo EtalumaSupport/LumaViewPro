@@ -239,7 +239,6 @@ def executor(scope, executors):
 def _prepare(executor, protocol, tmp_path, events=None, sequence_name='refusal_contract'):
     return executor.prepare(
         protocol=protocol,
-        run_trigger_source='test',
         run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
         sequence_name=sequence_name,
         image_capture_config=_make_image_capture_config(),
@@ -492,7 +491,7 @@ class TestLateFailurePreservesNothingAndLeavesNoOrphan:
         first_num_scans = executor.num_scans()
         # The completed run released the scope, so nobody holds it -- the
         # state the refused prepare below must also leave untouched.
-        assert executor.run_trigger_source() is None, (
+        assert executor.run_started_by() is None, (
             'a settled run still names itself as the holder of the scope'
         )
         listing_after_first = sorted(p.name for p in output_dir.iterdir())
@@ -517,7 +516,7 @@ class TestLateFailurePreservesNothingAndLeavesNoOrphan:
             'into it would target the wrong location'
         )
         assert executor.num_scans() == first_num_scans
-        assert executor.run_trigger_source() is None, (
+        assert executor.run_started_by() is None, (
             'a refused prepare must not make the runner claim to hold the scope'
         )
         assert sorted(p.name for p in output_dir.iterdir()) == listing_after_first, (
@@ -540,7 +539,6 @@ class TestTheCompositeChannelFloor:
     def _prepare_composite(executor, protocol, tmp_path):
         return executor.prepare(
             protocol=protocol,
-            run_trigger_source='test',
             run_mode=SequencedCaptureRunMode.SINGLE_COMPOSITE,
             sequence_name='composite_floor',
             image_capture_config=_make_image_capture_config(),
@@ -836,7 +834,7 @@ class TestTheRefusalFunnel:
             mp.setattr(
                 executor.autofocus_thread,
                 'in_flight_sweep',
-                AutofocusSweep(future=Future(), run=run_identity('autofocus')),
+                AutofocusSweep(future=Future(), run=run_identity()),
             )
             return _make_single_step_protocol()
 

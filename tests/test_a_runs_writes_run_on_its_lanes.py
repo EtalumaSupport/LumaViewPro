@@ -315,7 +315,7 @@ def test_the_run_door_refuses_the_lender_of_a_borrowed_run():
     lane.ask_claim(claim)
     lane.start()
     diagnostic = claim.try_claim('diagnostic')
-    run = diagnostic.lend().try_claim('protocol', run=run_identity('api_autofocus'))
+    run = diagnostic.lend().try_claim('protocol', run=run_identity())
     lane.protocol_start(run)
     ran = threading.Event()
     try:

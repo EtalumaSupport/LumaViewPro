@@ -48,6 +48,7 @@ from modules.activity_claim import (
     current_taking,
     the_holder_named,
 )
+from modules.caller import Caller
 from modules.exceptions import (
     AlreadyStartedError,
     ArgumentRefusedError,
@@ -714,7 +715,7 @@ class ScopeSession:
                 reason='exclusive_activity_running',
                 message=f'{named} is using the microscope. Let it finish, then start the diagnostic.',
                 holder=kind,
-                holder_trigger=(holder.run_trigger_source if holder is not None else None),
+                holder_trigger=(holder.run_started_by if holder is not None else None),
             )
         # Set by the block's own raise, never read from sys.exc_info(): a
         # clean block opened inside a caller's except would read as raised.
@@ -3981,9 +3982,12 @@ class ScopeSession:
             self.plugins.unload(self)
 
     def _run_protocol_complete_processors(
-        self, run_dir: pathlib.Path, files: str, trigger_source: str, protocol_name: str
+        self, run_dir: pathlib.Path, files: str, trigger_source: Caller, protocol_name: str
     ) -> None:
         """Hand a finished Full Protocol's folder to the opted-in processors.
+
+        The manifest's ``trigger_source`` is who started the run: ``'gui'``,
+        ``'rest'`` or ``'api'`` (``modules.caller``).
 
         The run engine calls this once per Full Protocol, on the run's own
         post-run thread, after its images are written and its hyperstack

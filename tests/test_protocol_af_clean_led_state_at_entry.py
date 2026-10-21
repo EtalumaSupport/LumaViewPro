@@ -102,7 +102,6 @@ class TestAutofocusAcquiresLeaseBeforeIllumination:
         with pytest.raises(TypeError, match='led_lease'):
             runner.run(
                 objective_id='objective-under-test',
-                run_trigger_source='manual',
                 abort_event=threading.Event(),
                 led_color='Red',
                 led_illumination=42.0,

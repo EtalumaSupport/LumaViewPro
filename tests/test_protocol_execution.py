@@ -281,7 +281,6 @@ def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
 
     plan = executor.prepare(
         protocol=protocol,
-        run_trigger_source='test',
         run_mode=run_kwargs.pop('run_mode', SequencedCaptureRunMode.SINGLE_SCAN),
         sequence_name='test_run',
         image_capture_config=run_kwargs.pop('image_capture_config', _make_image_capture_config()),
@@ -1382,7 +1381,6 @@ class TestCancellationMidRun:
 
         plan = executor.prepare(
             protocol=protocol,
-            run_trigger_source='test',
             run_mode=SequencedCaptureRunMode.FULL_PROTOCOL,
             sequence_name='test_cancel',
             image_capture_config=_make_image_capture_config(),
@@ -1414,7 +1412,6 @@ class TestCancellationMidRun:
 
         plan = executor.prepare(
             protocol=protocol,
-            run_trigger_source='test',
             run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
             sequence_name='test_early_cancel',
             image_capture_config=_make_image_capture_config(),
@@ -1489,7 +1486,6 @@ class TestDisconnectedScope:
         with pytest.raises(ProtocolRunRefusedError):
             executor.prepare(
                 protocol=protocol,
-                run_trigger_source='test',
                 run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
                 sequence_name='test_disconnected',
                 image_capture_config=_make_image_capture_config(),
@@ -1663,7 +1659,6 @@ class TestSavingWithNoneParentDir:
 
         plan = executor.prepare(
             protocol=protocol,
-            run_trigger_source='test',
             run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
             sequence_name='test_no_parent',
             image_capture_config=_make_image_capture_config(),
@@ -1711,7 +1706,6 @@ class TestMinimalEvents:
 
         plan = executor.prepare(
             protocol=protocol,
-            run_trigger_source='test',
             run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
             sequence_name='test_minimal_cb',
             image_capture_config=_make_image_capture_config(),
@@ -1779,7 +1773,6 @@ class TestCleanupConcurrency:
         done = threading.Event()
         plan = executor.prepare(
             protocol=protocol,
-            run_trigger_source='test',
             run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
             sequence_name='test_concurrent',
             image_capture_config=_make_image_capture_config(),
@@ -2001,7 +1994,6 @@ class TestCameraStateRestoration:
         done = threading.Event()
         plan = executor.prepare(
             protocol=protocol,
-            run_trigger_source='test',
             run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
             sequence_name='test_cancel_restore',
             image_capture_config=_make_image_capture_config(),
@@ -2057,7 +2049,6 @@ class TestCleanupCorrectness:
         done = threading.Event()
         plan = executor.prepare(
             protocol=protocol,
-            run_trigger_source='test',
             run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
             sequence_name='test_abort_leds',
             image_capture_config=_make_image_capture_config(),
@@ -2210,7 +2201,6 @@ class TestRunReturnValueContract:
     def _prepare_run(self, executor, protocol, tmp_path, events=None):
         return executor.prepare(
             protocol=protocol,
-            run_trigger_source='test',
             run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
             sequence_name='run_contract_test',
             image_capture_config=_make_image_capture_config(),
@@ -2248,7 +2238,7 @@ class TestRunReturnValueContract:
             'can answer instead of raising AttributeError'
         )
         assert executor.run_dir() is None
-        assert executor.run_trigger_source() is None
+        assert executor.run_started_by() is None
 
     def test_dir_setup_failure_fails_at_start_and_recovers(
         self, executor, scope, tmp_path, monkeypatch, centre_posts

@@ -414,7 +414,6 @@ def test_prepare_refusal_names_stalled_writer(tmp_path):
     def _prepare():
         runner.prepare(
             protocol=MagicMock(),
-            run_trigger_source='test',
             run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
             sequence_name='t',
             image_capture_config=ImageCaptureConfig.from_image_mode('8bit'),

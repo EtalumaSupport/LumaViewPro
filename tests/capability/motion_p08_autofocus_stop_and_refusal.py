@@ -7,6 +7,7 @@ start returned.
 """
 
 from harness import REPO, check, run
+from modules.caller import Caller
 from modules.protocol_runner import ProtocolRunner
 from modules.run_events import RunEvents
 
@@ -22,8 +23,8 @@ def body(s):
     earlier = runner.start_autofocus(layer='BF')
     check('the earlier run finished', earlier.result(timeout=300) is not None)
 
-    # --- a run in flight names its trigger source; the GUI's is 'autofocus',
-    #     start_autofocus's is 'api_autofocus'.
+    # --- a run in flight names who started it: the host stamped on the
+    #     starting thread, a script ('api') where none did.
     seen = {}
 
     def on_ended(outcome, run_dir, protocol):
@@ -31,11 +32,11 @@ def body(s):
 
     pending = runner.start_autofocus(layer='BF', events=RunEvents(run_ended=on_ended))
     holder = s.activity_claim.holder
-    src = holder.run_trigger_source if holder is not None else None
+    src = holder.run_started_by if holder is not None else None
     check(
-        "the API member's trigger source is 'api_autofocus', not the GUI's 'autofocus'",
-        src in ('api_autofocus', None),
-        f'run_trigger_source={src!r}',
+        "an unstamped caller's run is started by the API, not the GUI",
+        src in (Caller.API, None),
+        f'run_started_by={src!r}',
     )
 
     # --- a STOP through a handle whose run is not the live one does nothing

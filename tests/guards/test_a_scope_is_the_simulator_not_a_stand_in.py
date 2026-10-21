@@ -194,7 +194,7 @@ ALLOWED = frozenset(
         'tests/test_a_gesture_is_one_lane_task.py::env',
         'tests/test_a_protocol_edit_is_the_apis_answer.py::ctx',
         'tests/test_a_recorded_frame_says_where_it_was_taken.py::_fake_scope',
-        'tests/test_a_refusal_names_the_run_holding_the_scope.py::TestARawTokenNeverReachesAPerson.test_a_diagnostic_refused_by_a_run_names_the_run',
+        'tests/test_a_refusal_names_the_run_holding_the_scope.py::TestWhoStartedTheRunNeverReachesTheSentence.test_a_diagnostic_refused_by_a_run_names_the_run',
         'tests/test_a_refused_auto_mode_is_not_recorded.py::sim_camera',
         'tests/test_a_refused_frame_listener_is_raised.py::TestAFailingHandlerIsBounded.test_a_handler_raising_k_frames_running_is_removed_with_one_traceback',
         'tests/test_a_refused_frame_listener_is_raised.py::TestAFailingHandlerIsBounded.test_a_handler_that_recovers_before_k_is_kept',

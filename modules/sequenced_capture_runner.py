@@ -35,6 +35,7 @@ from modules.activity_claim import (
     the_holder_named,
     the_run_named,
 )
+from modules.caller import Caller, current_caller
 from modules.autofocus_runner import AutofocusRunner
 from modules.layer_record import ChannelColors
 from modules.coord_transformations import PlateLocation, StageOffset
@@ -264,7 +265,7 @@ class RunPlan:
 
     protocol: Protocol
     run_mode: SequencedCaptureRunMode
-    run_trigger_source: str
+    started_by: Caller
     sequence_name: str
     image_capture_config: image_mode.ImageCaptureConfig
     autogain_settings: dict
@@ -654,7 +655,8 @@ class SequencedCaptureRunner:
         STOP pressed while it ran.
 
         Anyone may stop the live run, and the stop names the run rather
-        than the caller: who asks is self-declared and protects nothing,
+        than the caller: who asks protects nothing, so it is only logged,
+        and a Stop's ending says it (the host's stamp, ``modules.caller``),
         while a stale toggle naming an OLD run is the hole that once
         destroyed a scan it never started. A stop naming a run that is not
         the live one does nothing: its run has ended, and the live run, if
@@ -672,10 +674,16 @@ class SequencedCaptureRunner:
         runner. Callers that must wait for the teardown to finish (app
         shutdown) use wait_for_run_idle().
         """
+        stopper = current_caller()
         with self._run_lock:
             if not self._is_live_run_locked(run):
                 return
-            self._ending.set_if_unset(ending or RunEnding('aborted', 'stopped', 'Stopped'))
+            logger.info(
+                f'[{self.LOGGER_NAME}] {the_run_named(self._run_identity)} stopped by {stopper.words}'
+            )
+            self._ending.set_if_unset(
+                ending or RunEnding('aborted', 'stopped', f'Stopped by {stopper.words}.')
+            )
             self.protocol_thread.abort()
 
     def force_reset(self, reason: str) -> None:
@@ -700,8 +708,9 @@ class SequencedCaptureRunner:
                 return
 
             logger.warning(
-                f'[{self.LOGGER_NAME}] force_reset({reason}): tearing down the '
-                f'{self._last_run_trigger()} run without an owner check'
+                f'[{self.LOGGER_NAME}] force_reset({reason}) by {current_caller().words}: '
+                f'tearing down the {self._run_identity.words} run, started by '
+                f'{self._run_identity.started_by.words}, without an owner check'
             )
             ending = RunEnding('aborted', 'shutdown', reason)
             self._ending.set_if_unset(ending)
@@ -788,12 +797,12 @@ class SequencedCaptureRunner:
 
     @staticmethod
     def _identity_of(plan: RunPlan) -> RunIdentity:
-        """The run a plan starts: its trigger, and its kind in words."""
-        return RunIdentity(trigger=plan.run_trigger_source, words=plan.run_mode.words)
+        """The run a plan starts: who started it, and its kind in words."""
+        return RunIdentity(started_by=plan.started_by, words=plan.run_mode.words)
 
-    def _last_run_trigger(self) -> 'str | None':
-        """The trigger of the run this runner last started; None before any."""
-        return self._run_identity.trigger if self._run_identity is not None else None
+    def _last_run_started_by(self) -> Caller | None:
+        """Who started the run this runner last started; None before any."""
+        return self._run_identity.started_by if self._run_identity is not None else None
 
     def _already_running(self) -> ProtocolRunRefusedError:
         """The refusal of a start because a run already holds the scope.
@@ -810,7 +819,7 @@ class SequencedCaptureRunner:
                 'Stop it from the control that started it, or let it finish.'
             ),
             holder='protocol',
-            holder_trigger=holder.trigger if holder is not None else None,
+            holder_trigger=holder.started_by if holder is not None else None,
         )
 
     def _foreign_holder(
@@ -836,7 +845,7 @@ class SequencedCaptureRunner:
         it are one fact rather than two reads that can disagree.
         """
         kind = holder.kind if holder is not None else None
-        trigger = holder.run_trigger_source if holder is not None else None
+        trigger = holder.run_started_by if holder is not None else None
         # A recording holding the scope is its own condition, under the
         # reason a recording start already uses for it.
         if kind == 'recording':
@@ -882,7 +891,7 @@ class SequencedCaptureRunner:
         message: str,
         *,
         holder: 'str | None' = None,
-        holder_trigger: 'str | None' = None,
+        holder_trigger: Caller | None = None,
         remedy: Remedy | None = None,
     ) -> ProtocolRunRefusedError:
         """The typed refusal, built and not raised.
@@ -905,7 +914,7 @@ class SequencedCaptureRunner:
         message: str,
         *,
         holder: 'str | None' = None,
-        holder_trigger: 'str | None' = None,
+        holder_trigger: Caller | None = None,
         remedy: Remedy | None = None,
     ) -> typing.NoReturn:
         """Raise the typed refusal.
@@ -1000,7 +1009,7 @@ class SequencedCaptureRunner:
                     batch.describe_stuck_write(),
                 )
                 return self._refusal(
-                    holder_trigger=self._last_run_trigger(),
+                    holder_trigger=self._last_run_started_by(),
                     reason='files_writing_stalled',
                     message=(
                         f'{stalled} Recover the file writer before starting a new run: '
@@ -1014,7 +1023,7 @@ class SequencedCaptureRunner:
                     f'{the_run_named(self._run_identity, sentence_start=True)} is still '
                     'writing its files. Please wait.'
                 ),
-                holder_trigger=self._last_run_trigger(),
+                holder_trigger=self._last_run_started_by(),
             )
 
         # A sweep still in flight with no run holding the scope is one its
@@ -1036,7 +1045,7 @@ class SequencedCaptureRunner:
                     'does not clear.'
                 ),
                 holder='autofocus',
-                holder_trigger=in_flight_sweep.run.trigger,
+                holder_trigger=in_flight_sweep.run.started_by,
             )
 
         # Before every protocol gate: a scope missing a part is told that
@@ -1061,7 +1070,6 @@ class SequencedCaptureRunner:
     def prepare(
         self,
         protocol: Protocol,
-        run_trigger_source: str,
         run_mode: SequencedCaptureRunMode,
         sequence_name: str,
         image_capture_config: image_mode.ImageCaptureConfig,
@@ -1096,8 +1104,10 @@ class SequencedCaptureRunner:
         parts are connected and the stage's interlocks -- and writes nothing
         to disk: a refused prepare is observationally a no-op. The
         record getters (run_dir(), num_scans()) still answer for the
-        previous run; run_trigger_source() answers for whoever holds
-        the scope, which a refused prepare did not change either. Callers commit their own
+        previous run; run_started_by() answers for whoever holds the
+        scope, which a refused prepare did not change either. The plan
+        records who started the run: the caller the host stamped on this
+        thread (``modules.caller``). Callers commit their own
         "a run is now underway" state (events, buttons, motion locks)
         only between a successful prepare() and start().
 
@@ -1344,7 +1354,8 @@ class SequencedCaptureRunner:
             borrowed_claim=borrowed_claim,
             protocol=execution_protocol,
             run_mode=run_mode,
-            run_trigger_source=run_trigger_source,
+            # Read here, on the starter's own thread, where its host stamped it.
+            started_by=current_caller(),
             sequence_name=sequence_name,
             # Frozen value object -- immutable by construction, so the plan
             # holds a true snapshot without copying.
@@ -1901,17 +1912,16 @@ class SequencedCaptureRunner:
         """
         return self._is_run_live()
 
-    def run_trigger_source(self) -> 'str | None':
-        """The trigger of the run HOLDING the scope; None when none does.
+    def run_started_by(self) -> Caller | None:
+        """Who started the run HOLDING the scope; None when none does.
 
         Answered off the session claim, which is taken and released with
         the run, so this cannot outlive the run it names. The runner's
-        private field is a different thing -- the plan's copy, read
-        inside the run as the run's own parameter and by the file-drain
-        refusals as the just-finished run's.
+        private field is a different thing -- the plan's copy, read by the
+        file-drain refusals as the just-finished run's.
         """
         run = self._activity_claim.run_holder
-        return run.run_trigger_source if run is not None else None
+        return run.run_started_by if run is not None else None
 
     def _cancel_all_scheduled_events(self):
         """Cancel any remaining scheduled events.
@@ -2458,14 +2468,14 @@ class SequencedCaptureRunner:
         ):
             return
         write_batch = self._write_batch
-        trigger_source = self._run_identity.trigger
+        started_by = self._run_identity.started_by
         protocol_name = self._sequence_name
 
         def _handoff() -> None:
             write_batch.wait_complete(None)
             if build is not None:
                 build.join()
-            handoff(run_dir, write_batch.outcome, trigger_source, protocol_name)
+            handoff(run_dir, write_batch.outcome, started_by, protocol_name)
 
         self._spawn_post_run_step(name='protocol-files-handoff', build_fn=_handoff)
 

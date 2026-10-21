@@ -10,12 +10,13 @@ engine's answer about this button's own run, never the toggle's state.
 """
 
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import DEFAULT, MagicMock
 
 import pytest
 
 
 import modules.app_context as _app_ctx
+from modules.caller import Caller, current_caller
 from modules.exceptions import ProtocolRunRefusedError
 from modules.protocol_image_writer import RunWriteBatch
 from modules.run_outcome import PendingRunOutcome
@@ -126,13 +127,15 @@ def test_the_button_hands_the_press_to_the_engine_and_decides_nothing(
     # that better than prepare() does.
     app_ctx.scope.camera.active = False
     starter = _Starter()
+    starters = []
+    runner.start_composite.side_effect = lambda **_kw: starters.append(current_caller()) or DEFAULT
 
     _click(starter)
 
     runner.start_composite.assert_called_once()
     kwargs = runner.start_composite.call_args.kwargs
     assert 'parent_dir' not in kwargs, 'the button composed a folder the API already owns'
-    assert kwargs['run_trigger_source'] == 'composite'
+    assert starters == [Caller.GUI], 'the press reaches the API stamped as the GUI'
     assert 'engineering_mode' not in kwargs, "the mode is the session's; the button states none"
     assert not app_ctx.sequenced_capture_runner._stop_run.called, 'a start is not a stop'
 

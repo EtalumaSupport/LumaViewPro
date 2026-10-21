@@ -30,6 +30,7 @@ import time
 import weakref
 from collections.abc import Callable
 
+from modules.caller import Caller, calling
 from modules.operation import Operation
 from rest import problems
 from rest.problems import Answer
@@ -216,7 +217,10 @@ class JobRegistry:
 
         def run() -> None:
             try:
-                answer = work()
+                # Every member a REST call reaches runs on this thread, so a
+                # run it starts or a stop it makes records a REST client.
+                with calling(Caller.REST):
+                    answer = work()
             except BaseException as e:
                 # A SystemExit on this thread ends the call, not the server: the
                 # request is answered as the fault it is rather than left waiting.
@@ -389,7 +393,8 @@ class JobRegistry:
                 f'Job {job_id} is a call held as a job when it outlived its wait: it '
                 'holds no operation to stop, and is forgotten once it has ended.',
             )
-        job.operation.stop()
+        with calling(Caller.REST):
+            job.operation.stop()
         return job
 
     def listing(self) -> list[dict[str, object]]:

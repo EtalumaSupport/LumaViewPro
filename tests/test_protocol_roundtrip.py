@@ -322,7 +322,6 @@ def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
 
     plan = executor.prepare(
         protocol=protocol,
-        run_trigger_source='test',
         run_mode=run_kwargs.pop('run_mode', SequencedCaptureRunMode.SINGLE_SCAN),
         sequence_name='test_run',
         image_capture_config=run_kwargs.pop('image_capture_config', _make_image_capture_config()),
@@ -1454,7 +1453,6 @@ class TestExecuteCancellation:
 
         plan = executor.prepare(
             protocol=proto,
-            run_trigger_source='test',
             run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
             sequence_name='test_cancel',
             image_capture_config=_make_image_capture_config(),
@@ -1784,7 +1782,6 @@ class TestExecutorEdgeCases:
         with pytest.raises(ProtocolRunRefusedError):
             real_executor.prepare(
                 protocol=proto,
-                run_trigger_source='test',
                 run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
                 sequence_name='empty_test',
                 image_capture_config=_make_image_capture_config(),

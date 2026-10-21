@@ -163,7 +163,6 @@ class ZStack(FloatLayout):
             started = runner.start_zstack(
                 layer=layer,
                 events=events,
-                run_trigger_source='zstack',
                 enable_image_saving=enable_image_saving,
             )
             self._zstack_run = started

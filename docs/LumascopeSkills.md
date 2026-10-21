@@ -906,7 +906,7 @@ Unlike `start_autofocus`, the slices are the product: the run saves its images (
 
 `return_to_start` is on by default: a stack ends at whichever end of its range it finished on, which is not where the operator was looking, so the stage goes back to the position the stack was centred on. Pass `return_to_start=False` to leave it where the stack ended.
 
-`start_single_scan()` runs one scan; `start_protocol()` runs the full multi-scan protocol. `start_single_scan(protocol, return_to_position=...)` returns the stage to a `PlateLocation` once the scan ends, however it ends. The location is read on the protocol's plate, since the run moves in its protocol's frame: `session.get_current_plate_position()` states one on the selected plate, which is the protocol's when the protocol was made on it. An axis given None is left where the scan left it. LumaViewPro's own Scan and Run buttons start their runs through these two calls. Both take an optional `run_trigger_source`, the provenance recorded on the run and named in a refusal's `holder_trigger` (default `'api_scan'` / `'api_protocol'`; the buttons pass `'scan'` / `'protocol'`). Whether a run stamps the turret position into its filenames is the session's `engineering_mode` when the run starts. A run reads its image mode (`set_image_mode`) and output formats from the settings when it starts. Both raise `ProtocolRunRefusedError` (`modules.exceptions`) when the run is refused before any state is committed -- already running, files still writing, empty protocol, a validation failure, hardware not connected, a camera that is connected but not streaming (`camera_not_streaming`: its feed was stopped -- `scope.imaging.enable_streaming()` restarts it; a frame-size or binning change in flight is waited out, not refused), an axis whose position is unknown (`position_unknown`: the scope is not homed -- the message names each axis), a home running (`exclusive_activity_running`, `holder='home'`), a video recording live or still finishing (`recording_active`, `holder='recording'`), the stage's lid open (`lid_open`: every run moves X and Y, which the open lid refuses), a `sequence_name` that is a path rather than a name (`sequence_name_invalid`: it holds `/` or `\`, a drive, or is `..`; the name is the protocol file the run saves inside its folder, and a blank one is `unsaved_protocol`), or a live owner holding the illumination. Its `str()` is the sentence written for a person, and an L2 caller branches on its `reason` / `title` / `message` attributes (they map cleanly to a REST status code or a UI message). A run that could not be checked at all -- validating the protocol, or reading whether the hardware is connected, or reading the stage's interlocks, crashed instead of answering -- is not a refusal: it raises `RunCheckFailedError` (`modules.exceptions`, reason `validation_crashed` or `hardware_state_unknown`), a fault with the crash chained as `__cause__`. Neither commits anything, so neither needs unwinding. What a run tells its caller as it goes is its run events, below.
+`start_single_scan()` runs one scan; `start_protocol()` runs the full multi-scan protocol. `start_single_scan(protocol, return_to_position=...)` returns the stage to a `PlateLocation` once the scan ends, however it ends. The location is read on the protocol's plate, since the run moves in its protocol's frame: `session.get_current_plate_position()` states one on the selected plate, which is the protocol's when the protocol was made on it. An axis given None is left where the scan left it. LumaViewPro's own Scan and Run buttons start their runs through these two calls. A run records who started it, from the host it came through rather than from any argument: `'gui'` for LumaViewPro's own controls, `'rest'` for a REST client, `'api'` for code in the process (a script, the SDK, a plugin), as `Caller` (`modules.caller`) names them; a refusal it causes carries that as `holder_trigger`, and a Stop of it ends it with a message naming who stopped it ("Stopped by a REST client."). Whether a run stamps the turret position into its filenames is the session's `engineering_mode` when the run starts. A run reads its image mode (`set_image_mode`) and output formats from the settings when it starts. Both raise `ProtocolRunRefusedError` (`modules.exceptions`) when the run is refused before any state is committed -- already running, files still writing, empty protocol, a validation failure, hardware not connected, a camera that is connected but not streaming (`camera_not_streaming`: its feed was stopped -- `scope.imaging.enable_streaming()` restarts it; a frame-size or binning change in flight is waited out, not refused), an axis whose position is unknown (`position_unknown`: the scope is not homed -- the message names each axis), a home running (`exclusive_activity_running`, `holder='home'`), a video recording live or still finishing (`recording_active`, `holder='recording'`), the stage's lid open (`lid_open`: every run moves X and Y, which the open lid refuses), a `sequence_name` that is a path rather than a name (`sequence_name_invalid`: it holds `/` or `\`, a drive, or is `..`; the name is the protocol file the run saves inside its folder, and a blank one is `unsaved_protocol`), or a live owner holding the illumination. Its `str()` is the sentence written for a person, and an L2 caller branches on its `reason` / `title` / `message` attributes (they map cleanly to a REST status code or a UI message). A run that could not be checked at all -- validating the protocol, or reading whether the hardware is connected, or reading the stage's interlocks, crashed instead of answering -- is not a refusal: it raises `RunCheckFailedError` (`modules.exceptions`, reason `validation_crashed` or `hardware_state_unknown`), a fault with the crash chained as `__cause__`. Neither commits anything, so neither needs unwinding. What a run tells its caller as it goes is its run events, below.
 
 **Waiting forms.** Each run's start has a waiting form, in-process only: `run_single_scan`, `run_protocol`, `run_autofocus`, `run_autofocus_all_steps`, `run_zstack` and `run_composite` take their start's arguments and `timeout_s`, and are `start_X(...).result(timeout_s)`: they start the run and return its outcome however it ended, a stopped run's included. Over REST a start's job with `Prefer: wait` is the waiting form. A wait that runs out raises `RunWaitExpiredError` (`modules.exceptions`, reason `still_running`, a `TimeoutError`, quiet), whose `operation` is the run, still going, to wait on again or to stop. On the UI thread each is refused before it starts anything (`BlockingCallRefusedError`, `wait_on_ui_thread`). `run_composite` alone also raises when the run produced no composite (below).
 
@@ -1087,7 +1087,7 @@ Recording starts are guarded like protocol starts: `RecordingRefusedError` (`mod
 
 While a manual recording holds the scope -- live or still draining its frames -- it refuses, for every caller, what would falsify its file: the camera's `set_frame_size`, `set_binning` and `set_image_mode` (before anything is saved), `motion.move_turret`, the Session's objective writers (`select_objective`, `assign_turret_objective`, `clear_turret_objective`, `clear_current_turret_objective`) and `select_labware`. Each raises `HardwareCommandRefusedError` with `reason='exclusive_activity_running'` and `holder='recording'`. A home of any axis is refused the same way, since a home holds the whole scope. X/Y/Z moves, LED, gain and exposure stay open to an API caller; a recording's feed-death bound follows an exposure raised mid-recording. The LumaViewPro GUI locks its whole control surface during a live recording, Record/Stop excepted.
 
-Both refusal errors say busy-with-what: `holder` carries what holds the microscope at refusal time (`'protocol'`, `'recording'`, `'diagnostic'` or `'home'` for the exclusive-activity owner, `'autofocus'` for a sweep that did not stop when its run ended, None for refusals that are not holder-shaped), and `holder_trigger` carries the `run_trigger_source` of the run behind that holder -- the run holding the scope, or, for an `autofocus_running` refusal, the run that dispatched the sweep (`'protocol'`, `'autofocus_scan'`, `'zstack'`, `'autofocus'`, `'api_scan'`, `'api_composite'`, `'composite'`, ...). The two are different axes: `holder` is the activity, `holder_trigger` the provenance string the run's starter passed, so a standalone autofocus refused for its own sweep carries `'autofocus'` in both. A recording holder has no trigger -- its kind is the whole answer. File-drain refusals (`files_writing*`) carry the just-finished run's trigger so a poller can report whose files are draining. The `message` names a run by its kind in words ("The Z-stack run is using the microscope"), never by its trigger token; branch on `holder_trigger`, show `message`.
+Both refusal errors say busy-with-what: `holder` carries what holds the microscope at refusal time (`'protocol'`, `'recording'`, `'diagnostic'` or `'home'` for the exclusive-activity owner, `'autofocus'` for a sweep that did not stop when its run ended, None for refusals that are not holder-shaped), and `holder_trigger` carries who started the run behind that holder -- the run holding the scope, or, for an `autofocus_running` refusal, the run that dispatched the sweep: `'gui'`, `'rest'` or `'api'` (`Caller`, `modules.caller`). The two are different axes: `holder` is the activity, `holder_trigger` who started it. A recording holder has no starter recorded -- its kind is the whole answer, and `holder_trigger` is None. File-drain refusals (`files_writing*`) carry the just-finished run's starter so a poller can report whose files are draining. Both fields are published: a REST problem for `ProtocolRunRefusedError`, `RecordingRefusedError` or `DiagnosticRefusedError` carries `holder` and `holder_trigger`. The `message` names a run by its kind in words ("The Z-stack run is using the microscope"); branch on `holder` and `holder_trigger`, show `message`.
 
 **Opening hyperstacks in Fiji:** the container is OME-TIFF; channel color travels as OME `Channel.Color`. Open via `Plugins > Bio-Formats > Importer` with **Color mode = Composite** (the choice persists per user through that dialog). A plain `File > Open` renders ImageJ's default LUTs, not the file's channel colors.
 
@@ -3676,6 +3676,13 @@ Reached through returned by `scope.imaging.get_delivered_rate`.
 - `bytes_per_s`
 - `frames_per_s`
 
+### DiagnosticRefusedError
+
+Reached through a REST problem, whose members carry it.
+
+- `holder`
+- `holder_trigger`
+
 ### DisplayRates
 
 Implemented by a host with a live display, and passed to `session.enable_metrics(display=...)`.
@@ -4005,6 +4012,13 @@ Reached through a REST problem, whose members carry it.
 
 - `excluded_inputs`
 
+### ProtocolRunRefusedError
+
+Reached through a REST problem, whose members carry it.
+
+- `holder`
+- `holder_trigger`
+
 ### ProtocolSizeAdvisory
 
 Reached through returned by `session.protocol_size_advisory` and `Protocol.size_advisory`.
@@ -4012,6 +4026,13 @@ Reached through returned by `session.protocol_size_advisory` and `Protocol.size_
 - `message`
 - `num_steps`
 - `projected_mb`
+
+### RecordingRefusedError
+
+Reached through a REST problem, whose members carry it.
+
+- `holder`
+- `holder_trigger`
 
 ### Remedy
 

@@ -319,7 +319,7 @@ class VideoRecordingEngine:
                         'Let it finish, then start the recording.'
                     ),
                     holder=holder.kind if holder is not None else None,
-                    holder_trigger=(holder.run_trigger_source if holder is not None else None),
+                    holder_trigger=(holder.run_started_by if holder is not None else None),
                 )
             self._held_claim = held
             try:

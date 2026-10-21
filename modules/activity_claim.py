@@ -6,6 +6,7 @@ import threading
 from collections.abc import Iterator
 from dataclasses import dataclass
 from modules.api_surface import api
+from modules.caller import Caller
 from modules.exceptions import (
     RecordingRefusedError,
     Refusal,
@@ -74,16 +75,15 @@ def acting(taking: 'Taking | None') -> Iterator[None]:
 
 @dataclass(frozen=True)
 class RunIdentity:
-    """Which run: where it came from, and what it is in a person's words.
+    """Which run: who started it, and what it is in a person's words.
 
-    ``trigger`` is provenance -- the run_trigger_source its starter passed,
-    recorded and handed to callers as ``holder_trigger``. ``words`` is the
-    run's kind as a sentence names it ('Z-stack'), so a refusal never prints
-    a raw token such as 'api_autofocus_scan'. One object, so the two cannot
-    come from different runs.
+    ``started_by`` is provenance -- the caller the starter's host stamped on
+    its thread (``modules.caller``), handed to callers as a refusal's
+    ``holder_trigger``. ``words`` is the run's kind as a sentence names it
+    ('Z-stack'). One object, so the two cannot come from different runs.
     """
 
-    trigger: str
+    started_by: Caller
     words: str
 
 
@@ -120,9 +120,9 @@ class ActivityHolder:
             )
 
     @property
-    def run_trigger_source(self) -> str | None:
-        """The holding run's trigger; None for an activity that is not a run."""
-        return self.run.trigger if self.run is not None else None
+    def run_started_by(self) -> Caller | None:
+        """Who started the holding run; None for an activity that is not a run."""
+        return self.run.started_by if self.run is not None else None
 
 
 def the_holder_named(holder: ActivityHolder | None) -> str:

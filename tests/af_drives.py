@@ -101,7 +101,6 @@ def drive_af(runner, **overrides):
     """
     kwargs = {
         'objective_id': 'objective-under-test',
-        'run_trigger_source': 'manual',
         'abort_event': threading.Event(),
         # No channel unless a test names one; run() requires both.
         'led_color': None,

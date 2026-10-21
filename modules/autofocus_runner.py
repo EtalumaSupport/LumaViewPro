@@ -181,7 +181,6 @@ class AutofocusRunner:
         self,
         objective_id: str,
         save_results_to_file: bool = False,
-        run_trigger_source: str | None = None,
         results_dir: pathlib.Path | None = None,
         camera_gain: float | None = None,
         camera_exposure: float | None = None,
@@ -203,7 +202,6 @@ class AutofocusRunner:
             objective_id: which objective profile to use.
             save_results_to_file: if True, save the AF results to
                 results_dir at AF end, as one of the run's writes.
-            run_trigger_source: free-form string recorded in saved data.
             results_dir: required when save_results_to_file=True.
             led_color, led_illumination, camera_gain, camera_exposure:
                 AF-scan settings applied at start, restored at end. Under
@@ -260,7 +258,6 @@ class AutofocusRunner:
         self._reset_state()
         self._abort_event = abort_event
         self._stay_put = stay_put
-        self._run_trigger_source = run_trigger_source
         self._led_color = led_color
         self._led_illumination = led_illumination
         self._camera_gain = camera_gain
@@ -414,7 +411,7 @@ class AutofocusRunner:
                     break
 
             if abort_event.is_set() and not self._is_complete_event.is_set():
-                _af_log.info(f'--- AF ABORTED by caller (source={self._run_trigger_source}) ---')
+                _af_log.info('--- AF ABORTED ---')
                 self._ended_by_a_stop = self._stay_put is not None and self._stay_put.is_set()
                 raise AutofocusStopped()
 
@@ -1163,7 +1160,6 @@ class AutofocusRunner:
         self._write_batch = None
         self._last_pass = False
         self._params = {}
-        self._run_trigger_source = None
         self._led_color = None
         self._led_illumination = 0
 

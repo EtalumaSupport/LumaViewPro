@@ -1170,7 +1170,7 @@ class ProtocolSettings(FloatLayout):
         """
         ctx = _app_ctx.ctx
         member = ctx.session.create_protocol_runner()
-        trigger_source = 'autofocus_scan'
+        button = 'autofocus_scan'
         protocol = self._protocol
 
         def _ended(*_ended):
@@ -1188,10 +1188,9 @@ class ProtocolSettings(FloatLayout):
         )
 
         def _start():
-            self._runs_started_here[trigger_source] = member.start_autofocus_all_steps(
+            self._runs_started_here[button] = member.start_autofocus_all_steps(
                 protocol,
                 events=events,
-                run_trigger_source=trigger_source,
             )
 
         return _start
@@ -1208,7 +1207,7 @@ class ProtocolSettings(FloatLayout):
         ctx = _app_ctx.ctx
         return self._sequenced_capture_start(
             start_run=ctx.session.create_protocol_runner().start_single_scan,
-            run_trigger_source='scan',
+            button='scan',
             protocol=self._protocol.copy_for_execution(),
             scan_started=lambda *_scan: self._run_scan_pre_callback(),
             scan_ended=lambda *_scan: self.draw_protocol_buttons(),
@@ -1234,7 +1233,7 @@ class ProtocolSettings(FloatLayout):
 
         return self._sequenced_capture_start(
             start_run=ctx.session.create_protocol_runner().start_protocol,
-            run_trigger_source='protocol',
+            button='protocol',
             protocol=protocol,
             scan_started=_scan_started,
         )
@@ -1259,7 +1258,7 @@ class ProtocolSettings(FloatLayout):
     def _sequenced_capture_start(
         self,
         start_run: typing.Callable[..., 'Operation'],
-        run_trigger_source: str,
+        button: str,
         protocol: Protocol,
         *,
         scan_started: typing.Callable[..., object],
@@ -1270,7 +1269,8 @@ class ProtocolSettings(FloatLayout):
         Runs on the GUI thread, so every value a widget holds is read here
         and closed over. The call it returns is what the worker pool runs --
         the runner member a script calls, the handle this button's Stop
-        names, and the save folder -- and touches no widget. The run's
+        names (kept under *button*, the panel's own key), and the save
+        folder -- and touches no widget. The run's
         events show the run on the panel: the scan handlers are the
         starter's own, the rest every Scan and Protocol run shares.
         """
@@ -1299,9 +1299,8 @@ class ProtocolSettings(FloatLayout):
                 sequence_name=sequence_name,
                 enable_image_saving=enable_image_saving,
                 events=events,
-                run_trigger_source=run_trigger_source,
             )
-            self._runs_started_here[run_trigger_source] = started
+            self._runs_started_here[button] = started
             # A start() that failed during setup unwound as a failed run: its
             # run_dir is None (set_last_save_folder no-ops on None), so the
             # saved folder never names a run that did not happen.

@@ -22,6 +22,7 @@ from tests.settings_fixtures import complete_settings
 
 
 from modules import live_work
+from modules.caller import Caller, calling
 from modules.exceptions import ProtocolRunRefusedError
 from tests.protocol_drives import wait_until_not_running
 from tests.scope_fakes import home_sim_scope
@@ -157,7 +158,7 @@ class TestClaimRefusalLeavesNoState:
                 )
             assert excinfo.value.reason == 'recording_active'
             # The refusal says busy-with-what: the holder's KIND rides
-            # the payload (a recording has no trigger; its kind is the
+            # the payload (a recording has no starter; its kind is the
             # whole answer).
             assert excinfo.value.holder == 'recording'
             assert excinfo.value.holder_trigger is None
@@ -215,21 +216,22 @@ class TestTheHolderIsTheLiveRun:
             def _observe(*_scan):
                 holder = session.activity_claim.holder
                 observed['kind'] = holder.kind if holder is not None else None
-                observed['trigger'] = holder.run_trigger_source if holder is not None else None
+                observed['started_by'] = holder.run_started_by if holder is not None else None
 
-            run = runner.start_single_scan(
-                protocol=_make_single_step_protocol(),
-                sequence_name='holder_scan',
-                parent_dir=str(tmp_path),
-                events=RunEvents(scan_started=_observe),
-            )
+            with calling(Caller.REST):
+                run = runner.start_single_scan(
+                    protocol=_make_single_step_protocol(),
+                    sequence_name='holder_scan',
+                    parent_dir=str(tmp_path),
+                    events=RunEvents(scan_started=_observe),
+                )
             assert run.result(timeout=COMPLETION_TIMEOUT) is not None
 
             assert observed['kind'] == 'protocol', (
                 'the run did not hold the claim while it was running'
             )
-            assert observed['trigger'] == 'api_scan', (
-                "the claim must carry the run's own trigger, not a constant"
+            assert observed['started_by'] == Caller.REST, (
+                'the claim must carry who started the run: the host stamped on its thread'
             )
 
             assert wait_until_not_running(session)

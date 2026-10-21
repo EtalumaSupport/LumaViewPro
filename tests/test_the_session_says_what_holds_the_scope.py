@@ -19,6 +19,7 @@ from modules.protocol_image_writer import RunWriteBatch
 from modules.run_outcome import PendingRunOutcome
 from modules.sequenced_capture_runner import EngineRun
 from tests.test_diagnostic_claim import _make_session
+from modules.caller import Caller
 from tests.protocol_drives import run_identity
 
 
@@ -26,10 +27,10 @@ class TestALentRun:
     def test_a_run_lent_a_diagnostics_claim_is_the_run_in_progress(self):
         session = _make_session()
         with session.diagnostic_claim() as held:
-            run = held.lend().try_claim('protocol', run=run_identity('api_autofocus'))
+            run = held.lend().try_claim('protocol', run=run_identity(Caller.REST))
             try:
                 assert session.live_work.has(live_work.PROTOCOL)
-                assert session.sequenced_capture_runner.run_trigger_source() == 'api_autofocus'
+                assert session.sequenced_capture_runner.run_started_by() == Caller.REST
                 assert session.activity_claim.owner == 'diagnostic', (
                     'the holder stays the diagnostic, which a refusal names'
                 )
@@ -37,7 +38,7 @@ class TestALentRun:
             finally:
                 run.release()
             assert not session.live_work.has(live_work.PROTOCOL)
-            assert session.sequenced_capture_runner.run_trigger_source() is None
+            assert session.sequenced_capture_runner.run_started_by() is None
 
     def test_the_lend_and_the_return_are_each_announced(self):
         session = _make_session()
@@ -48,18 +49,18 @@ class TestALentRun:
         heard.clear()
         with session.diagnostic_claim() as held:
             heard.clear()
-            run = held.lend().try_claim('protocol', run=run_identity('api_autofocus'))
+            run = held.lend().try_claim('protocol', run=run_identity())
             assert heard == [True], f'the lend was not announced as a run; heard {heard}'
             run.release()
             assert heard == [True, False], f'the return was not announced; heard {heard}'
 
     def test_a_recording_lent_from_a_run_leaves_the_run_holding(self):
         session = _make_session()
-        run = session.activity_claim.try_claim('protocol', run=run_identity('scan'))
+        run = session.activity_claim.try_claim('protocol', run=run_identity(Caller.GUI))
         try:
             recording = run.lend().try_claim('recording')
             assert session.live_work.has(live_work.PROTOCOL)
-            assert session.sequenced_capture_runner.run_trigger_source() == 'scan'
+            assert session.sequenced_capture_runner.run_started_by() == Caller.GUI
             recording.release()
             assert session.live_work.has(live_work.PROTOCOL)
         finally:
@@ -68,7 +69,7 @@ class TestALentRun:
     def test_a_lent_run_does_not_outlive_its_lender(self):
         session = _make_session()
         with session.diagnostic_claim() as held:
-            held.lend().try_claim('protocol', run=run_identity('api_autofocus'))
+            held.lend().try_claim('protocol', run=run_identity())
         assert not session.live_work.has(live_work.PROTOCOL), (
             'the diagnostic released its claim, and the run it lent still reads running'
         )

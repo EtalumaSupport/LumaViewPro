@@ -14,7 +14,7 @@ import sys
 import types
 from datetime import timedelta
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import DEFAULT, MagicMock
 
 import pytest
 
@@ -51,6 +51,7 @@ import modules.app_context as _app_ctx
 import ui.protocol_settings as ps
 import ui.ui_helpers as ui_helpers
 from modules import live_work
+from modules.caller import Caller, current_caller
 from modules.exceptions import ProtocolRunRefusedError
 from modules.live_work import LiveWork, WorkItem
 from modules.run_outcome import PendingRunOutcome
@@ -200,34 +201,34 @@ def _live(
 
 
 @pytest.mark.parametrize(
-    'press, member_name, trigger',
+    'press, member_name, button',
     [
         ('run_scan_from_ui', 'start_single_scan', 'scan'),
         ('run_protocol_from_ui', 'start_protocol', 'protocol'),
     ],
 )
 def test_a_press_starts_its_run_through_the_apis_runner(
-    app_ctx, engine, session, press, member_name, trigger
+    app_ctx, engine, session, press, member_name, button
 ):
-    """Run and Scan are the calls a script makes, with what only the panel knows."""
+    """Run and Scan are the calls a script makes, with what only the panel knows, started as the GUI."""
     panel = _Panel()
     run = _run(engine)
     engine.start.return_value = run.operation
+    starters = []
+    engine.prepare.side_effect = lambda **_kw: starters.append(current_caller()) or DEFAULT
 
     getattr(panel, press)()
 
     member = getattr(session.create_protocol_runner(), member_name)
     member.assert_called_once()
     kwargs = member.call_args.kwargs
-    assert kwargs['run_trigger_source'] == trigger
+    assert starters == [Caller.GUI], 'the press reaches the API stamped as the GUI'
     assert 'engineering_mode' not in kwargs, "the mode is the session's; the panel states none"
     assert kwargs['sequence_name'] == 'plate', 'the file name is read on the GUI thread'
     assert member.call_args.args[0] is panel._protocol.copy_for_execution.return_value, (
         "the run gets the copy taken at the click; the panel's protocol is the person's"
     )
-    assert panel._runs_started_here[trigger] is run.operation, (
-        'the operation is what its Stop names'
-    )
+    assert panel._runs_started_here[button] is run.operation, 'the operation is what its Stop names'
     assert not engine._stop_run.called, 'a start is not a stop'
 
 

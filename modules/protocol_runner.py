@@ -84,7 +84,6 @@ class ProtocolRunner:
         enable_image_saving: bool = True,
         events: RunEvents | None = None,
         return_to_position: PlateLocation | None = None,
-        run_trigger_source: str = 'api_scan',
     ) -> Operation:
         """Run a single scan through the protocol steps.
 
@@ -99,9 +98,6 @@ class ProtocolRunner:
                 protocol's plate, since the run moves in its protocol's
                 frame; an axis that is None is left where the scan left it.
                 None returns nowhere.
-            run_trigger_source: Provenance recorded on the run and named
-                in refusals, so the protocol panel's button records its own
-                token rather than the API's.
 
         Returns:
             The run's operation. Its result() is the run's outcome -- the
@@ -117,7 +113,6 @@ class ProtocolRunner:
             settings=self.session.get_settings_snapshot(),
             protocol=protocol,
             run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
-            run_trigger_source=run_trigger_source,
             max_scans=1,
             sequence_name=sequence_name,
             parent_dir=parent_dir,
@@ -134,7 +129,6 @@ class ProtocolRunner:
         parent_dir: FilePath | None = None,
         enable_image_saving: bool = True,
         events: RunEvents | None = None,
-        run_trigger_source: str = 'api_protocol',
     ) -> Operation:
         """Run a full protocol (multiple scans over time).
 
@@ -145,9 +139,6 @@ class ProtocolRunner:
             parent_dir: Parent directory for output
             enable_image_saving: Whether to save captured images
             events: The run's event handlers (``RunEvents``); None for none.
-            run_trigger_source: Provenance recorded on the run and named
-                in refusals, so the protocol panel's button records its own
-                token rather than the API's.
 
         Returns:
             The run's operation. Its result() is the run's outcome -- the
@@ -163,7 +154,6 @@ class ProtocolRunner:
             settings=self.session.get_settings_snapshot(),
             protocol=protocol,
             run_mode=SequencedCaptureRunMode.FULL_PROTOCOL,
-            run_trigger_source=run_trigger_source,
             max_scans=None,
             sequence_name=sequence_name,
             parent_dir=parent_dir,
@@ -177,7 +167,6 @@ class ProtocolRunner:
         sequence_name: str = 'composite',
         parent_dir: FilePath | None = None,
         events: RunEvents | None = None,
-        run_trigger_source: str = 'api_composite',
     ) -> Operation:
         """Assemble a composite run and launch it, returning once committed.
 
@@ -195,9 +184,6 @@ class ProtocolRunner:
                 already puts it, so a script's composite and a click's land
                 in the same place.
             events: The run's event handlers (``RunEvents``); None for none.
-            run_trigger_source: Provenance recorded on the run and named
-                in refusals, so a GUI click records its own token rather
-                than the API's.
 
         Returns:
             The run's operation, to wait on or to ignore; its result() is
@@ -226,7 +212,6 @@ class ProtocolRunner:
             settings=settings,
             protocol=protocol,
             run_mode=SequencedCaptureRunMode.SINGLE_COMPOSITE,
-            run_trigger_source=run_trigger_source,
             max_scans=1,
             sequence_name=sequence_name,
             parent_dir=parent_dir,
@@ -244,7 +229,6 @@ class ProtocolRunner:
         parent_dir: FilePath | None = None,
         events: RunEvents | None = None,
         claim: HeldClaim | None = None,
-        run_trigger_source: str = 'api_autofocus',
     ) -> Operation:
         """Autofocus once on *layer*, at the current stage position.
 
@@ -288,11 +272,8 @@ class ProtocolRunner:
                 instead of taking the scope. The run acts inside the
                 caller's activity and cannot release its claim; it is
                 refused if that claim no longer holds. None takes the scope
-                for this run alone.
-            run_trigger_source: Who asked for the run, recorded on it and
-                named in refusals. The Autofocus button passes its own; a
-                script keeps the default. Either way the run is attended
-                -- its failures are shown -- unless it runs under *claim*.
+                for this run alone. The run is attended -- its failures are
+                shown -- unless it runs under a claim.
 
         Returns:
             The run's operation, to wait on or to ignore; its result() is
@@ -344,7 +325,6 @@ class ProtocolRunner:
             settings=settings,
             protocol=protocol,
             run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS,
-            run_trigger_source=run_trigger_source,
             max_scans=1,
             sequence_name=sequence_name,
             parent_dir=parent_dir,
@@ -360,7 +340,6 @@ class ProtocolRunner:
         self,
         protocol: Protocol,
         events: RunEvents | None = None,
-        run_trigger_source: str = 'api_autofocus_scan',
     ) -> Operation:
         """Autofocus at every step of *protocol*, and write the focus into it.
 
@@ -382,8 +361,6 @@ class ProtocolRunner:
             protocol: The protocol to focus. Its autofocus settings are not
                 changed; only its Z values are written.
             events: The run's event handlers (``RunEvents``); None for none.
-            run_trigger_source: Who asked for the run. The GUI's button
-                passes its own; a script keeps the default.
 
         Returns:
             The run's operation, to wait on or to ignore; its result() is
@@ -400,7 +377,6 @@ class ProtocolRunner:
             settings=self.session.get_settings_snapshot(),
             protocol=scan,
             run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN,
-            run_trigger_source=run_trigger_source,
             max_scans=1,
             sequence_name='af_scan',
             enable_image_saving=False,
@@ -417,7 +393,6 @@ class ProtocolRunner:
         parent_dir: FilePath | None = None,
         events: RunEvents | None = None,
         return_to_start: bool = True,
-        run_trigger_source: str = 'api_zstack',
         enable_image_saving: bool = True,
     ) -> Operation:
         """Capture a z-stack on *layer*, around the current stage position.
@@ -458,9 +433,6 @@ class ProtocolRunner:
                 not where the operator was looking. A bool rather than a
                 position, so a caller cannot hand back coordinates in a
                 frame this run never used.
-            run_trigger_source: Provenance recorded on the run and named
-                in refusals, so a GUI click records its own token rather
-                than the API's.
             enable_image_saving: Whether the slices are written. On by
                 default; the engineering panel's "disable image saving"
                 switch is the one caller that turns it off, to exercise the
@@ -512,7 +484,6 @@ class ProtocolRunner:
             settings=settings,
             protocol=protocol,
             run_mode=SequencedCaptureRunMode.SINGLE_ZSTACK,
-            run_trigger_source=run_trigger_source,
             max_scans=1,
             sequence_name=sequence_name,
             parent_dir=parent_dir,
@@ -535,7 +506,6 @@ class ProtocolRunner:
         enable_image_saving: bool = True,
         events: RunEvents | None = None,
         return_to_position: PlateLocation | None = None,
-        run_trigger_source: str = 'api_scan',
         timeout_s: float | None = None,
     ) -> RunOutcome:
         """``start_single_scan``, waited for: returns the run's outcome once it has let go of the scope.
@@ -562,7 +532,6 @@ class ProtocolRunner:
                 enable_image_saving=enable_image_saving,
                 events=events,
                 return_to_position=return_to_position,
-                run_trigger_source=run_trigger_source,
             ),
             timeout_s,
         )
@@ -575,7 +544,6 @@ class ProtocolRunner:
         parent_dir: FilePath | None = None,
         enable_image_saving: bool = True,
         events: RunEvents | None = None,
-        run_trigger_source: str = 'api_protocol',
         timeout_s: float | None = None,
     ) -> RunOutcome:
         """``start_protocol``, waited for: returns the run's outcome once it has let go of the scope.
@@ -601,7 +569,6 @@ class ProtocolRunner:
                 parent_dir=parent_dir,
                 enable_image_saving=enable_image_saving,
                 events=events,
-                run_trigger_source=run_trigger_source,
             ),
             timeout_s,
         )
@@ -615,7 +582,6 @@ class ProtocolRunner:
         parent_dir: FilePath | None = None,
         events: RunEvents | None = None,
         claim: HeldClaim | None = None,
-        run_trigger_source: str = 'api_autofocus',
         timeout_s: float | None = None,
     ) -> RunOutcome:
         """``start_autofocus``, waited for: returns the run's outcome once it has let go of the scope.
@@ -642,7 +608,6 @@ class ProtocolRunner:
                 parent_dir=parent_dir,
                 events=events,
                 claim=claim,
-                run_trigger_source=run_trigger_source,
             ),
             timeout_s,
         )
@@ -652,7 +617,6 @@ class ProtocolRunner:
         self,
         protocol: Protocol,
         events: RunEvents | None = None,
-        run_trigger_source: str = 'api_autofocus_scan',
         timeout_s: float | None = None,
     ) -> RunOutcome:
         """``start_autofocus_all_steps``, waited for: returns the run's outcome once it has let go of the scope.
@@ -675,7 +639,6 @@ class ProtocolRunner:
             self.start_autofocus_all_steps(
                 protocol=protocol,
                 events=events,
-                run_trigger_source=run_trigger_source,
             ),
             timeout_s,
         )
@@ -688,7 +651,6 @@ class ProtocolRunner:
         parent_dir: FilePath | None = None,
         events: RunEvents | None = None,
         return_to_start: bool = True,
-        run_trigger_source: str = 'api_zstack',
         enable_image_saving: bool = True,
         timeout_s: float | None = None,
     ) -> RunOutcome:
@@ -715,7 +677,6 @@ class ProtocolRunner:
                 parent_dir=parent_dir,
                 events=events,
                 return_to_start=return_to_start,
-                run_trigger_source=run_trigger_source,
                 enable_image_saving=enable_image_saving,
             ),
             timeout_s,
@@ -737,7 +698,6 @@ class ProtocolRunner:
         sequence_name: str = 'composite',
         parent_dir: FilePath | None = None,
         events: RunEvents | None = None,
-        run_trigger_source: str = 'api_composite',
         timeout_s: float | None = None,
     ) -> RunOutcome:
         """Capture one frame per acquiring channel and merge them.
@@ -766,7 +726,6 @@ class ProtocolRunner:
             parent_dir: Parent directory for output. Defaults to
                 'Manual/Composites' under the live folder, as start_composite.
             events: The run's event handlers (``RunEvents``); None for none.
-            run_trigger_source: As ``start_composite``.
             timeout_s: How long to wait for the run and its merge; None
                 waits for them to end.
 
@@ -797,7 +756,6 @@ class ProtocolRunner:
                 sequence_name=sequence_name,
                 parent_dir=parent_dir,
                 events=events,
-                run_trigger_source=run_trigger_source,
             ),
             timeout_s,
         )
@@ -815,7 +773,6 @@ class ProtocolRunner:
         settings: dict,
         protocol: Protocol,
         run_mode: SequencedCaptureRunMode,
-        run_trigger_source: str,
         max_scans: int | None,
         sequence_name: str,
         parent_dir: FilePath | None = None,
@@ -859,7 +816,6 @@ class ProtocolRunner:
         plan = self._executor.prepare(
             protocol=protocol,
             run_mode=run_mode,
-            run_trigger_source=run_trigger_source,
             max_scans=max_scans,
             sequence_name=sequence_name,
             parent_dir=parent_dir,

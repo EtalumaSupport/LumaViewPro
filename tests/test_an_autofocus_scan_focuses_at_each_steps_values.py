@@ -39,9 +39,7 @@ def _sweep_targets(tmp_path, run_mode):
         resume_after_capture=True,
     )
     try:
-        plan = rig.prepare_autofocus(
-            tmp_path / 'af', save_data=False, run_trigger_source='autofocus', run_mode=run_mode
-        )
+        plan = rig.prepare_autofocus(tmp_path / 'af', save_data=False, run_mode=run_mode)
         pending = rig.runner.start(plan)
         assert rig._done.wait(timeout=COMPLETION_TIMEOUT), 'the autofocus run did not complete'
         pending.result(timeout=COMPLETION_TIMEOUT)

@@ -160,7 +160,6 @@ def test_the_refusal_and_the_report_offer_one_remedy_in_one_set_of_words(
     with pytest.raises(ProtocolRunRefusedError) as refused:
         session.sequenced_capture_runner.prepare(
             protocol=MagicMock(),
-            run_trigger_source='test',
             run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
             sequence_name='t',
             image_capture_config=ImageCaptureConfig.from_image_mode('8bit'),

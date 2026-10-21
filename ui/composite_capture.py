@@ -112,7 +112,6 @@ class CompositeCapture(FloatLayout):
             started = runner.start_composite(
                 sequence_name='composite',
                 events=events,
-                run_trigger_source='composite',
             )
             self._composite_run = started
             # Only reachable once the run is committed, so the saved

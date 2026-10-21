@@ -71,9 +71,7 @@ def test_the_finish_end_is_announced_and_reads_not_busy(tmp_path, monkeypatch):
         if step is not None:
             heard.append(step.is_busy)
 
-    run = ActivityClaim(on_transition=_on_transition).try_claim(
-        'protocol', run=run_identity('test')
-    )
+    run = ActivityClaim(on_transition=_on_transition).try_claim('protocol', run=run_identity())
     listeners = {}
     clock = {'t': 1000.0}
     step = ProtocolVideoStep(

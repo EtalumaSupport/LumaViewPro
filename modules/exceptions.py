@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, ClassVar
 from lib.lumascope_error import Fault, LumascopeError, _Umbrella
 from lib.stage_interlock import INTERLOCK_TITLES
 from modules.api_surface import api_fields
+from modules.caller import Caller
 from modules.run_outcome import ENDING_TITLES
 
 if TYPE_CHECKING:
@@ -1588,6 +1589,7 @@ class RunWaitExpiredError(ProtocolError, Quiet, TimeoutError):
         self.operation = operation
 
 
+@api_fields('holder', 'holder_trigger')
 class ProtocolRunRefusedError(Refusal, ProtocolError):
     """A sequenced run, or the protocol it would run, was refused before any state was committed.
 
@@ -1614,15 +1616,21 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
             owner; 'autofocus' for a sweep in flight), or None when the
             refusal is not holder-shaped (validation, hardware, file
             drain).
-        holder_trigger: Busy-with-what: the trigger of the run that
-            holds the scope -- for a file-drain refusal the just-
-            finished run's, for an autofocus sweep the run that
-            dispatched it. None when no run is behind the holder -- a
-            recording has no trigger; its kind IS the holder.
+        holder_trigger: Who started the run that holds the scope --
+            ``'gui'``, ``'rest'`` or ``'api'`` (``modules.caller``); for a
+            file-drain refusal the just-finished run's, for an autofocus
+            sweep the run that dispatched it. None when no run is behind
+            the holder -- a recording's kind IS the holder.
         remedy: The action that answers this refusal, or None. A stalled
             file writer has one (recover it); a writer still making
             progress does not, since its files will land.
+
+    ``holder`` and ``holder_trigger`` are published, so a REST problem
+    carries who holds the scope beside the words.
     """
+
+    holder: str | None
+    holder_trigger: Caller | None
 
     # What a protocol holds is the request's, whoever made it: a client
     # changes the protocol, and the scope's state never makes it runnable.
@@ -1728,7 +1736,7 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
         message: str,
         *,
         holder: 'str | None' = None,
-        holder_trigger: 'str | None' = None,
+        holder_trigger: Caller | None = None,
         remedy: Remedy | None = None,
     ):
         super().__init__(message)
@@ -1801,6 +1809,7 @@ class RunStartError(Fault, ProtocolError):
         self.message = message
 
 
+@api_fields('holder', 'holder_trigger')
 class RecordingRefusedError(Refusal, CaptureError):
     """A video recording start was refused before any state was committed.
 
@@ -1823,10 +1832,15 @@ class RecordingRefusedError(Refusal, CaptureError):
             the exception's message.
         holder: The exclusive-activity claim owner at refusal time, or
             None when the refusal is not claim-shaped.
-        holder_trigger: The holding run's run_trigger_source when the
-            holder is 'protocol'; a recording holder has no trigger.
+        holder_trigger: Who started the holding run (``'gui'``,
+            ``'rest'``, ``'api'``) when the holder is 'protocol'; None for a
+            recording holder.
+
+    ``holder`` and ``holder_trigger`` are published.
     """
 
+    holder: str | None
+    holder_trigger: Caller | None
     cause = RefusalCause.STATE
 
     _TITLES: ClassVar[dict[str, str]] = {
@@ -1845,7 +1859,7 @@ class RecordingRefusedError(Refusal, CaptureError):
         message: str,
         *,
         holder: 'str | None' = None,
-        holder_trigger: 'str | None' = None,
+        holder_trigger: Caller | None = None,
     ):
         if reason not in self._TITLES:
             raise TypeError(f'RecordingRefusedError has no reason {reason!r}')
@@ -3170,6 +3184,7 @@ def _command_refused_sentence(reason: str, holder: str | None) -> str:
     return f'{the_activity_named(holder)} is using the microscope. Try again when it ends.'
 
 
+@api_fields('holder', 'holder_trigger')
 class DiagnosticRefusedError(Refusal, Exception):
     """A diagnostic could not take the scope: another activity holds it.
 
@@ -3186,10 +3201,14 @@ class DiagnosticRefusedError(Refusal, Exception):
         title: Short user-facing refusal title, the reason's.
         message: One-sentence user-facing refusal body.
         holder: The activity kind holding the claim at refusal time.
-        holder_trigger: The holding run's run_trigger_source when the
-            holder is a run; None otherwise.
+        holder_trigger: Who started the holding run (``'gui'``,
+            ``'rest'``, ``'api'``) when the holder is a run; None otherwise.
+
+    ``holder`` and ``holder_trigger`` are published.
     """
 
+    holder: str | None
+    holder_trigger: Caller | None
     reason = 'exclusive_activity_running'
     cause = RefusalCause.STATE
 
@@ -3203,7 +3222,7 @@ class DiagnosticRefusedError(Refusal, Exception):
         message: str,
         *,
         holder: 'str | None' = None,
-        holder_trigger: 'str | None' = None,
+        holder_trigger: Caller | None = None,
     ):
         if reason not in self._TITLES:
             raise TypeError(f'DiagnosticRefusedError has no reason {reason!r}')

@@ -310,9 +310,10 @@ class VerticalControl(BoxLayout):
         The run is ProtocolRunner.start_autofocus, the one a script or REST
         calls: everything about it -- the objective, the capture, every
         refusal -- is the member's, and the boundary shows a refusal once.
-        This button states only what a running GUI knows: the open drawer,
-        its own trigger (the attended one), and the live engineering flag,
-        which is also whether the sweep's characterization data is saved.
+        This button states only what a running GUI knows: the open drawer
+        and the live engineering flag, which is also whether the sweep's
+        characterization data is saved. The run records the GUI as its
+        starter from the host's stamp on the worker that starts it.
 
         Whether the press means Stop is the engine's answer -- is the run
         this button started still live -- never the toggle's, which Kivy has
@@ -341,7 +342,6 @@ class VerticalControl(BoxLayout):
                 layer=layer,
                 save_characterization_data=engineering_mode,
                 events=events,
-                run_trigger_source='autofocus',
             )
 
         self._submit_autofocus_request(_start)

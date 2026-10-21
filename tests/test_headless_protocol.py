@@ -300,7 +300,6 @@ class TestHeadlessProtocolExecution:
 
                 plan = executor.prepare(
                     protocol=protocol,
-                    run_trigger_source='test',
                     run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
                     sequence_name='headless_test',
                     image_capture_config=image_capture_config,

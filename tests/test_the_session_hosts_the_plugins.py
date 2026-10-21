@@ -26,6 +26,7 @@ import pandas as pd
 import pytest
 
 import modules.image_mode as image_mode
+from modules.caller import Caller
 import modules.stack_builder as stack_builder
 from modules.plugins import ENGINEERING_PLUGIN, PluginSpec, ProcessorResult
 from modules.protocol import Protocol
@@ -121,7 +122,6 @@ def _run_protocol(runner, tmp_path, *, sequenced_format='TIFF'):
     run = runner.start_protocol(
         protocol=_one_scan_protocol(),
         parent_dir=str(tmp_path / 'runs'),
-        run_trigger_source='api_protocol',
     )
     files = run.files.result(timeout=WAIT_S)
     assert files is not None, 'the run never finished its files'
@@ -146,7 +146,7 @@ class TestAFullProtocolRunsTheOptedInProcessors:
         assert len(opted_in.calls) == 1
         input_dir, manifest, thread_name = opted_in.calls[0]
         assert input_dir == str(run.progress().run_dir)
-        assert manifest['trigger_source'] == 'api_protocol'
+        assert manifest['trigger_source'] == Caller.API, "a run no host stamped is a script's"
         assert manifest['protocol_name'] == 'protocol'
         assert thread_name.startswith('POSTPROC'), thread_name
         assert not_opted_in.calls == []

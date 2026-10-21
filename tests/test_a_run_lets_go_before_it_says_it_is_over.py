@@ -35,7 +35,6 @@ from tests.test_run_refusal_contract import (  # noqa: F401 -- fixtures
 def _prepare(executor, tmp_path, events, **overrides):
     plan_args = {
         'protocol': _make_single_step_protocol(),
-        'run_trigger_source': 'test',
         'run_mode': SequencedCaptureRunMode.SINGLE_SCAN,
         'sequence_name': 'lets_go',
         'image_capture_config': _make_image_capture_config(),
@@ -59,7 +58,7 @@ def _refuse_the_protocol_copy(monkeypatch, plan):
 
 def _what_the_subscriber_saw(executor, told: threading.Event, seen: list):
     def record(*_args):
-        seen.append((executor.run_in_progress(), executor.run_trigger_source()))
+        seen.append((executor.run_in_progress(), executor.run_started_by()))
         told.set()
 
     return record

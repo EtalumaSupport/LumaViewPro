@@ -162,7 +162,7 @@ class AutofocusThread:
             block; ignore to fire-and-forget. Caller-requested abort
             surfaces as AutofocusAborted via the Future.
         """
-        request_kwargs = {**kwargs, 'run_trigger_source': run.trigger}
+        request_kwargs = dict(kwargs)
         future: Future = Future()
         with self._state_lock:
             in_flight = self._current_sweep

@@ -30,6 +30,7 @@ import time
 import pytest
 import tifffile as tf
 
+from modules.caller import Caller, calling
 from modules.image_mode import OUTPUT_FORMAT_TIFF
 from modules.run_events import RunEvents
 from tests.protocol_drives import wait_until_not_running
@@ -270,10 +271,9 @@ class TestCompositeRunEndToEnd:
 class TestStartComposite:
     """The non-blocking half: assembly and launch without the wait."""
 
-    def test_the_trigger_token_is_the_callers(self, composite_session):
-        # A constant here instead of a parameter would make a GUI click
-        # during an API composite read as that run's OWN second click, so
-        # the click would abort someone else's run instead of being refused.
+    def test_the_run_records_the_host_that_started_it(self, composite_session):
+        # Who started the run is the host's stamp on the starting thread,
+        # never a constant of the composite: the GUI's start is the GUI's.
         session, runner, tmp_path = composite_session
 
         # Observed from inside the run rather than after it: scan_started
@@ -281,18 +281,18 @@ class TestStartComposite:
         # holder while it holds rather than racing the run's end.
         # run_ended cannot: it comes after the run has let go.
         held_by = []
-        outcome = runner.start_composite(
-            sequence_name='start_token',
-            parent_dir=str(tmp_path),
-            run_trigger_source='composite',
-            events=RunEvents(
-                scan_started=lambda *_scan: held_by.append(
-                    session.activity_claim.holder.run_trigger_source
-                )
-            ),
-        )
+        with calling(Caller.GUI):
+            outcome = runner.start_composite(
+                sequence_name='start_token',
+                parent_dir=str(tmp_path),
+                events=RunEvents(
+                    scan_started=lambda *_scan: held_by.append(
+                        session.activity_claim.holder.run_started_by
+                    )
+                ),
+            )
         assert outcome.result(timeout=120) is not None, 'the run never settled'
-        assert held_by == ['composite']
+        assert held_by == [Caller.GUI]
 
         assert wait_until_not_running(session), 'the run never released the claim'
         assert session.activity_claim.holder is None, (

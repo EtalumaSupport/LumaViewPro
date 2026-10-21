@@ -2,7 +2,7 @@
 """Regression tests for run-teardown authority.
 
 A stop is the RUN's -- the operation that run's start() returned --
-never the caller's: who is asking is self-declared and protects nothing,
+never the caller's: who is asking protects nothing,
 while a stale control naming an OLD run is the hole that once destroyed a
 scan the control never started. The stop is the API's, so it holds for a
 REST or SDK caller exactly as for the GUI.
@@ -38,17 +38,14 @@ from tests.test_protocol_execution import (  # noqa: F401 -- pytest fixtures
     scope,
 )
 
-OWNER = 'scan'
-
 
 def _start_run(executor, tmp_path, done):
-    """Start a long-enough run triggered by OWNER, wait until it is live,
+    """Start a long-enough run, wait until it is live,
     and return the operation start() gave back."""
     protocol = _make_multi_step_protocol(_make_tile_grid_steps(rows=6, cols=8))
 
     plan = executor.prepare(
         protocol=protocol,
-        run_trigger_source=OWNER,
         run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
         sequence_name='teardown_authority',
         image_capture_config=_make_image_capture_config(),
@@ -312,7 +309,6 @@ def _start_run_and_let_it_fail(executor, tmp_path):
     protocol = _make_multi_step_protocol(_make_tile_grid_steps(rows=1, cols=1))
     plan = executor.prepare(
         protocol=protocol,
-        run_trigger_source=OWNER,
         run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
         sequence_name='failed_start',
         image_capture_config=_make_image_capture_config(),

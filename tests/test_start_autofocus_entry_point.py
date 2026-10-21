@@ -71,14 +71,6 @@ class TestTheRunIsAnAutofocusOfItsOwn:
         runner.start_autofocus(layer='BF')
         assert _prepared(runner)['max_scans'] == 1
 
-    def test_the_trigger_source_names_the_api_caller(self):
-        # Distinct from the GUI button's token: the rival-run check
-        # compares it, so a click during an API autofocus must read as a
-        # rival rather than as this run's own.
-        runner = _runner()
-        runner.start_autofocus(layer='BF')
-        assert _prepared(runner)['run_trigger_source'] == 'api_autofocus'
-
     def test_it_saves_no_images(self):
         runner = _runner()
         runner.start_autofocus(layer='BF')
@@ -124,11 +116,6 @@ class TestCharacterizationDataIsOptIn:
 
 class TestTheButtonRunsThroughThisMember:
     """What the Autofocus button needs so it can run through this member, not its own copy."""
-
-    def test_a_caller_names_its_trigger(self):
-        runner = _runner()
-        runner.start_autofocus(layer='BF', run_trigger_source='autofocus')
-        assert _prepared(runner)['run_trigger_source'] == 'autofocus'
 
     def test_the_sessions_engineering_mode_reaches_the_boundary(self):
         runner = _runner()

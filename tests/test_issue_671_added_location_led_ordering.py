@@ -271,7 +271,6 @@ def _run_protocol(executor, protocol, tmp_path):
 
     plan = executor.prepare(
         protocol=protocol,
-        run_trigger_source='test',
         run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
         sequence_name='issue_671_repro',
         image_capture_config=ImageCaptureConfig.from_image_mode('8bit'),

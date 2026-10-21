@@ -347,7 +347,6 @@ def _run_protocol(
     plan = runner.prepare(
         keep_led_between_steps=keep_led_between_steps,
         protocol=protocol,
-        run_trigger_source='test',
         run_mode=run_mode,
         sequence_name='led_lifecycle',
         image_capture_config=ImageCaptureConfig.from_image_mode('8bit'),
@@ -653,7 +652,6 @@ def _af_runner(scope):
 def _drive_af(runner, **overrides):
     kwargs = {
         'objective_id': '4x Oly',
-        'run_trigger_source': 'manual',
         'abort_event': threading.Event(),
     }
     kwargs.update(overrides)
@@ -675,7 +673,6 @@ def test_s5_protocol_af_same_channel_holds_to_capture(scope):
         led_illumination=250.0,
         keep_led_on=True,
         led_lease=lease,
-        run_trigger_source='protocol',
     )
     assert sub.on_events() == [('Green', 250.0)], sub.render()
     assert sub.lit_transitions('Green') == [True], sub.render()  # lit, never offed
@@ -701,7 +698,6 @@ def test_s6_protocol_af_then_different_color_no_stale_channel(scope):
         led_illumination=250.0,
         keep_led_on=True,
         led_lease=lease,
-        run_trigger_source='protocol',
     )
     # Next-color step light (the protocol's STEP_LIGHT for a Red step): the
     # exclusive-Red diff the run drives on the held lease.
@@ -733,7 +729,6 @@ def test_s7_interactive_af_restores_prerun_live_channel(scope):
         led_illumination=250.0,
         keep_led_on=False,
         led_lease=ill.acquire_led_lease('protocol', claim=held_run_claim()),
-        run_trigger_source='manual',
     )
     assert sub.on_events() == [('Green', 250.0), ('Blue', 120.0)], sub.render()
     assert sub.lit_transitions('Green') == [True, False], sub.render()  # AF exclusive then off

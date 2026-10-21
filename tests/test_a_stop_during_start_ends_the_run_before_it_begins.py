@@ -40,7 +40,6 @@ def _start_run(executor, tmp_path):
     waiting for it to be live: a run stopped during setup never is."""
     plan = executor.prepare(
         protocol=_make_multi_step_protocol(_make_tile_grid_steps(rows=6, cols=8)),
-        run_trigger_source='scan',
         run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
         sequence_name='stop_during_start',
         image_capture_config=_make_image_capture_config(),

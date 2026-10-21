@@ -4,7 +4,7 @@
 The run opens the notification centre's run scope at start and closes it
 first thing in cleanup; an unattended scope is the one owner of "an
 unattended run shows no popups". Autofocus once carried its own skip for
-the 'protocol' trigger on top of it. These pin that the mute covers both
+runs started by the protocol panel on top of it. These pin that the mute covers both
 ways a sweep in a run ends badly, for every unattended autofocus -- a scan
 of every step, from its button or the API, and a one-position autofocus a
 diagnostic runs under its own claim:
@@ -30,20 +30,19 @@ import time
 
 import pytest
 
+from modules.caller import Caller, calling
 from modules.exceptions import AutofocusAborted
 from modules.notification_center import OutcomeKind, Severity, notifications, outcome_of
 from modules.protocol_state_machine import SequencedCaptureRunMode
 from tests.test_run_outcome_reports_autofocus_data import COMPLETION_TIMEOUT, _AfRig
 
-# (run mode, trigger, under a diagnostic's claim)
+# (run mode, who started it, under a diagnostic's claim)
 UNATTENDED_AUTOFOCUS = [
+    pytest.param(SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN, Caller.GUI, False, id='af_scan'),
     pytest.param(
-        SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN, 'autofocus_scan', False, id='af_scan'
+        SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN, Caller.API, False, id='api_af_scan'
     ),
-    pytest.param(
-        SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN, 'api_autofocus_scan', False, id='api_af_scan'
-    ),
-    pytest.param(SequencedCaptureRunMode.SINGLE_AUTOFOCUS, 'api_autofocus', True, id='borrowed'),
+    pytest.param(SequencedCaptureRunMode.SINGLE_AUTOFOCUS, Caller.API, True, id='borrowed'),
 ]
 
 
@@ -65,18 +64,18 @@ def _autofocus_titles(shown) -> list[str]:
     return [n.title for n in shown if n.category == 'Autofocus']
 
 
-def _start(rig, tmp_path, run_mode, trigger, borrowed):
+def _start(rig, tmp_path, run_mode, caller, borrowed):
     borrowed_claim = None
     if borrowed:
         borrowed_claim = rig.runner._activity_claim.try_claim('diagnostic').lend()
-    plan = rig.prepare_autofocus(
-        tmp_path / 'af',
-        save_data=False,
-        run_trigger_source=trigger,
-        run_mode=run_mode,
-        borrowed_claim=borrowed_claim,
-    )
-    return rig.runner.start(plan)
+    with calling(caller):
+        plan = rig.prepare_autofocus(
+            tmp_path / 'af',
+            save_data=False,
+            run_mode=run_mode,
+            borrowed_claim=borrowed_claim,
+        )
+        return rig.runner.start(plan)
 
 
 def _fail_the_sweep_after_three_grabs(rig) -> list[int]:
@@ -103,12 +102,12 @@ def _wait_for_live_sweep(rig) -> None:
     pytest.fail('the run never started its sweep')
 
 
-@pytest.mark.parametrize(('run_mode', 'trigger', 'borrowed'), UNATTENDED_AUTOFOCUS)
-def test_a_sweep_that_fails_in_the_run_shows_nothing(tmp_path, shown, run_mode, trigger, borrowed):
+@pytest.mark.parametrize(('run_mode', 'caller', 'borrowed'), UNATTENDED_AUTOFOCUS)
+def test_a_sweep_that_fails_in_the_run_shows_nothing(tmp_path, shown, run_mode, caller, borrowed):
     rig = _AfRig()
     grabs = _fail_the_sweep_after_three_grabs(rig)
     try:
-        pending = _start(rig, tmp_path, run_mode, trigger, borrowed)
+        pending = _start(rig, tmp_path, run_mode, caller, borrowed)
         assert rig._done.wait(timeout=COMPLETION_TIMEOUT), 'the run did not complete'
         assert pending.result(timeout=COMPLETION_TIMEOUT) is not None
     finally:
@@ -116,20 +115,20 @@ def test_a_sweep_that_fails_in_the_run_shows_nothing(tmp_path, shown, run_mode, 
 
     assert grabs[0] > 3, 'precondition: the sweep reached the injected fault'
     assert _autofocus_titles(shown) == [], (
-        f'an unattended ({trigger!r}) run showed its sweep failure: {_autofocus_titles(shown)}'
+        f'an unattended ({caller.words}) run showed its sweep failure: {_autofocus_titles(shown)}'
     )
 
 
-@pytest.mark.parametrize('trigger', ['autofocus', 'api_autofocus'])
+@pytest.mark.parametrize('caller', [Caller.GUI, Caller.REST])
 def test_a_one_position_autofocus_shows_its_sweep_failure_whoever_started_it(
-    tmp_path, shown, trigger
+    tmp_path, shown, caller
 ):
-    """The REST autofocus was muted while the button's was not: the trigger
-    decided. The same operation now answers the same."""
+    """The REST autofocus was muted while the button's was not: who started
+    it decided. The same operation now answers the same."""
     rig = _AfRig()
     grabs = _fail_the_sweep_after_three_grabs(rig)
     try:
-        pending = _start(rig, tmp_path, SequencedCaptureRunMode.SINGLE_AUTOFOCUS, trigger, False)
+        pending = _start(rig, tmp_path, SequencedCaptureRunMode.SINGLE_AUTOFOCUS, caller, False)
         assert rig._done.wait(timeout=COMPLETION_TIMEOUT), 'the run did not complete'
         assert pending.result(timeout=COMPLETION_TIMEOUT) is not None
     finally:
@@ -137,16 +136,16 @@ def test_a_one_position_autofocus_shows_its_sweep_failure_whoever_started_it(
 
     assert grabs[0] > 3, 'precondition: the sweep reached the injected fault'
     assert _autofocus_titles(shown), (
-        f'a one-position autofocus started by {trigger!r} showed no sweep failure'
+        f'a one-position autofocus started by {caller.words} showed no sweep failure'
     )
 
 
-@pytest.mark.parametrize(('run_mode', 'trigger', 'borrowed'), UNATTENDED_AUTOFOCUS)
-def test_a_sweep_the_stop_aborts_shows_nothing(tmp_path, shown, run_mode, trigger, borrowed):
+@pytest.mark.parametrize(('run_mode', 'caller', 'borrowed'), UNATTENDED_AUTOFOCUS)
+def test_a_sweep_the_stop_aborts_shows_nothing(tmp_path, shown, run_mode, caller, borrowed):
     rig = _AfRig()
     sweep_ended = threading.Event()
     try:
-        pending = _start(rig, tmp_path, run_mode, trigger, borrowed)
+        pending = _start(rig, tmp_path, run_mode, caller, borrowed)
         _wait_for_live_sweep(rig)
         sweep = rig.af_thread.current_future
         sweep.add_done_callback(lambda _f: sweep_ended.set())
@@ -163,6 +162,6 @@ def test_a_sweep_the_stop_aborts_shows_nothing(tmp_path, shown, run_mode, trigge
     # Stopped, not failed: recorded, and the run's own end is the report.
     assert outcome_of(sweep.exception()).kind == OutcomeKind.QUIET
     assert _autofocus_titles(shown) == [], (
-        f'a stopped unattended ({trigger!r}) run showed its aborted sweep: '
+        f'a stopped unattended ({caller.words}) run showed its aborted sweep: '
         f'{_autofocus_titles(shown)}'
     )

@@ -58,6 +58,7 @@ from modules.exceptions import (
 )
 from modules.notification_center import notifications
 from modules.activity_claim import Taking, acting, current_taking
+from modules.caller import current_caller
 from modules.operation import Operation, refuse_waiting_on_ui_thread
 from modules.sequential_io_executor import (
     IOTask,
@@ -910,6 +911,7 @@ class MotionAPI:
                 stage may still be moving. Chained from the driver's
                 error. The stop generation has moved regardless.
         """
+        logger.info(f'[SCOPE API ] stop_motion pressed by {current_caller().words}')
         self._stop_motion_while(lambda: True, pressed=True)
 
     def _stop_motion_while(self, live: Callable[[], bool], *, pressed: bool = False) -> None:

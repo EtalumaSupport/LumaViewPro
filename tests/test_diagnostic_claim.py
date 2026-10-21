@@ -13,6 +13,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from modules.caller import Caller
 from modules.exceptions import (
     ClaimStillLentError,
     DiagnosticRefusedError,
@@ -141,13 +142,13 @@ class TestTheDiagnosticIsRefusedWhenTheScopeIsHeld:
         finally:
             other.release()
 
-    def test_a_run_holders_trigger_is_named(self):
+    def test_who_started_the_holding_run_is_named(self):
         session = _make_session()
-        run = session.activity_claim.try_claim('protocol', run=run_identity('scan'))
+        run = session.activity_claim.try_claim('protocol', run=run_identity(Caller.GUI))
         try:
             with pytest.raises(DiagnosticRefusedError) as excinfo, session.diagnostic_claim():
                 pass
-            assert excinfo.value.holder_trigger == 'scan'
+            assert excinfo.value.holder_trigger == Caller.GUI
         finally:
             run.release()
 
@@ -160,7 +161,7 @@ class TestALentClaim:
 
         claim = ActivityClaim()
         held = claim.try_claim('diagnostic')
-        borrowing = held.lend().try_claim('protocol', run=run_identity('api_autofocus'))
+        borrowing = held.lend().try_claim('protocol', run=run_identity())
         assert borrowing.holds
         borrowing.release()
         assert held.holds, "a borrowing's release must leave the lender's claim held"
@@ -173,7 +174,7 @@ class TestALentClaim:
 
         claim = ActivityClaim()
         held = claim.try_claim('diagnostic')
-        run_taking = held.lend().try_claim('protocol', run=run_identity('api_autofocus'))
+        run_taking = held.lend().try_claim('protocol', run=run_identity())
         recording_taking = run_taking.lend().try_claim('recording')
         assert recording_taking is not None and recording_taking.holds
         recording_taking.release()

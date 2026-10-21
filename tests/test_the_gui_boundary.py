@@ -221,7 +221,7 @@ class TestTheLaneForm:
         assert redrawn == ['T']
 
     def test_a_refusal_at_submit_redraws_once(self, centre_posts, headless, lane, claim):
-        held = claim.try_claim('protocol', run=run_identity('test'))
+        held = claim.try_claim('protocol', run=run_identity())
         ran = []
         redrawn = []
         try:
@@ -246,7 +246,7 @@ class TestTheLaneForm:
         ran = []
         redrawn = []
         submit_reported(lambda: ran.append(1), lambda: redrawn.append('T'), 'T', lane=lane)
-        held = claim.try_claim('protocol', run=run_identity('test'))
+        held = claim.try_claim('protocol', run=run_identity())
         try:
             gate.set()
             deadline = time.monotonic() + _WAIT_S
@@ -266,7 +266,7 @@ class TestTheLaneForm:
         assert redrawn == ['T']
 
     def test_a_refusal_names_the_gesture_not_the_wrapper(self, centre_posts, headless, lane, claim):
-        held = claim.try_claim('protocol', run=run_identity('test'))
+        held = claim.try_claim('protocol', run=run_identity())
         try:
             submit_reported(lambda: None, None, 'LED_Blue', lane=lane)
         finally:

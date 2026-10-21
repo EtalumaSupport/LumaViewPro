@@ -1368,11 +1368,14 @@ class LumaViewProApp(TooltipMixin, App):
     def _shut_the_session_down(self) -> None:
         """The session's close: it stops a live run and recording, finishes the rest, then tears down."""
         logger.info('[LVP Main  ] ctx.session.shutdown()')
+        from modules.caller import Caller, calling
         from modules.exceptions import ScopeDisconnectError
         from modules.notification_center import notifications
 
         try:
-            ctx.session.shutdown()
+            # On the close's own thread, or the Kivy thread from on_stop: the GUI's close.
+            with calling(Caller.GUI):
+                ctx.session.shutdown()
         except ScopeDisconnectError as e:
             # Every teardown step has run; the window is closing, so the
             # record is the log (notifications are muted).
@@ -1403,4 +1406,9 @@ class LumaViewProApp(TooltipMixin, App):
 # ============================================================================
 
 if __name__ == '__main__':
-    LumaViewProApp().run()
+    from modules.caller import Caller, calling
+
+    # Every call the Kivy thread makes is the GUI's; the GUI stamps the
+    # threads it hands work to where it hands it (ui/ui_helpers.py).
+    with calling(Caller.GUI):
+        LumaViewProApp().run()

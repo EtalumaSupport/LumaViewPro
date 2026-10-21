@@ -200,7 +200,6 @@ def _run_one_still(executor, tmp_path, config):
 
     plan = executor.prepare(
         protocol=_build_protocol(),
-        run_trigger_source='test',
         run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
         sequence_name='encoding_ssot',
         image_capture_config=config,

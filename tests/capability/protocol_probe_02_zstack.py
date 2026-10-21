@@ -102,7 +102,6 @@ try:
     gui_kwargs = dict(
         protocol=gui_seq,
         run_mode=SequencedCaptureRunMode.SINGLE_ZSTACK,
-        run_trigger_source='zstack',
         max_scans=1,
         sequence_name='zstack',
         parent_dir=_pl.Path(settings['live_folder']).resolve() / 'Manual' / 'Z-Stacks',

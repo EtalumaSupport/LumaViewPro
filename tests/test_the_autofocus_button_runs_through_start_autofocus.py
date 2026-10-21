@@ -5,9 +5,9 @@ There is one implementation of "autofocus once, here". The button once
 built the whole run itself -- the objective check, the position, the layer
 config, the protocol, ``prepare`` and ``start`` -- beside the member built
 for scripts and REST, so the two could drift. Now the button states only
-what a running GUI knows (the open drawer, its own attended trigger, the
-live engineering flag) and the member decides everything else, every
-refusal included.
+what a running GUI knows (the open drawer, the live engineering flag),
+the GUI's stamp on the worker says who started the run, and the member
+decides everything else, every refusal included.
 
 A press is a Stop only when the engine says the run this button started is
 still live. One redraw styles the button, from what the engine reports
@@ -26,6 +26,7 @@ import pytest
 import modules.app_context as _app_ctx
 import ui.ui_helpers as ui_helpers
 import ui.vertical_control as vc
+from modules.caller import Caller, current_caller
 from modules.exceptions import ProtocolRunRefusedError
 from modules.run_outcome import PendingRunOutcome
 from modules.protocol_image_writer import RunWriteBatch
@@ -70,7 +71,13 @@ def pressed(monkeypatch, held, centre_posts):
     member = MagicMock()
     engine = MagicMock()
     run = EngineRun(engine, PendingRunOutcome(), RunWriteBatch(MagicMock()))
-    member.start_autofocus.return_value = run.operation
+    starters = []
+
+    def _start_autofocus(**_kwargs):
+        starters.append(current_caller())
+        return run.operation
+
+    member.start_autofocus.side_effect = _start_autofocus
     _live(engine)
     session = MagicMock()
     session.create_protocol_runner.return_value = member
@@ -90,7 +97,13 @@ def pressed(monkeypatch, held, centre_posts):
     monkeypatch.setattr(vc.gui_logger, 'button', lambda *a, **kw: None)
     session.shown_channel = ShownChannel('Green', lit=False)
     return SimpleNamespace(
-        member=member, engine=engine, run=run, posts=centre_posts, pool=pool, button=_Button()
+        member=member,
+        engine=engine,
+        run=run,
+        starters=starters,
+        posts=centre_posts,
+        pool=pool,
+        button=_Button(),
     )
 
 
@@ -119,17 +132,17 @@ def test_the_button_states_only_what_the_gui_knows(pressed):
     pressed.member.start_autofocus.assert_called_once()
     kwargs = pressed.member.start_autofocus.call_args.kwargs
     assert kwargs['layer'] == 'Green'
-    assert kwargs['run_trigger_source'] == 'autofocus', 'the attended trigger'
     assert kwargs['save_characterization_data'] is True, (
         'in engineering mode the sweep saves its characterization data'
     )
-    # Nothing else about the run is the button's to say.
+    # Nothing else about the run is the button's to say; who started it is
+    # the GUI's stamp on the thread that starts it.
     assert set(kwargs) == {
         'layer',
         'save_characterization_data',
         'events',
-        'run_trigger_source',
     }
+    assert pressed.starters == [Caller.GUI]
 
 
 def test_the_button_starts_no_run_of_its_own(pressed):

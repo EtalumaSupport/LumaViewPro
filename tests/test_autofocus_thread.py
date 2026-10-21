@@ -2,7 +2,7 @@
 """Regression tests for AutofocusThread.
 
 Covers the public API contract:
-  - run_autofocus(run_trigger_source=..., **kwargs) -> Future that
+  - run_autofocus(run=..., **kwargs) -> Future that
     resolves to result or carries an exception (including
     AutofocusAborted on caller-requested abort); the dispatching run is
     recorded with the Future and forwarded to the runner.
@@ -102,7 +102,7 @@ class TestLifecycle:
 
 class TestRunAutofocus:
     def test_success_resolves_future_to_result(self, at, afe):
-        future = at.run_autofocus(run=run_identity('autofocus'), objective_id='4x')
+        future = at.run_autofocus(run=run_identity(), objective_id='4x')
         result = future.result(timeout=2.0)
         assert result == 42.5
         assert at.is_running is False
@@ -111,7 +111,7 @@ class TestRunAutofocus:
         assert at.in_flight_sweep is None
 
     def test_run_passes_kwargs_to_afe(self, at, afe):
-        at.run_autofocus(run=run_identity('autofocus'), objective_id='10x', camera_gain=1.5).result(
+        at.run_autofocus(run=run_identity(), objective_id='10x', camera_gain=1.5).result(
             timeout=2.0
         )
         assert len(afe.run_calls) == 1
@@ -125,11 +125,9 @@ class TestRunAutofocus:
         thread = AutofocusThread(afe=afe)
         thread.start()
         try:
-            first = thread.run_autofocus(
-                run=run_identity('autofocus', 'autofocus'), objective_id='4x'
-            )
+            first = thread.run_autofocus(run=run_identity(words='autofocus'), objective_id='4x')
             assert afe.entered_run.wait(timeout=1.0)
-            second = thread.run_autofocus(run=run_identity('scan'), objective_id='4x')
+            second = thread.run_autofocus(run=run_identity(), objective_id='4x')
             with pytest.raises(RuntimeError, match='already in progress'):
                 second.result(timeout=1.0)
             # The rejection names the run that owns the in-flight sweep,
@@ -148,7 +146,7 @@ class TestAbort:
         thread = AutofocusThread(afe=afe)
         thread.start()
         try:
-            future = thread.run_autofocus(run=run_identity('autofocus'), objective_id='4x')
+            future = thread.run_autofocus(run=run_identity(), objective_id='4x')
             assert afe.entered_run.wait(timeout=1.0)
             thread.abort()
             with pytest.raises(AutofocusAborted):
@@ -167,7 +165,7 @@ class TestExceptionPropagation:
         thread = AutofocusThread(afe=afe)
         thread.start()
         try:
-            future = thread.run_autofocus(run=run_identity('autofocus'), objective_id='4x')
+            future = thread.run_autofocus(run=run_identity(), objective_id='4x')
             with pytest.raises(RuntimeError, match='hardware fault'):
                 future.result(timeout=2.0)
         finally:
@@ -190,7 +188,7 @@ class TestExceptionPropagation:
         try:
             for raised in (AutofocusFailedError('flat_focus_curve'), RuntimeError('not reported')):
                 afe._raise_exception = raised
-                future = thread.run_autofocus(run=run_identity('autofocus'), objective_id='4x')
+                future = thread.run_autofocus(run=run_identity(), objective_id='4x')
                 with pytest.raises(type(raised)):
                     future.result(timeout=2.0)
         finally:
@@ -219,7 +217,7 @@ class TestAbortLockingRace:
         thread = AutofocusThread(afe=afe)
         thread.start()
         try:
-            future = thread.run_autofocus(run=run_identity('autofocus'), objective_id='4x')
+            future = thread.run_autofocus(run=run_identity(), objective_id='4x')
             # Immediately abort -- this exercises the window between
             # _current_future publication and _aborted.clear().
             thread.abort()
@@ -238,7 +236,7 @@ class TestAbortLockingRace:
         thread.start()
         try:
             for _ in range(10):
-                future = thread.run_autofocus(run=run_identity('autofocus'), objective_id='4x')
+                future = thread.run_autofocus(run=run_identity(), objective_id='4x')
                 thread.abort()
                 with pytest.raises(AutofocusAborted):
                     future.result(timeout=2.0)
@@ -266,7 +264,7 @@ class TestKeyErrorRaceRegression:
         thread = AutofocusThread(afe=afe)
         thread.start()
         try:
-            future = thread.run_autofocus(run=run_identity('autofocus'), objective_id='4x')
+            future = thread.run_autofocus(run=run_identity(), objective_id='4x')
             assert afe.entered_run.wait(timeout=1.0)
             thread.abort()
             # The Future must resolve with AutofocusAborted -- NOT

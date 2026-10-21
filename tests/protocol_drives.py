@@ -23,6 +23,7 @@ import time
 from unittest.mock import MagicMock
 
 from modules.activity_claim import ActivityClaim, RunIdentity
+from modules.caller import Caller
 from modules.image_mode import ImageCaptureConfig
 from modules.run_outcome import CaptureTally
 from tests.scope_fakes import swap_lanes
@@ -34,7 +35,7 @@ def held_run_claim():
     """A run's activity claim, as the run holds it: what a top-level LED
     lease is taken under. Each call is a fresh claim, so two leases never
     share one; release() it to strand a lease taken under it."""
-    return ActivityClaim().try_claim('protocol', run=run_identity('test'))
+    return ActivityClaim().try_claim('protocol', run=run_identity())
 
 
 def lent_run_claim():
@@ -126,9 +127,9 @@ def protocol_step(**overrides):
     return step
 
 
-def run_identity(trigger: str = 'test', words: str = 'scan') -> RunIdentity:
+def run_identity(started_by: Caller = Caller.API, words: str = 'scan') -> RunIdentity:
     """A run's identity for a test that takes or dispatches as a run."""
-    return RunIdentity(trigger=trigger, words=words)
+    return RunIdentity(started_by=started_by, words=words)
 
 
 def bare_capture_runner(**overrides):
@@ -189,7 +190,6 @@ def scr_run_kwargs(**overrides):
     protocol.labware.return_value = '96 well microplate'
     kwargs = {
         'protocol': protocol,
-        'run_trigger_source': 'test',
         'run_mode': SequencedCaptureRunMode.FULL_PROTOCOL,
         'sequence_name': 'seq',
         'image_capture_config': ImageCaptureConfig.from_image_mode('8bit'),

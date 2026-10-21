@@ -14,8 +14,8 @@ run's -- which is exactly the run whose files are still landing, so naming
 it there is naming the right run.
 
 The run is named by its kind in a person's words ('the Z-stack run'), never
-by the token its starter passed ('zstack', 'api_autofocus_scan'): the token
-is provenance, carried on the refusal as ``holder_trigger``.
+by who started it: that is provenance, the caller its host stamped
+(``modules.caller``), carried on the refusal as ``holder_trigger``.
 """
 
 from __future__ import annotations
@@ -24,6 +24,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from modules.caller import Caller
 from modules.exceptions import ProtocolRunRefusedError
 from modules.protocol_image_writer import RunWriteBatch
 from modules.protocol_state_machine import ProtocolState
@@ -42,16 +43,15 @@ from tests.protocol_drives import run_identity
 
 def _a_zstack_holds_the_scope(executor):
     """The state start() commits for a live z-stack run, as its fields:
-    the phase, the trigger, and the handle start() returned."""
+    the phase, who started it, and the handle start() returned."""
     executor._set_state(ProtocolState.RUNNING)
-    executor._run_identity = run_identity('zstack', 'Z-stack')
+    executor._run_identity = run_identity(Caller.GUI, words='Z-stack')
     executor._run_outcome = PendingRunOutcome()
 
 
 def _start_a_scan(executor, tmp_path):
     return executor.prepare(
         protocol=_make_single_step_protocol(),
-        run_trigger_source='scan',
         run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
         sequence_name='names_the_holder',
         image_capture_config=_make_image_capture_config(),
@@ -74,8 +74,7 @@ class TestTheRefusalNamesTheHolder:
         assert refusal.value.message.startswith('The Z-stack run is using the microscope'), (
             f'the refusal must name the run that has the scope: {refusal.value.message!r}'
         )
-        assert 'zstack' not in refusal.value.message, 'a raw trigger token reached a person'
-        assert refusal.value.holder_trigger == 'zstack'
+        assert refusal.value.holder_trigger == Caller.GUI
         assert 'A protocol run is already in progress' not in refusal.value.message, (
             'the old literal told every caller the same thing about a different run'
         )
@@ -84,7 +83,7 @@ class TestTheRefusalNamesTheHolder:
         self, executor, tmp_path, monkeypatch
     ):
         """The just-finished run, which is the one still writing."""
-        executor._run_identity = run_identity('zstack', 'Z-stack')
+        executor._run_identity = run_identity(Caller.GUI, words='Z-stack')
         # The finished run's write batch, closed with a write still to land:
         # a real batch over a stand-in lane that never runs it.
         lane = MagicMock()
@@ -101,15 +100,15 @@ class TestTheRefusalNamesTheHolder:
         assert refusal.value.message.startswith('The Z-stack run is still writing'), (
             f'"previous run" named no run at all: {refusal.value.message!r}'
         )
-        assert refusal.value.holder_trigger == 'zstack'
+        assert refusal.value.holder_trigger == Caller.GUI
 
 
-class TestARawTokenNeverReachesAPerson:
-    def test_an_api_run_is_named_by_its_kind(self, executor, tmp_path):
+class TestWhoStartedTheRunNeverReachesTheSentence:
+    def test_a_rest_run_is_named_by_its_kind(self, executor, tmp_path):
         """A script's autofocus scan once read 'The api_autofocus_scan run'.
-        The token is the caller's provenance; the sentence names the run."""
+        Who started it is provenance on the refusal; the sentence names the run."""
         executor._set_state(ProtocolState.RUNNING)
-        executor._run_identity = run_identity('api_autofocus_scan', 'autofocus scan')
+        executor._run_identity = run_identity(Caller.REST, words='autofocus scan')
         executor._run_outcome = PendingRunOutcome()
         try:
             with pytest.raises(ProtocolRunRefusedError) as refusal:
@@ -118,8 +117,8 @@ class TestARawTokenNeverReachesAPerson:
             executor._set_state(ProtocolState.IDLE)
 
         assert refusal.value.message.startswith('The autofocus scan run is using the microscope')
-        assert 'api_' not in refusal.value.message
-        assert refusal.value.holder_trigger == 'api_autofocus_scan'
+        assert Caller.REST.words not in refusal.value.message
+        assert refusal.value.holder_trigger == Caller.REST
 
     def test_a_diagnostic_refused_by_a_run_names_the_run(self):
         from modules.activity_claim import ActivityClaim
@@ -129,7 +128,7 @@ class TestARawTokenNeverReachesAPerson:
         session = ScopeSession.__new__(ScopeSession)
         session.activity_claim = ActivityClaim()
         held = session.activity_claim.try_claim(
-            'protocol', run=run_identity('api_zstack', 'Z-stack')
+            'protocol', run=run_identity(Caller.REST, words='Z-stack')
         )
         try:
             with pytest.raises(DiagnosticRefusedError) as refusal, session.diagnostic_claim():
@@ -138,7 +137,7 @@ class TestARawTokenNeverReachesAPerson:
             held.release()
 
         assert refusal.value.message.startswith('The Z-stack run is using the microscope')
-        assert refusal.value.holder_trigger == 'api_zstack'
+        assert refusal.value.holder_trigger == Caller.REST
 
     def test_a_run_claim_without_its_run_cannot_be_taken(self):
         from modules.activity_claim import ActivityClaim

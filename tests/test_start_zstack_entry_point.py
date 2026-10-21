@@ -72,11 +72,6 @@ class TestTheRunIsAZStackOfItsOwn:
         runner.start_zstack(layer='BF')
         assert _prepared(runner)['max_scans'] == 1
 
-    def test_the_trigger_source_names_the_api_caller(self):
-        runner = _runner()
-        runner.start_zstack(layer='BF')
-        assert _prepared(runner)['run_trigger_source'] == 'api_zstack'
-
     def test_the_slices_are_saved(self):
         # The images are the product; a stack that saved nothing would
         # have run the stage for no result.

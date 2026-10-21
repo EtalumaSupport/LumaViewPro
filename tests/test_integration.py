@@ -204,7 +204,6 @@ def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
 
     plan = executor.prepare(
         protocol=protocol,
-        run_trigger_source='test',
         run_mode=run_kwargs.pop('run_mode', SequencedCaptureRunMode.SINGLE_SCAN),
         sequence_name='integ_test',
         image_capture_config=run_kwargs.pop('image_capture_config', _make_image_capture_config()),
@@ -594,7 +593,7 @@ class TestIntegrationAutofocus:
         thread.start()
         try:
             future = thread.run_autofocus(
-                run=run_identity('autofocus'),
+                run=run_identity(),
                 objective_id='10x Oly',
                 led_color='BF',
                 led_illumination=5.0,
@@ -975,7 +974,7 @@ class TestRestAPIPrep:
             try:
                 objectives = list(session.scope.objectives)
                 future = thread.run_autofocus(
-                    run=run_identity('autofocus'),
+                    run=run_identity(),
                     objective_id=objectives[0],
                     # Lit, because a sweep in the dark has no focus to find.
                     # The production caller supplies the step's channel and
@@ -1016,7 +1015,7 @@ class TestRestAPIPrep:
             try:
                 objectives = list(session.scope.objectives)
                 future = thread.run_autofocus(
-                    run=run_identity('autofocus'),
+                    run=run_identity(),
                     objective_id=objectives[0],
                     led_color='BF',
                     led_illumination=100.0,

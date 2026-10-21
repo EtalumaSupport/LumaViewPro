@@ -224,7 +224,7 @@ def test_every_error_state_write_aborts_the_run_in_the_same_function():
 # ---------------------------------------------------------------------------
 
 
-def _stop_stub(trigger='test', loop_ended=False):
+def _stop_stub(loop_ended=False):
     import concurrent.futures
 
     import modules.sequenced_capture_runner as scr
@@ -236,7 +236,7 @@ def _stop_stub(trigger='test', loop_ended=False):
     stub = SimpleNamespace(
         _run_lock=threading.RLock(),
         _is_run_live=lambda: True,
-        _run_identity=run_identity(trigger),
+        _run_identity=run_identity(),
         # The handle start() returned for the live run, which a stop names.
         _run_outcome=PendingRunOutcome(),
         _run_handle=None,
@@ -250,15 +250,16 @@ def _stop_stub(trigger='test', loop_ended=False):
     # The runner's own liveness answer, so the stub cannot disagree with it.
     stub._run_handle = scr.EngineRun(stub, stub._run_outcome, scr.RunWriteBatch(MagicMock()))
     stub._last_run = lambda: scr.SequencedCaptureRunner._last_run(stub)
-    stub._last_run_trigger = lambda: scr.SequencedCaptureRunner._last_run_trigger(stub)
+    stub._last_run_started_by = lambda: scr.SequencedCaptureRunner._last_run_started_by(stub)
     stub._is_live_run_locked = lambda run: scr.SequencedCaptureRunner._is_live_run_locked(stub, run)
     return scr, stub, cleaned
 
 
 class TestTheRunnerRecordsTheStop:
-    def test_a_stop_records_that_the_run_was_stopped(self):
-        """A stop names the run, not the caller, so the ending records that
-        the run was stopped and nothing about who asked."""
+    def test_a_stop_records_that_the_run_was_stopped_and_by_whom(self):
+        """A stop names the run, not the caller; the ending records that the
+        run was stopped, and its sentence says who stopped it: the caller
+        stamped on the stopping thread, a script where no host stamped it."""
         scr, stub, _cleaned = _stop_stub()
         scr.SequencedCaptureRunner._stop_run(stub, stub._run_handle)
 
@@ -266,8 +267,18 @@ class TestTheRunnerRecordsTheStop:
         assert (ending.status, ending.reason, ending.message) == (
             'aborted',
             'stopped',
-            'Stopped',
+            'Stopped by a script.',
         )
+
+    def test_a_stop_the_gui_makes_says_the_gui_stopped_it(self):
+        """The sentence is the stopping thread's stamp, not the starter's."""
+        from modules.caller import Caller, calling
+
+        scr, stub, _cleaned = _stop_stub()
+        with calling(Caller.GUI):
+            scr.SequencedCaptureRunner._stop_run(stub, stub._run_handle)
+
+        assert stub._ending.get().message == 'Stopped by LumaViewPro.'
 
     def test_a_stop_with_nothing_to_stop_records_nothing(self):
         """A Stop that finds its run already ended ended no run, so it must

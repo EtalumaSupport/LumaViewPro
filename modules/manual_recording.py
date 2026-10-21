@@ -85,6 +85,7 @@ from modules.video_recording import (
 from modules.scheduler import Scheduler
 from modules.video_writer import VideoWriter
 from modules.api_surface import api
+from modules.caller import current_caller
 
 # The channel LumaViewPro comes up on. A recording that can name no other
 # channel was taken on this one, so identity always has a real value and
@@ -657,6 +658,7 @@ class ManualRecordingController:
         engine = self._engine
         if engine is None:
             return
+        logger.info(f'[ManualRecord] stopped by {current_caller().words} ({reason})')
         try:
             self._scope.imaging.remove_frame_listener(self._on_camera_frame)
         except Exception as e:

@@ -151,7 +151,6 @@ def test_refused_af_acquire_aborts_the_af_run(scope, monkeypatch, centre_posts):
     with pytest.raises(AutofocusAborted) as aborted:
         runner.run(
             objective_id='objective-under-test',
-            run_trigger_source='manual',
             abort_event=threading.Event(),
             led_color='Green',
             led_illumination=250.0,
@@ -216,7 +215,6 @@ def test_af_under_a_live_run_whose_leds_another_holds_is_refused_and_says_so(sco
         with pytest.raises(AutofocusAborted) as refused:
             runner.run(
                 objective_id='objective-under-test',
-                run_trigger_source='manual',
                 abort_event=threading.Event(),
                 led_color='Green',
                 led_illumination=250.0,
