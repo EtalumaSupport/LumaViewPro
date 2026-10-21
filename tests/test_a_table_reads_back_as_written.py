@@ -13,11 +13,11 @@ own columns; a file no LumaViewPro writer produces is refused naming it.
 
 import pytest
 
+from modules.cell_count_method import CellCountMethod
 from modules.common_utils import read_table
 from modules.exceptions import PostProcessingRefusedError
 from modules.post_processing import (
     PostProcessing,
-    default_cell_count_method,
     read_cell_count_results,
 )
 from modules.protocol import Protocol, ProtocolFormatError
@@ -143,9 +143,7 @@ def test_a_count_of_images_named_outside_ascii_reads_back(tmp_path):
     image = np.zeros((64, 64), dtype=np.uint8)
     image[10:30, 10:30] = 200
     cv2.imwrite(str(tmp_path / NON_ASCII_IMAGE), image)
-    PostProcessing().apply_cell_count_to_folder(
-        path=str(tmp_path), settings=default_cell_count_method()
-    )
+    PostProcessing().apply_cell_count_to_folder(path=str(tmp_path), method=CellCountMethod())
 
     assert (tmp_path / 'results.csv').read_bytes().decode('utf-8')
     assert read_cell_count_results(tmp_path / 'results.csv')['file'].tolist() == [NON_ASCII_IMAGE]

@@ -12,7 +12,6 @@ tests/guards/test_the_range_sliders_commit_on_their_own_release.py.
 
 from __future__ import annotations
 
-import copy
 import os
 import pathlib
 import subprocess
@@ -22,7 +21,7 @@ from types import SimpleNamespace
 import pytest
 
 import ui.post_processing as panel_module
-from modules.post_processing import default_cell_count_method
+from modules.cell_count_method import CellCountFilters, CellCountMethod, FilterBounds
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 _RANGE_SLIDERS = (
@@ -51,7 +50,7 @@ def _panel(method):
     )
     panel = SimpleNamespace(
         ids=SimpleNamespace(**ids),
-        _settings=method,
+        _method=method,
         _preview_source_image=None,
         _preview_pixel_size_um=None,
         _regenerate_image_preview=lambda: None,
@@ -64,6 +63,7 @@ def _panel(method):
         '_size_filter_to_slider',
         '_preview_shape',
         '_preview_scale',
+        '_take_filter',
     ):
         setattr(panel, name, getattr(cls, name).__get__(panel))
     return panel
@@ -76,15 +76,13 @@ class _Ids(dict):
 def test_showing_a_method_writes_nothing_and_shows_open_bounds_at_the_stops(monkeypatch):
     records = []
     monkeypatch.setattr(panel_module.gui_logger, 'slider', lambda *a: records.append(a))
-    method = default_cell_count_method()
-    method['filters']['perimeter'] = {'min': 20, 'max': None}
-    before = copy.deepcopy(method)
+    method = CellCountMethod(filters=CellCountFilters(perimeter=FilterBounds(20, None)))
     panel = _panel(method)
     panel.ids = _Ids(vars(panel.ids))
 
-    panel_module.CellCountControls._set_ui_to_settings(panel, method)
+    panel_module.CellCountControls._set_ui_to_method(panel, method)
 
-    assert method == before, 'showing the method changed it'
+    assert panel._method is method, 'showing the method changed it'
     assert records == [], 'showing the method recorded a slider move'
     assert panel.ids['slider_cell_count_area_id'].value == (0, 100)
     assert panel.ids['label_cell_count_area_id'].text == 'any \u03bcm\u00b2'
@@ -132,7 +130,7 @@ def test_a_range_slider_releases_only_the_touch_it_grabbed(tmp_path):
 def test_a_released_size_slider_writes_open_bounds_at_its_stops_and_records_once(monkeypatch):
     records = []
     monkeypatch.setattr(panel_module.gui_logger, 'slider', lambda *a: records.append(a))
-    panel = _panel(default_cell_count_method())
+    panel = _panel(CellCountMethod())
     panel.ids = _Ids(vars(panel.ids))
     panel._size_bounds_from_slider = (
         panel_module.CellCountControls._size_bounds_from_slider.__get__(panel)
@@ -141,10 +139,10 @@ def test_a_released_size_slider_writes_open_bounds_at_its_stops_and_records_once
     panel.ids['slider_cell_count_area_id'].value = (10, 100)
     panel_module.CellCountControls.slider_adjustment_area(panel)
 
-    assert panel._settings['filters']['area'] == {'min': 10, 'max': None}
+    assert panel._method.filters.area == FilterBounds(10, None)
     assert records == [('CELL_COUNT_AREA_RANGE', '\u2265 10')]
     assert panel.ids['label_cell_count_area_id'].text == '\u2265 10 \u03bcm\u00b2'
 
     panel.ids['slider_cell_count_area_id'].value = (0, 100)
     panel_module.CellCountControls.slider_adjustment_area(panel)
-    assert panel._settings['filters']['area'] == {'min': None, 'max': None}
+    assert panel._method.filters.area == FilterBounds(None, None)

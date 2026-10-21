@@ -1,6 +1,6 @@
 # Copyright Etaluma, Inc.
+import dataclasses
 import logging
-import os
 import pathlib
 import subprocess
 import sys
@@ -16,6 +16,7 @@ from kivy.uix.popup import Popup
 
 from ui.progress_popup import show_popup
 from modules import gui_logger
+from modules.cell_count_method import CellCountMethod, FilterBounds
 from modules.post_processing_api import BuildResult, ZProject
 from modules.stitcher import Stitcher
 import modules.zprojector as zprojector
@@ -493,7 +494,7 @@ class CellCountControls(BoxLayout):
 
     done = BooleanProperty(False)
 
-    def __init__(self, method: dict, **kwargs):
+    def __init__(self, method: CellCountMethod, **kwargs):
         super().__init__(**kwargs)
         logger.info('LVP Main: CellCountControls.__init__()')
         self._preview_source_image = None
@@ -502,8 +503,9 @@ class CellCountControls(BoxLayout):
         self._preview_pixel_size_um = None
         self._preview_image = None
         self._post = post_processing.PostProcessing()
-        self._settings = method
-        self._set_ui_to_settings(self._settings)
+        # The method the panel shows and counts by, replaced whole on each change.
+        self._method = method
+        self._set_ui_to_method(self._method)
 
     def apply_method_to_preview_image(self) -> None:
         gui_logger.button('APPLY_METHOD_TO_PREVIEW')
@@ -519,10 +521,10 @@ class CellCountControls(BoxLayout):
         popup.progress = 0
         popup.auto_dismiss = False
 
-        settings = self._settings
+        method = self._method
         _run_build(
             lambda progress: _app_ctx.ctx.session.post_processing.count_cells(
-                path, method=settings, on_progress=progress
+                path, method=method, on_progress=progress
             ),
             popup,
             'APPLY_CELL_COUNT_TO_FOLDER',
@@ -530,9 +532,6 @@ class CellCountControls(BoxLayout):
 
     def set_post_processing_module(self, post_processing_module):
         self._post = post_processing_module
-
-    def get_current_settings(self):
-        return self._settings
 
     def _preview_shape(self) -> tuple[int, ...] | None:
         return None if self._preview_source_image is None else self._preview_source_image.shape
@@ -547,37 +546,25 @@ class CellCountControls(BoxLayout):
             size, bounds, self._preview_shape(), self._preview_scale()
         )
 
-    def _set_ui_to_settings(self, settings):
+    def _set_ui_to_method(self, method: CellCountMethod):
         """Show the method on the panel. Writes nothing back to it."""
-        self.ids.text_cell_count_pixels_per_um_id.text = _scale_text(
-            settings['context']['pixels_per_um']
-        )
-        self.ids.cell_count_fluorescent_mode_id.active = settings['context']['fluorescent_mode']
-        self.ids.slider_cell_count_threshold_id.value = settings['segmentation']['parameters'][
-            'threshold'
-        ]
+        filters = method.filters
+        self.ids.text_cell_count_pixels_per_um_id.text = _scale_text(method.pixels_per_um)
+        self.ids.cell_count_fluorescent_mode_id.active = method.fluorescent_mode
+        self.ids.slider_cell_count_threshold_id.value = method.threshold
         self._show_size_filters()
-        self.ids.slider_cell_count_sphericity_id.value = (
-            settings['filters']['sphericity']['min'],
-            settings['filters']['sphericity']['max'],
-        )
-        self.ids.slider_cell_count_min_intensity_id.value = (
-            settings['filters']['intensity']['min']['min'],
-            settings['filters']['intensity']['min']['max'],
-        )
-        self.ids.slider_cell_count_mean_intensity_id.value = (
-            settings['filters']['intensity']['mean']['min'],
-            settings['filters']['intensity']['mean']['max'],
-        )
-        self.ids.slider_cell_count_max_intensity_id.value = (
-            settings['filters']['intensity']['max']['min'],
-            settings['filters']['intensity']['max']['max'],
-        )
+        for slider_id, bounds in (
+            ('slider_cell_count_sphericity_id', filters.sphericity),
+            ('slider_cell_count_min_intensity_id', filters.intensity_min),
+            ('slider_cell_count_mean_intensity_id', filters.intensity_mean),
+            ('slider_cell_count_max_intensity_id', filters.intensity_max),
+        ):
+            self.ids[slider_id].value = (bounds.min, bounds.max)
         self._regenerate_image_preview()
 
     def _preview_scale(self) -> float | None:
         """Pixels per micron the preview counts at, or None for pixels."""
-        return post_processing.cell_count_scale(self._settings, self._preview_pixel_size_um)
+        return post_processing.cell_count_scale(self._method, self._preview_pixel_size_um)
 
     def _size_bounds_from_slider(self, slider_id, size):
         """The ``size`` bounds a range slider shows; an end at its stop is no bound."""
@@ -609,19 +596,19 @@ class CellCountControls(BoxLayout):
             ),
         ):
             slider = self.ids[slider_id]
-            bounds = self._settings['filters'][size]
+            bounds = getattr(self._method.filters, size)
             low = (
                 slider.min
-                if bounds['min'] is None
-                else self._size_filter_to_slider(size, (bounds['min'], 0))[0]
+                if bounds.min is None
+                else self._size_filter_to_slider(size, (bounds.min, 0))[0]
             )
             high = (
                 slider.max
-                if bounds['max'] is None
-                else self._size_filter_to_slider(size, (0, bounds['max']))[1]
+                if bounds.max is None
+                else self._size_filter_to_slider(size, (0, bounds.max))[1]
             )
             slider.value = (low, high)
-            self.ids[label_id].text = _range_text(bounds['min'], bounds['max'], unit)
+            self.ids[label_id].text = _range_text(bounds.min, bounds.max, unit)
 
     def set_preview_source_file(self, file) -> None:
         # One read returns pixels AND their payload depth, so the preview always
@@ -662,15 +649,11 @@ class CellCountControls(BoxLayout):
         self.update_filter_max(image=image)
         self._regenerate_image_preview()
 
-    # Save settings to JSON file
-    def save_method_as(self, file='./data/cell_count_method.json'):
+    def save_method_as(self, file):
         logger.info(f'[LVP Main  ] CellCountContent.save_method_as({file})')
-        # Resolve relative paths against source_path instead of relying on CWD
-        if not os.path.isabs(file):
-            file = os.path.join(_app_ctx.ctx.source_path, file)
-        method = self._settings
+        method = self._method
         run_reported(
-            lambda: post_processing.save_cell_count_method(method, file),
+            lambda: _app_ctx.ctx.session.post_processing.save_cell_count_method(method, file),
             None,
             'SAVE_CELL_COUNT_METHOD',
         )
@@ -679,11 +662,9 @@ class CellCountControls(BoxLayout):
         logger.info(f'[LVP Main  ] CellCountContent.load_method_from_file({file})')
 
         def _load():
-            self._settings = post_processing.load_cell_count_method(file)
+            self._method = _app_ctx.ctx.session.post_processing.load_cell_count_method(file)
 
-        run_reported(
-            _load, lambda: self._set_ui_to_settings(self._settings), 'LOAD_CELL_COUNT_METHOD'
-        )
+        run_reported(_load, lambda: self._set_ui_to_method(self._method), 'LOAD_CELL_COUNT_METHOD')
 
     def _regenerate_image_preview(self):
         if self._preview_source_image is None:
@@ -691,7 +672,7 @@ class CellCountControls(BoxLayout):
 
         image, _ = self._post.preview_cell_count(
             image=self._preview_source_image,
-            settings=self._settings,
+            method=self._method,
             significant_bits=self._preview_source_significant_bits,
             pixels_per_um=self._preview_scale(),
             name='The preview image',
@@ -704,10 +685,17 @@ class CellCountControls(BoxLayout):
             image=image, existing=img_widget.texture
         )
 
+    def _take_filter(self, name: str, low, high) -> None:
+        """Hold a method whose *name* filter is bounded by *low* and *high*."""
+        filters = dataclasses.replace(
+            self._method.filters, **{name: FilterBounds(min=low, max=high)}
+        )
+        self._method = dataclasses.replace(self._method, filters=filters)
+
     def slider_adjustment_threshold(self):
         value = self.ids['slider_cell_count_threshold_id'].value
         gui_logger.slider('CELL_COUNT_THRESHOLD', value)
-        self._settings['segmentation']['parameters']['threshold'] = value
+        self._method = dataclasses.replace(self._method, threshold=value)
 
         if self.ENABLE_PREVIEW_AUTO_REFRESH:
             self._regenerate_image_preview()
@@ -715,7 +703,7 @@ class CellCountControls(BoxLayout):
     def slider_adjustment_area(self):
         low, high = self._size_bounds_from_slider('slider_cell_count_area_id', 'area')
         gui_logger.slider('CELL_COUNT_AREA_RANGE', _range_text(low, high, ''))
-        self._settings['filters']['area'] = {'min': low, 'max': high}
+        self._take_filter('area', low, high)
         self.ids['label_cell_count_area_id'].text = _range_text(low, high, _AREA_UNIT)
 
         if self.ENABLE_PREVIEW_AUTO_REFRESH:
@@ -729,7 +717,7 @@ class CellCountControls(BoxLayout):
     def slider_adjustment_perimeter(self):
         low, high = self._size_bounds_from_slider('slider_cell_count_perimeter_id', 'perimeter')
         gui_logger.slider('CELL_COUNT_PERIMETER_RANGE', _range_text(low, high, ''))
-        self._settings['filters']['perimeter'] = {'min': low, 'max': high}
+        self._take_filter('perimeter', low, high)
         self.ids['label_cell_count_perimeter_id'].text = _range_text(low, high, _PERIMETER_UNIT)
 
         if self.ENABLE_PREVIEW_AUTO_REFRESH:
@@ -744,8 +732,7 @@ class CellCountControls(BoxLayout):
         lo = self.ids['slider_cell_count_sphericity_id'].value[0]
         hi = self.ids['slider_cell_count_sphericity_id'].value[1]
         gui_logger.slider('CELL_COUNT_SPHERICITY_RANGE', f'{lo}-{hi}')
-        self._settings['filters']['sphericity']['min'] = lo
-        self._settings['filters']['sphericity']['max'] = hi
+        self._take_filter('sphericity', lo, hi)
 
         if self.ENABLE_PREVIEW_AUTO_REFRESH:
             self._regenerate_image_preview()
@@ -754,8 +741,7 @@ class CellCountControls(BoxLayout):
         lo = self.ids['slider_cell_count_min_intensity_id'].value[0]
         hi = self.ids['slider_cell_count_min_intensity_id'].value[1]
         gui_logger.slider('CELL_COUNT_MIN_INTENSITY_RANGE', f'{lo}-{hi}')
-        self._settings['filters']['intensity']['min']['min'] = lo
-        self._settings['filters']['intensity']['min']['max'] = hi
+        self._take_filter('intensity_min', lo, hi)
 
         if self.ENABLE_PREVIEW_AUTO_REFRESH:
             self._regenerate_image_preview()
@@ -764,8 +750,7 @@ class CellCountControls(BoxLayout):
         lo = self.ids['slider_cell_count_mean_intensity_id'].value[0]
         hi = self.ids['slider_cell_count_mean_intensity_id'].value[1]
         gui_logger.slider('CELL_COUNT_MEAN_INTENSITY_RANGE', f'{lo}-{hi}')
-        self._settings['filters']['intensity']['mean']['min'] = lo
-        self._settings['filters']['intensity']['mean']['max'] = hi
+        self._take_filter('intensity_mean', lo, hi)
 
         if self.ENABLE_PREVIEW_AUTO_REFRESH:
             self._regenerate_image_preview()
@@ -774,8 +759,7 @@ class CellCountControls(BoxLayout):
         lo = self.ids['slider_cell_count_max_intensity_id'].value[0]
         hi = self.ids['slider_cell_count_max_intensity_id'].value[1]
         gui_logger.slider('CELL_COUNT_MAX_INTENSITY_RANGE', f'{lo}-{hi}')
-        self._settings['filters']['intensity']['max']['min'] = lo
-        self._settings['filters']['intensity']['max']['max'] = hi
+        self._take_filter('intensity_max', lo, hi)
 
         if self.ENABLE_PREVIEW_AUTO_REFRESH:
             self._regenerate_image_preview()
@@ -785,9 +769,9 @@ class CellCountControls(BoxLayout):
             'CELL_COUNT_FLUORESCENT_MODE',
             bool(self.ids['cell_count_fluorescent_mode_id'].active),
         )
-        self._settings['context']['fluorescent_mode'] = self.ids[
-            'cell_count_fluorescent_mode_id'
-        ].active
+        self._method = dataclasses.replace(
+            self._method, fluorescent_mode=bool(self.ids['cell_count_fluorescent_mode_id'].active)
+        )
 
         if self.ENABLE_PREVIEW_AUTO_REFRESH:
             self._regenerate_image_preview()
@@ -805,13 +789,13 @@ class CellCountControls(BoxLayout):
         gui_logger.text_input('CELL_COUNT_PIXELS_PER_UM', typed)
 
         def _apply():
-            self._settings = post_processing.with_pixels_per_um(self._settings, typed)
+            self._method = post_processing.with_pixels_per_um(self._method, typed)
 
         run_reported(_apply, self._show_pixels_per_um, 'CELL_COUNT_PIXELS_PER_UM')
 
     def _show_pixels_per_um(self) -> None:
         box = self.ids['text_cell_count_pixels_per_um_id']
-        held = _scale_text(self._settings['context']['pixels_per_um'])
+        held = _scale_text(self._method.pixels_per_um)
         if box.text != held:
             # The box is put back to what the method holds: the record pair
             # says what was typed and what the app kept instead. Assigning

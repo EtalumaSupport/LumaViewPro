@@ -1127,7 +1127,7 @@ pp.enhance(target)                           # Quick Enhance: one image, or ever
                                              # derived files are written beside their sources;
                                              # PostProcessingRefusedError ('unreadable') when target
                                              # is a file that is not an image
-pp.count_cells(folder, method=method_dict)   # writes results.csv into the folder
+pp.count_cells(folder, method=method)        # a CellCountMethod; writes results.csv into the folder
 
 from modules.post_processing_api import ZProject, Stitch, Video
 pp.build(folder, zproject=ZProject(method='Max'),  # several builds in one call, in the
@@ -1145,27 +1145,36 @@ A derived file's name says how it was made, oldest build first: a stitch of Max 
 
 `build` runs the builds whose settings records it is given -- `ZProject(method)`, `Stitch(mode)`, `Video(frames_per_sec, timestamp_overlay)`, each defaulting as its own member does, and `composite=True`, a composite having no settings of its own; one left None is not run -- in the one order that keeps the data honest: z-project, stitch, composite, video. A projection is made of raw slices, never of mosaics, and a stitched composite from the stitched channels, never by stitching composites. Each build takes only what the build before it in the call carried forward -- what that build made, and the images it did not consume, such as an ordinary Add step's images beside a tiled stack -- so the call makes the chain's product and its inputs, not every combination the folder allows: z-project, stitch and composite of a 2x2 tiled, 3-slice, 2-channel scan make 8 projections, 2 stitched projections and 1 composite, where the three members run one by one make 36 files. An image already in the folder from an earlier build is not the chain's input. Every chosen build's settings are checked before any build starts (`invalid_setting`, the build's `operation` named; a call that chooses no build is refused with `operation` `Post-Processing`), and the call runs as one task on the post-processing lane, so no other build touches the folder between its steps; `work()` names the build it is on ("Building 2 of 3: Stitch"). It returns a `BuildsResult`: `built`, a `BuildStep(operation, result)` for each build run in order, its `result` the `BuildResult` that build's own member returns; `skipped`, a `SkippedBuild(operation, message)` for each build that had nothing to do in the folder (a video on a single-scan run, the build's own `no_data`), the next build taking what the skipped one was given; and `message`. Any other refusal or failure stops the call and is raised as that build's own outcome, unchanged, its `operation` naming it; the files the earlier builds made are in the folder and its record, and the same call made again rebuilds nothing already made and resumes at the build that stopped once its cause is gone. One that does not go -- a raw slice missing, which fails its projection every time -- stops the call there on every run: build that folder with the members one by one. A folder of a manual recording takes `video` alone.
 
-A cell-count method is a dict; start from `pp.default_cell_count_method()` (a new copy on every call; the method LumaViewPro's panel starts from; over REST `GET /api/v1/post_processing/default_cell_count_method`) and change what you need:
+A cell-count method is a `CellCountMethod` record (`modules.cell_count_method`). `CellCountMethod()` is the method LumaViewPro's panel starts from, which `pp.default_cell_count_method()` also answers (over REST `GET /api/v1/post_processing/default_cell_count_method`); build the one you need, or change one with `dataclasses.replace`:
 
 ```python
-method = pp.default_cell_count_method()
-method['filters']['area'] = {'min': 20, 'max': None}   # square microns; None is an open bound
+import dataclasses
+from modules.cell_count_method import CellCountFilters, CellCountMethod, FilterBounds
+
+method = CellCountMethod(
+    filters=CellCountFilters(area=FilterBounds(min=20, max=None)),  # square microns; None is open
+)
+method = dataclasses.replace(method, threshold=30)
 pp.count_cells(folder, method=method)
+
+pp.save_cell_count_method(method, 'methods/cells.json')   # the file LumaViewPro's panel saves
+method = pp.load_cell_count_method('methods/cells.json')
 ```
 
-Each image is measured at the scale it states: a LumaViewPro capture carries its pixel size, so its areas and perimeters are in square microns and microns. An image that states no scale (a PNG, a capture saved without one) is counted in pixels. `results.csv` has one row per image with `file`, `time`, `num_cells`, `total_object_area`, `area_unit` (`um2` or `px2`, that row's unit) and `total_object_intensity`. Setting `context.pixels_per_um` overrides the scale for every image, for example on external images whose scale you know. The area and perimeter filters are in microns, so an image counted in pixels with either one set is not counted: the count goes on with the rest and raises `PostProcessingFailedError` naming it.
+Over REST a method is sent as an object of every one of its fields, as `GET /api/v1/post_processing/default_cell_count_method` answers it: start from that answer and change what you need.
+
+Each image is measured at the scale it states: a LumaViewPro capture carries its pixel size, so its areas and perimeters are in square microns and microns. An image that states no scale (a PNG, a capture saved without one) is counted in pixels. `results.csv` has one row per image with `file`, `time`, `num_cells`, `total_object_area`, `area_unit` (`um2` or `px2`, that row's unit) and `total_object_intensity`. Setting `pixels_per_um` overrides the scale for every image, for example on external images whose scale you know. The area and perimeter filters are in microns, so an image counted in pixels with either one set is not counted: the count goes on with the rest and raises `PostProcessingFailedError` naming it.
 
 | Field | Meaning |
 |---|---|
-| `context.pixels_per_um` | `None` (the default) to use each image's own scale; or a positive number of camera pixels per micron, which overrides it for every image |
-| `context.fluorescent_mode` | `True` for bright objects on a dark background; `False` inverts the image first |
-| `segmentation.algorithm` | `'initial'` |
-| `segmentation.parameters.threshold` | brightness threshold, percent of full scale |
-| `filters.area`, `filters.perimeter` | `{'min', 'max'}` in square microns and microns; open (`None`) by default. A set bound refuses an image counted in pixels |
-| `filters.sphericity` | `{'min', 'max'}`, 0 to 1 |
-| `filters.intensity.min` / `.mean` / `.max` | `{'min', 'max'}` for each region's minimum, mean and maximum intensity, percent of full scale |
+| `pixels_per_um` | `None` (the default) to use each image's own scale; or a positive number of camera pixels per micron, which overrides it for every image |
+| `fluorescent_mode` | `True` (the default) for bright objects on a dark background; `False` inverts the image first |
+| `threshold` | brightness threshold, percent of full scale; 20 by default |
+| `filters.area`, `filters.perimeter` | a `FilterBounds(min, max)` in square microns and microns; open (`None`) by default. A set bound refuses an image counted in pixels |
+| `filters.sphericity` | a `FilterBounds`, 0 to 1 |
+| `filters.intensity_min` / `intensity_mean` / `intensity_max` | a `FilterBounds` for each region's minimum, mean and maximum intensity, percent of full scale; 0 to 100 by default |
 
-`count_cells` refuses a method the count cannot use before the count is queued: `PostProcessingRefusedError` with `reason='method_invalid'`, its message naming the field (a missing field, a `pixels_per_um` that is not a positive number, a bound that is not a number or `None`, a filter whose `min` is above its `max`). A method saved by LumaViewPro's panel also carries a `metadata` entry; the count does not need it. A method file saved before LumaViewPro read each image's scale (`metadata.version` `'1'`) carries the old fixed default of 1.0 pixels per micron: LumaViewPro's panel drops it when it opens such a file, so the method uses each image's own scale, and says so once.
+A method the count cannot use cannot be built: `CellCountMethod` and `CellCountFilters` raise `PostProcessingRefusedError` with `reason='method_invalid'` as they are built, the message naming the field (a `pixels_per_um` that is not a positive number, a `fluorescent_mode` that is not `True` or `False`, a threshold or bound that is not a number, a filter whose `min` is above its `max`), and a method sent over REST is refused the same before the count is queued. A method file is the nested JSON LumaViewPro has always written (`context`, `segmentation`, `filters`, and a `metadata` entry marking it a method file); `load_cell_count_method` refuses a file it cannot read or that is not a method file (`method_unreadable`) and one holding a method the count cannot use (`method_invalid`, naming the field by its place in the file), the message naming the file. Both run on the caller's thread, not the post-processing lane. A method file saved before LumaViewPro read each image's scale (`metadata.version` `'1'`) carries the old fixed default of 1.0 pixels per micron: the load drops it, so the method uses each image's own scale, and says so once.
 
 `graph_options` and `graph`, below, read a `results.csv` with its `time` column as times (the count's own time format). They read any CSV in UTF-8 (the count writes its file in UTF-8 on every host): every cell is the text written, a column whose every cell is a number is a column of numbers (whole numbers when every cell is one), and any other column is text, so a cell such as `NA` is never read as a missing number; a graph takes numbers and times as X and numbers as Y. A file that cannot be graphed (not UTF-8, a NUL, a quote that does not close, a row of the wrong length, a repeated column name, a time the count did not write, no column of numbers) is refused: `PostProcessingRefusedError` with `operation='Graphing'`, `reason='results_unreadable'`, its message naming the file. A time X takes the trendlines `'Linear'`, `'Quadratic'` and `'Exponential'`; two number columns also take `'Power'` and `'Logarithmic'`. A fit the values cannot give is refused, such as a missing value, a 0 under a log, or too few distinct X values for the kind (`PostProcessingRefusedError`, `operation='Trendline'`, `reason='fit_impossible'`, naming the values and how many).
 
@@ -3376,6 +3385,8 @@ Reached through `session.post_processing`.
 - `enhance`
 - `graph`
 - `graph_options`
+- `load_cell_count_method`
+- `save_cell_count_method`
 - `stitch`
 - `video`
 - `zproject`
@@ -3638,6 +3649,26 @@ Reached through a REST problem, whose members carry it.
 - `argument`
 - `offered`
 
+### CellCountFilters
+
+Reached through a `CellCountMethod`'s `filters`.
+
+- `area`
+- `intensity_max`
+- `intensity_mean`
+- `intensity_min`
+- `perimeter`
+- `sphericity`
+
+### CellCountMethod
+
+Reached through `session.post_processing.default_cell_count_method()` and `load_cell_count_method`, or built by the caller; taken by `count_cells` and `save_cell_count_method`.
+
+- `filters`
+- `fluorescent_mode`
+- `pixels_per_um`
+- `threshold`
+
 ### CellCountResult
 
 Reached through returned by `session.post_processing.count_cells`.
@@ -3754,6 +3785,13 @@ Reached through `RuntimeState.get_field_of_view`.
 
 - `height_um`
 - `width_um`
+
+### FilterBounds
+
+Reached through each filter of a `CellCountFilters`.
+
+- `max`
+- `min`
 
 ### FilesWritten
 

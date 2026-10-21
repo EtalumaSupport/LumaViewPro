@@ -5,25 +5,32 @@ The panel read the file itself, checked only that a metadata entry named a
 type and a version (raising a bare Exception, with nothing around it to
 report it), and stored the dict before reading its fields -- so a file with
 pixels-per-micron 0 loaded and counted nothing, and a file missing a field
-left the panel holding a method it could not use. The owner in
-modules/post_processing.py now reads, checks and writes the file, and the
-panel stores a method only from the owner's answer.
+left the panel holding a method it could not use. The Session's
+``load_cell_count_method`` and ``save_cell_count_method`` now read and
+write the file, the load answering a ``CellCountMethod`` the count can use,
+and the panel stores a method only from that answer.
 """
 
 from __future__ import annotations
 
+import dataclasses
 import json
 from types import SimpleNamespace
 
 import pytest
 
 import ui.post_processing as panel_module
+from modules.cell_count_method import CellCountFilters, CellCountMethod, FilterBounds, saved_form
 from modules.exceptions import LiveFolderPathRefusedError, PostProcessingRefusedError
-from modules.post_processing import (
-    default_cell_count_method,
-    load_cell_count_method,
-    save_cell_count_method,
-)
+from modules.scope_session import ScopeSession
+from tests.settings_fixtures import complete_settings
+
+
+@pytest.fixture
+def post(tmp_path):
+    session = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
+    yield session.post_processing
+    session.shutdown()
 
 
 def _write(path, saved) -> str:
@@ -32,76 +39,96 @@ def _write(path, saved) -> str:
 
 
 def _saved(**context) -> dict:
-    method = default_cell_count_method()
-    method['context'].update(context)
-    method['metadata'] = {'type': 'cell_count_method', 'version': '1'}
-    return method
+    saved = saved_form(CellCountMethod())
+    saved['context'].update(context)
+    saved['metadata'] = {'type': 'cell_count_method', 'version': '2'}
+    return saved
 
 
-def test_a_saved_method_loads_back_as_it_was(tmp_path):
-    method = default_cell_count_method()
-    method['context']['pixels_per_um'] = 2.5
+def test_a_saved_method_loads_back_as_it_was(post, tmp_path):
+    method = CellCountMethod(
+        pixels_per_um=2.5,
+        fluorescent_mode=False,
+        threshold=35,
+        filters=CellCountFilters(area=FilterBounds(10, 500), intensity_mean=FilterBounds(5, 90)),
+    )
     path = tmp_path / 'method.json'
-    save_cell_count_method(method, path)
-    loaded = load_cell_count_method(path)
-    assert loaded['context']['pixels_per_um'] == 2.5
-    assert loaded['metadata'] == {'type': 'cell_count_method', 'version': '2'}
-    assert 'metadata' not in method
+    post.save_cell_count_method(method, path)
+    assert post.load_cell_count_method(path) == method
+    assert json.loads(path.read_text())['metadata'] == {'type': 'cell_count_method', 'version': '2'}
 
 
-def test_a_method_the_count_cannot_use_is_not_saved(tmp_path):
-    method = default_cell_count_method()
-    method['context']['pixels_per_um'] = 0
+def test_the_file_keeps_the_form_earlier_releases_read(post, tmp_path):
     path = tmp_path / 'method.json'
-    with pytest.raises(PostProcessingRefusedError):
-        save_cell_count_method(method, path)
-    assert not path.exists()
+    post.save_cell_count_method(CellCountMethod(pixels_per_um=2.5), path)
+    saved = json.loads(path.read_text())
+    assert saved['context'] == {'pixels_per_um': 2.5, 'fluorescent_mode': True}
+    assert saved['segmentation'] == {'algorithm': 'initial', 'parameters': {'threshold': 20}}
+    assert saved['filters']['intensity']['mean'] == {'min': 0, 'max': 100}
 
 
-def test_a_folder_at_the_path_is_refused_and_left_as_it_was(tmp_path):
+def test_a_folder_at_the_path_is_refused_and_left_as_it_was(post, tmp_path):
     folder = tmp_path / 'method.json'
     folder.mkdir()
     (folder / 'kept.txt').write_text('kept')
     with pytest.raises(LiveFolderPathRefusedError) as refused:
-        save_cell_count_method(default_cell_count_method(), folder)
+        post.save_cell_count_method(CellCountMethod(), folder)
     assert refused.value.reason == 'not_a_file'
     assert [p.name for p in folder.iterdir()] == ['kept.txt']
+
+
+def _without(saved: dict, *path: str) -> dict:
+    holder = saved
+    for key in path[:-1]:
+        holder = holder[key]
+    del holder[path[-1]]
+    return saved
 
 
 # parametrize-justified: each case writes its own file and is refused for its own reason
 @pytest.mark.parametrize(
     ('saved', 'reason', 'words'),
     [
-        (_saved(pixels_per_um=0), 'method_invalid', 'context.pixels_per_um'),
+        (_saved(pixels_per_um=0), 'method_invalid', 'pixels_per_um'),
+        (_saved(fluorescent_mode='yes'), 'method_invalid', 'fluorescent_mode'),
+        (_without(_saved(), 'segmentation'), 'method_invalid', 'segmentation'),
         (
-            {k: v for k, v in _saved().items() if k != 'segmentation'},
+            _without(_saved(), 'segmentation', 'algorithm'),
             'method_invalid',
-            'segmentation',
+            'segmentation.algorithm',
         ),
+        (
+            _without(_saved(), 'filters', 'intensity', 'mean'),
+            'method_invalid',
+            'filters.intensity.mean',
+        ),
+        (_without(_saved(), 'filters', 'area', 'max'), 'method_invalid', 'filters.area.max'),
         ({k: v for k, v in _saved().items() if k != 'metadata'}, 'method_unreadable', 'metadata'),
         ('{"context": ', 'method_unreadable', 'not JSON'),
         ('[1, 2]', 'method_unreadable', 'metadata'),
     ],
 )
-def test_a_file_that_is_not_a_usable_method_is_refused_naming_it(tmp_path, saved, reason, words):
+def test_a_file_that_is_not_a_usable_method_is_refused_naming_it(
+    post, tmp_path, saved, reason, words
+):
     path = _write(tmp_path / 'method.json', saved)
     with pytest.raises(PostProcessingRefusedError) as refused:
-        load_cell_count_method(path)
+        post.load_cell_count_method(path)
     assert refused.value.reason == reason
     assert path in str(refused.value)
     assert words in str(refused.value)
 
 
-def test_a_missing_file_is_refused_naming_it(tmp_path):
+def test_a_missing_file_is_refused_naming_it(post, tmp_path):
     path = str(tmp_path / 'nowhere.json')
     with pytest.raises(PostProcessingRefusedError) as refused:
-        load_cell_count_method(path)
+        post.load_cell_count_method(path)
     assert refused.value.reason == 'method_unreadable'
     assert path in str(refused.value)
 
 
 @pytest.fixture
-def boundary(monkeypatch):
+def boundary(monkeypatch, post):
     """The GUI boundary, inline: run the call, keep what it raised, then redraw."""
     outcomes = []
 
@@ -114,14 +141,17 @@ def boundary(monkeypatch):
             redraw()
 
     monkeypatch.setattr(panel_module, 'run_reported', reported)
+    monkeypatch.setattr(
+        panel_module._app_ctx, 'ctx', SimpleNamespace(session=SimpleNamespace(post_processing=post))
+    )
     return outcomes
 
 
-def _panel() -> SimpleNamespace:
+def _panel(method: CellCountMethod | None = None) -> SimpleNamespace:
     shown = []
     return SimpleNamespace(
-        _settings=default_cell_count_method(),
-        _set_ui_to_settings=shown.append,
+        _method=method or CellCountMethod(),
+        _set_ui_to_method=shown.append,
         shown=shown,
     )
 
@@ -131,27 +161,25 @@ def test_the_panel_holds_a_loaded_method_and_shows_it(tmp_path, boundary):
     path = _write(tmp_path / 'method.json', _saved(pixels_per_um=3.0))
     panel_module.CellCountControls.load_method_from_file(panel, path)
     assert boundary == []
-    assert panel._settings['context']['pixels_per_um'] == 3.0
-    assert panel.shown == [panel._settings]
+    assert panel._method == CellCountMethod(pixels_per_um=3.0)
+    assert panel.shown == [panel._method]
 
 
 def test_a_refused_file_leaves_the_panels_method_as_it_was(tmp_path, boundary):
     panel = _panel()
-    before = panel._settings
+    before = panel._method
     path = _write(tmp_path / 'method.json', _saved(pixels_per_um=0))
     panel_module.CellCountControls.load_method_from_file(panel, path)
     [(label, refused)] = boundary
     assert label == 'LOAD_CELL_COUNT_METHOD'
-    assert isinstance(refused, PostProcessingRefusedError)
-    assert panel._settings is before
+    assert refused.reason == 'method_invalid'
+    assert panel._method is before
     assert panel.shown == [before]
 
 
-def test_the_panel_saves_through_the_owner(tmp_path, boundary):
-    panel = _panel()
-    panel._settings['context']['pixels_per_um'] = 4.0
+def test_the_panel_saves_through_the_session(post, tmp_path, boundary):
+    method = dataclasses.replace(CellCountMethod(), pixels_per_um=4.0)
     path = str(tmp_path / 'method.json')
-    panel_module.CellCountControls.save_method_as(panel, path)
+    panel_module.CellCountControls.save_method_as(_panel(method), path)
     assert boundary == []
-    assert load_cell_count_method(path)['context']['pixels_per_um'] == 4.0
-    assert 'metadata' not in panel._settings
+    assert post.load_cell_count_method(path) == method

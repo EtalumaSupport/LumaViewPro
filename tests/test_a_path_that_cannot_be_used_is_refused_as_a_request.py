@@ -22,9 +22,9 @@ from __future__ import annotations
 
 import pytest
 
+from modules.cell_count_method import CellCountMethod
 from modules.exceptions import LiveFolderPathRefusedError
 from modules.post_processing import (
-    default_cell_count_method,
     read_cell_count_image,
     save_cell_count_method,
 )
@@ -74,7 +74,7 @@ def _writers(session):
         'Protocol.to_file': ('.tsv', protocol.to_file),
         'save_cell_count_method': (
             '.json',
-            lambda p: save_cell_count_method(default_cell_count_method(), p),
+            lambda p: save_cell_count_method(CellCountMethod(), p),
         ),
     }
 

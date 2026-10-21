@@ -12,8 +12,9 @@ from __future__ import annotations
 
 import numpy as np
 
+from modules.cell_count_method import CellCountMethod
 from modules import image_utils
-from modules.post_processing import PostProcessing, default_cell_count_method
+from modules.post_processing import PostProcessing
 from modules.layer_record import release_color
 
 
@@ -79,7 +80,7 @@ def test_folder_walk_threads_12bit_depth(tmp_path):
     post = PostProcessing()
     captured = _capture_depth(post)
 
-    list(post.apply_cell_count_to_folder(path=str(tmp_path), settings=default_cell_count_method()))
+    list(post.apply_cell_count_to_folder(path=str(tmp_path), method=CellCountMethod()))
 
     assert captured['significant_bits'] == 12
 
@@ -90,6 +91,6 @@ def test_folder_walk_legacy_file_defaults_to_container_width(tmp_path):
     post = PostProcessing()
     captured = _capture_depth(post)
 
-    list(post.apply_cell_count_to_folder(path=str(tmp_path), settings=default_cell_count_method()))
+    list(post.apply_cell_count_to_folder(path=str(tmp_path), method=CellCountMethod()))
 
     assert captured['significant_bits'] == 16

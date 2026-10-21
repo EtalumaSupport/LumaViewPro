@@ -162,17 +162,18 @@ def test_no_playback_rate_leaves_the_recordings_own_rate_to_the_build(
 
 
 def test_a_cell_count_takes_the_callers_method_and_progress(session, monkeypatch, tmp_path):
-    from modules.post_processing import PostProcessing, default_cell_count_method
+    from modules.cell_count_method import CellCountMethod
+    from modules.post_processing import PostProcessing
 
     seen = {}
 
-    def record(self, path, settings, on_progress=None):
-        seen.update(path=path, settings=settings, on_progress=on_progress)
+    def record(self, path, method, on_progress=None):
+        seen.update(path=path, method=method, on_progress=on_progress)
         seen['lane'] = getattr(sie._lane_worker, 'executor', None)
         return {'message': 'counted', 'results_path': str(path / 'results.csv'), 'counted': 3}
 
     monkeypatch.setattr(PostProcessing, 'apply_cell_count_to_folder', record)
-    method = default_cell_count_method()
+    method = CellCountMethod(threshold=35)
 
     told = []
 
@@ -182,30 +183,42 @@ def test_a_cell_count_takes_the_callers_method_and_progress(session, monkeypatch
     assert session.post_processing.count_cells(
         tmp_path, method=method, on_progress=progress
     ) == CellCountResult(message='counted', results_path=tmp_path / 'results.csv', counted=3)
-    assert seen['settings'] is method
+    assert seen['method'] is method
     # What the build is handed reaches the caller's own callback.
     seen['on_progress'](42, 'Image 42')
     assert told == [(42, 'Image 42')]
     assert seen['lane'] is session.post_processing.lane
 
 
-def test_the_default_cell_count_method_is_a_fresh_copy_the_count_and_rest_take(session, tmp_path):
+def test_the_default_cell_count_method_is_the_one_the_count_and_rest_take(session, tmp_path):
     """A script or REST client starts from the method the panel starts from, and counts with it."""
     from fastapi.testclient import TestClient
 
+    from modules.cell_count_method import CellCountMethod
     from rest.app import build_app
 
-    edited = session.post_processing.default_cell_count_method()
-    edited['segmentation']['parameters']['threshold'] = 99
     method = session.post_processing.default_cell_count_method()
-    assert method['segmentation']['parameters']['threshold'] != 99
+    assert method == CellCountMethod()
 
+    (tmp_path / 'empty').mkdir()
     with TestClient(build_app(session)) as client:
         answer = client.get('/api/v1/post_processing/default_cell_count_method')
-    assert (answer.status_code, answer.json()) == (200, method)
+        assert (answer.status_code, answer.json()) == (200, method.to_dict())
+        # The wire's method, sent back as it came, is built as the record:
+        # refused for the empty folder, never for the method.
+        counted = client.post(
+            '/api/v1/post_processing/count_cells',
+            json={'folder': 'empty', 'method': answer.json()},
+        ).json()
+        while counted.get('ended', True) is None:
+            # Still running when the route stopped waiting: its job's end is the answer.
+            counted = client.get(
+                f'/api/v1/jobs/{counted["id"]}', headers={'Prefer': 'wait=60'}
+            ).json()
+    problem = counted.get('error', counted)
+    assert problem.get('reason') == 'no_data', counted
 
-    # Taken as it is: refused for the empty folder, never for the method.
-    (tmp_path / 'empty').mkdir()
+    # Taken as it is in Python: the same refusal.
     with pytest.raises(PostProcessingRefusedError) as refused:
         session.post_processing.count_cells(tmp_path / 'empty', method=method)
     assert refused.value.reason == 'no_data'

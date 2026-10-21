@@ -52,7 +52,7 @@ from modules.exceptions import (
     PositionOutOfRangeError,
     PostProcessingRefusedError,
 )
-from modules.post_processing import default_cell_count_method
+from modules.cell_count_method import CellCountMethod
 from modules.protocol import StepNotFoundError
 from modules.scope_session import ScopeSession
 from rest.app import build_app
@@ -366,7 +366,7 @@ _AUTO_GAIN = {'target_brightness': 0.5, 'min_gain_db': 0.0, 'max_gain_db': 20.0}
 
 
 def _valid_rows() -> list[Valid]:
-    method = default_cell_count_method()
+    method = CellCountMethod()
     return [
         Valid(
             'frame_at_binning 2',
@@ -576,7 +576,7 @@ def pp(s: Scope):
 
 
 def _bad_rows() -> list[Bad]:
-    method = default_cell_count_method()
+    method = CellCountMethod()
     rows = [
         Bad(
             'step_targets of a step the protocol lacks',
@@ -763,16 +763,24 @@ def _bad_rows() -> list[Bad]:
             'not_found',
             (
                 '/api/v1/post_processing/count_cells',
-                lambda s: {'folder': 'nothing_here', 'method': method},
+                lambda s: {'folder': 'nothing_here', 'method': method.to_dict()},
             ),
         ),
         Bad(
             'count_cells an unusable method',
             'PostProcessingAPI.count_cells',
-            lambda s: pp(s).count_cells(s.live / 'images', method={}),
+            lambda s: pp(s).count_cells(
+                s.live / 'images', method=CellCountMethod(pixels_per_um=0.0)
+            ),
             PostProcessingRefusedError,
             'method_invalid',
-            ('/api/v1/post_processing/count_cells', lambda s: {'folder': 'images', 'method': {}}),
+            (
+                '/api/v1/post_processing/count_cells',
+                lambda s: {
+                    'folder': 'images',
+                    'method': {**method.to_dict(), 'pixels_per_um': 0.0},
+                },
+            ),
         ),
         Bad(
             'graph_options of a missing file',

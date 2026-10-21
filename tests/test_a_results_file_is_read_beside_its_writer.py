@@ -18,11 +18,11 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+from modules.cell_count_method import CellCountMethod
 import ui.post_processing as panel_module
 from modules.exceptions import PostProcessingRefusedError
 from modules.post_processing import (
     PostProcessing,
-    default_cell_count_method,
     read_cell_count_results,
     results_axes,
 )
@@ -38,9 +38,7 @@ def _counted_folder(tmp_path):
         image = np.zeros((64, 64), dtype=np.uint8)
         image[10 + i : 30, 10:30] = 200
         cv2.imwrite(str(tmp_path / f'image_{i}.tif'), image)
-    PostProcessing().apply_cell_count_to_folder(
-        path=str(tmp_path), settings=default_cell_count_method()
-    )
+    PostProcessing().apply_cell_count_to_folder(path=str(tmp_path), method=CellCountMethod())
     return tmp_path / 'results.csv'
 
 

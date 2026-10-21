@@ -37,6 +37,7 @@ from matplotlib.figure import Figure
 from lvp_logger import logger
 from modules import graph_analysis, live_work, path_utils
 from modules.activity_claim import ActivityHolder, the_holder_named
+from modules.cell_count_method import CellCountMethod
 from modules.exceptions import (
     ExcludedInput,
     PostProcessingFailedError,
@@ -816,33 +817,66 @@ class PostProcessingAPI:
         )
 
     @api(reads=True)
-    def default_cell_count_method(self) -> dict:
+    def default_cell_count_method(self) -> CellCountMethod:
         """The cell-count method LumaViewPro's panel starts from, for
-        ``count_cells(method=)``.
-
-        A new dict on every call, the caller's to edit. Areas are in square
-        microns, perimeters in microns, intensities and the threshold in
-        percent of full scale. It sets no scale, so each image is counted at
-        the scale it states, and no size filter, so an image that states
-        none is counted in pixels.
+        ``count_cells(method=)``: ``CellCountMethod()``.
 
         Raises:
             Nothing.
         """
-        from modules.post_processing import default_cell_count_method
+        return CellCountMethod()
 
-        return default_cell_count_method()
+    @api
+    def load_cell_count_method(self, path: FilePath) -> CellCountMethod:
+        """The cell-count method saved in the file at *path*.
+
+        Read on the caller's thread, not the post-processing lane, so a
+        form taking a method does not wait behind a build. A file saved
+        before the count read each image's scale carries the old fixed
+        default of 1.0 pixels per micron, which the load drops, saying so
+        once.
+
+        Raises:
+            PostProcessingRefusedError: reason ``method_unreadable``, the
+                file cannot be read or is not a method file; reason
+                ``method_invalid``, it holds a method the count cannot use.
+                The message names the file.
+        """
+        from modules.post_processing import load_cell_count_method
+
+        return load_cell_count_method(path)
+
+    @api
+    def save_cell_count_method(self, method: CellCountMethod, path: FilePath) -> None:
+        """Write *method* to *path* as a cell-count method file, which
+        ``load_cell_count_method`` reads back.
+
+        Written on the caller's thread, as the load is read. A missing
+        folder is made where *path* sends it.
+
+        Raises:
+            LiveFolderPathRefusedError: ``'not_a_file'``, a folder is at
+                *path*; ``'wrong_extension'``, its name does not end in
+                ``.json`` (in any case), which is not added; ``'not_a_folder'``,
+                a file is where its folder would be. Nothing is written.
+            PostProcessingRefusedError: reason ``method_invalid``, a
+                *method* sent as its fields holds what ``CellCountMethod``
+                refuses. Nothing is written.
+        """
+        from modules.post_processing import save_cell_count_method
+
+        save_cell_count_method(method, path)
 
     @api
     def count_cells(
         self,
         folder: FilePath,
         *,
-        method: dict,
+        method: CellCountMethod,
         on_progress: ProgressCallback | None = None,
     ) -> CellCountResult:
-        """Count the cells in every image in *folder* by the cell-count
-        *method*, writing ``results.csv`` into the folder.
+        """Count the cells in every image in *folder* by *method*, writing
+        ``results.csv`` into the folder.
 
         Returns:
             The results table, how many images were counted, and the
@@ -851,13 +885,16 @@ class PostProcessingAPI:
         Raises:
             LiveFolderPathRefusedError: ``'not_found'``, nothing is at
                 *folder*; ``'not_a_folder'``, a file is.
-            PostProcessingRefusedError: the method cannot be used (reason
-                ``method_invalid``), before the count is queued; or the
-                folder has nothing to count (reason ``no_data``).
+            PostProcessingRefusedError: reason ``method_invalid``, a
+                *method* sent as its fields holds what ``CellCountMethod``
+                refuses; or the folder has nothing to count (reason
+                ``no_data``).
+            PostProcessingFailedError: the results could not be written, or
+                some images could not be counted; the file holds every image
+                that was, and the error names the rest.
         """
-        from modules.post_processing import PostProcessing, check_cell_count_method
+        from modules.post_processing import PostProcessing
 
-        check_cell_count_method(method)
         return self._run(
             _answering(_cell_count_result, PostProcessing().apply_cell_count_to_folder),
             'count_cells',

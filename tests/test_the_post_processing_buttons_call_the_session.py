@@ -16,6 +16,7 @@ from unittest.mock import ANY, MagicMock
 
 import pytest
 
+from modules.cell_count_method import CellCountMethod
 from modules.post_processing_api import BuildResult, CellCountResult, EnhanceResult
 
 import ui.post_processing as post_processing
@@ -97,8 +98,8 @@ def test_video_hands_the_typed_rate_to_the_build_to_judge(session, typed, asked)
 
 
 def test_cell_count_asks_with_the_panels_method(session):
-    method = {'context': {'pixels_per_um': 1.0}}
-    panel = SimpleNamespace(_settings=method)
+    method = CellCountMethod(pixels_per_um=1.0)
+    panel = SimpleNamespace(_method=method)
     _body(post_processing.CellCountControls, 'apply_method_to_folder')(
         panel, MagicMock(), '/data/cells'
     )

@@ -14,9 +14,9 @@ from __future__ import annotations
 
 import pytest
 
+from modules.cell_count_method import CellCountMethod
 import modules.post_processing_api as post_processing_api
 from modules.exceptions import PostProcessingRefusedError
-from modules.post_processing import default_cell_count_method
 from tests.log_capture import capture_module_log, messages
 
 
@@ -36,7 +36,7 @@ def test_a_build_logs_its_start_and_its_result(session, monkeypatch, tmp_path):
     monkeypatch.setattr(
         PostProcessing,
         'apply_cell_count_to_folder',
-        lambda self, path, settings, on_progress=None: {
+        lambda self, path, method, on_progress=None: {
             'message': 'Counted cells in 3 image(s).',
             'results_path': str(path / 'results.csv'),
             'counted': 3,
@@ -44,7 +44,7 @@ def test_a_build_logs_its_start_and_its_result(session, monkeypatch, tmp_path):
     )
     records = capture_module_log(monkeypatch, post_processing_api)
 
-    session.post_processing.count_cells(tmp_path, method=default_cell_count_method())
+    session.post_processing.count_cells(tmp_path, method=CellCountMethod())
 
     lines = messages(records)
     assert any('count_cells' in m and 'started' in m and str(tmp_path) in m for m in lines), lines
@@ -77,7 +77,7 @@ def test_a_build_keeps_the_slow_task_budget_it_declares(session, monkeypatch, tm
     from modules.sequential_io_executor import slow_task_budget
 
     @slow_task_budget(600.0)
-    def count(self, path, settings, on_progress=None):
+    def count(self, path, method, on_progress=None):
         return {'message': 'counted', 'results_path': str(path / 'results.csv'), 'counted': 3}
 
     monkeypatch.setattr(PostProcessing, 'apply_cell_count_to_folder', count)
@@ -91,6 +91,6 @@ def test_a_build_keeps_the_slow_task_budget_it_declares(session, monkeypatch, tm
 
     monkeypatch.setattr(lane, 'call', call)
 
-    session.post_processing.count_cells(tmp_path, method=default_cell_count_method())
+    session.post_processing.count_cells(tmp_path, method=CellCountMethod())
 
     assert seen == [600.0]

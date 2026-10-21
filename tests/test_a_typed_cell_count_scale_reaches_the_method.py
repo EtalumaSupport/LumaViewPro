@@ -17,7 +17,8 @@ import pytest
 
 import ui.post_processing as panel_module
 from modules.exceptions import PostProcessingRefusedError
-from modules.post_processing import default_cell_count_method, with_pixels_per_um
+from modules.cell_count_method import CellCountMethod
+from modules.post_processing import with_pixels_per_um
 
 
 @pytest.fixture
@@ -46,10 +47,10 @@ def records(monkeypatch):
     return seen
 
 
-def _panel(typed: str, preview=None) -> SimpleNamespace:
+def _panel(typed: str, preview=None, method=None) -> SimpleNamespace:
     panel = SimpleNamespace(
         ids={'text_cell_count_pixels_per_um_id': SimpleNamespace(text=typed)},
-        _settings=default_cell_count_method(),
+        _method=method or CellCountMethod(),
         _preview_image=preview,
         filter_max_for=[],
     )
@@ -66,7 +67,7 @@ def test_a_typed_scale_reaches_the_method_with_no_preview_loaded(boundary, recor
     panel = _panel('2.5')
     _commit(panel)
     assert boundary == []
-    assert panel._settings['context']['pixels_per_um'] == 2.5
+    assert panel._method.pixels_per_um == 2.5
     assert panel.ids['text_cell_count_pixels_per_um_id'].text == '2.5'
     assert records == [('CELL_COUNT_PIXELS_PER_UM', '2.5')]
     assert panel.filter_max_for == []
@@ -75,7 +76,7 @@ def test_a_typed_scale_reaches_the_method_with_no_preview_loaded(boundary, recor
 def test_a_whole_number_is_not_recorded_as_a_correction(boundary, records):
     panel = _panel('5')
     _commit(panel)
-    assert panel._settings['context']['pixels_per_um'] == 5
+    assert panel._method.pixels_per_um == 5
     assert records == [('CELL_COUNT_PIXELS_PER_UM', '5')]
 
 
@@ -83,13 +84,14 @@ def test_a_whole_number_is_not_recorded_as_a_correction(boundary, records):
 @pytest.mark.parametrize('typed', ['0', '-1', 'abc', 'nan'])
 def test_a_refused_scale_is_reported_and_the_box_shows_the_methods(boundary, records, typed):
     panel = _panel(typed)
-    before = panel._settings
+    before = panel._method
     _commit(panel)
     [(label, refused)] = boundary
     assert label == 'CELL_COUNT_PIXELS_PER_UM'
     assert isinstance(refused, PostProcessingRefusedError)
+    assert refused.reason == 'method_invalid'
     assert 'pixels_per_um' in str(refused)
-    assert panel._settings is before
+    assert panel._method is before
     # The default method has no override, which the box shows empty.
     assert panel.ids['text_cell_count_pixels_per_um_id'].text == ''
     assert records == [
@@ -102,17 +104,15 @@ def test_with_a_preview_loaded_the_filter_maxima_follow_the_scale(boundary, reco
     preview = object()
     panel = _panel('2.0', preview=preview)
     _commit(panel)
-    assert panel._settings['context']['pixels_per_um'] == 2.0
+    assert panel._method.pixels_per_um == 2.0
     assert panel.filter_max_for == [preview]
 
 
-def test_the_owner_returns_a_copy_and_leaves_the_method_alone():
-    method = default_cell_count_method()
+def test_the_owner_answers_a_new_method_and_leaves_the_one_it_was_given():
+    method = CellCountMethod(threshold=35)
     changed = with_pixels_per_um(method, '3.5')
-    assert changed['context']['pixels_per_um'] == 3.5
-    assert method['context']['pixels_per_um'] is None
-    changed['filters']['area']['max'] = 7
-    assert method['filters']['area']['max'] is None
+    assert changed == CellCountMethod(threshold=35, pixels_per_um=3.5)
+    assert method.pixels_per_um is None
 
 
 def test_the_box_is_judged_on_commit_not_on_every_keystroke():
@@ -128,9 +128,8 @@ def test_the_box_is_judged_on_commit_not_on_every_keystroke():
 
 
 def test_an_emptied_box_clears_the_override(boundary, records):
-    panel = _panel('')
-    panel._settings['context']['pixels_per_um'] = 2.0
+    panel = _panel('', method=CellCountMethod(pixels_per_um=2.0))
     _commit(panel)
     assert boundary == []
-    assert panel._settings['context']['pixels_per_um'] is None
+    assert panel._method.pixels_per_um is None
     assert panel.ids['text_cell_count_pixels_per_um_id'].text == ''

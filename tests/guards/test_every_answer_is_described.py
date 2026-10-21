@@ -56,8 +56,9 @@ from rest import routes as rest_routes
 # since post-processing publishes its default cell-count method, the dict
 # count_cells takes, until W4 gives that argument its record; 18 since
 # the session's sequenced capture config, a dict, left the wire with the
-# protocol builder's dict door; 17 since a protocol's step is a record.
-UNTYPED_PIN = 17
+# protocol builder's dict door; 17 since a protocol's step is a record;
+# 16 since the cell-count method is a record.
+UNTYPED_PIN = 16
 
 _SERVER_MODELS = ('Handle', 'Job', 'JobProgress', 'PathAnswer', 'Versions')
 # A JSON Schema keyword that says what a value is.

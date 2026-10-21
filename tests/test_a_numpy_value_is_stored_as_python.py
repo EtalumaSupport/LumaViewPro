@@ -119,9 +119,12 @@ class TestAProtocolsConfigCells:
 
 
 def test_a_method_holding_numpy_is_saved_as_python(tmp_path):
-    method = post_processing.default_cell_count_method()
-    method['filters']['area'] = {'min': np.float32(10.0), 'max': np.int64(500)}
-    method['segmentation']['parameters']['threshold'] = np.int64(20)
+    from modules.cell_count_method import CellCountFilters, CellCountMethod, FilterBounds
+
+    method = CellCountMethod(
+        threshold=np.int64(20),
+        filters=CellCountFilters(area=FilterBounds(np.float32(10.0), np.int64(500))),
+    )
     path = tmp_path / 'method.json'
 
     post_processing.save_cell_count_method(method, path)
@@ -129,4 +132,4 @@ def test_a_method_holding_numpy_is_saved_as_python(tmp_path):
     saved = json.loads(path.read_text())
     assert saved['filters']['area'] == {'min': 10.0, 'max': 500}
     assert saved['segmentation']['parameters']['threshold'] == 20
-    assert type(method['filters']['area']['max']) is np.int64, "the caller's method was changed"
+    assert type(method.filters.area.max) is np.int64, "the caller's method was changed"

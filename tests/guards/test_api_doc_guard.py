@@ -578,7 +578,7 @@ class TestLumascopeSkillsTeachesOnlyApi:
             'ScopeSession.user_settings_file(".", "extra")\n'
             '```\n'
             '\n'
-            'Prose naming `modules.post_processing.check_cell_count_method`.\n'
+            'Prose naming `modules.post_processing.with_pixels_per_um`.\n'
             '\n'
             '```\n'
             'not python at all (\n'
@@ -589,7 +589,7 @@ class TestLumascopeSkillsTeachesOnlyApi:
             'planted:2  modules.image_save.save_image  -> an unmarked function',
             'planted:5  modules.settings_init.current_json_path  -> an unmarked function',
             'planted:7  modules.scope_session.ScopeSession.user_settings_file(...)',
-            'planted:10  modules.post_processing.check_cell_count_method',
+            'planted:10  modules.post_processing.with_pixels_per_um',
             'planted:13  the fence does not parse',
         ):
             assert expected in reported, reported

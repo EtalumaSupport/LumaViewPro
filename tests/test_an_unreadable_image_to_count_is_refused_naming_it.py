@@ -17,6 +17,7 @@ import numpy as np
 import pytest
 import tifffile
 
+from modules.cell_count_method import CellCountMethod
 import ui.post_processing as panel_module
 from modules.exceptions import (
     LiveFolderPathRefusedError,
@@ -25,7 +26,6 @@ from modules.exceptions import (
 )
 from modules.post_processing import (
     PostProcessing,
-    default_cell_count_method,
     read_cell_count_image,
 )
 
@@ -62,7 +62,7 @@ def test_the_folder_count_names_an_unreadable_image_in_the_same_words(tmp_path):
     with pytest.raises(PostProcessingRefusedError) as refused:
         read_cell_count_image(broken)
     with pytest.raises(PostProcessingFailedError) as failed:
-        PostProcessing().apply_cell_count_to_folder(str(tmp_path), default_cell_count_method())
+        PostProcessing().apply_cell_count_to_folder(str(tmp_path), CellCountMethod())
     assert list(failed.value.errors) == [str(refused.value)]
 
 
@@ -71,7 +71,7 @@ def test_a_folder_named_like_an_image_is_not_counted_and_named(tmp_path):
     (tmp_path / 'stack.tif').mkdir()
 
     with pytest.raises(PostProcessingFailedError) as failed:
-        PostProcessing().apply_cell_count_to_folder(str(tmp_path), default_cell_count_method())
+        PostProcessing().apply_cell_count_to_folder(str(tmp_path), CellCountMethod())
 
     assert len(failed.value.errors) == 1
     assert 'stack.tif is a folder, not a file' in failed.value.errors[0]

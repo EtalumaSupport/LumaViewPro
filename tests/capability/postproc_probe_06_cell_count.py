@@ -18,12 +18,13 @@ import sys
 from harness import headless_session, probe_dir
 from runfolder import run_protocol_folder
 
-from modules.post_processing import cell_count_scale, default_cell_count_method
+from modules.cell_count_method import CellCountMethod
+from modules.post_processing import cell_count_scale
 
 # The panel's default method (6c). Its area and perimeter filters are open, so
 # a simulated frame's regions are not filtered out, and it sets no scale, so
 # each image is counted at the scale it states.
-METHOD = default_cell_count_method()
+METHOD = CellCountMethod()
 
 
 def main() -> int:
@@ -68,7 +69,7 @@ def main() -> int:
     # 6a -- one image
     preview, stats = post.preview_cell_count(
         image=image,
-        settings=METHOD,
+        method=METHOD,
         significant_bits=bits,
         pixels_per_um=cell_count_scale(METHOD, image_utils.read_pixel_size_um(source)),
     )
@@ -83,7 +84,7 @@ def main() -> int:
     for cy, cx in ((50, 50), (50, 150), (150, 50), (150, 150)):
         blobs[cy - 8 : cy + 8, cx - 8 : cx + 8] = 60000
     _, blob_stats = post.preview_cell_count(
-        image=blobs, settings=METHOD, significant_bits=16, pixels_per_um=None
+        image=blobs, method=METHOD, significant_bits=16, pixels_per_um=None
     )
     print("6a' synthetic-blob summary:", blob_stats['summary'])
 
@@ -92,7 +93,7 @@ def main() -> int:
 
     found = []
     for mod_name, attr in (
-        ('modules.post_processing', 'default_cell_count_method'),
+        ('modules.cell_count_method', 'CellCountMethod'),
         ('modules.cell_count', 'DEFAULT_SETTINGS'),
         ('modules.cell_count', 'default_settings'),
     ):
