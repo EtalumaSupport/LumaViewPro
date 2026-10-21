@@ -92,6 +92,10 @@ class TestAStallIsReported:
         assert notice.severity == Severity.ERROR
         assert notice.category == 'Camera'
         assert 'no new frame' in notice.message
+        # A pulled cable meets this check before its driver reports the
+        # removal, so the words point at the cable and never claim a connection.
+        assert 'USB cable' in notice.message
+        assert 'connected' not in notice.message
         assert notice.solicited is False
         assert len(_stall_lines(caplog)) == 1
 
