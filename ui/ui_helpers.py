@@ -24,6 +24,7 @@ import modules.config_helpers as config_helpers
 import modules.image_utils as image_utils
 
 if typing.TYPE_CHECKING:
+    from modules.coord_transformations import PlateLocation
     from modules.sequential_io_executor import SequentialIOExecutor
 
 logger = logging.getLogger('LVP.modules.ui_helpers')
@@ -381,7 +382,6 @@ def move_absolute(
     axis: str,
     position: float,
     overshoot_enabled: bool = True,
-    frame: str = 'stage',
 ):
     """Start an axis moving for a person's gesture, keeping the gesture lock in one place.
 
@@ -390,11 +390,6 @@ def move_absolute(
 
     A turret slot goes to the turret widget, which asks the API to move and
     then shows where the API says the turret is.
-
-    ``frame='plate'`` hands the API the number a user typed, in plate mm,
-    instead of converting first. The conversion and its bound then happen
-    inside the submitted call, on the IO lane, where the reporter shows a
-    refusal; the axis boxes redraw once the command has landed.
     """
     ctx = _app_ctx.ctx
 
@@ -410,10 +405,37 @@ def move_absolute(
             axis,
             position,
             overshoot_enabled=overshoot_enabled,
-            frame=frame,
         ),
         lambda: _handle_ui_update_for_axis(axis=axis),
         f'MOVE_{axis}',
+        lane=ctx.io_executor,
+    )
+
+
+def move_to_plate(label: str, at: 'PlateLocation') -> None:
+    """Start X and Y moving to a plate position a person gave, in plate mm; started, not waited.
+
+    The API converts and bounds the number the person typed or clicked
+    (``MotionAPI.start_move_to_plate``), so a refusal names it in mm; an
+    axis left None is not moved and not redrawn.
+    """
+    ctx = _app_ctx.ctx
+    axes = tuple(axis for axis, mm in (('X', at.x_mm), ('Y', at.y_mm)) if mm is not None)
+    submit_move(
+        label,
+        axes=axes,
+        call=lambda: ctx.scope.motion.start_move_to_plate(at),
+        lane=ctx.io_executor,
+    )
+
+
+def go_to_bookmark(label: str, axes: tuple[str, ...]) -> None:
+    """Start ``axes`` moving to the bookmark for a go-to-bookmark button; started, not waited."""
+    ctx = _app_ctx.ctx
+    submit_move(
+        label,
+        axes=axes,
+        call=lambda: ctx.session.start_go_to_bookmark(axes),
         lane=ctx.io_executor,
     )
 

@@ -294,16 +294,30 @@ to_plate = scope.runtime_state.plate_transform()
 plate = to_plate(60000, 40000)                                # PlatePosition
 ```
 
-To MOVE to a plate coordinate, pass it to the motion API in that frame
-rather than converting first -- the API checks it against what the stage
-can actually reach and refuses in plate mm, naming the coordinate you
-asked for:
+To MOVE to a plate coordinate, give it to `scope.motion.move_to_plate`
+(or `start_move_to_plate`, which returns the started moves) rather than
+converting first. It takes a `PlateLocation` in mm on the selected plate
+at the live offset; an axis that is None is left where it is, a move under
+way on it included, and the axes given are asked once and started on one
+lane task, so a capture never takes the new X at the old Y. Each is checked
+against what the stage can actually reach and refused in plate mm, naming
+the coordinate you asked for, before either moves. A Z is refused
+(`ArgumentRefusedError`, `plate_frame_axis`): a plate position has no Z.
+`move_absolute` takes stage microns only.
 
 ```python
-scope.motion.move_absolute('Y', 180.0, frame='plate')
+from modules.coord_transformations import PlateLocation
+scope.motion.move_to_plate(PlateLocation(x_mm=None, y_mm=180.0, z_um=None))
 # PositionOutOfRangeError: Y plate position 180.0 is outside the
 # reachable range 1.48 to 81.48.
+scope.motion.move_to_well('H12')   # the well's centre on the selected plate
+session.go_to_bookmark(('X', 'Y'))  # the axes asked, as save_bookmark stored them
 ```
+
+`move_to_well` refuses a label the selected plate does not have
+(`well_unknown`). `session.go_to_bookmark(axes)` and its started form
+`start_go_to_bookmark(axes)` move each axis given to `session.bookmark`, X
+and Y in plate mm and Z in um, and leave the others where they are.
 
 ---
 
@@ -1270,7 +1284,7 @@ Every argument you pass to an API member is first held to the type the member's 
 
 A number you pass is a finite number: NaN or an infinity is refused with `ArgumentRefusedError` (`modules.exceptions`, a `ValueError`), reason `not_a_number`, its `argument` naming the parameter and `value` holding what you gave, before any range is checked and before anything is commanded or stored. This holds for the camera's gain, exposure, frame size, black level and auto-gain target, a stored gain or exposure asked through `applied_gain_db_for` / `applied_exposure_ms_for`, an LED current, a move's position or distance (`ignore_limits=True` included), plate and stage coordinates, a well position, a z-stack's range and step size, a focus Z, and the capture and wait times. A finite number outside a range is refused by the range's owner as before.
 
-An axis is named exactly `'X'`, `'Y'`, `'Z'` or `'T'`, in capitals. Every member that takes an axis -- the moves, the position and state reads, `get_axis_limits`, the limit switches, the precision mode, `jog_step` and `read_motor_drv_status` -- refuses any other name (`'x'`, `'Q'`) with `ArgumentRefusedError` reason `axis_unknown`, its `offered` holding the names the member takes, before the scope's hardware is asked. A home takes `'Z'`, `'T'` or `'ALL'`; `jog_step` takes `'X'`, `'Y'` or `'Z'`. An axis this model lacks is a name: a command for it is refused as absent hardware, and a read answers as for a missing axis (`get_axis_state` `'unknown'`, a position None). The generic movers refuse `'T'` with reason `turret_moves_by_slot`: the turret moves only through `move_turret(slot)`. A frame other than `'stage'` or `'plate'` is `frame_unknown`, and a plate target for Z is `plate_frame_axis`, refused by the plate's owner once the move is on the lane. `set_motor_fan_duty` takes a whole percentage and refuses one outside 0 to 100 (`fan_duty_out_of_range`), with nothing sent. The camera diagnostics refuse a count or time outside what they take (`out_of_range`, its `limits` the ends, which are included): `run_grab_lifecycle_benchmark` takes 1 to 10,000 cycles, 0 to 60,000 ms between them and a slow threshold of 0 to 600 s; `run_pylon_diagnostic_probe` takes 0 to 3,600 s. A stage offset handed to `stage_to_plate`, `plate_to_stage`, `plate_transform` or `step_targets` is a `StageOffset`, and an axis of it that is no finite number is `not_a_number`, naming it (`stage_offset.x_um`). The auto-gain settings handed to `set_auto_gain` or the camera's `apply` are read before the member acts: a key left out is `missing_key` and a value that is no number `not_a_number`, each naming the key. Each is the request's (`cause` `REQUEST`): it fails the same way until the caller changes it.
+An axis is named exactly `'X'`, `'Y'`, `'Z'` or `'T'`, in capitals. Every member that takes an axis -- the moves, the position and state reads, `get_axis_limits`, the limit switches, the precision mode, `jog_step` and `read_motor_drv_status` -- refuses any other name (`'x'`, `'Q'`) with `ArgumentRefusedError` reason `axis_unknown`, its `offered` holding the names the member takes, before the scope's hardware is asked. A home takes `'Z'`, `'T'` or `'ALL'`; `jog_step` takes `'X'`, `'Y'` or `'Z'`. An axis this model lacks is a name: a command for it is refused as absent hardware, and a read answers as for a missing axis (`get_axis_state` `'unknown'`, a position None). The generic movers refuse `'T'` with reason `turret_moves_by_slot`: the turret moves only through `move_turret(slot)`. A plate move given a Z is `plate_frame_axis`, refused at the door. `set_motor_fan_duty` takes a whole percentage and refuses one outside 0 to 100 (`fan_duty_out_of_range`), with nothing sent. The camera diagnostics refuse a count or time outside what they take (`out_of_range`, its `limits` the ends, which are included): `run_grab_lifecycle_benchmark` takes 1 to 10,000 cycles, 0 to 60,000 ms between them and a slow threshold of 0 to 600 s; `run_pylon_diagnostic_probe` takes 0 to 3,600 s. A stage offset handed to `stage_to_plate`, `plate_to_stage`, `plate_transform` or `step_targets` is a `StageOffset`, and an axis of it that is no finite number is `not_a_number`, naming it (`stage_offset.x_um`). The auto-gain settings handed to `set_auto_gain` or the camera's `apply` are read before the member acts: a key left out is `missing_key` and a value that is no number `not_a_number`, each naming the key. Each is the request's (`cause` `REQUEST`): it fails the same way until the caller changes it.
 
 A plate or an objective is named by its catalogue key (`list(scope.labware)`, `list(scope.objectives)`); a plate renamed since a file named it is still found under its old name and stored under its key. Every member that takes one -- `select_labware`, `set_protocol_labware`, `create_protocol`, `select_objective`, `confirm_objective`, `assign_turret_objective` -- refuses a name the catalogue does not hold with `CatalogueNameRefusedError` (`modules.exceptions`, a `ConfigError`), reason `labware_unknown` or `objective_not_in_catalogue`, its `argument` naming the catalogue owner's parameter (`plate_key`, `objective_id`) and its `offered` holding the catalogue's keys, before anything is stored. The run's `ProtocolRunRefusedError` uses the same reason, `objective_not_in_catalogue`, for a protocol step's objective; `argument` is on the catalogue refusal only. A turret slot that is not a whole number 1 to 4 is refused with `PositionOutOfRangeError` by every member that takes one. Each is the request's (`cause` `REQUEST`).
 
@@ -3007,6 +3021,7 @@ Reached through `ScopeSession.create(settings, ...)`; every L2 caller starts her
 - `get_setting`
 - `get_settings_snapshot`
 - `get_zstack_params` (in-process)
+- `go_to_bookmark`
 - `go_to_step`
 - `held_by_other`
 - `labware`
@@ -3067,6 +3082,7 @@ Reached through `ScopeSession.create(settings, ...)`; every L2 caller starts her
 - `shutdown` (in-process)
 - `source_path`
 - `start_application_session` (in-process)
+- `start_go_to_bookmark`
 - `start_go_to_step`
 - `status`
 - `turret_objective`
@@ -3122,6 +3138,8 @@ Reached through `session.scope.motion`.
 - `jog_step`
 - `move_absolute`
 - `move_relative`
+- `move_to_plate`
+- `move_to_well`
 - `move_turret`
 - `position_is_known`
 - `remove_position_listener` (in-process)
@@ -3129,6 +3147,8 @@ Reached through `session.scope.motion`.
 - `start_home`
 - `start_move_absolute`
 - `start_move_relative`
+- `start_move_to_plate`
+- `start_move_to_well`
 - `stop_motion`
 - `wait_until_finished_moving`
 
@@ -3972,7 +3992,7 @@ Reached through `session.plugin_health`.
 
 ### PlateLocation
 
-Reached through returned by `session.get_current_plate_position`; taken by `ProtocolRunner.start_single_scan`'s and `run_single_scan`'s `return_to_position`.
+Reached through returned by `session.get_current_plate_position` and `session.bookmark`; taken by `scope.motion.start_move_to_plate` and `move_to_plate`, and by `ProtocolRunner.start_single_scan`'s and `run_single_scan`'s `return_to_position`.
 
 - `x_mm`
 - `y_mm`

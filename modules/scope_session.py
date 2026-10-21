@@ -91,6 +91,7 @@ from modules.operation import Operation, refuse_waiting_on_ui_thread
 from modules.manual_recording import ManualRecordingController
 from modules.config_helpers import DisplayRates
 from modules.coord_transformations import PlateLocation
+from modules.lumascope_api._constants import refuse_unknown_axis
 from modules.metrics_logger import ENGINEERING_METRICS_INTERVAL_S, MetricsLogger
 from modules.plugins import PLUGIN_API_LEVEL, PluginRegistry
 from modules.python_values import python_values
@@ -2437,6 +2438,79 @@ class ScopeSession:
         with self.settings_lock:
             stored = self.settings['bookmark']
             return PlateLocation(x_mm=stored['x'], y_mm=stored['y'], z_um=stored['z'])
+
+    @api(stop='Operation.stop')
+    def start_go_to_bookmark(self, axes: 'Iterable[str]') -> Operation:
+        """Start ``axes`` moving to the bookmark, as the go-to-bookmark buttons do; return the started moves.
+
+        Reads ``bookmark`` for the axes given, as ``save_bookmark`` wrote
+        them: X and Y in mm on the selected plate (``start_move_to_plate``,
+        the axes given on one lane task), Z in um (``start_move_absolute``).
+        An axis not given is left where it is.
+
+        Returns:
+            One ``Operation`` for the moves started, done once every one is
+            (``Operation.all_of``).
+
+        Raises:
+            ArgumentRefusedError: ``'axis_unknown'``, a name in ``axes`` that
+                is not X, Y or Z. Nothing was driven.
+            HardwareCommandRefusedError: ``'not_connected'``,
+                ``'axis_absent'``, ``'lid_open'`` or ``'monitor_ended'``, as
+                ``MotionAPI.start_move_to_plate``. Nothing was driven.
+            PositionOutOfRangeError: The bookmark is outside what this
+                stage can reach. Nothing was driven.
+            AxisStateUnknownError: An axis given does not know its
+                position. Nothing was driven.
+            MoveFaultError: ``'driver_failed'``, the board did not take a
+                command.
+        """
+        axes = tuple(axes)
+        for axis in axes:
+            refuse_unknown_axis(axis, ('X', 'Y', 'Z'))
+        mark = self.bookmark
+        motion = self.scope.motion
+        moves = []
+        if 'X' in axes or 'Y' in axes:
+            moves.append(
+                motion.start_move_to_plate(
+                    PlateLocation(
+                        x_mm=mark.x_mm if 'X' in axes else None,
+                        y_mm=mark.y_mm if 'Y' in axes else None,
+                        z_um=None,
+                    )
+                )
+            )
+        if 'Z' in axes:
+            moves.append(motion.start_move_absolute('Z', mark.z_um))
+        return Operation.all_of(tuple(moves))
+
+    @api
+    def go_to_bookmark(self, axes: 'Iterable[str]') -> None:
+        """Move ``axes`` to the bookmark, and return once they have arrived.
+
+        ``start_go_to_bookmark`` followed by its operation's ``result()``.
+
+        Raises:
+            ArgumentRefusedError: ``'axis_unknown'``, as
+                ``start_go_to_bookmark``.
+            HardwareCommandRefusedError: ``'not_connected'``,
+                ``'axis_absent'``, ``'lid_open'`` or ``'monitor_ended'``, as
+                ``MotionAPI.start_move_to_plate``. Nothing was driven.
+            PositionOutOfRangeError: The bookmark is outside what this
+                stage can reach. Nothing was driven.
+            AxisStateUnknownError: An axis given does not know its
+                position. Nothing was driven.
+            MoveFaultError: ``'driver_failed'``, the board did not take a
+                command.
+            MoveNotCompletedError: An axis did not arrive; see
+                ``MotionAPI.start_move_absolute``.
+            BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on
+                the UI thread, whose form is ``start_go_to_bookmark``.
+                Nothing was driven.
+        """
+        refuse_waiting_on_ui_thread('go_to_bookmark')
+        self.start_go_to_bookmark(axes).result()
 
     @api
     def save_all_bookmarks(self) -> float:

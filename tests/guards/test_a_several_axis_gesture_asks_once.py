@@ -108,10 +108,9 @@ def test_the_gestures_are_the_ones_known():
         f'{key.split("::")[0]}::{enclosing}'
         for key, (enclosing, _) in _several_axis_movers().items()
     }
-    assert gestures >= {
-        'ui/scope_display.py::ScopeDisplay.touch',
-        'ui/stage.py::Stage.on_touch_down',
-    }
+    # The stage map's click is one call, ``MotionAPI.start_move_to_plate``,
+    # which puts its axes on one lane task itself.
+    assert gestures >= {'ui/scope_display.py::ScopeDisplay.touch'}
 
 
 def test_every_several_axis_gesture_is_one_lane_task():

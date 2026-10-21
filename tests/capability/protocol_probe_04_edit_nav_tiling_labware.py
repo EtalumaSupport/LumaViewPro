@@ -4,6 +4,7 @@ All headless: Protocol / ScopeSession only, no ui. import.
 """
 
 from harness import make_session, banner
+from modules.coord_transformations import PlateLocation
 
 session, live = make_session('edit', home=True)
 try:
@@ -80,8 +81,7 @@ try:
     # What a script must do instead: read the step and drive motion itself.
     st = p.step(idx=0)
     print('step0 X/Y/Z/Color/Objective:', st['X'], st['Y'], st['Z'], st['Color'], st['Objective'])
-    session.scope.motion.move_absolute(axis='X', position=st['X'], frame='plate')
-    session.scope.motion.move_absolute(axis='Y', position=st['Y'], frame='plate')
+    session.scope.motion.move_to_plate(PlateLocation(x_mm=st['X'], y_mm=st['Y'], z_um=None))
     session.scope.motion.move_absolute(axis='Z', position=st['Z'])
     now = session.get_current_plate_position()
     print('landed at:', now)

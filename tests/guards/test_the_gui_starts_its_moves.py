@@ -3,11 +3,13 @@
 
 A person's gesture -- a jog, a scroll-wheel tick, a click on the stage or
 the image, a typed position -- returns at once, and a move that fails on
-the way is the motion monitor's to report. ``scope.motion.move_absolute``
-and ``move_relative`` wait for the axis to arrive, so a gesture that
+the way is the motion monitor's to report. ``scope.motion.move_absolute``,
+``move_relative``, ``move_to_plate`` and ``move_to_well`` wait for the
+axes to arrive, so a gesture that
 called them would hold the IO lane for the whole travel, serialise X and
 Y, and make each scroll tick wait for the last. The GUI calls the start
-members (``start_move_absolute`` / ``start_move_relative``); a Session
+members (``start_move_absolute``, ``start_move_relative``,
+``start_move_to_plate``); a Session
 member that waits, such as ``go_to_step``, is submitted off the lane.
 
 The scan finds every call in ``ui/`` of a waited move member on an
@@ -21,7 +23,7 @@ import ast
 
 from tests.ast_seams import iter_package_modules
 
-_WAITED = frozenset({'move_absolute', 'move_relative'})
+_WAITED = frozenset({'move_absolute', 'move_relative', 'move_to_plate', 'move_to_well'})
 
 
 def _waited_motion_calls():
@@ -51,11 +53,12 @@ def test_the_scan_sees_the_gesture_moves_it_was_written_for():
             if (
                 isinstance(node, ast.Call)
                 and isinstance(node.func, ast.Attribute)
-                and node.func.attr in {'start_move_absolute', 'start_move_relative'}
+                and node.func.attr
+                in {'start_move_absolute', 'start_move_relative', 'start_move_to_plate'}
                 and ast.unparse(node.func.value).split('.')[-1] == 'motion'
             ):
                 started.append(rel)
-    assert {'ui/stage.py', 'ui/scope_display.py', 'ui/ui_helpers.py'} <= set(started)
+    assert {'ui/scope_display.py', 'ui/ui_helpers.py'} <= set(started)
 
 
 def test_the_gui_goes_to_a_step_without_waiting_for_the_stage():

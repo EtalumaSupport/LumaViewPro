@@ -195,7 +195,7 @@ def test_an_unparseable_stage_entry_is_recorded_as_a_refusal_and_the_box_goes_ba
     monkeypatch.setattr(gui_logger, 'button', lambda name, detail='': lines.append((name, detail)))
     monkeypatch.setattr(gui_logger, 'text_input', lambda name, value: lines.append((name, value)))
     moves = []
-    monkeypatch.setattr(motion, 'move_absolute', lambda *a, **k: moves.append((a, k)))
+    monkeypatch.setattr(motion, 'move_to_plate', lambda *a, **k: moves.append((a, k)))
     monkeypatch.setattr(
         _app_ctx, 'ctx', SimpleNamespace(session=SimpleNamespace(controls_locked=False))
     )

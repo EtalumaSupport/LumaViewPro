@@ -10,7 +10,8 @@ import modules.app_context as _app_ctx
 from modules import gui_logger
 from modules.config_ui_getters import get_selected_labware
 from ui.step_navigation import go_to_step
-from ui.ui_helpers import find_nearest_step, run_unasked, submit_gesture, xy_gestures_offered
+from modules.coord_transformations import PlateLocation
+from ui.ui_helpers import find_nearest_step, move_to_plate, run_unasked, xy_gestures_offered
 
 logger = logging.getLogger('LVP.ui.stage')
 
@@ -183,15 +184,7 @@ class Stage(Widget):
                 # The click is already a plate coordinate; the API converts
                 # it. Recording the stage equivalent here would mean keeping
                 # a frame conversion in the widget to feed the log line.
-                # One click, one lane task: both axes asked about once, then
-                # both moves.
-                motion = ctx.scope.motion
-
-                def moves():
-                    motion.start_move_absolute('X', plate_x, frame='plate')
-                    motion.start_move_absolute('Y', plate_y, frame='plate')
-
-                submit_gesture('STAGE_CLICK', axes=('X', 'Y'), then='move the stage', moves=moves)
+                move_to_plate('STAGE_CLICK', PlateLocation(x_mm=plate_x, y_mm=plate_y, z_um=None))
 
             elif touch.button == 'right':
                 logger.info(f'[Stage   ] Finding nearest step to {plate_x}, {plate_y}')

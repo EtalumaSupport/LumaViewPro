@@ -18,6 +18,7 @@ import math
 
 import pytest
 
+from modules.coord_transformations import PlateLocation
 from modules.exceptions import ArgumentRefusedError, RefusalCause
 from tests.test_a_command_for_absent_motion_hardware_is_refused import _session
 from tests.case_walk import failing_cases
@@ -115,22 +116,20 @@ def test_an_axis_the_model_lacks_is_a_name_and_keeps_its_answers(tmp_path):
         session.shutdown()
 
 
-def test_a_frame_is_refused_before_the_hardware_is_asked(tmp_path):
+def test_a_plate_target_for_z_is_refused_at_the_door(tmp_path):
+    # An LS820 has no motor for X or Y: the refusal is the argument's,
+    # given before the scope is asked anything.
     session = _session(tmp_path, 'LS820')
     try:
         refusal = _refused(
-            lambda: session.scope.motion.move_absolute('X', 0, frame='bogus'), 'frame_unknown'
+            lambda: session.scope.motion.move_to_plate(
+                PlateLocation(x_mm=10.0, y_mm=None, z_um=0.0)
+            ),
+            'plate_frame_axis',
         )
-        assert refusal.offered == ('stage', 'plate')
+        assert (refusal.value, refusal.offered) == ('Z', ('X', 'Y'))
     finally:
         session.shutdown()
-
-
-def test_a_plate_target_for_z_is_refused_by_the_plate_owner(scope):
-    refusal = _refused(
-        lambda: scope.motion.move_absolute('Z', 0, frame='plate'), 'plate_frame_axis'
-    )
-    assert (refusal.value, refusal.offered) == ('Z', ('X', 'Y'))
 
 
 @pytest.mark.parametrize(

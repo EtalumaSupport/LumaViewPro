@@ -21,7 +21,12 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from modules.coord_transformations import AxisLimits, CoordinateTransformer, StageOffset
+from modules.coord_transformations import (
+    AxisLimits,
+    CoordinateTransformer,
+    PlateLocation,
+    StageOffset,
+)
 from modules.exceptions import PositionOutOfRangeError
 from tests.ast_seams import REPO_ROOT
 
@@ -61,7 +66,7 @@ class TestRefusalNamesWhatTheUserTyped:
         target_before = scope.motion.get_target_position('Y')
 
         with pytest.raises(PositionOutOfRangeError) as exc:
-            scope.motion.move_absolute('Y', 180.0, frame='plate')
+            scope.motion.move_to_plate(_y(180.0))
 
         assert '180' in str(exc.value)
         assert '-98520' not in str(exc.value)
@@ -76,14 +81,14 @@ class TestRefusalNamesWhatTheUserTyped:
         one layer down in stage microns -- the defect, one step later.
         """
         with pytest.raises(PositionOutOfRangeError) as exc:
-            scope.motion.move_absolute('Y', 85.0, frame='plate')
+            scope.motion.move_to_plate(_y(85.0))
 
         assert exc.value.bound == 'reachable range'
         assert (exc.value.low, exc.value.high) == REACHABLE['Y']
 
     def test_a_reachable_coordinate_converts(self, scope):
         """40 mm is inside the band and the stage goes to its stage um."""
-        scope.motion.move_absolute('Y', 40.0, frame='plate')
+        scope.motion.move_to_plate(_y(40.0))
 
         assert scope.motion.get_target_position('Y') == pytest.approx(41480.0)
 
@@ -91,10 +96,8 @@ class TestRefusalNamesWhatTheUserTyped:
 class TestEquivalentToTheTravelCheck:
     """The plate bound and the travel bound reject the same inputs.
 
-    This is what lets the protocol paths adopt the plate frame without
-    changing WHICH moves they refuse. If it ever fails, those callers
-    have started refusing something they used to accept, and they come
-    back out of the plate frame.
+    A plate move refuses exactly what the same move in stage microns
+    would, only in the unit the caller gave.
     """
 
     @pytest.mark.parametrize('axis', ['X', 'Y'])
@@ -106,12 +109,21 @@ class TestEquivalentToTheTravelCheck:
             stage = scope.runtime_state.plate_to_stage(plate_mm, plate_mm)
             stage_um = stage.x_um if axis == 'X' else stage.y_um
             travel_refused = _refuses(motion.move_absolute, axis, stage_um)
-            plate_refused = _refuses(motion.move_absolute, axis, plate_mm, frame='plate')
+            at = PlateLocation(
+                x_mm=plate_mm if axis == 'X' else None,
+                y_mm=plate_mm if axis == 'Y' else None,
+                z_um=None,
+            )
+            plate_refused = _refuses(motion.move_to_plate, at)
 
             assert plate_refused == travel_refused, (
                 f'{axis} {plate_mm}mm -> {stage_um}um: plate check said '
                 f'{plate_refused}, travel check says {travel_refused}'
             )
+
+
+def _y(plate_mm: float) -> PlateLocation:
+    return PlateLocation(x_mm=None, y_mm=plate_mm, z_um=None)
 
 
 def _refuses(move, *args, **kwargs) -> bool:
@@ -123,13 +135,6 @@ def _refuses(move, *args, **kwargs) -> bool:
 
 
 class TestHatchesAndBoundaries:
-    def test_ignore_limits_bypasses_the_plate_bound(self, scope):
-        """Same hatch as the travel check: one bound, two units."""
-        scope.motion.move_absolute('Y', 180.0, frame='plate', ignore_limits=True)
-
-        assert scope.motion.get_target_position('Y') == pytest.approx(-98520.0)
-        scope.motion.move_absolute('Y', 40000.0)
-
     def test_missing_stage_offset_refuses_legibly(self):
         """A scope no session bound has no offset; that must not be a TypeError."""
         from modules.exceptions import ConfigError
@@ -214,5 +219,5 @@ class TestTheConversionLeftTheCallers:
 
         assert offenders == [], (
             'these call the raw plate->stage transform instead of passing the '
-            "plate coordinate to the motion API with frame='plate': " + ', '.join(offenders)
+            'plate coordinate to MotionAPI.start_move_to_plate: ' + ', '.join(offenders)
         )

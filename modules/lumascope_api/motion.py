@@ -126,9 +126,6 @@ def _home_runs_its_own_moves(body):
 # downward Z move (the arrival plan's bench row).
 OVERSHOOT_LEG_TIMEOUT_S = 15.0
 
-# The frames an absolute target is given in: stage microns, or plate mm
-# from the plate's top-left (``MotionAPI._plate_target_to_stage``).
-POSITION_FRAMES = ('stage', 'plate')
 # The axes a plate coordinate is defined for: the plate lies in X and Y.
 _PLATE_AXES = ('X', 'Y')
 
@@ -149,7 +146,7 @@ from modules.lumascope_api._constants import (
     refuse_unless_turret_slot,
 )
 from modules.api_surface import api, api_fields
-from modules.coord_transformations import AxisLimits
+from modules.coord_transformations import AxisLimits, PlateLocation
 
 if TYPE_CHECKING:
     from modules.lumascope_api._lumascope import Lumascope
@@ -2085,8 +2082,8 @@ class MotionAPI:
             if self._has_position(ax)
         }
 
-    def _plate_target_to_stage(self, axis: str, plate_mm: float, ignore_limits: bool) -> float:
-        """Check a plate-frame target against what this stage can reach, then convert.
+    def _plate_target_to_stage(self, axis: str, plate_mm: float) -> float:
+        """Check a plate target for X or Y against what this stage can reach, then convert.
 
         A plate coordinate is the number a user types into the position
         boxes, in mm from the plate's top-left. Converting it before
@@ -2104,18 +2101,8 @@ class MotionAPI:
         The band is the inverse image of the travel interval under a
         transform that is affine and strictly decreasing in the plate
         coordinate, so refusing here rejects exactly what the travel
-        check downstream would reject. That equivalence is what lets the
-        protocol paths adopt this frame without changing which moves they
-        refuse -- only the sentence the refusal carries.
-
-        Honours ``ignore_limits`` for the same reason the travel check
-        does: it is one bound expressed in two units, and a hatch that
-        stopped working when the caller changed frames would be a trap.
+        check downstream would reject, in the unit the caller gave.
         """
-        if axis not in _PLATE_AXES:
-            raise ArgumentRefusedError(
-                'plate_frame_axis', argument='axis', value=axis, offered=_PLATE_AXES
-            )
         key = axis.lower()
         # Each stage axis depends only on its own plate axis, so the one
         # coordinate stands for both and the other half is not read.
@@ -2123,7 +2110,7 @@ class MotionAPI:
         stage_position = converted.x_um if axis == 'X' else converted.y_um
 
         limits = self.get_axis_limits(axis)
-        if limits is not None and not ignore_limits:
+        if limits is not None:
             dimension = self._scope.runtime_state.get_labware().get_dimensions()[key]
             offset = self._scope.runtime_state.get_stage_offset()
             offset_mm = (offset.x_um if axis == 'X' else offset.y_um) / 1000
@@ -2151,7 +2138,6 @@ class MotionAPI:
         overshoot_enabled: bool = True,
         ignore_limits: bool = False,
         force: bool = False,
-        frame: str = 'stage',
     ) -> Operation:
         """Start an axis moving to an absolute position; return the started move.
 
@@ -2168,12 +2154,11 @@ class MotionAPI:
                 recovery paths only -- see ``_pre_drive``.
 
         Raises:
-            ArgumentRefusedError: ``'plate_frame_axis'``, a plate target for
-                Z, from the plate's owner; ``'not_a_number'``, the position
-                is not a finite number, refused before any limit, the safety
-                limit on the ``ignore_limits`` path included. A name that is
-                no axis and a frame that is no frame are the doors' (see
-                ``_start``); the internal callers pass literals.
+            ArgumentRefusedError: ``'not_a_number'``, the position is not a
+                finite number, refused before any limit, the safety limit on
+                the ``ignore_limits`` path included. A name that is no axis
+                is the doors' (see ``_start``); the internal callers pass
+                literals.
             HardwareCommandRefusedError: ``'not_connected'`` or
                 ``'axis_absent'``, no motor controller or no such axis (see
                 ``refuse_absent``); nothing was driven.
@@ -2190,9 +2175,6 @@ class MotionAPI:
         """
         self.refuse_absent('move_absolute', axis)
         refuse_unless_finite_number(position, 'position')
-
-        if frame == 'plate':
-            position = self._plate_target_to_stage(axis, position, ignore_limits=ignore_limits)
 
         # Refuse a target beyond the axis's travel; this is the only travel
         # check, the drivers have none. A move stopped short at a limit
@@ -2452,26 +2434,19 @@ class MotionAPI:
     def _start(self, member: str, body, axis: str, target: float, **kwargs) -> Operation:
         """Start one X, Y or Z move through ``member``: refuse what no scope can act on, then command it on the lane.
 
-        A name that is no axis, the turret, and a frame that is no frame
-        are refused here, at the door, so a caller is told so whatever the
-        scope is doing -- not refused first for a home in flight or a shut
-        lane. The lane carries only the command -- the body's checks, the
-        board write and the MOVING transition -- so its bound is the
-        command's alone; the wait for arrival is the operation's, in the
-        caller's thread.
+        A name that is no axis and the turret are refused here, at the
+        door, so a caller is told so whatever the scope is doing -- not
+        refused first for a home in flight or a shut lane. The lane
+        carries only the command -- the body's checks, the board write and
+        the MOVING transition -- so its bound is the command's alone; the
+        wait for arrival is the operation's, in the caller's thread.
 
         Raises:
-            ArgumentRefusedError: ``'axis_unknown'``,
-                ``'turret_moves_by_slot'`` or ``'frame_unknown'``; nothing
-                was submitted.
+            ArgumentRefusedError: ``'axis_unknown'`` or
+                ``'turret_moves_by_slot'``; nothing was submitted.
         """
         refuse_unknown_axis(axis)
         self._refuse_turret_on_generic_door(axis)
-        frame = kwargs.get('frame', 'stage')
-        if frame not in POSITION_FRAMES:
-            raise ArgumentRefusedError(
-                'frame_unknown', argument='frame', value=frame, offered=POSITION_FRAMES
-            )
         return self._dispatch_motion(
             body,
             member,
@@ -2487,7 +2462,6 @@ class MotionAPI:
         position: float,
         overshoot_enabled: bool = True,
         ignore_limits: bool = False,
-        frame: str = 'stage',
     ) -> Operation:
         """Start X, Y or Z moving to an absolute position, in um; return the started move.
 
@@ -2513,9 +2487,8 @@ class MotionAPI:
             once it has ended; the board's STOP halts every axis.
 
         Raises:
-            ArgumentRefusedError: ``'axis_unknown'``,
-                ``'turret_moves_by_slot'`` or ``'frame_unknown'``, at the door
-                (``_start``); ``'plate_frame_axis'``, a plate target for Z;
+            ArgumentRefusedError: ``'axis_unknown'`` or
+                ``'turret_moves_by_slot'``, at the door (``_start``);
                 ``'not_a_number'``, the position is not a finite number.
                 Nothing was driven.
             HardwareCommandRefusedError: ``'not_connected'`` or
@@ -2538,7 +2511,6 @@ class MotionAPI:
             position,
             overshoot_enabled=overshoot_enabled,
             ignore_limits=ignore_limits,
-            frame=frame,
         )
 
     @api(stop='Operation.stop')
@@ -2585,7 +2557,6 @@ class MotionAPI:
         position: float,
         overshoot_enabled: bool = True,
         ignore_limits: bool = False,
-        frame: str = 'stage',
     ) -> None:
         """Move X, Y or Z to an absolute position, in um, and return once it has arrived.
 
@@ -2596,10 +2567,10 @@ class MotionAPI:
         not have is refused (``refuse_absent``) and drives nothing.
 
         Raises:
-            ArgumentRefusedError: ``'axis_unknown'``,
-                ``'turret_moves_by_slot'`` or ``'frame_unknown'``, at the door
-                (``_start``); ``'plate_frame_axis'`` or ``'not_a_number'``,
-                as ``_move_absolute_impl``. Nothing was driven.
+            ArgumentRefusedError: ``'axis_unknown'`` or
+                ``'turret_moves_by_slot'``, at the door (``_start``);
+                ``'not_a_number'``, as ``_move_absolute_impl``. Nothing was
+                driven.
             HardwareCommandRefusedError: ``'not_connected'``,
                 ``'axis_absent'`` or ``'position_unread'``, as
                 ``_move_absolute_impl``; ``'lid_open'``, an X or Y move
@@ -2626,8 +2597,159 @@ class MotionAPI:
             position,
             overshoot_enabled=overshoot_enabled,
             ignore_limits=ignore_limits,
-            frame=frame,
         ).result()
+
+    @api(stop='Operation.stop')
+    def start_move_to_plate(self, at: PlateLocation) -> Operation:
+        """Start X and Y moving to ``at`` on the selected plate; return the started moves.
+
+        ``at`` is in mm from the plate's top-left, at the live stage
+        offset, the number a person types into a position box. An axis that
+        is None is left where it is, a move under way on it included, so a
+        caller moving X alone leaves Y alone. The axes given are asked once
+        whether they know their position and are started on one task of the
+        IO lane (``one_command``), so a capture asked meanwhile never takes
+        the new X at the old Y. Each is checked against the plate positions
+        this stage can reach, and refused in mm, before either moves.
+
+        Returns:
+            One ``Operation`` for the moves started, done once every one is
+            (``Operation.all_of``); its ``result()`` raises the first move's
+            raise, as ``start_move_absolute``'s does. With no axis given
+            nothing moves and it is done at once.
+
+        Raises:
+            ArgumentRefusedError: ``'plate_frame_axis'``, a Z given: a plate
+                position has no Z; ``'not_a_number'``, an axis given is not a
+                finite number. Nothing was submitted.
+            HardwareCommandRefusedError: ``'not_connected'`` or
+                ``'axis_absent'``, no motor controller or no such axis;
+                ``'lid_open'``, the stage's lid is open; ``'monitor_ended'``,
+                the motion monitor has ended. Nothing was driven.
+            PositionOutOfRangeError: ``'position_out_of_range'``, an axis
+                given is outside the plate positions this stage can reach,
+                in plate mm. Nothing was driven.
+            AxisStateUnknownError: An axis given does not know its position.
+                Nothing was driven.
+            MoveFaultError: ``'driver_failed'``, the board did not take a
+                command.
+        """
+        if at.z_um is not None:
+            raise ArgumentRefusedError(
+                'plate_frame_axis', argument='axis', value='Z', offered=_PLATE_AXES
+            )
+        targets = tuple(
+            (axis, value) for axis, value in (('X', at.x_mm), ('Y', at.y_mm)) if value is not None
+        )
+        for axis, value in targets:
+            refuse_unless_finite_number(value, f'at.{axis.lower()}_mm')
+        return self._start_plate_moves('start_move_to_plate', lambda: targets)
+
+    @api
+    def move_to_plate(self, at: PlateLocation) -> None:
+        """Move X and Y to ``at`` on the selected plate, and return once they have arrived.
+
+        ``start_move_to_plate`` followed by its operation's ``result()``.
+
+        Raises:
+            ArgumentRefusedError: ``'plate_frame_axis'`` or
+                ``'not_a_number'``, as ``start_move_to_plate``.
+            HardwareCommandRefusedError: ``'not_connected'``,
+                ``'axis_absent'``, ``'lid_open'`` or ``'monitor_ended'``, as
+                ``start_move_to_plate``.
+            PositionOutOfRangeError: As ``start_move_to_plate``.
+            AxisStateUnknownError: As ``start_move_to_plate``.
+            MoveFaultError: As ``start_move_to_plate``.
+            MoveNotCompletedError: An axis did not arrive; see
+                ``start_move_absolute``.
+            BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on
+                the UI thread, whose form is ``start_move_to_plate``.
+                Nothing was driven.
+        """
+        refuse_waiting_on_ui_thread('move_to_plate')
+        self.start_move_to_plate(at).result()
+
+    @api(stop='Operation.stop')
+    def start_move_to_well(self, well: str) -> Operation:
+        """Start X and Y moving to the centre of ``well`` on the selected plate; return the started moves.
+
+        ``well`` is the label the plate gives it (``'A1'``, ``'H12'``),
+        read from the plate selected when the move is on the lane, so the
+        plate the well is found on is the plate the move converts on.
+        Otherwise as ``start_move_to_plate`` for both axes.
+
+        Raises:
+            ArgumentRefusedError: ``'well_unknown'``, the selected plate has
+                no well of that label (a plate with no wells has none).
+                Nothing was driven.
+            HardwareCommandRefusedError: ``'not_connected'``,
+                ``'axis_absent'``, ``'lid_open'`` or ``'monitor_ended'``, as
+                ``start_move_to_plate``.
+            PositionOutOfRangeError: As ``start_move_to_plate``.
+            AxisStateUnknownError: As ``start_move_to_plate``.
+            MoveFaultError: As ``start_move_to_plate``.
+        """
+
+        def targets() -> tuple[tuple[str, float], ...]:
+            plate = self._scope.runtime_state.get_labware()
+            for x_mm, y_mm, label in plate.get_positions_with_labels():
+                if label == well:
+                    return (('X', x_mm), ('Y', y_mm))
+            raise ArgumentRefusedError('well_unknown', argument='well', value=well, kind=plate.name)
+
+        return self._start_plate_moves('start_move_to_well', targets)
+
+    @api
+    def move_to_well(self, well: str) -> None:
+        """Move X and Y to the centre of ``well`` on the selected plate, and return once they have arrived.
+
+        ``start_move_to_well`` followed by its operation's ``result()``.
+
+        Raises:
+            ArgumentRefusedError: ``'well_unknown'``, as ``start_move_to_well``.
+            HardwareCommandRefusedError: ``'not_connected'``,
+                ``'axis_absent'``, ``'lid_open'`` or ``'monitor_ended'``, as
+                ``start_move_to_plate``.
+            PositionOutOfRangeError: As ``start_move_to_plate``.
+            AxisStateUnknownError: As ``start_move_to_plate``.
+            MoveFaultError: As ``start_move_to_plate``.
+            MoveNotCompletedError: An axis did not arrive; see
+                ``start_move_absolute``.
+            BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on
+                the UI thread, whose form is ``start_move_to_well``.
+                Nothing was driven.
+        """
+        refuse_waiting_on_ui_thread('move_to_well')
+        self.start_move_to_well(well).result()
+
+    def _start_plate_moves(
+        self, member: str, targets: Callable[[], tuple[tuple[str, float], ...]]
+    ) -> Operation:
+        """Put the plate moves *targets* names on one IO-lane task; the operation of the moves.
+
+        *targets* is read on the lane, with the plate and offset the
+        conversion uses.
+        """
+        moves = self._dispatch_motion(
+            self._plate_moves_on_lane,
+            member,
+            args=(member, targets),
+            timeout_s=self._MOTION_WAIT_BASE_S,
+        )
+        return Operation.all_of(moves)
+
+    def _plate_moves_on_lane(
+        self, member: str, targets: Callable[[], tuple[tuple[str, float], ...]]
+    ) -> tuple[Operation, ...]:
+        """The lane half of a plate move: every axis converted and checked, then all started."""
+        given = targets()
+        for axis, _ in given:
+            self.refuse_absent(member, axis)
+        # Every target is converted before any axis moves, so a refusal of
+        # one leaves the other where it was.
+        stage_targets = tuple((axis, self._plate_target_to_stage(axis, mm)) for axis, mm in given)
+        with self.one_command(tuple(axis for axis, _ in given), then='move on the plate'):
+            return tuple(self._move_absolute_impl(axis, um) for axis, um in stage_targets)
 
     @api
     def move_relative(

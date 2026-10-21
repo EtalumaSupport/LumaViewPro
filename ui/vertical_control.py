@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from modules.operation import Operation
 from modules.run_events import RunEvents
 from ui.ui_helpers import (
+    go_to_bookmark,
     move_absolute,
     move_home,
     move_relative,
@@ -217,11 +218,8 @@ class VerticalControl(BoxLayout):
 
     def goto_bookmark(self):
         gui_logger.button('GOTO_Z_BOOKMARK')
-        ctx = _app_ctx.ctx
         logger.info('[LVP Main  ] VerticalControl.goto_bookmark()')
-        with ctx.settings_lock:
-            pos = ctx.settings['bookmark']['z']
-        move_absolute('Z', pos)
+        go_to_bookmark('GOTO_Z_BOOKMARK', ('Z',))
 
     @debounce(1.0)
     def home(self):

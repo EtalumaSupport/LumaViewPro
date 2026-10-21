@@ -7,6 +7,7 @@ API member under test: modules/protocol_runner.py:281 ProtocolRunner.start_autof
 from harness import check, run, void
 from modules.protocol_runner import ProtocolRunner
 from modules.exceptions import ArgumentRefusedError
+from modules.coord_transformations import PlateLocation
 
 
 def body(s):
@@ -14,8 +15,7 @@ def body(s):
     m.home('ALL')
     s.select_labware('96 well microplate')
     m.move_absolute('Z', 3000.0)
-    m.move_absolute('X', 40.0, frame='plate')
-    m.move_absolute('Y', 30.0, frame='plate')
+    m.move_to_plate(PlateLocation(x_mm=40.0, y_mm=30.0, z_um=None))
     # Simulated, the camera shows a focus target focused inside the sweep's
     # window, off its start so the stage has somewhere to go: a featureless
     # frame has no peak, and an autofocus over it fails. On hardware the

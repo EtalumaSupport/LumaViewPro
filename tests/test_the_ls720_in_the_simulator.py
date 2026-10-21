@@ -75,16 +75,14 @@ BENCH_BOARD_USTEPS = {
 BY_EYE_USTEPS = 0.3 * 6400
 
 
-@pytest.mark.parametrize(('well', 'column', 'row'), [('A1', 0, 0), ('H12', 11, 7)])
-def test_a_map_click_on_a_well_drives_the_board_where_the_bench_found_it(homed, well, column, row):
+@pytest.mark.parametrize('well', ['A1', 'H12'])
+def test_a_move_to_a_well_drives_the_board_where_the_bench_found_it(homed, well):
     """The plate frame is the one every model shares; the LS720's index
-    positions register its board against it, so a click on a well's centre
+    positions register its board against it, so a move to a well's centre
     drives the board's registers to where the bench centred that well, X
     from the column-12 end as on an LS850. Read at the board: a plate
     position round-trips through any frame."""
-    plate_x, plate_y = homed.runtime_state.get_labware().get_well_position(column, row)
-    homed.motion.move_absolute('X', plate_x, frame='plate')
-    homed.motion.move_absolute('Y', plate_y, frame='plate')
+    homed.motion.move_to_well(well)
     board = _board(homed)
     for axis in ('X', 'Y'):
         assert board.position(axis) == pytest.approx(

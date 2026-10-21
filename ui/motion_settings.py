@@ -9,10 +9,12 @@ import modules.app_context as _app_ctx
 from modules import gui_logger
 from modules.debounce import debounce
 from ui.image_settings import AccordionItemXyStageControl
+from modules.coord_transformations import PlateLocation
 from ui.ui_helpers import (
-    move_absolute,
+    go_to_bookmark,
     move_home,
     move_relative,
+    move_to_plate,
     resort_accordion,
     run_reported,
     typed_number,
@@ -338,7 +340,7 @@ class XYStageControl(BoxLayout):
         # The typed number goes to the API in the frame it was typed in;
         # the API owns both the conversion and the bound, so a refusal can
         # name the number the user entered instead of its stage equivalent.
-        move_absolute('X', x_pos, frame='plate')
+        move_to_plate('MOVE_X', PlateLocation(x_mm=x_pos, y_mm=None, z_um=None))
 
     def set_yposition(self, y_pos):
         logger.info('[LVP Main  ] XYStageControl.set_yposition()')
@@ -353,7 +355,7 @@ class XYStageControl(BoxLayout):
             return
         gui_logger.button('SET_Y_POSITION', f'plate_mm={y_pos:.3f}')
 
-        move_absolute('Y', y_pos, frame='plate')
+        move_to_plate('MOVE_Y', PlateLocation(x_mm=None, y_mm=y_pos, z_um=None))
 
     def set_xbookmark(self):
         gui_logger.button('SET_X_BOOKMARK')
@@ -373,27 +375,13 @@ class XYStageControl(BoxLayout):
 
     def goto_xbookmark(self):
         gui_logger.button('GOTO_X_BOOKMARK')
-        ctx = _app_ctx.ctx
         logger.info('[LVP Main  ] XYStageControl.goto_xbookmark()')
-
-        settings = ctx.settings
-
-        # Get bookmark plate x-position in mm
-        x_pos = settings['bookmark']['x']
-
-        move_absolute('X', x_pos, frame='plate')
+        go_to_bookmark('GOTO_X_BOOKMARK', ('X',))
 
     def goto_ybookmark(self):
         gui_logger.button('GOTO_Y_BOOKMARK')
-        ctx = _app_ctx.ctx
         logger.info('[LVP Main  ] XYStageControl.goto_ybookmark()')
-
-        settings = ctx.settings
-
-        # Get bookmark plate y-position in mm
-        y_pos = settings['bookmark']['y']
-
-        move_absolute('Y', y_pos, frame='plate')
+        go_to_bookmark('GOTO_Y_BOOKMARK', ('Y',))
 
     # def calibrate(self):
     #     logger.info('[LVP Main  ] XYStageControl.calibrate()')

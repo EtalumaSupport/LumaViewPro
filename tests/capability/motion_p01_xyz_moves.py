@@ -10,6 +10,7 @@ XY coarse/fine jog (motion_settings.py:452-480).
 from harness import check, run
 
 from modules.exceptions import HomingFailedError, PositionOutOfRangeError, AxisStateUnknownError
+from modules.coord_transformations import PlateLocation
 
 
 def body(s):
@@ -59,8 +60,7 @@ def body(s):
 
     # --- PLATE frame: what the typed coordinate box and the stage click send ---
     s.select_labware('96 well microplate')
-    m.move_absolute('X', 60.0, frame='plate')
-    m.move_absolute('Y', 40.0, frame='plate')
+    m.move_to_plate(PlateLocation(x_mm=60.0, y_mm=40.0, z_um=None))
     after = s.get_current_plate_position()
     check(
         'plate-frame move landed on the typed coordinate',
@@ -89,7 +89,7 @@ def body(s):
         check('Z relative out-of-range raises', True)
 
     try:
-        m.move_absolute('X', 9999.0, frame='plate')
+        m.move_to_plate(PlateLocation(x_mm=9999.0, y_mm=None, z_um=None))
         check('plate-frame out-of-range raises', False, 'NO RAISE')
     except PositionOutOfRangeError as e:
         check(

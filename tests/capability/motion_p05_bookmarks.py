@@ -12,6 +12,7 @@ where does the stored value live?
 from harness import check, run
 
 from modules.exceptions import SettingRefusedError
+from modules.coord_transformations import PlateLocation
 
 
 def body(s):
@@ -44,8 +45,7 @@ def body(s):
 
     # 3. reconstruct the SET half by hand, the way the GUI handler does
     m.move_absolute('Z', 3300.0)
-    m.move_absolute('X', 40.0, frame='plate')
-    m.move_absolute('Y', 30.0, frame='plate')
+    m.move_to_plate(PlateLocation(x_mm=40.0, y_mm=30.0, z_um=None))
     saved = s.save_bookmark(('X', 'Y', 'Z'))
     check(
         'a script can SAVE the bookmark through the Session',
@@ -53,14 +53,10 @@ def body(s):
         str(saved),
     )
 
-    # 4. reconstruct the GOTO half
+    # 4. the GOTO half, through the Session as the buttons go
     m.move_absolute('Z', 500.0)
-    m.move_absolute('X', 10.0, frame='plate')
-    m.move_absolute('Y', 10.0, frame='plate')
-    bm = s.get_settings_snapshot()['bookmark']
-    m.move_absolute('Z', bm['z'])
-    m.move_absolute('X', bm['x'], frame='plate')
-    m.move_absolute('Y', bm['y'], frame='plate')
+    m.move_to_plate(PlateLocation(x_mm=10.0, y_mm=10.0, z_um=None))
+    s.go_to_bookmark(('X', 'Y', 'Z'))
     back = s.get_current_plate_position()
     check(
         'a script can RETURN to the bookmark and the stage arrives',

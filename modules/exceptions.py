@@ -3287,10 +3287,10 @@ class ArgumentRefusedError(Refusal, ValueError):
             - ``'turret_moves_by_slot'`` -- the turret was given to a
               generic mover; it moves only by slot, through
               ``move_turret``.
-            - ``'frame_unknown'`` -- a position frame that is not one of
-              ``offered``.
             - ``'plate_frame_axis'`` -- a plate coordinate for an axis the
               plate frame does not define (``offered``: X and Y).
+            - ``'well_unknown'`` -- a well label the selected plate
+              (``kind``) does not have.
             - ``'out_of_range'`` -- a number outside the ``limits`` its
               member takes.
             - ``'fan_duty_out_of_range'`` -- a fan duty outside 0 to 100
@@ -3401,13 +3401,13 @@ class ArgumentRefusedError(Refusal, ValueError):
             'The turret moves only through move_turret(slot), which parks Z first '
             'and records the slot in the light path; {argument} {value!r} is not taken here.',
         ),
-        'frame_unknown': (
-            'Not a Position Frame',
-            '{argument} must be one of {offered}; {value!r} is not one.',
-        ),
         'plate_frame_axis': (
             'Not a Plate Axis',
             'Plate coordinates are defined for {offered} only; {argument} {value!r} is not one of them.',
+        ),
+        'well_unknown': (
+            'Not a Well',
+            '{kind} has no well {value!r}.',
         ),
         'out_of_range': (
             'Value Out of Range',
