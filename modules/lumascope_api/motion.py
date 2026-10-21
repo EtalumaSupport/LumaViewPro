@@ -988,6 +988,10 @@ class MotionAPI:
                 configured objective ID; False if the slot is unconfigured
                 or not known -- an unknown slot has no objective anyone can
                 name.
+
+        Raises:
+            ConfigError: ``'scope_not_composed'``, no session has bound this
+                scope, so it has no slot assignments to read.
         """
         slot = self.get_turret_slot()
         if slot is None:
@@ -1328,6 +1332,9 @@ class MotionAPI:
 
         Returns:
             int | None: The slot, 1-4, or None.
+
+        Raises:
+            Nothing.
         """
         return self._last_turret_position
 
@@ -1520,6 +1527,9 @@ class MotionAPI:
         Returns:
             bool: True if any axis is MOVING or HOMING. A Z move is MOVING
             from its first target write, its backlash leg included.
+
+        Raises:
+            Nothing.
         """
         return self.is_any_axis_moving()
 
@@ -1678,6 +1688,9 @@ class MotionAPI:
 
         Args:
             listener: ``callable(axis: str, at: AxisPosition)``
+
+        Raises:
+            Nothing.
         """
         with self._position_listeners_lock:
             self._position_listeners.append(listener)
@@ -1690,6 +1703,9 @@ class MotionAPI:
             listener: A callable previously passed to
                 ``add_position_listener``. Silently ignores listeners that
                 are not currently registered.
+
+        Raises:
+            Nothing.
         """
         with self._position_listeners_lock:
             try:
@@ -1832,6 +1848,9 @@ class MotionAPI:
             bool: True if every non-turret axis the board has knows its
                 position. False on a board with no such axes, which is
                 what the driver latch reported for the no-motor case.
+
+        Raises:
+            Nothing.
         """
         with self._axis_state_lock:
             stage_states = [state for axis, state in self._axis_state.items() if axis != 'T']
@@ -1859,6 +1878,9 @@ class MotionAPI:
                 or ``AxisState.HOMING``) for every axis whose position is
                 not known, in the scope's axis order. Empty when every
                 axis knows its position.
+
+        Raises:
+            Nothing.
         """
         with self._axis_state_lock:
             return {
@@ -1885,6 +1907,9 @@ class MotionAPI:
         Returns:
             dict[str, AxisPosition]: Axis name to (state, position), in
                 the scope's axis order.
+
+        Raises:
+            Nothing.
         """
         with self._axis_state_lock:
             states = dict(self._axis_state)
@@ -2007,6 +2032,9 @@ class MotionAPI:
         """The target of every axis the scope has a position for, by axis name, as ``get_target_position`` answers each.
 
         An axis with no hardware behind it is left out. No serial I/O.
+
+        Raises:
+            Nothing.
         """
         return {
             ax: self.get_target_position(ax)
@@ -2477,6 +2505,25 @@ class MotionAPI:
             move ended with, however late it is read. Its ``stop()`` is
             ``stop_motion`` while this move still has its axis, and nothing
             once it has ended; the board's STOP halts every axis.
+
+        Raises:
+            ArgumentRefusedError: ``'axis_unknown'``,
+                ``'turret_moves_by_slot'`` or ``'frame_unknown'``, at the door
+                (``_start``); ``'plate_frame_axis'``, a plate target for Z;
+                ``'not_a_number'``, the position is not a finite number.
+                Nothing was driven.
+            HardwareCommandRefusedError: ``'not_connected'`` or
+                ``'axis_absent'``, no motor controller or no such axis;
+                ``'position_unread'``, a Z move with overshoot whose position
+                the board did not report; ``'lid_open'``, an X or Y move with
+                the stage's lid open; or ``'monitor_ended'``, the motion monitor
+                has ended, so nothing would judge the move. Nothing was driven.
+            PositionOutOfRangeError: ``'position_out_of_range'``, the target
+                is outside the axis's configured travel and ``ignore_limits``
+                is False.
+            AxisStateUnknownError: The axis position is unknown.
+            MoveFaultError: ``'driver_failed'``, the board did not take the
+                command.
         """
         return self._start(
             'start_move_absolute',
@@ -2499,6 +2546,23 @@ class MotionAPI:
 
         As ``start_move_absolute``, for ``move_relative``. See
         ``_move_relative_impl`` for the argument contract.
+
+        Raises:
+            ArgumentRefusedError: ``'axis_unknown'`` or
+                ``'turret_moves_by_slot'``, at the door (``_start``);
+                ``'not_a_number'``, the distance is not a finite number.
+                Nothing was driven.
+            HardwareCommandRefusedError: ``'not_connected'`` or
+                ``'axis_absent'``, no motor controller or no such axis;
+                ``'position_unread'``, the board did not report the target to
+                add to (or, for Z with overshoot, the position);
+                ``'lid_open'``, an X or Y move with the stage's lid open; or
+                ``'monitor_ended'``, the motion monitor has ended, so nothing
+                would judge the move. Nothing was driven.
+            PositionOutOfRangeError: The distance is beyond the safety limit.
+            AxisStateUnknownError: The axis position is unknown.
+            MoveFaultError: ``'driver_failed'``, the board did not take the
+                command.
         """
         return self._start(
             'start_move_relative',
@@ -2532,8 +2596,10 @@ class MotionAPI:
                 as ``_move_absolute_impl``. Nothing was driven.
             HardwareCommandRefusedError: ``'not_connected'``,
                 ``'axis_absent'`` or ``'position_unread'``, as
-                ``_move_absolute_impl``; or ``'lid_open'``, an X or Y move
-                with the stage's lid open. Nothing was driven.
+                ``_move_absolute_impl``; ``'lid_open'``, an X or Y move
+                with the stage's lid open; or ``'monitor_ended'``, the motion
+                monitor has ended, so nothing would judge the move. Nothing
+                was driven.
             PositionOutOfRangeError: ``'position_out_of_range'``, the
                 target is outside the axis's configured travel and
                 ``ignore_limits`` is False.
@@ -2570,6 +2636,21 @@ class MotionAPI:
         ``start_move_relative`` followed by its operation's ``result()``.
 
         Raises:
+            ArgumentRefusedError: ``'axis_unknown'`` or
+                ``'turret_moves_by_slot'``, at the door (``_start``);
+                ``'not_a_number'``, the distance is not a finite number.
+                Nothing was driven.
+            HardwareCommandRefusedError: ``'not_connected'`` or
+                ``'axis_absent'``, no motor controller or no such axis;
+                ``'position_unread'``, the board did not report the target to
+                add to (or, for Z with overshoot, the position);
+                ``'lid_open'``, an X or Y move with the stage's lid open; or
+                ``'monitor_ended'``, the motion monitor has ended, so nothing
+                would judge the move. Nothing was driven.
+            PositionOutOfRangeError: The distance is beyond the safety limit.
+            AxisStateUnknownError: The axis position is unknown.
+            MoveFaultError: ``'driver_failed'``, the board did not take the
+                command.
             MoveNotCompletedError: The axis did not arrive; see
                 ``start_move_absolute``.
             BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on

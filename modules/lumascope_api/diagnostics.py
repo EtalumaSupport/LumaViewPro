@@ -1133,6 +1133,9 @@ class DiagnosticsAPI:
 
         Returns RPM as int (0 if no tach wire) or None when firmware
         does not implement FANSPEED.
+
+        Raises:
+            Nothing.
         """
         drv = getattr(self._scope, '_motion_driver', None)
         if drv is None or not hasattr(drv, 'read_fanspeed'):
@@ -1149,6 +1152,9 @@ class DiagnosticsAPI:
         old speed. None when no motor board's driver drives a fan; whether
         the board's firmware takes a fan write is ``set_motor_fan_duty``'s
         refusal, asked on the board.
+
+        Raises:
+            Nothing.
         """
         drv = getattr(self._scope, '_motion_driver', None)
         if drv is None or not hasattr(drv, 'set_fan_duty'):
@@ -1278,6 +1284,9 @@ class DiagnosticsAPI:
         Returns:
             MotorBoardInfo: Each field None when unknown, all of them with
                 no board.
+
+        Raises:
+            Nothing.
         """
         driver = self._scope._motion_driver
         speaks_text = self._scope.motor_connected and hasattr(driver, 'exchange_multiline')
@@ -1295,6 +1304,9 @@ class DiagnosticsAPI:
         Returns:
             LedBoardInfo: Each field None when unknown, all of them with no
                 board connected.
+
+        Raises:
+            Nothing.
         """
         drv = self._scope._led_driver
         if not drv or not drv.is_connected():
@@ -1319,6 +1331,9 @@ class DiagnosticsAPI:
             dict: Channel -> mA, or None for a channel whose current could
                 not be read (no reply, an unparseable one, or a board with
                 no current sensing). Empty when no LED board is connected.
+
+        Raises:
+            Nothing.
         """
         drv = self._scope._led_driver
         if not self._scope.led_connected:

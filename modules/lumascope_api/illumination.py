@@ -1027,6 +1027,10 @@ class IlluminationAPI:
         """Turn off all LEDs, and wait for it.
 
         Nuclear -- ignores any held lease. See ``_leds_off_impl``.
+
+        Raises:
+            HardwareCommandRefusedError: ``'not_connected'``, a channel
+                believed lit and no LED controller connected to darken it.
         """
         return self._dispatch_led(self._leds_off_impl, 'leds_off')
 
@@ -1190,6 +1194,9 @@ class IlluminationAPI:
             One reading per address, in address order, each named through
             the unit's identity. None when no LED board is installed (none
             came up, or after ``disconnect()``).
+
+        Raises:
+            Nothing.
         """
         if not self._has_board():
             return None
@@ -1207,6 +1214,9 @@ class IlluminationAPI:
         Returns:
             Snapshot suitable for passing to ``restore_led_state``; None
             when no LED board is installed, so there is no state to keep.
+
+        Raises:
+            Nothing.
         """
         readings = self.get_led_states()
         if readings is None:
@@ -1633,6 +1643,9 @@ class IlluminationAPI:
         Args:
             listener: ``callable(address: int, name: str | None, state:
                 LedState, illumination_ma: float | None)``
+
+        Raises:
+            Nothing.
         """
         with self._led_listeners_lock:
             self._led_listeners.append(listener)
@@ -1646,6 +1659,9 @@ class IlluminationAPI:
         Args:
             listener: A callable previously passed to ``add_led_listener``.
                 Silently ignores listeners that are not currently registered.
+
+        Raises:
+            Nothing.
         """
         with self._led_listeners_lock:
             try:

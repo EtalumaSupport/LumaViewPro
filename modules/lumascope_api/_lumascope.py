@@ -1548,6 +1548,9 @@ class Lumascope:
 
         In-process only: the faults belong to the simulator, not to a wire.
         Every member refuses on a real scope.
+
+        Raises:
+            Nothing.
         """
         return self._simulation
 
@@ -1559,6 +1562,9 @@ class Lumascope:
         Read-only, as each record is: no caller can change what another
         reads. Which one is in the light path is
         ``runtime_state.resolve_current_objective``'s answer.
+
+        Raises:
+            Nothing.
         """
         return self.objective_helper.objectives
 
@@ -1570,6 +1576,9 @@ class Lumascope:
         Read-only, as each record is: no caller can change what another
         reads. Which one is selected is ``runtime_state.get_labware``'s
         answer. Slides and Petri dishes are not offered yet.
+
+        Raises:
+            Nothing.
         """
         return self.wellplate_loader.plates
 
@@ -1580,6 +1589,9 @@ class Lumascope:
 
         Read-only, as each record is: no caller can change what another
         reads.
+
+        Raises:
+            Nothing.
         """
         return self._scope_models
 
@@ -1590,6 +1602,9 @@ class Lumascope:
 
         The caller's own copy: a caller that changed what it was given
         would otherwise change every later reader's template.
+
+        Raises:
+            Nothing.
         """
         return copy.deepcopy(self._settings_template)
 
@@ -1600,6 +1615,9 @@ class Lumascope:
 
         Returns:
             bool: True if a real (non-Null) motor board is connected.
+
+        Raises:
+            Nothing.
         """
         return (
             not isinstance(self._motion_driver, NullMotionBoard)
@@ -1614,6 +1632,9 @@ class Lumascope:
         False for a manual scope (an LS620 or LS560): it is complete
         without one, so its absence is not a disconnection. Set from the
         model's catalogue entry by ``initialize()``; True before that.
+
+        Raises:
+            Nothing.
         """
         return self._motion_expected
 
@@ -1624,6 +1645,9 @@ class Lumascope:
 
         Returns:
             bool: True if a real (non-Null) LED board is connected.
+
+        Raises:
+            Nothing.
         """
         return not isinstance(self._led_driver, NullLEDBoard) and self._led_driver.is_connected()
 
@@ -1662,6 +1686,9 @@ class Lumascope:
                 A driver that raises reads as not connected: the callers
                 here are display and metrics paths, where the question is
                 asked per frame and has no answer but False.
+
+        Raises:
+            Nothing.
         """
         try:
             return self._camera_is_connected()
@@ -1871,6 +1898,9 @@ class Lumascope:
 
         Returns:
             bool: True when all three subsystems are absent or stubbed.
+
+        Raises:
+            Nothing.
         """
         return self._no_hardware
 
@@ -1950,6 +1980,9 @@ class Lumascope:
             Each of ``'LED controller'``, ``'motor controller'`` and
             ``'camera'`` that is not connected, in that order; empty when
             all are.
+
+        Raises:
+            Nothing.
         """
         logger.debug('[SCOPE API ] Performing connection check...')
         led = self.led_connected

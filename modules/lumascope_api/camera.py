@@ -886,6 +886,9 @@ class CameraAPI:
 
         Returns:
             bool: True once the camera has been declared removed.
+
+        Raises:
+            Nothing.
         """
         return self._driver is not None and self._driver.is_device_removed()
 
@@ -1452,6 +1455,9 @@ class CameraAPI:
         setting; when no arm stands the result's ``state`` is None and
         nothing was written. With no camera connected no arm can stand, and
         that is the answer.
+
+        Raises:
+            Nothing.
         """
         return self._dispatch_camera(
             self._no_layers_write(self._lock_auto_gain_impl),
@@ -2744,6 +2750,9 @@ class CameraAPI:
 
         Returns:
             dict: ``{'width': int, 'height': int}``.
+
+        Raises:
+            Nothing.
         """
         default = {'width': 2, 'height': 2}
         if not self._driver or not self._driver.active:
@@ -2767,13 +2776,21 @@ class CameraAPI:
     @api
     @property
     def active(self) -> bool:
-        """Whether the camera is connected and active, as last found; no camera read."""
+        """Whether the camera is connected and active, as last found; no camera read.
+
+        Raises:
+            Nothing.
+        """
         return bool(self._held('active'))
 
     @api
     @property
     def gain_db(self) -> float | None:
-        """The gain in dB the camera last reported or took; None when unknown."""
+        """The gain in dB the camera last reported or took; None when unknown.
+
+        Raises:
+            Nothing.
+        """
         return self._held('gain_db')
 
     @api
@@ -2784,6 +2801,9 @@ class CameraAPI:
         Under a continuous auto-gain arm the camera chooses its own exposure,
         and this is the one from before the arm; ``longest_exposure_ms``
         bounds what it may be using.
+
+        Raises:
+            Nothing.
         """
         return self._held('exposure_ms')
 
@@ -2791,20 +2811,32 @@ class CameraAPI:
     @property
     def black_level(self) -> float | None:
         """The black level the camera last reported or took (see
-        ``read_black_level``); None when unknown or the camera reports none."""
+        ``read_black_level``); None when unknown or the camera reports none.
+
+        Raises:
+            Nothing.
+        """
         return self._held('black_level')
 
     @api
     @property
     def binning(self) -> int | None:
-        """The binning factor the camera last reported or took; None when unknown."""
+        """The binning factor the camera last reported or took; None when unknown.
+
+        Raises:
+            Nothing.
+        """
         return self._held('binning')
 
     @api
     @property
     def frame_size(self) -> FrameSize | None:
         """The size of the frames the camera delivers, as it last reported or
-        took it, in pixels after binning; None when unknown."""
+        took it, in pixels after binning; None when unknown.
+
+        Raises:
+            Nothing.
+        """
         size = self._held('frame_size')
         return FrameSize(size['width'], size['height']) if size is not None else None
 
@@ -2812,7 +2844,11 @@ class CameraAPI:
     @property
     def pixel_format(self) -> str | None:
         """The pixel format the camera last reported or took (e.g. ``'Mono12'``),
-        chosen by ``set_image_mode``; None when unknown."""
+        chosen by ``set_image_mode``; None when unknown.
+
+        Raises:
+            Nothing.
+        """
         return self._held('pixel_format')
 
     @api
@@ -2820,7 +2856,11 @@ class CameraAPI:
     def auto_gain(self) -> bool | None:
         """Whether the camera's continuous auto-gain is on, as the camera last
         took it; None when unknown. No driver reads it back, so this is the
-        write the camera accepted: an arm, the lock that ends it, a one-shot."""
+        write the camera accepted: an arm, the lock that ends it, a one-shot.
+
+        Raises:
+            Nothing.
+        """
         return self._held('auto_gain')
 
     @api
@@ -2829,7 +2869,11 @@ class CameraAPI:
         """Whether the camera's auto-exposure is on, as the camera last took it;
         None when unknown. No driver reads it back. It has two writers:
         ``set_auto_exposure``, and auto-gain, whose arm and lock switch
-        exposure with the gain."""
+        exposure with the gain.
+
+        Raises:
+            Nothing.
+        """
         return self._held('auto_exposure')
 
     @api
@@ -2838,7 +2882,11 @@ class CameraAPI:
         """Whether the camera's high conversion gain is on, as the camera last
         took it; None when unknown, as after a value the camera refused. No
         driver reads it back. A camera without the mode is at its standard
-        conversion gain: False."""
+        conversion gain: False.
+
+        Raises:
+            Nothing.
+        """
         return self._held('high_conversion_gain')
 
     @api
@@ -2846,7 +2894,11 @@ class CameraAPI:
     def line_noise_reduction(self) -> bool | None:
         """Whether the camera's line-noise filter is on, as the camera last took
         it; None when unknown. No driver reads it back. A camera without the
-        filter reads unfiltered: False."""
+        filter reads unfiltered: False.
+
+        Raises:
+            Nothing.
+        """
         return self._held('line_noise_reduction')
 
     @api
@@ -2880,6 +2932,9 @@ class CameraAPI:
         Returns:
             float | None: The bound in ms; None when it is unknown and no
                 camera reports a maximum.
+
+        Raises:
+            Nothing.
         """
         with self._camera_cache_lock:
             outgoing = self._outgoing_exposure
@@ -2941,6 +2996,9 @@ class CameraAPI:
         without hardware auto-gain runs manual whatever the layer stored, and
         the stored preference is left alone so a camera that has the mode
         takes it again.
+
+        Raises:
+            Nothing.
         """
         stored = bool(stored_auto_gain)
         applied = stored and self._camera_has_auto_gain()
@@ -3746,6 +3804,9 @@ class CameraAPI:
 
         Args:
             listener: ``callable(param: str, value: float)``
+
+        Raises:
+            Nothing.
         """
         with self._camera_listeners_lock:
             self._camera_listeners.append(listener)
@@ -3758,6 +3819,9 @@ class CameraAPI:
             listener: A callable previously passed to
                 ``add_camera_listener``. Silently ignores listeners that
                 are not currently registered.
+
+        Raises:
+            Nothing.
         """
         with self._camera_listeners_lock:
             try:

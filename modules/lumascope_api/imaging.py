@@ -1367,6 +1367,9 @@ class ImagingAPI:
         the pixel count, not a summary statistic. `significant_bits` is
         required rather than defaulted -- a caller that has to guess the
         payload depth is the case this measures wrong.
+
+        Raises:
+            Nothing.
         """
         if arr is None or arr.size == 0:
             return 0.0
@@ -1815,6 +1818,9 @@ class ImagingAPI:
         recorded, the frame the camera had delivered then, its rule, and for
         a move when its axis settled. A change stays its source's until the
         next one replaces it.
+
+        Raises:
+            Nothing.
         """
         return self.frame_validity.changes()
 
@@ -1918,6 +1924,10 @@ class ImagingAPI:
             tuple: (image, timestamp) where image is numpy.ndarray and timestamp
                    is from the camera SDK, or (None, None) if unavailable.
                    Per the Sentinel-return contract: `if image is None: ...`.
+
+        Raises:
+            ConfigError: ``'scope_not_composed'``, no session has bound this
+                scope, so it has no scale-bar setting to read.
         """
         if not self._driver or not self._driver.active:
             return None, None
@@ -1999,6 +2009,10 @@ class ImagingAPI:
         it at capture time, before this scope captures again, and hand it
         DOWN with the frame -- re-deriving depth later reads the camera's
         state at that later moment, not the frame's.
+
+        Raises:
+            HardwareCommandRefusedError: ``'not_connected'``, a wider frame
+                and no camera to describe it (``significant_bits``).
         """
         if array is not None and getattr(array, 'dtype', None) == np.uint8:
             return 8
@@ -2017,6 +2031,10 @@ class ImagingAPI:
         of them for a sum (``image_utils.summed_full_scale``), never the
         tag's power of two, which a sum of blown frames does not reach when N
         is not a power of two. Read it beside ``capture_frame_depth``.
+
+        Raises:
+            HardwareCommandRefusedError: ``'not_connected'``, a wider frame
+                and no camera to describe it (``significant_bits``).
         """
         if array is not None and getattr(array, 'dtype', None) == np.uint8:
             return 255
@@ -2042,6 +2060,13 @@ class ImagingAPI:
         See ``_enable_streaming_impl``; this adds the dispatch
         described on ``_dispatch_camera``, on the geometry timeout (a stop
         or start of the grab has been measured near 11 s on a Pylon body).
+
+        Raises:
+            HardwareCommandRefusedError: ``'not_connected'``, naming the
+                camera, with none connected or one the start finds removed.
+            CameraStreamStartFailedError: the FX2 did not take the START with
+                the device still present; the camera is left connected and not
+                streaming.
         """
         return self._camera._dispatch_camera(
             self._enable_streaming_impl,
@@ -2069,6 +2094,9 @@ class ImagingAPI:
         ``get_image()`` still returns the last frame the camera delivered.
         Satisfied with no camera connected: nothing is streaming. Dispatched
         as ``enable_streaming`` is.
+
+        Raises:
+            Nothing.
         """
         return self._camera._dispatch_camera(
             self._disable_streaming_impl,
@@ -2089,6 +2117,9 @@ class ImagingAPI:
 
         Queries the driver directly (unlike ``scope.camera.active``, which
         reads the held connected-state). False when no camera is attached.
+
+        Raises:
+            Nothing.
         """
         driver = self._driver
         if driver is None:
@@ -2158,6 +2189,9 @@ class ImagingAPI:
 
         Returns:
             bool: True when no pending state changes are outstanding.
+
+        Raises:
+            Nothing.
         """
         return self.frame_validity.is_valid
 
@@ -2173,6 +2207,9 @@ class ImagingAPI:
         Returns:
             int: Number of additional frames to drain before validity. 0 if
                 already valid.
+
+        Raises:
+            Nothing.
         """
         return self.frame_validity.frames_until_valid(
             exclude_sources=exclude_sources,
@@ -2205,6 +2242,9 @@ class ImagingAPI:
                 ``FrameRecord`` taken with it: read it on the thread that
                 captured, before capturing again, and hand it on with the
                 frame -- the next capture replaces it.
+
+        Raises:
+            Nothing.
         """
         with self._state_lock:
             return dict(self._last_capture_info) if self._last_capture_info else None
@@ -2259,6 +2299,9 @@ class ImagingAPI:
 
         Args:
             color: Scale bar colour, e.g. a layer name ("BF", "Red").
+
+        Raises:
+            Nothing.
         """
         with self._state_lock:
             self._scale_bar_color = color
@@ -2418,6 +2461,9 @@ class ImagingAPI:
         Returns:
             DeliveredRate: Frames and link bytes per second; ``NOT_DELIVERING``
                 (both 0) when nothing was delivered in the last window.
+
+        Raises:
+            Nothing.
         """
         published = self._delivered_rate
         if published is None:
@@ -2592,6 +2638,9 @@ class ImagingAPI:
         marked removed before the driver is asked, so a driver that fails to
         unregister it goes on calling a wrapper that no longer calls through.
         No-op when the listener was never registered.
+
+        Raises:
+            Nothing.
         """
         with self._frame_listener_lock:
             wrapper = self._frame_listener_wrappers.pop(cb, None)
