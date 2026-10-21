@@ -18,6 +18,15 @@ own session:
     python tests/capability/camera_p03_a_removed_camera_is_reported_once.py still --hardware  # the connected scope
     python tests/capability/camera_p03_a_removed_camera_is_reported_once.py autofocus --hardware
 
+After the still that met the removal, the probe watches the driver's
+removal latch (`camera_removed`) for up to LATCH_WATCH_S and records when it
+was set, from the start of that still, beside when each outcome was
+reported. The first IDS runs (U3-34L, 2026-10-20) answered `no_frame` and a
+stall at about 5 s, before the driver's bus checks (6 s and 11 s, a 30 s
+ceiling for a camera still listed) could set the latch; the latch's time,
+and the driver's camera.log line that set it, tell whether the camera leaves
+the bus.
+
 On hardware the probe prints `UNPLUG NOW` and captures back to back for up
 to WINDOW_S; the camera's USB cable is pulled at any moment in that window.
 The camera's own cable: on a scope whose main cable carries the motor board
@@ -47,8 +56,14 @@ AUTO_GAIN = {
     'min_exposure_ms': 0.1,
 }
 BF_MA = 50.0
+# Past the IDS driver's 30 s ceiling for a stall with the camera still listed.
+LATCH_WATCH_S = 40.0
 # A capture refused this soon after it was asked never reached the camera.
 AT_ENTRY_S = 0.005
+
+
+# When each outcome was reported, for the removal's timeline.
+OUTCOME_TIMES: list[tuple[float, str]] = []
 
 
 @contextlib.contextmanager
@@ -66,6 +81,7 @@ def _told(session):
     def outcome(notification):
         with lock:
             outcomes.append(f'{notification.reason} shown={notification.shown}')
+            OUTCOME_TIMES.append((time.monotonic(), notification.reason))
 
     notifications.add_listener(post, min_severity=Severity.DEBUG)
     session.add_outcome_listener(outcome)
@@ -119,8 +135,15 @@ def _still(session, runner):
                 answer = f'{type(e).__name__}: {getattr(e, "reason", e)}'
                 break
         else:
-            answer, took = 'no removal in the window', 0.0
+            answer, took, asked = 'no removal in the window', 0.0, None
+        latched_s = _watch_the_latch(session, asked) if asked is not None else None
         time.sleep(1.0)
+    figure('the removal latch set, s from the failing still', latched_s)
+    if asked is not None:
+        figure(
+            'outcomes reported, s from the failing still',
+            [(round(t - asked, 2), reason) for t, reason in OUTCOME_TIMES if t >= asked],
+        )
     figure('stills saved before the removal', stills)
     figure('the still answered', answer)
     figure('the failing still took s', round(took, 3))
@@ -129,6 +152,17 @@ def _still(session, runner):
     figure('outcomes reported', outcomes)
     check('the still raised the not_connected refusal', answer.endswith('not_connected'), answer)
     check('the API posted nothing beside the raise', posted == [], posted)
+
+
+def _watch_the_latch(session, asked):
+    """Seconds from ``asked`` until the driver latched the removal; None within LATCH_WATCH_S."""
+    camera = session.scope.camera
+    until = asked + LATCH_WATCH_S
+    while time.monotonic() < until:
+        if camera.camera_removed:
+            return round(time.monotonic() - asked, 2)
+        time.sleep(0.1)
+    return None
 
 
 def _autofocus(session, runner):
