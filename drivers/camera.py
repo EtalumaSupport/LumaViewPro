@@ -1713,6 +1713,28 @@ class Camera(ABC):
         """
         pass
 
+    def get_auto_gain_mode(self) -> str:
+        """Read the camera's auto-gain mode from the camera: ``'Off'``,
+        ``'Once'`` or ``'Continuous'``, as GenICam's ``GainAuto`` names them.
+
+        Raises:
+            NotImplementedError: Always, on a camera with no hardware
+                auto-gain (``no_hardware_auto_mode``).
+            HardwareError: The camera did not answer the read.
+        """
+        raise no_hardware_auto_mode(type(self).__name__, 'get_auto_gain_mode', 'auto-gain')
+
+    def get_auto_exposure_mode(self) -> str:
+        """Read the camera's auto-exposure mode from the camera, named as
+        ``get_auto_gain_mode`` names it.
+
+        Raises:
+            NotImplementedError: Always, on a camera with no hardware
+                auto-exposure (``no_hardware_auto_mode``).
+            HardwareError: The camera did not answer the read.
+        """
+        raise no_hardware_auto_mode(type(self).__name__, 'get_auto_exposure_mode', 'auto-exposure')
+
     @abstractmethod
     def auto_gain_once(
         self,

@@ -331,6 +331,8 @@ class SimulatedCamera(Camera):
         'black_level': 'get_black_level',
         'frame_rate': 'get_resulting_frame_rate',
         'minimum_exposure': 'get_min_exposure',
+        'auto_gain': 'get_auto_gain_mode',
+        'auto_exposure': 'get_auto_exposure_mode',
     }
     # What a failed read answers, by name: a real SDK's node read raises;
     # or answers the driver's failed-read value; or raises because the
@@ -1544,6 +1546,14 @@ class SimulatedCamera(Camera):
         if not self.active:
             return -1
         return self._gain
+
+    def get_auto_gain_mode(self) -> str:
+        """The simulated auto-gain mode, as a camera names it."""
+        return 'Continuous' if self._auto_gain_enabled else 'Off'
+
+    def get_auto_exposure_mode(self) -> str:
+        """The simulated auto-exposure mode, as a camera names it."""
+        return 'Continuous' if self._auto_exposure_enabled else 'Off'
 
     # ------------------------------------------------------------------
     # Black level: an offset in DN of the delivered pixel format, added to

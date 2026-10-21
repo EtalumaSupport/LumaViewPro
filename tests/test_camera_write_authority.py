@@ -35,6 +35,7 @@ from modules.exceptions import (
 )
 from modules.lumascope_api import Lumascope
 from modules.lumascope_api import _lumascope
+from modules.lumascope_api.camera import CameraAutoMode
 from tests.ast_seams import parse_module
 from tests.scope_fakes import bind_settings_like_a_session, build_scope
 
@@ -190,7 +191,7 @@ class TestAutoSetterSequences:
         camera_plain.set_exposure_ms(2.5)
         assert fv.target('exposure') == 2500.0, 'precondition: a manual exposure target'
         before = fv.invalidation_counts
-        camera_plain.set_auto_exposure(True)
+        camera_plain.set_auto_exposure(CameraAutoMode.CONTINUOUS)
         assert fv.invalidation_counts == _grown_by_one(before, 'exposure')
         assert fv.target('exposure') is None
 
@@ -463,7 +464,7 @@ class TestCameraWriteAuthority:
         before = fv.invalidation_counts
         plain_scope.simulation.refuse_camera_write('auto_exposure', 'false')
         with pytest.raises(CameraSettingRejected) as caught:
-            camera.set_auto_exposure(True)
+            camera.set_auto_exposure(CameraAutoMode.CONTINUOUS)
         assert caught.value.setting == 'auto_exposure'
         assert fv.invalidation_counts == _grown_by_one(before, 'exposure')
         assert fv.target('exposure') is None

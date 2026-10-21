@@ -16,6 +16,7 @@ import pytest
 from drivers.simulated_camera import SimulatedCamera
 from modules.exceptions import CameraSettingRejected
 from modules.lumascope_api import Lumascope
+from modules.lumascope_api.camera import CameraAutoMode
 from tests.scope_fakes import give_camera_and_imaging, give_camera_capabilities, give_stub_lanes
 
 AG_SETTINGS = {'target_brightness': 0.3, 'min_gain_db': 0.0, 'max_gain_db': 20.0}
@@ -62,7 +63,7 @@ def test_a_refused_auto_exposure_raises(sim_camera, monkeypatch):
     monkeypatch.setattr(cam, 'auto_exposure_t', lambda state=True: False)
 
     with pytest.raises(CameraSettingRejected) as excinfo:
-        camera.set_auto_exposure(True)
+        camera.set_auto_exposure(CameraAutoMode.CONTINUOUS)
 
     assert excinfo.value.setting == 'auto_exposure'
 

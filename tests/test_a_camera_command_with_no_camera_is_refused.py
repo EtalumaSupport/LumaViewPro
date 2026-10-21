@@ -33,6 +33,7 @@ from modules.exceptions import (
 )
 from modules.lumascope_api import _lumascope
 from modules.scope_session import ScopeSession
+from modules.lumascope_api.camera import CameraAutoMode
 from tests.test_a_command_for_absent_motion_hardware_is_refused import (
     _protocol,
     _refused,
@@ -59,7 +60,7 @@ REFUSED = {
     'set_exposure_ms': lambda s: s.camera.set_exposure_ms(20.0),
     'set_black_level': lambda s: s.camera.set_black_level(10.0),
     'set_auto_gain_on': lambda s: s.camera.set_auto_gain(True, _AUTO_GAIN),
-    'set_auto_exposure_on': lambda s: s.camera.set_auto_exposure(True),
+    'set_auto_exposure_on': lambda s: s.camera.set_auto_exposure(CameraAutoMode.CONTINUOUS),
     'update_auto_gain_target_brightness': lambda s: s.camera.update_auto_gain_target_brightness(
         0.5
     ),
@@ -82,7 +83,7 @@ IMAGE_MODE = {'set_image_mode': lambda s: s.camera.set_image_mode('8bit')}
 SATISFIED = {
     'disable_streaming': lambda s: s.imaging.disable_streaming(),
     'set_auto_gain_off': lambda s: s.camera.set_auto_gain(False, _AUTO_GAIN),
-    'set_auto_exposure_off': lambda s: s.camera.set_auto_exposure(False),
+    'set_auto_exposure_off': lambda s: s.camera.set_auto_exposure(CameraAutoMode.OFF),
     'lock_auto_gain': lambda s: s.camera.lock_auto_gain(),
 }
 

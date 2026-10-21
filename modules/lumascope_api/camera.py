@@ -118,6 +118,18 @@ class AutoGainConvergence(enum.Enum):
     FAILED = 'FAILED'
 
 
+class CameraAutoMode(enum.StrEnum):
+    """What one of the camera's auto loops is doing, as the camera reports it.
+
+    ONCE: a one-shot the camera is still running; it turns itself Off when
+        done, so it is the one mode that changes without a write.
+    """
+
+    OFF = 'Off'
+    ONCE = 'Once'
+    CONTINUOUS = 'Continuous'
+
+
 @dataclasses.dataclass(frozen=True)
 class _AutoGainArm:
     """A commanded continuous auto-gain arm, held until a capture locks it.
@@ -358,6 +370,31 @@ def _absent_mode_refusal(
 # What stays as it is when an auto mode the camera lacks is refused.
 _AUTO_MODE_STAYS = 'The gain and exposure stay as they are set.'
 
+# The auto modes a caller sets: a one-shot is ``auto_gain_once``'s, which runs
+# both loops.
+_SETTABLE_AUTO_MODES = (CameraAutoMode.OFF, CameraAutoMode.CONTINUOUS)
+
+
+def _mode_of(state: bool) -> CameraAutoMode:
+    """The continuous mode an on/off write puts a loop in."""
+    return CameraAutoMode.CONTINUOUS if state else CameraAutoMode.OFF
+
+
+def _refuse_unless_settable_auto_mode(mode: CameraAutoMode, argument: str) -> None:
+    """Refuse ``mode`` unless it is one of ``_SETTABLE_AUTO_MODES``; the
+    door has already refused a value that is not a ``CameraAutoMode``.
+
+    Raises:
+        ArgumentRefusedError: ``'auto_mode_unknown'``, naming ``argument``.
+    """
+    if mode not in _SETTABLE_AUTO_MODES:
+        raise ArgumentRefusedError(
+            'auto_mode_unknown',
+            argument=argument,
+            value=mode,
+            offered=tuple(str(m) for m in _SETTABLE_AUTO_MODES),
+        )
+
 
 def camera_range_words(low: float | None, high: float | None, unit: str) -> str:
     """A camera's range for a person, naming only the ends it declares.
@@ -456,6 +493,18 @@ _LIVE_SETTING_READS = {
         lambda driver: driver.get_pixel_format(),
         common_utils.is_valid_pixel_format,
         str,
+    ),
+    'auto_gain': (
+        'auto gain mode',
+        lambda driver: driver.get_auto_gain_mode(),
+        lambda mode: mode in tuple(CameraAutoMode),
+        CameraAutoMode,
+    ),
+    'auto_exposure': (
+        'auto exposure mode',
+        lambda driver: driver.get_auto_exposure_mode(),
+        lambda mode: mode in tuple(CameraAutoMode),
+        CameraAutoMode,
     ),
 }
 
@@ -1409,7 +1458,7 @@ class CameraAPI:
                     offered=(False,),
                     consequence=_AUTO_MODE_STAYS,
                 )
-            self._commit_camera_writes({'auto_gain': False})
+            self._commit_camera_writes({'auto_gain': CameraAutoMode.OFF})
             return True
 
         def _write_auto_gain():
@@ -1437,7 +1486,7 @@ class CameraAPI:
             force_invalidate=('gain', 'auto_gain') if arm_settle else ('gain',),
             force_clear=('gain',),
             # Continuous auto-gain runs the camera's exposure loop with it.
-            cache_update={'auto_gain': state, 'auto_exposure': state},
+            cache_update={'auto_gain': _mode_of(state), 'auto_exposure': _mode_of(state)},
         )
         with self._state_lock:
             self._auto_gain_arm = (
@@ -1652,8 +1701,8 @@ class CameraAPI:
             self._report_refused_write(not_rearmed)
 
     @api(sets='auto_exposure')
-    def set_auto_exposure(self, state: bool = True) -> bool | None:
-        """Enable or disable automatic exposure adjustment, and wait for it.
+    def set_auto_exposure(self, mode: CameraAutoMode) -> bool | None:
+        """Put the camera's auto-exposure in ``mode``, and wait for it.
 
         See ``_set_auto_exposure_impl`` for the value contract; this
         adds the dispatch described on ``_dispatch_camera`` and the raise
@@ -1662,7 +1711,13 @@ class CameraAPI:
         With no camera connected, turning auto-exposure off is satisfied:
         True, as a camera already in manual answers.
 
+        Args:
+            mode: ``CameraAutoMode.OFF`` or ``CONTINUOUS`` (``'Off'`` or
+                ``'Continuous'`` on the wire).
+
         Raises:
+            ArgumentRefusedError: ``'auto_mode_unknown'``, for any other
+                ``mode``: a one-shot is ``auto_gain_once``'s. Nothing is sent.
             CameraSettingRejected: The camera refused the change; nothing is
                 shown here.
             CameraSettingUnsupportedError: Turning auto-exposure on for a
@@ -1672,19 +1727,21 @@ class CameraAPI:
                 or one removed during the write; turning it off is satisfied
                 either way.
         """
+        _refuse_unless_settable_auto_mode(mode, 'mode')
         return self._dispatch_camera(
             self._no_layers_write(self._set_auto_exposure_impl),
             'set_auto_exposure',
-            args=(state,),
+            args=(mode,),
             timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
-            satisfied_when_absent=_REFUSED_WHEN_ABSENT if state else True,
+            satisfied_when_absent=(True if mode is CameraAutoMode.OFF else _REFUSED_WHEN_ABSENT),
         )
 
-    def _set_auto_exposure_impl(self, state: bool = True) -> bool | None:
-        """Enable or disable automatic exposure adjustment.
+    def _set_auto_exposure_impl(self, mode: CameraAutoMode) -> bool | None:
+        """Put automatic exposure adjustment in ``mode``.
 
         Args:
-            state: True to enable auto exposure, False to disable.
+            mode: ``CameraAutoMode.OFF`` or ``CONTINUOUS``, as the door
+                refused any other.
 
         Returns:
             bool | None: The driver's answer. ``None`` when no camera is
@@ -1700,17 +1757,18 @@ class CameraAPI:
 
         if not self._driver or not self._driver.active:
             return None
+        state = mode is CameraAutoMode.CONTINUOUS
         if not self._camera_has_auto_exposure():
             # See _set_auto_gain_impl: off is such a camera's state, not a write.
             if state:
                 raise _absent_mode_refusal(
                     'auto_exposure',
-                    state,
+                    mode,
                     'automatic exposure',
-                    offered=(False,),
+                    offered=(CameraAutoMode.OFF,),
                     consequence=_AUTO_MODE_STAYS,
                 )
-            self._commit_camera_writes({'auto_exposure': False})
+            self._commit_camera_writes({'auto_exposure': CameraAutoMode.OFF})
             return True
         # Auto-exposure dynamically adjusts the value, so clear the manual
         # exposure target (chunk-match falls back to skip-frames calibration).
@@ -1719,10 +1777,10 @@ class CameraAPI:
         result = self._camera_write(
             lambda: self._driver.auto_exposure_t(state),
             member='set_auto_exposure',
-            refusal=lambda: _mode_rejection('auto_exposure', state, 'auto-exposure'),
+            refusal=lambda: _mode_rejection('auto_exposure', mode, 'auto-exposure'),
             force_invalidate=('exposure',),
             force_clear=('exposure',),
-            cache_update={'auto_exposure': state},
+            cache_update={'auto_exposure': mode},
         )
         # Hardware-truth wins over cache after the auto cycle ends.
         if not state:
@@ -2582,6 +2640,9 @@ class CameraAPI:
         driver = self._driver
         if not driver or not driver.active:
             return None
+        if key in ('auto_gain', 'auto_exposure') and not self._camera_has_auto_mode(key):
+            # Such a camera runs no such loop, and its driver is never asked.
+            return self._hold_read(key, lambda: CameraAutoMode.OFF)
         noun, reader, is_valid, coerce = _LIVE_SETTING_READS[key]
 
         def read():
@@ -2684,6 +2745,34 @@ class CameraAPI:
             CameraReadFailedError: The camera did not answer the read.
         """
         return self._read_fresh('exposure_ms')
+
+    @api(reads=True)
+    def read_auto_gain(self) -> CameraAutoMode | None:
+        """Read the camera's auto-gain mode from the camera.
+
+        A camera without hardware auto-gain answers ``OFF`` unasked.
+
+        Returns:
+            CameraAutoMode | None: The mode; None when no camera is active.
+
+        Raises:
+            CameraReadFailedError: The camera did not answer the read.
+        """
+        return self._read_fresh('auto_gain')
+
+    @api(reads=True)
+    def read_auto_exposure(self) -> CameraAutoMode | None:
+        """Read the camera's auto-exposure mode from the camera.
+
+        A camera without hardware auto-exposure answers ``OFF`` unasked.
+
+        Returns:
+            CameraAutoMode | None: The mode; None when no camera is active.
+
+        Raises:
+            CameraReadFailedError: The camera did not answer the read.
+        """
+        return self._read_fresh('auto_exposure')
 
     @api(reads=True)
     def read_exposure_ms_min(self) -> float | None:
@@ -2856,10 +2945,11 @@ class CameraAPI:
 
     @api
     @property
-    def auto_gain(self) -> bool | None:
-        """Whether the camera's continuous auto-gain is on, as the camera last
-        took it; None when unknown. No driver reads it back, so this is the
-        write the camera accepted: an arm, the lock that ends it, a one-shot.
+    def auto_gain(self) -> CameraAutoMode | None:
+        """The camera's auto-gain mode, as the camera last reported or took it;
+        None when unknown. Its writers: an arm, the lock that ends it, a
+        one-shot (``ONCE`` until a read finds it ended), and
+        ``read_auto_gain``.
 
         Raises:
             Nothing.
@@ -2868,11 +2958,11 @@ class CameraAPI:
 
     @api
     @property
-    def auto_exposure(self) -> bool | None:
-        """Whether the camera's auto-exposure is on, as the camera last took it;
-        None when unknown. No driver reads it back. It has two writers:
-        ``set_auto_exposure``, and auto-gain, whose arm and lock switch
-        exposure with the gain.
+    def auto_exposure(self) -> CameraAutoMode | None:
+        """The camera's auto-exposure mode, as the camera last reported or took
+        it; None when unknown. Its writers: ``set_auto_exposure``; auto-gain,
+        whose arm, lock and one-shot switch exposure with the gain; and
+        ``read_auto_exposure``.
 
         Raises:
             Nothing.
@@ -3018,6 +3108,13 @@ class CameraAPI:
         """Whether the attached camera has hardware auto-exposure
         (``capabilities.camera_supports_auto_exposure``)."""
         return self._scope.capabilities.camera_supports_auto_exposure
+
+    def _camera_has_auto_mode(self, key: str) -> bool:
+        """Whether the attached camera has the loop ``key`` (``'auto_gain'``
+        or ``'auto_exposure'``) names."""
+        if key == 'auto_gain':
+            return self._camera_has_auto_gain()
+        return self._camera_has_auto_exposure()
 
     # --- Save / restore ---
     @api(in_process=True, engineering=True)
@@ -3759,8 +3856,14 @@ class CameraAPI:
             refusal=lambda: _mode_rejection('auto_gain', state, 'one-shot auto-gain'),
             force_invalidate=('gain', 'exposure'),
             force_clear=('gain', 'exposure'),
-            # The one-shot runs both loops once, and the camera turns them off.
-            cache_update={'auto_gain': False, 'auto_exposure': False},
+            # The one-shot runs both loops once, and the camera turns them off
+            # when it is done: until a read finds Off, it is still running. A
+            # one-shot not run changes neither.
+            cache_update=(
+                {'auto_gain': CameraAutoMode.ONCE, 'auto_exposure': CameraAutoMode.ONCE}
+                if state
+                else None
+            ),
         )
         with self._state_lock:
             self._auto_gain_arm = None

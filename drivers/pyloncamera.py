@@ -3484,6 +3484,28 @@ class PylonCamera(Camera):
             _cam_log.exception(f'[CAM Class ] Unexpected error reading gain: {e}')
             return -1
 
+    def get_auto_gain_mode(self) -> str:
+        """Read ``GainAuto`` from the camera, past GenApi's node cache.
+
+        A one-shot's end is the camera's own change, which a cached read
+        would never see: it would answer ``Once`` for good.
+
+        Raises:
+            genicam.GenericException: As the SDK raises it; the API reports
+                it as a read the camera did not answer.
+        """
+        return self._read_auto_mode(self.active.GainAuto)
+
+    def get_auto_exposure_mode(self) -> str:
+        """Read ``ExposureAuto`` from the camera, past GenApi's node cache,
+        as ``get_auto_gain_mode`` reads ``GainAuto``."""
+        return self._read_auto_mode(self.active.ExposureAuto)
+
+    @staticmethod
+    def _read_auto_mode(node) -> str:
+        """The mode ``node`` holds on the camera now (``IgnoreCache``)."""
+        return str(node.GetCurrentEntry(False, True).GetSymbolic())
+
     def is_connected(self) -> bool:
         """Return True if connected, from the removal flag and the open camera.
 

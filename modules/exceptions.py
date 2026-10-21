@@ -3317,6 +3317,8 @@ class ArgumentRefusedError(Refusal, ValueError):
               not one of ``offered``.
             - ``'acquire_mode_unknown'`` -- a layer's acquire mode that is
               neither None nor one of ``offered``.
+            - ``'auto_mode_unknown'`` -- an auto mode that is not one of
+              ``offered``: a one-shot is not set through an auto mode.
             - ``'not_a_setting'`` -- a dotted path that names no setting.
               The same fact a write is refused for as
               ``SettingRefusedError('not_a_setting')``; this type says a
@@ -3455,6 +3457,10 @@ class ArgumentRefusedError(Refusal, ValueError):
         'acquire_mode_unknown': (
             'Not an Acquire Mode',
             '{argument} must be None or one of {offered}; {value!r} is neither.',
+        ),
+        'auto_mode_unknown': (
+            'Not an Auto Mode Set Here',
+            '{argument} must be one of {offered}; {value!r} is not one.',
         ),
         'not_a_setting': (
             'Not a Setting',

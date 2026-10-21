@@ -6,7 +6,8 @@ value the camera last reported (a fresh read, bring-up's populate) or took
 (a write the camera accepted), and None whenever that is not known: before
 the camera's first report, with no camera, and after an auto-gain cycle
 whose read-back failed. No held read answers a stand-in such as -1, 0 or
-1x. Auto-gain, auto-exposure, high conversion gain and line-noise reduction
+1x. The auto modes answer a ``CameraAutoMode``, a one-shot ``ONCE`` until a
+fresh read finds it ended. High conversion gain and line-noise reduction
 have no driver read, so theirs is the write the camera accepted.
 
 Run on the simulated LS850: a Basler body with auto modes and no high
@@ -19,8 +20,8 @@ import threading
 
 import pytest
 
-from modules.exceptions import CameraSettingRejected
-from modules.lumascope_api.camera import CameraAPI
+from modules.exceptions import ArgumentRefusedError, CameraSettingRejected
+from modules.lumascope_api.camera import CameraAPI, CameraAutoMode
 from modules.scope_capabilities import FrameSize
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
@@ -87,9 +88,36 @@ def test_a_write_the_camera_took_is_held(session):
 def test_an_auto_gain_arm_holds_auto_gain_and_auto_exposure_and_its_lock_holds_both_off(session):
     camera = session.camera
     camera.set_auto_gain(True, _AUTO_GAIN)
-    assert (camera.auto_gain, camera.auto_exposure) == (True, True)
+    assert (camera.auto_gain, camera.auto_exposure) == (
+        CameraAutoMode.CONTINUOUS,
+        CameraAutoMode.CONTINUOUS,
+    )
     camera.lock_auto_gain()
-    assert (camera.auto_gain, camera.auto_exposure) == (False, False)
+    assert (camera.auto_gain, camera.auto_exposure) == (CameraAutoMode.OFF, CameraAutoMode.OFF)
+
+
+def test_a_one_shot_is_held_running_until_a_read_finds_it_ended(session):
+    camera = session.camera
+    camera.auto_gain_once(state=True, target_brightness=0.5, min_gain_db=0.0, max_gain_db=24.0)
+    assert (camera.auto_gain, camera.auto_exposure) == (CameraAutoMode.ONCE, CameraAutoMode.ONCE)
+    # The simulated one-shot converges at once, so the camera already reads Off.
+    assert (camera.read_auto_gain(), camera.read_auto_exposure()) == (
+        CameraAutoMode.OFF,
+        CameraAutoMode.OFF,
+    )
+    assert (camera.auto_gain, camera.auto_exposure) == (CameraAutoMode.OFF, CameraAutoMode.OFF)
+
+
+def test_auto_exposure_is_set_by_its_mode_and_a_one_shot_is_refused(session):
+    camera = session.camera
+    camera.set_auto_exposure(CameraAutoMode.CONTINUOUS)
+    assert camera.read_auto_exposure() is CameraAutoMode.CONTINUOUS
+
+    with pytest.raises(ArgumentRefusedError) as refused:
+        camera.set_auto_exposure(CameraAutoMode.ONCE)
+
+    assert refused.value.reason == 'auto_mode_unknown'
+    assert camera.read_auto_exposure() is CameraAutoMode.CONTINUOUS
 
 
 def test_a_failed_read_back_after_auto_gain_leaves_the_gain_unknown_and_the_camera_usable(session):
@@ -118,7 +146,11 @@ _HELD_WRITES = (
     ('black_level', lambda camera: camera.set_black_level(4.0), ('black_level',)),
     ('frame_size', lambda camera: camera.set_frame_size(800, 600), ('frame_size',)),
     ('binning', lambda camera: camera.set_binning(2), ('binning',)),
-    ('auto_exposure', lambda camera: camera.set_auto_exposure(True), ('auto_exposure',)),
+    (
+        'auto_exposure',
+        lambda camera: camera.set_auto_exposure(CameraAutoMode.CONTINUOUS),
+        ('auto_exposure',),
+    ),
     (
         'auto_gain',
         lambda camera: camera.set_auto_gain(True, _AUTO_GAIN),

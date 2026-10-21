@@ -32,6 +32,7 @@ import pytest
 
 from drivers.simulated_camera import SimulatedCamera
 from modules.lumascope_api import Lumascope
+from modules.lumascope_api.camera import CameraAutoMode
 from tests.scope_fakes import give_camera_and_imaging, give_camera_capabilities, give_stub_lanes
 
 
@@ -61,13 +62,13 @@ class TestSetAutoExposureRefreshesCacheAtAutoOff:
         camera, cam = sim_camera
         camera.set_exposure_ms(0.1)
         assert camera.exposure_ms == pytest.approx(0.1)
-        camera.set_auto_exposure(state=True)
+        camera.set_auto_exposure(CameraAutoMode.CONTINUOUS)
         # Mimic the AE-Continuous-drove-hardware-away path: poke the
         # simulator's hardware-truth attribute directly. Real Pylon does
         # this internally during a Continuous AE cycle.
         with cam._lock:
             cam._exposure_us = 14.0
-        camera.set_auto_exposure(state=False)
+        camera.set_auto_exposure(CameraAutoMode.OFF)
         assert camera.exposure_ms == pytest.approx(0.014, abs=0.001), (
             f'cache must reflect hardware truth after AE-off; got {camera.exposure_ms}'
         )
@@ -76,10 +77,10 @@ class TestSetAutoExposureRefreshesCacheAtAutoOff:
         # End-to-end repro of the bug shape.
         camera, cam = sim_camera
         camera.set_exposure_ms(0.1)  # cache = 0.1, hw = 0.1
-        camera.set_auto_exposure(state=True)
+        camera.set_auto_exposure(CameraAutoMode.CONTINUOUS)
         with cam._lock:
             cam._exposure_us = 14.0  # AE drove hw to 0.014 ms
-        camera.set_auto_exposure(state=False)
+        camera.set_auto_exposure(CameraAutoMode.OFF)
         # Pre-fix: cache still 0.1, so the next set_exposure_ms(0.1)
         # short-circuited and hardware stayed at 0.014 ms.
         camera.set_exposure_ms(0.1)

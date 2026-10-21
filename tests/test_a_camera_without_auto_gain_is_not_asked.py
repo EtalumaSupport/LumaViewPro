@@ -24,6 +24,7 @@ import drivers.camera_profiles as camera_profiles
 from drivers.simulated_camera import SimulatedCamera
 from modules.exceptions import CameraSettingUnsupportedError
 from modules.lumascope_api import Lumascope
+from modules.lumascope_api.camera import CameraAutoMode
 from tests.scope_fakes import (
     answer_auto_gain_like_the_api,
     give_camera_and_imaging,
@@ -39,6 +40,8 @@ _AUTO_MODE_MEMBERS = (
     'update_auto_gain_target_brightness',
     'update_auto_gain_min_max',
     'auto_exposure_t',
+    'get_auto_gain_mode',
+    'get_auto_exposure_mode',
 )
 
 
@@ -156,8 +159,15 @@ class TestThePublicSetters:
         # no target clear, no cache resync.
         assert writes == []
 
+    def test_its_auto_modes_read_off_without_asking_it(self, ag_less_camera, asked):
+        modes = (ag_less_camera.read_auto_gain(), ag_less_camera.read_auto_exposure())
+
+        assert modes == (CameraAutoMode.OFF, CameraAutoMode.OFF)
+        assert (ag_less_camera.auto_gain, ag_less_camera.auto_exposure) == modes
+        assert asked == []
+
     def test_turning_auto_exposure_off_is_not_a_refusal(self, ag_less_camera, asked):
-        ag_less_camera.set_auto_exposure(False)
+        ag_less_camera.set_auto_exposure(CameraAutoMode.OFF)
 
         assert asked == []
 
@@ -167,7 +177,7 @@ class TestThePublicSetters:
             ('set_auto_gain', lambda camera: camera.set_auto_gain(True, AG_SETTINGS), 'auto_gain'),
             (
                 'set_auto_exposure',
-                lambda camera: camera.set_auto_exposure(True),
+                lambda camera: camera.set_auto_exposure(CameraAutoMode.CONTINUOUS),
                 'auto_exposure',
             ),
             (

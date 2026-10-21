@@ -26,6 +26,7 @@ from drivers.simulated_camera import SimulatedCamera
 from modules.exceptions import CameraSettingRejected, HardwareCommandRefusedError, MissingPart
 from modules.lumascope_api import Lumascope
 from modules.notification_center import Severity
+from modules.lumascope_api.camera import CameraAutoMode
 from tests.scope_fakes import (
     bind_settings_like_a_session,
     give_camera_and_imaging,
@@ -217,7 +218,7 @@ class TestARaisingWriteIsARejection:
         setters = {
             'gain': lambda: camera.set_gain_db(9.0),
             'exposure': lambda: camera.set_exposure_ms(20.0),
-            'auto_exposure': lambda: camera.set_auto_exposure(True),
+            'auto_exposure': lambda: camera.set_auto_exposure(CameraAutoMode.CONTINUOUS),
             'frame_size': lambda: camera.set_frame_size(1024, 1024),
             'binning': lambda: camera.set_binning(2),
             'pixel_format': lambda: camera.set_image_mode('12bit_scientific'),
@@ -340,7 +341,7 @@ def test_every_setter_raises_a_refusal_as_rejected(sim_scope):
     camera = sim_scope.camera
     setters = {
         'exposure': lambda: camera.set_exposure_ms(20.0),
-        'auto_exposure': lambda: camera.set_auto_exposure(True),
+        'auto_exposure': lambda: camera.set_auto_exposure(CameraAutoMode.CONTINUOUS),
         'binning': lambda: camera.set_binning(2),
         'pixel_format': lambda: camera.set_image_mode('12bit_scientific'),
         'black_level': lambda: camera.set_black_level(10.0),
