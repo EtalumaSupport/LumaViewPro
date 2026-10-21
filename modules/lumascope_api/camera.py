@@ -793,6 +793,9 @@ class CameraAPI:
                 (``'camera_rejected'``, chained), or answered neither try
                 (``'camera_no_answer'``, chained).
         """
+        # The register may change anywhere from the first try's start: a
+        # try the camera did not answer may still have taken it.
+        began_ns = time.monotonic_ns()
         try:
             try:
                 result = write_fn()
@@ -807,7 +810,7 @@ class CameraAPI:
             for source, _value in targets:
                 self.frame_validity.set_target(source, None)
             for source in invalidates:
-                self.frame_validity.invalidate(source)
+                self.frame_validity.invalidate(source, began_ns=began_ns)
             unknown = (*(cache_update or ()), *holds)
             if unknown:
                 self._commit_camera_writes(dict.fromkeys(unknown))
@@ -822,7 +825,7 @@ class CameraAPI:
             raise refusal() from ex
         finally:
             for source in force_invalidate:
-                self.frame_validity.invalidate(source)
+                self.frame_validity.invalidate(source, began_ns=began_ns)
             for source in force_clear:
                 self.frame_validity.set_target(source, None)
         if refusal is not None and self.camera_removed:
@@ -830,7 +833,7 @@ class CameraAPI:
         if result is False:
             raise refusal()
         for source in invalidates:
-            self.frame_validity.invalidate(source)
+            self.frame_validity.invalidate(source, began_ns=began_ns)
         for source, value in targets:
             if (
                 source in target_from_result

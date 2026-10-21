@@ -144,7 +144,7 @@ class TestMidWindowInvalidationHonored:
         landed = _during_the_first_grab(
             live_scope,
             monkeypatch,
-            lambda: live_scope.imaging.frame_validity.invalidate('z_move'),
+            lambda: live_scope.imaging.frame_validity.invalidate('z_move', began_ns=None),
         )
 
         out = live_scope.imaging.capture_and_wait(timeout_s=1.0, exclude_sources=('z_move',))
@@ -170,11 +170,11 @@ class TestDrainDeadline:
         real_grab_new_capture = live_scope._camera_driver.grab_new_capture
 
         def streaming_interference(timeout_s):
-            fv.invalidate('led')  # each drained frame is answered by another change
+            fv.invalidate('led', began_ns=None)  # each drained frame is answered by another change
             return real_grab_new_capture(timeout_s)
 
         monkeypatch.setattr(live_scope._camera_driver, 'grab_new_capture', streaming_interference)
-        fv.invalidate('led')
+        fv.invalidate('led', began_ns=None)
 
         with pytest.raises(CaptureFailedError) as failed:
             live_scope.imaging.capture_and_wait(timeout_s=0.5)
@@ -206,8 +206,8 @@ class TestDrainDeadline:
             # As the motion API records one: the change, then its in-force
             # time when the axis settles. A move never in force has no frame
             # after it, and the capture rightly keeps none.
-            validity.invalidate('turret')
-            validity.motion_settled('turret', time.monotonic_ns())
+            validity.invalidate('turret', began_ns=None)
+            validity.motion_settled('turret', time.monotonic_ns(), moving_seen_ns=None)
 
         landed = _during_the_first_grab(live_scope, monkeypatch, a_turret_move_lands, frame=_DARK)
 

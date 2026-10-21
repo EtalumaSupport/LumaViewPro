@@ -224,7 +224,7 @@ class TestThePreviewPollCanRetireASettleCount:
         cam = _cam()
         try:
             fv = FrameValidity(lambda: cam.frames_delivered)
-            fv.invalidate('gain')
+            fv.invalidate('gain', began_ns=None)
             assert not fv.is_valid
             for _ in range(12):
                 grab_a_frame_made_after_now(cam)

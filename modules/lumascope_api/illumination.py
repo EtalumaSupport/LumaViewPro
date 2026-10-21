@@ -15,6 +15,7 @@ import enum
 import functools
 import logging as _logging
 import threading
+import time
 from dataclasses import dataclass
 from collections.abc import Callable
 from typing import TYPE_CHECKING
@@ -764,7 +765,7 @@ class IlluminationAPI:
         # leds_off, which bypass this on purpose.
         self._refuse_unless_lease_holds(_lease, 'led_on')
 
-        self._write(
+        began_ns = self._write(
             (channel,), lambda: self._driver.led_on(channel, commanded_ma, block=block), _lease
         )
         requested = (
@@ -784,7 +785,7 @@ class IlluminationAPI:
         # The change is recorded once the store holds it: a frame counts for
         # it by when it began against the record, and the light it is made
         # under is the store's (the simulated sensor reads it).
-        self._scope.frame_validity.invalidate('led')
+        self._scope.frame_validity.invalidate('led', began_ns=began_ns)
         self._fire_led_listeners(reading)
         return commanded_ma
 
@@ -852,7 +853,7 @@ class IlluminationAPI:
         # autofocus-LED-killed reports, so it is rejected here.
         self._refuse_unless_lease_holds(_lease, 'led_off')
 
-        self._write((channel,), lambda: self._driver.led_off(channel), _lease)
+        began_ns = self._write((channel,), lambda: self._driver.led_off(channel), _lease)
         _api_log.info(
             f'led_off ch={channel}{f" lease={_lease.purpose!r}" if _lease is not None else ""}'
         )
@@ -863,7 +864,7 @@ class IlluminationAPI:
             self._led_state.pop(channel, None)
             self._lit_by.pop(channel, None)
             reading = self._reading(channel)
-        self._scope.frame_validity.invalidate('led')
+        self._scope.frame_validity.invalidate('led', began_ns=began_ns)
         self._fire_led_listeners(reading)
 
     def _leds_off_impl(self) -> None:
@@ -942,7 +943,7 @@ class IlluminationAPI:
         addresses: tuple[int, ...],
         write: Callable[[], None],
         lease: LedLease | None,
-    ) -> None:
+    ) -> int:
         """Make one board write of ``addresses`` under the LED lock.
 
         A board that did not answer may have done what it was told or not,
@@ -952,12 +953,17 @@ class IlluminationAPI:
         is judged against a change that may not have happened; the caller
         that made it fails instead.
 
+        Returns:
+            Host ``time.monotonic_ns()`` when the write began, the earliest
+            its change could have lit the sample.
+
         Raises:
             BoardNoReplyError: the board did not answer; the listeners
                 have been told each address is unknown.
         """
         try:
             with self._led_lock:
+                began_ns = time.monotonic_ns()
                 write()
         except BoardNoReplyError:
             with self._led_state_lock:
@@ -969,6 +975,7 @@ class IlluminationAPI:
             for reading in readings:
                 self._fire_led_listeners(reading)
             raise
+        return began_ns
 
     def _write_leds_off(self) -> None:
         """Write the board's all-off and record every address dark.
@@ -977,12 +984,12 @@ class IlluminationAPI:
             BoardNoReplyError: the board did not answer; every address of
                 the board is unknown (``_write``).
         """
-        self._write(self._driver.available_channels(), self._driver.leds_off, None)
+        began_ns = self._write(self._driver.available_channels(), self._driver.leds_off, None)
         with self._led_state_lock:
             self._lit_by.clear()
             self._led_state.clear()
             readings = self._readings()
-        self._scope.frame_validity.invalidate('led')
+        self._scope.frame_validity.invalidate('led', began_ns=began_ns)
         _api_log.info('leds_off')
         for reading in readings:
             self._fire_led_listeners(reading)
@@ -1278,7 +1285,7 @@ class IlluminationAPI:
             return
         self.refuse_controller_not_connected('LedLease.release')
         for ch in channels_to_off:
-            self._write((ch,), functools.partial(self._driver.led_off, ch), lease)
+            began_ns = self._write((ch,), functools.partial(self._driver.led_off, ch), lease)
             # Dark once written, never before: a write that finds the
             # controller gone leaves the channel believed lit, or unknown
             # when the board did not answer it, and the release asked
@@ -1286,7 +1293,7 @@ class IlluminationAPI:
             with self._led_state_lock:
                 self._lit_by.pop(ch, None)
                 self._led_state.pop(ch, None)
-            self._scope.frame_validity.invalidate('led')
+            self._scope.frame_validity.invalidate('led', began_ns=began_ns)
             _api_log.info(f'led_off ch={ch} (release of the {lease.purpose!r} lease)')
             with self._led_state_lock:
                 reading = self._reading(ch)

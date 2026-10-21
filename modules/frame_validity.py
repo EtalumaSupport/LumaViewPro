@@ -31,7 +31,7 @@ bring-up and published as ``capabilities.frame_rules``.
 Usage:
     fv = FrameValidity(lambda: camera.frames_delivered)
     fv.set_settle_check(my_axis_check_fn)  # Register motion completion callback
-    fv.invalidate('z_move')                # Z axis started moving
+    fv.invalidate('z_move', began_ns=None)  # Z axis started moving
     fv.frames_until_valid()                # Returns >0 (motion not complete)
     # ... frames are grabbed by live view, counter increments ...
     fv.frames_until_valid()                # Still >0 if Z still moving
@@ -147,6 +147,7 @@ CREDIT_RULE = FrameRule(rule=Rule.CREDIT, delay_us=None, provenance=None)
     'source',
     'at_seq',
     'written_ns',
+    'earliest_ns',
     'written_at',
     'skip',
     'rule',
@@ -177,6 +178,14 @@ class Change:
         written_ns: Host ``time.monotonic_ns()`` when the change was
             recorded. Every recorder calls ``invalidate`` after a camera
             register or LED write returns, and before a move starts.
+        earliest_ns: Host ``time.monotonic_ns()`` of the earliest moment
+            the change could have reached the hardware: a write's start, as
+            its writer stamped it, since the register may change anywhere
+            inside the write; for a move, once in force, the start of the
+            last read that saw its axis still moving, else ``written_ns``.
+            A delay measured from here is never short; the rule judges
+            from ``written_ns`` or ``in_force_ns``, the latest, so the
+            pair never accepts a frame early.
         written_at: Host wall-clock time of the same moment, for a reader.
         skip: The frames the change needed, as the count stood when it was
             recorded.
@@ -195,6 +204,7 @@ class Change:
     source: str
     at_seq: int
     written_ns: int
+    earliest_ns: int
     written_at: datetime.datetime
     skip: int
     rule: FrameRule
@@ -505,11 +515,15 @@ class FrameValidity:
         with self._lock:
             self._rules = rules
 
-    def invalidate(self, source: str) -> Change:
+    def invalidate(self, source: str, *, began_ns: int | None) -> Change:
         """Record that hardware state changed and frames need to settle.
 
         Args:
             source: What changed: a key of SKIP_FRAMES.
+            began_ns: Host ``time.monotonic_ns()`` when the write that made
+                the change began, the change's ``earliest_ns``; None for a
+                change recorded before it is made (a move), whose earliest
+                is its record.
 
         Returns:
             Change: The change as recorded, now the source's last change.
@@ -525,10 +539,12 @@ class FrameValidity:
             # Read INSIDE the lock: two threads invalidating the same source
             # can otherwise store the earlier ordinal for the later write,
             # which is this whole class of bug reintroduced by a race.
+            written_ns = time.monotonic_ns()
             entry = Change(
                 source=source,
                 at_seq=self._frames_delivered(),
-                written_ns=time.monotonic_ns(),
+                written_ns=written_ns,
+                earliest_ns=written_ns if began_ns is None else began_ns,
                 written_at=datetime.datetime.now(),
                 skip=skip,
                 rule=self._rules[source],
@@ -905,7 +921,7 @@ class FrameValidity:
         changes = self.changes()
         return tuple(self.judge(frame, changes[source], mapping) for source in sorted(changes))
 
-    def motion_settled(self, source: str, at_ns: int) -> None:
+    def motion_settled(self, source: str, at_ns: int, *, moving_seen_ns: int | None) -> None:
         """Stamp ``at_ns`` as the in-force time of ``source``'s change, if the settle check now passes.
 
         The motion API calls this after every write of an axis state the
@@ -918,9 +934,16 @@ class FrameValidity:
         of them settles, and each axis's stamp can land after the other's
         write; a stamp older than the change is not its own.
 
+        The axis stopped somewhere between ``moving_seen_ns`` and ``at_ns``,
+        so the change's ``earliest_ns`` moves up to ``moving_seen_ns`` with
+        the stamp that sets its in-force time.
+
         Args:
             source: The motion source of the axis whose state was written.
             at_ns: Host ``time.monotonic_ns()`` taken where it was written.
+            moving_seen_ns: Host ``time.monotonic_ns()`` at the start of the
+                last read that saw the axis still moving; None when no read
+                did, so the stop could be as early as the change's record.
         """
         with self._lock:
             change = self._changes.get(source)
@@ -932,7 +955,14 @@ class FrameValidity:
                 or not self._settle_check_fn(source)
             ):
                 return
-            self._changes[source] = dataclasses.replace(change, in_force_ns=at_ns)
+            # Of two axes (X and Y) the later to stop sets it, as it sets
+            # the in-force time.
+            earliest_ns = change.earliest_ns
+            if moving_seen_ns is not None:
+                earliest_ns = max(earliest_ns, moving_seen_ns)
+            self._changes[source] = dataclasses.replace(
+                change, in_force_ns=at_ns, earliest_ns=earliest_ns
+            )
 
     def unsettled_motion_sources(self, exclude_sources: tuple = ()) -> tuple:
         """Pending motion sources whose settle-check says still moving.

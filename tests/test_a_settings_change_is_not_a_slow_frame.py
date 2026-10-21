@@ -189,19 +189,19 @@ def test_the_live_view_asks_validity_with_stage_motion_left_out():
     judging while the stage moves; a pending exposure stops it."""
     validity = FrameValidity(lambda: 0)
     validity.set_settle_check(lambda source: False)  # the stage is still moving
-    validity.invalidate('xy_move')
-    validity.invalidate('z_move')
-    validity.invalidate('turret')
+    validity.invalidate('xy_move', began_ns=None)
+    validity.invalidate('z_move', began_ns=None)
+    validity.invalidate('turret', began_ns=None)
     assert ScopeDisplay._camera_settled(_imaging(validity)) is True
 
-    validity.invalidate('exposure')
+    validity.invalidate('exposure', began_ns=None)
     assert ScopeDisplay._camera_settled(_imaging(validity)) is False
 
 
 def test_a_stall_while_the_stage_moves_is_reported():
     validity = FrameValidity(lambda: 0)
     validity.set_settle_check(lambda source: False)
-    validity.invalidate('xy_move')
+    validity.invalidate('xy_move', began_ns=None)
     moving = ScopeDisplay._camera_settled(_imaging(validity))
 
     stand, warnings, done = _rig()

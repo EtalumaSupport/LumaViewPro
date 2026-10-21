@@ -374,7 +374,7 @@ class TestTheStillIsMadeAfterThePendingWrites:
         # A first still drains whatever bring-up left pending, so the
         # second has the LED change alone to wait out.
         _capture(session)
-        imaging.frame_validity.invalidate('led')
+        imaging.frame_validity.invalidate('led', began_ns=None)
 
         _capture(session)
 

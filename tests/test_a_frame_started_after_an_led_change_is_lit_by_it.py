@@ -36,10 +36,10 @@ def test_a_frame_started_after_an_led_change_is_recorded_is_lit_by_it(sim_scope,
     invalidate = fv.invalidate
     recorded = []
 
-    def held(source):
+    def held(source, *, began_ns):
         """A stand-in by design: the simulator cannot load the host, and a
         loaded host is what widens the gap. The record is the production one."""
-        change = invalidate(source)
+        change = invalidate(source, began_ns=began_ns)
         if source == 'led':
             recorded.append(change.written_ns)
             time.sleep(HOLD_S)

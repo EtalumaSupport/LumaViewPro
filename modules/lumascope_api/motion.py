@@ -320,6 +320,10 @@ class MotionAPI:
         # forever, while only explicit waiters carry their own timeout.
         # Only the monitor thread touches it.
         self._moving_since: dict[str, tuple[_Move, StallWatch]] = {}
+        # When the last arrival read that found each moving axis not yet
+        # arrived began: the earliest the axis can have stopped, handed to
+        # frame validity with the arrival. Only the monitor thread touches it.
+        self._moving_seen_ns: dict[str, int] = {}
         # Set when the monitor's loop has ended other than at the scope's
         # close: nothing would judge a move, so every later drive is refused
         # until the monitor is started again.
@@ -1068,11 +1072,11 @@ class MotionAPI:
         stop_generation = self._stop_generation
         stops_asked = self._stops_asked
         if 'Z' in present_axes:
-            self._scope.frame_validity.invalidate('z_move')
+            self._scope.frame_validity.invalidate('z_move', began_ns=None)
         if 'X' in present_axes or 'Y' in present_axes:
-            self._scope.frame_validity.invalidate('xy_move')
+            self._scope.frame_validity.invalidate('xy_move', began_ns=None)
         if 'T' in present_axes:
-            self._scope.frame_validity.invalidate('turret')
+            self._scope.frame_validity.invalidate('turret', began_ns=None)
         # One command, so the axes' changes come into force when it closes,
         # after the turret's slot is recorded: an axis saying IDLE first
         # would put the turret's change in force with no slot in the light
@@ -1226,7 +1230,7 @@ class MotionAPI:
                     self._safe_turret_move(),
                 ):
                     self._set_axis_state('T', AxisState.HOMING)
-                    self._scope.frame_validity.invalidate('turret')
+                    self._scope.frame_validity.invalidate('turret', began_ns=None)
                     homed = False
                     try:
                         self._driver.thome()
@@ -1643,7 +1647,7 @@ class MotionAPI:
                     # axis now settled; an axis still moving is stamped by
                     # its own arrival, which comes later.
                     if change.in_force_ns is None:
-                        frame_validity.motion_settled(source, closed_ns)
+                        frame_validity.motion_settled(source, closed_ns, moving_seen_ns=None)
 
     def _home_moves_turret(self, action) -> bool:
         """Whether the home body ``action`` moves the turret.
@@ -1802,7 +1806,7 @@ class MotionAPI:
         state_before = self._axis_states(('Z',))['Z']
         self._set_axis_state('Z', AxisState.HOMING)
         stops_asked = self._stops_asked
-        self._scope.frame_validity.invalidate('z_move')
+        self._scope.frame_validity.invalidate('z_move', began_ns=None)
         try:
             with (
                 self._reference_position_logger(),
@@ -2928,6 +2932,7 @@ class MotionAPI:
         move: _Move | None = None,
         fault: MoveFaultError | None = None,
         stop_generation: int | None = None,
+        moving_seen_ns: int | None = None,
     ) -> bool:
         """Set the state of an axis: the one writer of it.
 
@@ -2956,6 +2961,11 @@ class MotionAPI:
         the current one; HOMING leaves none. The settled move's operation is
         done after the hold is released and the listeners are told
         (``_Move.publish``).
+
+        An IDLE or UNKNOWN write stamps the axis's change in force
+        (``FrameValidity.motion_settled``) with ``moving_seen_ns``, when the
+        monitor's last read that found the axis still moving began; None
+        from every writer that read no such thing.
 
         Returns:
             bool: Whether the write happened. False for an axis that is not
@@ -3038,7 +3048,9 @@ class MotionAPI:
                 self._motion_wake.set()
             else:
                 self._scope.frame_validity.motion_settled(
-                    self._AXIS_VALIDITY_SOURCE.get(axis, 'xy_move'), settled_ns
+                    self._AXIS_VALIDITY_SOURCE.get(axis, 'xy_move'),
+                    settled_ns,
+                    moving_seen_ns=moving_seen_ns,
                 )
 
             self._fire_position_listeners(axis)
@@ -3183,7 +3195,9 @@ class MotionAPI:
         state_before = self._axis_states((axis,))[axis]
         move = self._begin_move(axis, stop_generation)
         try:
-            self._scope.frame_validity.invalidate(self._AXIS_VALIDITY_SOURCE.get(axis, 'xy_move'))
+            self._scope.frame_validity.invalidate(
+                self._AXIS_VALIDITY_SOURCE.get(axis, 'xy_move'), began_ns=None
+            )
             return move, send()
         except MotionInterlockError as e:
             self._refuse_for_interlock(axis, move, state_before, e, member)
@@ -3314,6 +3328,9 @@ class MotionAPI:
                 for ax in list(self._moving_since):
                     if ax not in moving_axes:
                         self._moving_since.pop(ax, None)
+                for ax in list(self._moving_seen_ns):
+                    if ax not in moving_axes:
+                        self._moving_seen_ns.pop(ax, None)
 
                 if not moving_axes:
                     # All axes arrived -- go back to sleep
@@ -3364,8 +3381,11 @@ class MotionAPI:
                         # clock runs on and, at the bound, the move is
                         # given up as unread.
                         arrived: bool | None = None
+                        read_began_ns = time.monotonic_ns()
                         try:
                             arrived = self._read_target_status(ax)
+                            if arrived is False:
+                                self._moving_seen_ns[ax] = read_began_ns
                         except Exception as e:
                             if self._status_unread_warned.get(ax) is not noted:
                                 self._status_unread_warned[ax] = noted
@@ -3433,6 +3453,7 @@ class MotionAPI:
                                 verdict_for=noted,
                                 armed_only=True,
                                 stop_generation=stop_generation,
+                                moving_seen_ns=self._moving_seen_ns.pop(ax, None),
                             )
                         ):
                             # Its clock goes with it: a back-to-back move

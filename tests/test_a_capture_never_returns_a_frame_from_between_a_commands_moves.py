@@ -63,8 +63,8 @@ def _between(scope, monkeypatch, command) -> tuple[int, list[int]]:
     recorded = []
     invalidate = fv.invalidate
 
-    def observed(source):
-        change = invalidate(source)
+    def observed(source, *, began_ns):
+        change = invalidate(source, began_ns=began_ns)
         if source in FrameValidity.MOTION_SOURCES:
             recorded.append(change.at_seq)
         return change
@@ -181,10 +181,10 @@ def _slot_when_the_turret_came_into_force(scope, monkeypatch, command) -> int | 
     slot_at = {}
     motion_settled = fv.motion_settled
 
-    def observed(source, at_ns):
+    def observed(source, at_ns, *, moving_seen_ns):
         if source == 'turret':
             slot_at[at_ns] = scope.motion.get_turret_slot()
-        motion_settled(source, at_ns)
+        motion_settled(source, at_ns, moving_seen_ns=moving_seen_ns)
 
     monkeypatch.setattr(fv, 'motion_settled', observed)
     command()

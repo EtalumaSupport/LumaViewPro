@@ -70,8 +70,8 @@ def _capture_behind(session, start_move):
     fv = session.scope.frame_validity
     first = []
 
-    def observed(source):
-        change = FrameValidity.invalidate(fv, source)
+    def observed(source, *, began_ns):
+        change = FrameValidity.invalidate(fv, source, began_ns=began_ns)
         if source in FrameValidity.MOTION_SOURCES and not first:
             first.append(change.at_seq)
         return change

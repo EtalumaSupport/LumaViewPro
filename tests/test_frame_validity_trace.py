@@ -68,7 +68,7 @@ class TestTheRetiredQuantityIsGone:
     def test_header_has_no_target_frame(self, tmp_path):
         profile_trace.enable(output_dir=tmp_path)
         fv = FrameValidity(_Camera())
-        fv.invalidate('gain')
+        fv.invalidate('gain', began_ns=None)
         header = _rows(tmp_path)[0].keys()
         assert 'target_frame' not in header
         assert {'frame_seq', 'at_seq', 'remaining'} <= set(header)
@@ -78,7 +78,7 @@ class TestTheRetiredQuantityIsGone:
         cam = _Camera()
         cam.delivered = 7
         fv = FrameValidity(cam)
-        fv.invalidate('gain')
+        fv.invalidate('gain', began_ns=None)
         row = _rows(tmp_path)[0]
         assert row['event'] == 'invalidate'
         assert row['source'] == 'gain'
@@ -92,7 +92,7 @@ class TestAFrameThatCreditsNothingLeavesARow:
         cam = _Camera()
         cam.delivered = 10
         fv = FrameValidity(cam)
-        fv.invalidate('gain')
+        fv.invalidate('gain', began_ns=None)
         fv.count_frame(4, by=Counter.GRAB)  # in flight before the write; must not credit
         rows = [r for r in _rows(tmp_path) if r['event'] == 'nocredit']
         assert len(rows) == 1
@@ -106,7 +106,7 @@ class TestAFrameThatCreditsNothingLeavesARow:
         cam = _Camera()
         cam.delivered = 10
         fv = FrameValidity(cam)
-        fv.invalidate('gain')
+        fv.invalidate('gain', began_ns=None)
         fv.count_frame(11, by=Counter.GRAB)
         row = next(r for r in _rows(tmp_path) if r['event'] == 'credit')
         assert row['frame_seq'] == '11'
@@ -118,8 +118,8 @@ class TestASettledRowNamesOneSource:
         profile_trace.enable(output_dir=tmp_path)
         cam = _Camera()
         fv = FrameValidity(cam)
-        fv.invalidate('gain')
-        fv.invalidate('exposure')
+        fv.invalidate('gain', began_ns=None)
+        fv.invalidate('exposure', began_ns=None)
         seq = 1
         while fv._pending and seq < 50:
             seq += 1
@@ -132,7 +132,7 @@ class TestASettledRowNamesOneSource:
         """The bench pass criterion, run as a test."""
         profile_trace.enable(output_dir=tmp_path)
         fv = FrameValidity(_Camera())
-        fv.invalidate('led')
+        fv.invalidate('led', began_ns=None)
         seq = 0
         while fv._pending and seq < 50:
             seq += 1
@@ -148,7 +148,7 @@ class TestTheDedupeRowIsBoundedButPresent:
     def test_a_repeat_ordinal_is_recorded_while_a_source_is_pending(self, tmp_path):
         profile_trace.enable(output_dir=tmp_path)
         fv = FrameValidity(_Camera())
-        fv.invalidate('gain')
+        fv.invalidate('gain', began_ns=None)
         fv.count_frame(5, by=Counter.GRAB)
         fv.count_frame(5, by=Counter.GRAB)  # the same frame polled twice
         assert [r for r in _rows(tmp_path) if r['event'] == 'dedupe']
@@ -170,8 +170,8 @@ class TestEveryRowMatchesTheHeader:
         profile_trace.enable(output_dir=tmp_path)
         cam = _Camera()
         fv = FrameValidity(cam)
-        fv.invalidate('gain')
-        fv.invalidate('z_move')
+        fv.invalidate('gain', began_ns=None)
+        fv.invalidate('z_move', began_ns=None)
         fv.count_frame(1, by=Counter.GRAB)
         fv.count_frame(1, by=Counter.GRAB)
         cam.delivered = 5

@@ -1457,6 +1457,7 @@ still states the major version.
 | level 25 | The diagnostics answers are records or published reads (W3c part E): `get_camera_link_info` answers a `CameraLink`, `get_motor_info` a `MotorBoardInfo` and `get_led_info` a `LedBoardInfo` (no `connected`: that is `led_connected`), each field `None` when unknown, an FX2 LED controller's and a missing motor board's firmware version included; `get_camera_temperatures_degc` is a `dict[str, float]`; `get_camera_diagnostic_info`, `get_camera_profile_info` and `get_system_info` are gone, their facts read from `capabilities` (`camera_model`, `camera_limits`, `pixel_size_um`, and new `camera_sensor`, `camera_shutter`, `camera_sdk_version`) and the camera's reads, the live exposure floor from `scope.camera.read_exposure_ms_min()`, which raises `CameraReadFailedError` when the camera does not answer. |
 | level 26 | `session.controls_lock` answers a `ControlsLock` (`run_named`, `recording`, and `run_lockout` and `controls_locked` read from them): which of a person's controls the Session locks now, the one read every lock read reads; a plugin greys its own controls from it. |
 | level 27 | The Session's ten run-state reads are gone: `is_protocol_running`, `run_in_progress`, `exclusive_activity`, `protocol_files_draining`, `protocol_files_pending`, `run_lockout`, `run_lockout_named`, `recording_active`, `controls_locked` and `motion_enabled`. `controls_lock` answers the lock, `live_work` what holds the scope and a finished run's files still to write, and a stage gesture reads `capabilities.has_xy_stage` beside the lock. |
+| level 28 | A `Change` carries `earliest_ns`, the earliest moment it could have reached the hardware: a camera or LED write's start, or for a move once in force the start of the last read that saw its axis still moving (else its `written_ns`). A delay measured from it is never short; the clock rule still judges from `written_ns`, or a move's `in_force_ns`, so the pair never accepts a frame early. |
 
 ### Configuration queries
 
@@ -3624,6 +3625,7 @@ Reached through each `Judgment`'s `change`, from `scope.imaging.judge_frame`.
 
 - `at_seq`
 - `credits`
+- `earliest_ns`
 - `in_force_ns`
 - `needs_in_force`
 - `rule`

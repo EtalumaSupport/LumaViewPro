@@ -150,12 +150,12 @@ def test_a_home_asked_as_the_lid_stops_a_move_is_refused_for_the_lid(homed, monk
     frame_validity = homed.imaging.frame_validity
     invalidate = frame_validity.invalidate
 
-    def _held_until_x_ends(source):
+    def _held_until_x_ends(source, *, began_ns):
         # A stand-in by design: the home is held after it was asked, until the
         # stage's lid stop has ended X, so that stop lands where the race puts it.
         if source == 'z_move' and not x_ended:
             x_ended.append(_ended(x))
-        return invalidate(source)
+        return invalidate(source, began_ns=began_ns)
 
     monkeypatch.setattr(frame_validity, 'invalidate', _held_until_x_ends)
     with pytest.raises(HardwareCommandRefusedError) as refused:

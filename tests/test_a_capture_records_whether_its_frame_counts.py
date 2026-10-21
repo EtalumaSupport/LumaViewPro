@@ -67,7 +67,7 @@ def _judgment(record, source: str):
 
 def test_a_frame_counts_only_once_the_count_was_met_before_it():
     fv = FrameValidity(lambda: 0)
-    fv.invalidate('gain')  # skip 2, recorded at frame 0
+    fv.invalidate('gain', began_ns=None)  # skip 2, recorded at frame 0
     fv.count_frame(1, by=Counter.GRAB)
 
     early = fv.judge(_frame(2), fv.changes()['gain'], None)
@@ -87,7 +87,7 @@ def test_a_clock_rule_frame_counts_once_it_started_after_the_change_plus_its_del
     camera's clock, against the write plus the measured delay plus the
     mapping's uncertainty."""
     fv = _clocked('gain', delay_us=1000.0)
-    change = fv.invalidate('gain')
+    change = fv.invalidate('gain', began_ns=None)
     mapping = _mapping_at(change.written_ns)
     qualifies_after = 1_000_000 + 1_000_000 + 50
 
@@ -105,7 +105,7 @@ def test_a_clock_rule_frame_whose_start_cannot_be_known_does_not_count():
     """Nothing shows such a frame started late enough: without the mapping
     or the frame's ``Timestamp`` chunk it is not taken."""
     fv = _clocked('gain', delay_us=0.0)
-    change = fv.invalidate('gain')
+    change = fv.invalidate('gain', began_ns=None)
     late = 10**15
 
     no_mapping = fv.judge(_frame(2, started_ticks=late), change, None)
@@ -118,13 +118,13 @@ def test_a_clock_rule_frame_whose_start_cannot_be_known_does_not_count():
 def test_a_clock_rule_move_is_judged_from_its_settle():
     settled = threading.Event()
     fv = _clocked('z_move', delay_us=0.0, settle_check=lambda source: settled.is_set())
-    fv.invalidate('z_move')
+    fv.invalidate('z_move', began_ns=None)
     late = 10**15
 
     moving = fv.judge(_frame(2, started_ticks=late), fv.changes()['z_move'], None)
     settled.set()
     at_ns = time.monotonic_ns()
-    fv.motion_settled('z_move', at_ns)
+    fv.motion_settled('z_move', at_ns, moving_seen_ns=None)
     change = fv.changes()['z_move']
     mapping = _mapping_at(at_ns)
     before = fv.judge(_frame(2, started_ticks=1_000_000), change, mapping)
@@ -155,14 +155,14 @@ def test_a_motion_frame_counts_only_once_its_axis_settled_before_it():
     settled = threading.Event()
     fv = FrameValidity(lambda: 0)
     fv.set_settle_check(lambda source: settled.is_set())
-    change = fv.invalidate('z_move')
+    change = fv.invalidate('z_move', began_ns=None)
     for seq in (1, 2):
         fv.count_frame(seq, by=Counter.DRAIN)
 
     moving = fv.judge(_frame(3), fv.changes()['z_move'], None)
     settled.set()
     at_ns = time.monotonic_ns()
-    fv.motion_settled('z_move', at_ns)
+    fv.motion_settled('z_move', at_ns, moving_seen_ns=None)
     before = fv.judge(_frame(3, arrived_ns=at_ns - 1), fv.changes()['z_move'], None)
     after = fv.judge(_frame(3, arrived_ns=at_ns + 1), fv.changes()['z_move'], None)
 
@@ -170,8 +170,8 @@ def test_a_motion_frame_counts_only_once_its_axis_settled_before_it():
     assert before.counts is False
     assert after.counts is True
     # A stamp from before the change was made is not the change's own.
-    fv.invalidate('z_move')
-    fv.motion_settled('z_move', change.written_ns)
+    fv.invalidate('z_move', began_ns=None)
+    fv.motion_settled('z_move', change.written_ns, moving_seen_ns=None)
     assert fv.changes()['z_move'].in_force_ns is None
 
 
