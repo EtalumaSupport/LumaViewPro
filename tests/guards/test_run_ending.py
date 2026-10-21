@@ -259,7 +259,8 @@ class TestTheRunnerRecordsTheStop:
     def test_a_stop_records_that_the_run_was_stopped_and_by_whom(self):
         """A stop names the run, not the caller; the ending records that the
         run was stopped, and its sentence says who stopped it: the caller
-        stamped on the stopping thread, a script where no host stamped it."""
+        stamped on the stopping thread, code in this process where no host
+        stamped it."""
         scr, stub, _cleaned = _stop_stub()
         scr.SequencedCaptureRunner._stop_run(stub, stub._run_handle)
 
@@ -267,7 +268,7 @@ class TestTheRunnerRecordsTheStop:
         assert (ending.status, ending.reason, ending.message) == (
             'aborted',
             'stopped',
-            'Stopped by a script.',
+            'Stopped by code in this process.',
         )
 
     def test_a_stop_the_gui_makes_says_the_gui_stopped_it(self):

@@ -30,11 +30,20 @@ class Caller(enum.StrEnum):
 
     @property
     def words(self) -> str:
-        """The caller as a sentence names it: 'LumaViewPro', 'a REST client', 'a script'."""
+        """The caller as a sentence names it: 'LumaViewPro', 'a REST client', 'code in this process'.
+
+        An unstamped thread is any code in the process -- a script, the SDK,
+        a plugin, or the engine's own thread, as when a run's teardown halts
+        its stage -- so its words claim no more than that.
+        """
         return _WORDS[self]
 
 
-_WORDS = {Caller.GUI: 'LumaViewPro', Caller.REST: 'a REST client', Caller.API: 'a script'}
+_WORDS = {
+    Caller.GUI: 'LumaViewPro',
+    Caller.REST: 'a REST client',
+    Caller.API: 'code in this process',
+}
 
 
 def current_caller() -> Caller:

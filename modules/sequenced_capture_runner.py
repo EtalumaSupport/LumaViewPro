@@ -678,12 +678,16 @@ class SequencedCaptureRunner:
         with self._run_lock:
             if not self._is_live_run_locked(run):
                 return
-            logger.info(
-                f'[{self.LOGGER_NAME}] {the_run_named(self._run_identity)} stopped by {stopper.words}'
-            )
-            self._ending.set_if_unset(
+            # Logged only by the stop that ends the run: a later one -- the
+            # run's own teardown halting its stage, which a press relays
+            # back here -- changes nothing and names no stopper.
+            if self._ending.set_if_unset(
                 ending or RunEnding('aborted', 'stopped', f'Stopped by {stopper.words}.')
-            )
+            ):
+                logger.info(
+                    f'[{self.LOGGER_NAME}] {the_run_named(self._run_identity)} '
+                    f'stopped by {stopper.words}'
+                )
             self.protocol_thread.abort()
 
     def force_reset(self, reason: str) -> None:
