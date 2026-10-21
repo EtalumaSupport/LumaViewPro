@@ -139,6 +139,25 @@ def test_a_setting_the_build_cannot_use_is_refused_not_adjusted(session, tmp_pat
     assert raised.value.reason == 'invalid_setting'
 
 
+def test_each_offered_mode_and_method_is_taken_and_no_other(session, tmp_path):
+    """The stitch modes and projection methods are the session's reads, and
+    each one offered is a setting the build takes: refused for the empty
+    folder, never for the setting."""
+    post = session.post_processing
+    assert post.stitch_modes() == ('quality', 'fast_preview')
+    assert 'Max' in post.projection_methods()
+    for build, values in (('stitch', post.stitch_modes()), ('zproject', post.projection_methods())):
+        setting = 'mode' if build == 'stitch' else 'method'
+        for value in values:
+            with pytest.raises(PostProcessingRefusedError) as refused:
+                getattr(post, build)(tmp_path, **{setting: value})
+            assert refused.value.reason != 'invalid_setting', (build, value)
+        with pytest.raises(PostProcessingRefusedError) as refused:
+            getattr(post, build)(tmp_path, **{setting: 'sideways'})
+        assert refused.value.reason == 'invalid_setting'
+        assert all(value in str(refused.value) for value in values)
+
+
 def test_a_typed_playback_rate_reaches_the_build_as_a_number(session, monkeypatch, tmp_path):
     from modules.video_builder import VideoBuilder
 

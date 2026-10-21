@@ -18,9 +18,6 @@ from ui.progress_popup import show_popup
 from modules import gui_logger
 from modules.cell_count_method import CellCountMethod, FilterBounds
 from modules.post_processing_api import BuildResult, ZProject
-from modules.stitcher import Stitcher
-import modules.zprojector as zprojector
-import modules.graph_analysis as graph_analysis
 import modules.post_processing as post_processing
 import modules.image_utils as image_utils
 import ui.image_utils_kivy as image_utils_kivy
@@ -124,9 +121,10 @@ class QuickEnhanceControls(BoxLayout):
 class StitchControls(BoxLayout):
     done = BooleanProperty(False)
     stitching_mode = StringProperty('Quality')
+    # The words each button shows for a mode of the session's stitch_modes().
     _MODE_VALUES: ClassVar[dict[str, str]] = {
-        'Quality': Stitcher.QUALITY_MODE,
-        'Fast Preview': Stitcher.FAST_PREVIEW_MODE,
+        'Quality': 'quality',
+        'Fast Preview': 'fast_preview',
     }
 
     def __init__(self, **kwargs):
@@ -171,7 +169,7 @@ class ZProjectionControls(BoxLayout):
         Clock.schedule_once(self._init_ui, 0)
 
     def _init_ui(self, dt=0):
-        methods = zprojector.ZProjector.methods()
+        methods = _app_ctx.ctx.session.post_processing.projection_methods()
         self.ids['zprojection_method_spinner'].values = methods
         # Opens on the API's default projection, as a REST or script caller's does.
         self.ids['zprojection_method_spinner'].text = ZProject.method
@@ -281,6 +279,8 @@ class VideoCreationControls(BoxLayout):
 # The axis spinners' text when no axis is chosen, as the kv rule sets it.
 _NO_X_AXIS = 'X-Axis'
 _NO_Y_AXIS = 'Y-Axis'
+# The trendline spinner's choice of none.
+_NO_TRENDLINE = 'None'
 
 
 class GraphingControls(BoxLayout):
@@ -298,10 +298,10 @@ class GraphingControls(BoxLayout):
         self._results = None
         self._x_axes = []
         self._y_axes = []
-        self._trendline_kinds = graph_analysis.TRENDLINE_KINDS
+        self._trendline_kinds = ()
         self.selected_x_axis = None
         self.selected_y_axis = None
-        self._trendline_kind = graph_analysis.NO_TRENDLINE
+        self._trendline_kind = _NO_TRENDLINE
         self._figure = None
 
     def show(self) -> None:
@@ -337,12 +337,9 @@ class GraphingControls(BoxLayout):
 
     def _take_axes(self) -> None:
         """Ask the session which trendlines the chosen axes take, then draw them."""
-        if self.selected_x_axis is None or self.selected_y_axis is None:
-            self._trendline_kinds = graph_analysis.TRENDLINE_KINDS
-        else:
-            self._trendline_kinds = _app_ctx.ctx.session.post_processing.graph_options(
-                self._results, x=self.selected_x_axis, y=self.selected_y_axis
-            ).trendlines
+        self._trendline_kinds = _app_ctx.ctx.session.post_processing.graph_options(
+            self._results, x=self.selected_x_axis, y=self.selected_y_axis
+        ).trendlines
         self._draw()
 
     def _draw(self) -> None:
@@ -353,11 +350,11 @@ class GraphingControls(BoxLayout):
         ask for the refused fit again.
         """
         self._figure = None
-        if self._trendline_kind == graph_analysis.NO_TRENDLINE:
+        if self._trendline_kind == _NO_TRENDLINE:
             return
         if self.selected_x_axis is None or self.selected_y_axis is None:
             return
-        kind, self._trendline_kind = self._trendline_kind, graph_analysis.NO_TRENDLINE
+        kind, self._trendline_kind = self._trendline_kind, _NO_TRENDLINE
         self._figure = self._drawn(kind)
         self._trendline_kind = kind
 
@@ -367,7 +364,7 @@ class GraphingControls(BoxLayout):
             self._results,
             x=self.selected_x_axis,
             y=self.selected_y_axis,
-            trendline=None if kind == graph_analysis.NO_TRENDLINE else kind,
+            trendline=None if kind == _NO_TRENDLINE else kind,
             x_label=self.x_axis_label,
             y_label=self.y_axis_label,
             title=self.graph_title,
@@ -379,7 +376,7 @@ class GraphingControls(BoxLayout):
         self.ids.graphing_y_axis_spinner.values = self._y_axes
         self.ids.graphing_x_axis_spinner.text = self.selected_x_axis or _NO_X_AXIS
         self.ids.graphing_y_axis_spinner.text = self.selected_y_axis or _NO_Y_AXIS
-        self.ids.trendline_spinner.values = (graph_analysis.NO_TRENDLINE, *self._trendline_kinds)
+        self.ids.trendline_spinner.values = (_NO_TRENDLINE, *self._trendline_kinds)
         self.ids.trendline_spinner.text = self._trendline_kind
         if self._figure is None:
             self._figure = self._drawn(self._trendline_kind)
@@ -423,9 +420,7 @@ class GraphingControls(BoxLayout):
         """Have the session save the graph the form describes to *filepath*."""
         post = _app_ctx.ctx.session.post_processing
         results, x, y = self._results, self.selected_x_axis, self.selected_y_axis
-        trendline = (
-            None if self._trendline_kind == graph_analysis.NO_TRENDLINE else self._trendline_kind
-        )
+        trendline = None if self._trendline_kind == _NO_TRENDLINE else self._trendline_kind
         labels = {
             'x_label': self.x_axis_label,
             'y_label': self.y_axis_label,
@@ -450,10 +445,10 @@ class GraphingControls(BoxLayout):
         options = _app_ctx.ctx.session.post_processing.graph_options(file)
         self._results = file
         self._x_axes, self._y_axes = list(options.x_axes), list(options.y_axes)
-        self._trendline_kinds = graph_analysis.TRENDLINE_KINDS
+        self._trendline_kinds = options.trendlines
         self.selected_x_axis = None
         self.selected_y_axis = None
-        self._trendline_kind = graph_analysis.NO_TRENDLINE
+        self._trendline_kind = _NO_TRENDLINE
         self._figure = None
 
     def set_post_processing_module(self, postprocessingmodule):

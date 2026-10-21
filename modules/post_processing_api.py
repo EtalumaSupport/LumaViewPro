@@ -186,8 +186,9 @@ class GraphOptions:
     Attributes:
         x_axes: The columns that can be the X axis: numbers and times.
         y_axes: The columns that can be the Y axis: numbers.
-        trendlines: The trendline kinds the chosen pair takes; empty until
-            both axes are chosen.
+        trendlines: The trendline kinds the axes given take: every kind
+            until an axis rules some out (a time X takes no Power or
+            Logarithmic).
     """
 
     x_axes: tuple[str, ...]
@@ -215,7 +216,7 @@ class ZProject:
     """A z-projection, as ``build`` takes it: each Z-stack to one image.
 
     Attributes:
-        method: One of ``ZProjector.methods()``.
+        method: One of ``PostProcessingAPI.projection_methods()``.
     """
 
     method: str = 'Max'
@@ -227,7 +228,8 @@ class Stitch:
     """A stitch, as ``build`` takes it: each tiled scan to one mosaic.
 
     Attributes:
-        mode: ``'quality'`` or ``'fast_preview'``.
+        mode: One of ``PostProcessingAPI.stitch_modes()``: ``'quality'`` or
+            ``'fast_preview'``.
     """
 
     mode: str = 'quality'
@@ -486,6 +488,28 @@ class PostProcessingAPI:
             )
         return tuple(items)
 
+    @api(reads=True)
+    def stitch_modes(self) -> tuple[str, ...]:
+        """The modes ``stitch(mode=)`` and ``Stitch(mode)`` take.
+
+        Raises:
+            Nothing.
+        """
+        from modules.stitcher import Stitcher
+
+        return (Stitcher.QUALITY_MODE, Stitcher.FAST_PREVIEW_MODE)
+
+    @api(reads=True)
+    def projection_methods(self) -> tuple[str, ...]:
+        """The methods ``zproject(method=)`` and ``ZProject(method)`` take.
+
+        Raises:
+            Nothing.
+        """
+        from modules.zprojector import ZProjector
+
+        return tuple(ZProjector.methods())
+
     @api
     def stitch(
         self,
@@ -528,7 +552,7 @@ class PostProcessingAPI:
         on_progress: ProgressCallback | None = None,
     ) -> BuildResult:
         """Project each Z-stack in *folder* to one image by *method*
-        (one of ``ZProjector.methods()``).
+        (one of ``projection_methods()``).
 
         Raises:
             LiveFolderPathRefusedError: ``'not_found'``, nothing is at
@@ -747,7 +771,7 @@ class PostProcessingAPI:
         """The stitch of *settings*, its mode checked before anything is queued."""
         from modules.stitcher import Stitcher
 
-        modes = (Stitcher.QUALITY_MODE, Stitcher.FAST_PREVIEW_MODE)
+        modes = self.stitch_modes()
         if settings.mode not in modes:
             raise PostProcessingRefusedError(
                 operation=PostProcessingOperation.STITCH,
@@ -765,13 +789,14 @@ class PostProcessingAPI:
         """The z-projection of *settings*, its method checked before anything is queued."""
         from modules.zprojector import ZProjector
 
-        if settings.method not in ZProjector.methods():
+        methods = self.projection_methods()
+        if settings.method not in methods:
             raise PostProcessingRefusedError(
                 operation=PostProcessingOperation.Z_PROJECTION,
                 reason='invalid_setting',
                 message=(
                     f'{settings.method!r} is not a projection method; use one of '
-                    f'{", ".join(ZProjector.methods())}.'
+                    f'{", ".join(methods)}.'
                 ),
             )
         return functools.partial(
@@ -990,8 +1015,8 @@ class PostProcessingAPI:
     def graph_options(
         self, results: FilePath, *, x: str | None = None, y: str | None = None
     ) -> GraphOptions:
-        """The columns of the cell-count *results* file a graph can take, and,
-        with both axes given, the trendlines that pair takes.
+        """The columns of the cell-count *results* file a graph can take, and
+        the trendlines the axes given so far take.
 
         Read on the caller's thread, not the post-processing lane, so a form
         filling its choices does not wait behind a build.
@@ -1005,8 +1030,8 @@ class PostProcessingAPI:
         """
         table = _results_table(results)
         x_axes, y_axes = _plottable_axes(table, x, y)
-        trendlines = (
-            () if x is None or y is None else graph_analysis.trendline_kinds(table[x], table[y])
+        trendlines = graph_analysis.trendline_kinds(
+            None if x is None else table[x], None if y is None else table[y]
         )
         return GraphOptions(x_axes=tuple(x_axes), y_axes=tuple(y_axes), trendlines=trendlines)
 

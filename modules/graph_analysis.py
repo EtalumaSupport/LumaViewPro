@@ -20,9 +20,6 @@ from modules.exceptions import PostProcessingOperation, PostProcessingRefusedErr
 
 TRENDLINE_OPERATION = PostProcessingOperation.TRENDLINE
 
-# The spinner's "no trendline" choice.
-NO_TRENDLINE = 'None'
-
 TRENDLINE_KINDS = ('Linear', 'Quadratic', 'Exponential', 'Power', 'Logarithmic')
 
 # Power and Logarithmic take the log of X; a time is measured from the first
@@ -48,10 +45,16 @@ class Trendline:
     y: np.ndarray
 
 
-def trendline_kinds(x: pd.Series, y: pd.Series) -> tuple[str, ...]:
-    """The trendline kinds a graph of *y* against *x* can draw, by the columns' types."""
-    if not pd.api.types.is_numeric_dtype(y):
+def trendline_kinds(x: pd.Series | None, y: pd.Series | None) -> tuple[str, ...]:
+    """The trendline kinds a graph of *y* against *x* can draw, by the columns' types.
+
+    An axis not chosen yet (None) rules no kind out, so a form offers each
+    kind until an axis it cannot take is chosen.
+    """
+    if y is not None and not pd.api.types.is_numeric_dtype(y):
         return ()
+    if x is None:
+        return TRENDLINE_KINDS
     if pd.api.types.is_datetime64_any_dtype(x):
         return _TIME_X_KINDS
     if pd.api.types.is_numeric_dtype(x):

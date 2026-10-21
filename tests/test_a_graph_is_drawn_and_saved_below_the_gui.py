@@ -122,3 +122,25 @@ def test_the_in_process_drawing_matches_the_saved_choices(session, tmp_path):
     axes = figure.axes[0]
     assert (axes.get_xlabel(), axes.get_ylabel()) == ('count', 'mean_area')
     assert len(axes.get_lines()) == 1
+
+
+def test_the_trendlines_offered_are_those_the_axes_given_take(session, tmp_path):
+    """The panel offered all five kinds until both axes were chosen, so with a
+    time X it offered Power and Logarithmic, which a time X cannot take. The
+    session now answers for whichever axes are given."""
+    results = tmp_path / 'timed.csv'
+    results.write_text(
+        'time,count,mean_area\n'
+        'Mon Oct 13 10:00:00 2025,3,1.5\n'
+        'Mon Oct 13 10:05:00 2025,5,2.5\n'
+        'Mon Oct 13 10:10:00 2025,8,4.0\n'
+    )
+    every = ('Linear', 'Quadratic', 'Exponential', 'Power', 'Logarithmic')
+    by_time = ('Linear', 'Quadratic', 'Exponential')
+    options = session.post_processing.graph_options
+
+    assert options(results).trendlines == every
+    assert options(results, y='mean_area').trendlines == every
+    assert options(results, x='time').trendlines == by_time
+    assert options(results, x='time', y='count').trendlines == by_time
+    assert options(results, x='count').trendlines == every
