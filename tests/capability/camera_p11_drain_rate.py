@@ -25,6 +25,12 @@ drains at the camera's maximum names the setting to change; none doing so
 leaves the buffer count (fixed in the driver at the minimum plus 5) and the
 camera's own settings, which the dump holds for comparison with Cockpit.
 
+The second sweep run (2026-10-20) found no transfer pair faster (46 to 50
+fps), with all 8 buffers queued and empty: the host waits on the camera.
+Cockpit's 66 was at a 2 ms exposure, the probe's runs at 5 ms, so the
+exposure sweep follows: at 2x2, a drain at each of SWEEP_EXPOSURES_MS
+beside the frame rate the camera declares there.
+
     python tests/capability/camera_p11_drain_rate.py --hardware  # the connected IDS scope
 
 The drain, the dump and the sweep reach the driver directly, as the unpack
@@ -200,6 +206,35 @@ def _sweep(scope, dump):
     figure('sweep_best', best)
 
 
+# Cockpit showed 66 fps at 2x2 with a 2 ms exposure; the probe's 5 ms got 48.
+SWEEP_EXPOSURES_MS = (0.5, 1, 2, 3, 5, 8, 12)
+
+
+def _exposure_sweep(scope):
+    """At 2x2, the drain rate at each exposure beside the rate the camera declares.
+
+    A rate that follows 1 / (exposure + the sensor's frame time) is a camera
+    that does not overlap exposure with readout here; a rate below the
+    declared maximum at every exposure is not set by the exposure at all.
+    """
+    rows = []
+    for exposure_ms in SWEEP_EXPOSURES_MS:
+        written = scope.camera.set_exposure_ms(exposure_ms)
+        config = scope.diagnostics.run_pylon_diagnostic_probe(0).get('config', {})
+        print(f'EXPOSURE SWEEP: {written} ms', flush=True)
+        time.sleep(SETTLE_S)
+        rows.append(
+            {
+                'exposure_ms': written,
+                'declared_fps': config.get('acquisition_frame_rate'),
+                'declared_fps_max': config.get('acquisition_frame_rate_max'),
+                'drain': _drain(scope, f'exposure_{exposure_ms}ms'),
+            }
+        )
+    figure('exposure_sweep', rows)
+    scope.camera.set_exposure_ms(EXPOSURE_MS)
+
+
 def _measure(session):
     scope = session.scope
     cam = scope.camera
@@ -225,6 +260,7 @@ def _measure(session):
     if has_nodes:
         _sweep(scope, before)
         _normal(scope, 'B1_binning_2_after_the_sweep')
+        _exposure_sweep(scope)
 
     cam.set_binning(1)
     cam.set_frame_size(1900, 1900)
