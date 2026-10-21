@@ -10,7 +10,7 @@
       with) -- probed because 6a/6b both need a settings dict.
 
 Headless route: session.post_processing.count_cells for the folder (6b);
-modules.post_processing.PostProcessing for the one-image preview (6a).
+session.post_processing.preview_cell_count for the one-image preview (6a).
 """
 
 import sys
@@ -19,7 +19,6 @@ from harness import headless_session, probe_dir
 from runfolder import run_protocol_folder
 
 from modules.cell_count_method import CellCountMethod
-from modules.post_processing import cell_count_scale
 
 # The panel's default method (6c). Its area and perimeter filters are open, so
 # a simulated frame's regions are not filtered out, and it sets no scale, so
@@ -59,34 +58,33 @@ def main() -> int:
         if csv_path.exists():
             print('6b results.csv:\n' + csv_path.read_text().strip())
 
-    import modules.image_utils as image_utils
-    from modules.post_processing import PostProcessing
+        import numpy as np
 
-    post = PostProcessing()
-    source = sorted(folder.glob('*.tiff'))[0]
-    image, bits, _ = image_utils.load_pixels(source)
+        import modules.image_utils as image_utils
 
-    # 6a -- one image
-    preview, stats = post.preview_cell_count(
-        image=image,
-        method=METHOD,
-        significant_bits=bits,
-        pixels_per_um=cell_count_scale(METHOD, image_utils.read_pixel_size_um(source)),
-    )
-    print('6a preview shape:', None if preview is None else preview.shape)
-    print('6a summary:', stats['summary'])
+        post = session.post_processing
+        source = sorted(folder.glob('*.tiff'))[0]
+        image, bits, _ = image_utils.load_pixels(source)
 
-    # 6a' -- the simulated frame is featureless, so a synthetic blob field
-    # proves the count is real and not just a zero the path always returns.
-    import numpy as np
+        # 6a -- one image, through the session's member
+        preview = post.preview_cell_count(
+            image,
+            METHOD,
+            significant_bits=bits,
+            pixel_size_um=image_utils.read_pixel_size_um(source),
+        )
+        print('6a preview shape:', preview.image.shape)
+        print('6a counts:', preview.counts)
 
-    blobs = np.zeros((200, 200), dtype=np.uint16)
-    for cy, cx in ((50, 50), (50, 150), (150, 50), (150, 150)):
-        blobs[cy - 8 : cy + 8, cx - 8 : cx + 8] = 60000
-    _, blob_stats = post.preview_cell_count(
-        image=blobs, method=METHOD, significant_bits=16, pixels_per_um=None
-    )
-    print("6a' synthetic-blob summary:", blob_stats['summary'])
+        # 6a' -- the simulated frame is featureless, so a synthetic blob field
+        # proves the count is real and not just a zero the path always returns.
+        blobs = np.zeros((200, 200), dtype=np.uint16)
+        for cy, cx in ((50, 50), (50, 150), (150, 50), (150, 150)):
+            blobs[cy - 8 : cy + 8, cx - 8 : cx + 8] = 60000
+        blob_counts = post.preview_cell_count(
+            blobs, METHOD, significant_bits=16, pixel_size_um=None
+        ).counts
+        print("6a' synthetic-blob counts:", blob_counts)
 
     # 6c -- is there a DEFAULT method below ui/?
     import importlib
@@ -102,7 +100,7 @@ def main() -> int:
             found.append(f'{mod_name}.{attr}')
     print('6c default-method providers below ui/:', found or 'NONE')
 
-    ok = preview is not None and csv_path.exists()
+    ok = preview.image is not None and csv_path.exists()
     print('PROBE RESULT:', 'SUCCESS (6a, 6b)' if ok else 'FAIL')
     print('PROBE RESULT 6c:', 'FAIL -- no default method below ui/' if not found else 'SUCCESS')
     return 0 if ok else 1

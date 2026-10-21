@@ -1163,6 +1163,8 @@ method = pp.load_cell_count_method('methods/cells.json')
 
 Over REST a method is sent as an object of every one of its fields, as `GET /api/v1/post_processing/default_cell_count_method` answers it: start from that answer and change what you need.
 
+To see what a method keeps before counting a folder, `pp.preview_cell_count(image, method, significant_bits=..., pixel_size_um=...)` counts one image you hold, as `count_cells` counts each file, and answers a `CellCountPreview`: `image`, the image with the kept regions outlined, and `counts`, a `CellCounts` holding the values of that image's `results.csv` row (`num_cells`, `total_object_area`, `area_unit`, `total_object_intensity`). `significant_bits` is the image's payload depth and `pixel_size_um` the scale it states (microns per pixel, or `None`), which the method's `pixels_per_um` overrides, as in the count. It counts on the caller's thread, not the post-processing lane, so it answers while a build or a run goes on, and it hands back an image array, so it is in-process only.
+
 Each image is measured at the scale it states: a LumaViewPro capture carries its pixel size, so its areas and perimeters are in square microns and microns. An image that states no scale (a PNG, a capture saved without one) is counted in pixels. `results.csv` has one row per image with `file`, `time`, `num_cells`, `total_object_area`, `area_unit` (`um2` or `px2`, that row's unit) and `total_object_intensity`. Setting `pixels_per_um` overrides the scale for every image, for example on external images whose scale you know. The area and perimeter filters are in microns, so an image counted in pixels with either one set is not counted: the count goes on with the rest and raises `PostProcessingFailedError` naming it.
 
 | Field | Meaning |
@@ -3386,6 +3388,7 @@ Reached through `session.post_processing`.
 - `graph`
 - `graph_options`
 - `load_cell_count_method`
+- `preview_cell_count` (in-process)
 - `save_cell_count_method`
 - `stitch`
 - `video`
@@ -3669,6 +3672,13 @@ Reached through `session.post_processing.default_cell_count_method()` and `load_
 - `pixels_per_um`
 - `threshold`
 
+### CellCountPreview
+
+Reached through returned by `session.post_processing.preview_cell_count`.
+
+- `counts`
+- `image`
+
 ### CellCountResult
 
 Reached through returned by `session.post_processing.count_cells`.
@@ -3676,6 +3686,15 @@ Reached through returned by `session.post_processing.count_cells`.
 - `counted`
 - `message`
 - `results_path`
+
+### CellCounts
+
+Reached through a `CellCountPreview`'s `counts`.
+
+- `area_unit`
+- `num_cells`
+- `total_object_area`
+- `total_object_intensity`
 
 ### Change
 

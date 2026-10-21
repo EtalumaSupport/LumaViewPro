@@ -502,7 +502,6 @@ class CellCountControls(BoxLayout):
         # The scale the preview file states (um per pixel), or None.
         self._preview_pixel_size_um = None
         self._preview_image = None
-        self._post = post_processing.PostProcessing()
         # The method the panel shows and counts by, replaced whole on each change.
         self._method = method
         self._set_ui_to_method(self._method)
@@ -529,9 +528,6 @@ class CellCountControls(BoxLayout):
             popup,
             'APPLY_CELL_COUNT_TO_FOLDER',
         )
-
-    def set_post_processing_module(self, post_processing_module):
-        self._post = post_processing_module
 
     def _preview_shape(self) -> tuple[int, ...] | None:
         return None if self._preview_source_image is None else self._preview_source_image.shape
@@ -670,13 +666,12 @@ class CellCountControls(BoxLayout):
         if self._preview_source_image is None:
             return
 
-        image, _ = self._post.preview_cell_count(
-            image=self._preview_source_image,
-            method=self._method,
+        image = _app_ctx.ctx.session.post_processing.preview_cell_count(
+            self._preview_source_image,
+            self._method,
             significant_bits=self._preview_source_significant_bits,
-            pixels_per_um=self._preview_scale(),
-            name='The preview image',
-        )
+            pixel_size_um=self._preview_pixel_size_um,
+        ).image
 
         self._preview_image = image
 
@@ -906,7 +901,6 @@ class PostProcessingAccordion(BoxLayout):
         gui_logger.button('OPEN_CELL_COUNT')
         ctx = _app_ctx.ctx
         if self._cell_count_popup is None:
-            ctx.cell_count_content.set_post_processing_module(self.post)
             self._cell_count_popup = Popup(
                 title='Post Processing - Object Analysis',
                 content=ctx.cell_count_content,

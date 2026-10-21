@@ -145,6 +145,39 @@ class CellCountResult:
     counted: int
 
 
+@api_fields('num_cells', 'total_object_area', 'area_unit', 'total_object_intensity')
+@dataclasses.dataclass(frozen=True)
+class CellCounts:
+    """What a cell count measured in one image: the values of its row in ``results.csv``.
+
+    Attributes:
+        num_cells: The regions the method kept.
+        total_object_area: Their area, in ``area_unit``.
+        area_unit: ``'um2'``, or ``'px2'`` when the image was counted in
+            pixels.
+        total_object_intensity: Their area times their mean intensity.
+    """
+
+    num_cells: int
+    total_object_area: float
+    area_unit: str
+    total_object_intensity: float
+
+
+@api_fields('image', 'counts')
+@dataclasses.dataclass(frozen=True)
+class CellCountPreview:
+    """One image counted by a method, as a form shows it.
+
+    Attributes:
+        image: The image with the kept regions' outlines drawn on it.
+        counts: What the count measured.
+    """
+
+    image: np.ndarray
+    counts: CellCounts
+
+
 @api_fields('x_axes', 'y_axes', 'trendlines')
 @dataclasses.dataclass(frozen=True)
 class GraphOptions:
@@ -866,6 +899,55 @@ class PostProcessingAPI:
         from modules.post_processing import save_cell_count_method
 
         save_cell_count_method(method, path)
+
+    @api(in_process=True)
+    def preview_cell_count(
+        self,
+        image: np.ndarray,
+        method: CellCountMethod,
+        *,
+        significant_bits: int,
+        pixel_size_um: float | None,
+    ) -> CellCountPreview:
+        """Count the cells in *image* by *method*, as ``count_cells`` counts
+        each image of a folder, and answer the outlines and the counts.
+
+        Counted on the caller's thread, not the post-processing lane, so a
+        form previewing a method while a build or a run goes on is not held
+        behind it. *image* is the pixels the caller holds, so a form that
+        adjusts the method reads no file. It is measured at the scale
+        ``count_cells`` would measure its file at: the method's
+        *pixels_per_um*, else *pixel_size_um*, the image's own (microns
+        per pixel), else in pixels.
+
+        Args:
+            significant_bits: The image's payload depth, by which a 16-bit
+                image is scaled to the 8 bits the count reads.
+            pixel_size_um: The scale the image states, or None.
+
+        Raises:
+            PostProcessingRefusedError: reason ``no_scale``, the image is
+                counted in pixels and *method* bounds an area or a
+                perimeter, which are in microns.
+        """
+        from modules.post_processing import PostProcessing, cell_count_scale
+
+        outlined, stats = PostProcessing().preview_cell_count(
+            image,
+            method,
+            significant_bits,
+            pixels_per_um=cell_count_scale(method, pixel_size_um),
+        )
+        summary = stats['summary']
+        return CellCountPreview(
+            image=outlined,
+            counts=CellCounts(
+                num_cells=summary['num_regions'],
+                total_object_area=summary['total_object_area'],
+                area_unit=summary['area_unit'],
+                total_object_intensity=summary['total_object_intensity'],
+            ),
+        )
 
     @api
     def count_cells(
