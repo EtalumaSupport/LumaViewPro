@@ -23,6 +23,10 @@ import threading
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import pytest
+
+from drivers.exceptions import BoardNoReplyError
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -56,15 +60,16 @@ class TestLedOnBlockAckShape:
 
     def test_empty_string_response_keeps_polling(self):
         """Empty-string responses indicate the LED firmware is wedged;
-        the loop must keep polling, not accept the empty as ack. This
-        gives the user a visible timeout + protocol halt rather than a
-        silent dark capture."""
+        the loop must keep polling, not accept the empty as ack, and
+        raise once it gives up rather than return to a silent dark
+        capture."""
         # 100ms timeout; firmware returns '' forever.
         led = self._make_led([''] * 200)
         import time
 
         t0 = time.monotonic()
-        led.led_on(channel=3, mA=2, block=True, timeout_s=0.1)
+        with pytest.raises(BoardNoReplyError):
+            led.led_on(channel=3, mA=2, block=True, timeout_s=0.1)
         elapsed = time.monotonic() - t0
         assert 0.08 < elapsed < 0.3, f'elapsed={elapsed:.3f}s out of band'
         # Multiple retries during the 0.1s window -- not bailing on first ''.
@@ -77,7 +82,8 @@ class TestLedOnBlockAckShape:
         import time
 
         t0 = time.monotonic()
-        led.led_on(channel=3, mA=2, block=True, timeout_s=0.1)
+        with pytest.raises(BoardNoReplyError):
+            led.led_on(channel=3, mA=2, block=True, timeout_s=0.1)
         elapsed = time.monotonic() - t0
         assert 0.08 < elapsed < 0.3, f'elapsed={elapsed:.3f}s out of band'
         assert led.exchange_command.call_count >= 3
@@ -94,7 +100,8 @@ class TestLedOnBlockAckShape:
         import time
 
         t0 = time.monotonic()
-        led.led_on(channel=3, mA=2, block=True, timeout_s=5.0)
+        with pytest.raises(BoardNoReplyError):
+            led.led_on(channel=3, mA=2, block=True, timeout_s=5.0)
         elapsed = time.monotonic() - t0
         assert elapsed < 0.5, (
             f'silent-board block must abort fast, not poll: elapsed={elapsed:.3f}s'

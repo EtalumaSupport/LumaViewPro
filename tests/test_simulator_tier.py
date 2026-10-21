@@ -207,9 +207,8 @@ class TestTheSessionReadsTheTier:
             led = session.scope._led_driver
             assert isinstance(led, LEDBoard)
             session.scope.illumination.led_on(3, 100)
-            # The firmware answered the write: the driver holds no command
-            # error, and the API's store reads the address lit at 100 mA.
-            assert led.last_command_error is None
+            # The firmware answered the write, or it would have raised, and
+            # the API's store reads the address lit at 100 mA.
             reading = led_reading(session.scope, 3)
             assert (reading.state, reading.illumination_ma) == (LedState.LIT, 100)
         finally:

@@ -32,6 +32,7 @@ except ImportError as _fx2_exc:
 from drivers import camera_profiles
 from drivers.camera import Camera
 from drivers.exceptions import (
+    BoardNoReplyError,
     CameraFirmwareMissingError,
     CameraUsbDriverUnusableError,
     HardwareError,
@@ -1146,14 +1147,22 @@ class Lumascope:
             config: ScopeInitConfig instance with all scope-level settings.
         """
         self._motion_expected = config.expects_motion
-        self._report_bring_up(config)
         # The safety-off is the scope's own write, never the public
         # dispatcher: bring-up is the scope configuring itself, not a command
         # from a caller, so it takes no lane and asks no claim. It asks
         # presence first, so with no board connected it writes nothing. The
         # write is bounded by the serial layer's own read and write timeouts;
-        # nothing else holds the LED lock at bring-up.
-        self.illumination._leds_off_if_present()
+        # nothing else holds the LED lock at bring-up. A board that did not
+        # answer leaves every address unknown and the scope comes up: the
+        # failure is the LED part's safety off not taken, on the record
+        # before the report so it is told once whichever off it was.
+        try:
+            self.illumination._leds_off_if_present()
+        except BoardNoReplyError as e:
+            self._bring_up_parts[LED] = dataclasses.replace(
+                self._bring_up_parts[LED], cause='safety_off_failed', detail=str(e)
+            )
+        self._report_bring_up(config)
         self.runtime_state.set_turreted(config.turreted)
         if config.turreted:
             # The objective is the one assigned to the slot in the light

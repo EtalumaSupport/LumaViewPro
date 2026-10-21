@@ -19,6 +19,7 @@ import serial
 
 # Heavy deps are mocked by tests/conftest.py at module-import time.
 
+from drivers.exceptions import BoardNoReplyError
 from drivers.ledboard import LEDBoard
 from drivers.motorboard import MotorBoard
 from drivers.motorconfig import MotorConfig
@@ -1156,7 +1157,7 @@ class TestLEDNoneHandling:
     Unusable means None (port closed, write timeout, silent-board reject) OR
     the empty string, which is what a readline() timeout yields: a board whose
     firmware is wedged accepts the write and never answers, and the LED is not
-    energized. Both must reach last_command_error.
+    energized. Both raise BoardNoReplyError.
     """
 
     def _make_board(self):
@@ -1243,22 +1244,16 @@ class TestLEDNoneHandling:
         """
         board = self._make_board()
         board.driver.readline.return_value = b''
-        board.last_command_error = None
 
-        call(board)
-
-        assert board.last_command_error is not None, f'{op}: empty reply recorded as success'
-        assert board.last_command_error['op'].startswith(op)
+        with pytest.raises(BoardNoReplyError, match=rf'^{op}\b'):
+            call(board)
 
     def test_real_reply_still_acks(self):
         """The ordinary path is untouched: a firmware reply confirms."""
         board = self._make_board()
         board.driver.readline.return_value = b'LED 3 set to 5 mA.\r\n'
-        board.last_command_error = {'op': 'stale', 'reason': 'stale'}
 
-        board.led_on(channel=3, mA=5)
-
-        assert board.last_command_error is None
+        board.led_on(channel=3, mA=5)  # raises if unconfirmed
 
 
 # ==========================================================================
@@ -1368,18 +1363,15 @@ class TestSerialDesyncRecovery:
 
         This reproduces the characterization test pattern that caused LED
         dropout: 25 iterations of leds_off -> led_on -> leds_off. A write the
-        board answered leaves ``last_command_error`` None.
+        board did not answer would raise.
         """
         board = self._make_board()
         board.driver.in_waiting = 0
 
-        for i in range(25):
+        for _ in range(25):
             board.leds_off()
-            assert board.last_command_error is None, f'Iteration {i}: leds_off unconfirmed'
             board.led_on(channel=3, mA=20)
-            assert board.last_command_error is None, f'Iteration {i}: led_on unconfirmed'
             board.leds_off()
-            assert board.last_command_error is None, f'Iteration {i}: final leds_off unconfirmed'
 
     def test_rapid_led_cycling_with_timeouts(self):
         """Most LED writes still confirm when some commands time out.
@@ -1413,18 +1405,24 @@ class TestSerialDesyncRecovery:
         # Run 25 cycles -- should not crash or desync
         successes = 0
         for _ in range(25):
-            board.leds_off()
-            board.led_on(channel=3, mA=20)
-            if board.last_command_error is None:
+            for write in (
+                board.leds_off,
+                lambda: board.led_on(channel=3, mA=20),
+                board.leds_off,
+            ):
+                try:
+                    write()
+                except BoardNoReplyError:
+                    break
+            else:
                 successes += 1
-            board.leds_off()
 
         # Most cycles should succeed (some may fail due to simulated timeouts)
         # The key is: no crashes, no permanent desync cascade.
         # The floor of 15 is calibrated to the fault injection above (every
         # 7th readline fails -> ~3-4 expected failures of 25); it does NOT
-        # bless command failures in production, where they log errors and set
-        # last_command_error. The fault-free contract (every write confirmed)
+        # bless command failures in production, where they log errors and
+        # raise. The fault-free contract (every write confirmed)
         # is asserted by test_rapid_led_on_off_every_write_confirms.
         assert successes > 15, f'Only {successes}/25 cycles succeeded -- desync cascade?'
 

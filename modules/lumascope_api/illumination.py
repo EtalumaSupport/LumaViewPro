@@ -19,10 +19,10 @@ from dataclasses import dataclass
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
+from drivers.exceptions import BoardNoReplyError
 from drivers.null_ledboard import NullLEDBoard
 from lib import profile_trace
 from lib.lumascope_error import Fault
-from lvp_logger import logger
 from modules.finite_number import refuse_unless_finite_number
 from modules.exceptions import (
     ArgumentRefusedError,
@@ -718,6 +718,8 @@ class IlluminationAPI:
                 model does not have; ``'exclusive_activity_running'`` while
                 a lease other than ``_lease`` holds the LEDs. Nothing was
                 sent.
+            BoardNoReplyError: the board did not answer; the channel is
+                unknown (``_write``).
 
         The channel is judged at the door (``led_on``); the internal callers
         pass the board's own channels.
@@ -762,9 +764,9 @@ class IlluminationAPI:
         # leds_off, which bypass this on purpose.
         self._refuse_unless_lease_holds(_lease, 'led_on')
 
-        with self._led_lock:
-            self._driver.led_on(channel, commanded_ma, block=block)
-        self._notify_if_led_command_failed()
+        self._write(
+            (channel,), lambda: self._driver.led_on(channel, commanded_ma, block=block), _lease
+        )
         requested = (
             f' (requested {illumination_ma})' if abs(commanded_ma - illumination_ma) >= 0.01 else ''
         )
@@ -829,6 +831,8 @@ class IlluminationAPI:
                 believed lit and no LED controller connected to darken it;
                 ``'exclusive_activity_running'``, a channel believed lit
                 while a lease other than ``_lease`` holds the LEDs.
+            BoardNoReplyError: the board did not answer; the channel is
+                unknown (``_write``).
         """
         channel = self._off_channel(channel)
         if channel is None:
@@ -848,9 +852,7 @@ class IlluminationAPI:
         # autofocus-LED-killed reports, so it is rejected here.
         self._refuse_unless_lease_holds(_lease, 'led_off')
 
-        with self._led_lock:
-            self._driver.led_off(channel)
-        self._notify_if_led_command_failed()
+        self._write((channel,), lambda: self._driver.led_off(channel), _lease)
         _api_log.info(
             f'led_off ch={channel}{f" lease={_lease.purpose!r}" if _lease is not None else ""}'
         )
@@ -874,6 +876,8 @@ class IlluminationAPI:
         Raises:
             HardwareCommandRefusedError: ``'not_connected'``, a channel
                 believed lit and no LED controller connected to darken it.
+            BoardNoReplyError: the board did not answer; every address is
+                unknown (``_write_leds_off``).
         """
         if not self._scope.led_connected:
             with self._led_state_lock:
@@ -933,11 +937,47 @@ class IlluminationAPI:
 
         return ask_again_after_a_fault
 
+    def _write(
+        self,
+        addresses: tuple[int, ...],
+        write: Callable[[], None],
+        lease: LedLease | None,
+    ) -> None:
+        """Make one board write of ``addresses`` under the LED lock.
+
+        A board that did not answer may have done what it was told or not,
+        so every address written is held unknown, believed neither lit nor
+        dark: an off writes it and a light is never skipped for it. It is
+        held as lit by ``lease``, whose release then darkens it. No frame
+        is judged against a change that may not have happened; the caller
+        that made it fails instead.
+
+        Raises:
+            BoardNoReplyError: the board did not answer; the listeners
+                have been told each address is unknown.
+        """
+        try:
+            with self._led_lock:
+                write()
+        except BoardNoReplyError:
+            with self._led_state_lock:
+                for address in addresses:
+                    self._led_state[address] = _Held(LedState.UNKNOWN)
+                    self._lit_by[address] = lease
+                readings = [self._reading(address) for address in addresses]
+            _api_log.warning(f'LED write unanswered: addresses {list(addresses)} unknown')
+            for reading in readings:
+                self._fire_led_listeners(reading)
+            raise
+
     def _write_leds_off(self) -> None:
-        """Write the board's all-off and record every address dark."""
-        with self._led_lock:
-            self._driver.leds_off()
-        self._notify_if_led_command_failed()
+        """Write the board's all-off and record every address dark.
+
+        Raises:
+            BoardNoReplyError: the board did not answer; every address of
+                the board is unknown (``_write``).
+        """
+        self._write(self._driver.available_channels(), self._driver.leds_off, None)
         with self._led_state_lock:
             self._lit_by.clear()
             self._led_state.clear()
@@ -997,6 +1037,8 @@ class IlluminationAPI:
             HardwareCommandRefusedError: ``'exclusive_activity_running'``,
                 another activity holds the scope or the LEDs; nothing was
                 sent.
+            BoardNoReplyError: the board did not answer; what it wrote is
+                unknown (``_write``).
         """
         self._refuse_not_a_channel(channel)
         return self._dispatch_led(
@@ -1018,6 +1060,8 @@ class IlluminationAPI:
             HardwareCommandRefusedError: ``'exclusive_activity_running'``,
                 another activity holds the scope or the LEDs; nothing was
                 sent.
+            BoardNoReplyError: the board did not answer; what it wrote is
+                unknown (``_write``).
         """
         self._refuse_not_a_channel(channel)
         return self._dispatch_led(self._led_off_impl, 'led_off', args=(channel,))
@@ -1031,6 +1075,8 @@ class IlluminationAPI:
         Raises:
             HardwareCommandRefusedError: ``'not_connected'``, a channel
                 believed lit and no LED controller connected to darken it.
+            BoardNoReplyError: the board did not answer; every address is
+                unknown (``_write``).
         """
         return self._dispatch_led(self._leds_off_impl, 'leds_off')
 
@@ -1086,46 +1132,6 @@ class IlluminationAPI:
             self._driver.leds_off()
         finally:
             self._led_lock.release()
-
-    def _notify_if_led_command_failed(self) -> None:
-        """Read driver.last_command_error and fire a sample-safety
-        notification if the most recent LED command did not confirm.
-
-        Called after every LED driver call (leds_off, led_on, led_off).
-        Drivers that don't expose the field
-        (NullLEDBoard, SimulatedLEDBoard, FX2 -- pre-migration) are
-        silently skipped via getattr-default. notification_center
-        dedups by (category, title) over a 10 s window so a stream of
-        protocol-driven led_on failures yields one popup, not thirty.
-        """
-        err = getattr(self._driver, 'last_command_error', None)
-        if not err:
-            return
-        op = err.get('op', '<unknown LED command>')
-        reason = err.get('reason', 'unknown')
-        _api_log.warning(f'LED command did not confirm: {op} ({reason})')
-        from modules.notification_center import notifications
-
-        notifications.warning(
-            'LED Safety',
-            'LED command did not confirm',
-            'The illumination did not confirm a command, so it may not '
-            'match what the display shows. Confirm the light is off '
-            'before placing a sample. If illumination keeps misbehaving, '
-            'check the USB cable and power connections, then restart '
-            'LumaViewPro.',
-        )
-        # Clear so subsequent successful calls reset the surface.
-        # Drivers that set the field will overwrite again on next failure.
-        try:
-            self._driver.last_command_error = None
-        except Exception as e:
-            logger.debug(
-                '[SCOPE API ] illumination: clear last_command_error '
-                'failed; driver may not implement the attribute: %s: %s',
-                type(e).__name__,
-                e,
-            )
 
     # --- State ---
     def _identity_name(self, address: int) -> str | None:
@@ -1240,6 +1246,8 @@ class IlluminationAPI:
             HardwareCommandRefusedError: ``'exclusive_activity_running'``,
                 another activity holds the scope or the LEDs, raised at the
                 first channel it would change.
+            BoardNoReplyError: the board did not answer a write; that
+                channel is unknown and the writes after it are not made.
         """
         return self._dispatch_led(
             self._restore_led_state_impl, 'restore_led_state', args=(snapshot,)
@@ -1258,7 +1266,11 @@ class IlluminationAPI:
         Raises:
             HardwareCommandRefusedError: ``'not_connected'``, the lease lit
                 a channel and no LED controller is connected to darken it;
-                the channel stays believed lit.
+                the channel stays believed lit, or unknown when the write
+                that found the controller gone went unanswered.
+            BoardNoReplyError: the board did not answer an off; that
+                channel is unknown and still the lease's (``_write``), and
+                the channels after it are left as they were.
         """
         with self._led_state_lock:
             channels_to_off = [address for address, by in self._lit_by.items() if by is lease]
@@ -1266,11 +1278,11 @@ class IlluminationAPI:
             return
         self.refuse_controller_not_connected('LedLease.release')
         for ch in channels_to_off:
-            with self._led_lock:
-                self._driver.led_off(ch)
+            self._write((ch,), functools.partial(self._driver.led_off, ch), lease)
             # Dark once written, never before: a write that finds the
-            # controller gone leaves the channel believed lit, and the
-            # release asked again is refused for it.
+            # controller gone leaves the channel believed lit, or unknown
+            # when the board did not answer it, and the release asked
+            # again is refused for it.
             with self._led_state_lock:
                 self._lit_by.pop(ch, None)
                 self._led_state.pop(ch, None)
@@ -1520,6 +1532,8 @@ class IlluminationAPI:
             ArgumentRefusedError: ``'not_a_number'`` or
                 ``'illumination_out_of_range'`` for a target light, before
                 anything is written.
+            BoardNoReplyError: the board did not answer a write; that
+                channel is unknown and the writes after it are not made.
         """
         # The whole target is judged before anything is turned off, so a
         # refused light leaves every LED as it was.
@@ -1579,12 +1593,17 @@ class IlluminationAPI:
         Returns:
             True when the all-off was written; False when no LED controller
             was connected to write it to, so whatever the board holds lit
-            stays lit.
+            stays lit, or when the board did not answer it, every address
+            then unknown (``_write_leds_off``).
         """
         held = self.led_lease_purpose
         if held is not None:
             _api_log.warning('force_off bypassing the held %r LED lease', held)
-        return self._leds_off_if_present()
+        try:
+            return self._leds_off_if_present()
+        except BoardNoReplyError as e:
+            _api_log.error(f'force_off unanswered: {e}')
+            return False
 
     # --- Enable / disable ---
     # --- Wait ---

@@ -49,21 +49,10 @@ class LEDBoard(SerialBoard):
         super().__init__(vid=0x0424, pid=0x704C, label='[LED Class ]', timeout=0.3, backend=backend)
 
         # Set by _safety_leds_off() at connect time. None when the board
-        # confirmed LEDS_OFF; the reason when it did not answer, or
-        # "ExceptionType: message" when the exchange raised. API
-        # layer reads this on construction to fire a notification.
+        # confirmed LEDS_OFF; "ExceptionType: message" when it did not
+        # answer or the exchange raised. API layer reads this on
+        # construction to fire a notification.
         self.last_safety_off_error: str | None = None
-
-        # Set by leds_off / led_on / led_off / leds_enable / leds_disable
-        # per call. None on success; a short dict with op name + reason
-        # when the LED board did not acknowledge the command. The API
-        # layer reads this after each call and fires a sample-safety
-        # notification with op context. notification_center auto-
-        # suppresses during shutdown so stale fields during atexit are
-        # harmless. The five runtime methods share one field because
-        # the recovery / notification shape is identical; only the op
-        # label varies.
-        self.last_command_error: dict | None = None
 
         # A board the port search did not find, or whose connect failed, is
         # sent nothing: the registry judges it and bring-up reports it once.
@@ -95,11 +84,8 @@ class LEDBoard(SerialBoard):
         """
         try:
             self.leds_off()
-            if self.last_command_error is not None:
-                self.last_safety_off_error = self.last_command_error['reason']
-            else:
-                logger.info('[LED Class ] Safety LEDS_OFF confirmed on connect')
-                self.last_safety_off_error = None
+            logger.info('[LED Class ] Safety LEDS_OFF confirmed on connect')
+            self.last_safety_off_error = None
         except Exception as e:
             logger.error(f'[LED Class ] Safety LEDS_OFF failed: {e}')
             self.last_safety_off_error = f'{type(e).__name__}: {e}'
@@ -130,41 +116,42 @@ class LEDBoard(SerialBoard):
     #   {"cmd": "LED_DISABLE"}
     # Currently all commands use the legacy text format.
 
+    @staticmethod
+    def _raise_unless_answered(response: str | None, op: str) -> None:
+        """Raise unless the board answered ``op``'s command.
+
+        Neither the board's answer nor its echo is ever empty, so an empty
+        or missing reply is silence. A board that did not answer may still
+        have done what it was told, so its caller cannot say what the LEDs
+        are doing.
+
+        Raises:
+            BoardNoReplyError: ``response`` is None or empty.
+        """
+        if not response:
+            logger.error(f'[LED Class ] {op} got no response')
+            raise BoardNoReplyError(f'{op}: no response from LED board')
+
     def leds_enable(self) -> None:
         """Enable all LED channels (master enable).
 
-        Sends ``LEDS_ENT``. On no-response sets self.last_command_error
-        so the API layer can notify; clears the field on success.
+        Sends ``LEDS_ENT``.
+
+        Raises:
+            BoardNoReplyError: the board did not answer.
         """
-        command = 'LEDS_ENT'
-        response = self.exchange_command(command)
-        if not response:
-            logger.error('[LED Class ] leds_enable() got no response')
-            self.last_command_error = {
-                'op': 'leds_enable',
-                'reason': 'no response from LED board',
-            }
-        else:
-            self.last_command_error = None
+        self._raise_unless_answered(self.exchange_command('LEDS_ENT'), 'leds_enable')
 
     def leds_disable(self) -> None:
         """Disable all LED channels (master disable).
 
-        Sends ``LEDS_ENF``. On no-response sets self.last_command_error so the API layer can
-        notify the user (sample safety -- a stuck-enabled board can
-        still emit light).
-        """
-        command = 'LEDS_ENF'
-        response = self.exchange_command(command)
+        Sends ``LEDS_ENF``.
 
-        if response:
-            self.last_command_error = None
-        else:
-            logger.error('[LED Class ] leds_disable() got no response')
-            self.last_command_error = {
-                'op': 'leds_disable',
-                'reason': 'no response from LED board',
-            }
+        Raises:
+            BoardNoReplyError: the board did not answer; a stuck-enabled
+                board can still emit light.
+        """
+        self._raise_unless_answered(self.exchange_command('LEDS_ENF'), 'leds_disable')
 
     def supports_firmware_stim(self) -> bool:
         """Probe firmware for STIM command support. Result cached after first call.
@@ -299,6 +286,8 @@ class LEDBoard(SerialBoard):
 
         Raises:
             ValueError: ``channel`` or ``mA`` is outside the safe range.
+            BoardNoReplyError: the board did not answer; with ``block``, its
+                last ask before the poll gave up.
         """
         command = self._validate_and_build_led_cmd(channel, mA)
         if mA == 0:
@@ -307,15 +296,6 @@ class LEDBoard(SerialBoard):
             self.led_off(channel)
             return
         response = self.exchange_command(command)
-
-        if response:
-            self.last_command_error = None
-        else:
-            logger.error(f'[LED Class ] led_on(ch={channel}, mA={mA}) got no response')
-            self.last_command_error = {
-                'op': f'led_on(ch={channel}, mA={mA})',
-                'reason': 'no response from LED board',
-            }
 
         def check_each_substr(substrings, result):
             return all(sub_str in result for sub_str in substrings)
@@ -356,24 +336,19 @@ class LEDBoard(SerialBoard):
                     break
                 time.sleep(0.01)
                 response = self.exchange_command(command)
+        self._raise_unless_answered(response, f'led_on(ch={channel}, mA={mA})')
 
     def led_off(self, channel: int) -> None:
         """Turn off the LED on a channel.
 
         Args:
             channel: LED address (0-7).
+
+        Raises:
+            BoardNoReplyError: the board did not answer.
         """
         command = 'LED' + str(int(channel)) + '_OFF'
-        response = self.exchange_command(command)
-
-        if response:
-            self.last_command_error = None
-        else:
-            logger.error(f'[LED Class ] led_off(ch={channel}) got no response')
-            self.last_command_error = {
-                'op': f'led_off(ch={channel})',
-                'reason': 'no response from LED board',
-            }
+        self._raise_unless_answered(self.exchange_command(command), f'led_off(ch={channel})')
 
     def led_on_fast(self, channel: int, mA: int) -> None:
         """Fast write-only version of led_on for time-critical toggling.
@@ -401,21 +376,10 @@ class LEDBoard(SerialBoard):
     def leds_off(self) -> None:
         """Turn off every LED channel.
 
-        On success, resets self.last_command_error to None. On no-response, sets
-        self.last_command_error so the API-layer wrap can fire a
-        sample-safety notification.
+        Raises:
+            BoardNoReplyError: the board did not answer.
         """
-        command = 'LEDS_OFF'
-        response = self.exchange_command(command)
-
-        if response:
-            self.last_command_error = None
-        else:
-            logger.error('[LED Class ] leds_off() got no response')
-            self.last_command_error = {
-                'op': 'leds_off',
-                'reason': 'no response from LED board',
-            }
+        self._raise_unless_answered(self.exchange_command('LEDS_OFF'), 'leds_off')
 
     def leds_off_fast(self) -> None:
         """Fast write-only version of leds_off.

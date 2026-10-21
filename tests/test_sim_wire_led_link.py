@@ -16,6 +16,7 @@ xfail naming the difference: the demonstration is built here, and the fix
 is triage's.
 """
 
+import contextlib
 import functools
 import sys
 import time
@@ -23,17 +24,25 @@ import time
 import pytest
 
 import drivers.sim_wire.backend as sim_backend
-from modules.lumascope_api.illumination import LedState
+from drivers.exceptions import BoardNoReplyError
+from lib.lumascope_error import Fault
+from modules.exceptions import HardwareCommandRefusedError
+from modules.lumascope_api.bring_up import LED
+from modules.lumascope_api.illumination import (
+    IlluminationAPI,
+    LedState,
+    LedTransition,
+    LedTransitionCtx,
+)
 from modules.notification_center import Severity
 from modules.scope_session import ScopeSession
+from tests.protocol_drives import held_run_claim
 from tests.settings_fixtures import complete_settings
 
 if not (sys.platform == 'darwin' or sys.platform.startswith('linux')):
     pytest.skip(
         'the firmware-backed simulator runs on macOS and Linux only', allow_module_level=True
     )
-
-_UNCONFIRMED = ('LED Safety', 'LED command did not confirm')
 
 
 @pytest.fixture
@@ -94,6 +103,23 @@ def test_a_dropped_echo_leaves_the_answer_and_the_api_is_right(scope):
     assert _warnings(posts) == []
 
 
+def _state(illumination, address: int) -> LedState:
+    return next(r.state for r in illumination.get_led_states() if r.address == address)
+
+
+def test_a_write_the_board_did_not_answer_raises_and_its_led_is_unknown(scope):
+    # The firmware lights the channel and its answer comes after the
+    # driver's wait: the LED is on, and nothing the host was told says so.
+    illumination, board, posts, simulation = scope
+    simulation.delay_reply('led', 0.5)
+    with pytest.raises(BoardNoReplyError):
+        illumination.led_on(1, 10)
+    assert 1 in _driven(board)
+    assert _state(illumination, 1) is LedState.UNKNOWN
+    # The raise is the report: nothing below the GUI posts one.
+    assert _warnings(posts) == []
+
+
 @pytest.mark.xfail(
     strict=True,
     raises=AssertionError,
@@ -101,39 +127,35 @@ def test_a_dropped_echo_leaves_the_answer_and_the_api_is_right(scope):
     "answer, and the board's own answer is discarded unread",
 )
 def test_a_garbled_reply_does_not_confirm_a_write(scope):
-    illumination, board, posts, _simulation = scope
+    illumination, board, _posts, _simulation = scope
     board.garble_next_reply()
-    illumination.led_on(0, 10)
-    assert _warnings(posts) == [_UNCONFIRMED]
+    # Which fault an unconfirmed write raises is K84's to decide; what is
+    # pinned is that the write is not believed.
+    with contextlib.suppress(Fault):
+        illumination.led_on(0, 10)
+    assert _state(illumination, 0) is not LedState.LIT
 
 
-def test_a_write_the_board_never_got_is_reported(scope):
+def test_a_write_the_board_never_got_is_refused_and_not_believed(scope):
+    # The write is what finds the board gone, so the call is answered as one
+    # made with no LED controller, chained to the no-answer.
     illumination, board, posts, simulation = scope
     simulation.unplug('led')
-    illumination.led_on(1, 10)
-    assert _warnings(posts) == [_UNCONFIRMED]
+    with pytest.raises(HardwareCommandRefusedError) as refused:
+        illumination.led_on(1, 10)
+    assert refused.value.reason == 'not_connected'
+    assert isinstance(refused.value.__cause__, BoardNoReplyError)
     assert _driven(board) == {}
-
-
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="F16: the API caches a failed led_on as lit; the popup is the write's only report, "
-    'and led_on returns as if it had succeeded',
-)
-def test_a_write_the_board_never_got_is_not_believed(scope):
-    illumination, _board, _posts, simulation = scope
-    simulation.unplug('led')
-    illumination.led_on(1, 10)
     assert _believed(illumination) == {}
+    assert _state(illumination, 1) is LedState.UNKNOWN
+    assert _warnings(posts) == []
 
 
 def test_a_write_to_a_lost_board_fails_out_loud(scope):
-    from modules.exceptions import HardwareCommandRefusedError
-
     illumination, _board, _posts, simulation = scope
     simulation.unplug('led')
-    illumination.led_on(1, 10)
+    with pytest.raises(HardwareCommandRefusedError):
+        illumination.led_on(1, 10)
     with pytest.raises(HardwareCommandRefusedError) as refused:
         illumination.led_on(2, 10)
     assert refused.value.reason == 'not_connected'
@@ -149,10 +171,75 @@ def test_after_a_reboot_the_api_does_not_believe_a_channel_lit(scope):
     illumination, board, _posts, simulation = scope
     illumination.led_on(0, 10)
     simulation.reboot('led')
-    illumination.led_on(1, 10)  # the write that finds the link gone
+    with pytest.raises(HardwareCommandRefusedError):
+        illumination.led_on(1, 10)  # the write that finds the link gone
     # The firmware's boot clears the DAC.
     deadline = time.monotonic() + 10
     while _driven(board):
         assert time.monotonic() < deadline, 'the rebooted board never cleared its DAC'
         time.sleep(0.05)
     assert _believed(illumination) == {}
+
+
+def _states(illumination) -> set:
+    return {r.state for r in illumination.get_led_states()}
+
+
+def test_an_all_off_the_board_did_not_answer_raises_and_every_led_is_unknown(scope):
+    illumination, _board, _posts, simulation = scope
+    illumination.led_on(0, 10)
+    simulation.delay_reply('led', 0.5)
+    with pytest.raises(BoardNoReplyError):
+        illumination.leds_off()
+    assert _states(illumination) == {LedState.UNKNOWN}
+
+
+def test_the_safety_off_the_board_did_not_answer_says_so_without_raising(scope):
+    illumination, _board, _posts, simulation = scope
+    illumination.led_on(0, 10)
+    simulation.delay_reply('led', 0.5)
+    assert illumination.force_off() is False
+    assert _states(illumination) == {LedState.UNKNOWN}
+
+
+def test_a_lease_release_darkens_the_led_its_unanswered_write_left_unknown(scope):
+    illumination, board, _posts, simulation = scope
+    lease = illumination.acquire_led_lease('protocol', claim=held_run_claim())
+    simulation.delay_reply('led', 0.5)
+    with pytest.raises(BoardNoReplyError):
+        lease.apply(
+            LedTransition.MANUAL_STEP,
+            LedTransitionCtx(channel=1, illumination_ma=10.0, preview_on=True),
+        )
+    assert 1 in _driven(board)
+    lease.release()
+    assert _state(illumination, 1) is LedState.DARK
+    assert 1 not in _driven(board)
+
+
+def test_a_bring_up_all_off_the_board_did_not_answer_leaves_every_led_unknown(monkeypatch):
+    # a stand-in by design: a fault is armed for the board's next command,
+    # and bring-up writes others first (the firmware STIM probe), so the
+    # delay is armed as bring-up's all-off starts, the first scope off after
+    # connect.
+    scope_off = IlluminationAPI._leds_off_if_present
+    armed = []
+
+    def armed_once(self):
+        if not armed:
+            armed.append(True)
+            self._scope.simulation.delay_reply('led', 0.5)
+        return scope_off(self)
+
+    monkeypatch.setattr(IlluminationAPI, '_leds_off_if_present', armed_once)
+    session = ScopeSession.create(
+        complete_settings(simulator_tier='firmware', microscope='LS850T'),
+        simulate=True,
+        warn_pre_release=False,
+    )
+    try:
+        led = next(p for p in session.scope.bring_up_record().parts if p.part == LED)
+        assert (led.up, led.cause) == (True, 'safety_off_failed')
+        assert _states(session.scope.illumination) == {LedState.UNKNOWN}
+    finally:
+        session.shutdown()

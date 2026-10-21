@@ -2742,8 +2742,9 @@ class SequencedCaptureRunner:
                     else:
                         logger.warning(
                             f'[{self.LOGGER_NAME}] Cleanup: LED end-state undecided, and '
-                            'the LED controller is not connected, so no channel could be '
-                            'forced dark; a channel the board holds lit stays lit'
+                            'the LED controller is not connected or did not answer, so no '
+                            'channel could be forced dark; a channel the board holds lit '
+                            'stays lit'
                         )
                 except Exception:
                     logger.error(
