@@ -77,12 +77,10 @@ def main():
     # returns a frame valid for the current LED + exposure state. The
     # LED is on, so a frame with no lit pixel is rejected as a capture
     # fault -- the dark-floor expectation is derived from commanded state.
+    # No frame raises CaptureFailedError, its reason saying why.
     image = scope.imaging.capture_and_wait(force_to_8bit=True)
-    if image is None:
-        print('Capture failed')
-    else:
-        print(f'Captured image: shape={image.shape}, dtype={image.dtype}')
-        print(f'  Min={image.min()}, Max={image.max()}, Mean={image.mean():.1f}')
+    print(f'Captured image: shape={image.shape}, dtype={image.dtype}')
+    print(f'  Min={image.min()}, Max={image.max()}, Mean={image.mean():.1f}')
 
     # Turn off LEDs
     scope.illumination.leds_off()

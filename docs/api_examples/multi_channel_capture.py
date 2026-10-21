@@ -70,11 +70,8 @@ def main():
         # Capture a frame valid for the current LED + exposure state.
         # This channel's LED is driven, so a frame with no lit pixel is
         # rejected as a capture fault -- derived from commanded state.
+        # No frame raises CaptureFailedError, its reason saying why.
         image = scope.imaging.capture_and_wait(force_to_8bit=True)
-        if image is None:
-            print(f'  ERROR: Failed to capture {channel} channel')
-            continue
-
         print(f'  Captured: shape={image.shape}, dtype={image.dtype}')
         print(f'  Pixel stats: min={image.min()}, max={image.max()}, mean={image.mean():.1f}')
 
@@ -92,14 +89,12 @@ def main():
     session.shutdown()
     print('Session shut down')
 
-    # NOTE: To capture and save one still the way the GUI's Capture button
-    # does, call session.manual_capture.capture(layer=..., false_color_on=...)
-    # before shutdown. To save an array you already hold:
-    #     from modules.image_save import save_image
-    #     save_image(scope, array=image, save_folder='./out', ...)
-    # These require an objective, labware, and stage offset for metadata
-    # generation -- what session.configure_scope() (or the factories that
-    # call it) applies. See protocol_execution.py for a complete workflow.
+    # NOTE: these arrays carry no record of the instrument; saving them is
+    # yours to do as you like. To capture and save one still with its
+    # record, the way the GUI's Capture button does, call
+    # session.manual_capture.capture(false_color_on=False) before shutdown;
+    # it saves the lit layer into the live folder. protocol_execution.py
+    # runs a scan that saves every channel.
 
 
 if __name__ == '__main__':

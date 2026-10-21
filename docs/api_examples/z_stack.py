@@ -71,7 +71,7 @@ def main():
         scope.motion.home('ALL')
     except (HomingFailedError, HardwareCommandRefusedError) as exc:
         print(f'Homing failed -- cannot move safely: {exc}')
-        scope.disconnect()
+        session.shutdown()
         return
 
     # Configure illumination
@@ -92,15 +92,11 @@ def main():
         scope.motion.move_absolute('Z', z_pos_um)
 
         # Read back the actual position (um, from the push-based cache)
-        actual_z_um = scope.motion.get_current_position('Z')
+        actual_z_um = scope.motion.axis_positions()['Z'].position
 
         # Capture a frame valid for the current Z + LED + exposure state.
+        # No frame raises CaptureFailedError, its reason saying why.
         image = scope.imaging.capture_and_wait(force_to_8bit=True)
-        if image is None:
-            print(f'  Slice {i:3d}: FAILED at Z={z_pos_um:.1f} um')
-            z_pos_um += Z_STEP_UM
-            continue
-
         z_stack_images.append(image)
         print(
             f'  Slice {i:3d}: Z={actual_z_um:.1f} um, shape={image.shape}, mean={image.mean():.1f}'
@@ -110,12 +106,11 @@ def main():
 
     print(f'\nCaptured {len(z_stack_images)} / {num_slices} slices')
 
-    # NOTE: To save each slice as a file, import from modules.image_save:
-    #   from modules.image_save import save_image
-    #   save_image(scope, array=image, save_folder='./zstack',
-    #              append=f'_Z{i:03d}', ...)
-    # This requires objective, labware, and stage offset first -- what
-    # session.configure_scope() applies; see protocol_execution.py.
+    # NOTE: these arrays carry no record of the instrument; saving them is
+    # yours to do as you like. To have LumaViewPro save a stack with its
+    # record, run it: session.create_protocol_runner().start_zstack('BF')
+    # (LumascopeSkills.md, Running protocols; protocol_execution.py runs a
+    # scan the same way).
 
     # NOTE: for automatic focusing, run autofocus as a run through the
     # session's protocol runner (LumascopeSkills.md, Running protocols).

@@ -3,17 +3,18 @@
 """Protocol execution example.
 
 Demonstrates:
-- Creating a Protocol from a configuration dict (without loading a CSV file)
-- Using ScopeSession and ProtocolRunner for GUI-independent protocol execution
-- Monitoring run progress and waiting for completion
+- Choosing the layers a run captures (ScopeSession.set_layer_acquire)
+- Building a Protocol from the session's own configuration, without a file
+- Running one scan through the session's protocol runner and reading how
+  it ended
 
-This example builds a simple protocol with a few positions and channels,
-then executes it through the ProtocolRunner API.
+This example builds a protocol of one well and two channels, runs it once
+on the simulated scope, and prints what the run captured.
 """
 
 import sys
 import pathlib
-import datetime
+import tempfile
 
 # Make the repo root importable when run standalone
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent.parent))
@@ -26,53 +27,9 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent.parent))
 
 from modules.scope_session import ScopeSession
 
-
-def build_protocol_config():
-    """Build a protocol configuration dict.
-
-    This defines a simple protocol that captures two channels (BF and Blue
-    fluorescence) at a single position. In a real workflow, you would
-    typically have multiple well positions and possibly tiling.
-    """
-    return {
-        'labware_id': '96 Well Plate',
-        'objective_id': '4x Oly',
-        'period': datetime.timedelta(minutes=5),  # Time between scans
-        'duration': datetime.timedelta(hours=1),  # Total protocol duration
-        'use_zstacking': False,
-        'zstack_params': {'min': 0, 'max': 0, 'step': 0},
-        'tiling': 'Center',
-        'binning_size': 1,
-        'frame_dimensions': {'width': 1920, 'height': 1200},
-        'stim_config': {},
-        'positions': [
-            {'x': 50000, 'y': 40000, 'z': 5000, 'name': 'A1'},
-        ],
-        'layer_configs': {
-            'BF': {
-                'color': 'BF',
-                'false_color': False,
-                'illumination_ma': 100,
-                'gain_db': 0,
-                'auto_gain': False,
-                'exposure_ms': 50,
-                'sum_count': 1,
-                'acquire': True,
-                'autofocus': False,
-            },
-            'Blue': {
-                'color': 'Blue',
-                'false_color': False,
-                'illumination_ma': 50,
-                'gain_db': 6,
-                'auto_gain': False,
-                'exposure_ms': 200,
-                'sum_count': 1,
-                'acquire': True,
-                'autofocus': False,
-            },
-        },
-    }
+LAYERS = ('BF', 'Blue')
+# One well, in plate millimetres: well A1 of the selected plate.
+WELL = {'x': 14.38, 'y': 11.24, 'name': 'A1'}
 
 
 def main():
@@ -85,67 +42,52 @@ def main():
     # drivers on the installation's data folder, configures the scope from
     # the settings, starts the camera feed and the executor lanes.
     session = ScopeSession.create(settings, simulate=True)
-    session.set_live_folder(str(pathlib.Path('./capture').resolve()))
-    print('Session created, scope configured (simulate=True)')
+    try:
+        # A real script names its own folder; this one leaves nothing behind.
+        with tempfile.TemporaryDirectory() as live:
+            run_one_scan(session, live)
+    finally:
+        # The factory built the scope, so shutdown disconnects it.
+        session.shutdown()
+    print('Session shut down')
 
-    # Build the protocol configuration
-    config = build_protocol_config()
-    print('\nProtocol config:')
-    print(f'  Positions: {len(config["positions"])}')
-    print(f'  Channels: {list(config["layer_configs"].keys())}')
-    print(f'  Period: {config["period"]}')
-    print(f'  Duration: {config["duration"]}')
 
-    # NOTE: Creating a Protocol from a config dict requires a tiling
-    # configurations file. For this example, we show the setup without
-    # actually executing, since building a protocol depends on data
-    # files that may not be present in all environments.
-    #
-    # In a real application with the full LumaViewPro installation:
-    #
-    #   # The scope resolves data/tiling.json and hands the protocol its
-    #   # labware and objective catalogues.
-    #   protocol = session.scope.protocols.create_protocol(input_config=config)
-    #
-    #   # The run captures in the session's image mode
-    #   # (session.scope.camera.set_image_mode(...) chooses it).
-    #
-    #   # Run a single scan (captures all positions/channels once)
-    #   pending = runner.start_single_scan(
-    #       protocol=protocol,
-    #       sequence_name="my_scan",
-    #       parent_dir=pathlib.Path("./output"),
-    #   )
-    #
-    #   # Monitor progress through the run's operation
-    #   progress = pending.progress()
-    #   print(f"Running: {progress.is_live}, step {progress.step_number} of {progress.num_steps}")
-    #   print(f"Output dir: {progress.run_dir}")
-    #
-    #   # Wait for the run to end, then read HOW it ended. A bound that
-    #   # expires first raises TimeoutError and leaves the run going; status
-    #   # is completed/incomplete/aborted/failed/failed_at_start and reason
-    #   # is the machine-readable cause; result.captures says what was
-    #   # captured of what was asked for.
-    #   result = pending.result(timeout=300)
-    #   print(f"Ended: {result.status} ({result.reason}) -- {result.message}")
-    #
-    #   # For a full timed protocol (repeats scans over duration):
-    #   pending = runner.start_protocol(
-    #       protocol=protocol,
-    #       sequence_name="my_protocol",
-    #   )
-    #
-    #   # To stop it, through its operation; result says when it has ended:
-    #   pending.stop()
-    #   pending.result(timeout=60)
+def run_one_scan(session, live):
+    session.set_live_folder(live)
 
-    print('\nProtocol setup complete (not executed in simulate-only example)')
-    print('See comments in source for full execution flow')
+    # Every run moves the stage, so it is refused (position_unknown) until
+    # the axes have been homed.
+    session.scope.motion.home('ALL')
 
-    # Clean up: the factory built the scope, so shutdown disconnects it.
-    session.shutdown()
-    print('Scope disconnected')
+    # The layers set to acquire are the ones a protocol builds steps for.
+    for layer in LAYERS:
+        session.set_layer_acquire(layer, 'image')
+
+    # The configuration a run takes, from the session's settings: the
+    # plate, the objective, the frame and each layer's settings. Adjust it
+    # as you need; here, one well at the current focus.
+    config = session.get_sequenced_capture_config()
+    config['positions'] = [{**WELL, 'z': config['current_z']}]
+    protocol = session.scope.protocols.create_protocol(input_config=config)
+    print(f'Protocol: {protocol.num_steps()} steps, layers {list(LAYERS)}')
+
+    # The run captures in the session's image mode and output formats
+    # (session.scope.camera.set_image_mode(...) chooses the mode).
+    runner = session.create_protocol_runner()
+    pending = runner.start_single_scan(protocol, sequence_name='example_scan')
+
+    # Wait for the run to end, then read HOW it ended: status is
+    # completed/incomplete/aborted/failed/failed_at_start, reason the
+    # machine-readable cause, captures what was captured of what was asked.
+    # A bound that expires first raises and leaves the run going;
+    # pending.stop() stops it.
+    result = pending.result(timeout=300)
+    print(f'Ended: {result.status} ({result.reason}) -- {result.message}')
+    print(f'Captured {result.captures.captured} of {result.captures.asked}')
+
+    # runner.start_protocol(protocol, sequence_name=...) runs the full timed
+    # protocol, a scan every period for its duration, and returns the same
+    # kind of operation.
 
 
 if __name__ == '__main__':
