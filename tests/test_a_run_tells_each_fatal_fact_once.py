@@ -192,12 +192,16 @@ def test_a_floor_met_after_the_run_settled_is_told_once_as_lost_images(
     tmp_path, monkeypatch, centre_posts, caplog
 ):
     """The disk answers slowly, as a dying disk's might: the run queues its
-    writes and settles 'completed' before the first one meets the floor."""
+    writes and settles 'completed' before the first one meets the floor.
+
+    The file lane's floor check answers only once the run has settled, so
+    the order holds however long the run takes on this host."""
     import modules.lumascope_api.illumination as illumination
     import modules.protocol_run_loop  # noqa: F401 -- binds the run's own floor check first
 
     settled_at = []
     darkened_at = []
+    settled = threading.Event()
     real_force_off = illumination.IlluminationAPI.force_off
 
     def counted_force_off(self, *args, **kwargs):
@@ -205,7 +209,7 @@ def test_a_floor_met_after_the_run_settled_is_told_once_as_lost_images(
         return real_force_off(self, *args, **kwargs)
 
     def slow_floor(path, mb):
-        time.sleep(0.5)
+        settled.wait(WAIT_S)
         return (False, 1.0)
 
     monkeypatch.setattr(illumination.IlluminationAPI, 'force_off', counted_force_off)
@@ -219,6 +223,7 @@ def test_a_floor_met_after_the_run_settled_is_told_once_as_lost_images(
         run = runner.start_single_scan(protocol=_protocol(steps), parent_dir=str(tmp_path / 'runs'))
         outcome = run.result(timeout=WAIT_S)
         settled_at.append(time.monotonic())
+        settled.set()
         files = run.files.result(timeout=WAIT_S)
 
     posts = [(n.title, n.shown) for n in centre_posts[start:]]
