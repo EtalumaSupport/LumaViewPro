@@ -803,6 +803,21 @@ class TestFinishThreadResilience:
         assert not controller.is_busy
 
 
+class TestTheStopIsTheUsers:
+    def test_a_callers_stop_ends_it_as_the_users_and_can_name_no_other_reason(self, tmp_path):
+        controller, scope, clock = make_controller(tmp_path)
+        controller.start()
+        feed_frames(scope, clock, 3, fps=10.0)
+
+        with pytest.raises(TypeError):
+            controller.stop(reason='disk_floor')
+        assert controller.is_recording
+
+        controller.stop()
+        assert controller.end_reason == 'user_stop'
+        finish(controller)
+
+
 class TestDurationCap:
     def test_tick_stops_at_max_duration(self, tmp_path):
         controller, scope, clock = make_controller(tmp_path, duration_s=2)
@@ -812,6 +827,7 @@ class TestDurationCap:
         clock.advance(2.0)
         controller._scheduler.fire()
         assert not controller.is_recording
+        assert controller.end_reason == 'duration_elapsed'
         finish(controller)
 
     def test_a_wall_clock_step_does_not_end_it(self, tmp_path):

@@ -642,19 +642,22 @@ class ManualRecordingController:
         self._finishing = False
 
     @api
-    def stop(self, reason: str = 'user_stop') -> None:
+    def stop(self) -> None:
         """Close selection; the drain and finish continue on their own.
 
-        Args:
-            reason: The manifest's ``end_reason``. The default names the
-                public surface's own meaning -- external callers (the
-                Record button, app close, an L2 client) ARE the user
-                stop; internal enders (duration cap, disk floor) pass
-                their own reason.
+        Every caller of this -- the Record button, app close, an L2 client
+        -- is the user stopping the recording, so its ``end_reason`` is
+        ``'user_stop'``. The controller's own enders (the duration cap, the
+        disk floor, a lost camera) name theirs through ``_end``, and no
+        caller can write one of those into the manifest.
 
         Raises:
             Nothing.
         """
+        self._end('user_stop')
+
+    def _end(self, reason: str) -> None:
+        """Close selection as *reason*, the manifest's ``end_reason``."""
         engine = self._engine
         if engine is None:
             return
@@ -707,7 +710,7 @@ class ManualRecordingController:
         if engine is None or not engine.is_recording or start_ts is None or config is None:
             return
         if self._elapsed_clock() - start_ts >= config.duration_s:
-            self.stop(reason='duration_elapsed')
+            self._end('duration_elapsed')
             return
         if not self._scope.camera.active:
             self._stop_for_camera_loss(reason='camera_disconnected')
@@ -734,7 +737,7 @@ class ManualRecordingController:
     def _stop_for_camera_loss(self, reason: str) -> None:
         # The person reads one sentence for both reasons; the log keeps which.
         logger.info(f'[ManualRecord] Camera feed lost mid-recording ({reason})')
-        self.stop(reason=reason)
+        self._end(reason)
         notifications.report_outcome(
             RecordingStoppedError(reason), solicited=False, category='Recording'
         )
@@ -870,7 +873,7 @@ class ManualRecordingController:
             notifications.report_outcome(
                 RecordingStoppedError('disk_floor'), solicited=False, category='Recording'
             )
-            self.stop(reason='disk_floor')
+            self._end('disk_floor')
 
     # ------------------------------------------------------------------
     # Post-drain finish (its own short-lived thread, one per recording)
