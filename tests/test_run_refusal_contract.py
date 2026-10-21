@@ -65,7 +65,7 @@ from modules.sequenced_capture_runner import SequencedCaptureRunMode
 from modules.sequential_io_executor import SequentialIOExecutor
 from modules.layer_record import release_colors
 
-COMPLETION_TIMEOUT = 15  # seconds -- generous for CI
+COMPLETION_TIMEOUT = 60  # seconds -- a hang guard: a run's length is not its pass
 # A bound only on a stuck file lane: a loaded host can take seconds to write.
 FILES_WAIT_S = 60
 

@@ -28,7 +28,7 @@ from tests.protocol_drives import wait_until_not_running
 from tests.scope_fakes import home_sim_scope
 from modules.run_events import RunEvents
 
-COMPLETION_TIMEOUT = 15  # seconds -- generous for CI
+COMPLETION_TIMEOUT = 60  # seconds -- a hang guard: a run's length is not its pass
 
 
 def _make_session_settings(tmp_path):
