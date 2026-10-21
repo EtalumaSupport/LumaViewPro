@@ -1097,14 +1097,29 @@ class Protocol:
 
     @api(reads=True)
     def period(self) -> datetime.timedelta:
+        """How often the protocol scans; zero or None for one scan.
+
+        Raises:
+            Nothing.
+        """
         return self._config['period']
 
     @api(reads=True)
     def duration(self) -> datetime.timedelta:
+        """How long the protocol runs its scans; zero or None for one scan.
+
+        Raises:
+            Nothing.
+        """
         return self._config['duration']
 
     @api(reads=True)
     def labware(self) -> str:
+        """The catalogue key of the plate the protocol's steps are placed on.
+
+        Raises:
+            Nothing.
+        """
         return self._config['labware_id']
 
     @api(reads=True)
@@ -1115,6 +1130,9 @@ class Protocol:
         when the steps' tiles form a grid this installation offers; None
         when they are tiled in a layout it does not offer, which only a
         hand-edited file produces, since every offered grid is square.
+
+        Raises:
+            Nothing.
         """
         tiles = [t for t in self._config['steps']['Tile'] if t not in (None, '')]
         if not tiles:
@@ -1142,7 +1160,11 @@ class Protocol:
 
     @api(reads=True)
     def capture_root(self) -> str:
-        """The capture root as it was typed or loaded."""
+        """The capture root as it was typed or loaded.
+
+        Raises:
+            Nothing.
+        """
         return self._config.get('capture_root', '')
 
     @api(reads=True)
@@ -1152,6 +1174,9 @@ class Protocol:
         The one derivation, read by the image writer and by post-processing:
         two derivations named the images ``exp202610_A1_BF`` and looked for
         ``exp/2026:10_A1_BF``. Empty when there is no root.
+
+        Raises:
+            Nothing.
         """
         return self.sanitize_step_name(self.capture_root() or '')
 
@@ -1368,6 +1393,11 @@ class Protocol:
 
     @api
     def optimize_step_ordering(self) -> None:
+        """Order the steps for travel: by place, then by objective and Z at each place.
+
+        Raises:
+            Nothing.
+        """
         steps = self._config['steps']
 
         if len(steps) == 0:
@@ -1511,6 +1541,9 @@ class Protocol:
                 the missing LED controller.
 
         Returns an empty list if all steps are valid.
+
+        Raises:
+            Nothing.
         """
         errors = []
         steps = self._config['steps']
@@ -1636,6 +1669,11 @@ class Protocol:
 
     @api(reads=True)
     def num_steps(self) -> int:
+        """How many steps the protocol holds.
+
+        Raises:
+            Nothing.
+        """
         if self._num_steps_cache is None:
             self._num_steps_cache = len(self._config['steps'])
         return self._num_steps_cache
@@ -1661,6 +1699,11 @@ class Protocol:
     @api
     @property
     def step_list_revision(self) -> int:
+        """A count that changes whenever the step list does, for a reader to tell it changed.
+
+        Raises:
+            Nothing.
+        """
         return self._step_list_revision
 
     def _step_list_changed(self) -> None:
@@ -1802,6 +1845,9 @@ class Protocol:
         through its writers. Readers inside this class use the stored frame.
         A step with no position on an axis holds NaN in that column, the
         frame's own missing value; ``step`` answers None for it.
+
+        Raises:
+            Nothing.
         """
         return self._config['steps'].copy()
 
@@ -1840,6 +1886,9 @@ class Protocol:
 
         Returns:
             Estimated megabytes the whole protocol will write.
+
+        Raises:
+            Nothing.
         """
         steps = self._config['steps']
         n_steps = len(steps)
@@ -1878,6 +1927,9 @@ class Protocol:
 
         Advisory only. Nothing here refuses anything -- a legitimate large
         protocol runs untouched, and the run-start disk guard is unchanged.
+
+        Raises:
+            Nothing.
         """
         num_steps = self.num_steps()
         if num_steps <= common_utils.PROTOCOL_SIZE_ADVISORY_STEPS:
@@ -1898,11 +1950,22 @@ class Protocol:
 
     @api
     def modify_autofocus(self, step_idx: int, enabled: bool) -> None:
+        """Turn autofocus on or off for the step at ``step_idx``.
+
+        Raises:
+            StepNotFoundError: ``step_idx`` is not a step of this protocol.
+                Nothing changes.
+        """
         self._refuse_unless_in_range(step_idx)
         self._config['steps'].at[step_idx, 'Auto_Focus'] = self._typed_value('Auto_Focus', enabled)
 
     @api
     def modify_autofocus_all_steps(self, enabled: bool) -> None:
+        """Turn autofocus on or off for every step.
+
+        Raises:
+            Nothing.
+        """
         for idx, _ in self._config['steps'].iterrows():
             self.modify_autofocus(step_idx=idx, enabled=enabled)
 
@@ -2045,6 +2108,11 @@ class Protocol:
 
     @api
     def modify_capture_root(self, capture_root: str) -> None:
+        """Set the capture root, which prefixes the run's saved file names (``capture_prefix``).
+
+        Raises:
+            Nothing.
+        """
         self._config['capture_root'] = capture_root
 
     def _render_step_names(self) -> None:
@@ -2266,6 +2334,9 @@ class Protocol:
         X, Y or Z is None where the step has no position on that axis: the
         frame's NaN does not cross the wire, and None is what every record
         says for no position.
+
+        Raises:
+            StepNotFoundError: ``idx`` is not a step of this protocol.
         """
         self._refuse_unless_in_range(idx)
         row = to_python_scalars(self._config['steps'].iloc[idx]).astype(object)

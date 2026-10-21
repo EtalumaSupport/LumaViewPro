@@ -120,9 +120,10 @@ _REASON_UNNAMED_PINNED = frozenset(
 # nothing (Eric, 2026-10-20); 154 since
 # PostProcessingAPI.default_cell_count_method, a fresh copy of the panel's
 # starting method that raises nothing (Eric, 2026-10-20); 90 as the scope's
-# sub-APIs say what they raise, Nothing. included. The count does not yet
-# tell a member that raises nothing from one that has not said.
-_WITHOUT_A_SECTION_CEILING = 90
+# sub-APIs say what they raise, Nothing. included; 31 as the Session and the
+# Protocol do. The count does not yet tell a member that raises nothing from
+# one that has not said.
+_WITHOUT_A_SECTION_CEILING = 31
 
 
 def _sections():

@@ -298,13 +298,20 @@ class ControlsLock:
         A finished run's files hold it until the last one is written,
         though the run has freed its claim: the controls stay locked until
         the queue empties.
+
+        Raises:
+            Nothing.
         """
         return self.run_named is not None
 
     @api
     @property
     def controls_locked(self) -> bool:
-        """True while the whole control surface locks: the run surface is held, or a recording is live."""
+        """True while the whole control surface locks: the run surface is held, or a recording is live.
+
+        Raises:
+            Nothing.
+        """
         return self.run_lockout or self.recording
 
 
@@ -631,7 +638,11 @@ class ScopeSession:
     @api
     @property
     def source_path(self) -> pathlib.Path:
-        """The data folder this session runs on: its scope's, never a copy."""
+        """The data folder this session runs on: its scope's, never a copy.
+
+        Raises:
+            Nothing.
+        """
         return self.scope.source_path
 
     @property
@@ -740,6 +751,9 @@ class ScopeSession:
         What a run control greys on while leaving its own run's Stop live;
         None, or no run given, asks whether anything holds the scope at all
         (``live_work`` names what does).
+
+        Raises:
+            Nothing.
         """
         return self.sequenced_capture_runner.held_by_other(run)
 
@@ -768,6 +782,9 @@ class ScopeSession:
         a build how far it has got. Read lock-free, owner by owner, from any
         thread; ``closing`` while the close runs, ``closed`` once the
         session has shut down. A wire client reads it in ``status``.
+
+        Raises:
+            Nothing.
         """
         work: list[WorkItem] = []
         runner = self.sequenced_capture_runner
@@ -880,6 +897,9 @@ class ScopeSession:
         -- a recording's file, a run's video -- for a close or any caller;
         each file is finished with what was written, and frames already on
         disk stay.
+
+        Raises:
+            Nothing.
         """
         self.manual_recording.discard_pending()
         self.sequenced_capture_runner.discard_video_pending()
@@ -899,7 +919,11 @@ class ScopeSession:
         """True while a run's files are draining and the write in flight has
         stopped making progress -- by the same stall threshold the run
         refusal uses, so what a display says of a stuck writer and what a
-        new run is refused for cannot disagree."""
+        new run is refused for cannot disagree.
+
+        Raises:
+            Nothing.
+        """
         from modules.protocol_image_writer import WRITE_STALL_FATAL_S
 
         batch = self._draining_batch()
@@ -908,7 +932,11 @@ class ScopeSession:
     @api
     @property
     def protocol_files_stuck_write(self) -> str:
-        """The write in flight on the file lane, named for a stall report."""
+        """The write in flight on the file lane, named for a stall report.
+
+        Raises:
+            Nothing.
+        """
         return self.file_io_executor.describe_running_task()
 
     @api(in_process=True)
@@ -921,6 +949,9 @@ class ScopeSession:
         or a finished run's files still writing; the whole surface also by
         a live manual recording. The one rule every lock read reads; a wire
         client reads it in ``status``.
+
+        Raises:
+            Nothing.
         """
         holder = self.activity_claim.holder
         if holder is not None and holder.kind in SCOPE_HOLDING_KINDS:
@@ -969,13 +1000,20 @@ class ScopeSession:
         edge but the camera's, which is asked just after
         (``status_at_edge``); a field that changes with no edge (an axis,
         a part, the camera) is as of that edge.
+
+        Raises:
+            Nothing.
         """
         self._run_state_listeners.append(listener)
         listener()
 
     @api(in_process=True)
     def remove_run_state_listener(self, listener: Callable[[], None]) -> None:
-        """Stop telling ``listener`` of run-state transitions; a listener never added is a no-op."""
+        """Stop telling ``listener`` of run-state transitions; a listener never added is a no-op.
+
+        Raises:
+            Nothing.
+        """
         with contextlib.suppress(ValueError):
             self._run_state_listeners.remove(listener)
 
@@ -1021,6 +1059,9 @@ class ScopeSession:
         to ``create(outcome_listener=...)`` to hear it. The outcomes heard are
         every session's in this process, as the notification centre is one
         per process. ``shutdown()`` removes the listener.
+
+        Raises:
+            Nothing.
         """
         from modules.notification_center import Severity, notifications
 
@@ -1029,7 +1070,11 @@ class ScopeSession:
 
     @api(in_process=True)
     def remove_outcome_listener(self, listener: Callable[['Notification'], None]) -> None:
-        """Stop ``listener`` hearing outcomes; a listener never added is a no-op."""
+        """Stop ``listener`` hearing outcomes; a listener never added is a no-op.
+
+        Raises:
+            Nothing.
+        """
         from modules.notification_center import notifications
 
         notifications.remove_listener(listener)
@@ -1056,6 +1101,9 @@ class ScopeSession:
         ``dispatcher.thread`` is the thread ``schedule`` delivers on: a
         run's ``wait()`` on that thread is refused, since what it waits for
         is delivered there.
+
+        Raises:
+            Nothing.
         """
         kivy_utils._set_ui_dispatcher(dispatcher)
 
@@ -1405,6 +1453,9 @@ class ScopeSession:
         settings_file=ScopeSession.user_settings_file(root))``, as the GUI
         and the REST server do. ``load_user_settings`` reads this file
         first. Nothing is read or created here.
+
+        Raises:
+            Nothing.
         """
         return settings_init.current_json_path(source_path)
 
@@ -1732,6 +1783,20 @@ class ScopeSession:
         config never carries a number nobody read; ``new_protocol`` refuses
         that before a step would be saved at it. A scope with no Z motor
         takes the plate read's answer.
+
+        Raises:
+            ObjectiveUnknownError: the objective in the light path is unknown:
+                ``'slot_unknown'``, ``'slot_unassigned'`` or
+                ``'not_in_catalogue'`` on a turret scope; ``'none_selected'``
+                with no turret.
+            ProtocolScheduleRefusedError: the stored period or duration is one
+                no protocol can run.
+            ConfigError: the stored z-stack will not parse (as
+                ``get_zstack_params``).
+            AxisStateUnknownError: a scope with no Z motor, and an axis it has
+                does not know its position (as ``get_current_plate_position``).
+            HardwareCommandRefusedError: ``'not_connected'``, a scope with no Z
+                motor whose model's motor controller is not connected.
         """
         import modules.config_helpers as config_helpers
 
@@ -2140,6 +2205,10 @@ class ScopeSession:
         created while the objective in the light path is unknown -- at
         startup, before the turret is in a known slot. Steps added later
         carry the objective they were taken with.
+
+        Raises:
+            ProtocolScheduleRefusedError: the stored period or duration is one
+                no protocol can run.
         """
         import modules.config_helpers as config_helpers
 
@@ -2173,6 +2242,23 @@ class ScopeSession:
 
         Returns the inserted step names, in protocol order: each stack's
         slices when stacked.
+
+        Raises:
+            ProtocolRunRefusedError: ``'step_position_unknown'``, an axis does
+                not know its position; ``'turret_objective_unset'``, the
+                turret's current slot has no objective; ``'objective_unknown'``,
+                the objective in the light path is unknown;
+                ``'no_acquiring_layer'``, no layer acquires. With
+                ``use_zstacking``, also ``'zstack_not_configured'``,
+                ``'positions_unreachable'`` or ``'zslices_outside_travel'``, as
+                ``apply_zstacking`` refuses the stored stack. Logged and
+                notified once; nothing is added.
+            ConfigError: with ``use_zstacking``, the stored z-stack will not
+                parse (as ``get_zstack_params``).
+            HardwareCommandRefusedError: ``'not_connected'``, the model's motor
+                controller is not connected, so there is no live position.
+            ProtocolError: an impossible ``before_step`` / ``after_step``, or
+                both given (raised by the protocol).
         """
         # None when unknown: the protocols API refuses that by name, notified.
         objective_id = self.scope.runtime_state.get_current_objective_id()
@@ -2339,6 +2425,9 @@ class ScopeSession:
 
         What ``save_bookmark`` and ``save_all_bookmarks`` stored, in the
         frame the go-to-bookmark moves read it in.
+
+        Raises:
+            Nothing.
         """
         with self.settings_lock:
             stored = self.settings['bookmark']
@@ -2789,7 +2878,11 @@ class ScopeSession:
     @api(reads=True)
     @property
     def shown_channel(self) -> ShownChannel:
-        """The channel the scope shows: its layer, and whether its LED is lit."""
+        """The channel the scope shows: its layer, and whether its LED is lit.
+
+        Raises:
+            Nothing.
+        """
         return self._shown_channel
 
     @api
@@ -2900,12 +2993,19 @@ class ScopeSession:
 
         It is called on the thread that changed it, so a GUI listener
         schedules its drawing.
+
+        Raises:
+            Nothing.
         """
         self._shown_channel_listeners.append(listener)
 
     @api(in_process=True)
     def remove_shown_channel_listener(self, listener: Callable[[str, bool], None]) -> None:
-        """Stop telling ``listener``; a listener never added is a no-op."""
+        """Stop telling ``listener``; a listener never added is a no-op.
+
+        Raises:
+            Nothing.
+        """
         with contextlib.suppress(ValueError):
             self._shown_channel_listeners.remove(listener)
 
@@ -2918,6 +3018,9 @@ class ScopeSession:
         as frames, and the global FPS cap) are the session's, resolved the
         way the run path resolves them, so the advisory and the run it is
         advising about cannot be sized differently.
+
+        Raises:
+            Nothing.
         """
         import modules.config_helpers as config_helpers
         from modules.protocol_state_machine import SequencedCaptureRunMode
@@ -2941,6 +3044,9 @@ class ScopeSession:
         ``objective_id`` is the active objective, as ``get_setting`` answers
         it: on a turret scope, the slot's in the light path, or None while
         that is unknown.
+
+        Raises:
+            Nothing.
         """
         objective_id = self.scope.runtime_state.get_current_objective_id()
         snapshot = self._copy_of_the_store()
@@ -3215,6 +3321,9 @@ class ScopeSession:
         """Remember ``file_path`` as the protocol to open at the next start; ``''`` forgets it.
 
         The one writer of ``protocol.filepath``, which the next start opens.
+
+        Raises:
+            Nothing.
         """
         with self.settings_lock:
             self._store_setting('protocol.filepath', file_path)
@@ -3415,6 +3524,9 @@ class ScopeSession:
 
         The running scope's model is ``scope.capabilities.model``; the two
         differ until the next bring-up, which ``model_at_next_start`` says.
+
+        Raises:
+            Nothing.
         """
         return self.settings['microscope']
 
@@ -3426,6 +3538,9 @@ class ScopeSession:
         What ``select_model`` saved waits for the next bring-up, so until
         then the scope runs as one model and the settings name another; a
         caller shows this rather than comparing the two itself.
+
+        Raises:
+            Nothing.
         """
         saved = self.settings['microscope']
         return None if saved == self.scope.layer_identity.model else saved
@@ -3688,6 +3803,9 @@ class ScopeSession:
         to ``create(outcome_listener=...)`` heard these as outcomes; this is
         the same facts held, read-through from the scope and the settings
         store, for one that connects afterwards.
+
+        Raises:
+            Nothing.
         """
         from modules.lumascope_api.bring_up import SettingsSetAside
 
@@ -3790,6 +3908,9 @@ class ScopeSession:
         ``version.txt``'s first line, through its one reader. A build with no
         readable ``version.txt`` answers None rather than a name it does not
         have.
+
+        Raises:
+            Nothing.
         """
         version, _build_timestamp = path_utils.read_version()
         return version or None
@@ -3803,6 +3924,9 @@ class ScopeSession:
         packaged build the installer did not install. ``installed``: a
         packaged build in the folder the installer wrote, whose data lives in
         the user's Documents folder.
+
+        Raises:
+            Nothing.
         """
         return path_utils.app_runtime()
 
@@ -3811,6 +3935,9 @@ class ScopeSession:
         """The loaded plugins, the ones that did not load, and their runtime errors.
 
         None on a session whose host never asked for plugins (``load_plugins``).
+
+        Raises:
+            Nothing.
         """
         return None if self.plugins is None else self.plugins.health()
 
@@ -3846,6 +3973,9 @@ class ScopeSession:
         first; ``shutdown`` calls it as its first step for every other host.
         A second call, and a call on a session with no plugins, does
         nothing. A plugin's own failure is logged and the rest unload.
+
+        Raises:
+            Nothing.
         """
         if self.plugins is not None:
             self.plugins.unload(self)
@@ -3892,6 +4022,9 @@ class ScopeSession:
 
         ``modules.plugins.PLUGIN_API_LEVEL``; each level's additions are
         listed in LumascopeSkills.md, "Plugin API level".
+
+        Raises:
+            Nothing.
         """
         return PLUGIN_API_LEVEL
 
@@ -3904,6 +4037,9 @@ class ScopeSession:
         memory and not saved (``SettingsNotSavedNotice``) -- resolve with
         retire_rejected_settings() after the user has chosen to start
         over.
+
+        Raises:
+            Nothing.
         """
         return settings_init.settings_are_provisional()
 
@@ -3917,6 +4053,11 @@ class ScopeSession:
         its next accepted write, and at its close. Call only
         after a human has chosen to start over. Returns the retired
         path, or None when nothing was provisional.
+
+        Raises:
+            SettingsFileNotReplacedError: the rejected file could not be moved
+                aside. The settings stay provisional, so the question can be
+                answered again.
         """
         return settings_init.retire_rejected_current_json()
 
@@ -4152,6 +4293,9 @@ class ScopeSession:
         the one ``select_objective`` selected
         (``scope.runtime_state.resolve_current_objective`` says why it is
         unknown).
+
+        Raises:
+            Nothing.
         """
         return self.scope.runtime_state.get_current_objective_id()
 
@@ -4257,6 +4401,9 @@ class ScopeSession:
         """The current plate's catalogue key, the one ``select_labware`` selected.
 
         Its record is ``scope.runtime_state.get_labware()``.
+
+        Raises:
+            Nothing.
         """
         return self.settings['protocol']['labware']
 
@@ -4466,6 +4613,9 @@ class ScopeSession:
 
         The one writer of ``scale_bar.enabled``, which the imaging API reads
         at each capture.
+
+        Raises:
+            Nothing.
         """
         with self.settings_lock:
             self._store_setting('scale_bar.enabled', enabled)
@@ -4473,7 +4623,11 @@ class ScopeSession:
     @api
     @property
     def scale_bar_enabled(self) -> bool:
-        """Whether captured images are drawn with the scale bar, as ``set_scale_bar`` set it."""
+        """Whether captured images are drawn with the scale bar, as ``set_scale_bar`` set it.
+
+        Raises:
+            Nothing.
+        """
         return self.settings['scale_bar']['enabled']
 
     @api
@@ -4483,6 +4637,9 @@ class ScopeSession:
 
         The one ``set_acceleration_limit`` stored, which bring-up gives the
         motor controller.
+
+        Raises:
+            Nothing.
         """
         return self.settings['motion']['acceleration_max_pct']
 
@@ -4531,6 +4688,9 @@ class ScopeSession:
         pair) is session composition, so there is nothing per-call to
         configure -- and nothing for a second caller's differing
         configuration to silently lose.
+
+        Raises:
+            Nothing.
         """
         from modules.protocol_runner import ProtocolRunner
 
@@ -4595,6 +4755,9 @@ class ScopeSession:
         Never shuts the scheduler itself down -- a shut scheduler
         refuses all future schedules, and the host may start metrics
         again with the same instance.
+
+        Raises:
+            Nothing.
         """
         if not self._metrics_started:
             return
