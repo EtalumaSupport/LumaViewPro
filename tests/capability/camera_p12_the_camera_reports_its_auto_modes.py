@@ -13,8 +13,10 @@ its ceiling are measured rather than guessed.
     python tests/capability/camera_p12_the_camera_reports_its_auto_modes.py             # simulator
     python tests/capability/camera_p12_the_camera_reports_its_auto_modes.py --hardware  # a Basler scope
 
-On hardware: a transmitted-light sample in the field, nothing else moving.
-The probe lights BF, runs a one-shot, holds continuous auto-gain for a
+On hardware: a transmitted-light sample in the field, nothing else moving,
+and the BF layer's illumination set in LumaViewPro to a mid-range field:
+the probe lights BF at that stored current, since a field the loop can only
+answer at the camera's shortest exposure never settles. It runs a one-shot, holds continuous auto-gain for a
 minute, writes the gain under it, then arms twice more from a dark and a
 bright start, recording every frame's chunks. It turns the loop and the LED
 off at the end. Nothing is saved and the stage does not move beyond the
@@ -35,7 +37,6 @@ AUTO_GAIN = {
     'max_exposure_ms': 100.0,
     'min_exposure_ms': 0.1,
 }
-BF_MA = 50.0
 ONCE_WATCH_S = 15.0
 CONTINUOUS_HOLD_S = 60.0
 SETTLE_RECORD_S = 10.0
@@ -170,23 +171,31 @@ def _settle(scope, label, gain_db, exposure_ms):
         },
     )
     check(f'{label}: frames carry chunk gain and exposure', len(under) > 0)
+    first = steady[f'window_{WINDOWS[-1]}']
     check(
         f'{label}: the loop holds steady within the record',
-        steady[f'window_{WINDOWS[-1]}'] is not None,
-        f'no {WINDOWS[-1]} frames in a row steady in {SETTLE_RECORD_S} s',
+        first is not None,
+        f'no {WINDOWS[-1]} frames in a row steady in {SETTLE_RECORD_S} s'
+        if first is None
+        else f'{WINDOWS[-1]} frames in a row steady from frame {first} under the arm',
     )
 
 
 def _probe(session):
     scope = session.scope
     camera = scope.camera
-    check(
+    has_auto_gain = check(
         'the camera has hardware auto-gain',
         scope.capabilities.camera_supports_auto_gain,
         'this probe is for a body with auto-gain (a Basler)',
     )
     figure('camera', {'model': scope.capabilities.camera_model, 'at_bring_up': _modes(camera)})
-    scope.illumination.led_on('BF', BF_MA)
+    # Every step below arms a loop this camera does not have.
+    if not has_auto_gain:
+        return
+    bf_ma = session.get_layer_configs(['BF'])['BF']['illumination_ma']
+    figure('BF mA, the layer stored', bf_ma)
+    scope.illumination.led_on('BF', bf_ma)
     try:
         _one_shot(camera)
         _continuous_hold(camera)
