@@ -153,6 +153,24 @@ def test_leaving_engineering_mode_answers_whether_it_happened(led):
     assert board.exit_engineering_mode() is True
 
 
+def test_an_led_write_the_slowest_shipped_firmware_answers_is_confirmed(led):
+    """The 2024-06-05 LED firmware answers a 1000 mA write in about 150 ms."""
+    board, sim = led
+    sim.delay_next_reply(0.15)
+    board.led_on(1, 1000)
+    assert board.last_command_error is None
+
+
+def test_an_led_write_answered_past_the_wait_is_unconfirmed(led):
+    board, sim = led
+    sim.delay_next_reply(0.5)
+    board.led_on(1, 1000)
+    assert board.last_command_error == {
+        'op': 'led_on(ch=1, mA=1000)',
+        'reason': 'no response from LED board',
+    }
+
+
 def test_the_simulated_board_answers_its_exit_as_the_real_one_does():
     assert SimulatedLEDBoard().exit_engineering_mode() is True
 

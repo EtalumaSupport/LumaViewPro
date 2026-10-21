@@ -44,7 +44,9 @@ class LEDBoard(SerialBoard):
     # Initialize connection through microcontroller
     # ----------------------------------------------------------
     def __init__(self, backend: SerialBackend = PYSERIAL, **kwargs):
-        super().__init__(vid=0x0424, pid=0x704C, label='[LED Class ]', backend=backend)
+        # The slowest shipped LED firmware (2024-06-05) answers a 1000 mA
+        # write in about 150 ms; the motor board's 0.1 s would give up first.
+        super().__init__(vid=0x0424, pid=0x704C, label='[LED Class ]', timeout=0.3, backend=backend)
 
         # Set by _safety_leds_off() at connect time. None when the board
         # confirmed LEDS_OFF; the reason when it did not answer, or
