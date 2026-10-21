@@ -46,6 +46,7 @@ import pytest
 
 from modules.exceptions import HardwareCommandRefusedError
 from modules.frame_validity import FrameRule, Rule
+from modules.lumascope_api.camera import CameraAutoMode
 from modules.scope_capabilities import FrameSize
 from tests.scope_fakes import homed_sim_scope
 
@@ -83,7 +84,7 @@ FAMILIES = [
         },
         'camera',
     ),
-    ('camera', 'set_auto_exposure', {'state': True}, 'camera'),
+    ('camera', 'set_auto_exposure', {'mode': CameraAutoMode.CONTINUOUS}, 'camera'),
     ('camera', 'set_frame_size', {'width': 640, 'height': 480}, 'camera'),
     ('camera', 'set_binning', {'size': 1}, 'camera'),
     ('camera', 'set_image_mode', {'mode': '8bit'}, 'camera'),

@@ -28,6 +28,7 @@ from tests.scope_fakes import (
     home_sim_scope,
     bind_settings_like_a_session,
     give_camera_and_imaging,
+    give_capabilities_of_a_camera_without_auto_modes,
     led_reading,
 )
 from tests.protocol_drives import lent_run_claim
@@ -3908,6 +3909,7 @@ class TestDeviceLinkThroughputLimitSetter:
         bind_settings_like_a_session(scope)
         scope.runtime_state = RuntimeState(scope)
         scope._camera_driver = fake_camera
+        give_capabilities_of_a_camera_without_auto_modes(scope)
         give_camera_and_imaging(scope)
         return scope
 
@@ -6042,6 +6044,7 @@ class TestAcquisitionStopModeSetter:
         bind_settings_like_a_session(scope)
         scope.runtime_state = RuntimeState(scope)
         scope._camera_driver = fake_camera
+        give_capabilities_of_a_camera_without_auto_modes(scope)
         give_camera_and_imaging(scope)
         return scope
 
@@ -6178,6 +6181,7 @@ class TestGigeSetters:
         bind_settings_like_a_session(scope)
         scope.runtime_state = RuntimeState(scope)
         scope._camera_driver = fake_camera
+        give_capabilities_of_a_camera_without_auto_modes(scope)
         give_camera_and_imaging(scope)
         return scope
 
@@ -6410,6 +6414,7 @@ class TestStreamGrabberSetters:
         bind_settings_like_a_session(scope)
         scope.runtime_state = RuntimeState(scope)
         scope._camera_driver = fake_camera
+        give_capabilities_of_a_camera_without_auto_modes(scope)
         give_camera_and_imaging(scope)
         return scope
 

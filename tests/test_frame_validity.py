@@ -469,7 +469,10 @@ class TestCaptureTimeChunkVerification:
     def _make_imaging(driver):
         from modules.lumascope_api import Lumascope
         from modules.lumascope_api.runtime_state import RuntimeState
-        from tests.scope_fakes import give_camera_and_imaging
+        from tests.scope_fakes import (
+            give_camera_and_imaging,
+            give_capabilities_of_a_camera_without_auto_modes,
+        )
 
         # a stand-in by design: the subject is the capture path's handling of a
         # scripted chunk sequence (stale, stale, fresh), and the SimulatedCamera
@@ -479,6 +482,7 @@ class TestCaptureTimeChunkVerification:
         bind_settings_like_a_session(scope)
         scope.runtime_state = RuntimeState(scope)
         scope._camera_driver = driver
+        give_capabilities_of_a_camera_without_auto_modes(scope)
         give_camera_and_imaging(scope)
         return scope.imaging
 

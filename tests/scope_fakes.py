@@ -216,6 +216,25 @@ def give_camera_capabilities(scope, camera):
     return scope
 
 
+def give_capabilities_of_a_camera_without_auto_modes(scope):
+    """Give a stub over a duck-typed fake driver the one capability its camera API reads.
+
+    No ``ScopeCapabilities`` can be built from such a fake (it reports no
+    model or profile), and a built scope always has them before its camera
+    API, which reads whether the camera has hardware auto-gain and
+    auto-exposure as it brings its held modes up. This camera has neither,
+    so the API holds both Off and never asks the fake. Returns the scope.
+    """
+    import types
+
+    # a stand-in by design: the fake reports nothing a ScopeCapabilities is
+    # built from, and the tests using it are about other members.
+    scope.capabilities = types.SimpleNamespace(
+        camera_supports_auto_gain=False, camera_supports_auto_exposure=False
+    )
+    return scope
+
+
 def give_camera_and_imaging(scope):
     """Give a `Lumascope.__new__` stub the camera and capture sub-APIs a built scope has.
 

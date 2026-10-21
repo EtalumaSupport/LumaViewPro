@@ -219,7 +219,7 @@ def test_the_fast_motor_board_cannot_fail_a_home(scope):
         # A frame-size write answers the window it delivers, never a bare True.
         ('refuse_camera_write', ('frame_size', 'true'), 'fault_unknown', 'answer'),
         ('refuse_camera_write', ('gain', 'false', 0), 'fault_bound', 'count'),
-        ('refuse_camera_read', ('auto_gain', 'raise'), 'fault_unknown', 'node'),
+        ('refuse_camera_read', ('high_conversion_gain', 'raise'), 'fault_unknown', 'node'),
         ('refuse_camera_read', ('gain', 'false'), 'fault_unknown', 'answer'),
         # A pixel format read raises when it fails; no driver answers a failed-read value.
         ('refuse_camera_read', ('pixel_format', 'sentinel'), 'fault_unknown', 'answer'),
