@@ -401,7 +401,7 @@ class ImageSettings(BoxLayout):
 
     def place_settings(self):
         """Place the panel where its tab says: open beside the view, or folded to the side."""
-        if not _app_ctx.ctx.session.controls_lock.run_lockout:
+        if _app_ctx.ctx.session.controls_lock.run_named is None:
             self.update_transmitted()
         logger.info('[LVP Main  ] ImageSettings.place_settings()')
         ctx = _app_ctx.ctx

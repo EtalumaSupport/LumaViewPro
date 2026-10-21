@@ -124,9 +124,11 @@ def test_the_status_crosses_a_wire_with_its_lock_and_its_refusal(sim_session):
 
     assert sent['lock'] == {
         'run_named': 'A diagnostic is in progress.',
+        'control_named': None,
         'recording': False,
         'run_lockout': True,
         'controls_locked': True,
+        'named': 'A diagnostic is in progress.',
     }
     assert sent['run_refused']['kind'] == 'refusal'
     assert sent['run_refused']['reason'] == 'exclusive_activity_running'

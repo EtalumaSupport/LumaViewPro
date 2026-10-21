@@ -216,7 +216,7 @@ class ProtocolSettings(FloatLayout):
         # this the estimate would recompute at the step-navigation refresh rate
         # for the whole length of every run. The label keeps its last text,
         # which stays correct.
-        if ctx.session.controls_lock.run_lockout:
+        if ctx.session.controls_lock.run_named is not None:
             return
 
         advisory = ctx.session.protocol_size_advisory(self._protocol)

@@ -148,6 +148,7 @@ class TestTheGuiRendersAndDecidesNothing:
             session=SimpleNamespace(
                 controls_lock=ControlsLock(
                     run_named='A protocol run is in progress.' if run_lockout else None,
+                    control_named=None,
                     recording=False,
                 ),
                 protocol_size_advisory=protocol_size_advisory,

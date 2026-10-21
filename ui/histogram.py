@@ -61,9 +61,11 @@ class Histogram(Widget):
 
         # Skip during protocol acquisition. The histogram contends with
         # the capture / protocol pipeline for get_image_from_buffer and
-        # the texture isn't user-visible during a run anyway.
+        # the texture isn't user-visible during a run anyway. The run
+        # surface's own holder, not the lockout: an idle control session
+        # locks the controls while the live picture still shows the scope.
         session = getattr(ctx, 'session', None)
-        if session is not None and session.controls_lock.run_lockout:
+        if session is not None and session.controls_lock.run_named is not None:
             return
 
         # The histogram is a live-image tool: compute only when it is

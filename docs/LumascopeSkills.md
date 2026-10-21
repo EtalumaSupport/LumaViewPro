@@ -1211,13 +1211,17 @@ GUI-quality client binds its widget state to -- the records LVP's own GUI
 writes into its kv properties at each run-state edge:
 
 ```python
-session.controls_lock            # in-process; over the wire status.lock. ControlsLock(run_named, recording):
-                                 # run_named what holds the run surface as a sentence a person reads ('The
-                                 # Z-stack run is in progress.', 'A diagnostic is in progress.', 'A home is in
-                                 # progress.', "A protocol's files are still being written."), None while
-                                 # nothing does; recording a manual recording is live (not its file drain);
-                                 # .run_lockout (run_named is not None) and .controls_locked (that, or
-                                 # recording) read from them
+session.controls_lock            # in-process; over the wire status.lock. ControlsLock(run_named,
+                                 # control_named, recording): run_named what holds the run surface as a
+                                 # sentence a person reads ('The Z-stack run is in progress.', 'A diagnostic
+                                 # is in progress.', 'A home is in progress.', "A protocol's files are still
+                                 # being written."), None while nothing does; control_named the control
+                                 # session held ('plate reader has remote control.'), None while none is;
+                                 # recording a manual recording is live (not its file drain); .run_lockout
+                                 # (run_named or control_named set), .controls_locked (that, or recording)
+                                 # and .named (the sentence shown: the session's, else run_named, else the
+                                 # recording's) read from them. A display that pauses for a run reads
+                                 # run_named, so it keeps showing the scope under an idle control session
 session.held_by_other(run)       # the scope is held by anything but `run` (the run's operation);
                                  # False for the run itself, so its Stop stays live; None: held at all
 session.protocol_files_stalled   # the drain's write in flight has stopped progressing, judged by the
@@ -1235,9 +1239,10 @@ session.live_work                # in-process; over the wire status.live_work. E
                                  # frames discard_close_drain drops; .closing while the close runs,
                                  # .closed once the session shut down
 session.status                   # what the scope is doing, one read, the first a client makes: Status(live_work,
-                                 # lock, run_refused, axes, parts, camera_streaming) -- live_work as above;
-                                 # lock as session.controls_lock, ControlsLock(run_named, recording) with
-                                 # run_lockout and controls_locked read from those two, the Session's policy
+                                 # lock, control, run_refused, axes, parts, camera_streaming) -- live_work as
+                                 # above; control the control session held, or None; lock as
+                                 # session.controls_lock, ControlsLock(run_named, control_named, recording)
+                                 # with run_lockout, controls_locked and named read from those, the Session's policy
                                  # for a person's controls and not a refusal; run_refused the refusal a run
                                  # would get now for the scope's state alone, sent as a refused call's problem
                                  # less type, status and instance, or None (None does not promise a run starts);
@@ -3763,7 +3768,9 @@ Reached through a REST problem, whose members carry it.
 
 Reached through `Status.lock`.
 
+- `control_named`
 - `controls_locked`
+- `named`
 - `recording`
 - `run_lockout`
 - `run_named`

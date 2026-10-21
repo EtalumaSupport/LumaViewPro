@@ -511,6 +511,10 @@ class LumaViewProApp(TooltipMixin, App):
     # replaced. Written in build() before any widget binds them.
     lock = ObjectProperty(None, rebind=True)
     live_work = ObjectProperty(None, rebind=True)
+    # The control session held (``ScopeSession.control``), or None: what the
+    # remote-control banner and its Take back control button show, written
+    # with the two records on every edge. Bound by nothing that locks.
+    control = ObjectProperty(None, allownone=True)
 
     # The thread the window's close runs the session's close on, or None
     # before one has begun. Declared here so the close handler can read it
@@ -543,9 +547,10 @@ class LumaViewProApp(TooltipMixin, App):
         session = ctx.session
         self.lock = session.controls_lock
         self.live_work = session.live_work
+        self.control = session.control
         gui_logger.display(
             'CONTROLS_LOCKED',
-            f'{self.lock.controls_locked} by={self.lock.run_named} recording={self.lock.recording}',
+            f'{self.lock.controls_locked} by={self.lock.named} recording={self.lock.recording}',
         )
         gui_logger.display('HOMING_BANNER', self.live_work.has(live_work.HOME))
         self._draw_run_controls()
@@ -1043,6 +1048,7 @@ class LumaViewProApp(TooltipMixin, App):
             scope_session = _compose(settings)
         self.lock = scope_session.controls_lock
         self.live_work = scope_session.live_work
+        self.control = scope_session.control
         lumaview = MainDisplay(scope=scope_session.scope)
         cell_count_content = CellCountControls(
             method=scope_session.post_processing.default_cell_count_method()
@@ -1232,17 +1238,17 @@ class LumaViewProApp(TooltipMixin, App):
         returns.
         """
         work = ctx.session.live_work.work
-        scope_held = ctx.session.controls_lock.run_lockout
+        locked_by = ctx.session.controls_lock.named
         # Crash-forensics: log the close request to BOTH the main log
         # (so post-mortem can correlate against the shutdown sequence)
         # and the GUI interactions log (so the gui-log timeline names
         # the trigger). Without this line, an X-button / Alt-F4 close
         # produces a silent shutdown -- the gap that prompted this hook.
         logger.info(
-            f'[LVP Main  ] on_request_close fired; scope_held={scope_held} '
+            f'[LVP Main  ] on_request_close fired; locked_by={locked_by} '
             f'live_work={[item.kind for item in work]}'
         )
-        gui_logger.window_event('close-requested', f'scope_held={scope_held}')
+        gui_logger.window_event('close-requested', f'locked_by={locked_by}')
 
         if self._close_thread is not None:
             # A close is already running. This is a SECOND close request --
@@ -1339,6 +1345,11 @@ class LumaViewProApp(TooltipMixin, App):
 
     def _prepare_the_close(self) -> None:
         """The host's part of a close, on the Kivy thread, before the session's own."""
+        # A held control session is taken back first: the close's popup
+        # offers its Discard before the session's own close has begun, and
+        # the session would refuse a Discard that is not its holder's.
+        run_unasked(ctx.session.take_back_control, 'CLOSE_TAKE_BACK_CONTROL')
+
         # Suppress notification-listener dispatch during shutdown so the user
         # doesn't see 30+ error toasts as queued IO tasks fail against
         # disconnecting hardware. Log lines still fire for post-mortem.

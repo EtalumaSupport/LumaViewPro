@@ -474,6 +474,13 @@ class TestTheSessionsMembers:
         with sim_session.acting_in_control(session_id):
             assert sim_session.objective_question() is not None
 
+    def test_the_controls_lock_names_the_session_and_nothing_runs(self, sim_session):
+        _take_on(sim_session)
+        lock = sim_session.controls_lock
+        assert lock.run_lockout and lock.controls_locked
+        assert lock.run_named is None, 'the display readers keep showing the scope'
+        assert lock.named == 'plate reader has remote control.'
+
     def test_the_close_ends_a_held_session_and_closes(self, sim_session):
         _take_on(sim_session)
         sim_session.shutdown()

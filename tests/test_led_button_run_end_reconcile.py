@@ -148,7 +148,7 @@ def test_run_end_reconciles_stale_toggle_to_driver_truth(monkeypatch):
 
     # The idle edge: nothing holds the scope, nothing is still writing.
     ui_helpers.draw_shared_run_displays(
-        ControlsLock(run_named=None, recording=False),
+        ControlsLock(run_named=None, control_named=None, recording=False),
         LiveWork(work=(), closing=False, closed=False),
     )
 

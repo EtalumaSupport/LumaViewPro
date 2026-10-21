@@ -349,7 +349,7 @@ def test_a_press_during_a_finished_runs_drain_reaches_the_api(pressed):
     import modules.app_context as app_context
 
     app_context.ctx.session.controls_lock = ControlsLock(
-        run_named="A protocol's files are still being written.", recording=False
+        run_named="A protocol's files are still being written.", control_named=None, recording=False
     )
 
     pressed.button.run_autofocus_from_ui()

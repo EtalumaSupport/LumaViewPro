@@ -174,6 +174,7 @@ _ROSTER = {
     'MainDisplay.open_last_save_folder': ('OPEN_SAVE_FOLDER',),
     'MainDisplay.record_btn': ('RECORD',),
     'MainDisplay.stop_button_id': ('STOP',),
+    'MainDisplay.take_back_control_btn': ('TAKE_BACK_CONTROL',),
     # The FRAME_SIZE record now comes from the redraw after the camera answers
     # (_framing_applied), passed as a callback the static census does not follow.
     'MicroscopeSettings.binning_spinner': ('BINNING',),

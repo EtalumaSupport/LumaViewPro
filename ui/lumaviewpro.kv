@@ -368,6 +368,39 @@
         disabled: not root.stage_has_motors
         on_press: root.stop_the_stage()
 
+    # Says a client has control of the scope, at the top of the live view,
+    # with the way to take it back. Declared after the side panels, as the
+    # STOP is, so nothing draws over it; hidden by disabled as well as
+    # opacity, since a transparent button still takes touches.
+    BoxLayout:
+        id: remote_control_banner_id
+        orientation: 'horizontal'
+        size_hint: None, None
+        size: self.minimum_width, dp(48)
+        padding: dp(16), dp(6)
+        spacing: dp(16)
+        pos_hint: {'center_x': 0.5, 'top': 1}
+        opacity: 1 if app.control is not None else 0
+        disabled: app.control is None
+        canvas.before:
+            Color:
+                rgba: 0.08, 0.08, 0.08, 0.85
+            RoundedRectangle:
+                pos: self.pos
+                size: self.size
+                radius: [dp(8)]
+        Label:
+            text: ('Under remote control: ' + app.control.name) if app.control is not None else ''
+            color: 1, 1, 1, 1
+            size_hint: None, 1
+            width: self.texture_size[0]
+        Button:
+            id: take_back_control_btn
+            text: 'Take back control'
+            size_hint: None, 1
+            width: self.texture_size[0] + dp(24)
+            on_release: root.take_back_control()
+
 
 
 # ShaderViewer - Shaded Live Camera view

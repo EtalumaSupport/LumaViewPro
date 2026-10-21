@@ -31,7 +31,7 @@ def scene(monkeypatch):
     )
     ui_helpers.set_title_event_text('left by someone else')
     yield SimpleNamespace(
-        lock=ControlsLock(run_named=None, recording=False),
+        lock=ControlsLock(run_named=None, control_named=None, recording=False),
         work=(),
         display=display,
         ctx=_app_ctx.ctx,
@@ -47,7 +47,9 @@ def _draw(scene):
 
 
 def test_a_live_run_keeps_equalization_off_and_its_own_title(scene):
-    scene.lock = ControlsLock(run_named='A protocol run is in progress.', recording=False)
+    scene.lock = ControlsLock(
+        run_named='A protocol run is in progress.', control_named=None, recording=False
+    )
     scene.work = [WorkItem(live_work.PROTOCOL, 'A protocol run')]
     scene.display.use_live_image_histogram_equalization = True
 
@@ -62,7 +64,7 @@ def test_a_live_run_keeps_equalization_off_and_its_own_title(scene):
 
 def test_a_drain_with_nothing_holding_the_scope_says_files_are_writing(scene):
     scene.lock = ControlsLock(
-        run_named="A protocol's files are still being written.", recording=False
+        run_named="A protocol's files are still being written.", control_named=None, recording=False
     )
     scene.work = [WorkItem(live_work.RUN_FILES, "A run's images", left=3)]
     scene.display.use_live_image_histogram_equalization = True
@@ -82,6 +84,32 @@ def test_idle_hands_back_equalization_the_title_and_the_led_toggles(scene):
     scene.ctx.ui_listener_bridge.reconcile_led_buttons.assert_called_once()
 
 
+def test_an_idle_control_session_keeps_the_live_equalization(scene):
+    # The controls lock for a client's session, but nothing runs: the live
+    # picture is still the scope's, and the person keeps seeing it.
+    scene.lock = ControlsLock(
+        run_named=None, control_named='plate reader has remote control.', recording=False
+    )
+
+    _draw(scene)
+
+    assert scene.display.use_live_image_histogram_equalization is True
+
+
+def test_the_holders_run_turns_equalization_off_as_any_run_does(scene):
+    scene.lock = ControlsLock(
+        run_named='A protocol run is in progress.',
+        control_named='plate reader has remote control.',
+        recording=False,
+    )
+    scene.work = [WorkItem(live_work.PROTOCOL, 'A protocol run')]
+    scene.display.use_live_image_histogram_equalization = True
+
+    _draw(scene)
+
+    assert scene.display.use_live_image_histogram_equalization is False
+
+
 def test_equalization_comes_back_only_as_the_setting_says(scene):
     scene.ctx.live_histo_setting = False
 
@@ -96,6 +124,7 @@ def test_another_holder_keeps_its_title_and_its_leds(scene, holder):
     # diagnostic may be lighting LEDs the toggles must not be reconciled over.
     scene.lock = ControlsLock(
         run_named='A diagnostic is in progress.' if holder == 'diagnostic' else None,
+        control_named=None,
         recording=holder == 'recording',
     )
     scene.work = [WorkItem(holder, 'the holder')]

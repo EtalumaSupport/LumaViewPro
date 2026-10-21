@@ -51,14 +51,14 @@ class Probe(Widget):
 
 app = ProbeApp()
 App._running_app = app
-app.lock = ControlsLock(run_named=None, recording=False)
+app.lock = ControlsLock(run_named=None, control_named=None, recording=False)
 Builder.load_string('<Probe>:\n    ' + binding + '\n')
 probe = Probe()
 seen = [probe.disabled]
 for lock in (
-    ControlsLock(run_named=None, recording=True),
-    ControlsLock(run_named=None, recording=False),
-    ControlsLock(run_named='A protocol run is in progress.', recording=False),
+    ControlsLock(run_named=None, control_named=None, recording=True),
+    ControlsLock(run_named=None, control_named=None, recording=False),
+    ControlsLock(run_named='A protocol run is in progress.', control_named=None, recording=False),
 ):
     app.lock = lock
     seen.append(probe.disabled)

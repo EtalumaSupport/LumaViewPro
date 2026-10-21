@@ -282,7 +282,7 @@ class SavedFocus:
     step_idx: int | None
 
 
-@api_fields('run_named', 'recording')
+@api_fields('run_named', 'control_named', 'recording')
 @dataclasses.dataclass(frozen=True)
 class ControlsLock:
     """Which of a person's controls the Session locks now, and why.
@@ -294,19 +294,25 @@ class ControlsLock:
     Attributes:
         run_named: What holds the run surface -- a run, a diagnostic, a
             home, or a finished run's files still writing -- as a sentence
-            a person reads; None while nothing does.
+            a person reads; None while nothing does. A display that pauses
+            for that work reads this, not ``run_lockout``, so it keeps
+            showing the scope under an idle control session.
+        control_named: The control session held, as a sentence a person
+            reads; None while none is. It holds the run surface too, the
+            holder's own run included.
         recording: Whether a manual recording is live. Its drain is not: a
             draining recording frees the controls while its claim still
             refuses new runs.
     """
 
     run_named: str | None
+    control_named: str | None
     recording: bool
 
     @api
     @property
     def run_lockout(self) -> bool:
-        """True while something holds the run surface (``run_named``).
+        """True while something holds the run surface: ``run_named`` or ``control_named``.
 
         A finished run's files hold it until the last one is written,
         though the run has freed its claim: the controls stay locked until
@@ -315,7 +321,24 @@ class ControlsLock:
         Raises:
             Nothing.
         """
-        return self.run_named is not None
+        return self.run_named is not None or self.control_named is not None
+
+    @api
+    @property
+    def named(self) -> str | None:
+        """The sentence for what locks the controls now, None while nothing does.
+
+        The control session's while one is held, the holder's own run
+        included; else what holds the run surface; else a live recording.
+
+        Raises:
+            Nothing.
+        """
+        if self.control_named is not None:
+            return self.control_named
+        if self.run_named is not None:
+            return self.run_named
+        return 'A recording is in progress.' if self.recording else None
 
     @api
     @property
@@ -1107,9 +1130,11 @@ class ScopeSession:
 
         The run surface is held by a run by its kind, a diagnostic as one (a
         characterization and the support report share its claim), a home,
-        or a finished run's files still writing; the whole surface also by
-        a live manual recording. The one rule every lock read reads; a wire
-        client reads it in ``status``.
+        a finished run's files still writing, or a control session; the
+        whole surface also by a live manual recording. The one rule every
+        lock read reads; a wire client reads it in ``status``. It locks for
+        the holder of a control session too: it is the GUI's editing
+        policy, and the GUI is never the holder.
 
         Raises:
             Nothing.
@@ -1121,7 +1146,12 @@ class ScopeSession:
             run_named = "A protocol's files are still being written."
         else:
             run_named = None
-        return ControlsLock(run_named=run_named, recording=self.manual_recording.is_recording)
+        control = self.activity_claim.control
+        return ControlsLock(
+            run_named=run_named,
+            control_named=f'{control.name} has remote control.' if control is not None else None,
+            recording=self.manual_recording.is_recording,
+        )
 
     def in_flight_named(self) -> list[str]:
         """What a gesture started that is still running, each as a sentence; empty when nothing is.

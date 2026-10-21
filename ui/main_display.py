@@ -109,7 +109,7 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
         gui_logger.display(
             'RECORD_BUTTON',
             f'{"Stop" if controller.is_recording else "Record"} '
-            f'held={_app_ctx.ctx.session.controls_lock.run_lockout}',
+            f'held={_app_ctx.ctx.session.controls_lock.named}',
         )
         if not controller.is_recording:
             button.state = 'normal'
@@ -175,6 +175,12 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
         from ui.ui_helpers import stop_the_stage
 
         stop_the_stage()
+
+    def take_back_control(self):
+        gui_logger.button('TAKE_BACK_CONTROL')
+        from ui.ui_helpers import take_back_control
+
+        take_back_control()
 
     def open_save_folder_button(self):
         gui_logger.button('OPEN_SAVE_FOLDER')

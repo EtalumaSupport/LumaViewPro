@@ -21,7 +21,7 @@ from modules.scope_session import ControlsLock, ScopeSession
 from tests.settings_fixtures import complete_settings
 from ui import ui_helpers
 
-UNLOCKED = ControlsLock(run_named=None, recording=False)
+UNLOCKED = ControlsLock(run_named=None, control_named=None, recording=False)
 
 
 @pytest.fixture
@@ -59,9 +59,13 @@ def test_a_scope_with_no_xy_stage_is_not_offered(offered):
 
 
 def test_a_live_recording_withholds_them(offered):
-    assert offered('LS850', ControlsLock(run_named=None, recording=True)) is False
+    assert (
+        offered('LS850', ControlsLock(run_named=None, control_named=None, recording=True)) is False
+    )
 
 
 def test_a_run_withholds_them(offered):
-    locked = ControlsLock(run_named='A protocol run is in progress.', recording=False)
+    locked = ControlsLock(
+        run_named='A protocol run is in progress.', control_named=None, recording=False
+    )
     assert offered('LS850', locked) is False

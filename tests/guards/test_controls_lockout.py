@@ -335,7 +335,7 @@ class TestGestureMotionFunnel:
         # a stand-in by design: the App exists only when lumaviewpro.py runs
         # as the program; the funnel reads one attribute of it, the record.
         stub = mock.Mock()
-        stub.lock = ControlsLock(run_named=None, recording=recording)
+        stub.lock = ControlsLock(run_named=None, control_named=None, recording=recording)
         app_cls.get_running_app = mock.Mock(return_value=stub)
         return app_cls
 

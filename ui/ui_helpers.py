@@ -178,6 +178,19 @@ def submit_reported(
         _redraw()
 
 
+def take_back_control() -> None:
+    """A press of Take back control: end the control session the banner shows.
+
+    The press names the session the person saw, so a session that ended
+    meanwhile is the API's to refuse, not a later one's to end.
+    """
+    from kivy.app import App
+
+    control = App.get_running_app().control
+    session = _app_ctx.ctx.session
+    submit_reported(lambda: session.end_control(control.id), None, 'TAKE_BACK_CONTROL')
+
+
 def stop_the_stage() -> None:
     """A press of the red STOP: ``stop_motion`` at once, reported as any request is.
 
@@ -360,7 +373,7 @@ def _user_motion_locked(axis: str) -> bool:
     app = App.get_running_app()
     if app is None or not app.lock.controls_locked:
         return False
-    logger.info(f'[UI] {axis} move blocked: controls locked (protocol run or recording active)')
+    logger.info(f'[UI] {axis} move blocked: controls locked ({app.lock.named})')
     return True
 
 
@@ -712,7 +725,7 @@ def draw_shared_run_displays(lock, work) -> None:
     unwinding at its release edge holds it here; the idle edge that
     follows draws the same.
     """
-    if lock.run_lockout:
+    if lock.run_named is not None:
         live_histo_off()
     else:
         live_histo_reverse()
