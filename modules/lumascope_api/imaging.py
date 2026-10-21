@@ -1854,9 +1854,7 @@ class ImagingAPI:
                 ``'chunk_rejected'``, frames came but none at the ``setting``
                 asked (``verify_chunk_targets``).
             HardwareCommandRefusedError: ``'not_connected'``, naming the
-                camera, absent at the call or removed during the grab;
-                ``'exclusive_activity_running'``, a run, a diagnostic or a
-                home holds the scope and this call is not made under it.
+                camera, absent at the call or removed during the grab.
         """
         for name, value in (
             ('timeout_s', timeout_s),
@@ -2565,8 +2563,7 @@ class ImagingAPI:
                 registration, chained from its error. Nothing is left
                 registered, so a later call can retry.
             HardwareCommandRefusedError: ``'not_connected'``, naming the
-                camera; ``'scope_disconnected'`` after ``disconnect()``.
-                Nothing is registered.
+                camera. Nothing is registered.
         """
         self._camera.refuse_camera_not_connected('add_frame_listener')
         if name is None:

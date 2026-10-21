@@ -442,9 +442,8 @@ class DiagnosticsAPI:
                 number; ``'out_of_range'``, ``num_frames`` is outside 1 to
                 100,000. Nothing reached the camera.
             HardwareCommandRefusedError: ``'not_connected'``, naming the
-                camera, absent at the call or removed during the test;
-                ``'exclusive_activity_running'``, another activity holds the
-                scope, raised at the first frame. Only a capture failure is
+                camera, absent at the call or removed during the test. Only
+                a capture failure is
                 counted: any other raise from a grab ends the test as itself.
         """
         _refuse_outside(num_frames, 'num_frames', _BANDWIDTH_FRAMES)

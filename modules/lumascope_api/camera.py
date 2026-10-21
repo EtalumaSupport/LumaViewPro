@@ -1920,8 +1920,7 @@ class CameraAPI:
             HardwareCommandRefusedError: A recording holds the scope: its
                 frames are fitted to the geometry it started with.
                 ``'not_connected'``, naming the camera, with none connected
-                or one removed during the write; ``'scope_disconnected'``
-                after ``disconnect()``. Nothing is saved.
+                or one removed during the write. Nothing is saved.
             CameraSettingOutOfRangeError: ``'frame_width_out_of_range'`` or
                 ``'frame_height_out_of_range'``, the size, floored to even
                 sides, is below the camera's minimum frame or above the

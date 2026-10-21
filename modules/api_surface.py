@@ -24,7 +24,11 @@ A marked member's annotations are its contract at the call as well: an
 argument of another type is refused before the member runs, for every
 caller (``modules.api_arguments``), with ``ArgumentTypeRefusedError``
 (``'wrong_argument_type'``). That refusal is every member's, so no
-``Raises:`` section lists it.
+``Raises:`` section lists it; nor do the hardware lanes' own refusals of a
+command on them, which are every hardware command's: ``HardwareCommandRefusedError``
+``'exclusive_activity_running'`` while a run, a diagnostic or a home holds
+the scope and the call is not made under it, and ``'scope_disconnected'``
+once the lanes are shut.
 
 Four marks say what a member does, each read by its own reader below:
 ``reads`` that it changes nothing, so a host may answer it as a read;

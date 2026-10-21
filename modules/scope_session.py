@@ -2568,9 +2568,8 @@ class ScopeSession:
                 its position. Nothing changes.
             HardwareCommandRefusedError: ``'not_connected'``, this scope's
                 motor controller or camera is not connected, or its LED
-                controller is not and the step's preview would light;
-                ``'scope_disconnected'``
-                after ``disconnect()``; or a run, a diagnostic or a home holds the
+                controller is not and the step's preview would light; or a
+                run, a diagnostic or a home holds the
                 scope, or a manual recording runs and the step's layer is not
                 the shown one. Nothing changes.
             PositionOutOfRangeError: the step lies outside an axis's travel;

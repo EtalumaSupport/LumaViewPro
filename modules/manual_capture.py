@@ -142,11 +142,7 @@ class ManualCaptureController:
 
         Raises:
             HardwareCommandRefusedError: reason ``'capture_in_flight'``,
-                while an earlier still has not finished;
-                ``'exclusive_activity_running'``, while a run, a
-                diagnostic or a home holds the scope and this call is not made under
-                its taking; ``'scope_disconnected'``, when the camera lane
-                is closed.
+                while an earlier still has not finished.
         """
         if not self._in_flight.acquire(blocking=False):
             raise HardwareCommandRefusedError('capture_in_flight', _MEMBER)

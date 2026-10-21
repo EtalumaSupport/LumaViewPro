@@ -897,10 +897,9 @@ class MotionAPI:
         and ends the live run (its press listeners are told first).
 
         Raises:
-            HardwareCommandRefusedError: ``'scope_disconnected'`` after
-                ``disconnect()``, as every other command is refused then;
-                ``'not_connected'`` or ``'axis_absent'`` with no motor
-                controller (see ``refuse_absent``); ``'home_not_stoppable'``
+            HardwareCommandRefusedError: ``'not_connected'`` or
+                ``'axis_absent'`` with no motor controller (see
+                ``refuse_absent``); ``'home_not_stoppable'``
                 while a home drives on a board that cannot stop one.
                 Nothing was sent.
             MotorStopFailedError: the board did not take the STOP, so the
