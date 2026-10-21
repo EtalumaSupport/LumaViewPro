@@ -99,8 +99,9 @@ def _decoded(jpeg: bytes) -> np.ndarray:
 
 
 def _frame_width(session) -> int:
-    image, _ = session.scope.imaging.get_image_from_buffer(force_to_8bit=True)
-    return image.shape[1]
+    # A capture returns once the camera has delivered a frame; the live buffer
+    # read straight after bring-up can still be empty on a loaded host.
+    return session.scope.imaging.capture_and_wait().shape[1]
 
 
 _LET_GO_S = 10.0
