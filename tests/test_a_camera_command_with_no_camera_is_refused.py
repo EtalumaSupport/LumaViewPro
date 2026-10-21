@@ -558,11 +558,13 @@ def test_a_camera_removed_as_the_run_takes_the_auto_gain_arm_ends_the_run_hardwa
     assert _wait(run) == ('failed', 'hardware_disconnected')
 
 
-def test_a_camera_removed_as_live_view_re_arms_auto_gain_keeps_the_frame(
+def test_a_camera_removed_as_live_view_re_arms_auto_gain_keeps_the_frame_and_tells_nothing(
     make_session, monkeypatch, centre_posts
 ):
-    """The frame was grabbed before the camera left; the re-arm after it is
-    the camera's absence, reported once, and the frame is still returned."""
+    """The frame was grabbed before the camera left, so it is returned; the
+    re-arm after it has no arm to resume on a camera that went, as an off is
+    satisfied, and tells nothing: the removal is the camera's status and the
+    next command's refusal (Eric, 2026-10-21; camera P03 caught it told twice)."""
     session = make_session('LS850')
     im = session.scope.imaging
     driver = session.scope._camera_driver
@@ -584,7 +586,8 @@ def test_a_camera_removed_as_live_view_re_arms_auto_gain_keeps_the_frame(
     image = im.capture_and_wait()
 
     assert image is not None
-    assert [n.message for n in _camera_posts(centre_posts)] == ['The camera is not connected.']
+    assert session.scope.camera.camera_removed
+    assert _camera_posts(centre_posts) == []
 
 
 def test_a_camera_removed_during_bring_up_is_reported_once_and_the_scope_comes_up(

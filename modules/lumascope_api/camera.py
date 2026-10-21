@@ -1184,7 +1184,9 @@ class CameraAPI:
         """``impl``, run only once the camera is asked for, on the lane.
 
         The camera's one presence question for an outside command, asked
-        after the lane admits it and before the body writes: with no camera
+        after the lane admits it and before the body writes, and for the
+        API's own follow-up a command leaves behind (the live-view re-arm
+        after a capture, satisfied with nothing to resume): with no camera
         connected the command is refused naming it, or answers
         ``satisfied_when_absent`` when its dispatch names one. A body that
         is what finds the camera gone is answered the same way: its refusal
@@ -1693,10 +1695,13 @@ class CameraAPI:
         """Re-arm continuous auto-gain after a capture locked a live-view arm."""
         if lock.state is None or not lock.resume_after_capture or lock.settings is None:
             return
-        # Run after the capture's frame is in hand, often from its finally: a
-        # camera found gone here is reported, never raised over that frame.
+        # Run after the capture's frame is in hand, often from its finally, so
+        # nothing here is raised over that frame. A camera that went has no arm
+        # to resume, as an off is satisfied without one: the removal is told
+        # by the camera's status and by the next command that meets it.
+        rearm = self._asking_for_the_camera(self._set_auto_gain_impl, 'set_auto_gain', None)
         try:
-            self._set_auto_gain_impl(True, lock.settings, resume_after_capture=True)
+            rearm(True, lock.settings, resume_after_capture=True)
         except (CameraSettingRejected, HardwareCommandRefusedError) as not_rearmed:
             self._report_refused_write(not_rearmed)
 
