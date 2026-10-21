@@ -227,6 +227,24 @@ class TestAScriptAddsAStepThroughTheSession:
         assert steps['Z'].tolist() == pytest.approx([5000.0] * len(saved))
         assert {layer: session.saved_focus(layer) for layer in saved} == saved
 
+    def test_a_script_adds_the_layers_it_names_where_it_names_without_changing_the_settings(
+        self, session
+    ):
+        for layer in config_helpers.get_layer_configs(session.settings):
+            session.settings[layer]['acquire'] = None
+        before = config_helpers.get_layer_configs(session.settings)
+        protocol = session.create_empty_protocol()
+        at = PlateLocation(x_mm=20.0, y_mm=15.0, z_um=6000.0)
+
+        names = session.add_step(protocol, layers=('Blue', 'BF'), at=at)
+
+        steps = protocol.steps()
+        assert len(names) == 2
+        assert steps['Color'].tolist() == ['Blue', 'BF']
+        assert steps['Acquire'].tolist() == ['image', 'image']
+        assert steps[['X', 'Y', 'Z']].values.tolist() == [[20.0, 15.0, 6000.0]] * 2
+        assert config_helpers.get_layer_configs(session.settings) == before
+
     def test_the_session_forwards_the_refusal(self, session, centre_posts):
         for layer in config_helpers.get_layer_configs(session.settings):
             session.settings[layer]['acquire'] = None

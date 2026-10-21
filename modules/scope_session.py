@@ -2229,6 +2229,8 @@ class ScopeSession:
         self,
         protocol: 'Protocol',
         *,
+        layers: 'Iterable[str] | None' = None,
+        at: PlateLocation | None = None,
         before_step: int | None = None,
         after_step: int | None = None,
         use_zstacking: bool = False,
@@ -2241,6 +2243,12 @@ class ScopeSession:
         in the settings' channel order. The protocols API performs the add
         and refuses when nothing would be added; this composes its inputs
         from the session the same way the GUI's handler does.
+
+        ``layers`` names the layers to add a step for, in that order,
+        instead: each takes its stored settings, and one whose ``acquire``
+        is None is added as an image step, so a caller adds without
+        changing the settings. ``at`` is where on the protocol's plate the
+        steps are, instead of the live position: X and Y in mm, Z in um.
 
         ``use_zstacking`` makes each added step a z-stack of the stored
         z-stack settings, as ``new_protocol`` does for its steps; the
@@ -2261,20 +2269,40 @@ class ScopeSession:
                 notified once; nothing is added.
             ConfigError: with ``use_zstacking``, the stored z-stack will not
                 parse (as ``get_zstack_params``).
-            HardwareCommandRefusedError: ``'not_connected'``, the model's motor
-                controller is not connected, so there is no live position.
+            ArgumentRefusedError: ``'layer_unknown'``, a name in ``layers``
+                is not a layer.
+            HardwareCommandRefusedError: ``'axis_absent'``, this scope has
+                no layer named in ``layers``; ``'not_connected'``, with no
+                ``at``, the model's motor controller is not connected, so
+                there is no live position. Nothing is added.
             ProtocolError: an impossible ``before_step`` / ``after_step``, or
                 both given (raised by the protocol).
         """
+        if layers is None:
+            layer_configs = self.get_layer_configs()
+            channel_order = self.settings['step_channel_order']
+        else:
+            layers = tuple(layers)
+            for layer in layers:
+                self.scope.layer_identity.refuse_unless_on_scope(
+                    layer, 'add_step', then='take a step'
+                )
+            layer_configs = self.get_layer_configs(list(layers))
+            # A layer named is acquired whatever its stored acquire, as a
+            # still unless it is stored as a video.
+            for layer_config in layer_configs.values():
+                if layer_config['acquire'] is None:
+                    layer_config['acquire'] = 'image'
+            channel_order = list(layers)
         # None when unknown: the protocols API refuses that by name, notified.
         objective_id = self.scope.runtime_state.get_current_objective_id()
         return self.scope.protocols.add_step(
             protocol,
-            layer_configs=self.get_layer_configs(),
+            layer_configs=layer_configs,
             stim_configs=self.get_stim_configs(),
-            plate_position=self.plate_position_on(protocol.labware()),
+            plate_position=at if at is not None else self.plate_position_on(protocol.labware()),
             objective_id=objective_id,
-            channel_order=self.settings['step_channel_order'],
+            channel_order=channel_order,
             before_step=before_step,
             after_step=after_step,
             zstack_params=self.get_zstack_params() if use_zstacking else None,
