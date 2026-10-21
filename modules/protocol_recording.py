@@ -386,10 +386,7 @@ class ProtocolVideoStep:
             stall_threshold_s(fps, float(step['Exposure']) / 1000.0),
         )
 
-        try:
-            scope.imaging.remove_frame_listener(self._on_camera_frame)
-        except Exception as e:
-            logger.warning(f'[PROTOCOL-VIDEO] remove_frame_listener failed: {e}')
+        scope.imaging.remove_frame_listener(self._on_camera_frame)
         engine.stop(end_reason)
 
         if self._frames_seen == 0:
@@ -646,10 +643,8 @@ class ProtocolVideoStep:
         the writer lane drains, and only then dispose the artifact --
         disposing first would leave the lane writing into a closed encoder.
         """
-        try:
-            self._scope.imaging.remove_frame_listener(self._on_camera_frame)
-        except Exception as e:
-            logger.debug(f'[PROTOCOL-VIDEO] listener removal during start unwind: {e}')
+        # A no-op when the start failed before the listener was added.
+        self._scope.imaging.remove_frame_listener(self._on_camera_frame)
 
         try:
             engine.stop(END_REASON_START_FAILED)

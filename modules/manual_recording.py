@@ -614,12 +614,10 @@ class ManualRecordingController:
         # Idempotent no-op when the failure preceded the arming.
         self._disarm_health_check()
         self._failed_start_reason = END_REASON_START_FAILED
-        try:
-            self._scope.imaging.remove_frame_listener(self._on_camera_frame)
-        except Exception as e:
-            # The listener registers late in start(), so an earlier failure
-            # unwinds without one ever having been added.
-            logger.debug(f'[ManualRecord] listener removal during start unwind: {e}')
+        # The listener registers late in start(), so an earlier failure
+        # unwinds without one ever having been added: the removal is then a
+        # no-op.
+        self._scope.imaging.remove_frame_listener(self._on_camera_frame)
 
         # Deliberately does not wait for the drain: the lane only has to pop
         # a sentinel to exit and free the claim, and blocking here would run
@@ -679,10 +677,7 @@ class ManualRecordingController:
         logger.info(f'[ManualRecord] stopped by {current_caller().words} ({reason})')
         # After the stop: a closed engine takes no frame, so a frame that
         # lands between the two is dropped, as one after the removal is.
-        try:
-            self._scope.imaging.remove_frame_listener(self._on_camera_frame)
-        except Exception as e:
-            logger.warning(f'[ManualRecord] remove_frame_listener failed: {e}')
+        self._scope.imaging.remove_frame_listener(self._on_camera_frame)
 
     @api
     @property
@@ -912,10 +907,7 @@ class ManualRecordingController:
         # because the dominant end -- the frame budget filling inside
         # the frame callback -- never goes through stop().
         self._disarm_health_check()
-        try:
-            self._scope.imaging.remove_frame_listener(self._on_camera_frame)
-        except Exception as e:
-            logger.debug(f'[ManualRecord] listener removal at finish: {e}')
+        self._scope.imaging.remove_frame_listener(self._on_camera_frame)
 
         result = None
         writer_dropped = 0
