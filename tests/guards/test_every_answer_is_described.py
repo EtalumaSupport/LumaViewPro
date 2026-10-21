@@ -54,8 +54,10 @@ from rest import routes as rest_routes
 # link is a record, its temperatures a typed mapping, and its diagnostic
 # snapshot, profile and the system summary left for published reads; 19
 # since post-processing publishes its default cell-count method, the dict
-# count_cells takes, until W4 gives that argument its record.
-UNTYPED_PIN = 19
+# count_cells takes, until W4 gives that argument its record; 18 since
+# the session's sequenced capture config, a dict, left the wire with the
+# protocol builder's dict door.
+UNTYPED_PIN = 18
 
 _SERVER_MODELS = ('Handle', 'Job', 'JobProgress', 'PathAnswer', 'Versions')
 # A JSON Schema keyword that says what a value is.

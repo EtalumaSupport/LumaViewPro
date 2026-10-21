@@ -1768,7 +1768,6 @@ class ScopeSession:
 
         return config_helpers.get_auto_gain_settings(self.settings)
 
-    @api(reads=True)
     def get_sequenced_capture_config(
         self,
         *,
@@ -1777,13 +1776,11 @@ class ScopeSession:
     ) -> dict:
         """The sequenced capture config for this session's settings.
 
-        The entry point a caller with no GUI uses to assemble the config a
-        run takes. Tiling and z-stacking are arguments rather than stored
-        settings: neither survives a restart, so there is nothing for a
-        session to read them from and a caller states what it wants.
-
-        The GUI builds the same config through the same builder, supplying
-        these two from its widgets.
+        What ``new_protocol`` builds from, in-process; a caller of the API
+        builds through ``new_protocol``. Tiling and z-stacking are arguments
+        rather than stored settings: neither survives a restart, so there is
+        nothing for a session to read them from and a caller states what it
+        wants.
 
         Its ``current_z`` is Z's position, or None while Z has none, so a
         config never carries a number nobody read; ``new_protocol`` refuses
@@ -2171,10 +2168,13 @@ class ScopeSession:
 
         Raises:
             ProtocolRunRefusedError: reason ``no_acquiring_layer``, logged
-                and notified once; ``zstack_not_configured``, a z-stack with
-                no extent; ``positions_unreachable``, a z-stack on a scope
-                with no Z motor; ``zslices_outside_travel``, a slice past the
-                Z travel.
+                and notified once; ``tiling_unknown``, a grid this
+                installation does not offer; ``overlap_out_of_range``, the
+                stored tile overlap outside 0 to 50; ``tiles_outside_travel``,
+                a tile past the X or Y travel; ``zstack_not_configured``, a
+                z-stack with no extent; ``positions_unreachable``, a grid on
+                a scope with no X/Y motor or a z-stack on one with no Z
+                motor; ``zslices_outside_travel``, a slice past the Z travel.
             ObjectiveUnknownError: the objective in the light path is
                 unknown, so the config cannot be assembled:
                 ``'slot_unknown'``, ``'slot_unassigned'`` or

@@ -271,6 +271,50 @@ class TestNewStacksAsApplyDoes:
         assert refused.value.reason == 'zslices_outside_travel'
 
 
+@pytest.fixture
+def wide_field_session():
+    # 4x: the widest field the catalogue's common objectives give, so the
+    # largest grid reaches past the plate's edge wells.
+    built = ScopeSession.create(complete_settings(objective_id='4x Oly'), simulate=True)
+    home_sim_scope(built.scope)
+    yield built
+    built.shutdown()
+
+
+def _new_bf_and_blue_tiled(session, tiling):
+    """New tiled: BF saved at 5000, Blue below it at 4990."""
+    for layer in config_helpers.get_layer_configs(session.settings):
+        session.settings[layer]['acquire'] = None
+    for layer, focus in (('BF', 5000.0), ('Blue', 4990.0)):
+        session.set_layer_acquire(layer, 'image')
+        session.save_layer_focus(layer, focus)
+    return session.new_protocol(tiling=tiling)
+
+
+class TestNewTilesAsApplyDoes:
+    """New tiles through apply_tiling, the one grid build. New's own tile loop
+    judged no travel: a grid reaching past the stage was built and refused
+    only at the run's start."""
+
+    def test_a_grid_past_the_xy_travel_is_refused_at_the_build(self, wide_field_session):
+        with pytest.raises(ProtocolRunRefusedError) as refused:
+            _new_bf_and_blue_tiled(wide_field_session, '10x10')
+
+        assert refused.value.reason == 'tiles_outside_travel'
+
+    def test_each_tile_keeps_its_well_and_each_channel_its_saved_focus_in_z_order(
+        self, wide_field_session
+    ):
+        steps = _new_bf_and_blue_tiled(wide_field_session, '2x2').steps()
+
+        first_tile = steps[(steps['Well'] == 'A1') & (steps['Tile'] == 'A1')]
+        assert first_tile['Color'].tolist() == ['Blue', 'BF']
+        assert first_tile['Z'].tolist() == pytest.approx([4990.0, 5000.0])
+        assert not steps['Custom Step'].any()
+        assert steps.groupby('Well')['Tile'].nunique().eq(4).all()
+        assert (steps['Well'] != '').all()
+
+
 def test_the_motion_api_has_one_read_of_the_travel():
     """The limits are get_axis_limits'. Two retired doors answered them too:
     the motion API's, as the driver's microstep config, and the composition

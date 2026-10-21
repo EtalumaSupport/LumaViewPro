@@ -1,24 +1,24 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """A protocol configuration the build cannot read is refused at ``create_protocol``, as the request's.
 
-A client's ``input_config`` or ``empty_config`` was read wherever the build
+A caller's ``input_config`` or ``empty_config`` was read wherever the build
 first used each key, so a key left out was a ``KeyError`` and a value of the
-wrong kind a ``TypeError`` from ``round()`` -- a 500 over REST -- while
+wrong kind a ``TypeError`` from ``round()`` -- a 500 over REST, when the
+door was on the wire -- while
 ``True`` built as 1 ms and NaN built a tile grid. ``create_protocol`` now
 judges the whole configuration first, every key the build reads, and names
 the key's path in ``argument``. What only the build can see -- no objective,
 no focus, an overlap outside 0-50 -- is refused by the build and raised,
-not reported: the boundary the caller sits behind reports it, so a REST
-caller is answered 422 and no one is shown it.
+not reported: the boundary the caller sits behind reports it. The door is
+in-process: the session's ``new_protocol`` and ``create_empty_protocol`` and
+the runner's internal starters call it.
 """
 
 import copy
 
 import pytest
-from fastapi.testclient import TestClient
 
 from modules.exceptions import ArgumentRefusedError, ProtocolRunRefusedError, RefusalCause
-from rest.app import build_app
 from tests.test_a_command_for_absent_motion_hardware_is_refused import _session
 
 
@@ -151,21 +151,6 @@ def test_an_overlap_outside_0_to_50_is_refused_and_posts_nothing(
     assert list(centre_posts) == []
 
 
-def test_a_wire_client_is_refused_as_the_request_naming_the_key(session, config):
-    del config['layer_configs']['BF']['gain_db']
-    # The schedule crosses the wire in seconds, as the server sends it.
-    config['period'] = config['period'].total_seconds()
-    config['duration'] = config['duration'].total_seconds()
-    with TestClient(build_app(session)) as client:
-        answer = client.post(
-            '/api/v1/scope/protocols/create_protocol', json={'input_config': config}
-        )
-    assert answer.status_code == 422
-    problem = answer.json()
-    assert problem['reason'] == 'missing_key'
-    assert problem['argument'] == "input_config['layer_configs']['BF']['gain_db']"
-
-
 def test_the_zstack_keys_are_not_read_when_not_stacking(session, config):
     # A composite or a plain scan carries no stack; its zstack_params may be empty.
     config['use_zstacking'] = False
@@ -223,19 +208,3 @@ def test_an_overlap_no_grid_can_take_is_refused_at_one_tile_too(session, overlap
             overlap_percent=overlap,
         )
     assert refused.value.reason == reason
-
-
-def test_a_build_refusal_over_the_wire_is_answered_422_and_shown_to_no_one(
-    session, config, centre_posts
-):
-    """REST's boundary answers the caller; nothing posts for a listener to show."""
-    config['objective_id'] = None
-    config['period'] = config['period'].total_seconds()
-    config['duration'] = config['duration'].total_seconds()
-    with TestClient(build_app(session)) as client:
-        answer = client.post(
-            '/api/v1/scope/protocols/create_protocol', json={'input_config': config}
-        )
-    assert answer.status_code == 422
-    assert answer.json()['reason'] == 'objective_not_given'
-    assert [n for n in centre_posts if n.shown] == []

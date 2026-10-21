@@ -127,9 +127,9 @@ def test_a_class_is_taken_only_as_itself(session):
 
 def test_a_dictionary_a_callable_and_a_duration_are_held_to_their_kinds(session):
     _refused(
-        lambda: session.scope.protocols.create_protocol(input_config=['not', 'a', 'dict']),
-        'ProtocolsAPI.create_protocol',
-        'input_config',
+        lambda: session.scope.camera.set_auto_gain(True, ['not', 'a', 'dict']),
+        'CameraAPI.set_auto_gain',
+        'settings',
     )
     _refused(
         lambda: session.scope.illumination.add_led_listener(5),

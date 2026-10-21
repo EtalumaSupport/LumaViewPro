@@ -2757,8 +2757,6 @@ class Protocol:
         objective_helper: 'ObjectiveLoader',
         wellplate_loader: 'labware_loader.WellPlateLoader',
     ) -> 'Protocol':
-        tiling_config = TilingConfig(tiling_configs_file_loc=tiling_configs_file_loc)
-
         positions = input_config.get('positions')
 
         # Optional per-(well, channel) z map: when provided it overrides the
@@ -2773,58 +2771,32 @@ class Protocol:
         # carries the name every later reader resolves.
         labware_id = wellplate_loader.resolve_plate_key(input_config['labware_id'])
         objective_id = input_config['objective_id']
-        tiling = input_config['tiling']
-        tiling_overlap_percent = input_config.get('tiling_overlap_percent', 0.0)
         layer_configs = input_config['layer_configs']
         period = input_config['period']
         duration = input_config['duration']
-        frame_dimensions = input_config['frame_dimensions']
-        binning_size = input_config['binning_size']
         stim_config = input_config['stim_config']
         # Where a layer whose focus was never saved is imaged: the stage's Z
         # when the config was built. Read only for such a layer.
         current_z = input_config.get('current_z')
 
-        _refuse_unless_tiling_offered(tiling_config, tiling)
-
-        # The objective is stamped into every step and sizes a spaced tiling
-        # grid; a protocol with neither -- an empty one -- is built with no
-        # objective (None), since there may be none in the light path to name.
+        # The objective is stamped into every step; a protocol with none --
+        # an empty one -- is built with no objective (None), since there may
+        # be none in the light path to name. A named one is the catalogue's.
         acquiring = any(cls.layer_acquires(cfg) for cfg in layer_configs.values())
-        tiling_mxn = tiling_config.get_mxn_size(tiling)
-        single_tile = tiling_mxn['m'] == 1 and tiling_mxn['n'] == 1
         if objective_id is None:
-            if acquiring or not single_tile:
+            if acquiring:
                 _refuse_build(
                     reason='objective_not_given',
-                    message=(
-                        'Protocol steps and a tiling grid need an objective, '
-                        'and the configuration names none.'
-                    ),
+                    message='Protocol steps need an objective, and the configuration names none.',
                 )
-            focal_length = None
         else:
-            focal_length = objective_helper.get_objective_info(
-                objective_id=objective_id
-            ).focal_length_mm
+            objective_helper.get_objective_info(objective_id=objective_id)
 
         # A scope records only what it measures: without an X/Y stage a step
         # has no X/Y (the plate's well centres are places it cannot reach),
         # and without Z no Z, so no focus is asked for.
         has_xy = {'X', 'Y'} <= set(capabilities.axes)
         has_z = 'Z' in capabilities.axes
-        if tiling != TilingConfig.no_tiling_label():
-            _refuse_without_motors(capabilities.axes, ('X', 'Y'), what='a tile grid')
-
-        fill_factor = _fill_factor_or_refuse(tiling_overlap_percent)
-        tiles = tiling_config.get_tile_centers(
-            config_label=tiling,
-            focal_length=focal_length,
-            frame_size=frame_dimensions,
-            fill_factor=fill_factor,
-            binning_size=binning_size,
-            capabilities=capabilities,
-        )
 
         config = {
             'version': cls.CURRENT_VERSION,
@@ -2861,126 +2833,108 @@ class Protocol:
             actual_positions = tmp
             position_source = 'from_labware'
 
-        tile_group_id = 0
-        # Every channel at one position is one group: tiles and z-slices of
-        # that position share it, and the builders separate those by Tile and
-        # Z-Slice.
+        # Every channel at one position is one group: the tiles and z-slices
+        # the protocols API builds from a position's steps keep it, and the
+        # builders separate those by Tile and Z-Slice.
         channel_group_id = 0
-        # custom_step_count = 0
         steps = []
 
-        # Iterate through all the positions in the scan
+        # One step per acquiring layer per position; the grid and the stack
+        # are built over these by apply_tiling and apply_zstacking.
         for pos in actual_positions:
-            for tile_label, tile_position in tiles.items():
-                for layer_name, layer_config in layer_configs.items():
-                    if not cls.layer_acquires(layer_config):
-                        continue
+            for layer_name, layer_config in layer_configs.items():
+                if not cls.layer_acquires(layer_config):
+                    continue
 
-                    # Each axis as given: one of X and Y without the other is
-                    # the steps table's to refuse, naming the step.
-                    x = y = None
-                    if pos['x'] is not None:
-                        x = round(
-                            pos['x'] + tile_position['x'] / 1000,
-                            common_utils.max_decimal_precision('x'),
-                        )  # in 'plate' coordinates
-                    if pos['y'] is not None:
-                        y = round(
-                            pos['y'] + tile_position['y'] / 1000,
-                            common_utils.max_decimal_precision('y'),
-                        )  # in 'plate' coordinates
+                # Each axis as given: one of X and Y without the other is
+                # the steps table's to refuse, naming the step.
+                x = y = None
+                if pos['x'] is not None:
+                    x = round(pos['x'], common_utils.max_decimal_precision('x'))
+                if pos['y'] is not None:
+                    y = round(pos['y'], common_utils.max_decimal_precision('y'))
 
-                    # Resolve Z per (well, channel): a tuned carry-over for
-                    # this exact channel wins (so New keeps per-channel
-                    # focus, not one channel's z for all); else an explicit
-                    # manual-position z; else this channel's saved focus;
-                    # else, never saved, the current Z.
-                    tuned_z = previous_well_z.get((pos.get('name'), layer_name))
-                    if not has_z:
-                        z = None
-                    elif tuned_z is not None:
-                        z = tuned_z
-                    elif pos['z'] is not None:
-                        z = pos['z']
-                    elif layer_config['focus'] is not None:
-                        z = layer_config['focus']
-                    elif current_z is not None:
-                        z = current_z
-                    else:
-                        _refuse_build(
-                            reason='focus_not_given',
-                            message=(
-                                f'No focus is saved for {layer_name} and the '
-                                'configuration names no current Z to image it at.'
-                            ),
-                        )
-
-                    if z is not None:
-                        z = round(z, common_utils.max_decimal_precision('z'))
-
-                    autofocus = layer_config['autofocus']
-                    false_color = layer_config['false_color']
-                    illumination = round(
-                        layer_config['illumination_ma'],
-                        common_utils.max_decimal_precision('illumination'),
+                # Resolve Z per (well, channel): a tuned carry-over for
+                # this exact channel wins (so New keeps per-channel
+                # focus, not one channel's z for all); else an explicit
+                # manual-position z; else this channel's saved focus;
+                # else, never saved, the current Z.
+                tuned_z = previous_well_z.get((pos.get('name'), layer_name))
+                if not has_z:
+                    z = None
+                elif tuned_z is not None:
+                    z = tuned_z
+                elif pos['z'] is not None:
+                    z = pos['z']
+                elif layer_config['focus'] is not None:
+                    z = layer_config['focus']
+                elif current_z is not None:
+                    z = current_z
+                else:
+                    _refuse_build(
+                        reason='focus_not_given',
+                        message=(
+                            f'No focus is saved for {layer_name} and the '
+                            'configuration names no current Z to image it at.'
+                        ),
                     )
-                    sum = int(layer_config['sum'])
-                    gain = round(
-                        layer_config['gain_db'], common_utils.max_decimal_precision('gain')
-                    )
-                    auto_gain = common_utils.to_bool(layer_config['auto_gain'])
-                    exposure = round(
-                        layer_config['exposure_ms'],
-                        common_utils.max_decimal_precision('exposure'),
-                    )
-                    video_config = layer_config['video_config']
 
-                    well_label = pos['name']
-                    if position_source == 'from_labware':
-                        custom_step = False
-                    else:
-                        custom_step = True
+                if z is not None:
+                    z = round(z, common_utils.max_decimal_precision('z'))
 
-                    if tile_label == '':
-                        tile_group_id_label = -1
-                    else:
-                        tile_group_id_label = tile_group_id
+                autofocus = layer_config['autofocus']
+                false_color = layer_config['false_color']
+                illumination = round(
+                    layer_config['illumination_ma'],
+                    common_utils.max_decimal_precision('illumination'),
+                )
+                sum = int(layer_config['sum'])
+                gain = round(layer_config['gain_db'], common_utils.max_decimal_precision('gain'))
+                auto_gain = common_utils.to_bool(layer_config['auto_gain'])
+                exposure = round(
+                    layer_config['exposure_ms'],
+                    common_utils.max_decimal_precision('exposure'),
+                )
+                video_config = layer_config['video_config']
 
-                    step_dict = cls._create_step_dict(
-                        # A manual position's name is its label (there is
-                        # no well anchor); a labware well needs none.
-                        label=well_label if custom_step else '',
-                        x=x,
-                        y=y,
-                        z=z,
-                        af=autofocus,
-                        color=layer_name,
-                        fc=false_color,
-                        ill=illumination,
-                        gain=gain,
-                        auto_gain=auto_gain,
-                        exp=exposure,
-                        sum=sum,
-                        objective=objective_id,
-                        well=well_label,
-                        tile=tile_label,
-                        zslice=-1,
-                        custom_step=custom_step,
-                        tile_group_id=tile_group_id_label,
-                        zstack_group_id=-1,
-                        acquire=layer_config['acquire'],
-                        video_config=video_config,
-                        stim_config=stim_config,
-                        auto_named=True,
-                        channel_group_id=channel_group_id,
-                        # The protocols API stamps the slot once the
-                        # protocol is built: this build has no scope.
-                        turret_slot=-1,
-                    )
-                    steps.append(step_dict)
+                well_label = pos['name']
+                if position_source == 'from_labware':
+                    custom_step = False
+                else:
+                    custom_step = True
 
-            if tile_label != '':
-                tile_group_id += 1
+                step_dict = cls._create_step_dict(
+                    # A manual position's name is its label (there is
+                    # no well anchor); a labware well needs none.
+                    label=well_label if custom_step else '',
+                    x=x,
+                    y=y,
+                    z=z,
+                    af=autofocus,
+                    color=layer_name,
+                    fc=false_color,
+                    ill=illumination,
+                    gain=gain,
+                    auto_gain=auto_gain,
+                    exp=exposure,
+                    sum=sum,
+                    objective=objective_id,
+                    well=well_label,
+                    tile='',
+                    zslice=-1,
+                    custom_step=custom_step,
+                    tile_group_id=-1,
+                    zstack_group_id=-1,
+                    acquire=layer_config['acquire'],
+                    video_config=video_config,
+                    stim_config=stim_config,
+                    auto_named=True,
+                    channel_group_id=channel_group_id,
+                    # The protocols API stamps the slot once the
+                    # protocol is built: this build has no scope.
+                    turret_slot=-1,
+                )
+                steps.append(step_dict)
 
             channel_group_id += 1
 

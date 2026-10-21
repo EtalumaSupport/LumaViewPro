@@ -213,19 +213,21 @@ class ProtocolsAPI:
                 ProtocolStepsInvalidNotice(errors=errors), solicited=solicited, category='Protocol'
             )
 
-    @api
     def create_protocol(
         self,
         *,
         input_config: dict | None = None,
         empty_config: dict | None = None,
     ) -> Protocol:
-        """Construct a Protocol in-memory.
+        """Construct a Protocol in-memory: the in-process builder the
+        session's ``new_protocol`` and ``create_empty_protocol`` and the
+        runner's internal starters call. A caller of the API builds through
+        those.
 
         Two sources (pass exactly one):
           - input_config={...}: positions, layer_configs, the z-stack, the
-            tiling, the schedule and the frame; routed through
-            Protocol.from_config.
+            tiling, the schedule and the frame; built flat by
+            Protocol.from_config, then tiled and stacked.
           - empty_config={...}: labware, period, duration, frame_dimensions
             and binning_size for an empty-steps protocol, which needs no
             objective; routed through Protocol.create_empty.
@@ -250,16 +252,21 @@ class ProtocolsAPI:
             CatalogueNameRefusedError: the configuration names a plate or an
                 objective the installation's catalogues do not hold.
             ProtocolRunRefusedError: the configuration cannot be built --
-                ``objective_not_given``, ``focus_not_given``,
-                ``overlap_out_of_range``, ``tiling_unknown`` -- or the stack
-                it asks for cannot be, as ``apply_zstacking`` refuses it
+                ``objective_not_given``, ``focus_not_given`` -- or the grid
+                it asks for cannot be, as ``apply_tiling`` refuses it
+                (``tiling_unknown``, ``overlap_out_of_range``,
+                ``positions_unreachable``, ``tiles_outside_travel``), or the
+                stack, as ``apply_zstacking`` refuses it
                 (``zstack_not_configured``, ``positions_unreachable``,
                 ``zslices_outside_travel``); reported once.
+            ConfigError: no session has bound the scope, so it has no stage
+                offset to lay the grid out at.
 
-        A configuration with ``use_zstacking`` is built flat and then
-        stacked by ``Protocol.apply_zstacking``, the one z-stack build, so
-        a New protocol's stacks are grouped, focused and refused as Apply's
-        and Add's are.
+        A configuration is built flat, one step per acquiring layer per
+        position, then tiled by ``Protocol.apply_tiling`` and stacked by
+        ``Protocol.apply_zstacking``, the one grid build and the one z-stack
+        build, so a New protocol's tiles and stacks are ordered, grouped,
+        focused and refused as Apply's and Add's are.
         """
         from modules.protocol import Protocol, refuse_unless_buildable_config
 
@@ -285,6 +292,17 @@ class ProtocolsAPI:
                 capabilities=self._scope.capabilities,
                 objective_helper=self._scope.objective_helper,
                 wellplate_loader=self._scope.wellplate_loader,
+            )
+            protocol.apply_tiling(
+                tiling=input_config['tiling'],
+                frame_dimensions=input_config['frame_dimensions'],
+                binning_size=input_config['binning_size'],
+                axis_limits=self._travel_limits(),
+                labware=self._scope.wellplate_loader.get_plate(plate_key=protocol.labware()),
+                stage_offset=self._scope.runtime_state.get_stage_offset(),
+                overlap_percent=input_config.get('tiling_overlap_percent', 0.0),
+                capabilities=self._scope.capabilities,
+                objective_helper=self._scope.objective_helper,
             )
             if input_config['use_zstacking']:
                 protocol.apply_zstacking(input_config['zstack_params'], self._travel_limits())

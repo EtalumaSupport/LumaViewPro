@@ -26,7 +26,6 @@ import modules.config_helpers as config_helpers
 from modules import image_utils
 from modules.composite_generation import CompositeGeneration
 from modules.exceptions import PostProcessingFailedError, ProtocolRunRefusedError
-from modules.protocol import Protocol
 from modules.protocol_execution_record import ProtocolExecutionRecord
 from modules.stack_builder import StackBuilder
 from modules.stitcher import Stitcher
@@ -374,24 +373,13 @@ class TestAnUpdateCannotDoubleAChannelInItsAdd:
 
 class TestAGeneratedProtocolKeepsAPositionTogether:
     def test_every_channel_and_tile_of_one_well_shares_its_group_and_each_well_has_its_own(
-        self, scale_capabilities
+        self, session
     ):
-        import copy
-
-        from modules.labware_loader import WellPlateLoader
-        from modules.objectives_loader import ObjectiveLoader
-        from tests.test_issue_535_z_carry_over_on_new import _build_input_config
-
-        config = _build_input_config()
-        config['tiling'] = '2x2'
-        config['layer_configs']['Green'] = copy.deepcopy(config['layer_configs']['BF'])
-        protocol = Protocol.from_config(
-            input_config=config,
-            tiling_configs_file_loc=TILING_CONFIGS,
-            capabilities=scale_capabilities,
-            objective_helper=ObjectiveLoader(),
-            wellplate_loader=WellPlateLoader(),
-        )
+        for layer in config_helpers.get_layer_configs(session.settings):
+            session.settings[layer]['acquire'] = None
+        for layer in ('BF', 'Green'):
+            session.set_layer_acquire(layer, 'image')
+        protocol = session.new_protocol(tiling='2x2')
         steps = protocol.steps()
 
         per_well = steps.groupby('Well')['Channel Group ID'].nunique()

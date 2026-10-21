@@ -6,10 +6,12 @@ from types import SimpleNamespace
 
 import pytest
 
+from modules.coord_transformations import StageOffset
 from modules.labware_loader import WellPlateLoader
 from modules.objectives_loader import ObjectiveLoader
 from modules.protocol import Protocol
 from modules.tiling_config import TilingConfig
+from tests.test_zstack_group_identity import _WIDE_XY
 
 
 TILING_CONFIGS = pathlib.Path(__file__).parent.parent / 'data' / 'tiling.json'
@@ -21,7 +23,8 @@ def _tile_spacing(tiles):
     return x_spacing, y_spacing
 
 
-def _make_protocol_from_config(overlap_percent, capabilities):
+def _make_tiled_protocol(overlap_percent, capabilities):
+    """One BF step at A1, built flat and tiled 2x2 as the protocols API builds New."""
     input_config = {
         'positions': [
             {
@@ -61,13 +64,25 @@ def _make_protocol_from_config(overlap_percent, capabilities):
         'binning_size': 1,
         'stim_config': {},
     }
-    return Protocol.from_config(
+    protocol = Protocol.from_config(
         input_config=input_config,
         tiling_configs_file_loc=TILING_CONFIGS,
         capabilities=capabilities,
         objective_helper=ObjectiveLoader(),
         wellplate_loader=WellPlateLoader(),
     )
+    protocol.apply_tiling(
+        tiling=input_config['tiling'],
+        frame_dimensions=input_config['frame_dimensions'],
+        binning_size=input_config['binning_size'],
+        axis_limits=_WIDE_XY,
+        labware=WellPlateLoader().get_plate(input_config['labware_id']),
+        stage_offset=StageOffset(x_um=0.0, y_um=0.0),
+        overlap_percent=overlap_percent,
+        capabilities=capabilities,
+        objective_helper=ObjectiveLoader(),
+    )
+    return protocol
 
 
 def _protocol_tile_spacing(protocol):
@@ -118,11 +133,9 @@ def test_ten_percent_overlap_reduces_tile_spacing_by_ten_percent(scale_capabilit
     assert y_spacing_overlap == pytest.approx(y_spacing_no_overlap * 0.9, abs=0.02)
 
 
-def test_protocol_from_config_overlap_keeps_tile_count_and_reduces_spacing(scale_capabilities):
-    protocol_no_overlap = _make_protocol_from_config(
-        overlap_percent=0, capabilities=scale_capabilities
-    )
-    protocol_ten_percent_overlap = _make_protocol_from_config(
+def test_a_tiled_protocols_overlap_keeps_tile_count_and_reduces_spacing(scale_capabilities):
+    protocol_no_overlap = _make_tiled_protocol(overlap_percent=0, capabilities=scale_capabilities)
+    protocol_ten_percent_overlap = _make_tiled_protocol(
         overlap_percent=10, capabilities=scale_capabilities
     )
 

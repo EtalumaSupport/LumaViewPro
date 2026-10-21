@@ -8338,21 +8338,6 @@ class TestLumascopeSkillsApiPluginDocBatch:
         assert 'run_application_session' in doc
         assert hasattr(ScopeSession, 'run_application_session')
 
-    def test_protocol_canonical_entry_points_documented(self):
-        # F25: the L2 doc names the canonical protocol constructors, and
-        # they exist at the address it names. The constructors moved from
-        # Lumascope to the protocols sub-API; the invariant is unchanged,
-        # only the address is. Doc and code must move together or this
-        # test catches whichever lagged.
-        from modules.lumascope_api import ProtocolsAPI
-        from modules.scope_session import ScopeSession
-
-        doc = self._doc()
-        assert 'session.load_protocol' in doc
-        assert 'scope.protocols.create_protocol' in doc
-        assert hasattr(ScopeSession, 'load_protocol')
-        assert hasattr(ProtocolsAPI, 'create_protocol')
-
     def test_listener_signature_overview_present(self):
         # F20: the four differing callback signatures appear in one overview.
         doc = self._doc()

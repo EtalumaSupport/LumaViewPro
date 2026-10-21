@@ -593,3 +593,15 @@ class TestLumascopeSkillsTeachesOnlyApi:
             'planted:13  the fence does not parse',
         ):
             assert expected in reported, reported
+
+
+def test_the_reference_names_each_protocol_constructor_and_each_is_api():
+    """A presence claim the call-form check does not make: the reference
+    teaches the three ways to get a protocol, and each is a marked member."""
+    from modules.api_surface import API, mark_of
+    from modules.scope_session import ScopeSession
+
+    doc = DOC.read_text(encoding='utf-8')
+    for member in ('load_protocol', 'new_protocol', 'create_empty_protocol'):
+        assert f'session.{member}(' in doc, member
+        assert mark_of(getattr(ScopeSession, member)) == API, member

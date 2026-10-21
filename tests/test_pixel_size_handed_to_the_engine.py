@@ -128,9 +128,9 @@ class TestTheTilingChainIsHandedItsScale:
     ):
         """The chain above the layout: a protocol is a data object handed a
         scale, and building one headless needs nothing in the process."""
-        from tests.test_tiling_overlap import _make_protocol_from_config
+        from tests.test_tiling_overlap import _make_tiled_protocol
 
-        protocol = _make_protocol_from_config(overlap_percent=0, capabilities=scale_capabilities)
+        protocol = _make_tiled_protocol(overlap_percent=0, capabilities=scale_capabilities)
 
         assert len(protocol.steps()) == 4
 

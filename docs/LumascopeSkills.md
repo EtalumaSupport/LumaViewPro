@@ -850,8 +850,9 @@ protocol = session.load_protocol('my_protocol.tsv')    # and the scope takes the
 session.apply_layer_settings(protocol)   # optional: its Layer Settings into the layer controls, as the GUI's Load does
 # ProtocolFormatError (a refusal) names the file and what is wrong with it -- malformed, too large, or a plate this
 # installation's labware catalogue does not have; ProtocolNotLoadedError names a file that cannot be read and the OS reason
-# or build one in-memory (input_config= | empty_config=):
-protocol = session.scope.protocols.create_protocol(input_config=config)
+# or build one from the session's settings, as the GUI's New does, or one with no steps:
+protocol = session.new_protocol(tiling='2x2', use_zstacking=True)
+protocol = session.create_empty_protocol()                 # for add_step to fill
 # save one: whole or not at all. ProtocolNotSavedError (modules.exceptions) names the
 # file and the OS reason, and a file already there is unchanged. A run saves its own
 # copy in its run folder; when that copy cannot be written the run ends failed_at_start
@@ -974,7 +975,7 @@ A Lumascope Classic on Windows that came up on no driver, or on one LumaViewPro 
 
 Recovery is deliberate data loss: the finished run's outstanding images are given up on (they were never going to finish), and a partial file from the stuck write may remain on disk. Returns how many images were given up on. It is refused with `FileWriterNotStuckError` (reason `file_writer_not_stuck`) while the writer is still making progress -- those files finish on their own -- and with `HardwareCommandRefusedError` while a run or a diagnostic holds the scope.
 
-**Canonical entry points.** Build the runner with `session.create_protocol_runner()`. Build the `Protocol` it runs with `session.load_protocol(file_path)` (from a `.tsv` on disk, with the scope put on the protocol's plate), `session.new_protocol(...)` (from the session's settings, as the GUI's New does) or `scope.protocols.create_protocol(input_config=... | empty_config=...)` (in-memory). Each resolves `data/tiling.json` from the scope's data folder and judges the protocol against the scope's catalogues.
+**Canonical entry points.** Build the runner with `session.create_protocol_runner()`. Build the `Protocol` it runs with `session.load_protocol(file_path)` (from a `.tsv` on disk, with the scope put on the protocol's plate), `session.new_protocol(...)` (from the session's settings, as the GUI's New does) or `session.create_empty_protocol()` (no steps, for `add_step` to fill). Each resolves `data/tiling.json` from the scope's data folder and judges the protocol against the scope's catalogues.
 
 **Tiling grids.** `scope.protocols.tiling_config()` returns the grids this installation offers, read from the same `data/tiling.json`, as a record: `available` lists the labels a protocol's `tiling` accepts (`'1x1'`, `'2x2'`, ...), and `default` is the one to preselect, one of `available`. `available_configs()` and `default_config()` answer the same in-process. The scope reads the file once, at bring-up, with the installation's other catalogues, so a `tiling.json` edited while the program runs is seen at the next start; a file that is missing, unreadable or not JSON, or is not a `data` object of grids with whole-number `m` and `n` and a `metadata.default` naming one of them, refuses the bring-up with `InstallationFileError` (`installation_file_unusable`, a fault: reinstall or restore the file), naming it. The members that build a protocol still read the file as they build, and raise the same for a file broken since. `protocol.tiling()` names the grid a protocol's steps already carry: `'1x1'` when no step is tiled, the grid's label when the tiles form one on offer, and None when they are tiled in a layout no grid offers. `session.apply_tiling` refuses any grid over a tiled protocol (`ProtocolRunRefusedError`, reason `already_tiled`).
 
@@ -1055,7 +1056,7 @@ scope.protocols.set_step_z(protocol, 0, z)
 
 **A step's motor targets.** `scope.protocols.step_targets(protocol, step_idx)` is the one conversion a run and a person's navigation share: a `StepTargets` (`modules.lumascope_api.protocols`) of `turret_slot` (the slot the step recorded, its `Turret Slot`; a step that recorded none, from an older file, means the only slot holding its objective; None on a scope without a turret), and `x`, `y` and `z` in stage micrometres, X and Y converted on the protocol's own plate, not the scope's selected one; an axis the scope has no motor for is None, and nothing drives it. Every step move a run makes takes the same conversion, so a run's return to its first step between scans and after a z-stack drives only the axes the scope has too. It raises `StepNotFoundError` for a `step_idx` the protocol lacks, `ProtocolRunRefusedError` for a step whose objective this scope cannot put in the light path (`turret_objectives_unassigned` when no turret slot carries it, as after the slot is cleared; `objective_not_mounted` when, without a turret, it is not the mounted objective; 409, the scope's state) or that cannot say which slot it means (`turret_slot_ambiguous`, `turret_slot_reassigned`, below; 409), and `CatalogueNameRefusedError` for a plate the catalogue does not have.
 
-**Which turret slot a step uses.** Every step records the slot it was made or updated at, its `Turret Slot` (-1 without a turret): `add_step` and `update_step` record the slot in the light path, and `new_protocol` and `create_protocol` record, for each step, the slot in the light path when it holds the step's objective and otherwise the only slot that does. A run and `go_to_step` turn each step to its own slot, so two steps naming one objective in two slots each use their own, and updating one changes no other. A protocol opened with `load_protocol` gets a slot for each step that recorded none (a file from before steps recorded their slot) when only one slot holds its objective. A step that cannot say which slot it means -- its objective is in two or more slots and it recorded none, or the slot it recorded now holds another objective -- does not stop the load; `scope.protocols.turret_slot_questions(protocol)` returns one `TurretSlotQuestion` per objective with such steps (`objective_id`, `steps` the step indices, `reassigned` those whose slot now holds another objective, `choices` the slots holding it now), and `scope.protocols.point_steps_at_turret_slot(protocol, objective_id, slot)` answers it, pointing exactly those steps at `slot` and returning their indices; a slot that does not hold the objective is refused with `ArgumentRefusedError` (`slot_not_holding_objective`, `offered` the slots that do), nothing changed. Until it is answered, a run's start and going to such a step are refused with `ProtocolRunRefusedError`: `turret_slot_ambiguous` or `turret_slot_reassigned` (409), naming the steps and the slots. LumaViewPro asks each question when a protocol is opened. Saving the protocol writes the slots.
+**Which turret slot a step uses.** Every step records the slot it was made or updated at, its `Turret Slot` (-1 without a turret): `add_step` and `update_step` record the slot in the light path, and `new_protocol` records, for each step, the slot in the light path when it holds the step's objective and otherwise the only slot that does. A run and `go_to_step` turn each step to its own slot, so two steps naming one objective in two slots each use their own, and updating one changes no other. A protocol opened with `load_protocol` gets a slot for each step that recorded none (a file from before steps recorded their slot) when only one slot holds its objective. A step that cannot say which slot it means -- its objective is in two or more slots and it recorded none, or the slot it recorded now holds another objective -- does not stop the load; `scope.protocols.turret_slot_questions(protocol)` returns one `TurretSlotQuestion` per objective with such steps (`objective_id`, `steps` the step indices, `reassigned` those whose slot now holds another objective, `choices` the slots holding it now), and `scope.protocols.point_steps_at_turret_slot(protocol, objective_id, slot)` answers it, pointing exactly those steps at `slot` and returning their indices; a slot that does not hold the objective is refused with `ArgumentRefusedError` (`slot_not_holding_objective`, `offered` the slots that do), nothing changed. Until it is answered, a run's start and going to such a step are refused with `ProtocolRunRefusedError`: `turret_slot_ambiguous` or `turret_slot_reassigned` (409), naming the steps and the slots. LumaViewPro asks each question when a protocol is opened. Saving the protocol writes the slots.
 
 ```python
 for q in scope.protocols.turret_slot_questions(protocol):   # [] on a scope without a turret
@@ -1170,7 +1171,7 @@ Each image is measured at the scale it states: a LumaViewPro capture carries its
 
 The graph LumaViewPro's Object Plotting popup draws is the session's, so any client makes the same one. `session.post_processing.graph_options(results, x=None, y=None)` answers a `GraphOptions`: the columns of the results file each axis can take (`x_axes`, `y_axes`) and, once both axes are given, the trendline kinds that pair takes (`trendlines`), so a client of its own can fill the same form. `graph(results, path, x=..., y=..., trendline=None, x_label=None, y_label=None, title='')` draws column `y` against column `x`, with the trendline over it when a kind is named, and writes it to `path` as a PNG, answering a `GraphResult` (`message`, `path`); each label defaults to its column's name, and a missing folder is made where `path` sends it. It runs on the post-processing lane like the builds; over REST both are `/api/v1/post_processing/graph_options` and `/api/v1/post_processing/graph`, the paths under the live folder. `draw_graph`, with `graph`'s arguments but no `path`, returns the matplotlib `Figure` itself, for a GUI in the same process to show; it does not cross the wire. A `path` that does not end in `.png` is refused `wrong_extension` and nothing is written; no results file, or no `x` or `y`, is refused `graph_incomplete` ("choose a results file and an X and a Y axis first"); a column that axis cannot take is refused `axis_not_plottable`, naming the columns it can; the reader's and the fit's refusals are as above. A folder or file the disk will not write is `PostProcessingFailedError` (`operation='Graphing'`), naming the file and the system's reason.
 
-Which images make one output: a composite, a z-projection, a video and a hyperstack each build from one channel group, the steps' `Channel Group ID`. Every step of one `add_step` call shares one group, and a generated protocol (`new_protocol`, `create_protocol`) gives every channel, tile and z-slice of one position one group; so two adds at one stage position give two composites, never one made from both. A stitch is not grouped by it: it joins one color's tiles across positions, added together or not. A still-image group that holds two images for one input -- two of one channel, or two different transmitted channels in a composite, or two stills of one scan in a timelapse -- is not built: the build's `PostProcessingFailedError` names the images, and the other groups are built. That is what a run folder from before steps carried their group yields when one position was added to more than once, since its steps all read `-1`. A composite run (`run_composite`) with two transmitted channels set to capture is refused at its start (`ProtocolRunRefusedError`, `composite_two_transmitted_layers`), before any capture; `update_step` refuses giving a step a channel another step of its add takes (`channel_already_in_add`).
+Which images make one output: a composite, a z-projection, a video and a hyperstack each build from one channel group, the steps' `Channel Group ID`. Every step of one `add_step` call shares one group, and a generated protocol (`new_protocol`) gives every channel, tile and z-slice of one position one group; so two adds at one stage position give two composites, never one made from both. A stitch is not grouped by it: it joins one color's tiles across positions, added together or not. A still-image group that holds two images for one input -- two of one channel, or two different transmitted channels in a composite, or two stills of one scan in a timelapse -- is not built: the build's `PostProcessingFailedError` names the images, and the other groups are built. That is what a run folder from before steps carried their group yields when one position was added to more than once, since its steps all read `-1`. A composite run (`run_composite`) with two transmitted channels set to capture is refused at its start (`ProtocolRunRefusedError`, `composite_two_transmitted_layers`), before any capture; `update_step` refuses giving a step a channel another step of its add takes (`channel_already_in_add`).
 
 The builds run on the session's own post-processing lane, one at a time in the order asked. A protocol run writes its images on a different lane, so a long build never delays a run's writes. The tiling config and the turret are the session's own: a caller passes neither.
 
@@ -1286,9 +1287,9 @@ A number you pass is a finite number: NaN or an infinity is refused with `Argume
 
 An axis is named exactly `'X'`, `'Y'`, `'Z'` or `'T'`, in capitals. Every member that takes an axis -- the moves, the position and state reads, `get_axis_limits`, the limit switches, the precision mode, `jog_step` and `read_motor_drv_status` -- refuses any other name (`'x'`, `'Q'`) with `ArgumentRefusedError` reason `axis_unknown`, its `offered` holding the names the member takes, before the scope's hardware is asked. A home takes `'Z'`, `'T'` or `'ALL'`; `jog_step` takes `'X'`, `'Y'` or `'Z'`. An axis this model lacks is a name: a command for it is refused as absent hardware, and a read answers as for a missing axis (`get_axis_state` `'unknown'`, a position None). The generic movers refuse `'T'` with reason `turret_moves_by_slot`: the turret moves only through `move_turret(slot)`. A plate move given a Z is `plate_frame_axis`, refused at the door. `set_motor_fan_duty` takes a whole percentage and refuses one outside 0 to 100 (`fan_duty_out_of_range`), with nothing sent. The camera diagnostics refuse a count or time outside what they take (`out_of_range`, its `limits` the ends, which are included): `run_grab_lifecycle_benchmark` takes 1 to 10,000 cycles, 0 to 60,000 ms between them and a slow threshold of 0 to 600 s; `run_pylon_diagnostic_probe` takes 0 to 3,600 s. A stage offset handed to `stage_to_plate`, `plate_to_stage`, `plate_transform` or `step_targets` is a `StageOffset`, and an axis of it that is no finite number is `not_a_number`, naming it (`stage_offset.x_um`). The auto-gain settings handed to `set_auto_gain` or the camera's `apply` are read before the member acts: a key left out is `missing_key` and a value that is no number `not_a_number`, each naming the key. Each is the request's (`cause` `REQUEST`): it fails the same way until the caller changes it.
 
-A plate or an objective is named by its catalogue key (`list(scope.labware)`, `list(scope.objectives)`); a plate renamed since a file named it is still found under its old name and stored under its key. Every member that takes one -- `select_labware`, `set_protocol_labware`, `create_protocol`, `select_objective`, `confirm_objective`, `assign_turret_objective` -- refuses a name the catalogue does not hold with `CatalogueNameRefusedError` (`modules.exceptions`, a `ConfigError`), reason `labware_unknown` or `objective_not_in_catalogue`, its `argument` naming the catalogue owner's parameter (`plate_key`, `objective_id`) and its `offered` holding the catalogue's keys, before anything is stored. The run's `ProtocolRunRefusedError` uses the same reason, `objective_not_in_catalogue`, for a protocol step's objective; `argument` is on the catalogue refusal only. A turret slot that is not a whole number 1 to 4 is refused with `PositionOutOfRangeError` by every member that takes one. Each is the request's (`cause` `REQUEST`).
+A plate or an objective is named by its catalogue key (`list(scope.labware)`, `list(scope.objectives)`); a plate renamed since a file named it is still found under its old name and stored under its key. Every member that takes one -- `select_labware`, `set_protocol_labware`, `select_objective`, `confirm_objective`, `assign_turret_objective` -- refuses a name the catalogue does not hold with `CatalogueNameRefusedError` (`modules.exceptions`, a `ConfigError`), reason `labware_unknown` or `objective_not_in_catalogue`, its `argument` naming the catalogue owner's parameter (`plate_key`, `objective_id`) and its `offered` holding the catalogue's keys, before anything is stored. The run's `ProtocolRunRefusedError` uses the same reason, `objective_not_in_catalogue`, for a protocol step's objective; `argument` is on the catalogue refusal only. A turret slot that is not a whole number 1 to 4 is refused with `PositionOutOfRangeError` by every member that takes one. Each is the request's (`cause` `REQUEST`).
 
-`scope.protocols.create_protocol(input_config=... | empty_config=...)` judges the configuration whole before anything is built: every key the build reads, present and of its kind, whichever of them this build happens to reach. A key left out is `ArgumentRefusedError` reason `missing_key`, a value of the wrong kind `wrong_kind` (its words name the kind) or, for a number, `not_a_number` (`True` and NaN included), a layer's `acquire` that is neither None nor `'image'` / `'video'` `acquire_mode_unknown`, a layer name that is no layer `layer_unknown` (`no_layer_selected` for None), and a z-stack reference other than `'top'`, `'center'` or `'bottom'` `zstack_reference_unknown`; each names the key's path as you wrote it in `argument` (`input_config['layer_configs']['BF']['gain_db']`). A layer that acquires nothing is read for its `acquire` only, and the z-stack's keys only when `use_zstacking` is set. Passing neither source, or both, is `protocol_source_ambiguous`. What only the build can see is `ProtocolRunRefusedError`, raised to you and posted to no listener (over REST, answered 422 and shown to no one): steps or a grid with no `objective_id` (`objective_not_given`), an acquiring layer with no focus and no `current_z` (`focus_not_given`), and a `tiling_overlap_percent` outside 0 to 50 (`overlap_out_of_range`, here and in `apply_tiling`). Each is the request's.
+`new_protocol` builds one step per acquiring layer at every well of the session's plate, then tiles them as `apply_tiling` does and stacks them as `apply_zstacking` does, so New's grid and stack are ordered, grouped and refused as Apply's are. What it refuses is `ProtocolRunRefusedError`, raised to you and posted to no listener (over REST, answered 422 and shown to no one): a grid this installation does not offer (`tiling_unknown`), a stored `tiling_overlap_percent` outside 0 to 50 (`overlap_out_of_range`, here and in `apply_tiling`), a tile past the X or Y travel (`tiles_outside_travel`), a grid on a scope with no X/Y motor (`positions_unreachable`), and the stack's refusals as `apply_zstacking`'s. Each is the request's.
 
 The subscription is process-wide: a listener hears every session in the process, and the mute and dedup state is shared. A listener that raises is logged at ERROR with its traceback and the others are still told. A session that already exists has finished bring-up; what bring-up reported is heard only by a listener given to `create`. What it found is held for a client that comes later:
 
@@ -1509,30 +1510,27 @@ session.update_settings('Red.display_color', '#ff00ff')  # override a layer's co
                                          # '#rrggbb', lower case, brightest component ff, else SettingRefusedError
 ```
 
-Assembling the configuration a sequenced run takes:
+Building a protocol from the session's settings:
 
 ```python
-# Everything the run needs, from this session's settings -- no GUI involved.
-config = session.get_sequenced_capture_config()
+# One step per acquiring layer at every well of the session's plate -- no GUI involved.
+protocol = session.new_protocol()
 
 # Tiling and z-stacking are ARGUMENTS, not stored settings. Neither survives
 # a restart, so there is nothing for the session to read them from: state
 # what you want.
-config = session.get_sequenced_capture_config(tiling='2x2', use_zstacking=True)
+protocol = session.new_protocol(tiling='2x2', use_zstacking=True)
 ```
 
 A layer whose focus was never saved (`saved_focus(layer)` raises
-`FocusNotSavedError`) is imaged at the stage's Z when the config was built: the
-config carries it as `current_z`, Z's position from `scope.motion.axis_positions()`,
-or `None` while Z does not know it (before a home); a scope with no Z motor
-carries the plate position's Z. A layer with a saved focus keeps it.
-`new_protocol` refuses the unknown Z; a config passed to
-`scope.protocols.create_protocol` with an unfocused acquiring layer and no
-`current_z` raises `ProtocolRunRefusedError` (`focus_not_given`).
+`FocusNotSavedError`) is imaged at the stage's Z, Z's position from
+`scope.motion.axis_positions()`; `new_protocol` refuses the build while Z does
+not know it (before a home). A scope with no Z motor takes the plate
+position's Z. A layer with a saved focus keeps it.
 
-The GUI builds the same configuration through the same builder, supplying
-those two from its own controls, so a scripted run and a run started from the
-screen are assembled identically.
+The GUI's New builds through the same member, supplying those two from its
+own controls, so a scripted protocol and one made on the screen are built
+identically.
 
 ### Cleanup
 
@@ -2816,17 +2814,15 @@ print(result.status, result.captures)
 
 ### Well-plate scan
 
-A scan of chosen wells is a protocol built from the session's own
-configuration, with your positions:
+A scan of chosen wells is a protocol with a step added at each, from the
+session's own layer settings:
 
 ```python
-session.set_layer_acquire('BF', 'image')             # the layers a protocol builds steps for
-config = session.get_sequenced_capture_config()
-config['positions'] = [
-    {'name': name, 'x': px, 'y': py, 'z': config['current_z']}    # plate mm
-    for name, px, py in [('A1', 14.38, 11.24), ('A2', 23.38, 11.24), ('A3', 32.38, 11.24)]
-]
-protocol = session.scope.protocols.create_protocol(input_config=config)
+session.set_layer_acquire('BF', 'image')             # the layers a step is added for
+protocol = session.create_empty_protocol()
+for well in ('A1', 'A2', 'A3'):
+    session.scope.motion.move_to_well(well)          # the well's centre on the selected plate
+    session.add_step(protocol)                        # one step per acquiring layer, here
 result = session.create_protocol_runner().start_single_scan(protocol).result(timeout=600)
 print(result.status, result.captures)
 ```
@@ -3017,7 +3013,6 @@ Reached through `ScopeSession.create(settings, ...)`; every L2 caller starts her
 - `enable_metrics` (in-process)
 - `engineering_mode`
 - `get_current_plate_position`
-- `get_sequenced_capture_config`
 - `get_setting`
 - `get_settings_snapshot`
 - `get_zstack_params` (in-process)
@@ -3269,7 +3264,6 @@ Reached through `session.scope.diagnostics`.
 
 Reached through `session.scope.protocols`.
 
-- `create_protocol`
 - `focus_z`
 - `point_steps_at_turret_slot`
 - `set_step_z`

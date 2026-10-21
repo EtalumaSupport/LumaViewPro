@@ -29,7 +29,7 @@ from modules.scope_session import ScopeSession
 
 LAYERS = ('BF', 'Blue')
 # One well, in plate millimetres: well A1 of the selected plate.
-WELL = {'x': 14.38, 'y': 11.24, 'name': 'A1'}
+WELL = 'A1'
 
 
 def main():
@@ -63,12 +63,12 @@ def run_one_scan(session, live):
     for layer in LAYERS:
         session.set_layer_acquire(layer, 'image')
 
-    # The configuration a run takes, from the session's settings: the
-    # plate, the objective, the frame and each layer's settings. Adjust it
-    # as you need; here, one well at the current focus.
-    config = session.get_sequenced_capture_config()
-    config['positions'] = [{**WELL, 'z': config['current_z']}]
-    protocol = session.scope.protocols.create_protocol(input_config=config)
+    # A protocol with a step per acquiring layer at one well, from the
+    # session's settings: the plate, the objective and each layer's
+    # settings. session.new_protocol() builds one at every well instead.
+    protocol = session.create_empty_protocol()
+    session.scope.motion.move_to_well(WELL)
+    session.add_step(protocol)
     print(f'Protocol: {protocol.num_steps()} steps, layers {list(LAYERS)}')
 
     # The run captures in the session's image mode and output formats

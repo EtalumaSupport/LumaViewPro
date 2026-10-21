@@ -13,7 +13,6 @@ before any step changes, and a refusal is reported once.
 from __future__ import annotations
 
 import ast
-import pathlib
 from unittest.mock import patch
 
 import pandas as pd
@@ -23,15 +22,10 @@ from modules.coord_transformations import StageOffset
 from modules.exceptions import ProtocolRunRefusedError, RefusalCause
 from modules.labware_loader import WellPlateLoader
 from modules.objectives_loader import ObjectiveLoader
-from modules.protocol import Protocol
 from tests.ast_seams import find_def
-from tests.scope_fakes import build_scope
-from tests.test_a_zstack_with_no_range_is_refused import _standalone_config
+from tests.test_adding_a_step_is_an_api_capability import session  # noqa: F401 -- pytest fixture
 from tests.test_step_label_ssot import _build_protocol, _labeled_step
 from tests.test_zstack_group_identity import _WIDE_XY
-
-
-_REPO_ROOT = pathlib.Path(__file__).parent.parent
 
 
 def _tile(proto, capabilities, tiling, *, frame_dimensions=None):
@@ -79,27 +73,16 @@ def test_a_grid_the_installation_does_not_offer_is_refused(scale_capabilities):
 
 
 @pytest.mark.parametrize('tiling', ['13x13', ''])
-def test_a_new_protocol_in_a_grid_the_installation_does_not_offer_is_refused(tiling):
+def test_a_new_protocol_in_a_grid_the_installation_does_not_offer_is_refused(session, tiling):
     # The build from a config refused nothing: it raised KeyError from the
     # grid lookup, which reached the GUI's New as "Operation failed" when
     # the spinner was blank, and a script or REST caller as a bare KeyError.
-    config = _standalone_config({'range': 20.0, 'step_size': 5.0}, use_zstacking=False)
-    config['tiling'] = tiling
-    scope = build_scope(simulate=True, source_path=_REPO_ROOT)
-    try:
-        with (
-            patch('modules.protocol.notifications.report_outcome') as report,
-            pytest.raises(ProtocolRunRefusedError) as refusal,
-        ):
-            Protocol.from_config(
-                input_config=config,
-                tiling_configs_file_loc=_REPO_ROOT / 'data' / 'tiling.json',
-                capabilities=scope.capabilities,
-                objective_helper=scope.objective_helper,
-                wellplate_loader=scope.wellplate_loader,
-            )
-    finally:
-        scope.disconnect()
+    session.set_layer_acquire('BF', 'image')
+    with (
+        patch('modules.protocol.notifications.report_outcome') as report,
+        pytest.raises(ProtocolRunRefusedError) as refusal,
+    ):
+        session.new_protocol(tiling=tiling)
     assert refusal.value.reason == 'tiling_unknown'
     report.assert_not_called()
 
