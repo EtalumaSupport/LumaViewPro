@@ -58,24 +58,21 @@ class FalsifyingChangeInFlightError(Refusal, Exception):
         self.reason = 'falsifying_change_in_flight'
 
 
-# The id is the only proof of holding, so it is told to its taker and
-# never published: a client that read it here could act as the holder.
 @api_fields('name', 'taken_by', 'taken_at')
 @dataclass(frozen=True)
 class ControlSession:
     """The one client controlling the scope: what it was taken as, and by whom.
 
+    Carries no id: the id is the only proof of holding, and only the taker's
+    ``ControllerTaking`` holds it, so no reader of this record -- a wire
+    client, a plugin, the GUI -- can act as the holder.
+
     Attributes:
-        id: What a request names to act in this session; a fresh one per
-            take, so an ended session's id never names a later one. Told
-            to the taker by ``take_control`` and read in-process by the
-            GUI; never published.
         name: The name the client took it with, for the person at the scope.
         taken_by: The host the take came through (``modules.caller``).
         taken_at: When it was taken, as ``time.time()``.
     """
 
-    id: str
     name: str
     taken_by: Caller
     taken_at: float
@@ -375,11 +372,12 @@ class ControllerTaking:
     taking, so the controller's lane work is known for its own.
     """
 
-    __slots__ = ('_claim', '_session')
+    __slots__ = ('_claim', '_id', '_session')
 
-    def __init__(self, claim: 'ActivityClaim', session: ControlSession) -> None:
+    def __init__(self, claim: 'ActivityClaim', session: ControlSession, session_id: str) -> None:
         self._claim = claim
         self._session = session
+        self._id = session_id
 
     @property
     def claim(self) -> 'ActivityClaim':
@@ -390,6 +388,15 @@ class ControllerTaking:
     def session(self) -> ControlSession:
         """The control session this taking acts for."""
         return self._session
+
+    @property
+    def id(self) -> str:
+        """What a request names to act in the session, and what ends it.
+
+        A fresh one per take, so an ended session's id never names a later
+        one. Held here alone: the taker is told it, and no record publishes it.
+        """
+        return self._id
 
 
 def command_refused(
@@ -659,10 +666,8 @@ class ActivityClaim:
                 raise ControlSessionRefusedError('write_in_flight')
             if finishing():
                 raise ControlSessionRefusedError('work_finishing')
-            session = ControlSession(
-                id=uuid.uuid4().hex, name=name, taken_by=caller, taken_at=time.time()
-            )
-            controller = ControllerTaking(self, session)
+            session = ControlSession(name=name, taken_by=caller, taken_at=time.time())
+            controller = ControllerTaking(self, session, uuid.uuid4().hex)
             self._control = (session, controller)
         self.announce()
         return controller
@@ -676,7 +681,7 @@ class ActivityClaim:
         """
         with self._lock:
             control = self._control
-        if control is None or control[0].id != session_id:
+        if control is None or control[1].id != session_id:
             raise ControlSessionRefusedError('control_session_ended')
         return control[1]
 
@@ -696,7 +701,7 @@ class ActivityClaim:
         """
         with self._lock:
             control = self._control
-            if control is None or control[0].id != session_id:
+            if control is None or control[1].id != session_id:
                 raise ControlSessionRefusedError('control_session_ended')
             self._control = None
         self.announce()

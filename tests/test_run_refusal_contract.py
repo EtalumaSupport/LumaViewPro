@@ -983,7 +983,7 @@ class TestTheRefusalFunnel:
             with acting(controller):
                 _prepare(executor, _make_single_step_protocol(), tmp_path)
         finally:
-            claim.end_control(controller.session.id)
+            claim.end_control(controller.id)
 
 
 # ---------------------------------------------------------------------------

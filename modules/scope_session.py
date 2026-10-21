@@ -829,7 +829,7 @@ class ScopeSession:
         controller = self.activity_claim.take_control(
             name, finishing=lambda: runner.run_live or bool(self._finishing_work())
         )
-        return controller.session.id
+        return controller.id
 
     @api
     def end_control(self, session_id: str) -> ControlSession:
@@ -862,8 +862,8 @@ class ScopeSession:
         """End whatever control session is held, and stop the run or recording taken in it, as ``end_control``.
 
         The person at the scope taking it back without naming it -- the
-        GUI's close. Kept off the wire: a client ends only the session
-        whose id it was told.
+        GUI's Take back control press and its close, which hold no id. Kept
+        off the wire: a client ends only the session whose id it was told.
 
         Returns:
             The session ended, or None when none was held.

@@ -179,16 +179,13 @@ def submit_reported(
 
 
 def take_back_control() -> None:
-    """A press of Take back control: end the control session the banner shows.
+    """A press of Take back control: the person at the scope takes control back.
 
-    The press names the session the person saw, so a session that ended
-    meanwhile is the API's to refuse, not a later one's to end.
+    Whatever session is held when the press lands is ended, the one the
+    banner showed or one taken since, since control back is what was asked
+    for; with none held, nothing is ended and nothing is said.
     """
-    from kivy.app import App
-
-    control = App.get_running_app().control
-    session = _app_ctx.ctx.session
-    submit_reported(lambda: session.end_control(control.id), None, 'TAKE_BACK_CONTROL')
+    submit_reported(_app_ctx.ctx.session.take_back_control, None, 'TAKE_BACK_CONTROL')
 
 
 def stop_the_stage() -> None:

@@ -96,7 +96,7 @@ class TestTheTake:
         heard = []
         claim = ActivityClaim(on_transition=lambda: heard.append(claim.control))
         controller = _take(claim)
-        claim.end_control(controller.session.id)
+        claim.end_control(controller.id)
         assert heard == [controller.session, None]
 
     def test_a_second_take_is_refused_naming_the_session_that_holds(self, claim):
@@ -152,7 +152,7 @@ class TestTheEnd:
 
     def test_after_the_end_the_old_holders_lane_work_is_anyones(self, claim, lane):
         controller = _take(claim)
-        claim.end_control(controller.session.id)
+        claim.end_control(controller.id)
         fut, ran = _run_on_lane(lane, controller)
         fut.result(timeout=_WAIT_S)
         assert ran.is_set(), (
@@ -259,7 +259,7 @@ class TestEachTakerNamesTheSession:
     def held(self, sim_session):
         controller = _take_on(sim_session)
         yield controller
-        sim_session.activity_claim.end_control(controller.session.id)
+        sim_session.activity_claim.end_control(controller.id)
 
     def test_a_diagnostic(self, sim_session, held):
         with pytest.raises(DiagnosticRefusedError) as refused, sim_session.diagnostic_claim():
@@ -300,7 +300,7 @@ class TestGuardedWrites:
         with pytest.raises(ControlSessionRefusedError) as refused:
             claim.enter_guarded_write(None)
         assert refused.value.reason == 'control_session_held'
-        claim.end_control(controller.session.id)
+        claim.end_control(controller.id)
         assert _take(claim) is not None, 'a refused write left nothing counted'
 
     def test_the_holders_write_is_admitted(self, claim):
@@ -341,7 +341,7 @@ class TestTheSessionsWrites:
         controller = _take_on(sim_session)
         yield controller
         if sim_session.activity_claim.control is controller.session:
-            sim_session.activity_claim.end_control(controller.session.id)
+            sim_session.activity_claim.end_control(controller.id)
 
     def test_a_non_holders_setting_is_refused_and_nothing_is_stored(self, sim_session, held):
         before = sim_session.settings['jpg_quality']
@@ -463,6 +463,15 @@ class TestTheSessionsMembers:
         assert not sim_session.manual_recording.is_recording
         assert sim_session.take_back_control() is None, 'with none held there is nothing to end'
 
+    def test_the_published_record_carries_no_id_in_process_either(self, sim_session):
+        import dataclasses
+
+        sim_session.take_control('plate reader')
+        fields = {f.name for f in dataclasses.fields(sim_session.control)}
+        assert fields == {'name', 'taken_by', 'taken_at'}, (
+            'only the taker holds the id: a plugin reading session.control could act as the holder'
+        )
+
     def test_the_objective_question_is_put_to_the_holder_and_not_to_anyone_else(self, sim_session):
         # Never confirmed for this light path, so the question is owed.
         sim_session.settings['objective_confirmed'] = None
@@ -486,6 +495,71 @@ class TestTheSessionsMembers:
         sim_session.shutdown()
         assert sim_session.control is None
         assert sim_session.live_work.closed
+
+
+class TestTheTakeBackPress:
+    """The GUI's Take back control press takes control back from whatever session is held."""
+
+    @pytest.fixture
+    def press(self, sim_session, monkeypatch):
+        """The press, its call run here, and every outcome it reports."""
+        from types import SimpleNamespace
+
+        import modules.app_context as app_context
+        import ui.ui_helpers as ui_helpers
+        from modules.notification_center import notifications
+        from tests.gesture_fakes import inline_submit_reported
+
+        reported = []
+        # a stand-in by design: Kivy is stubbed in the test process, and the
+        # subject is the press's call, not the lane it runs on.
+        monkeypatch.setattr(app_context, 'ctx', SimpleNamespace(session=sim_session))
+        monkeypatch.setattr(ui_helpers, 'submit_reported', inline_submit_reported)
+        monkeypatch.setattr(
+            notifications, 'report_outcome', lambda outcome, **kw: reported.append(outcome)
+        )
+        return ui_helpers.take_back_control, reported
+
+    def test_a_press_ends_the_held_session_and_stops_its_recording(self, sim_session, press):
+        take_back, reported = press
+        with calling(Caller.REST):
+            session_id = sim_session.take_control('plate reader')
+        with sim_session.acting_in_control(session_id):
+            sim_session.manual_recording.start()
+
+        with calling(Caller.GUI):
+            take_back()
+
+        assert sim_session.control is None
+        assert not sim_session.manual_recording.is_recording
+        assert reported == []
+
+    def test_a_press_after_the_session_ended_ends_nothing_and_says_nothing(
+        self, sim_session, press
+    ):
+        take_back, reported = press
+        sim_session.end_control(sim_session.take_control('plate reader'))
+
+        with calling(Caller.GUI):
+            take_back()
+
+        assert sim_session.control is None
+        assert reported == [], (
+            "control is already back: the remote client's 'session has ended' is not the operator's"
+        )
+
+    def test_a_press_over_a_session_taken_since_the_banner_drew_ends_that_one(
+        self, sim_session, press
+    ):
+        take_back, reported = press
+        sim_session.end_control(sim_session.take_control('plate reader'))
+        sim_session.take_control('second client')
+
+        with calling(Caller.GUI):
+            take_back()
+
+        assert sim_session.control is None, 'the press asks for control back, whoever holds it'
+        assert reported == []
 
 
 @pytest.fixture
