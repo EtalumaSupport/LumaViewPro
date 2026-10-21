@@ -9,6 +9,7 @@ what the camera characterization tool measures from, while the rule
 judges from the record, so a frame is never accepted early.
 """
 
+import concurrent.futures
 import sys
 import threading
 import time
@@ -86,3 +87,26 @@ def test_a_moves_change_is_earliest_at_the_last_read_that_saw_it_moving():
         assert change.written_ns < change.earliest_ns < change.in_force_ns
     finally:
         scope.disconnect()
+
+
+def test_a_commands_change_is_earliest_at_the_last_read_that_saw_its_moves_moving(
+    sim_turreted_session,
+):
+    # A turret change is one command, park, turn and restore, and its changes
+    # are stamped in force when it closes; the turn's read here is the one
+    # the close must not drop.
+    scope = sim_turreted_session.scope
+    scope.motion.move_turret(1)
+    scope.motion.move_absolute('Z', 3_000.0)
+    halted = scope.simulation.hold_axis('T')
+    with concurrent.futures.ThreadPoolExecutor(1) as pool:
+        changing = pool.submit(scope.motion.move_turret, 2)
+        assert halted.wait(10.0), 'the held turn never halted'
+        polled = threading.Event()
+        scope.motion.add_position_listener(lambda axis, _at: axis == 'T' and polled.set())
+        assert polled.wait(5.0), 'the monitor never read the held turret'
+        scope.simulation.clear()
+        changing.result(timeout=30.0)
+    change = scope.imaging.recorded_changes()['turret']
+    # Not the turn's write: a read after it saw the turret still moving.
+    assert change.written_ns < change.earliest_ns < change.in_force_ns

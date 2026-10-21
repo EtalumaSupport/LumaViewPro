@@ -295,6 +295,10 @@ class MotionAPI:
         # its own inside going to a step's.
         self._commands_lock = threading.Lock()
         self._commands_open = 0
+        # The latest still-moving read an arrival handed over while a command
+        # was open: the earliest its last move can have stopped, which its
+        # close gives the changes it stamps. None when no arrival carried one.
+        self._command_moving_seen_ns: int | None = None
 
         # Motion monitor thread handle -- populated by _start_monitor().
         # Not started at __init__ because the motion driver and per-axis
@@ -1629,8 +1633,13 @@ class MotionAPI:
         in-force time, is given the close's: the moment its frames began to
         count. A change stamped before the command keeps its own time, so a
         command never moves the in-force time of a change it did not make.
+        Each is given, with it, the latest read that saw one of the
+        command's moves still moving, since its arrival stamped nothing: a
+        turret change shows only once its last move is done.
         """
         with self._commands_lock:
+            if self._commands_open == 0:
+                self._command_moving_seen_ns = None
             self._commands_open += 1
         try:
             yield
@@ -1638,6 +1647,7 @@ class MotionAPI:
             with self._commands_lock:
                 self._commands_open -= 1
                 closed = self._commands_open == 0
+                moving_seen_ns = self._command_moving_seen_ns
             if closed:
                 closed_ns = time.monotonic_ns()
                 frame_validity = self._scope.frame_validity
@@ -1646,7 +1656,9 @@ class MotionAPI:
                     # axis now settled; an axis still moving is stamped by
                     # its own arrival, which comes later.
                     if change.in_force_ns is None:
-                        frame_validity.motion_settled(source, closed_ns, moving_seen_ns=None)
+                        frame_validity.motion_settled(
+                            source, closed_ns, moving_seen_ns=moving_seen_ns
+                        )
 
     def _home_moves_turret(self, action) -> bool:
         """Whether the home body ``action`` moves the turret.
@@ -3089,7 +3101,8 @@ class MotionAPI:
         An IDLE or UNKNOWN write stamps the axis's change in force
         (``FrameValidity.motion_settled``) with ``moving_seen_ns``, when the
         monitor's last read that found the axis still moving began; None
-        from every writer that read no such thing.
+        from every writer that read no such thing. While a command is open
+        the stamp waits for its close, which is given the latest such read.
 
         Returns:
             bool: Whether the write happened. False for an axis that is not
@@ -3171,6 +3184,15 @@ class MotionAPI:
                 # Wake the motion monitor to start polling
                 self._motion_wake.set()
             else:
+                # Inside a command this arrival stamps nothing; its close
+                # does, and needs the read.
+                if moving_seen_ns is not None:
+                    with self._commands_lock:
+                        if self._commands_open and (
+                            self._command_moving_seen_ns is None
+                            or moving_seen_ns > self._command_moving_seen_ns
+                        ):
+                            self._command_moving_seen_ns = moving_seen_ns
                 self._scope.frame_validity.motion_settled(
                     self._AXIS_VALIDITY_SOURCE.get(axis, 'xy_move'),
                     settled_ns,
