@@ -170,8 +170,8 @@ class SimulationAPI:
                 ``'fault_bound'`` for a count below 1;
                 ``'argument_not_on_board'`` for a count of None on a
                 firmware board;
-                ``'not_injectable_on_board'`` on the fast LED board, whose
-                missing reply the API never reads, and on a Classic model's
+                ``'not_injectable_on_board'`` on the fast LED board, which
+                has no link to drop a reply on, and on a Classic model's
                 boards, which have ``silence``; ``'argument_not_on_board'``
                 for a command on a firmware board.
         """
@@ -210,6 +210,31 @@ class SimulationAPI:
             )
             return
         raise self._not_injectable('drop_replies', target)
+
+    @api(in_process=True)
+    def delay_reply(self, board: str, seconds: float) -> None:
+        """The board's next reply comes ``seconds`` late.
+
+        A reply later than the driver waits for is no reply to it: the
+        board did what it was told, and the host was not told so.
+
+        Args:
+            board: ``'motor'`` or ``'led'``.
+            seconds: How late the reply comes, above 0.
+
+        Raises:
+            ArgumentRefusedError: ``'needs_simulated_scope'``;
+                ``'fault_unknown'`` for a board this scope lacks;
+                ``'not_a_number'`` or ``'fault_bound'`` for a delay not
+                above 0; ``'not_injectable_on_board'`` on every board but
+                a firmware board, the only one with a link to delay.
+        """
+        target = self._board('delay_reply', board)
+        self._bound('seconds', seconds, 'a delay above 0 s', seconds > 0)
+        if not isinstance(target, EmulatedBoard):
+            raise self._not_injectable('delay_reply', target)
+        target.delay_next_reply(float(seconds))
+        self._record('delay_reply', target.disarm_reply, board=board, seconds=seconds)
 
     @api(in_process=True)
     def silence(self, board: str) -> None:
@@ -260,7 +285,7 @@ class SimulationAPI:
         Raises:
             ArgumentRefusedError: ``'needs_simulated_scope'``;
                 ``'fault_unknown'``; ``'not_injectable_on_board'`` on the
-                fast LED board, whose lost link the API never reads.
+                fast LED board, which has no link to lose.
         """
         target = self._board('unplug', board)
         if isinstance(target, (SimulatedMotorBoard, EmulatedBoard)):

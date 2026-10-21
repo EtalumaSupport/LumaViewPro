@@ -191,6 +191,13 @@ def test_the_fast_led_board_refuses_a_link_fault_by_name(scope):
         assert refused.kind == 'the fast simulated LED board'
 
 
+def test_the_fast_boards_refuse_a_late_reply_by_name(scope):
+    for board in ('motor', 'led'):
+        refused = _refused(scope.simulation.delay_reply, board, 0.5)
+        assert refused.reason == 'not_injectable_on_board'
+        assert refused.kind == f'the fast simulated {"motor" if board == "motor" else "LED"} board'
+
+
 def test_the_fast_motor_board_cannot_fail_a_home(scope):
     refused = _refused(scope.simulation.fail_home, 'X', 'stall')
     assert (refused.reason, refused.kind) == (
@@ -219,6 +226,7 @@ def test_the_fast_motor_board_cannot_fail_a_home(scope):
         ('refuse_camera_read', ('gain', 'raise', 0), 'fault_bound', 'count'),
         ('stall_stream', (0.0, 0.0), 'fault_bound', 'for_s'),
         ('reboot', ('motor', -1.0), 'fault_bound', 'booting_for_s'),
+        ('delay_reply', ('motor', 0.0), 'fault_bound', 'seconds'),
     ],
 )
 def test_an_argument_the_fault_does_not_take_is_refused(scope, member, args, reason, argument):
