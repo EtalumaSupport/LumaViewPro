@@ -52,8 +52,10 @@ from rest import routes as rest_routes
 # frame setters answer a FrameSize, over the wire their read's; 23 since
 # the motor and LED boards' identities are records; 18 since the camera's
 # link is a record, its temperatures a typed mapping, and its diagnostic
-# snapshot, profile and the system summary left for published reads.
-UNTYPED_PIN = 18
+# snapshot, profile and the system summary left for published reads; 19
+# since post-processing publishes its default cell-count method, the dict
+# count_cells takes, until W4 gives that argument its record.
+UNTYPED_PIN = 19
 
 _SERVER_MODELS = ('Handle', 'Job', 'JobProgress', 'PathAnswer', 'Versions')
 # A JSON Schema keyword that says what a value is.

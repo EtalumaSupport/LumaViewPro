@@ -1102,12 +1102,10 @@ A derived file's name says how it was made, oldest build first: a stitch of Max 
 
 `build` runs the builds whose settings records it is given -- `ZProject(method)`, `Stitch(mode)`, `Video(frames_per_sec, timestamp_overlay)`, each defaulting as its own member does, and `composite=True`, a composite having no settings of its own; one left None is not run -- in the one order that keeps the data honest: z-project, stitch, composite, video. A projection is made of raw slices, never of mosaics, and a stitched composite from the stitched channels, never by stitching composites. Each build takes only what the build before it in the call carried forward -- what that build made, and the images it did not consume, such as an ordinary Add step's images beside a tiled stack -- so the call makes the chain's product and its inputs, not every combination the folder allows: z-project, stitch and composite of a 2x2 tiled, 3-slice, 2-channel scan make 8 projections, 2 stitched projections and 1 composite, where the three members run one by one make 36 files. An image already in the folder from an earlier build is not the chain's input. Every chosen build's settings are checked before any build starts (`invalid_setting`, the build's `operation` named; a call that chooses no build is refused with `operation` `Post-Processing`), and the call runs as one task on the post-processing lane, so no other build touches the folder between its steps; `work()` names the build it is on ("Building 2 of 3: Stitch"). It returns a `BuildsResult`: `built`, a `BuildStep(operation, result)` for each build run in order, its `result` the `BuildResult` that build's own member returns; `skipped`, a `SkippedBuild(operation, message)` for each build that had nothing to do in the folder (a video on a single-scan run, the build's own `no_data`), the next build taking what the skipped one was given; and `message`. Any other refusal or failure stops the call and is raised as that build's own outcome, unchanged, its `operation` naming it; the files the earlier builds made are in the folder and its record, and the same call made again rebuilds nothing already made and resumes at the build that stopped once its cause is gone. One that does not go -- a raw slice missing, which fails its projection every time -- stops the call there on every run: build that folder with the members one by one. A folder of a manual recording takes `video` alone.
 
-A cell-count method is a dict; start from `modules.post_processing.default_cell_count_method()` (a new copy on every call; the method LumaViewPro's panel starts from) and change what you need:
+A cell-count method is a dict; start from `pp.default_cell_count_method()` (a new copy on every call; the method LumaViewPro's panel starts from; over REST `GET /api/v1/post_processing/default_cell_count_method`) and change what you need:
 
 ```python
-from modules.post_processing import default_cell_count_method
-
-method = default_cell_count_method()
+method = pp.default_cell_count_method()
 method['filters']['area'] = {'min': 20, 'max': None}   # square microns; None is an open bound
 pp.count_cells(folder, method=method)
 ```
@@ -3487,6 +3485,7 @@ Reached through `session.post_processing`.
 - `build`
 - `composite`
 - `count_cells`
+- `default_cell_count_method`
 - `draw_graph` (in-process)
 - `enhance`
 - `graph`

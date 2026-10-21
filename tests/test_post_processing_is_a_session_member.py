@@ -189,6 +189,28 @@ def test_a_cell_count_takes_the_callers_method_and_progress(session, monkeypatch
     assert seen['lane'] is session.post_processing.lane
 
 
+def test_the_default_cell_count_method_is_a_fresh_copy_the_count_and_rest_take(session, tmp_path):
+    """A script or REST client starts from the method the panel starts from, and counts with it."""
+    from fastapi.testclient import TestClient
+
+    from rest.app import build_app
+
+    edited = session.post_processing.default_cell_count_method()
+    edited['segmentation']['parameters']['threshold'] = 99
+    method = session.post_processing.default_cell_count_method()
+    assert method['segmentation']['parameters']['threshold'] != 99
+
+    with TestClient(build_app(session)) as client:
+        answer = client.get('/api/v1/post_processing/default_cell_count_method')
+    assert (answer.status_code, answer.json()) == (200, method)
+
+    # Taken as it is: refused for the empty folder, never for the method.
+    (tmp_path / 'empty').mkdir()
+    with pytest.raises(PostProcessingRefusedError) as refused:
+        session.post_processing.count_cells(tmp_path / 'empty', method=method)
+    assert refused.value.reason == 'no_data'
+
+
 def test_the_session_lists_and_stops_the_post_processing_lane(tmp_path):
     from modules.scope_session import ScopeSession
     from tests.settings_fixtures import complete_settings

@@ -493,7 +493,7 @@ class CellCountControls(BoxLayout):
 
     done = BooleanProperty(False)
 
-    def __init__(self, **kwargs):
+    def __init__(self, method: dict, **kwargs):
         super().__init__(**kwargs)
         logger.info('LVP Main: CellCountControls.__init__()')
         self._preview_source_image = None
@@ -502,7 +502,7 @@ class CellCountControls(BoxLayout):
         self._preview_pixel_size_um = None
         self._preview_image = None
         self._post = post_processing.PostProcessing()
-        self._settings = post_processing.default_cell_count_method()
+        self._settings = method
         self._set_ui_to_settings(self._settings)
 
     def apply_method_to_preview_image(self) -> None:

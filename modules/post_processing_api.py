@@ -815,6 +815,21 @@ class PostProcessingAPI:
             channel_colors=self._channel_colors(),
         )
 
+    @api(reads=True)
+    def default_cell_count_method(self) -> dict:
+        """The cell-count method LumaViewPro's panel starts from, for
+        ``count_cells(method=)``.
+
+        A new dict on every call, the caller's to edit. Areas are in square
+        microns, perimeters in microns, intensities and the threshold in
+        percent of full scale. It sets no scale, so each image is counted at
+        the scale it states, and no size filter, so an image that states
+        none is counted in pixels.
+        """
+        from modules.post_processing import default_cell_count_method
+
+        return default_cell_count_method()
+
     @api
     def count_cells(
         self,

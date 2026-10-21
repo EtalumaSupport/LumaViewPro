@@ -1044,7 +1044,9 @@ class LumaViewProApp(TooltipMixin, App):
         self.lock = scope_session.controls_lock
         self.live_work = scope_session.live_work
         lumaview = MainDisplay(scope=scope_session.scope)
-        cell_count_content = CellCountControls()
+        cell_count_content = CellCountControls(
+            method=scope_session.post_processing.default_cell_count_method()
+        )
         graphing_controls = GraphingControls()
 
         # A crash in a pre-engine release can strand a multi-GB recording

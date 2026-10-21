@@ -114,9 +114,11 @@ _REASON_UNNAMED_PINNED = frozenset(
 # raise nothing, while the status gained its section (Eric, 2026-10-20); 152
 # since the ten run-state reads the records replaced left (W3d part D); 153
 # since ScopeSession.user_settings_file, which names a path and raises
-# nothing (Eric, 2026-10-20); the count does not yet tell a member that
-# raises nothing from one that has not said.
-_WITHOUT_A_SECTION_CEILING = 153
+# nothing (Eric, 2026-10-20); 154 since
+# PostProcessingAPI.default_cell_count_method, a fresh copy of the panel's
+# starting method that raises nothing (Eric, 2026-10-20); the count does not
+# yet tell a member that raises nothing from one that has not said.
+_WITHOUT_A_SECTION_CEILING = 154
 
 
 def _sections():
