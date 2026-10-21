@@ -763,6 +763,10 @@ class Camera(ABC):
     def is_connected(self) -> bool:
         """Return whether the camera is currently connected.
 
+        Read from the driver's own flags with no SDK call: the API's
+        connection reads ask it per displayed frame, and a grab stop can
+        hold the SDK for seconds.
+
         Returns:
             bool: True if the SDK reports a live, attached camera.
         """

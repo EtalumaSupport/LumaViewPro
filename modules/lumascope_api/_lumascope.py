@@ -1660,49 +1660,31 @@ class Lumascope:
         """
         return not isinstance(self._led_driver, NullLEDBoard) and self._led_driver.is_connected()
 
-    def _camera_is_connected(self) -> bool:
-        """Answer the camera half of every connection question, raising.
-
-        One predicate with two callers that need opposite things from a
-        driver that throws: the display paths below want a bool and get
-        it from the property, while the run gate wants the throw, because
-        "the USB tree went away mid-question" is a different refusal from
-        "the camera is not plugged in" and the user has to be told which.
-
-        It exists because the two were written out separately and drifted:
-        the run gate's copy tested is_connected() alone while the property
-        tested active as well. No camera in the tree tells them apart --
-        all three make is_connected() False whenever active is unset -- so
-        the drift was invisible rather than harmless, which is the worse
-        of the two states to leave a predicate in.
-
-        Returns a real bool rather than the falsy operand that ended the
-        chain: a Pylon camera holds None in ``active`` once it is gone,
-        and the display paths log this value.
-        """
-        driver = getattr(self, '_camera_driver', None)
-        if driver is None or not getattr(driver, 'active', False):
-            return False
-        return driver.is_connected()
-
     @api
     @property
     def camera_connected(self) -> bool:
         """Whether the camera is connected and active.
 
+        The camera half of every connection question, ``unconnected_parts``
+        and the display paths alike: two copies once drifted, the run gate's
+        testing is_connected() alone while the display's tested active as
+        well, and no camera in the tree told them apart, so the drift was
+        invisible rather than harmless. The driver reads its own flags,
+        with no SDK call (``Camera.is_connected``).
+
         Returns:
-            bool: True if a real camera driver is connected and active.
-                A driver that raises reads as not connected: the callers
-                here are display and metrics paths, where the question is
-                asked per frame and has no answer but False.
+            bool: True if a real camera driver is connected and active; a
+                real bool, not the falsy operand that ended the chain: a
+                Pylon camera holds None in ``active`` once it is gone, and
+                the display paths log this value.
 
         Raises:
             Nothing.
         """
-        try:
-            return self._camera_is_connected()
-        except Exception:
+        driver = getattr(self, '_camera_driver', None)
+        if driver is None or not getattr(driver, 'active', False):
             return False
+        return driver.is_connected()
 
     def disconnect(self) -> None:
         """Disconnect from all hardware (LED, motion, camera) and stop the scope's lanes.
@@ -1978,9 +1960,9 @@ class Lumascope:
 
         Each term is the one the matching single-board question asks, so
         a run gate and a per-board gate cannot disagree about the same
-        hardware. A driver that RAISES propagates: the run gate that asks
-        this converts it into a refusal that says the state could not be
-        read, which is not the same answer as "not connected".
+        hardware. Each term reads its driver's own flags, with no exchange
+        with the board or the camera (``drivers/protocols.py``,
+        ``Camera.is_connected``).
 
         A scope whose model has no motor board is not asked for one: a
         manual scope is complete without it.
@@ -1996,7 +1978,7 @@ class Lumascope:
         logger.debug('[SCOPE API ] Performing connection check...')
         led = self.led_connected
         motion = self.motor_connected or not self._motion_expected
-        camera = self._camera_is_connected()
+        camera = self.camera_connected
 
         if not led:
             logger.info('[SCOPE API ] Connection Check: LED Board not connected')

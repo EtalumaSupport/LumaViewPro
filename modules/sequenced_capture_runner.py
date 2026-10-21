@@ -1106,10 +1106,7 @@ class SequencedCaptureRunner:
         # Before every protocol gate: a scope missing a part is told that
         # first, not a symptom of it -- with no LED board there is no current
         # cap to judge a step's illumination against.
-        try:
-            unconnected = self._scope.unconnected_parts()
-        except Exception as ex:
-            self._hardware_state_unknown('check hardware connection status', ex)
+        unconnected = self._scope.unconnected_parts()
         named = [f'the {part}' for part in unconnected]
         if named:
             parts = named[0] if len(named) == 1 else f'{", ".join(named[:-1])} and {named[-1]}'

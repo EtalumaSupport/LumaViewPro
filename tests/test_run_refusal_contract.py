@@ -712,7 +712,8 @@ RUNNER_REFUSAL_COVERAGE = {
         'tests/test_audit_fixes.py::TestRunPreValidationFiresNotificationOnException'
     ),
     'hardware_state_unknown': (
-        'tests/test_audit_fixes.py::TestRule14_A5_AreAllConnectedExceptionNotify'
+        'tests/test_the_ls720_in_the_simulator.py::'
+        'test_a_run_whose_lid_read_fails_is_not_checked_not_refused'
     ),
     'hardware_disconnected': _FUNNEL_LOOP,
     'camera_not_streaming': _FUNNEL_LOOP,

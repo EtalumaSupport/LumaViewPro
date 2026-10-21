@@ -210,8 +210,8 @@ def test_the_motion_monitor_outlives_a_silence_during_a_move(homed):
 
 def test_a_run_whose_lid_read_fails_is_not_checked_not_refused(homed, executor, tmp_path):
     """A board that does not answer the lid read leaves the stage's state
-    unknown: the run is neither admitted nor refused, as when the
-    connection read crashes."""
+    unknown: the run is neither admitted nor refused, as when the camera's
+    streaming read fails."""
     homed.simulation.silence('motor')
     try:
         with pytest.raises(RunCheckFailedError) as failed:

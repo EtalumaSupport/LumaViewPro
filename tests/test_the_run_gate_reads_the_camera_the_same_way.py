@@ -16,10 +16,8 @@ independently would be enough to split them, which is what the stub below
 is, and that is the state this pins out of existence rather than a bug a
 user has met.
 
-The property keeps its swallow: its callers are display and metrics paths
-asking per frame, with no answer available but False. The run gate gets
-the raise, because "the USB tree went away mid-question" is a different
-refusal from "the camera is not connected" and the user is owed which.
+Both gates now read the one property, and a driver answers it from its
+own flags with no SDK call, so neither has a raise to tell apart.
 """
 
 from __future__ import annotations
@@ -84,26 +82,3 @@ class TestTheTwoGatesReadOnePredicate:
         scope._camera_driver.active = False
 
         assert scope._camera_driver.is_connected() is False
-
-
-class TestADriverThatThrows:
-    def test_the_run_gate_lets_the_throw_out(self, scope):
-        """So prepare() can refuse "state unknown" rather than "disconnected"."""
-
-        def _explode():
-            raise RuntimeError('usb tree gone')
-
-        scope._camera_driver.is_connected = _explode
-
-        with pytest.raises(RuntimeError):
-            scope.are_all_connected()
-
-    def test_the_display_property_still_answers_false(self, scope):
-        """Its callers run per frame and cannot handle a raise."""
-
-        def _explode():
-            raise RuntimeError('usb tree gone')
-
-        scope._camera_driver.is_connected = _explode
-
-        assert scope.camera_connected is False

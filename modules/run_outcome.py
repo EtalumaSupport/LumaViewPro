@@ -134,10 +134,9 @@ def hardware_disconnected_ending(parts: tuple[str, ...]) -> RunEnding:
 
     Whichever site finds it -- the run loop's connection check, or a step
     whose camera was removed -- the run ends in these words, naming each
-    part gone (``Lumascope.unconnected_parts``' names); none is named when
-    the question itself failed.
+    part gone (``Lumascope.unconnected_parts``' names).
     """
-    gone = ' and '.join(parts) if parts else "microscope's hardware"
+    gone = ' and '.join(parts)
     return RunEnding(
         'failed',
         'hardware_disconnected',

@@ -186,11 +186,7 @@ class ProtocolRunLoop:
                     # The probe's handler computes a fact and nothing else: an
                     # abort raised or swallowed in here would leave the run
                     # going with the hardware gone.
-                    try:
-                        gone = p._scope.unconnected_parts()
-                    except Exception as ex:
-                        logger.warning(f'[PROTOCOL] Connection check failed: {ex}')
-                        gone = ()
+                    gone = p._scope.unconnected_parts()
                     if gone:
                         logger.error(
                             '[PROTOCOL] Hardware disconnected during run -- aborting protocol'
@@ -350,16 +346,8 @@ class ProtocolRunLoop:
                 # transient. The consecutive-failure cap below bounds that case;
                 # a true liveness probe (a hardware round-trip) is deferred --
                 # it needs bench validation before it can change classification.
-                try:
-                    gone = p._scope.unconnected_parts()
-                    connected = not gone
-                except Exception:
-                    # If the connection probe itself fails, assume
-                    # the worst -- a disconnect that broke the probe
-                    # is still a disconnect.
-                    gone, connected = (), False
-
-                if not connected:
+                gone = p._scope.unconnected_parts()
+                if gone:
                     logger.error(
                         f'[Protocol] Hardware disconnect during scan: {ex}',
                         exc_info=True,

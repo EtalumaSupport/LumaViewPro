@@ -1175,36 +1175,6 @@ class TestRule14_A4_PreRunValidationNotify:
         )
 
 
-class TestRule14_A5_AreAllConnectedExceptionNotify:
-    """A5: the connection check's exception branch must notify (Rule 14)."""
-
-    def test_are_all_connected_exception_branch_notifies(self, centre_posts):
-        """A raising connectivity check aborts the run with a typed fault that shows as an error.
-
-        The fault is not reported where it is raised: the caller that asked
-        for the run reports it, and then the person sees it as an error.
-        """
-        from modules.exceptions import RunCheckFailedError
-        from modules.notification_center import notifications
-
-        runner = _bare_capture_runner()
-        runner._scope.unconnected_parts.side_effect = RuntimeError('usb tree gone')
-        with pytest.raises(RunCheckFailedError) as raised:
-            runner.prepare(**_scr_run_kwargs())
-        assert not _posted(centre_posts, Severity.ERROR), (
-            'the fault is reported by its caller, not where it is raised'
-        )
-        assert raised.value.reason == 'hardware_state_unknown'
-        assert isinstance(raised.value.__cause__, RuntimeError), 'the crash must stay chained'
-        notifications.report_outcome(raised.value, solicited=True, category='UI:RUN')
-        captured = _posted(centre_posts, Severity.ERROR)
-        assert captured, 'a reported check fault must post an error (A5 -- Rule 14)'
-        assert captured[0][1] == 'Cannot verify hardware state', (
-            f"notification title must be 'Cannot verify hardware state'; got {captured[0]}"
-        )
-        assert not runner.run_in_progress(), 'run must not start'
-
-
 class TestRule14_A7_HyperstackBuildNotify:
     """A7: a hyperstack build failure must notify (Rule 14)."""
 
