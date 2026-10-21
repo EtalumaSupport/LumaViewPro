@@ -168,6 +168,15 @@ class Operation(concurrent.futures.Future):
         Does nothing once the operation is done, or once its work has ended
         and it is still telling its listeners, or when it has no stop (a
         still): a stop that arrives late never touches another operation.
+
+        Raises:
+            HardwareCommandRefusedError: a move's or a home's stop, which is
+                ``stop_motion``'s: ``'not_connected'`` or ``'axis_absent'``, no
+                motor controller; ``'home_not_stoppable'``, a home drives on a
+                board that cannot stop one. A run's and a recording's stop
+                raise nothing.
+            MotorStopFailedError: a move's or a home's STOP was not taken by
+                the board, so the stage may still be moving.
         """
         if self._stop is None or super().done():
             return
@@ -175,7 +184,11 @@ class Operation(concurrent.futures.Future):
 
     @api(reads=True)
     def progress(self) -> 'RunProgress | None':
-        """Where this operation has got, read now; None for one that keeps no progress record."""
+        """Where this operation has got, read now; None for one that keeps no progress record.
+
+        Raises:
+            Nothing.
+        """
         return None if self._progress is None else self._progress()
 
     @classmethod

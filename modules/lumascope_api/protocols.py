@@ -134,6 +134,9 @@ class ProtocolsAPI:
         installation's other catalogues, so a tiling.json edited while the
         program runs is seen at the next start; a file no reader can use
         refuses the bring-up (``InstallationFileError``, naming it).
+
+        Raises:
+            Nothing.
         """
         return self._scope._tiling_config
 
@@ -1379,6 +1382,10 @@ class ProtocolsAPI:
         LumaViewPro asks when a protocol is opened. Empty on a scope with no
         turret, and for steps whose objective no slot holds, which a load
         and a run refuse as ``turret_objectives_unassigned``.
+
+        Raises:
+            ConfigError: ``'scope_not_composed'``, no session has bound this
+                scope, so it has no slot assignments to read.
         """
         if not self._scope.capabilities.has_turret:
             return []

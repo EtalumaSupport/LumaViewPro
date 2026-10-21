@@ -341,7 +341,11 @@ class CaptureTally:
     @api
     @property
     def missing(self) -> int:
-        """Captures asked for that produced no image, failed or never reached."""
+        """Captures asked for that produced no image, failed or never reached.
+
+        Raises:
+            Nothing.
+        """
         return self.asked - self.captured
 
 

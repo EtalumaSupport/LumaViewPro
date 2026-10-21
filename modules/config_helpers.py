@@ -448,13 +448,21 @@ class DisplayRates(typing.Protocol):
 
     @api(in_process=True)
     def display_fps(self) -> float:
-        """The frames drawn in the last second."""
+        """The frames drawn in the last second.
+
+        Raises:
+            Nothing.
+        """
         ...
 
     @api(in_process=True)
     def frame_interval_percentiles_ms(self) -> dict[str, float]:
         """``p50``, ``p95``, ``p99`` and ``max`` intervals between drawn
-        frames, in ms, and ``n`` the samples; empty before the first."""
+        frames, in ms, and ``n`` the samples; empty before the first.
+
+        Raises:
+            Nothing.
+        """
         ...
 
 

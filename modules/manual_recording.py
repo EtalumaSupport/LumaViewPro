@@ -208,19 +208,31 @@ class ManualRecordingController:
     @api
     @property
     def is_recording(self) -> bool:
-        """True while cadence selection is open."""
+        """True while cadence selection is open.
+
+        Raises:
+            Nothing.
+        """
         return self._engine is not None and self._engine.is_recording
 
     @api
     @property
     def is_draining(self) -> bool:
-        """True while queued frames are still being written."""
+        """True while queued frames are still being written.
+
+        Raises:
+            Nothing.
+        """
         return self._engine is not None and self._engine.is_draining
 
     @api
     @property
     def pending_writes(self) -> int:
-        """Frames enqueued but not yet on disk."""
+        """Frames enqueued but not yet on disk.
+
+        Raises:
+            Nothing.
+        """
         return self._engine.pending_writes if self._engine is not None else 0
 
     @api
@@ -230,13 +242,20 @@ class ManualRecordingController:
 
         The app-close gate reads this: the recording is not safely over
         until the post-drain finish (MP4 close, hyperstack) has run.
+
+        Raises:
+            Nothing.
         """
         return self.is_recording or self.is_draining or self._finishing
 
     @api
     @property
     def elapsed_s(self) -> float:
-        """Seconds since the recording started; 0.0 when idle."""
+        """Seconds since the recording started; 0.0 when idle.
+
+        Raises:
+            Nothing.
+        """
         if self._start_ts is None or not self.is_recording:
             return 0.0
         return self._elapsed_clock() - self._start_ts
@@ -244,7 +263,11 @@ class ManualRecordingController:
     @api
     @property
     def save_folder(self) -> Path | None:
-        """The active (or last) recording's output folder."""
+        """The active (or last) recording's output folder.
+
+        Raises:
+            Nothing.
+        """
         return self._plan.save_folder if self._plan is not None else None
 
     # ------------------------------------------------------------------
@@ -627,6 +650,9 @@ class ManualRecordingController:
                 Record button, app close, an L2 client) ARE the user
                 stop; internal enders (duration cap, disk floor) pass
                 their own reason.
+
+        Raises:
+            Nothing.
         """
         engine = self._engine
         if engine is None:
@@ -648,6 +674,9 @@ class ManualRecordingController:
         False can tell a camera death from a user stop while the frames
         still drain. The first close names it: a later stop does not
         rewrite it.
+
+        Raises:
+            Nothing.
         """
         engine = self._engine
         if engine is not None and not engine.is_recording:
@@ -710,7 +739,11 @@ class ManualRecordingController:
 
     @api
     def discard_pending(self) -> None:
-        """Drop the unwritten backlog loudly (the app-close discard path)."""
+        """Drop the unwritten backlog loudly (the app-close discard path).
+
+        Raises:
+            Nothing.
+        """
         if self._engine is not None:
             self._engine.discard_pending()
 

@@ -165,6 +165,9 @@ class HeldClaim:
 
         False once it is released, and stays False: a later taking of the
         same claim is a different object.
+
+        Raises:
+            Nothing.
         """
         return self._claim._is_held_by(self)
 

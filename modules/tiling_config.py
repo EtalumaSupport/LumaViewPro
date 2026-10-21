@@ -96,7 +96,11 @@ class TilingConfig:
 
     @api(in_process=True, reads=True)
     def available_configs(self) -> list[str]:
-        """``available``, as a list."""
+        """``available``, as a list.
+
+        Raises:
+            Nothing.
+        """
         return list(self.available)
 
     def get_mxn_size(self, config_label: str) -> dict:
@@ -156,7 +160,11 @@ class TilingConfig:
 
     @api(in_process=True, reads=True)
     def default_config(self) -> str:
-        """``default``."""
+        """``default``.
+
+        Raises:
+            Nothing.
+        """
         return self.default
 
     @staticmethod

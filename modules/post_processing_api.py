@@ -825,6 +825,9 @@ class PostProcessingAPI:
         percent of full scale. It sets no scale, so each image is counted at
         the scale it states, and no size filter, so an image that states
         none is counted in pixels.
+
+        Raises:
+            Nothing.
         """
         from modules.post_processing import default_cell_count_method
 

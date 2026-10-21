@@ -73,12 +73,20 @@ class PartStatus:
     @api
     @property
     def missing(self) -> bool:
-        """Expected and not up: the part this scope should have and lacks."""
+        """Expected and not up: the part this scope should have and lacks.
+
+        Raises:
+            Nothing.
+        """
         return self.expected and not self.up
 
     @api(in_process=True, reads=True)
     def describe(self) -> str:
-        """The part's label with its cause: ``Motor Controller (port in use)``."""
+        """The part's label with its cause: ``Motor Controller (port in use)``.
+
+        Raises:
+            Nothing.
+        """
         label = PART_LABELS[self.part]
         if self.cause is None:
             return label
@@ -145,12 +153,20 @@ class BringUpRecord:
     @api
     @property
     def missing(self) -> tuple[PartStatus, ...]:
-        """The parts this scope should have and lacks."""
+        """The parts this scope should have and lacks.
+
+        Raises:
+            Nothing.
+        """
         return tuple(status for status in self.parts if status.missing)
 
     @api(in_process=True, reads=True)
     def substitution(self, setting: str) -> Substitution | None:
-        """What bring-up used for ``setting`` instead of the saved value, if anything."""
+        """What bring-up used for ``setting`` instead of the saved value, if anything.
+
+        Raises:
+            Nothing.
+        """
         for sub in self.substitutions:
             if sub.setting == setting:
                 return sub

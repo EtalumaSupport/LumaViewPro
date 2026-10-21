@@ -1615,12 +1615,21 @@ class SupportReportSaved:
     @api
     @property
     def title(self) -> str:
+        """The title the saved report's notice is shown under.
+
+        Raises:
+            Nothing.
+        """
         return _REPORT_TITLES[self.report]
 
     @api
     @property
     def message(self) -> str:
-        """Where the ZIP is and where to send it; the folder is the one it was written to."""
+        """Where the ZIP is and where to send it; the folder is the one it was written to.
+
+        Raises:
+            Nothing.
+        """
         return (
             f'Saved to {self.path.parent}:\n{self.path.name}\n\n'
             f'Email this file to {SUPPORT_ADDRESS}.'

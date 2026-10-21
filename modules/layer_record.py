@@ -213,6 +213,9 @@ class LayerIdentity:
 
         The deserialisation boundary: a name arriving from disk or from
         an API caller is mapped to its record exactly once, here.
+
+        Raises:
+            Nothing.
         """
         for layer in self.layers:
             if layer.key_name == key_name:

@@ -57,7 +57,11 @@ class WellPlate:
     # Get center position of well on plate in mm given its index (i, j)
     @api(in_process=True, reads=True)
     def get_well_position(self, i: int, j: int) -> tuple[float, float]:
+        """The centre of the well in column ``i`` and row ``j``, in mm from the plate's top-left.
 
+        Raises:
+            Nothing.
+        """
         x = self.offset_x_mm + i * self.spacing_x_mm
         y = self.offset_y_mm + j * self.spacing_y_mm
         return x, y
@@ -66,7 +70,11 @@ class WellPlate:
     def has_wells(self) -> bool:
         """True when the plate defines at least one well. A zero-well plate
         (the Blank labware) has no well grid: no well index exists, labels
-        are empty, and well UI decorations do not apply."""
+        are empty, and well UI decorations do not apply.
+
+        Raises:
+            Nothing.
+        """
         return self.rows * self.columns > 0
 
     @api(in_process=True, reads=True)
@@ -117,5 +125,9 @@ class WellPlate:
 
     @api(in_process=True, reads=True)
     def get_dimensions(self) -> dict:
-        """The plate's outline in mm, as ``{'x': width, 'y': height}``."""
+        """The plate's outline in mm, as ``{'x': width, 'y': height}``.
+
+        Raises:
+            Nothing.
+        """
         return {'x': self.width_mm, 'y': self.height_mm}

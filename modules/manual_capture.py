@@ -86,7 +86,11 @@ class ManualCaptureController:
     @api
     @property
     def in_flight(self) -> bool:
-        """True from a capture call until its camera-lane body has ended."""
+        """True from a capture call until its camera-lane body has ended.
+
+        Raises:
+            Nothing.
+        """
         return self._in_flight.locked()
 
     @api
