@@ -1391,7 +1391,6 @@ class Protocol:
                 raise ProtocolNotSavedError(file=file_path, cause=e) from e
             raise
 
-    @api
     def optimize_step_ordering(self) -> None:
         """Order the steps for travel: by place, then by objective and Z at each place.
 
@@ -1948,7 +1947,6 @@ class Protocol:
             ),
         )
 
-    @api
     def modify_autofocus(self, step_idx: int, enabled: bool) -> None:
         """Turn autofocus on or off for the step at ``step_idx``.
 
@@ -1959,7 +1957,6 @@ class Protocol:
         self._refuse_unless_in_range(step_idx)
         self._config['steps'].at[step_idx, 'Auto_Focus'] = self._typed_value('Auto_Focus', enabled)
 
-    @api
     def modify_autofocus_all_steps(self, enabled: bool) -> None:
         """Turn autofocus on or off for every step.
 
@@ -1981,7 +1978,6 @@ class Protocol:
     ):
         self._config['labware_id'] = labware_id
 
-    @api
     def modify_time_params(
         self,
         period: datetime.timedelta | None,
@@ -2106,7 +2102,6 @@ class Protocol:
             steps_df.loc[mask, 'Z'] = z
         return count
 
-    @api
     def modify_capture_root(self, capture_root: str) -> None:
         """Set the capture root, which prefixes the run's saved file names (``capture_prefix``).
 

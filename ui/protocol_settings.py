@@ -307,7 +307,7 @@ class ProtocolSettings(FloatLayout):
         def _edit():
             schedule = {'period': self._protocol.period(), 'duration': self._protocol.duration()}
             schedule[key] = schedule_from_units(key, text)
-            self._protocol.modify_time_params(**schedule)
+            _app_ctx.ctx.session.set_protocol_schedule(self._protocol, **schedule)
 
         run_reported(_edit, self._show_schedule, label)
 
@@ -359,7 +359,7 @@ class ProtocolSettings(FloatLayout):
         # of it is the protocol's (capture_prefix), so the field shows the text.
         gui_logger.text_input('CAPTURE_ROOT', text)
         if hasattr(self, '_protocol') and (self._protocol is not None):
-            self._protocol.modify_capture_root(capture_root=text)
+            _app_ctx.ctx.session.set_protocol_capture_root(self._protocol, text)
 
     # Labware Selection
     def select_labware(self):
@@ -785,7 +785,7 @@ class ProtocolSettings(FloatLayout):
                 message=f'{first}\nWhich slot do these steps use?',
                 choices=[f'Slot {slot}' for slot in question.choices],
                 on_choice=lambda index, q=question: run_reported(
-                    lambda: protocols.point_steps_at_turret_slot(
+                    lambda: _app_ctx.ctx.session.point_steps_at_turret_slot(
                         protocol, q.objective_id, q.choices[index]
                     ),
                     redraw=ask_next,

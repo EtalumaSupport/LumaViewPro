@@ -3,7 +3,8 @@
 
 The settings store's period and duration are the default a new protocol
 starts from at start-up, and nothing the panel does writes them. A field
-edit goes to the protocol's own writer, which takes it or refuses it; the
+edit goes to the Session's ``set_protocol_schedule``, which takes it or
+refuses it; the
 field then shows the protocol's value either way. Run and Save take the
 protocol as it is -- they copy nothing into it -- and New starts from the
 schedule on screen.
@@ -59,8 +60,10 @@ import ui.protocol_settings as ps
 import ui.ui_helpers as ui_helpers
 from modules.notification_center import notifications
 from modules.protocol import Protocol
+from modules.scope_session import ScopeSession
 from tests.ast_seams import parse_module
 from tests.scope_fakes import spec_scope
+from tests.settings_fixtures import complete_settings
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 PERIOD = datetime.timedelta(minutes=7)
@@ -140,6 +143,13 @@ def reported(monkeypatch):
 
 
 class TestAFieldEdit:
+    @pytest.fixture(autouse=True)
+    def _a_simulated_session(self, ctx):
+        # The edit goes through the Session's member, so the panel is handed one.
+        ctx.session = ScopeSession.create(complete_settings(), simulate=True)
+        yield
+        ctx.session.shutdown()
+
     def test_a_runnable_period_goes_to_the_protocol_and_not_the_store(self, ctx, reported):
         panel = _Panel(_protocol())
         panel.ids['capture_period'].text = '10'

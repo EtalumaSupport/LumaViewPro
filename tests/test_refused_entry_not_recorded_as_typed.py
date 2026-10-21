@@ -109,23 +109,31 @@ def test_a_refused_duration_records_the_attempt_not_the_revert(emitted, monkeypa
 def test_a_capture_root_records_and_stores_what_was_typed(emitted, monkeypatch):
     """A path-illegal root is recorded, and stored, as typed; the filename
     prefix made of it is the protocol's (capture_prefix), not the field's."""
-    from unittest.mock import MagicMock
+    from types import SimpleNamespace
 
+    import modules.app_context as _app_ctx
+    from modules.scope_session import ScopeSession
+    from tests.settings_fixtures import complete_settings
     from ui.protocol_settings import ProtocolSettings
 
-    widget = _Widget('my/run:1')
+    session = ScopeSession.create(complete_settings(), simulate=True)
+    try:
+        monkeypatch.setattr(_app_ctx, 'ctx', SimpleNamespace(session=session))
+        widget = _Widget('my/run:1')
 
-    class _Panel:
-        ids: ClassVar[dict] = {'capture_root': widget}
-        _protocol = MagicMock()
+        class _Panel:
+            ids: ClassVar[dict] = {'capture_root': widget}
+            _protocol = session.create_empty_protocol()
 
-    panel = _Panel()
-    ProtocolSettings.update_capture_root(panel, widget.text)
+        panel = _Panel()
+        ProtocolSettings.update_capture_root(panel, widget.text)
 
-    typed = [v for n, v in emitted if n == 'CAPTURE_ROOT']
-    assert typed == ['my/run:1'], f'what the user typed is recorded once: {emitted}'
-    panel._protocol.modify_capture_root.assert_called_once_with(capture_root='my/run:1')
-    assert widget.text == 'my/run:1', 'the field shows what was typed'
+        typed = [v for n, v in emitted if n == 'CAPTURE_ROOT']
+        assert typed == ['my/run:1'], f'what the user typed is recorded once: {emitted}'
+        assert panel._protocol.capture_root() == 'my/run:1'
+        assert widget.text == 'my/run:1', 'the field shows what was typed'
+    finally:
+        session.shutdown()
 
 
 class _Spinner:

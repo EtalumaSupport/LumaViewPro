@@ -2619,6 +2619,68 @@ class ScopeSession:
         return self.scope.protocols.set_labware(protocol, plate_key)
 
     @api
+    def set_protocol_schedule(
+        self,
+        protocol: 'Protocol',
+        *,
+        period: datetime.timedelta,
+        duration: datetime.timedelta,
+    ) -> None:
+        """Give ``protocol`` a new period and duration, as its two fields do.
+
+        One scan is ``timedelta(0)`` for both.
+
+        Raises:
+            ProtocolScheduleRefusedError: either cannot be run; the protocol
+                keeps the schedule it had.
+        """
+        protocol.modify_time_params(period=period, duration=duration)
+
+    @api
+    def set_protocol_capture_root(self, protocol: 'Protocol', root: str) -> None:
+        """Give ``protocol`` the capture root that prefixes its runs' file names.
+
+        The protocol keeps ``root`` as given; the prefix a run's names take
+        from it is ``protocol.capture_prefix()``.
+
+        Raises:
+            Nothing.
+        """
+        protocol.modify_capture_root(capture_root=root)
+
+    @api
+    def set_step_autofocus(
+        self, protocol: 'Protocol', *, enabled: bool, step_idx: int | None = None
+    ) -> None:
+        """Turn autofocus on or off for step ``step_idx`` of ``protocol``, or for every step.
+
+        Raises:
+            StepNotFoundError: ``step_idx`` is not a step of ``protocol``.
+                Nothing changes.
+        """
+        if step_idx is None:
+            protocol.modify_autofocus_all_steps(enabled=enabled)
+        else:
+            protocol.modify_autofocus(step_idx=step_idx, enabled=enabled)
+
+    @api
+    def point_steps_at_turret_slot(
+        self, protocol: 'Protocol', objective_id: str, slot: int
+    ) -> tuple[int, ...]:
+        """Answer ``objective_id``'s turret slot question: its steps now record ``slot``.
+
+        Points exactly the steps ``scope.protocols.turret_slot_questions``
+        names for ``objective_id``; every other step keeps its slot. Returns
+        the indices pointed, which are empty when no question names it.
+
+        Raises:
+            ArgumentRefusedError: ``'slot_not_holding_objective'``, ``slot``
+                does not hold ``objective_id`` now (``offered``: the slots
+                that do). Nothing is changed.
+        """
+        return self.scope.protocols.point_steps_at_turret_slot(protocol, objective_id, slot)
+
+    @api
     def apply_tiling(self, protocol: 'Protocol', tiling: str) -> None:
         """Expand every step of ``protocol`` into the tile grid ``tiling``, as Apply does.
 

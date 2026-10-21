@@ -92,11 +92,9 @@ NOT_WRITERS = frozenset(
 _STEPS_WRITE = 'steps()[...] ='
 
 # Pinned at the tree that first counted them (fifteen writer calls and one
-# write into the live frame), lowered as each edit moved behind the API.
-_PIN = {
-    ('ui/protocol_settings.py', 'modify_capture_root'): 1,
-    ('ui/protocol_settings.py', 'modify_time_params'): 1,
-}
+# write into the live frame), lowered as each edit moved behind the API;
+# zero since the schedule and the capture root became Session members.
+_PIN: dict[tuple[str, str], int] = {}
 
 
 def _not_self(receiver: ast.expr) -> bool:

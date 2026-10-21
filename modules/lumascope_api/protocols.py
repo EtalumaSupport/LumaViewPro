@@ -596,7 +596,6 @@ class ProtocolsAPI:
                 message=f'This scope has no motor for Z, so it cannot {then}.',
             )
 
-    @api
     def set_step_z(self, protocol: Protocol, step_idx: int, z: float) -> None:
         """Write ``z`` as step ``step_idx``'s Z.
 
@@ -1431,7 +1430,6 @@ class ProtocolsAPI:
             for objective_id, (unchosen, reassigned) in asked.items()
         ]
 
-    @api
     def point_steps_at_turret_slot(
         self, protocol: Protocol, objective_id: str, slot: int
     ) -> tuple[int, ...]:

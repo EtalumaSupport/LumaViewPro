@@ -138,7 +138,11 @@ def test_a_dictionary_a_callable_and_a_duration_are_held_to_their_kinds(session)
     )
     protocol = _make_single_step_protocol()
     before = protocol.period()
-    _refused(lambda: protocol.modify_time_params(period=5), 'Protocol.modify_time_params', 'period')
+    _refused(
+        lambda: session.set_protocol_schedule(protocol, period=5, duration=protocol.duration()),
+        'ScopeSession.set_protocol_schedule',
+        'period',
+    )
     assert protocol.period() == before
 
 

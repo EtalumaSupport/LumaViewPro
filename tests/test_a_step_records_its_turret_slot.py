@@ -182,7 +182,7 @@ class TestOldProtocols:
             session.scope.protocols.step_targets(loaded, 0)
         assert at_step.value.reason == 'turret_slot_ambiguous'
 
-        assert session.scope.protocols.point_steps_at_turret_slot(loaded, DOUBLED, 2) == (0, 1)
+        assert session.point_steps_at_turret_slot(loaded, DOUBLED, 2) == (0, 1)
 
         assert _targets(session, loaded) == [2, 2]
         assert session.scope.protocols.turret_slot_questions(loaded) == []
@@ -195,7 +195,7 @@ class TestOldProtocols:
         )
 
         with pytest.raises(ArgumentRefusedError) as refused:
-            session.scope.protocols.point_steps_at_turret_slot(loaded, DOUBLED, 3)
+            session.point_steps_at_turret_slot(loaded, DOUBLED, 3)
 
         assert (refused.value.reason, refused.value.offered) == (
             'slot_not_holding_objective',
@@ -224,6 +224,6 @@ class TestAReassignedSlot:
             session.scope.protocols.step_targets(loaded, 1)
         assert at_step.value.reason == 'turret_slot_reassigned'
 
-        session.scope.protocols.point_steps_at_turret_slot(loaded, DOUBLED, 1)
+        session.point_steps_at_turret_slot(loaded, DOUBLED, 1)
 
         assert _targets(session, loaded) == [1, 1]
