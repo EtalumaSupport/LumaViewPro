@@ -151,6 +151,7 @@ if TYPE_CHECKING:
     from modules.lumascope_api.bring_up import BringUpRecord
     from modules.lumascope_api.diagnostics import UsbIdentityBindings
     from modules.lumascope_api.camera import AutoGainLock
+    from modules.lumascope_api.simulation import SimulatedModelAnswer
     from modules.objectives_loader import ObjectiveLoader
     from modules.protocol import Protocol, ProtocolSizeAdvisory
     from modules.protocol_image_writer import RunWriteBatch
@@ -487,8 +488,8 @@ class ScopeSession:
         # IO and CAMERA lanes the bundle holds are the scope's, and stop
         # when the scope disconnects.
         self.executor_bundle = executor_bundle
-        # True only when a factory BUILT the scope, False for a scope a host
-        # passed in. Decides whether shutdown() runs the hardware half (LEDs
+        # True only when the factory BUILT the scope, False for a scope
+        # handed to the constructor. Decides whether shutdown() runs the hardware half (LEDs
         # off, disconnect). Coupled to the object here, at construction,
         # because shutdown() can run before a factory returns (a bring-up
         # that raises) and a directly constructed session calls it too -- a
@@ -1114,12 +1115,14 @@ class ScopeSession:
         cls,
         settings: dict,
         source_path: FilePath | None = None,
-        scope: 'Lumascope | None' = None,
         *,
         simulate: bool = False,
         warn_pre_release: bool = True,
         engineering_mode: bool = False,
         no_engineering: bool = False,
+        sim_model: str | None = None,
+        sim_model_answer: 'SimulatedModelAnswer | None' = None,
+        sim_refused_stream_starts: int = 0,
         sim_camera_stall: 'SimulatedStall | None' = None,
         sim_file_stall: 'SimulatedStall | None' = None,
         sim_focal_spread_um: float = 0.0,
@@ -1130,13 +1133,12 @@ class ScopeSession:
 
         This is the one composition path: the GUI, REST and scripts all
         build their session here, passing what only a host knows as the
-        keyword arguments below. Pass ``scope`` to reuse one you built;
-        omit it and the factory builds it.
+        keyword arguments below. The factory builds the scope, so every
+        session's scope is brought up the one way.
 
         ``source_path`` is the data folder the factory builds the scope on;
         None (default) is the installation's own folder. The session's data
-        folder and catalogues are always its scope's, so a folder is refused
-        beside ``scope``: the scope was given its folder when it was built.
+        folder and catalogues are always its scope's.
 
         The executor bundle is always built, around the scope's own IO and
         CAMERA lanes, via executor_registry.create_default, so every caller
@@ -1148,16 +1150,30 @@ class ScopeSession:
         process's logging first, so every host logs as its settings say,
         bring-up included.
 
-        A scope the factory builds is brought up before this returns
-        (``configure_scope``, then the camera start gate released) and is
-        torn down by ``shutdown()``; a scope passed in is the caller's
-        bring-up and the caller's teardown.
+        The scope is brought up before this returns (``configure_scope``,
+        then the camera start gate released) and is torn down by
+        ``shutdown()``.
 
         Keyword arguments, each with the one consumer it feeds:
             simulate: build a simulated scope (the model from
                 ``settings['microscope']``, the motor board's tier from
-                ``settings['simulator_tier']``). Ignored when ``scope`` is
-                passed.
+                ``settings['simulator_tier']``).
+            sim_model: the model the simulated scope is, when it is not the
+                one ``settings`` declares: a stored file that disagrees
+                with the scope attached, which bring-up settles by the
+                scope's answer. None (the default) is the declared model.
+                Refused unless ``simulate``.
+            sim_model_answer: the model the simulated motor board names as
+                its own at bring-up, whatever it was built as
+                (``scope.simulation.answer_model``), until the scope's
+                faults are cleared. Refused unless ``simulate``, and by the
+                scope on any board but the fast motor board.
+            sim_refused_stream_starts: how many of the camera's stream
+                starts it refuses from bring-up on
+                (``scope.simulation.refuse_stream_start``), so bring-up's
+                own start is refused; 0 (the default) refuses none. Refused
+                unless ``simulate``, and by the scope on any camera but the
+                simulated FX2.
             warn_pre_release: whether this construction fires the
                 pre-release FutureWarning -- the factory's own call and the
                 scope constructor's. A host that ships with the API passes
@@ -1169,13 +1185,12 @@ class ScopeSession:
                 imported, as if it were not installed.
             sim_camera_stall: a stall for the simulated camera's stream, so a
                 simulated scope shows a stream that stops delivering; refused
-                beside ``scope`` and by the scope itself unless it is
-                simulated with the simulated camera.
+                by the scope itself unless it is simulated with the
+                simulated camera.
             sim_file_stall: a stall for the session's file lane, so a
                 simulated scope shows a save drive that stops answering:
                 ``after_s`` seconds after bring-up the lane's worker is held
-                for ``for_s`` seconds. Refused beside ``scope`` and unless
-                ``simulate``.
+                for ``for_s`` seconds. Refused unless ``simulate``.
             sim_focal_spread_um: how far the simulated sample's focus may
                 lie from where bring-up places the stage, drawn once per
                 session, so every session needs a real autofocus; 0 (the
@@ -1198,17 +1213,15 @@ class ScopeSession:
                 that raises writes no file.
 
         Raises:
-            ArgumentRefusedError: ``'refused_beside_scope'``, ``source_path``,
-                ``sim_camera_stall`` or ``sim_file_stall`` given beside
-                ``scope``: the folder and the camera's stall are the scope's,
-                given to ``Lumascope(source_path=..., sim_camera_stall=...)``
-                when it is built, and the file stall simulates the drive a
-                scope this factory builds saves to. ``'needs_simulated_scope'``,
-                ``sim_file_stall`` or ``sim_camera_stall`` without
-                ``simulate``: a real scope's file lane writes to a real drive,
-                and only the simulated camera stalls.
-                ``'needs_simulated_camera'``, ``sim_camera_stall`` for a model
-                simulated with an FX2. ``'wrong_kind'``, a block of
+            ArgumentRefusedError: ``'needs_simulated_scope'``, a ``sim_``
+                argument without ``simulate``: a real scope's file lane
+                writes to a real drive, and only a simulated scope's boards
+                and camera take a fault. ``'needs_simulated_camera'``,
+                ``sim_camera_stall`` for a model simulated with an FX2.
+                ``'not_injectable_on_board'``, ``sim_model_answer`` or
+                ``sim_refused_stream_starts`` for a scope whose board or
+                camera cannot show it; ``'fault_bound'``, a negative
+                ``sim_refused_stream_starts``. ``'wrong_kind'``, a block of
                 ``settings`` that is not the kind the shipped template holds
                 (``argument`` names it).
             SettingRefusedError: ``'wrong_kind'`` or ``'out_of_range'``, a
@@ -1219,32 +1232,23 @@ class ScopeSession:
         from modules.lumascope_api._lumascope import _fire_pre_release_warning
         from modules.path_utils import get_source_root
 
-        if scope is not None:
+        if not simulate:
             for argument, value in (
-                ('source_path', source_path),
-                ('sim_camera_stall', sim_camera_stall),
+                ('sim_model', sim_model),
+                ('sim_model_answer', sim_model_answer),
+                ('sim_refused_stream_starts', sim_refused_stream_starts or None),
                 ('sim_file_stall', sim_file_stall),
-                ('sim_focal_spread_um', sim_focal_spread_um or None),
             ):
                 if value is not None:
                     raise ArgumentRefusedError(
-                        'refused_beside_scope', argument=argument, value=value
+                        'needs_simulated_scope', argument=argument, value=value
                     )
-        if sim_file_stall is not None and not simulate:
-            raise ArgumentRefusedError(
-                'needs_simulated_scope', argument='sim_file_stall', value=sim_file_stall
-            )
         # The one preparation every settings dict gets: a dict a caller
         # hands in is completed from the shipped template as the file is,
         # so nothing below hedges for a key it lacks, and is held to the
-        # writer's ranges as a write is. The template is the one read of
-        # it, the scope's own when the scope was built elsewhere.
-        if scope is None:
-            root = get_source_root(source_path)
-            template = settings_init.load_template(logger, str(root / 'data' / 'settings.json'))
-        else:
-            root = scope.source_path
-            template = scope.settings_template
+        # writer's ranges as a write is.
+        root = get_source_root(source_path)
+        template = settings_init.load_template(logger, str(root / 'data' / 'settings.json'))
         settings = settings_init.prepare_loaded(
             logger, settings, template, str(root), source='settings', handed=True
         )
@@ -1265,26 +1269,28 @@ class ScopeSession:
             for replacement in notice.replacements
         ]
         try:
-            built_scope = False
-            if scope is None:
-                import modules.lumascope_api as lumascope_api
+            import modules.lumascope_api as lumascope_api
 
-                scope = lumascope_api.Lumascope(
-                    simulate=simulate,
-                    warn_pre_release=warn_pre_release,
-                    configured_model=settings.get('microscope'),
-                    sim_tier=cls._simulator_tier(settings) if simulate else 'fast',
-                    fx2_debug_wire=settings['fx2_debug_wire_enabled'],
-                    source_path=get_source_root(source_path),
-                    sim_camera_stall=sim_camera_stall,
-                    sim_focal_spread_um=sim_focal_spread_um,
-                )
-                # The bring-up -- configure from settings, then release the
-                # camera start gate -- happens below, once the session exists,
-                # for a scope THIS factory built. A scope passed in by a caller
-                # is that caller's bring-up responsibility: they call
-                # configure_scope() themselves, which releases the start gate.
-                built_scope = True
+            scope = lumascope_api.Lumascope(
+                simulate=simulate,
+                warn_pre_release=warn_pre_release,
+                configured_model=settings.get('microscope'),
+                sim_model=sim_model,
+                sim_tier=cls._simulator_tier(settings) if simulate else 'fast',
+                fx2_debug_wire=settings['fx2_debug_wire_enabled'],
+                source_path=root,
+                sim_camera_stall=sim_camera_stall,
+                sim_focal_spread_um=sim_focal_spread_um,
+            )
+            # Armed before the bring-up below, which is what they are for.
+            try:
+                if sim_model_answer is not None:
+                    scope.simulation.answer_model(sim_model_answer.model)
+                if sim_refused_stream_starts != 0:
+                    scope.simulation.refuse_stream_start(sim_refused_stream_starts)
+            except BaseException:
+                cls._report_teardown_failure(scope.disconnect)
+                raise
 
             from modules.executor_registry import create_default
 
@@ -1300,7 +1306,7 @@ class ScopeSession:
 
             # The ownership fact goes in HERE, before _bring_up can call
             # shutdown on a refusal: a session torn down mid-factory must
-            # already know whether the scope is its own.
+            # already know the scope is its own.
             try:
                 session = cls(
                     settings=settings,
@@ -1308,22 +1314,20 @@ class ScopeSession:
                     executor_bundle=executor_bundle,
                     autofocus_runner=autofocus_runner,
                     autofocus_thread=autofocus_thread,
-                    owns_scope=built_scope,
+                    owns_scope=True,
                     engineering_mode=engineering_mode,
                     no_engineering=no_engineering,
                 )
             except BaseException:
-                # No session exists to tear down -- a scope another session holds
-                # refuses a second claim -- so stop what this factory started.
+                # No session exists to tear down, so stop what this factory
+                # started.
                 autofocus_thread.stop(timeout=2.0)
                 executor_bundle.shutdown()
-                if built_scope:
-                    cls._report_teardown_failure(scope.disconnect)
+                cls._report_teardown_failure(scope.disconnect)
                 raise
             if outcome_listener is not None:
                 session._outcome_listeners.append(outcome_listener)
-            if built_scope:
-                cls._bring_up(session, replaced)
+            cls._bring_up(session, replaced)
             if sim_file_stall is not None:
                 session._hold_the_file_lane(sim_file_stall)
             if settings_file is not None:
@@ -4800,8 +4804,8 @@ class ScopeSession:
         protocol_thread drives io + camera + file). Running metrics stop
         first, or their ticks would outlive the executors they snapshot.
 
-        A scope passed in is left connected with its lanes running: it is
-        the caller's. Callable from any thread, a run's ``run_ended``
+        A scope handed to the constructor is left connected with its lanes
+        running: it is the caller's. Callable from any thread, a run's ``run_ended``
         handler included. One close runs: a call on another thread while it
         runs waits for it and returns; a call after it is a logged no-op; a
         call from inside the close returns at once; a call that raised

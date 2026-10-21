@@ -167,7 +167,7 @@ def _entries_with_a_site() -> set[str]:
 
 # Seeded at LVP dev/4.0.0 b17419cc (2026-10-09) with 237 entries. Only shrinks: a
 # commit that takes a stand-in to the simulator deletes its entry and lowers this.
-ALLOWED_ENTRIES = 208
+ALLOWED_ENTRIES = 206
 ALLOWED = frozenset(
     {
         'tests/af_drives.py::af_runner_and_scope',
@@ -175,7 +175,6 @@ ALLOWED = frozenset(
         'tests/camera_fakes.py::bare_ids_camera',
         'tests/camera_fakes.py::bare_pylon_camera',
         'tests/guards/test_live_display_hold_is_a_callback.py::_writer',
-        'tests/guards/test_session_construction.py::TestCreateTakesTheHostInjections.test_create_takes_no_lanes',
         'tests/guards/test_session_construction.py::TestScopeOwnershipIsConstructorState.test_a_direct_construction_is_not_owned',
         'tests/guards/test_session_construction.py::TestScopeOwnershipIsConstructorState.test_a_session_needs_a_bundle',
         'tests/guards/test_session_metrics_lifecycle.py::_make_session',
@@ -347,7 +346,6 @@ ALLOWED = frozenset(
         'tests/test_serial_safety.py::TestSerialDesyncRecovery._make_board',
         'tests/test_serial_safety.py::TestSilentBoardHandling._make_silent_board',
         'tests/test_session_run_state.py::_make_session',
-        'tests/test_session_teardown.py::TestACallersScopeIsLeftAlone._caller_session',
         'tests/test_session_teardown.py::TestACallersScopeIsLeftAlone.test_a_directly_constructed_session_is_the_same_row',
         'tests/test_set_exposure_ms_warning_threshold.py::_warnings_for',
         'tests/test_sim_wire_link.py::TestABoardOffTheBus.test_connect_errors_log_again_after_a_connect_succeeds',

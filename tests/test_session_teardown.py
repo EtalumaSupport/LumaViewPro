@@ -134,22 +134,6 @@ class TestAFactoryBuiltScopeIsTornDown:
 
 
 class TestACallersScopeIsLeftAlone:
-    def _caller_session(self, **kwargs):
-        scope = spec_scope()
-        session = ScopeSession.create(settings=complete_settings(), scope=scope, **kwargs)
-        return session, scope
-
-    def test_a_passed_scope_is_untouched(self):
-        session, scope = self._caller_session()
-        session.shutdown()
-        scope.disconnect.assert_not_called()
-        scope.motion._stop.assert_not_called()
-        scope.illumination._leds_off_if_present.assert_not_called()
-        # The lanes are the scope's, and the scope is the caller's: they run on.
-        session.io_executor.put.assert_not_called()
-        session.io_executor.shutdown.assert_not_called()
-        session.camera_executor.shutdown.assert_not_called()
-
     def test_a_directly_constructed_session_is_the_same_row(self):
         scope = spec_scope()
         session = ScopeSession(
@@ -160,8 +144,12 @@ class TestACallersScopeIsLeftAlone:
         scope.motion._stop.assert_not_called()
         session.io_executor.put.assert_not_called()
 
-    def test_a_second_shutdown_logs_and_touches_nothing(self, session_log):
-        session, _scope = self._caller_session()
+
+class TestASecondShutdown:
+    def test_a_second_shutdown_logs_and_touches_nothing(self, session_log, tmp_path):
+        session = ScopeSession.create(
+            complete_settings(live_folder=str(tmp_path)), simulate=True, warn_pre_release=False
+        )
         session.shutdown()
         session.executor_bundle.shutdown = MagicMock()
         session.shutdown()

@@ -49,20 +49,6 @@ class TestAStallIsRefusedWhereItCannotHappen:
             'sim_camera_stall',
         )
 
-    def test_a_session_refuses_a_stall_beside_a_scope_it_was_given(self):
-        from modules.scope_session import ScopeSession
-        from tests.settings_fixtures import complete_settings
-
-        scope = build_scope(simulate=True, sim_model='LS850T')
-        with pytest.raises(ArgumentRefusedError) as refused:
-            ScopeSession.create(
-                complete_settings(), scope=scope, sim_camera_stall=SimulatedStall(0.0, 1.0)
-            )
-        assert (refused.value.reason, refused.value.argument) == (
-            'refused_beside_scope',
-            'sim_camera_stall',
-        )
-
 
 class TestTheStreamStopsAndResumes:
     def test_frames_stop_for_the_stall_and_resume_after_it(self):

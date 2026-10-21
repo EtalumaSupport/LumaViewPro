@@ -3324,9 +3324,6 @@ class ArgumentRefusedError(Refusal, ValueError):
             - ``'has_member'`` -- a dotted path to a setting that has a read
               of its own, named in ``member`` by its path from the session,
               so one setting has one read.
-            - ``'refused_beside_scope'`` -- an argument that applies only
-              to a scope a session's factory builds, given with a scope
-              already built.
             - ``'needs_simulated_scope'`` -- an argument that exists only
               on a simulated scope, given for a real one.
             - ``'needs_simulated_camera'`` -- an argument that exists only
@@ -3467,11 +3464,6 @@ class ArgumentRefusedError(Refusal, ValueError):
             'Setting Has Its Own Read',
             "{value!r} is read by {member}, the setting's own read; {argument} reads a "
             'setting that has none.',
-        ),
-        'refused_beside_scope': (
-            'Not Taken Beside a Scope',
-            '{argument} is refused beside a scope you built: it applies only to a scope '
-            'this factory builds.',
         ),
         'needs_simulated_scope': (
             'Needs a Simulated Scope',

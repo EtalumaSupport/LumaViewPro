@@ -8,9 +8,8 @@ what bring-up found about the camera, kept on its part of the bring-up
 record and reported once with the start's own fault, and the scope comes
 up with its camera connected and not streaming.
 
-The session is built around a scope the test passes in, which ``create``
-does not bring up, so the refusal is armed before bring-up's own body,
-``configure_scope``, runs.
+The refusal is armed through ``create``'s ``sim_refused_stream_starts``,
+before bring-up runs, so the start refused is bring-up's own.
 """
 
 from __future__ import annotations
@@ -24,7 +23,6 @@ from drivers.exceptions import CameraStreamStartFailedError
 from modules.exceptions import CameraStreamStalledError
 from modules.lumascope_api.imaging import ImagingAPI
 from modules.scope_session import ScopeSession
-from tests.scope_fakes import build_scope
 from tests.settings_fixtures import complete_settings
 
 
@@ -39,15 +37,13 @@ def heard(monkeypatch):
 
 @pytest.fixture
 def refused_at_bring_up(heard):
-    scope = build_scope(simulate=True, sim_model='LS620', register_atexit=False)
     session = ScopeSession.create(
         complete_settings(microscope='LS620'),
-        scope=scope,
+        simulate=True,
+        sim_refused_stream_starts=1,
         warn_pre_release=False,
         outcome_listener=heard.append,
     )
-    scope.simulation.refuse_stream_start()
-    session.configure_scope()
     yield session
     session.shutdown()
 

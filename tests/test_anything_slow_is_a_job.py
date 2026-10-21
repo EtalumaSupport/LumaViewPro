@@ -34,7 +34,7 @@ import rest.jobs
 from modules.scope_session import ScopeSession
 from rest import problems
 from rest.app import build_app
-from tests.scope_fakes import build_scope, home_sim_scope
+from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
 
 
@@ -494,10 +494,11 @@ def test_a_still_job_deleted_while_it_runs_is_accepted_and_ends_as_it_would_have
 
 def test_a_stop_the_scope_refuses_is_the_deletes_answer(tmp_path, monkeypatch):
     """A home on the EL-0940, whose board takes no stop while it homes."""
-    scope = build_scope(
-        simulate=True, sim_model='LS850', sim_tier='firmware', register_atexit=False
+    session = ScopeSession.create(
+        complete_settings(live_folder=str(tmp_path), microscope='LS850', simulator_tier='firmware'),
+        simulate=True,
     )
-    session = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), scope=scope)
+    scope = session.scope
     homing = threading.Event()
     real = scope._motion_driver.zhome
 
@@ -520,7 +521,6 @@ def test_a_stop_the_scope_refuses_is_the_deletes_answer(tmp_path, monkeypatch):
             assert ended.json()['status'] == 'completed'
     finally:
         session.shutdown()
-        scope.disconnect()
 
 
 def test_a_call_past_the_live_limit_is_refused_before_it_runs(client, held, monkeypatch):

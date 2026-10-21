@@ -20,7 +20,7 @@ import logging
 import threading
 import time
 from typing import ClassVar
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from lvp_logger import logger
 from drivers.exceptions import (
     BoardNoReplyError,
@@ -250,6 +250,24 @@ class SimulatedMotorBoard:
     def fan_spin_down_s(self) -> float:
         """How long the fan takes to stop from speed, on this timing."""
         return self._fan_spin_down_s
+
+    def report_model(self, model: str | None) -> Callable[[], None]:
+        """The board names ``model`` as its own -- None for no model -- whatever it is.
+
+        Its axes stay the ones it was built with: a board's firmware can
+        name a model its motors are not, and that answer is what the fault
+        shows.
+
+        Returns:
+            What takes the answer back.
+        """
+        built = self._fullinfo['model']
+        self._fullinfo['model'] = model
+
+        def undo() -> None:
+            self._fullinfo['model'] = built
+
+        return undo
 
     def hold_travel(self, axis: str, at_fraction: float = 0.5) -> TravelHold:
         """Hold ``axis``'s next move part of the way along; see ``TravelHold``.
@@ -825,11 +843,12 @@ class SimulatedMotorBoard:
         serial_number = info_parts[info_parts.index('Serial:') + 1]
         return {'model': model, 'serial_number': serial_number}
 
-    def get_microscope_model(self) -> str:
+    def get_microscope_model(self) -> str | None:
         """Return the configured microscope model string.
 
         Returns:
-            str: Model identifier (e.g. ``'LS850'``).
+            str | None: Model identifier (e.g. ``'LS850'``); None while the
+                board reports no model (``report_model``).
         """
         return self._fullinfo['model']
 

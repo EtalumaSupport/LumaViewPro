@@ -23,7 +23,6 @@ from modules import settings_init
 from modules.exceptions import ConfigurationDefectError, StoredSettingReplacedNotice
 from modules.lumascope_api._lumascope import Lumascope
 from modules.scope_session import ScopeSession
-from tests.scope_fakes import build_scope
 from tests.settings_fixtures import complete_settings
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
@@ -118,19 +117,3 @@ def test_a_bring_up_that_raises_still_tells_what_its_load_replaced_and_the_fallb
     )
     session.shutdown()
     assert _notices(fallback_heard) == []
-
-
-def test_a_caller_that_brings_its_own_scope_up_is_told_by_the_bring_up(tmp_path):
-    settings = complete_settings(live_folder=str(tmp_path))
-    settings['protocol']['labware'] = 'A plate since removed'
-    heard = []
-    session = ScopeSession.create(
-        settings, scope=build_scope(simulate=True), outcome_listener=heard.append
-    )
-    try:
-        assert _notices(heard) == []
-        session.configure_scope()
-    finally:
-        session.shutdown()
-    (notice,) = _notices(heard)
-    assert "protocol.labware 'A plate since removed'" in notice.message

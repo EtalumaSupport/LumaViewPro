@@ -261,6 +261,16 @@ def test_a_held_axis_says_when_it_halted_and_clear_releases_it(scope):
     assert scope.motion.get_actual_position('X') == pytest.approx(20_000.0, abs=0.1)
 
 
+def test_an_answered_model_is_what_the_board_reports_until_cleared(scope):
+    scope.simulation.answer_model('LS999')
+    assert scope.diagnostics.get_motor_info().model == 'LS999'
+    assert scope.capabilities.has_turret, 'the board kept the axes it was built with'
+    scope.simulation.answer_model(None)
+    assert scope.diagnostics.get_motor_info().model is None
+    scope.simulation.clear()
+    assert scope.diagnostics.get_motor_info().model == 'LS850T'
+
+
 def test_every_member_refuses_on_a_real_scope(diagnostic_scope):
     refused = _refused(diagnostic_scope.simulation.unplug, 'motor')
     assert (refused.reason, refused.argument) == ('needs_simulated_scope', 'unplug')
@@ -286,6 +296,11 @@ def test_a_firmware_board_takes_no_command_to_drop_and_holds_no_axis(firmware_sc
     assert (refused.reason, refused.argument) == ('argument_not_on_board', 'count')
     refused = _refused(firmware_scope.simulation.hold_axis, 'X')
     assert refused.reason == 'not_injectable_on_board'
+
+
+def test_a_firmware_board_answers_with_the_model_it_was_built_as(firmware_scope):
+    refused = _refused(firmware_scope.simulation.answer_model, 'LS999')
+    assert (refused.reason, refused.argument) == ('not_injectable_on_board', 'answer_model')
 
 
 def test_a_rebooting_board_fails_a_read_as_a_dead_port(firmware_scope):

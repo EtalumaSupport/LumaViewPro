@@ -13,7 +13,6 @@ import dataclasses
 
 import pytest
 
-from modules.coord_transformations import StageOffset
 from modules.exceptions import ConfigError
 from modules.lumascope_api import Lumascope
 from modules.scope_session import ScopeSession
@@ -111,16 +110,3 @@ def test_a_scope_no_session_bound_refuses_each_read_by_name():
             scope.imaging.scale_bar_config  # noqa: B018 -- the read is the subject
     finally:
         scope.disconnect()
-
-
-def test_a_second_session_leaves_the_scope_reading_the_first(session):
-    # The lanes refuse a second session over one scope before it binds, so
-    # the scope never acts on settings nobody can see.
-    other = complete_settings(live_folder=session.settings['live_folder'])
-    other['stage_offset'] = {'x': 1.0, 'y': 2.0}
-    with pytest.raises(RuntimeError, match='already asks an activity claim'):
-        ScopeSession.create(other, scope=session.scope)
-    stored = session.settings['stage_offset']
-    assert session.scope.runtime_state.get_stage_offset() == StageOffset(
-        x_um=stored['x'], y_um=stored['y']
-    )

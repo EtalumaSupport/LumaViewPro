@@ -61,6 +61,21 @@ class InjectedFault:
     arguments: dict[str, str | int | float | bool | None]
 
 
+@api_fields('model')
+@dataclasses.dataclass(frozen=True)
+class SimulatedModelAnswer:
+    """The model a simulated motor board names as its own (``answer_model``).
+
+    A record rather than the bare model, so that naming no model -- None --
+    is an answer a caller can ask for.
+
+    Attributes:
+        model: The model the board names, or None for none.
+    """
+
+    model: str | None
+
+
 def _family(board: object) -> str:
     """The simulated board ``board`` is, in words, for a refusal."""
     if isinstance(board, SimulatedMotorBoard):
@@ -442,6 +457,27 @@ class SimulationAPI:
             target.powered = True
 
         self._record('interlock', undo, lid_open=lid_open, powered=powered)
+
+    @api(in_process=True)
+    def answer_model(self, model: str | None) -> None:
+        """The motor board names ``model`` as its own, until ``clear``; None names none.
+
+        Its axes stay the ones it was built with, as a board whose firmware
+        names a model its motors are not: ``diagnostics.get_motor_info``
+        reports the answer, and bring-up reads it to decide the scope's
+        model.
+
+        Raises:
+            ArgumentRefusedError: ``'needs_simulated_scope'``;
+                ``'fault_unknown'`` for a scope with no motor board;
+                ``'not_injectable_on_board'`` on every board but the fast
+                motor board: the firmware boards and the TMCM-6110 answer
+                with the model they were built as.
+        """
+        target = self._board('answer_model', MOTOR)
+        if not isinstance(target, SimulatedMotorBoard):
+            raise self._not_injectable('answer_model', target)
+        self._record('answer_model', target.report_model(model), model=model)
 
     # --- the camera ---
 

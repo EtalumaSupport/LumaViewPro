@@ -107,7 +107,8 @@ _BOARD_PAIRS = (
 # (`set_focal_z`, `get_nominal_focal_z`, ...), the camera's `hold_frames` (a
 # stalled stream, set from the --sim-camera-stall launch argument), the
 # motor's `hold_travel` (a move held part of the way, so a test acts on a
-# move that is provably travelling), the fault doors `scope.simulation`
+# move that is provably travelling), the motor's `report_model` (the model
+# it names behind the door `answer_model`), the fault doors `scope.simulation`
 # drives (the motor's `unplug`, `replug`, `drop_replies`, `stop_dropping`;
 # the camera's `leave_bus`, `refuse_write`, `allow_write`, `release_frames`
 # the two vocabularies `WRITABLE_NODES` and `REFUSED_WRITE_ANSWERS`, and
@@ -122,7 +123,7 @@ _BOARD_PAIRS = (
 # point.
 _SIM_ONLY_NAME_BUDGET = {
     'LEDBoard': 4,
-    'MotorBoard': 17,
+    'MotorBoard': 18,
     # 34: SENSOR_APPLY_DELAY_US, the simulated sensor's own delay, and
     # set_stage_xy and set_illumination, which tell a camera built with no
     # scope around it its stage and light.
@@ -156,6 +157,7 @@ _SIM_ONLY_CALL_ALLOWLIST = {
     (_SIMULATION, 'drop_replies'),
     (_SIMULATION, 'stop_dropping'),
     (_SIMULATION, 'hold_travel'),
+    (_SIMULATION, 'report_model'),
     (_SIMULATION, 'leave_bus'),
     (_SIMULATION, 'refuse_write'),
     (_SIMULATION, 'allow_write'),

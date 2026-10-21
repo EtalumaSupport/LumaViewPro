@@ -380,11 +380,13 @@ session = ScopeSession.create(ScopeSession.load_user_settings('.'), simulate=Tru
 
 A camera stream that stops delivering while the camera stays connected is reported once per stall, unsolicited, to your outcome listener, in every host: `CameraStreamStalledError` (`modules.exceptions`, a fault), when no new frame has come for longer than a frame at the current exposure can take. That includes a camera whose grab stopped when nobody asked it to (a camera SDK that stopped its own grab, a grab thread that died, a start that did not take); a stop you asked for (`disable_streaming()`, a frame-size, format or binning change) is not a stall, and the check starts again from the stream's next frame.
 
-A simulated scope can also show a stalled camera stream: pass `sim_camera_stall=SimulatedStall(after_s=30, for_s=20)` (from `drivers.simulated_camera`) to `create`, and 30 s after the scope is built the simulated camera stops delivering frames for 20 s while it stays connected and streaming, as a real camera's link can. The GUI takes the same stall as a launch argument beside `--simulate`: `--sim-camera-stall=30,20`. It is refused on real hardware (`ArgumentRefusedError`, `needs_simulated_scope`), beside a scope you built yourself (`refused_beside_scope`; pass it to `Lumascope(sim_camera_stall=...)` instead), and on a model simulated with an FX2 (LS620, LS560), whose camera is not the simulated one (`needs_simulated_camera`). A `source_path` beside a scope you built is refused the same way (`refused_beside_scope`).
+A simulated scope can also show a stalled camera stream: pass `sim_camera_stall=SimulatedStall(after_s=30, for_s=20)` (from `drivers.simulated_camera`) to `create`, and 30 s after the scope is built the simulated camera stops delivering frames for 20 s while it stays connected and streaming, as a real camera's link can. The GUI takes the same stall as a launch argument beside `--simulate`: `--sim-camera-stall=30,20`. It is refused on real hardware (`ArgumentRefusedError`, `needs_simulated_scope`) and on a model simulated with an FX2 (LS620, LS560), whose camera is not the simulated one (`needs_simulated_camera`).
 
-A simulated scope's sample is in focus where bring-up leaves the stage. Pass `sim_focal_spread_um=25.0` to `create` and its focus is instead drawn once, within 25 um of there, so each session needs a real autofocus, as on a real scope. The GUI takes it as a launch argument beside `--simulate`: `--sim-focal-spread=25`; without it the GUI's simulated sample is in focus too. It is refused as `sim_camera_stall` is: on real hardware (`needs_simulated_scope`), beside a scope you built yourself (`refused_beside_scope`), and on a model simulated with an FX2 (`needs_simulated_camera`).
+A simulated scope's sample is in focus where bring-up leaves the stage. Pass `sim_focal_spread_um=25.0` to `create` and its focus is instead drawn once, within 25 um of there, so each session needs a real autofocus, as on a real scope. The GUI takes it as a launch argument beside `--simulate`: `--sim-focal-spread=25`; without it the GUI's simulated sample is in focus too. It is refused as `sim_camera_stall` is: on real hardware (`needs_simulated_scope`) and on a model simulated with an FX2 (`needs_simulated_camera`).
 
-A simulated session can likewise show a save drive that stops answering: pass `sim_file_stall=SimulatedStall(after_s=60, for_s=120)` to `create`, and 60 s after bring-up the session's file lane is held for 120 s by one write that does not return (`simulated_stuck_write`). A run that ends while its files wait behind it is reported as a stalled file writer (`FileWriterStalledError`) once the write has been stuck for 30 s, with the recovery as its remedy. The GUI takes it as `--sim-file-stall=60,120` beside `--simulate`. It is refused on real hardware (`ArgumentRefusedError`, `needs_simulated_scope`) and beside a scope you built yourself (`refused_beside_scope`).
+A simulated session can likewise show a save drive that stops answering: pass `sim_file_stall=SimulatedStall(after_s=60, for_s=120)` to `create`, and 60 s after bring-up the session's file lane is held for 120 s by one write that does not return (`simulated_stuck_write`). A run that ends while its files wait behind it is reported as a stalled file writer (`FileWriterStalledError`) once the write has been stuck for 30 s, with the recovery as its remedy. The GUI takes it as `--sim-file-stall=60,120` beside `--simulate`. It is refused on real hardware (`ArgumentRefusedError`, `needs_simulated_scope`).
+
+Three more of `create`'s arguments arm a fault before bring-up, so what bring-up does with it is what a test sees. `sim_model='LS850T'` builds the simulated scope as that model while the settings declare another, as when a stored file disagrees with the scope attached; bring-up adopts the scope's model. `sim_model_answer=SimulatedModelAnswer('LS999')` (from `modules.lumascope_api.simulation`) has the motor board name that model as its own, whatever it was built as, and `SimulatedModelAnswer(None)` names none (`scope.simulation.answer_model`); a model outside the catalogue, or none, leaves the stored one standing. `sim_refused_stream_starts=1` refuses the camera's first stream start, bring-up's own (`scope.simulation.refuse_stream_start`), on a model simulated with an FX2. Each is refused on real hardware (`needs_simulated_scope`), and the last two by the scope on a board or camera that cannot show them (`not_injectable_on_board`).
 
 ### Application startup sequence
 
@@ -1525,7 +1527,7 @@ screen are assembled identically.
 ```python
 # Full teardown of everything the session constructed: the FILE lane, the
 # worker pool and the session's threads always. On a scope the FACTORY built
-# (create() with no scope=) also: LEDs off, motion stopped, scope disconnected,
+# also: LEDs off, motion stopped, scope disconnected,
 # which shuts its IO and CAMERA lanes. Reading that scope afterwards:
 # motor_connected is False, imaging.is_streaming() is False,
 # diagnostics.get_motor_info().model is None. A second shutdown() logs one
@@ -2842,7 +2844,7 @@ scope.motion.move_absolute('Z', 5000)
 image = scope.imaging.capture_and_wait()
 ```
 
-A scope brought up through `ScopeSession.create()` is already streaming. A bare `Lumascope` you build yourself has no settings, so a capture raises `ConfigurationDefectError` (`scope_not_composed`, a `ConfigError`) until it is composed into a session; compose it with `ScopeSession.create(scope=...)` (above).
+A scope brought up through `ScopeSession.create()` is already streaming. A bare `Lumascope` you build yourself has no settings, so a capture raises `ConfigurationDefectError` (`scope_not_composed`, a `ConfigError`); build the scope through `ScopeSession.create()` instead (above), which composes and brings it up.
 
 ### Faults on the simulated scope
 
@@ -2860,6 +2862,7 @@ Which board answers a member depends on how the model is simulated. The **fast**
 | `fail_home(axis, how)` | a home that fails: `'switch_never_trips'`, `'stall'` or `'absent'` | refused | every `how` | TMCM-6110, `'switch_never_trips'` |
 | `hold_axis(axis, at_fraction=0.5)` | the next move halts part of the way and never arrives; returns an event set once it has halted | motor | refused (the axis arrives) | refused |
 | `interlock(lid_open=None, powered=None)` | the stage interlock's inputs | refused | refused | TMCM-6110 |
+| `answer_model(model)` | the motor board names `model` as its own (None: no model), its axes staying the ones it was built with | motor | refused | refused |
 | `remove_camera()` | the camera leaves the bus, for the session | camera | camera | FX2 |
 | `refuse_camera_write(node, answer, count=1)` | the next `count` writes of `node` (`'gain'`, `'exposure'`, `'auto_exposure'`, `'frame_size'`, `'binning'`, `'pixel_format'`, `'black_level'`, `'auto_gain'`, `'auto_gain_once'`, `'auto_gain_target_brightness'`) answer `'false'`, `'none'`, `'true'` (not for `'frame_size'`, whose write answers the window it delivers) or `'raise'`; with `'removed'` False as the camera leaves the bus during the write; with `'no_answer'` `CameraNoAnswerError`, the camera still on the bus. The API sends an unanswered write once more, so `count=2` makes one go unanswered | camera | camera | refused |
 | `refuse_camera_read(node, answer, count=1)` | the next `count` reads of `node` (`'gain'`, `'exposure'`, `'frame_size'`, `'binning'`, `'pixel_format'`, `'black_level'`, `'frame_rate'`, `'minimum_exposure'`) fail: `'raise'`; `'sentinel'`, the driver's failed-read value (-1 for the gain, the exposure and the binning, nothing for the frame size; not for the other nodes, whose drivers raise); or `'removed'`, raising as the camera leaves the bus during the read | camera | camera | refused |
@@ -3266,6 +3269,7 @@ Reached through `session.scope.runtime_state`.
 
 Reached through `session.scope.simulation`.
 
+- `answer_model` (in-process)
 - `bind_camera_usb_driver` (in-process)
 - `clear` (in-process)
 - `delay_delivery` (in-process)
@@ -4118,6 +4122,12 @@ Reached through `session.shown_channel`, returned by `session.show_channel` and 
 
 - `layer`
 - `lit`
+
+### SimulatedModelAnswer
+
+Reached through built by the caller and passed as `sim_model_answer=` to `ScopeSession.create`.
+
+- `model`
 
 ### SkippedBuild
 

@@ -15,8 +15,9 @@ from unittest.mock import MagicMock
 import pytest
 
 import tests.ast_seams as ast_seams
+from modules.exceptions import ArgumentRefusedError
 from modules.scope_session import ScopeSession
-from tests.scope_fakes import build_scope, real_executor_bundle, spec_scope
+from tests.scope_fakes import real_executor_bundle, spec_scope
 from tests.settings_fixtures import complete_settings
 
 
@@ -95,9 +96,32 @@ class TestCreateTakesTheHostInjections:
         params = inspect.signature(ScopeSession.create).parameters
         assert 'io_executor' not in params and 'camera_executor' not in params
         with pytest.raises(TypeError):
-            ScopeSession.create(
-                settings=complete_settings(), scope=spec_scope(), io_executor=MagicMock()
-            )
+            ScopeSession.create(settings=complete_settings(), io_executor=MagicMock())
+
+    def test_create_takes_no_scope(self):
+        # The factory builds the scope, so every session's is brought up
+        # the one way; a caller's scope would be a second bring-up. The
+        # name is refused whatever it is given.
+        with pytest.raises(TypeError):
+            ScopeSession.create(settings=complete_settings(), scope=None)
+
+    def test_a_simulators_fault_is_refused_for_a_real_scope_before_anything_is_built(self):
+        from modules.lumascope_api.simulation import SimulatedModelAnswer
+
+        wrong = {}
+        for argument, value in (
+            ('sim_model', 'LS850T'),
+            ('sim_model_answer', SimulatedModelAnswer('LS850T')),
+            ('sim_refused_stream_starts', 1),
+        ):
+            with pytest.raises(ArgumentRefusedError) as refused:
+                ScopeSession.create(settings=complete_settings(), **{argument: value})
+            if (refused.value.reason, refused.value.argument) != (
+                'needs_simulated_scope',
+                argument,
+            ):
+                wrong[argument] = (refused.value.reason, refused.value.argument)
+        assert not wrong, wrong
 
     def test_the_default_still_warns_once(self, tmp_path, fresh_warning_latch):
         # The preserved half: a caller that shipped separately is warned.
@@ -116,8 +140,8 @@ class TestCreateTakesTheHostInjections:
 class TestScopeOwnershipIsConstructorState:
     """Whether shutdown() may tear the scope down is decided where the
     scope came from, at construction: a factory-built scope is the
-    session's, a passed or directly constructed one is the caller's. The
-    bundle the session holds is always its own to stop."""
+    session's, one handed to the constructor is the caller's. The bundle
+    the session holds is always its own to stop."""
 
     def _settings(self, tmp_path):
         return complete_settings(live_folder=str(tmp_path))
@@ -128,16 +152,6 @@ class TestScopeOwnershipIsConstructorState:
         )
         try:
             assert session._owns_scope is True
-        finally:
-            session.shutdown()
-            session.scope.disconnect()
-
-    def test_a_passed_scope_is_not_owned(self):
-        session = ScopeSession.create(
-            settings=complete_settings(), scope=build_scope(simulate=True)
-        )
-        try:
-            assert session._owns_scope is False
         finally:
             session.shutdown()
             session.scope.disconnect()
@@ -182,45 +196,6 @@ class TestTheLanesAreTheScopes:
                 assert lanes == (scope.io_lane(), scope.camera_lane())
         finally:
             session.shutdown()
-
-    def test_a_callers_scope_keeps_its_lanes_running(self):
-        from tests.scope_fakes import build_scope
-
-        scope = build_scope(simulate=True, warn_pre_release=False)
-        session = ScopeSession.create(settings=complete_settings(), scope=scope)
-        session.shutdown()
-        assert scope.io_lane().worker_alive and scope.camera_lane().worker_alive
-        assert scope.io_lane().accepts_work() and scope.camera_lane().accepts_work()
-
-    def test_a_second_session_over_one_scope_is_refused(self):
-        # Each lane asks one claim for its life: a second session would
-        # re-point the lanes at its own claim, and the first session's run
-        # and diagnostic fences would stop being enforced, silently.
-        import threading
-        import time
-
-        from tests.scope_fakes import build_scope
-
-        def factory_threads():
-            return {
-                t for t in threading.enumerate() if t.name in ('FILE_WORKER', 'WORKER_POOL_WORKER')
-            }
-
-        scope = build_scope(simulate=True, warn_pre_release=False)
-        first = ScopeSession.create(settings=complete_settings(), scope=scope)
-        try:
-            before = factory_threads()
-            with pytest.raises(RuntimeError, match='already asks an activity claim'):
-                ScopeSession.create(settings=complete_settings(), scope=scope)
-            assert scope.io_lane()._claim is first.activity_claim
-            # The refused factory stops what it started: no session exists
-            # for anyone to shut down.
-            deadline = time.monotonic() + 2.0
-            while factory_threads() - before and time.monotonic() < deadline:
-                time.sleep(0.02)
-            assert not factory_threads() - before, 'the refused create left its threads running'
-        finally:
-            first.shutdown()
 
 
 # ===========================================================================

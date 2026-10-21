@@ -23,8 +23,7 @@ import time
 
 import pytest
 
-from modules.exceptions import ArgumentRefusedError, InstallationFileError
-from modules.lumascope_api import Lumascope
+from modules.exceptions import InstallationFileError
 from modules.notification_center import Severity, notifications
 from modules.path_utils import get_source_root
 from modules.scope_session import ScopeSession
@@ -178,29 +177,6 @@ def test_an_unusable_catalogue_stops_the_bring_up_before_anything_starts(
 
 
 class TestTheSessionsFolderIsTheScopes:
-    def test_a_folder_beside_a_callers_scope_is_refused(self, tmp_path):
-        scope = Lumascope(simulate=True, warn_pre_release=False, source_path=REPO_ROOT)
-        try:
-            with pytest.raises(ArgumentRefusedError) as refused:
-                ScopeSession.create(complete_settings(), source_path=tmp_path, scope=scope)
-            assert (refused.value.reason, refused.value.argument) == (
-                'refused_beside_scope',
-                'source_path',
-            )
-        finally:
-            scope.disconnect()
-
-    def test_a_callers_scope_brings_its_folder(self, tmp_path):
-        root = _data_folder(tmp_path)
-        scope = Lumascope(simulate=True, warn_pre_release=False, source_path=root)
-        session = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), scope=scope)
-        try:
-            assert session.source_path == root
-            assert session.objective_helper is scope.objective_helper
-        finally:
-            session.shutdown()
-            scope.disconnect()
-
     def test_no_folder_is_the_installations_own(self, tmp_path):
         session = ScopeSession.create(
             complete_settings(live_folder=str(tmp_path)), simulate=True, warn_pre_release=False
