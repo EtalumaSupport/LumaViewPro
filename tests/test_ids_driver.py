@@ -29,6 +29,7 @@ from drivers.idscamera import (
     _ids_ipl_target,
     ids_significant_bits,
 )
+from drivers.exceptions import CameraUsbOpenFailedError
 from tests.camera_fakes import bare_ids_camera
 
 
@@ -1506,21 +1507,24 @@ class TestConnectFailureUnregistersCallback:
         # so the connect aborts with a live registration in place.
         cam._load_profile = MagicMock(side_effect=RuntimeError('profile load boom'))
 
-        assert cam.connect() is False
+        # A found camera that fails is raised, not told as no camera.
+        with pytest.raises(CameraUsbOpenFailedError):
+            cam.connect()
         # The callback registered during the aborted connect was torn down.
         dm.UnregisterDeviceLostCallback.assert_called_once()
         assert cam._device_lost_callback is None
         assert cam._device_lost_callback_handle is None
 
     def test_connection_error_after_register_also_unregisters(self, monkeypatch):
-        # Both failure branches must clean up: a ConnectionError raised AFTER
-        # registration goes through `except ConnectionError`, which must also
-        # unregister -- otherwise the live callback leaks past the aborted connect.
+        # A ConnectionError raised AFTER registration is a found camera's
+        # failure, not the no-camera case: it is raised, and the cleanup still
+        # unregisters -- otherwise the live callback leaks past the aborted connect.
         dm = MagicMock()
         cam = self._drive_connect(monkeypatch, dm)
         cam._load_profile = MagicMock(side_effect=ConnectionError('late connection error'))
 
-        assert cam.connect() is False
+        with pytest.raises(CameraUsbOpenFailedError):
+            cam.connect()
         dm.UnregisterDeviceLostCallback.assert_called_once()
         assert cam._device_lost_callback_handle is None
 

@@ -67,13 +67,6 @@ class TestCameraNotifyVoice:
         assert _camera_failure_cause(exc) == 'camera_firmware_missing'
         assert '/opt/lvp' not in _body(exc)
 
-    def test_camera_in_use_body_is_clean(self):
-        # pypylon RuntimeException is matched by type-name string.
-        exc = type('RuntimeException', (Exception,), {})('device busy 0xdead')
-        body = _body(exc)
-        assert 'RuntimeException' not in body
-        assert '0xdead' not in body
-
     def test_permission_error_body_is_clean(self):
         body = _body(PermissionError('COM7 access denied by winerror 5'))
         assert 'winerror' not in body

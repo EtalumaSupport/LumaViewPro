@@ -33,7 +33,6 @@ CAUSE_PHRASES = {
     'not_responding': 'not responding',
     'connect_failed': 'connect failed',
     'no_driver': 'no driver',
-    'camera_in_use': 'in use by another application',
     'camera_port_in_use': 'port in use',
     'camera_not_detected': 'not detected',
     'camera_driver_unavailable': 'not detected; a driver did not load',

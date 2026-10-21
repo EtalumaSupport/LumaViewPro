@@ -908,22 +908,17 @@ class CameraNotAvailableError(BringUpError):
     """The camera did not come up; the heading and the advice follow the cause.
 
     Attributes:
-        reason: ``'camera_in_use'`` (another application holds it),
-            ``'camera_port_in_use'``, ``'camera_not_detected'``,
+        reason: ``'camera_port_in_use'``, ``'camera_not_detected'``,
             ``'camera_driver_unavailable'`` (none found, and a camera driver
             did not load on this installation), ``'camera_firmware_missing'``
             (the firmware file a Classic's driver uploads is not installed),
             ``'camera_driver_unusable'`` (Windows has a Classic on no driver,
             or on one LumaViewPro cannot use) or ``'camera_not_initialized'``
-            (anything else).
+            (anything else, a camera that was found and could not be opened
+            among it, one another application holds included).
     """
 
     _WORDS: ClassVar[dict[str, tuple[str, str]]] = {
-        'camera_in_use': (
-            'Camera in use',
-            'Camera appears to be open in another application (Pylon Viewer, another '
-            'LVP instance, etc.). Close it and restart LVP.',
-        ),
         'camera_port_in_use': (
             'Camera port in use',
             'Camera port is in use by another program. Close the other program and restart LVP.',

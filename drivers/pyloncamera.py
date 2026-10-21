@@ -23,6 +23,7 @@ from drivers.camera import (
 from drivers.exceptions import (
     CameraNoAnswerError,
     CameraReadFailedError,
+    CameraUsbOpenFailedError,
     CameraWriteFailedError,
     HardwareError,
     PartAbsentError,
@@ -1150,11 +1151,14 @@ class PylonCamera(Camera):
             # The list also surfaces multi-camera-bench cases (wrong
             # serial selected) and transient enumeration races (device
             # visible but Pylon hasn't claimed it yet). The connect-failure
-            # handler below keys its log severity off this list, plus the
-            # opened flag (set right after Open() succeeds) so a post-open
-            # configuration failure is never misreported as "not openable."
+            # handler below reads this list and the device CreateFirstDevice
+            # returned: with neither there is no Basler (False, so the registry
+            # tries the next driver); with either, the failure is the found
+            # camera's, named by ``step`` so a post-open configuration failure
+            # is never misreported as "not openable."
             _devs = ()
-            _opened = False
+            _created = False
+            step = 'the device lookup'
             try:
                 _devs = pylon.TlFactory.GetInstance().EnumerateDevices()
                 _log_cam(
@@ -1170,6 +1174,8 @@ class PylonCamera(Camera):
                 )
 
             p_device = pylon.TlFactory.GetInstance().CreateFirstDevice()
+            _created = True
+            step = 'its registration'
             self.active = pylon.InstantCamera(p_device)
             camera = self.active
             # Ensure previous removal flag does not persist across a new connection
@@ -1188,13 +1194,11 @@ class PylonCamera(Camera):
                     _CameraRemovalHandler(self), pylon.RegistrationMode_Append, pylon.Cleanup_Delete
                 )
             except Exception as e:
-                _cam_log.error(
-                    f'[CAM Class ] Pylon camera connect refused: the camera-removal '
-                    f'handler could not be registered, so an unplugged camera '
-                    f'would still read as connected: {e}'
-                )
-                self.active = None
-                return False
+                step = 'its removal handler'
+                raise RuntimeError(
+                    'the camera-removal handler could not be registered, so an '
+                    f'unplugged camera would still read as connected: {e}'
+                ) from e
 
             self.cam_image_handler = ImageHandler(self)
             # Fresh handler starts with an empty dispatch list; re-push any
@@ -1218,6 +1222,7 @@ class PylonCamera(Camera):
             # frames with no consumer scheduled.
             self.cam_image_handler._worker.start()
 
+            step = 'the open'
             camera.Open()
 
             # Start gate, SDK-side enforcement: pypylon 26.4.x's
@@ -1230,7 +1235,7 @@ class PylonCamera(Camera):
             # InstantCamera methods present on every transport (unlike the
             # optional nodes below), so no node-availability guard is needed;
             # a genuine SDK failure propagates to connect()'s own handler.
-            _opened = True
+            step = 'its post-open configuration'
             if camera.IsGrabbing():
                 self._timed_stop_grabbing(camera, 'post-Open')
                 _log_cam('info', '[CAM Class ] post-Open: stopped SDK auto-start grab (start gate)')
@@ -1409,42 +1414,26 @@ class PylonCamera(Camera):
             _log_cam('info', '[CAM Class ] Connected to Pylon camera')
             return True
 
-        except genicam.RuntimeException as ex:
-            if _opened:
-                # Open() itself succeeded; the failure is a post-open
-                # configuration step (grab-stop, stream-node writes, initial
-                # camera config). Calling this "not openable" would send
-                # bench debugging at the wrong layer.
-                _cam_log.error(
-                    f'[CAM Class ] Pylon camera connect failed AFTER a '
-                    f'successful open, during post-open configuration: {ex}'
-                )
-            elif _devs:
-                # A Basler IS visible but could not be opened -- typically
-                # held open by another application (e.g. pylon Viewer), or a
-                # claim race. That is the actionable bench failure, and it
-                # must survive an error-level log sweep.
-                _cam_log.error(
-                    f'[CAM Class ] Pylon camera connect failed with '
-                    f'{len(_devs)} device(s) enumerated -- device present '
-                    f'but not openable (possibly held by another '
-                    f'application): {ex}'
-                )
-            else:
+        except Exception as ex:
+            self.active = None
+            self._stop_image_grab_worker()
+            if not (_created or _devs):
                 # Expected when no Basler is present (e.g. the registry
                 # probing Pylon on an IDS-only bench) -- the registry recovers
                 # by trying the next driver, so WARNING not ERROR.
                 _cam_log.warning(
                     f'[CAM Class ] Pylon camera connect failed (no device enumerated): {ex}'
                 )
-            self.active = None
-            self._stop_image_grab_worker()
-        except Exception:
-            _cam_log.exception('[CAM Class ] Pylon camera connect failed')
-            self.active = None
-            self._stop_image_grab_worker()
-
-        return False
+                return False
+            # A Basler IS on the bus: an open that fails is typically one held
+            # by another application (e.g. pylon Viewer) or a claim race. That
+            # is the actionable bench failure; it must survive an error-level
+            # log sweep and reach the bring-up as the found camera's failure.
+            failure = f'Basler camera found, {step} failed: {type(ex).__name__}: {ex}'
+            _cam_log.error(
+                f'[CAM Class ] {failure}', exc_info=not isinstance(ex, genicam.RuntimeException)
+            )
+            raise CameraUsbOpenFailedError(failure) from ex
 
     def _stop_image_grab_worker(self) -> None:
         """Stop the Stage B worker if it was started during connect().

@@ -215,13 +215,12 @@ AxisState = _api_constants.AxisState
 def _camera_failure_cause(exc: BaseException) -> str:
     """The record's cause for a camera that raised while connecting.
 
-    The camera registry raises whatever the backend raised (pypylon,
-    ids_peak, FX2, simulated). pypylon's RuntimeException for "camera already
-    open in another application" is the frequent case -- Pylon Viewer or a
-    second LVP -- and gets its own cause. Matched by type name so pypylon is
-    not imported on a host without it. When no driver raised, the registry
-    raises the cause it found: no camera, or a port held, with any driver
-    that did not load on this installation beside it.
+    The camera registry raises the fault a driver raised for a camera it
+    found and could not bring up (``CameraUsbOpenFailedError``, which also
+    covers a camera another application holds, or the driver's own typed
+    fault). When no driver raised, the registry raises the cause it found:
+    no camera, or a port held, with any driver that did not load on this
+    installation beside it.
     """
     if isinstance(exc, NoLiveDriverError):
         fallback = exc.fallback
@@ -236,8 +235,6 @@ def _camera_failure_cause(exc: BaseException) -> str:
         return 'camera_firmware_missing'
     if isinstance(exc, CameraUsbDriverUnusableError):
         return 'camera_driver_unusable'
-    if type(exc).__name__ in ('RuntimeException', 'GenericException', 'LogicalErrorException'):
-        return 'camera_in_use'
     if isinstance(exc, PermissionError):
         return 'camera_port_in_use'
     return 'camera_not_initialized'

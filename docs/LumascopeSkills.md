@@ -1258,14 +1258,15 @@ for part in record.parts:                  # 'motor', 'led', 'camera', in that o
     print(part.part, part.up, part.expected, part.cause, part.detail)
 record.missing                             # the parts this scope's model has and lacks
 record.part('led').cause                   # ArgumentRefusedError (part_unknown) for a name not in parts; None, or why: 'not_detected', 'port_in_use', 'not_responding',
-                                           # 'connect_failed', 'no_driver'; for the camera 'camera_in_use',
+                                           # 'connect_failed', 'no_driver'; for the camera
                                            # 'camera_port_in_use', 'camera_not_detected', 'camera_driver_unavailable'
                                            # (none found, and a camera driver did not load on this installation; the
                                            # detail names it and why), 'camera_firmware_missing' (a Classic's firmware
                                            # file is not installed), 'camera_driver_unusable' (on Windows, a Classic is
                                            # bound to no driver or one LumaViewPro cannot use; the detail names the
                                            # device and its driver; its report carries the remedy
-                                           # repair_camera_driver on an installed Windows build), 'camera_not_initialized';
+                                           # repair_camera_driver on an installed Windows build), 'camera_not_initialized'
+                                           # (a camera found and not opened, one another application holds included);
                                            # on an LED board that came up, 'safety_off_failed'; on a camera that came up
                                            # and whose stream did not start, 'stream_not_started' (it stays after a
                                            # later enable_streaming() that streams)

@@ -564,10 +564,10 @@ class Camera(ABC):
 
         Registry contract: drivers signal "I couldn't find my hardware" via
         `found=False`, and `drivers/registry.py::create('auto')` skips such
-        instances and tries the next candidate (PylonCamera / IDSCamera catch
-        their connect-failure internally and set `active = None` without raising,
-        so without this the registry would return the broken instance and FX2
-        never gets a turn -- the LS620 first-bring-up failure). Deriving it from
+        instances and tries the next candidate (a driver that finds no camera
+        of its kind returns False from connect() without raising, so without
+        this the registry would return the empty instance and FX2 never gets a
+        turn -- the LS620 first-bring-up failure). Deriving it from
         `active`'s three-state semantics (False=initial, <obj>=connected,
         None=disconnected) keeps it current after a disconnect / reconnect
         instead of the old once-in-__init__ snapshot that went stale.
@@ -714,12 +714,20 @@ class Camera(ABC):
     def connect(self) -> bool:
         """Connect to the camera hardware.
 
-        Subclasses must catch their own connect-failure exceptions and
-        leave ``self._active`` as False or None on failure (the registry
-        uses ``self.found`` to skip non-functional drivers).
+        False only when no camera of this driver's kind is reachable, with
+        ``self._active`` left False or None: the registry reads ``self.found``
+        and tries the next driver. A camera that is found and cannot be
+        opened or set up is not an absence: the subclass releases what it
+        opened and raises a typed driver fault (``CameraUsbOpenFailedError``
+        or its own), which the registry ranks above every driver that found
+        nothing and the bring-up tells as that camera's failure.
 
         Returns:
-            bool: True on success.
+            bool: True on success; False when no camera is reachable.
+
+        Raises:
+            CameraUsbOpenFailedError: A camera was found and could not be
+                opened or set up (or the driver's own typed fault).
         """
         pass
 

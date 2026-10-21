@@ -37,10 +37,27 @@ from drivers.camera import (
 from drivers.exceptions import (
     CameraNoAnswerError,
     CameraReadFailedError,
+    CameraUsbOpenFailedError,
     CameraWriteFailedError,
     PartAbsentError,
 )
 from drivers.registry import camera_registry
+from lib.lumascope_error import Fault
+
+
+class _IDSAbsentError(Fault, RuntimeError):
+    """No IDS camera is reachable.
+
+    Told apart from every other connection failure because it is not one: the
+    registry tries the IDS driver on every scope, most of which have no IDS
+    camera, and a driver that raises is ranked above one that reports
+    found=False. So ``connect`` turns this, and only this, into False; an IDS
+    camera that is found and fails raises ``CameraUsbOpenFailedError``.
+    """
+
+    reason = 'ids_absent'
+    title = 'Camera Not Found'
+
 
 # IDS Library.Close() shuts down the entire SDK (not per-device).
 # Defer to atexit so it only runs once at process exit.
@@ -395,7 +412,6 @@ class IDSCamera(Camera):
         super().__init__()
 
     def connect(self) -> bool:
-        global _ids_library_initialized
         # Idempotent: a second connect on a live camera would collide with our
         # own exclusive Control handle (BAD_ACCESS "open already"), and the
         # failure path would then tear down a perfectly healthy connection.
@@ -414,28 +430,15 @@ class IDSCamera(Camera):
             _cam_log.info('[CAM Class ] connect skipped: already connected')
             return True
         try:
-            # Initialize device manager
-            ids_peak.Library.Initialize()
-            _ids_library_initialized = True
-            self.device_manager = ids_peak.DeviceManager.Instance()
-            self.device_manager.Update()
-
-            # Search for devices. The emptiness check and the index are not
-            # atomic -- the producer can report a phantom entry that fails to
-            # index (seen as `IndexError` on [0] with no camera attached) -- so
-            # a failed index IS the no-camera outcome, reported as such rather
-            # than as a raw IndexError.
-            devices = self.device_manager.Devices()
-            if devices.empty():
-                raise ConnectionError('Could not find IDS camera')
-            try:
-                descriptor = devices[0]
-            except IndexError as e:
-                raise ConnectionError('Could not find IDS camera') from e
-            # Recorded before the open attempt so a device that is found
-            # but cannot be opened still leaves its identity in the log.
-            for _i, _d in enumerate(devices):
-                logger.info(f'[CAM Class ]   device[{_i}]: {describe_device_descriptor(_d)}')
+            descriptor = self._find_device()
+        except _IDSAbsentError as er:
+            _cam_log.warning(f'[CAM Class ] IDS camera connect failed: {er}')
+            self._cleanup_partial_connect()
+            return False
+        # A camera is on the bus from here on: a failure is that camera's,
+        # raised to the registry, never told as no camera.
+        step = 'the open'
+        try:
             self.active, descriptor = self._open_device_with_retry(
                 descriptor,
                 refresh=lambda: self._refresh_descriptor_matching(descriptor),
@@ -445,8 +448,11 @@ class IDSCamera(Camera):
             # is delivered for EVERY device in the system, so the callback
             # filters on this key to act only on our camera's removal.
             self._device_key = descriptor.Key()
+            step = 'its data stream'
             self.data_stream = self.active.DataStreams()[0].OpenDataStream()
+            step = 'its node map'
             self.remote_nodemap = self.active.RemoteDevice().NodeMaps()[0]
+            step = 'its set-up'
             self._device_removed = False
             self._async_teardown_started = False
 
@@ -487,16 +493,42 @@ class IDSCamera(Camera):
             logger.info('[CAM Class ] Connected to IDS camera')
             return True
 
-        except ConnectionError as er:
-            _cam_log.warning(f'[CAM Class ] IDS camera connect failed: {er}')
-            self._cleanup_partial_connect()
         except Exception as ex:
-            # No-device / no-GenTL-path is the common case here and is an
-            # expected probe outcome; log the type + message, not the stack.
-            _cam_log.error(f'[CAM Class ] IDS camera connect failed: {type(ex).__name__}: {ex}')
+            failure = f'IDS camera found, {step} failed: {type(ex).__name__}: {ex}'
+            _cam_log.error(f'[CAM Class ] {failure}')
             self._cleanup_partial_connect()
+            raise CameraUsbOpenFailedError(failure) from ex
 
-        return False
+    def _find_device(self):
+        """The first enumerated device's descriptor; ``_IDSAbsentError`` when none is reachable.
+
+        No camera is reachable when the library or the device update fails
+        (no GenTL path on this host, the common case), the list is empty, or
+        the producer lists a phantom entry that then fails to index (seen as
+        ``IndexError`` on [0] with no camera attached): the emptiness check
+        and the index are not atomic, so a failed index is the no-camera
+        outcome too.
+        """
+        global _ids_library_initialized
+        try:
+            ids_peak.Library.Initialize()
+            _ids_library_initialized = True
+            self.device_manager = ids_peak.DeviceManager.Instance()
+            self.device_manager.Update()
+            devices = self.device_manager.Devices()
+        except Exception as e:
+            raise _IDSAbsentError(f'no IDS device reachable: {type(e).__name__}: {e}') from e
+        if devices.empty():
+            raise _IDSAbsentError('Could not find IDS camera')
+        try:
+            descriptor = devices[0]
+        except IndexError as e:
+            raise _IDSAbsentError('Could not find IDS camera') from e
+        # Recorded before the open attempt so a device that is found
+        # but cannot be opened still leaves its identity in the log.
+        for _i, _d in enumerate(devices):
+            logger.info(f'[CAM Class ]   device[{_i}]: {describe_device_descriptor(_d)}')
+        return descriptor
 
     def _cleanup_partial_connect(self) -> None:
         """Undo a failed/partial connect(): both failure branches route here so a
@@ -509,7 +541,7 @@ class IDSCamera(Camera):
         handles -- including cam_image_handler, which pins the just-opened data
         stream (leaving it set keeps the USB3 endpoint bound so a retry rebinds
         the same stream). Idempotent: safe when nothing was opened or registered
-        (the no-device ConnectionError path runs it before any handle exists).
+        (the no-device path runs it before any handle exists).
         """
         self._unregister_device_callbacks()
         self.active = None

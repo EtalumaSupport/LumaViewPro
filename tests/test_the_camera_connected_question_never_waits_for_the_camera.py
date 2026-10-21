@@ -26,6 +26,7 @@ import pytest
 
 import modules.app_context as _app_ctx
 from modules.lumascope_api import Lumascope
+from drivers.exceptions import CameraUsbOpenFailedError
 from tests.camera_fakes import bare_pylon_camera
 from tests.scope_fakes import give_camera_and_imaging, give_camera_capabilities, give_stub_lanes
 
@@ -159,6 +160,7 @@ class TestTheRemovalHandlerIsRequired:
         sdk_camera.RegisterConfiguration.side_effect = _register
         monkeypatch.setattr(pyloncamera.pylon, 'InstantCamera', lambda _device: sdk_camera)
 
-        assert cam.connect() is False
+        with pytest.raises(CameraUsbOpenFailedError):
+            cam.connect()
         assert cam.active is None
         sdk_camera.Open.assert_not_called()
