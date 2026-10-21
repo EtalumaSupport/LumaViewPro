@@ -49,7 +49,7 @@ LumaViewPro controls Etaluma microscopes: LED illumination, XYZ stage + turret m
 
 ## Architecture
 
-```
+```text
 ┌─────────────────────────────────────────────────┐
 │  Your Application                               │
 │  (MATLAB, Python script, LabVIEW, web app)      │
@@ -80,7 +80,7 @@ LumaViewPro controls Etaluma microscopes: LED illumination, XYZ stage + turret m
 
 Each layer wraps the one below. Higher = easier. Lower = more control.
 
-For internal serial-protocol details (firmware updates, bring-up tooling), see **Appendix A** at the end of this document — not intended for application integration.
+For internal serial-protocol details (firmware updates, bring-up tooling), see [`FirmwareTooling.md`](FirmwareTooling.md) — not intended for application integration, and not part of this API.
 
 ---
 
@@ -332,18 +332,18 @@ session.scope.objectives                  # the scope's objective catalogue
 
 `source_path` is the data folder `create` builds the scope on; leave it out and the scope uses the installation's own folder. The session's folder and catalogues are always its scope's, never copies, so nothing in one session can disagree about which plates or objectives exist.
 
-The session comes back **configured** and **running**: `create` builds the scope, configures the scope (turret slot keys normalized, the stored objective selected on a scope with no turret, labware selected, the frame, binning and image mode applied), releases the camera start gate — so `save_image` works at once — and starts the executor lanes: the scope builds and starts its own IO and CAMERA lanes, and the factory builds and starts the FILE lane, the worker pool and the protocol thread around them. Each lane is started once, by whoever built it; starting a running lane again raises `RuntimeError`. `session.shutdown()` is the teardown for everything the factory built (see "Cleanup"): lanes and their threads down, LEDs off, motion stopped, scope disconnected.
+The session comes back **configured** and **running**: `create` builds the scope, configures the scope (turret slot keys normalized, the stored objective selected on a scope with no turret, labware selected, the frame, binning and image mode applied), releases the camera start gate — so a capture works at once — and starts the executor lanes: the scope builds and starts its own IO and CAMERA lanes, and the factory builds and starts the FILE lane, the worker pool and the protocol thread around them. Each lane is started once, by whoever built it; starting a running lane again raises `RuntimeError`. `session.shutdown()` is the teardown for everything the factory built (see "Cleanup"): lanes and their threads down, LEDs off, motion stopped, scope disconnected.
 
 `create` takes the host's injections as named keyword arguments; every one of them is optional, and the headless form passes none of them.
 
 ```python
 session = ScopeSession.create(
-    settings=settings_init.settings,
+    settings=ScopeSession.load_user_settings('.'),
     source_path='.',                        # refused beside scope=: a session's folder is its scope's
     simulate=False,                         # True builds a simulated scope instead of opening hardware
     engineering_mode=False,                 # the session's mode to begin with; a plugin may turn it on
     no_engineering=False,                   # True: the engineering plugin is not loaded
-    settings_file=settings_init.current_json_path('.'),  # where accepted writes are saved; None saves nothing
+    settings_file=ScopeSession.user_settings_file('.'),  # where accepted writes are saved; None saves nothing
 )
 ```
 
@@ -363,7 +363,7 @@ ScopeSession.set_ui_dispatcher(
 )                                           # once, before the first ScopeSession.create
 ```
 
-**Settings a factory needs.** Every dict `create` takes is prepared as the file's is, by the one preparation (`settings_init.prepare_loaded`): a hand-built dict is completed from the shipped template, so a key it lacks takes the template's value at every depth and no reader hedges for it; a value in it the writer refuses (outside its range, of the wrong kind, not a number) is refused as a write of it would be, `SettingRefusedError` naming the path, since a dict handed to a session is a write of every key at once, where the file's such value is replaced and told; a block of the wrong kind (a `frame` that is not an object) is refused as the argument, `ArgumentRefusedError` (`wrong_kind`) naming `settings.<path>`. A dict the loader above already prepared goes through unchanged. Bring-up adopts the model the hardware reports into `settings['microscope']` whenever the catalogue knows that model, so the microscope key is an input the bring-up may correct. On a scope with no turret an `objective_id` the objective catalogue (`data/objectives.json`) does not hold is replaced by the shipped objective at bring-up, where the catalogue is first available, and told as part of the load's `stored_setting_replaced` notice (below). A stored plate (`settings['protocol']['labware']`) the labware catalogue cannot resolve -- an empty name, a plate it no longer has -- is replaced by the shipped plate at bring-up and told as part of the load's `stored_setting_replaced` notice (below); every other stored setting is kept. A null or a non-string in either place never reaches bring-up: the preparation above replaces it in a file and refuses it in a handed dict, as the writer would. After bring-up, every writer of the selection refuses a plate the catalogue does not have. A turreted scope does not read the stored `objective_id`: its objective is unknown until the turret is homed or moved to a slot, then it is that slot's assignment. `turret_objectives` keys may be JSON strings or ints; the factory normalizes them. A configured session may still owe the objective question (`session.objective_question()`, above); the factories do not ask it. A missing or unusable `labware.json`, `objectives.json`, `scopes.json` or `motorconfig_defaults.json` stops the scope's construction with `InstallationFileError` (see "Initialization").
+**Settings a factory needs.** Every dict `create` takes is prepared as the file's is, by the same preparation `load_user_settings` runs: a hand-built dict is completed from the shipped template, so a key it lacks takes the template's value at every depth and no reader hedges for it; a value in it the writer refuses (outside its range, of the wrong kind, not a number) is refused as a write of it would be, `SettingRefusedError` naming the path, since a dict handed to a session is a write of every key at once, where the file's such value is replaced and told; a block of the wrong kind (a `frame` that is not an object) is refused as the argument, `ArgumentRefusedError` (`wrong_kind`) naming `settings.<path>`. A dict the loader above already prepared goes through unchanged. Bring-up adopts the model the hardware reports into `settings['microscope']` whenever the catalogue knows that model, so the microscope key is an input the bring-up may correct. On a scope with no turret an `objective_id` the objective catalogue (`data/objectives.json`) does not hold is replaced by the shipped objective at bring-up, where the catalogue is first available, and told as part of the load's `stored_setting_replaced` notice (below). A stored plate (`settings['protocol']['labware']`) the labware catalogue cannot resolve -- an empty name, a plate it no longer has -- is replaced by the shipped plate at bring-up and told as part of the load's `stored_setting_replaced` notice (below); every other stored setting is kept. A null or a non-string in either place never reaches bring-up: the preparation above replaces it in a file and refuses it in a handed dict, as the writer would. After bring-up, every writer of the selection refuses a plate the catalogue does not have. A turreted scope does not read the stored `objective_id`: its objective is unknown until the turret is homed or moved to a slot, then it is that slot's assignment. `turret_objectives` keys may be JSON strings or ints; the factory normalizes them. A configured session may still owe the objective question (`session.objective_question()`, above); the factories do not ask it. A missing or unusable `labware.json`, `objectives.json`, `scopes.json` or `motorconfig_defaults.json` stops the scope's construction with `InstallationFileError` (see "Initialization").
 
 For **simulated** (no hardware needed, development / CI):
 
@@ -398,7 +398,7 @@ The scope is the startup's from before `start_application_session()` returns unt
 
 ### Camera capture settings
 
-The image mode, the binning and the frame each have one writer, on the camera (`scope.camera`; in-process also `session.camera`, the same object): it applies the setting to the camera and saves it in the settings only once the camera took it, whoever calls it -- the GUI, REST, a run's restore, a plugin. A refusal or a rejection leaves the settings as they were, so they never describe a camera state that is not in force. The pixel format is set only through the image mode, so a capture's depth and its save policy always agree. Over REST these are `/api/v1/scope/camera/...`. Call them from the camera's own lane or any thread; each waits for the camera.
+The image mode, the binning and the frame each have one writer, on the camera (`scope.camera`): it applies the setting to the camera and saves it in the settings only once the camera took it, whoever calls it -- the GUI, REST, a run's restore, a plugin. A refusal or a rejection leaves the settings as they were, so they never describe a camera state that is not in force. The pixel format is set only through the image mode, so a capture's depth and its save policy always agree. Over REST these are `/api/v1/scope/camera/...`. Call them from the camera's own lane or any thread; each waits for the camera.
 
 ```python
 camera = session.scope.camera
@@ -582,7 +582,7 @@ a burst of writes is one save, and once more at `shutdown()`, after the
 session's work has finished. Each save goes to a file beside the target
 and is then moved over it, so a crash mid-save leaves the previous file
 whole. The GUI and `python -m rest` name the installation's
-`data/current.json` (`settings_init.current_json_path(root)`), never the
+`data/current.json` (`ScopeSession.user_settings_file(root)`), never the
 shipped `settings.json` a first run reads from. A session given no file
 (the default) saves nothing, which is what a script working on its own
 dict wants. A write is accepted and in effect either way. Two conditions
@@ -763,29 +763,18 @@ when `capture()` put it there) and not yet running when a run takes the scope
 is refused, and its operation raises `HardwareCommandRefusedError` (reason
 `'exclusive_activity_running'`).
 
-To save a frame you already hold, capture it and call `save_image`. It
-returns the saved path. When the file cannot be written (a missing or
-read-only folder, a full disk) it raises `ImageSaveError`, a `CaptureError`
-with reason `'image_save_failed'`, chained from the `OSError`; any other
-failure propagates as itself. It shows nothing itself.
+A frame `capture_and_wait` returns is a bare array: it carries no record of
+the instrument -- the objective, the position, the settings the camera held
+-- so saving it is the caller's to do as it likes, and LumaViewPro's file
+writer is not offered for it. A file with that record is saved by the API
+that took the frame: a still by `session.manual_capture.capture` (above), a
+z-stack, a scan or a protocol by its run (see "Running protocols").
 
 
 ```python
-from modules.image_save import save_image
-
 # The capture derives the dark-floor expectation itself from commanded
 # LED state -- there is no illumination fact to pass.
-objective_id, _ = session.scope.runtime_state.resolve_current_objective()  # the objective this frame is taken with
 image = session.scope.imaging.capture_and_wait()
-save_image(
-    session.scope,
-    array=image, save_folder='./output',
-    file_root='capture', append='_BF',
-    channel='BF', false_color_on=False,
-    save_encoding='right_aligned',
-    significant_bits=session.scope.imaging.capture_frame_depth(image),
-    objective_id=objective_id,
-)
 
 # Live-view tap: the latest buffered frame, no new exposure forced
 # (the capture calls above always force one). (None, None) when unavailable.
@@ -801,6 +790,38 @@ session.scope.imaging.capture_frame_depth(image)
 # is not a power of two).
 session.scope.imaging.capture_frame_full_scale(image)
 ```
+
+**What a saved file holds.** A fluorescence still is saved mono, its layer
+recorded in the TIFF's ImageDescription; the false colour is a display-time
+choice, never in the pixels. FIJI, MATLAB ``imread`` and tifffile read mono
+2D natively. A file written by a LumaViewPro from before 4.0 may hold a
+fluorescence frame as three channels with one populated: it is mono in all
+but its shape, where a real colour composite has several non-zero channels.
+
+Full-pixel-depth frames store raw, right-aligned sensor values (a 12-bit
+frame is ``0..4095``) and declare the true depth in the OME-TIFF
+``SignificantBits`` tag (e.g. ``SignificantBits=12`` inside a 16-bit
+container). To render or scale such a file to 8-bit, divide by
+``(1 << SignificantBits) - 1`` -- treating the values as full 16-bit will
+render a 12-bit frame ~16x too dark. A sum's tag is the bits it can reach
+(``SignificantBits=14`` for four 12-bit frames, 10 for four 8-bit ones). An
+older file with no payload-depth tag was left-justified into the 16-bit
+range: read it at the container's width.
+
+A still's exposure is one frame's (``ExposureTime``); ``FramesSummed`` says how
+many frames the sum holds. An OME-TIFF keeps the exposure and the position in
+its OME ``Plane``, and every other acquisition fact of the frame in the image's
+``MapAnnotation`` with namespace ``etaluma.com/lvp``, one key each, the value
+JSON text: ``FramesSummed``, ``Gain`` and ``GainUnit``, ``Illumination`` and
+``IlluminationUnit``, ``BlackLevel``, ``Binning``, ``Objective``, the timestamps
+and ``FrameID``, ``FrameValidity``, ``SaturatedFraction``, ``Dark``,
+``CameraHeldALayer`` and ``CameraHeldLayer``. Bio-Formats (Fiji, QuPath,
+OMERO) shows the annotation; a plain or ImageJ TIFF carries the same keys in
+its ``Plane`` block. A key the frame did not know is absent, never a stand-in.
+A Sum z-projection and a composite state no ``FramesSummed``: a sum of slices,
+or a merge of channels each with its own count, is not one capture's sum.
+An OME-TIFF from an earlier release carries no annotation, so it states only
+its exposure and position.
 
 ### Running protocols
 
@@ -969,7 +990,7 @@ protocol.modify_time_params(period=timedelta(minutes=10), duration=timedelta(hou
 protocol.modify_time_params(period=timedelta(milliseconds=500), duration=timedelta(hours=1))  # ProtocolScheduleRefusedError
 ```
 
-**Reading a protocol's steps.** `protocol.steps()` returns a copy of the steps table, and `protocol.step(i)` a copy of one row; each row `protocol.layer_settings()` returns is a copy too. The dicts in a step's `Video Config` and `Stim_Config` cells are read-only (`modules.protocol.ReadOnlyDict`, a `dict`): a write into one raises `TypeError`, and `copy.deepcopy(cell)` gives a plain dict to edit. A write to a copy changes nothing in the protocol: a protocol changes only through its writers (`modify_time_params`, `session.add_step`, ...), which judge each change. A run works on its own copy of the protocol it is handed, so nothing the run writes, such as an autofocus's Z, reaches the caller's protocol either, unless the run is asked to write its focus back (`start_autofocus_all_steps`).
+**Reading a protocol's steps.** `protocol.steps()` returns a copy of the steps table, and `protocol.step(i)` a copy of one row; each row `protocol.layer_settings()` returns is a copy too. The dicts in a step's `Video Config` and `Stim_Config` cells are read-only (each a `dict` that refuses writes): a write into one raises `TypeError`, and `copy.deepcopy(cell)` gives a plain dict to edit. A write to a copy changes nothing in the protocol: a protocol changes only through its writers (`modify_time_params`, `session.add_step`, ...), which judge each change. A run works on its own copy of the protocol it is handed, so nothing the run writes, such as an autofocus's Z, reaches the caller's protocol either, unless the run is asked to write its focus back (`start_autofocus_all_steps`).
 
 **A protocol's capture root.** `protocol.modify_capture_root(text)` stores the root as given, and `protocol.capture_root()` returns it so. `protocol.capture_prefix()` is that root as the prefix of a saved file's name (only letters, digits, `-` and `_` kept): the one prefix a run's images and post-processing's outputs both carry, so `exp/2026:10` names files `exp202610_...`.
 
@@ -1013,14 +1034,16 @@ z = scope.protocols.focus_z(then='save the focus')
 scope.protocols.set_step_z(protocol, 0, z)
 ```
 
-**A step's motor targets.** `scope.protocols.step_targets(protocol, step_idx)` is the one conversion a run and a person's navigation share: a `StepTargets` (`modules.lumascope_api.protocols`) of `turret_slot` (the slot the step recorded, its `Turret Slot`; a step that recorded none, from an older file, means the only slot holding its objective; None on a scope without a turret), and `x`, `y` and `z` in stage micrometres, X and Y converted on the protocol's own plate, not the scope's selected one; an axis the scope has no motor for is None, and nothing drives it. They come from `scope.protocols.stage_targets(protocol, px, py, z)`, which answers `(x, y, z)` the same way for any plate position and Z: the one conversion every step move takes, so a run's return to its first step between scans and after a z-stack drives only the axes the scope has too. It raises `StepNotFoundError` for a `step_idx` the protocol lacks, `ProtocolRunRefusedError` for a step whose objective this scope cannot put in the light path (`turret_objectives_unassigned` when no turret slot carries it, as after the slot is cleared; `objective_not_mounted` when, without a turret, it is not the mounted objective; 409, the scope's state) or that cannot say which slot it means (`turret_slot_ambiguous`, `turret_slot_reassigned`, below; 409), and `CatalogueNameRefusedError` for a plate the catalogue does not have.
+**A step's motor targets.** `scope.protocols.step_targets(protocol, step_idx)` is the one conversion a run and a person's navigation share: a `StepTargets` (`modules.lumascope_api.protocols`) of `turret_slot` (the slot the step recorded, its `Turret Slot`; a step that recorded none, from an older file, means the only slot holding its objective; None on a scope without a turret), and `x`, `y` and `z` in stage micrometres, X and Y converted on the protocol's own plate, not the scope's selected one; an axis the scope has no motor for is None, and nothing drives it. Every step move a run makes takes the same conversion, so a run's return to its first step between scans and after a z-stack drives only the axes the scope has too. It raises `StepNotFoundError` for a `step_idx` the protocol lacks, `ProtocolRunRefusedError` for a step whose objective this scope cannot put in the light path (`turret_objectives_unassigned` when no turret slot carries it, as after the slot is cleared; `objective_not_mounted` when, without a turret, it is not the mounted objective; 409, the scope's state) or that cannot say which slot it means (`turret_slot_ambiguous`, `turret_slot_reassigned`, below; 409), and `CatalogueNameRefusedError` for a plate the catalogue does not have.
 
 **Which turret slot a step uses.** Every step records the slot it was made or updated at, its `Turret Slot` (-1 without a turret): `add_step` and `update_step` record the slot in the light path, and `new_protocol` and `create_protocol` record, for each step, the slot in the light path when it holds the step's objective and otherwise the only slot that does. A run and `go_to_step` turn each step to its own slot, so two steps naming one objective in two slots each use their own, and updating one changes no other. A protocol opened with `load_protocol` gets a slot for each step that recorded none (a file from before steps recorded their slot) when only one slot holds its objective. A step that cannot say which slot it means -- its objective is in two or more slots and it recorded none, or the slot it recorded now holds another objective -- does not stop the load; `scope.protocols.turret_slot_questions(protocol)` returns one `TurretSlotQuestion` per objective with such steps (`objective_id`, `steps` the step indices, `reassigned` those whose slot now holds another objective, `choices` the slots holding it now), and `scope.protocols.point_steps_at_turret_slot(protocol, objective_id, slot)` answers it, pointing exactly those steps at `slot` and returning their indices; a slot that does not hold the objective is refused with `ArgumentRefusedError` (`slot_not_holding_objective`, `offered` the slots that do), nothing changed. Until it is answered, a run's start and going to such a step are refused with `ProtocolRunRefusedError`: `turret_slot_ambiguous` or `turret_slot_reassigned` (409), naming the steps and the slots. LumaViewPro asks each question when a protocol is opened. Saving the protocol writes the slots.
 
 ```python
 for q in scope.protocols.turret_slot_questions(protocol):   # [] on a scope without a turret
     scope.protocols.point_steps_at_turret_slot(protocol, q.objective_id, q.choices[0])
-``` `step_targets` converts X and Y with `scope.runtime_state.plate_to_stage(px, py, labware_id=protocol.labware())`, on the protocol's plate whatever plate is selected; it takes a `stage_offset=` (a `StageOffset`) to convert with a snapshot instead of the live offset, as a run does. A run binds `scope.runtime_state.plate_transform(labware_id=protocol.labware(), stage_offset=offset)` when it starts and states every frame it saves through it, stills and recorded frames alike: the position the stage was read at beside the grab, never the step's planned one, in the frame the run's steps were driven in, whatever plate is selected meanwhile; an axis the scope lacks or has lost its reference on states none.
+```
+
+`step_targets` converts X and Y with `scope.runtime_state.plate_to_stage(px, py, labware_id=protocol.labware())`, on the protocol's plate whatever plate is selected; it takes a `stage_offset=` (a `StageOffset`) to convert with a snapshot instead of the live offset, as a run does. A run binds `scope.runtime_state.plate_transform(labware_id=protocol.labware(), stage_offset=offset)` when it starts and states every frame it saves through it, stills and recorded frames alike: the position the stage was read at beside the grab, never the step's planned one, in the frame the run's steps were driven in, whatever plate is selected meanwhile; an axis the scope lacks or has lost its reference on states none.
 
 ```python
 targets = scope.protocols.step_targets(protocol, 2)   # StepTargets(turret_slot=1, x=..., y=..., z=...)
@@ -1110,7 +1133,7 @@ method['filters']['area'] = {'min': 20, 'max': None}   # square microns; None is
 pp.count_cells(folder, method=method)
 ```
 
-Each image is measured at the scale it states: a LumaViewPro capture carries its pixel size, so its areas and perimeters are in square microns and microns. An image that states no scale (a PNG, a capture saved without one) is counted in pixels. `results.csv` has one row per image with `file`, `time`, `num_cells`, `total_object_area`, `area_unit` (`um2` or `px2`, that row's unit) and `total_object_intensity`. Setting `context.pixels_per_um` overrides the scale for every image, for example on external images whose scale you know. The area and perimeter filters are in microns, so an image counted in pixels with either one set is not counted: the count goes on with the rest and raises `PostProcessingFailedError` naming it. `modules.post_processing.cell_count_scale(method, image_pixel_size_um)` returns the pixels per micron a count uses for an image (None for pixels).
+Each image is measured at the scale it states: a LumaViewPro capture carries its pixel size, so its areas and perimeters are in square microns and microns. An image that states no scale (a PNG, a capture saved without one) is counted in pixels. `results.csv` has one row per image with `file`, `time`, `num_cells`, `total_object_area`, `area_unit` (`um2` or `px2`, that row's unit) and `total_object_intensity`. Setting `context.pixels_per_um` overrides the scale for every image, for example on external images whose scale you know. The area and perimeter filters are in microns, so an image counted in pixels with either one set is not counted: the count goes on with the rest and raises `PostProcessingFailedError` naming it.
 
 | Field | Meaning |
 |---|---|
@@ -1122,9 +1145,9 @@ Each image is measured at the scale it states: a LumaViewPro capture carries its
 | `filters.sphericity` | `{'min', 'max'}`, 0 to 1 |
 | `filters.intensity.min` / `.mean` / `.max` | `{'min', 'max'}` for each region's minimum, mean and maximum intensity, percent of full scale |
 
-`count_cells` refuses a method the count cannot use before the count is queued: `PostProcessingRefusedError` with `reason='method_invalid'`, its message naming the field (a missing field, a `pixels_per_um` that is not a positive number, a bound that is not a number or `None`, a filter whose `min` is above its `max`). `modules.post_processing.check_cell_count_method(method)` asks the same question without counting. A method saved by LumaViewPro's panel also carries a `metadata` entry; the count does not need it. A method file saved before LumaViewPro read each image's scale (`metadata.version` `'1'`) carries the old fixed default of 1.0 pixels per micron: `load_cell_count_method` drops it, so the method uses each image's own scale, and reports a notice once.
+`count_cells` refuses a method the count cannot use before the count is queued: `PostProcessingRefusedError` with `reason='method_invalid'`, its message naming the field (a missing field, a `pixels_per_um` that is not a positive number, a bound that is not a number or `None`, a filter whose `min` is above its `max`). A method saved by LumaViewPro's panel also carries a `metadata` entry; the count does not need it. A method file saved before LumaViewPro read each image's scale (`metadata.version` `'1'`) carries the old fixed default of 1.0 pixels per micron: LumaViewPro's panel drops it when it opens such a file, so the method uses each image's own scale, and says so once.
 
-`modules.post_processing.read_cell_count_results(path)` reads a `results.csv` back as a pandas table, its `time` column a datetime column (the count's own time format). It reads any CSV in UTF-8 (the count writes its file in UTF-8 on every host): every cell is the text written, a column whose every cell is a number is a column of numbers (whole numbers when every cell is one), and any other column is text, so a cell such as `NA` is never read as a missing number; `results_axes(table)` returns the columns a graph can take as X (numbers and times) and as Y (numbers). A file that cannot be graphed (not UTF-8, a NUL, a quote that does not close, a row of the wrong length, a repeated column name, a time the count did not write, no column of numbers) is refused: `PostProcessingRefusedError` with `operation='Graphing'`, `reason='results_unreadable'`, its message naming the file. `modules.graph_analysis.trendline_kinds(x, y)` names the trendlines two columns take (a time X takes `'Linear'`, `'Quadratic'`, `'Exponential'`; two number columns also take `'Power'` and `'Logarithmic'`), and `fit_trendline(kind, x, y)` returns the curve (`.x` ascending, `.y`). It refuses a fit the values cannot give, such as a missing value, a 0 under a log, or too few distinct X values for the kind (`PostProcessingRefusedError`, `operation='Trendline'`, `reason='fit_impossible'`, naming the values and how many).
+`graph_options` and `graph`, below, read a `results.csv` with its `time` column as times (the count's own time format). They read any CSV in UTF-8 (the count writes its file in UTF-8 on every host): every cell is the text written, a column whose every cell is a number is a column of numbers (whole numbers when every cell is one), and any other column is text, so a cell such as `NA` is never read as a missing number; a graph takes numbers and times as X and numbers as Y. A file that cannot be graphed (not UTF-8, a NUL, a quote that does not close, a row of the wrong length, a repeated column name, a time the count did not write, no column of numbers) is refused: `PostProcessingRefusedError` with `operation='Graphing'`, `reason='results_unreadable'`, its message naming the file. A time X takes the trendlines `'Linear'`, `'Quadratic'` and `'Exponential'`; two number columns also take `'Power'` and `'Logarithmic'`. A fit the values cannot give is refused, such as a missing value, a 0 under a log, or too few distinct X values for the kind (`PostProcessingRefusedError`, `operation='Trendline'`, `reason='fit_impossible'`, naming the values and how many).
 
 The graph LumaViewPro's Object Plotting popup draws is the session's, so any client makes the same one. `session.post_processing.graph_options(results, x=None, y=None)` answers a `GraphOptions`: the columns of the results file each axis can take (`x_axes`, `y_axes`) and, once both axes are given, the trendline kinds that pair takes (`trendlines`), so a client of its own can fill the same form. `graph(results, path, x=..., y=..., trendline=None, x_label=None, y_label=None, title='')` draws column `y` against column `x`, with the trendline over it when a kind is named, and writes it to `path` as a PNG, answering a `GraphResult` (`message`, `path`); each label defaults to its column's name, and a missing folder is made where `path` sends it. It runs on the post-processing lane like the builds; over REST both are `/api/v1/post_processing/graph_options` and `/api/v1/post_processing/graph`, the paths under the live folder. `draw_graph`, with `graph`'s arguments but no `path`, returns the matplotlib `Figure` itself, for a GUI in the same process to show; it does not cross the wire. A `path` that does not end in `.png` is refused `wrong_extension` and nothing is written; no results file, or no `x` or `y`, is refused `graph_incomplete` ("choose a results file and an X and a Y axis first"); a column that axis cannot take is refused `axis_not_plottable`, naming the columns it can; the reader's and the fit's refusals are as above. A folder or file the disk will not write is `PostProcessingFailedError` (`operation='Graphing'`), naming the file and the system's reason.
 
@@ -1240,7 +1263,7 @@ A refusal raised to you carries `cause` beside `reason` (`RefusalCause`, `module
 
 Every argument you pass to an API member is first held to the type the member's signature declares, for every caller alike -- a script, the GUI, the engineering plugin, one member calling another. A value of another type is refused before the member runs with `ArgumentTypeRefusedError` (`modules.exceptions`, a `TypeError`), reason `wrong_argument_type`, cause `request`, its `member`, `argument` and `declared` naming the member, the parameter and the type it takes. A number is taken by what it means: an `int` where a `float` is declared, and a numpy scalar (`np.float64`, `np.int64`, `np.bool_`) where the Python number or bool is, each reaching the member as the plain Python value. A `float` is not an `int`, even `2.0`, and a `bool` is never a number. None is taken only where the signature says `| None`, and a `FilePath` takes a `str` or any `os.PathLike`. The check is of the type alone: NaN is a float, and a name's spelling, a number's range and a dictionary's contents are the member's to judge, as below. Over REST a JSON value of the wrong type is refused by the server's own check first, as `invalid_request` (422).
 
-A number you pass is a finite number: NaN or an infinity is refused with `ArgumentRefusedError` (`modules.exceptions`, a `ValueError`), reason `not_a_number`, its `argument` naming the parameter and `value` holding what you gave, before any range is checked and before anything is commanded or stored. This holds for the camera's gain, exposure, frame size, black level and auto-gain target, a stored gain or exposure asked through `applied_gain_db_for` / `applied_exposure_ms_for`, an LED current, a move's position or distance (`ignore_limits=True` included), plate and stage coordinates, a well position, a z-stack's range and step size, a focus Z, and the capture and wait times. A finite number outside a range is refused by the range's owner as before. `modules.finite_number.is_finite_number(value)` asks the same question.
+A number you pass is a finite number: NaN or an infinity is refused with `ArgumentRefusedError` (`modules.exceptions`, a `ValueError`), reason `not_a_number`, its `argument` naming the parameter and `value` holding what you gave, before any range is checked and before anything is commanded or stored. This holds for the camera's gain, exposure, frame size, black level and auto-gain target, a stored gain or exposure asked through `applied_gain_db_for` / `applied_exposure_ms_for`, an LED current, a move's position or distance (`ignore_limits=True` included), plate and stage coordinates, a well position, a z-stack's range and step size, a focus Z, and the capture and wait times. A finite number outside a range is refused by the range's owner as before.
 
 An axis is named exactly `'X'`, `'Y'`, `'Z'` or `'T'`, in capitals. Every member that takes an axis -- the moves, the position and state reads, `get_axis_limits`, the limit switches, the precision mode, `jog_step` and `read_motor_drv_status` -- refuses any other name (`'x'`, `'Q'`) with `ArgumentRefusedError` reason `axis_unknown`, its `offered` holding the names the member takes, before the scope's hardware is asked. A home takes `'Z'`, `'T'` or `'ALL'`; `jog_step` takes `'X'`, `'Y'` or `'Z'`. An axis this model lacks is a name: a command for it is refused as absent hardware, and a read answers as for a missing axis (`get_axis_state` `'unknown'`, a position None). The generic movers refuse `'T'` with reason `turret_moves_by_slot`: the turret moves only through `move_turret(slot)`. A frame other than `'stage'` or `'plate'` is `frame_unknown`, and a plate target for Z is `plate_frame_axis`, refused by the plate's owner once the move is on the lane. `set_motor_fan_duty` takes a whole percentage and refuses one outside 0 to 100 (`fan_duty_out_of_range`), with nothing sent. The camera diagnostics refuse a count or time outside what they take (`out_of_range`, its `limits` the ends, which are included): `run_grab_lifecycle_benchmark` takes 1 to 10,000 cycles, 0 to 60,000 ms between them and a slow threshold of 0 to 600 s; `run_pylon_diagnostic_probe` takes 0 to 3,600 s. A stage offset handed to `stage_to_plate`, `plate_to_stage`, `plate_transform` or `step_targets` is a `StageOffset`, and an axis of it that is no finite number is `not_a_number`, naming it (`stage_offset.x_um`). The auto-gain settings handed to `set_auto_gain` or the camera's `apply` are read before the member acts: a key left out is `missing_key` and a value that is no number `not_a_number`, each naming the key. Each is the request's (`cause` `REQUEST`): it fails the same way until the caller changes it.
 
@@ -1316,17 +1339,16 @@ once to the outcome listeners instead.
 Two members make the ZIP Etaluma support asks for. Each blocks until the ZIP
 is written into the folder you name, which is made if it is missing, and
 returns where it is. The folder is required: the session chooses none. The
-GUI and the command-line report name the user's Desktop through
-`modules.path_utils.desktop_folder()` (the home folder on a machine with no
-Desktop), and a script may do the same:
+GUI and the command-line report name the user's Desktop (the home folder on
+a machine with no Desktop); a script names any folder it likes:
 
 ```python
-from modules import path_utils
+import pathlib
 from modules.exceptions import SupportReportNotSavedError
 
 try:
     saved = session.make_support_report(        # minutes: boards, motors, camera, then the files
-        output_dir=path_utils.desktop_folder(), # required; any folder
+        output_dir=pathlib.Path.home() / 'Desktop',   # required; any folder
         include_bandwidth_test=False,           # True adds a camera frame-delivery timing
         on_progress=lambda pct, msg: print(pct, msg),
     )
@@ -1393,7 +1415,7 @@ nothing.
 
 #### Plugin API level
 
-`session.plugin_api_level` (`modules.plugins.PLUGIN_API_LEVEL`) says what
+`session.plugin_api_level` says what
 this LumaViewPro does that a plugin may rely on, within its major version.
 A version cannot say it: `version.txt` names the promoted release, and many
 trunk commits share one beta number. A commit that changes behaviour a
@@ -1752,8 +1774,6 @@ answers None: it moves by slot, not by distance.
 **Axis state model:**
 
 ```python
-from modules.lumascope_api import AxisState
-
 scope.motion.get_axis_state('Z')          # 'idle', 'moving', 'homing', or 'unknown'
 ```
 
@@ -1877,8 +1897,8 @@ Use polling only when you specifically need the current value at a moment in tim
 ## scope.imaging
 
 Camera capture lives on the `scope.imaging` sub-API, and the camera's
-settings, reads and their saving on `scope.camera` (in-process also
-`session.camera`, the same object; over REST `/api/v1/scope/camera/...`).
+settings, reads and their saving on `scope.camera` (over REST
+`/api/v1/scope/camera/...`).
 Their published members are listed under `ImagingAPI` and `CameraAPI` in the
 API reference. A camera setting has one door, on the camera: a setting that
 is saved (the binning, the frame, the image mode, high conversion gain and
@@ -2190,7 +2210,7 @@ scope.imaging.add_frame_listener(on_frame, name='my_recorder')
 scope.imaging.remove_frame_listener(on_frame)
 ```
 
-- **The frame record.** A listener is called with one argument, the camera's `Frame` (`modules.lumascope_api.Frame`), the record its frame store built, shared with every other reader:
+- **The frame record.** A listener is called with one argument, the camera's `Frame`, the record its frame store built, shared with every other reader:
   - `image`: the pixels, cropped to the camera's window;
   - `seq`: the arrival number, which only goes up (order frames by it, not by a clock);
   - `timestamp`: the host's wall-clock time at arrival, for what a person reads;
@@ -2269,7 +2289,7 @@ A whole-frame mean cannot answer this question: an evenly lit field at 70% of fu
 
 Invalidation is automatic: every API setter invalidates the frames its change makes stale. The sources that invalidate frames are:
 
-```
+```text
 led        — LED turn on/off or illumination change
 gain       — gain change
 exposure   — exposure change
@@ -2467,112 +2487,12 @@ Firmware versions are what each board reported at connect: `scope.diagnostics.ge
 
 ---
 
-## modules
+## Images, positions and scale
 
-The `modules/` package holds helpers that ride alongside the API surface but are not sub-API methods. Two patterns:
-
-- **Take `scope` as first argument**: orchestration helpers that compose sub-API calls (image-save, composite capture, protocol runner).
-- **Pure functions**: stateless utilities that take frame arrays or geometry parameters (coord transformations, optical calculations, focus scoring).
-
-### Image saving (`modules.image_save`)
-
-Image-save helpers are free functions in `modules.image_save` (extracted
-from the Lumascope class in Wave 7 Phase 6, 2026-05). Each function
-takes the `scope` (a `Lumascope` instance) as its first argument; the
-remaining arguments are the per-call settings:
-
-```python
-from modules.image_save import save_image
-
-save_image(
-    scope,
-    array=image,
-    save_folder='/path/to/output',
-    file_root='experiment1',
-    append='_BF_A1',
-    channel='BF',                          # what was imaged -- recorded as identity
-    false_color_on=False,                  # how it is displayed -- never recorded as identity
-    tail_id_mode='increment',              # auto-number files
-    output_format='TIFF',                  # 'TIFF' or 'OME-TIFF'
-    save_encoding='right_aligned',         # from the image-mode config layer
-    significant_bits=scope.imaging.capture_frame_depth(image),
-    objective_id=objective_id,             # the objective the frame was taken with (read at capture)
-    plate_x_mm=60.0, plate_y_mm=40.0,      # plate position the file records (mm)
-    stage_z_um=5000,                       # stage Z (µm)
-)
-```
-
-The full set of free functions in `modules.image_save`:
-
-| Function | Purpose |
-|---|---|
-| `save_image(scope, array, ...)` | Save a numpy array to TIFF / OME-TIFF with metadata. |
-| `prepare_image_for_saving(scope, array, ...)` | Flip / bit-convert / build metadata + path; returns `{'image', 'metadata'}`. |
-| `generate_image_metadata(scope, channel, plate_x_mm, plate_y_mm, stage_z_um, *, objective_id)` | Build the TIFF metadata dict for the capture settings + position; the scale comes from `objective_id`, the objective the frame was taken with. |
-| `generate_image_save_path(scope, save_folder, ...)` | Generate the next unused file path under `tail_id_mode`. |
-| `get_next_save_path(scope, path)` | Increment the trailing numeric ID on an existing path. |
-
-### Image utilities (`modules.image_utils`)
-
-Boundary helpers that ride alongside the mono-native pipeline. Two
-patterns matter to L2 callers:
-
-```python
-from modules import image_utils
-
-# Map a mono frame to RGB false-color at the display / encode boundary.
-# Use this when you have a mono fluorescence frame from get_image() and
-# need a 3-channel array for display, video encode, or a downstream
-# tool that expects RGB. Mono pipeline saves do NOT call this -- the
-# layer is recorded as TIFF metadata instead.
-from modules import layer_record
-rgb = image_utils.mono_to_rgb_falsecolor(mono_frame, layer_record.release_color('Blue'))
-# color is the (red, green, blue) weights, each 0 to 1, the frame is
-# multiplied by; image_utils.GREY (white) tiles it grey. A layer's colour
-# is its record's display_color ('#rrggbb'); layer_record.parse_display_color
-# turns one into weights. Returns 3-channel ndarray, same dtype as input.
-# (Changed in 4.0: this took a layer name.)
-
-# Read a TIFF and collapse legacy 3-channel false-color-replica files
-# to mono on the fly. Use this when reading any TIFF that may have
-# been written by a pre-mono-native LumaViewPro: the 3-channel files
-# with one populated channel auto-collapse to 2D mono; true color
-# composites (multiple non-zero channels) pass through unchanged.
-img = image_utils.read_tiff_with_legacy_collapse(path)
-# Returns 2D mono ndarray for mono and collapsed-legacy files;
-# 3D RGB ndarray for real color composites.
-```
-
-The save pipeline emits mono fluorescence TIFFs with layer metadata
-in the TIFF ImageDescription field; the legacy reader bridges that
-to consumers that previously assumed a 3-channel shape. FIJI, MATLAB
-``imread``, and tifffile all handle mono 2D natively; the false-
-color is purely a display-time concern.
-
-Full-pixel-depth frames store raw, right-aligned sensor values (a 12-bit
-frame is ``0..4095``) and declare the true depth in the OME-TIFF
-``SignificantBits`` tag (e.g. ``SignificantBits=12`` inside a 16-bit
-container). To render or scale such a file to 8-bit, divide by
-``(1 << SignificantBits) - 1`` -- treating the values as full 16-bit will
-render a 12-bit frame ~16x too dark. A sum's tag is the bits it can reach
-(``SignificantBits=14`` for four 12-bit frames, 10 for four 8-bit ones). ``image_utils.read_tiff_significant_bits``
-returns the tag (falling back to the container width for older files that were
-left-justified into the 16-bit range and carry no payload-depth tag).
-
-A still's exposure is one frame's (``ExposureTime``); ``FramesSummed`` says how
-many frames the sum holds. An OME-TIFF keeps the exposure and the position in
-its OME ``Plane``, and every other acquisition fact of the frame in the image's
-``MapAnnotation`` with namespace ``etaluma.com/lvp``, one key each, the value
-JSON text: ``FramesSummed``, ``Gain`` and ``GainUnit``, ``Illumination`` and
-``IlluminationUnit``, ``BlackLevel``, ``Binning``, ``Objective``, the timestamps
-and ``FrameID``, ``FrameValidity``, ``SaturatedFraction``, ``Dark``,
-``CameraHeldALayer`` and ``CameraHeldLayer``. Bio-Formats (Fiji, QuPath,
-OMERO) shows the annotation; a plain or ImageJ TIFF carries the same keys in
-its ``Plane`` block. A key the frame did not know is absent, never a stand-in.
-A Sum z-projection and a composite state no ``FramesSummed``: a sum of slices,
-or a merge of channels each with its own count, is not one capture's sum.
-An OME-TIFF from an earlier release carries no annotation, so it states only
-its exposure and position.
+A composite is a run (`run_composite`) or a build from a folder's files
+(`session.post_processing.composite(folder)`), and focus is a run
+(`start_autofocus`, `start_autofocus_all_steps`); see "Running protocols" and
+"Post-processing". What a saved file holds is described under "Capture".
 
 ### Coordinate transformations
 
@@ -2586,33 +2506,6 @@ scope.runtime_state.get_field_of_view()   # FieldOfView(width_um, height_um): wh
 ```
 
 The scale every saved image carries, published so no caller recomputes it. Each answers `None` when it cannot be known: no objective is known (`resolve_current_objective` says why), there is no camera, the camera has not reported its binning (or, for the field of view, its frame), or the scope cannot report its optics (unknown camera, no declared optics). There is deliberately no fallback: a guessed pixel size is written into every image and cannot be told from a measured one, so a `None` here means no scale bar, no field of view and no `PhysicalSizeX`. `scope.capabilities.pixel_size_um` is the sensor's raw pitch, before the objective and the binning.
-
-### Composite capture (`modules.composite_builder`)
-
-`build_composite()` composes multi-channel frames into one 8-bit RGB image. Each channel is a `CompositeChannel(image, color)`, its frame and its colour as red, green and blue weights from 0 to 1 (`modules.layer_record.parse_display_color('#ff00ff')` reads a stored colour). The channels add: each contributes its intensity times its colour, and the sum is clipped to 8 bits, so two channels that share a colour add rather than one hiding the other. With a transmitted frame, its grey stays wherever no channel reaches its blend cutoff. See the [Multi-channel composite](#multi-channel-composite) pattern under Common patterns for a runnable example.
-
-```python
-from modules.composite_builder import CompositeChannel, build_composite
-from modules.layer_record import release_color
-
-rgb = build_composite(
-    channels={'Red': CompositeChannel(red, release_color('Red')),
-              'Lumi': CompositeChannel(lumi, release_color('Lumi'))},
-    significant_bits=12,
-)
-```
-
-### Autofocus (`modules.autofocus_functions`)
-
-`focus_function(image=...)` computes a Brenner-gradient focus score from a frame array. Pure function; no scope state needed.
-
-```python
-from modules.autofocus_functions import focus_function
-
-score = focus_function(image=frame, skip_score_logging=True)
-```
-
-Used by autofocus iteration code paths (was previously available as `scope.compute_focus_score(image)`; retired in Wave 7 Phase 7 per the rule that frame-analysis functions are pure helpers, not API methods).
 
 ### Protocol (`modules.protocol`)
 
@@ -2806,30 +2699,18 @@ from modules.scope_session import ScopeSession
 session = ScopeSession.create(ScopeSession.load_user_settings('.'))
 scope = session.scope
 scope.motion.home()                        # returns once the home has established the reference
-scope.camera.set_exposure_ms(50)
-scope.camera.set_gain_db(5.0)
+
+# A still is taken with its layer's stored settings, so set them there.
+session.update_settings('BF.exposure_ms', 50)
+session.update_settings('BF.gain_db', 5.0)
 
 scope.motion.move_absolute('X', 60000)
 scope.motion.move_absolute('Y', 40000)
 scope.motion.move_absolute('Z', 5000)
 
-from modules.image_save import save_image
-
 scope.illumination.led_on('BF', 100)
-objective_id, _ = scope.runtime_state.resolve_current_objective()  # the objective this frame is taken with
-image = scope.imaging.capture_and_wait()
-scope.illumination.leds_off()
-
-save_image(
-    scope,
-    array=image, save_folder='./output',
-    file_root='capture', append='_BF',
-    channel='BF', false_color_on=False,
-    save_encoding='right_aligned',
-    significant_bits=scope.imaging.capture_frame_depth(image),
-    objective_id=objective_id,
-    output_format='TIFF', x=60000, y=40000, z=5000,
-)
+paths = session.manual_capture.capture(false_color_on=False).result(timeout=30)
+scope.illumination.leds_off()               # paths[0]: the still under live_folder/Manual, with its record
 session.shutdown()
 ```
 
@@ -2891,65 +2772,37 @@ a video step's file did not finish --, `merge_failed`,
 nothing changed, while a `CaptureError` means the run ran and did not
 produce the artifact.
 
-To merge frames you already hold in memory, `build_composite` is the
-underlying helper; it accepts fluorescence keys `'Red'`, `'Green'`,
-`'Blue'`, `'Lumi'`, takes `significant_bits` for the input depth, and reads
-`brightness_thresholds` on the OUTPUT 8-bit scale (absolute values 0-255,
-not percentages).
+A composite of a run folder's files already on disk is
+`session.post_processing.composite(folder)` (see "Post-processing").
 
 ### Z-stack
 
+A z-stack is a run: it saves each slice with its record and returns the
+stage to where the stack was centred.
+
 ```python
-from modules.image_save import save_image
-
-z_start, z_end, z_step = 4000, 6000, 50    # µm
-
-scope.illumination.led_on('BF', 100)
-z = z_start
-while z <= z_end:
-    scope.motion.move_absolute('Z', z)
-    objective_id, _ = scope.runtime_state.resolve_current_objective()  # the objective this frame is taken with
-    image = scope.imaging.capture_and_wait()
-    save_image(
-        scope,
-        array=image, save_folder='./zstack',
-        file_root='z', append=f'_{int(z)}',
-        channel='BF', false_color_on=False,
-        save_encoding='right_aligned',
-        significant_bits=scope.imaging.capture_frame_depth(image),
-        objective_id=objective_id,
-        output_format='TIFF', z=z,
-    )
-    z += z_step
-scope.illumination.leds_off()
+session.update_settings('zstack.range', 2000)      # µm, centred on the current Z
+session.update_settings('zstack.step_size', 50)    # µm
+runner = session.create_protocol_runner()
+result = runner.start_zstack('BF').result(timeout=600)
+print(result.status, result.captures)
 ```
 
 ### Well-plate scan
 
+A scan of chosen wells is a protocol built from the session's own
+configuration, with your positions:
+
 ```python
-from modules.image_save import save_image
-
-wells = [('A1', 10.0, 20.0), ('A2', 19.0, 20.0), ('A3', 28.0, 20.0)]
-
-scope.illumination.led_on('BF', 100)
-for well_name, px, py in wells:
-    stage = scope.runtime_state.plate_to_stage(px, py)
-    scope.motion.move_absolute('X', stage.x_um)
-    scope.motion.move_absolute('Y', stage.y_um)
-
-    objective_id, _ = scope.runtime_state.resolve_current_objective()  # the objective this frame is taken with
-    image = scope.imaging.capture_and_wait()
-    save_image(
-        scope,
-        array=image, save_folder='./scan',
-        file_root=f'{well_name}_BF',
-        channel='BF', false_color_on=False,
-        save_encoding='right_aligned',
-        significant_bits=scope.imaging.capture_frame_depth(image),
-        objective_id=objective_id,
-        output_format='TIFF', x=sx, y=sy,
-    )
-scope.illumination.leds_off()
+session.set_layer_acquire('BF', 'image')             # the layers a protocol builds steps for
+config = session.get_sequenced_capture_config()
+config['positions'] = [
+    {'name': name, 'x': px, 'y': py, 'z': config['current_z']}    # plate mm
+    for name, px, py in [('A1', 14.38, 11.24), ('A2', 23.38, 11.24), ('A3', 32.38, 11.24)]
+]
+protocol = session.scope.protocols.create_protocol(input_config=config)
+result = session.create_protocol_runner().start_single_scan(protocol).result(timeout=600)
+print(result.status, result.captures)
 ```
 
 ### Headless protocol run
@@ -3023,7 +2876,7 @@ The two stalls a launch can ask for are `create`'s `sim_camera_stall` (which cal
 
 Tab-separated file defining multi-step acquisition sequences.
 
-```
+```text
 LumaViewPro Protocol
 Version	9
 Period	1.0
@@ -3072,13 +2925,11 @@ A file of version 2 to 8 loads, its missing columns filled (`Channel Group ID` a
 
 ## Color channel reference
 
-The release's layers are the records of `layer_record.release_layers()`, in display order, each with its `modality` and `display_color`; the stock seven:
+A scope's layers are the records of `scope.layer_identity.layers`, in display order, each with its `key_name`, `modality` and `display_color`. The release has seven; a scope lists the ones it has (an LS850T has no `Lumi`):
 
 ```python
-from modules import layer_record
-
-[layer.key for layer in layer_record.release_layers()]
-# ['BF', 'PC', 'DF', 'Blue', 'Green', 'Red', 'Lumi']
+[layer.key_name for layer in scope.layer_identity.layers]
+# the release's seven: ['BF', 'PC', 'DF', 'Blue', 'Green', 'Red', 'Lumi']
 # BF  -- brightfield (white LED)            transmitted
 # PC  -- phase contrast                     transmitted
 # DF  -- darkfield                          transmitted, dark background
@@ -3285,7 +3136,7 @@ Reached through `session.scope.illumination`.
 
 ### CameraAPI
 
-Reached through `session.scope.camera` (in-process, also `session.camera`).
+Reached through `session.scope.camera`.
 
 - `active`
 - `add_camera_listener` (in-process)
@@ -4418,93 +4269,6 @@ Reached through `LiveWork.work`.
 Taken by `session.post_processing.build`.
 
 - `method`
-
-## Appendix A: Internal serial-protocol interfaces (firmware tooling only)
-
-This appendix documents direct serial commands used by firmware update tools, board bring-up scripts, and factory calibration. **These are not intended for integration code** — they bypass safety limits, depend on chip-internal register semantics that can change across firmware versions, and can leave the hardware in unsafe states if misused. Application code should stay at the ScopeSession or Lumascope sub-API layer.
-
-<details>
-<summary>Show internal interfaces</summary>
-
-### Direct board drivers
-
-```python
-from drivers.ledboard import LEDBoard
-from drivers.motorboard import MotorBoard
-from modules.path_utils import read_installation_file, resolve_data_file
-
-led = LEDBoard()                           # auto-detect by VID:PID
-led.exchange_command('LED3_200')           # set BF LED to 200 mA
-led.exchange_command('LEDS_OFF')
-
-# The motor driver takes the shipped defaults (travel limits, microsteps
-# per mm) as a required argument; a missing or unusable file raises
-# InstallationFileError, naming it.
-defaults = read_installation_file(resolve_data_file('motorconfig_defaults.json'))
-motor = MotorBoard(motorconfig_defaults=defaults)  # auto-detect by VID:PID
-motor.exchange_command('HOME')
-motor.exchange_command('TARGET_WZ682666')  # move Z (µsteps)
-pos = motor.exchange_command('ACTUAL_RZ')
-```
-
-### Connection parameters
-
-| Parameter | LED board | Motor board |
-|---|---|---|
-| VID:PID | 0x0424:0x704C | 0x2E8A:0x0005 |
-| Transport | UART via USB hub bridge, 115200 baud | USB CDC native |
-| Line ending (send) | `\r\n` | `\n` |
-| Line ending (recv) | `\r\n` | `\n` |
-| Command timeout | 100 ms default | 5 s default (homing: 15–30 s) |
-
-### Raw REPL (firmware file transfer)
-
-```python
-motor.enter_raw_repl()
-motor.repl_list_files()
-content = motor.repl_read_file('motorconfig.json')
-motor.repl_write_file('main.py', new_source)
-motor.exit_raw_repl()
-```
-
-`SerialBoard` (the shared base class) implements raw REPL for both boards.
-
-### LED board application commands (safe-mode)
-
-| Command | Description |
-|---|---|
-| `INFO` | Board info (firmware version, calibration status, heap) |
-| `LEDS_ENT` / `LEDS_ENF` | Enable / disable LED driver |
-| `LEDS_OFF` | Turn off all LEDs |
-| `LED{ch}_{mA}` | Set channel 0–7 to `mA` (float ok: `LED3_200`, `LED0_0.5`) |
-| `LED{ch}_OFF` | Turn off channel |
-| `LEDREAD{ch}` | Read I_SENS + LED_K ADC feedback |
-
-Engineering-mode commands (`FACTORY`, `RAW…`, `ADCREAD`, `CALIBRATE`, `CALSAVE`, `CALCLEAR`, `SELFTEST`, `I2CSCAN`, `FWUPDATE`) bypass safety limits and are **not documented here** — they exist for factory bring-up and firmware development only.
-
-### Motor board application commands
-
-| Command | Description |
-|---|---|
-| `INFO` / `FULLINFO` | Firmware and board info |
-| `HOME` / `ZHOME` / `THOME` | Home all / Z only / turret only |
-| `CENTER` | Move stage to center |
-| `STOP` | Stop all motors immediately |
-| `TARGET_W{axis}{steps}` | Set target position (µsteps) |
-| `TARGET_R{axis}` | Read target position |
-| `ACTUAL_R{axis}` | Read current position |
-| `STATUS_R{axis}` | Read status register (32-bit) |
-| `VOLTAGE` | Rail status |
-| `CURRENT` | Per-axis motor current telemetry |
-
-Axes: `X`, `Y`, `Z`, `T`. Position conversion (µsteps ↔ µm) is in `motorconfig.json`; the API takes and answers micrometres, and an axis's travel is `scope.motion.get_axis_limits(axis)`, so a caller never reads that file.
-
-During homing, `STOP` aborts. `INFO`, `ACTUAL_R`, `STATUS_R`, `VOLTAGE` respond normally. Other commands return `BUSY`.
-
-Direct SPI access to the TMC5072 (register-level motor configuration) and the associated status-register bit semantics are intentionally omitted — those are firmware-internal.
-
-</details>
-
 
 ---
 
