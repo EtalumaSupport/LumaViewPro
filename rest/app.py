@@ -35,6 +35,7 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from modules import wire_encoding
+from modules.api_surface import api
 from modules.operation import Operation
 from modules.protocol_runner import ProtocolRunner
 from modules.scope_session import ScopeSession
@@ -128,6 +129,7 @@ class Closing:
         return self._jobs.join(timeout_s)
 
 
+@api(in_process=True)
 def build_app(session: ScopeSession) -> fastapi.FastAPI:
     """The application serving *session*'s wire members under ``/api/v1/``.
 

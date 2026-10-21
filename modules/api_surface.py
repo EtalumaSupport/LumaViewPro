@@ -129,13 +129,18 @@ def _with_a_door(function: Callable, *, bound: bool) -> Callable:
 
 
 def _guarded(member: object) -> object:
-    """``member`` with its function behind the argument door, as the same kind of descriptor."""
+    """``member`` with its function behind the argument door, as the same kind of descriptor.
+
+    A function defined in a class body is a method, its first parameter
+    ``self``; one defined at a module's top level (``rest.app.build_app``)
+    takes every parameter as an argument.
+    """
     if isinstance(member, property):
         return member
     if isinstance(member, (classmethod, staticmethod)):
         function = _with_a_door(member.__func__, bound=isinstance(member, classmethod))
         return member if function is member.__func__ else type(member)(function)
-    return _with_a_door(member, bound=True)
+    return _with_a_door(member, bound='.' in member.__qualname__)
 
 
 def api[M](
