@@ -22,7 +22,9 @@ how far the call has got.
 
 A marked member's annotations are its contract at the call as well: an
 argument of another type is refused before the member runs, for every
-caller (``modules.api_arguments``).
+caller (``modules.api_arguments``), with ``ArgumentTypeRefusedError``
+(``'wrong_argument_type'``). That refusal is every member's, so no
+``Raises:`` section lists it.
 
 Four marks say what a member does, each read by its own reader below:
 ``reads`` that it changes nothing, so a host may answer it as a read;
@@ -33,7 +35,9 @@ stops what it starts -- its own class's, or the handle's it returns;
 ``engineering`` that it is a bench or support member, outside what a
 researcher's client needs. What a
 member may raise is its docstring's ``Raises:`` section, the one statement
-of its contract.
+of its contract: each class it raises as an entry, ``ClassName: words``,
+or the one line ``Nothing.`` for a member that raises nothing a caller
+handles.
 
 An event declares its record where it is delivered: a listener member as
 ``@api(event=Record)``, a ``RunEvents`` field through
@@ -236,8 +240,8 @@ QUOTED_REASON = re.compile(r"``'([a-z][a-z0-9_]*)'``|reason\s+``([a-z][a-z0-9_]*
 def raises_of(doc: str) -> list[tuple[str, tuple[str, ...]]]:
     """Each entry of *doc*'s ``Raises:`` section: the class it names, and the reasons it quotes.
 
-    *doc* is a member's docstring as ``inspect.getdoc`` gives it. A member
-    with no section declares nothing.
+    *doc* is a member's docstring as ``inspect.getdoc`` gives it. A section
+    reading ``Nothing.``, like a missing one, declares nothing.
     """
     found = RAISES_SECTION.search(doc)
     if found is None:

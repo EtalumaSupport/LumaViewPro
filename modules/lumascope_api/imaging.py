@@ -1803,9 +1803,7 @@ class ImagingAPI:
                 latch; a clock-rule change then counts no frame.
 
         Raises:
-            ArgumentTypeRefusedError: ``'wrong_argument_type'``, ``frame`` is
-                not a ``Frame`` or ``mapping`` not a ``ClockMapping``; the
-                API's door refuses it before the body.
+            Nothing.
         """
         return self.frame_validity.judgments(frame, mapping)
 

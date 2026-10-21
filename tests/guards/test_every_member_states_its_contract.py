@@ -9,8 +9,9 @@ class that does not exist, a built-in the caller cannot branch on, or a
 refusal without the reason that tells its causes apart. This guard holds,
 over every marked member:
 
-1. **Readable.** Each line at the entry indent is ``ClassName: words``;
-   anything else there is prose a reader would take for an entry.
+1. **Readable.** Each line at the entry indent is ``ClassName: words``,
+   or the section is the one line ``Nothing.``; anything else there is
+   prose a reader would take for an entry.
 2. **Under the root.** Each class an entry names is a ``LumascopeError``.
    The nine built-in raises the sections name today are pinned, and the
    pin only shrinks: each is typed after W0.
@@ -39,6 +40,8 @@ from tests.guards.test_every_outcome_joins_the_root import EXCEPTION_CLASSES
 # no entry is this guard's own check.
 _SECTION, _ENTRY, _QUOTED_REASON = RAISES_SECTION, RAISES_ENTRY, QUOTED_REASON
 _AT_ENTRY_INDENT = re.compile(r'^ {4}\S.*$', re.M)
+# The section of a member that raises nothing a caller handles.
+_NOTHING = '    Nothing.'
 
 # Refusal entries that do not yet say which reason; finished after W0
 # (NEXT_PRIMARY). A pair leaves this set when its entry names its reason.
@@ -143,7 +146,7 @@ def test_every_section_is_a_list_of_entries():
     prose = [
         f'{member}: {line.strip()!r}'
         for member, section in _sections()
-        if section
+        if section and section.rstrip() != _NOTHING
         for line in _AT_ENTRY_INDENT.findall(section)
         if not _ENTRY.match(line)
     ]
