@@ -295,7 +295,7 @@ class TestTheButtonSavesTheFocusItsRunChose:
         )
         events = _press(gui, monkeypatch)
 
-        run_events.deliver(events.run_ended, 'run_ended', _outcome(1e9), None, MagicMock())
+        run_events.deliver(events, 'run_ended', _outcome(1e9), None, MagicMock())
 
         assert reported == [(refused, {'solicited': False, 'category': 'run_ended'})]
 

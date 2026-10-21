@@ -74,7 +74,8 @@ def _make_two_scan_parent():
     p._protocol_state_lock = threading.Lock()
     p._auto_gain_armed_step = -1
     p.LOGGER_NAME = 'TEST'
-    p._events = RunEvents(scan_started=mock.MagicMock())
+    # A GUI's events, which the tests below defer as the Kivy clock would.
+    p._events = RunEvents(scan_started=mock.MagicMock(), on_ui_thread=True)
     # The run loop itself increments _scan_count once per completed scan, so
     # remaining_scans() counts down across iterations without extra help here.
     return p

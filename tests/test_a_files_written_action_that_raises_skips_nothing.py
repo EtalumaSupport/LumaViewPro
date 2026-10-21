@@ -40,9 +40,9 @@ def test_a_raising_run_ended_send_still_tells_the_files_and_ends_the_drain(tmp_p
 
     deliver = protocol_cleanup.deliver
 
-    def _cannot_send_run_ended(handler, event, *args, **kwargs):
+    def _cannot_send_run_ended(events, event, *args, **kwargs):
         if event != 'run_ended':
-            return deliver(handler, event, *args, **kwargs)
+            return deliver(events, event, *args, **kwargs)
 
         def _refused(func, timeout=0):
             raise _SendError('run_ended could not be sent')
@@ -52,7 +52,7 @@ def test_a_raising_run_ended_send_still_tells_the_files_and_ends_the_drain(tmp_p
         schedule = run_events.schedule_ui
         run_events.schedule_ui = _refused
         try:
-            return deliver(handler, event, *args, **kwargs)
+            return deliver(events, event, *args, **kwargs)
         finally:
             run_events.schedule_ui = schedule
 
@@ -65,6 +65,8 @@ def test_a_raising_run_ended_send_still_tells_the_files_and_ends_the_drain(tmp_p
             events=RunEvents(
                 run_ended=lambda outcome, run_dir, protocol: None,
                 files_written=lambda run_dir, written: files.append(written),
+                # Through the dispatcher, whose refusal is what is under test.
+                on_ui_thread=True,
             ),
         )
         # A run_ended that could not be sent is told all the same: the
@@ -117,7 +119,9 @@ def test_a_files_written_handler_that_fails_is_reported_as_itself(monkeypatch):
     def _raising(run_dir, files):
         raise failure
 
-    run_events.deliver(_raising, 'files_written', pathlib.Path('run'), 'written')
+    run_events.deliver(
+        RunEvents(files_written=_raising), 'files_written', pathlib.Path('run'), 'written'
+    )
 
     [(ex, kwargs)] = reported
     assert ex is failure

@@ -13,7 +13,10 @@ end of its ``run_ended`` delivery, so every observer of it -- ``result()``,
 
 Driven on the real engine with simulated hardware, headless (callbacks
 delivered inline on the thread that ends the run) and under a stand-in for
-the GUI's dispatcher, which delivers on its own thread.
+the GUI's dispatcher, which delivers on its own thread a run whose events
+ask for the UI thread. A run whose events do not ask -- a REST client's, a
+script's -- is told on the thread that ends it, so it settles while the UI
+thread is busy.
 """
 
 import concurrent.futures as cf
@@ -132,7 +135,7 @@ class TestTheOperationIsNotDoneBeforeItsCallback:
         # files told at once, while run_ended still waits its turn.
         runner, runs = scope
         seen = {}
-        run = _scan(runner, runs, RunEvents(run_ended=_slow(seen, 'run_ended')))
+        run = _scan(runner, runs, RunEvents(run_ended=_slow(seen, 'run_ended'), on_ui_thread=True))
 
         run.files.result(BOUND_S)
 
@@ -140,6 +143,26 @@ class TestTheOperationIsNotDoneBeforeItsCallback:
         assert 'run_ended_ended' in seen, (
             "the run's files were done while run_ended was still running"
         )
+
+
+class TestARunThatDoesNotAskForTheUiThread:
+    def test_settles_while_the_ui_thread_is_busy(self, scope, deferred):
+        # A REST client's run in the GUI's process: its handlers run on the
+        # thread that ends it, so its result() does not wait for the GUI.
+        runner, runs = scope
+        seen = {}
+        released = threading.Event()
+        deferred.schedule(lambda _dt: released.wait(BOUND_S), 0)
+        try:
+            run = _scan(runner, runs, RunEvents(run_ended=_slow(seen, 'run_ended')))
+
+            outcome = run.result(BOUND_S)
+
+            assert not released.is_set()
+        finally:
+            released.set()
+        assert outcome.status == 'completed', outcome
+        assert seen['run_ended_thread'] is not deferred.thread
 
 
 class TestEveryObserverSeesTheOutcomeOnceTheRunLetGo:
@@ -230,7 +253,8 @@ class TestInsideItsOwnRunEnded:
             assert run_box['ready'].wait(BOUND_S)
             callback(*args)
 
-        _run_box_ready(run_box, _scan(runner, runs, RunEvents(run_ended=_run_ended)))
+        events = RunEvents(run_ended=_run_ended, on_ui_thread=dispatch == 'deferred')
+        _run_box_ready(run_box, _scan(runner, runs, events))
 
         assert run_box['run'].result(BOUND_S).status == 'completed'
         assert answers['done'] is True, answers

@@ -2669,7 +2669,7 @@ class TestARunsEndRestoresTheLayerShader_ShaderHygiene:
         """A run_ended handler that raises is reported by the event delivery,
         once, as its own exception -- never as a scope cleanup failure."""
         from modules.notification_center import notifications
-        from modules.run_events import deliver
+        from modules.run_events import RunEvents, deliver
 
         reported = []
         monkeypatch.setattr(
@@ -2680,7 +2680,7 @@ class TestARunsEndRestoresTheLayerShader_ShaderHygiene:
         def _raise(*_ended):
             raise boom
 
-        deliver(_raise, 'run_ended', MagicMock(), None, MagicMock())
+        deliver(RunEvents(run_ended=_raise), 'run_ended', MagicMock(), None, MagicMock())
         assert reported == [(boom, {'solicited': False, 'category': 'run_ended'})], reported
 
     def test_protocol_settings_restores_the_display_on_run_ended(self):

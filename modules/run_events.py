@@ -112,14 +112,18 @@ class FilesWritten:
     'video_progress',
     'run_ended',
     'files_written',
+    'on_ui_thread',
 )
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class RunEvents:
     """The handlers a run calls as it goes, each optional; a misspelt one fails here.
 
-    Every event but ``frame_captured`` arrives through the process's UI
-    dispatcher (``ScopeSession.set_ui_dispatcher``): on a GUI host on its UI
-    thread, and with none set on the thread that sends it. A handler's own
+    Every event but ``frame_captured`` arrives on the thread that sends it,
+    unless ``on_ui_thread`` is set: then through the process's UI dispatcher
+    (``ScopeSession.set_ui_dispatcher``), on a GUI host on its UI thread, and
+    with none set on the thread that sends it. The run carries the choice,
+    so a GUI's handlers run on its UI thread while a REST client's or a
+    script's run in the same process never waits on that thread. A handler's own
     exception is reported once, as the exception it is, under the event's
     name: a refusal stays a refusal and a fault a fault. During an unattended
     run a ``step_started`` or ``frame_captured`` failure is logged, muted by
@@ -149,8 +153,11 @@ class RunEvents:
         files_written: ``(run_dir, files)`` once the run's last image write
             has landed: ``files`` is ``'written'``, or ``'incomplete'`` when
             some of its images are not on disk.
+        on_ui_thread: Whether the handlers above but ``frame_captured``
+            run on the UI dispatcher's thread. A GUI sets it for handlers
+            that draw; the default runs each on the sending thread.
 
-    Each field declares its event's record (``ScanStarted``, ...), whose
+    Each handler field declares its event's record (``ScanStarted``, ...), whose
     fields name the handler's arguments in order; a host that carries the
     event elsewhere builds the record from them.
     """
@@ -176,6 +183,7 @@ class RunEvents:
     files_written: Callable[[pathlib.Path | None, str], object] | None = dataclasses.field(
         default=None, metadata=event_metadata(FilesWritten)
     )
+    on_ui_thread: bool = False
 
 
 def _report(event: str, ex: Exception) -> None:
@@ -185,23 +193,25 @@ def _report(event: str, ex: Exception) -> None:
 
 
 def deliver(
-    handler: Callable[..., object] | None,
+    events: RunEvents,
     event: str,
     *args: object,
     delivery: contextlib.AbstractContextManager = contextlib.nullcontext(),
 ) -> None:
-    """Hand ``handler(*args)`` to the UI dispatcher; report its exception once.
+    """Call *events*' ``event`` handler with ``args`` where the run asked; report its exception once.
 
-    The one reporter of a handler's failure, whatever the host: the catch is
-    inside the function the dispatcher runs, around the handler, so it holds
-    on a GUI host too, where the handler runs on a later tick, after this
-    call has returned. ``delivery`` is entered around the handler and its
-    report on the thread that runs them: a run's ``run_ended`` and
+    On the sending thread, or through the UI dispatcher when *events* says
+    ``on_ui_thread``. The one reporter of a handler's failure, whatever the
+    host: the catch is inside the function that runs the handler, so it
+    holds on a GUI host too, where the handler runs on a later tick, after
+    this call has returned. ``delivery`` is entered around the handler and
+    its report on the thread that runs them: a run's ``run_ended`` and
     ``files_written`` are delivered inside their handle's delivery, which
     marks the run told once both are done. With no handler, or when the
     dispatcher cannot take it, the delivery is entered and left at once, so
     a run's waits never wait on a delivery that will not come.
     """
+    handler = getattr(events, event)
     if handler is None:
         with delivery:
             return
@@ -213,6 +223,9 @@ def deliver(
             except Exception as ex:
                 _report(event, ex)
 
+    if not events.on_ui_thread:
+        _deliver(0)
+        return
     try:
         schedule_ui(_deliver, 0)
     except BaseException:

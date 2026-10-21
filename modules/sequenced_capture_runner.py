@@ -1956,9 +1956,10 @@ class SequencedCaptureRunner:
             # listener that reads is_live_run, or starts the next run, sees
             # the run ended -- the Session's levels first, then run_ended
             # (a composite's waits for its merge, on the merge's thread),
-            # then the files' completion. The callbacks go through the UI
-            # dispatcher: under the GUI on its thread, else inline on the
-            # thread that ended the run, where a callback that waits on a
+            # then the files' completion. The Session's levels are told here,
+            # on the thread that ended the run; run_ended and the files'
+            # completion go where the run's events ask -- the UI dispatcher
+            # for a GUI's, else inline here, where a handler that waits on a
             # run it starts waits behind itself. Each on its own: a raise in
             # one must not skip the rest.
             from modules.notification_center import notifications

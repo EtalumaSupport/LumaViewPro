@@ -34,6 +34,9 @@ from modules.api_surface import event_of, field_event, fields_of, mark_of
 # Declarations whose absence would mean the walk lost its way.
 NOT_VACUOUS = {'MotionAPI.add_position_listener', 'RunEvents.scan_started'}
 
+# The fields of RunEvents that say how its handlers are delivered, not an event.
+NOT_HANDLERS = {'on_ui_thread'}
+
 
 @pytest.fixture(scope='module')
 def universe() -> dict[str, type]:
@@ -108,9 +111,25 @@ def _events(universe):
     from modules.run_events import RunEvents
 
     for field in dataclasses.fields(RunEvents):
+        if field.name in NOT_HANDLERS:
+            continue
         text = field.type if isinstance(field.type, str) else inspect.formatannotation(field.type)
         events.append((f'RunEvents.{field.name}', field_event(RunEvents, field.name), text))
     return events
+
+
+def test_every_run_events_field_but_the_delivery_is_a_handler():
+    from modules.run_events import RunEvents
+
+    not_callables = {
+        field.name
+        for field in dataclasses.fields(RunEvents)
+        if _callback_arguments(
+            field.type if isinstance(field.type, str) else inspect.formatannotation(field.type)
+        )
+        is None
+    }
+    assert not_callables == NOT_HANDLERS
 
 
 def test_every_event_declares_a_published_record(universe):

@@ -60,7 +60,7 @@ def send_run_ended(
 
     def _send(outcome) -> None:
         deliver(
-            events.run_ended,
+            events,
             'run_ended',
             outcome,
             run_dir,
@@ -80,7 +80,7 @@ def send_files_written(
     when some of its images are not on disk.
     """
     deliver(
-        events.files_written,
+        events,
         'files_written',
         run_dir,
         files,

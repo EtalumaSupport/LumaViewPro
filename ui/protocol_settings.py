@@ -1184,6 +1184,7 @@ class ProtocolSettings(FloatLayout):
             step_started=lambda step_idx: go_to_step(protocol, step_idx, include_move=False),
             video_progress=show_video_progress,
             run_ended=_ended,
+            on_ui_thread=True,
         )
 
         def _start():
@@ -1286,6 +1287,7 @@ class ProtocolSettings(FloatLayout):
             step_started=lambda step_idx: go_to_step(protocol, step_idx, include_move=False),
             video_progress=show_video_progress,
             run_ended=_ended,
+            on_ui_thread=True,
         )
 
         sequence_name = self.ids['protocol_filename'].text

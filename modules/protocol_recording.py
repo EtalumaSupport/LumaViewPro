@@ -789,10 +789,10 @@ class ProtocolVideoStep:
 
     def _send_progress(self, progress: VideoProgress) -> None:
         self._progress_sent = True
-        deliver(self._events.video_progress, 'video_progress', progress)
+        deliver(self._events, 'video_progress', progress)
 
     def _end_progress(self) -> None:
         """Send 'ended' once, when a recording or writing phase was sent."""
         if self._progress_sent:
             self._progress_sent = False
-            deliver(self._events.video_progress, 'video_progress', VideoProgress('ended'))
+            deliver(self._events, 'video_progress', VideoProgress('ended'))

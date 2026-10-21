@@ -156,6 +156,7 @@ class ZStack(FloatLayout):
             step_started=lambda step_idx: self.draw_zstack_button(),
             video_progress=show_video_progress,
             run_ended=lambda *ended: sync_layer_widgets_from_settings(),
+            on_ui_thread=True,
         )
 
         def _start():

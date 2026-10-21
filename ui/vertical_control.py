@@ -333,6 +333,7 @@ class VerticalControl(BoxLayout):
         events = RunEvents(
             frame_captured=show_captured_frame,
             run_ended=lambda outcome, *_ended: self._autofocus_run_ended(layer, outcome),
+            on_ui_thread=True,
         )
 
         def _start():

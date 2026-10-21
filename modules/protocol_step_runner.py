@@ -603,7 +603,7 @@ class ProtocolStepRunner:
         p._step_start_time = time.monotonic()
         if p._aborted.is_set():
             return
-        deliver(p._events.step_started, 'step_started', step_idx)
+        deliver(p._events, 'step_started', step_idx)
 
         # The targets a person's navigation to this step computes too, with
         # the offset this run started with.

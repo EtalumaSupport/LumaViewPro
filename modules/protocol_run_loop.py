@@ -220,7 +220,7 @@ class ProtocolRunLoop:
 
                 # Time for next scan
                 deliver(
-                    p._events.scan_started,
+                    p._events,
                     'scan_started',
                     p._scan_count + 1,
                     remaining_scans,
@@ -318,7 +318,7 @@ class ProtocolRunLoop:
                 )
 
                 deliver(
-                    p._events.scan_ended,
+                    p._events,
                     'scan_ended',
                     new_count,
                     p._remaining_scans(),
