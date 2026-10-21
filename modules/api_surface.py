@@ -41,7 +41,8 @@ researcher's client needs. What a
 member may raise is its docstring's ``Raises:`` section, the one statement
 of its contract: each class it raises as an entry, ``ClassName: words``,
 or the one line ``Nothing.`` for a member that raises nothing a caller
-handles.
+handles. Every marked member has the section
+(``tests/guards/test_every_member_states_its_contract.py``).
 
 An event declares its record where it is delivered: a listener member as
 ``@api(event=Record)``, a ``RunEvents`` field through

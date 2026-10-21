@@ -18,8 +18,9 @@ over every marked member:
 3. **A refusal says which.** An entry naming a refusal class with more
    than one reason names the reason (``'not_connected'``). The
    entries that do not yet are pinned, and the pin only shrinks.
-4. **Counted.** The members with no section are counted, and the count
-   only falls.
+4. **Stated.** Every marked member has a section, ``Nothing.`` for one
+   that raises nothing, so "has not said" is no state a member can be in;
+   each one without is named.
 
 A static read: no session.
 """
@@ -31,7 +32,15 @@ import re
 
 from lib.lumascope_error import LumascopeError
 from modules import wire_encoding
-from modules.api_surface import QUOTED_REASON, RAISES_ENTRY, RAISES_SECTION, _function_of, mark_of
+from modules.api_surface import (
+    QUOTED_REASON,
+    RAISES_ENTRY,
+    RAISES_SECTION,
+    _function_of,
+    api,
+    mark_of,
+    raises_of,
+)
 from modules.exceptions import Refusal
 from tests.guards.test_every_outcome_joins_the_root import EXCEPTION_CLASSES
 
@@ -90,46 +99,12 @@ _REASON_UNNAMED_PINNED = frozenset(
     }
 )
 
-# The members with no Raises section at W0's end; it only falls. 165 since
-# DiagnosticsAPI.motor_fan_spin_times, a sentinel read that raises nothing
-# and so has no section to state (Eric, 2026-10-12); 166 since
-# ScopeSession.remove_run_state_listener, a remove that raises nothing
-# (Eric, 2026-10-13); 167 since ProtocolsAPI.tiling_config, a read of the
-# scope's copy that bring-up refuses for it (Eric, 2026-10-13); 166 since
-# IlluminationAPI.restore_led_state states the lease's refusal; 169 since
-# ScopeSession.shown_channel and its listener pair, a read and an add and
-# remove that raise nothing (Eric, 2026-10-13); 160 since
-# MotionAPI.get_target_positions, a read of the axes the scope has that
-# raises nothing (Eric, 2026-10-17); 156 since the camera's fresh reads
-# state the raise of a read the camera did not answer; 157 since the
-# camera's held reads, which read no camera and raise nothing, replace the
-# _cached properties (Eric, 2026-10-18); 159 since ImagingAPI's
-# last_capture_info and saturated_fraction, a read and a frame's arithmetic
-# that raise nothing, are marked in-process engineering members (Eric,
-# 2026-10-18); 156 since the Session's stim, auto-gain and enabled-stim
-# reads left the API (census C's row B9: a client reads them by path); 162
-# since the Session's named reads of its owned settings, six of which read
-# the store and raise nothing (Eric, 2026-10-19); 163 since ImagingAPI's
-# recorded_changes, a read of frame validity's record that raises nothing
-# (Eric, 2026-10-20); 160 since the camera's diagnostic snapshot, its
-# profile and the system summary left for published reads (W3c part E); 162
-# since the Session's controls lock and its record's two answers, reads that
-# raise nothing, while the status gained its section (Eric, 2026-10-20); 152
-# since the ten run-state reads the records replaced left (W3d part D); 153
-# since ScopeSession.user_settings_file, which names a path and raises
-# nothing (Eric, 2026-10-20); 154 since
-# PostProcessingAPI.default_cell_count_method, a fresh copy of the panel's
-# starting method that raises nothing (Eric, 2026-10-20); 90 as the scope's
-# sub-APIs say what they raise, Nothing. included; 31 as the Session and the
-# Protocol do; 0 as the records, the controllers, Operation and the
-# protocols API do. The count does not yet tell a member that raises nothing
-# from one that has not said.
-_WITHOUT_A_SECTION_CEILING = 0
 
-
-def _sections():
-    """``('Class.member', section text or None)`` for every marked member."""
-    for owner, cls in sorted(wire_encoding.project_classes().items()):
+def _sections(classes: dict[str, type] | None = None):
+    """``('Class.member', section text or None)`` for every marked member of ``classes``, the project's by default."""
+    for owner, cls in sorted(
+        (wire_encoding.project_classes() if classes is None else classes).items()
+    ):
         for name, member in vars(cls).items():
             if mark_of(member) is None:
                 continue
@@ -145,14 +120,23 @@ def _multi_reason(cls: type) -> bool:
     return issubclass(cls, Refusal) and not isinstance(getattr(cls, 'reason', None), str)
 
 
-def test_every_section_is_a_list_of_entries():
-    prose = [
+def _prose(sections) -> list[str]:
+    """Each line at the entry indent that is no entry, outside a section that is ``Nothing.`` alone."""
+    return [
         f'{member}: {line.strip()!r}'
-        for member, section in _sections()
+        for member, section in sections
         if section and section.rstrip() != _NOTHING
         for line in _AT_ENTRY_INDENT.findall(section)
         if not _ENTRY.match(line)
     ]
+
+
+def _without_a_section(sections) -> list[str]:
+    return [member for member, section in sections if section is None]
+
+
+def test_every_section_is_a_list_of_entries():
+    prose = _prose(_sections())
     assert prose == [], 'indent it under its entry, or make it one:\n' + '\n'.join(prose)
 
 
@@ -185,10 +169,38 @@ def test_every_refusal_with_several_reasons_names_its_reason():
     )
 
 
-def test_the_members_without_a_section_only_fall():
-    without = sum(1 for _, section in _sections() if section is None)
-    assert without <= _WITHOUT_A_SECTION_CEILING, (
-        f'{without} members state no Raises section, above the {_WITHOUT_A_SECTION_CEILING} '
-        'pinned: give the new member its section'
-    )
-    assert without == _WITHOUT_A_SECTION_CEILING, f'down to {without}: lower the ceiling to it'
+def test_every_member_has_a_section():
+    without = _without_a_section(_sections())
+    assert without == [], 'say what each raises, or Nothing.:\n' + '\n'.join(without)
+
+
+class _Planted:
+    """Three marked members the checks above must tell apart."""
+
+    @api(reads=True)
+    def unstated(self) -> None:
+        """Says nothing of what it raises."""
+
+    @api(reads=True)
+    def nothing(self) -> None:
+        """Raises nothing.
+
+        Raises:
+            Nothing.
+        """
+
+    @api(reads=True)
+    def nothing_and_an_entry(self) -> None:
+        """Says Nothing. beside an entry.
+
+        Raises:
+            Nothing.
+            ConfigError: no session has bound the scope.
+        """
+
+
+def test_the_checks_name_what_they_refuse():
+    planted = list(_sections({'_Planted': _Planted}))
+    assert _without_a_section(planted) == ['_Planted.unstated']
+    assert _prose(planted) == ["_Planted.nothing_and_an_entry: 'Nothing.'"]
+    assert raises_of(inspect.getdoc(_Planted.nothing)) == []
