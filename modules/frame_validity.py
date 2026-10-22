@@ -11,8 +11,9 @@ should proceed until frame_validity confirms all pending state changes have
 settled. This includes both camera pipeline flush AND physical completion.
 
 For camera-only sources (LED, gain, exposure): settled = frame count met.
-For motion sources (xy_move, z_move, turret): settled = frame count met AND
-axis has physically stopped moving (via settle callback).
+For motion sources (xy_move, z_move, turret): settled = axis has physically
+stopped moving (via settle callback) AND the frame count met by frames that
+arrived after the stop.
 
 A frame only counts toward a change it could actually show: each pending
 source records which frame the camera had already delivered when its
@@ -179,7 +180,9 @@ class Change:
     Attributes:
         source: What changed, a key of ``FrameValidity.SKIP_FRAMES``.
         at_seq: The frame the camera had already delivered when the change
-            was recorded. A frame already in the camera's pipeline when the
+            was recorded; for a move, once in force, when its stop was
+            stamped (``FrameValidity.motion_settled``). A frame already in
+            the camera's pipeline when the
             register was written cannot show the new state, so crediting it
             would retire the skip count against frames that predate the
             change -- and the capture then returns a frame from before the
@@ -589,8 +592,9 @@ class FrameValidity:
         Call this after every successful camera grab (grab() or grab_new_capture()).
         A frame credits only the sources whose write it POSTDATES, and only
         when it is newer than every frame already counted toward that
-        source; a source clears once its skip count has been met that way. Motion
-        sources clear only when both that count AND the settle check pass.
+        source; a source clears once its skip count has been met that way. A
+        motion source's count starts at its stop, so it clears only when the
+        settle check passes and frames after the stop met the count.
 
         Args:
             frame_seq: The frame's arrival ordinal, from the grab that
@@ -622,17 +626,17 @@ class FrameValidity:
                 events = []
                 for source in self._pending:
                     pending = self._changes[source]
-                    # A source still pending at zero is a motion source waiting on
-                    # its axis: the frame count is met, the physical move is not.
-                    # It goes on seeing frames for the length of the move, and what
-                    # it publishes is frames STILL NEEDED -- a count that stops at
-                    # zero rather than running down one per frame into nonsense.
-                    # A frame no newer than the last one credited is one the
+                    # What a source publishes is frames STILL NEEDED -- a count
+                    # that stops at zero rather than running down one per frame
+                    # into nonsense. A frame no newer than the last one credited is one the
                     # wait already holds, or older: the preview can count a
                     # frame it grabbed before the drain's newer one, after it,
                     # and the dedupe above sees only the last count.
+                    # A move's frame count starts at its stop (motion_settled):
+                    # a frame before it was exposed while the axis could move.
                     credited = (
                         frame_seq > pending.at_seq
+                        and not (pending.needs_in_force and pending.in_force_ns is None)
                         and pending.remaining > 0
                         and (not pending.credits or frame_seq > pending.credits[-1].seq)
                     )
@@ -777,8 +781,10 @@ class FrameValidity:
     def frames_until_valid(self, exclude_sources: tuple = ()) -> int:
         """Number of frames that must be grabbed before the next valid frame.
 
-        Returns 0 if already valid. For motion sources that have met the frame
-        count but are still physically moving, returns 1 (keep draining).
+        Returns 0 if already valid. A move counts its frames from its stop,
+        so while its axis moves it returns the move's whole count; a move
+        whose count is met while the settle check says moving returns 1
+        (keep draining).
         """
         with self._lock:
             max_remaining = 0
@@ -843,7 +849,8 @@ class FrameValidity:
         """Current pending sources and the frames each still needs (for debugging).
 
         Zero means the frame count is met, NOT that the source has settled:
-        a motion source holds at zero while its axis is still moving. Read
+        a motion source's count starts at its stop, and the settle check is
+        not read here. Read
         is_valid, frames_until_valid() or unsettled_motion_sources() for
         settledness.
         """
@@ -957,6 +964,14 @@ class FrameValidity:
         so the change's ``earliest_ns`` moves up to ``moving_seen_ns`` with
         the stamp that sets its in-force time.
 
+        The stamp places the change in the frame stream, as ``invalidate``
+        places a write: its ``at_seq`` becomes the frames the camera has
+        delivered now, its credits are cleared, and the source is pending
+        again, so its frame count is met only by frames that arrived after
+        the stop. A frame that arrived during the move was exposed while the
+        axis could still move. A later stamp, from a later write of the axis
+        settled, starts the count again from there.
+
         Args:
             source: The motion source of the axis whose state was written.
             at_ns: Host ``time.monotonic_ns()`` taken where it was written.
@@ -979,9 +994,19 @@ class FrameValidity:
             earliest_ns = change.earliest_ns
             if moving_seen_ns is not None:
                 earliest_ns = max(earliest_ns, moving_seen_ns)
-            self._changes[source] = dataclasses.replace(
-                change, in_force_ns=at_ns, earliest_ns=earliest_ns
+            change = dataclasses.replace(
+                change,
+                at_seq=self._frames_delivered(),
+                credits=(),
+                in_force_ns=at_ns,
+                earliest_ns=earliest_ns,
             )
+            self._changes[source] = change
+            self._pending.add(source)
+            at_seq = change.at_seq
+            pending_count = len(self._pending)
+        if profile_trace.ENABLE_PROFILE_TRACE:
+            self._trace_rows([('in_force', source, '', at_seq, change.skip, pending_count)])
 
     def unsettled_motion_sources(self, exclude_sources: tuple = ()) -> tuple:
         """Pending motion sources whose settle-check says still moving.

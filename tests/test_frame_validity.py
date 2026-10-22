@@ -4,6 +4,7 @@
 import threading
 import sys
 import os
+import time
 
 # Add parent directory to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
@@ -187,26 +188,30 @@ class TestPendingSourcesDebug:
         fv.count_frame(_f(), by=Counter.GRAB)
         assert fv.frame_counter == 3
 
-    def test_a_long_move_never_reports_a_negative_count(self):
-        """A motion source stays pending while the axis moves, so frames keep
-        arriving after its skip count is already met. The count it reports is
-        frames STILL NEEDED, which has no values below zero -- it stops at
-        zero instead of running down one per frame for the length of the move.
-        """
+    def test_a_move_is_counted_from_its_stop(self):
+        """A frame that arrives while the axis moves was exposed during the
+        move, so none counts toward it: the move's count starts where its
+        stop is stamped, as a write's starts where the write returns, and
+        a later stamp of the axis settled starts it again."""
         fv = FrameValidity(_frames)
         moving = True
         fv.set_settle_check(lambda source: not moving)
         fv.invalidate('z_move', began_ns=None)
         for _ in range(500):
             fv.count_frame(_f(), by=Counter.GRAB)
-        assert fv.pending_sources == {'z_move': 0}
-        # Zero frames needed is not settled: the axis is still moving, so the
-        # drain continues and the source stays pending.
-        assert fv.frames_until_valid() == 1
-        assert not fv.is_valid
+        assert fv.pending_sources == {'z_move': 2}
+        assert fv.frames_until_valid() == 2
+
         moving = False
+        fv.motion_settled('z_move', time.monotonic_ns(), moving_seen_ns=None)
+        assert not fv.is_valid
+        fv.count_frame(_f(), by=Counter.GRAB)
+        assert fv.frames_until_valid() == 1
+        fv.count_frame(_f(), by=Counter.GRAB)
         assert fv.is_valid
-        assert fv.frames_until_valid() == 0
+
+        fv.motion_settled('z_move', time.monotonic_ns(), moving_seen_ns=None)
+        assert fv.pending_sources == {'z_move': 2}
 
     def test_no_source_ever_reports_a_negative_count(self):
         """The invariant the case above is one instance of.

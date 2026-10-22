@@ -175,24 +175,35 @@ def test_a_rule_states_its_delay_and_provenance_under_the_clock_only():
     assert accepted == []
 
 
-def test_a_motion_frame_counts_only_once_its_axis_settled_before_it():
+def test_a_move_counts_the_third_frame_to_arrive_after_its_stop():
+    """No clock: the frames that arrive throughout a long move count nothing
+    toward it; of those arriving after its stop, the first two are dropped
+    and the third counts."""
+    delivered = 0
     settled = threading.Event()
-    fv = FrameValidity(lambda: 0)
+    fv = FrameValidity(lambda: delivered)
     fv.set_settle_check(lambda source: settled.is_set())
     change = fv.invalidate('z_move', began_ns=None)
-    for seq in (1, 2):
-        fv.count_frame(seq, by=Counter.DRAIN)
 
-    moving = fv.judge(_frame(3), fv.changes()['z_move'], None)
+    def arrive() -> int:
+        nonlocal delivered
+        delivered += 1
+        fv.count_frame(delivered, by=Counter.DRAIN)
+        return delivered
+
+    for _ in range(10):
+        arrive()
+    moving = fv.judge(_frame(delivered + 1), fv.changes()['z_move'], None)
     settled.set()
-    at_ns = time.monotonic_ns()
-    fv.motion_settled('z_move', at_ns, moving_seen_ns=None)
-    before = fv.judge(_frame(3, arrived_ns=at_ns - 1), fv.changes()['z_move'], None)
-    after = fv.judge(_frame(3, arrived_ns=at_ns + 1), fv.changes()['z_move'], None)
+    stop_ns = time.monotonic_ns()
+    fv.motion_settled('z_move', stop_ns, moving_seen_ns=None)
+    after_stop = [arrive() for _ in range(3)]
+    stamped = fv.changes()['z_move']
 
     assert moving.counts is False and moving.ms_after_in_force is None
-    assert before.counts is False
-    assert after.counts is True
+    assert [
+        fv.judge(_frame(seq, arrived_ns=stop_ns + seq), stamped, None).counts for seq in after_stop
+    ] == [False, False, True]
     # A stamp from before the change was made is not the change's own.
     fv.invalidate('z_move', began_ns=None)
     fv.motion_settled('z_move', change.written_ns, moving_seen_ns=None)
