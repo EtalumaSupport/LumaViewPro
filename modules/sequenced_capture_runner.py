@@ -238,13 +238,14 @@ class EngineRun:
             last = self._files_events_left == 0
         if last:
             batch = self._write_batch
-            self.files.set_result(
+            concurrent.futures.Future.set_result(
+                self.files,
                 RunFiles(
                     outcome=batch.outcome,
                     written=batch.written,
                     not_written=batch.not_written,
                     not_written_reason=batch.not_written_reason,
-                )
+                ),
             )
 
     @contextlib.contextmanager
@@ -2241,6 +2242,11 @@ class SequencedCaptureRunner:
     def _last_run(self) -> 'EngineRun | None':
         """The live or last run, or None when no run has started."""
         return getattr(self, '_run_handle', None)
+
+    def last_run_operation(self) -> Operation | None:
+        """The live or last run's operation, whoever started it; None when no run has started."""
+        run = self._last_run()
+        return None if run is None else run.operation
 
     def write_batch(self) -> RunWriteBatch | None:
         """The live or last run's writes, or None when no run has started."""

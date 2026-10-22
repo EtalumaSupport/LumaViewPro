@@ -273,6 +273,13 @@ class _HandsOutARun:
         raise NotImplementedError
 
 
+class _APropertyHandsOutARun:
+    @api
+    @property
+    def run(self) -> Operation | None:
+        raise NotImplementedError
+
+
 def test_a_read_a_query_string_cannot_carry_or_that_hands_out_a_run_is_refused_when_built():
     """Each refusal is the routes' build's, so no such read is ever served:
     text cannot tell the number 3 from the name '3', nor true from 'true'; a query string says
@@ -282,6 +289,7 @@ def test_a_read_a_query_string_cannot_carry_or_that_hands_out_a_run_is_refused_w
         _TextOrBool: (wire_encoding.NoWireFormError, 'a name or a number'),
         _RequiredNone: (wire_encoding.NoWireFormError, 'required, and may be None'),
         _HandsOutARun: (TypeError, 'marked reads but can answer a running call'),
+        _APropertyHandsOutARun: (TypeError, 'a property but can answer a running call'),
     }
     wrong = []
     for cls, (refusal, words) in cases.items():

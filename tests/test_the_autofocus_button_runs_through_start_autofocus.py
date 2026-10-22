@@ -17,6 +17,7 @@ button's to show.
 
 from __future__ import annotations
 
+import concurrent.futures
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -212,7 +213,7 @@ def test_a_stop_that_finds_its_run_already_ended_shows_nothing(pressed, held):
 
     pressed.button.run_autofocus_from_ui()
     _live(pressed.engine)
-    pressed.run.operation.set_result(None)
+    concurrent.futures.Future.set_result(pressed.run.operation, None)
     run_task_now(held[1])
 
     assert pressed.posts == []

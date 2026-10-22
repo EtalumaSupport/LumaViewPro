@@ -7,7 +7,9 @@ and ``asyncio.wrap_future`` behave as a Future's do. What it adds:
 
 - It is running from construction: the operation is under way by the time
   the caller holds it, so ``cancel()`` is False and only its producer
-  settles it.
+  settles it: a holder's ``set_result`` or ``set_exception`` is refused
+  (``OperationSettleRefusedError``), and a producer settles through the base
+  class, ``concurrent.futures.Future.set_result(op, value)``.
 - Its done-callbacks run on one callback thread, one at a time in the order
   their operations settled -- never on the thread that settled it (the
   motion monitor, a lane, a run's thread), so a callback may itself wait on
@@ -19,7 +21,7 @@ and ``asyncio.wrap_future`` behave as a Future's do. What it adds:
 - ``files`` is a run's second operation, done once its files are written;
   None on every other operation.
 - A producer whose end is a delivery (a run's ``run_ended``) settles it
-  through ``settling``: inside that delivery, the delivering thread's
+  through ``settling(op, ...)``: inside that delivery, the delivering thread's
   ``result()``, ``exception()`` and ``done()`` answer at once, while every
   other observer sees it done only once the delivery has returned.
 - A ``result()`` or ``exception()`` on the UI thread for an operation not
@@ -38,7 +40,7 @@ from typing import TYPE_CHECKING
 from lvp_logger import logger
 from modules import kivy_utils
 from modules.api_surface import api, api_fields
-from modules.exceptions import BlockingCallRefusedError
+from modules.exceptions import BlockingCallRefusedError, OperationSettleRefusedError
 
 if TYPE_CHECKING:
     from modules.sequenced_capture_runner import RunProgress
@@ -216,9 +218,9 @@ class Operation(concurrent.futures.Future):
             finally:
                 exception = settled.exception()
                 if exception is None:
-                    op.set_result(settled.result())
+                    concurrent.futures.Future.set_result(op, settled.result())
                 else:
-                    op.set_exception(exception)
+                    concurrent.futures.Future.set_exception(op, exception)
 
         waiter.add_done_callback(settle)
         return op
@@ -236,7 +238,7 @@ class Operation(concurrent.futures.Future):
 
         joined = cls(stop=stop)
         if not operations:
-            joined.set_result(None)
+            concurrent.futures.Future.set_result(joined, None)
             return joined
         lock = threading.Lock()
         left = [len(operations)]
@@ -248,9 +250,9 @@ class Operation(concurrent.futures.Future):
                     return
             raised = next((op.exception() for op in operations if op.exception() is not None), None)
             if raised is None:
-                joined.set_result(None)
+                concurrent.futures.Future.set_result(joined, None)
             else:
-                joined.set_exception(raised)
+                concurrent.futures.Future.set_exception(joined, raised)
 
         # Counted on each settling thread, not the callback thread: a
         # done-callback that waits on the joined operation would otherwise
@@ -258,6 +260,22 @@ class Operation(concurrent.futures.Future):
         for op in operations:
             concurrent.futures.Future.add_done_callback(op, one_ended)
         return joined
+
+    def set_result(self, result: object) -> None:
+        """Refused: only the operation's producer settles it, through the base class.
+
+        Raises:
+            OperationSettleRefusedError: ``'settled_by_its_producer'``, always.
+        """
+        raise OperationSettleRefusedError('Operation.set_result')
+
+    def set_exception(self, exception: BaseException | None) -> None:
+        """Refused: only the operation's producer settles it, through the base class.
+
+        Raises:
+            OperationSettleRefusedError: ``'settled_by_its_producer'``, always.
+        """
+        raise OperationSettleRefusedError('Operation.set_exception')
 
     def add_done_callback(self, fn: Callable[['Operation'], object]) -> None:
         """Run ``fn(self)`` on the callback thread once this operation is done."""
@@ -285,26 +303,6 @@ class Operation(concurrent.futures.Future):
         self._refuse_on_ui_thread('Operation.exception')
         return super().exception(timeout)
 
-    @contextlib.contextmanager
-    def settling(
-        self, *, result: object = None, exception: BaseException | None = None
-    ) -> Iterator[None]:
-        """Deliver this operation's end on this thread, then settle it with *result* or *exception*.
-
-        For a producer whose end is a delivery: what runs inside reads the
-        outcome at once, every other observer once the delivery has
-        returned. It settles even when the delivery raises.
-        """
-        self._own = (threading.current_thread(), result, exception)
-        try:
-            yield
-        finally:
-            self._own = None
-            if exception is None:
-                self.set_result(result)
-            else:
-                self.set_exception(exception)
-
     def _delivering_here(self) -> tuple[object, BaseException | None] | None:
         own = self._own
         if own is None or own[0] is not threading.current_thread():
@@ -314,3 +312,26 @@ class Operation(concurrent.futures.Future):
     def _refuse_on_ui_thread(self, member: str) -> None:
         if not super().done():
             refuse_waiting_on_ui_thread(member)
+
+
+@contextlib.contextmanager
+def settling(
+    op: Operation, *, result: object = None, exception: BaseException | None = None
+) -> Iterator[None]:
+    """Deliver *op*'s end on this thread, then settle it with *result* or *exception*.
+
+    For a producer whose end is a delivery: what runs inside reads the
+    outcome at once, every other observer once the delivery has returned.
+    It settles even when the delivery raises. A function here, not a member
+    of the operation: a holder entering it would forge the outcome and
+    overwrite the producer's delivery.
+    """
+    op._own = (threading.current_thread(), result, exception)
+    try:
+        yield
+    finally:
+        op._own = None
+        if exception is None:
+            concurrent.futures.Future.set_result(op, result)
+        else:
+            concurrent.futures.Future.set_exception(op, exception)

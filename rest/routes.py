@@ -205,6 +205,11 @@ def routes(root: type, *, handed_out: frozenset[type]) -> list[Route]:
                         'a running call or a live object, which a GET would hand out'
                     )
                 query = query_model(cls, member)
+            elif member.read and member.returns_job:
+                raise TypeError(
+                    f'{"/".join((*segments, member.name))} is a property but can answer a '
+                    'running call, which a GET would hand out'
+                )
             if member.sets is not None:
                 read = _paired_read(cls, member, by_name)
                 found.append(

@@ -8,6 +8,7 @@ nothing), so a Stop pressed just as a run finished shows no dialog, and the
 control's redraw draws it idle. A Stop of the live run shows nothing either.
 """
 
+import concurrent.futures
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -45,7 +46,7 @@ def stop(monkeypatch, centre_posts):
 def test_a_stop_after_its_run_ended_shows_nothing_stops_nothing_and_redraws(stop):
     stopped = []
     run = Operation(stop=lambda: stopped.append(1))
-    run.set_result(None)
+    concurrent.futures.Future.set_result(run, None)
 
     redraws = stop.submit(run)
 

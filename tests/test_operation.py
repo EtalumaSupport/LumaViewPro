@@ -7,10 +7,11 @@ one at a time in the order their operations settled, never on the thread
 that settled it, so a callback may wait on another operation the same
 thread settles next; ``stop()`` stops the operation's work while it is
 under way and does nothing once it is done or when it has no stop; inside
-its own ``settling`` delivery, the delivering thread's ``result()``,
+its producer's ``settling`` delivery, the delivering thread's ``result()``,
 ``exception()`` and ``done()`` answer at once; a wait on the UI thread for
 an operation not done is refused ``wait_on_ui_thread``, and one done
-answers.
+answers; a holder's ``set_result`` or ``set_exception`` is refused, so only
+its producer settles it, through the base class.
 """
 
 import asyncio
@@ -23,7 +24,7 @@ import pytest
 from modules import kivy_utils
 from modules.exceptions import BlockingCallRefusedError
 from modules.notification_center import notifications
-from modules.operation import Operation
+from modules.operation import Operation, settling
 from modules.scope_session import ScopeSession
 from tests.test_a_wait_returns_after_its_own_callbacks import _DeferringDispatcher
 
@@ -47,12 +48,12 @@ class TestItIsAFuture:
         op = Operation()
         assert op.running()
         assert op.cancel() is False
-        op.set_result(7)
+        cf.Future.set_result(op, 7)
         assert op.result(BOUND_S) == 7
 
     def test_the_standard_waits_accept_it(self):
         op = Operation()
-        op.set_exception(ValueError('ended'))
+        cf.Future.set_exception(op, ValueError('ended'))
         done, _ = cf.wait([op], timeout=BOUND_S)
         assert done == {op}
         assert isinstance(op.exception(BOUND_S), ValueError)
@@ -61,7 +62,7 @@ class TestItIsAFuture:
             return await asyncio.wrap_future(other)
 
         other = Operation()
-        other.set_result('answered')
+        cf.Future.set_result(other, 'answered')
         assert asyncio.run(_awaited()) == 'answered'
 
     def test_a_caller_s_expired_wait_leaves_it_running(self):
@@ -76,11 +77,11 @@ class TestItsDoneCallbacks:
         ran_on = queue.Queue()
         op = Operation()
         op.add_done_callback(lambda _op: ran_on.put(threading.current_thread()))
-        op.set_result(None)
+        cf.Future.set_result(op, None)
         settled_on = threading.current_thread()
 
         late = Operation()
-        late.set_result(None)
+        cf.Future.set_result(late, None)
         late.add_done_callback(lambda _op: ran_on.put(threading.current_thread()))
 
         first, second = ran_on.get(timeout=BOUND_S), ran_on.get(timeout=BOUND_S)
@@ -93,7 +94,11 @@ class TestItsDoneCallbacks:
         first.add_done_callback(lambda _op: answered.put(second.result(BOUND_S)))
 
         settler = threading.Thread(
-            target=lambda: (first.set_result(None), second.set_result('next')), daemon=True
+            target=lambda: (
+                cf.Future.set_result(first, None),
+                cf.Future.set_result(second, 'next'),
+            ),
+            daemon=True,
         )
         settler.start()
         settler.join(BOUND_S)
@@ -108,14 +113,14 @@ class TestItsDoneCallbacks:
         ops[1].add_done_callback(lambda _op: order.append(1))
         ops[2].add_done_callback(lambda _op: order.append(2))
         for op in ops:
-            op.set_result(None)
+            cf.Future.set_result(op, None)
         assert order == [], 'a later callback ran while the first was still running'
         released.set()
 
         fence = Operation()
         drained = threading.Event()
         fence.add_done_callback(lambda _op: drained.set())
-        fence.set_result(None)
+        cf.Future.set_result(fence, None)
         assert drained.wait(BOUND_S)
         assert order == [0, 1, 2]
 
@@ -137,7 +142,7 @@ class TestItsDoneCallbacks:
         op = Operation()
         op.add_done_callback(_raising)
         op.add_done_callback(lambda _op: ran.set())
-        op.set_result(None)
+        cf.Future.set_result(op, None)
 
         assert ran.wait(BOUND_S)
         assert reported.count(failure) == 1, reported
@@ -153,7 +158,7 @@ class TestItsStop:
     def test_stop_once_done_does_nothing(self):
         stopped = threading.Event()
         op = Operation(stop=stopped.set)
-        op.set_result(None)
+        cf.Future.set_result(op, None)
         op.stop()
         assert not stopped.is_set()
 
@@ -171,10 +176,10 @@ class TestOneForSeveral:
         x, y, z = Operation(), Operation(), Operation()
         joined = Operation.all_of((x, y, z))
 
-        z.set_exception(ValueError('z'))
-        x.set_result(None)
+        cf.Future.set_exception(z, ValueError('z'))
+        cf.Future.set_result(x, None)
         assert not joined.done()
-        y.set_exception(ValueError('y'))
+        cf.Future.set_exception(y, ValueError('y'))
 
         assert str(joined.exception(BOUND_S)) == 'y'
 
@@ -184,8 +189,8 @@ class TestOneForSeveral:
         answered = queue.Queue()
         x.add_done_callback(lambda _op: answered.put(joined.exception(BOUND_S)))
 
-        x.set_result(None)
-        y.set_result(None)
+        cf.Future.set_result(x, None)
+        cf.Future.set_result(y, None)
 
         assert answered.get(timeout=BOUND_S) is None
 
@@ -194,7 +199,7 @@ class TestOneForSeveral:
         x = Operation(stop=lambda: stopped.append('x'))
         y = Operation(stop=lambda: stopped.append('y'))
         joined = Operation.all_of((x, y))
-        x.set_result(None)
+        cf.Future.set_result(x, None)
 
         joined.stop()
 
@@ -237,7 +242,7 @@ class TestInsideItsOwnDelivery:
         op = Operation()
         inside, outside = {}, queue.Queue()
 
-        with op.settling(result='outcome'):
+        with settling(op, result='outcome'):
             inside['done'] = op.done()
             inside['result'] = op.result(timeout=0)
             inside['exception'] = op.exception(timeout=0)
@@ -252,7 +257,7 @@ class TestInsideItsOwnDelivery:
     def test_a_raised_outcome_reads_as_raised_inside(self):
         op = Operation()
         ended = ValueError('it failed')
-        with op.settling(exception=ended):
+        with settling(op, exception=ended):
             assert op.exception(timeout=0) is ended
             with pytest.raises(ValueError):
                 op.result(timeout=0)
@@ -260,7 +265,7 @@ class TestInsideItsOwnDelivery:
 
     def test_it_settles_even_when_the_delivery_raises(self):
         op = Operation()
-        with pytest.raises(RuntimeError), op.settling(result='outcome'):
+        with pytest.raises(RuntimeError), settling(op, result='outcome'):
             raise RuntimeError('a handler raised')
         assert op.result(0) == 'outcome'
 
@@ -276,14 +281,14 @@ class TestAWaitOnTheUiThread:
 
     def test_one_done_answers(self, ui):
         op = Operation()
-        op.set_result('answered')
+        cf.Future.set_result(op, 'answered')
         assert ui.call(lambda: op.result(BOUND_S)) == ('returned', 'answered')
 
     def test_inside_its_own_delivery_answers(self, ui):
         op = Operation()
 
         def _deliver():
-            with op.settling(result='outcome'):
+            with settling(op, result='outcome'):
                 return op.result(BOUND_S)
 
         assert ui.call(_deliver) == ('returned', 'outcome')
@@ -307,7 +312,7 @@ class TestTheSessionsClose:
         op.add_done_callback(
             lambda _op: (released.wait(BOUND_S), threads.append(threading.current_thread()))
         )
-        op.set_result(None)
+        cf.Future.set_result(op, None)
         threading.Timer(0.2, released.set).start()
 
         session.shutdown()
@@ -328,10 +333,73 @@ class TestTheSessionsClose:
 
         op = Operation()
         op.add_done_callback(_close_too)
-        op.set_result(None)
+        cf.Future.set_result(op, None)
         closer = threading.Thread(target=session.shutdown, daemon=True)
         closer.start()
         closer.join(BOUND_S)
 
         assert not closer.is_alive(), 'the close waited on a callback that waits on the close'
         assert callback_returned.wait(BOUND_S), "the callback's own shutdown never returned"
+
+
+def test_a_holder_cannot_settle_a_run_a_recording_or_a_move_it_was_handed(tmp_path):
+    """Only its producer settles an operation: a holder's settle is refused, and the producer's outcome stands.
+
+    A forged settle would also make the producer's own settle raise, on the
+    tick, the finish thread or the motion monitor that makes it.
+    """
+    from modules.exceptions import OperationSettleRefusedError
+    from modules.run_events import RunEvents
+    from tests.scope_fakes import home_sim_scope
+    from tests.settings_fixtures import complete_settings
+
+    live = tmp_path / 'live'
+    live.mkdir()
+    session = ScopeSession.create(complete_settings(live_folder=str(live)), simulate=True)
+    ending = threading.Event()
+    release = threading.Event()
+
+    def run_ended(*_args):
+        ending.set()
+        assert release.wait(BOUND_S)
+
+    def refusals(op) -> list[str]:
+        reasons = []
+        for settle in (
+            lambda: op.set_result('forged'),
+            lambda: op.set_exception(RuntimeError('forged')),
+        ):
+            with pytest.raises(OperationSettleRefusedError) as refused:
+                settle()
+            reasons.append(refused.value.reason)
+        return reasons
+
+    try:
+        home_sim_scope(session.scope)
+        session.set_layer_acquire('BF', 'image')
+        protocol = session.create_empty_protocol()
+        session.add_step(protocol)
+        run = session.create_protocol_runner().start_single_scan(
+            protocol=protocol, enable_image_saving=False, events=RunEvents(run_ended=run_ended)
+        )
+        assert ending.wait(BOUND_S)
+        on_the_run = refusals(run)
+        release.set()
+        outcome = run.result(timeout=BOUND_S)
+
+        recording = session.manual_recording.start()
+        on_the_recording = refusals(recording)
+        recording.stop()
+        ended_with = recording.result(timeout=BOUND_S)
+
+        move = session.scope.motion.start_move_relative('Z', 10.0)
+        on_the_move = refusals(move)
+        moved = move.result(timeout=BOUND_S)
+    finally:
+        release.set()
+        session.shutdown()
+
+    assert on_the_run == on_the_recording == on_the_move == ['settled_by_its_producer'] * 2
+    assert outcome.status == 'completed'
+    assert ended_with != 'forged'
+    assert moved is None

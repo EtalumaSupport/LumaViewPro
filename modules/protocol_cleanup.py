@@ -26,6 +26,7 @@ from modules.lumascope_api.illumination import (
     LedTransitionCtx,
     resolve_end_state,
 )
+from modules.operation import settling
 from modules.protocol_image_writer import SLOW_WRITE_BLOCKED_WARN_S, WRITE_STALL_FATAL_S
 from modules.protocol_state_machine import ProtocolState
 from modules.run_events import RunEvents, deliver
@@ -65,7 +66,7 @@ def send_run_ended(
             outcome,
             run_dir,
             protocol,
-            delivery=run.operation.settling(result=outcome),
+            delivery=settling(run.operation, result=outcome),
         )
 
     run._pending.when_settled(_send)

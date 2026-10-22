@@ -14,6 +14,7 @@ that stage has a target it must satisfy, rather than being declared done
 against a surface nobody asserted.
 """
 
+import concurrent.futures
 import pathlib
 from unittest.mock import MagicMock
 
@@ -117,7 +118,7 @@ class TestCompositeOutcomeIsObservable:
         # has ended.
         run = Operation()
         if settle:
-            run.set_result(settled.wait(timeout_s=0))
+            concurrent.futures.Future.set_result(run, settled.wait(timeout_s=0))
         runner._executor.start.return_value = run
         return runner
 

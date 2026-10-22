@@ -4566,6 +4566,33 @@ class AlreadyStartedError(Refusal, RuntimeError):
         self.reason = self._declared(reason)
 
 
+class OperationSettleRefusedError(Refusal, RuntimeError):
+    """An operation's ``set_result`` or ``set_exception`` was called by code holding it.
+
+    Only its producer settles an operation: a holder's settle would forge
+    the outcome every other holder reads, and make the producer's own settle
+    fail where it is made -- on a run's delivery, a recording's finish, a
+    move's monitor. It refuses the accident and the casual forge, not a
+    determined caller: code in the same process can settle through the base
+    class, as the producers do. Still a ``RuntimeError``, as a Future's own
+    refusal of a second settle is.
+
+    Attributes:
+        reason: ``'settled_by_its_producer'``.
+        member: The member that was called.
+    """
+
+    reason = 'settled_by_its_producer'
+    title = 'Operation Settle Refused'
+    cause = RefusalCause.REQUEST
+
+    def __init__(self, member: str):
+        super().__init__(
+            f'{member}: an operation is settled by the work that produced it, not by its holder'
+        )
+        self.member = member
+
+
 class BlockingCallRefusedError(Refusal, RuntimeError):
     """A blocking call was made on a thread it could end up waiting on.
 

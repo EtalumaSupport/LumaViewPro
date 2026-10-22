@@ -21,6 +21,7 @@ selection and the VFR pts both need. Without usable ticks the host
 arrival time is used and the manifest's timestamp grade reports it.
 """
 
+import concurrent.futures
 import datetime
 import threading
 import time
@@ -1006,7 +1007,7 @@ class ManualRecordingController:
             # last, so whoever reads its result may start the next recording.
             self._finishing = False
             self._claim.announce()
-            operation.set_result(end_reason)
+            concurrent.futures.Future.set_result(operation, end_reason)
 
     def _build_hyperstack(self) -> None:
         plan = self._plan

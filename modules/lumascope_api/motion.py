@@ -215,9 +215,9 @@ class _Move:
         """
         error = self.error()
         if error is None:
-            self.operation.set_result(None)
+            concurrent.futures.Future.set_result(self.operation, None)
         else:
-            self.operation.set_exception(error)
+            concurrent.futures.Future.set_exception(self.operation, error)
 
     def error(self) -> MoveNotCompletedError | None:
         """What ended the move: None on arrival or while unsettled, else its error."""

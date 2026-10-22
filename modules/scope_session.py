@@ -943,6 +943,28 @@ class ScopeSession:
         """
         return self.sequenced_capture_runner.held_by_other(run)
 
+    @api
+    def last_run(self) -> 'Operation | None':
+        """The last run's operation, live or ended, whoever started it; None before any run.
+
+        Every ``ProtocolRunner`` start is a run: a scan, a protocol, a
+        composite, an autofocus, a z-stack. A client that learns of a run
+        from the ``status`` edges -- one the GUI, a script or the SDK
+        started -- reads it here, and on the wire it is that run's one job,
+        whoever reads it: its progress, its outcome and its ``job_ended``,
+        which a run already ended tells at the read. Live or ended, since a
+        run goes idle before its operation settles, and one short against
+        the client's round trip would otherwise end unread. Its per-step
+        events stay with its starter.
+
+        A POST, not a read: it hands out a running call. A finished job a
+        client deleted answers 404 on its id.
+
+        Raises:
+            Nothing.
+        """
+        return self.sequenced_capture_runner.last_run_operation()
+
     # ------------------------------------------------------------------
     # Run-state facts and derivations
     #
@@ -5526,7 +5548,7 @@ class ScopeSession:
                 the scope. Nothing was taken.
         """
         skipped = Operation()
-        skipped.set_result(None)
+        concurrent.futures.Future.set_result(skipped, None)
         if disable_homing:
             logger.info('startup motion skipped: homing disabled; the turret is left where it is')
             return skipped

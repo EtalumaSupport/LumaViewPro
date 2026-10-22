@@ -10,6 +10,7 @@ the three buttons, from four states the API reports: running, stopping,
 writing the finished run's files, idle.
 """
 
+import concurrent.futures
 import sys
 import types
 from datetime import timedelta
@@ -324,7 +325,7 @@ def test_a_stop_that_finds_its_run_already_ended_shows_nothing(app_ctx, held, en
 
     panel.run_scan_from_ui()
     _live(engine)
-    run.operation.set_result(None)
+    concurrent.futures.Future.set_result(run.operation, None)
     run_task_now(held[1])
 
     assert centre_posts == []

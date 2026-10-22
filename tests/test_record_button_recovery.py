@@ -14,6 +14,7 @@ boundary, and one redraw draws the toggle from the controller. A refusal
 is a warning in the API's words, shown once.
 """
 
+import concurrent.futures
 import sys
 from types import ModuleType
 from unittest.mock import MagicMock
@@ -217,7 +218,7 @@ class TestStartOrStopIsTheApisAnswer:
         assert display._recording_poll is not None
 
         controller.is_recording = False
-        controller.recording.set_result('duration_elapsed')
+        concurrent.futures.Future.set_result(controller.recording, 'duration_elapsed')
         join_callback_thread()
 
         assert display._recording_poll is None
