@@ -293,13 +293,13 @@ def test_a_burst_of_scroll_ticks_is_one_move_of_the_last_ticks_step(monkeypatch)
             )
         ),
     )
-    monkeypatch.setattr(ui_helpers, 'move_relative', lambda axis, um, **k: moves.append((axis, um)))
+    monkeypatch.setattr(ui_helpers, 'jog_z', lambda um: moves.append(um))
     viewer = types.SimpleNamespace(_scroll_z_pending=None)
     for pending in [(1.0, False), (2.0, False), (-1.5, True)]:
         viewer._scroll_z_pending = pending
     shader.ShaderViewer._flush_scroll_z(viewer, 0)
 
-    assert moves == [('Z', -150.0)]
+    assert moves == [-150.0]
     assert steps == [True], 'the step is asked for once, at the move, with the last tick coarseness'
 
 

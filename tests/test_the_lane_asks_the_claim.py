@@ -53,9 +53,7 @@ def _submit_from_another_thread(lane, task):
 
 class TestTheRefusal:
     def test_it_is_a_refusal_written_for_the_person_and_names_the_holder(self):
-        refused = HardwareCommandRefusedError(
-            'exclusive_activity_running', 'move_absolute', 'diagnostic'
-        )
+        refused = HardwareCommandRefusedError('exclusive_activity_running', 'move_z', 'diagnostic')
         assert isinstance(refused, Refusal)
         assert refused.title
         assert 'diagnostic' in str(refused)
@@ -250,7 +248,7 @@ class TestNoLaneWorkerWaitsOnALane:
             fut = camera.put(
                 IOTask(
                     action=io.call,
-                    args=(IOTask(action=lambda: None), 'move_absolute', 5.0),
+                    args=(IOTask(action=lambda: None), 'move_z', 5.0),
                     silent_on_failure=True,
                 ),
                 return_future=True,
@@ -259,7 +257,7 @@ class TestNoLaneWorkerWaitsOnALane:
                 fut.result(timeout=_WAIT_S)
             assert (refused.value.reason, refused.value.member) == (
                 'blocking_on_worker',
-                'move_absolute',
+                'move_z',
             )
         finally:
             io.shutdown()
@@ -272,7 +270,7 @@ class TestNoLaneWorkerWaitsOnALane:
         pool.start()
         try:
             fut = pool.put(
-                IOTask(action=io.call, args=(IOTask(action=lambda: 'ran'), 'move_absolute', 5.0)),
+                IOTask(action=io.call, args=(IOTask(action=lambda: 'ran'), 'move_z', 5.0)),
                 return_future=True,
             )
             assert fut.result(timeout=_WAIT_S) == 'ran'
@@ -293,7 +291,7 @@ class TestNoLaneWorkerWaitsOnALane:
             fut = bundle.worker_pool.put(
                 IOTask(
                     action=bundle.io_executor.call,
-                    args=(IOTask(action=lambda: 'ran'), 'move_absolute', 5.0),
+                    args=(IOTask(action=lambda: 'ran'), 'move_z', 5.0),
                 ),
                 return_future=True,
             )
@@ -328,12 +326,12 @@ class TestTheSession:
     def test_a_diagnostic_moves_and_a_bystander_is_refused(self, sim_session):
         motion = sim_session.scope.motion
         with sim_session.diagnostic_claim():
-            motion.move_absolute('Z', 1000.0)
+            motion.move_z(1000.0)
             box = {}
 
             def _bystander():
                 try:
-                    motion.move_absolute('Z', 2000.0)
+                    motion.move_z(2000.0)
                 except HardwareCommandRefusedError as exc:
                     box['refused'] = exc
 
@@ -384,9 +382,7 @@ class TestTheSession:
         from rest.app import build_app
 
         with TestClient(build_app(sim_session)) as client, sim_session.diagnostic_claim():
-            answer = client.post(
-                '/api/v1/scope/motion/move_absolute', json={'axis': 'Z', 'position': 2000.0}
-            )
+            answer = client.post('/api/v1/scope/motion/move_z', json={'z_um': 2000.0})
         assert answer.status_code == 409, answer.text
         assert answer.json()['reason'] == 'exclusive_activity_running'
 
@@ -438,7 +434,7 @@ class TestTheHardwareMembersUseTheLanesDispatch:
     @pytest.mark.parametrize(
         ('lane', 'member'),
         [
-            ('camera_executor', lambda scope: scope.motion.move_absolute('Z', 1000.0)),
+            ('camera_executor', lambda scope: scope.motion.move_z(1000.0)),
             ('camera_executor', lambda scope: scope.illumination.leds_off()),
             ('io_executor', lambda scope: scope.camera.set_gain_db(1.0)),
         ],
@@ -534,17 +530,17 @@ class TestTheHoldersWorkRunsOnTheLane:
             home_sim_scope(session.scope)
             motion = session.scope.motion
             seen = {}
-            real = motion._move_absolute_impl
+            real = motion._move_z_impl
 
             def _move(*args, **kwargs):
                 seen['thread'] = threading.current_thread().name
                 return real(*args, **kwargs)
 
-            motion._move_absolute_impl = _move
+            motion._move_z_impl = _move
             fut = session.io_executor.put(
                 IOTask(
-                    action=motion.move_absolute,
-                    args=('Z', 1500.0),
+                    action=motion.move_z,
+                    args=(1500.0,),
                 ),
                 return_future=True,
             )
@@ -650,7 +646,7 @@ class TestAnInlineCallAsksTheClaim:
         def _outer():
             started.set()
             go_on.wait(_WAIT_S)
-            return lane.call(IOTask(action=lambda: 'wrote'), 'move_absolute', 5.0)
+            return lane.call(IOTask(action=lambda: 'wrote'), 'move_z', 5.0)
 
         fut = lane.put(IOTask(action=_outer, silent_on_failure=True), return_future=True)
         assert started.wait(_WAIT_S)

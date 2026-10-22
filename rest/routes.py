@@ -3,8 +3,8 @@
 
 The Session is the root: its member ``m`` is ``/api/v1/m``, and a
 sub-object reached through a read (``scope``, ``scope.motion``) is a path
-segment, so ``ScopeSession.scope.motion.move_absolute`` is
-``/api/v1/scope/motion/move_absolute``. Names are the Python names. A read
+segment, so ``ScopeSession.scope.motion.move_xy`` is
+``/api/v1/scope/motion/move_xy``. Names are the Python names. A read
 -- a property, or a method marked ``reads`` -- is ``GET``, a read method's
 arguments in the query string; a setter marked ``sets`` is ``PUT`` on its
 read's path, its arguments a JSON object by parameter name, answered with

@@ -59,7 +59,7 @@ def _protocol_bf_bf_blue(session):
     protocol = session.create_empty_protocol()
     _go_to_z(session, LAYER_FOCUS)
     for x_um in (10000, 20000):
-        session.scope.motion.move_absolute('X', x_um)
+        session.scope.motion.move_xy(x_um=x_um)
         session.set_layer_acquire('Blue', None)
         session.add_step(protocol, after_step=protocol.num_steps() - 1)
     session.set_layer_acquire('Blue', 'image')
@@ -72,7 +72,7 @@ def _protocol_bf_bf_blue(session):
 
 
 def _go_to_z(session, z):
-    session.scope.motion.move_absolute('Z', z)
+    session.scope.motion.move_z(z)
 
 
 def _zs(protocol):

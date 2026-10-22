@@ -170,7 +170,7 @@ def test_start_autofocus_reports_the_focus_and_writes_none(tmp_path):
         limits = motion.get_axis_limits('Z')
         # Mid-travel, so the sweep's window fits inside Z's travel.
         mid = (limits.min_um + limits.max_um) / 2.0
-        motion.move_absolute('Z', mid)
+        motion.move_z(mid)
         # A focus inside the sweep's window, off its start: a featureless
         # frame has no peak, and an autofocus over it fails.
         camera = session.scope._camera_driver

@@ -89,7 +89,7 @@ def main():
 
     for i in range(num_slices):
         # Move Z to target position (um); returns once Z has arrived
-        scope.motion.move_absolute('Z', z_pos_um)
+        scope.motion.move_z(z_pos_um)
 
         # Read back the actual position (um, from the push-based cache)
         actual_z_um = scope.motion.axis_positions()['Z'].position

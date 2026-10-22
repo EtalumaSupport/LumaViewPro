@@ -36,7 +36,7 @@ def test_an_edit_through_the_apis_read_is_refused_and_the_bound_holds(motion):
 
     assert motion.get_axis_limits('Z').max_um == travel_max
     with pytest.raises(PositionOutOfRangeError):
-        motion.move_absolute('Z', travel_max + 10000)
+        motion.move_z(travel_max + 10000)
 
 
 def _config_value(board):

@@ -89,7 +89,8 @@ ENROLLED = (
     'PostProcessingAPI.graph_options',
     'PostProcessingAPI.graph',
     'MotionAPI.home',
-    'MotionAPI.move_absolute',
+    'MotionAPI.move_xy',
+    'MotionAPI.move_z',
     'MotionAPI.wait_until_finished_moving',
     'CameraAPI.frame_at_binning',
     'CameraAPI.apply',
@@ -281,9 +282,9 @@ def scopes(tmp_path):
 def _over_a_well(session: ScopeSession) -> list[dict]:
     """Park over a plate position clear of the lower Z limit, and return it as a run's one position."""
     motion = session.scope.motion
-    motion.move_absolute('X', 40000.0)
-    motion.move_absolute('Y', 30000.0)
-    motion.move_absolute('Z', 1000.0)
+    motion.move_xy(x_um=40000.0)
+    motion.move_xy(y_um=30000.0)
+    motion.move_z(1000.0)
     motion.wait_until_finished_moving(timeout_s=60)
     here = session.get_current_plate_position()
     return [{'x': here.x_mm, 'y': here.y_mm, 'z': here.z_um, 'name': 'A1'}]
@@ -513,9 +514,23 @@ def _valid_rows() -> list[Valid]:
             ),
         ),
         Valid(
-            'move_absolute',
-            'MotionAPI.move_absolute',
-            lambda s: s.session.scope.motion.move_absolute('Z', 1000.0),
+            'move_xy',
+            'MotionAPI.move_xy',
+            lambda s: s.session.scope.motion.move_xy(60000.0, 40000.0),
+            lambda s, _: (
+                None
+                if all(
+                    math.isclose(s.session.scope.motion.get_actual_position(a), um, abs_tol=1.0)
+                    for a, um in (('X', 60000.0), ('Y', 40000.0))
+                )
+                else f'X, Y at {s.session.scope.motion.get_actual_position("X")}, '
+                f'{s.session.scope.motion.get_actual_position("Y")}'
+            ),
+        ),
+        Valid(
+            'move_z',
+            'MotionAPI.move_z',
+            lambda s: s.session.scope.motion.move_z(1000.0),
             lambda s, _: (
                 None
                 if math.isclose(
@@ -834,12 +849,12 @@ def _bad_rows() -> list[Bad]:
             ('/api/v1/scope/motion/home', lambda s: {'axis': 'Q'}),
         ),
         Bad(
-            'move_absolute past the travel',
-            'MotionAPI.move_absolute',
-            lambda s: s.session.scope.motion.move_absolute('Z', 1e9),
+            'move_z past the travel',
+            'MotionAPI.move_z',
+            lambda s: s.session.scope.motion.move_z(1e9),
             PositionOutOfRangeError,
             'position_out_of_range',
-            ('/api/v1/scope/motion/move_absolute', lambda s: {'axis': 'Z', 'position': 1e9}),
+            ('/api/v1/scope/motion/move_z', lambda s: {'z_um': 1e9}),
         ),
         Bad(
             # No wire row: JSON carries no NaN.
@@ -952,8 +967,8 @@ def _fault_rows() -> list[Fault]:
             # has somewhere to go after the first one was released.
             lambda s: (
                 s.session.scope.simulation.hold_axis('Z'),
-                s.session.scope.motion.start_move_absolute(
-                    'Z', s.session.scope.motion.get_actual_position('Z') + 1000.0
+                s.session.scope.motion.start_move_z(
+                    s.session.scope.motion.get_actual_position('Z') + 1000.0
                 ),
             ),
             lambda s: s.session.scope.motion.wait_until_finished_moving(timeout_s=0.2),
@@ -983,14 +998,14 @@ def _fault_rows() -> list[Fault]:
         ),
         Fault(
             # The lid stops X and Y; Z moves with it open.
-            'move_absolute X with the lid open',
-            'MotionAPI.move_absolute',
+            'move_xy X with the lid open',
+            'MotionAPI.move_xy',
             'LS720',
             lambda s: s.session.scope.simulation.interlock(lid_open=True),
-            lambda s: s.session.scope.motion.move_absolute('X', 1000.0),
+            lambda s: s.session.scope.motion.move_xy(x_um=1000.0),
             HardwareCommandRefusedError,
             'lid_open',
-            ('/api/v1/scope/motion/move_absolute', lambda s: {'axis': 'X', 'position': 1000.0}),
+            ('/api/v1/scope/motion/move_xy', lambda s: {'x_um': 1000.0}),
         ),
     ]
 

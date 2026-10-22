@@ -215,7 +215,7 @@ class TestAScriptAddsAStepThroughTheSession:
         for layer, focus in saved.items():
             session.settings[layer]['acquire'] = 'image'
             session.save_layer_focus(layer, focus)
-        session.scope.motion.move_absolute('Z', 5000.0)
+        session.scope.motion.move_z(5000.0)
         protocol = session.scope.protocols.create_protocol(
             empty_config=session.get_sequenced_capture_config()
         )
@@ -283,7 +283,7 @@ class TestAnAddCanBeAZStack:
 
     def test_the_added_steps_are_stacks_and_the_earlier_step_is_left_alone(self, session):
         _only_acquiring(session, 'BF')
-        session.scope.motion.move_absolute('Z', 5000.0)
+        session.scope.motion.move_z(5000.0)
         protocol = session.scope.protocols.create_protocol(
             empty_config=session.get_sequenced_capture_config()
         )
@@ -323,7 +323,7 @@ class TestAnAddCanBeAZStack:
         _only_acquiring(session, 'BF', 'Blue')
         _stack_settings(session, range_um=10.0, step_size_um=5.0)
         z_max = session.scope.motion.get_axis_limits('Z').max_um
-        session.scope.motion.move_absolute('Z', z_max - 1.0)
+        session.scope.motion.move_z(z_max - 1.0)
         protocol = session.scope.protocols.create_protocol(
             empty_config=session.get_sequenced_capture_config()
         )

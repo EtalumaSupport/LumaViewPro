@@ -66,7 +66,7 @@ def test_a_stop_mid_move_leaves_the_stage_short_and_at_rest(session):
     motion = session.scope.motion
     driver = motion._driver
     held = session.scope.simulation.hold_axis('X')
-    handle = motion.start_move_absolute('X', 60000.0)
+    handle = motion.start_move_xy(x_um=60000.0)
     assert held.wait(_HOLD_WAIT_S), 'the move never got part of the way'
     motion.stop_motion()
 
@@ -83,7 +83,7 @@ def test_a_stop_the_board_does_not_answer_fails_and_ends_the_move(session):
     """A STOP with no reply was taken for firmware without STOP: no raise,
     no generation moved, and a move it may have stopped read arrived."""
     motion = session.scope.motion
-    handle = motion.start_move_absolute('X', 60000.0)
+    handle = motion.start_move_xy(x_um=60000.0)
     session.scope.simulation.drop_replies('motor', count=None, command='STOP')
 
     with pytest.raises(MotorStopFailedError):
@@ -112,7 +112,7 @@ def test_a_stop_during_the_backlash_leg_ends_the_move_there(session):
     motion = session.scope.motion
     driver = motion._driver
     driver.set_timing_mode('fast')
-    motion.move_absolute('Z', 3000.0)
+    motion.move_z(3000.0)
     driver.set_timing_mode('realistic')
     sent = _wire(driver)
     final = f'TARGET_WZ{driver.z_um2ustep(1000.0)}'
@@ -120,7 +120,7 @@ def test_a_stop_during_the_backlash_leg_ends_the_move_there(session):
     held = session.scope.simulation.hold_axis('Z')
 
     def stop_during_the_leg():
-        # The leg runs inside the move's body, before start_move_absolute
+        # The leg runs inside the move's body, before start_move_z
         # returns, so the stop comes from another thread, once the leg
         # stands part of the way down.
         assert held.wait(_HOLD_WAIT_S), 'the leg never got part of the way'
@@ -128,7 +128,7 @@ def test_a_stop_during_the_backlash_leg_ends_the_move_there(session):
 
     stopper = threading.Thread(target=stop_during_the_leg)
     stopper.start()
-    handle = motion.start_move_absolute('Z', 1000.0, overshoot_enabled=True)
+    handle = motion.start_move_z(1000.0, overshoot_enabled=True)
     stopper.join()
 
     assert _reason(handle) == 'stopped'
@@ -154,7 +154,7 @@ def test_a_stop_before_the_write_withholds_it(session, monkeypatch):
         return real_send(axis, stop_generation, send, member)
 
     monkeypatch.setattr(motion, '_send_drive', a_stop_lands_first)
-    handle = motion.start_move_absolute('X', 20000.0)
+    handle = motion.start_move_xy(x_um=20000.0)
 
     assert _reason(handle) == 'stopped'
     assert not [c for c in sent if c.startswith('TARGET_WX')], sent
@@ -170,7 +170,7 @@ def test_a_move_a_stop_ended_reads_stopped_not_superseded(session, monkeypatch):
     motion = session.scope.motion
     driver = motion._driver
     held = session.scope.simulation.hold_axis('X')
-    first = motion.start_move_absolute('X', 60000.0)
+    first = motion.start_move_xy(x_um=60000.0)
     assert held.wait(_HOLD_WAIT_S), 'the first move never got part of the way'
     real_send = motion._send_drive
 
@@ -179,7 +179,7 @@ def test_a_move_a_stop_ended_reads_stopped_not_superseded(session, monkeypatch):
         return real_send(axis, stop_generation, send, member)
 
     monkeypatch.setattr(motion, '_send_drive', a_stop_lands_first)
-    second = motion.start_move_absolute('X', 10000.0)
+    second = motion.start_move_xy(x_um=10000.0)
 
     assert _reason(second) == 'stopped'
     assert _reason(first) == 'stopped'
@@ -193,7 +193,7 @@ def test_a_moves_stop_once_another_move_has_its_axis_leaves_that_move_driving(se
     is not yet done while the new move's MOVING is told to the listeners --
     a stop sent there withheld the new move's drive."""
     motion = session.scope.motion
-    first = motion.start_move_absolute('X', 60000.0)
+    first = motion.start_move_xy(x_um=60000.0)
     retargeting = threading.Event()
 
     def stop_the_first_as_the_second_is_told(axis, at):
@@ -203,7 +203,7 @@ def test_a_moves_stop_once_another_move_has_its_axis_leaves_that_move_driving(se
 
     motion.add_position_listener(stop_the_first_as_the_second_is_told)
     retargeting.set()
-    second = motion.start_move_absolute('X', 10000.0)
+    second = motion.start_move_xy(x_um=10000.0)
 
     assert not retargeting.is_set(), 'the listener never saw the second move start'
     assert _reason(first) == 'superseded'
@@ -224,7 +224,7 @@ def turret_session(tmp_path):
     )
     try:
         home_sim_scope(s.scope)
-        s.scope.motion.move_absolute('Z', 3000.0)
+        s.scope.motion.move_z(3000.0)
         s.scope.motion._driver.set_timing_mode('realistic')
         yield s
     finally:
@@ -333,7 +333,7 @@ def test_a_stop_on_firmware_without_stop_leaves_the_stage_short_and_at_rest(fiel
 
     motion.add_position_listener(seen)
     try:
-        handle = motion.start_move_absolute('X', 0.0)
+        handle = motion.start_move_xy(x_um=0.0)
         assert part_way.wait(_HOLD_WAIT_S), 'the move never got part of the way'
         motion.stop_motion()
     finally:
@@ -411,9 +411,7 @@ def test_a_door_call_queued_behind_the_lane_when_stop_is_pressed_drives_nothing(
     monkeypatch.setattr(lane, 'submit', submit_and_tell)
     x0 = motion.get_current_position('X')
     handles = []
-    asked = threading.Thread(
-        target=lambda: handles.append(motion.start_move_absolute('X', x0 + 5000.0))
-    )
+    asked = threading.Thread(target=lambda: handles.append(motion.start_move_xy(x_um=x0 + 5000.0)))
     asked.start()
     assert queued.wait(_HOLD_WAIT_S), 'the door call never queued'
     motion.stop_motion()
@@ -434,7 +432,7 @@ def test_a_gesture_queued_on_the_lane_when_stop_is_pressed_drives_nothing(fast_s
     busy = _Busy(lane)
     x0 = motion.get_current_position('X')
     handles = []
-    lane.put(IOTask(action=lambda: handles.append(motion.start_move_absolute('X', x0 + 5000.0))))
+    lane.put(IOTask(action=lambda: handles.append(motion.start_move_xy(x_um=x0 + 5000.0))))
     motion.stop_motion()
     busy.release.set()
     _drained(lane)
@@ -453,7 +451,7 @@ def test_a_request_queued_on_the_worker_pool_when_stop_is_pressed_drives_nothing
     busy = _Busy(pool)
     x0 = motion.get_current_position('X')
     handles = []
-    pool.put(IOTask(action=lambda: handles.append(motion.start_move_absolute('X', x0 + 5000.0))))
+    pool.put(IOTask(action=lambda: handles.append(motion.start_move_xy(x_um=x0 + 5000.0))))
     motion.stop_motion()
     busy.release.set()
     _drained(pool)
@@ -469,5 +467,5 @@ def test_a_move_asked_after_stop_drives(fast_session):
     motion = fast_session.scope.motion
     x0 = motion.get_current_position('X')
     motion.stop_motion()
-    assert _reason(motion.start_move_absolute('X', x0 + 5000.0)) == 'arrived'
+    assert _reason(motion.start_move_xy(x_um=x0 + 5000.0)) == 'arrived'
     assert motion.get_current_position('X') == pytest.approx(x0 + 5000.0, abs=0.1)

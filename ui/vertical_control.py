@@ -15,9 +15,9 @@ if TYPE_CHECKING:
 from modules.run_events import RunEvents
 from ui.ui_helpers import (
     go_to_bookmark,
-    move_absolute,
+    jog_z,
     move_home,
-    move_relative,
+    move_z,
     run_reported,
     run_unasked,
     show_captured_frame,
@@ -125,43 +125,38 @@ class VerticalControl(BoxLayout):
             slider.value = target
         self._write_z_text(polled)
 
-    def _z_jog(self, direction: int, coarse: bool, overshoot_enabled: bool = False):
+    def _z_jog(self, direction: int, coarse: bool):
         """Shared Z-axis jog handler.
 
         Args:
             direction: +1 for up, -1 for down.
             coarse: True for coarse step, False for fine step.
-            overshoot_enabled: Enable backlash compensation overshoot.
         """
         ctx = _app_ctx.ctx
         label = f'Z_{"COARSE" if coarse else "FINE"}_{"UP" if direction > 0 else "DOWN"}'
         gui_logger.button(label)
         logger.info(f'[LVP Main  ] VerticalControl._z_jog({label})')
         run_reported(
-            lambda: move_relative(
-                'Z',
-                direction * ctx.scope.motion.jog_step('Z', coarse),
-                overshoot_enabled=overshoot_enabled,
-            ),
+            lambda: jog_z(direction * ctx.scope.motion.jog_step('Z', coarse)),
             redraw=None,
             label=label,
         )
 
     @debounce(0.2)
-    def coarse_up(self, overshoot_enabled: bool = False):
-        self._z_jog(+1, coarse=True, overshoot_enabled=overshoot_enabled)
+    def coarse_up(self):
+        self._z_jog(+1, coarse=True)
 
     @debounce(0.2)
-    def fine_up(self, overshoot_enabled: bool = False):
-        self._z_jog(+1, coarse=False, overshoot_enabled=overshoot_enabled)
+    def fine_up(self):
+        self._z_jog(+1, coarse=False)
 
     @debounce(0.2)
-    def fine_down(self, overshoot_enabled: bool = False):
-        self._z_jog(-1, coarse=False, overshoot_enabled=overshoot_enabled)
+    def fine_down(self):
+        self._z_jog(-1, coarse=False)
 
     @debounce(0.2)
-    def coarse_down(self, overshoot_enabled: bool = False):
-        self._z_jog(-1, coarse=True, overshoot_enabled=overshoot_enabled)
+    def coarse_down(self):
+        self._z_jog(-1, coarse=True)
 
     def _queue_z_move(self, pos: float) -> None:
         """Queue the move to a committed Z value.
@@ -196,7 +191,7 @@ class VerticalControl(BoxLayout):
         self._queue_z_move(pos)
 
     def queue_slider_position(self):
-        move_absolute('Z', self._next_pos)
+        move_z(self._next_pos)
         self._next_pos = None
 
     def set_bookmark(self):

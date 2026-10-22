@@ -38,6 +38,7 @@ import time
 import traceback
 
 from harness import HARDWARE, check, figure, hardware_session, make_session, report
+from tests.motion_moves import start_axis_move
 
 STALL_WINDOW_S = 2.0
 MOVE_TIMEOUT_S = 5.0
@@ -101,7 +102,7 @@ def _hold_while_moving(motion, reads, axis, target):
     """Drive ``axis`` to ``target`` and return the longest hold of its reading on the way."""
     _refuse_unless_z_is_down(motion, axis)
     start = time.monotonic()
-    _arrive(motion, motion.start_move_absolute(axis, target))
+    _arrive(motion, start_axis_move(motion, axis, target))
     took = time.monotonic() - start
     samples = [(t, v) for t, a, v in list(reads) if a == axis and t >= start]
     return _longest_hold_s(samples), took, len(samples)
@@ -149,7 +150,7 @@ def _stop_mid_move(session):
     figure('board answers STOP', driver.supports_motor_stop())
     low, target = CENTRE['X'] - SPAN_UM, CENTRE['X'] + SPAN_UM
     _refuse_unless_z_is_down(motion, 'X')
-    _arrive(motion, motion.start_move_absolute('X', low))
+    _arrive(motion, motion.start_move_xy(x_um=low))
     part_way = low + 0.3 * (target - low)
     reached = threading.Event()
 
@@ -159,7 +160,7 @@ def _stop_mid_move(session):
 
     motion.add_position_listener(seen)
     try:
-        handle = motion.start_move_absolute('X', target)
+        handle = motion.start_move_xy(x_um=target)
         if not check('X got part of the way', reached.wait(MOVE_TIMEOUT_S)):
             motion.stop_motion()
             raise RuntimeError('X never got part of the way; stopped')
@@ -208,7 +209,7 @@ def main():
 
     with session_cm as (session, _runner):
         motion = session.scope.motion
-        _arrive(motion, motion.start_move_absolute('Z', 0.0), timeout_s=30.0)
+        _arrive(motion, motion.start_move_z(0.0), timeout_s=30.0)
         check('Z is at 0 before any X or Y move', abs(motion.get_current_position('Z')) < 1.0)
         CENTRE.update({a: motion.get_current_position(a) for a in ('X', 'Y')})
         figure('X, Y where the home left them um', (round(CENTRE['X']), round(CENTRE['Y'])))

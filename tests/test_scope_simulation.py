@@ -62,10 +62,10 @@ def _refused(call, *args, **kwargs) -> ArgumentRefusedError:
 def test_a_dropped_position_read_refuses_the_z_move_that_needed_it(scope):
     """The backlash leg reads Z's position first; with no reply the move is
     refused before anything is written."""
-    scope.motion.move_absolute('Z', 3000.0)
+    scope.motion.move_z(3000.0)
     scope.simulation.drop_replies('motor', command='ACTUAL_RZ')
     with pytest.raises(HardwareCommandRefusedError) as refused:
-        scope.motion.move_absolute('Z', 1000.0, overshoot_enabled=True)
+        scope.motion.move_z(1000.0, overshoot_enabled=True)
     assert refused.value.reason == 'position_unread'
 
 
@@ -97,7 +97,7 @@ def test_an_unplugged_motor_board_refuses_a_z_move_then_reads_not_connected(scop
     reconnect, which is not the simulator's."""
     scope.simulation.unplug('motor')
     with pytest.raises(HardwareCommandRefusedError) as refused:
-        scope.motion.move_absolute('Z', 1000.0, overshoot_enabled=True)
+        scope.motion.move_z(1000.0, overshoot_enabled=True)
     assert refused.value.reason == 'position_unread'
     assert not scope.motor_connected
 
@@ -117,7 +117,7 @@ def test_a_held_axis_never_arrives_and_its_move_is_not_completed(scope, monkeypa
     monkeypatch.setattr(scope.motion, '_MOVE_STALL_WINDOW_S', 0.3)
     scope.simulation.hold_axis('X')
     with pytest.raises(MoveNotCompletedError) as not_completed:
-        scope.motion.move_absolute('X', 20_000.0)
+        scope.motion.move_xy(x_um=20_000.0)
     assert not_completed.value.reason == 'stalled'
     assert 0.0 < scope.motion.get_actual_position('X') < 20_000.0
 
@@ -253,7 +253,7 @@ def test_injected_lists_what_was_asked_and_clear_takes_it_all_back(scope):
 
 def test_a_held_axis_says_when_it_halted_and_clear_releases_it(scope):
     halted = scope.simulation.hold_axis('X')
-    handle = scope.motion.start_move_absolute('X', 20_000.0)
+    handle = scope.motion.start_move_xy(x_um=20_000.0)
     assert halted.wait(10.0), 'the held move never halted'
     assert 0.0 < scope.motion.get_actual_position('X') < 20_000.0
     scope.simulation.clear()
@@ -315,10 +315,10 @@ def test_a_rebooting_board_fails_a_read_as_a_dead_port(firmware_scope):
 def test_the_ls720s_open_lid_refuses_an_x_move_until_cleared(ls720):
     ls720.simulation.interlock(lid_open=True)
     with pytest.raises(HardwareCommandRefusedError) as refused:
-        ls720.motion.move_absolute('X', 1_000)
+        ls720.motion.move_xy(x_um=1_000)
     assert refused.value.reason == 'lid_open'
     ls720.simulation.clear()
-    ls720.motion.move_absolute('X', 1_000)
+    ls720.motion.move_xy(x_um=1_000)
 
 
 def test_the_ls720_fails_a_home_by_its_switch_only(ls720):

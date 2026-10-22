@@ -144,7 +144,7 @@ def test_a_move_whose_arrival_is_never_read_ends_status_unread(make_session, cen
     scope.simulation.drop_replies('motor', count=None, command='STATUS_RZ')
 
     with caplog.at_level(logging.WARNING, logger='LVP.api'):
-        move = motion.start_move_relative('Z', 50.0)
+        move = motion.start_move_z_by(50.0)
         # The monitor ends the move, and the move raises the object it reported.
         with pytest.raises(MoveNotCompletedError) as exc:
             move.result(timeout=5.0)

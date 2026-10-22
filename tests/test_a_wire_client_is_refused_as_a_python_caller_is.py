@@ -155,8 +155,8 @@ def test_a_move_another_request_stopped_answers_409_as_a_notice(client, session)
     home_sim_scope(session.scope)
     held = session.scope.simulation.hold_axis('X')
     started = client.post(
-        '/api/v1/scope/motion/move_absolute',
-        json={'axis': 'X', 'position': 60000},
+        '/api/v1/scope/motion/move_xy',
+        json={'x_um': 60000},
         headers={'Prefer': 'wait=0'},
     )
     assert started.status_code == 202
@@ -210,7 +210,8 @@ def test_a_refusal_carries_the_fields_its_type_publishes(client, session, monkey
 
 def test_a_name_that_is_no_axis_answers_with_the_names_the_member_takes(client):
     body = _problem(
-        client.post('/api/v1/scope/motion/move_absolute', json={'axis': 'x', 'position': 0}), 422
+        client.post('/api/v1/scope/motion/set_precision_mode', json={'axis': 'x', 'enabled': True}),
+        422,
     )
 
     assert (body['reason'], body['argument'], body['offered']) == (
@@ -398,7 +399,9 @@ def test_an_invalid_body_names_each_argument_that_does_not_fit(client):
 def test_the_openapi_declares_every_answer_that_is_not_a_result_as_a_problem(client):
     openapi = client.get('/api/v1/openapi.json').json()
     operations = [op for path in openapi['paths'].values() for op in path.values()]
-    refused = client.post('/api/v1/scope/motion/move_absolute', json={'axis': 'x', 'position': 0})
+    refused = client.post(
+        '/api/v1/scope/motion/set_precision_mode', json={'axis': 'x', 'enabled': True}
+    )
 
     # Every route keeps the ranges; a status its member declares (its
     # Raises: section) is a problem too.

@@ -441,12 +441,11 @@ class ScopeDisplay(Image):
                     f'dx_um={x_dist_um:.1f} dy_um={y_dist_um:.1f} pixel_um={pixel_size_um:.3f}',
                 )
                 # One click, one lane task: both axes asked about once, then
-                # both moves.
+                # one XY request, refused whole or driven whole.
                 motion = _app_ctx.ctx.scope.motion
 
                 def moves():
-                    motion.start_move_relative('X', x_dist_um, overshoot_enabled=True)
-                    motion.start_move_relative('Y', y_dist_um, overshoot_enabled=True)
+                    motion.start_move_xy_by(x_dist_um, y_dist_um)
 
                 submit_gesture(
                     'SCOPE_CLICK_TO_CENTER', axes=('X', 'Y'), then='move the stage', moves=moves

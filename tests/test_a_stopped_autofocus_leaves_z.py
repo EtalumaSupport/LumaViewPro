@@ -27,9 +27,7 @@ from tests.test_a_stop_press_ends_the_live_run import (  # noqa: F401 (the fixtu
 def _z_moves(scope):
     """Every absolute Z move autofocus issued, started or waited, in order."""
     return [
-        call.args[1]
-        for call in scope.motion.mock_calls
-        if call[0] in ('start_move_absolute', 'move_absolute') and call.args and call.args[0] == 'Z'
+        call.args[0] for call in scope.motion.mock_calls if call[0] in ('start_move_z', 'move_z')
     ]
 
 

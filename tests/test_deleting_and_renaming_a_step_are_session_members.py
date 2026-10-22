@@ -43,7 +43,7 @@ def _three_bf_steps(session):
     session.settings['BF']['acquire'] = 'image'
     protocol = session.create_empty_protocol()
     for x_um in (10000, 20000, 30000):
-        session.scope.motion.move_absolute('X', x_um)
+        session.scope.motion.move_xy(x_um=x_um)
         session.add_step(protocol, after_step=protocol.num_steps() - 1)
     return protocol
 

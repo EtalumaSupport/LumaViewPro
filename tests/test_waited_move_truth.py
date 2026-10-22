@@ -41,7 +41,7 @@ def _z_target(motion):
 
 def test_a_waited_move_that_arrives_returns_idle(session):
     motion = session.scope.motion
-    motion.move_absolute('Z', _z_target(motion))
+    motion.move_z(_z_target(motion))
     assert motion.get_axis_state('Z') == AxisState.IDLE
 
 
@@ -54,7 +54,7 @@ def test_a_stalled_waited_move_raises_and_the_axis_stays_unknown(session, monkey
     monkeypatch.setattr(motion, '_MOVE_STALL_WINDOW_S', 0.3)
 
     with pytest.raises(MoveNotCompletedError) as exc:
-        motion.move_absolute('Z', _z_target(motion))
+        motion.move_z(_z_target(motion))
 
     assert exc.value.axis == 'Z'
     assert motion.get_axis_state('Z') == AxisState.UNKNOWN
@@ -72,7 +72,7 @@ def test_a_board_lost_during_the_wait_raises_board_lost(session, monkeypatch):
     monkeypatch.setattr(motion, '_DISCONNECT_FAULT_S', 0.1)
 
     with pytest.raises(MoveNotCompletedError) as exc:
-        motion.move_absolute('Z', _z_target(motion))
+        motion.move_z(_z_target(motion))
 
     assert exc.value.axis == 'Z'
     assert exc.value.reason == 'board_lost'
@@ -105,7 +105,7 @@ def test_another_axis_timing_out_does_not_fail_an_arrived_move(session, monkeypa
     # wait times out on X while Z arrives.
     motion._set_axis_state('X', AxisState.HOMING)
     try:
-        motion.move_absolute('Z', _z_target(motion))
+        motion.move_z(_z_target(motion))
         assert motion.get_axis_state('Z') == AxisState.IDLE
         assert motion.get_axis_state('X') == AxisState.HOMING
     finally:

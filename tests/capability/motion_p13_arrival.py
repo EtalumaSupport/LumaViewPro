@@ -29,6 +29,7 @@ import traceback
 from harness import HARDWARE, check, figure, hardware_session, make_session, report
 
 from modules.exceptions import MoveStoppedError
+from tests.motion_moves import axis_move, start_axis_move
 
 # How far below the top, and above the lowest leg target, the full-travel
 # move starts and ends, um: inside the travel, so no limit refuses it.
@@ -37,7 +38,7 @@ _MARGIN_UM = 50.0
 
 def _timed_move(m, axis, position, **kwargs):
     start = time.perf_counter()
-    m.move_absolute(axis, position, **kwargs)
+    axis_move(m, axis, position, **kwargs)
     return round(time.perf_counter() - start, 3)
 
 
@@ -53,9 +54,9 @@ def _held_against_the_board(m, axis):
 def _retarget(m, axis, first, second, **kwargs):
     # The second is started once the board has taken the first, while the
     # first still has its axis.
-    one = m.start_move_absolute(axis, first, **kwargs)
+    one = start_axis_move(m, axis, first, **kwargs)
     check(f'{axis}: the first move is still under way at the retarget', not one.done())
-    two = m.start_move_absolute(axis, second, **kwargs)
+    two = start_axis_move(m, axis, second, **kwargs)
     try:
         one.result()
         check(f'{axis}: the first move is superseded', False, 'it arrived')
@@ -87,12 +88,12 @@ def _measure(session):
     x, y = m.get_axis_limits('X'), m.get_axis_limits('Y')
     x_mid, y_mid = (x.min_um + x.max_um) / 2, (y.min_um + y.max_um) / 2
     for axis, position in (('X', x_mid), ('Y', y_mid), ('Z', (z.min_um + z.max_um) / 2)):
-        m.move_absolute(axis, position)
+        axis_move(m, axis, position)
         _held_against_the_board(m, axis)
 
     _retarget(m, 'X', x.max_um - _MARGIN_UM, x_mid + 2000.0)
     # Up first, so the retarget's first move is a downward one with a leg.
-    m.move_absolute('Z', top)
+    m.move_z(top)
     _retarget(m, 'Z', lowest_with_leg, (z.min_um + z.max_um) / 2, overshoot_enabled=True)
 
 

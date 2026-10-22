@@ -66,7 +66,7 @@ def main():
     print('BF LED set to 100 mA')
 
     # Move Z axis to 5000 um; returns once the move has arrived
-    scope.motion.move_absolute('Z', 5000)
+    scope.motion.move_z(5000)
 
     # Read the target Z position (returns um): the 5000 commanded, not
     # the polled position a microstep off it. Zero serial I/O.

@@ -85,9 +85,9 @@ def _between(scope, monkeypatch, command) -> tuple[int, list[int]]:
 def scope(sim_turreted_session):
     scope = sim_turreted_session.scope
     scope.motion.move_turret(1)
-    scope.motion.move_absolute('X', 20_000.0)
-    scope.motion.move_absolute('Y', 20_000.0)
-    scope.motion.move_absolute('Z', 3_000.0)
+    scope.motion.move_xy(x_um=20_000.0)
+    scope.motion.move_xy(y_um=20_000.0)
+    scope.motion.move_z(3_000.0)
     return scope
 
 
@@ -108,8 +108,8 @@ def test_going_to_a_step_on_another_objective_returns_no_frame_from_between_its_
     protocol = session.create_empty_protocol()
     session.add_step(protocol)
     scope.motion.move_turret(2)
-    scope.motion.move_absolute('X', 23_000.0)
-    scope.motion.move_absolute('Z', 2_500.0)
+    scope.motion.move_xy(x_um=23_000.0)
+    scope.motion.move_z(2_500.0)
     session.add_step(protocol)
     session.go_to_step(protocol, 0)
     _load_the_host(monkeypatch, scope.motion)
@@ -124,8 +124,8 @@ def _click(motion, x_um, y_um) -> None:
     """X then Y as one command, as the stage map's click moves them."""
     with motion.one_command(('X', 'Y'), then='move the stage'):
         moves = (
-            motion.start_move_absolute('X', x_um),
-            motion.start_move_absolute('Y', y_um),
+            motion.start_move_xy(x_um=x_um),
+            motion.start_move_xy(y_um=y_um),
         )
     for move in moves:
         move.result(timeout=_WAIT_S)

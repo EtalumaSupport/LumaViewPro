@@ -106,7 +106,7 @@ def test_going_to_a_step_holding_an_out_of_range_value_starts_no_move_and_stores
     )
     protocol = session.load_protocol(str(edited))
     # Away from the step, so going to it would move X.
-    session.scope.motion.move_relative('X', 1000)
+    session.scope.motion.move_xy_by(dx_um=1000)
     before = session.get_settings_snapshot()
     position = session.scope.motion.get_target_position('X')
 

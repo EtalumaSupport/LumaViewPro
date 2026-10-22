@@ -50,7 +50,7 @@ def test_the_empty_field_sweep_has_no_peak_the_fit_trusts():
 
 
 def _z_moves(scope):
-    return [c.args[1] for c in scope.motion.start_move_absolute.call_args_list if c.args[0] == 'Z']
+    return [c.args[0] for c in scope.motion.start_move_z.call_args_list]
 
 
 def test_a_final_pass_with_no_trusted_peak_fails_and_moves_to_no_focus():

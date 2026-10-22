@@ -9,7 +9,7 @@ says it went where it was told. The turret has no travel: its bound is
 its four slots, and a refusal names them, never a distance.
 
 Every case drives the simulated LS850T through the public movers,
-``move_absolute`` and ``move_turret``, so the travel the check reads is
+``move_xy``, ``move_z`` and ``move_turret``, so the travel the check reads is
 what the scope's own driver publishes.
 """
 
@@ -23,6 +23,7 @@ from modules.exceptions import (
 from modules.lumascope_api._constants import MOTOR_POSITION_LIMIT
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
+from tests.motion_moves import axis_move
 
 # The LS850T's travel, in um, from the shipped motor defaults. Written out
 # rather than read back so a defaults change fails this file loudly instead
@@ -79,7 +80,7 @@ def test_out_of_travel_is_refused_and_nothing_is_driven(motion, axis, position):
     target_before = motion.get_target_position(axis)
 
     with pytest.raises(PositionOutOfRangeError) as caught:
-        motion.move_absolute(axis, position)
+        axis_move(motion, axis, position)
 
     assert (caught.value.axis, caught.value.bound) == (axis, 'travel range')
     assert motion.get_target_position(axis) == target_before
@@ -92,10 +93,10 @@ def test_out_of_travel_is_refused_and_nothing_is_driven(motion, axis, position):
 def test_in_travel_and_the_boundaries_are_allowed(motion, axis, position):
     """The limits are inclusive; refusing an endpoint would strand the stage at it.
 
-    ``move_absolute`` returns once the axis has arrived, so returning is
+    A waited move returns once the axis has arrived, so returning is
     how "allowed" is observed; the target it wrote is the number asked for.
     """
-    motion.move_absolute(axis, position)
+    axis_move(motion, axis, position)
 
     assert motion.get_target_position(axis) == position
     assert motion.get_current_position(axis) == pytest.approx(position, abs=1.0)
@@ -107,7 +108,7 @@ def test_an_absent_axis_is_refused_before_its_travel_is_judged(tmp_path):
     session = ScopeSession.create(settings, simulate=True)
     try:
         with pytest.raises(HardwareCommandRefusedError) as caught:
-            session.scope.motion.move_absolute('X', 999999.0)
+            session.scope.motion.move_xy(x_um=999999.0)
 
         assert caught.value.reason == 'axis_absent'
     finally:
@@ -133,7 +134,7 @@ def test_a_slot_the_turret_does_not_have_is_refused_before_z_is_parked(motion, s
     park that precedes a real turret move, so Z stays where it was and
     the slot on record is unchanged.
     """
-    motion.move_absolute('Z', 1000.0)
+    motion.move_z(1000.0)
     slot_before = motion.get_turret_slot()
 
     with pytest.raises(PositionOutOfRangeError) as caught:

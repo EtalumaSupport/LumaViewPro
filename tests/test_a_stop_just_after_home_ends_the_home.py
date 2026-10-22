@@ -41,8 +41,8 @@ def homed(request):
     record_turret_answer(s)
     bind_settings_like_a_session(s, objective_id='10x Oly', stage_offset={'x': 5500.0, 'y': 4000.0})
     s.motion.home()
-    s.motion.move_absolute('X', 30_000)
-    s.motion.move_absolute('Z', 2_000)
+    s.motion.move_xy(x_um=30_000)
+    s.motion.move_z(2_000)
     yield s
     s.disconnect()
 

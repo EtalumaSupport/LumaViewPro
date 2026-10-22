@@ -93,7 +93,7 @@ def main():
         # objective's window.
         motion = session.scope.motion
         z_limits = motion.get_axis_limits('Z')
-        motion.move_absolute('Z', (z_limits.min_um + z_limits.max_um) / 2)
+        motion.move_z((z_limits.min_um + z_limits.max_um) / 2)
         figure('Z start um', motion.get_current_position('Z'))
         current_ma = float(session.settings[LAYER]['illumination_ma'])
         figure(f'{LAYER} saved current mA', current_ma)

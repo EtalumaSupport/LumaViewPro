@@ -251,7 +251,7 @@ def test_a_start_that_outlives_the_clients_wait_is_one_job_its_operation(
     """The client is handed the operation's own job, never a job of the call around it."""
     home_sim_scope(session.scope)
     reached, release = threading.Event(), threading.Event()
-    real = session.scope.motion.start_move_relative
+    real = session.scope.motion.start_move_z_by
 
     def dispatched_once_released(*args, **kwargs):
         reached.set()
@@ -260,11 +260,11 @@ def test_a_start_that_outlives_the_clients_wait_is_one_job_its_operation(
 
     # a stand-in by design: holds the start past the client's wait; the
     # simulated board dispatches a move at once.
-    monkeypatch.setattr(session.scope.motion, 'start_move_relative', dispatched_once_released)
+    monkeypatch.setattr(session.scope.motion, 'start_move_z_by', dispatched_once_released)
     poster, answers = _posted(
         client,
-        '/api/v1/scope/motion/start_move_relative',
-        json={'axis': 'Z', 'distance': 10.0},
+        '/api/v1/scope/motion/start_move_z_by',
+        json={'dz_um': 10.0},
         headers={'Prefer': 'wait=0'},
     )
     assert reached.wait(10)
@@ -541,9 +541,7 @@ def test_a_call_that_hands_out_a_job_is_refused_while_the_limit_of_jobs_runs(
     # second call, and that call would be the one job running, not refused.
     home_sim_scope(session.scope)
     held = session.scope.simulation.hold_axis('Z')
-    first = client.post(
-        '/api/v1/scope/motion/start_move_relative', json={'axis': 'Z', 'distance': 100.0}
-    ).json()
+    first = client.post('/api/v1/scope/motion/start_move_z_by', json={'dz_um': 100.0}).json()
     assert held.wait(10), 'the first job never got part of the way'
     monkeypatch.setattr(rest.jobs, 'LIVE_LIMIT', 1)
 

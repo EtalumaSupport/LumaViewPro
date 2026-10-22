@@ -33,7 +33,7 @@ def park_z(scope, z: float) -> None:
     that wants a sweep (or a later exit path) starts it where its window
     fits.
     """
-    scope.motion.move_absolute('Z', z)
+    scope.motion.move_z(z)
     while scope.motion.is_moving():
         time.sleep(0.01)
 

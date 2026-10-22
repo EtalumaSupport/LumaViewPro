@@ -60,7 +60,7 @@ def _refuse(reason, *, moved=False, stopped=True):
 
 class TestTheRefusalsWords:
     def test_each_interlock_reason_has_its_title_and_words(self):
-        lid = HardwareCommandRefusedError('lid_open', 'move_absolute')
+        lid = HardwareCommandRefusedError('lid_open', 'move_xy')
         power = HardwareCommandRefusedError('stage_unpowered', 'home')
 
         assert (lid.title, str(lid)) == ('Lid Open', LID_WORDS)
@@ -79,12 +79,12 @@ class TestTheRefusalsWords:
 
 
 class TestAMoveTheLidRefuses:
-    @pytest.mark.parametrize('member', ['move_absolute', 'move_relative'])
+    @pytest.mark.parametrize('member', ['move_xy', 'move_xy_by'])
     def test_is_refused_naming_the_lid_and_the_axis_stays_known(self, scope, monkeypatch, member):
         monkeypatch.setattr(scope._motion_driver, 'move_abs_pos', _refuse('lid_open'))
 
         with pytest.raises(HardwareCommandRefusedError) as raised:
-            getattr(scope.motion, member)('X', 1000.0)
+            getattr(scope.motion, member)(1000.0)
 
         assert (raised.value.reason, raised.value.member) == ('lid_open', member)
         assert isinstance(raised.value.__cause__, MotionInterlockError)
@@ -97,7 +97,7 @@ class TestAMoveTheLidRefuses:
         board = scope._motion_driver
         board.set_timing_mode('realistic')
         start_z = scope.motion.get_current_position('Z')
-        scope.motion.start_move_absolute('Z', start_z + 2000.0)
+        scope.motion.start_move_z(start_z + 2000.0)
         assert scope.motion.get_axis_state('Z') == AxisState.MOVING
 
         def lid_open_stops_every_motor(*args, **kwargs):
@@ -110,7 +110,7 @@ class TestAMoveTheLidRefuses:
 
         monkeypatch.setattr(board, 'move_abs_pos', lid_open_stops_every_motor)
         with pytest.raises(HardwareCommandRefusedError):
-            scope.motion.move_absolute('X', 1000.0)
+            scope.motion.move_xy(x_um=1000.0)
 
         scope.motion.wait_until_finished_moving(timeout_s=10)
         assert scope.motion.get_axis_state('Z') == AxisState.IDLE
@@ -126,7 +126,7 @@ class TestAMoveTheLidRefuses:
         board = scope._motion_driver
         board.set_timing_mode('realistic')
         start_z = scope.motion.get_current_position('Z')
-        scope.motion.start_move_absolute('Z', start_z + 2000.0)
+        scope.motion.start_move_z(start_z + 2000.0)
         assert scope.motion.get_axis_state('Z') == AxisState.MOVING
 
         def lid_open_stops_every_motor(*args, **kwargs):
@@ -137,7 +137,7 @@ class TestAMoveTheLidRefuses:
 
         monkeypatch.setattr(board, 'move_abs_pos', lid_open_stops_every_motor)
         with pytest.raises(HardwareCommandRefusedError):
-            scope.motion.move_absolute('Z', start_z + 1000.0)
+            scope.motion.move_z(start_z + 1000.0)
 
         scope.motion.wait_until_finished_moving(timeout_s=5)
         assert scope.motion.get_axis_state('Z') == AxisState.IDLE
@@ -148,7 +148,7 @@ class TestAMoveTheLidRefuses:
         monkeypatch.setattr(scope._motion_driver, 'move_abs_pos', _refuse('lid_open', moved=True))
 
         with pytest.raises(MoveNotCompletedError) as raised:
-            scope.motion.move_absolute('X', 1000.0)
+            scope.motion.move_xy(x_um=1000.0)
 
         assert raised.value.reason == 'driver_failed'
         assert scope.motion.get_axis_state('X') == AxisState.UNKNOWN
@@ -253,7 +253,7 @@ class TestALidOpenedDuringAMove:
             # The X move lasts about 0.5 s of wall time on the simulator; the
             # monitor polls at 50 Hz, so its first poll comes well before arrival.
             driver.target_status = lid_opens_at_the_first_poll
-            move = ls720.motion.start_move_absolute('X', far)
+            move = ls720.motion.start_move_xy(x_um=far)
 
             with pytest.raises(MoveStoppedError) as ended:
                 move.result()

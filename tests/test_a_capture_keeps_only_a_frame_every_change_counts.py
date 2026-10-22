@@ -114,7 +114,7 @@ def test_a_capture_no_frame_counts_for_raises_naming_the_change(sim_scope, monke
     with the change in a person's words, never returning the old frame."""
     frame_validity = sim_scope.imaging.frame_validity
     sim_scope.motion.home('Z')
-    sim_scope.motion.move_absolute('Z', sim_scope.motion.get_current_position('Z') + 50.0)
+    sim_scope.motion.move_z(sim_scope.motion.get_current_position('Z') + 50.0)
     judgments = frame_validity.judgments
 
     # a stand-in by design: a frame every count and settle says is fresh, yet
@@ -140,7 +140,7 @@ def test_a_frame_an_excluded_change_does_not_count_for_is_kept(sim_scope, monkey
     count for: the frame can predate it, as the exclusion says."""
     frame_validity = sim_scope.imaging.frame_validity
     sim_scope.motion.home('Z')
-    sim_scope.motion.move_absolute('Z', sim_scope.motion.get_current_position('Z') + 50.0)
+    sim_scope.motion.move_z(sim_scope.motion.get_current_position('Z') + 50.0)
     judgments = frame_validity.judgments
 
     # a stand-in by design, as above.

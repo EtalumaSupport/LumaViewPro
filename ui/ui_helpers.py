@@ -420,36 +420,22 @@ def xy_gestures_offered() -> bool:
     )
 
 
-def move_absolute(
-    axis: str,
-    position: float,
-    overshoot_enabled: bool = True,
-):
-    """Start an axis moving for a person's gesture, keeping the gesture lock in one place.
+def move_z(position: float):
+    """Start Z moving to a place for a person's gesture, keeping the gesture lock in one place.
 
     Started, not waited: a gesture returns at once, and a move that fails
-    on the way is the motion monitor's to report.
-
-    A turret slot goes to the turret widget, which asks the API to move and
-    then shows where the API says the turret is.
+    on the way is the motion monitor's to report. The approach is the
+    API's (``MotionAPI.start_move_z``).
     """
     ctx = _app_ctx.ctx
 
-    if _user_motion_locked(axis):
-        return
-
-    if axis == 'T':
-        ctx.motion_settings.ids['verticalcontrol_id'].turret_select(position)
+    if _user_motion_locked('Z'):
         return
 
     submit_reported(
-        lambda: ctx.scope.motion.start_move_absolute(
-            axis,
-            position,
-            overshoot_enabled=overshoot_enabled,
-        ),
-        lambda: _handle_ui_update_for_axis(axis=axis),
-        f'MOVE_{axis}',
+        lambda: ctx.scope.motion.start_move_z(position),
+        lambda: _handle_ui_update_for_axis(axis='Z'),
+        'MOVE_Z',
         lane=ctx.io_executor,
     )
 
@@ -482,19 +468,29 @@ def go_to_bookmark(label: str, axes: tuple[str, ...]) -> None:
     )
 
 
-def move_relative(axis: str, distance: float, overshoot_enabled: bool = True):
-    """Start an axis jogging for a person's gesture; started, not waited, as ``move_absolute``."""
-    if _user_motion_locked(axis):
+def jog_xy(dx_um: float | None = None, dy_um: float | None = None):
+    """Start X or Y jogging for a person's gesture; started, not waited, as ``move_z``."""
+    axes = ''.join(axis for axis, d in (('X', dx_um), ('Y', dy_um)) if d is not None)
+    if _user_motion_locked(axes):
         return
     ctx = _app_ctx.ctx
     submit_reported(
-        lambda: ctx.scope.motion.start_move_relative(
-            axis,
-            distance,
-            overshoot_enabled=overshoot_enabled,
-        ),
-        lambda: _handle_ui_update_for_axis(axis=axis),
-        f'JOG_{axis}',
+        lambda: ctx.scope.motion.start_move_xy_by(dx_um, dy_um),
+        lambda: _handle_ui_update_for_axis(axis='XY'),
+        f'JOG_{axes}',
+        lane=ctx.io_executor,
+    )
+
+
+def jog_z(dz_um: float):
+    """Start Z jogging for a person's gesture; started, not waited, as ``move_z``."""
+    if _user_motion_locked('Z'):
+        return
+    ctx = _app_ctx.ctx
+    submit_reported(
+        lambda: ctx.scope.motion.start_move_z_by(dz_um),
+        lambda: _handle_ui_update_for_axis(axis='Z'),
+        'JOG_Z',
         lane=ctx.io_executor,
     )
 

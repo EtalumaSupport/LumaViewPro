@@ -25,7 +25,12 @@ import logging
 import pandas as pd
 import pytest
 
-from modules.exceptions import ArgumentRefusedError, AxisStateUnknownError, ProtocolRunRefusedError
+from modules.exceptions import (
+    ArgumentRefusedError,
+    AxisStateUnknownError,
+    PositionOutOfRangeError,
+    ProtocolRunRefusedError,
+)
 from modules.lumascope_api.illumination import LedState
 from modules.protocol import Protocol, StepNotFoundError
 from modules.scope_session import ScopeSession
@@ -100,17 +105,22 @@ def _spy_moves(monkeypatch, built: ScopeSession) -> list:
     """Every move the Session commands, recorded before the motion API sees it."""
     moves = []
     motion = built.scope.motion
-    real_absolute, real_turret = motion.move_absolute, motion.move_turret
+    real_xy, real_z, real_turret = motion.start_move_xy, motion.start_move_z, motion.move_turret
 
-    def absolute(axis, position, *args, **kwargs):
-        moves.append((axis, position))
-        return real_absolute(axis, position, *args, **kwargs)
+    def xy(x_um=None, y_um=None, *args, **kwargs):
+        moves.extend((axis, um) for axis, um in (('X', x_um), ('Y', y_um)) if um is not None)
+        return real_xy(x_um, y_um, *args, **kwargs)
+
+    def z(z_um, *args, **kwargs):
+        moves.append(('Z', z_um))
+        return real_z(z_um, *args, **kwargs)
 
     def turret(position, *args, **kwargs):
         moves.append(('T', position))
         return real_turret(position, *args, **kwargs)
 
-    monkeypatch.setattr(motion, 'move_absolute', absolute)
+    monkeypatch.setattr(motion, 'start_move_xy', xy)
+    monkeypatch.setattr(motion, 'start_move_z', z)
     monkeypatch.setattr(motion, 'move_turret', turret)
     return moves
 
@@ -171,6 +181,34 @@ class TestTheMove:
         # landed elsewhere: the assertion above is not vacuous.
         on_selected_plate = session.scope.runtime_state.plate_to_stage(60.0, 40.0)
         assert abs(on_selected_plate.x_um - on_protocol_plate[0]) > 100.0
+
+    def test_the_spy_sees_x_and_y_as_one_request_then_z(self, session, monkeypatch):
+        """The refusal tests below assert the spy saw nothing; this is what it sees of a step."""
+        moves = _spy_moves(monkeypatch, session)
+        protocol = _protocol(_PLATE, _step(60.0, 40.0, 5000.0, _objective_of(session)))
+
+        session.go_to_step(protocol, 0)
+
+        assert [axis for axis, _ in moves] == ['X', 'Y', 'Z']
+
+    def test_a_step_whose_y_is_past_travel_moves_neither_x_nor_y(self, session):
+        """X and Y are one request: Y refused leaves X where it was, not at the step's X.
+
+        A step written on a larger stage loads with a Y this stage cannot reach.
+        """
+        motion = session.scope.motion
+        motion.move_xy(60_000.0, 40_000.0)
+        protocol = _protocol(_PLATE, _step(30.0, -20.0, 5000.0, _objective_of(session)))
+
+        with pytest.raises(PositionOutOfRangeError) as refused:
+            session.go_to_step(protocol, 0)
+
+        assert (refused.value.reason, refused.value.axis) == ('position_out_of_range', 'Y')
+        motion.wait_until_finished_moving(timeout_s=_MOVE_WAIT_S)
+        assert (motion.get_target_position('X'), motion.get_target_position('Y')) == (
+            60_000.0,
+            40_000.0,
+        )
 
     def test_the_turret_turns_to_the_slot_carrying_the_steps_objective(self, turret_session):
         slots = {obj: slot for slot, obj in TEST_TURRET_OBJECTIVES.items() if obj}
@@ -320,7 +358,7 @@ class TestOneTargetComputation:
 
     def test_the_gui_navigation_moves_no_axis_itself(self):
         called = self._called_attrs(parse_module('ui/step_navigation.py'))
-        assert not called & {'move_absolute', 'move_turret', *self._OWN}, (
+        assert not called & {'start_move_xy', 'start_move_z', 'move_turret', *self._OWN}, (
             'ui/step_navigation.py composes a step move itself: ' + ', '.join(sorted(called))
         )
 

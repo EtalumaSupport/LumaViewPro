@@ -146,8 +146,8 @@ _FALSIFIERS = [
 ]
 
 _OPEN = [
-    ('move_absolute Z', lambda sc: sc.motion.move_absolute('Z', 100.0)),
-    ('move_relative X', lambda sc: sc.motion.move_relative('X', 10.0)),
+    ('move_z', lambda sc: sc.motion.move_z(100.0)),
+    ('move_xy_by X', lambda sc: sc.motion.move_xy_by(dx_um=10.0)),
     ('set_gain_db', lambda sc: sc.camera.set_gain_db(2.0)),
     ('set_exposure_ms', lambda sc: sc.camera.set_exposure_ms(20.0)),
 ]

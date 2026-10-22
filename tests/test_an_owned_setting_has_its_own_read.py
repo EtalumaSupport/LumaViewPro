@@ -47,8 +47,8 @@ def session(tmp_path):
 def test_each_read_answers_what_its_setter_wrote(session):
     # Every value differs from the shipped one, so a read of the template,
     # or of nothing, answers wrong.
-    session.scope.motion.move_absolute('X', 30000)
-    session.scope.motion.move_absolute('Z', 6000)
+    session.scope.motion.move_xy(x_um=30000)
+    session.scope.motion.move_z(6000)
     writes = {
         'model': (lambda: session.select_model('LS560'), lambda: session.model, 'LS560'),
         'objective_id': (

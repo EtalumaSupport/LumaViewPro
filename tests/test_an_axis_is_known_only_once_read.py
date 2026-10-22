@@ -39,7 +39,7 @@ def test_a_homed_axis_whose_read_fails_starts_unknown():
     }
     assert motion.axis_positions()['Z'].position is None
     with pytest.raises(AxisStateUnknownError) as exc:
-        motion.move_absolute('Z', 1000.0)
+        motion.move_z(1000.0)
     assert exc.value.reason == 'position_unknown'
     assert list(exc.value.axes) == ['Z']
 

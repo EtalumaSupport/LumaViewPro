@@ -102,9 +102,9 @@ def test_a_move_is_refused_and_z_stays_homed_even_past_the_limits(session, value
     motion = session.scope.motion
     before = motion.get_current_position('Z')
 
-    _refused(lambda: motion.move_absolute('Z', value, ignore_limits=True), 'position')
-    _refused(lambda: motion.move_absolute('Z', value), 'position')
-    _refused(lambda: motion.move_relative('Z', value), 'distance')
+    _refused(lambda: motion.move_z(value, ignore_limits=True), 'z_um')
+    _refused(lambda: motion.move_z(value), 'z_um')
+    _refused(lambda: motion.move_z_by(value), 'dz_um')
 
     assert motion.get_axis_state('Z') == AxisState.IDLE
     assert motion.get_current_position('Z') == before

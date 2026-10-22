@@ -43,9 +43,9 @@ class TestAnXYZScope:
     def session(self, tmp_path):
         with _session(tmp_path, 'LS850') as session:
             motion = session.scope.motion
-            motion.move_absolute('X', STAGE_X_UM)
-            motion.move_absolute('Y', STAGE_Y_UM)
-            motion.move_absolute('Z', STAGE_Z_UM)
+            motion.move_xy(x_um=STAGE_X_UM)
+            motion.move_xy(y_um=STAGE_Y_UM)
+            motion.move_z(STAGE_Z_UM)
             yield session
 
     def test_the_file_records_the_stage_position(self, session):
@@ -77,7 +77,7 @@ class TestAnXYZScope:
 class TestAZOnlyScope:
     def test_the_file_records_z_and_no_plate_place(self, tmp_path):
         with _session(tmp_path, 'LS820') as session:
-            session.scope.motion.move_absolute('Z', STAGE_Z_UM)
+            session.scope.motion.move_z(STAGE_Z_UM)
             z = session.scope.motion.axis_positions()['Z'].position
             (path,) = _files(session)
 

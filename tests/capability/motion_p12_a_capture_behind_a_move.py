@@ -35,6 +35,7 @@ import traceback
 from harness import HARDWARE, check, figure, hardware_session, make_session, report
 
 from modules.frame_validity import FrameValidity
+from tests.motion_moves import start_axis_move
 
 MOVE_TIMEOUT_S = 10.0
 SPAN_UM = 20000.0
@@ -107,9 +108,9 @@ def _capture_behind_a_move(session, axis):
     else:
         low, high, home = CENTRE[axis] - SPAN_UM, CENTRE[axis] + SPAN_UM, CENTRE[axis]
     _refuse_unless_z_is_down(motion, axis)
-    _arrive(motion, motion.start_move_absolute(axis, low))
-    result = _capture_behind(session, lambda: motion.start_move_absolute(axis, high))
-    _arrive(motion, motion.start_move_absolute(axis, home))
+    _arrive(motion, start_axis_move(motion, axis, low))
+    result = _capture_behind(session, lambda: start_axis_move(motion, axis, high))
+    _arrive(motion, start_axis_move(motion, axis, home))
     return result
 
 
@@ -143,7 +144,7 @@ def main():
 
     with session_cm as (session, _runner):
         motion = session.scope.motion
-        _arrive(motion, motion.start_move_absolute('Z', 0.0), timeout_s=30.0)
+        _arrive(motion, motion.start_move_z(0.0), timeout_s=30.0)
         check('Z is at 0 before any X or Y move', abs(motion.get_current_position('Z')) < 1.0)
         CENTRE.update({a: motion.get_current_position(a) for a in ('X', 'Y')})
         figure('X, Y where the home left them um', (round(CENTRE['X']), round(CENTRE['Y'])))

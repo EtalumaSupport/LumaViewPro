@@ -45,7 +45,7 @@ def _status(cls: type, reason: str) -> str:
 
 
 def test_each_reason_an_entry_quotes_is_described_under_the_status_it_answers(described):
-    refusals = _refusals(described, '/api/v1/scope/motion/move_absolute')
+    refusals = _refusals(described, '/api/v1/scope/motion/move_xy_by')
 
     for reason in ('not_connected', 'axis_absent', 'position_unread', 'lid_open'):
         status = _status(HardwareCommandRefusedError, reason)
@@ -69,7 +69,7 @@ def test_an_entry_that_quotes_no_reason_is_described_with_every_reason_of_its_cl
 
 
 def test_the_ranges_stay_for_what_no_section_declares(described):
-    responses = described['paths']['/api/v1/scope/motion/move_absolute']['post']['responses']
+    responses = described['paths']['/api/v1/scope/motion/move_xy_by']['post']['responses']
 
     assert {'4XX', '5XX'} <= set(responses)
 

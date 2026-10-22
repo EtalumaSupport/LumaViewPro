@@ -1,8 +1,8 @@
 """P02 -- does a relative jog past the travel limit raise, clamp, or go through?
 
 The GUI's coarse/fine Z and XY jogs are all relative moves
-(vertical_control.py:142 _z_jog -> move_relative; motion_settings.py:428
-_xy_jog -> move_relative).
+(vertical_control.py _z_jog -> jog_z -> move_z_by; motion_settings.py
+_xy_jog -> jog_xy -> move_xy_by).
 """
 
 from harness import check, run
@@ -16,14 +16,14 @@ def body(s):
     print('MOTOR_POSITION_LIMIT =', MOTOR_POSITION_LIMIT, flush=True)
     print('Z travel limits =', m.get_axis_limits('Z'), flush=True)
 
-    m.move_absolute('Z', 2000.0)
+    m.move_z(2000.0)
     zmax = m.get_axis_limits('Z').max_um
 
     # a jog well past the travel ceiling but inside the safety limit
     over = zmax + 5000.0
     outcome = None
     try:
-        m.move_relative('Z', over - 2000.0)
+        m.move_z_by(over - 2000.0)
         outcome = 'accepted'
     except PositionOutOfRangeError as e:
         outcome = f'raised: {e}'
@@ -40,7 +40,7 @@ def body(s):
 
     # beyond the SAFETY limit the relative path does raise
     try:
-        m.move_relative('Z', MOTOR_POSITION_LIMIT + 1.0)
+        m.move_z_by(MOTOR_POSITION_LIMIT + 1.0)
         check('relative jog past MOTOR_POSITION_LIMIT raises', False, 'NO RAISE')
     except PositionOutOfRangeError as e:
         check(

@@ -259,7 +259,7 @@ def _refuse_motor_verb(command: str) -> None:
         raise ValueError(
             f'{command!r} moves, stops or repositions a motor and is not carried by '
             f'the diagnostics channel: use the motion API (home, move_turret, '
-            f'move_absolute, stop_motion), which keeps the axis and turret record'
+            f'move_xy, move_z, stop_motion), which keeps the axis and turret record'
         )
 
 

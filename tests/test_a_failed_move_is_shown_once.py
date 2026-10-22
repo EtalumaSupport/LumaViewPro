@@ -77,11 +77,11 @@ def _monitor_gives_up_first(motion, monkeypatch):
 _DRIVER_MOVES = {
     'absolute': (
         'move_abs_pos',
-        lambda motion: motion.move_absolute('Z', _z_target(motion)),
+        lambda motion: motion.move_z(_z_target(motion)),
     ),
     'relative': (
         'move_abs_pos',
-        lambda motion: motion.move_relative('Z', 20.0),
+        lambda motion: motion.move_z_by(20.0),
     ),
 }
 
@@ -115,7 +115,7 @@ def test_a_stall_during_a_waited_move_is_one_popup_the_monitors(session, centre_
     _z_never_arrives(motion, monkeypatch)
     _monitor_gives_up_first(motion, monkeypatch)
 
-    raised = _the_caller_reports(lambda: motion.move_absolute('Z', _z_target(motion)))
+    raised = _the_caller_reports(lambda: motion.move_z(_z_target(motion)))
 
     assert raised.reason == 'stalled'
     assert [n.title for n in _shown(centre_posts)] == ['Motor Axis Stalled']
@@ -128,10 +128,10 @@ def test_a_second_stall_inside_the_dedup_window_is_still_shown_once(
     motion = session.scope.motion
     _z_never_arrives(motion, monkeypatch)
     _monitor_gives_up_first(motion, monkeypatch)
-    _the_caller_reports(lambda: motion.move_absolute('Z', _z_target(motion)))
+    _the_caller_reports(lambda: motion.move_z(_z_target(motion)))
     motion.home('Z')
 
-    second = _the_caller_reports(lambda: motion.move_absolute('Z', _z_target(motion)))
+    second = _the_caller_reports(lambda: motion.move_z(_z_target(motion)))
 
     assert second.reason == 'stalled'
     assert [n.title for n in _shown(centre_posts)] == ['Motor Axis Stalled', 'Motor Axis Stalled']
@@ -150,7 +150,7 @@ def test_a_board_lost_during_a_waited_move_is_one_popup_the_monitors(
     )
     monkeypatch.setattr(motion, '_DISCONNECT_FAULT_S', 0.1)
 
-    raised = _the_caller_reports(lambda: motion.move_absolute('Z', _z_target(motion)))
+    raised = _the_caller_reports(lambda: motion.move_z(_z_target(motion)))
 
     assert raised.reason == 'board_lost'
     assert [n.title for n in _shown(centre_posts)] == ['Motor Board Disconnected']
@@ -161,7 +161,7 @@ def test_a_stalled_jog_nobody_waits_on_is_shown_by_the_monitor(session, centre_p
     _z_never_arrives(motion, monkeypatch)
     monkeypatch.setattr(motion, '_MOVE_STALL_WINDOW_S', MONITOR_GIVES_UP_S)
 
-    motion.start_move_relative('Z', 20.0)
+    motion.start_move_z_by(20.0)
     # The wait for motion nobody holds a handle to raises the monitor's own
     # object; only the monitor showed it.
     with pytest.raises(MoveNotCompletedError) as raised:
@@ -176,12 +176,12 @@ def test_a_later_wait_does_not_raise_an_earlier_stall(session, centre_posts, mon
     motion = session.scope.motion
     _z_never_arrives(motion, monkeypatch)
     _monitor_gives_up_first(motion, monkeypatch)
-    _the_caller_reports(lambda: motion.move_absolute('Z', _z_target(motion)))
+    _the_caller_reports(lambda: motion.move_z(_z_target(motion)))
     motion.home('Z')
 
     # The next move ends with Z set UNKNOWN by something other than the
     # monitor: its outcome is that, not the stall before it.
-    move = motion.start_move_absolute('Z', _z_target(motion))
+    move = motion.start_move_z(_z_target(motion))
     motion._set_axis_state('Z', AxisState.UNKNOWN)
     with pytest.raises(MoveNotCompletedError) as raised:
         move.result(timeout=WAITER_BOUND_S)

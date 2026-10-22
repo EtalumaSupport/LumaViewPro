@@ -44,7 +44,7 @@ def body(s):
     s.select_labware('96 well microplate')
 
     # 3. reconstruct the SET half by hand, the way the GUI handler does
-    m.move_absolute('Z', 3300.0)
+    m.move_z(3300.0)
     m.move_to_plate(PlateLocation(x_mm=40.0, y_mm=30.0, z_um=None))
     saved = s.save_bookmark(('X', 'Y', 'Z'))
     check(
@@ -54,7 +54,7 @@ def body(s):
     )
 
     # 4. the GOTO half, through the Session as the buttons go
-    m.move_absolute('Z', 500.0)
+    m.move_z(500.0)
     m.move_to_plate(PlateLocation(x_mm=10.0, y_mm=10.0, z_um=None))
     s.go_to_bookmark(('X', 'Y', 'Z'))
     back = s.get_current_plate_position()

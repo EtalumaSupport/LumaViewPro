@@ -75,8 +75,8 @@ def _z_steady_at(exposure, z):
 
 
 def _xy_move(scope, x, y):
-    scope.motion.move_absolute('X', x)
-    scope.motion.move_absolute('Y', y)
+    scope.motion.move_xy(x_um=x)
+    scope.motion.move_xy(y_um=y)
     return scope.motion.get_current_position('X'), scope.motion.get_current_position('Y')
 
 
@@ -115,8 +115,8 @@ CASES = (
     ),
     Case(
         'z_move',
-        lambda s: s.motion.move_absolute('Z', 5_000.0),
-        lambda s: (s.motion.move_absolute('Z', 5_200.0), _z_landed(s))[1],
+        lambda s: s.motion.move_z(5_000.0),
+        lambda s: (s.motion.move_z(5_200.0), _z_landed(s))[1],
         _z_steady_at,
     ),
     Case(

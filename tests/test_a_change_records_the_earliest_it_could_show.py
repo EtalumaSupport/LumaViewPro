@@ -73,7 +73,7 @@ def test_a_moves_change_is_earliest_at_the_last_read_that_saw_it_moving():
     scope = home_sim_scope(build_scope(simulate=True, register_atexit=False))
     try:
         halted = scope.simulation.hold_axis('Z')
-        handle = scope.motion.start_move_absolute('Z', 500.0)
+        handle = scope.motion.start_move_z(500.0)
         assert halted.wait(10.0), 'the held move never halted'
         # The monitor tells the position listeners after each poll: one
         # after the halt has read the held axis still moving.
@@ -97,7 +97,7 @@ def test_a_commands_change_is_earliest_at_the_last_read_that_saw_its_moves_movin
     # the close must not drop.
     scope = sim_turreted_session.scope
     scope.motion.move_turret(1)
-    scope.motion.move_absolute('Z', 3_000.0)
+    scope.motion.move_z(3_000.0)
     halted = scope.simulation.hold_axis('T')
     with concurrent.futures.ThreadPoolExecutor(1) as pool:
         changing = pool.submit(scope.motion.move_turret, 2)

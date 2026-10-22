@@ -24,6 +24,7 @@ from modules.exceptions import CameraSettingRejected
 from modules.lumascope_api.imaging import ImagingAPI
 from modules.notification_center import Severity
 from tests.scope_fakes import bind_settings_like_a_session, build_scope
+from tests.motion_moves import axis_move, axis_move_by
 
 _MOTION_SOURCES = ('xy_move', 'z_move', 'turret')
 
@@ -170,39 +171,47 @@ class TestMotionValiditySources:
         ('axis', 'source'),
         [('X', 'xy_move'), ('Y', 'xy_move'), ('Z', 'z_move')],
     )
-    def test_move_absolute_invalidates_axis_source(self, sim_turreted_session, axis, source):
+    def test_a_move_to_a_place_invalidates_its_axis_source(
+        self, sim_turreted_session, axis, source
+    ):
         motion = sim_turreted_session.scope.motion
         fv = sim_turreted_session.scope.imaging.frame_validity
         target = self._middle_of_travel(motion, axis)
-        motion.move_absolute(axis, target - 500.0)
+        axis_move(motion, axis, target - 500.0)
         before = fv.invalidation_counts
 
-        motion.move_absolute(axis, target)
+        axis_move(motion, axis, target)
 
         growth = self._growth(fv, before)
-        assert growth[source] > 0, f'move_absolute({axis!r}) must invalidate {source!r}: {growth}'
+        assert growth[source] > 0, (
+            f'a move of {axis} to a place must invalidate {source!r}: {growth}'
+        )
         others = {s: n for s, n in growth.items() if s != source}
         assert not any(others.values()), (
-            f'move_absolute({axis!r}) invalidated another axis source: {growth}'
+            f'a move of {axis} to a place invalidated another axis source: {growth}'
         )
 
     @pytest.mark.parametrize(
         ('axis', 'source'),
         [('X', 'xy_move'), ('Y', 'xy_move'), ('Z', 'z_move')],
     )
-    def test_move_relative_invalidates_axis_source(self, sim_turreted_session, axis, source):
+    def test_a_move_by_a_distance_invalidates_its_axis_source(
+        self, sim_turreted_session, axis, source
+    ):
         motion = sim_turreted_session.scope.motion
         fv = sim_turreted_session.scope.imaging.frame_validity
-        motion.move_absolute(axis, self._middle_of_travel(motion, axis))
+        axis_move(motion, axis, self._middle_of_travel(motion, axis))
         before = fv.invalidation_counts
 
-        motion.move_relative(axis, 100.0)
+        axis_move_by(motion, axis, 100.0)
 
         growth = self._growth(fv, before)
-        assert growth[source] > 0, f'move_relative({axis!r}) must invalidate {source!r}: {growth}'
+        assert growth[source] > 0, (
+            f'a move of {axis} by a distance must invalidate {source!r}: {growth}'
+        )
         others = {s: n for s, n in growth.items() if s != source}
         assert not any(others.values()), (
-            f'move_relative({axis!r}) invalidated another axis source: {growth}'
+            f'a move of {axis} by a distance invalidated another axis source: {growth}'
         )
 
     def test_move_turret_invalidates_turret(self, sim_turreted_session):

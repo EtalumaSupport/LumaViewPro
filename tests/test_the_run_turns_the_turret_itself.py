@@ -62,14 +62,12 @@ def test_a_refused_move_raises_instead_of_being_skipped():
 
     parent = SimpleNamespace(
         _io_executor=None,
-        _scope=SimpleNamespace(
-            motion=SimpleNamespace(start_move_absolute=_refuse, move_turret=_refuse)
-        ),
+        _scope=SimpleNamespace(motion=SimpleNamespace(start_move_xy=_refuse, move_turret=_refuse)),
     )
     step_runner = ProtocolStepRunner(parent)
 
     with pytest.raises(HardwareCommandRefusedError) as excinfo:
-        step_runner._move_axis_through_io('X', 1000.0)
+        step_runner._move_to_stage(1000.0, 2000.0, None)
     assert excinfo.value is refusal
 
     with pytest.raises(HardwareCommandRefusedError) as excinfo:

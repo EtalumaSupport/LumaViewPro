@@ -75,8 +75,8 @@ def over_the_first_well(session) -> str:
     scope = session.scope
     x_mm, y_mm = scope.runtime_state.get_labware().get_well_position(0, 0)
     stage = scope.runtime_state.plate_to_stage(x_mm, y_mm)
-    scope.motion.move_absolute('X', stage.x_um)
-    scope.motion.move_absolute('Y', stage.y_um)
+    scope.motion.move_xy(x_um=stage.x_um)
+    scope.motion.move_xy(y_um=stage.y_um)
     label = scope.runtime_state.get_well_label()
     assert label, 'the stage was moved over a well'
     return label
@@ -225,7 +225,7 @@ class TestOverlays:
             # At the sample: homing leaves Z at the floor, where the
             # simulated specimen is a defocused blur with no bright detail.
             sample_z = session.scope._camera_driver.get_nominal_focal_z()
-            session.scope.motion.move_absolute('Z', sample_z)
+            session.scope.motion.move_z(sample_z)
             session.scope.illumination.led_on('BF', 200.0)
             paths = _files(session, bullseye=True, crosshairs=True)
             peak = int(read_tiff_with_legacy_collapse(paths[0]).max())

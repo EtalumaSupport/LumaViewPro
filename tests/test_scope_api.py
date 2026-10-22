@@ -3,7 +3,7 @@
 Tests for the GUI-independent scope API modules:
 - modules/config_helpers.py
 - modules/lumascope_api.py executor-backed command API
-  (scope.illumination.led_on, scope.motion.move_absolute, etc.)
+  (scope.illumination.led_on, scope.motion.move_xy, etc.)
 - modules/scope_session.py
 
 Uses mock objects + Lumascope(simulate=True) -- no hardware or Kivy needed.
@@ -96,8 +96,8 @@ def _make_mock_scope(led_available=True):
     scope.illumination.leds_off = MagicMock()
     scope.illumination.led_on = MagicMock()
     scope.illumination.led_off = MagicMock()
-    scope.motion.move_absolute = MagicMock()
-    scope.motion.move_relative = MagicMock()
+    scope.motion.move_xy = MagicMock()
+    scope.motion.move_z = MagicMock()
     scope.motion.home = MagicMock()
     scope.motion.get_current_position = MagicMock(return_value={'X': 1000, 'Y': 2000, 'Z': 500})
     return scope
@@ -369,7 +369,7 @@ class TestGetCurrentPlatePosition:
         settings = _settings(tmp_path)
         settings['microscope'] = 'LS820'
         with _open_session(settings) as session:
-            session.scope.motion.move_absolute('Z', 500.0)
+            session.scope.motion.move_z(500.0)
             result = session.get_current_plate_position()
             z = session.scope.motion.get_current_position('Z')
         assert result.z_um == pytest.approx(z, abs=0.01)

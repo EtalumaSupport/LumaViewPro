@@ -346,7 +346,7 @@ class TestGestureMotionFunnel:
         assert ui_helpers._user_motion_locked('X') is True
         # No ctx is wired in this test process: reaching past the guard
         # would raise on ctx access, so returning cleanly IS the proof.
-        ui_helpers.move_relative('X', 5.0)
+        ui_helpers.jog_xy(dx_um=5.0)
 
     def test_unlocked_app_reaches_for_the_scope(self):
         from ui import ui_helpers
@@ -360,15 +360,15 @@ class TestGestureMotionFunnel:
         sys.modules['kivy.app'].App.get_running_app = mock.Mock(return_value=None)
         assert ui_helpers._user_motion_locked('X') is False
 
-    def test_all_three_movers_guard(self):
+    def test_every_mover_guards(self):
         src = (REPO_ROOT / 'ui' / 'ui_helpers.py').read_text()
-        for mover in ('move_relative', 'move_absolute', 'move_home', 'submit_move'):
+        for mover in ('jog_xy', 'jog_z', 'move_z', 'move_home', 'submit_move'):
             idx = src.find(f'def {mover}(')
             nxt = src.find('\ndef ', idx + 1)
             body = src[idx:nxt]
             assert '_user_motion_locked(' in body, f'{mover} must enforce the lock'
         # No protocol leg to leave open: a run moves the scope through its
         # own step runner, never through these gesture movers.
-        idx = src.find('def move_absolute(')
+        idx = src.find('def move_z(')
         signature = src[idx : src.find(':\n', idx)]
         assert 'protocol' not in signature

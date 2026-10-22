@@ -45,7 +45,7 @@ def test_one_mistake_gets_one_answer_whatever_its_magnitude(motion, position):
     it had nothing of its own to say and was stealing the better message.
     """
     with pytest.raises(PositionOutOfRangeError) as caught:
-        motion.move_absolute('Y', position)
+        motion.move_xy(y_um=position)
 
     assert caught.value.bound == 'travel range'
     assert 'safety limit' not in str(caught.value)
@@ -54,21 +54,21 @@ def test_one_mistake_gets_one_answer_whatever_its_magnitude(motion, position):
 def test_ignore_limits_bypasses_travel_but_not_the_ceiling(motion):
     """The hatch exists to drive outside TRAVEL deliberately. It is not a
     licence to hand the motor an arbitrary number."""
-    motion.move_absolute('Y', 90000.0, ignore_limits=True)
+    motion.move_xy(y_um=90000.0, ignore_limits=True)
     assert motion.get_target_position('Y') == 90000.0
 
     with pytest.raises(PositionOutOfRangeError) as caught:
-        motion.move_absolute('Y', MOTOR_POSITION_LIMIT + 1, ignore_limits=True)
+        motion.move_xy(y_um=MOTOR_POSITION_LIMIT + 1, ignore_limits=True)
     assert caught.value.bound == 'safety limit'
     assert motion.get_target_position('Y') == 90000.0
 
-    motion.move_absolute('Y', 40000.0)
+    motion.move_xy(y_um=40000.0)
 
 
 def test_a_relative_move_of_absurd_distance_is_refused_the_same_way(motion):
     """The sibling check on the relative path had the identical defect."""
     with pytest.raises(PositionOutOfRangeError) as caught:
-        motion.move_relative('X', MOTOR_POSITION_LIMIT + 1)
+        motion.move_xy_by(dx_um=MOTOR_POSITION_LIMIT + 1)
 
     assert (caught.value.bound, caught.value.quantity) == ('safety limit', 'distance')
     assert 'distance' in str(caught.value)

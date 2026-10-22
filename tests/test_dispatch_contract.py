@@ -28,7 +28,7 @@ shape: each has its own dispatcher (``_dispatch_led``, ``_dispatch_camera``,
 ``_dispatch_motion``) with its own wait bound. A contract pinned on one
 family would not catch the other two diverging from it. Motion is pinned on
 its start member, whose body is the lane's whole work; the waited
-``move_absolute`` is that start followed by a wait off the lane.
+``move_z`` is that start followed by a wait off the lane.
 
 The probe replaces ``_impl`` with a recorder rather than asserting hardware
 side effects: what is under test is WHERE and WHETHER the body runs, not
@@ -65,8 +65,8 @@ FAMILIES = [
     ('camera', 'set_gain_db', {'gain_db': 1.0}, 'camera'),
     (
         'motion',
-        'start_move_absolute',
-        {'axis': 'Z', 'position': 100.0},
+        'start_move_z',
+        {'z_um': 100.0},
         'io',
     ),
     # The camera-settings cluster: every public camera-state writer is a
@@ -148,7 +148,7 @@ _PROBE_ANSWER = {'set_frame_size': {'width': 640, 'height': 480}, 'set_binning':
 # _apply_impl.
 _BODY_OF = {
     'apply': '_apply_settings_impl',
-    'start_move_absolute': '_move_absolute_impl',
+    'start_move_z': '_move_z_impl',
     'set_image_mode': '_set_pixel_format_impl',
     'set_high_conversion_gain': '_set_conversion_gain_mode_impl',
 }

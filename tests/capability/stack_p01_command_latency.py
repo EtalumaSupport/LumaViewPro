@@ -82,7 +82,7 @@ def body(session):
 
     def z_move():
         nonlocal i
-        m.move_absolute('Z', targets[i % 2])
+        m.move_z(targets[i % 2])
         i += 1
 
     b = _serial_rows()
@@ -98,10 +98,10 @@ def body(session):
         x0 = m.get_target_position('X')
         far = xl.max_um if (xl.max_um - x0) > (x0 - xl.min_um) else xl.min_um
         t = time.perf_counter()
-        m.move_absolute('X', far)
+        m.move_xy(x_um=far)
         figure('S1.x_full_travel_s', round(time.perf_counter() - t, 2))
         # S1b: Z moves while X travels back (the monitor polls X at 50 Hz meanwhile).
-        handle = m.start_move_absolute('X', x0)
+        handle = m.start_move_xy(x_um=x0)
         during = _timed(z_move, n=min(N, 10))
         handle.result()
         figure('S1.z_move_100um_during_x_travel', _ms(during))
@@ -122,7 +122,7 @@ def body(session):
     def hammer():
         j = 0
         while not stop.is_set():
-            m.move_absolute('Z', targets[j % 2])
+            m.move_z(targets[j % 2])
             j += 1
 
     th = threading.Thread(target=hammer, name='probe-z-hammer', daemon=True)

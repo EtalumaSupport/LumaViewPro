@@ -1,13 +1,14 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """A GUI gesture that moves several axes is one task on the IO lane.
 
-Each ``move_absolute`` / ``move_relative`` submitted on its own is its own
-lane task, refused on the lane when its axis does not know its position. A
-gesture issuing two or three of them on an un-homed scope was refused once
-per axis, after it had already moved on; and a check asked on the GUI thread
-first could be overtaken by a home or a stop before the moves ran.
-``ui_helpers.submit_gesture`` asks the motion API once and moves, in one
-task; this keeps every several-axis gesture going through it, including the
+Each move submitted on its own is its own lane task, refused on the lane
+when its axes do not know their position. A gesture issuing several of them
+on an un-homed scope was refused once per move, after it had already moved
+on; and a check asked on the GUI thread first could be overtaken by a home
+or a stop before the moves ran. ``ui_helpers.submit_gesture`` asks the
+motion API once and moves, in one task, under one command, so a capture
+waits for the whole gesture; this keeps every several-axis gesture going
+through it -- an X and Y request as much as several moves -- including the
 next one.
 """
 
@@ -15,7 +16,8 @@ import ast
 
 from tests.ast_seams import iter_package_modules
 
-_MOVES = frozenset({'move_absolute', 'move_relative', 'start_move_absolute', 'start_move_relative'})
+_XY_MOVES = frozenset({'move_xy', 'move_xy_by', 'start_move_xy', 'start_move_xy_by'})
+_Z_MOVES = frozenset({'move_z', 'move_z_by', 'start_move_z', 'start_move_z_by'})
 
 
 def _called_name(call):
@@ -39,13 +41,20 @@ def _own_calls(fn):
         stack.extend(ast.iter_child_nodes(node))
 
 
-def _axis_of(call):
-    """The axis literal a move names, positionally or as ``axis=``."""
-    candidates = list(call.args[:1]) + [kw.value for kw in call.keywords if kw.arg == 'axis']
-    for value in candidates:
-        if isinstance(value, ast.Constant) and isinstance(value.value, str):
-            return value.value
-    return None
+def _axes_of(call):
+    """The axes a move asks for: Z for a Z move; for an X and Y one, each it is given."""
+    name = _called_name(call)
+    if name in _Z_MOVES:
+        return {'Z'}
+    if name not in _XY_MOVES:
+        return set()
+    axes = {'X', 'Y'}.intersection(('X', 'Y')[: len(call.args)])
+    for kw in call.keywords:
+        if kw.arg in ('x_um', 'dx_um'):
+            axes.add('X')
+        elif kw.arg in ('y_um', 'dy_um'):
+            axes.add('Y')
+    return axes
 
 
 def _defs_with_parents(tree):
@@ -90,8 +99,7 @@ def _several_axis_movers():
         defs = _defs_with_parents(tree)
         names = {id(node): qualname for qualname, node, _ in defs}
         for qualname, fn, enclosing in defs:
-            moves = [c for c in _own_calls(fn) if _called_name(c) in _MOVES]
-            if len({_axis_of(c) for c in moves} - {None}) < 2:
+            if len(set().union(*(_axes_of(c) for c in _own_calls(fn)))) < 2:
                 continue
             found[f'{rel}::{qualname}'] = (
                 names.get(id(enclosing)),

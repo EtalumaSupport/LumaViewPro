@@ -82,7 +82,7 @@ try:
     st = p.step_row(idx=0)
     print('step0 X/Y/Z/Color/Objective:', st['X'], st['Y'], st['Z'], st['Color'], st['Objective'])
     session.scope.motion.move_to_plate(PlateLocation(x_mm=st['X'], y_mm=st['Y'], z_um=None))
-    session.scope.motion.move_absolute(axis='Z', position=st['Z'])
+    session.scope.motion.move_z(st['Z'])
     now = session.get_current_plate_position()
     print('landed at:', now)
     print(

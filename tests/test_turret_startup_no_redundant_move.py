@@ -39,11 +39,15 @@ def test_tmove_to_one_after_home_is_noop():
     scope = build_scope(simulate=True)
     assert scope.capabilities.has_turret
     scope.motion.home()
+    # Every target the board is sent: the Z park, the turn, the restore.
     moves = []
-    original = scope.motion.move_absolute
-    scope.motion.move_absolute = lambda *a, **k: moves.append((a, k))
+    driver = scope._motion_driver
+    original = driver.move_abs_pos
+    driver.move_abs_pos = lambda *a, **k: moves.append((a, k))
     try:
         scope.motion.move_turret(1)
+        assert moves == [], f'move_turret(1) after home should be a no-op; issued moves: {moves}'
+        scope.motion.move_turret(2)
     finally:
-        scope.motion.move_absolute = original
-    assert moves == [], f'move_turret(1) after home should be a no-op; issued moves: {moves}'
+        driver.move_abs_pos = original
+    assert moves, 'the spy sees a turret change that does move'

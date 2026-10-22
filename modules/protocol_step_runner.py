@@ -304,7 +304,7 @@ class ProtocolStepRunner:
                 # issued from, so reading it here keeps this slice on the same
                 # ladder as its siblings.
                 placed_z = float(p._protocol.step_row(idx=p._curr_step)['Z'])
-                self._move_axis_through_io('Z', placed_z)
+                self._move_z_through_io(placed_z)
                 p._focus_placed_step = p._curr_step
                 # Let the next poll's motion gate settle the stage before the
                 # capture. That poll also re-reads the step row, so the frame
@@ -555,7 +555,7 @@ class ProtocolStepRunner:
         Each axis move is submitted through ``io_executor.protocol_put``
         and the protocol thread waits on the future, so all motor I/O
         is serialized to one worker. Calling
-        ``scope.motion.move_absolute`` directly from PROTOCOL_WORKER
+        ``scope.motion.move_xy`` directly from PROTOCOL_WORKER
         instead would let motor serial writes from this thread
         interleave with any io_executor-queued motor command (UI
         sliders, manual moves) mid-step.
@@ -572,31 +572,34 @@ class ProtocolStepRunner:
         self._move_to_stage(sx, sy, sz)
 
     def _move_to_stage(self, sx: float | None, sy: float | None, z: float | None) -> None:
-        """Move each given axis to its stage target, X then Y then Z, and record it."""
+        """Move X and Y as one request, then Z, each to its stage target given, and record it."""
         p = self._p
         if sx is not None and sy is not None:
-            self._move_axis_through_io('X', sx)
+            self._move_xy_through_io(sx, sy)
             p._target_x_pos = sx
-
-            self._move_axis_through_io('Y', sy)
             p._target_y_pos = sy
 
         # Z does not depend on X/Y: a step whose plate position is unknown
         # still has a focus, and its image records that Z.
         if z is not None:
-            self._move_axis_through_io('Z', z)
+            self._move_z_through_io(z)
             p._target_z_pos = z
 
-    def _move_axis_through_io(self, axis: str, position):
-        """Start a single-axis move on the io lane and wait for the command, not the arrival.
+    def _move_xy_through_io(self, x_um: float, y_um: float) -> None:
+        """Start X and Y moving on the io lane as one request, and wait for the command, not the arrival.
 
         The public member, under the run's taking: it goes through the run's
         door on the lane, and a refusal raises rather than letting the step
-        capture wherever the last move left the stage. X, Y and Z are started
-        one after another and travel together; the run's tick waits for them
-        by polling ``is_moving``.
+        capture wherever the last move left the stage; a refusal of either
+        axis moves neither. X, Y and Z are started one after another and
+        travel together; the run's tick waits for them by polling
+        ``is_moving``.
         """
-        self._p._scope.motion.start_move_absolute(axis, position)
+        self._p._scope.motion.start_move_xy(x_um, y_um)
+
+    def _move_z_through_io(self, z_um: float) -> None:
+        """Start Z moving on the io lane, as ``_move_xy_through_io`` starts X and Y."""
+        self._p._scope.motion.start_move_z(z_um)
 
     def _move_turret_through_io(self, slot: int) -> None:
         """Turn the turret to ``slot`` on the io lane and wait for it.
@@ -658,9 +661,9 @@ class ProtocolStepRunner:
             # This routine RUNS on the io worker, so the lane runs these moves
             # inline there: enqueueing them back onto the single worker and
             # waiting could never complete.
-            p._scope.motion.move_absolute(axis, 0, overshoot_enabled=True)
+            p._scope.motion.move_z(0)
 
-            p._scope.motion.move_absolute(axis, z_orig, overshoot_enabled=True)
+            p._scope.motion.move_z(z_orig)
 
             elapsed = time.monotonic() - _t_start
             if elapsed > 30:

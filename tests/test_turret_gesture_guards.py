@@ -99,10 +99,10 @@ def _names_used(rel_path):
 def test_the_program_still_calls_the_undecorated_path():
     """The callers that are not a person must not be routed at the
     gesture: that would hand them back the window and the false record.
-    Step navigation reaches the turret through ui_helpers; the XY home
-    moves no turret of its own and only displays it."""
+    Step navigation moves the turret through the Session's go-to-step, and
+    the move helpers move no turret; the XY home moves no turret of its own
+    and only displays it."""
     used = _names_used('ui/ui_helpers.py')
-    assert 'turret_select' in used
     assert 'turret_gesture' not in used
 
     used = _names_used('ui/motion_settings.py')

@@ -655,12 +655,12 @@ class LayerControl(BoxLayout):
         )
 
     def goto_focus(self):
-        from ui.ui_helpers import move_absolute
+        from ui.ui_helpers import move_z
 
         gui_logger.button(f'GOTO_FOCUS_{self.layer}')
         logger.info('[LVP Main  ] LayerControl.goto_focus()')
         run_reported(
-            lambda: move_absolute('Z', _app_ctx.ctx.session.saved_focus(self.layer)),
+            lambda: move_z(_app_ctx.ctx.session.saved_focus(self.layer)),
             None,
             f'GOTO_FOCUS_{self.layer}',
         )

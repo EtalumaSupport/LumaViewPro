@@ -18,6 +18,7 @@ import pytest
 from modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
+from tests.motion_moves import axis_move
 
 PROTOCOL_PLATE = '96 well microplate'
 SCOPE_PLATE = 'Four-Slide Holder'
@@ -52,7 +53,7 @@ def _protocol_on_one_plate_scope_on_another(session):
 
 def _move_stage(session, position):
     for axis, um in position.items():
-        session.scope.motion.move_absolute(axis, um)
+        axis_move(session.scope.motion, axis, um)
 
 
 def _xy(step):

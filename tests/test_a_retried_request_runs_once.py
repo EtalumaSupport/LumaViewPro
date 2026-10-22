@@ -128,8 +128,8 @@ def test_the_same_key_with_another_body_is_refused(client, counted):
 
 def test_a_started_operation_retried_is_its_one_job(client, session):
     home_sim_scope(session.scope)
-    path = '/api/v1/scope/motion/start_move_relative'
-    move = {'axis': 'Z', 'distance': 10.0}
+    path = '/api/v1/scope/motion/start_move_z_by'
+    move = {'dz_um': 10.0}
     first = client.post(path, json=move, headers=_keyed('k5'))
     again = client.post(path, json=move, headers=_keyed('k5'))
 

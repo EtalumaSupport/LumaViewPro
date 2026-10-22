@@ -413,9 +413,9 @@ class TestAHyperstackAfterApplyTiling:
             session.settings[layer]['acquire'] = None
         session.settings['BF']['acquire'] = 'image'
         session.settings['Green']['acquire'] = 'image'
-        session.scope.motion.move_absolute('X', 20000)
-        session.scope.motion.move_absolute('Y', 40000)
-        session.scope.motion.move_absolute('Z', 5000.0)
+        session.scope.motion.move_xy(x_um=20000)
+        session.scope.motion.move_xy(y_um=40000)
+        session.scope.motion.move_z(5000.0)
         protocol = session.create_empty_protocol()
         session.add_step(protocol, after_step=-1)
 

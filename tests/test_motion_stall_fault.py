@@ -84,7 +84,7 @@ def test_a_held_axis_is_given_up_stalled_and_halted(session, centre_posts):
     motion = session.scope.motion
     halts = _stop_count(motion)
     held = session.scope.simulation.hold_axis('X')
-    operation = motion.start_move_absolute('X', 60000.0)
+    operation = motion.start_move_xy(x_um=60000.0)
     assert held.wait(_GIVE_UP_WAIT_S), 'the move never reached its hold'
     held_at = time.monotonic()
 
@@ -104,8 +104,8 @@ def test_a_move_that_keeps_moving_is_never_given_up(session, monkeypatch, centre
     motion = session.scope.motion
     monkeypatch.setattr(motion, '_MOVE_STALL_WINDOW_S', 0.5)
     start = time.monotonic()
-    motion.move_absolute('Z', motion.get_axis_limits('Z').max_um)
-    motion.move_absolute('Z', 0.0)
+    motion.move_z(motion.get_axis_limits('Z').max_um)
+    motion.move_z(0.0)
     assert time.monotonic() - start > 2 * 0.5, 'the moves were too short to show anything'
     motion.move_turret(2)
 
@@ -119,7 +119,7 @@ def test_an_arriving_move_is_never_given_up(session, monkeypatch, centre_posts):
     monkeypatch.setattr(motion, '_MOVE_STALL_WINDOW_S', 0.001)
     motion._driver.set_timing_mode('instant')
 
-    assert _ended(motion.start_move_absolute('Z', 1000.0)) == 'arrived'
+    assert _ended(motion.start_move_z(1000.0)) == 'arrived'
     assert motion.get_axis_state('Z') == AxisState.IDLE
     assert _faults(centre_posts) == []
 
@@ -127,7 +127,7 @@ def test_an_arriving_move_is_never_given_up(session, monkeypatch, centre_posts):
 def test_an_axis_unread_from_its_first_poll_is_given_up_unread(session, centre_posts):
     """The window starts when the move is armed, not at the first good read."""
     motion = session.scope.motion
-    operation = motion.start_move_absolute('X', 60000.0)
+    operation = motion.start_move_xy(x_um=60000.0)
     for command in ('STATUS_RX', 'ACTUAL_RX'):
         session.scope.simulation.drop_replies('motor', count=None, command=command)
     try:
@@ -145,7 +145,7 @@ def test_a_turret_home_whose_z_park_stalls_ends_in_its_fault(session, centre_pos
     ``stop_motion`` would be refused while a home drives, and the refusal
     would end the monitor's thread."""
     motion = session.scope.motion
-    motion.move_absolute('Z', 3000.0)
+    motion.move_z(3000.0)
     session.scope.simulation.hold_axis('Z')
 
     with pytest.raises(HomingFaultError):
@@ -155,7 +155,7 @@ def test_a_turret_home_whose_z_park_stalls_ends_in_its_fault(session, centre_pos
     assert motion._motion_monitor_thread.is_alive()
     home_sim_scope(session.scope)
     motion._driver.set_timing_mode('instant')
-    assert _ended(motion.start_move_absolute('X', 1000.0)) == 'arrived'
+    assert _ended(motion.start_move_xy(x_um=1000.0)) == 'arrived'
 
 
 def test_a_monitor_that_ends_gives_every_moving_axis_up_and_refuses_later_drives(
@@ -175,13 +175,13 @@ def test_a_monitor_that_ends_gives_every_moving_axis_up_and_refuses_later_drives
     # a stand-in by design: a defect in the monitor's own read, which no
     # simulated board fault produces (a board fault is a HardwareError).
     driver.current_pos_steps = defect
-    operation = motion.start_move_absolute('X', 60000.0)
+    operation = motion.start_move_xy(x_um=60000.0)
 
     assert _ended(operation) == 'monitor_ended'
     assert broke.is_set()
     assert motion.get_axis_state('X') == AxisState.UNKNOWN
     driver.current_pos_steps = real
     with pytest.raises(HardwareCommandRefusedError) as refused:
-        motion.start_move_absolute('Y', 1000.0)
+        motion.start_move_xy(y_um=1000.0)
     assert refused.value.reason == 'monitor_ended'
     assert not isinstance(refused.value, HardwareError)

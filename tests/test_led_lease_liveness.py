@@ -135,14 +135,16 @@ def test_refused_af_acquire_aborts_the_af_run(scope, monkeypatch, centre_posts):
     iterations = []
     runner._iterate = lambda: iterations.append(1)
 
+    # Every Z target the board is sent, from any member.
     moves = []
-    real_move = scope.motion.move_absolute
+    driver = scope._motion_driver
+    real_write = driver.move_abs_pos
 
-    def _recording_move(axis, pos, *args, **kwargs):
+    def _recording_write(axis, pos):
         moves.append((axis, pos))
-        return real_move(axis, pos, *args, **kwargs)
+        return real_write(axis, pos)
 
-    monkeypatch.setattr(scope.motion, 'move_absolute', _recording_move)
+    monkeypatch.setattr(driver, 'move_abs_pos', _recording_write)
 
     pre_z = scope.motion.get_current_position('Z')
     pre_gain = scope.camera.read_gain_db()

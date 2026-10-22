@@ -208,8 +208,6 @@ class Stage(Widget):
                     protocol=ctx.motion_settings.ids['protocol_settings_id']._protocol,
                     step_idx=step_idx,
                 )
-            # move_absolute('X', stage_x)
-            # move_absolute('Y', stage_y)
 
     def draw_labware(self, *args, full_redraw: bool = False):
         if self.parent is None:

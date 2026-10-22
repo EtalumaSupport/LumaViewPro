@@ -108,7 +108,7 @@ class TestEquivalentToTheTravelCheck:
         for plate_mm in (low - 0.5, low, low + 0.5, high - 0.5, high, high + 0.5):
             stage = scope.runtime_state.plate_to_stage(plate_mm, plate_mm)
             stage_um = stage.x_um if axis == 'X' else stage.y_um
-            travel_refused = _refuses(motion.move_absolute, axis, stage_um)
+            travel_refused = _refuses(motion.move_xy, **{f'{axis.lower()}_um': stage_um})
             at = PlateLocation(
                 x_mm=plate_mm if axis == 'X' else None,
                 y_mm=plate_mm if axis == 'Y' else None,

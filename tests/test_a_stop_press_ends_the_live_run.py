@@ -296,7 +296,7 @@ def start_an_autofocus_held_mid_sweep(session):
     sweep itself.
     """
     # Mid-travel, so the sweep's window lies inside Z's travel.
-    session.scope.motion.move_absolute('Z', 5000.0)
+    session.scope.motion.move_z(5000.0)
     to_the_step = session.scope.simulation.hold_axis('Z')
     run = session.create_protocol_runner().start_autofocus('BF')
     assert to_the_step.wait(_HOLD_WAIT_S), "the autofocus run's go-to-step never started"

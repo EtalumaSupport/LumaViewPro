@@ -46,7 +46,7 @@ def _autofocus_from(scope, z, monkeypatch, peak):
         'modules.autofocus_functions.focus_function',
         lambda image: 1e6 - abs(scope.motion.get_current_position('Z') - peak),
     )
-    scope.motion.move_absolute('Z', z)
+    scope.motion.move_z(z)
     while scope.motion.is_moving():
         time.sleep(0.01)
     thread = AutofocusThread(afe=AutofocusRunner(scope=scope))
@@ -121,7 +121,7 @@ def reported(monkeypatch):
 
 
 def _z_moves(scope):
-    return [c.args[1] for c in scope.motion.start_move_absolute.call_args_list if c.args[0] == 'Z']
+    return [c.args[0] for c in scope.motion.start_move_z.call_args_list]
 
 
 def test_a_final_approach_past_the_travel_minimum_is_refused(monkeypatch, reported):

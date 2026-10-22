@@ -11,6 +11,7 @@ from harness import check, run
 
 from modules.exceptions import HomingFailedError, PositionOutOfRangeError, AxisStateUnknownError
 from modules.coord_transformations import PlateLocation
+from tests.motion_moves import axis_move
 
 
 def body(s):
@@ -18,7 +19,7 @@ def body(s):
 
     # --- an un-homed axis REFUSES to move (it does not guess) ---
     try:
-        m.move_absolute('Z', 1000.0)
+        m.move_z(1000.0)
         check('un-homed move refused', False, 'moved without homing')
     except AxisStateUnknownError as e:
         check('un-homed move raises AxisStateUnknownError', True, str(e)[:70])
@@ -38,23 +39,23 @@ def body(s):
         check('home Z alone returns', False, str(e))
 
     # --- Z absolute (slider / text box commit) ---
-    m.move_absolute('Z', 2500.0)
+    m.move_z(2500.0)
     z = m.get_current_position('Z')
     check('Z absolute move readback', abs(z - 2500.0) < 5.0, f'Z={z}')
 
     # --- Z relative (coarse/fine jog) ---
-    m.move_relative('Z', -500.0)
+    m.move_z_by(-500.0)
     z2 = m.get_current_position('Z')
     check('Z relative jog readback', abs(z2 - 2000.0) < 5.0, f'Z={z2}')
 
     # --- XY absolute, stage frame ---
-    m.move_absolute('X', 30000.0)
-    m.move_absolute('Y', 20000.0)
+    m.move_xy(x_um=30000.0)
+    m.move_xy(y_um=20000.0)
     x, y = m.get_current_position('X'), m.get_current_position('Y')
     check('XY absolute move readback', abs(x - 30000) < 5 and abs(y - 20000) < 5, f'X={x} Y={y}')
 
     # --- XY relative (jog) ---
-    m.move_relative('X', 1000.0)
+    m.move_xy_by(dx_um=1000.0)
     xj = m.get_current_position('X')
     check('X relative jog readback', abs(xj - 31000) < 5, f'X={xj}')
 
@@ -72,7 +73,7 @@ def body(s):
     for axis, bad in (('Z', 99999.0), ('X', 999999.0), ('Y', -5000.0)):
         pos_before = m.get_current_position(axis)
         try:
-            m.move_absolute(axis, bad)
+            axis_move(m, axis, bad)
             check(f'{axis} out-of-range raises', False, 'NO RAISE -- silently accepted/clamped')
         except PositionOutOfRangeError:
             unchanged = abs(m.get_current_position(axis) - pos_before) < 5.0
@@ -83,7 +84,7 @@ def body(s):
             )
 
     try:
-        m.move_relative('Z', 99999.0)
+        m.move_z_by(99999.0)
         check('Z relative out-of-range raises', False, 'accepted without raising')
     except PositionOutOfRangeError:
         check('Z relative out-of-range raises', True)

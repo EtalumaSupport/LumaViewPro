@@ -225,10 +225,10 @@ def test_a_stage_move_shifts_the_image_by_the_distance_over_the_pixel_size_again
         x, y = (scope.motion.get_current_position(axis) for axis in ('X', 'Y'))
         here = _lit_frame(scope)
         # About a third of a field each way, so the frames overlap.
-        scope.motion.move_absolute('X', x + 600 * um_per_px)
+        scope.motion.move_xy(x_um=x + 600 * um_per_px)
         right = _lit_frame(scope)
-        scope.motion.move_absolute('X', x)
-        scope.motion.move_absolute('Y', y + 450 * um_per_px)
+        scope.motion.move_xy(x_um=x)
+        scope.motion.move_xy(y_um=y + 450 * um_per_px)
         down = _lit_frame(scope)
 
     # Up to two pixels either way is the drift: each frame stands a pixel
@@ -279,8 +279,8 @@ def test_the_classic_and_the_ls850_image_one_sample():
         with _session(model, homed=True) as session:
             scope = session.scope
             session.select_objective('10x Oly')
-            scope.motion.move_absolute('X', 20000.0)
-            scope.motion.move_absolute('Y', 15000.0)
+            scope.motion.move_xy(x_um=20000.0)
+            scope.motion.move_xy(y_um=15000.0)
             frames[model] = (_lit_frame(scope), _pixel_size(scope))
 
     (ls850, ls850_scale), (ls720, ls720_scale) = frames['LS850'], frames['LS720']

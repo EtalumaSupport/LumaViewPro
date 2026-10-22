@@ -31,7 +31,7 @@ def _saved_steps(session, path, count):
     protocol = session.create_empty_protocol()
     session.set_layer_acquire('BF', 'image')
     for i in range(count):
-        session.scope.motion.move_absolute('X', 10000.0 + 5000.0 * i)
+        session.scope.motion.move_xy(x_um=10000.0 + 5000.0 * i)
         session.add_step(protocol)
     protocol.to_file(path)
     return path
@@ -326,7 +326,7 @@ def test_an_autofocus_and_a_z_stack_run_on_a_scope_without_a_stage(make_session,
         zstack={'range': 20.0, 'step_size': 10.0, 'position': 'Current Position at Center'},
     )
     # Mid-travel: homed Z sits at 0, where a stack's lower slices fall outside.
-    session.scope.motion.move_absolute('Z', 5000.0)
+    session.scope.motion.move_z(5000.0)
     runner = session.create_protocol_runner()
 
     focused = runner.run_autofocus('BF', parent_dir=str(tmp_path / 'af'), timeout_s=180)

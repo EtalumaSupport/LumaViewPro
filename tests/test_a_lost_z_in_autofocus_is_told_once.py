@@ -37,7 +37,7 @@ def af_session(tmp_path):
     with open_composite_session(settings) as (session, runner):
         # Clear of the travel limit the home leaves Z at, over a scene with a
         # focus there, so the sweep reaches its frames.
-        session.scope.motion.move_absolute('Z', 3000.0)
+        session.scope.motion.move_z(3000.0)
         camera = session.scope._camera_driver
         camera.set_test_pattern(enabled=True, pattern='focus_target')
         camera.set_focal_z(3000.0)

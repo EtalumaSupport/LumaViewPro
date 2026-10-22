@@ -254,7 +254,7 @@ void main (void) {
 
     def _flush_scroll_z(self, dt):
         """Debounced scroll-to-focus: send the last tick's Z move."""
-        from ui.ui_helpers import move_relative, run_reported
+        from ui.ui_helpers import jog_z, run_reported
 
         pending = self._scroll_z_pending
         self._scroll_z_pending = None
@@ -263,9 +263,7 @@ void main (void) {
         factor, coarse = pending
         scope = _app_ctx.ctx.scope
         run_reported(
-            lambda: move_relative(
-                'Z', factor * scope.motion.jog_step('Z', coarse=coarse), overshoot_enabled=False
-            ),
+            lambda: jog_z(factor * scope.motion.jog_step('Z', coarse=coarse)),
             redraw=None,
             label='SCROLL_TO_FOCUS',
         )

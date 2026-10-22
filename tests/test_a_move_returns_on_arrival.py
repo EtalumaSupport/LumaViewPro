@@ -6,7 +6,7 @@ the command, so a stall, a lost board or a stop never reached a script,
 REST or a headless run; only the motion monitor's unsolicited popup told
 anyone. They now wait for the axis and raise ``MoveNotCompletedError``.
 A caller that works while the axis travels starts the move instead
-(``start_move_absolute`` / ``start_move_relative``) and gets the same
+(``start_move_xy`` / ``start_move_z`` and their by-a-distance forms) and gets the same
 verdict from the started move's ``wait()``.
 
 The wait runs in the caller's thread, not on the IO lane, so the lane
@@ -108,7 +108,7 @@ class TestAMoveWaits:
         puller = _pull_the_cable_mid_move(session, ('Z',), monkeypatch)
 
         with pytest.raises(MoveNotCompletedError) as exc:
-            motion.move_absolute('Z', _z_target(motion))
+            motion.move_z(_z_target(motion))
         puller.join()
 
         assert exc.value.reason == 'board_lost'
@@ -117,7 +117,7 @@ class TestAMoveWaits:
     def test_a_started_moves_wait_gives_the_same_verdict(self, session, monkeypatch):
         motion = session.scope.motion
         puller = _pull_the_cable_mid_move(session, ('Z',), monkeypatch)
-        move = motion.start_move_absolute('Z', _z_target(motion))
+        move = motion.start_move_z(_z_target(motion))
 
         with pytest.raises(MoveNotCompletedError) as exc:
             move.result()
@@ -130,7 +130,7 @@ class TestAMoveWaits:
         motion = session.scope.motion
         target = _z_target(motion)
 
-        motion.start_move_absolute('Z', target).result()
+        motion.start_move_z(target).result()
 
         assert motion.get_axis_state('Z') == AxisState.IDLE
         assert motion.get_current_position('Z') == pytest.approx(target, abs=1.0)
@@ -154,7 +154,7 @@ class TestTheWaitIsOffTheLane:
 
         def _waited_move():
             try:
-                motion.move_absolute('X', target)
+                motion.move_xy(x_um=target)
             except Exception as e:  # reported by the assertion below
                 errors.append(e)
 
@@ -173,8 +173,8 @@ class TestTheWaitIsOffTheLane:
     def test_a_move_another_caller_supersedes_is_not_reported_arrived(self, session):
         motion = session.scope.motion
         first_target = _z_target(motion)
-        first = motion.start_move_absolute('Z', first_target)
-        second = motion.start_move_absolute('Z', first_target + 100.0)
+        first = motion.start_move_z(first_target)
+        second = motion.start_move_z(first_target + 100.0)
 
         with pytest.raises(MoveNotCompletedError) as exc:
             first.result()
@@ -209,7 +209,7 @@ class TestWaitingForMotionTheCallerDidNotStart:
         monkeypatch.setattr(motion, '_MOVE_STALL_WINDOW_S', _TRAVEL_WAIT_S)
         session.scope.simulation.drop_replies('motor', count=None, command='STATUS_RX')
         held = session.scope.simulation.hold_axis('X')
-        motion.start_move_absolute('X', _far_x(motion))
+        motion.start_move_xy(x_um=_far_x(motion))
         closer = threading.Thread(
             target=lambda: held.wait(_TRAVEL_WAIT_S) and session.scope.disconnect(),
             name='close',
@@ -236,8 +236,8 @@ class TestWaitingForMotionTheCallerDidNotStart:
         session.scope.simulation.drop_replies('motor', count=None, command='STATUS_RY')
         session.scope.simulation.hold_axis('Y')
         limits = motion.get_axis_limits('Y')
-        motion.start_move_absolute('Y', limits.max_um * 0.9)
-        x_move = motion.start_move_absolute('X', motion.get_current_position('X') + 2000.0)
+        motion.start_move_xy(y_um=limits.max_um * 0.9)
+        x_move = motion.start_move_xy(x_um=motion.get_current_position('X') + 2000.0)
         closer = threading.Thread(
             target=lambda: (x_move.result(timeout=_TRAVEL_WAIT_S), session.scope.disconnect()),
             name='close',
@@ -275,7 +275,7 @@ class TestWaitingForMotionTheCallerDidNotStart:
         motion = session.scope.motion
         motion._set_axis_state('X', AxisState.UNKNOWN)
         motion._set_axis_state('Y', AxisState.UNKNOWN)
-        motion.start_move_absolute('Z', _z_target(motion))
+        motion.start_move_z(_z_target(motion))
 
         motion.wait_until_finished_moving(timeout_s=_TRAVEL_WAIT_S)
 
@@ -284,7 +284,7 @@ class TestWaitingForMotionTheCallerDidNotStart:
     def test_a_stop_is_not_a_failure_here(self, session):
         motion = session.scope.motion
         motion._driver.set_timing_mode('realistic')
-        move = motion.start_move_absolute('X', _far_x(motion))
+        move = motion.start_move_xy(x_um=_far_x(motion))
         motion.stop_motion()
 
         motion.wait_until_finished_moving(timeout_s=_TRAVEL_WAIT_S)
@@ -354,10 +354,10 @@ class TestAnAxisTheScopeLacks:
         motion = z_only.scope.motion
 
         for move in (
-            lambda: motion.move_absolute('X', 1000.0),
-            lambda: motion.move_relative('X', 10.0),
-            lambda: motion.start_move_absolute('X', 1000.0),
-            lambda: motion.start_move_relative('X', 10.0),
+            lambda: motion.move_xy(x_um=1000.0),
+            lambda: motion.move_xy_by(dx_um=10.0),
+            lambda: motion.start_move_xy(x_um=1000.0),
+            lambda: motion.start_move_xy_by(dx_um=10.0),
         ):
             with pytest.raises(HardwareCommandRefusedError) as caught:
                 move()
@@ -455,11 +455,11 @@ class TestAStartedMoveIsAnOperation:
                 'position': motion.get_current_position('Z'),
                 'listener_told_idle': ('Z', AxisState.IDLE) in told,
             }
-            motion.move_absolute('Z', target + 20.0)
+            motion.move_z(target + 20.0)
             seen['moved_to'] = motion.get_current_position('Z')
             return seen
 
-        seen = _after(motion.start_move_absolute('Z', target), then)
+        seen = _after(motion.start_move_z(target), then)
 
         assert seen == {
             'state': AxisState.IDLE,
@@ -472,14 +472,14 @@ class TestAStartedMoveIsAnOperation:
         motion = session.scope.motion
         target = _z_target(motion)
         x_target = motion.get_current_position('X') + 500.0
-        first = motion.start_move_absolute('Z', target)
+        first = motion.start_move_z(target)
 
         def then(op):
             ended = op.exception()
-            motion.move_absolute('X', x_target)
+            motion.move_xy(x_um=x_target)
             return {'ended': getattr(ended, 'reason', ended), 'x': motion.get_current_position('X')}
 
-        second = motion.start_move_absolute('Z', target + 100.0)
+        second = motion.start_move_z(target + 100.0)
         seen = _after(first, then)
         second.result(timeout=_TRAVEL_WAIT_S)
 
@@ -506,7 +506,7 @@ class TestAStartedMoveIsAnOperation:
                 raise _EndsTheThread()
 
         motion.add_position_listener(listener)
-        move = motion.start_move_absolute('Z', target)
+        move = motion.start_move_z(target)
 
         assert move.result(timeout=_TRAVEL_WAIT_S) is None
         assert raised
@@ -515,7 +515,7 @@ class TestAStartedMoveIsAnOperation:
         motion = session.scope.motion
         target = _z_target(motion)
         halted = session.scope.simulation.hold_axis('Z')
-        move = motion.start_move_absolute('Z', target)
+        move = motion.start_move_z(target)
         assert halted.wait(_TRAVEL_WAIT_S), 'the move never reached its hold'
 
         with pytest.raises(TimeoutError):

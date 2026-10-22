@@ -539,7 +539,7 @@ class AutofocusRunner:
                 if self._best_focus_position is None and self._params and not self._ended_by_a_stop:
                     pre_af_z = self._params['center']
                     try:
-                        self._scope.motion.move_absolute('Z', pre_af_z)
+                        self._scope.motion.move_z(pre_af_z)
                         _af_log.info(
                             f'[AF DIAG] Non-success exit: restored Z to pre-AF position {pre_af_z:.2f}'
                         )
@@ -997,10 +997,10 @@ class AutofocusRunner:
     def _move_absolute_position(self, position):
         # Started, not waited: _iterate holds the next frame while the
         # scope reports motion.
-        self._scope.motion.start_move_absolute('Z', position)
+        self._scope.motion.start_move_z(position)
 
     def _move_relative_position(self, distance):
-        self._scope.motion.start_move_relative('Z', distance)
+        self._scope.motion.start_move_z_by(distance)
 
     def in_progress(self) -> bool:
         # Use _af_in_progress, not _is_focusing_event. _is_focusing_event

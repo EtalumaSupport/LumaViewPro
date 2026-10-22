@@ -296,7 +296,7 @@ class TestWheelDirectionIsConsistent:
             raise ObjectiveUnknownError('slot_unknown')
 
         moved = []
-        monkeypatch.setattr(ui_helpers, 'move_relative', lambda *a, **k: moved.append(a))
+        monkeypatch.setattr(ui_helpers, 'jog_z', lambda *a, **k: moved.append(a))
         viewer = self._scroll_live_image(
             monkeypatch, self.TOKEN_PHYSICAL_UP, ctrl_held=True, jog_step=_unknown
         )

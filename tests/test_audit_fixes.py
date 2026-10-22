@@ -690,27 +690,27 @@ class TestPositionCache:
         assert sim_scope.motion.get_target_position('Y') == 0.0
         assert sim_scope.motion.get_target_position('Z') == 0.0
 
-    def test_move_absolute_updates_cache(self, sim_scope):
-        """move_absolute should push the new position into the cache."""
-        sim_scope.motion.move_absolute('Z', 5000.0)
+    def test_move_z_updates_cache(self, sim_scope):
+        """move_z should push the new position into the cache."""
+        sim_scope.motion.move_z(5000.0)
         assert sim_scope.motion.get_target_position('Z') == 5000.0
 
-    def test_move_absolute_only_updates_target_axis(self, sim_scope):
+    def test_move_z_only_updates_its_axis(self, sim_scope):
         """Moving Z should not affect X or Y cache."""
-        sim_scope.motion.move_absolute('Z', 5000.0)
+        sim_scope.motion.move_z(5000.0)
         assert sim_scope.motion.get_target_position('X') == 0.0
         assert sim_scope.motion.get_target_position('Y') == 0.0
 
-    def test_move_relative_updates_cache(self, sim_scope):
-        """move_relative should accumulate into the cache."""
-        sim_scope.motion.start_move_absolute('X', 1000.0)
-        sim_scope.motion.start_move_relative('X', 500.0).result()
+    def test_move_xy_by_updates_cache(self, sim_scope):
+        """move_xy_by should accumulate into the cache."""
+        sim_scope.motion.start_move_xy(x_um=1000.0)
+        sim_scope.motion.start_move_xy_by(dx_um=500.0).result()
         assert sim_scope.motion.get_target_position('X') == pytest.approx(1500.0, abs=0.1)
 
-    def test_move_relative_negative(self, sim_scope):
+    def test_move_z_by_negative(self, sim_scope):
         """Negative relative moves should subtract from cache."""
-        sim_scope.motion.start_move_absolute('Z', 3000.0)
-        sim_scope.motion.start_move_relative('Z', -1000.0).result()
+        sim_scope.motion.start_move_z(3000.0)
+        sim_scope.motion.start_move_z_by(-1000.0).result()
         assert sim_scope.motion.get_target_position('Z') == pytest.approx(2000.0, abs=0.1)
 
     def test_get_current_position_matches_target(self, sim_scope):
@@ -722,7 +722,7 @@ class TestPositionCache:
         cache contract from 'snap to commanded target on arrival' to
         'reflect motor's polled actual', exposing this quantization
         residual."""
-        sim_scope.motion.move_absolute('Z', 7777.0)
+        sim_scope.motion.move_z(7777.0)
         assert sim_scope.motion.get_current_position('Z') == pytest.approx(7777.0, abs=0.1)
 
     def test_refresh_after_homing(self, sim_scope):
@@ -731,7 +731,7 @@ class TestPositionCache:
         # The simulated motor stores positions in microsteps; target_pos() converts.
         # Use move_abs_pos to set a known position, then verify refresh reads it.
         sim_scope._motion_driver.move_abs_pos('Z', 5000.0)
-        # Cache still has old value since we bypassed move_absolute
+        # Cache still has old value since we bypassed the motion API
         assert sim_scope.motion.get_target_position('Z') != 5000.0
         # Now refresh from hardware
         sim_scope.motion._refresh_position_cache()
@@ -768,17 +768,17 @@ class TestAxisState:
             scope.disconnect()
 
     def test_axis_state_idle_after_move_with_wait(self, sim_scope):
-        """After a waited move_absolute, axis is IDLE."""
+        """After a waited move_z, axis is IDLE."""
         from modules.lumascope_api import AxisState
 
-        sim_scope.motion.move_absolute('Z', 1000)
+        sim_scope.motion.move_z(1000)
         assert sim_scope.motion.get_axis_state('Z') == AxisState.IDLE
 
     def test_axis_state_moving_during_fire_and_forget(self, sim_scope):
         """After fire-and-forget move, axis is initially MOVING then transitions to IDLE."""
         from modules.lumascope_api import AxisState
 
-        sim_scope.motion.start_move_absolute('Z', 500)
+        sim_scope.motion.start_move_z(500)
         state = sim_scope.motion.get_axis_state('Z')
         # Simulated move completes instantly; motion monitor may or may not have
         # polled yet. Both MOVING and IDLE are valid states at this point.
@@ -863,7 +863,7 @@ class TestAxisState:
         """Motion monitor thread should detect arrival and set state to IDLE."""
         from modules.lumascope_api import AxisState
 
-        sim_scope.motion.start_move_absolute('Z', 1000)
+        sim_scope.motion.start_move_z(1000)
         # In simulation, the move completes instantly. The motion monitor thread
         # detects arrival at 50Hz and transitions state to IDLE.
         sim_scope.motion.wait_until_finished_moving(timeout_s=2.0)
@@ -894,11 +894,11 @@ class TestAxisState:
         assert 'Z' in sim_scope.capabilities.axes
         assert 'Q' not in sim_scope.capabilities.axes
 
-    def test_move_relative_state_tracking(self, sim_scope):
-        """move_relative tracks axis state correctly."""
+    def test_move_by_a_distance_state_tracking(self, sim_scope):
+        """A move by a distance tracks axis state correctly."""
         from modules.lumascope_api import AxisState
 
-        sim_scope.motion.move_relative('Z', 100)
+        sim_scope.motion.move_z_by(100)
         assert sim_scope.motion.get_axis_state('Z') == AxisState.IDLE
 
     def test_xy_move_state_tracking(self, sim_scope):
@@ -911,8 +911,8 @@ class TestAxisState:
         """
         from modules.lumascope_api import AxisState
 
-        sim_scope.motion.move_absolute('X', 500)
-        sim_scope.motion.move_absolute('Y', 500)
+        sim_scope.motion.move_xy(x_um=500)
+        sim_scope.motion.move_xy(y_um=500)
         assert sim_scope.motion.get_axis_state('X') == AxisState.IDLE
         assert sim_scope.motion.get_axis_state('Y') == AxisState.IDLE
 
@@ -10683,7 +10683,7 @@ class TestGreaseRedistributionGateAlwaysReleased:
         runner = self._make_runner()
         step = ProtocolStepRunner(runner)
         runner._grease_redistribution_event.clear()
-        runner._scope.motion.move_absolute.side_effect = RuntimeError('Z move timeout')
+        runner._scope.motion.move_z.side_effect = RuntimeError('Z move timeout')
 
         # The failure still propagates (the executor runner logs it), but the
         # gate must be released by the finally so the next scan is not blocked.

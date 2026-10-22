@@ -40,7 +40,7 @@ def af_session(tmp_path, monkeypatch):
     with open_composite_session(headless_settings(tmp_path)) as (session, runner):
         # Clear of the travel limit the home leaves Z at, so the sweep's
         # window fits and it reaches its first capture.
-        session.scope.motion.move_absolute('Z', 3000.0)
+        session.scope.motion.move_z(3000.0)
         # A scene with a focus where the sweep starts, so a sweep left to
         # finish finds a peak: a featureless frame has none, and an
         # autofocus over it fails.

@@ -90,7 +90,8 @@ def nav_env(monkeypatch):
         capabilities=SimpleNamespace(has_turret=True, axes=('X', 'Y', 'Z', 'T')),
         runtime_state=SimpleNamespace(get_turret_config=lambda: carried),
         motion=SimpleNamespace(
-            move_absolute=MagicMock(),
+            start_move_xy=MagicMock(),
+            start_move_z=MagicMock(),
             move_turret=MagicMock(),
             # Every axis knows its position unless a test says otherwise:
             # these tests are about the objective rule.

@@ -26,30 +26,30 @@ def motion():
 
 
 def test_a_jog_past_the_top_of_travel_is_refused_and_nothing_moves(motion):
-    motion.move_absolute('Z', 2000.0)
+    motion.move_z(2000.0)
     z_max = motion.get_axis_limits('Z').max_um
     before = motion.get_current_position('Z')
 
     with pytest.raises(PositionOutOfRangeError):
-        motion.move_relative('Z', z_max)
+        motion.move_z_by(z_max)
 
     assert motion.get_current_position('Z') == before
 
 
 def test_a_jog_past_the_bottom_of_travel_is_refused_and_nothing_moves(motion):
-    motion.move_absolute('X', 500.0)
+    motion.move_xy(x_um=500.0)
     before = motion.get_current_position('X')
 
     with pytest.raises(PositionOutOfRangeError):
-        motion.move_relative('X', -1000.0)
+        motion.move_xy_by(dx_um=-1000.0)
 
     assert motion.get_current_position('X') == before
 
 
 def test_a_jog_inside_travel_still_moves(motion):
-    motion.move_absolute('Z', 2000.0)
+    motion.move_z(2000.0)
 
-    motion.move_relative('Z', 1000.0)
+    motion.move_z_by(1000.0)
 
     assert motion.get_current_position('Z') == pytest.approx(3000.0)
 
@@ -57,8 +57,8 @@ def test_a_jog_inside_travel_still_moves(motion):
 def test_a_jog_that_lands_exactly_on_the_limit_moves(motion):
     """The limit is inside travel, as the absolute refusal's bounds are."""
     z_max = motion.get_axis_limits('Z').max_um
-    motion.move_absolute('Z', z_max - 100.0)
+    motion.move_z(z_max - 100.0)
 
-    motion.move_relative('Z', 100.0)
+    motion.move_z_by(100.0)
 
     assert motion.get_current_position('Z') == pytest.approx(z_max)

@@ -110,10 +110,10 @@ def body(session, runner):
             session.set_layer_acquire(layer, 'image' if layer in pair else None)
         here = scope.protocols.create_protocol(empty_config=session.get_sequenced_capture_config())
         session.add_step(here, before_step=0)
-        scope.motion.move_absolute('X', x0 + TRAVEL_UM)
+        scope.motion.move_xy(x_um=x0 + TRAVEL_UM)
         there = scope.protocols.create_protocol(empty_config=session.get_sequenced_capture_config())
         session.add_step(there, before_step=0)
-        scope.motion.move_absolute('X', x0)
+        scope.motion.move_xy(x_um=x0)
         at_here = _steps(session, here, pair)
         at_there = _steps(session, there, pair)
         figure(
@@ -183,7 +183,7 @@ def body(session, runner):
         for layer, mode in acquire_before.items():
             session.set_layer_acquire(layer, mode)
         session.update_settings('BF.exposure_ms', exposure_before)
-        scope.motion.move_absolute('X', x0)
+        scope.motion.move_xy(x_um=x0)
 
 
 def main():

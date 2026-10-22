@@ -96,18 +96,19 @@ def test_a_jog_with_the_objective_unknown_is_one_objective_unknown_warning(
         'ctx',
         SimpleNamespace(scope=session.scope, session=SimpleNamespace(controls_locked=False)),
     )
-    monkeypatch.setattr(ui_helpers, 'move_relative', lambda *a, **k: moved.append(a))
+    monkeypatch.setattr(ui_helpers, 'jog_z', lambda *a, **k: moved.append(a))
+    monkeypatch.setattr(ui_helpers, 'jog_xy', lambda *a, **k: moved.append(a))
     # Slot 3 has no objective assigned, so the step cannot be sized.
     home_sim_scope(session.scope)
     session.scope.motion.move_turret(3)
 
     if axis == 'Z':
-        monkeypatch.setattr(vc, 'move_relative', ui_helpers.move_relative)
+        monkeypatch.setattr(vc, 'jog_z', ui_helpers.jog_z)
         vc.VerticalControl._z_jog(SimpleNamespace(), +1, coarse=False)
     else:
         from ui import motion_settings
 
-        monkeypatch.setattr(motion_settings, 'move_relative', ui_helpers.move_relative)
+        monkeypatch.setattr(motion_settings, 'jog_xy', ui_helpers.jog_xy)
         motion_settings.XYStageControl._xy_jog(SimpleNamespace(), 'X', +1, coarse=False)
 
     assert moved == []

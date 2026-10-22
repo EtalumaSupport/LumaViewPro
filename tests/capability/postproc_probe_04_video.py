@@ -30,9 +30,9 @@ def main() -> int:
     # position, which is what a video needs and a single scan cannot give.
     timelapse = {'period': 1.0 / 60.0, 'duration': 10.0 / 3600.0, 'labware': '96 well microplate'}
     with headless_session(live, acquiring=('BF',), protocol=timelapse) as (session, runner):
-        session.scope.motion.move_absolute('X', 40000.0)
-        session.scope.motion.move_absolute('Y', 30000.0)
-        session.scope.motion.move_absolute('Z', 1000.0)
+        session.scope.motion.move_xy(x_um=40000.0)
+        session.scope.motion.move_xy(y_um=30000.0)
+        session.scope.motion.move_z(1000.0)
         session.scope.motion.wait_until_finished_moving(timeout_s=60)
         here = session.get_current_plate_position()
         outcome, folder = run_protocol_folder(

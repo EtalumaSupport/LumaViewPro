@@ -20,6 +20,7 @@ from modules.exceptions import (
 )
 from modules.lumascope_api import AxisState
 from tests.scope_fakes import bind_settings_like_a_session, build_scope, record_turret_answer
+from tests.motion_moves import axis_move
 from tests.test_integration import (  # noqa: F401 -- the fixtures are used by name
     _make_protocol,
     _run_and_wait,
@@ -97,10 +98,10 @@ def _at(scope, axis):
 
 
 def test_each_axis_moves_through_the_api(homed):
-    homed.motion.move_absolute('X', 12_000)
-    homed.motion.move_absolute('Y', 8_000)
-    homed.motion.move_absolute('Z', 3_000)
-    homed.motion.move_relative('Z', -500)
+    homed.motion.move_xy(x_um=12_000)
+    homed.motion.move_xy(y_um=8_000)
+    homed.motion.move_z(3_000)
+    homed.motion.move_z_by(-500)
     assert _at(homed, 'X') == pytest.approx(12_000, abs=0.2)
     assert _at(homed, 'Y') == pytest.approx(8_000, abs=0.2)
     assert _at(homed, 'Z') == pytest.approx(2_500, abs=0.1)
@@ -111,9 +112,9 @@ def test_the_lid_refuses_x_and_y_and_lets_z_move(homed):
     assert homed.motion.interlocks() == {'lid_open'}
     for axis in ('X', 'Y'):
         with pytest.raises(HardwareCommandRefusedError) as refused:
-            homed.motion.move_absolute(axis, 1_000)
+            axis_move(homed.motion, axis, 1_000)
         assert refused.value.reason == 'lid_open'
-    homed.motion.move_absolute('Z', 1_000)
+    homed.motion.move_z(1_000)
     assert _at(homed, 'Z') == pytest.approx(1_000, abs=0.1)
     assert _at(homed, 'X') == 117_690.0
 
@@ -128,10 +129,10 @@ def test_a_lid_refusal_ends_a_waited_move_on_another_axis_as_a_stop_does(homed):
     """The stage stops all three axes in refusing an X move for the lid, so
     a Z move in flight learns it was stopped, as after stop_motion, instead
     of reading its halt as arrival."""
-    z = homed.motion.start_move_absolute('Z', 8_000)
+    z = homed.motion.start_move_z(8_000)
     homed.simulation.interlock(lid_open=True)
     with pytest.raises(HardwareCommandRefusedError):
-        homed.motion.move_absolute('X', 1_000)
+        homed.motion.move_xy(x_um=1_000)
     assert _ended(z) == 'stopped'
     assert 0 < _at(homed, 'Z') < 8_000
 
@@ -142,7 +143,7 @@ def test_a_home_asked_as_the_lid_stops_a_move_is_refused_for_the_lid(homed, monk
     for. The stage's stop landed after the home was asked and before it drove,
     which on a loaded host it does about one time in five: the home read it
     as a Stop pressed just after Home and said it was stopped."""
-    x = homed.motion.start_move_absolute('X', 100_000)
+    x = homed.motion.start_move_xy(x_um=100_000)
     homed.simulation.interlock(lid_open=True)
     x_ended = []
     frame_validity = homed.imaging.frame_validity
@@ -165,7 +166,7 @@ def test_a_home_asked_as_the_lid_stops_a_move_is_refused_for_the_lid(homed, monk
 
 
 def test_a_home_with_the_lid_open_is_refused_and_moves_nothing(homed):
-    homed.motion.move_absolute('Z', 1_000)
+    homed.motion.move_z(1_000)
     homed.simulation.interlock(lid_open=True)
     with pytest.raises(HardwareCommandRefusedError) as refused:
         homed.motion.home()
@@ -181,7 +182,7 @@ def test_a_position_the_board_does_not_report_is_unread_not_none(homed):
     homed.simulation.silence('motor')
     try:
         with pytest.raises(HardwareCommandRefusedError) as refused:
-            homed.motion.move_relative('X', -100)
+            homed.motion.move_xy_by(dx_um=-100)
         assert refused.value.reason == 'position_unread'
         with pytest.raises(HardwareError, match='no reply from the TMCM-6110'):
             homed.motion.get_actual_position('X')
@@ -195,7 +196,7 @@ def test_the_motion_monitor_outlives_a_silence_during_a_move(homed):
     handles: the move arrives once the board answers again, and a later move
     still arrives. A None position killed the monitor thread, and every
     later move waited out its time limit."""
-    move = homed.motion.start_move_absolute('X', 60_000)
+    move = homed.motion.start_move_xy(x_um=60_000)
     time.sleep(0.05)
     homed.simulation.silence('motor')
     time.sleep(1.5)
@@ -204,7 +205,7 @@ def test_the_motion_monitor_outlives_a_silence_during_a_move(homed):
     homed.simulation.unsilence('motor')
     move.result()
     homed.motion.home()
-    homed.motion.move_absolute('Y', 20_000)
+    homed.motion.move_xy(y_um=20_000)
     assert _at(homed, 'Y') == pytest.approx(20_000, abs=0.2)
 
 
@@ -309,10 +310,10 @@ def test_a_z_move_down_drives_one_leg_on_a_stage_with_no_backlash(homed):
     # not a leg to the same point first.
     from drivers.tmcm6110 import MOTORS, MVP
 
-    homed.motion.move_absolute('Z', 3000)
+    homed.motion.move_z(3000)
     board = _board(homed)
     board.commands.clear()
-    homed.motion.move_absolute('Z', 1500, overshoot_enabled=True)
+    homed.motion.move_z(1500, overshoot_enabled=True)
     starts = [c for c in board.commands if c.command == MVP and c.motor == MOTORS['Z']]
     assert len(starts) == 1
     assert homed.motion.get_current_position('Z') == pytest.approx(1500, abs=1)

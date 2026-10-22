@@ -37,7 +37,7 @@ def test_every_reader_sees_the_leg_as_the_move(session):
     driver = motion._driver
     validity = session.scope.imaging.frame_validity
     driver.set_timing_mode('fast')
-    motion.move_absolute('Z', 3000.0)
+    motion.move_z(3000.0)
     driver.set_timing_mode('realistic')
 
     leg_um = 1000.0 - driver.backlash_um()
@@ -65,7 +65,7 @@ def test_every_reader_sees_the_leg_as_the_move(session):
 
     observer = threading.Thread(target=observe_the_leg)
     observer.start()
-    handle = motion.start_move_absolute('Z', 1000.0, overshoot_enabled=True)
+    handle = motion.start_move_z(1000.0, overshoot_enabled=True)
     observer.join(15.0)
     handle.result()
 

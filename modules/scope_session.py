@@ -2803,7 +2803,7 @@ class ScopeSession:
 
         Reads ``bookmark`` for the axes given, as ``save_bookmark`` wrote
         them: X and Y in mm on the selected plate (``start_move_to_plate``,
-        the axes given on one lane task), Z in um (``start_move_absolute``).
+        the axes given on one lane task), Z in um (``start_move_z``).
         An axis not given is left where it is.
 
         Returns:
@@ -2840,7 +2840,7 @@ class ScopeSession:
                 )
             )
         if 'Z' in axes:
-            moves.append(motion.start_move_absolute('Z', mark.z_um))
+            moves.append(motion.start_move_z(mark.z_um))
         return Operation.all_of(tuple(moves))
 
     @api
@@ -2862,7 +2862,7 @@ class ScopeSession:
             MoveFaultError: ``'driver_failed'``, the board did not take a
                 command.
             MoveNotCompletedError: An axis did not arrive; see
-                ``MotionAPI.start_move_absolute``.
+                ``MotionAPI.start_move_z``.
             BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on
                 the UI thread, whose form is ``start_go_to_bookmark``.
                 Nothing was driven.
@@ -3081,7 +3081,7 @@ class ScopeSession:
 
         Raises:
             MoveNotCompletedError: an axis did not arrive at the step; see
-                ``MotionAPI.start_move_absolute``. The layer and the preview
+                ``MotionAPI.start_move_z``. The layer and the preview
                 are the step's.
             CameraSettingRejected: the camera refused a setting of the
                 step's layer, raised once the stage has arrived; see
@@ -3117,10 +3117,11 @@ class ScopeSession:
         so the layer and the step agree; and the step's LED preview is
         applied -- its channel at its current when ``protocol_led_on`` is
         set, every channel dark when not. It returns once that task has run,
-        before the stage arrives, with one ``Operation`` for the X, Y and Z
-        moves it started: done once every one has ended, its ``result()``
-        returns None when all arrived and raises the first that did not, in
-        X, Y, Z order, as ``MotionAPI.start_move_absolute`` says; its
+        before the stage arrives, with one ``Operation`` for the moves it
+        started, X and Y as one request (``MotionAPI.start_move_xy``) and
+        then Z: done once every one has ended, its ``result()`` returns None
+        when all arrived and raises the first that did not, in X, Y, Z
+        order, as ``MotionAPI.start_move_z`` says; its
         ``stop()`` stops the moves still under way. ``go_to_step`` waits on
         it. A person's click is a gesture and does not wait; a fault on the
         way is the motion monitor's to report. Only the axes this scope has
@@ -3221,8 +3222,8 @@ class ScopeSession:
     ) -> tuple[Operation, ...]:
         """The lane half of ``go_to_step``: ask once, start the moves, load the layer, preview.
 
-        Returns the started moves, one per axis this scope has among X, Y
-        and Z; none on a manual scope.
+        Returns the started moves: one XY request for the X and Y this scope
+        has (done at once with neither), and Z's move when it has Z.
         """
         motion = self.scope.motion
         # A motorized scope whose controller is out of reach cannot go to the
@@ -3251,11 +3252,9 @@ class ScopeSession:
             if targets.turret_slot is not None:
                 # The step's own Z move follows, so the turret need not put Z back.
                 motion.move_turret(targets.turret_slot, restore_z=False)
-            moves = tuple(
-                motion.start_move_absolute(axis, target)
-                for axis, target in (('X', targets.x), ('Y', targets.y), ('Z', targets.z))
-                if target is not None
-            )
+            moves = (motion.start_move_xy(targets.x, targets.y),)
+            if targets.z is not None:
+                moves += (motion.start_move_z(targets.z),)
         self._load_step_into_layer(step)
         self._last_step_gone_to = (protocol, step_idx)
         if not moves_light:

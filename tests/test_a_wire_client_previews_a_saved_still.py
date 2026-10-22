@@ -39,7 +39,7 @@ def summed(tmp_path):
     settings['image_mode'] = image_mode.IMAGE_MODE_12BIT_SCIENTIFIC
     settings['BF']['sum'] = 3
     with _open_session(settings) as session:
-        session.scope.motion.move_absolute('Z', session.scope._camera_driver.get_nominal_focal_z())
+        session.scope.motion.move_z(session.scope._camera_driver.get_nominal_focal_z())
         session.scope.illumination.led_on('BF', 200.0)
         stills = _capture(session)
         with TestClient(build_app(session)) as client:

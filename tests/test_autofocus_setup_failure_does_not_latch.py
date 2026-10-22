@@ -88,11 +88,7 @@ def _break(runner, scope, seam, monkeypatch):
 
 
 def _z_moves(scope):
-    return [
-        call.args[1]
-        for call in scope.motion.move_absolute.call_args_list
-        if call.args and call.args[0] == 'Z'
-    ]
+    return [call.args[0] for call in scope.motion.move_z.call_args_list]
 
 
 @pytest.mark.parametrize(

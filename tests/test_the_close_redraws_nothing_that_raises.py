@@ -137,7 +137,7 @@ def test_once_the_bridge_unregisters_the_scopes_events_schedule_nothing(window):
     def tell(x_um, ma, layer):
         # Started, not waited on: this thread is the dispatcher's UI thread,
         # and the move's start already tells the position listeners.
-        session.scope.motion.start_move_absolute('X', x_um)
+        session.scope.motion.start_move_xy(x_um=x_um)
         session.scope.illumination.led_on('BF', ma)
         session.show_channel(layer)
 

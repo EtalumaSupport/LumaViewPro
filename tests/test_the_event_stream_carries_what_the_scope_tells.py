@@ -442,9 +442,7 @@ def test_every_jobs_end_is_an_event_with_the_job(client, session, monkeypatch):
     monkeypatch.setattr(session.scope.illumination, 'leds_off', leds_off)
     with _reading(client) as stream:
         stream.until('status')
-        move = client.post(
-            '/api/v1/scope/motion/start_move_relative', json={'axis': 'Z', 'distance': 10.0}
-        ).json()
+        move = client.post('/api/v1/scope/motion/start_move_z_by', json={'dz_um': 10.0}).json()
         still = client.post('/api/v1/manual_capture/capture', json={'false_color_on': False}).json()
         held = client.post(
             '/api/v1/scope/illumination/leds_off', headers={'Prefer': 'respond-async'}

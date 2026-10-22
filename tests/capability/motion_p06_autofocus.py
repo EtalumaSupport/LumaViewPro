@@ -14,7 +14,7 @@ def body(s):
     m = s.scope.motion
     m.home('ALL')
     s.select_labware('96 well microplate')
-    m.move_absolute('Z', 3000.0)
+    m.move_z(3000.0)
     m.move_to_plate(PlateLocation(x_mm=40.0, y_mm=30.0, z_um=None))
     # Simulated, the camera shows a focus target focused inside the sweep's
     # window, off its start so the stage has somewhere to go: a featureless

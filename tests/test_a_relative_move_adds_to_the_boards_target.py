@@ -26,11 +26,11 @@ def scope():
 def test_the_offset_is_added_to_the_boards_target_not_the_cache(scope):
     motion = scope.motion
     driver = scope._motion_driver
-    motion.move_absolute('X', 5000.0)
+    motion.move_xy(x_um=5000.0)
     with motion._pos_cache_lock:
         motion._pos_cache['X'] = 0.0  # a number the board never reported
 
-    motion.move_relative('X', 10.0)
+    motion.move_xy_by(dx_um=10.0)
 
     assert driver.target_pos('X') == pytest.approx(5010.0, abs=0.1)
 
@@ -41,12 +41,12 @@ def test_travel_is_checked_against_the_target_that_is_driven(scope):
     beyond travel."""
     motion = scope.motion
     x_max = motion.get_axis_limits('X').max_um
-    motion.move_absolute('X', x_max - 50.0)
+    motion.move_xy(x_um=x_max - 50.0)
     with motion._pos_cache_lock:
         motion._pos_cache['X'] = 0.0
 
     with pytest.raises(PositionOutOfRangeError):
-        motion.move_relative('X', 100.0)
+        motion.move_xy_by(dx_um=100.0)
 
     # A refused move writes no target, so the previous one stands.
     assert motion.get_target_position('X') == x_max - 50.0
@@ -56,9 +56,9 @@ def test_a_jog_during_a_move_adds_to_that_moves_target(scope):
     motion = scope.motion
     driver = scope._motion_driver
     driver.set_timing_mode('realistic')
-    motion.start_move_absolute('X', 60000.0)
+    motion.start_move_xy(x_um=60000.0)
 
-    motion.move_relative('X', 100.0)
+    motion.move_xy_by(dx_um=100.0)
 
     assert driver.target_pos('X') == pytest.approx(60100.0, abs=0.1)
 
@@ -66,11 +66,11 @@ def test_a_jog_during_a_move_adds_to_that_moves_target(scope):
 def test_an_unreadable_target_is_refused_and_drives_nothing(scope):
     motion = scope.motion
     driver = scope._motion_driver
-    motion.move_absolute('X', 5000.0)
+    motion.move_xy(x_um=5000.0)
     scope.simulation.drop_replies('motor', count=None, command='TARGET_RX')
 
     with pytest.raises(HardwareCommandRefusedError) as exc:
-        motion.move_relative('X', 10.0)
+        motion.move_xy_by(dx_um=10.0)
 
     assert exc.value.reason == 'position_unread'
     assert motion.get_axis_state('X') == AxisState.IDLE

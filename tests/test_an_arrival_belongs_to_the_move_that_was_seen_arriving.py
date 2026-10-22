@@ -85,9 +85,9 @@ def test_the_position_after_a_waited_move_is_where_the_axis_stopped(session, mon
 
     monkeypatch.setattr(driver, 'target_status', held_until_the_move_ends)
 
-    motion.move_absolute('Z', 3000.0)
+    motion.move_z(3000.0)
     assert abs(motion.get_current_position('Z') - driver.current_pos('Z')) <= _MICROSTEP_UM
-    motion.move_relative('Z', -500.0)
+    motion.move_z_by(-500.0)
     assert abs(driver.current_pos('Z') - 2500.0) <= _MICROSTEP_UM
     assert abs(motion.get_current_position('Z') - driver.current_pos('Z')) <= _MICROSTEP_UM
 
@@ -98,14 +98,14 @@ def test_a_move_landing_inside_the_arrival_read_is_not_stamped_by_it(session, mo
     returns only with the board at B's target."""
     motion = session.scope.motion
     driver = motion._driver
-    motion.move_absolute('X', 10000.0)
+    motion.move_xy(x_um=10000.0)
     real_status = motion._read_target_status
     b = {}
     fired = threading.Event()
     b_started = threading.Event()
 
     def start_b():
-        b.update(h=motion.start_move_absolute('X', 13000.0))
+        b.update(h=motion.start_move_xy(x_um=13000.0))
         b_started.set()
 
     def start_b_inside_the_read(axis):
@@ -116,7 +116,7 @@ def test_a_move_landing_inside_the_arrival_read_is_not_stamped_by_it(session, mo
         return reached
 
     monkeypatch.setattr(motion, '_read_target_status', start_b_inside_the_read)
-    a = motion.start_move_absolute('X', 10200.0)
+    a = motion.start_move_xy(x_um=10200.0)
     # A is answered at B's MOVING write, before B's start has returned.
     a_out = _outcome(a)
     assert b_started.wait(5.0)
@@ -134,7 +134,7 @@ def test_the_previous_targets_bit_read_during_the_send_is_no_arrival(session, mo
     reached. Neither move is stamped arrived by that read."""
     motion = session.scope.motion
     driver = motion._driver
-    motion.move_absolute('X', 10000.0)
+    motion.move_xy(x_um=10000.0)
     real_drive = driver.move_abs_pos
     real_status = motion._read_target_status
     b_in_driver = threading.Event()
@@ -167,11 +167,11 @@ def test_the_previous_targets_bit_read_during_the_send_is_no_arrival(session, mo
     # A stands part of the way until B is inside its driver call, so A
     # arrives only then, however late any thread runs.
     held = session.scope.simulation.hold_axis('X')
-    a = motion.start_move_absolute('X', 10200.0)
+    a = motion.start_move_xy(x_um=10200.0)
     assert held.wait(_HOLD_WAIT_S), 'A never got part of the way'
 
     def start_b():
-        b['h'] = motion.start_move_absolute('X', 13000.0)
+        b['h'] = motion.start_move_xy(x_um=13000.0)
         b_started.set()
 
     _start_in_thread(start_b)
@@ -218,15 +218,13 @@ def test_the_overshoot_legs_arrival_is_nobodys(session, monkeypatch):
 
     monkeypatch.setattr(driver, 'move_abs_pos', recorded_write)
     monkeypatch.setattr(driver, 'target_status', the_lane_waits_for_the_monitors_read)
-    motion.move_absolute('Z', 4000.0)
+    motion.move_z(4000.0)
     # Move 1 stands part of the way until move 2's first target ends it.
     held = session.scope.simulation.hold_axis('Z')
-    m1 = motion.start_move_absolute('Z', 6000.0)
+    m1 = motion.start_move_z(6000.0)
     assert held.wait(_HOLD_WAIT_S), 'move 1 never got part of the way'
     m2 = {}
-    t = _start_in_thread(
-        lambda: m2.update(h=motion.start_move_absolute('Z', 3000.0, overshoot_enabled=True))
-    )
+    t = _start_in_thread(lambda: m2.update(h=motion.start_move_z(3000.0, overshoot_enabled=True)))
     m1_out = _outcome(m1)
     t.join()
     m2_out = _outcome(m2['h'])
@@ -250,10 +248,10 @@ def test_a_retargeted_move_is_timed_by_its_own_clock(session, monkeypatch):
     )
     monkeypatch.setattr(motion, '_MOVE_STALL_WINDOW_S', 2.0)
 
-    m1 = motion.start_move_absolute('X', 10000.0)
+    m1 = motion.start_move_xy(x_um=10000.0)
     time.sleep(0.5)
     t0 = time.monotonic()
-    m2 = motion.start_move_absolute('X', 10100.0)
+    m2 = motion.start_move_xy(x_um=10100.0)
     m2_out = _outcome(m2)
     faulted_after = time.monotonic() - t0
 
@@ -280,15 +278,15 @@ def test_a_verdict_cannot_land_between_the_moving_write_and_its_event(session, m
     not be undone by its own event clear: the axis's arrival event, which
     the axis-level waits read, is set once the move arrives."""
     motion = session.scope.motion
-    motion.move_absolute('X', 10000.0)
+    motion.move_xy(x_um=10000.0)
     ev = _SlowClearEvent()
     ev.set()
     motion._arrival_events['X'] = ev
     monkeypatch.setattr(motion, '_MOVE_STALL_WINDOW_S', 3.0)
-    motion.start_move_absolute('Y', motion.get_current_position('Y') + 3000.0)
+    motion.start_move_xy(y_um=motion.get_current_position('Y') + 3000.0)
 
     ev.delay_s = 0.08
-    h = motion.start_move_absolute('X', 10000.0)
+    h = motion.start_move_xy(x_um=10000.0)
     ev.delay_s = 0.0
 
     assert _outcome(h) == 'arrived'
@@ -308,7 +306,7 @@ def test_a_driver_raise_leaves_the_axis_unknown_never_moving(session, monkeypatc
 
     monkeypatch.setattr(driver, 'move_abs_pos', no_reply)
     with pytest.raises(MoveNotCompletedError) as exc:
-        motion.move_absolute('Z', 3000.0)
+        motion.move_z(3000.0)
     assert exc.value.reason == 'driver_failed'
     assert motion.get_axis_state('Z') == AxisState.UNKNOWN
 
@@ -322,7 +320,7 @@ def test_a_leg_that_never_arrives_fails_the_move_within_the_lanes_bound(session,
     driver = motion._driver
     monkeypatch.setattr(motion_module, 'OVERSHOOT_LEG_TIMEOUT_S', 0.5)
     monkeypatch.setattr(motion, '_MOTION_WAIT_BASE_S', 3.0)
-    motion.move_absolute('Z', 6000.0)
+    motion.move_z(6000.0)
     real_write = driver.move_abs_pos
     leg_um = 3000.0 - driver.backlash_um()
 
@@ -334,7 +332,7 @@ def test_a_leg_that_never_arrives_fails_the_move_within_the_lanes_bound(session,
     monkeypatch.setattr(driver, 'move_abs_pos', the_board_dies_after_the_legs_write)
     t0 = time.monotonic()
     with pytest.raises(MoveNotCompletedError) as exc:
-        motion.move_absolute('Z', 3000.0, overshoot_enabled=True)
+        motion.move_z(3000.0, overshoot_enabled=True)
     failed_after = time.monotonic() - t0
 
     assert exc.value.reason == 'driver_failed'
@@ -345,5 +343,5 @@ def test_a_leg_that_never_arrives_fails_the_move_within_the_lanes_bound(session,
     session.scope.simulation.replug('motor')
     driver.connect()
     home_sim_scope(session.scope)
-    motion.move_absolute('Z', 3000.0, overshoot_enabled=True)
+    motion.move_z(3000.0, overshoot_enabled=True)
     assert abs(driver.current_pos('Z') - 3000.0) <= _MICROSTEP_UM

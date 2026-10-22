@@ -37,6 +37,12 @@ def _far_x(motion) -> float:
     return limits.max_um * 0.9 if here < (limits.min_um + limits.max_um) / 2 else limits.min_um
 
 
+def _far_z(motion) -> float:
+    limits = motion.get_axis_limits('Z')
+    here = motion.get_current_position('Z')
+    return limits.max_um * 0.9 if here < (limits.min_um + limits.max_um) / 2 else limits.min_um
+
+
 def _far_step(session):
     objective = session.scope.runtime_state.get_current_objective_id()
     return _protocol(_PLATE, _step(20.0, 20.0, 5000.0, objective))
@@ -44,9 +50,13 @@ def _far_step(session):
 
 # Each form's call, given the session, its runner and a folder no run may write.
 _WAITING_FORMS = {
-    'move_absolute': lambda s, r, d: s.scope.motion.move_absolute('X', _far_x(s.scope.motion)),
-    'move_relative': lambda s, r, d: s.scope.motion.move_relative(
-        'X', _far_x(s.scope.motion) - s.scope.motion.get_current_position('X')
+    'move_xy': lambda s, r, d: s.scope.motion.move_xy(x_um=_far_x(s.scope.motion)),
+    'move_xy_by': lambda s, r, d: s.scope.motion.move_xy_by(
+        dx_um=_far_x(s.scope.motion) - s.scope.motion.get_current_position('X')
+    ),
+    'move_z': lambda s, r, d: s.scope.motion.move_z(_far_z(s.scope.motion)),
+    'move_z_by': lambda s, r, d: s.scope.motion.move_z_by(
+        _far_z(s.scope.motion) - s.scope.motion.get_current_position('Z')
     ),
     'go_to_step': lambda s, r, d: s.go_to_step(_far_step(s), 0),
     'start_go_to_step': lambda s, r, d: s.start_go_to_step(_far_step(s), 0),

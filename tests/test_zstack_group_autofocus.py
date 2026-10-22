@@ -198,11 +198,7 @@ def _drive_group_scan(found_z: float, max_ticks: int = 400):
             break
         runner._step_executor.scan_iterate()
 
-    z_moves = [
-        call.args[1]
-        for call in runner._scope.motion.start_move_absolute.call_args_list
-        if call.args[0] == 'Z'
-    ]
+    z_moves = [call.args[0] for call in runner._scope.motion.start_move_z.call_args_list]
     return proto, z_moves
 
 

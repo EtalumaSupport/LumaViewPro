@@ -79,21 +79,21 @@ class TestRuntimeOrder_618:
             'the axis was left disarmed after its final target was written'
         )
 
-    def test_move_absolute_order_z(self):
+    def test_move_z_order(self):
         scope = home_sim_scope(build_scope(simulate=True))
         scope._motion_driver.set_timing_mode('fast')
-        scope.motion.move_absolute('Z', 5000.0)
+        scope.motion.move_z(5000.0)
         writes = self._track_writes(scope, 'Z')
         # Downward, so the backlash leg is one of the writes.
-        scope.motion.start_move_absolute('Z', 1000.0)
+        scope.motion.start_move_z(1000.0)
         assert len(writes) == 2, writes
         self._assert_disarmed_at_every_write_and_armed_after(scope, writes)
 
-    def test_move_relative_order_z(self):
+    def test_move_z_by_order(self):
         scope = home_sim_scope(build_scope(simulate=True))
         scope._motion_driver.set_timing_mode('fast')
         writes = self._track_writes(scope, 'Z')
-        scope.motion.start_move_relative('Z', 100.0)
+        scope.motion.start_move_z_by(100.0)
         self._assert_disarmed_at_every_write_and_armed_after(scope, writes)
 
 
@@ -118,7 +118,7 @@ class TestRaceSimulation_618:
         motion = scope.motion
 
         # Prime: do one move to set Z to a known IDLE state
-        motion.move_absolute('Z', 1000.0)
+        motion.move_z(1000.0)
 
         orig_move_abs = scope._motion_driver.move_abs_pos
         observations = []
@@ -136,7 +136,7 @@ class TestRaceSimulation_618:
 
         scope._motion_driver.move_abs_pos = verdict_during_write
         # Upward, so the one write is the final target.
-        motion.start_move_absolute('Z', 5000.0)
+        motion.start_move_z(5000.0)
 
         assert len(observations) == 1, observations
         wrote, state, arrival_set = observations[0]
@@ -153,18 +153,18 @@ class TestRaceSimulation_618:
 class TestBackToBackMoves_618:
     """Smoke test: rapid back-to-back wait_until_complete moves through
     the simulated motor must each leave the axis at the requested target.
-    Catches gross regressions of the move_absolute contract."""
+    Catches gross regressions of the move_z contract."""
 
     def test_two_back_to_back_z_moves_end_at_correct_targets(self):
 
         scope = home_sim_scope(build_scope(simulate=True))
         scope._motion_driver.set_timing_mode('fast')
 
-        scope.motion.move_absolute('Z', 2000.0)
+        scope.motion.move_z(2000.0)
         pos1 = scope._motion_driver.current_pos('Z')
         assert abs(pos1 - 2000.0) < 5.0, f'first move ended at {pos1}, expected ~2000'
 
-        scope.motion.move_absolute('Z', 8000.0)
+        scope.motion.move_z(8000.0)
         pos2 = scope._motion_driver.current_pos('Z')
         assert abs(pos2 - 8000.0) < 5.0, f'second move ended at {pos2}, expected ~8000'
 
@@ -176,6 +176,6 @@ class TestBackToBackMoves_618:
         # 20 rapid back-to-back moves, alternating direction
         targets = [3000.0, 7000.0] * 10
         for target in targets:
-            scope.motion.move_absolute('Z', target)
+            scope.motion.move_z(target)
             actual = scope._motion_driver.current_pos('Z')
             assert abs(actual - target) < 5.0, f'move to {target} ended at {actual}'

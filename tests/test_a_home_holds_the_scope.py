@@ -88,7 +88,7 @@ def test_a_home_holds_the_scope_until_it_ends(session, monkeypatch):
 
         assert session.controls_lock.controls_locked
         assert session.controls_lock.run_named == 'A home is in progress.'
-        _refused_by_the_home(lambda: scope.motion.start_move_relative('Z', 10.0))
+        _refused_by_the_home(lambda: scope.motion.start_move_z_by(10.0))
         _refused_by_the_home(lambda: scope.illumination.led_on('BF', 10.0))
         _refused_by_the_home(lambda: scope.camera.set_gain_db(1.0))
         with pytest.raises(HardwareCommandRefusedError) as second:
@@ -103,7 +103,7 @@ def test_a_home_holds_the_scope_until_it_ends(session, monkeypatch):
 
     assert not session.controls_lock.controls_locked
     assert True in edges and edges[-1] is False
-    scope.motion.start_move_relative('Z', 10.0).result()
+    scope.motion.start_move_z_by(10.0).result()
 
 
 def test_a_home_inside_a_diagnostic_runs_under_it(session):

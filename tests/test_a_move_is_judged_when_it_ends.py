@@ -20,6 +20,7 @@ from modules.lumascope_api.motion import AxisState
 from modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
+from tests.motion_moves import start_axis_move
 
 
 @pytest.fixture
@@ -59,7 +60,7 @@ def _held_move(session, axis='X', target=60000.0):
     motion = session.scope.motion
     motion._driver.set_timing_mode('realistic')
     held = session.scope.simulation.hold_axis(axis)
-    handle = motion.start_move_absolute(axis, target)
+    handle = start_axis_move(motion, axis, target)
     assert held.wait(_WAIT_S), 'the move never got part of the way'
     return handle
 
@@ -82,7 +83,7 @@ def test_a_move_that_arrives_while_the_close_has_shut_the_lane_ends_arrived(sess
     motion = session.scope.motion
     motion._driver.set_timing_mode('realistic')
     monkeypatch.setattr(motion, '_MOVE_STALL_WINDOW_S', 0.3)
-    handle = motion.start_move_absolute('X', motion.get_current_position('X') + 200.0)
+    handle = motion.start_move_xy(x_um=motion.get_current_position('X') + 200.0)
     # A stand-in by design: the close's first step reached on its own, as no
     # public member holds a close part way through.
     session.scope._io_executor.shutdown(wait=False)
@@ -120,9 +121,9 @@ def test_a_move_a_home_cannot_read_the_position_of_ends_position_unread(session)
 def test_a_move_that_arrived_reads_arrived_after_a_later_move_starts(session):
     """It read 'superseded': the drive count had moved on by the wait."""
     motion = session.scope.motion
-    first = motion.start_move_absolute('X', 1000.0)
+    first = motion.start_move_xy(x_um=1000.0)
     motion.wait_until_finished_moving()
-    second = motion.start_move_absolute('X', 2000.0)
+    second = motion.start_move_xy(x_um=2000.0)
 
     assert _reason(first) == 'arrived'
     assert _reason(second) == 'arrived'
@@ -131,7 +132,7 @@ def test_a_move_that_arrived_reads_arrived_after_a_later_move_starts(session):
 def test_a_move_that_arrived_reads_arrived_after_a_later_stop(session):
     """It read 'stopped': the stop generation had moved on by the wait."""
     motion = session.scope.motion
-    handle = motion.start_move_absolute('X', 60000.0)
+    handle = motion.start_move_xy(x_um=60000.0)
     motion.wait_until_finished_moving()
     motion.stop_motion()
 
@@ -142,11 +143,11 @@ def test_a_move_that_ended_is_answered_while_a_later_one_travels(session):
     """Its wait sat on the axis, so it waited out the later move too."""
     motion = session.scope.motion
     driver = motion._driver
-    first = motion.start_move_absolute('X', 1000.0)
+    first = motion.start_move_xy(x_um=1000.0)
     motion.wait_until_finished_moving()
     driver.set_timing_mode('realistic')
     held = session.scope.simulation.hold_axis('X')
-    motion.start_move_absolute('X', 60000.0)
+    motion.start_move_xy(x_um=60000.0)
     assert held.wait(_WAIT_S), 'the later move never got part of the way'
 
     reasons = []
@@ -171,7 +172,7 @@ def test_a_home_after_a_stall_leaves_no_stale_fault(session, monkeypatch):
     )
     monkeypatch.setattr(motion, '_MOVE_STALL_WINDOW_S', 0.5)
     with pytest.raises(MoveNotCompletedError) as stalled:
-        motion.move_absolute('Z', motion.get_current_position('Z') + 100.0)
+        motion.move_z(motion.get_current_position('Z') + 100.0)
     assert stalled.value.reason == 'stalled'
 
     motion._set_axis_state('Z', AxisState.HOMING)

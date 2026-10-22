@@ -112,7 +112,7 @@ def test_the_routes_are_exactly_the_wire_members(client, session):
 
     assert served - {('get', '/api')} == _wire_routes(session)
     # The sub-objects are reached, not only the Session's own members.
-    assert ('post', '/api/v1/scope/motion/move_absolute') in served
+    assert ('post', '/api/v1/scope/motion/move_xy') in served
     assert ('get', '/api/v1/manual_recording/is_recording') in served
     # A setting is its read's URL, written by PUT, and its setter has no route.
     assert {
@@ -377,8 +377,8 @@ def test_a_number_for_a_bool_is_422_and_reaches_nothing(client, session):
     before = motion.get_current_position('Z')
 
     answer = client.post(
-        '/api/v1/scope/motion/move_absolute',
-        json={'axis': 'Z', 'position': before + 50.0, 'overshoot_enabled': 1},
+        '/api/v1/scope/motion/move_z',
+        json={'z_um': before + 50.0, 'overshoot_enabled': 1},
     )
 
     assert answer.status_code == 422

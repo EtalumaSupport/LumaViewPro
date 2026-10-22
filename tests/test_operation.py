@@ -392,7 +392,7 @@ def test_a_holder_cannot_settle_a_run_a_recording_or_a_move_it_was_handed(tmp_pa
         recording.stop()
         ended_with = recording.result(timeout=BOUND_S)
 
-        move = session.scope.motion.start_move_relative('Z', 10.0)
+        move = session.scope.motion.start_move_z_by(10.0)
         on_the_move = refusals(move)
         moved = move.result(timeout=BOUND_S)
     finally:

@@ -99,9 +99,9 @@ def _refused(call) -> HardwareCommandRefusedError:
 
 # Every motion command, which a manual scope refuses naming its motors.
 _MANUAL_REFUSES = {
-    'move_absolute': lambda m: m.move_absolute('Z', 1000.0),
-    'move_relative': lambda m: m.move_relative('X', 10.0),
-    'start_move_absolute': lambda m: m.start_move_absolute('Y', 1000.0),
+    'move_z': lambda m: m.move_z(1000.0),
+    'move_xy_by': lambda m: m.move_xy_by(dx_um=10.0),
+    'start_move_xy': lambda m: m.start_move_xy(y_um=1000.0),
     'move_turret': lambda m: m.move_turret(2),
     'home_all': lambda m: m.home('ALL'),
     'home_z': lambda m: m.home('Z'),
@@ -114,8 +114,8 @@ _MANUAL_REFUSES = {
 
 # The commands a Z-only scope refuses, each with the part it names.
 _Z_ONLY_REFUSES = {
-    'move_x': (lambda m: m.move_absolute('X', 1000.0), MissingPart.X),
-    'move_y': (lambda m: m.start_move_relative('Y', 10.0), MissingPart.Y),
+    'move_x': (lambda m: m.move_xy(x_um=1000.0), MissingPart.X),
+    'move_y': (lambda m: m.start_move_xy_by(dy_um=10.0), MissingPart.Y),
     'precision_x': (lambda m: m.set_precision_mode('X', True), MissingPart.X),
     'move_turret': (lambda m: m.move_turret(2), MissingPart.TURRET),
     'home_t': (lambda m: m.home('T'), MissingPart.TURRET),
@@ -209,7 +209,7 @@ def test_a_pulled_cable_refuses_the_move_and_shutdown_closes_clean(make_session,
     sent = _spy_wire(monkeypatch, scope)
     monkeypatch.setattr(scope._motion_driver, 'is_connected', lambda: False)
 
-    refusal = _refused(lambda: scope.motion.move_absolute('X', 1000.0))
+    refusal = _refused(lambda: scope.motion.move_xy(x_um=1000.0))
 
     assert (refusal.reason, refusal.missing) == ('not_connected', MissingPart.MOTOR_CONTROLLER)
     assert 'Check the USB cable' in str(refusal)
@@ -271,7 +271,7 @@ def test_after_disconnect_every_read_answers_none(make_session):
 
 def test_a_present_axis_that_lost_its_reference_keeps_its_number(make_session):
     scope = make_session('LS820').scope
-    scope.motion.move_absolute('Z', 3000.0)
+    scope.motion.move_z(3000.0)
     scope.motion._set_axis_state('Z', AxisState.UNKNOWN)
 
     assert scope.motion.get_current_position('Z') == pytest.approx(3000.0, abs=1.0)
@@ -351,7 +351,7 @@ def test_a_z_stack_on_a_z_only_scope_returns_z_to_its_start(make_session, tmp_pa
         zstack={'step_size': 50, 'range': 200, 'position': 'Current Position at Center'},
     )
     scope = session.scope
-    scope.motion.move_absolute('Z', 3000.0)
+    scope.motion.move_z(3000.0)
     runner = session.create_protocol_runner()
 
     assert _wait(runner.start_zstack(layer='BF', parent_dir=str(tmp_path))) == (

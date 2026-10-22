@@ -55,9 +55,9 @@ def _host():
 
 def _over_a_well(session):
     """Park over a plate position clear of the lower Z limit, and return it."""
-    session.scope.motion.move_absolute('X', 40000.0)
-    session.scope.motion.move_absolute('Y', 30000.0)
-    session.scope.motion.move_absolute('Z', 1000.0)
+    session.scope.motion.move_xy(x_um=40000.0)
+    session.scope.motion.move_xy(y_um=30000.0)
+    session.scope.motion.move_z(1000.0)
     session.scope.motion.wait_until_finished_moving(timeout_s=60)
     here = session.get_current_plate_position()
     return [{'x': here.x_mm, 'y': here.y_mm, 'z': here.z_um, 'name': 'A1'}]

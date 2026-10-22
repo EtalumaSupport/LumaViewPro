@@ -40,7 +40,7 @@ def _listen(scope):
 
 def test_during_a_home_no_event_carries_a_position_the_axis_does_not_know(scope):
     scope.motion.home()
-    scope.motion.move_absolute('X', 1500.0)
+    scope.motion.move_xy(x_um=1500.0)
     heard = _listen(scope)
 
     scope.motion.home()
@@ -56,7 +56,7 @@ def test_a_settled_move_reports_the_position_axis_positions_answers(scope):
     scope.motion.home()
     heard = _listen(scope)
 
-    scope.motion.move_absolute('X', 1500.0)
+    scope.motion.move_xy(x_um=1500.0)
 
     last_x = [at for axis, at in heard if axis == 'X'][-1]
     assert last_x == scope.motion.axis_positions()['X']
@@ -87,8 +87,8 @@ def test_a_poll_tells_its_listeners_once_every_moving_axis_is_read(scope):
             seen.append((axis, now['X'].position, now['Y'].position))
 
     motion.add_position_listener(listener)
-    x = motion.start_move_absolute('X', 60000.0)
-    y = motion.start_move_absolute('Y', 40000.0)
+    x = motion.start_move_xy(x_um=60000.0)
+    y = motion.start_move_xy(y_um=40000.0)
     x.result()
     y.result()
 
