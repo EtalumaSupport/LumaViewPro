@@ -3010,7 +3010,7 @@ class ScopeSession:
 
         Points exactly the steps ``scope.protocols.turret_slot_questions``
         names for ``objective_id``; every other step keeps its slot. Returns
-        the indices pointed, which are empty when no question names it.
+        the indexes of the steps pointed, which are empty when no question names it.
 
         Raises:
             ArgumentRefusedError: ``'slot_not_holding_objective'``, ``slot``

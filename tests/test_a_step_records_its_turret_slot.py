@@ -169,7 +169,12 @@ class TestOldProtocols:
 
         assert _slots(loaded) == [-1, -1]
         (question,) = session.scope.protocols.turret_slot_questions(loaded)
-        assert (question.objective_id, question.steps, question.reassigned, question.choices) == (
+        assert (
+            question.objective_id,
+            question.step_indexes,
+            question.reassigned_step_indexes,
+            question.choices,
+        ) == (
             DOUBLED,
             (0, 1),
             (),
@@ -216,7 +221,11 @@ class TestAReassignedSlot:
         loaded = session.scope.protocols.load_protocol(path)
 
         (question,) = session.scope.protocols.turret_slot_questions(loaded)
-        assert (question.steps, question.reassigned, question.choices) == ((1,), (1,), (1,))
+        assert (question.step_indexes, question.reassigned_step_indexes, question.choices) == (
+            (1,),
+            (1,),
+            (1,),
+        )
         with pytest.raises(ProtocolRunRefusedError) as at_prepare:
             _prepare(session, loaded, tmp_path)
         assert at_prepare.value.reason == 'turret_slot_reassigned'

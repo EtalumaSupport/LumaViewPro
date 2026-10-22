@@ -74,7 +74,7 @@ class StepTargets:
     z: float | None
 
 
-@api_fields('objective_id', 'steps', 'reassigned', 'choices')
+@api_fields('objective_id', 'step_indexes', 'reassigned_step_indexes', 'choices')
 @dataclasses.dataclass(frozen=True)
 class TurretSlotQuestion:
     """Which turret slot some steps of a protocol mean: what to ask the person.
@@ -89,15 +89,15 @@ class TurretSlotQuestion:
 
     Attributes:
         objective_id: The objective the steps name.
-        steps: The indices of the steps the answer points, ascending.
-        reassigned: Those of ``steps`` whose recorded slot now holds
+        step_indexes: The indexes of the steps the answer points, ascending.
+        reassigned_step_indexes: Those of ``step_indexes`` whose recorded slot now holds
             another objective; the others recorded no slot.
         choices: The slots that hold ``objective_id`` now, ascending.
     """
 
     objective_id: str
-    steps: tuple[int, ...]
-    reassigned: tuple[int, ...]
+    step_indexes: tuple[int, ...]
+    reassigned_step_indexes: tuple[int, ...]
     choices: tuple[int, ...]
 
 
@@ -832,7 +832,7 @@ class ProtocolsAPI:
                 self._scope.runtime_state.get_turret_config(),
             )
             if turret_slot is None:
-                self.refuse_unchosen_turret_slots(protocol, steps=[step_index])
+                self.refuse_unchosen_turret_slots(protocol, step_indexes=[step_index])
                 # The rule above found the objective in a slot; none now
                 # means one was cleared in between, and a step without its
                 # slot would be imaged through other glass.
@@ -1428,8 +1428,8 @@ class ProtocolsAPI:
         return [
             TurretSlotQuestion(
                 objective_id=objective_id,
-                steps=tuple(unchosen),
-                reassigned=tuple(reassigned),
+                step_indexes=tuple(unchosen),
+                reassigned_step_indexes=tuple(reassigned),
                 choices=slots_holding(objective_id, turret_config),
             )
             for objective_id, (unchosen, reassigned) in asked.items()
@@ -1442,7 +1442,7 @@ class ProtocolsAPI:
 
         Points exactly the steps ``turret_slot_questions`` names for
         ``objective_id``; every other step keeps its slot. Returns the
-        indices pointed, which are empty when no question names it.
+        indexes of the steps pointed, which are empty when no question names it.
 
         Raises:
             ArgumentRefusedError: ``'slot_not_holding_objective'``, ``slot``
@@ -1457,13 +1457,13 @@ class ProtocolsAPI:
         asked = [q for q in self.turret_slot_questions(protocol) if q.objective_id == objective_id]
         if not asked:
             return ()
-        protocol.set_turret_slot(list(asked[0].steps), slot)
-        return asked[0].steps
+        protocol.set_turret_slot(list(asked[0].step_indexes), slot)
+        return asked[0].step_indexes
 
     def refuse_unchosen_turret_slots(
-        self, protocol: Protocol, *, steps: Iterable[int] | None = None
+        self, protocol: Protocol, *, step_indexes: Iterable[int] | None = None
     ) -> None:
-        """Refuse when a step (of ``steps``, or any) cannot say which turret slot it means.
+        """Refuse when a step (of ``step_indexes``, or any) cannot say which turret slot it means.
 
         Asked by a run's ``prepare()`` and by going to a step, after the
         objective rule; a load admits the protocol and asks instead
@@ -1477,16 +1477,16 @@ class ProtocolsAPI:
                 objective is in two or more. Raised, not reported: the
                 caller's boundary reports it.
         """
-        wanted = None if steps is None else set(steps)
+        wanted = None if step_indexes is None else set(step_indexes)
         for question in self.turret_slot_questions(protocol):
-            named = [idx for idx in question.steps if wanted is None or idx in wanted]
+            named = [idx for idx in question.step_indexes if wanted is None or idx in wanted]
             if not named:
                 continue
             which = ', '.join(str(idx + 1) for idx in named)
             several = len(named) > 1
             steps = f'Steps {which} use' if several else f'Step {which} uses'
             slots = ' and '.join(str(slot) for slot in question.choices)
-            reassigned = [idx for idx in named if idx in question.reassigned]
+            reassigned = [idx for idx in named if idx in question.reassigned_step_indexes]
             if reassigned:
                 self._refuse(
                     reason='turret_slot_reassigned',

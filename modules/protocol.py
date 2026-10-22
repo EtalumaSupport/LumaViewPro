@@ -2392,12 +2392,12 @@ class Protocol:
             return 0
         return max(int(steps['Channel Group ID'].max()), -1) + 1
 
-    def set_turret_slot(self, step_indices: list[int], slot: int) -> None:
-        """Point steps ``step_indices`` at turret slot ``slot``; their other columns are kept."""
-        for step_index in step_indices:
+    def set_turret_slot(self, step_indexes: list[int], slot: int) -> None:
+        """Point steps ``step_indexes`` at turret slot ``slot``; their other columns are kept."""
+        for step_index in step_indexes:
             self._refuse_unless_in_range(step_index)
         typed = self._typed_value('Turret Slot', slot)
-        for step_index in step_indices:
+        for step_index in step_indexes:
             self._config['steps'].at[step_index, 'Turret Slot'] = typed
 
     def insert_step(

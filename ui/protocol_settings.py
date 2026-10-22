@@ -770,9 +770,9 @@ class ProtocolSettings(FloatLayout):
                     then()
                 return
             question = questions.pop(0)
-            which = ', '.join(str(idx + 1) for idx in question.steps)
+            which = ', '.join(str(idx + 1) for idx in question.step_indexes)
             slots = ' and '.join(str(slot) for slot in question.choices)
-            if question.reassigned:
+            if question.reassigned_step_indexes:
                 first = (
                     f'Steps {which} use {question.objective_id}. The turret slot some of them '
                     f'were made at now holds another objective; {question.objective_id} is in '
