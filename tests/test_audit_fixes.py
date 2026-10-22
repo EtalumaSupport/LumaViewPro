@@ -2200,6 +2200,8 @@ def test_not_saving_capture_builds_record_task_without_crash():
 
     # Must not raise; the file lane is a stub so the queued task is not run.
     writer.capture(
+        scan_count=0,
+        curr_step=0,
         save_folder='/tmp',
         step=_protocol_step(),
         output_format='TIFF',
@@ -2296,6 +2298,8 @@ class TestPIW3_FalseColor16bitCachedAtRunStart:
             lambda scope, **kwargs: recorded.append(kwargs) or (tmp_path / 'out.tiff'),
         )
         writer.write_capture(
+            step_index=0,
+            scan_count=0,
             enable_image_saving=True,
             captured_image=CapturedFrame(
                 image=np.zeros((4, 4), dtype=np.uint8),
@@ -2522,6 +2526,8 @@ class TestPIW2_DisksUsageDeduped:
 
         # Answered as not written, so the run's file count reads it so.
         answered = writer.write_capture(
+            step_index=0,
+            scan_count=0,
             enable_image_saving=True,
             captured_image=CapturedFrame(
                 image=np.zeros((4, 4), dtype=np.uint8),
@@ -8565,6 +8571,8 @@ class TestAutoGainArmedInScanIterate:
         protocol = MagicMock()
         protocol.capture_root.return_value = ''
         writer.capture(
+            scan_count=0,
+            curr_step=0,
             save_folder='/tmp',
             step=_protocol_step(Auto_Gain=auto_gain),
             output_format='TIFF',

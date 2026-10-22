@@ -191,6 +191,8 @@ class TestDarkFloorKeysOnLedDrivability:
         protocol = MagicMock()
         protocol.capture_root.return_value = ''
         writer.capture(
+            scan_count=0,
+            curr_step=0,
             save_folder='/tmp',
             step=_protocol_step(**step_overrides),
             output_format='TIFF',
@@ -257,6 +259,8 @@ class TestCaptureAbortWording:
         protocol = MagicMock()
         protocol.capture_root.return_value = ''
         writer.capture(
+            scan_count=0,
+            curr_step=0,
             save_folder='/tmp',
             step=_protocol_step(Color=color),
             output_format='TIFF',

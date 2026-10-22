@@ -311,6 +311,8 @@ class TestOneRunOneEncoding:
 
         step = {'Name': 'A1_BF', 'Color': 'BF', 'False_Color': False, 'X': 0.0, 'Y': 0.0, 'Z': 0.0}
         writer.write_capture(
+            step_index=0,
+            scan_count=0,
             enable_image_saving=True,
             captured_image=CapturedFrame(
                 image=np.zeros((4, 4), dtype=np.uint16),

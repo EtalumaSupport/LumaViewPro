@@ -589,6 +589,8 @@ class TestProtocolImageWriterWriteCapture:
         record = MagicMock()
         writer = self._make_writer(execution_record=record)
         writer.write_capture(
+            step_index=0,
+            scan_count=0,
             enable_image_saving=False,
             step={'Name': 'test'},
         )
@@ -619,6 +621,8 @@ class TestProtocolImageWriterWriteCapture:
         writer = self._make_writer(execution_record=None)
         # Should not raise even with no execution record
         writer.write_capture(
+            step_index=0,
+            scan_count=0,
             enable_image_saving=False,
             step={'Name': 'test'},
         )
@@ -626,6 +630,8 @@ class TestProtocolImageWriterWriteCapture:
     def test_write_capture_none_record_with_failed_image_no_crash(self):
         writer = self._make_writer(execution_record=None)
         writer.write_capture(
+            step_index=0,
+            scan_count=0,
             enable_image_saving=True,
             captured_image=None,
             step={'Name': 'test'},

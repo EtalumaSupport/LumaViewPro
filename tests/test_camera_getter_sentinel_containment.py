@@ -343,6 +343,8 @@ def test_writer_saves_capture_time_depth_not_save_time_rederivation(monkeypatch,
         lambda scope, **kwargs: recorded.append(kwargs) or (tmp_path / 'x.tiff'),
     )
     writer.write_capture(
+        step_index=0,
+        scan_count=0,
         enable_image_saving=True,
         captured_image=CapturedFrame(
             image=np.zeros((4, 4), dtype=np.uint16),

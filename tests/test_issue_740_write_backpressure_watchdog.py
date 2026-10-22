@@ -131,6 +131,8 @@ def test_writer_capture_paces_to_full_queue_without_drop_row(tmp_path, monkeypat
         def _capture():
             results.append(
                 writer.capture(
+                    scan_count=0,
+                    curr_step=0,
                     save_folder=tmp_path,
                     step=_protocol_step(),
                     output_format='TIFF',
@@ -227,6 +229,8 @@ def test_wedged_writer_declares_stall_notifies_and_aborts(tmp_path, monkeypatch)
         _fill(writer._write_batch, 1)
 
         result = writer.capture(
+            scan_count=0,
+            curr_step=0,
             save_folder=tmp_path,
             step=_protocol_step(),
             output_format='TIFF',
