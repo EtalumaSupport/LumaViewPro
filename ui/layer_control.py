@@ -15,7 +15,7 @@ import modules.layer_record as layer_record
 import modules.image_mode as image_mode
 from modules import gui_logger
 from modules.config_ui_getters import firmware_stim_supported
-from ui.ui_helpers import run_reported, submit_reported, typed_number
+from ui.ui_helpers import run_reported, show_on_slider, show_text, submit_reported, typed_number
 
 logger = logging.getLogger('LVP.ui.layer_control')
 
@@ -783,6 +783,9 @@ class LayerControl(BoxLayout):
         Only one of the two representations may lose precision, and it is never
         the one the user reads the setting from.
 
+        Neither is written while the operator is on it -- a box being typed
+        in, a slider under the finger (``show_text``, ``show_on_slider``).
+
         Both writes run with the layer's handlers suppressed: these are
         display, and a slider's on_value handler exists to record what the USER
         did -- unsuppressed, it commits the written value back over the stored
@@ -796,8 +799,8 @@ class LayerControl(BoxLayout):
         was_initializing = self._initializing
         self._initializing = True
         try:
-            slider.value = on_slider
-            self.ids[text_id].text = str(value)
+            show_on_slider(slider, on_slider)
+            show_text(self.ids[text_id], str(value))
         finally:
             self._initializing = was_initializing
 
@@ -830,13 +833,14 @@ class LayerControl(BoxLayout):
     def sync_widgets_from_settings(self):
         """Point every widget of this layer at its stored settings.
 
-        The one settings-to-widgets direction: startup, the end of a
-        protocol run (which displayed each step here without writing the
-        settings) and the end of a standalone autofocus (which restored
-        the camera from the settings) all call this. Reads the layer's
-        settings once under the settings lock; writes only widgets. An
-        uncommitted text edit (typed, no Enter) is deliberately dropped:
-        the widget tells the settings' truth again.
+        The one settings-to-widgets direction: startup, a change to this
+        layer's stored settings (from any writer: the window's listener
+        bridge), the end of a run and the end of a standalone autofocus
+        (which restored the camera from the settings) all call this. Reads
+        the layer's settings once under the settings lock; writes only
+        widgets. A box the operator is typing in and a slider under the
+        finger are left as they are (``show_text``, ``show_on_slider``):
+        the commit that follows is redrawn in its turn.
 
         The gain and exposure sliders' ``max`` is a camera fact set by the
         caller that learns it; the value written here follows whatever
@@ -850,14 +854,15 @@ class LayerControl(BoxLayout):
         self._initializing = True
         try:
             if self.layer in common_utils.get_fluorescence_layers():
-                self.ids['composite_threshold_slider'].value = layer_settings[
-                    'composite_brightness_threshold'
-                ]
+                show_on_slider(
+                    self.ids['composite_threshold_slider'],
+                    layer_settings['composite_brightness_threshold'],
+                )
 
             self.render_layer_values_from_settings(layer_settings)
 
             self.ids['false_color'].active = layer_settings['false_color']
-            self.ids['sum_slider'].value = layer_settings.get('sum', 1)
+            show_on_slider(self.ids['sum_slider'], layer_settings.get('sum', 1))
 
             if layer_settings['acquire'] == 'image':
                 self.ids['acquire_image'].active = True
@@ -867,8 +872,8 @@ class LayerControl(BoxLayout):
                 self.ids['acquire_none'].active = True
 
             video_config = layer_settings['video_config']
-            self.ids['video_duration_text'].text = str(video_config['duration'])
-            self.ids['video_duration_slider'].value = video_config['duration']
+            show_text(self.ids['video_duration_text'], str(video_config['duration']))
+            show_on_slider(self.ids['video_duration_slider'], video_config['duration'])
 
             self.ids['autofocus'].active = layer_settings['autofocus']
             # The box shows the enable actually in force, not the bare
@@ -884,14 +889,17 @@ class LayerControl(BoxLayout):
 
                 self.ids['stim_enable_btn'].active = stim_config['enabled']
                 self.ids['stim_disable_btn'].active = not stim_config['enabled']
-                self.ids['stim_ill_text'].text = str(stim_config.get('illumination_ma', 100))
-                self.ids['stim_ill_slider'].value = float(stim_config.get('illumination_ma', 100))
-                self.ids['stim_freq_text'].text = str(stim_config['frequency'])
-                self.ids['stim_freq_slider'].value = float(stim_config['frequency'])
-                self.ids['stim_pulse_width_text'].text = str(stim_config['pulse_width'])
-                self.ids['stim_pulse_width_slider'].value = float(stim_config['pulse_width'])
-                self.ids['stim_pulse_count_text'].text = str(stim_config['pulse_count'])
-                self.ids['stim_pulse_count_slider'].value = int(stim_config['pulse_count'])
+                ill = stim_config.get('illumination_ma', 100)
+                show_text(self.ids['stim_ill_text'], str(ill))
+                show_on_slider(self.ids['stim_ill_slider'], float(ill))
+                show_text(self.ids['stim_freq_text'], str(stim_config['frequency']))
+                show_on_slider(self.ids['stim_freq_slider'], float(stim_config['frequency']))
+                show_text(self.ids['stim_pulse_width_text'], str(stim_config['pulse_width']))
+                show_on_slider(
+                    self.ids['stim_pulse_width_slider'], float(stim_config['pulse_width'])
+                )
+                show_text(self.ids['stim_pulse_count_text'], str(stim_config['pulse_count']))
+                show_on_slider(self.ids['stim_pulse_count_slider'], int(stim_config['pulse_count']))
 
                 # Force hide until enabled
                 for box in (

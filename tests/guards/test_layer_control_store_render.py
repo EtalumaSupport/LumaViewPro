@@ -181,23 +181,13 @@ class TestThePrimitiveIsTheOneWriter:
     """One home for "show this value on its slider and its text box"."""
 
     def test_it_writes_both_widgets(self):
+        """Each through the redraw writer that leaves what the operator is editing."""
         fn = _func(LAYER_CONTROL_PATH, PRIMITIVE)
-        slider_writes = [
-            n
-            for n in ast.walk(fn)
-            if isinstance(n, ast.Assign)
-            for t in n.targets
-            if isinstance(t, ast.Attribute) and t.attr == 'value'
-        ]
-        text_writes = [
-            n
-            for n in ast.walk(fn)
-            if isinstance(n, ast.Assign)
-            for t in n.targets
-            if isinstance(t, ast.Attribute) and t.attr == 'text'
-        ]
-        assert len(slider_writes) == 1, f'{PRIMITIVE} must write the slider exactly once.'
-        assert len(text_writes) == 1, f'{PRIMITIVE} must write the text box exactly once.'
+        calls = [ast.unparse(n.func) for n in ast.walk(fn) if isinstance(n, ast.Call)]
+        assert calls.count('show_on_slider') == 1, (
+            f'{PRIMITIVE} must write the slider exactly once.'
+        )
+        assert calls.count('show_text') == 1, f'{PRIMITIVE} must write the text box exactly once.'
 
     def test_the_slider_is_clipped_and_the_text_is_not(self):
         fn = _func(LAYER_CONTROL_PATH, PRIMITIVE)
@@ -207,11 +197,9 @@ class TestThePrimitiveIsTheOneWriter:
             'its OWN range -- a stored value above a convenience ceiling pins it.'
         )
         written_to_text = {
-            ast.unparse(n.value)
+            ast.unparse(n.args[1])
             for n in ast.walk(fn)
-            if isinstance(n, ast.Assign)
-            for t in n.targets
-            if isinstance(t, ast.Attribute) and t.attr == 'text'
+            if isinstance(n, ast.Call) and ast.unparse(n.func) == 'show_text'
         }
         assert written_to_text == {'str(value)'}, (
             'The text box must show the stored value itself, unclipped and uncast; '

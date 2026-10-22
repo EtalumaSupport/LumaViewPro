@@ -60,7 +60,7 @@ def _blue_panel(monkeypatch, caplog, typed, *, stored=500.0):
     panel._initializing = False
     panel.ids = {
         'exp_slider': _Slider(0.01, 1000.0, stored),
-        'exp_text': SimpleNamespace(text=typed),
+        'exp_text': SimpleNamespace(focus=False, text=typed),
         'logHistogram_id': SimpleNamespace(active=True),
     }
     return panel, settings, writes

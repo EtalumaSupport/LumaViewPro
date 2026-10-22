@@ -161,6 +161,8 @@ _STEP_WIDGETS = {
 
 class _Widget:
     def __init__(self):
+        # A box nobody is typing in.
+        self.focus = False
         self.text = None
         self.value = None
         self.active = None

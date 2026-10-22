@@ -128,10 +128,10 @@ def test_every_writer_goes_through_the_funnel():
 def test_the_funnel_actually_writes_the_boxes():
     """Guards the structural test above against passing because nothing writes."""
     funnel = find_def('ui/microscope_settings.py', _FUNNEL, class_name='MicroscopeSettings')
+    # It writes each box through show_text, the guard every redraw's box shares.
     writes = [
         node
         for node in ast.walk(funnel)
-        if isinstance(node, ast.Assign)
-        and any(isinstance(t, ast.Attribute) and t.attr == 'text' for t in node.targets)
+        if isinstance(node, ast.Call) and ast.unparse(node.func) == 'show_text'
     ]
     assert writes, f'{_FUNNEL} no longer writes anything; the pin above is vacuous'

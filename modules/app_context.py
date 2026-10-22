@@ -1,6 +1,10 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 import threading
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from modules.scope_session import SettingsLock
 
 
 # Module-level singleton -- set by LumaViewProApp.build() after construction.
@@ -133,7 +137,7 @@ class AppContext:
         return self._require_session().settings
 
     @property
-    def settings_lock(self) -> threading.Lock:
+    def settings_lock(self) -> 'SettingsLock':
         """The lock guarding the settings dict, owned by the session."""
         return self._require_session().settings_lock
 

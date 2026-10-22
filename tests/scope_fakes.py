@@ -483,7 +483,6 @@ def bind_settings_like_a_session(scope, **overrides) -> dict:
         The settings dict the scope now reads; a test may change it.
     """
     import functools
-    import threading
     import types
 
     from modules.activity_claim import ActivityClaim
@@ -501,9 +500,12 @@ def bind_settings_like_a_session(scope, **overrides) -> dict:
     )
     settings = complete_settings(**overrides)
     _BOUND_SETTINGS[scope] = settings
+    from modules.scope_session import SettingsLock
+
     holder = types.SimpleNamespace(
         settings=settings,
-        settings_lock=threading.Lock(),
+        # The store's own lock, which records what _store_setting stores; told to no one.
+        settings_lock=SettingsLock(lambda paths: None),
         _settings_saver=None,
         activity_claim=ActivityClaim(),
     )

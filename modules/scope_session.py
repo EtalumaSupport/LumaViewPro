@@ -394,6 +394,52 @@ class Status:
     camera_streaming: bool
 
 
+@api_fields('paths')
+@dataclasses.dataclass(frozen=True)
+class SettingsChanged:
+    """Settings one write stored, told once the write has let go of the store.
+
+    Attributes:
+        paths: The dotted paths stored, each once, in the order stored.
+    """
+
+    paths: tuple[str, ...]
+
+
+class SettingsLock:
+    """The settings store's lock: what a hold stored is told once the hold is released.
+
+    Every write to the store is made under it, and ``_store_setting`` records
+    each path it stores, so the paths a hold stored -- two to five for some
+    members -- are told together after the release, outside the lock: never
+    one by one mid-batch, never to a listener that would read under it. A
+    hold that stored nothing, a reader's, tells nothing.
+    """
+
+    def __init__(self, tell: Callable[[tuple[str, ...]], None]) -> None:
+        self._lock = threading.Lock()
+        self._stored: list[str] = []
+        self._tell = tell
+
+    def __enter__(self) -> 'SettingsLock':
+        self._lock.acquire()
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        # Told even when the hold raised part-way: what it stored is stored.
+        stored, self._stored = self._stored, []
+        self._lock.release()
+        if stored:
+            self._tell(tuple(dict.fromkeys(stored)))
+
+    def locked(self) -> bool:
+        return self._lock.locked()
+
+    def stored(self, path: str) -> None:
+        """Record *path* as stored under this hold; called under the lock."""
+        self._stored.append(path)
+
+
 @api_fields('layer', 'lit')
 @dataclasses.dataclass(frozen=True)
 class ShownChannel:
@@ -459,7 +505,8 @@ class ScopeSession:
         # can only guard one of the aliases -- which is no guard at all.
         # Readers on other threads take a snapshot; writers use
         # update_settings.
-        self.settings_lock = threading.Lock()
+        self._settings_listeners: list = []
+        self.settings_lock = SettingsLock(self._tell_settings_changed)
         # The plugins this session hosts, or None until its host asks for
         # them (load_plugins): a session nobody asked plugins for has none,
         # whatever is installed, so a script or a test is not changed by the
@@ -3445,6 +3492,36 @@ class ScopeSession:
             self.apply_layer_camera(layer)
         return self._shown_channel
 
+    @api(in_process=True, event=SettingsChanged)
+    def add_settings_listener(self, listener: Callable[[tuple[str, ...]], None]) -> None:
+        """Tell ``listener`` ``(paths)`` each time a write stores settings, once it has let go of the store.
+
+        The paths one hold stored, together: a member that writes several
+        settings tells them once. Whoever wrote them -- the GUI, a client, a
+        script, the camera storing what it applied. Called on the writer's
+        thread, outside the settings lock, so a GUI listener schedules its
+        drawing.
+
+        Raises:
+            Nothing.
+        """
+        self._settings_listeners.append(listener)
+
+    @api(in_process=True)
+    def remove_settings_listener(self, listener: Callable[[tuple[str, ...]], None]) -> None:
+        """Stop telling ``listener``; a listener never added is a no-op.
+
+        Raises:
+            Nothing.
+        """
+        with contextlib.suppress(ValueError):
+            self._settings_listeners.remove(listener)
+
+    def _tell_settings_changed(self, paths: tuple[str, ...]) -> None:
+        from modules.notification_center import notifications
+
+        notifications.tell_listeners(list(self._settings_listeners), paths, category='Settings')
+
     @api(in_process=True, event=ShownChannel)
     def add_shown_channel_listener(self, listener: Callable[[str, bool], None]) -> None:
         """Tell ``listener`` ``(layer, lit)`` each time the shown channel changes.
@@ -3910,6 +3987,7 @@ class ScopeSession:
         for block in blocks:
             holder = holder[block]
         holder[leaf] = value
+        self.settings_lock.stored(path)
         if self._settings_saver is not None:
             self._settings_saver.wake()
 

@@ -18,6 +18,7 @@ from ui.ui_helpers import (
     run_reported,
     set_last_save_folder,
     show_captured_frame,
+    show_text,
     show_video_progress,
     submit_reported,
     sync_layer_widgets_from_settings,
@@ -113,7 +114,27 @@ class ZStack(FloatLayout):
         gui_logger.text_input(name, self.ids[widget_id].text)
 
     def set_position(self) -> None:
-        _app_ctx.ctx.update_settings('zstack.position', self.ids['zstack_spinner'].text)
+        position = self.ids['zstack_spinner'].text
+        # The spinner set from the store fires this too; that is not a pick.
+        if position == _app_ctx.ctx.settings['zstack']['position']:
+            return
+        _app_ctx.ctx.update_settings('zstack.position', position)
+
+    def show_settings(self) -> None:
+        """Show the stored z-stack: its reference, step, range and the steps they make."""
+        settings = _app_ctx.ctx.settings['zstack']
+        self.ids['zstack_spinner'].text = settings['position']
+        show_text(self.ids['zstack_stepsize_id'], str(settings['step_size']))
+        show_text(self.ids['zstack_range_id'], str(settings['range']))
+        zstack_config = ZStackConfig(
+            range=settings['range'],
+            step_size=settings['step_size'],
+            current_z_reference=common_utils.convert_zstack_reference_position_setting_to_config(
+                text_label=settings['position']
+            ),
+            current_z_value=None,
+        )
+        self.ids['zstack_steps_id'].text = str(zstack_config.number_of_steps())
 
     def run_zstack_acquire_from_ui(self):
         """Start a z-stack, or stop the one this button started.

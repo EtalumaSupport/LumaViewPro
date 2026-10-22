@@ -369,22 +369,27 @@ class ProtocolSettings(FloatLayout):
         spinner = self.ids['labware_spinner']
         spinner.values = list(ctx.scope.labware)
 
-        def _show_the_sessions_plate():
-            # The write dispatches this handler again, which re-selects the
-            # plate in place: a no-op at the Session.
-            plate = ctx.settings['protocol']['labware']
-            if spinner.text != plate:
-                spinner.text = plate
-
         # An empty spinner (not yet populated at startup) names no plate, so
         # there is nothing to select; bring-up already put the stored plate
-        # in place and it stays there.
+        # in place and it stays there. The stored plate is no pick either: a
+        # redraw set the spinner to it, after a change another writer made,
+        # and the panel's protocol stays on its own plate -- the protocol is
+        # the operator's document, and a run on a plate it disagrees with is
+        # its prepare()'s to answer.
         selected = spinner.text
-        if selected:
-            run_reported(
-                lambda: self.select_labware_ex(selected), _show_the_sessions_plate, 'LABWARE'
-            )
+        if selected and selected != ctx.settings['protocol']['labware']:
+            run_reported(lambda: self.select_labware_ex(selected), self.show_labware, 'LABWARE')
         ctx.stage.full_redraw()
+
+    def show_labware(self) -> None:
+        """Show the Session's plate on the spinner, so it never names one the scope is not on.
+
+        Setting it dispatches ``select_labware``, which takes the stored
+        plate as no pick and redraws the stage.
+        """
+        plate = _app_ctx.ctx.settings['protocol']['labware']
+        if self.ids['labware_spinner'].text != plate:
+            self.ids['labware_spinner'].text = plate
 
     def select_labware_ex(self, selected: str) -> None:
         ctx = _app_ctx.ctx

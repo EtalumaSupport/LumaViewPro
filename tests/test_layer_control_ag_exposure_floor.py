@@ -25,7 +25,6 @@ Test approach
 from __future__ import annotations
 
 import inspect
-import threading
 from types import SimpleNamespace
 
 import pytest
@@ -37,7 +36,7 @@ from modules.lumascope_api.camera import (
     AutoGainLock,
     stored_exposure_after_lock,
 )
-from modules.scope_session import ScopeSession, ShownChannel
+from modules.scope_session import ScopeSession, SettingsLock, ShownChannel
 
 
 class TestExposureFloorSourceStructure:
@@ -81,7 +80,7 @@ def _leave(settings: dict, layer: str, lock: AutoGainLock) -> None:
             camera_connected=True,
         ),
         settings=settings,
-        settings_lock=threading.Lock(),
+        settings_lock=SettingsLock(lambda paths: None),
         # A session that names no settings file: its writes wake no saver.
         _settings_saver=None,
         # The layer is shown, and the camera holds it.

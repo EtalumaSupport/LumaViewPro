@@ -60,9 +60,9 @@ def _blue_layer(monkeypatch, *, exposure_ms, illumination_ma):
     layer._initializing = False
     layer.ids = {
         'exp_slider': _Slider(0.01, 1000.0, 1000.0),
-        'exp_text': SimpleNamespace(text=str(exposure_ms)),
+        'exp_text': SimpleNamespace(focus=False, text=str(exposure_ms)),
         'ill_slider': _Slider(0.0, 150.0, 150.0),
-        'ill_text': SimpleNamespace(text=str(illumination_ma)),
+        'ill_text': SimpleNamespace(focus=False, text=str(illumination_ma)),
     }
     # The Session puts the write on the hardware; the box makes no apply of its own.
     applied = []

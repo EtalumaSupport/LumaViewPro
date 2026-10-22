@@ -14,7 +14,6 @@ by the API's own rule), so these exercise production's decision, not a copy.
 
 from __future__ import annotations
 
-import threading
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -33,7 +32,7 @@ from modules.lumascope_api.camera import (
     AutoGainLock,
     stored_exposure_after_lock,
 )
-from modules.scope_session import ScopeSession, ShownChannel
+from modules.scope_session import ScopeSession, SettingsLock, ShownChannel
 from tests.scope_fakes import identity_with_layers
 
 _MEMBERS = (
@@ -60,7 +59,7 @@ def _session(settings, lock=None, layers=('BF', 'PC', 'DF', 'Blue', 'Green', 'Re
     session = SimpleNamespace(
         scope=scope,
         settings=settings,
-        settings_lock=threading.Lock(),
+        settings_lock=SettingsLock(lambda paths: None),
         _settings_saver=None,
         _shown_channel=ShownChannel(shown, lit=False),
         _auto_gain_locks={},

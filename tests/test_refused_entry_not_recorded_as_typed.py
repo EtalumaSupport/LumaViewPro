@@ -29,6 +29,7 @@ import pytest
 import modules.app_context as _app_ctx
 import ui.microscope_settings as ms
 import ui.protocol_settings as ps
+from ui.zstack import ZStack
 from modules import gui_logger
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
@@ -227,7 +228,7 @@ def cold_start(tmp_path, monkeypatch, caplog):
     )
     zstack = SimpleNamespace(
         ids={
-            name: SimpleNamespace(text='')
+            name: SimpleNamespace(focus=False, text='')
             for name in (
                 'zstack_spinner',
                 'zstack_stepsize_id',
@@ -236,6 +237,7 @@ def cold_start(tmp_path, monkeypatch, caplog):
             )
         }
     )
+    zstack.show_settings = lambda: ZStack.show_settings(zstack)
     # a stand-in by design: Kivy is stubbed in the test process; the subject is the handler's record
     ctx = SimpleNamespace(
         session=session,

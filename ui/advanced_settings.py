@@ -24,7 +24,7 @@ from lvp_logger import logger
 from modules import gui_logger
 from modules.config_helpers import get_manual_video_max_duration
 from modules.config_ui_getters import firmware_stim_supported
-from ui.ui_helpers import run_reported, submit_reported, typed_number
+from ui.ui_helpers import run_reported, show_on_slider, show_text, submit_reported, typed_number
 
 
 class AdvancedSettings(Popup):
@@ -58,8 +58,20 @@ class AdvancedSettings(Popup):
     # before the capability is read.
     stim_supported = BooleanProperty(False)
 
+    # True while the modal is open: closed, it needs no redraw, since it
+    # fills from the store when it opens.
+    shown = False
+
     def on_open(self):
         """Populate every row from the settings store when the modal opens."""
+        self.shown = True
+        self.show_settings()
+
+    def on_dismiss(self):
+        self.shown = False
+
+    def show_settings(self):
+        """Show every row's stored setting: on open, and on a change to one while open."""
         ctx = _app_ctx.ctx
         settings = ctx.settings
 
@@ -70,8 +82,10 @@ class AdvancedSettings(Popup):
         self._show_camera_modes()
 
         video_settings = settings['video']
-        self.ids['video_max_fps_input'].text = str(video_settings['max_fps'])
-        self.ids['video_max_duration_input'].text = str(get_manual_video_max_duration(settings))
+        show_text(self.ids['video_max_fps_input'], str(video_settings['max_fps']))
+        show_text(
+            self.ids['video_max_duration_input'], str(get_manual_video_max_duration(settings))
+        )
         self.ids['video_timestamp_overlay_id'].active = video_settings['timestamp_overlay']
 
         self.ids['separate_folder_per_channel_id'].state = (
@@ -82,7 +96,7 @@ class AdvancedSettings(Popup):
         # initialized at app startup; the slider just reflects the stored value.
         # fps=0 means uncapped, which maps to the slider's top position.
         live_fps = settings['live_view_fps']
-        self.ids['live_view_fps_slider'].value = 65 if live_fps == 0 else live_fps
+        show_on_slider(self.ids['live_view_fps_slider'], 65 if live_fps == 0 else live_fps)
 
         self.ids['protocol_led_on_btn'].state = 'down' if settings['protocol_led_on'] else 'normal'
 
@@ -92,7 +106,9 @@ class AdvancedSettings(Popup):
 
         # Setting the slider value drives the text via the kv binding
         # (text: format(acceleration_pct_slider.value)).
-        self.ids['acceleration_pct_slider'].value = settings['motion']['acceleration_max_pct']
+        show_on_slider(
+            self.ids['acceleration_pct_slider'], settings['motion']['acceleration_max_pct']
+        )
 
         # Populate the dropdown values BEFORE setting the text. The spinner
         # keeps text_autoupdate at its default (False); were it True,

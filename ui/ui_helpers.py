@@ -222,6 +222,38 @@ def run_unasked(call: typing.Callable[[], object], label: str) -> bool:
     return _contained(call, label, solicited=False)
 
 
+def show_text(box, text: str) -> None:
+    """Show *text* in a box a redraw writes, unless the operator is typing in it.
+
+    A focused box whose text is not what was last shown there holds the
+    operator's edit, which its focus loss commits; writing over it would lose
+    the edit, so it is left and redrawn after that commit. A focused box
+    still showing what was last drawn here holds no edit: it takes *text*,
+    so its focus loss finds nothing changed and commits nothing stale over
+    another writer's change. A focused box nothing was drawn in through here
+    is taken as being edited. Every box a redraw writes is written through
+    here.
+    """
+    if box.focus and box.text != getattr(box, 'shown_text', None):
+        return
+    # Rewriting the same string churns the enclosing ScrollView.
+    if box.text != text:
+        box.text = text
+    box.shown_text = text
+
+
+def show_on_slider(slider, value: float) -> None:
+    """Show *value* on a slider a redraw writes, unless the operator is dragging it.
+
+    Under the finger the store lags the drag -- its writes go through a lane
+    -- so a redraw would pull the slider back to an older value; the drag's
+    own last write is redrawn once it lands.
+    """
+    if getattr(slider, 'user_interacting', False):
+        return
+    slider.value = value
+
+
 def typed_number(
     text: str, cast: typing.Callable[[str], float], put_back: typing.Callable[[], None]
 ) -> float | None:
@@ -316,10 +348,10 @@ def set_last_save_folder(dir):
 def sync_layer_widgets_from_settings():
     """Every layer's panel shows its stored settings again.
 
-    The run-end callback: a protocol run displays each step in the panel
-    without writing the user's settings, so at run end the widgets are
-    the last step's and the settings are the user's; this puts the panel
-    back on the settings. One call per run, every layer.
+    The run-end callback: a run moves only the step pointer and writes no
+    layer setting, and its end restores the camera from the settings; this
+    shows every layer's stored settings once the run has let go. One call
+    per run, every layer.
     """
     ctx = _app_ctx.ctx
     for layer in common_utils.get_layers():

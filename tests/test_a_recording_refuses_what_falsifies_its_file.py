@@ -319,6 +319,7 @@ class TestTheLabwarePanelReportsARefusal:
         panel.select_labware_ex = lambda selected: (
             protocol_settings_module.ProtocolSettings.select_labware_ex(panel, selected)
         )
+        panel.show_labware = lambda: protocol_settings_module.ProtocolSettings.show_labware(panel)
 
         protocol_settings_module.ProtocolSettings.select_labware(panel)
 

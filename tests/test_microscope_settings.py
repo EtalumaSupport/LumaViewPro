@@ -215,8 +215,11 @@ def _bind_write_frame_text(fake_self):
 
 
 def _compile_ms_method(method_name: str, namespace: dict):
+    from ui.ui_helpers import show_on_slider, show_text
+
     fn_src = _extract_ms_method(method_name)
-    ns = dict(namespace)
+    # The module's own redraw writers: the method writes every box through them.
+    ns = {'show_text': show_text, 'show_on_slider': show_on_slider, **namespace}
     exec(compile(fn_src, f'<microscope_settings::{method_name}>', 'exec'), ns)
     return ns[method_name]
 

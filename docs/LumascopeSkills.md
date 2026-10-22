@@ -2310,7 +2310,7 @@ scope.imaging.remove_frame_listener(on_frame)
 
 ### Listener callback signatures (overview)
 
-The six listener families each pass a different callback signature -- register a callable matching the row for the listener you subscribe to:
+The seven listener families each pass a different callback signature -- register a callable matching the row for the listener you subscribe to:
 
 | Listener | Register via | Callback signature | Event record |
 |---|---|---|---|
@@ -2320,12 +2320,13 @@ The six listener families each pass a different callback signature -- register a
 | Live frame | `scope.imaging.add_frame_listener` | `on_frame(frame: Frame)` | `FrameDelivered(frame)` |
 | Run state | `session.add_run_state_listener` | `on_run_state()` -- no payload; re-read the session derivations (see Run state and locks above) | `Status`, read at the edge but for `camera_streaming`, asked just after |
 | Outcomes | `ScopeSession.create(outcome_listener=...)` or `session.add_outcome_listener` | `on_outcome(n)` -- one `Notification` (see Outcomes above) | `Notification` itself |
+| Settings | `session.add_settings_listener` | `on_settings(paths: tuple[str, ...])` -- the dotted paths one write stored | `SettingsChanged(paths)` |
 
 Each event declares its record, published in the reference below: its fields name the callback's arguments in order, so a host that carries an event elsewhere (the REST server's stream) builds the record from the arguments rather than keeping its own table of signatures. A run's events do the same: `RunEvents.scan_started` delivers `ScanStarted(scan_number, scans_remaining, interval)`, `scan_ended` `ScanEnded(...)`, `step_started` `StepStarted(step_idx)`, `frame_captured` `FrameCaptured(image, frames_summed, frame_significant_bits)`, `video_progress` the `VideoProgress` it passes, `run_ended` `RunEnded(outcome, run_dir, protocol)`, `files_written` `FilesWritten(run_dir, files)`. Callbacks keep their signatures; a Python caller need not build any record.
 
 The four `scope.*` listeners each have a matching `remove_*_listener(callback)`. The frame listener additionally takes a `name=` kwarg and carries the read-only frame + 24 ms budget contract documented above; the other three are lightweight state-change notifications.
 
-The last two rows are not registered on the scope. **Run state** is registered on the **session**: it takes no payload and is level-synced -- registering calls it once immediately, so a subscriber never misses a transition that happened before it subscribed, and `session.remove_run_state_listener(callback)` removes it (a callback never added is a no-op). **Outcomes** are registered on the session, or given to the factory to hear bring-up, and have a matching `session.remove_outcome_listener(callback)`.
+The last three rows are not registered on the scope. **Settings** is registered on the session: each write to the settings store -- by the GUI, a REST client, a script, or the camera storing what it applied -- tells the paths it stored, all of them once its write has let go of the store, on the writer's thread; `session.remove_settings_listener(callback)` removes it. On the REST stream it is the `settings` event, so a client beside the GUI hears the GUI's changes and the GUI redraws a client's. **Run state** is registered on the **session**: it takes no payload and is level-synced -- registering calls it once immediately, so a subscriber never misses a transition that happened before it subscribed, and `session.remove_run_state_listener(callback)` removes it (a callback never added is a no-op). **Outcomes** are registered on the session, or given to the factory to hear bring-up, and have a matching `session.remove_outcome_listener(callback)`.
 
 ### Camera info
 
@@ -3046,6 +3047,7 @@ Reached through `ScopeSession.create(settings, ...)`; every L2 caller starts her
 - `acting_in_control` (in-process)
 - `add_outcome_listener` (in-process)
 - `add_run_state_listener` (in-process)
+- `add_settings_listener` (in-process)
 - `add_shown_channel_listener` (in-process)
 - `add_step`
 - `apply_focus_to_layer_steps`
@@ -3115,6 +3117,7 @@ Reached through `ScopeSession.create(settings, ...)`; every L2 caller starts her
 - `recover_file_writer`
 - `remove_outcome_listener` (in-process)
 - `remove_run_state_listener` (in-process)
+- `remove_settings_listener` (in-process)
 - `remove_shown_channel_listener` (in-process)
 - `rename_step`
 - `repair_camera_driver`
@@ -4283,6 +4286,12 @@ Reached through a REST problem, whose members carry it.
 
 - `member`
 - `path`
+
+### SettingsChanged
+
+The event `session.add_settings_listener` delivers.
+
+- `paths`
 
 ### SettingsSetAside
 

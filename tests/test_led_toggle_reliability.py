@@ -121,7 +121,7 @@ class TestFixB2_ProgrammaticWidgetWriteWrapping:
         )
         # The slider write must be after the flag is raised.
         init_pos = body.find('self._initializing = True')
-        slider_set_pos = body.find('slider.value')
+        slider_set_pos = body.find('show_on_slider(slider')
         assert init_pos != -1 and slider_set_pos != -1
         assert init_pos < slider_set_pos, '_initializing=True must be set before the slider write'
         # And the flag must come back down: restored to what it was, so a
