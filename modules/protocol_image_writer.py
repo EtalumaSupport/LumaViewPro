@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, NamedTuple
 import numpy as np
 
 import modules.common_utils as common_utils
+import modules.image_utils as image_utils
 import modules.protocol_recording as protocol_recording
 from lib import profile_trace
 from lvp_logger import protocol_logger as logger
@@ -570,6 +571,49 @@ def _recorded_name(step, file_name, separate_folder_per_channel: bool):
     if separate_folder_per_channel:
         return pathlib.Path(step['Color']) / file_name
     return file_name
+
+
+def _capture_evidence(image: np.ndarray, capture_info: dict) -> str:
+    """One-line provenance for a captured frame: its brightness and saturation,
+    the frame's exposure / gain and capture-hold timing.
+
+    Saved-frame defects (a frame exposed under the previous channel's
+    settings saturates or mis-exposes) previously left no log trace at
+    all; this line makes every protocol capture auditable from a
+    support bundle. The mean is the still's statistics
+    (``image_utils.image_statistics``) and the saturation the frame record's,
+    measured by the capture against each frame's own full scale, which a
+    run's capture always asks for (``all_ones_check``). Exposure
+    and gain are the frame record's, the values the saved file carries: the
+    frame's own chunk values where the camera stamps them, otherwise the
+    applied settings read beside the grab, marked ``(applied)`` so a reader
+    never takes them for a measurement of the frame.
+    """
+    record = capture_info['frame_record']
+    parts = [
+        f'mean={image_utils.image_statistics(image).mean:.1f}',
+        f'sat={record.saturated_fraction * 100.0:.1f}%',
+    ]
+    exp_mark = '' if capture_info.get('chunk_exposure_us') is not None else '(applied)'
+    gain_mark = '' if capture_info.get('chunk_gain_db') is not None else '(applied)'
+    exp_ms, gain_db = record.exposure_ms, record.gain_db
+    parts.append(f'exp_ms={exp_ms:.2f}{exp_mark}' if exp_ms is not None else 'exp_ms=na')
+    parts.append(f'gain_db={gain_db:.2f}{gain_mark}' if gain_db is not None else 'gain_db=na')
+    if capture_info.get('hold_ms') is not None:
+        parts.append(f'hold_ms={capture_info["hold_ms"]:.0f}')
+    if capture_info.get('drained') is not None:
+        parts.append(f'drained={capture_info["drained"]}')
+    if capture_info.get('auto_gain') is not None:
+        parts.append(f'auto_gain={capture_info["auto_gain"]}')
+    if record.dark:
+        # The frame was delivered and saved with no pixel above the
+        # dark floor while illumination was commanded on. Stated on
+        # the row because the file itself looks like any other black
+        # image: without this, a run whose light path failed is
+        # indistinguishable in a support bundle from one imaging a
+        # genuinely dark sample.
+        parts.append('dark_saved=True')
+    return ' '.join(parts)
 
 
 class ProtocolImageWriter:
@@ -1130,62 +1174,6 @@ class ProtocolImageWriter:
         )
         return False
 
-    def _capture_evidence(self, image, full_scale: int) -> str:
-        """One-line provenance for a captured frame: brightness statistics
-        plus the frame's exposure / gain and capture-hold timing.
-
-        Saved-frame defects (a frame exposed under the previous channel's
-        settings saturates or mis-exposes) previously left no log trace at
-        all; this line makes every protocol capture auditable from a
-        support bundle. Exposure and gain are the frame record's, the values
-        the saved file carries: the frame's own chunk values where the camera
-        stamps them, otherwise the applied settings read beside the grab,
-        marked ``(applied)`` so a reader never takes them for a measurement
-        of the frame. Brightness is computed on a strided sample so the
-        cost stays negligible at full frame rate. ``full_scale`` is the value
-        the frame saturates at (``ImagingAPI.capture_frame_full_scale``),
-        required because neither the container dtype nor the depth tag is
-        it: a 12-bit frame rides in uint16, and three blown 8-bit frames
-        summed are 765 under a 10-bit tag -- either read as full scale, a
-        saturated frame logs sat=0%.
-        """
-        try:
-            parts = []
-            if image is not None and getattr(image, 'size', 0) > 0:
-                sample = image[::8, ::8]
-                sat_fraction = float(np.count_nonzero(sample >= 0.99 * full_scale)) / sample.size
-                parts.append(f'mean={float(sample.mean()):.1f}')
-                parts.append(f'sat={sat_fraction * 100.0:.1f}%')
-            info = self._scope.imaging.last_capture_info or {}
-            record = info.get('frame_record')
-            exp_ms = record.exposure_ms if record is not None else None
-            gain_db = record.gain_db if record is not None else None
-            exp_mark = '' if info.get('chunk_exposure_us') is not None else '(applied)'
-            gain_mark = '' if info.get('chunk_gain_db') is not None else '(applied)'
-            parts.append(f'exp_ms={exp_ms:.2f}{exp_mark}' if exp_ms is not None else 'exp_ms=na')
-            parts.append(
-                f'gain_db={gain_db:.2f}{gain_mark}' if gain_db is not None else 'gain_db=na'
-            )
-            if info.get('hold_ms') is not None:
-                parts.append(f'hold_ms={info["hold_ms"]:.0f}')
-            if info.get('drained') is not None:
-                parts.append(f'drained={info["drained"]}')
-            if info.get('auto_gain') is not None:
-                parts.append(f'auto_gain={info["auto_gain"]}')
-            if record is not None and record.dark:
-                # The frame was delivered and saved with no pixel above the
-                # dark floor while illumination was commanded on. Stated on
-                # the row because the file itself looks like any other black
-                # image: without this, a run whose light path failed is
-                # indistinguishable in a support bundle from one imaging a
-                # genuinely dark sample.
-                parts.append('dark_saved=True')
-            return ' '.join(parts)
-        except Exception as ex:
-            # Evidence is best-effort; never let it break the capture path.
-            logger.debug(f'[Protocol-Writer] capture evidence unavailable: {ex}')
-            return ''
-
     def capture(
         self,
         save_folder: pathlib.Path,
@@ -1593,17 +1581,15 @@ class ProtocolImageWriter:
                         step=step, curr_step=curr_step, scan_count=scan_count, record=frame_record
                     )
 
-                    # Depth travels with the frame so the evidence line's
-                    # saturation threshold AND the eventual file save scale
-                    # against the real range (a sum: the bits it can reach,
-                    # saturated at what it can hold). Resolved here at capture
-                    # time -- the async save must not re-derive it later, when
-                    # the camera may be at a different format or unreadable.
+                    # Depth travels with the frame so the eventual file save
+                    # scales against the real range (a sum: the bits it can
+                    # reach). Resolved here at capture time -- the async save
+                    # must not re-derive it later, when the camera may be at
+                    # a different format or unreadable.
                     frame_significant_bits = self._scope.imaging.capture_frame_depth(captured_image)
-                    full_scale = self._scope.imaging.capture_frame_full_scale(captured_image)
                     logger.info(
                         f'Protocol Image Captured: {name} '
-                        f'{self._capture_evidence(captured_image, full_scale)}'
+                        f'{_capture_evidence(captured_image, capture_info)}'
                     )
 
                     # The capture's image is read-only (capture_and_wait), and

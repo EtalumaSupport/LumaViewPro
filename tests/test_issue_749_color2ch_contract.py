@@ -29,6 +29,7 @@ import sys
 REPO = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 
+import numpy as np
 import pytest
 
 from modules import common_utils
@@ -183,6 +184,8 @@ class TestDarkFloorKeysOnLedDrivability:
         scope.runtime_state.resolve_current_objective.return_value = ('4x Oly', {})
         scope.capabilities.has_turret = False
         scope.led_connected = False
+        # A capture returns its frame's pixels.
+        scope.imaging.capture_and_wait.return_value = np.zeros((4, 4), dtype=np.uint8)
         if writer_setup is not None:
             writer_setup(writer, scope)
         protocol = MagicMock()

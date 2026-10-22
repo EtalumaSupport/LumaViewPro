@@ -59,8 +59,9 @@ def _drive_capture(monkeypatch, debug_enabled):
     scope.led_connected = False
     scope.imaging.capture_and_wait.return_value = np.zeros((4, 4), dtype=np.uint8)
     # A capture hands on its frame's record; a stub's would answer every fact
-    # it carries (blown, dark) with a truthy stand-in.
-    scope.imaging.last_capture_info = {'frame_record': frame_record()}
+    # it carries (blown, dark) with a truthy stand-in. A run's capture
+    # always measures the frame's saturation.
+    scope.imaging.last_capture_info = {'frame_record': frame_record(saturated_fraction=0.0)}
 
     def quiet(*args, **kwargs):
         return None

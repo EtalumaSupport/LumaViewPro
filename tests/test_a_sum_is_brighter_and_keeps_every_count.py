@@ -30,7 +30,6 @@ import tifffile as tf
 
 from modules import image_mode, image_utils, zprojection
 from modules.exceptions import FrameDepthError
-from modules.protocol_image_writer import ProtocolImageWriter
 from modules.scope_session import ScopeSession
 from modules.stack_builder import StackBuilder
 from modules.zprojector import ZProjector
@@ -140,12 +139,14 @@ def test_the_record_carries_the_count_and_each_frames_depth(sim_camera):
 
 @pytest.mark.parametrize(('pixel_format', 'frames'), [('Mono8', 3), ('Mono8', 4), ('Mono12', 3)])
 def test_a_sum_of_blown_frames_reads_saturated(sim_camera, pixel_format, frames):
+    """Measured per frame at its own depth, so a sum, whose counts run past
+    one frame's white, still reads blown."""
     scope = sim_camera(pixel_format)
-    image = scope.imaging.get_image(force_to_8bit=False, sum_count=frames)
-    writer = ProtocolImageWriter.__new__(ProtocolImageWriter)
-    writer._scope = scope
-    evidence = writer._capture_evidence(image, scope.imaging.capture_frame_full_scale(image))
-    assert 'sat=100.0%' in evidence
+    scope.imaging.capture_and_wait(
+        force_to_8bit=False, sum_count=frames, all_ones_check=True, accept_dark=True, timeout_s=2.0
+    )
+    record = scope.imaging.last_capture_info['frame_record']
+    assert record.saturated_fraction == 1.0
 
 
 @pytest.fixture(scope='module')

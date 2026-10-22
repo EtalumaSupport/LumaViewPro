@@ -2118,8 +2118,11 @@ def _bare_protocol_writer(**overrides):
         # A brought-up scope's camera is present; a failed capture asks.
         writer._scope.camera.camera_removed = False
         # A capture hands on its frame's record; a stub's would answer every
-        # fact it carries (blown, dark) with a truthy stand-in.
-        writer._scope.imaging.last_capture_info = {'frame_record': frame_record()}
+        # fact it carries (blown, dark) with a truthy stand-in. A run's
+        # capture always measures the frame's saturation.
+        writer._scope.imaging.last_capture_info = {
+            'frame_record': frame_record(saturated_fraction=0.0)
+        }
     return writer
 
 

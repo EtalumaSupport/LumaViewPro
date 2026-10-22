@@ -167,7 +167,7 @@ def _entries_with_a_site() -> set[str]:
 
 # Seeded at LVP dev/4.0.0 b17419cc (2026-10-09) with 237 entries. Only shrinks: a
 # commit that takes a stand-in to the simulator deletes its entry and lowers this.
-ALLOWED_ENTRIES = 206
+ALLOWED_ENTRIES = 204
 ALLOWED = frozenset(
     {
         'tests/af_drives.py::af_runner_and_scope',
@@ -249,7 +249,6 @@ ALLOWED = frozenset(
         'tests/test_camera_rejection_reaches_the_caller.py::sim_camera',
         'tests/test_capture_collision_policy.py::test_video_step_row_records_writers_actual_path',
         'tests/test_capture_diag_debug_gate.py::_drive_capture',
-        'tests/test_capture_evidence_saturation_depth.py::_make_writer',
         'tests/test_composite_run_outcome.py::_runner',
         'tests/test_composite_starter.py::app_ctx',
         'tests/test_diagnostic_claim.py::_make_session',
@@ -357,7 +356,6 @@ ALLOWED = frozenset(
         'tests/test_the_autofocus_button_runs_through_start_autofocus.py::pressed',
         'tests/test_the_camera_holds_a_layer_from_the_session.py::TestBringUp.test_a_scope_whose_layers_are_unresolved_still_comes_up',
         'tests/test_the_camera_holds_a_layer_from_the_session.py::TestBringUp.test_a_scope_with_no_camera_is_not_applied_and_says_so',
-        'tests/test_the_capture_line_logs_the_frames_settings.py::test_a_camera_with_chunks_logs_the_frames_own_values_unmarked',
         'tests/test_the_claim_names_the_holding_run.py::TestTheRunnerReadsTheClaim.test_a_runner_cannot_be_built_without_a_claim',
         'tests/test_the_gui_boundary.py::test_a_burst_of_scroll_ticks_is_one_move_of_the_last_ticks_step',
         'tests/test_the_gui_displays_the_turret.py::stand',

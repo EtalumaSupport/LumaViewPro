@@ -74,8 +74,8 @@ def _writer(events):
     captured.flags.writeable = False
     scope.imaging.capture_and_wait.return_value = captured
     scope.imaging.capture_frame_depth.return_value = 8
-    scope.imaging.capture_frame_full_scale.return_value = 255
-    scope.imaging.last_capture_info = {'frame_record': frame_record()}
+    # A run's capture always measures the frame's saturation.
+    scope.imaging.last_capture_info = {'frame_record': frame_record(saturated_fraction=0.0)}
     return writer
 
 
@@ -302,9 +302,10 @@ class TestTheHoldShowsASumAsItIsShown:
         imaging = writer._scope.imaging
         imaging.capture_and_wait.return_value = np.full((4, 4), 255, dtype=np.uint16)
         imaging.capture_frame_depth.return_value = 10
-        imaging.capture_frame_full_scale.return_value = 765
         imaging.last_capture_info = {
-            'frame_record': frame_record(frames_summed=3, frame_significant_bits=8)
+            'frame_record': frame_record(
+                frames_summed=3, frame_significant_bits=8, saturated_fraction=0.0
+            )
         }
 
         _capture_one_still(writer)
