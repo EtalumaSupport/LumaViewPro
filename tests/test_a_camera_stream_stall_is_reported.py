@@ -140,10 +140,14 @@ class TestWhatIsNotAStall:
         # 800 ms between frames is past the 0.5 s floor; ten of them is the bound.
         scope = session.scope
         camera = scope.camera
-        at_change = scope._frames_delivered()
         camera.set_exposure_ms(800.0)
         assert camera.exposure_ms == 800.0, 'precondition: the long exposure took'
-        # The frames the camera had started come at the old, short exposure.
+        # The frames the camera had started come at the old, short exposure,
+        # counted from where the gate recorded the change, after the write:
+        # frames that arrive while a slow write is still in flight are short
+        # too, and a count taken before the write would spend the pipeline's
+        # frames on them.
+        at_change = scope.imaging.recorded_changes()['exposure'].at_seq
         in_flight = SimulatedCamera.SENSOR_PIPELINE_FRAMES
         assert _wait_for(lambda: scope._frames_delivered() > at_change + in_flight, 3.0)
         started = time.monotonic()
@@ -176,8 +180,9 @@ class TestWhatIsNotAStall:
         )
         time.sleep(0.3)  # the check has run at the long exposure's bound
         with caplog.at_level(logging.INFO):
-            at_drop = scope._frames_delivered()
             camera.set_exposure_ms(5.0)
+            # Counted from the gate's record of the change, as above.
+            at_drop = scope.imaging.recorded_changes()['exposure'].at_seq
             in_flight = SimulatedCamera.SENSOR_PIPELINE_FRAMES
             # The frames in flight, and one at the short exposure behind them.
             assert _wait_for(lambda: scope._frames_delivered() > at_drop + in_flight + 1, 5.0)
