@@ -15,6 +15,8 @@ its value, an ``IntEnum`` included, though it is an int.
 
 from __future__ import annotations
 
+import dataclasses
+import datetime
 import json
 import pathlib
 from concurrent.futures import Future
@@ -22,7 +24,7 @@ from concurrent.futures import Future
 import pytest
 
 from modules import wire_encoding
-from modules.api_surface import API, mark_of
+from modules.api_surface import API, api_fields, mark_of
 
 
 @pytest.fixture
@@ -94,6 +96,26 @@ def test_a_value_with_no_form_is_refused(tmp_path):
         wire_encoding.encode(
             {'frame': np.zeros(2)}, live_folder=tmp_path, handle=no_handle, job=no_handle
         )
+
+
+@api_fields('windows')
+@dataclasses.dataclass(frozen=True)
+class _Scan:
+    windows: tuple[dict, ...]
+
+
+def test_a_timedelta_is_refused_in_either_walk_naming_where_it_is(tmp_path):
+    # A duration is a float of seconds; one left a timedelta is refused by
+    # whichever walk reads it first, with the record and the path to it.
+    value = _Scan(windows=({'period': datetime.timedelta(seconds=5)},))
+
+    def no_handle(obj):
+        raise AssertionError(obj)
+
+    with pytest.raises(wire_encoding.NoWireFormError, match=r"_Scan\.windows\[0\]\['period'\]"):
+        wire_encoding.encode(value, live_folder=tmp_path, handle=no_handle, job=no_handle)
+    with pytest.raises(wire_encoding.NoWireFormError, match=r"_Scan\.windows\[0\]\['period'\]"):
+        wire_encoding.plain(value)
 
 
 def test_a_path_inside_the_live_folder_is_named_in_either_form(tmp_path):

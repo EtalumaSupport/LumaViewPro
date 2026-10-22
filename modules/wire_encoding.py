@@ -12,7 +12,7 @@ process, keeping what only a wire needs converted (a record's ``to_dict()``).
 The forms:
 
 - ``str``, ``int``, ``float``, ``bool``, None: themselves.
-- ``timedelta``: seconds. ``datetime``: ISO 8601.
+- ``datetime``: ISO 8601.
 - A ``StrEnum``: its value; any other enum: its name.
 - A record (``api_surface.is_record``): an object by its published field
   names, its wire-marked properties among them.
@@ -34,13 +34,13 @@ The forms:
   on the wire; the host passes its own.
 
 No form: an image array, a table (``DataFrame``), a callable anywhere but
-a parameter, ``Any`` or ``object``, a thread. A member that hands one out
-is marked in-process.
+a parameter, ``Any`` or ``object``, a thread, a ``timedelta`` (a duration
+is a float of seconds, its name ending ``_s``, so a client reads its unit
+from its name). A member that hands one out is marked in-process.
 
-Inbound, a parameter's value comes back the same way: seconds become a
-``timedelta``, an enum's form its member, an object a record, a handle's
-id its live object, a job's id its operation, a live-folder name an
-absolute path. ``wire_members`` describes each member a host routes to,
+Inbound, a parameter's value comes back the same way: an enum's form its
+member, an object a record, a handle's id its live object, a job's id its
+operation, a live-folder name an absolute path. ``wire_members`` describes each member a host routes to,
 and ``decode`` turns what a client sent into what the member takes. A
 parameter type with no inbound form -- a future that is no operation, a
 path inside an array, a union a value could be read as either side of --
@@ -75,7 +75,6 @@ from modules.operation import Operation
 
 # The forms a value takes on the wire.
 SCALAR = 'scalar'
-SECONDS = 'seconds'
 ISO8601 = 'iso8601'
 ENUM = 'enum'
 RECORD = 'record'
@@ -95,7 +94,6 @@ NAMED_FORMS = {
     'float': SCALAR,
     'bool': SCALAR,
     'None': SCALAR,
-    'timedelta': SECONDS,
     'datetime': ISO8601,
     'Path': PATH,
     'PurePath': PATH,
@@ -123,6 +121,9 @@ class NoWireFormError(Fault, TypeError):
 
     reason = 'no_wire_form'
     title = 'No Wire Form'
+    # Where in the walked value it was found, each container prefixing its
+    # step as the fault passes back up; the walk's top names it whole.
+    _at = ''
 
 
 class NotHandedOutError(NoWireFormError):
@@ -445,8 +446,12 @@ def plain(value: object) -> object:
     becomes a dict, an enum its wire form, a tuple, list, set or series a
     list or dict. What only a wire needs turned into something else stays
     as it is: a path, a handle and a running call are the live objects
-    the caller can use, a NaN is a NaN, a time is a ``datetime`` or
-    ``timedelta``, and a key keeps its type.
+    the caller can use, a NaN is a NaN, a time is a ``datetime``, and a
+    key keeps its type.
+
+    Raises:
+        NoWireFormError: something in *value* is a ``timedelta``, which has
+            no form in either walk.
     """
     return _walk(value, wire=False, live_folder=None, handle=None, job=None)
 
@@ -499,7 +504,12 @@ def _walk(
         if v is None or isinstance(v, (bool, int, float, str)):
             return v
         if isinstance(v, datetime.timedelta):
-            return v.total_seconds() if wire else v
+            # Refused in both walks, so a duration left unconverted is found
+            # by whichever reads it first, not by a later client's REST read.
+            raise NoWireFormError(
+                f'{v!r} is a timedelta, which has no form: a duration is a float of '
+                'seconds, its name ending _s'
+            )
         if isinstance(v, (datetime.datetime, datetime.date)):
             return v.isoformat() if wire else v
         if isinstance(v, pathlib.PurePath):
@@ -511,18 +521,18 @@ def _walk(
         cls = type(v)
         if is_record(cls):
             names = _fields(cls) + tuple(_wire_properties(cls))
-            return {n: form(getattr(v, n)) for n in names}
+            return {n: at(f'.{n}', getattr(v, n)) for n in names}
         if cls.__module__ == 'numpy' and getattr(v, 'shape', None) == ():
             # A numpy scalar where the annotation says int or float.
             return form(v.item())
         if type(v).__name__ == 'Series' and type(v).__module__.startswith('pandas'):
-            return {key(k): form(x) for k, x in v.items()}
+            return {key(k): at(f'[{k!r}]', x) for k, x in v.items()}
         if isinstance(v, Mapping):
-            return {key(k): form(x) for k, x in v.items()}
+            return {key(k): at(f'[{k!r}]', x) for k, x in v.items()}
         if isinstance(v, (set, frozenset)):
-            return sorted(form(x) for x in v)
+            return sorted(at('[]', x) for x in v)
         if isinstance(v, (tuple, list)):
-            return [form(x) for x in v]
+            return [at(f'[{i}]', x) for i, x in enumerate(v)]
         if cls.__module__.startswith('modules') and class_form(cls) == HANDLE:
             return handle(v) if wire else v
         if (
@@ -530,21 +540,33 @@ def _walk(
             and not isinstance(v, (bytes, bytearray))
             and not hasattr(v, 'shape')
         ):
-            return [form(x) for x in v]
+            return [at(f'[{i}]', x) for i, x in enumerate(v)]
         if not wire:
             # An array, a table, anything else the caller holds: it is
             # already the caller's own kind of object.
             return v
         raise NoWireFormError(f'{cls.__module__}.{cls.__qualname__} has no wire form')
 
-    return form(value)
+    def at(step: str, v: object) -> object:
+        try:
+            return form(v)
+        except NoWireFormError as gap:
+            gap._at = step + gap._at
+            raise
+
+    try:
+        return form(value)
+    except NoWireFormError as gap:
+        if not gap._at:
+            raise
+        raise NoWireFormError(f'{type(value).__name__}{gap._at}: {gap}') from gap
 
 
 # --- The inbound half: a value a wire client sends -----------------------------
 
 # The forms whose value is turned into something else on the way in; every
 # other inbound form is taken as the client sent it.
-_CONVERTED = {SECONDS, PATH, ENUM, RECORD, HANDLE, JOB}
+_CONVERTED = {PATH, ENUM, RECORD, HANDLE, JOB}
 # The array types a JSON array becomes, by the name the annotation uses.
 _ARRAY_TYPES = {'tuple': tuple, 'set': set, 'frozenset': frozenset}
 
@@ -736,7 +758,7 @@ def inbound(
             found.append(Inbound(form, name, cls, fields=fields))
         elif form == HANDLE and handed_out is not None and cls not in handed_out:
             unobtainable.append(name)
-        elif form in (SCALAR, SECONDS, PATH, ENUM, HANDLE, JOB):
+        elif form in (SCALAR, PATH, ENUM, HANDLE, JOB):
             found.append(Inbound(form, name, cls))
         else:
             raise NoWireFormError(f'{text}: {name} has no inbound form')
@@ -1002,8 +1024,6 @@ def decode(
     (a,) = converted
     if a.form == PATH:
         return resolve_path(value)
-    if a.form == SECONDS:
-        return datetime.timedelta(seconds=value)
     if a.form == ENUM:
         return a.cls(value) if issubclass(a.cls, enum.StrEnum) else a.cls[value]
     if a.form == HANDLE:

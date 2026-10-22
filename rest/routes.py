@@ -49,7 +49,6 @@ _QUERY_CONFIG = pydantic.ConfigDict(strict=False, extra='forbid', allow_inf_nan=
 # The forms a query value can carry, one text value each.
 _QUERY_SCALARS = (
     wire_encoding.SCALAR,
-    wire_encoding.SECONDS,
     wire_encoding.ENUM,
     wire_encoding.PATH,
     wire_encoding.HANDLE,
@@ -345,11 +344,7 @@ def _refuse_no_query_form(
         else:
             raise wire_encoding.NoWireFormError(f'{where} {key}: a {a.form} has no query form')
     # Text is any value sent as a string: a str, a name, a path, an id.
-    values = [
-        a
-        for a in single
-        if a.form == wire_encoding.SECONDS or (a.form == wire_encoding.SCALAR and a.name != 'str')
-    ]
+    values = [a for a in single if a.form == wire_encoding.SCALAR and a.name != 'str']
     texts = [a for a in single if a not in values]
     if texts and values:
         raise wire_encoding.NoWireFormError(
@@ -420,8 +415,6 @@ def _type(
 def _one(a: wire_encoding.Inbound, records: dict[type, type[pydantic.BaseModel]]) -> object:
     if a.form == wire_encoding.SCALAR:
         return _SCALARS[a.name]
-    if a.form == wire_encoding.SECONDS:
-        return typing.Annotated[float, pydantic.Field(description='Seconds.')]
     if a.form == wire_encoding.PATH:
         return typing.Annotated[
             str, pydantic.Field(description='A name in the live folder, `/`-separated.')
@@ -453,8 +446,6 @@ def answer_type(alternatives: tuple[wire_encoding.Outbound, ...]) -> object:
 def _answer(a: wire_encoding.Outbound) -> object:
     if a.form == wire_encoding.SCALAR:
         return _SCALARS[a.name]
-    if a.form == wire_encoding.SECONDS:
-        return typing.Annotated[float, pydantic.Field(description='Seconds.')]
     if a.form == wire_encoding.ISO8601:
         return datetime.datetime
     if a.form == wire_encoding.PATH:

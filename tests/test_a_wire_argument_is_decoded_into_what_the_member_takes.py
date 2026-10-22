@@ -2,19 +2,18 @@
 """What a wire client sends for a parameter becomes what the member takes.
 
 ``wire_encoding.inbound`` reads a parameter's annotation into the forms a
-client may send, and ``decode`` turns the sent value back: seconds into a
-``timedelta``, an enum's form into its member, an object into a record, a
+client may send, and ``decode`` turns the sent value back: an enum's form into its member, an object into a record, a
 handle's id into its object, a job's id into its operation, a live-folder
 name into a path, each item of an array or object as it would be alone. A
 type a client could not send unambiguously -- a future that is no
 operation, a path inside an array, a union a value could be read as either
-side of -- is refused when the host is built, so no call ever guesses. The
+side of, a ``timedelta`` (a duration is a float of seconds) -- is refused
+when the host is built, so no call ever guesses. The
 callbacks the host fills are not sent at all.
 """
 
 from __future__ import annotations
 
-import datetime
 import enum
 import pathlib
 
@@ -54,10 +53,6 @@ def _decode(value, text, classes, aliases, **kw):
 def test_each_form_is_decoded_into_its_python_value(classes, aliases):
     local = {**classes, '_Speed': _Speed, '_Colour': _Colour}
 
-    assert _decode(1.5, 'datetime.timedelta | None', local, aliases) == datetime.timedelta(
-        seconds=1.5
-    )
-    assert _decode(None, 'datetime.timedelta | None', local, aliases) is None
     assert _decode('FAST', '_Speed', local, aliases) is _Speed.FAST
     assert _decode('red', '_Colour', local, aliases) is _Colour.RED
     assert _decode('runs/a.tsv', 'FilePath', local, aliases) == pathlib.Path('/live/runs/a.tsv')
@@ -68,6 +63,13 @@ def test_each_form_is_decoded_into_its_python_value(classes, aliases):
     assert _decode([1, 2], 'tuple[int, ...]', local, aliases) == (1, 2)
     assert _decode(['x'], 'Iterable[str]', local, aliases) == ['x']
     assert _decode({'a': 1}, 'dict | None', local, aliases) == {'a': 1}
+
+
+def test_a_duration_parameter_has_no_inbound_form(classes, aliases):
+    # A duration is sent as a float of seconds, its name ending _s; a
+    # timedelta parameter is refused when the host is built.
+    with pytest.raises(wire_encoding.NoWireFormError, match='timedelta has no inbound form'):
+        wire_encoding.inbound('datetime.timedelta | None', classes, aliases)
 
 
 def test_a_record_is_built_from_its_published_fields(classes, aliases):
