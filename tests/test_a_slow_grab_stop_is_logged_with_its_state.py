@@ -19,6 +19,7 @@ from unittest import mock
 
 from pypylon import genicam
 
+from drivers.camera import ImageHandlerBase
 from tests.camera_fakes import bare_pylon_camera
 
 
@@ -66,7 +67,9 @@ def _stop_with_log(cam, stop_takes_s, during_stop=None):
 
 def test_a_slow_stop_is_a_warning_with_its_elapsed_time_after_the_state_it_stopped_from():
     cam = bare_pylon_camera()
-    cam.cam_image_handler = types.SimpleNamespace(frames_delivered=42)
+    # The real handler, so the fake's teardown at GC finds every member it calls.
+    cam.cam_image_handler = ImageHandlerBase()
+    cam.cam_image_handler._frames_delivered = 42
     cam.active.GetStreamGrabberNodeMap.return_value.GetNode.return_value.GetValue.return_value = 7
     cam.active.GetInstantCameraNodeMap.return_value.GetNode.return_value.GetValue.return_value = 3
     cam.active.GetNodeMap.return_value.GetNode.return_value.GetValue.return_value = 'Complete'
