@@ -2192,8 +2192,30 @@ class MotionAPI:
             MoveFaultError: ``'driver_failed'``, the board did not
                 take the command.
         """
-        self.refuse_absent('move_absolute', axis)
-        refuse_unless_finite_number(position, 'position')
+        self._refuse_absolute('move_absolute', axis, position, 'position', ignore_limits, force)
+        return self._drive(
+            'move_absolute', axis, position, overshoot_enabled, f'move_abs {axis}={position:.1f}um'
+        )
+
+    def _refuse_absolute(
+        self,
+        member: str,
+        axis: str,
+        position: float,
+        argument: str,
+        ignore_limits: bool,
+        force: bool = False,
+    ) -> None:
+        """Every refusal of a move of ``axis`` to ``position``, in order; nothing is driven.
+
+        The checks of an absolute move without its drive, so a request for
+        several axes asks each of them for every axis before any drives.
+        ``argument`` names ``position`` in a ``'not_a_number'`` refusal.
+        The raises are ``_move_absolute_impl``'s, but for the Z leg's read,
+        which is the drive's.
+        """
+        self.refuse_absent(member, axis)
+        refuse_unless_finite_number(position, argument)
 
         # Refuse a target beyond the axis's travel; this is the only travel
         # check, the drivers have none. A move stopped short at a limit
@@ -2244,19 +2266,35 @@ class MotionAPI:
 
         self._pre_drive(axis, force=force)
 
-        leg = self._backlash_leg(axis, position, overshoot_enabled, 'move_absolute')
+    def _drive(
+        self, member: str, axis: str, position: float, overshoot_enabled: bool, said: str
+    ) -> Operation:
+        """Drive ``axis`` to ``position``, refused already; return the started move.
+
+        The one drive of a move to a place or by a distance, once its
+        refusals have passed. ``said`` is the move as the API log names it.
+
+        Raises:
+            HardwareCommandRefusedError: ``'position_unread'``, a Z move
+                with overshoot whose position the board did not report;
+                the interlock's reason (``'lid_open'``); ``'monitor_ended'``.
+                Nothing of this axis was driven.
+            MoveFaultError: ``'driver_failed'``, the board did not take the
+                command.
+        """
+        leg = self._backlash_leg(axis, position, overshoot_enabled, member)
         stop_generation = self._generation_asked()
         try:
             move, written = self._send_drive(
                 axis,
                 stop_generation,
                 lambda: self._drive_to(axis, position, leg, stop_generation),
-                'move_absolute',
+                member,
             )
         except HardwareCommandRefusedError:
             raise
         except Exception:
-            _api_log.error(f'move_abs {axis}={position:.1f}um FAILED')
+            _api_log.error(f'{said} FAILED')
             raise
         self._publish_drive(axis, written, float(position))
         # No move-init cache write: the cache holds the CURRENT position
@@ -2264,7 +2302,7 @@ class MotionAPI:
         # cycle. The target is the move's own (_Move.target), where
         # get_target_position reads it.
         self._fire_position_listeners(axis)
-        _api_log.info(f'move_abs {axis}={position:.1f}um')
+        _api_log.info(said)
         return move.operation
 
     def _wait_for_axis_to_stop(self, axis: str, timeout_s: float) -> bool:
@@ -2323,8 +2361,26 @@ class MotionAPI:
         turret-safety Z-park, which is an absolute move. A hatch with no
         caller is just an opt-out waiting to be reached for.
         """
-        self.refuse_absent('move_relative', axis)
-        refuse_unless_finite_number(distance, 'distance')
+        target_pos = self._refuse_relative('move_relative', axis, distance, 'distance')
+        return self._drive(
+            'move_relative',
+            axis,
+            target_pos,
+            overshoot_enabled,
+            f'move_rel {axis}={distance:+.1f}um',
+        )
+
+    def _refuse_relative(self, member: str, axis: str, distance: float, argument: str) -> float:
+        """Every refusal of a move of ``axis`` by ``distance``, in order; the target it drives to.
+
+        The checks of a relative move without its drive, as
+        ``_refuse_absolute`` is for an absolute one. ``argument`` names
+        ``distance`` in a ``'not_a_number'`` refusal. The raises are
+        ``_move_relative_impl``'s, but for the Z leg's read, which is the
+        drive's.
+        """
+        self.refuse_absent(member, axis)
+        refuse_unless_finite_number(distance, argument)
         if abs(distance) > MOTOR_POSITION_LIMIT:
             # Same refusal as the absolute path, reachable the same way.
             raise PositionOutOfRangeError(
@@ -2349,7 +2405,7 @@ class MotionAPI:
         try:
             start_pos = self._driver.target_pos(axis)
         except HardwareError as e:
-            raise HardwareCommandRefusedError('position_unread', 'move_relative') from e
+            raise HardwareCommandRefusedError('position_unread', member) from e
         target_pos = start_pos + float(distance)
 
         # The same travel refusal as the absolute path, against the target
@@ -2360,29 +2416,71 @@ class MotionAPI:
         limits = self.get_axis_limits(axis)
         if limits is not None and not (limits.min_um <= target_pos <= limits.max_um):
             raise PositionOutOfRangeError(axis, target_pos, limits.min_um, limits.max_um)
+        return target_pos
 
-        leg = self._backlash_leg(axis, target_pos, overshoot_enabled, 'move_relative')
-        stop_generation = self._generation_asked()
-        try:
-            move, written = self._send_drive(
-                axis,
-                stop_generation,
-                lambda: self._drive_to(axis, target_pos, leg, stop_generation),
-                'move_relative',
+    def _move_xy_impl(
+        self, member: str, x_um: float | None, y_um: float | None, ignore_limits: bool
+    ) -> Operation:
+        """Start X and Y moving to a place, each that is asked for; return the started moves.
+
+        Every axis asked for is refused before either drives, then each is
+        driven, X first, on this one lane task. An axis given as None is
+        not read, refused, written or begun, whatever it is doing.
+        ``member`` names the request in a refusal.
+
+        Returns:
+            One ``Operation`` for the axes driven (``Operation.all_of``),
+            done at once when neither is asked for.
+        """
+        targets = tuple((axis, um) for axis, um in (('X', x_um), ('Y', y_um)) if um is not None)
+        for axis, um in targets:
+            self._refuse_absolute(member, axis, um, f'{axis.lower()}_um', ignore_limits)
+        return Operation.all_of(
+            tuple(
+                self._drive(member, axis, um, False, f'move_abs {axis}={um:.1f}um')
+                for axis, um in targets
             )
-        except HardwareCommandRefusedError:
-            raise
-        except Exception:
-            _api_log.error(f'move_rel {axis}={distance:+.1f}um FAILED')
-            raise
-        self._publish_drive(axis, written, target_pos)
-        # No move-init cache write: the cache holds the CURRENT position
-        # until _motion_monitor_loop reads it from hardware on its first
-        # cycle. The target is the move's own (_Move.target), where
-        # get_target_position reads it.
-        self._fire_position_listeners(axis)
-        _api_log.info(f'move_rel {axis}={distance:+.1f}um')
-        return move.operation
+        )
+
+    def _move_xy_by_impl(self, dx_um: float | None, dy_um: float | None) -> Operation:
+        """Start X and Y moving by a distance, each that is asked for; return the started moves.
+
+        As ``_move_xy_impl``: every axis asked for has its distance added
+        to the board's target and is refused before either drives.
+        """
+        targets = tuple(
+            (axis, d, self._refuse_relative('move_xy_by', axis, d, f'd{axis.lower()}_um'))
+            for axis, d in (('X', dx_um), ('Y', dy_um))
+            if d is not None
+        )
+        return Operation.all_of(
+            tuple(
+                self._drive('move_xy_by', axis, target, False, f'move_rel {axis}={d:+.1f}um')
+                for axis, d, target in targets
+            )
+        )
+
+    def _move_z_impl(
+        self, z_um: float, overshoot_enabled: bool | None, ignore_limits: bool
+    ) -> Operation:
+        """Start Z moving to a place; return the started move.
+
+        A move to a place approaches from below (``_backlash_leg``) unless
+        ``overshoot_enabled`` says otherwise.
+        """
+        self._refuse_absolute('move_z', 'Z', z_um, 'z_um', ignore_limits)
+        approach = True if overshoot_enabled is None else overshoot_enabled
+        return self._drive('move_z', 'Z', z_um, approach, f'move_abs Z={z_um:.1f}um')
+
+    def _move_z_by_impl(self, dz_um: float, overshoot_enabled: bool | None) -> Operation:
+        """Start Z moving by a distance; return the started move.
+
+        A move by a distance takes no approach from below unless
+        ``overshoot_enabled`` says otherwise.
+        """
+        target = self._refuse_relative('move_z_by', 'Z', dz_um, 'dz_um')
+        approach = False if overshoot_enabled is None else overshoot_enabled
+        return self._drive('move_z_by', 'Z', target, approach, f'move_rel Z={dz_um:+.1f}um')
 
     # --- Public dispatch ---
     # These are what every caller reaches: an SDK script, a REST
@@ -2749,26 +2847,25 @@ class MotionAPI:
         *targets* is read on the lane, with the plate and offset the
         conversion uses.
         """
-        moves = self._dispatch_motion(
+        return self._dispatch_motion(
             self._plate_moves_on_lane,
             member,
             args=(member, targets),
             timeout_s=self._MOTION_WAIT_BASE_S,
         )
-        return Operation.all_of(moves)
 
     def _plate_moves_on_lane(
         self, member: str, targets: Callable[[], tuple[tuple[str, float], ...]]
-    ) -> tuple[Operation, ...]:
-        """The lane half of a plate move: every axis converted and checked, then all started."""
+    ) -> Operation:
+        """The lane half of a plate move: every axis converted and checked, then one XY request."""
         given = targets()
         for axis, _ in given:
             self.refuse_absent(member, axis)
         # Every target is converted before any axis moves, so a refusal of
         # one leaves the other where it was.
-        stage_targets = tuple((axis, self._plate_target_to_stage(axis, mm)) for axis, mm in given)
-        with self.one_command(tuple(axis for axis, _ in given), then='move on the plate'):
-            return tuple(self._move_absolute_impl(axis, um) for axis, um in stage_targets)
+        stage = {axis: self._plate_target_to_stage(axis, mm) for axis, mm in given}
+        with self.one_command(tuple(stage), then='move on the plate'):
+            return self._move_xy_impl(member, stage.get('X'), stage.get('Y'), False)
 
     @api
     def move_relative(
@@ -2811,6 +2908,296 @@ class MotionAPI:
             axis,
             distance,
             overshoot_enabled=overshoot_enabled,
+        ).result()
+
+    @api(stop='Operation.stop')
+    def start_move_xy(
+        self,
+        x_um: float | None = None,
+        y_um: float | None = None,
+        ignore_limits: bool = False,
+    ) -> Operation:
+        """Start X and Y moving to a place, in um, each that is given; return the started moves.
+
+        One request: every axis given is refused before either drives, so
+        a refusal of one moves neither. An axis that is None is left as it
+        is, still, travelling or unknown, and is not read. With neither
+        given nothing moves and the move is done at once.
+
+        Returns:
+            One ``Operation`` for the axes given, done once every one is
+            (``Operation.all_of``); its ``result()`` raises the first
+            axis's raise, as ``start_move_z``'s does for Z. Its ``stop()``
+            is ``stop_motion`` while a move still has its axis.
+
+        Raises:
+            ArgumentRefusedError: ``'not_a_number'``, an axis given is not a
+                finite number. Nothing was driven.
+            HardwareCommandRefusedError: ``'not_connected'`` or
+                ``'axis_absent'``, no motor controller or no such axis;
+                ``'monitor_ended'``, the motion monitor has ended, so
+                nothing would judge the move. Nothing was driven.
+                ``'lid_open'``, the stage's lid is open: nothing was driven
+                when it was open before the request; when it opened after X
+                was commanded, the stage stopped X and Y was not driven.
+            PositionOutOfRangeError: ``'position_out_of_range'``, an axis
+                given is outside its configured travel and ``ignore_limits``
+                is False. Nothing was driven.
+            AxisStateUnknownError: An axis given does not know its position.
+                Nothing was driven.
+            MoveFaultError: ``'driver_failed'``, the board did not take a
+                command.
+        """
+        return self._dispatch_motion(
+            self._move_xy_impl,
+            'start_move_xy',
+            args=('move_xy', x_um, y_um, ignore_limits),
+            timeout_s=self._MOTION_WAIT_BASE_S,
+        )
+
+    @api
+    def move_xy(
+        self,
+        x_um: float | None = None,
+        y_um: float | None = None,
+        ignore_limits: bool = False,
+    ) -> None:
+        """Move X and Y to a place, in um, each that is given, and return once they have arrived.
+
+        ``start_move_xy`` followed by its operation's ``result()``.
+
+        Raises:
+            ArgumentRefusedError: ``'not_a_number'``, as ``start_move_xy``.
+            HardwareCommandRefusedError: ``'not_connected'``,
+                ``'axis_absent'``, ``'monitor_ended'`` or ``'lid_open'``, as
+                ``start_move_xy``.
+            PositionOutOfRangeError: ``'position_out_of_range'``, as ``start_move_xy``.
+            AxisStateUnknownError: As ``start_move_xy``.
+            MoveFaultError: ``'driver_failed'``, the board did not take a
+                command.
+            MoveNotCompletedError: An axis did not arrive; see
+                ``start_move_z``.
+            BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on
+                the UI thread, whose form is ``start_move_xy``. Nothing was
+                driven.
+        """
+        refuse_waiting_on_ui_thread('move_xy')
+        self._dispatch_motion(
+            self._move_xy_impl,
+            'move_xy',
+            args=('move_xy', x_um, y_um, ignore_limits),
+            timeout_s=self._MOTION_WAIT_BASE_S,
+        ).result()
+
+    @api(stop='Operation.stop')
+    def start_move_xy_by(self, dx_um: float | None = None, dy_um: float | None = None) -> Operation:
+        """Start X and Y moving by a distance, in um, each that is given; return the started moves.
+
+        As ``start_move_xy``. Each distance is added to the axis's board
+        target, so a move still under way on it is added to, and every
+        target is read and refused before either axis drives.
+
+        Raises:
+            ArgumentRefusedError: ``'not_a_number'``, a distance given is not
+                a finite number. Nothing was driven.
+            HardwareCommandRefusedError: ``'not_connected'`` or
+                ``'axis_absent'``, no motor controller or no such axis;
+                ``'position_unread'``, the board did not report a target to
+                add to; ``'monitor_ended'``, as ``start_move_xy``. Nothing
+                was driven. ``'lid_open'``, as ``start_move_xy``.
+            PositionOutOfRangeError: ``'position_out_of_range'``, a distance
+                is beyond the safety limit or its target is outside the
+                axis's travel. Nothing was driven.
+            AxisStateUnknownError: An axis given does not know its position.
+                Nothing was driven.
+            MoveFaultError: ``'driver_failed'``, the board did not take a
+                command.
+        """
+        return self._dispatch_motion(
+            self._move_xy_by_impl,
+            'start_move_xy_by',
+            args=(dx_um, dy_um),
+            timeout_s=self._MOTION_WAIT_BASE_S,
+        )
+
+    @api
+    def move_xy_by(self, dx_um: float | None = None, dy_um: float | None = None) -> None:
+        """Move X and Y by a distance, in um, each that is given, and return once they have arrived.
+
+        ``start_move_xy_by`` followed by its operation's ``result()``.
+
+        Raises:
+            ArgumentRefusedError: ``'not_a_number'``, as
+                ``start_move_xy_by``.
+            HardwareCommandRefusedError: ``'not_connected'``,
+                ``'axis_absent'``, ``'position_unread'``,
+                ``'monitor_ended'`` or ``'lid_open'``, as
+                ``start_move_xy_by``.
+            PositionOutOfRangeError: ``'position_out_of_range'``, as ``start_move_xy_by``.
+            AxisStateUnknownError: As ``start_move_xy_by``.
+            MoveFaultError: ``'driver_failed'``, the board did not take a
+                command.
+            MoveNotCompletedError: An axis did not arrive; see
+                ``start_move_z``.
+            BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on
+                the UI thread, whose form is ``start_move_xy_by``. Nothing
+                was driven.
+        """
+        refuse_waiting_on_ui_thread('move_xy_by')
+        self._dispatch_motion(
+            self._move_xy_by_impl,
+            'move_xy_by',
+            args=(dx_um, dy_um),
+            timeout_s=self._MOTION_WAIT_BASE_S,
+        ).result()
+
+    @api(stop='Operation.stop')
+    def start_move_z(
+        self,
+        z_um: float,
+        overshoot_enabled: bool | None = None,
+        ignore_limits: bool = False,
+    ) -> Operation:
+        """Start Z moving to a place, in um; return the started move.
+
+        A move of Z to a place approaches it from below, so the backlash
+        is always taken the same way. ``overshoot_enabled`` is for a bench
+        script that measures the backlash: None is the API's approach,
+        True or False the script's own.
+
+        Returns:
+            The move's ``Operation``. It is done once Z has been set at
+            rest, or given up, and the position listeners told: its
+            ``result()`` returns None when Z arrived, and raises
+            ``MoveNotCompletedError`` otherwise -- the monitor's fault
+            (``'stalled'``, ``'board_lost'``, ``'position_unread'`` or
+            ``'status_unread'``) or ``'faulted'``, each leaving Z UNKNOWN;
+            ``MoveStoppedError`` ``'stopped'``, a stop the board took while
+            it moved; ``MoveStoppedError`` ``'superseded'``, another move or
+            a home took Z first. The outcome is the one the move ended
+            with, however late it is read. Its ``stop()`` is
+            ``stop_motion`` while this move still has Z, and nothing once
+            it has ended; the board's STOP halts every axis.
+
+        Raises:
+            ArgumentRefusedError: ``'not_a_number'``, the position is not a
+                finite number. Nothing was driven.
+            HardwareCommandRefusedError: ``'not_connected'`` or
+                ``'axis_absent'``, no motor controller or no Z;
+                ``'position_unread'``, an approach from below whose start
+                the board did not report; ``'monitor_ended'``, the motion
+                monitor has ended, so nothing would judge the move. Nothing
+                was driven.
+            PositionOutOfRangeError: ``'position_out_of_range'``, the target
+                is outside Z's configured travel and ``ignore_limits`` is
+                False. Nothing was driven.
+            AxisStateUnknownError: Z does not know its position. Nothing
+                was driven.
+            MoveFaultError: ``'driver_failed'``, the board did not take the
+                command.
+        """
+        return self._dispatch_motion(
+            self._move_z_impl,
+            'start_move_z',
+            args=(z_um, overshoot_enabled, ignore_limits),
+            timeout_s=self._MOTION_WAIT_BASE_S,
+        )
+
+    @api
+    def move_z(
+        self,
+        z_um: float,
+        overshoot_enabled: bool | None = None,
+        ignore_limits: bool = False,
+    ) -> None:
+        """Move Z to a place, in um, and return once it has arrived.
+
+        ``start_move_z`` followed by its operation's ``result()``.
+
+        Raises:
+            ArgumentRefusedError: ``'not_a_number'``, as ``start_move_z``.
+            HardwareCommandRefusedError: ``'not_connected'``,
+                ``'axis_absent'``, ``'position_unread'`` or
+                ``'monitor_ended'``, as ``start_move_z``.
+            PositionOutOfRangeError: ``'position_out_of_range'``, as ``start_move_z``.
+            AxisStateUnknownError: As ``start_move_z``.
+            MoveFaultError: ``'driver_failed'``, the board did not take a
+                command.
+            MoveNotCompletedError: Z did not arrive; see ``start_move_z``.
+            BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on
+                the UI thread, whose form is ``start_move_z``. Nothing was
+                driven.
+        """
+        refuse_waiting_on_ui_thread('move_z')
+        self._dispatch_motion(
+            self._move_z_impl,
+            'move_z',
+            args=(z_um, overshoot_enabled, ignore_limits),
+            timeout_s=self._MOTION_WAIT_BASE_S,
+        ).result()
+
+    @api(stop='Operation.stop')
+    def start_move_z_by(self, dz_um: float, overshoot_enabled: bool | None = None) -> Operation:
+        """Start Z moving by a distance, in um; return the started move.
+
+        The distance is added to Z's board target, so a move still under
+        way is added to. A move by a distance takes no approach from below;
+        ``overshoot_enabled`` is the bench script's override, as for
+        ``start_move_z``.
+
+        Returns:
+            The move's ``Operation``, as ``start_move_z``'s.
+
+        Raises:
+            ArgumentRefusedError: ``'not_a_number'``, the distance is not a
+                finite number. Nothing was driven.
+            HardwareCommandRefusedError: ``'not_connected'`` or
+                ``'axis_absent'``, no motor controller or no Z;
+                ``'position_unread'``, the board did not report the target
+                to add to (or, approaching from below, the position);
+                ``'monitor_ended'``, as ``start_move_z``. Nothing was driven.
+            PositionOutOfRangeError: ``'position_out_of_range'``, the
+                distance is beyond the safety limit or its target is outside
+                Z's travel. Nothing was driven.
+            AxisStateUnknownError: Z does not know its position. Nothing
+                was driven.
+            MoveFaultError: ``'driver_failed'``, the board did not take the
+                command.
+        """
+        return self._dispatch_motion(
+            self._move_z_by_impl,
+            'start_move_z_by',
+            args=(dz_um, overshoot_enabled),
+            timeout_s=self._MOTION_WAIT_BASE_S,
+        )
+
+    @api
+    def move_z_by(self, dz_um: float, overshoot_enabled: bool | None = None) -> None:
+        """Move Z by a distance, in um, and return once it has arrived.
+
+        ``start_move_z_by`` followed by its operation's ``result()``.
+
+        Raises:
+            ArgumentRefusedError: ``'not_a_number'``, as
+                ``start_move_z_by``.
+            HardwareCommandRefusedError: ``'not_connected'``,
+                ``'axis_absent'``, ``'position_unread'`` or
+                ``'monitor_ended'``, as ``start_move_z_by``.
+            PositionOutOfRangeError: ``'position_out_of_range'``, as ``start_move_z_by``.
+            AxisStateUnknownError: As ``start_move_z_by``.
+            MoveFaultError: ``'driver_failed'``, the board did not take a
+                command.
+            MoveNotCompletedError: Z did not arrive; see ``start_move_z``.
+            BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on
+                the UI thread, whose form is ``start_move_z_by``. Nothing
+                was driven.
+        """
+        refuse_waiting_on_ui_thread('move_z_by')
+        self._dispatch_motion(
+            self._move_z_by_impl,
+            'move_z_by',
+            args=(dz_um, overshoot_enabled),
+            timeout_s=self._MOTION_WAIT_BASE_S,
         ).result()
 
     @api

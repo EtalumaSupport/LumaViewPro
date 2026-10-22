@@ -1542,6 +1542,7 @@ still states the major version.
 | level 29 | `session.plugin_run_in_flight()`: a context manager entered when a plugin's run starts and left when its worker ends, on any threads; while it is held, `live_work` lists a `'plugin_run'` item (`'An engineering plugin run'`, `left` its count) and `in_flight_named` names it; it holds no claim and refuses nothing. |
 | level 30 | On a camera with a clock latch (`capabilities.camera_has_clock_latch`), every move (`xy_move`, `z_move`, `turret`) runs the clock rule in `capabilities.frame_rules`: at its measured delay, or at 0 from the axis's stop when its timing record holds none or the camera has no record, its `provenance` then `{'measured': 'none: a frame started after the stop'}`; a frame that started exposing before the stop never counts for the move. A camera reports a clock latch only when its frames carry their start (the `Timestamp` chunk); a Basler camera whose chunk did not turn on has no `camera_timestamp_tick_hz` and no latch. |
 | level 31 | A move judged by the credit rule (`xy_move`, `z_move`, `turret` on a camera without a clock latch) counts its frames from its stop, not its drive: `motion_settled` places its `Change` in the frame stream there (`at_seq` the frames delivered at the stop, `credits` cleared, the source pending again), and no frame that arrived before it is credited. While the axis moves, `pending_sources` and `frames_until_valid()` answer the move's whole count, not 0 then 1. A later stamp of the axis settled starts the count again. |
+| level 32 | A move is asked for by what it moves: `move_xy(x_um, y_um)` / `start_move_xy` and `move_xy_by(dx_um, dy_um)` / `start_move_xy_by` move X and Y as one request, every axis given refused before either drives, an axis given as None left as it is and not read; `move_z(z_um)` / `start_move_z` and `move_z_by(dz_um)` / `start_move_z_by` move Z, a move to a place approaching from below and a move by a distance not, unless `overshoot_enabled` (None, the API's approach, by default) says otherwise. `move_absolute`, `move_relative` and their started forms remain until the next release of the plugin, then go. |
 
 ### Configuration queries
 
@@ -1762,6 +1763,19 @@ y.result()
 # Relative moves (µm), waited like move_absolute; start_move_relative is the started form
 scope.motion.move_relative('Z', 100)
 scope.motion.start_move_relative('Z', 100).result()
+
+# X and Y as one request (µm): every axis given is refused before either
+# drives, so a refusal moves neither; an axis given as None is left as it
+# is, and with neither given the move is done at once. start_move_xy and
+# start_move_xy_by are the started forms: one Operation for the axes given.
+scope.motion.move_xy(x_um=60000, y_um=40000)
+scope.motion.move_xy_by(dx_um=500)               # added to X's board target; Y untouched
+
+# Z on its own (µm): a move to a place approaches it from below, so the
+# backlash is always taken the same way; a move by a distance does not.
+# overshoot_enabled=True or False is a bench script's own choice.
+scope.motion.move_z(5000)
+scope.motion.move_z_by(-10)
 
 # A move that does not complete raises MoveNotCompletedError, never raised
 # itself, one object with .axis, .reason and .title. Its child says which
@@ -3230,6 +3244,10 @@ Reached through `session.scope.motion`.
 - `move_to_plate`
 - `move_to_well`
 - `move_turret`
+- `move_xy`
+- `move_xy_by`
+- `move_z`
+- `move_z_by`
 - `position_is_known`
 - `remove_position_listener` (in-process)
 - `set_precision_mode`
@@ -3238,6 +3256,10 @@ Reached through `session.scope.motion`.
 - `start_move_relative`
 - `start_move_to_plate`
 - `start_move_to_well`
+- `start_move_xy`
+- `start_move_xy_by`
+- `start_move_z`
+- `start_move_z_by`
 - `stop_motion`
 - `wait_until_finished_moving`
 
