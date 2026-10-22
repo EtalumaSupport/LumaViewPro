@@ -101,9 +101,11 @@ class TestTheRegistrantHearsTheRefusal:
 
     @pytest.mark.parametrize('video_as_frames', [True, False])
     def test_a_record_press_is_told_the_recording_did_not_start_and_nothing_is_left(
-        self, tmp_path, video_as_frames
+        self, tmp_path, video_as_frames, post_processing
     ):
-        controller, scope, _ = make_controller(tmp_path, video_as_frames=video_as_frames)
+        controller, scope, _ = make_controller(
+            tmp_path, video_as_frames=video_as_frames, post_processing=post_processing
+        )
         scope.imaging.add_frame_listener = MagicMock(
             side_effect=FrameListenerNotRegisteredError('manual_recording')
         )
@@ -320,10 +322,14 @@ class TestTheUnwindAndRemovalEdges:
         assert handler not in sim_scope.imaging._frame_listener_wrappers
         driver.unregister_frame_callback(wrapper)
 
-    def test_a_start_refused_at_the_engine_leaves_no_empty_frames_folder(self, tmp_path):
+    def test_a_start_refused_at_the_engine_leaves_no_empty_frames_folder(
+        self, tmp_path, post_processing
+    ):
         from modules.exceptions import RecordingRefusedError
 
-        controller, _, _ = make_controller(tmp_path, video_as_frames=True)
+        controller, _, _ = make_controller(
+            tmp_path, video_as_frames=True, post_processing=post_processing
+        )
         controller._claim.try_claim('protocol', run=run_identity())
         with pytest.raises(RecordingRefusedError):
             controller.start()
@@ -331,8 +337,10 @@ class TestTheUnwindAndRemovalEdges:
         leftovers = sorted(p.name for p in manual.iterdir()) if manual.exists() else []
         assert leftovers == []
 
-    def test_a_frames_folder_with_something_in_it_is_kept(self, tmp_path):
-        controller, scope, _ = make_controller(tmp_path, video_as_frames=True)
+    def test_a_frames_folder_with_something_in_it_is_kept(self, tmp_path, post_processing):
+        controller, scope, _ = make_controller(
+            tmp_path, video_as_frames=True, post_processing=post_processing
+        )
 
         def write_then_refuse(*_a, **_kw):
             folder = max((tmp_path / 'Manual').glob('Video_*'))

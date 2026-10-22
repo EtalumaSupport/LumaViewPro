@@ -646,6 +646,10 @@ RUNNER_REFUSAL_COVERAGE = {
     'already_running': _FUNNEL_LOOP,
     'files_writing': _FUNNEL_LOOP,
     'files_writing_stalled': _FUNNEL_LOOP,
+    'post_processing_running': (
+        'tests/test_a_capture_does_not_start_while_a_build_runs.py::'
+        'test_a_run_asked_while_a_build_runs_is_refused_for_its_state'
+    ),
     'autofocus_running': _FUNNEL_LOOP,
     'empty_protocol': _FUNNEL_LOOP,
     'turret_objectives_unassigned': _FUNNEL_LOOP,
@@ -1060,7 +1064,9 @@ class TestARunThatCannotResolveItsDataRootFailsAtStart:
         assert not runner.run_in_progress(), (
             'a run that failed at start must not stay marked in progress'
         )
-        put_on_the_lane = builds.method_calls
+        put_on_the_lane = [
+            call for call in builds.method_calls if call[0] in ('run_hyperstack', 'run_composite')
+        ]
         assert not put_on_the_lane, (
             f'a run that never captured anything has nothing to post-process; got {put_on_the_lane}'
         )

@@ -25,6 +25,8 @@ from unittest.mock import patch
 import pandas as pd
 import pytest
 
+from modules.exceptions import ProtocolRunRefusedError
+
 import modules.image_mode as image_mode
 from modules.caller import Caller
 import modules.stack_builder as stack_builder
@@ -251,14 +253,17 @@ class TestAFullProtocolRunsTheOptedInProcessors:
         try:
             with open_composite_session(headless_settings(tmp_path)) as (session, runner):
                 _load(session, _plugin('held', processor=held, auto_run=True))
+                # The run's files are done while its processor is still held
+                # (the helper waits for them); the next run waits for the
+                # processor, as for any build on the lane: a capture and a
+                # build never overlap.
                 _run_protocol(runner, tmp_path)
                 assert started.wait(WAIT_S), 'the processor never started'
-                # The run's files are done while its processor is still held,
-                # and the scope takes the next run.
-                second = runner.start_single_scan(
-                    protocol=_one_scan_protocol('P2'), parent_dir=str(tmp_path / 'runs')
-                )
-                assert second.files.result(timeout=WAIT_S) is not None
+                with pytest.raises(ProtocolRunRefusedError) as refused:
+                    runner.start_single_scan(
+                        protocol=_one_scan_protocol('P2'), parent_dir=str(tmp_path / 'runs')
+                    )
+                assert refused.value.reason == 'post_processing_running'
                 release.set()
                 _drain_lane(session)
         finally:

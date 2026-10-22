@@ -835,7 +835,7 @@ class ScopeSession:
         controller = self.activity_claim.take_control(
             name,
             finishing=lambda: (
-                runner.run_live or bool(self._finishing_work()) or bool(self.post_processing.work())
+                runner.run_live or bool(self._finishing_work()) or self.post_processing.has_work()
             ),
         )
         return controller.id

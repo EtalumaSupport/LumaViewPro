@@ -124,7 +124,9 @@ class TestTheController:
             f'the last edge a listener heard still read the recording busy; heard {heard}'
         )
 
-    def test_a_finish_that_could_not_start_leaves_nothing_busy(self, tmp_path, monkeypatch):
+    def test_a_finish_that_could_not_start_leaves_nothing_busy(
+        self, tmp_path, monkeypatch, post_processing
+    ):
         # Thread exhaustion raises at the finish thread's start(), after the
         # controller has marked its finish pending. Nothing will ever run to
         # end that finish, so the failed start must: a finish left pending
@@ -142,7 +144,7 @@ class TestTheController:
             return real_thread(*args, **kwargs)
 
         monkeypatch.setattr(manual_recording_module.threading, 'Thread', _thread)
-        controller, _scope, _clock = make_controller(tmp_path)
+        controller, _scope, _clock = make_controller(tmp_path, post_processing=post_processing)
 
         with pytest.raises(RuntimeError):
             controller.start()

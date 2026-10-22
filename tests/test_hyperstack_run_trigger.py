@@ -32,9 +32,6 @@ def _hyperstack_runner(tmp_path, run_mode=SequencedCaptureRunMode.FULL_PROTOCOL,
         '8bit', output_format_sequenced=OUTPUT_FORMAT_HYPERSTACK
     )
     runner._run_dir = tmp_path
-    # The run resolved its data root at start; the build reads the tiling
-    # config from there, not from wherever the process happens to live.
-    runner._tiling_configs_file_loc = tmp_path / 'data' / 'tiling.json'
     # The run's writes, ended with nothing outstanding: its images are written.
     runner._write_batch = RunWriteBatch(MagicMock())
     runner._write_batch.close()

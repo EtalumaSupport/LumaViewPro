@@ -30,6 +30,7 @@ import functools
 import pathlib
 import threading
 import time
+import weakref
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
@@ -540,6 +541,22 @@ class PostProcessingAPI:
         # the call returns, so the lane's running task is named by it.
         self._builds: dict[IOTask, WorkItem] = {}
         self._builds_lock = threading.Lock()
+        # Each build whose answer has been delivered. The lane settles a
+        # task's future before it lets the task go, so a caller woken by the
+        # answer -- a run's files, a composite's outcome -- would otherwise
+        # find the lane still busy with the build it was told has ended.
+        self._answered: weakref.WeakSet[IOTask] = weakref.WeakSet()
+
+    def has_work(self) -> bool:
+        """Whether the lane is running a build not yet answered, or has one waiting.
+
+        A capture is refused while it does: a capture and a build never
+        overlap. A build is over for this once its answer is delivered, so
+        a run started from a run's ``files_written`` or a composite's outcome
+        is not refused for the build that answered them.
+        """
+        running = self.lane.running_task
+        return self.lane.queue_size() > 0 or (running is not None and running not in self._answered)
 
     def work(self) -> tuple[WorkItem, ...]:
         """The build the lane is running and how many wait behind it.
@@ -1508,6 +1525,7 @@ class PostProcessingAPI:
         def forget(*_settled) -> None:
             with self._builds_lock:
                 del self._builds[task]
+            self._answered.add(task)
 
         if waiter is None:
             try:

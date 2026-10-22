@@ -28,6 +28,14 @@ CAMERA_NOT_STREAMING_TITLE = 'Camera Not Streaming'
 # guarded write alike: each carries the one heading.
 UNDER_CONTROL_TITLE = 'Under Remote Control'
 
+# A capture and a build never overlap: a run and a recording refused while a
+# build is on the post-processing lane carry the one heading and sentence.
+POST_PROCESSING_RUNNING_TITLE = 'Post-Processing Running'
+POST_PROCESSING_RUNNING_MESSAGE = (
+    'Post-processing is still running. A capture waits until it has finished, '
+    'so the two do not compete for the computer. Please wait.'
+)
+
 
 @api_fields('member', 'confirm_text', 'cancel_text')
 @dataclass(frozen=True)
@@ -1652,6 +1660,7 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
         'recording_active': RefusalCause.STATE,
         'files_writing': RefusalCause.STATE,
         'files_writing_stalled': RefusalCause.STATE,
+        'post_processing_running': RefusalCause.STATE,
         'autofocus_running': RefusalCause.STATE,
         'hardware_disconnected': RefusalCause.STATE,
         'camera_not_streaming': RefusalCause.STATE,
@@ -1700,6 +1709,7 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
         'recording_active': 'Recording Active',
         'files_writing': 'Files Still Writing',
         'files_writing_stalled': ENDING_TITLES['file_writer_stalled'],
+        'post_processing_running': POST_PROCESSING_RUNNING_TITLE,
         'autofocus_running': 'Autofocus Running',
         'hardware_disconnected': 'Hardware Disconnected',
         'camera_not_streaming': CAMERA_NOT_STREAMING_TITLE,
@@ -1864,6 +1874,7 @@ class RecordingRefusedError(Refusal, CaptureError):
         'recording_active': ProtocolRunRefusedError._TITLES['recording_active'],
         'exclusive_activity_running': ProtocolRunRefusedError._TITLES['exclusive_activity_running'],
         'control_session_held': UNDER_CONTROL_TITLE,
+        'post_processing_running': POST_PROCESSING_RUNNING_TITLE,
         'camera_inactive': 'Camera Not Active',
         'camera_exposure_unknown': 'Camera Exposure Unavailable',
         'capture_location_unusable': 'Cannot Save Recording',

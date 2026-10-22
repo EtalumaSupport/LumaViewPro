@@ -44,6 +44,7 @@ from modules.autofocus_runner import AutofocusRunner
 from modules.layer_record import ChannelColors
 from modules.coord_transformations import PlateLocation, StageOffset
 from modules.exceptions import (
+    POST_PROCESSING_RUNNING_MESSAGE,
     CameraSettingRejected,
     CompositeFailedError,
     FileWriterStalledError,
@@ -345,7 +346,8 @@ class SequencedCaptureRunner:
         self._read_channel_colors = channel_colors
         self._channel_colors: ChannelColors | None = None
         # The session's builds (its PostProcessingAPI): a run's own hyperstack
-        # is built through it. Handed, never imported, even for its type: the
+        # and merge are built through it, and a run is refused while it has
+        # work. Handed, never imported, even for its type: the
         # module's other builds import the GUI's encoding resolver, which the
         # engine's import graph must not reach.
         self._post_processing = post_processing
@@ -479,7 +481,6 @@ class SequencedCaptureRunner:
 
     def _reset_vars(self):
         self._run_dir = None
-        self._tiling_configs_file_loc = None
         self._run_identity = None
         self._image_writer = None
         # Nulled, not replaced: the next run's start() builds a fresh one
@@ -1006,7 +1007,8 @@ class SequencedCaptureRunner:
         """The refusal a run would get now for the scope's state alone, or None.
 
         The gates that need no protocol and make no hardware exchange: what
-        holds ``claim``, a run already live, a run's files still writing, an
+        holds ``claim``, a run already live, a run's files still writing, a
+        build on the post-processing lane, an
         orphaned autofocus sweep, a part not connected. ``prepare`` raises
         this first and the session's status reads it, so the two cannot
         disagree. Read without the run lock: a run-state listener asks it
@@ -1080,6 +1082,15 @@ class SequencedCaptureRunner:
                     'writing its files. Please wait.'
                 ),
                 holder_trigger=self._last_run_started_by(),
+            )
+
+        # A capture and a build never overlap: a run waits for the builds on
+        # the post-processing lane, its predecessor's own among them, rather
+        # than share the computer with them. Asked after the file drain,
+        # which those builds wait on themselves.
+        if self._post_processing.has_work():
+            return self._refusal(
+                reason='post_processing_running', message=POST_PROCESSING_RUNNING_MESSAGE
             )
 
         # A sweep still in flight with no run holding the scope is one its
@@ -1169,7 +1180,8 @@ class SequencedCaptureRunner:
 
         Raises:
             ProtocolRunRefusedError: The run cannot start (already
-                running, files still writing, empty protocol, validation
+                running, files still writing, post-processing still running
+                (``'post_processing_running'``), empty protocol, validation
                 errors, hardware not connected, a camera that is not
                 streaming, an axis position not
                 known, the stage's lid open, a save location that cannot
@@ -1696,12 +1708,12 @@ class SequencedCaptureRunner:
                 attended=plan.run_mode.is_one_position and plan.borrowed_claim is None
             )
 
-            # Resolved once here, before anything touches the disk, so a
-            # scope with no registered source path fails the run at start
-            # with no run directory left behind -- rather than raising
-            # later on the post-run daemon thread, where nothing is
-            # watching. Both post-run steps take the value captured here.
-            self._tiling_configs_file_loc = self._scope.protocols.tiling_configs_path()
+            # Asked here, before anything touches the disk, so a scope with
+            # no registered source path fails the run at start with no run
+            # directory left behind -- rather than at its post-run builds,
+            # after it has captured everything. The builds read it from the
+            # session's builds as each starts.
+            self._scope.protocols.tiling_configs_path()
 
             self._setup_run_dir()
 

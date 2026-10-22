@@ -1,23 +1,24 @@
-"""Does a run's own post-run build harm the next run? (#812, W4 part E0)
+"""Does the next run wait for a run's own post-run build? (#812, W4 parts E0 and E3)
 
 Three runs, in order. A is a time-series run saved as a hyperstack, whose
 per-well stacks build on the post-processing lane once its images land (or,
-with ``--first composite``, a composite run, whose merge builds the same way). B,
-the same time series, starts the first moment the runner admits it: A's
-claim released and its images written, which is before A's build ends, so
-B overlaps the build the way a next run in a queue does. C runs alone once
-every build has ended. A and C bracket B, so B's difference is the build and
-not warm-up or drift. Each run reports its outcome, its files against its
-record, and the interval between captures from the record's own timestamps,
-taken at the grab.
+with ``--first composite``, a composite run, whose merge builds the same
+way). B, the same time series, asks to start from the moment A ends, the
+way a next run in a queue does. C runs alone once every build has ended. A
+and C bracket B, so B's difference is what came before it and not warm-up
+or drift. Each run reports its outcome, its files against its record, and
+the interval between captures from the record's own timestamps, taken at
+the grab.
 
-A run's builds take no claim and nothing in ``prepare()`` reads them, so B
-is admitted under A's build today; the overlap is the case the one
-post-processing path's next-run rule decides (W4 part E3). The figures --
-the overlap, A's build's length after B started, the intervals -- are
-printed for a person to judge; the checks are that every run completed with
-every file written, and that B was refused only while A held the scope or
-its images drained.
+A capture and a build never overlap (W4 E3, Eric 2026-10-21): the runner
+refuses B while A holds the scope, while A's images drain, and while A's
+builds are on the post-processing lane (``'post_processing_running'``). The
+checks are that every run completed with every file written, that B met
+only those refusals, and that B started only once A's build had ended; the
+figures -- the refusals, when B was admitted, the intervals -- are printed
+for a person to judge. Measured before the rule (E0), B overlapped A's
+build by 22.6 s on an 8-core Windows host at no cost to its captures
+(LVP 300768f4).
 
 What it measures is a headless host: no live-view display, no Kivy. A run
 unharmed here says the build does not starve the capture path; it says
@@ -42,7 +43,7 @@ from harness import HARDWARE, check, figure, hardware_session, headless_session,
 
 # B asks to start until the runner admits it; these are the refusals of a
 # run that is still letting go, and any other is the probe's failure.
-_LETTING_GO = frozenset({'already_running', 'files_writing'})
+_LETTING_GO = frozenset({'already_running', 'files_writing', 'post_processing_running'})
 
 
 def _arguments():
@@ -235,8 +236,12 @@ def main():
             check('A: the composite merged', outcome_a.merged, outcome_a.merge_reason)
         outcome_b, _, end_b, record_b = _finish(pending_b, start_b, live / 'B')
         _report_run('B', outcome_b, start_b, end_b, record_b)
-        figure('A.build_after_B_started_s', round(built['a'] - start_b, 3))
-        figure('B.overlap_with_A_build_s', round(max(0.0, min(built['a'], end_b) - start_b), 3))
+        figure('B.refused_for_post_processing', refused.count('post_processing_running'))
+        check(
+            "B started only once A's build had ended",
+            start_b >= built['a'],
+            f"B started {round(start_b - built['a'], 3)} s after A's build ended",
+        )
 
         start_c = time.monotonic()
         pending_c = _start(runner, protocol, live / 'C', 'probe_C')

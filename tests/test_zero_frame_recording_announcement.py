@@ -69,23 +69,27 @@ def _announcements():
 
 
 class TestEmptyRecordingAnnouncesNoFile:
-    def test_zero_frames_leaves_no_mp4(self, tmp_path):
+    def test_zero_frames_leaves_no_mp4(self, tmp_path, post_processing):
         """The premise: an empty recording produces nothing on disk.
 
         If this fails the muxer changed, and the announcement logic needs
         revisiting -- an empty-but-present file would want cleanup, not
         merely a different log line.
         """
-        controller, _scope, _clock = make_controller(tmp_path, video_as_frames=False)
+        controller, _scope, _clock = make_controller(
+            tmp_path, video_as_frames=False, post_processing=post_processing
+        )
         controller.start()
         controller.stop()
         finish(controller)
 
         assert list((tmp_path / 'Manual').glob('Video_*.mp4')) == []
 
-    def test_zero_frames_does_not_announce_a_path(self, tmp_path):
+    def test_zero_frames_does_not_announce_a_path(self, tmp_path, post_processing):
         """The defect: no line may name a file that was never created."""
-        controller, _scope, _clock = make_controller(tmp_path, video_as_frames=False)
+        controller, _scope, _clock = make_controller(
+            tmp_path, video_as_frames=False, post_processing=post_processing
+        )
         controller.start()
         controller.stop()
         finish(controller)
@@ -101,9 +105,11 @@ class TestEmptyRecordingAnnouncesNoFile:
             f'an empty recording never said it produced no file: {said!r}'
         )
 
-    def test_frames_still_announce_their_path(self, tmp_path):
+    def test_frames_still_announce_their_path(self, tmp_path, post_processing):
         """Behaviour preservation: a real recording still names its file."""
-        controller, scope, clock = make_controller(tmp_path, video_as_frames=False)
+        controller, scope, clock = make_controller(
+            tmp_path, video_as_frames=False, post_processing=post_processing
+        )
         controller.start()
         feed_frames(scope, clock, 5, fps=10.0)
         controller.stop()
@@ -121,13 +127,15 @@ class TestEmptyRecordingAnnouncesNoFile:
         assert not any('No video written' in m for m in _announcements())
 
     @pytest.mark.parametrize('n_frames', [0, 3])
-    def test_announcement_count_matches_files_on_disk(self, tmp_path, n_frames):
+    def test_announcement_count_matches_files_on_disk(self, tmp_path, n_frames, post_processing):
         """The invariant, across both outcomes.
 
         Parameterised so a future change cannot satisfy one direction by
         breaking the other.
         """
-        controller, scope, clock = make_controller(tmp_path, video_as_frames=False)
+        controller, scope, clock = make_controller(
+            tmp_path, video_as_frames=False, post_processing=post_processing
+        )
         controller.start()
         if n_frames:
             feed_frames(scope, clock, n_frames, fps=10.0)

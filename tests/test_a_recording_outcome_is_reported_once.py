@@ -96,8 +96,8 @@ def test_each_outcome_speaks_in_its_own_words_under_its_own_title(fault, title, 
     assert str(fault) == words
 
 
-def test_a_lost_camera_is_reported_once_unsolicited(tmp_path, monkeypatch):
-    controller, _scope, _clock = make_controller(tmp_path)
+def test_a_lost_camera_is_reported_once_unsolicited(tmp_path, monkeypatch, post_processing):
+    controller, _scope, _clock = make_controller(tmp_path, post_processing=post_processing)
     reported = _record_reports(monkeypatch, manual_recording_module)
 
     controller._stop_for_camera_loss('camera_disconnected')
@@ -107,8 +107,8 @@ def test_a_lost_camera_is_reported_once_unsolicited(tmp_path, monkeypatch):
     assert kw == {'solicited': False, 'category': 'Recording'}
 
 
-def test_a_full_disk_is_reported_once_unsolicited(tmp_path, monkeypatch):
-    controller, scope, clock = make_controller(tmp_path)
+def test_a_full_disk_is_reported_once_unsolicited(tmp_path, monkeypatch, post_processing):
+    controller, scope, clock = make_controller(tmp_path, post_processing=post_processing)
     reported = _record_reports(monkeypatch, manual_recording_module)
     checks = {'n': 0}
 
@@ -179,8 +179,8 @@ def test_a_refused_hyperstack_is_reported_in_the_builders_words(
     assert kw == {'solicited': False, 'category': 'Recording'}
 
 
-def test_dropped_frames_are_reported_once_unsolicited(tmp_path, monkeypatch):
-    controller, scope, clock = make_controller(tmp_path)
+def test_dropped_frames_are_reported_once_unsolicited(tmp_path, monkeypatch, post_processing):
+    controller, scope, clock = make_controller(tmp_path, post_processing=post_processing)
     reported = _record_reports(monkeypatch, manual_recording_module)
     real_write = manual_recording_module.image_save.write_video_frame
     calls = {'n': 0}
@@ -203,8 +203,10 @@ def test_dropped_frames_are_reported_once_unsolicited(tmp_path, monkeypatch):
     assert kw == {'solicited': False, 'category': 'Recording'}
 
 
-def test_a_limit_above_the_cameras_rate_shows_nothing(tmp_path, centre_posts):
-    controller, _scope, _clock = make_controller(tmp_path, max_fps=1000)
+def test_a_limit_above_the_cameras_rate_shows_nothing(tmp_path, centre_posts, post_processing):
+    controller, _scope, _clock = make_controller(
+        tmp_path, max_fps=1000, post_processing=post_processing
+    )
     recorder = NotifyRecorder(centre_posts)
 
     controller.start()

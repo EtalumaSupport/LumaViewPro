@@ -52,6 +52,7 @@ from modules.config_helpers import (
     get_manual_video_max_duration,
 )
 from modules.exceptions import (
+    POST_PROCESSING_RUNNING_MESSAGE,
     CaptureFailedError,
     FrameListenerNotRegisteredError,
     HyperstackRefusedError,
@@ -311,12 +312,18 @@ class ManualRecordingController:
             so it never stops a recording started later.
 
         Raises:
-            RecordingRefusedError: The start cannot proceed -- a previous
-                recording is still recording, draining or finishing,
-                another exclusive activity is running, a turret or frame
-                change is under way, the camera is inactive or has no known
-                exposure, or free disk is below the floor. Nothing is
-                committed when this raises.
+            RecordingRefusedError: The start cannot proceed, and nothing is
+                committed: ``'recording_active'``, a previous recording is
+                still recording, draining or finishing;
+                ``'exclusive_activity_running'``, another exclusive activity
+                is running; ``'control_session_held'``, someone else holds the
+                control session; ``'post_processing_running'``, a build is on
+                the post-processing lane; ``'falsifying_change_in_flight'``, a
+                turret or frame change is under way; ``'camera_inactive'``, the
+                camera is not streaming; ``'camera_exposure_unknown'``, it has
+                no known exposure; ``'capture_location_unusable'``, the save
+                location cannot be used; ``'insufficient_disk'``, free disk is
+                below the floor.
             ObjectiveUnknownError: No one can say which objective is in the
                 light path, so the recording's frames would carry no scale.
                 Nothing is committed.
@@ -340,6 +347,10 @@ class ManualRecordingController:
                 message=(
                     'A recording is still finishing. Wait for it to complete, then record again.'
                 ),
+            )
+        if self._post_processing.has_work():
+            raise RecordingRefusedError(
+                reason='post_processing_running', message=POST_PROCESSING_RUNNING_MESSAGE
             )
 
         settings = self._settings

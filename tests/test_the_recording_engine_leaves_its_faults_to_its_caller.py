@@ -174,8 +174,8 @@ def test_a_recording_with_nothing_to_describe_is_not_a_lost_details_file(tmp_pat
 # ---------------------------------------------------------------------------
 
 
-def test_a_manual_writers_death_is_reported_once_chained(tmp_path, monkeypatch):
-    controller, scope, clock = make_controller(tmp_path)
+def test_a_manual_writers_death_is_reported_once_chained(tmp_path, monkeypatch, post_processing):
+    controller, scope, clock = make_controller(tmp_path, post_processing=post_processing)
     reported = _record_reports(monkeypatch, manual_recording_module)
     killer = _LaneKiller('scripted writer death')
 
@@ -194,8 +194,10 @@ def test_a_manual_writers_death_is_reported_once_chained(tmp_path, monkeypatch):
     assert kw == {'solicited': False, 'category': 'Recording'}
 
 
-def test_a_manual_recordings_lost_details_file_is_reported_once_chained(tmp_path, monkeypatch):
-    controller, scope, clock = make_controller(tmp_path)
+def test_a_manual_recordings_lost_details_file_is_reported_once_chained(
+    tmp_path, monkeypatch, post_processing
+):
+    controller, scope, clock = make_controller(tmp_path, post_processing=post_processing)
     reported = _record_reports(monkeypatch, manual_recording_module)
     refused = _fail_manifest_writes(monkeypatch)
 

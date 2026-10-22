@@ -159,6 +159,8 @@ def no_post_run_builds() -> MagicMock:
 
     builds.run_hyperstack.side_effect = built_nothing
     builds.run_composite.side_effect = built_nothing
+    # Nothing is on the lane, so a run is never refused for a build.
+    builds.has_work.return_value = False
     return builds
 
 
