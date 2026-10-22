@@ -63,6 +63,7 @@ def _session(settings, lock=None, layers=('BF', 'PC', 'DF', 'Blue', 'Green', 'Re
         settings_lock=threading.Lock(),
         _settings_saver=None,
         _shown_channel=ShownChannel(shown, lit=False),
+        _auto_gain_locks={},
         activity_claim=ActivityClaim(),
         apply_layer_camera=MagicMock(),
     )
@@ -261,3 +262,70 @@ def test_the_toggle_submits_the_member_on_the_camera_lane_and_redraws(monkeypatc
     widget.render_layer_values_from_settings.assert_called_once_with()
     widget.show_as_shown.assert_called_once_with()
     layer_control.gui_logger.toggle.assert_called_once_with('AUTO_GAIN_BF', enabled)
+
+
+@pytest.fixture
+def client(tmp_path):
+    """A REST client over a simulated LS850, homed, showing BF."""
+    from fastapi.testclient import TestClient
+
+    from rest.app import build_app
+    from tests.scope_fakes import home_sim_scope
+    from tests.settings_fixtures import complete_settings
+
+    session = ScopeSession.create(
+        complete_settings(
+            live_folder=str(tmp_path),
+            microscope='LS850',
+            BF={'exposure_ms': 2.0, 'gain_db': 1.0, 'auto_gain': False},
+        ),
+        simulate=True,
+    )
+    try:
+        home_sim_scope(session.scope)
+        with TestClient(build_app(session)) as client:
+            yield session, client
+    finally:
+        session.shutdown()
+
+
+def _lock_read(client, layer):
+    answer = client.get('/api/v1/layer_auto_gain_lock', params={'layer': layer})
+    assert answer.status_code == 200, answer.json()
+    return answer.json()
+
+
+def test_over_rest_the_lock_a_turning_off_took_is_its_own_read(client):
+    """``PUT layer_auto_gain`` answers the setting's read, a bool; what the
+    camera reached is ``GET layer_auto_gain_lock``, the lock the turning off
+    took, its gain the one stored. It records that turning off, so turning
+    auto-gain on again leaves it as it was."""
+    session, client = client
+    assert _lock_read(client, 'BF') is None
+
+    client.put('/api/v1/layer_auto_gain', json={'layer': 'BF', 'enabled': True})
+    put = client.put('/api/v1/layer_auto_gain', json={'layer': 'BF', 'enabled': False})
+    lock = _lock_read(client, 'BF')
+
+    assert put.json() is False
+    assert lock['state'] in {'CONVERGED', 'MAXED', 'AT_MINIMUM'}
+    assert round(lock['gain_db'], 1) == session.get_setting('BF.gain_db') != 1.0
+    client.put('/api/v1/layer_auto_gain', json={'layer': 'BF', 'enabled': True})
+    assert _lock_read(client, 'BF') == lock
+
+
+def test_over_rest_a_hidden_layers_turning_off_reads_a_lock_with_no_state(client):
+    """A layer the camera does not hold locks nothing: its read answers a lock
+    whose state is None, where before any turning off it answered null."""
+    _session, client = client
+    assert _lock_read(client, 'Blue') is None
+
+    client.put('/api/v1/layer_auto_gain', json={'layer': 'Blue', 'enabled': False})
+
+    assert _lock_read(client, 'Blue')['state'] is None
+
+
+def test_over_rest_the_lock_of_no_layer_is_refused(client):
+    _session, client = client
+    answer = client.get('/api/v1/layer_auto_gain_lock', params={'layer': 'Nope'})
+    assert answer.json().get('reason') == 'layer_unknown'

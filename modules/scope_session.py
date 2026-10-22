@@ -573,6 +573,12 @@ class ScopeSession:
         # the person lit in between. Forgotten at every run transition, so
         # the first click after a run previews whatever the run left.
         self._last_step_gone_to: tuple | None = None
+        # The lock each layer's last turning off of auto-gain took, by
+        # layer: what the camera reached, readable after the setter has
+        # answered (a setting's URL answers only its read). A record of that
+        # turning off, not of the layer now, so no later write forgets it.
+        # In memory only. Written by set_layer_auto_gain under settings_lock.
+        self._auto_gain_locks: dict[str, AutoGainLock] = {}
         # Outcome listeners this session registered on the notification
         # centre, so its shutdown takes back exactly what it gave.
         self._outcome_listeners: list = []
@@ -2262,8 +2268,9 @@ class ScopeSession:
 
         Returns:
             The lock when turning off (its ``state`` is None when no arm
-            stood), so a caller can read the state the camera reached;
-            None when turning on.
+            stood), so a caller can read the state the camera reached, and
+            ``layer_auto_gain_lock`` answers it from then on; None when
+            turning on.
 
         Raises:
             ArgumentRefusedError: ``'layer_unknown'``, ``layer`` is not a layer.
@@ -2293,6 +2300,8 @@ class ScopeSession:
                 if common_utils.is_valid_exposure_ms(lock.exposure_ms):
                     self._store_setting(f'{layer}.exposure_ms', round(lock.stored_exposure_ms, 2))
             self._store_setting(f'{layer}.auto_gain', enabled)
+            if lock is not None:
+                self._auto_gain_locks[layer] = lock
         if (
             layer == self._shown_channel.layer
             and (enabled or holds)
@@ -2313,6 +2322,26 @@ class ScopeSession:
         """
         refuse_unknown_layer(layer)
         return self.settings[layer]['auto_gain']
+
+    @api(reads=True)
+    def layer_auto_gain_lock(self, layer: str) -> 'AutoGainLock | None':
+        """What the camera reached the last time ``layer``'s auto-gain was turned off.
+
+        The lock ``set_layer_auto_gain(layer, False)`` returned, the last
+        time it was called: its ``state`` says whether the camera converged,
+        hit the exposure ceiling or floor, or reported nothing usable, and is
+        None when no auto-gain was running or the camera did not hold the
+        layer. It describes that turning off, not the layer now: a later
+        turning on, a step's values or a stored gain leave it as it was.
+        None when the layer's auto-gain has not been turned off since the
+        session started.
+
+        Raises:
+            ArgumentRefusedError: ``'layer_unknown'``, ``layer`` is not a layer.
+        """
+        refuse_unknown_layer(layer)
+        with self.settings_lock:
+            return self._auto_gain_locks.get(layer)
 
     def apply_layer_camera(self, layer: str) -> dict | None:
         """Put ``layer``'s stored exposure, gain and auto-gain on the camera, and wait.

@@ -86,6 +86,7 @@ def _leave(settings: dict, layer: str, lock: AutoGainLock) -> None:
         _settings_saver=None,
         # The layer is shown, and the camera holds it.
         _shown_channel=ShownChannel(layer, lit=False),
+        _auto_gain_locks={},
         activity_claim=ActivityClaim(),
         apply_layer_camera=lambda shown: None,
     )

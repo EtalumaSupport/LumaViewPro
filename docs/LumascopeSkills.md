@@ -1009,12 +1009,13 @@ session.set_layer_acquire('BF', 'image')
 session.set_layer_acquire('Green', None)
 ```
 
-**Turning a layer's auto-gain on and off.** `session.set_layer_auto_gain(layer, enabled)` does what the GUI's Auto Gain/Exp box does. For the shown layer the camera follows before it returns: turning it on (`True`) starts the camera adjusting, and turning it off (`False`) stops it and keeps what it reached: the gain becomes the layer's stored gain and the exposure its stored exposure, rounded to 0.1 dB and 0.01 ms. The stored exposure is never below the channel's usable floor (0.1 ms for brightfield, phase contrast and darkfield, 1 ms for fluorescence and luminescence), even when the camera went lower on a bright sample. A value the camera did not report is left as it was. For a layer the camera does not hold, only the preference is stored: the camera's adjusting belongs to the layer it holds. Turning it off returns the lock result: its `state` says whether the camera converged, hit the exposure ceiling (`MAXED`), hit the floor (`AT_MINIMUM`), or reported nothing usable (`FAILED`); a `state` of None means auto-gain was not running. Turning it on returns None. Either waits for the camera. While a run, a diagnostic or a home holds the scope, turning it on is stored only, and turning the shown layer's off raises `HardwareCommandRefusedError` and stores nothing. A name that is no layer raises `ArgumentRefusedError` (`layer_unknown`), and turning it on for a layer this scope does not have `HardwareCommandRefusedError` (`axis_absent`), each changing nothing; turning it off is always accepted.
+**Turning a layer's auto-gain on and off.** `session.set_layer_auto_gain(layer, enabled)` does what the GUI's Auto Gain/Exp box does. For the shown layer the camera follows before it returns: turning it on (`True`) starts the camera adjusting, and turning it off (`False`) stops it and keeps what it reached: the gain becomes the layer's stored gain and the exposure its stored exposure, rounded to 0.1 dB and 0.01 ms. The stored exposure is never below the channel's usable floor (0.1 ms for brightfield, phase contrast and darkfield, 1 ms for fluorescence and luminescence), even when the camera went lower on a bright sample. A value the camera did not report is left as it was. For a layer the camera does not hold, only the preference is stored: the camera's adjusting belongs to the layer it holds. Turning it off returns the lock result: its `state` says whether the camera converged, hit the exposure ceiling (`MAXED`), hit the floor (`AT_MINIMUM`), or reported nothing usable (`FAILED`); a `state` of None means auto-gain was not running. `session.layer_auto_gain_lock(layer)` answers that same lock afterwards, until the layer's auto-gain is next turned off: over REST, where `PUT /api/v1/layer_auto_gain` answers the setting's read, `GET /api/v1/layer_auto_gain_lock?layer=BF` is how a client learns it. It records that turning off, not the layer now, so turning auto-gain back on or storing a gain leaves it as it was; it is None until the layer's auto-gain is first turned off in the session. Turning it on returns None. Either waits for the camera. While a run, a diagnostic or a home holds the scope, turning it on is stored only, and turning the shown layer's off raises `HardwareCommandRefusedError` and stores nothing. A name that is no layer raises `ArgumentRefusedError` (`layer_unknown`), and turning it on for a layer this scope does not have `HardwareCommandRefusedError` (`axis_absent`), each changing nothing; turning it off is always accepted.
 
 ```python
 session.set_layer_auto_gain('BF', True)
 lock = session.set_layer_auto_gain('BF', False)
 lock.state, session.get_setting('BF.gain_db'), session.get_setting('BF.exposure_ms')
+session.layer_auto_gain_lock('BF') == lock          # True
 ```
 
 **Creating a protocol.** `session.new_protocol(tiling='1x1', use_zstacking=False, period=None, duration=None)` does what the GUI's New does: one step per layer whose `acquire` is set, at every well of the session's labware, with the current objective, tiled and z-stacked as asked. `period` and `duration` are `datetime.timedelta`s; one left out (None) is the stored default's (`settings['protocol']`), and one scan is `timedelta(0)`. The GUI passes the schedule on screen. When no layer is set to acquire it raises `ProtocolRunRefusedError` with reason `no_acquiring_layer`, and a `tiling` this installation does not offer raises it with reason `tiling_unknown`; each is raised to you and posted to no listener (whoever catches it reports it), and builds nothing; a labware with no wells gives an empty protocol to fill with `add_step`. With `use_zstacking=True` the steps are stacked as `apply_zstacking` stacks them, and refused as it refuses them: a range or step size not greater than zero (`zstack_not_configured`), a scope with no Z motor (`positions_unreachable`), a slice outside the Z travel (`zslices_outside_travel`). When a layer set to acquire has no saved focus its steps take the current Z, so with Z's position unknown (before a home) it raises `AxisStateUnknownError` naming Z, posted to no listener, and builds nothing; with every acquiring layer focused it builds before a home too. `session.create_empty_protocol()` is the no-step protocol that needs no objective.
@@ -1520,6 +1521,8 @@ session.saved_focus('Blue')              # the Z saved as a layer's focus; Focus
 session.layer_acquire('Blue')            # what a layer captures: 'image', 'video' or None (set_layer_acquire)
 session.layer_auto_gain('Blue')          # whether a layer's auto-gain is on (set_layer_auto_gain; turning it
                                          # off also stores the layer's gain and exposure, read by get_setting)
+session.layer_auto_gain_lock('Blue')     # what the camera reached when that layer's auto-gain was last turned
+                                         # off: the AutoGainLock set_layer_auto_gain returned, else None
 session.model                            # the saved model, brought up at the next start (select_model)
 session.objective_id                     # the active objective's key; None while it is not known (select_objective)
 session.labware                          # the current plate's catalogue key (select_labware)
@@ -3062,6 +3065,7 @@ Reached through `ScopeSession.create(settings, ...)`; every L2 caller starts her
 - `labware`
 - `layer_acquire`
 - `layer_auto_gain`
+- `layer_auto_gain_lock`
 - `light_shown_channel`
 - `live_folder_listing`
 - `live_folder_path` (in-process)
@@ -3570,7 +3574,7 @@ Reached through a REST problem, whose members carry it.
 
 ### AutoGainLock
 
-Reached through returned by `session.set_layer_auto_gain` and `scope.camera.lock_auto_gain`.
+Reached through returned by `session.set_layer_auto_gain` and `scope.camera.lock_auto_gain`, and answered by `session.layer_auto_gain_lock`.
 
 - `ceiling_ms`
 - `exposure_ms`
