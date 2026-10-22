@@ -13,7 +13,6 @@ acquisition (scan 1), then MAINTAINED at gate-open for scans 2..N, whose
 cadence must not change.
 """
 
-import datetime
 import threading
 from types import MethodType, SimpleNamespace
 from unittest import mock
@@ -61,7 +60,7 @@ def _make_parent(clock, n_scans, period_s, first_scan_lead_s=30.0, later_scan_le
     # answer would end the run as a disconnect.
     p._scope.unconnected_parts.return_value = ()
     p._protocol = mock.MagicMock()
-    p._protocol.period.return_value = datetime.timedelta(seconds=period_s)
+    p._protocol.period_s.return_value = period_s
     p._parent_dir = None
     p._start_t = clock.t  # run() entry semantics (the fallback anchor)
     p._curr_step = 0
@@ -123,7 +122,7 @@ def test_first_interval_is_never_shorter_than_period():
 
     assert len(p.capture_times) == 2
     interval_1 = p.capture_times[1] - p.capture_times[0]
-    assert interval_1 >= p._protocol.period.return_value.total_seconds(), (
+    assert interval_1 >= p._protocol.period_s.return_value, (
         f'first interval {interval_1:.1f}s is shorter than the period -- '
         f'the anchor must be the first ACQUISITION, not run() entry'
     )

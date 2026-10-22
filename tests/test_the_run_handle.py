@@ -133,7 +133,7 @@ def test_an_ended_runs_progress_is_none(tmp_path):
         progress.step_number,
         progress.num_steps,
         progress.remaining_scans,
-        progress.interval,
+        progress.period_s,
     ) == (
         None,
         None,
@@ -148,7 +148,7 @@ _ENGINE_RUN_MEMBERS = {
     '_step_number',
     '_num_steps',
     '_remaining_scans',
-    '_protocol_interval',
+    '_protocol_period_s',
 }
 
 

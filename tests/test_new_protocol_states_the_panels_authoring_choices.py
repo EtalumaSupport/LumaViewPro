@@ -12,7 +12,6 @@ and silently lacks the user's choice. That is the trap this pins: the panel
 states both, from its own spinner and toggle, every time.
 """
 
-import datetime
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -22,8 +21,8 @@ import modules.app_context as _app_ctx
 import ui.protocol_settings as ps
 from modules.exceptions import ProtocolRunRefusedError
 
-PERIOD = datetime.timedelta(minutes=7)
-DURATION = datetime.timedelta(hours=3)
+PERIOD_S = 7 * 60.0
+DURATION_S = 3 * 3600.0
 
 
 class _Panel(ps.ProtocolSettings):
@@ -35,7 +34,7 @@ class _Panel(ps.ProtocolSettings):
             'acquire_zstack_id': SimpleNamespace(active=use_zstacking),
         }
         # The protocol on screen, whose schedule New starts from.
-        self._protocol = SimpleNamespace(period=lambda: PERIOD, duration=lambda: DURATION)
+        self._protocol = SimpleNamespace(period_s=lambda: PERIOD_S, duration_s=lambda: DURATION_S)
 
     def update_step_ui(self):
         # The redraw runs whatever the outcome; the stand has no stage to draw.
@@ -69,8 +68,8 @@ def test_the_panels_tiling_and_zstack_choices_reach_the_session(monkeypatch):
     assert asked == {
         'tiling': '2x2',
         'use_zstacking': True,
-        'period': PERIOD,
-        'duration': DURATION,
+        'period_s': PERIOD_S,
+        'duration_s': DURATION_S,
     }
 
 
@@ -81,8 +80,8 @@ def test_the_defaults_are_stated_too_never_left_to_the_member(monkeypatch):
     assert asked == {
         'tiling': '1x1',
         'use_zstacking': False,
-        'period': PERIOD,
-        'duration': DURATION,
+        'period_s': PERIOD_S,
+        'duration_s': DURATION_S,
     }
 
 

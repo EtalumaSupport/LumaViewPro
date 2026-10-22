@@ -137,13 +137,15 @@ def test_a_dictionary_a_callable_and_a_duration_are_held_to_their_kinds(session)
         'listener',
     )
     protocol = _make_single_step_protocol()
-    before = protocol.period()
+    before = protocol.period_s()
     _refused(
-        lambda: session.set_protocol_schedule(protocol, period=5, duration=protocol.duration()),
+        lambda: session.set_protocol_schedule(
+            protocol, period_s='5', duration_s=protocol.duration_s()
+        ),
         'ScopeSession.set_protocol_schedule',
-        'period',
+        'period_s',
     )
-    assert protocol.period() == before
+    assert protocol.period_s() == before
 
 
 def test_the_refusal_says_which_member_takes_what(session):

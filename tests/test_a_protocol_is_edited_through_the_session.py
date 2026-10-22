@@ -10,7 +10,6 @@ the Session, and ``Protocol`` is data a caller reads.
 
 from __future__ import annotations
 
-import datetime
 
 import pytest
 
@@ -30,25 +29,13 @@ def _two_steps(session):
 def test_the_schedule_is_set_and_an_unrunnable_one_refused_leaving_it(session):
     protocol = session.create_empty_protocol()
 
-    session.set_protocol_schedule(
-        protocol, period=datetime.timedelta(minutes=5), duration=datetime.timedelta(hours=2)
-    )
-    assert (protocol.period(), protocol.duration()) == (
-        datetime.timedelta(minutes=5),
-        datetime.timedelta(hours=2),
-    )
+    session.set_protocol_schedule(protocol, period_s=5 * 60, duration_s=2 * 3600)
+    assert (protocol.period_s(), protocol.duration_s()) == (5 * 60, 2 * 3600)
 
     with pytest.raises(ProtocolScheduleRefusedError) as refused:
-        session.set_protocol_schedule(
-            protocol,
-            period=datetime.timedelta(milliseconds=500),
-            duration=datetime.timedelta(hours=1),
-        )
+        session.set_protocol_schedule(protocol, period_s=0.5, duration_s=3600)
     assert (refused.value.reason, refused.value.key) == ('schedule_not_runnable', 'period')
-    assert (protocol.period(), protocol.duration()) == (
-        datetime.timedelta(minutes=5),
-        datetime.timedelta(hours=2),
-    )
+    assert (protocol.period_s(), protocol.duration_s()) == (5 * 60, 2 * 3600)
 
 
 def test_the_capture_root_is_kept_as_given(session):

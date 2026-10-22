@@ -68,6 +68,7 @@ from tests.settings_fixtures import complete_settings
 REPO = pathlib.Path(__file__).resolve().parent.parent
 PERIOD = datetime.timedelta(minutes=7)
 DURATION = datetime.timedelta(hours=3)
+SCHEDULE_S = (PERIOD.total_seconds(), DURATION.total_seconds())
 STORED = {'period': 20, 'duration': 48, 'filepath': 'plate.tsv'}
 
 
@@ -157,8 +158,8 @@ class TestAFieldEdit:
         panel.update_period()
 
         assert reported == []
-        assert panel._protocol.period() == datetime.timedelta(minutes=10)
-        assert panel._protocol.duration() == DURATION
+        assert panel._protocol.period_s() == 10 * 60
+        assert panel._protocol.duration_s() == DURATION.total_seconds()
         assert ctx.settings['protocol'] == STORED
         assert float(panel.ids['capture_period'].text) == 10
 
@@ -169,7 +170,7 @@ class TestAFieldEdit:
         panel.update_duration()
 
         assert reported == []
-        assert panel._protocol.duration() == datetime.timedelta(hours=5)
+        assert panel._protocol.duration_s() == 5 * 3600
         assert ctx.settings['protocol'] == STORED
 
     @pytest.mark.parametrize('typed', ['0.005', '', '.'])
@@ -182,7 +183,7 @@ class TestAFieldEdit:
         panel.update_period()
 
         assert reported == [('ProtocolScheduleRefusedError', 'UI:PROTOCOL_PERIOD')]
-        assert (panel._protocol.period(), panel._protocol.duration()) == (PERIOD, DURATION)
+        assert (panel._protocol.period_s(), panel._protocol.duration_s()) == SCHEDULE_S
         assert float(panel.ids['capture_period'].text) == 7
         assert ctx.settings['protocol'] == STORED
 
@@ -195,7 +196,7 @@ class TestAFieldEdit:
         panel.update_duration()
 
         assert reported == [('ProtocolScheduleRefusedError', 'UI:PROTOCOL_DURATION')]
-        assert panel._protocol.duration() == DURATION
+        assert panel._protocol.duration_s() == DURATION.total_seconds()
         assert float(panel.ids['capture_dur'].text) == 3
 
 
@@ -209,7 +210,7 @@ class TestRunSaveAndNewTakeTheProtocolsSchedule:
 
         panel._protocol_start()
 
-        assert (handed[0].period(), handed[0].duration()) == (PERIOD, DURATION)
+        assert (handed[0].period_s(), handed[0].duration_s()) == SCHEDULE_S
         assert handed[0] is not panel._protocol
 
     def test_save_writes_the_protocols_schedule_and_leaves_it_as_it_was(
@@ -223,7 +224,7 @@ class TestRunSaveAndNewTakeTheProtocolsSchedule:
         panel.save_protocol(filepath=str(tmp_path / 'saved.tsv'))
 
         assert ctx.session.save_protocol.call_args.args[0] is panel._protocol
-        assert (panel._protocol.period(), panel._protocol.duration()) == (PERIOD, DURATION)
+        assert (panel._protocol.period_s(), panel._protocol.duration_s()) == SCHEDULE_S
         text = (tmp_path / 'saved.tsv').read_text()
         assert 'Period\t7.0\n' in text and 'Duration\t3.0\n' in text
         assert ctx.settings['protocol']['period'] == STORED['period']
@@ -240,10 +241,7 @@ class TestRunSaveAndNewTakeTheProtocolsSchedule:
         panel.new_protocol()
 
         kwargs = ctx.session.new_protocol.call_args.kwargs
-        assert (kwargs['period'], kwargs['duration']) == (
-            datetime.timedelta(minutes=2),
-            datetime.timedelta(hours=9),
-        )
+        assert (kwargs['period_s'], kwargs['duration_s']) == (2 * 60, 9 * 3600)
 
     def test_a_new_protocol_is_shown_with_its_own_schedule(self, ctx):
         ctx.session.new_protocol.return_value = _protocol()
@@ -262,6 +260,16 @@ class TestAClickAfterARefusedEdit:
     @pytest.fixture
     def same_input(self, monkeypatch):
         monkeypatch.setattr(ui_helpers, '_input_frame', lambda: 41)
+
+    @pytest.fixture(autouse=True)
+    def _the_sessions_schedule_member(self, ctx):
+        # The Session judges the schedule, so the edit is refused by its
+        # member; the rest of the session stays a stand-in by design, so a
+        # click that got through shows as a call on it.
+        real = ScopeSession.create(complete_settings(), simulate=True)
+        ctx.session.set_protocol_schedule.side_effect = real.set_protocol_schedule
+        yield
+        real.shutdown()
 
     def _refuse_an_edit(self, panel):
         panel.ids['capture_period'].text = '0.005'

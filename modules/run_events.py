@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import contextlib
 import dataclasses
-import datetime
 import pathlib
 from collections.abc import Callable
 from typing import TYPE_CHECKING
@@ -47,24 +46,24 @@ class VideoProgress:
     percent: float | None = None
 
 
-@api_fields('scan_number', 'scans_remaining', 'interval')
+@api_fields('scan_number', 'scans_remaining', 'period_s')
 @dataclasses.dataclass(frozen=True)
 class ScanStarted:
-    """A ``scan_started`` event: the scan's 1-based number, the scans left with it, the period."""
+    """A ``scan_started`` event: the scan's 1-based number, the scans left with it, the period in seconds."""
 
     scan_number: int
     scans_remaining: int
-    interval: datetime.timedelta
+    period_s: float | None
 
 
-@api_fields('scan_number', 'scans_remaining', 'interval')
+@api_fields('scan_number', 'scans_remaining', 'period_s')
 @dataclasses.dataclass(frozen=True)
 class ScanEnded:
-    """A ``scan_ended`` event: the scan's 1-based number, the scans left after it, the period."""
+    """A ``scan_ended`` event: the scan's 1-based number, the scans left after it, the period in seconds."""
 
     scan_number: int
     scans_remaining: int
-    interval: datetime.timedelta
+    period_s: float | None
 
 
 @api_fields('step_idx')
@@ -162,10 +161,10 @@ class RunEvents:
     event elsewhere builds the record from them.
     """
 
-    scan_started: Callable[[int, int, datetime.timedelta], object] | None = dataclasses.field(
+    scan_started: Callable[[int, int, float | None], object] | None = dataclasses.field(
         default=None, metadata=event_metadata(ScanStarted)
     )
-    scan_ended: Callable[[int, int, datetime.timedelta], object] | None = dataclasses.field(
+    scan_ended: Callable[[int, int, float | None], object] | None = dataclasses.field(
         default=None, metadata=event_metadata(ScanEnded)
     )
     step_started: Callable[[int], object] | None = dataclasses.field(

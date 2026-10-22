@@ -13,7 +13,6 @@ This test defers the scheduled deliveries (captures them without running
 them), drives two scans, then runs them and asserts they counted down.
 """
 
-import datetime
 import threading
 import time
 from types import MethodType, SimpleNamespace
@@ -42,7 +41,7 @@ def _make_two_scan_parent():
     p._take_camera = lambda: None
     p._scope = mock.MagicMock()
     p._protocol = mock.MagicMock()
-    p._protocol.period.return_value = datetime.timedelta(0)
+    p._protocol.period_s.return_value = 0.0
     p._parent_dir = None  # skip the disk-space branch
     # _start_t is a monotonic timestamp (seconds); set it an hour in the past so
     # the period-0 pacing check fires immediately.
@@ -114,7 +113,7 @@ def test_scan_pacing_waits_on_monotonic_period():
     able to rush or stall the schedule.
     """
     p = _make_two_scan_parent()
-    p._protocol.period.return_value = datetime.timedelta(seconds=100)
+    p._protocol.period_s.return_value = 100.0
     p._start_t = time.monotonic()  # just started: ~0 s elapsed
 
     loop = ProtocolRunLoop(p)

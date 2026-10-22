@@ -959,7 +959,7 @@ class TestRoundTripMetadata:
     def test_period_preserved(self, tmp_path):
         proto = _build_protocol([_make_step()], period_min=5.0)
         reloaded = _save_and_reload(proto, tmp_path)
-        assert reloaded.period() == datetime.timedelta(minutes=5)
+        assert reloaded.period_s() == 5 * 60
 
     def test_period_zero_accepted_as_single_scan(self, tmp_path):
         """Z-stack and single-shot capture write Period=0 in their TSV;
@@ -969,7 +969,7 @@ class TestRoundTripMetadata:
         protocol_time_estimator already treats period_s == 0 as 1 scan."""
         proto = _build_protocol([_make_step()], period_min=0.0)
         reloaded = _save_and_reload(proto, tmp_path)
-        assert reloaded.period() == datetime.timedelta(0)
+        assert reloaded.period_s() == 0
 
     def test_period_negative_still_rejected(self, tmp_path):
         """Period < 0 stays a hard error -- meaningless and likely a
@@ -1014,10 +1014,10 @@ class TestRoundTripMetadata:
             config=config,
         )
         reloaded = _save_and_reload(proto, tmp_path)
-        assert reloaded.period() == datetime.timedelta(0), (
-            f'period=None must round-trip as timedelta(0) (the single-'
+        assert reloaded.period_s() == 0, (
+            f'period=None must round-trip as 0 (the single-'
             f'scan marker accepted by the loader). Got '
-            f'{reloaded.period()!r}.'
+            f'{reloaded.period_s()!r}.'
         )
 
     def test_duration_none_round_trips_as_zero(self, tmp_path):
@@ -1038,8 +1038,8 @@ class TestRoundTripMetadata:
             config=config,
         )
         reloaded = _save_and_reload(proto, tmp_path)
-        assert reloaded.duration() == datetime.timedelta(0), (
-            f'duration=None must round-trip as timedelta(0). Got {reloaded.duration()!r}.'
+        assert reloaded.duration_s() == 0, (
+            f'duration=None must round-trip as 0. Got {reloaded.duration_s()!r}.'
         )
 
     def test_duration_zero_accepted_as_single_scan(self, tmp_path):
@@ -1049,12 +1049,12 @@ class TestRoundTripMetadata:
         by an adjacent Duration check (issue #669)."""
         proto = _build_protocol([_make_step()], duration_hrs=0.0)
         reloaded = _save_and_reload(proto, tmp_path)
-        assert reloaded.duration() == datetime.timedelta(0)
+        assert reloaded.duration_s() == 0
 
     def test_duration_preserved(self, tmp_path):
         proto = _build_protocol([_make_step()], duration_hrs=12.0)
         reloaded = _save_and_reload(proto, tmp_path)
-        assert reloaded.duration() == datetime.timedelta(hours=12)
+        assert reloaded.duration_s() == 12 * 3600
 
     def test_labware_preserved(self, tmp_path):
         proto = _build_protocol([_make_step()], labware='96 well microplate')
@@ -1613,8 +1613,7 @@ class TestProtocolModification:
             period=datetime.timedelta(minutes=5),
             duration=datetime.timedelta(hours=2),
         )
-        assert proto.period() == datetime.timedelta(minutes=5)
-        assert proto.duration() == datetime.timedelta(hours=2)
+        assert (proto.period_s(), proto.duration_s()) == (5 * 60, 2 * 3600)
 
     def test_num_steps(self):
         steps = [_make_step(name=f's{i}') for i in range(5)]

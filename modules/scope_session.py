@@ -2479,15 +2479,15 @@ class ScopeSession:
         *,
         tiling: str = '1x1',
         use_zstacking: bool = False,
-        period: 'datetime.timedelta | None' = None,
-        duration: 'datetime.timedelta | None' = None,
+        period_s: float | None = None,
+        duration_s: float | None = None,
     ) -> 'Protocol':
         """Build a protocol from this session's settings, as the GUI's New does.
 
         One step per acquiring layer at every well of the session's labware,
         at the current objective, tiled and z-stacked as asked. Its period and
-        duration are the ones given; one left out (None) is the stored
-        default's. One scan is ``timedelta(0)``. The
+        duration are the ones given, in seconds; one left out (None) is the
+        stored default's. One scan is 0. The
         protocols API refuses the build when no layer acquires, where an
         empty protocol would otherwise come back for a click that meant
         steps; a labware with no wells still gives an empty protocol, which
@@ -2507,19 +2507,19 @@ class ScopeSession:
                 ``'slot_unknown'``, ``'slot_unassigned'`` or
                 ``'not_in_catalogue'`` on a turret scope; ``'none_selected'``
                 with no turret.
-            ProtocolScheduleRefusedError: ``period`` or ``duration`` is one no
-                protocol can run.
+            ProtocolScheduleRefusedError: ``period_s`` or ``duration_s`` is
+                one no protocol can run.
             AxisStateUnknownError: an acquiring layer has no saved focus, so
                 its steps would save the current Z, and Z does not know its
                 position. Reported once.
         """
-        from modules.protocol import Protocol
+        from modules.protocol import Protocol, schedule_from_units
 
         config = self.get_sequenced_capture_config(tiling=tiling, use_zstacking=use_zstacking)
-        if period is not None:
-            config['period'] = period
-        if duration is not None:
-            config['duration'] = duration
+        # Converted here, judged where the protocol is built.
+        for key, seconds in (('period', period_s), ('duration', duration_s)):
+            if seconds is not None:
+                config[key] = schedule_from_units(key, seconds, judged=False, unit='seconds')
         layer_configs = config['layer_configs']
         self.scope.protocols.refuse_no_acquiring_layer(layer_configs)
         if any(
@@ -2955,18 +2955,23 @@ class ScopeSession:
         self,
         protocol: 'Protocol',
         *,
-        period: datetime.timedelta,
-        duration: datetime.timedelta,
+        period_s: float,
+        duration_s: float,
     ) -> None:
-        """Give ``protocol`` a new period and duration, as its two fields do.
+        """Give ``protocol`` a new period and duration in seconds, as its two fields do.
 
-        One scan is ``timedelta(0)`` for both.
+        One scan is 0 for both.
 
         Raises:
             ProtocolScheduleRefusedError: either cannot be run; the protocol
                 keeps the schedule it had.
         """
-        protocol.modify_time_params(period=period, duration=duration)
+        from modules.protocol import schedule_from_units
+
+        protocol.modify_time_params(
+            period=schedule_from_units('period', period_s, judged=False, unit='seconds'),
+            duration=schedule_from_units('duration', duration_s, judged=False, unit='seconds'),
+        )
 
     @api
     def set_protocol_capture_root(self, protocol: 'Protocol', root: str) -> None:

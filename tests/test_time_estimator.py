@@ -4,12 +4,14 @@ Tests for ProtocolTimeEstimator -- protocol imaging time estimation.
 """
 
 import datetime
+import pathlib
 from unittest.mock import patch, MagicMock
 
 import pandas as pd
 import pytest
 
 from modules.objectives_loader import ObjectiveLoader
+from modules.protocol import Protocol
 from modules.protocol_time_estimator import (
     ProtocolTimeEstimator,
     StepTimeEstimate,
@@ -22,14 +24,16 @@ from modules.protocol_time_estimator import (
 )
 from tests.objective_records import objective
 
+TILING_CONFIGS = pathlib.Path(__file__).parent.parent / 'data' / 'tiling.json'
+
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 
-def _make_protocol(steps_data, period_min=20.0, duration_hr=1.0):
-    """Create a mock Protocol with given steps."""
+def _make_protocol(steps_data, period_min=20.0, duration_hr=1.0, *, period=None, duration=None):
+    """A stand-in Protocol with given steps, whose schedule is a real Protocol's."""
     protocol = MagicMock()
     if steps_data:
         df = pd.DataFrame(steps_data)
@@ -37,8 +41,20 @@ def _make_protocol(steps_data, period_min=20.0, duration_hr=1.0):
         df = pd.DataFrame()
     protocol.steps.return_value = df
     protocol.num_steps.return_value = len(df)
-    protocol.period.return_value = datetime.timedelta(minutes=period_min)
-    protocol.duration.return_value = datetime.timedelta(hours=duration_hr)
+    schedule = Protocol(
+        tiling_configs_file_loc=TILING_CONFIGS,
+        config={
+            'version': Protocol.CURRENT_VERSION,
+            'steps': pd.DataFrame(),
+            'period': period or datetime.timedelta(minutes=period_min),
+            'duration': duration or datetime.timedelta(hours=duration_hr),
+            'capture_root': '',
+            'labware_id': 'Center Plate',
+        },
+    )
+    protocol.period_s = schedule.period_s
+    protocol.duration_s = schedule.duration_s
+    protocol.num_scans = schedule.num_scans
     return protocol
 
 
@@ -280,6 +296,14 @@ class TestProtocolEstimation:
         protocol = _make_protocol([_valid_step()], period_min=20.0, duration_hr=2.0)
         result = estimator.estimate(protocol)
         assert result.num_scans == 6  # 120min / 20min
+
+    def test_the_estimate_counts_the_scans_the_run_will_take(self):
+        # 5.000075 s over 1.000015 s is 5 scans exactly; float seconds make it 4.
+        estimator = ProtocolTimeEstimator(ObjectiveLoader())
+        period = datetime.timedelta(microseconds=1_000_015)
+        protocol = _make_protocol([_valid_step()], period=period, duration=period * 5)
+        result = estimator.estimate(protocol)
+        assert result.num_scans == 5
 
     def test_summary_string(self):
         estimator = ProtocolTimeEstimator(ObjectiveLoader())

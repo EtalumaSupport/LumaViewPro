@@ -12,7 +12,6 @@ from the type. The guard that no direct post remains is
 
 from __future__ import annotations
 
-import datetime
 
 import pytest
 
@@ -42,9 +41,7 @@ _NOTICES = [
         'protocol_steps_invalid',
     ),
     (
-        exc.SingleScanNotice(
-            period=datetime.timedelta(minutes=10), duration=datetime.timedelta(minutes=5)
-        ),
+        exc.SingleScanNotice(period_s=600.0, duration_s=300.0),
         'single_scan',
     ),
     (exc.HyperstacksSavingNotice(), 'hyperstacks_saving'),

@@ -118,7 +118,7 @@ def _progress(*, live: bool, stopping: bool = False) -> RunProgress:
         step_number=1 if live else None,
         num_steps=1 if live else None,
         remaining_scans=1 if live else None,
-        interval=None,
+        period_s=None,
     )
 
 

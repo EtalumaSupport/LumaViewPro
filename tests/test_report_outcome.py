@@ -12,7 +12,6 @@ from __future__ import annotations
 import logging
 import threading
 from concurrent.futures import CancelledError
-from datetime import timedelta
 
 import pytest
 
@@ -79,7 +78,7 @@ class TestARefusal:
 
 class TestANotice:
     def test_shown_is_one_notice_line_naming_its_reason(self, centre, caplog):
-        notice = SingleScanNotice(period=timedelta(0), duration=timedelta(minutes=5))
+        notice = SingleScanNotice(period_s=0.0, duration_s=300.0)
         with caplog.at_level(logging.DEBUG):
             centre.report_outcome(notice, solicited=True, category='Protocol')
 

@@ -105,7 +105,10 @@ class TestSaveThenRestore:
         session.apply_layer_settings(loaded)
 
         assert loaded.num_steps() == protocol.num_steps()
-        assert (loaded.period(), loaded.duration()) == (protocol.period(), protocol.duration())
+        assert (loaded.period_s(), loaded.duration_s()) == (
+            protocol.period_s(),
+            protocol.duration_s(),
+        )
         assert _layer_fields(session, 'BF') == saved_bf
         assert session.settings['Green']['acquire'] is None, (
             'a layer the protocol does not name is cleared'

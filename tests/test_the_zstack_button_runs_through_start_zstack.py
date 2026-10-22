@@ -51,7 +51,7 @@ def _progress(
         step_number=step if live else None,
         num_steps=steps if live else None,
         remaining_scans=1 if live else None,
-        interval=None,
+        period_s=None,
     )
 
 

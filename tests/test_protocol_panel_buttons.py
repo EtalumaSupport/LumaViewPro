@@ -13,7 +13,6 @@ writing the finished run's files, idle.
 import concurrent.futures
 import sys
 import types
-from datetime import timedelta
 from types import SimpleNamespace
 from unittest.mock import DEFAULT, MagicMock
 
@@ -177,7 +176,7 @@ def _live(
     stopping=lambda: False,
     last=None,
     remaining_scans=None,
-    interval=None,
+    period_s=None,
 ):
     """The engine's progress record of each run: live for *runs*, ended for every other.
 
@@ -195,7 +194,7 @@ def _live(
             step_number=1 if live else None,
             num_steps=1 if live else None,
             remaining_scans=remaining_scans if live else None,
-            interval=interval if live else None,
+            period_s=period_s if live else None,
         )
 
     engine._progress_of.side_effect = _progress_of
@@ -289,7 +288,7 @@ def test_the_full_protocol_button_counts_the_live_runs_own_scans(app_ctx, engine
     panel = _Panel()
     run = _run(engine)
     engine.start.return_value = run.operation
-    _live(engine, run, remaining_scans=3, interval=timedelta(minutes=20))
+    _live(engine, run, remaining_scans=3, period_s=20 * 60.0)
 
     panel.run_protocol_from_ui()
 
@@ -440,7 +439,7 @@ def test_a_scan_between_iterations_redraws_rather_than_drawing_idle(app_ctx, eng
     panel.run_scan_from_ui()
     scan_ended = engine.prepare.call_args.kwargs['events'].scan_ended
 
-    scan_ended(1, 1, timedelta(minutes=5))
+    scan_ended(1, 1, 300.0)
 
     button = panel.ids['run_scan_btn']
     assert (button.state, button.text) == ('down', 'Abort One Scan'), (

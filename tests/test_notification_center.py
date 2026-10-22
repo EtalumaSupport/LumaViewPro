@@ -304,8 +304,6 @@ class TestEveryHostReadsAnOutcomeAlike:
     """``outcome_of`` is the one reading of what an exception is: the reporter and the REST server both use it."""
 
     def test_each_kind_is_read_from_its_type(self):
-        import datetime
-
         from modules.exceptions import (
             CaptureFailedError,
             RunWaitExpiredError,
@@ -316,9 +314,7 @@ class TestEveryHostReadsAnOutcomeAlike:
         from modules.notification_center import OutcomeKind, outcome_of
 
         refusal = outcome_of(LiveFolderPathRefusedError('outside_live_folder', '..', 'Not there.'))
-        notice = outcome_of(
-            SingleScanNotice(period=datetime.timedelta(0), duration=datetime.timedelta(0))
-        )
+        notice = outcome_of(SingleScanNotice(period_s=0.0, duration_s=0.0))
         quiet = outcome_of(RunWaitExpiredError('run_composite', 5.0, None))
         typed = outcome_of(CaptureFailedError('no_frame'))
         untyped = outcome_of(ValueError('bad shape (3,)'))

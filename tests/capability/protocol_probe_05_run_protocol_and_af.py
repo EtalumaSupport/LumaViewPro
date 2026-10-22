@@ -45,7 +45,7 @@ try:
         period=datetime.timedelta(seconds=10),
         duration=datetime.timedelta(seconds=15),
     )
-    print('period/duration:', protocol.period(), protocol.duration())
+    print('period_s/duration_s:', protocol.period_s(), protocol.duration_s())
     outcome = runner.start_protocol(
         protocol,
         sequence_name='probe_full_protocol',

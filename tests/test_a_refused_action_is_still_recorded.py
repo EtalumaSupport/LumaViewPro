@@ -20,7 +20,6 @@ through their real handlers.
 
 from __future__ import annotations
 
-import datetime
 import logging
 from types import SimpleNamespace
 
@@ -76,8 +75,8 @@ class _Protocols(ps.ProtocolSettings):
             'step_name_input': SimpleNamespace(text=''),
         }
         self._protocol = SimpleNamespace(
-            period=lambda: datetime.timedelta(minutes=20),
-            duration=lambda: datetime.timedelta(hours=48),
+            period_s=lambda: 20 * 60.0,
+            duration_s=lambda: 48 * 3600.0,
         )
 
     def update_step_ui(self):

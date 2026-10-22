@@ -18,6 +18,7 @@ from __future__ import annotations
 import datetime
 import json
 import logging
+import math
 import pathlib
 import shutil
 
@@ -54,6 +55,10 @@ RUNNABLE = [
 ]
 
 
+def _schedule_s(protocol: Protocol) -> tuple:
+    return protocol.period_s(), protocol.duration_s()
+
+
 def _protocol(period=PERIOD, duration=DURATION) -> Protocol:
     return Protocol(
         tiling_configs_file_loc=TILING,
@@ -78,7 +83,7 @@ class TestTheProtocolsWriter:
             protocol.modify_time_params(period=period, duration=duration)
 
         assert isinstance(refused.value, Refusal)
-        assert (protocol.period(), protocol.duration()) == (PERIOD, DURATION)
+        assert _schedule_s(protocol) == (PERIOD.total_seconds(), DURATION.total_seconds())
 
     @pytest.mark.parametrize('period, duration', RUNNABLE)
     def test_a_runnable_schedule_is_taken_as_given(self, period, duration):
@@ -86,7 +91,9 @@ class TestTheProtocolsWriter:
 
         protocol.modify_time_params(period=period, duration=duration)
 
-        assert (protocol.period(), protocol.duration()) == (period, duration)
+        assert _schedule_s(protocol) == tuple(
+            None if t is None else t.total_seconds() for t in (period, duration)
+        )
 
 
 class TestTheConstructors:
@@ -192,7 +199,7 @@ class TestAReaderThatNeverRunsTheProtocol:
             runnable=False,
         )
 
-        assert protocol.period() == datetime.timedelta(minutes=0.005)
+        assert protocol.period_s() == 0.005 * 60
 
 
 class TestAValueInItsUnits:
@@ -233,12 +240,9 @@ class TestTheSession:
     def test_new_builds_the_schedule_it_is_given(self, session):
         _acquire_only_bf(session)
 
-        protocol = session.new_protocol(
-            period=datetime.timedelta(minutes=7), duration=datetime.timedelta(hours=3)
-        )
+        protocol = session.new_protocol(period_s=7 * 60, duration_s=3 * 3600)
 
-        assert protocol.period() == datetime.timedelta(minutes=7)
-        assert protocol.duration() == datetime.timedelta(hours=3)
+        assert _schedule_s(protocol) == (7 * 60, 3 * 3600)
 
     def test_new_with_no_schedule_takes_the_stored_default(self, session):
         _acquire_only_bf(session)
@@ -247,14 +251,28 @@ class TestTheSession:
 
         protocol = session.new_protocol()
 
-        assert protocol.period() == datetime.timedelta(minutes=4)
-        assert protocol.duration() == datetime.timedelta(hours=6)
+        assert _schedule_s(protocol) == (4 * 60, 6 * 3600)
 
     def test_new_with_an_unrunnable_schedule_is_refused(self, session):
         _acquire_only_bf(session)
 
         with pytest.raises(ProtocolScheduleRefusedError):
-            session.new_protocol(period=datetime.timedelta(milliseconds=500), duration=DURATION)
+            session.new_protocol(period_s=0.5, duration_s=DURATION.total_seconds())
+
+    def test_seconds_that_are_no_time_are_refused_and_the_schedule_kept(self, session):
+        # The argument door passes any float, NaN included; the protocol
+        # judges whether seconds are a time it can hold.
+        protocol = _protocol()
+        kept = []
+        for seconds in (math.nan, math.inf, -math.inf, 1e20):
+            with pytest.raises(ProtocolScheduleRefusedError) as refused:
+                session.set_protocol_schedule(
+                    protocol, period_s=seconds, duration_s=DURATION.total_seconds()
+                )
+            kept.append((refused.value.reason, refused.value.key, _schedule_s(protocol)))
+
+        schedule = (PERIOD.total_seconds(), DURATION.total_seconds())
+        assert kept == [('schedule_not_runnable', 'period', schedule)] * 4
 
     def test_a_stored_default_out_of_range_is_refused_and_the_store_unchanged(self, session):
         before = dict(session.settings['protocol'])

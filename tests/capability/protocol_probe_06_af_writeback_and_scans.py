@@ -63,7 +63,7 @@ try:
     )
     at_start = out.progress()
     print('remaining_scans at start:', at_start.remaining_scans)
-    print('protocol_interval       :', at_start.interval)
+    print('protocol_period_s       :', at_start.period_s)
     s = out.result(timeout=300)
     print('status:', s.status, s.reason)
     rd = out.progress().run_dir

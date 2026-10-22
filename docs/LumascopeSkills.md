@@ -962,8 +962,8 @@ Unlike `start_autofocus`, the slices are the product: the run saves its images (
 
 | Event | Handler arguments | When |
 |---|---|---|
-| `scan_started` | `(scan_number, scans_remaining, interval)` | as each scan begins: its 1-based number, how many scans remain with this one, the protocol's period |
-| `scan_ended` | `(scan_number, scans_remaining, interval)` | as each scan ends, a stopped one included: how many remain after it |
+| `scan_started` | `(scan_number, scans_remaining, period_s)` | as each scan begins: its 1-based number, how many scans remain with this one, the protocol's period in seconds |
+| `scan_ended` | `(scan_number, scans_remaining, period_s)` | as each scan ends, a stopped one included: how many remain after it |
 | `step_started` | `(step_idx)` | as each step begins, step 0 included, with the index read at the step |
 | `frame_captured` | `(image, frames_summed, frame_significant_bits)` | for each captured frame whose write was handed to the run's writer, once it was: the frame as the file gets it (a sum when summing), read-only. A frame whose write is refused is not announced |
 | `video_progress` | `(progress)`, a `VideoProgress` | as a video step records (`phase='recording'`, `elapsed_s` of `total_s`) and writes (`'writing'`, `percent`), then `'ended'` once after either; a step that ends before it records sends none |
@@ -991,7 +991,7 @@ The outcome carries fourteen fields. `status` is one of `completed`, `incomplete
 
 The two vocabularies are deliberately separate. A run that aborted names why in `reason` and leaves `merge_reason` empty; a run that reached its end but whose merge produced nothing reports its run status (`completed`, or `incomplete` when a channel failed) with the cause in `merge_reason`. `run_composite()` raises `CompositeFailedError` (a `CaptureError`) carrying whichever of the two applies; when its `timeout_s` runs out first it raises `RunWaitExpiredError` (`still_running`, a `TimeoutError`, quiet), as every waiting form does: the run or its merge may still be going, and its `operation` holds the run. A merge that raised is posted to the listeners as that exception's own type, kind and title -- a refusal such as `PostProcessingRefusedError` (`no_data`, nothing usable to merge) as a warning, `RunFilesNotWrittenError` under "Run Images Not Written" -- with `merge_reason` its `reason` (`merge_error` when it carries none, posted under "Composite Failed"); a merge that could not start or produced no file is posted as `CompositeFailedError`. A composite missing a channel merges nothing: its merge fails with `PostProcessingFailedError` (`post_processing_failed`, posted under "Composite Failed", naming the channel), and the shortfall is told as its own `RunIncompleteError` after it. The merge's notice and the shortfall are delivered to the listeners before the outcome settles, so `run_composite()` and the run's `result()` return after them.
 
-`stop()` only asks: the run ends on its own thread, and the operation is done when it has. A run that ends before its end, by a Stop or a fault, halts a stage move it has under way first, before it waits for anything or puts the scope back (a video step's frames still being written included), so the stage stops short of the step it was heading for; on motor firmware with no STOP command the move runs on, and a home on a board that cannot stop one runs to its end (the outcome's `cleanup_failures` then names `Halt the stage`). A Stop through an operation whose run has ended does nothing, to that run or to any other run live by then. `progress()` answers about its own run only, as one `RunProgress` (`modules.sequenced_capture_runner`) read at once: `is_live`, True while the run holds the scope (False once its teardown has finished, while its `run_ended` may still be on its way, so a run can be not live and its operation not yet done); `is_stopping`, True from an accepted Stop until the run's teardown finishes; `is_last_run`, the engine's most recent run; `run_dir`, the run's folder (`None` for a run that saves nothing or never started); and for a progress readout `step_number` (the step executing now, counted from 1), `num_steps`, `remaining_scans` and `interval` (the scan period), each `None` once the run is no longer live.
+`stop()` only asks: the run ends on its own thread, and the operation is done when it has. A run that ends before its end, by a Stop or a fault, halts a stage move it has under way first, before it waits for anything or puts the scope back (a video step's frames still being written included), so the stage stops short of the step it was heading for; on motor firmware with no STOP command the move runs on, and a home on a board that cannot stop one runs to its end (the outcome's `cleanup_failures` then names `Halt the stage`). A Stop through an operation whose run has ended does nothing, to that run or to any other run live by then. `progress()` answers about its own run only, as one `RunProgress` (`modules.sequenced_capture_runner`) read at once: `is_live`, True while the run holds the scope (False once its teardown has finished, while its `run_ended` may still be on its way, so a run can be not live and its operation not yet done); `is_stopping`, True from an accepted Stop until the run's teardown finishes; `is_last_run`, the engine's most recent run; `run_dir`, the run's folder (`None` for a run that saves nothing or never started); and for a progress readout `step_number` (the step executing now, counted from 1), `num_steps`, `remaining_scans` and `period_s` (the scan period in seconds), each `None` once the run is no longer live.
 
 A refusal with reason `files_writing` means the previous run's files are still draining -- the previous run's `files` operation is done once they have landed. Reason `post_processing_running` means a build is on the post-processing lane -- a run's own hyperstack, merge or processors, or a caller's build -- and a capture and a build never overlap, so the run waits until the lane is idle (`session.live_work` lists its `'post_processing'` items until then); a recording start is refused the same way. Reason `files_writing_stalled` means the file writer has stopped making progress entirely (a wedged write, e.g. an unresponsive save drive); waiting will not clear it. Its message says how many unsaved images recovery would lose, and it names its own answer: `refusal.remedy` is a `Remedy` (`modules.exceptions`) whose `member` is `'recover_file_writer'`, with `confirm_text` and `cancel_text` for an offer (the prompt is the refusal's own `title` and `message`). Every refusal has a `remedy` attribute; it is `None` when nothing answers the refusal but waiting or asking differently. The GUI shows a refusal that carries one as a confirmation, and so can any client. A client need not start a run to hear of a stall: once for each stuck write, the session reports `FileWriterStalledError` (`modules.exceptions`, a fault, reason `'files_writing_stalled'`) through the outcome subscription below, carrying the same `remedy` in the same words. Recover with either:
 
@@ -1032,14 +1032,13 @@ lock.state, session.get_setting('BF.gain_db'), session.get_setting('BF.exposure_
 session.layer_auto_gain_lock('BF') == lock          # True
 ```
 
-**Creating a protocol.** `session.new_protocol(tiling='1x1', use_zstacking=False, period=None, duration=None)` does what the GUI's New does: one step per layer whose `acquire` is set, at every well of the session's labware, with the current objective, tiled and z-stacked as asked. `period` and `duration` are `datetime.timedelta`s; one left out (None) is the stored default's (`settings['protocol']`), and one scan is `timedelta(0)`. The GUI passes the schedule on screen. When no layer is set to acquire it raises `ProtocolRunRefusedError` with reason `no_acquiring_layer`, and a `tiling` this installation does not offer raises it with reason `tiling_unknown`; each is raised to you and posted to no listener (whoever catches it reports it), and builds nothing; a labware with no wells gives an empty protocol to fill with `add_step`. With `use_zstacking=True` the steps are stacked as `apply_zstacking` stacks them, and refused as it refuses them: a range or step size not greater than zero (`zstack_not_configured`), a scope with no Z motor (`positions_unreachable`), a slice outside the Z travel (`zslices_outside_travel`). When a layer set to acquire has no saved focus its steps take the current Z, so with Z's position unknown (before a home) it raises `AxisStateUnknownError` naming Z, posted to no listener, and builds nothing; with every acquiring layer focused it builds before a home too. `session.create_empty_protocol()` is the no-step protocol that needs no objective.
+**Creating a protocol.** `session.new_protocol(tiling='1x1', use_zstacking=False, period_s=None, duration_s=None)` does what the GUI's New does: one step per layer whose `acquire` is set, at every well of the session's labware, with the current objective, tiled and z-stacked as asked. `period_s` and `duration_s` are seconds; one left out (None) is the stored default's (`settings['protocol']`), and one scan is 0. The GUI passes the schedule on screen. When no layer is set to acquire it raises `ProtocolRunRefusedError` with reason `no_acquiring_layer`, and a `tiling` this installation does not offer raises it with reason `tiling_unknown`; each is raised to you and posted to no listener (whoever catches it reports it), and builds nothing; a labware with no wells gives an empty protocol to fill with `add_step`. With `use_zstacking=True` the steps are stacked as `apply_zstacking` stacks them, and refused as it refuses them: a range or step size not greater than zero (`zstack_not_configured`), a scope with no Z motor (`positions_unreachable`), a slice outside the Z travel (`zslices_outside_travel`). When a layer set to acquire has no saved focus its steps take the current Z, so with Z's position unknown (before a home) it raises `AxisStateUnknownError` naming Z, posted to no listener, and builds nothing; with every acquiring layer focused it builds before a home too. `session.create_empty_protocol()` is the no-step protocol that needs no objective.
 
-**A protocol's schedule.** `protocol.period()` and `protocol.duration()` are the protocol's own, and the run runs them. `session.set_protocol_schedule(protocol, period=..., duration=...)` sets both: a period is None or `timedelta(0)` (one scan) or at least one second, and a duration is None, `timedelta(0)` or more. Anything else -- a sub-second or negative period, a negative duration, a value that is not a `timedelta` -- raises `ProtocolScheduleRefusedError` (from `modules.protocol`; a `ProtocolFormatError`, a refusal) naming the value and the rule, and the protocol keeps the schedule it had; nothing is raised to one second. A protocol built with one, or a file carrying one, is refused the same way, the file by name. Post-processing a finished run reads its saved protocol without judging the schedule, which it never uses, so a run saved by a release that allowed a shorter period can still be stitched or projected. `schedule_from_units('period', minutes)` and `schedule_from_units('duration', hours)` convert the units the file and the settings hold, refusing what is not a runnable number.
+**A protocol's schedule.** `protocol.period_s()` and `protocol.duration_s()` are the protocol's own, in seconds, and the run runs them; `protocol.num_scans()` is how many scans a full run takes, the duration over the period counted exactly (one for a period of 0, or a duration shorter than one period). `session.set_protocol_schedule(protocol, period_s=..., duration_s=...)` sets both: a period is 0 (one scan) or at least one second, and a duration is 0 or more. Anything else -- a sub-second or negative period, a negative duration, a value that is not a finite number -- raises `ProtocolScheduleRefusedError` (from `modules.protocol`; a `ProtocolFormatError`, a refusal) naming the value and the rule, and the protocol keeps the schedule it had; nothing is raised to one second. A protocol built with one, or a file carrying one, is refused the same way, the file by name. Post-processing a finished run reads its saved protocol without judging the schedule, which it never uses, so a run saved by a release that allowed a shorter period can still be stitched or projected. `schedule_from_units('period', minutes)` and `schedule_from_units('duration', hours)` convert the units the file and the settings hold, refusing what is not a runnable number.
 
 ```python
-from datetime import timedelta
-session.set_protocol_schedule(protocol, period=timedelta(minutes=10), duration=timedelta(hours=24))
-session.set_protocol_schedule(protocol, period=timedelta(milliseconds=500), duration=timedelta(hours=1))  # ProtocolScheduleRefusedError
+session.set_protocol_schedule(protocol, period_s=600, duration_s=24 * 3600)
+session.set_protocol_schedule(protocol, period_s=0.5, duration_s=3600)  # ProtocolScheduleRefusedError
 ```
 
 **Reading a protocol's steps.** `protocol.step(i)` returns step `i` as a `StepRecord` (`modules.protocol`), a field per column of the steps table (`'Z-Stack Group ID'` is `z_stack_group_id`), its video config a `VideoConfig` (`duration_s`, `fps`) and its stimulation, by layer, `Stimulation` records (`enabled`, `illumination_ma`, `frequency_hz`, `pulse_width_ms`, `pulse_count`), None where the step's config does not say; `protocol.step_records()` returns every step's record in order, the table in one read, and over REST as one array. In-process, `protocol.steps()` returns a copy of the steps table and `protocol.step_row(i)` a copy of one row; each row `protocol.layer_settings()` returns is a copy too. The dicts in a row's `Video Config` and `Stim_Config` cells are read-only (each a `dict` that refuses writes): a write into one raises `TypeError`, and `copy.deepcopy(cell)` gives a plain dict to edit. A write to a copy changes nothing in the protocol: a protocol changes only through the Session's edits (`session.set_protocol_schedule`, `session.add_step`, ...), which judge each change. A run works on its own copy of the protocol it is handed, so nothing the run writes, such as an autofocus's Z, reaches the caller's protocol either, unless the run is asked to write its focus back (`start_autofocus_all_steps`).
@@ -2340,7 +2339,7 @@ The seven listener families each pass a different callback signature -- register
 | Outcomes | `ScopeSession.create(outcome_listener=...)` or `session.add_outcome_listener` | `on_outcome(n)` -- one `Notification` (see Outcomes above) | `Notification` itself |
 | Settings | `session.add_settings_listener` | `on_settings(paths: tuple[str, ...])` -- the dotted paths one write stored | `SettingsChanged(paths)` |
 
-Each event declares its record, published in the reference below: its fields name the callback's arguments in order, so a host that carries an event elsewhere (the REST server's stream) builds the record from the arguments rather than keeping its own table of signatures. A run's events do the same: `RunEvents.scan_started` delivers `ScanStarted(scan_number, scans_remaining, interval)`, `scan_ended` `ScanEnded(...)`, `step_started` `StepStarted(step_idx)`, `frame_captured` `FrameCaptured(image, frames_summed, frame_significant_bits)`, `video_progress` the `VideoProgress` it passes, `run_ended` `RunEnded(outcome, run_dir, protocol)`, `files_written` `FilesWritten(run_dir, files)`. Callbacks keep their signatures; a Python caller need not build any record.
+Each event declares its record, published in the reference below: its fields name the callback's arguments in order, so a host that carries an event elsewhere (the REST server's stream) builds the record from the arguments rather than keeping its own table of signatures. A run's events do the same: `RunEvents.scan_started` delivers `ScanStarted(scan_number, scans_remaining, period_s)`, `scan_ended` `ScanEnded(...)`, `step_started` `StepStarted(step_idx)`, `frame_captured` `FrameCaptured(image, frames_summed, frame_significant_bits)`, `video_progress` the `VideoProgress` it passes, `run_ended` `RunEnded(outcome, run_dir, protocol)`, `files_written` `FilesWritten(run_dir, files)`. Callbacks keep their signatures; a Python caller need not build any record.
 
 The four `scope.*` listeners each have a matching `remove_*_listener(callback)`. The frame listener additionally takes a `name=` kwarg and carries the read-only frame + 24 ms budget contract documented above; the other three are lightweight state-change notifications.
 
@@ -3534,12 +3533,13 @@ Reached through returned by `session.load_protocol` and `session.new_protocol`.
 - `PROTOCOL_FILE_HEADER`
 - `capture_prefix`
 - `capture_root`
-- `duration`
+- `duration_s`
 - `estimate_write_mb`
 - `labware`
 - `layer_settings`
+- `num_scans`
 - `num_steps`
-- `period`
+- `period_s`
 - `size_advisory`
 - `step`
 - `step_list_revision`
@@ -3574,11 +3574,11 @@ Reached through returned by a `ProtocolRunner` run member that started a run; a 
 
 Reached through returned by `Operation.progress` for a run.
 
-- `interval`
 - `is_last_run`
 - `is_live`
 - `is_stopping`
 - `num_steps`
+- `period_s`
 - `remaining_scans`
 - `run_dir`
 - `step_number`
@@ -4332,7 +4332,7 @@ Reached through each value of `session.manual_capture.capture`'s `Operation` res
 
 Reached through the event `RunEvents.scan_ended` delivers.
 
-- `interval`
+- `period_s`
 - `scan_number`
 - `scans_remaining`
 
@@ -4340,7 +4340,7 @@ Reached through the event `RunEvents.scan_ended` delivers.
 
 Reached through the event `RunEvents.scan_started` delivers.
 
-- `interval`
+- `period_s`
 - `scan_number`
 - `scans_remaining`
 

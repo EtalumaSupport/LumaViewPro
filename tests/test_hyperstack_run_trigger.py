@@ -10,7 +10,6 @@ signal -- so the trigger lives there, and a run started from any host
 gets its stacks.
 """
 
-import datetime
 import threading
 from unittest.mock import ANY, MagicMock, patch
 
@@ -254,8 +253,9 @@ def test_run_mode_scan_count_matches_its_declared_row():
         from modules.sequenced_capture_runner import SequencedCaptureRunner
 
         protocol = MagicMock()
-        protocol.period.return_value = datetime.timedelta(seconds=60)
-        protocol.duration.return_value = datetime.timedelta(seconds=300)
+        protocol.period_s.return_value = 60.0
+        protocol.duration_s.return_value = 300.0
+        protocol.num_scans.return_value = 5
 
         n_scans = SequencedCaptureRunner._calculate_num_scans(
             protocol=protocol, run_mode=run_mode, max_scans=1

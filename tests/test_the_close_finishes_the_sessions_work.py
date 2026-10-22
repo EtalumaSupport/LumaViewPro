@@ -12,7 +12,6 @@ it returned (F4, F5); two closes both tore down (F6). Each case is run here
 through ``shutdown`` alone, as a script or the REST server calls it.
 """
 
-import datetime
 import pathlib
 import threading
 import time
@@ -53,7 +52,7 @@ def sim_session(tmp_path):
 
 def _one_step_protocol(session):
     session.set_layer_acquire('BF', 'image')
-    return session.new_protocol(duration=datetime.timedelta(0), period=datetime.timedelta(0))
+    return session.new_protocol(duration_s=0, period_s=0)
 
 
 @pytest.mark.slow

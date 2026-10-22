@@ -18,7 +18,6 @@ Three layers of readiness:
 from __future__ import annotations
 
 import concurrent.futures
-import datetime
 import threading
 import time
 from unittest.mock import MagicMock
@@ -212,11 +211,10 @@ def scr_run_kwargs(**overrides):
     protocol = MagicMock()
     protocol.num_steps.return_value = 1
     protocol.validate_for_run.return_value = []
-    # Real timedeltas: Protocol.period() never returns an int, and a stub
-    # that did once let a zero-period guard pass green against a type the
-    # production path never produces.
-    protocol.period.return_value = datetime.timedelta(0)
-    protocol.duration.return_value = datetime.timedelta(hours=1)
+    # Floats, as Protocol.period_s() answers; period 0 is one scan.
+    protocol.period_s.return_value = 0.0
+    protocol.duration_s.return_value = 3600.0
+    protocol.num_scans.return_value = 1
     protocol.copy_for_execution.return_value = protocol
     # The run hands its writer the plate the protocol names, so the plate
     # is a catalogue name, as a real protocol's is after validate_for_run.
@@ -304,7 +302,7 @@ def run_loop_ready_runner(step, n_scans=1, **state):
     runner = scan_ready_runner(step, **state)
     runner._scan_in_progress.clear()
     runner._n_scans = n_scans
-    runner._protocol.period.return_value = datetime.timedelta(0)
+    runner._protocol.period_s.return_value = 0.0
     # _start_t is a monotonic timestamp (seconds), matching the run loop's pacing.
     runner._start_t = time.monotonic()
     runner._events = RunEvents(step_started=MagicMock())

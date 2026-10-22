@@ -5,6 +5,7 @@
 For driver-layer hardware exceptions (HardwareError), see drivers/exceptions.py.
 """
 
+import datetime
 import pathlib
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
@@ -432,10 +433,13 @@ class SingleScanNotice(Notice, Exception):  # noqa: N818 -- a notice, not an err
     title = 'Single Scan'
     reason = 'single_scan'
 
-    def __init__(self, *, period, duration):
-        if period.total_seconds() == 0:
+    def __init__(self, *, period_s: float, duration_s: float):
+        if period_s == 0:
             because = 'the capture period is 0'
         else:
+            # Shown as H:MM:SS, as a person reads a schedule.
+            duration = datetime.timedelta(seconds=duration_s)
+            period = datetime.timedelta(seconds=period_s)
             because = f'the duration ({duration}) is shorter than the capture period ({period})'
         super().__init__(f'This run performs a single scan because {because}.')
 

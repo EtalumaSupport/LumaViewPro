@@ -100,13 +100,13 @@ def _running_label(run: 'Operation | None', trigger: str, look: _PanelRunButton)
 
 def _protocol_remaining_text(progress: 'RunProgress') -> str | None:
     """The Full Protocol button's running label, from the run's own count; None without one."""
-    remaining_scans, interval = progress.remaining_scans, progress.interval
-    if remaining_scans is None or interval is None:
+    remaining_scans, period_s = progress.remaining_scans, progress.period_s
+    if remaining_scans is None or period_s is None:
         return None
     remaining_duration_str = strfdelta(
-        tdelta=remaining_scans * interval,
+        tdelta=remaining_scans * period_s,
         fmt='{H}h {M}m',
-        inputtype='timedelta',
+        inputtype='seconds',
     )
     scan_word = 'scan' if remaining_scans == 1 else 'scans'
     return f'{remaining_scans} {scan_word} ({remaining_duration_str}) remaining.\nPress to ABORT'
@@ -297,8 +297,13 @@ class ProtocolSettings(FloatLayout):
             return
 
         def _edit():
-            schedule = {'period': self._protocol.period(), 'duration': self._protocol.duration()}
-            schedule[key] = schedule_from_units(key, text)
+            # The field's minutes or hours, in the API's seconds; the
+            # Session judges whether the protocol can run it.
+            schedule = {
+                'period_s': self._protocol.period_s(),
+                'duration_s': self._protocol.duration_s(),
+            }
+            schedule[f'{key}_s'] = schedule_from_units(key, text, judged=False).total_seconds()
             _app_ctx.ctx.session.set_protocol_schedule(self._protocol, **schedule)
 
         run_reported(_edit, self._show_schedule, label)
@@ -310,12 +315,12 @@ class ProtocolSettings(FloatLayout):
         as 0.0: one second is 0.000278 hours. Decimal units stay awkward for
         short values; H:M:S entry is the tracked follow-up.
         """
-        for field, value, unit in (
-            ('capture_period', self._protocol.period(), 60),
-            ('capture_dur', self._protocol.duration(), 3600),
+        for field, seconds, unit in (
+            ('capture_period', self._protocol.period_s(), 60),
+            ('capture_dur', self._protocol.duration_s(), 3600),
         ):
-            seconds = 0 if value is None else value.total_seconds()
-            self.ids[field].text = str(round(seconds / unit, 6))
+            shown = 0 if seconds is None else seconds / unit
+            self.ids[field].text = str(round(shown, 6))
 
     def step_name_validation(self, text: str):
         # What the user typed, before the sanitiser and the rename decide what
@@ -548,8 +553,8 @@ class ProtocolSettings(FloatLayout):
                 ctx.session.new_protocol(
                     tiling=tiling,
                     use_zstacking=use_zstacking,
-                    period=self._protocol.period(),
-                    duration=self._protocol.duration(),
+                    period_s=self._protocol.period_s(),
+                    duration_s=self._protocol.duration_s(),
                 )
             )
 

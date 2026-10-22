@@ -200,8 +200,9 @@ def main():
                 'image_output_format.sequenced', image_mode.OUTPUT_FORMAT_HYPERSTACK
             )
         protocol = session.new_protocol(tiling=args.tiling)
-        period = datetime.timedelta(seconds=args.period)
-        session.set_protocol_schedule(protocol, period=period, duration=period * args.scans)
+        session.set_protocol_schedule(
+            protocol, period_s=args.period, duration_s=args.period * args.scans
+        )
         figure('first', args.first)
         figure('protocol.steps', protocol.num_steps())
         figure('protocol.scans', args.scans)

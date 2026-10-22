@@ -8,11 +8,15 @@ stage movement, LED switching, camera exposure, autofocus, and overhead.
 
 from dataclasses import dataclass, field
 from datetime import timedelta
+from typing import TYPE_CHECKING
 
 from lvp_logger import logger
 from modules import common_utils
 from modules.exceptions import ConfigError
 from modules.objectives_loader import Objective, ObjectiveLoader
+
+if TYPE_CHECKING:
+    from modules.protocol import Protocol
 
 
 # ---------------------------------------------------------------------------
@@ -136,13 +140,15 @@ class ProtocolTimeEstimator:
         # objectives of the installation the protocol will run on.
         self._objectives = objectives_loader
 
-    def estimate(self, protocol) -> ProtocolTimeEstimate:
+    def estimate(self, protocol: 'Protocol') -> ProtocolTimeEstimate:
         """Estimate total protocol execution time."""
         scan_estimate = self._estimate_scan(protocol)
 
-        period_s = protocol.period().total_seconds()
-        duration_s = protocol.duration().total_seconds()
-        num_scans = max(1, int(duration_s / period_s)) if period_s > 0 else 1
+        period_s = protocol.period_s()
+        duration_s = protocol.duration_s()
+        # The protocol's own count, divided exactly, so the estimate counts
+        # the scans the run will take.
+        num_scans = protocol.num_scans()
 
         scan_time = scan_estimate.total_s
         scan_fits = scan_time <= period_s

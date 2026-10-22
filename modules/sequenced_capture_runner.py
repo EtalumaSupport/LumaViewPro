@@ -147,11 +147,11 @@ class RunFiles:
 
 
 @api_fields(
-    'interval',
     'is_last_run',
     'is_live',
     'is_stopping',
     'num_steps',
+    'period_s',
     'remaining_scans',
     'run_dir',
     'step_number',
@@ -174,7 +174,7 @@ class RunProgress:
             run is not live.
         num_steps: The run's step count; None once it is not live.
         remaining_scans: The scans still to run; None once it is not live.
-        interval: The run's scan period; None once it is not live.
+        period_s: The run's scan period in seconds; None once it is not live.
     """
 
     is_live: bool
@@ -184,7 +184,7 @@ class RunProgress:
     step_number: int | None
     num_steps: int | None
     remaining_scans: int | None
-    interval: datetime.timedelta | None
+    period_s: float | None
 
 
 class EngineRun:
@@ -542,23 +542,18 @@ class SequencedCaptureRunner:
             # Period 0 is the loader's single-scan marker (Manual Z-Stack
             # and single-shot capture write it), and a duration shorter
             # than one period still runs its first scan: the run loop
-            # captures scan 1 at t=0 before any period elapses. Both are
-            # timedeltas, compared in seconds -- a timedelta is never equal
-            # to the integer 0 -- and divided as timedeltas, which is exact
-            # where float seconds would drop a scan on some ratios.
-            period = protocol.period()
-            duration = protocol.duration()
-            if period.total_seconds() == 0:
-                n_scans = 1
-                single_scan = True
-            else:
-                n_scans = max(1, int(duration / period))
-                single_scan = duration < period
-            if single_scan:
+            # captures scan 1 at t=0 before any period elapses. The count is
+            # the protocol's own, divided exactly; the seconds are only
+            # compared here, and schedules a microsecond apart stay apart
+            # as floats. A full protocol always has both: a loaded file and
+            # New each give one.
+            n_scans = protocol.num_scans()
+            period_s, duration_s = protocol.period_s(), protocol.duration_s()
+            if period_s == 0 or duration_s < period_s:
                 from modules.notification_center import notifications
 
                 notifications.report_outcome(
-                    SingleScanNotice(period=period, duration=duration),
+                    SingleScanNotice(period_s=period_s, duration_s=duration_s),
                     solicited=False,
                     category='Protocol',
                 )
@@ -812,11 +807,11 @@ class SequencedCaptureRunner:
         if writer is not None:
             writer.discard_video_pending()
 
-    def _protocol_interval(self):
+    def _protocol_period_s(self) -> float | None:
         # None before the first run: a status poller may ask before any
         # protocol is loaded, and an AttributeError from a getter is a
         # crash in a UI handler, not an answer.
-        return self._protocol.period() if self._protocol is not None else None
+        return self._protocol.period_s() if self._protocol is not None else None
 
     def _num_steps(self) -> int | None:
         return self._protocol.num_steps() if self._protocol is not None else None
@@ -2314,7 +2309,7 @@ class SequencedCaptureRunner:
                 step_number=self._step_number() if live else None,
                 num_steps=self._num_steps() if live else None,
                 remaining_scans=self._remaining_scans() if live else None,
-                interval=self._protocol_interval() if live else None,
+                period_s=self._protocol_period_s() if live else None,
             )
 
     def held_by_other(self, run: Operation | None) -> bool:

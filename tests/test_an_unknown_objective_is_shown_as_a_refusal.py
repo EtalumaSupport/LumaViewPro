@@ -69,7 +69,7 @@ class TestNewProtocol:
             # The panel's redraw runs whatever the outcome; it draws nothing here.
             update_step_ui=lambda: None,
             # The protocol on screen, whose schedule New starts from.
-            _protocol=SimpleNamespace(period=lambda: None, duration=lambda: None),
+            _protocol=SimpleNamespace(period_s=lambda: None, duration_s=lambda: None),
         )
         return ps.ProtocolSettings.new_protocol, stand, error
 

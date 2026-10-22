@@ -208,7 +208,7 @@ class ProtocolRunLoop:
                     current_time = time.monotonic()
                     elapsed_time = current_time - p._start_t
 
-                    if elapsed_time < p._protocol.period().total_seconds():
+                    if elapsed_time < p._protocol.period_s():
                         time.sleep(0.1)
                         continue
 
@@ -220,7 +220,7 @@ class ProtocolRunLoop:
                     'scan_started',
                     p._scan_count + 1,
                     remaining_scans,
-                    p._protocol.period(),
+                    p._protocol.period_s(),
                 )
 
                 # Initialize per-scan state (curr_step, AF pointer).
@@ -318,7 +318,7 @@ class ProtocolRunLoop:
                     'scan_ended',
                     new_count,
                     p._remaining_scans(),
-                    p._protocol.period(),
+                    p._protocol.period_s(),
                 )
 
                 p._scan_in_progress.clear()

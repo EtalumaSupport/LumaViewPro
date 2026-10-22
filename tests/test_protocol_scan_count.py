@@ -88,6 +88,11 @@ def test_period_zero_runs_one_scan(centre_posts):
     assert len(_notices(centre_posts)) == 1, 'the user is told once that the run is a single scan'
 
 
+def test_a_run_capped_at_no_scans_takes_none_even_at_period_zero():
+    protocol = _protocol(period=datetime.timedelta(0), duration=datetime.timedelta(minutes=1))
+    assert _scan_count(protocol, max_scans=0) == 0
+
+
 def test_period_zero_reloaded_from_tsv_runs_one_scan(tmp_path):
     # The bench recipe that found the crash: a Period 0 protocol on disk.
     protocol = _protocol(period=datetime.timedelta(0), duration=datetime.timedelta(hours=1))

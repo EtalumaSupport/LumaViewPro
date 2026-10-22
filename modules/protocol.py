@@ -982,13 +982,14 @@ def schedule_from_units(
     *,
     file: pathlib.Path | str | None = None,
     judged: bool = True,
+    unit: str | None = None,
 ) -> datetime.timedelta | None:
     """A period in minutes or a duration in hours, as the protocol takes it.
 
     The units the protocol file, the settings store and the GUI's fields
-    all hold. Anything that is not a finite number, or (when ``judged``) is
-    a number the protocol cannot run, is refused here in the range rule's
-    words.
+    all hold; ``unit='seconds'`` takes the API's. Anything that is not a
+    finite number, or (when ``judged``) is a number the protocol cannot
+    run, is refused here in the range rule's words.
 
     Raises:
         ProtocolScheduleRefusedError: ``value`` is not a runnable ``key``.
@@ -997,7 +998,7 @@ def schedule_from_units(
         return None
     try:
         number = float(value)
-        schedule = datetime.timedelta(**{_UNITS[key]: number})
+        schedule = datetime.timedelta(**{unit or _UNITS[key]: number})
     except (TypeError, ValueError, OverflowError):
         raise ProtocolScheduleRefusedError(key, value, file=file) from None
     if judged:
@@ -1265,22 +1266,41 @@ class Protocol:
         return z_height_map
 
     @api(reads=True)
-    def period(self) -> datetime.timedelta:
-        """How often the protocol scans; zero or None for one scan.
+    def period_s(self) -> float | None:
+        """How often the protocol scans, in seconds; 0 or None for one scan.
 
         Raises:
             Nothing.
         """
-        return self._config['period']
+        period = self._config['period']
+        return None if period is None else period.total_seconds()
 
     @api(reads=True)
-    def duration(self) -> datetime.timedelta:
-        """How long the protocol runs its scans; zero or None for one scan.
+    def duration_s(self) -> float | None:
+        """How long the protocol runs its scans, in seconds; 0 or None for one scan.
 
         Raises:
             Nothing.
         """
-        return self._config['duration']
+        duration = self._config['duration']
+        return None if duration is None else duration.total_seconds()
+
+    @api(reads=True)
+    def num_scans(self) -> int:
+        """How many scans a full run of the protocol takes: its duration over its period, whole.
+
+        A period of 0 or None is one scan, and so is a duration shorter than
+        one period: a run captures its first scan before any period elapses.
+        Divided as timedeltas, which is exact where float seconds drop a scan
+        on some ratios.
+
+        Raises:
+            Nothing.
+        """
+        period, duration = self._config['period'], self._config['duration']
+        if not period:
+            return 1
+        return max(1, int((duration or datetime.timedelta(0)) / period))
 
     @api(reads=True)
     def labware(self) -> str:
@@ -1483,12 +1503,9 @@ class Protocol:
         # Period (Interval) needs the same sub-minute precision as Duration:
         # at 2 decimals a 1-second interval (0.016667 min) quantizes to 0.02
         # min on disk, corrupting the stored value. Match Duration's 6 decimals.
-        period_minutes = (
-            0 if self.period() is None else round(self.period().total_seconds() / 60.0, 6)
-        )
-        duration_hours = (
-            0 if self.duration() is None else round(self.duration().total_seconds() / 3600.0, 6)
-        )
+        period_s, duration_s = self.period_s(), self.duration_s()
+        period_minutes = 0 if period_s is None else round(period_s / 60.0, 6)
+        duration_hours = 0 if duration_s is None else round(duration_s / 3600.0, 6)
 
         try:
             file_path.parent.mkdir(parents=True, exist_ok=True)
