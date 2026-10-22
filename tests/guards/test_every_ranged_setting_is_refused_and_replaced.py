@@ -72,13 +72,16 @@ _OUT_OF_RANGE = {
     '*.stim_config.pulse_count': settings_paths.STIM_PULSE_COUNT_RANGE[1] + 1,
     '*.stim_config.illumination_ma': -1,
     '*.display_color': '#800080',
+    'rest_api.port': settings_paths.REST_API_PORT_RANGE[1] + 1,
 }
 
-# A whole-number setting's fraction, inside its bounds: the board and the
-# encoder each take a whole number, so a fraction is outside the range too.
+# A whole-number setting's fraction, inside its bounds: the board, the
+# encoder and a socket each take a whole number, so a fraction is outside
+# the range too.
 _A_FRACTION = {
     'motion.acceleration_max_pct': 62.5,
     'jpg_quality': 85.5,
+    'rest_api.port': 8000.5,
 }
 
 _CASES = sorted(
@@ -110,6 +113,12 @@ def test_a_write_outside_the_range_is_refused_and_nothing_is_written(session):
             with pytest.raises(SettingRefusedError) as refused:
                 session.update_settings(path, value)
             assert refused.value.reason == 'has_member'
+        elif settings_paths.is_installation_only(path):
+            # No write reaches it at all; its range is the load's half and a
+            # handed dict's.
+            with pytest.raises(SettingRefusedError) as refused:
+                session.update_settings(path, value)
+            assert refused.value.reason == 'installation_only'
         else:
             with pytest.raises(SettingRefusedError) as refused:
                 session.update_settings(path, value)

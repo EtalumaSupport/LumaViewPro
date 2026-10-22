@@ -70,9 +70,12 @@ MIGRATED_PER_LAYER = {'ill_ma', 'exp_ms', 'file_root'}
 # - protocol.bf_af_for_fluorescence: reusing brightfield's autofocus for
 #   the fluorescence steps, removed.
 # - profiling.stim_profiling: shipped with no reader, removed.
+# - rest_api.host, api_key, cors_origins: the server binds this computer
+#   only and has no credentials; nothing read them.
 RETIRED_PER_LAYER = {
     'protocol': {'bf_af_for_fluorescence'},
     'profiling': {'stim_profiling'},
+    'rest_api': {'host', 'api_key', 'cors_origins'},
 }
 
 # Top-level keys the loader drops whole, under the same terms:

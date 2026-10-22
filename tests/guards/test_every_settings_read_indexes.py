@@ -41,10 +41,6 @@ _NOT_THE_STORE = {
     ('modules/tech_support_report.py', '_get_capture_dir'): 1,
     # The auto-gain arm's own settings dict, whose bounds are optional.
     ('modules/lumascope_api/camera.py', 'CameraAPI._lock_auto_gain_impl'): 2,
-    # A dict no production caller hands; the API convention wave's W6
-    # (`api_key`) decides its reader.
-    ('modules/api_auth.py', 'is_auth_required'): 2,
-    ('modules/api_auth.py', 'check_auth'): 2,
 }
 
 

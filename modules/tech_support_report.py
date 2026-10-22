@@ -160,6 +160,23 @@ def _get_user_documents():
     return pathlib.Path(platformdirs.user_documents_dir())
 
 
+# The value of an ``"api_key"`` member in a settings file, on its bytes: a
+# string -- escapes allowed, and cut off by a truncation -- or a bare value
+# up to its delimiter. Bytes, not text: a rejected file may not decode.
+_API_KEY_VALUE = re.compile(rb'("api_key"\s*:\s*)("(?:[^"\\]|\\.)*(?:"|\\?\Z)|[^,}\]\s]+)', re.S)
+
+
+def _without_api_keys(data: bytes) -> bytes:
+    """*data* with every ``"api_key"`` member's value blanked, and every byte outside a value kept.
+
+    A null stays null. Any section's key is blanked, a plugin's own among
+    them: without parsing, the bytes cannot say which section one is in.
+    """
+    return _API_KEY_VALUE.sub(
+        lambda m: m.group(1) + (b'null' if m.group(2) == b'null' else b'""'), data
+    )
+
+
 def _get_lvp_data_dir():
     """Return the LVP data/ directory (settings.json, scopes.json, etc.)."""
     data_dir = get_source_root() / 'data'
@@ -1681,7 +1698,10 @@ class TechSupportReport:
                 ``output_dir`` or above it; refused before the report starts.
             SupportReportNotSavedError: no ZIP was saved; chained from the
                 failure, whose words it carries. A step that fails inside
-                the report is written into the report and does not raise.
+                the report is written into the report and does not raise,
+                except the data folder's copy: it is where a stored API key
+                is blanked, so a copy that went wrong is not shipped as if
+                it had not.
         """
         output_dir = folder_to_make(output_dir)
         cb = callback or (lambda pct, msg: None)
@@ -2512,20 +2532,48 @@ class TechSupportReport:
                 json.dump([identity.to_dict() for identity in bindings], f, indent=2)
 
     def _step_data_folder(self, tmp):
+        """Copy the data folder, every ``current.json*``'s stored ``api_key`` value blanked.
+
+        The live settings file, each one set aside as rejected and a
+        ``.saving`` a power cut left are all copied: support reads them
+        for what they hold, the corruption included, so the blank is made
+        on their bytes and every other byte is kept. A copy that fails
+        raises. A file gone between the listing and its copy -- the
+        settings saver renames its ``.saving`` over ``current.json`` -- is
+        not there to copy, and is named in ``NOT_COPIED.txt``.
+        """
         data_dir = _get_lvp_data_dir()
         if not data_dir or not data_dir.is_dir():
             return
         dest = tmp / 'data'
-        try:
-            shutil.copytree(
-                data_dir,
-                dest,
-                dirs_exist_ok=True,
-                ignore=shutil.ignore_patterns('__pycache__', '*.pyc'),
+        gone = []
+
+        def copy(src: str, dst: str) -> None:
+            try:
+                if os.path.basename(src).startswith('current.json'):
+                    with open(src, 'rb') as f:
+                        data = f.read()
+                    with open(dst, 'wb') as f:
+                        f.write(_without_api_keys(data))
+                else:
+                    shutil.copy2(src, dst)
+            except FileNotFoundError:
+                if os.path.exists(src):
+                    raise
+                gone.append(os.path.relpath(src, data_dir))
+
+        shutil.copytree(
+            data_dir,
+            dest,
+            dirs_exist_ok=True,
+            ignore=shutil.ignore_patterns('__pycache__', '*.pyc'),
+            copy_function=copy,
+        )
+        if gone:
+            (dest / 'NOT_COPIED.txt').write_text(
+                'Gone from the data folder between its listing and its copy:\n'
+                + ''.join(f'{name}\n' for name in gone)
             )
-        except Exception as e:
-            dest.mkdir(exist_ok=True)
-            (dest / 'ERROR.txt').write_text(f'Copy failed: {e}\n')
 
     def _step_logs(self, tmp):
         logs_dir = _get_lvp_logs_dir()

@@ -73,6 +73,9 @@ def test_a_hand_dict_comes_up_with_every_template_key_and_is_told_nothing(tmp_pa
         ('zstack.range', 10**400, 'wrong_kind'),
         ('BF.focus', 'abc', 'wrong_kind'),
         ('step_channel_order', ['BF'], 'derived'),
+        # A socket takes a whole port above the ones the system reserves.
+        ('rest_api.port', 8000.5, 'out_of_range'),
+        ('rest_api.port', 70000, 'out_of_range'),
     ],
 )
 def test_a_value_the_writer_refuses_is_refused_as_a_write_is_and_nothing_is_built(

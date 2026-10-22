@@ -193,6 +193,36 @@ def test_the_settings_nothing_reads_are_dropped_from_a_stored_file():
     assert 'stage' not in stored
 
 
+def test_the_rest_servers_dead_settings_are_dropped_from_a_stored_file():
+    # The server's host, key and CORS origins were never read: it binds this
+    # computer only and has no credentials. A file that still carries them
+    # loads without them.
+    with open(SHIPPED_TEMPLATE) as f:
+        stored = json.load(f)
+    stored['rest_api'].update(host='0.0.0.0', api_key='s3cr3t', cors_origins=['http://localhost:*'])
+
+    assert settings_init.normalize_loaded_settings(stored) is True
+    assert set(stored['rest_api']) == {'enabled', 'port'}
+
+
+def test_a_dead_rest_setting_handed_in_is_dropped_and_never_saved(tmp_path):
+    """A dict a script hands in is prepared as the file is; the session saves what it holds."""
+    from modules.scope_session import ScopeSession
+    from tests.settings_fixtures import complete_settings
+
+    settings = complete_settings(live_folder=str(tmp_path))
+    settings['rest_api']['api_key'] = 's3cr3t'
+    saved = tmp_path / 'current.json'
+    session = ScopeSession.create(settings, simulate=True, settings_file=str(saved))
+    try:
+        assert 'api_key' not in session.get_settings_snapshot()['rest_api']
+    finally:
+        session.shutdown()
+
+    assert b's3cr3t' not in saved.read_bytes()
+    assert set(json.loads(saved.read_text())['rest_api']) == {'enabled', 'port'}
+
+
 def test_a_stored_layer_file_root_is_dropped_at_load(tmp_path):
     # Every layer once shipped a filename prefix nothing read; a current.json
     # that still carries one comes up without it.

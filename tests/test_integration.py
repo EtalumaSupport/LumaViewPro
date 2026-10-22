@@ -1049,7 +1049,6 @@ class TestRestAPIPrep:
             settings = json.load(f)
         assert 'rest_api' in settings
         assert settings['rest_api']['enabled'] is False
-        assert settings['rest_api']['host'] == '127.0.0.1'
         assert settings['rest_api']['port'] == 8000
 
 

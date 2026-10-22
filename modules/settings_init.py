@@ -394,6 +394,16 @@ def normalize_loaded_settings(settings_dict: dict) -> bool:
         if settings_dict.pop(block, None) is not None:
             changed = True
 
+    # The REST server's host, key and CORS origins, which nothing read: it
+    # binds this computer only and has no credentials. A shipped null key is
+    # dropped too, so the test is membership, not the value.
+    rest_api = settings_dict.get('rest_api')
+    if isinstance(rest_api, dict):
+        for key in ('host', 'api_key', 'cors_origins'):
+            if key in rest_api:
+                del rest_api[key]
+                changed = True
+
     # The slot a person last turned the turret to, once preferred when two
     # slots carry one objective. Each protocol step now records its own
     # slot, and nothing reads this one.

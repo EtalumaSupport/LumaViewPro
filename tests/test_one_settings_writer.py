@@ -190,10 +190,7 @@ def test_a_setting_with_a_member_is_refused_naming_it(session, path, owner, memb
     ('path', 'value'),
     [
         ('rest_api.enabled', True),
-        ('rest_api.host', '0.0.0.0'),
         ('rest_api.port', 9000),
-        ('rest_api.api_key', 'k'),
-        ('rest_api.cors_origins', ['*']),
         ('mode', 'engineering'),
         ('lvp_lock_port', 1),
         ('profile_trace_output_dir', '/elsewhere'),

@@ -99,8 +99,8 @@ SETTINGS_WITH_A_MEMBER: typing.Final[dict[str, SettingMember]] = {
 }
 
 # A setting only the installation's settings file sets: it decides how the
-# next start reaches the scope, the machine or its files -- the server and
-# its key, the start mode, the single-instance port, what is profiled and
+# next start reaches the scope, the machine or its files -- the server, the
+# start mode, the single-instance port, what is profiled and
 # where the profile is written. No write changes it, from any caller, so
 # no caller can reconfigure the scope it is driving. A path at or under a
 # key here is refused.
@@ -180,7 +180,6 @@ _NULLABLE_KINDS: typing.Final[dict[str, tuple[str, ...]]] = {
     'objective_confirmed': ('bool', 'string'),
     'profiling.metrics_interval_s': ('number',),
     'profile_trace_output_dir': ('string',),
-    'rest_api.api_key': ('string',),
 }
 
 VIDEO_MAX_FPS_LIMIT: typing.Final = 200
@@ -195,6 +194,9 @@ JPG_QUALITY_RANGE: typing.Final = (1, 100)
 
 VIDEO_STEP_DURATION_S_MAX: typing.Final = 3600
 """The longest video a protocol step records, in seconds."""
+
+REST_API_PORT_RANGE: typing.Final = (1024, 65535)
+"""The REST server's port, inclusive: above the ones the system reserves."""
 
 STIM_FREQUENCY_HZ_RANGE: typing.Final = (0.5, 6.0)
 STIM_PULSE_WIDTH_MS_RANGE: typing.Final = (5, 25)
@@ -337,6 +339,13 @@ def _jpg_quality(path: str, value: float) -> None:
     _refuse_outside(path, value, *JPG_QUALITY_RANGE)
 
 
+def _rest_api_port(path: str, value: float) -> None:
+    # A socket takes a whole port; bool is excluded by name: True is an int.
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise SettingRefusedError('out_of_range', path, f'it must be a whole number, not {value!r}')
+    _refuse_outside(path, value, *REST_API_PORT_RANGE)
+
+
 def _non_negative(path: str, value: float) -> None:
     _refuse_below(path, value, 0, inclusive=True)
 
@@ -446,6 +455,7 @@ _RANGES: typing.Final[dict[str, typing.Callable[[str, typing.Any], None]]] = {
     '*.stim_config.pulse_count': _stim_pulse_count,
     '*.stim_config.illumination_ma': _non_negative,
     '*.display_color': _display_color,
+    'rest_api.port': _rest_api_port,
 }
 
 
