@@ -34,7 +34,7 @@ from drivers.simulated_motorboard import SimulatedMotorBoard
 from drivers.simulated_tmcm6110 import SimulatedTmcm6110
 from modules.api_surface import api, api_fields
 from modules.exceptions import ArgumentRefusedError
-from modules.finite_number import refuse_unless_finite_number
+from modules.finite_number import WAIT_S, refuse_unless_finite_number
 from modules.lumascope_api._constants import refuse_unknown_axis
 
 if TYPE_CHECKING:
@@ -241,11 +241,14 @@ class SimulationAPI:
             ArgumentRefusedError: ``'needs_simulated_scope'``;
                 ``'fault_unknown'`` for a board this scope lacks;
                 ``'not_a_number'`` or ``'fault_bound'`` for a delay not
-                above 0; ``'not_injectable_on_board'`` on every board but
+                above 0 or past 30 days, the longest wait every host can
+                hold; ``'not_injectable_on_board'`` on every board but
                 a firmware board, the only one with a link to delay.
         """
         target = self._board('delay_reply', board)
-        self._bound('seconds', seconds, 'a delay above 0 s', seconds > 0)
+        self._bound(
+            'seconds', seconds, 'a delay above 0 s, at most 30 days', 0 < seconds <= WAIT_S[1]
+        )
         if not isinstance(target, EmulatedBoard):
             raise self._not_injectable('delay_reply', target)
         target.delay_next_reply(float(seconds))
@@ -344,12 +347,18 @@ class SimulationAPI:
         Raises:
             ArgumentRefusedError: ``'needs_simulated_scope'``;
                 ``'fault_unknown'``; ``'not_a_number'`` or ``'fault_bound'``
-                for a negative boot; ``'not_injectable_on_board'`` on every
+                for a negative boot or one past 30 days;
+                ``'not_injectable_on_board'`` on every
                 board but a firmware board, the only one with firmware to
                 restart.
         """
         target = self._board('reboot', board)
-        self._bound('booting_for_s', booting_for_s, '0 s or more', booting_for_s >= 0)
+        self._bound(
+            'booting_for_s',
+            booting_for_s,
+            '0 s to 30 days',
+            WAIT_S[0] <= booting_for_s <= WAIT_S[1],
+        )
         if not isinstance(target, EmulatedBoard):
             raise self._not_injectable('reboot', target)
         target.reboot(booting_for_s)

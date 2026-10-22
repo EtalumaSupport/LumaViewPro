@@ -41,6 +41,7 @@ from lvp_logger import logger
 from modules import kivy_utils
 from modules.api_surface import api, api_fields
 from modules.exceptions import BlockingCallRefusedError, OperationSettleRefusedError
+from modules.finite_number import refuse_unless_wait_s
 
 if TYPE_CHECKING:
     from modules.sequenced_capture_runner import RunProgress
@@ -287,6 +288,7 @@ class Operation(concurrent.futures.Future):
         return super().done()
 
     def result(self, timeout: float | None = None) -> object:
+        """The Future's ``result``; a ``timeout`` that is not a wait from 0 to 30 days is refused (``ArgumentRefusedError``)."""
         own = self._delivering_here()
         if own is not None:
             result, exception = own
@@ -294,13 +296,18 @@ class Operation(concurrent.futures.Future):
                 raise exception
             return result
         self._refuse_on_ui_thread('Operation.result')
+        if timeout is not None:
+            refuse_unless_wait_s(timeout, 'timeout')
         return super().result(timeout)
 
     def exception(self, timeout: float | None = None) -> BaseException | None:
+        """The Future's ``exception``; a ``timeout`` that is not a wait from 0 to 30 days is refused (``ArgumentRefusedError``)."""
         own = self._delivering_here()
         if own is not None:
             return own[1]
         self._refuse_on_ui_thread('Operation.exception')
+        if timeout is not None:
+            refuse_unless_wait_s(timeout, 'timeout')
         return super().exception(timeout)
 
     def _delivering_here(self) -> tuple[object, BaseException | None] | None:

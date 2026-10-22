@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from lvp_logger import log_dir, logger
-from modules.finite_number import refuse_unless_finite_number
+from modules.finite_number import refuse_outside, refuse_unless_wait_s
 from modules.api_surface import ProgressCallback, api, api_fields
 from modules.exceptions import (
     ArgumentRefusedError,
@@ -189,18 +189,6 @@ class LedBoardInfo:
     firmware_version: str | None
     firmware_date: str | None
     command_set: str | None
-
-
-def _refuse_outside(value: object, argument: str, limits: tuple[float, float]) -> None:
-    """Refuse ``value`` unless it is a finite number within ``limits``, ends included.
-
-    Raises:
-        ArgumentRefusedError: ``'not_a_number'`` or ``'out_of_range'``.
-    """
-    refuse_unless_finite_number(value, argument)
-    low, high = limits
-    if not low <= value <= high:
-        raise ArgumentRefusedError('out_of_range', argument=argument, value=value, limits=limits)
 
 
 NOT_CONNECTED = 'Board not connected'
@@ -438,16 +426,17 @@ class DiagnosticsAPI:
                 pixel_format, as the camera held them, None when unknown.
 
         Raises:
-            ArgumentRefusedError: ``'not_a_number'``, ``timeout_s`` is not a finite
-                number; ``'out_of_range'``, ``num_frames`` is outside 1 to
-                100,000. Nothing reached the camera.
+            ArgumentRefusedError: ``'not_a_number'`` or ``'out_of_range'``,
+                ``timeout_s`` is not from 0 to 30 days, the longest wait a
+                member takes, or ``num_frames`` is outside 1 to 100,000.
+                Nothing reached the camera.
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera, absent at the call or removed during the test. Only a
                 capture failure is counted: any other raise from a grab ends
                 the test as itself.
         """
-        _refuse_outside(num_frames, 'num_frames', _BANDWIDTH_FRAMES)
-        refuse_unless_finite_number(timeout_s, 'timeout_s')
+        refuse_outside(num_frames, 'num_frames', _BANDWIDTH_FRAMES)
+        refuse_unless_wait_s(timeout_s, 'timeout_s')
         self._scope.camera.refuse_camera_not_connected('run_camera_bandwidth_test')
         results = {
             'num_frames_requested': int(num_frames),
@@ -554,7 +543,7 @@ class DiagnosticsAPI:
             ('inter_cycle_delay_ms', inter_cycle_delay_ms, _BENCHMARK_DELAY_MS),
             ('slow_threshold_s', slow_threshold_s, _BENCHMARK_SLOW_S),
         ):
-            _refuse_outside(value, name, limits)
+            refuse_outside(value, name, limits)
         bound_s = num_cycles * (self._GRAB_CYCLE_BOUND_S + inter_cycle_delay_ms / 1000.0)
         return self._scope.camera._dispatch_camera(
             self._run_grab_lifecycle_benchmark_impl,
@@ -793,7 +782,7 @@ class DiagnosticsAPI:
                 number; ``'out_of_range'``, it is outside 0 to 3,600.
                 Nothing reached the camera.
         """
-        _refuse_outside(duration_s, 'duration_s', _PROBE_DURATION_S)
+        refuse_outside(duration_s, 'duration_s', _PROBE_DURATION_S)
         return self._scope.camera._dispatch_camera(
             self._run_pylon_diagnostic_probe_impl,
             'run_pylon_diagnostic_probe',
@@ -988,9 +977,14 @@ class DiagnosticsAPI:
                 scope and this call is not made under its taking; the
                 command is not sent. An exchange that fails once sent is
                 still answered with ``'Error: <msg>'``.
+            ArgumentRefusedError: ``'not_a_number'`` or ``'out_of_range'``,
+                ``timeout_s`` is not a wait from 0 to 30 days. Nothing was
+                sent.
         """
         if isinstance(target, str) and target.lower() in ('motor', 'motion'):
             _refuse_motor_verb(command)
+        if timeout_s is not None:
+            refuse_unless_wait_s(timeout_s, 'timeout_s')
         try:
             board = self._diagnostic_target_board(target)
         except ValueError as e:
@@ -1061,9 +1055,13 @@ class DiagnosticsAPI:
                 scope and this call is not made under its taking; the
                 command is not sent. An exchange that fails once sent is
                 still answered with ``'Error: <msg>'``.
+            ArgumentRefusedError: ``'not_a_number'`` or ``'out_of_range'``,
+                ``timeout_s`` is not a wait from 0 to 30 days. Nothing was
+                sent.
         """
         if isinstance(target, str) and target.lower() in ('motor', 'motion'):
             _refuse_motor_verb(command)
+        refuse_unless_wait_s(timeout_s, 'timeout_s')
         try:
             board = self._diagnostic_target_board(target)
         except ValueError as e:
@@ -1231,11 +1229,12 @@ class DiagnosticsAPI:
                 the handshake). Nothing was sent.
             HardwareError: The board did not complete the handshake; the
                 driver has already tried to bring it back to safe mode.
-            ArgumentRefusedError: ``'not_a_number'``, ``timeout_s`` is not a
-                finite number. Nothing was sent.
+            ArgumentRefusedError: ``'not_a_number'`` or ``'out_of_range'``,
+                ``timeout_s`` is not a wait from 0 to 30 days. Nothing was
+                sent.
         """
         self._refuse_no_led_engineering_mode('enter_led_engineering_mode')
-        refuse_unless_finite_number(timeout_s, 'timeout_s')
+        refuse_unless_wait_s(timeout_s, 'timeout_s')
         self._scope.motion._dispatch_motion(
             self._enter_led_engineering_mode_impl,
             'enter_led_engineering_mode',

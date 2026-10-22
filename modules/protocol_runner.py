@@ -22,9 +22,11 @@ Usage
 """
 
 import pathlib
+import typing
 
 from modules.activity_claim import HeldClaim
 from modules.exceptions import CompositeFailedError, RunWaitExpiredError
+from modules.finite_number import refuse_unless_wait_s
 from modules.layer_record import refuse_unknown_layer
 from modules.coord_transformations import PlateLocation
 from modules.protocol import Protocol
@@ -522,6 +524,9 @@ class ProtocolRunner:
         returns its outcome, a stopped one included.
 
         Raises:
+            ArgumentRefusedError: ``'not_a_number'`` or ``'out_of_range'``,
+                ``timeout_s`` is not a wait from 0 to 30 days. Nothing was
+                started.
             ProtocolRunRefusedError: As ``start_single_scan``; nothing was started.
             BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on the
                 UI thread, whose form is ``start_single_scan``. Nothing was started.
@@ -532,7 +537,7 @@ class ProtocolRunner:
         refuse_waiting_on_ui_thread('run_single_scan')
         return self._waited(
             'run_single_scan',
-            self.start_single_scan(
+            lambda: self.start_single_scan(
                 protocol=protocol,
                 sequence_name=sequence_name,
                 parent_dir=parent_dir,
@@ -561,6 +566,9 @@ class ProtocolRunner:
         returns its outcome, a stopped one included.
 
         Raises:
+            ArgumentRefusedError: ``'not_a_number'`` or ``'out_of_range'``,
+                ``timeout_s`` is not a wait from 0 to 30 days. Nothing was
+                started.
             ProtocolRunRefusedError: As ``start_protocol``; nothing was started.
             BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on the
                 UI thread, whose form is ``start_protocol``. Nothing was started.
@@ -571,7 +579,7 @@ class ProtocolRunner:
         refuse_waiting_on_ui_thread('run_protocol')
         return self._waited(
             'run_protocol',
-            self.start_protocol(
+            lambda: self.start_protocol(
                 protocol=protocol,
                 sequence_name=sequence_name,
                 parent_dir=parent_dir,
@@ -600,6 +608,9 @@ class ProtocolRunner:
         returns its outcome, a stopped one included.
 
         Raises:
+            ArgumentRefusedError: ``'not_a_number'`` or ``'out_of_range'``,
+                ``timeout_s`` is not a wait from 0 to 30 days. Nothing was
+                started.
             ProtocolRunRefusedError: As ``start_autofocus``; nothing was started.
             BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on the
                 UI thread, whose form is ``start_autofocus``. Nothing was started.
@@ -610,7 +621,7 @@ class ProtocolRunner:
         refuse_waiting_on_ui_thread('run_autofocus')
         return self._waited(
             'run_autofocus',
-            self.start_autofocus(
+            lambda: self.start_autofocus(
                 layer=layer,
                 save_characterization_data=save_characterization_data,
                 sequence_name=sequence_name,
@@ -636,6 +647,9 @@ class ProtocolRunner:
         returns its outcome, a stopped one included.
 
         Raises:
+            ArgumentRefusedError: ``'not_a_number'`` or ``'out_of_range'``,
+                ``timeout_s`` is not a wait from 0 to 30 days. Nothing was
+                started.
             ProtocolRunRefusedError: As ``start_autofocus_all_steps``; nothing was started.
             BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on the
                 UI thread, whose form is ``start_autofocus_all_steps``. Nothing was started.
@@ -646,7 +660,7 @@ class ProtocolRunner:
         refuse_waiting_on_ui_thread('run_autofocus_all_steps')
         return self._waited(
             'run_autofocus_all_steps',
-            self.start_autofocus_all_steps(
+            lambda: self.start_autofocus_all_steps(
                 protocol=protocol,
                 events=events,
             ),
@@ -672,6 +686,9 @@ class ProtocolRunner:
         returns its outcome, a stopped one included.
 
         Raises:
+            ArgumentRefusedError: ``'not_a_number'`` or ``'out_of_range'``,
+                ``timeout_s`` is not a wait from 0 to 30 days. Nothing was
+                started.
             ProtocolRunRefusedError: As ``start_zstack``; nothing was started.
             BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on the
                 UI thread, whose form is ``start_zstack``. Nothing was started.
@@ -682,7 +699,7 @@ class ProtocolRunner:
         refuse_waiting_on_ui_thread('run_zstack')
         return self._waited(
             'run_zstack',
-            self.start_zstack(
+            lambda: self.start_zstack(
                 layer=layer,
                 sequence_name=sequence_name,
                 parent_dir=parent_dir,
@@ -693,8 +710,18 @@ class ProtocolRunner:
             timeout_s,
         )
 
-    def _waited(self, member: str, run: Operation, timeout_s: float | None) -> RunOutcome:
-        """Wait for *run*'s outcome; a wait that runs out hands the caller the run, still going."""
+    def _waited(
+        self, member: str, start: typing.Callable[[], Operation], timeout_s: float | None
+    ) -> RunOutcome:
+        """Start the run and wait for its outcome; a wait that runs out hands the caller the run, still going.
+
+        The wait is judged before *start* is called, so a wait no host can
+        hold is refused with nothing started, never raised out of the wait
+        while the run goes on with no handle to it.
+        """
+        if timeout_s is not None:
+            refuse_unless_wait_s(timeout_s, 'timeout_s')
+        run = start()
         try:
             return run.result(timeout=timeout_s)
         except TimeoutError:
@@ -760,11 +787,14 @@ class ProtocolRunner:
             BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on
                 the UI thread, whose form is ``start_composite``. Nothing
                 was started.
+            ArgumentRefusedError: ``'not_a_number'`` or ``'out_of_range'``,
+                ``timeout_s`` is not a wait from 0 to 30 days. Nothing was
+                started.
         """
         refuse_waiting_on_ui_thread('run_composite')
         settled = self._waited(
             'run_composite',
-            self.start_composite(
+            lambda: self.start_composite(
                 sequence_name=sequence_name,
                 parent_dir=parent_dir,
                 events=events,

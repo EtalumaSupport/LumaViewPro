@@ -40,7 +40,7 @@ from drivers.exceptions import HardwareError, MotionInterlockError, MotionNotCom
 from drivers.null_motorboard import NullMotionBoard
 from lib import profile_trace
 from lvp_logger import logger
-from modules.finite_number import refuse_unless_finite_number
+from modules.finite_number import refuse_unless_finite_number, refuse_unless_wait_s
 from modules.exceptions import (
     ArgumentRefusedError,
     AxisStateUnknownError,
@@ -3161,10 +3161,12 @@ class MotionAPI:
             MoveWaitExpiredError: ``'still_moving'``, a ``TimeoutError``: an
                 axis was still moving when ``timeout_s`` ran out; its state
                 is left to its own move.
-            ArgumentRefusedError: ``'not_a_number'``, ``timeout_s`` is not a
-                finite number; a NaN deadline would end the wait at once.
+            ArgumentRefusedError: ``'not_a_number'`` or ``'out_of_range'``,
+                ``timeout_s`` is not a wait from 0 to 30 days: a NaN deadline
+                would end the wait at once, and one longer than the host can
+                hold would raise out of it.
         """
-        refuse_unless_finite_number(timeout_s, 'timeout_s')
+        refuse_unless_wait_s(timeout_s, 'timeout_s')
         with self._axis_state_lock:
             moving = [
                 ax

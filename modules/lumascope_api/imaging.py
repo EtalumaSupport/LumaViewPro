@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from modules.finite_number import refuse_unless_finite_number
+from modules.finite_number import refuse_unless_wait_s
 import modules.image_utils as image_utils
 from drivers.camera import Frame
 from drivers.exceptions import CameraReadFailedError, HardwareError
@@ -1317,11 +1317,14 @@ class ImagingAPI:
         wait is bounded separately and internally.
 
         Raises:
-            ArgumentRefusedError: ``'not_a_number'``, a time is not a finite
-                number; NaN would make the body's drain deadline never pass.
+            ArgumentRefusedError: ``'not_a_number'`` or ``'out_of_range'``, a
+                time is not a wait from 0 to 30 days, or the wait for the
+                capture and every frame of its sum together is longer: NaN
+                would make the body's drain deadline never pass, and a wait
+                longer than the host can hold would raise out of it.
         """
         for name, value in (('timeout_s', timeout_s), ('sum_delay_s', sum_delay_s)):
-            refuse_unless_finite_number(value, name)
+            refuse_unless_wait_s(value, name)
         # The executor wait is a liveness bound, not a budget, so it scales
         # with the work the caller declared: the content-gate retry budget
         # runs inside the body, and each summed frame costs an exposure plus
@@ -1344,6 +1347,8 @@ class ImagingAPI:
             + sum_count * (frame_cost_s + sum_delay_s)
             + settle_s
         )
+        # Each time in range, a long sum can still make a wait no host holds.
+        refuse_unless_wait_s(wait_s, 'the wait for the capture and every frame of its sum')
         return self._camera._dispatch_camera(
             self._capture_and_wait_impl,
             'capture_and_wait',
@@ -1872,8 +1877,10 @@ class ImagingAPI:
         on the camera lane and ``sum_iteration_callback`` is called there.
 
         Raises:
-            ArgumentRefusedError: ``'not_a_number'``, a time is not a finite
-                number.
+            ArgumentRefusedError: ``'not_a_number'`` or ``'out_of_range'``, a
+                time is not a wait from 0 to 30 days, or the wait for every
+                frame of the sum together is longer. Nothing reached the
+                camera.
             CaptureFailedError: ``'no_frame'``, no frame within the timeouts;
                 ``'chunk_rejected'``, frames came but none at the ``setting``
                 asked (``verify_chunk_targets``).
@@ -1885,12 +1892,14 @@ class ImagingAPI:
             ('sum_delay_s', sum_delay_s),
             ('new_capture_timeout_s', new_capture_timeout_s),
         ):
-            refuse_unless_finite_number(value, name)
+            refuse_unless_wait_s(value, name)
         # A liveness bound, not a budget: each frame of a sum may wait out its
         # retry window and then one last new-capture grab, plus its delay.
         wait_s = self._CAPTURE_WAIT_TIMEOUT_S + sum_count * (
             timeout_s + new_capture_timeout_s + sum_delay_s
         )
+        # Each time in range, a long sum can still make a wait no host holds.
+        refuse_unless_wait_s(wait_s, 'the wait for every frame of the sum')
         grabbed = self._camera._dispatch_camera(
             self._get_image_impl,
             'get_image',
