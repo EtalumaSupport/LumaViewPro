@@ -535,22 +535,27 @@ class TestTheProvisionalStateIsTheSessions:
         ), 'the close must still tear the session (and its hardware) down'
 
         # Each way the app closes runs the host's part first, then reaches the
-        # session's close: on_stop calls it; the window's close starts the
-        # thread that runs it.
+        # session's close through _end_the_session (directly, or inside a
+        # served REST server's close): on_stop calls it; the window's close
+        # starts the thread that runs it.
+        assert any(
+            isinstance(n, ast.Attribute) and n.attr == '_shut_the_session_down'
+            for n in ast.walk(methods['_end_the_session'])
+        ), "_end_the_session must reach the session's close"
         for name in ('on_stop', '_close_the_session'):
             method = methods[name]
             prepared = [n.lineno for n in _calls(method) if n.func.attr == '_prepare_the_close']
             torn = [
                 n.lineno
                 for n in ast.walk(method)
-                if isinstance(n, ast.Attribute) and n.attr == '_shut_the_session_down'
+                if isinstance(n, ast.Attribute) and n.attr == '_end_the_session'
             ]
             assert prepared and torn, f"{name} must prepare, then reach the session's close"
             assert min(prepared) < min(torn), f"{name} must prepare BEFORE the session's close"
 
         # The teardown is the session's, whole: no part of the app's close
         # stops a thread, lane or hardware itself.
-        for name in ('on_stop', '_prepare_the_close', '_shut_the_session_down'):
+        for name in ('on_stop', '_prepare_the_close', '_end_the_session', '_shut_the_session_down'):
             stray = [
                 (node.lineno, ast.unparse(node.func))
                 for node in _calls(methods[name])

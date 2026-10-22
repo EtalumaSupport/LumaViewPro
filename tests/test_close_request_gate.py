@@ -147,10 +147,45 @@ def test_the_window_close_runs_the_sessions_close_on_its_own_thread():
         if kw.arg == 'target' and isinstance(kw.value, ast.Attribute)
     ]
 
-    assert targets == ['_shut_the_session_down'], (
-        f'_close_the_session must start one thread running _shut_the_session_down: {targets}'
+    assert targets == ['_end_the_session'], (
+        f'_close_the_session must start one thread running _end_the_session: {targets}'
     )
     assert 'shutdown' in _attrs(_method(_app_class(_module_tree()), '_shut_the_session_down'))
+
+
+def _called(method_node) -> list[str]:
+    """Each call's callee, in source order."""
+    calls = sorted(
+        (node for node in ast.walk(method_node) if isinstance(node, ast.Call)),
+        key=lambda node: (node.lineno, node.col_offset),
+    )
+    return [ast.unparse(node.func) for node in calls]
+
+
+def test_every_close_ends_the_session_through_the_served_rest_server():
+    """With REST served beside the GUI, the session closes inside the server's close.
+
+    So its clients are answered and its stream carries the close; with no
+    server serving, the GUI shuts the session down itself. The close thread
+    and on_stop both end the session this one way.
+    """
+    class_node = _app_class(_module_tree())
+    end = _called(_method(class_node, '_end_the_session'))
+
+    assert 'server.close' in end and 'self._shut_the_session_down' in end, end
+    assert 'self._end_the_session' in _called(_method(class_node, 'on_stop'))
+    assert 'self._shut_the_session_down' not in _called(_method(class_node, 'on_stop'))
+
+
+def test_the_close_refuses_rest_calls_before_it_takes_control_back():
+    """A client's take_control landing after the take-back would hold the scope
+    against the close, and refuse the close popup's Discard; the server stops
+    admitting calls first."""
+    calls = _called(_method(_app_class(_module_tree()), '_prepare_the_close'))
+
+    refused = calls.index('self._rest_server.refuse_calls')
+    taken_back = next(i for i, c in enumerate(calls) if c == 'run_unasked')
+    assert refused < taken_back, calls
 
 
 def test_the_close_asks_from_the_sessions_live_work_and_discards_through_it():

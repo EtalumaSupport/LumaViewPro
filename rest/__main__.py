@@ -14,9 +14,6 @@ import argparse
 import sys
 
 HOST = '127.0.0.1'
-# Seconds the close waits for the calls' threads once the session has shut
-# down; a call still running then is logged by name and the process exits.
-JOIN_S = 10.0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -70,7 +67,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     try:
         app = build_app(session)
-        server = Server(uvicorn.Config(app, host=HOST, port=port), session, app.state.closing)
+        server = Server(
+            uvicorn.Config(app, host=HOST, port=port),
+            session,
+            app.state.closing,
+            shut_down=session.shutdown,
+        )
         # A failed home is reported and the motion ends; the server still
         # serves, so a client can home again.
         session.run_application_session()
@@ -84,10 +86,10 @@ def main(argv: list[str] | None = None) -> int:
             # It stopped without its close: it did not start serving, or was stopped before it did.
             session.shutdown()
             return 1
-        running = app.state.closing.join_jobs(JOIN_S)
-        if running:
-            logger.error(f'[REST     ] Exiting with calls still running: {running}')
-        return 1 if server.close_failed is not None else 0
+        if server.close_failed is not None:
+            logger.error(f'[REST     ] The session did not close cleanly: {server.close_failed!r}')
+            return 1
+        return 0
     except BaseException:
         session.shutdown()
         raise

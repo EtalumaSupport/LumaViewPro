@@ -523,6 +523,11 @@ class LumaViewProApp(TooltipMixin, App):
     # forgets.
     _close_thread = None
 
+    # The REST server served beside the window (``rest.server.Server``), or
+    # None while none has been started; every close ends the session
+    # through it.
+    _rest_server = None
+
     def _on_run_state(self) -> None:
         """The window's one run-state listener: draw the edge on the clock.
 
@@ -1304,7 +1309,7 @@ class LumaViewProApp(TooltipMixin, App):
             action_shown=any(item.discardable for item in ctx.session.live_work.work),
         )
         self._close_thread = threading.Thread(
-            target=self._shut_the_session_down, name='session-close', daemon=True
+            target=self._end_the_session, name='session-close', daemon=True
         )
         self._close_thread.start()
 
@@ -1347,6 +1352,12 @@ class LumaViewProApp(TooltipMixin, App):
 
     def _prepare_the_close(self) -> None:
         """The host's part of a close, on the Kivy thread, before the session's own."""
+        # A client's take_control landing after the take-back below would
+        # hold the scope again and refuse the popup's Discard, so the server
+        # refuses every call first.
+        if self._rest_server is not None:
+            self._rest_server.refuse_calls()
+
         # A held control session is taken back first: the close's popup
         # offers its Discard before the session's own close has begun, and
         # the session would refuse a Discard that is not its holder's.
@@ -1378,6 +1389,16 @@ class LumaViewProApp(TooltipMixin, App):
         # still unload. The session's close finds them unloaded.
         ctx.session.unload_plugins()
 
+    def _end_the_session(self) -> None:
+        """The session's close: inside the REST server's close while one serves, else directly.
+
+        Inside the server's, its clients are answered and its stream carries
+        what the close reports; the server runs ``_shut_the_session_down``.
+        """
+        server = self._rest_server
+        if server is None or not server.close():
+            self._shut_the_session_down()
+
     def _shut_the_session_down(self) -> None:
         """The session's close: it stops a live run and recording, finishes the rest, then tears down."""
         logger.info('[LVP Main  ] ctx.session.shutdown()')
@@ -1407,7 +1428,7 @@ class LumaViewProApp(TooltipMixin, App):
             # this thread, and nothing draws while it waits. A close still
             # running on its own thread is waited for by this call.
             self._prepare_the_close()
-            self._shut_the_session_down()
+            self._end_the_session()
 
         logger.info('[LVP Main  ] LumaViewProApp exiting.', extra={'force_error': True})
 
