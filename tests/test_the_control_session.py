@@ -650,13 +650,13 @@ class TestATakeWaitsForWhatIsStillFinishing:
         from tests.test_composite_run_e2e import headless_settings, open_composite_session
 
         release = threading.Event()
-        real_build = stack_builder.build_hyperstacks_for_run
+        real_load = stack_builder.StackBuilder.load_folder
 
-        def _held_build(build):
+        def _held_load(self, *args, **kwargs):
             release.wait(WAIT_S)
-            real_build(build)
+            return real_load(self, *args, **kwargs)
 
-        monkeypatch.setattr(stack_builder, 'build_hyperstacks_for_run', _held_build)
+        monkeypatch.setattr(stack_builder.StackBuilder, 'load_folder', _held_load)
         try:
             with open_composite_session(headless_settings(tmp_path)) as (session, runner):
                 run = _scan(

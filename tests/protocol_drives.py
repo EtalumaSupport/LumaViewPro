@@ -17,6 +17,7 @@ Three layers of readiness:
 
 from __future__ import annotations
 
+import concurrent.futures
 import datetime
 import threading
 import time
@@ -133,10 +134,32 @@ def run_identity(started_by: Caller = Caller.API, words: str = 'scan') -> RunIde
 
 
 def no_post_run_builds() -> MagicMock:
-    """The session's builds for an engine whose test drives no post-run build."""
+    """The session's builds for an engine whose test drives no post-run build.
+
+    Each build a run's end puts on the lane is answered at once, having made
+    nothing, so the run's end settles as it would.
+    """
     # a stand-in by design: the engine's own tests build its runs; the builds a
     # run's end hands on are pinned through the Session's real lane.
-    return MagicMock()
+    builds = MagicMock()
+
+    def built_nothing(*_args, **_kwargs):
+        settled = concurrent.futures.Future()
+        settled.set_result(
+            {
+                'message': 'Nothing was built.',
+                'degraded': False,
+                'new_count': 0,
+                'output_root': '',
+                'accounting_note': '',
+                'artifact_paths': [],
+            }
+        )
+        return settled
+
+    builds.run_hyperstack.side_effect = built_nothing
+    builds.run_composite.side_effect = built_nothing
+    return builds
 
 
 def bare_capture_runner(**overrides):

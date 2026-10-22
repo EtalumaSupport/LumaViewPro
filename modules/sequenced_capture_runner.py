@@ -1,5 +1,6 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
+import concurrent.futures
 import contextlib
 import copy
 import dataclasses
@@ -330,7 +331,7 @@ class SequencedCaptureRunner:
         post_processing: typing.Any,
         autofocus_runner: AutofocusRunner | None = None,
         on_run_idle: typing.Callable[[], None] | None = None,
-        on_protocol_files_written: typing.Callable[[pathlib.Path, str, str, str], None]
+        on_protocol_files_written: typing.Callable[[pathlib.Path, RunWriteBatch, Caller, str], None]
         | None = None,
         on_step_lit: typing.Callable[[str], None] | None = None,
         on_run_ending: typing.Callable[[], None] | None = None,
@@ -348,11 +349,11 @@ class SequencedCaptureRunner:
         # module's other builds import the GUI's encoding resolver, which the
         # engine's import graph must not reach.
         self._post_processing = post_processing
-        # Handed (run_dir, files outcome, trigger source, protocol name) once per Full
-        # Protocol, after its images are written and its hyperstack build has
-        # ended: the session's hand-off to the post-processing plugins. Runs
-        # on a post-run thread of its own, which the run's handle does not
-        # wait for.
+        # Handed (run_dir, the run's write batch, trigger source, protocol
+        # name) once per Full Protocol, at the run's end, after its builds are
+        # on the post-processing lane: the session's hand-off to the
+        # post-processing plugins, which waits for the batch behind those
+        # builds. The run's handle does not wait for it.
         self._on_protocol_files_written = on_protocol_files_written
         # Told once a run's cleanup has put the runner back to IDLE. The
         # claim releases just before IDLE, so a listener woken by the claim
@@ -375,12 +376,6 @@ class SequencedCaptureRunner:
         # disk are answered per run -- by prepare's refusal, the Session and
         # the post-run builds -- never by the shared lane.
         self._write_batch: RunWriteBatch | None = None
-        # The post-run steps' threads still running, of every run: a step
-        # outlives its run's claim, and a successor run's steps can start
-        # while an earlier run's still build. Kept until each thread ends,
-        # so a close can wait for the files they write.
-        self._post_run_steps: set[threading.Thread] = set()
-        self._post_run_steps_lock = threading.Lock()
         # The run kind of the run in hand; None before the first one.
         self._run_mode: SequencedCaptureRunMode | None = None
         self.autofocus_thread = autofocus_thread
@@ -2339,8 +2334,10 @@ class SequencedCaptureRunner:
         if held is not None:
             held.release()
 
-    def _start_hyperstack_build(self, on_end: typing.Callable[[], None]) -> threading.Thread | None:
-        """Kick off the post-run per-well hyperstack build, when configured.
+    def _start_hyperstack_build(
+        self, on_end: typing.Callable[[], None]
+    ) -> concurrent.futures.Future | None:
+        """Put the post-run per-well hyperstack build on the post-processing lane, when configured.
 
         Runs from cleanup for every capturing run mode (an autofocus scan
         captures nothing to stack). The build waits for THIS run's images
@@ -2351,11 +2348,12 @@ class SequencedCaptureRunner:
         successor run replaces the runner's.
 
         Args:
-            on_end: Called once the build has ended, on the build's thread,
-                however it ended; not called when this run does not build.
+            on_end: Called once the build has ended, however it ended; not
+                called when this run does not build.
 
         Returns:
-            The build thread, or None when this run does not build.
+            The future the build settles, or None when this run does not
+            build.
         """
         if self._run_mode.is_autofocus:
             return None
@@ -2366,23 +2364,18 @@ class SequencedCaptureRunner:
         if run_dir is None:
             return None
         write_batch = self._write_batch
-        build = functools.partial(
+        submit = functools.partial(
             self._post_processing.run_hyperstack,
             run_dir,
             save_encoding=config.save_encoding,
             channel_colors=self._channel_colors,
             written=lambda: write_batch.wait_until_written(_POST_RUN_WRITES_WAIT_S),
         )
-
-        return self._spawn_post_run_step(
-            name='hyperstack-build',
-            on_end=on_end,
-            build_fn=lambda: stack_builder.build_hyperstacks_for_run(build),
-        )
+        return stack_builder.build_hyperstacks_for_run(submit, on_end)
 
     def _start_composite_merge(
         self, outcome: PendingRunOutcome, ending: RunEnding
-    ) -> threading.Thread | None:
+    ) -> concurrent.futures.Future | None:
         """Merge this run's per-channel frames, then settle the outcome.
 
         Runs only for a composite run that ended 'completed' or
@@ -2396,8 +2389,12 @@ class SequencedCaptureRunner:
         run's start() nulls these fields, and a merge still running would
         otherwise follow them onto the successor run's directory. The
         ending goes in at the same moment and for the same reason: the
-        merge thread reports only what the merge produced, and would have
-        no honest way to restate how the run itself ended.
+        merge reports only what the merge produced, and would have no
+        honest way to restate how the run itself ended. The merge runs on
+        the post-processing lane; what it settles is answered as it settles.
+
+        Returns:
+            The future the merge settles, or None when it did not start.
         """
         token = outcome.arm(ending)
         if token is None:
@@ -2412,8 +2409,6 @@ class SequencedCaptureRunner:
             if self._image_capture_config is not None
             else image_mode.OUTPUT_FORMAT_TIFF
         )
-        has_turret = self._scope.capabilities.has_turret
-        tiling_configs_file_loc = self._tiling_configs_file_loc
         # A composite missing a channel is told by the merge, once, as its
         # own notice after what became of the merge, whether it merged or
         # not, and before the outcome settles.
@@ -2441,9 +2436,9 @@ class SequencedCaptureRunner:
             # refusal shows as one, under its own title, only an exception
             # from outside the root, which has no title, is named "Composite
             # Failed", and a raised one's record carries its traceback. The resolve is in a
-            # finally: this thread is the one thing that settles the armed
-            # outcome, so a raise while reporting would otherwise leave the
-            # caller waiting out its whole bound.
+            # finally: the merge's answer is the one thing that settles the
+            # armed outcome, so a raise while reporting would otherwise leave
+            # the caller waiting out its whole bound.
             from modules.notification_center import notifications
 
             try:
@@ -2478,44 +2473,49 @@ class SequencedCaptureRunner:
             _fail('no_composite_config', 'The run carries no composite thresholds.')
             return None
 
-        def _merge():
-            try:
-                from modules.composite_generation import CompositeGeneration
-
-                write_batch.wait_until_written(_POST_RUN_WRITES_WAIT_S)
-                result = CompositeGeneration(has_turret=has_turret).load_folder(
-                    path=run_dir,
-                    tiling_configs_file_loc=tiling_configs_file_loc,
-                    output_format=output_format,
-                    brightness_thresholds_percent=thresholds,
-                    channel_colors=channel_colors,
-                )
-            except Exception as ex:
+        def _answer(merged: concurrent.futures.Future) -> None:
+            failure = merged.exception()
+            if failure is not None:
                 # A typed outcome says why in its own reason, kind and words;
                 # an exception that carries no reason is the merge's error.
                 _settle(
-                    ex,
+                    failure,
                     artifact_path=None,
-                    merge_reason=getattr(ex, 'reason', None) or 'merge_error',
+                    merge_reason=getattr(failure, 'reason', None) or 'merge_error',
                 )
                 return
-            paths = result.get('artifact_paths') or []
+            paths = merged.result().get('artifact_paths') or []
             if paths:
                 logger.info(f'[{self.LOGGER_NAME}] Composite saved: {paths[0]}')
                 _settle(None, artifact_path=pathlib.Path(paths[0]), merge_reason='')
             else:
                 _fail('merge_failed', 'The merge finished without producing a composite file.')
 
-        return self._spawn_post_run_step(name='composite-merge', build_fn=_merge)
+        try:
+            merge = self._post_processing.run_composite(
+                run_dir,
+                output_format=output_format,
+                thresholds=thresholds,
+                channel_colors=channel_colors,
+                written=lambda: write_batch.wait_until_written(_POST_RUN_WRITES_WAIT_S),
+            )
+        except Exception as refused:
+            # The lane would not take it, at shutdown: answered as the merge's.
+            merge = concurrent.futures.Future()
+            merge.set_exception(refused)
+        merge.add_done_callback(_answer)
+        return merge
 
-    def _start_protocol_files_handoff(self, build: threading.Thread | None) -> None:
-        """Hand a Full Protocol's folder on once its images and its build are done.
+    def _start_protocol_files_handoff(self) -> None:
+        """Hand a Full Protocol's folder on, behind its own builds.
 
         Only a Full Protocol that made a folder is handed on, whoever started
-        it. The step waits on this run's own batch and build, captured here
-        by value, since a successor run may own the runner's fields by then.
-        Not one of the run's own events: what is done with the folder is
-        isolated from the run, so the run's ``files`` does not wait for it.
+        it. The hand-off is given this run's own batch, captured here by
+        value, since a successor run may own the runner's fields by then; it
+        waits for the batch and runs after the run's builds by the
+        post-processing lane's order. Not one of the run's own events: what
+        is done with the folder is isolated from the run, so the run's
+        ``files`` does not wait for it.
         """
         handoff = self._on_protocol_files_written
         run_dir = self._run_dir
@@ -2525,59 +2525,7 @@ class SequencedCaptureRunner:
             or self._run_mode is not SequencedCaptureRunMode.FULL_PROTOCOL
         ):
             return
-        write_batch = self._write_batch
-        started_by = self._run_identity.started_by
-        protocol_name = self._sequence_name
-
-        def _handoff() -> None:
-            write_batch.wait_complete(None)
-            if build is not None:
-                build.join()
-            handoff(run_dir, write_batch.outcome, started_by, protocol_name)
-
-        self._spawn_post_run_step(name='protocol-files-handoff', build_fn=_handoff)
-
-    def _spawn_post_run_step(
-        self, *, name: str, build_fn, on_end: typing.Callable[[], None] | None = None
-    ) -> threading.Thread:
-        """Run a post-run build on a daemon thread.
-
-        The one owner of the thread every post-run step needs -- the per-well
-        stack build, the composite merge and the protocol's hand-off to the
-        post-processing plugins -- so one place is responsible for the daemon
-        flag and the thread name a stall report prints. Each step begins by
-        waiting for its run's images to land, inside its own outcome
-        handling, so a wait that expires or finds images not written is
-        reported in that step's words. The thread is kept until it ends,
-        so ``post_run_steps_running`` names it. ``on_end``, when given, is
-        called last, however the step ended.
-        """
-
-        def step() -> None:
-            try:
-                build_fn()
-            finally:
-                with self._post_run_steps_lock:
-                    self._post_run_steps.discard(thread)
-                if on_end is not None:
-                    on_end()
-
-        thread = threading.Thread(target=step, name=name, daemon=True)
-        with self._post_run_steps_lock:
-            self._post_run_steps.add(thread)
-        try:
-            thread.start()
-        except BaseException:
-            with self._post_run_steps_lock:
-                self._post_run_steps.discard(thread)
-            raise
-        return thread
-
-    @property
-    def post_run_steps_running(self) -> tuple[str, ...]:
-        """The names of the post-run steps still running, of every run."""
-        with self._post_run_steps_lock:
-            return tuple(sorted(step.name for step in self._post_run_steps))
+        handoff(run_dir, self._write_batch, self._run_identity.started_by, self._sequence_name)
 
     def _close_run_writes(
         self, write_batch: RunWriteBatch, ending: RunEnding, run: EngineRun
@@ -2790,7 +2738,7 @@ class SequencedCaptureRunner:
             build_settled = True
             if build is None:
                 run._files_event_done()
-            self._start_protocol_files_handoff(build)
+            self._start_protocol_files_handoff()
         finally:
             if not led_end_state_applied and getattr(self, '_led_lease', None) is not None:
                 # The run's LED end-state was never decided (the RUN_END

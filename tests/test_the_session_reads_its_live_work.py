@@ -12,6 +12,7 @@ through the one record, with its count or progress, and gone once it ends.
 """
 
 import pathlib
+import concurrent.futures
 import threading
 from unittest.mock import MagicMock
 
@@ -163,14 +164,26 @@ def test_a_finished_runs_images_count_down(sim_session):
     assert live_work.RUN_FILES not in _kinds(sim_session)
 
 
-def test_a_runs_post_run_step_is_work_until_its_thread_ends(sim_session):
-    gate = threading.Event()
-    step = sim_session.sequenced_capture_runner._spawn_post_run_step(
-        name='hyperstack-build', build_fn=lambda: gate.wait(SETTLE_S)
+def test_a_runs_hyperstack_is_post_processing_work_until_it_ends(sim_session, tmp_path):
+    # A run's own build is the lane's work, named as the lane's: there is no
+    # second kind of work for a build a run asked for.
+    started, gate = threading.Event(), threading.Event()
+
+    def written():
+        started.set()
+        gate.wait(SETTLE_S)
+
+    build = sim_session.post_processing.run_hyperstack(
+        tmp_path,
+        save_encoding='8bit',
+        channel_colors=sim_session.channel_colors(),
+        written=written,
     )
-    assert _item(sim_session, live_work.POST_RUN_STEP).name == "A run's hyperstack-build"
+    assert started.wait(SETTLE_S), 'the lane never began the build'
+    assert _item(sim_session, live_work.POST_PROCESSING).name == f'run_hyperstack of {tmp_path}'
     gate.set()
-    step.join(SETTLE_S)
+    concurrent.futures.wait([build], SETTLE_S)
+    assert build.done()
     assert sim_session.live_work.work == ()
 
 

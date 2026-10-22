@@ -1017,12 +1017,9 @@ class TestARunThatCannotResolveItsDataRootFailsAtStart:
         runner._scope.protocols.tiling_configs_path.side_effect = RuntimeError(
             'the tiling config path could not be resolved'
         )
-        # A post-run step spawned here would carry the failure onto a
-        # daemon thread, which is the shape this contract replaces.
-        spawned = []
-        monkeypatch.setattr(
-            runner, '_spawn_post_run_step', lambda **kwargs: spawned.append(kwargs['name'])
-        )
+        # A post-run build put on the lane here would carry the failure on
+        # past the run, which is the shape this contract replaces.
+        builds = runner._post_processing
 
         completions = []
         plan = runner.prepare(
@@ -1063,8 +1060,9 @@ class TestARunThatCannotResolveItsDataRootFailsAtStart:
         assert not runner.run_in_progress(), (
             'a run that failed at start must not stay marked in progress'
         )
-        assert not spawned, (
-            f'a run that never captured anything has nothing to post-process; got {spawned}'
+        put_on_the_lane = builds.method_calls
+        assert not put_on_the_lane, (
+            f'a run that never captured anything has nothing to post-process; got {put_on_the_lane}'
         )
 
 

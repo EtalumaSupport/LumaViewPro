@@ -91,14 +91,18 @@ def test_an_image_that_failed_to_save_is_counted(tmp_path, monkeypatch):
 def test_a_hyperstack_run_waits_for_its_build(tmp_path, monkeypatch):
     built = threading.Event()
     release = threading.Event()
-    real_build = stack_builder.build_hyperstacks_for_run
+    real_load = stack_builder.StackBuilder.load_folder
 
-    def _held_build(build):
+    def _held_load(self, *args, **kwargs):
+        # The build ends however its folder answers; a scan this short may
+        # have nothing to stack.
         release.wait(WAIT_S)
-        real_build(build)
-        built.set()
+        try:
+            return real_load(self, *args, **kwargs)
+        finally:
+            built.set()
 
-    monkeypatch.setattr(stack_builder, 'build_hyperstacks_for_run', _held_build)
+    monkeypatch.setattr(stack_builder.StackBuilder, 'load_folder', _held_load)
     try:
         with open_composite_session(headless_settings(tmp_path)) as (session, runner):
             run = _scan(

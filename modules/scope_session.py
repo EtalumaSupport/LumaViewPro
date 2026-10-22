@@ -825,13 +825,18 @@ class ScopeSession:
                 recording, a home or a diagnostic holds the scope;
                 ``'write_in_flight'``, a setting or a file is being written;
                 ``'work_finishing'``, a run or recording that has ended is
-                still finishing. Nothing was taken.
+                still finishing, or a build is on the post-processing lane,
+                which a capture in the session would overlap. Nothing was
+                taken.
             SessionClosingError: ``'session_closing'``, the session's close
                 is running or has finished.
         """
         runner = self.sequenced_capture_runner
         controller = self.activity_claim.take_control(
-            name, finishing=lambda: runner.run_live or bool(self._finishing_work())
+            name,
+            finishing=lambda: (
+                runner.run_live or bool(self._finishing_work()) or bool(self.post_processing.work())
+            ),
         )
         return controller.id
 
@@ -987,7 +992,7 @@ class ScopeSession:
         )
 
     def _finishing_work(self) -> list[WorkItem]:
-        """What finishes after its activity let the scope go: a recording's file, a run's video, images and post-run steps.
+        """What finishes after its activity let the scope go: a recording's file, a run's video and images.
 
         Read lock-free, and never through the activity claim, so the claim
         can ask it under its own lock (``take_control``).
@@ -1016,10 +1021,6 @@ class ScopeSession:
         files = self._draining_batch()
         if files is not None:
             work.append(WorkItem(live_work.RUN_FILES, "A run's images", left=files.pending))
-        work.extend(
-            WorkItem(live_work.POST_RUN_STEP, f"A run's {step}")
-            for step in runner.post_run_steps_running
-        )
         return work
 
     @api
@@ -4412,42 +4413,59 @@ class ScopeSession:
             self.plugins.unload(self)
 
     def _run_protocol_complete_processors(
-        self, run_dir: pathlib.Path, files: str, trigger_source: Caller, protocol_name: str
+        self,
+        run_dir: pathlib.Path,
+        write_batch: 'RunWriteBatch',
+        trigger_source: Caller,
+        protocol_name: str,
     ) -> None:
         """Hand a finished Full Protocol's folder to the opted-in processors.
 
         The manifest's ``trigger_source`` is who started the run: ``'gui'``,
         ``'rest'`` or ``'api'`` (``modules.caller``).
 
-        The run engine calls this once per Full Protocol, on the run's own
-        post-run thread, after its images are written and its hyperstack
-        build has ended. The processors run on the post-processing lane,
-        isolated from the run, and this thread waits for them, so their
-        lane task is never left with nobody to read its outcome.
+        The run engine calls this once per Full Protocol at the run's end,
+        once its own builds are on the post-processing lane. The processors
+        are put on the lane behind them, isolated from the run, without
+        waiting: there they wait for the run's images to be written, then run
+        with the files' outcome. Their task's outcome is answered here as it
+        settles, so it is never left with nobody to read it.
         """
         if self.plugins is None:
             return
+        from modules.notification_center import notifications
+
         run_dir_str = str(run_dir)
         manifest = {
             'protocol_name': protocol_name,
             'run_dir': run_dir_str,
             'trigger_source': trigger_source,
         }
+
+        def processors() -> None:
+            write_batch.wait_complete(None)
+            self.plugins.run_protocol_complete_processors(
+                run_dir_str, manifest, run_dir_str, write_batch.outcome
+            )
+
+        def answer(settled: concurrent.futures.Future) -> None:
+            # The processors report their own failures inside the task; what
+            # reaches here is the task's own.
+            failure = settled.exception()
+            if failure is not None:
+                notifications.report_outcome(failure, solicited=False, category='Plugins')
+
+        waiter = concurrent.futures.Future()
+        waiter.set_running_or_notify_cancel()
         try:
-            self.post_processing.lane.call(
-                IOTask(
-                    action=self.plugins.run_protocol_complete_processors,
-                    args=(run_dir_str, manifest, run_dir_str, files),
-                ),
-                'plugins.run_protocol_complete_processors',
-                None,
+            self.post_processing.lane.submit(
+                IOTask(action=processors), 'plugins.run_protocol_complete_processors', waiter=waiter
             )
         except Exception as refused:
-            # The lane refused the task (closed at shutdown); the processors
-            # report their own failures inside it.
-            from modules.notification_center import notifications
-
+            # The lane refused the task (closed at shutdown).
             notifications.report_outcome(refused, solicited=False, category='Plugins')
+            return
+        waiter.add_done_callback(answer)
 
     @api
     @property

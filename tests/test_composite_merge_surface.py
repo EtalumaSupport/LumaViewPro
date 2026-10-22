@@ -102,7 +102,7 @@ class TestAFailedMergeTellsTheUserOnce:
         # a stand-in by design: the subject is how the merge's surface tells
         # a refusal; a composite run leaves its merge nothing to refuse (every
         # channel present builds, one missing fails), so the merge refuses here.
-        def _refuse(self, **kwargs):
+        def _refuse(self, path, **kwargs):
             raise PostProcessingRefusedError(
                 operation='Composite', reason='no_data', message='Nothing to merge.'
             )
@@ -123,7 +123,7 @@ class TestAFailedMergeTellsTheUserOnce:
     def test_the_merge_raises(self, tmp_path, monkeypatch):
         from modules.composite_generation import CompositeGeneration
 
-        def _explode(self, **kwargs):
+        def _explode(self, path, **kwargs):
             raise RuntimeError('synthetic merge crash')
 
         monkeypatch.setattr(CompositeGeneration, 'load_folder', _explode)
@@ -144,7 +144,7 @@ class TestAFailedMergeTellsTheUserOnce:
         import modules.sequenced_capture_runner as scr
         from modules.composite_generation import CompositeGeneration
 
-        def _explode(self, **kwargs):
+        def _explode(self, path, **kwargs):
             raise RuntimeError('synthetic merge crash')
 
         monkeypatch.setattr(CompositeGeneration, 'load_folder', _explode)

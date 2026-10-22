@@ -603,5 +603,5 @@ def test_the_post_run_build_is_told_the_runs_encoding(monkeypatch, tmp_path, pos
         save_encoding='msb_aligned',
         channel_colors=release_colors(),
         written=lambda: None,
-    )
+    ).result(timeout=5.0)
     assert asked['save_encoding'] == 'msb_aligned'

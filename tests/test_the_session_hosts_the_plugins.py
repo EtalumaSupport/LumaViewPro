@@ -212,13 +212,15 @@ class TestAFullProtocolRunsTheOptedInProcessors:
 
     def test_the_processor_runs_after_the_hyperstack_build(self, tmp_path, monkeypatch):
         build_ended = threading.Event()
-        real_build = stack_builder.build_hyperstacks_for_run
+        real_load = stack_builder.StackBuilder.load_folder
 
-        def _build(build):
-            real_build(build)
-            build_ended.set()
+        def _load_then_say(self, *args, **kwargs):
+            try:
+                return real_load(self, *args, **kwargs)
+            finally:
+                build_ended.set()
 
-        monkeypatch.setattr(stack_builder, 'build_hyperstacks_for_run', _build)
+        monkeypatch.setattr(stack_builder.StackBuilder, 'load_folder', _load_then_say)
         seen_build_ended = []
 
         def processor(*_args):

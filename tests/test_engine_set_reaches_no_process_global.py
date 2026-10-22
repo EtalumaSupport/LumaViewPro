@@ -122,7 +122,6 @@ def test_the_walk_reaches_the_engine():
         'modules.common_utils',
         'modules.image_utils',
         'modules.path_utils',
-        'modules.composite_generation',
     ):
         assert name in modules, f'{name} is not in the engine set the guard walks'
 

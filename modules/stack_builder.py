@@ -1,4 +1,5 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
+import concurrent.futures
 import os
 from collections.abc import Callable
 import pathlib
@@ -28,43 +29,62 @@ import logging
 logger = logging.getLogger('lvp_logger')
 
 
-def build_hyperstacks_for_run(build: Callable[[], dict]) -> None:
-    """Build a finished run's per-well hyperstacks by *build*, and tell the person.
+def build_hyperstacks_for_run(
+    submit: Callable[[], concurrent.futures.Future], on_end: Callable[[], None]
+) -> concurrent.futures.Future:
+    """Put a finished run's per-well hyperstack build on its way by *submit*, and tell the person.
 
-    *build* is the run's ``PostProcessingAPI.run_hyperstack``, which waits
-    for the run's images to land before it starts; its raise when they
-    will not -- the bound expired, or some were abandoned -- is answered
-    here like any other, after the announcement, so a build waiting on a
-    slow disk is not a silent hang. Runs on the caller's (background)
-    thread.
+    *submit* is the run's ``PostProcessingAPI.run_hyperstack``, which puts
+    the build on the post-processing lane and returns the future it
+    settles; the build waits there for the run's images to land, and its
+    raise when they will not -- the bound expired, or some were abandoned
+    -- is answered here like any other, after the announcement, so a build
+    waiting on a slow disk is not a silent hang. So is the lane's refusal
+    to take it, at shutdown.
 
     Nobody waits on this build, so this is where its outcome is reported:
-    announced as it starts, so a multi-minute build is not a silent hang,
-    then answered -- the stacks saved, or what went wrong in its own words
-    -- under the same operation key, so the answer replaces the
-    announcement rather than opening beside it.
+    announced as it is put on the lane, so a multi-minute build is not a
+    silent hang, then answered as it settles -- the stacks saved, or what
+    went wrong in its own words -- under the same operation key, so the
+    answer replaces the announcement rather than opening beside it.
+    *on_end* is called last, however the build ended.
+
+    Returns:
+        The future the build settles.
     """
     key = operation_key(PostFunction.HYPERSTACK)
     notifications.report_outcome(
         HyperstacksSavingNotice(), solicited=False, category='Post-processing', operation_key=key
     )
+
+    def answer(settled: concurrent.futures.Future) -> None:
+        try:
+            failure = settled.exception()
+            if failure is not None:
+                notifications.report_outcome(
+                    failure,
+                    solicited=False,
+                    category='Post-processing',
+                    untyped_title='Hyperstacks Not Saved',
+                    operation_key=key,
+                )
+                return
+            notifications.report_outcome(
+                HyperstacksSavedNotice(settled.result()),
+                solicited=False,
+                category='Post-processing',
+                operation_key=key,
+            )
+        finally:
+            on_end()
+
     try:
-        result = build()
-    except Exception as ex:
-        notifications.report_outcome(
-            ex,
-            solicited=False,
-            category='Post-processing',
-            untyped_title='Hyperstacks Not Saved',
-            operation_key=key,
-        )
-        return
-    notifications.report_outcome(
-        HyperstacksSavedNotice(result),
-        solicited=False,
-        category='Post-processing',
-        operation_key=key,
-    )
+        build = submit()
+    except Exception as refused:
+        build = concurrent.futures.Future()
+        build.set_exception(refused)
+    build.add_done_callback(answer)
+    return build
 
 
 class StackBuilder(ProtocolPostProcessor):

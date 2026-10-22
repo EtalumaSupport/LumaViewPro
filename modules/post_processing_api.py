@@ -24,6 +24,7 @@ callers.
 
 from __future__ import annotations
 
+import concurrent.futures
 import dataclasses
 import functools
 import pathlib
@@ -407,6 +408,13 @@ def _answering[R](record: Callable[[dict], R], build: Callable[..., dict]) -> Ca
     return answer
 
 
+def _a_waiter() -> concurrent.futures.Future:
+    """A future for a build put on the lane, marked running so only the lane settles it."""
+    waiter = concurrent.futures.Future()
+    waiter.set_running_or_notify_cancel()
+    return waiter
+
+
 def _refuse_unusable_image_scale(pixel_size_um: float | None) -> None:
     """Refuse an image scale a count could not measure at: not a positive number of microns."""
     if pixel_size_um is not None and (not is_finite_number(pixel_size_um) or pixel_size_um <= 0):
@@ -672,7 +680,7 @@ class PostProcessingAPI:
                 files that were are named.
         """
         return self._run(
-            _answering(_build_result, self._composite_build()),
+            _answering(_build_result, self._live_composite_build()),
             'composite',
             pathlib.Path(folder),
             operation=PostProcessingOperation.COMPOSITE,
@@ -776,7 +784,7 @@ class PostProcessingAPI:
         made = (
             (PostProcessingOperation.Z_PROJECTION, zproject and self._zproject_build(zproject)),
             (PostProcessingOperation.STITCH, stitch and self._stitch_build(stitch)),
-            (PostProcessingOperation.COMPOSITE, composite and self._composite_build()),
+            (PostProcessingOperation.COMPOSITE, composite and self._live_composite_build()),
             (PostProcessingOperation.VIDEO, video and self._video_build(video)),
         )
         chosen = [(operation, run) for operation, run in made if run]
@@ -840,8 +848,8 @@ class PostProcessingAPI:
         save_encoding: str,
         channel_colors: ChannelColors,
         written: Callable[[], None],
-    ) -> dict:
-        """Build a finished run's per-well hyperstacks on the lane; the builder's answer.
+    ) -> concurrent.futures.Future:
+        """Put a finished run's per-well hyperstack build on the lane, without waiting.
 
         Not on the wire: a run's folder does not record the encoding its
         images were saved in, which a stack needs to bring 8-bit planes into
@@ -852,9 +860,13 @@ class PostProcessingAPI:
         never built from a folder still filling. The run's own files and its
         own hold are no reason to refuse it.
 
-        Raises:
-            What *written* raises, and the builder's refusals and failures
+        Returns:
+            The future the build settles: the builder's answer, or what
+            *written* raised, or the builder's refusal or failure
             (``ProtocolPostProcessor.load_folder``).
+
+        Raises:
+            HardwareCommandRefusedError: the lane is closed.
         """
         from modules.stack_builder import StackBuilder
 
@@ -870,6 +882,42 @@ class PostProcessingAPI:
             admit=written,
             reads=path_utils.existing_folder,
             said=lambda answer: answer['message'],
+            waiter=_a_waiter(),
+        )
+
+    def run_composite(
+        self,
+        run_dir: pathlib.Path,
+        *,
+        output_format: str,
+        thresholds: dict,
+        channel_colors: ChannelColors,
+        written: Callable[[], None],
+    ) -> concurrent.futures.Future:
+        """Put a finished composite run's merge on the lane, without waiting.
+
+        Not on the wire: the merge is the composite run's own, made from the
+        format, thresholds and colours the run took at its start, never the
+        live settings a caller's composite reads. *written* is
+        ``run_hyperstack``'s.
+
+        Returns:
+            The future the merge settles: the builder's answer, or what
+            *written* raised, or the builder's refusal or failure.
+
+        Raises:
+            HardwareCommandRefusedError: the lane is closed.
+        """
+        return self._on_lane(
+            self._composite_build(
+                output_format=output_format, thresholds=thresholds, channel_colors=channel_colors
+            ),
+            'run_composite',
+            run_dir,
+            admit=written,
+            reads=path_utils.existing_folder,
+            said=lambda answer: answer['message'],
+            waiter=_a_waiter(),
         )
 
     def recording_hyperstack(
@@ -957,22 +1005,33 @@ class PostProcessingAPI:
             channel_colors=self._channel_colors(),
         )
 
-    def _composite_build(self) -> Callable[..., dict]:
-        """The composite, its format and thresholds read from the live settings now.
+    def _live_composite_build(self) -> Callable[..., dict]:
+        """A caller's composite, its format and thresholds read from the live settings now.
 
         Nothing is checked here: the stored values are kept in range where
         they are written and loaded.
         """
         import modules.config_helpers as config_helpers
-        from modules.composite_generation import CompositeGeneration
 
         live = self._settings_snapshot()
+        return self._composite_build(
+            output_format=live['image_output_format']['sequenced'],
+            thresholds=config_helpers.get_composite_blend_thresholds(live),
+            channel_colors=self._channel_colors(),
+        )
+
+    def _composite_build(
+        self, *, output_format: str, thresholds: dict, channel_colors: ChannelColors
+    ) -> Callable[..., dict]:
+        """The composite of the format, thresholds and colours it is handed: one source per call."""
+        from modules.composite_generation import CompositeGeneration
+
         return functools.partial(
             CompositeGeneration(has_turret=self._has_turret()).load_folder,
             tiling_configs_file_loc=self._tiling_configs_path(),
-            output_format=live['image_output_format']['sequenced'],
-            brightness_thresholds_percent=config_helpers.get_composite_blend_thresholds(live),
-            channel_colors=self._channel_colors(),
+            output_format=output_format,
+            brightness_thresholds_percent=thresholds,
+            channel_colors=channel_colors,
         )
 
     def _video_build(self, settings: Video) -> Callable[..., dict]:
@@ -1401,13 +1460,16 @@ class PostProcessingAPI:
         admit: Callable[[], None],
         reads,
         said: Callable[[object], str] = lambda result: result.message,
+        waiter: concurrent.futures.Future | None = None,
         **kwargs,
     ):
         """Run *action* on the post-processing lane once *admit* lets it start.
 
         *admit* is asked on the lane, first: it raises when the build may
         not start, and may wait until it can. *said* is what the end of the
-        build's log line says of its answer.
+        build's log line says of its answer. Given a *waiter*, the build is
+        put on the lane without waiting and *waiter* is returned, settled
+        with its answer or its raise; without one, the answer is returned.
         """
         caller_progress = kwargs.get('on_progress')
 
@@ -1442,11 +1504,23 @@ class PostProcessingAPI:
         )
         with self._builds_lock:
             self._builds[task] = WorkItem(live_work.POST_PROCESSING, f'{member} of {folder}')
-        try:
-            return self.lane.call(task, f'post_processing.{member}', None)
-        finally:
+
+        def forget(*_settled) -> None:
             with self._builds_lock:
                 del self._builds[task]
+
+        if waiter is None:
+            try:
+                return self.lane.call(task, f'post_processing.{member}', None)
+            finally:
+                forget()
+        try:
+            self.lane.submit(task, f'post_processing.{member}', waiter=waiter)
+        except BaseException:
+            forget()
+            raise
+        waiter.add_done_callback(forget)
+        return waiter
 
     @staticmethod
     def _playback_rate(frames_per_sec: float | str | None) -> float | None:

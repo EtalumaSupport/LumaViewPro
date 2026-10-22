@@ -1,8 +1,8 @@
 """Does a run's own post-run build harm the next run? (#812, W4 part E0)
 
 Three runs, in order. A is a time-series run saved as a hyperstack, whose
-per-well stacks build on their own thread once its images land (or, with
-``--first composite``, a composite run, whose merge builds the same way). B,
+per-well stacks build on the post-processing lane once its images land (or,
+with ``--first composite``, a composite run, whose merge builds the same way). B,
 the same time series, starts the first moment the runner admits it: A's
 claim released and its images written, which is before A's build ends, so
 B overlaps the build the way a next run in a queue does. C runs alone once
@@ -147,7 +147,8 @@ def _start_when_admitted(runner, protocol, parent, name):
 def _post_run_steps(session):
     from modules import live_work
 
-    return [item.name for item in session.live_work.work if item.kind == live_work.POST_RUN_STEP]
+    lane = (live_work.POST_PROCESSING, live_work.POST_PROCESSING_QUEUED)
+    return [item.name for item in session.live_work.work if item.kind in lane]
 
 
 def _record_rows(record):

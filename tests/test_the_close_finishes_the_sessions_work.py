@@ -154,14 +154,20 @@ def test_two_closes_at_once_tear_down_once(tmp_path):
     assert returned == [True, True], 'each close returned only once the session was closed'
 
 
-def test_a_runs_post_run_build_ends_before_the_close_returns(sim_session):
+def test_a_runs_post_run_build_ends_before_the_close_returns(sim_session, tmp_path):
     built = threading.Event()
 
-    def build():
+    def written():
+        # The run's images take a while to land; the build waits for them.
         time.sleep(0.5)
         built.set()
 
-    sim_session.sequenced_capture_runner._spawn_post_run_step(name='hyperstack', build_fn=build)
+    sim_session.post_processing.run_hyperstack(
+        tmp_path,
+        save_encoding='8bit',
+        channel_colors=sim_session.channel_colors(),
+        written=written,
+    )
 
     sim_session.shutdown()
 

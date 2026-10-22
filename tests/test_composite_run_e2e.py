@@ -25,6 +25,7 @@ holds that wait down.
 import contextlib
 import pathlib
 import shutil
+import threading
 import time
 
 import pytest
@@ -405,6 +406,26 @@ class TestTheEngineMatchesTheWorkerItReplaces:
         )
 
 
+def test_a_composite_runs_merge_is_built_on_the_post_processing_lane(tmp_path, monkeypatch):
+    # The merge is the session's builds' work, on their lane, as a caller's
+    # composite is: a run's end does not merge on a thread of its own.
+    from modules.composite_generation import CompositeGeneration
+
+    merged_on = []
+    real_load = CompositeGeneration.load_folder
+
+    def _load(self, path, **kwargs):
+        merged_on.append(threading.current_thread().name)
+        return real_load(self, path, **kwargs)
+
+    monkeypatch.setattr(CompositeGeneration, 'load_folder', _load)
+    with open_composite_session(headless_settings(tmp_path)) as (session, runner):
+        runner.run_composite(sequence_name='on_the_lane', parent_dir=str(tmp_path))
+        lane = session.post_processing.lane.executor_name
+
+    assert merged_on == [lane]
+
+
 class TestTheMergeReadsTheSessionsOwnDataRoot:
     """The merge's tiling config comes from the root the session holds.
 
@@ -436,11 +457,11 @@ class TestTheMergeReadsTheSessionsOwnDataRoot:
             def __init__(self, has_turret=False):
                 self.has_turret = has_turret
 
-            def load_folder(self, **kwargs):
+            def load_folder(self, path, **kwargs):
                 loads.append(kwargs)
-                artifact = pathlib.Path(kwargs['path']) / 'recorded_composite.tiff'
+                artifact = pathlib.Path(path) / 'recorded_composite.tiff'
                 artifact.touch()
-                return {'status': True, 'artifact_paths': [str(artifact)]}
+                return {'status': True, 'message': 'Success.', 'artifact_paths': [str(artifact)]}
 
         import modules.composite_generation as composite_generation
 

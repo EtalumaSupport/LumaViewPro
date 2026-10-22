@@ -237,15 +237,18 @@ class TestNothingBuildsFromAFolderMissingImages:
         def _abandoned():
             raise RunFilesNotWrittenError('write_batch_abandoned')
 
+        answered = threading.Event()
         stack_builder.build_hyperstacks_for_run(
             lambda: post_processing.run_hyperstack(
                 tmp_path,
                 save_encoding='8bit',
                 channel_colors=release_colors(),
                 written=_abandoned,
-            )
+            ),
+            answered.set,
         )
 
+        assert answered.wait(5.0), 'the build was never answered'
         loaded.assert_not_called()
         # The announcement is reported too; what went wrong is the rest.
         [(ex, kw)] = [(ex, kw) for ex, kw in reported if not isinstance(ex, Notice)]

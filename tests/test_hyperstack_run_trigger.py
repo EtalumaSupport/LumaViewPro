@@ -44,10 +44,11 @@ def _hyperstack_runner(tmp_path, run_mode=SequencedCaptureRunMode.FULL_PROTOCOL,
     return runner
 
 
-def _join(thread):
-    assert isinstance(thread, threading.Thread)
-    thread.join(timeout=5.0)
-    assert not thread.is_alive()
+def _built(runner):
+    # The build's end, however it ended: the run's files settle on it.
+    ended = threading.Event()
+    assert runner._start_hyperstack_build(on_end=ended.set) is not None
+    assert ended.wait(5.0), 'the build never ended'
 
 
 class TestRunnerHyperstackTrigger:
@@ -79,7 +80,7 @@ class TestRunnerHyperstackTrigger:
 
         monkeypatch.setattr(stack_builder.StackBuilder, 'load_folder', _load_folder)
         runner = _hyperstack_runner(tmp_path, post_processing=post_processing)
-        _join(runner._start_hyperstack_build(on_end=lambda: None))
+        _built(runner)
 
         assert asked == [(True, tmp_path, '8bit', release_colors())]
 
@@ -101,7 +102,7 @@ class TestRunnerHyperstackTrigger:
         loaded = MagicMock()
         monkeypatch.setattr(stack_builder.StackBuilder, 'load_folder', loaded)
 
-        _join(runner._start_hyperstack_build(on_end=lambda: None))
+        _built(runner)
 
         loaded.assert_not_called()
         # The announcement is reported too; what went wrong is the rest.
@@ -109,37 +110,27 @@ class TestRunnerHyperstackTrigger:
         assert (failure.kind, failure.reason) == (OutcomeKind.FAULT, 'write_batch_timeout')
         assert failure.operation_key == 'post-processing:Hyperstack'
 
-    def test_the_build_holds_the_run_it_was_armed_for(self, tmp_path, monkeypatch):
-        # The build runs on a daemon thread that outlives the run: the
-        # next run nulls and re-fills the runner's fields, so a build
-        # still reading them would follow the SUCCESSOR run's folder and
-        # writes. Capturing the values at arming is what makes that
-        # impossible.
+    def test_the_build_holds_the_run_it_was_armed_for(self, tmp_path):
+        # The build runs on the lane after the run has ended: the next run
+        # nulls and re-fills the runner's fields, so a build still reading
+        # them would follow the SUCCESSOR run's folder and writes. Capturing
+        # the values at arming is what makes that impossible.
         import modules.sequenced_capture_runner as scr
 
         runner = _hyperstack_runner(tmp_path)
         armed_batch = MagicMock()
         runner._write_batch = armed_batch
-        # The build step is held unstarted until this test has moved the
-        # fields on, so the build cannot reach them before the successor's
-        # values are in place.
-        held = []
-        monkeypatch.setattr(
-            runner,
-            '_spawn_post_run_step',
-            lambda name, build_fn, on_end=None: held.append(build_fn),
-        )
-
+        # The build is held unsubmitted until this test has moved the fields
+        # on, so it cannot reach them before the successor's values are in
+        # place.
         with patch('modules.stack_builder.build_hyperstacks_for_run') as build:
             runner._start_hyperstack_build(on_end=lambda: None)
-            runner._run_dir = tmp_path / 'next_run'
-            successor_batch = MagicMock()
-            runner._write_batch = successor_batch
-            (build_fn,) = held
-            build_fn()
+        runner._run_dir = tmp_path / 'next_run'
+        successor_batch = MagicMock()
+        runner._write_batch = successor_batch
 
-        ((build_the_stacks,), _) = build.call_args
-        build_the_stacks()
+        ((submit, _on_end), _) = build.call_args
+        submit()
         # a stand-in by design: the subject is what the runner hands its builds.
         run_hyperstack = runner._post_processing.run_hyperstack
         run_hyperstack.assert_called_once_with(
@@ -176,8 +167,7 @@ class TestRunnerHyperstackTrigger:
     def test_scan_and_zstack_modes_also_build(self, tmp_path, run_mode):
         runner = _hyperstack_runner(tmp_path, run_mode=run_mode)
         with patch('modules.stack_builder.build_hyperstacks_for_run') as build:
-            thread = runner._start_hyperstack_build(on_end=lambda: None)
-            _join(thread)
+            runner._start_hyperstack_build(on_end=lambda: None)
         build.assert_called_once()
 
 
@@ -255,8 +245,6 @@ def test_run_mode_hyperstack_applicability_matches_its_declared_row(tmp_path):
         runner = _hyperstack_runner(run_dir, run_mode=run_mode)
         with patch('modules.stack_builder.build_hyperstacks_for_run'):
             result = runner._start_hyperstack_build(on_end=lambda: None)
-            if isinstance(result, threading.Thread):
-                _join(result)
         blocked = result is None
         assert blocked == RUN_MODE_ENGINE_BEHAVIOR[run_mode]['blocks_hyperstack_build']
 

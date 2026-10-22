@@ -16,6 +16,7 @@ itself and answers under the same operation key. The GUI's buttons go
 through the GUI boundary, so a failure is told once per press.
 """
 
+import concurrent.futures
 from unittest.mock import MagicMock
 
 import pandas as pd
@@ -225,13 +226,16 @@ def _hyperstack_build(monkeypatch, tmp_path, answer):
 
     monkeypatch.setattr(notifications, 'report_outcome', _report)
 
-    def _build():
+    def _submit():
         # a stand-in by design: the build's answer is the case, not how it was made
+        settled = concurrent.futures.Future()
         if isinstance(answer, BaseException):
-            raise answer
-        return answer
+            settled.set_exception(answer)
+        else:
+            settled.set_result(answer)
+        return settled
 
-    stack_builder.build_hyperstacks_for_run(_build)
+    stack_builder.build_hyperstacks_for_run(_submit, lambda: None)
     return notices, reports
 
 
@@ -352,7 +356,7 @@ def test_a_composite_run_carries_the_builders_own_reason(tmp_path, monkeypatch):
     import modules.composite_generation as composite_generation
     from tests.test_composite_run_e2e import headless_settings, open_composite_session
 
-    def _refuse(self, **kwargs):
+    def _refuse(self, path, **kwargs):
         raise PostProcessingRefusedError(
             operation='Composite', reason='excluded_inputs', message='Only composites here.'
         )
