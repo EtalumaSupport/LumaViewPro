@@ -66,15 +66,32 @@ def test_an_abort_that_is_no_stop_still_puts_z_back():
     ],
     ids=['the_runs_stop', 'a_stop_press'],
 )
-def test_an_autofocus_run_stopped_mid_sweep_leaves_z_where_it_stopped(session, end, reason):
+def test_an_autofocus_run_stopped_mid_sweep_leaves_z_where_it_stopped(
+    session, end, reason, monkeypatch
+):
+    motion = session.scope.motion
+    # Every Z target asked, so a red says which it was: a move back to 5000
+    # (the sweep put Z back) or none (5000.0 read where Z had stopped).
+    asked = []
+    for member in ('start_move_z', 'move_z'):
+        real = getattr(motion, member)
+
+        def spy(position, *args, _real=real, _member=member, **kwargs):
+            asked.append((_member, position))
+            return _real(position, *args, **kwargs)
+
+        monkeypatch.setattr(motion, member, spy)
     run = start_an_autofocus_held_mid_sweep(session)
 
     end(session, run)
     outcome = run.result(timeout=COMPLETION_TIMEOUT)
 
     assert (outcome.status, outcome.reason) == ('aborted', reason)
-    z = session.scope.motion.get_current_position(axis='Z')
-    assert z != 5000.0, 'Z was put back after the stop'
+    z = motion.get_current_position(axis='Z')
+    assert z != 5000.0, (
+        f'Z was put back after the stop: Z {z} ({motion.get_axis_state("Z")}), '
+        f'Z asked {asked}, outcome {outcome.message!r}'
+    )
 
 
 def test_an_autofocus_run_a_fault_ends_mid_sweep_puts_z_back(session):

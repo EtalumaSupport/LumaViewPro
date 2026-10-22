@@ -136,7 +136,13 @@ def _run_one_blue_step(built, tmp_path):
     run = built.create_protocol_runner().start_single_scan(
         protocol=_build_real_protocol([blue]), parent_dir=str(tmp_path)
     )
-    assert run.result(timeout=COMPLETION_TIMEOUT).status == 'completed'
+    outcome = run.result(timeout=COMPLETION_TIMEOUT)
+    # A red names why: a capture's own cause tells a slow host from a fault.
+    failed = outcome.captures.failed if outcome.captures else ()
+    assert outcome.status == 'completed', (
+        f'{outcome.status} {outcome.reason}: {outcome.message}; '
+        f'failed captures {[capture.cause for capture in failed]}'
+    )
 
 
 def _session_showing_bf(tmp_path):
