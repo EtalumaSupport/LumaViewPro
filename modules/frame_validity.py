@@ -22,10 +22,11 @@ counted after it would retire part of the wait it was never subject to.
 
 Whether one frame counts for one change is ``FrameValidity.judge``, by the
 rule the change's source runs (``FrameRule``): the clock rule, for a camera
-with a clock latch and a measured delay for the source, counts a frame that
-started exposing, on the camera's clock, after the change plus that delay;
-the credit rule, for every other source, counts a frame once the source's
-frame count was met before it. Which rule each source runs is decided at
+with a clock latch and a measured delay for the source, or any move on such
+a camera, counts a frame that started exposing, on the camera's clock,
+after the change plus that delay (a move's change is its stop); the credit
+rule, for every other source, counts a frame once the source's frame count
+was met before it. Which rule each source runs is decided at
 bring-up and published as ``capabilities.frame_rules``.
 
 Usage:
@@ -112,15 +113,16 @@ class FrameRule:
 
     Attributes:
         rule: ``Rule.CLOCK`` when the camera has a clock latch and its timing
-            record holds a measured delay for the source; ``Rule.CREDIT``
-            otherwise.
+            record holds a measured delay for the source, or the source is a
+            move; ``Rule.CREDIT`` otherwise.
         delay_us: Under the clock rule, the source's measured delay: the
             larger of its directions' ``apply_delay_us``, each the least
             start over its trials of the first frame showing the change. A
-            frame starting later than the change plus this shows it. None
-            under the credit rule.
+            frame starting later than the change plus this shows it. 0 for
+            a move with none measured. None under the credit rule.
         provenance: Under the clock rule, the run that measured the delay
-            (``TIMING_PROVENANCE``); None under the credit rule.
+            (``TIMING_PROVENANCE``), or that none did (``AT_THE_STOP_RULE``);
+            None under the credit rule.
 
     Raises:
         ValueError: a clock rule without its delay or provenance, or a
@@ -141,6 +143,17 @@ class FrameRule:
 
 
 CREDIT_RULE = FrameRule(rule=Rule.CREDIT, delay_us=None, provenance=None)
+
+# A move with no measured delay, on a camera with a clock latch: a frame
+# counts once it started exposing after the axis was read stopped. A frame
+# that started before the stop was exposed while the axis could still move,
+# whenever it arrived; the stop is read after the motor stops, so no frame
+# that started after it was.
+AT_THE_STOP_RULE = FrameRule(
+    rule=Rule.CLOCK,
+    delay_us=0.0,
+    provenance=types.MappingProxyType({'measured': 'none: a frame started after the stop'}),
+)
 
 
 @api_fields(
@@ -475,11 +488,14 @@ class FrameValidity:
     ) -> Mapping[str, FrameRule]:
         """Each source's rule, from a camera's checked timing record.
 
-        A source runs the clock rule when the camera has a clock latch and
-        the record holds an ``apply_delay_us`` for it, at the larger of its
+        On a camera with a clock latch, a source the record holds an
+        ``apply_delay_us`` for runs the clock rule at the larger of its
         directions' delays with that direction's provenance: a capture
-        waits one delay per source, whichever way the change went. Every
-        other source runs the credit rule.
+        waits one delay per source, whichever way the change went. A move
+        the record holds no delay for, or every move when there is no
+        record, runs it at the stop (``AT_THE_STOP_RULE``). Every other
+        source runs the credit rule, as every source does on a camera
+        without a latch.
 
         Args:
             record: The camera's timing record, already checked
@@ -488,7 +504,10 @@ class FrameValidity:
                 the host's (``capabilities.camera_has_clock_latch``).
         """
         rules = dict(cls.credit_rules())
-        if record is None or not has_clock_latch:
+        if not has_clock_latch:
+            return types.MappingProxyType(rules)
+        rules.update(dict.fromkeys(cls.MOTION_SOURCES, AT_THE_STOP_RULE))
+        if record is None:
             return types.MappingProxyType(rules)
         for source, directions in record['validity'].items():
             delays = [v for v in directions.values() if 'apply_delay_us' in v]

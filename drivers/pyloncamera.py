@@ -1664,8 +1664,9 @@ class PylonCamera(Camera):
             # Must happen here -- ChunkModeActive is locked while grabbing
             # (genicam.AccessException). Settings persist across
             # subsequent stop/start cycles.
+            # The timestamp tick frequency is read with them, for a camera
+            # whose Timestamp chunk turned on.
             ('the validity chunks', self._enable_validity_chunks),
-            ('the timestamp tick frequency', self._read_timestamp_tick_frequency),
             ('the Mono8 pixel format', lambda: self.set_pixel_format(pixel_format='Mono8')),
             ('auto-gain off', lambda: self.auto_gain(state=False)),
             # Set explicit gain -- camera default after UserSetLoad is undefined
@@ -1700,10 +1701,10 @@ class PylonCamera(Camera):
 
     # Always-enable chunks (no per-camera fallback; both production
     # USB3 cameras and dart M GigE advertise these). Timestamp is the
-    # camera-side capture-time tick value; surfaced through the chunks
-    # dict for downstream metadata writes (TIFF Plane fields, session
-    # manifest). frame_validity does not validate against it -- it's
-    # provenance, not state-equality.
+    # camera-side tick at which the frame started exposing; surfaced
+    # through the chunks dict for downstream metadata writes (TIFF Plane
+    # fields, session manifest), and what frame_validity's clock rule
+    # judges a frame by.
     _CHUNK_TARGETS_ALWAYS = ('ExposureTime', 'Gain', 'Timestamp')
 
     def _enable_validity_chunks(self) -> None:
@@ -1722,6 +1723,12 @@ class PylonCamera(Camera):
         validity layer falls back to skip_frames for unenabled chunks.
         Frame-identity is trace-only (frame_validity validates gain
         and exposure); skipping it does not break validity.
+
+        Sets ``self.timestamp_tick_frequency_hz`` only when the Timestamp
+        chunk turned on, None otherwise: a tick rate is the clock frames
+        carry their start on, and the camera's clock latch is published
+        only with one (``ScopeCapabilities.camera_has_clock_latch``), so a
+        camera whose frames carry no start never has a frame judged by one.
         """
         camera = self.active
         if camera is None:
@@ -1733,6 +1740,7 @@ class PylonCamera(Camera):
         # falls back to skip_frames calibration when chunks aren't
         # enabled, so refusing the write is the safe default.
         if self.is_grabbing():
+            # The chunks, and so the tick frequency, are left as they were.
             _cam_log.warning(
                 '[CAM Class ] _enable_validity_chunks called while '
                 'grabbing; ChunkModeActive is locked. Skipping write. '
@@ -1740,6 +1748,7 @@ class PylonCamera(Camera):
                 'calibration. Stop grabbing before enabling chunks.'
             )
             return
+        self.timestamp_tick_frequency_hz = None
         advertised = self._probe_advertised_chunks(camera)
         if advertised is None:
             return  # _probe_advertised_chunks already logged
@@ -1782,6 +1791,9 @@ class PylonCamera(Camera):
                     f'[CAM Class ] could not enable Chunk{sel}: {e}; '
                     f'frame_validity will fall back to skip_frames for that source'
                 )
+                continue
+            if sel == 'Timestamp':
+                self._read_timestamp_tick_frequency()
 
     # Basler USB3 ace 2 / dart M / dart R: documented fixed 1 GHz timestamp
     # tick rate (no GenAPI node). Basler GigE: GevTimestampTickFrequency or

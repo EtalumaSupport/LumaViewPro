@@ -415,15 +415,17 @@ class ScopeCapabilities:
     """True if the host can latch the camera's timestamp clock and read it,
     which maps the camera's clock onto the host's: each capture's
     ``FrameRecord.clock_mapping``. False on a camera without a latch
-    (IDS, the FX2), or whose tick rate is unknown, whose frames carry no
-    mapping."""
+    (IDS, the FX2), or whose tick rate is unknown, as it is for a camera
+    whose frames do not carry their start on that clock (no ``Timestamp``
+    chunk); its frames carry no mapping."""
 
     frame_rules: Mapping[str, FrameRule] = field(default_factory=FrameValidity.credit_rules)
     """Per frame-validity source, the rule a frame is judged by against its
     changes (``FrameValidity.judge``): the clock rule, with its measured
     delay and the run that measured it, where the camera has a clock latch
-    and its timing record holds a delay for the source; the credit rule,
-    the source's frame count, everywhere else. Read once at bring-up from
+    and its timing record holds a delay for the source, and for every move
+    on such a camera, from its stop when no delay is measured; the credit
+    rule, the source's frame count, everywhere else. Read once at bring-up from
     the camera's timing record."""
 
     camera_supports_black_level: bool = False
@@ -609,7 +611,8 @@ class ScopeCapabilities:
                 lambda: bool(camera.supports_black_level()),
                 False,
             )
-            # A latch maps the camera's clock only at a known tick rate.
+            # A latch maps the camera's clock only at a known tick rate, which
+            # a camera states only when its frames carry their start on it.
             camera_has_clock_latch = camera_timestamp_tick_hz is not None and _probe(
                 'camera.supports_clock_latch',
                 lambda: bool(camera.supports_clock_latch()),

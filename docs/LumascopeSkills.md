@@ -703,8 +703,10 @@ image = session.scope.imaging.capture_and_wait(timeout_s=2.0)
 # every source's last change (recorded_changes()). Each source runs one rule
 # (capabilities.frame_rules): the clock rule, where the camera has a clock
 # latch and a measured delay for the source, counts a frame that started
-# exposing after the change plus that delay; the credit rule counts one once
-# the source's frame count was met before it.
+# exposing after the change plus that delay; every move on such a camera
+# runs it, from the axis's stop when no delay is measured, so a frame that
+# started while the axis could still move never counts; the credit rule
+# counts one once the source's frame count was met before it.
 # A capture judges the frame it returns (a sum's first frame) against each
 # source's last change; the answers ride its record
 # (last_capture_info['frame_record'].judgments), its saved file
@@ -1512,6 +1514,7 @@ still states the major version.
 | level 27 | The Session's ten run-state reads are gone: `is_protocol_running`, `run_in_progress`, `exclusive_activity`, `protocol_files_draining`, `protocol_files_pending`, `run_lockout`, `run_lockout_named`, `recording_active`, `controls_locked` and `motion_enabled`. `controls_lock` answers the lock, `live_work` what holds the scope and a finished run's files still to write, and a stage gesture reads `capabilities.has_xy_stage` beside the lock. |
 | level 28 | A `Change` carries `earliest_ns`, the earliest moment it could have reached the hardware: a camera or LED write's start, or for a move once in force the start of the last read that saw its axis still moving (else its `written_ns`). A delay measured from it is never short; the clock rule still judges from `written_ns`, or a move's `in_force_ns`, so the pair never accepts a frame early. |
 | level 29 | `session.plugin_run_in_flight()`: a context manager entered when a plugin's run starts and left when its worker ends, on any threads; while it is held, `live_work` lists a `'plugin_run'` item (`'An engineering plugin run'`, `left` its count) and `in_flight_named` names it; it holds no claim and refuses nothing. |
+| level 30 | On a camera with a clock latch (`capabilities.camera_has_clock_latch`), every move (`xy_move`, `z_move`, `turret`) runs the clock rule in `capabilities.frame_rules`: at its measured delay, or at 0 from the axis's stop when its timing record holds none or the camera has no record, its `provenance` then `{'measured': 'none: a frame started after the stop'}`; a frame that started exposing before the stop never counts for the move. A camera reports a clock latch only when its frames carry their start (the `Timestamp` chunk); a Basler camera whose chunk did not turn on has no `camera_timestamp_tick_hz` and no latch. |
 
 ### Configuration queries
 
@@ -2365,7 +2368,7 @@ xy_move    — X or Y axis motion
 turret     — turret move
 ```
 
-`exclude_sources` in `capture_and_wait()` skips the wait for a source, so the frame returned can predate that source's change -- a frame already on its way when the change went out. That fits a frame you only show; never pass it for a frame you measure or record. Autofocus waits out each Z move. Earlier builds, the 4.0.0 beta included, excluded `z_move`, so a step could score the previous step's frame at its own Z. Each sweep step now costs the `z_move` count (2 frames) after its move.
+`exclude_sources` in `capture_and_wait()` skips the wait for a source, so the frame returned can predate that source's change -- a frame already on its way when the change went out. That fits a frame you only show; never pass it for a frame you measure or record. Autofocus waits out each Z move. Earlier builds, the 4.0.0 beta included, excluded `z_move`, so a step could score the previous step's frame at its own Z. Each sweep step now waits, on a camera with a clock latch, for a frame that started exposing after its move stopped (about one frame more than the move's own frames), and on a camera without one the `z_move` count (2 frames) after its move.
 
 ---
 

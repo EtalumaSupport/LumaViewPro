@@ -171,22 +171,39 @@ def _delays(**by_direction):
     }
 
 
-def test_a_source_runs_the_clock_rule_only_with_a_latch_and_a_measured_delay():
-    """The slower direction sets the delay, with the run that measured it: a
-    capture waits one delay per source whichever way the change went."""
-    record = _record({'exposure': _delays(up=300.0, down=500.0), 'gain': {'up': _measured()}})
+def test_a_latched_cameras_moves_run_the_clock_rule_and_its_other_sources_need_a_delay():
+    """On a camera with a clock latch, every move runs the clock rule: at
+    the delay its record measured, the slower direction's with the run that
+    measured it, or at the stop when the record has none or there is no
+    record. Another source runs it only with a measured delay. A camera
+    without a latch runs the credit rule for everything."""
+    record = _record(
+        {
+            'exposure': _delays(up=300.0, down=500.0),
+            'z_move': _delays(out=70.0, back=90.0),
+            'gain': {'up': _measured()},
+        }
+    )
 
     latched = FrameValidity.rules_from_record(record, has_clock_latch=True)
+    no_record = FrameValidity.rules_from_record(None, has_clock_latch=True)
     unlatched = FrameValidity.rules_from_record(record, has_clock_latch=False)
 
-    exposure = latched['exposure']
-    assert (exposure.rule, exposure.delay_us, exposure.provenance['run_id']) == (
-        Rule.CLOCK,
-        500.0,
-        'run-down',
-    )
-    assert {s for s, rule in latched.items() if rule.rule is Rule.CLOCK} == {'exposure'}
-    assert set(latched) == set(FrameValidity.SKIP_FRAMES)
+    def measured(rules):
+        return {
+            source: (rule.delay_us, rule.provenance.get('run_id'))
+            for source, rule in rules.items()
+            if rule.rule is Rule.CLOCK
+        }
+
+    assert measured(latched) == {
+        'exposure': (500.0, 'run-down'),
+        'z_move': (90.0, 'run-back'),
+        'xy_move': (0.0, None),
+        'turret': (0.0, None),
+    }
+    assert measured(no_record) == dict.fromkeys(FrameValidity.MOTION_SOURCES, (0.0, None))
+    assert set(latched) == set(no_record) == set(FrameValidity.SKIP_FRAMES)
     assert {rule.rule for rule in unlatched.values()} == {Rule.CREDIT}
 
 

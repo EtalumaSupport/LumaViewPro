@@ -15,6 +15,7 @@ import logging
 import threading
 
 from modules.lumascope_api.frame_record import ClockMapping
+from tests.camera_fakes import chunk_config_pylon_camera, init_configurable_pylon_camera
 from tests.scope_fakes import bind_settings_like_a_session, build_scope
 
 
@@ -83,3 +84,31 @@ def test_a_camera_without_a_latch_records_no_mapping(caplog):
     assert record.clock_mapping is None
     (line,) = _capture_lines(caplog)
     assert ' clock=none' in line, line
+
+
+def _configured_pylon_camera(advertised):
+    """A Pylon camera through the real ``init_camera_config``, its chunks
+    and its tick rate read as a connect reads them, advertising
+    ``advertised`` chunks."""
+    # a stand-in by design: the Pylon SDK never runs in the test process.
+    cam = init_configurable_pylon_camera()
+    del cam._enable_validity_chunks, cam._read_timestamp_tick_frequency
+    chunks = chunk_config_pylon_camera(advertised).active
+    for node in ('GetNodeMap', 'ChunkModeActive', 'ChunkSelector', 'ChunkEnable'):
+        setattr(cam.active, node, getattr(chunks, node))
+    cam.init_camera_config()
+    return cam
+
+
+def test_a_camera_whose_frames_carry_no_start_states_no_tick_rate():
+    """A latch maps the camera's clock onto the host's only for frames that
+    carry their start on it: a camera whose ``Timestamp`` chunk did not
+    turn on states no tick rate, so it has no clock latch and its moves are
+    counted in frames from the stop, never judged by a start no frame has."""
+    stamped = _configured_pylon_camera(['ExposureTime', 'Gain', 'Timestamp'])
+    unstamped = _configured_pylon_camera(['ExposureTime', 'Gain'])
+
+    assert 'Timestamp' in stamped.active.ChunkSelector.writes
+    assert stamped.timestamp_tick_frequency_hz is not None
+    assert 'Timestamp' not in unstamped.active.ChunkSelector.writes
+    assert unstamped.timestamp_tick_frequency_hz is None

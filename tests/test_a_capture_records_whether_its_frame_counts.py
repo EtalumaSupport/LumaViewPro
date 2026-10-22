@@ -134,6 +134,30 @@ def test_a_clock_rule_move_is_judged_from_its_settle():
     assert (before.counts, after.counts) == (False, True)
 
 
+def test_an_unmeasured_move_on_a_clock_camera_counts_a_frame_started_after_its_stop():
+    """A camera with a clock latch and no measured delay for a move: a frame
+    that started exposing before the axis stopped, though it arrived after,
+    does not count for the move; one that started after the stop does."""
+    settled = threading.Event()
+    fv = FrameValidity(lambda: 0)
+    fv.set_settle_check(lambda source: settled.is_set())
+    fv.use_rules(FrameValidity.rules_from_record(None, has_clock_latch=True))
+    fv.invalidate('z_move', began_ns=None)
+    settled.set()
+    stop_ns = time.monotonic_ns()
+    fv.motion_settled('z_move', stop_ns, moving_seen_ns=None)
+    change = fv.changes()['z_move']
+    mapping = _mapping_at(stop_ns)
+
+    during = fv.judge(_frame(3, arrived_ns=stop_ns + 10**8, started_ticks=999_000), change, mapping)
+    after = fv.judge(
+        _frame(4, arrived_ns=stop_ns + 10**8, started_ticks=1_000_051), change, mapping
+    )
+
+    assert change.rule.rule is Rule.CLOCK
+    assert (during.counts, after.counts) == (False, True)
+
+
 def test_a_rule_states_its_delay_and_provenance_under_the_clock_only():
     wrong = {
         'a clock rule without a delay': (Rule.CLOCK, None, _PROVENANCE),
