@@ -180,6 +180,8 @@ class MotionSettings(BoxLayout):
         vert_control = self.ids['verticalcontrol_id']
         for turret_id in ('turret_selection_label', 'turret_btn_box', 'turret_objective_btn_box'):
             vert_control.ids[turret_id].visible = visible
+        # Without the turret rows, the objective is assigned by its own button.
+        vert_control.ids['assign_objective_box'].visible = not visible
 
     def set_focus_control_visibility(self, visible: bool) -> None:
         vert_control = self.ids['verticalcontrol_id']

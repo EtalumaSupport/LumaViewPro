@@ -227,29 +227,6 @@ class VerticalControl(BoxLayout):
         logger.info('[LVP Main  ] VerticalControl.home()')
         run_reported(lambda: move_home(axis='Z'), None, 'HOME_Z')
 
-    def load_objectives(self):
-        ctx = _app_ctx.ctx
-        logger.info('[LVP Main  ] VerticalControl.load_objectives()')
-        spinner = self.ids['objective_spinner2']
-        spinner.values = list(ctx.scope.objectives)
-
-    def pick_objective(self, objective_id):
-        """A person picked an objective from the spinner; the Session decides.
-
-        On a turret scope the Session turns the turret to the slot holding
-        it, a move, so the pick runs on the IO lane like a turret button;
-        with no turret it selects it. A refusal -- no slot or two slots hold
-        it, a run holds the scope -- is shown, and either way the display
-        shows the API's answer, so a refused pick never stays on screen as
-        if it had been taken.
-        """
-        submit_reported(
-            lambda: _app_ctx.ctx.session.select_objective(objective_id),
-            lambda: self.show_turret_state(prompt=False),
-            'OBJECTIVE',
-            lane=_app_ctx.ctx.io_executor,
-        )
-
     def show_turret_state(self, prompt=True):
         """Show what the API says: the turret slot in the light path, each
         slot's assignment, and the active objective.
@@ -257,8 +234,10 @@ class VerticalControl(BoxLayout):
         Every turret action ends here, a failed one included -- a press,
         a home, a run's step, startup, an objective answer -- because only
         the API knows where the turret is. The button down is the slot the
-        API reports and none is down while that slot is unknown; the
-        spinner shows the active objective, or 'Unknown'.
+        API reports and none is down while that slot is unknown, so the
+        working objective is the name on the pressed button; each button
+        names the objective assigned to its slot. On a scope without a
+        turret, Assign Objective names the active objective.
 
         Args:
             prompt: Ask the objective question when the objective is
@@ -269,22 +248,15 @@ class VerticalControl(BoxLayout):
         """
         ctx = _app_ctx.ctx
         slot = ctx.scope.motion.get_turret_slot()
-        catalogue = ctx.scope.objectives
         for position, assigned in ctx.scope.runtime_state.get_turret_config().items():
             button = self.ids[f'turret_pos_{position}_btn']
             button.state = 'down' if position == slot else 'normal'
-            if assigned is None:
-                button.text = f'< {position} >'
-            elif assigned in catalogue:
-                magnification = catalogue[assigned].magnification
-                button.text = f'{magnification}x'
-            else:
-                # Shown as assigned, because it is: the active objective
-                # there is unknown, and the spinner says so.
-                button.text = assigned
+            # A name outside the catalogue is shown as assigned, because it
+            # is; the active objective there is unknown.
+            button.text = f'< {position} >' if assigned is None else assigned
 
         objective_id = ctx.scope.runtime_state.get_current_objective_id()
-        self.ids['objective_spinner2'].text = objective_id or 'Unknown'
+        self.ids['assign_objective_btn'].text = objective_id or 'Assign Objective'
         shown = objective_id or 'Unknown'
         if ctx.scope.capabilities.has_turret:
             # The turret row is shown only on a scope that has one.
@@ -418,18 +390,17 @@ class VerticalControl(BoxLayout):
 
         # No prompt follows, deliberately. The press IS the user saying
         # this slot is empty; asking straight back which objective is in
-        # it is a question they have just answered. Set Turret Objective
-        # names the slot's glass when they want to.
+        # it is a question they have just answered. Pressing the slot
+        # names its glass when they want to.
 
-    def set_turret_objective(self):
-        """Ask which objective is installed in the slot in the light path.
+    def assign_objective(self):
+        """Ask which objective is installed, on a scope without a turret.
 
         The question is the Session's, asked whether or not one is owed,
         and is shown by the one objective popup; its answer and its
-        Cancel go where the owed question's do. A refusal -- the turret
-        in no known slot -- is shown.
+        Cancel go where the owed question's do. A refusal is shown.
         """
-        gui_logger.button('SET_TURRET_OBJECTIVE')
+        gui_logger.button('ASSIGN_OBJECTIVE')
         # The popup is opened inside the reported call: run_reported drops
         # the call's return, and the question is that return.
         run_reported(
@@ -437,7 +408,7 @@ class VerticalControl(BoxLayout):
                 _app_ctx.ctx.session.current_slot_objective_question()
             ),
             redraw=None,
-            label='SET_TURRET_OBJECTIVE',
+            label='ASSIGN_OBJECTIVE',
         )
 
     def prompt_if_objective_unknown(self, on_resolved=None):

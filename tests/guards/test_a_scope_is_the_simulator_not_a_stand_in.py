@@ -358,7 +358,7 @@ ALLOWED = frozenset(
         'tests/test_the_camera_holds_a_layer_from_the_session.py::TestBringUp.test_a_scope_with_no_camera_is_not_applied_and_says_so',
         'tests/test_the_claim_names_the_holding_run.py::TestTheRunnerReadsTheClaim.test_a_runner_cannot_be_built_without_a_claim',
         'tests/test_the_gui_boundary.py::test_a_burst_of_scroll_ticks_is_one_move_of_the_last_ticks_step',
-        'tests/test_the_gui_displays_the_turret.py::stand',
+        'tests/test_the_gui_displays_the_turret.py::_built',
         'tests/test_the_protocol_panels_schedule_is_the_protocols.py::ctx',
         'tests/test_the_report_passes_nothing_it_could_not_measure.py::test_a_fullinfo_that_timed_out_is_not_a_serial_number',
         'tests/test_the_run_turns_the_turret_itself.py::test_a_refused_move_raises_instead_of_being_skipped',

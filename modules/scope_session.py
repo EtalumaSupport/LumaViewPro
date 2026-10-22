@@ -252,7 +252,8 @@ class ObjectiveQuestion:
     Returned by ``ScopeSession.objective_question`` when no one has ever
     confirmed the objective on this install, or the turret sits on a slot
     with no assignment; and by ``current_slot_objective_question`` whenever
-    a person asks to say what the current turret slot holds. The pixel size
+    a person asks to say what the current turret slot holds, or on a scope
+    without a turret which objective is installed. The pixel size
     derived from the objective is stamped into the scale bar and every
     saved image's metadata, and a wrong scale cannot be told from a
     measured one afterwards -- so the session exposes the question instead
@@ -4818,20 +4819,23 @@ class ScopeSession:
         The question is that read's, proposing the slot's assignment, so an
         unchanged answer leaves the slot as it is. The answer goes back
         through ``confirm_objective`` with the slot the question names, which
-        is the slot written even if the turret has moved since.
+        is the slot written even if the turret has moved since. On a scope
+        without a turret the question names no slot and proposes the
+        selected objective once one has been confirmed, the catalogue
+        default before.
 
         A hold or provisional settings refuse nothing here: the answer's own
         write refuses a change under a hold, and a write while settings are
-        provisional is kept like any other setting's.
+        provisional is kept in memory like any other setting's, and not
+        saved (``settings_are_provisional``).
 
         Raises:
-            HardwareCommandRefusedError: ``'axis_absent'``, the scope has no
-                turret.
             ObjectiveUnknownError: ``'slot_unknown'``, the slot in the light
                 path is unknown -- the turret is turning or has not been homed.
             ConfigError: the catalogue is empty, or cannot be read.
         """
-        self._refuse_without_a_turret('current_slot_objective_question')
+        if not self.scope.runtime_state.is_turreted():
+            return self._objective_question_at(None)
         position = self.scope.motion.get_turret_slot()
         if position is None:
             raise ObjectiveUnknownError('slot_unknown')

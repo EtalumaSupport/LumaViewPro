@@ -575,7 +575,8 @@ def show_objective_selection_popup(
     objective (first run, or a turret position with no assignment), it
     asks instead of assuming silently. Cancel leaves the objective as
     unknown as it was: every capture then refuses, saying to assign it,
-    and Set Turret Objective asks again. Without it a person who does
+    and pressing the slot (or Assign Objective, without a turret) asks
+    again. Without it a person who does
     not know what is installed could only answer by writing an objective
     nobody named -- the catalogue default, preselected. The popup has no
     X: Cancel is the one way to leave it unanswered, and it runs every

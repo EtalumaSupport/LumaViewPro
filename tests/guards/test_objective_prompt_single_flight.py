@@ -175,10 +175,9 @@ class _Stand:
     # Borrowed, not stubbed: it decides whether a startup step waiting
     # on the objective runs at all.
     _resolve_objective = VerticalControl._resolve_objective
-    set_turret_objective = VerticalControl.set_turret_objective
 
     def __init__(self):
-        self.ids = {'objective_spinner2': _FakeWidget(text='')}
+        self.ids = {}
         for position in range(1, 5):
             self.ids[f'turret_pos_{position}_btn'] = _FakeWidget(text=str(position))
         self.shown = []

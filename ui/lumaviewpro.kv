@@ -702,61 +702,50 @@
 				color: [51/255, 181/255, 229/255, 1]
 				visible: True
 
+			# Each slot button names the objective assigned to it, wrapping a
+			# catalogue name to two lines at 12 sp ('40x' over 'w/collar').
 			BoxLayout:
 				orientation: 'horizontal'
 				id: turret_btn_box
 				size_hint_y: None
-				height: '30dp' if self.visible else 0
+				height: '44dp' if self.visible else 0
 				opacity: 1 if self.visible else 0
 				disabled: (not self.visible) or app.lock.controls_locked
 				visible: True
+				spacing: '5dp'
 
 				RoundedToggleButton:
 					id: turret_pos_1_btn
 					text: '< 1 >'
+					font_size: '12sp'
+					text_size: self.width - dp(6), None
+					halign: 'center'
 					tooltip_text: 'Select turret position 1'
 		            on_release: root.turret_gesture(1)
 				RoundedToggleButton:
 					id: turret_pos_2_btn
 					text: '< 2 >'
+					font_size: '12sp'
+					text_size: self.width - dp(6), None
+					halign: 'center'
 					tooltip_text: 'Select turret position 2'
 		            on_release: root.turret_gesture(2)
 				RoundedToggleButton:
 					id: turret_pos_3_btn
 					text: '< 3 >'
+					font_size: '12sp'
+					text_size: self.width - dp(6), None
+					halign: 'center'
 					tooltip_text: 'Select turret position 3'
 		            on_release: root.turret_gesture(3)
 				RoundedToggleButton:
 					id: turret_pos_4_btn
 					text: '< 4 >'
+					font_size: '12sp'
+					text_size: self.width - dp(6), None
+					halign: 'center'
 					tooltip_text: 'Select turret position 4'
 		            on_release: root.turret_gesture(4)
-
-			BoxLayout:
-		        orientation: 'horizontal'
-		        size_hint_y: None
-		        height: '30dp'
-		        disabled: app.lock.controls_locked
-		        Label:
-		            text: 'Objective'
-		            size_hint_x: None
-		            width: '120dp'
-					font_size: '12sp'
-			    PickSpinner:
-					id: objective_spinner2
-					sync_height: True
-			        text: 'Unknown'
-					font_size:'12sp'
-					option_cls: "SpinnerOption0"
-					# #631: text_autoupdate: True caused .values reassignment to reset
-					# .text to the alphabetically-first option, firing on_text with the
-					# wrong objective_id and tripping the misleading turret warning.
-					# Text shows the active objective the API derives, and only that:
-					# a person's pick arrives as on_pick and reaches the Session, and
-					# the display follows the Session's answer.
-			        on_release: root.load_objectives()
-			        log_name: 'OBJECTIVE'
-			        on_pick: root.pick_objective(args[1])
 
 			BoxLayout:
 				orientation: 'horizontal'
@@ -767,16 +756,30 @@
 				disabled: (not self.visible) or app.lock.controls_locked
 				visible: True
 				spacing: '5dp'
-				RoundedButton:
-					id: set_turret_objective_btn
-					text: 'Set Turret Objective'
-					font_size: '12sp'
-					on_release: root.set_turret_objective()
+				# Centred at 60% of the row: a button needs no more than its label.
+				padding: [self.width * 0.2, 0]
 				RoundedButton:
 					id: reset_turret_objective_btn
 					text: 'Reset Turret Objective'
 					font_size: '12sp'
 					on_release: root.reset_turret_objective()
+
+			# A scope without a turret: the objective is assigned here, shown
+			# exactly when the turret rows are not (set_turret_control_visibility).
+			BoxLayout:
+				orientation: 'horizontal'
+				id: assign_objective_box
+				size_hint_y: None
+				height: '30dp' if self.visible else 0
+				opacity: 1 if self.visible else 0
+				disabled: (not self.visible) or app.lock.controls_locked
+				visible: False
+				padding: [self.width * 0.2, 0]
+				RoundedButton:
+					id: assign_objective_btn
+					text: 'Assign Objective'
+					font_size: '12sp'
+					on_release: root.assign_objective()
             
 			ZStack:
 				id: zstack_id

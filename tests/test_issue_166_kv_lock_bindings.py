@@ -197,7 +197,7 @@ LOCK_REPRESENTATIVES = {
     # a stop-capable toggle, deliberately NOT protocol-locked.
     'fast_up': 'ANCESTOR',
     'obj_position': 'ANCESTOR',
-    'objective_spinner2': 'ANCESTOR',
+    'assign_objective_btn': 'ANCESTOR',
     # Protocol edit / step-nav (mixed region -> per-widget).
     'capture_period': None,
     'labware_spinner': None,

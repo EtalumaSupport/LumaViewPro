@@ -1,8 +1,8 @@
 """P03 -- turret / objective selection, headless.
 
-GUI capabilities covered: pick an objective from the spinner
-(vertical_control.py pick_objective -> select_objective -- on a turret
-scope it turns the turret to the one slot holding the objective), rotate the turret to a slot
+Capabilities covered: select an objective by name (the Session's
+select_objective, which REST and the SDK call -- on a turret scope it turns
+the turret to the one slot holding the objective), rotate the turret to a slot
 (vertical_control.py:746 turret_select, via the four turret buttons),
 assign/clear an objective to a turret slot (vertical_control.py:627/647),
 home the turret (vertical_control.py:598).

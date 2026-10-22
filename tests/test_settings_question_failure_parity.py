@@ -196,7 +196,7 @@ class _VerticalControlStand:
     _resolve_objective = VerticalControl._resolve_objective
 
     def __init__(self):
-        self.ids = {'objective_spinner2': SimpleNamespace(values=list(CATALOGUE), text='')}
+        self.ids = {}
         for position in range(1, 5):
             self.ids[f'turret_pos_{position}_btn'] = SimpleNamespace(text=str(position))
 

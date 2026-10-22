@@ -43,27 +43,20 @@ def run_holds_the_scope(session):
 
 
 class TestWhileARunHoldsTheScope:
-    def test_picking_another_objective_is_one_microscope_busy_warning(
+    def test_pressing_another_slot_is_one_microscope_busy_warning(
         self, stand, session, run_holds_the_scope, caplog, centre_posts
     ):
         home_sim_scope(session.scope)
         with caplog.at_level(logging.DEBUG):
-            stand.pick_objective('4x Oly')
+            stand.turret_select(2)
 
         assert [(n.severity, n.title) for n in centre_posts] == [
             (Severity.WARNING, 'Microscope Busy')
         ]
         assert _records(caplog) == [(NOTIFICATIONS, logging.WARNING, False)]
         assert stand.popups == []
-        # The display shows the objective still mounted in slot 1.
-        assert stand.ids['objective_spinner2'].text == '10x Oly'
-
-    def test_picking_the_mounted_objective_is_no_outcome(
-        self, stand, session, run_holds_the_scope, centre_posts
-    ):
-        home_sim_scope(session.scope)
-        stand.pick_objective('10x Oly')
-        assert centre_posts == []
+        # The display shows the turret still on slot 1.
+        assert stand.ids['turret_pos_1_btn'].state == 'down'
 
 
 def test_resetting_an_unknown_slot_is_one_objective_unknown_warning(

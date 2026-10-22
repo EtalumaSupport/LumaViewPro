@@ -250,20 +250,19 @@ _ROSTER = {
     'VerticalControl.RoundedButton(goto_bookmark)': ('GOTO_Z_BOOKMARK',),
     'VerticalControl.RoundedButton(set_all_bookmarks)': ('SET_ALL_BOOKMARKS',),
     'VerticalControl.RoundedButton(set_bookmark)': ('SET_Z_BOOKMARK',),
+    # Its own record: the question it opens is the objective prompt's, whose
+    # answer and Cancel are recorded as popup responses.
+    'VerticalControl.assign_objective_btn': ('ASSIGN_OBJECTIVE',),
     'VerticalControl.autofocus_id': ('AUTOFOCUS',),
     'VerticalControl.fast_down': (_D('coarse_down'),),
     'VerticalControl.fast_up': (_D('coarse_up'),),
     'VerticalControl.home_id': ('HOME_Z',),
     'VerticalControl.obj_position': ('Z_POSITION',),
-    'VerticalControl.objective_spinner2': ('OBJECTIVE',),
     # Narrowed to its own record: the reset no longer reaches the
     # objective prompt, so it can no longer write that prompt's OBJECTIVE.
     # Widening this again would mean the button had been given back a
     # second responsibility.
     'VerticalControl.reset_turret_objective_btn': ('RESET_TURRET_OBJECTIVE',),
-    # Its own record: the question it opens is the objective prompt's, whose
-    # answer and Cancel are recorded as popup responses.
-    'VerticalControl.set_turret_objective_btn': ('SET_TURRET_OBJECTIVE',),
     'VerticalControl.slow_down': (_D('fine_down'),),
     'VerticalControl.slow_up': (_D('fine_up'),),
     # Narrowed to the gesture: a turret press no longer selects an objective
