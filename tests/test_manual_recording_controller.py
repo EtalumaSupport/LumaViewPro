@@ -202,7 +202,7 @@ def make_settings(tmp_path, *, video_as_frames=True, max_fps=0, duration_s=60, h
         video_as_frames=video_as_frames,
         video={
             'max_fps': max_fps,
-            'max_duration_seconds': duration_s,
+            'max_duration_s': duration_s,
             'timestamp_overlay': True,
         },
     )
@@ -1140,7 +1140,7 @@ class TestD15LiveSettingsBackDoor:
         # The back door: a protocol load rewrites the live video settings
         # (rate cap, duration, overlay) under the running recording.
         controller._settings['video'].update(
-            {'max_fps': 1, 'max_duration_seconds': 1, 'timestamp_overlay': False}
+            {'max_fps': 1, 'max_duration_s': 1, 'timestamp_overlay': False}
         )
         controller._settings['video_as_frames'] = False
 

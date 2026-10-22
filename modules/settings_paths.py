@@ -428,7 +428,7 @@ _RANGES: typing.Final[dict[str, typing.Callable[[str, typing.Any], None]]] = {
     'image_output_format.live': _live_format,
     'image_output_format.sequenced': _sequenced_format,
     'video.max_fps': _video_max_fps,
-    'video.max_duration_seconds': _video_max_duration,
+    'video.max_duration_s': _video_max_duration,
     'jpg_quality': _jpg_quality,
     'live_view_fps': _non_negative,
     'zstack.step_size': _non_negative,

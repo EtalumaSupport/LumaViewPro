@@ -570,7 +570,7 @@ mode (4.2+) may add runtime gates.
 
 **Pass-1 amendment (I-3 — subscribes_to keys)**: `subscribes_to` lists
 settings-tree keys (dot-path notation, e.g.
-`("video.max_fps", "video.max_duration_seconds")`). Host fires
+`("video.max_fps", "video.max_duration_s")`). Host fires
 `on_settings_changed(ctx, settings)` only when one of those keys
 changes. Empty tuple = hook never fires.
 

@@ -63,20 +63,22 @@ RUNTIME_ONLY_PER_LAYER: dict[str, set[str]] = {}
 # - file_root: a filename prefix every layer shipped, which nothing read.
 MIGRATED_PER_LAYER = {'ill_ma', 'exp_ms', 'file_root'}
 
-# Nested keys the loader drops, keyed by the dotted path of the entry they
-# lived under. A current.json of any age may still hold them until its next
+# Nested keys the loader drops or renames away, keyed by the dotted path of
+# the entry they lived under. A current.json of any age may still hold them until its next
 # clean shutdown (normalize_loaded_settings pops them at load); they must
 # never come back in settings.json:
 # - protocol.bf_af_for_fluorescence: reusing brightfield's autofocus for
 #   the fluorescence steps, removed.
 # - protocol.autogain.max_duration_seconds: the longest an auto-gain step
 #   waited, unread once its settle became a frame count.
+# - video.max_duration_seconds: renamed max_duration_s, for its unit.
 # - profiling.stim_profiling: shipped with no reader, removed.
 # - rest_api.host, api_key, cors_origins: the server binds this computer
 #   only and has no credentials; nothing read them.
 RETIRED_PER_LAYER = {
     'protocol': {'bf_af_for_fluorescence'},
     'protocol.autogain': {'max_duration_seconds'},
+    'video': {'max_duration_seconds'},
     'profiling': {'stim_profiling'},
     'rest_api': {'host', 'api_key', 'cors_origins'},
 }

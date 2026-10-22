@@ -41,7 +41,7 @@ def test_manual_recording_ends_within_the_stall_bound(
     settings = complete_settings(
         live_folder=str(tmp_path),
         video_as_frames=True,
-        video={'max_fps': 0, 'max_duration_seconds': 60, 'timestamp_overlay': False},
+        video={'max_fps': 0, 'max_duration_s': 60, 'timestamp_overlay': False},
     )
     scheduler = ThreadingTimerScheduler(name_prefix='TestFeedLoss')
     controller = ManualRecordingController(

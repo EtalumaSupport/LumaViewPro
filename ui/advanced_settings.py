@@ -184,7 +184,7 @@ class AdvancedSettings(Popup):
         gui_logger.text_input('VIDEO_MAX_DURATION_S', widget.text)
         if self._commit_video_limit(
             widget,
-            'video.max_duration_seconds',
+            'video.max_duration_s',
             get_manual_video_max_duration,
             'VIDEO_MAX_DURATION_S',
         ):

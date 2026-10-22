@@ -91,7 +91,7 @@ def test_a_refused_duration_records_the_attempt_not_the_revert(emitted, monkeypa
     from ui.advanced_settings import AdvancedSettings
 
     widget = _Widget('99999')
-    stored = {'video': {'max_duration_seconds': 300}}
+    stored = {'video': {'max_duration_s': 300}}
     panel = _advanced_panel(monkeypatch, 'video_max_duration_input', widget, stored)
 
     AdvancedSettings.update_video_max_duration(panel)

@@ -6860,7 +6860,7 @@ class TestManualVideoSpinners:
         assert 'id: video_max_duration_input' in kv, (
             'ui/advanced_settings.py must define a TextInput with id '
             'video_max_duration_input bound to '
-            "settings['video']['max_duration_seconds']."
+            "settings['video']['max_duration_s']."
         )
         assert 'root.update_video_max_duration()' in kv, (
             'video_max_duration_input must call root.update_video_max_duration() on edit.'
@@ -6902,7 +6902,7 @@ class TestManualVideoSpinners:
         )
         assert 'video_max_duration_input' in body, (
             'AdvancedSettings.on_open must push '
-            "settings['video']['max_duration_seconds'] into the "
+            "settings['video']['max_duration_s'] into the "
             'video_max_duration_input widget when the modal opens.'
         )
 

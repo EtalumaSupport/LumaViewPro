@@ -44,7 +44,7 @@ def session(tmp_path, monkeypatch):
             **_settings(
                 tmp_path,
                 video_as_frames=True,
-                video={'max_fps': 0, 'max_duration_seconds': 60, 'timestamp_overlay': False},
+                video={'max_fps': 0, 'max_duration_s': 60, 'timestamp_overlay': False},
             )
         ),
         simulate=True,

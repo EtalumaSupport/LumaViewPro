@@ -61,12 +61,12 @@ def test_that_key_alone_takes_the_shipped_value_and_is_told(tmp_path, section, k
 
     def edit(current):
         current[section][key] = saved
-        current['video']['max_duration_seconds'] = 120
+        current['video']['max_duration_s'] = 120
 
     settings, told = _prepare(tmp_path, edit)
 
     assert settings[section][key] == shipped[section][key]
-    assert settings['video']['max_duration_seconds'] == 120, 'a value in range was replaced'
+    assert settings['video']['max_duration_s'] == 120, 'a value in range was replaced'
     (notice,) = told
     assert notice.replacements == [(f'{section}.{key}', saved, shipped[section][key])]
     assert notice.reason == 'stored_setting_replaced'

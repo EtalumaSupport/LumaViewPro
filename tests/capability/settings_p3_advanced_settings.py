@@ -69,16 +69,16 @@ try:
 
     # --- pure settings-store rows ----------------------------------------
     s.update_settings('video.max_fps', 25)
-    s.update_settings('video.max_duration_seconds', 120)
+    s.update_settings('video.max_duration_s', 120)
     s.update_settings('video.timestamp_overlay', False)
     back = s.get_settings_snapshot()['video']
     _common.ok(
         'video limits took effect',
-        back['max_fps'] == 25 and back['max_duration_seconds'] == 120,
+        back['max_fps'] == 25 and back['max_duration_s'] == 120,
         str(back),
     )
     # out of range: the writer owns 0..200 / 1..3600
-    for path, bad in (('video.max_fps', 9999), ('video.max_duration_seconds', 999999)):
+    for path, bad in (('video.max_fps', 9999), ('video.max_duration_s', 999999)):
         try:
             s.update_settings(path, bad)
             _common.ok(f'{path} {bad} refused by the API', False, 'stored')

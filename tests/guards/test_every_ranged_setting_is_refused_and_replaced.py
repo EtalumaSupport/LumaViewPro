@@ -45,7 +45,7 @@ _OUT_OF_RANGE = {
     'image_output_format.live': 'BMP',
     'image_output_format.sequenced': 'BMP',
     'video.max_fps': settings_paths.VIDEO_MAX_FPS_LIMIT + 1,
-    'video.max_duration_seconds': 0,
+    'video.max_duration_s': 0,
     'jpg_quality': settings_paths.JPG_QUALITY_RANGE[1] + 1,
     'live_view_fps': -3,
     'zstack.step_size': -1,

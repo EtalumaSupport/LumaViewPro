@@ -70,6 +70,10 @@ _RENAMED_LAYER_KEYS = {
 _RENAMED_STIM_KEYS = {
     'illumination': 'illumination_ma',
 }
+# The recording's duration cap, named for its unit.
+_RENAMED_VIDEO_KEYS = {
+    'max_duration_seconds': 'max_duration_s',
+}
 
 
 def _migrate_renamed_keys(container: dict, mapping: dict) -> bool:
@@ -323,6 +327,21 @@ def migrate_video_settings_dict(settings_dict: dict) -> bool:
     return True
 
 
+def migrate_video_key_names_dict(settings_dict: dict) -> bool:
+    """Carry the video section's keys to their unit-suffixed names.
+
+    Must run after `migrate_video_settings_dict`, so a key folded from
+    manual_video is renamed with the rest, and before the settings.json
+    default-merge, which would otherwise merge the shipped
+    max_duration_s = 300 in beside a stored max_duration_seconds.
+
+    Returns:
+        True when at least one key was moved.
+    """
+    video = settings_dict.get('video')
+    return isinstance(video, dict) and _migrate_renamed_keys(video, _RENAMED_VIDEO_KEYS)
+
+
 # Set when current.json could not be used and the app came up on the shipped
 # template instead. Holds the rejected file's path and why, until a human
 # decides what to do about it.
@@ -527,6 +546,8 @@ def _apply_load_migrations(logger, settings_dict: dict) -> None:
         logger.info('[Settings ] Consolidated capture/save toggles into image_mode')
     if migrate_video_settings_dict(settings_dict):
         logger.info('[Settings ] Renamed manual_video settings section to video')
+    if migrate_video_key_names_dict(settings_dict):
+        logger.info('[Settings ] Renamed video.max_duration_seconds to video.max_duration_s')
     if normalize_loaded_settings(settings_dict):
         logger.info('[Settings ] Repaired stored values the running version cannot use')
 

@@ -183,12 +183,12 @@ def get_sequenced_run_settings(settings: dict, *, run_mode: SequencedCaptureRunM
 
 
 def get_manual_video_max_duration(settings: dict) -> float:
-    """Return the max recording duration in seconds (video.max_duration_seconds).
+    """Return the max recording duration in seconds (video.max_duration_s).
 
     Manual recording is stop-when-I-say bounded by this cap. The store is
     prepared, so the key is read; its shipped value is the template's.
     """
-    return settings['video']['max_duration_seconds']
+    return settings['video']['max_duration_s']
 
 
 def get_ag_ae_max_exposure_ms(layer: str, ceilings: dict) -> float:

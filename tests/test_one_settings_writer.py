@@ -71,7 +71,7 @@ def test_a_leaf_with_no_shipped_value_takes_a_number(session):
         ('zstack.range', math.inf, 'wrong_kind'),
         ('profiling.metrics_interval_s', math.nan, 'wrong_kind'),
         ('video.max_fps', 201, 'out_of_range'),
-        ('video.max_duration_seconds', 0, 'out_of_range'),
+        ('video.max_duration_s', 0, 'out_of_range'),
         ('tiling_overlap_percent', 75.0, 'out_of_range'),
         ('image_output_format.live', 'BMP', 'out_of_range'),
         # A leaf shipped null takes null or the kind it holds when set.
