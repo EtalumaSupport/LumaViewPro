@@ -54,7 +54,7 @@ ENTRY_POINT_GROUP = 'lvp.plugins'
 # fail mid-use. A host change the plugin must follow raises the value
 # here, in the same commit, to the plugin version that follows it.
 MINIMUM_PLUGIN_VERSIONS = {
-    'etaluma_engineering': '1.0.92',
+    'etaluma_engineering': '1.0.101',
 }
 
 # Etaluma's bench tool. Once installed it cannot be disabled any other way,

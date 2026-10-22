@@ -196,7 +196,7 @@ def test_a_name_that_is_no_axis_is_refused_before_the_hardware_is_asked(make_ses
     """A name that is no axis is the request's fault on every model, a manual one included."""
     scope = make_session(model).scope
     with pytest.raises(ArgumentRefusedError) as refused:
-        scope.motion.move_absolute('Q', 0)
+        scope.motion.set_precision_mode('Q', True)
     assert refused.value.reason == 'axis_unknown'
 
 

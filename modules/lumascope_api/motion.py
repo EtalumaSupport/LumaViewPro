@@ -5,7 +5,7 @@ MotionAPI owns the motion state slots (_pos_cache, _axis_state,
 _arrival_events, _position_listeners, _motion_wake,
 _motion_monitor_stop, _motion_monitor_thread, _commands_open) and
 the bodies of all stage / focus / turret methods. Lumascope keeps a
-small set of one-line method-name forwarders (home, move_absolute, etc.)
+small set of one-line method-name forwarders (home, etc.)
 for production callers; those retire as production migrates.
 
 Constructor signature:
@@ -699,22 +699,6 @@ class MotionAPI:
         """
         return self._driver.interlocks()
 
-    @staticmethod
-    def _refuse_turret_on_generic_door(axis: str) -> None:
-        """Refuse T at a public generic mover; the turret moves only by slot.
-
-        A turret moved by a generic door skips the Z park that keeps the
-        objective off the sample and never records a slot, so afterwards
-        nothing knows which objective is in the light path. ``move_turret``
-        is the one door that does both.
-
-        Raises:
-            ArgumentRefusedError: ``'turret_moves_by_slot'``, ``axis`` is
-                ``'T'``.
-        """
-        if axis == 'T':
-            raise ArgumentRefusedError('turret_moves_by_slot', argument='axis', value=axis)
-
     def refuse_absent(self, member: str, axis: str | None = None) -> None:
         """Refuse a command for motion hardware this scope does not have.
 
@@ -1293,7 +1277,7 @@ class MotionAPI:
                 afterwards, whichever of the three it was.
         """
         self.refuse_absent('move_turret', 'T')
-        # Refused here as well as at the generic door below, and both are
+        # Refused here as well as in the move's own refusals below, and both are
         # load-bearing: this one precedes the safety Z-retract and the
         # same-position short-circuit, so a nonsense slot cannot drop Z or
         # poison the position cache on its way to being refused.
@@ -1359,7 +1343,7 @@ class MotionAPI:
         A jog's size scales with the objective, so the active objective's
         record answers: ``jog_z_coarse_um`` / ``jog_z_fine_um`` for Z,
         ``jog_xy_coarse_um`` / ``jog_xy_fine_um`` for X and Y, the units
-        ``move_relative`` takes.
+        ``move_xy_by`` and ``move_z_by`` take.
 
         Raises:
             ArgumentRefusedError: ``'axis_unknown'``, ``axis`` is not 'X',
@@ -2175,9 +2159,8 @@ class MotionAPI:
         Raises:
             ArgumentRefusedError: ``'not_a_number'``, the position is not a
                 finite number, refused before any limit, the safety limit on
-                the ``ignore_limits`` path included. A name that is no axis
-                is the doors' (see ``_start``); the internal callers pass
-                literals.
+                the ``ignore_limits`` path included. The callers, the turret
+                change's moves, pass axis literals.
             HardwareCommandRefusedError: ``'not_connected'`` or
                 ``'axis_absent'``, no motor controller or no such axis (see
                 ``refuse_absent``); nothing was driven.
@@ -2192,9 +2175,9 @@ class MotionAPI:
             MoveFaultError: ``'driver_failed'``, the board did not
                 take the command.
         """
-        self._refuse_absolute('move_absolute', axis, position, 'position', ignore_limits, force)
+        self._refuse_absolute('move_turret', axis, position, 'position', ignore_limits, force)
         return self._drive(
-            'move_absolute', axis, position, overshoot_enabled, f'move_abs {axis}={position:.1f}um'
+            'move_turret', axis, position, overshoot_enabled, f'move_abs {axis}={position:.1f}um'
         )
 
     def _refuse_absolute(
@@ -2234,9 +2217,9 @@ class MotionAPI:
         # The turret's bound, which the travel check above cannot express: a
         # slot is not a distance, so get_axis_limits returns None for T and
         # nothing there refuses anything. Without this, a T target of 99 is
-        # 24.5 revolutions. The public generic doors refuse T outright; the
-        # caller that still reaches this body with T is move_turret, and the
-        # bound keeps that one honest too.
+        # 24.5 revolutions. No public move takes T; the caller that reaches
+        # this body with T is move_turret, and the bound keeps that one
+        # honest too.
         #
         # Before the ceiling below for the same reason travel is: the bound
         # that knows what the number MEANS answers first, so the turret gives
@@ -2323,60 +2306,13 @@ class MotionAPI:
         with self._stop_lock:
             return self._stop_generation != stop_generation
 
-    def _move_relative_impl(
-        self,
-        axis: str,
-        distance: float,
-        overshoot_enabled: bool = False,
-    ) -> Operation:
-        """Start an axis moving by a relative distance; return the started move.
-
-        Returns as ``_move_absolute_impl`` does: once the axis is MOVING,
-        with the operation whose ``result()`` is the move's outcome.
-
-        Args:
-            axis (str): Axis name ("X", "Y", "Z", "T").
-            distance (float): Distance to move -- um for X/Y/Z; turret slots for T.
-            overshoot_enabled: Allow Z overshoot for backlash compensation.
-
-        Raises:
-            ArgumentRefusedError: ``'not_a_number'``, the distance is not a
-                finite number. A name that is no axis is the doors' (see
-                ``_start``).
-            PositionOutOfRangeError: The distance is beyond the safety
-                limit.
-            HardwareCommandRefusedError: ``'not_connected'`` or
-                ``'axis_absent'``, no motor controller or no such axis (see
-                ``refuse_absent``); nothing was driven.
-            AxisStateUnknownError: The axis position is unknown.
-            HardwareCommandRefusedError: ``'position_unread'``, the board
-                did not report the target to add to (or, for Z with
-                overshoot, the position); nothing was driven.
-            MoveFaultError: ``'driver_failed'``, the board did not
-                take the command.
-
-        There is deliberately no ``force`` hatch here. Every caller is a
-        user jog or an autofocus sweep, and none of them is a recovery
-        path -- the recovery that must move an unknown axis is the
-        turret-safety Z-park, which is an absolute move. A hatch with no
-        caller is just an opt-out waiting to be reached for.
-        """
-        target_pos = self._refuse_relative('move_relative', axis, distance, 'distance')
-        return self._drive(
-            'move_relative',
-            axis,
-            target_pos,
-            overshoot_enabled,
-            f'move_rel {axis}={distance:+.1f}um',
-        )
-
     def _refuse_relative(self, member: str, axis: str, distance: float, argument: str) -> float:
         """Every refusal of a move of ``axis`` by ``distance``, in order; the target it drives to.
 
         The checks of a relative move without its drive, as
         ``_refuse_absolute`` is for an absolute one. ``argument`` names
         ``distance`` in a ``'not_a_number'`` refusal. The raises are
-        ``_move_relative_impl``'s, but for the Z leg's read, which is the
+        ``start_move_z_by``'s, but for the Z leg's read, which is the
         drive's.
         """
         self.refuse_absent(member, axis)
@@ -2548,174 +2484,6 @@ class MotionAPI:
             timeout_s,
         )
 
-    def _start(self, member: str, body, axis: str, target: float, **kwargs) -> Operation:
-        """Start one X, Y or Z move through ``member``: refuse what no scope can act on, then command it on the lane.
-
-        A name that is no axis and the turret are refused here, at the
-        door, so a caller is told so whatever the scope is doing -- not
-        refused first for a home in flight or a shut lane. The lane
-        carries only the command -- the body's checks, the board write and
-        the MOVING transition -- so its bound is the command's alone; the
-        wait for arrival is the operation's, in the caller's thread.
-
-        Raises:
-            ArgumentRefusedError: ``'axis_unknown'`` or
-                ``'turret_moves_by_slot'``; nothing was submitted.
-        """
-        refuse_unknown_axis(axis)
-        self._refuse_turret_on_generic_door(axis)
-        return self._dispatch_motion(
-            body,
-            member,
-            args=(axis, target),
-            kwargs=kwargs,
-            timeout_s=self._MOTION_WAIT_BASE_S,
-        )
-
-    @api(stop='Operation.stop')
-    def start_move_absolute(
-        self,
-        axis: str,
-        position: float,
-        overshoot_enabled: bool = True,
-        ignore_limits: bool = False,
-    ) -> Operation:
-        """Start X, Y or Z moving to an absolute position, in um; return the started move.
-
-        For a caller that works while the axis travels -- measuring during
-        the motion, or starting several axes together. It refuses exactly
-        what ``move_absolute`` refuses, before anything moves, and returns
-        once the board has taken the command. See ``_move_absolute_impl``
-        for the argument contract.
-
-        Returns:
-            The move's ``Operation``. It is done once the axis has been set
-            at rest, or given up, and the position listeners told: its
-            ``result()`` returns None when the axis arrived, and raises
-            ``MoveNotCompletedError`` otherwise -- the monitor's fault
-            (``'stalled'``, ``'board_lost'``, ``'position_unread'`` or
-            ``'status_unread'``) or ``'faulted'``, each leaving the axis
-            UNKNOWN; ``MoveStoppedError`` ``'stopped'``, a stop the board
-            took while it moved, ``stop_motion``'s or the stage's own in
-            refusing a move; ``MoveStoppedError`` ``'superseded'``, another
-            move or a home took the axis first. The outcome is the one the
-            move ended with, however late it is read. Its ``stop()`` is
-            ``stop_motion`` while this move still has its axis, and nothing
-            once it has ended; the board's STOP halts every axis.
-
-        Raises:
-            ArgumentRefusedError: ``'axis_unknown'`` or
-                ``'turret_moves_by_slot'``, at the door (``_start``);
-                ``'not_a_number'``, the position is not a finite number.
-                Nothing was driven.
-            HardwareCommandRefusedError: ``'not_connected'`` or
-                ``'axis_absent'``, no motor controller or no such axis;
-                ``'position_unread'``, a Z move with overshoot whose position
-                the board did not report; ``'lid_open'``, an X or Y move with
-                the stage's lid open; or ``'monitor_ended'``, the motion monitor
-                has ended, so nothing would judge the move. Nothing was driven.
-            PositionOutOfRangeError: ``'position_out_of_range'``, the target
-                is outside the axis's configured travel and ``ignore_limits``
-                is False.
-            AxisStateUnknownError: The axis position is unknown.
-            MoveFaultError: ``'driver_failed'``, the board did not take the
-                command.
-        """
-        return self._start(
-            'start_move_absolute',
-            self._move_absolute_impl,
-            axis,
-            position,
-            overshoot_enabled=overshoot_enabled,
-            ignore_limits=ignore_limits,
-        )
-
-    @api(stop='Operation.stop')
-    def start_move_relative(
-        self,
-        axis: str,
-        distance: float,
-        overshoot_enabled: bool = False,
-    ) -> Operation:
-        """Start X, Y or Z moving by a relative distance, in um; return the started move.
-
-        As ``start_move_absolute``, for ``move_relative``. See
-        ``_move_relative_impl`` for the argument contract.
-
-        Raises:
-            ArgumentRefusedError: ``'axis_unknown'`` or
-                ``'turret_moves_by_slot'``, at the door (``_start``);
-                ``'not_a_number'``, the distance is not a finite number.
-                Nothing was driven.
-            HardwareCommandRefusedError: ``'not_connected'`` or
-                ``'axis_absent'``, no motor controller or no such axis;
-                ``'position_unread'``, the board did not report the target to
-                add to (or, for Z with overshoot, the position);
-                ``'lid_open'``, an X or Y move with the stage's lid open; or
-                ``'monitor_ended'``, the motion monitor has ended, so nothing
-                would judge the move. Nothing was driven.
-            PositionOutOfRangeError: The distance is beyond the safety limit.
-            AxisStateUnknownError: The axis position is unknown.
-            MoveFaultError: ``'driver_failed'``, the board did not take the
-                command.
-        """
-        return self._start(
-            'start_move_relative',
-            self._move_relative_impl,
-            axis,
-            distance,
-            overshoot_enabled=overshoot_enabled,
-        )
-
-    @api
-    def move_absolute(
-        self,
-        axis: str,
-        position: float,
-        overshoot_enabled: bool = True,
-        ignore_limits: bool = False,
-    ) -> None:
-        """Move X, Y or Z to an absolute position, in um, and return once it has arrived.
-
-        The turret moves by slot: ``move_turret``. This is
-        ``start_move_absolute`` followed by its operation's ``result()``:
-        the command goes on the scope's IO lane, and the wait for arrival
-        blocks this caller, not the lane. A move on an axis this scope does
-        not have is refused (``refuse_absent``) and drives nothing.
-
-        Raises:
-            ArgumentRefusedError: ``'axis_unknown'`` or
-                ``'turret_moves_by_slot'``, at the door (``_start``);
-                ``'not_a_number'``, as ``_move_absolute_impl``. Nothing was
-                driven.
-            HardwareCommandRefusedError: ``'not_connected'``,
-                ``'axis_absent'`` or ``'position_unread'``, as
-                ``_move_absolute_impl``; ``'lid_open'``, an X or Y move
-                with the stage's lid open; or ``'monitor_ended'``, the motion
-                monitor has ended, so nothing would judge the move. Nothing
-                was driven.
-            PositionOutOfRangeError: ``'position_out_of_range'``, the
-                target is outside the axis's configured travel and
-                ``ignore_limits`` is False.
-            AxisStateUnknownError: The axis position is unknown.
-            MoveFaultError: ``'driver_failed'``, the board did not take the
-                command.
-            MoveNotCompletedError: The axis did not arrive; see
-                ``start_move_absolute``.
-            BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on
-                the UI thread, whose form is ``start_move_absolute``.
-                Nothing was driven.
-        """
-        refuse_waiting_on_ui_thread('move_absolute')
-        self._start(
-            'move_absolute',
-            self._move_absolute_impl,
-            axis,
-            position,
-            overshoot_enabled=overshoot_enabled,
-            ignore_limits=ignore_limits,
-        ).result()
-
     @api(stop='Operation.stop')
     def start_move_to_plate(self, at: PlateLocation) -> Operation:
         """Start X and Y moving to ``at`` on the selected plate; return the started moves.
@@ -2732,7 +2500,7 @@ class MotionAPI:
         Returns:
             One ``Operation`` for the moves started, done once every one is
             (``Operation.all_of``); its ``result()`` raises the first move's
-            raise, as ``start_move_absolute``'s does. With no axis given
+            raise, as ``start_move_xy``'s does. With no axis given
             nothing moves and it is done at once.
 
         Raises:
@@ -2778,7 +2546,7 @@ class MotionAPI:
             AxisStateUnknownError: As ``start_move_to_plate``.
             MoveFaultError: As ``start_move_to_plate``.
             MoveNotCompletedError: An axis did not arrive; see
-                ``start_move_absolute``.
+                ``start_move_xy``.
             BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on
                 the UI thread, whose form is ``start_move_to_plate``.
                 Nothing was driven.
@@ -2831,7 +2599,7 @@ class MotionAPI:
             AxisStateUnknownError: As ``start_move_to_plate``.
             MoveFaultError: As ``start_move_to_plate``.
             MoveNotCompletedError: An axis did not arrive; see
-                ``start_move_absolute``.
+                ``start_move_xy``.
             BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on
                 the UI thread, whose form is ``start_move_to_well``.
                 Nothing was driven.
@@ -2866,49 +2634,6 @@ class MotionAPI:
         stage = {axis: self._plate_target_to_stage(axis, mm) for axis, mm in given}
         with self.one_command(tuple(stage), then='move on the plate'):
             return self._move_xy_impl(member, stage.get('X'), stage.get('Y'), False)
-
-    @api
-    def move_relative(
-        self,
-        axis: str,
-        distance: float,
-        overshoot_enabled: bool = False,
-    ) -> None:
-        """Move X, Y or Z by a relative distance, in um, and return once it has arrived.
-
-        The turret moves by slot: ``move_turret``. As ``move_absolute``:
-        ``start_move_relative`` followed by its operation's ``result()``.
-
-        Raises:
-            ArgumentRefusedError: ``'axis_unknown'`` or
-                ``'turret_moves_by_slot'``, at the door (``_start``);
-                ``'not_a_number'``, the distance is not a finite number.
-                Nothing was driven.
-            HardwareCommandRefusedError: ``'not_connected'`` or
-                ``'axis_absent'``, no motor controller or no such axis;
-                ``'position_unread'``, the board did not report the target to
-                add to (or, for Z with overshoot, the position);
-                ``'lid_open'``, an X or Y move with the stage's lid open; or
-                ``'monitor_ended'``, the motion monitor has ended, so nothing
-                would judge the move. Nothing was driven.
-            PositionOutOfRangeError: The distance is beyond the safety limit.
-            AxisStateUnknownError: The axis position is unknown.
-            MoveFaultError: ``'driver_failed'``, the board did not take the
-                command.
-            MoveNotCompletedError: The axis did not arrive; see
-                ``start_move_absolute``.
-            BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on
-                the UI thread, whose form is ``start_move_relative``.
-                Nothing was driven.
-        """
-        refuse_waiting_on_ui_thread('move_relative')
-        self._start(
-            'move_relative',
-            self._move_relative_impl,
-            axis,
-            distance,
-            overshoot_enabled=overshoot_enabled,
-        ).result()
 
     @api(stop='Operation.stop')
     def start_move_xy(

@@ -211,3 +211,13 @@ class TestOverRest:
 
         assert answer.status_code == 200, answer.text
         assert {a: motion.get_target_position(a) for a in ('X', 'Y')} == before
+
+    @pytest.mark.parametrize(
+        'member', ['move_absolute', 'move_relative', 'start_move_absolute', 'start_move_relative']
+    )
+    def test_the_single_axis_routes_are_gone(self, client, member):
+        client, _ = client
+
+        answer = client.post(f'/api/v1/scope/motion/{member}', json={'axis': 'Z', 'position': 1})
+
+        assert answer.status_code == 404, answer.text

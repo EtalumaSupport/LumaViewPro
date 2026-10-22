@@ -137,8 +137,6 @@ MOTION_ONLY_METHODS = frozenset(
         'is_any_axis_moving',
         'is_current_turret_position_objective_set',
         'is_moving',
-        'move_absolute',
-        'move_relative',
         'move_xy',
         'move_xy_by',
         'move_z',

@@ -35,10 +35,6 @@ AXIS_MEMBERS = {
     'set_precision_mode': lambda s, a: s.motion.set_precision_mode(a, True),
     'get_target_status': lambda s, a: s.motion.get_target_status(a),
     'get_limit_switch_status': lambda s, a: s.motion.get_limit_switch_status(a),
-    'move_absolute': lambda s, a: s.motion.move_absolute(a, 0),
-    'move_relative': lambda s, a: s.motion.move_relative(a, 0),
-    'start_move_absolute': lambda s, a: s.motion.start_move_absolute(a, 0),
-    'start_move_relative': lambda s, a: s.motion.start_move_relative(a, 0),
     'refuse_unknown_positions': lambda s, a: s.motion.refuse_unknown_positions(
         [a], recording=True, then='move it'
     ),
@@ -90,16 +86,12 @@ def test_a_home_takes_z_the_turret_or_all_in_capitals(scope, member, name):
     assert refusal.offered == ('Z', 'T', 'ALL')
 
 
-@pytest.mark.parametrize(
-    'member', ['move_absolute', 'start_move_relative', 'set_precision_mode', 'home']
-)
+@pytest.mark.parametrize('member', ['set_precision_mode', 'home'])
 def test_a_name_that_is_no_axis_is_refused_whatever_the_scope_is_doing(tmp_path, member):
     """Refused at the door, so a shut scope does not answer for the name."""
     session = _session(tmp_path, 'LS850')
     session.shutdown()
     calls = {
-        'move_absolute': lambda m: m.move_absolute('Q', 0),
-        'start_move_relative': lambda m: m.start_move_relative('Q', 0),
         'set_precision_mode': lambda m: m.set_precision_mode('Q', True),
         'home': lambda m: m.home('Q'),
     }

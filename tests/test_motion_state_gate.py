@@ -135,7 +135,7 @@ def test_relative_move_refuses_on_unknown_axis(scope):
     needs its own gate."""
     _home_and_fail(scope)
     with pytest.raises(AxisStateUnknownError) as exc:
-        scope.motion._move_relative_impl('X', distance=50)
+        scope.motion.move_xy_by(dx_um=50)
     assert exc.value.axis == 'X'
 
 

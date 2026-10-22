@@ -370,7 +370,7 @@ Bring-up asks the motor board which model it is before anything else. When the b
 
 To hear what bring-up reports (a camera not found, a partial-hardware warning), pass your outcome listener to the factory: `ScopeSession.create(..., outcome_listener=on_outcome)` registers it before the scope is built. See "Outcomes" below.
 
-**The UI dispatcher.** A host with a UI thread tells the process once how to reach it, before it builds a session: `ScopeSession.set_ui_dispatcher(UiDispatcher(schedule=..., thread=...))`, with `UiDispatcher` from `modules.kivy_utils`. `schedule` has `Clock.schedule_once(func, dt)`'s shape, and `thread` is the thread it delivers on. It is one setting for the process, not for a session: every lane's completion callback, every run event but `frame_captured` of a run whose `RunEvents` says `on_ui_thread`, and every state listener the GUI marshals is handed to it at the moment it is delivered, whichever session or scope it belongs to. A host with no UI thread (a script, a REST server) never sets it, and a callback then runs on the thread that delivers it, its raise reported rather than raised; `set_ui_dispatcher(None)` restores that. An `Operation`'s `result()` or `exception()` made on `thread` while it is not yet done, outside a run's own `run_ended` handler, raises `BlockingCallRefusedError` (`wait_on_ui_thread`). A waiting form, a start followed by its operation's `result()` (`move_absolute`, `move_relative`, `go_to_step`, `run_application_session`, and each run's `run_` form), raises the same refusal on `thread` before it starts anything, so nothing is left running behind it.
+**The UI dispatcher.** A host with a UI thread tells the process once how to reach it, before it builds a session: `ScopeSession.set_ui_dispatcher(UiDispatcher(schedule=..., thread=...))`, with `UiDispatcher` from `modules.kivy_utils`. `schedule` has `Clock.schedule_once(func, dt)`'s shape, and `thread` is the thread it delivers on. It is one setting for the process, not for a session: every lane's completion callback, every run event but `frame_captured` of a run whose `RunEvents` says `on_ui_thread`, and every state listener the GUI marshals is handed to it at the moment it is delivered, whichever session or scope it belongs to. A host with no UI thread (a script, a REST server) never sets it, and a callback then runs on the thread that delivers it, its raise reported rather than raised; `set_ui_dispatcher(None)` restores that. An `Operation`'s `result()` or `exception()` made on `thread` while it is not yet done, outside a run's own `run_ended` handler, raises `BlockingCallRefusedError` (`wait_on_ui_thread`). A waiting form, a start followed by its operation's `result()` (`move_xy`, `move_z`, `go_to_step`, `run_application_session`, and each run's `run_` form), raises the same refusal on `thread` before it starts anything, so nothing is left running behind it.
 
 ```python
 from modules.kivy_utils import UiDispatcher
@@ -1542,7 +1542,7 @@ still states the major version.
 | level 29 | `session.plugin_run_in_flight()`: a context manager entered when a plugin's run starts and left when its worker ends, on any threads; while it is held, `live_work` lists a `'plugin_run'` item (`'An engineering plugin run'`, `left` its count) and `in_flight_named` names it; it holds no claim and refuses nothing. |
 | level 30 | On a camera with a clock latch (`capabilities.camera_has_clock_latch`), every move (`xy_move`, `z_move`, `turret`) runs the clock rule in `capabilities.frame_rules`: at its measured delay, or at 0 from the axis's stop when its timing record holds none or the camera has no record, its `provenance` then `{'measured': 'none: a frame started after the stop'}`; a frame that started exposing before the stop never counts for the move. A camera reports a clock latch only when its frames carry their start (the `Timestamp` chunk); a Basler camera whose chunk did not turn on has no `camera_timestamp_tick_hz` and no latch. |
 | level 31 | A move judged by the credit rule (`xy_move`, `z_move`, `turret` on a camera without a clock latch) counts its frames from its stop, not its drive: `motion_settled` places its `Change` in the frame stream there (`at_seq` the frames delivered at the stop, `credits` cleared, the source pending again), and no frame that arrived before it is credited. While the axis moves, `pending_sources` and `frames_until_valid()` answer the move's whole count, not 0 then 1. A later stamp of the axis settled starts the count again. |
-| level 32 | A move is asked for by what it moves: `move_xy(x_um, y_um)` / `start_move_xy` and `move_xy_by(dx_um, dy_um)` / `start_move_xy_by` move X and Y as one request, every axis given refused before either drives, an axis given as None left as it is and not read; `move_z(z_um)` / `start_move_z` and `move_z_by(dz_um)` / `start_move_z_by` move Z, a move to a place approaching from below and a move by a distance not, unless `overshoot_enabled` (None, the API's approach, by default) says otherwise. `move_absolute`, `move_relative` and their started forms remain until the next release of the plugin, then go. |
+| level 32 | A move is asked for by what it moves: `move_xy(x_um, y_um)` / `start_move_xy` and `move_xy_by(dx_um, dy_um)` / `start_move_xy_by` move X and Y as one request, every axis given refused before either drives, an axis given as None left as it is and not read; `move_z(z_um)` / `start_move_z` and `move_z_by(dz_um)` / `start_move_z_by` move Z, a move to a place approaching from below and a move by a distance not, unless `overshoot_enabled` (None, the API's approach, by default) says otherwise. `move_absolute`, `move_relative`, `start_move_absolute` and `start_move_relative` are gone, with no alias. |
 
 ### Configuration queries
 
@@ -3231,8 +3231,6 @@ Reached through `session.scope.motion`.
 - `is_current_turret_position_objective_set`
 - `is_moving`
 - `jog_step`
-- `move_absolute`
-- `move_relative`
 - `move_to_plate`
 - `move_to_well`
 - `move_turret`
@@ -3244,8 +3242,6 @@ Reached through `session.scope.motion`.
 - `remove_position_listener` (in-process)
 - `set_precision_mode`
 - `start_home`
-- `start_move_absolute`
-- `start_move_relative`
 - `start_move_to_plate`
 - `start_move_to_well`
 - `start_move_xy`
@@ -3566,7 +3562,7 @@ Reached through built by the caller and passed as `events=` to a `ProtocolRunner
 
 ### Operation
 
-Reached through returned by a `ProtocolRunner` run member that started a run; a run's `Operation.files`; returned by `scope.motion.start_move_absolute`, `start_move_relative` and `start_home`, `session.start_go_to_step`, `session.start_application_session`, `session.manual_capture.capture` and `session.manual_recording.start`. A `concurrent.futures.Future`: its `result`, `exception`, `done` and `add_done_callback` are the Future's.
+Reached through returned by a `ProtocolRunner` run member that started a run; a run's `Operation.files`; returned by `scope.motion.start_move_xy`, `start_move_xy_by`, `start_move_z`, `start_move_z_by` and `start_home`, `session.start_go_to_step`, `session.start_application_session`, `session.manual_capture.capture` and `session.manual_recording.start`. A `concurrent.futures.Future`: its `result`, `exception`, `done` and `add_done_callback` are the Future's.
 
 - `files`
 - `progress`

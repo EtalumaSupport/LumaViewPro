@@ -20,7 +20,7 @@ import time
 
 import pytest
 
-from modules.exceptions import ArgumentRefusedError, MoveNotCompletedError
+from modules.exceptions import MoveNotCompletedError
 from modules.lumascope_api.motion import AxisState
 from modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
@@ -133,22 +133,6 @@ class TestAStopIsNotAnArrival:
 
 
 class TestNothingElseMovesTheTurret:
-    @pytest.mark.parametrize(
-        'call',
-        [
-            lambda m: m.move_absolute('T', 2),
-            lambda m: m.move_relative('T', 1),
-        ],
-        ids=['move_absolute', 'move_relative'],
-    )
-    def test_the_generic_doors_refuse_the_turret(self, session, call):
-        motion = session.scope.motion
-        with pytest.raises(ArgumentRefusedError) as refused:
-            call(motion)
-        assert refused.value.reason == 'turret_moves_by_slot'
-        assert motion.get_turret_slot() == 1
-        assert motion.get_axis_state('T') == AxisState.IDLE
-
     @pytest.mark.parametrize(
         'command',
         [
