@@ -51,7 +51,6 @@ _OUT_OF_RANGE = {
     'zstack.step_size': -1,
     'zstack.range': -0.5,
     'protocol.autogain.target_brightness': 1.5,
-    'protocol.autogain.max_duration_seconds': 0,
     'protocol.autogain.min_gain_db': -1.0,
     'protocol.autogain.max_gain_db': -2,
     'profiling.handle_trace_obj_sample_every': 0,

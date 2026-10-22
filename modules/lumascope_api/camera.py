@@ -304,6 +304,18 @@ def _value_rejection(setting: str, requested: float) -> CameraSettingRejected:
     )
 
 
+# The keys an auto-gain settings dictionary takes. The arm stores the
+# dictionary and the lock answers it, so a key the write does not read would
+# be echoed to every reader of the arm, in whatever form its caller gave it.
+_AUTO_GAIN_SETTINGS_KEYS = (
+    'target_brightness',
+    'min_gain_db',
+    'max_gain_db',
+    'max_exposure_ms',
+    'min_exposure_ms',
+)
+
+
 def _refuse_unless_auto_gain_settings(settings: object, argument: str) -> None:
     """Refuse an auto-gain settings dictionary the write cannot read.
 
@@ -314,9 +326,15 @@ def _refuse_unless_auto_gain_settings(settings: object, argument: str) -> None:
     Raises:
         ArgumentRefusedError: ``'wrong_kind'``, ``'missing_key'`` or
             ``'not_a_number'``, naming the key's path under ``argument``;
+            ``'key_unknown'``, a key the write does not take;
             ``'gain_range_inverted'``, a minimum gain above the maximum.
     """
     refuse_unless_kind(settings, 'dict', argument)
+    for key in settings:
+        if key not in _AUTO_GAIN_SETTINGS_KEYS:
+            raise ArgumentRefusedError(
+                'key_unknown', argument=argument, value=key, offered=_AUTO_GAIN_SETTINGS_KEYS
+            )
     for key in ('target_brightness', 'min_gain_db', 'max_gain_db'):
         refuse_unless_kind(required(settings, key, argument), 'number', key_path(argument, key))
     for key in ('max_exposure_ms', 'min_exposure_ms'):
@@ -1406,6 +1424,7 @@ class CameraAPI:
             ArgumentRefusedError: ``'missing_key'``, ``settings`` lacks a
                 key the write reads; ``'wrong_kind'`` or ``'not_a_number'``,
                 it or one of its values is not of the kind read;
+                ``'key_unknown'``, it holds a key the write does not take;
                 ``'gain_range_inverted'``, its minimum gain is above its
                 maximum.
         """
@@ -3583,7 +3602,8 @@ class CameraAPI:
         Raises:
             ArgumentRefusedError: ``'missing_key'``, ``auto_gain_settings``
                 lacks a key the auto-gain write reads; ``'not_a_number'``,
-                one is not a number; ``'gain_range_inverted'``, its minimum
+                one is not a number; ``'key_unknown'``, it holds a key the
+                write does not take; ``'gain_range_inverted'``, its minimum
                 gain is above its maximum.
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera, with none connected; nothing was written.

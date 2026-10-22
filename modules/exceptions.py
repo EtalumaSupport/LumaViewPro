@@ -3571,6 +3571,8 @@ class ArgumentRefusedError(Refusal, ValueError):
             - ``'gain_range_inverted'`` -- an auto-gain settings dictionary
               whose ``min_gain_db`` is above its ``max_gain_db``; ``value``
               holds the two.
+            - ``'key_unknown'`` -- a key a dictionary argument does not
+              take (``offered``: the keys it takes).
         argument: The name of the argument refused.
         value: What was given, as given.
         offered: The values the argument takes, where it takes a list;
@@ -3731,6 +3733,10 @@ class ArgumentRefusedError(Refusal, ValueError):
         'gain_range_inverted': (
             'Auto-Gain Range Inverted',
             '{argument} sets a minimum gain above its maximum: {value!r}.',
+        ),
+        'key_unknown': (
+            'Not a Key Taken Here',
+            '{argument} takes only the keys {offered}; {value!r} is not one.',
         ),
         'turret_position_required': (
             'Turret Slot Not Named',

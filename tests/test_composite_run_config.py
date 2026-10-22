@@ -79,7 +79,6 @@ def _settings(acquiring=(), sequenced_format=OUTPUT_FORMAT_TIFF, focus_by_layer=
                 'labware': '96 well microplate',
                 'autogain': {
                     'target_brightness': 0.3,
-                    'max_duration_seconds': 1.0,
                     'min_gain_db': 0.0,
                     'max_gain_db': 20.0,
                 },

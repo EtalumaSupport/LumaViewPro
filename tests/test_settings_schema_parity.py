@@ -63,17 +63,20 @@ RUNTIME_ONLY_PER_LAYER: dict[str, set[str]] = {}
 # - file_root: a filename prefix every layer shipped, which nothing read.
 MIGRATED_PER_LAYER = {'ill_ma', 'exp_ms', 'file_root'}
 
-# Nested keys the loader drops, keyed by the entry they lived under, as
-# RUNTIME_ONLY_PER_LAYER is. A current.json of any age may still hold them
-# until its next clean shutdown (normalize_loaded_settings pops them at
-# load); they must never come back in settings.json:
+# Nested keys the loader drops, keyed by the dotted path of the entry they
+# lived under. A current.json of any age may still hold them until its next
+# clean shutdown (normalize_loaded_settings pops them at load); they must
+# never come back in settings.json:
 # - protocol.bf_af_for_fluorescence: reusing brightfield's autofocus for
 #   the fluorescence steps, removed.
+# - protocol.autogain.max_duration_seconds: the longest an auto-gain step
+#   waited, unread once its settle became a frame count.
 # - profiling.stim_profiling: shipped with no reader, removed.
 # - rest_api.host, api_key, cors_origins: the server binds this computer
 #   only and has no credentials; nothing read them.
 RETIRED_PER_LAYER = {
     'protocol': {'bf_af_for_fluorescence'},
+    'protocol.autogain': {'max_duration_seconds'},
     'profiling': {'stim_profiling'},
     'rest_api': {'host', 'api_key', 'cors_origins'},
 }
@@ -98,6 +101,14 @@ def _load_settings():
 
 def _load_current():
     return json.loads(CURRENT_PATH.read_text())
+
+
+def _entry_at(settings: dict, dotted: str) -> dict:
+    """The nested entry at ``dotted``, or an empty dict where there is none."""
+    entry = settings
+    for part in dotted.split('.'):
+        entry = entry.get(part) if isinstance(entry, dict) else None
+    return entry if isinstance(entry, dict) else {}
 
 
 def test_settings_defaults_carry_no_runtime_only_keys():
@@ -147,8 +158,7 @@ def test_settings_defaults_carry_no_runtime_only_keys():
     retired_back = [
         f'{key}.{sub}'
         for key, subkeys in RETIRED_PER_LAYER.items()
-        if isinstance(settings.get(key), dict)
-        for sub in subkeys & set(settings[key])
+        for sub in subkeys & set(_entry_at(settings, key))
     ]
     assert not retired_back, (
         f'retired per-layer keys reappeared in settings.json: {retired_back} -- '

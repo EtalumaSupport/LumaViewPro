@@ -126,7 +126,6 @@ def _make_autogain_settings():
         'target_brightness': 0.3,
         'min_gain_db': 0.0,
         'max_gain_db': 20.0,
-        'max_duration': datetime.timedelta(seconds=1),
     }
 
 
@@ -346,7 +345,6 @@ class TestHeadlessRefusalDoesNotHang:
             'protocol': {
                 'autogain': {
                     'target_brightness': 0.3,
-                    'max_duration_seconds': 1.0,
                     'min_gain_db': 0.0,
                     'max_gain_db': 20.0,
                 },

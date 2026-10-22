@@ -383,6 +383,13 @@ def normalize_loaded_settings(settings_dict: dict) -> bool:
     if isinstance(protocol, dict) and protocol.pop('bf_af_for_fluorescence', None) is not None:
         changed = True
 
+    # The longest an auto-gain step waited to converge, unread since its
+    # settle became a frame count: the camera's auto-gain refuses a key it
+    # does not take, so a stored one would refuse every arm.
+    autogain = protocol.get('autogain') if isinstance(protocol, dict) else None
+    if isinstance(autogain, dict) and autogain.pop('max_duration_seconds', None) is not None:
+        changed = True
+
     # Seven shipped settings that nothing read: stimulation profiling, whose
     # producer is gone, and the autofocus and stage blocks, which named
     # features not built. A stored copy was readable, unwritable and never

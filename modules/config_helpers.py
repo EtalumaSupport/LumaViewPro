@@ -7,7 +7,6 @@ and scope objects without any Kivy/GUI dependencies. They can be
 used by LumaViewPro, the REST API, or standalone scripts.
 """
 
-import datetime
 import pathlib
 import typing
 
@@ -129,13 +128,8 @@ def get_stim_configs(settings: dict) -> dict:
 
 
 def get_auto_gain_settings(settings: dict) -> dict:
-    """Extract auto gain settings, converting max_duration_seconds to timedelta."""
-    autogain_settings = settings['protocol']['autogain'].copy()
-    autogain_settings['max_duration'] = datetime.timedelta(
-        seconds=autogain_settings['max_duration_seconds']
-    )
-    del autogain_settings['max_duration_seconds']
-    return autogain_settings
+    """A copy of the stored auto-gain settings, the dictionary the camera's auto-gain takes."""
+    return settings['protocol']['autogain'].copy()
 
 
 def get_sequenced_run_settings(settings: dict, *, run_mode: SequencedCaptureRunMode) -> dict:

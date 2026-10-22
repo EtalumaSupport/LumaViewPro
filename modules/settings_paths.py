@@ -434,7 +434,6 @@ _RANGES: typing.Final[dict[str, typing.Callable[[str, typing.Any], None]]] = {
     'zstack.step_size': _non_negative,
     'zstack.range': _non_negative,
     'protocol.autogain.target_brightness': _fraction,
-    'protocol.autogain.max_duration_seconds': _positive,
     'protocol.autogain.min_gain_db': _non_negative,
     'protocol.autogain.max_gain_db': _non_negative,
     'profiling.handle_trace_obj_sample_every': _refuse_non_count,

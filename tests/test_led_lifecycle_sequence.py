@@ -356,7 +356,6 @@ def _run_protocol(
             'target_brightness': 0.3,
             'min_gain_db': 0.0,
             'max_gain_db': 20.0,
-            'max_duration': datetime.timedelta(seconds=1),
         },
         parent_dir=tmp_path / 'output',
         max_scans=max_scans,

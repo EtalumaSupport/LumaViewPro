@@ -193,6 +193,19 @@ def test_the_settings_nothing_reads_are_dropped_from_a_stored_file():
     assert 'stage' not in stored
 
 
+def test_the_auto_gain_wait_nothing_reads_is_dropped_from_a_stored_file():
+    # The longest an auto-gain step waited was unread once its settle became a
+    # frame count, and the camera's auto-gain refuses a key it does not take:
+    # a file that still carries it loads without it, the other bounds kept.
+    with open(SHIPPED_TEMPLATE) as f:
+        stored = json.load(f)
+    shipped = dict(stored['protocol']['autogain'])
+    stored['protocol']['autogain']['max_duration_seconds'] = 1.0
+
+    assert settings_init.normalize_loaded_settings(stored) is True
+    assert stored['protocol']['autogain'] == shipped
+
+
 def test_the_rest_servers_dead_settings_are_dropped_from_a_stored_file():
     # The server's host, key and CORS origins were never read: it binds this
     # computer only and has no credentials. A file that still carries them

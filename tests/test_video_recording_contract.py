@@ -641,7 +641,6 @@ class TestSessionActivityClaim:
             'protocol': {
                 'autogain': {
                     'target_brightness': 0.3,
-                    'max_duration_seconds': 1.0,
                     'min_gain_db': 0.0,
                     'max_gain_db': 20.0,
                 },

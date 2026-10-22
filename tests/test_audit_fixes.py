@@ -8960,7 +8960,7 @@ class TestHeadlessSettingsResolutionMatchesGui:
 class TestAutogainSettingsSnapshottedAtRunStart:
     """Per protocol-workflow audit F15: autogain_settings dict was
     referenced not snapshotted, so mid-run UI mutations of fields like
-    target_brightness or max_duration leaked into the in-flight scan.
+    target_brightness or the gain bounds leaked into the in-flight scan.
     The comment claimed "Immutable after assignment" but no deepcopy
     enforced the immutability.
 

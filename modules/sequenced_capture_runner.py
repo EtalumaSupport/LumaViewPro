@@ -1422,7 +1422,7 @@ class SequencedCaptureRunner:
             # holds a true snapshot without copying.
             image_capture_config=image_capture_config,
             # Snapshot so mid-run UI mutations of the autogain settings
-            # dict (target_brightness, max_duration, min/max_gain_db) do
+            # dict (target_brightness, min/max_gain_db) do
             # not leak into the in-flight scan.
             autogain_settings=(
                 copy.deepcopy(autogain_settings) if autogain_settings is not None else {}

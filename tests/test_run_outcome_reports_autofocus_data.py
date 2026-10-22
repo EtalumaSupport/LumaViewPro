@@ -194,7 +194,6 @@ class _AfRig:
                 'target_brightness': 0.3,
                 'min_gain_db': 0.0,
                 'max_gain_db': 20.0,
-                'max_duration': datetime.timedelta(seconds=1),
             },
             parent_dir=parent_dir,
             enable_image_saving=False,

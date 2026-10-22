@@ -18,7 +18,6 @@ from modules.config_helpers import (
     get_selected_labware_from_settings,
     get_sequenced_capture_config_from_settings,
     get_zstack_params_from_settings,
-    get_auto_gain_settings,
 )
 from modules.exceptions import CatalogueNameRefusedError, ConfigError
 from modules.objectives_loader import ObjectiveLoader
@@ -214,12 +213,3 @@ class TestHeadlessTilingOverlap:
             current_z=0.0,
         )
         assert config['tiling_overlap_percent'] == 25.0
-
-
-class TestGetAutoGainSettings:
-    def test_converts_seconds_to_timedelta(self):
-        settings = {'protocol': {'autogain': {'max_duration_seconds': 30, 'target_percent': 80}}}
-        result = get_auto_gain_settings(settings)
-        assert result['max_duration'] == datetime.timedelta(seconds=30)
-        assert 'max_duration_seconds' not in result
-        assert result['target_percent'] == 80

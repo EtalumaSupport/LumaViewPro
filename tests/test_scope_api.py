@@ -9,7 +9,6 @@ Tests for the GUI-independent scope API modules:
 Uses mock objects + Lumascope(simulate=True) -- no hardware or Kivy needed.
 """
 
-import datetime
 from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
@@ -73,9 +72,9 @@ def _make_settings(layers=None, with_stim=False):
 
     settings['protocol'] = {
         'autogain': {
-            'enabled': True,
-            'max_duration_seconds': 30,
-            'target_mean': 128,
+            'target_brightness': 0.3,
+            'min_gain_db': 0.0,
+            'max_gain_db': 20.0,
         },
         'labware': '96 well microplate',
     }
@@ -285,23 +284,14 @@ class TestGetStimConfigs:
 
 
 class TestGetAutoGainSettings:
-    def test_converts_seconds_to_timedelta(self):
+    def test_answers_a_copy_of_the_stored_settings(self):
         settings = _make_settings()
         result = config_helpers.get_auto_gain_settings(settings)
-        assert result['max_duration'] == datetime.timedelta(seconds=30)
-        assert 'max_duration_seconds' not in result
-
-    def test_preserves_other_keys(self):
-        settings = _make_settings()
-        result = config_helpers.get_auto_gain_settings(settings)
-        assert result['enabled'] is True
-        assert result['target_mean'] == 128
-
-    def test_does_not_mutate_settings(self):
-        settings = _make_settings()
-        config_helpers.get_auto_gain_settings(settings)
-        # Original should still have max_duration_seconds
-        assert 'max_duration_seconds' in settings['protocol']['autogain']
+        assert result == settings['protocol']['autogain']
+        result['min_gain_db'] = 5.0
+        assert settings['protocol']['autogain']['min_gain_db'] == 0.0, (
+            'a change to the answer reached the store'
+        )
 
 
 class TestFindNearestStep:
@@ -534,12 +524,6 @@ class TestScopeSession:
         session = self._make_session()
         configs = session.get_layer_configs(specific_layers=['Red'])
         assert set(configs.keys()) == {'Red'}
-
-    def test_get_auto_gain_settings_delegates(self):
-        session = self._make_session()
-        result = session.get_auto_gain_settings()
-        assert 'max_duration' in result
-        assert isinstance(result['max_duration'], datetime.timedelta)
 
     def test_the_current_objective_is_the_runtime_states(self):
         # The answer is the runtime state's, not the settings dict's: on

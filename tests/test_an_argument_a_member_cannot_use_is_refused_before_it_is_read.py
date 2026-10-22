@@ -17,6 +17,7 @@ import pytest
 
 from modules.coord_transformations import StageOffset
 from modules.exceptions import ArgumentRefusedError, CameraSettingUnsupportedError
+from modules.lumascope_api.camera import CameraAutoMode
 from modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
@@ -80,6 +81,12 @@ def _rows(session):
             lambda: scope.camera.set_auto_gain(
                 True, {**_AUTO_GAIN, 'min_gain_db': 25.0, 'max_gain_db': 20.0}
             ),
+        ),
+        (
+            'set_auto_gain, a key it does not take',
+            ArgumentRefusedError,
+            'key_unknown',
+            lambda: scope.camera.set_auto_gain(True, {**_AUTO_GAIN, 'max_duration': 1.0}),
         ),
         (
             'apply, empty auto-gain settings',
@@ -147,6 +154,13 @@ def test_every_argument_a_member_cannot_use_is_refused_with_its_reason(session):
         else:
             wrong.append(f'{case}: was not refused')
     assert not wrong, '\n'.join(wrong)
+
+
+def test_the_stored_auto_gain_settings_arm_the_camera(session):
+    # The dictionary the session hands every arm holds only keys the camera's
+    # auto-gain takes, so a stored settings file arms it unrefused.
+    assert session.scope.camera.set_auto_gain(True, session.get_auto_gain_settings()) is not False
+    assert session.scope.camera.auto_gain is CameraAutoMode.CONTINUOUS
 
 
 def test_a_binning_this_camera_offers_is_still_previewed(session):
