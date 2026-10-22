@@ -158,6 +158,14 @@ class TestAFullProtocolRunsTheOptedInProcessors:
         with open_composite_session(headless_settings(tmp_path)) as (session, runner):
             _load(session, _plugin('opted_in', processor=opted_in, auto_run=True))
             first, _files = _run_protocol(runner, tmp_path)
+            # A run is refused while the lane has work, its predecessor's
+            # hand-off included, so the second starts once the lane is idle:
+            # the condition the refusal reads, which no event signals.
+            assert opted_in.called.wait(WAIT_S), 'the first protocol was not handed on'
+            for _ in range(int(WAIT_S / 0.05)):
+                if not session.post_processing.has_work():
+                    break
+                threading.Event().wait(0.05)
             second, _files = _run_protocol(runner, tmp_path)
             _drain_lane(session)
             for _ in range(int(WAIT_S / 0.05)):
