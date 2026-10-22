@@ -528,6 +528,11 @@ class LumaViewProApp(TooltipMixin, App):
     # through it.
     _rest_server = None
 
+    # Set first in every close, on the Kivy thread: what follows the startup
+    # motion is refused once it is. The session's own closing is set later,
+    # on the close's thread, so it cannot answer a tick that runs between.
+    _closing_begun = False
+
     def _on_run_state(self) -> None:
         """The window's one run-state listener: draw the edge on the clock.
 
@@ -717,6 +722,11 @@ class LumaViewProApp(TooltipMixin, App):
             # signals worth sub-minute granularity on a short leak hunt).
             ctx.session.enable_metrics(display=ctx.scope_display)
 
+            # Served after the metrics, as the headless launcher serves after
+            # its own. A port already taken is reported, and the window runs
+            # on without a server.
+            run_unasked(self._start_the_rest_server, 'START_REST_SERVER')
+
             # The atexit emergency-shutdown hook is registered in Lumascope.__init__
             # so every Lumascope user gets the same safety net automatically.
 
@@ -730,6 +740,9 @@ class LumaViewProApp(TooltipMixin, App):
         def startup_motion_settled(done: concurrent.futures.Future) -> None:
             from modules.exceptions import SessionClosingError
 
+            # The window's close began, in this tick or an earlier one.
+            if self._closing_begun:
+                return
             # The app is closing: a shutdown dropped the motion, the close
             # began before it took the scope, or it began while it ran.
             if done.cancelled() or isinstance(
@@ -1352,6 +1365,8 @@ class LumaViewProApp(TooltipMixin, App):
 
     def _prepare_the_close(self) -> None:
         """The host's part of a close, on the Kivy thread, before the session's own."""
+        self._closing_begun = True
+
         # A client's take_control landing after the take-back below would
         # hold the scope again and refuse the popup's Discard, so the server
         # refuses every call first.
@@ -1388,6 +1403,22 @@ class LumaViewProApp(TooltipMixin, App):
         # tear-down. A plugin's own failure is logged inside, and the rest
         # still unload. The session's close finds them unloaded.
         ctx.session.unload_plugins()
+
+    def _start_the_rest_server(self) -> None:
+        """Serve the API beside the window, on its own session, when ``rest_api.enabled`` is set.
+
+        This computer only (``127.0.0.1``), on ``rest_api.port``, on a
+        thread and loop of its own; ``python -m rest`` is the headless way.
+        """
+        if not ctx.session.get_setting('rest_api.enabled'):
+            return
+        from rest.server import serve_beside
+
+        self._rest_server = serve_beside(
+            ctx.session,
+            port=ctx.session.get_setting('rest_api.port'),
+            shut_down=self._shut_the_session_down,
+        )
 
     def _end_the_session(self) -> None:
         """The session's close: inside the REST server's close while one serves, else directly.

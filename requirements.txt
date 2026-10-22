@@ -29,8 +29,8 @@ av==17.0.1
 
 # The REST server (rest/): FastAPI served by uvicorn. pydantic and
 # starlette come with FastAPI and are pinned beside it because rest/
-# imports them directly. The GUI never imports rest/, so none of these
-# is packed into the installer.
+# imports them directly. The GUI serves rest/ beside its window when
+# rest_api.enabled is set, so all four are packed into the installer.
 fastapi==0.143.0
 uvicorn==0.54.0
 pydantic==2.14.0

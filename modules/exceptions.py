@@ -1091,6 +1091,32 @@ class CameraDriverRepairFailedError(Fault, Exception):
         )
 
 
+class RestServerNotStartedError(Fault, Exception):
+    """The REST server served beside the application could not take its port.
+
+    Raised by ``rest.server.serve_beside``, chained from the ``OSError`` of
+    the bind, so the words name the address and the operating system's own
+    reason -- most often another program on the port. Nothing is served; the
+    application runs on without it.
+
+    Attributes:
+        port: The port that could not be taken.
+    """
+
+    reason = 'rest_server_not_started'
+    title = 'REST Server Not Started'
+
+    words_for_person = True
+
+    def __init__(self, host: str, port: int, cause: OSError):
+        reason = cause.strerror or type(cause).__name__
+        super().__init__(
+            f'The REST server was not started on {host}:{port} ({reason}). LumaViewPro runs '
+            'without it; if another program uses that port, set rest_api.port to a free one.'
+        )
+        self.port = port
+
+
 class CameraDriverRepairedNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error
     """Repair bound the Lumascope Classic to LumaViewPro's driver; the camera connects at the next start."""
 

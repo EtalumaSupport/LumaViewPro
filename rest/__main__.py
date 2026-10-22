@@ -13,8 +13,6 @@ drives the scope. SIGINT or SIGTERM closes it with its clients connected
 import argparse
 import sys
 
-HOST = '127.0.0.1'
-
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
@@ -53,7 +51,7 @@ def main(argv: list[str] | None = None) -> int:
 
     from modules.scope_session import ScopeSession
     from rest.app import build_app
-    from rest.server import Server
+    from rest.server import HOST, Server
 
     settings = ScopeSession.load_user_settings(str(source_path))
     port = settings['rest_api']['port']
