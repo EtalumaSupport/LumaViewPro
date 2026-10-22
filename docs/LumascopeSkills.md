@@ -2370,7 +2370,7 @@ xy_move    — X or Y axis motion
 turret     — turret move
 ```
 
-`exclude_sources` in `capture_and_wait()` skips the wait for a source, so the frame returned can predate that source's change -- a frame already on its way when the change went out. That fits a frame you only show; never pass it for a frame you measure or record. Autofocus waits out each Z move. Earlier builds, the 4.0.0 beta included, excluded `z_move`, so a step could score the previous step's frame at its own Z. Each sweep step now waits, on a camera with a clock latch, for a frame that started exposing after its move stopped (about one frame more than the move's own frames), and on a camera without one the `z_move` count (2 frames) after its move stopped.
+`exclude_sources` in `capture_and_wait()` skips the wait for a source, so the frame returned can predate that source's change -- a frame already on its way when the change went out. That fits a frame you only show; never pass it for a frame you measure or record. Autofocus waits out each Z move. Earlier builds, the 4.0.0 beta included, excluded `z_move`, so a step could score the previous step's frame at its own Z. Each sweep step now waits for a frame made after its move stopped: on a camera with a clock latch, one that started exposing after the stop; on a camera without one, the frame after the `z_move` count (2 frames) that arrived after the stop. A step costs about one frame more than in earlier builds on a camera with a clock, and two more on one without.
 
 ---
 

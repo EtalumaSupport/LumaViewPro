@@ -341,6 +341,8 @@ class FrameValidity:
         # Camera exposure time change. Not a measurement: the a2A3536 timing
         # record's value that once stood beside it has no surviving source run.
         'exposure': 3,
+        # A move's frames are counted from its stop (``motion_settled``).
+        # Not measurements: no camera without a clock has a timing record.
         'xy_move': 2,  # X or Y axis movement
         'z_move': 2,  # Z axis movement
         'turret': 2,  # Turret rotation
@@ -628,10 +630,10 @@ class FrameValidity:
                     pending = self._changes[source]
                     # What a source publishes is frames STILL NEEDED -- a count
                     # that stops at zero rather than running down one per frame
-                    # into nonsense. A frame no newer than the last one credited is one the
-                    # wait already holds, or older: the preview can count a
-                    # frame it grabbed before the drain's newer one, after it,
-                    # and the dedupe above sees only the last count.
+                    # into nonsense. A frame no newer than the last one credited
+                    # is one the wait already holds, or older: the preview can
+                    # count a frame it grabbed before the drain's newer one,
+                    # after it, and the dedupe above sees only the last count.
                     # A move's frame count starts at its stop (motion_settled):
                     # a frame before it was exposed while the axis could move.
                     credited = (

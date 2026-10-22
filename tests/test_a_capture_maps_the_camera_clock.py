@@ -87,12 +87,14 @@ def test_a_camera_without_a_latch_records_no_mapping(caplog):
 
 
 def _configured_pylon_camera(advertised):
-    """A Pylon camera through the real ``init_camera_config``, its chunks
-    and its tick rate read as a connect reads them, advertising
+    """A Pylon camera reconnected through the real ``init_camera_config``,
+    its chunks and its tick rate read as a connect reads them, advertising
     ``advertised`` chunks."""
     # a stand-in by design: the Pylon SDK never runs in the test process.
     cam = init_configurable_pylon_camera()
     del cam._enable_validity_chunks, cam._read_timestamp_tick_frequency
+    # The rate an earlier connect of the same camera read.
+    cam.timestamp_tick_frequency_hz = 1_000_000_000
     chunks = chunk_config_pylon_camera(advertised).active
     for node in ('GetNodeMap', 'ChunkModeActive', 'ChunkSelector', 'ChunkEnable'):
         setattr(cam.active, node, getattr(chunks, node))
