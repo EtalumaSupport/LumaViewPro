@@ -20,7 +20,7 @@ logger = logging.getLogger('LVP.ui.step_navigation')
 
 def go_to_step(
     protocol,
-    step_idx: int,
+    step_index: int,
     include_move: bool = True,
 ):
     """Show a protocol step, and for a person's navigation go to it.
@@ -50,7 +50,7 @@ def go_to_step(
         return
 
     if not include_move:
-        protocol_settings.curr_step = step_idx
+        protocol_settings.curr_step = step_index
         _schedule_ui(lambda dt: protocol_settings.generate_step_name_input(), 0)
         _schedule_ui(lambda dt: protocol_settings.update_step_ui(), 0)
         return
@@ -62,7 +62,7 @@ def go_to_step(
         # An edit to the step list (Delete, Add, a new or loaded protocol)
         # can land while this click waits on the lane or while the stage
         # moves, and it places the pointer itself. Against the changed list
-        # step_idx names another step or none: going there would move the
+        # step_index names another step or none: going there would move the
         # scope to a step the person did not pick, and writing the pointer
         # back would put it on a step the panel does not show, or past the
         # end of the list.
@@ -74,13 +74,13 @@ def go_to_step(
     def call():
         if superseded():
             return
-        session.start_go_to_step(protocol, step_idx)
+        session.start_go_to_step(protocol, step_index)
 
     def on_moved():
         if superseded():
             return
-        step = protocol.step_row(idx=step_idx)
-        protocol_settings.curr_step = step_idx
+        step = protocol.step_row(step_index=step_index)
+        protocol_settings.curr_step = step_index
         protocol_settings.generate_step_name_input()
         protocol_settings.update_step_ui()
         go_to_step_update_ui(step)

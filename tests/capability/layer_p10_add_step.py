@@ -20,11 +20,11 @@ try:
     s.settings['BF']['acquire'] = 'image'
 
     protocol = scope.protocols.create_protocol(empty_config=s.get_sequenced_capture_config())
-    names = s.add_step(protocol, before_step=0)
+    names = s.add_step(protocol, before_step_index=0)
     print('P10: add_step ->', names, 'steps now', protocol.num_steps())
     harness.check(
         'a script can add a step through the Session',
-        protocol.num_steps() == 1 and protocol.step_row(idx=0)['Color'] == 'BF',
+        protocol.num_steps() == 1 and protocol.step_row(step_index=0)['Color'] == 'BF',
     )
 
     from modules.exceptions import ProtocolRunRefusedError
@@ -32,7 +32,7 @@ try:
     s.settings['BF']['acquire'] = None
     refused = False
     try:
-        s.add_step(protocol, before_step=0)
+        s.add_step(protocol, before_step_index=0)
     except ProtocolRunRefusedError as e:
         refused = e.reason == 'no_acquiring_layer'
     harness.check('an add that would add nothing is refused at the API', refused)

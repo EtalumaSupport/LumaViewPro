@@ -88,7 +88,7 @@ def _go_to_step(step, *, include_move=True):
     _app_ctx.ctx.motion_settings.ids['protocol_settings_id']._protocol = protocol
     step_navigation.go_to_step(
         protocol,
-        step_idx=0,
+        step_index=0,
         include_move=include_move,
     )
 
@@ -117,7 +117,7 @@ class TestManualNavigationWritesNothingInTheGui:
         env = stepnav_env
         before = copy.deepcopy(env.ctx.settings['Green'])
         order = []
-        env.ctx.session.start_go_to_step.side_effect = lambda protocol, step_idx: order.append(
+        env.ctx.session.start_go_to_step.side_effect = lambda protocol, step_index: order.append(
             'session'
         )
         env.layer_obj.apply_settings.side_effect = lambda **kwargs: order.append('apply')

@@ -39,10 +39,10 @@ def _insert_step(proto, *, step_name):
         plate_position=PlateLocation(x_mm=0.0, y_mm=0.0, z_um=5000.0),
         objective_id='4x Oly',
         stim_configs={},
-        before_step=0,
-        after_step=None,
+        before_step_index=0,
+        after_step_index=None,
     )
-    return proto.step_row(idx=0)
+    return proto.step_row(step_index=0)
 
 
 def test_auto_generated_step_is_flagged_auto():
@@ -57,8 +57,8 @@ def test_named_insert_is_not_auto():
 
 def test_modify_name_clears_auto_flag():
     proto = _build_protocol([_make_step(auto_named=True)])
-    proto.modify_name(step_idx=0, step_name='renamed')
-    assert not proto.step_row(idx=0)['Auto_Named']
+    proto.modify_name(step_index=0, step_name='renamed')
+    assert not proto.step_row(step_index=0)['Auto_Named']
 
 
 def test_zstack_inherits_auto_flag():
@@ -109,10 +109,10 @@ def test_legacy_protocol_flag_recovered_by_compose_and_compare(tmp_path):
     assert proto is not None
     # Machine-shaped name for its columns -> auto; regeneration may track a
     # future channel change.
-    assert proto.step_row(idx=0)['Auto_Named']
-    assert proto.step_row(idx=0)['Label'] == ''
-    assert proto.step_row(idx=0)['Name'] == 'A1_BF'
+    assert proto.step_row(step_index=0)['Auto_Named']
+    assert proto.step_row(step_index=0)['Label'] == ''
+    assert proto.step_row(step_index=0)['Name'] == 'A1_BF'
     # User text -> kept verbatim in Label, never regenerated over.
-    assert not proto.step_row(idx=1)['Auto_Named']
-    assert proto.step_row(idx=1)['Label'] == 'MyPickedSpot'
-    assert proto.step_row(idx=1)['Name'] == 'MyPickedSpot_BF'
+    assert not proto.step_row(step_index=1)['Auto_Named']
+    assert proto.step_row(step_index=1)['Label'] == 'MyPickedSpot'
+    assert proto.step_row(step_index=1)['Name'] == 'MyPickedSpot_BF'

@@ -107,8 +107,8 @@ def _fail_these_channels(camera, step_colors, failing):
 
     real_grab = camera.grab_new_capture
 
-    def step_started(step_idx):
-        color = step_colors[step_idx]
+    def step_started(step_index):
+        color = step_colors[step_index]
         if color in failing:
             camera.grab_new_capture = lambda timeout_s: None
         else:

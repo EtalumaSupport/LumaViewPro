@@ -1,9 +1,9 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """A step added with no place given goes after the last step.
 
-``ScopeSession.add_step(protocol)`` offers ``before_step`` and ``after_step``
-as optional, but called with neither it raised "Must specify after_step or
-before_step": a signature whose defaults were always refused. The GUI always
+``ScopeSession.add_step(protocol)`` offers ``before_step_index`` and ``after_step_index``
+as optional, but called with neither it raised "Must specify after_step_index or
+before_step_index": a signature whose defaults were always refused. The GUI always
 names a place, so only a script met it. A script building a protocol step by
 step means "add" as "add at the end"; the steps land after the last one, in
 channel order.
@@ -46,7 +46,7 @@ def test_steps_added_with_no_place_follow_the_last_step_in_channel_order(session
     second = session.add_step(protocol)
 
     assert list(protocol.steps()['Name']) == first + second
-    assert [protocol.step_row(idx=i)['Color'] for i in range(3)] == ['BF', 'Blue', 'BF']
+    assert [protocol.step_row(step_index=i)['Color'] for i in range(3)] == ['BF', 'Blue', 'BF']
 
 
 def test_the_protocols_own_insert_names_its_place(session):
@@ -55,7 +55,7 @@ def test_the_protocols_own_insert_names_its_place(session):
     protocol = _protocol(session)
     session.settings['BF']['acquire'] = 'image'
     session.add_step(protocol)
-    step = protocol.step_row(idx=0)
+    step = protocol.step_row(step_index=0)
 
     with pytest.raises(ProtocolError):
         protocol.insert_step(
@@ -78,6 +78,6 @@ def test_a_place_on_both_sides_is_still_refused(session):
     session.add_step(protocol)
 
     with pytest.raises(ProtocolError):
-        session.add_step(protocol, before_step=0, after_step=0)
+        session.add_step(protocol, before_step_index=0, after_step_index=0)
 
     assert protocol.num_steps() == 1

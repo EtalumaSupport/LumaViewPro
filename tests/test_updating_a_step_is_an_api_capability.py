@@ -60,7 +60,7 @@ def _protocol_with_one_bf_step(scope):
         stim_configs={},
         plate_position=ADDED_AT,
         objective_id=OBJECTIVE,
-        before_step=0,
+        before_step_index=0,
     )
     return protocol
 
@@ -88,7 +88,7 @@ def _update(
 
 
 def _step(protocol):
-    return protocol.step_row(idx=0).to_dict()
+    return protocol.step_row(step_index=0).to_dict()
 
 
 @pytest.mark.usefixtures('turret_in_a_known_slot')
@@ -232,7 +232,7 @@ def _session_protocol(session):
     protocol = session.scope.protocols.create_protocol(
         empty_config=session.get_sequenced_capture_config()
     )
-    session.add_step(protocol, before_step=0)
+    session.add_step(protocol, before_step_index=0)
     return protocol
 
 

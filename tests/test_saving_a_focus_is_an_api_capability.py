@@ -61,10 +61,10 @@ def _protocol_bf_bf_blue(session):
     for x_um in (10000, 20000):
         session.scope.motion.move_xy(x_um=x_um)
         session.set_layer_acquire('Blue', None)
-        session.add_step(protocol, after_step=protocol.num_steps() - 1)
+        session.add_step(protocol, after_step_index=protocol.num_steps() - 1)
     session.set_layer_acquire('Blue', 'image')
     session.set_layer_acquire('BF', None)
-    session.add_step(protocol, after_step=protocol.num_steps() - 1)
+    session.add_step(protocol, after_step_index=protocol.num_steps() - 1)
     session.set_layer_acquire('BF', 'image')
     assert [protocol.step_row(i)['Color'] for i in range(3)] == ['BF', 'BF', 'Blue']
     assert [protocol.step_row(i)['Z'] for i in range(3)] == [LAYER_FOCUS] * 3
@@ -84,9 +84,9 @@ class TestSaveFocus:
         protocol = _protocol_bf_bf_blue(session)
         _go_to_z(session, 5000)
 
-        saved = session.save_focus(protocol, 'BF', step_idx=1)
+        saved = session.save_focus(protocol, 'BF', step_index=1)
 
-        assert saved == SavedFocus(z=5000.0, step_idx=1)
+        assert saved == SavedFocus(z=5000.0, step_index=1)
         assert session.saved_focus('BF') == 5000.0
         assert _zs(protocol) == [LAYER_FOCUS, 5000.0, LAYER_FOCUS]
 
@@ -94,9 +94,9 @@ class TestSaveFocus:
         # #734: saving step after step collapsed every step to the last save.
         protocol = _protocol_bf_bf_blue(session)
         _go_to_z(session, 5000)
-        session.save_focus(protocol, 'BF', step_idx=0)
+        session.save_focus(protocol, 'BF', step_index=0)
         _go_to_z(session, 6000)
-        session.save_focus(protocol, 'BF', step_idx=1)
+        session.save_focus(protocol, 'BF', step_index=1)
 
         assert _zs(protocol) == [5000.0, 6000.0, LAYER_FOCUS]
 
@@ -104,9 +104,9 @@ class TestSaveFocus:
         protocol = _protocol_bf_bf_blue(session)
         _go_to_z(session, 5000)
 
-        saved = session.save_focus(protocol, 'BF', step_idx=2)
+        saved = session.save_focus(protocol, 'BF', step_index=2)
 
-        assert saved == SavedFocus(z=5000.0, step_idx=None)
+        assert saved == SavedFocus(z=5000.0, step_index=None)
         assert session.saved_focus('BF') == 5000.0
         assert _zs(protocol) == [LAYER_FOCUS] * 3
 
@@ -116,7 +116,7 @@ class TestSaveFocus:
 
         saved = session.save_focus(protocol, 'BF')
 
-        assert saved == SavedFocus(z=5000.0, step_idx=None)
+        assert saved == SavedFocus(z=5000.0, step_index=None)
         assert session.saved_focus('BF') == 5000.0
         assert _zs(protocol) == [LAYER_FOCUS] * 3
 
@@ -125,7 +125,7 @@ class TestSaveFocus:
         _go_to_z(session, 5000)
 
         with pytest.raises(ProtocolError):
-            session.save_focus(protocol, 'BF', step_idx=3)
+            session.save_focus(protocol, 'BF', step_index=3)
 
         assert session.saved_focus('BF') == LAYER_FOCUS
         assert _zs(protocol) == [LAYER_FOCUS] * 3
@@ -135,7 +135,7 @@ class TestSaveFocus:
         session.scope.motion._axis_state['Z'] = AxisState.UNKNOWN
 
         with pytest.raises(AxisStateUnknownError):
-            session.save_focus(protocol, 'BF', step_idx=0)
+            session.save_focus(protocol, 'BF', step_index=0)
 
         assert session.saved_focus('BF') == LAYER_FOCUS
         assert _zs(protocol) == [LAYER_FOCUS] * 3
@@ -179,7 +179,7 @@ class TestALayerThisScopeLacks:
         before = {k: v.get('focus') for k, v in session.settings.items() if isinstance(v, dict)}
 
         with pytest.raises(refused) as raised:
-            session.save_focus(protocol, layer, step_idx=0)
+            session.save_focus(protocol, layer, step_index=0)
         assert raised.value.reason == reason
 
         after = {k: v.get('focus') for k, v in session.settings.items() if isinstance(v, dict)}

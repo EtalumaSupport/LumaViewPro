@@ -73,7 +73,7 @@ def test_save_focus_hands_the_session_the_panels_protocol_and_selected_step():
 
     _compile('save_focus', globals_)(me)
 
-    session.save_focus.assert_called_once_with(protocol, 'Blue', step_idx=0)
+    session.save_focus.assert_called_once_with(protocol, 'Blue', step_index=0)
 
 
 def test_save_focus_with_no_step_selected_names_no_step():
@@ -82,7 +82,7 @@ def test_save_focus_with_no_step_selected_names_no_step():
 
     _compile('save_focus', globals_)(me)
 
-    session.save_focus.assert_called_once_with(protocol, 'Blue', step_idx=None)
+    session.save_focus.assert_called_once_with(protocol, 'Blue', step_index=None)
 
 
 def test_apply_focus_hands_the_session_the_panels_protocol():

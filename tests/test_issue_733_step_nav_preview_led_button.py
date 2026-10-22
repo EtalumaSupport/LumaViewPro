@@ -152,7 +152,7 @@ def _run_manual_nav(env):
     _app_ctx.ctx.motion_settings.ids['protocol_settings_id']._protocol = protocol
     step_navigation.go_to_step(
         protocol,
-        step_idx=0,
+        step_index=0,
         include_move=True,
     )
 

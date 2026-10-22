@@ -128,7 +128,7 @@ class TestEveryStoredCellIsReadOnly:
         step = protocol.step_row(0)
         protocol.modify_step(
             turret_slot=-1,
-            step_idx=0,
+            step_index=0,
             layer='BF',
             layer_config={
                 'autofocus': False,

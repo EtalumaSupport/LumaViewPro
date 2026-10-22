@@ -11,7 +11,7 @@ protocol did nothing. Every writer now refuses with ``StepNotFoundError``
 (a ``ProtocolError``, reported as a refusal) and leaves the steps as they
 were.
 
-``after_step=-1`` is not out of range: it is "after no step", how an empty
+``after_step_index=-1`` is not out of range: it is "after no step", how an empty
 protocol takes its first step through the Session and through the GUI.
 """
 
@@ -52,22 +52,22 @@ def _protocol():
 
 
 WRITERS = {
-    'modify_autofocus': lambda p, i: p.modify_autofocus(step_idx=i, enabled=True),
-    'modify_step_z_height': lambda p, i: p.modify_step_z_height(step_idx=i, z=1.0),
+    'modify_autofocus': lambda p, i: p.modify_autofocus(step_index=i, enabled=True),
+    'modify_step_z_height': lambda p, i: p.modify_step_z_height(step_index=i, z=1.0),
     'apply_zstack_group_focus': lambda p, i: p.apply_zstack_group_focus(
         reference_step_idx=i, z=1.0
     ),
-    'modify_name': lambda p, i: p.modify_name(step_idx=i, step_name='renamed'),
+    'modify_name': lambda p, i: p.modify_name(step_index=i, step_name='renamed'),
     'modify_step': lambda p, i: p.modify_step(
         turret_slot=-1,
-        step_idx=i,
+        step_index=i,
         layer='BF',
         layer_config=LAYER_CONFIG,
         plate_position=PLATE_POSITION,
         objective_id='10x Oly',
         stim_configs={},
     ),
-    'delete_step': lambda p, i: p.delete_step(step_idx=i),
+    'delete_step': lambda p, i: p.delete_step(step_index=i),
 }
 
 
@@ -132,10 +132,10 @@ def test_a_frame_with_its_own_index_is_written_by_position():
         },
     )
 
-    protocol.modify_autofocus(step_idx=1, enabled=True)
+    protocol.modify_autofocus(step_index=1, enabled=True)
 
     assert protocol.num_steps() == NUM_STEPS
-    assert [protocol.step_row(idx=i)['Auto_Focus'] for i in range(NUM_STEPS)] == [
+    assert [protocol.step_row(step_index=i)['Auto_Focus'] for i in range(NUM_STEPS)] == [
         False,
         True,
         False,
@@ -143,17 +143,17 @@ def test_a_frame_with_its_own_index_is_written_by_position():
 
 
 def test_deleting_from_an_empty_protocol_is_refused():
-    _assert_refused_and_unchanged(_build_protocol([]), lambda p: p.delete_step(step_idx=0))
+    _assert_refused_and_unchanged(_build_protocol([]), lambda p: p.delete_step(step_index=0))
 
 
 @pytest.mark.parametrize(
     'place',
     [
-        {'after_step': NUM_STEPS},
-        {'after_step': NUM_STEPS + 3},
-        {'after_step': -2},
-        {'before_step': NUM_STEPS + 1},
-        {'before_step': -1},
+        {'after_step_index': NUM_STEPS},
+        {'after_step_index': NUM_STEPS + 3},
+        {'after_step_index': -2},
+        {'before_step_index': NUM_STEPS + 1},
+        {'before_step_index': -1},
     ],
     ids=str,
 )
@@ -178,7 +178,7 @@ def test_the_refusal_names_the_steps_there_are_and_carries_the_index(num_steps, 
     )
 
     with pytest.raises(StepNotFoundError) as refused:
-        protocol.delete_step(step_idx=98)
+        protocol.delete_step(step_index=98)
 
     assert str(refused.value) == words
     assert refused.value.index == 98
@@ -187,14 +187,14 @@ def test_the_refusal_names_the_steps_there_are_and_carries_the_index(num_steps, 
 
 def test_an_insert_refused_carries_the_place_it_was_given():
     with pytest.raises(StepNotFoundError) as refused:
-        _insert(_protocol(), before_step=NUM_STEPS + 1)
+        _insert(_protocol(), before_step_index=NUM_STEPS + 1)
 
     assert refused.value.index == NUM_STEPS + 1
     assert refused.value.num_steps == NUM_STEPS
 
 
 @pytest.mark.parametrize(
-    'place', [{}, {'after_step': 0, 'before_step': 1}], ids=['neither', 'both']
+    'place', [{}, {'after_step_index': 0, 'before_step_index': 1}], ids=['neither', 'both']
 )
 def test_an_insert_naming_no_place_or_two_is_refused(place):
     _assert_refused_and_unchanged(
@@ -205,10 +205,10 @@ def test_an_insert_naming_no_place_or_two_is_refused(place):
 @pytest.mark.parametrize(
     ('place', 'lands_at'),
     [
-        ({'after_step': -1}, 0),
-        ({'after_step': NUM_STEPS - 1}, NUM_STEPS),
-        ({'before_step': 0}, 0),
-        ({'before_step': NUM_STEPS}, NUM_STEPS),
+        ({'after_step_index': -1}, 0),
+        ({'after_step_index': NUM_STEPS - 1}, NUM_STEPS),
+        ({'before_step_index': 0}, 0),
+        ({'before_step_index': NUM_STEPS}, NUM_STEPS),
     ],
     ids=str,
 )
@@ -216,7 +216,7 @@ def test_an_insert_at_either_end_lands_there(place, lands_at):
     protocol = _protocol()
     name = _insert(protocol, **place)
     assert protocol.num_steps() == NUM_STEPS + 1
-    assert protocol.step_row(idx=lands_at)['Name'] == name
+    assert protocol.step_row(step_index=lands_at)['Name'] == name
 
 
 @pytest.fixture
@@ -240,7 +240,7 @@ def _empty_protocol(session):
 
 @pytest.mark.parametrize(
     'place',
-    [{}, {'after_step': -1}],
+    [{}, {'after_step_index': -1}],
     ids=['a script names no place', 'the GUI adds after no step'],
 )
 def test_the_first_step_of_an_empty_protocol_is_added(session, place):

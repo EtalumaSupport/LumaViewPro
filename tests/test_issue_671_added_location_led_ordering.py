@@ -168,8 +168,8 @@ def _add_3rd_location_via_insert_step(protocol):
             plate_position=PlateLocation(x_mm=ADDED_X, y_mm=ADDED_Y, z_um=ADDED_Z),
             objective_id='4x Oly',
             stim_configs={},
-            before_step=None,
-            after_step=protocol.num_steps() - 1,
+            before_step_index=None,
+            after_step_index=protocol.num_steps() - 1,
         )
 
 
@@ -321,7 +321,7 @@ class TestAddedLocationLedOrdering:
 
         # Sanity-check the added steps are at the 3rd X/Y.
         for i in range(8, 12):
-            step = protocol.step_row(idx=i)
+            step = protocol.step_row(step_index=i)
             assert step['X'] == pytest.approx(ADDED_X)
             assert step['Y'] == pytest.approx(ADDED_Y)
 

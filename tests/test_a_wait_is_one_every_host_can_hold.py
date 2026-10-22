@@ -67,7 +67,7 @@ def test_a_wait_on_a_moving_axis_outside_the_range_is_refused(session, z_held_mo
 def test_a_run_waiting_form_refuses_its_wait_before_starting_the_run(session, tmp_path):
     from tests.test_run_refusal_contract import _build_real_protocol, _make_single_step_protocol
 
-    step = dict(_make_single_step_protocol().step_row(idx=0))
+    step = dict(_make_single_step_protocol().step_row(step_index=0))
     # Held, a run that started would still be live when the wait returned.
     session.scope.simulation.hold_axis('Z')
     try:

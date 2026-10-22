@@ -56,7 +56,7 @@ def _a_step_at_each_slot(session, slots=(1, 2)):
     protocol = session.create_empty_protocol()
     for slot in slots:
         session.scope.motion.move_turret(slot)
-        session.add_step(protocol, after_step=protocol.num_steps() - 1)
+        session.add_step(protocol, after_step_index=protocol.num_steps() - 1)
     return protocol
 
 
@@ -153,7 +153,7 @@ class TestOldProtocols:
         _acquire_bf_only(session)
         session.scope.motion.move_turret(3)
         protocol = session.create_empty_protocol()
-        session.add_step(protocol, after_step=-1)
+        session.add_step(protocol, after_step_index=-1)
 
         loaded = session.scope.protocols.load_protocol(_as_an_old_file(session, protocol, tmp_path))
 

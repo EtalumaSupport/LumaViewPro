@@ -58,7 +58,7 @@ def test_a_step_renamed_to_a_missing_value_word_reloads_with_that_name(tmp_path,
     path = tmp_path / 'protocol.tsv'
     protocol.to_file(path)
 
-    step = Protocol.from_file(path, TILING_CONFIGS).step_row(idx=0)
+    step = Protocol.from_file(path, TILING_CONFIGS).step_row(step_index=0)
 
     assert (step['Label'], step['Name']) == (name, f'{name}_BF_Z0')
 

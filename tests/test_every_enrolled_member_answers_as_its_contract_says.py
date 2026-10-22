@@ -557,12 +557,13 @@ def _valid_rows() -> list[Valid]:
             lambda s: s.session.scope.protocols.step_targets(s.protocol, 0),
             lambda s, targets: (
                 None
-                if targets.z == s.protocol.step_row(idx=0)['Z'] and targets.turret_slot is None
+                if targets.z == s.protocol.step_row(step_index=0)['Z']
+                and targets.turret_slot is None
                 else f'{targets}'
             ),
             (
                 '/api/v1/scope/protocols/step_targets',
-                lambda s: {'protocol': s.handle, 'step_idx': 0},
+                lambda s: {'protocol': s.handle, 'step_index': 0},
             ),
         ),
         Valid(
@@ -590,7 +591,7 @@ def _bad_rows() -> list[Bad]:
             'no_such_step',
             (
                 '/api/v1/scope/protocols/step_targets',
-                lambda s: {'protocol': s.handle, 'step_idx': 99},
+                lambda s: {'protocol': s.handle, 'step_index': 99},
             ),
         ),
         Bad(

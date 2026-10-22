@@ -152,7 +152,7 @@ class ProtocolStepRunner:
             # fault, so it stays at debug.
             p._af_result_consumed = True
             _af_exc = p._af_future.exception()
-            _af_step = p._protocol.step_row(idx=p._curr_step)
+            _af_step = p._protocol.step_row(step_index=p._curr_step)
             if isinstance(_af_exc, AutofocusAborted):
                 logger.debug(f'[PROTOCOL] Autofocus aborted at step {p._curr_step}')
             else:
@@ -209,14 +209,14 @@ class ProtocolStepRunner:
         # and protocol.step_row() builds a fresh pandas Series per call --
         # fetching before the is_moving gate burned that allocation on
         # every poll of every move.
-        step = p._protocol.step_row(idx=p._curr_step)
+        step = p._protocol.step_row(step_index=p._curr_step)
 
         # A z-stack slice never triggers its own sweep. Focusing every slice
         # walks them all onto the same plane and the stack spans nothing, so
         # the group is focused ONCE, at its first slice, and every slice is
         # then placed from that result. Auto_Focus on a slice marks which one
         # is the group's reference plane, not which one sweeps.
-        zstack_focus_anchor = p._protocol.zstack_group_focus_anchor(step_idx=p._curr_step)
+        zstack_focus_anchor = p._protocol.zstack_group_focus_anchor(step_index=p._curr_step)
         wants_af = (
             zstack_focus_anchor is not None
             if step['Z-Stack Group ID'] != -1
@@ -244,7 +244,7 @@ class ProtocolStepRunner:
             sweep_step = (
                 step
                 if zstack_focus_anchor is None
-                else p._protocol.step_row(idx=zstack_focus_anchor)
+                else p._protocol.step_row(step_index=zstack_focus_anchor)
             )
             p._af_future = p.autofocus_thread.run_autofocus(
                 objective_id=sweep_step['Objective'],
@@ -303,7 +303,7 @@ class ProtocolStepRunner:
                 # computing it: the frame is what every other slice's move is
                 # issued from, so reading it here keeps this slice on the same
                 # ladder as its siblings.
-                placed_z = float(p._protocol.step_row(idx=p._curr_step)['Z'])
+                placed_z = float(p._protocol.step_row(step_index=p._curr_step)['Z'])
                 self._move_z_through_io(placed_z)
                 p._focus_placed_step = p._curr_step
                 # Let the next poll's motion gate settle the stage before the
@@ -380,7 +380,7 @@ class ProtocolStepRunner:
             if new_z_pos is None:
                 logger.warning('[Capture   ] Autofocus returned no position -- keeping current Z')
             elif zstack_focus_anchor is None and p._write_focus_to is not None:
-                p._protocol.modify_step_z_height(step_idx=p._curr_step, z=new_z_pos)
+                p._protocol.modify_step_z_height(step_index=p._curr_step, z=new_z_pos)
 
         if wants_af:
             p._autofocus_count += 1
@@ -417,7 +417,7 @@ class ProtocolStepRunner:
                 end_policy = LedEndPolicy.OFF
                 snapshot_lit = frozenset()
                 if p._curr_step < num_steps - 1:
-                    next_step = p._protocol.step_row(idx=p._curr_step + 1)
+                    next_step = p._protocol.step_row(step_index=p._curr_step + 1)
                     same_color = next_step['Color'] == step['Color']
                     # A z-stack group holds every channel at one position, so the
                     # color is judged too: the LED is held only across slices of
@@ -533,7 +533,7 @@ class ProtocolStepRunner:
                 # step starts a fresh AF run whose outcome must be consumed anew.
                 p._af_result_consumed = False
 
-            self.go_to_step(step_idx=p._curr_step)
+            self.go_to_step(step_index=p._curr_step)
             return
 
         # End of scan -- grease redistribution if needed
@@ -609,18 +609,18 @@ class ProtocolStepRunner:
         """
         self._p._scope.motion.move_turret(slot, restore_z=False)
 
-    def go_to_step(self, step_idx: int) -> None:
+    def go_to_step(self, step_index: int) -> None:
         """Move to the position for a given protocol step."""
         p = self._p
         p._step_start_time = time.monotonic()
         if p._aborted.is_set():
             return
-        deliver(p._events, 'step_started', step_idx)
+        deliver(p._events, 'step_started', step_index)
 
         # The targets a person's navigation to this step computes too, with
         # the offset this run started with.
         targets = p._scope.protocols.step_targets(
-            p._protocol, step_idx, stage_offset=p._stage_offset
+            p._protocol, step_index, stage_offset=p._stage_offset
         )
         # The run turns the turret itself, on every host: a step's captures
         # are only of its objective if that objective is in the light path.

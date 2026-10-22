@@ -130,10 +130,10 @@ class TestAProtocolThatChangedDuringTheScanIsLeftAlone:
     def test_a_step_moved_during_the_scan_refuses_the_write_and_says_so_once(self, tmp_path):
         protocol = _two_steps()
 
-        def _move_a_step(step_idx):
+        def _move_a_step(step_index):
             # As the scan reaches its second step, behind the writers: the
             # protocol has no one-cell position writer.
-            if step_idx == 1:
+            if step_index == 1:
                 protocol._config['steps'].at[1, 'X'] = 40.0
 
         with (
@@ -164,8 +164,8 @@ class TestAProtocolThatChangedDuringTheScanIsLeftAlone:
                 assert have_handle.wait(WAIT_S), 'the start never returned its operation'
                 started[0].stop()
 
-            def _stop(step_idx):
-                if step_idx == 1:
+            def _stop(step_index):
+                if step_index == 1:
                     threading.Thread(target=_stop_once_held).start()
 
             run = runner.start_autofocus_all_steps(protocol, events=RunEvents(step_started=_stop))

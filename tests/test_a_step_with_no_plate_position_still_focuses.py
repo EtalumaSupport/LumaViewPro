@@ -42,7 +42,7 @@ def zonly_session(tmp_path):
 
 
 def _step_at(z_um):
-    step = {**_make_single_step_protocol().step_row(idx=0), 'X': None, 'Y': None, 'Z': z_um}
+    step = {**_make_single_step_protocol().step_row(step_index=0), 'X': None, 'Y': None, 'Z': z_um}
     return _build_real_protocol([step])
 
 

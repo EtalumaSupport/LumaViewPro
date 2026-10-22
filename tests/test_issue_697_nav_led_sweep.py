@@ -84,7 +84,7 @@ def _run_nav(env, preview_on):
 
     _app_ctx.ctx.motion_settings.ids['protocol_settings_id']._protocol = protocol
     env.ctx.scope.illumination.led_off = MagicMock()
-    step_navigation.go_to_step(protocol, step_idx=0, include_move=True)
+    step_navigation.go_to_step(protocol, step_index=0, include_move=True)
     return env.ctx.scope.illumination, env.layer_obj
 
 
@@ -167,17 +167,17 @@ def test_nav_handlers_never_prewrite_curr_step_before_navigating():
                     )
     assert offenders == [], (
         'nav handler pre-writes curr_step before calling go_to_step; '
-        'pass the target as step_idx instead: ' + '; '.join(offenders)
+        'pass the target as step_index instead: ' + '; '.join(offenders)
     )
 
 
 def test_wrapper_go_to_step_requires_an_explicit_target():
-    """step_idx must be a required parameter of the ProtocolSettings
+    """step_index must be a required parameter of the ProtocolSettings
     wrapper: a defaulted (or absent) target re-opens the silent path where
     a caller relies on a pre-written curr_step and the change comparison
     reads itself."""
     fn = _find_function(_PS_TREE, 'go_to_step')
     arg_names = [a.arg for a in fn.args.args]
-    assert arg_names[:2] == ['self', 'step_idx'], arg_names
+    assert arg_names[:2] == ['self', 'step_index'], arg_names
     required_count = len(fn.args.args) - len(fn.args.defaults)
-    assert required_count >= 2, 'step_idx must have no default value'
+    assert required_count >= 2, 'step_index must have no default value'

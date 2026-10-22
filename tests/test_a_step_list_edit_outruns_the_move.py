@@ -86,7 +86,7 @@ LAYER_CONFIG = {
 }
 
 
-def _insert(protocol, *, x, before_step=None, after_step=None):
+def _insert(protocol, *, x, before_step_index=None, after_step_index=None):
     return protocol.insert_step(
         channel_group_id=protocol.new_channel_group_id(),
         turret_slot=-1,
@@ -96,8 +96,8 @@ def _insert(protocol, *, x, before_step=None, after_step=None):
         plate_position=PlateLocation(x_mm=x, y_mm=0.0, z_um=0.0),
         objective_id='10x Oly',
         stim_configs={},
-        before_step=before_step,
-        after_step=after_step,
+        before_step_index=before_step_index,
+        after_step_index=after_step_index,
     )
 
 
@@ -108,7 +108,7 @@ def _protocol(num_steps):
         config={'steps': pd.DataFrame(), 'custom_step_count': 0, 'period': None, 'duration': None},
     )
     for i in range(num_steps):
-        _insert(protocol, x=float(i), after_step=protocol.num_steps() - 1)
+        _insert(protocol, x=float(i), after_step_index=protocol.num_steps() - 1)
     return protocol
 
 
@@ -148,13 +148,20 @@ def env(monkeypatch):
     monkeypatch.setattr(ps.gui_logger, 'protocol_action', lambda *a, **kw: None)
     monkeypatch.setattr(ps.gui_logger, 'text_input', lambda *a, **kw: None)
 
-    def add_step(protocol, *, before_step=None, after_step=None, use_zstacking=False):
-        return [_insert(protocol, x=99.0, before_step=before_step, after_step=after_step)]
+    def add_step(protocol, *, before_step_index=None, after_step_index=None, use_zstacking=False):
+        return [
+            _insert(
+                protocol,
+                x=99.0,
+                before_step_index=before_step_index,
+                after_step_index=after_step_index,
+            )
+        ]
 
-    def update_step(protocol, step_idx, *, layer, label=None):
+    def update_step(protocol, step_index, *, layer, label=None):
         protocol.modify_step(
             turret_slot=-1,
-            step_idx=step_idx,
+            step_index=step_index,
             layer=layer,
             layer_config=LAYER_CONFIG,
             plate_position=PlateLocation(x_mm=99.0, y_mm=0.0, z_um=0.0),
@@ -162,7 +169,7 @@ def env(monkeypatch):
             stim_configs={},
             label=label,
         )
-        return protocol.step_row(idx=step_idx)['Name']
+        return protocol.step_row(step_index=step_index)['Name']
 
     settings = {'protocol_led_on': False, 'protocol': {'filepath': 'plate.tsv'}}
     ctx = SimpleNamespace(
@@ -186,13 +193,13 @@ def env(monkeypatch):
             shown_channel=ShownChannel('BF', lit=False),
             is_protocol_running=False,
             run_lockout=False,
-            start_go_to_step=lambda protocol, step_idx: loaded.append(
-                protocol.step_row(idx=step_idx)['X']
+            start_go_to_step=lambda protocol, step_index: loaded.append(
+                protocol.step_row(step_index=step_index)['X']
             ),
             add_step=add_step,
-            delete_step=lambda protocol, step_idx: protocol.delete_step(step_idx=step_idx),
-            rename_step=lambda protocol, step_idx, name: protocol.modify_name(
-                step_idx=step_idx, step_name=name
+            delete_step=lambda protocol, step_index: protocol.delete_step(step_index=step_index),
+            rename_step=lambda protocol, step_index, name: protocol.modify_name(
+                step_index=step_index, step_name=name
             ),
             update_step=update_step,
         ),
@@ -290,7 +297,7 @@ def test_a_delete_on_an_empty_protocol_is_the_protocols_refusal(env, refusals):
 
 def test_a_name_with_nothing_to_keep_is_refused_and_the_step_keeps_its_name(env, refusals):
     panel = env.panel(num_steps=2, curr_step=1)
-    panel._protocol.modify_name(step_idx=1, step_name='center')
+    panel._protocol.modify_name(step_index=1, step_name='center')
     before = panel._protocol.step_row(1)['Name']
     panel.ids['step_name_input'].text = '!!!'  # what the person typed
 
@@ -316,7 +323,7 @@ def test_a_blank_name_field_keeps_the_name_without_asking_the_protocol(env, refu
 def test_a_blank_field_on_a_named_step_shows_its_name_again(env, refusals):
     """Blank keeps the name, so the field shows it, not the auto name's hint."""
     panel = env.panel(num_steps=2, curr_step=1)
-    panel._protocol.modify_name(step_idx=1, step_name='center')
+    panel._protocol.modify_name(step_index=1, step_name='center')
     panel.ids['step_name_input'].text = ''
 
     panel.step_name_validation('')
@@ -351,7 +358,7 @@ def test_update_with_a_name_of_nothing_to_keep_is_refused(env):
 
 def test_update_with_a_blank_name_field_keeps_the_label(env):
     panel = env.panel(num_steps=2, curr_step=1)
-    panel._protocol.modify_name(step_idx=1, step_name='mine')
+    panel._protocol.modify_name(step_index=1, step_name='mine')
 
     panel.modify_step_ex('BF', '')
 
@@ -398,7 +405,7 @@ def test_a_superseded_move_does_not_load_its_step_into_the_layer(env):
 def test_an_add_while_a_move_is_in_flight_keeps_the_added_step(env):
     panel = env.panel(num_steps=3, curr_step=0)
 
-    panel.go_to_step(step_idx=2)  # a click on X=2, held
+    panel.go_to_step(step_index=2)  # a click on X=2, held
     panel.insert_step_ex(after_current_step=True)  # the new step sits at index 1
     env.land(count=1)  # the click's move completes after the Add
 
@@ -413,7 +420,7 @@ def test_a_move_for_a_replaced_protocol_does_not_land_on_the_new_one(env):
     replacement = _protocol(3)
     assert replacement.step_list_revision == panel._protocol.step_list_revision
 
-    panel.go_to_step(step_idx=2)  # a click on the old protocol's X=2, held
+    panel.go_to_step(step_index=2)  # a click on the old protocol's X=2, held
     panel.new_protocol_ex(replacement)
     env.land(count=1)
 
@@ -424,7 +431,7 @@ def test_a_move_for_a_replaced_protocol_does_not_land_on_the_new_one(env):
 def test_a_move_the_list_did_not_change_under_still_lands(env):
     panel = env.panel(num_steps=3, curr_step=0)
 
-    panel.go_to_step(step_idx=2)
+    panel.go_to_step(step_index=2)
     assert panel.curr_step == 0, 'the pointer moves only once the stage has'
     env.land()
 
@@ -432,7 +439,9 @@ def test_a_move_the_list_did_not_change_under_still_lands(env):
     assert env.loaded == [2.0]
 
 
-def _add_bf_and_blue(protocol, *, before_step=None, after_step=None, use_zstacking=False):
+def _add_bf_and_blue(
+    protocol, *, before_step_index=None, after_step_index=None, use_zstacking=False
+):
     names = []
     for layer in ('BF', 'Blue'):
         names.append(
@@ -445,12 +454,12 @@ def _add_bf_and_blue(protocol, *, before_step=None, after_step=None, use_zstacki
                 plate_position=PlateLocation(x_mm=99.0, y_mm=0.0, z_um=0.0),
                 objective_id='10x Oly',
                 stim_configs={},
-                before_step=before_step,
-                after_step=after_step,
+                before_step_index=before_step_index,
+                after_step_index=after_step_index,
             )
         )
-        inserted_at = before_step if before_step is not None else after_step + 1
-        before_step, after_step = None, inserted_at
+        inserted_at = before_step_index if before_step_index is not None else after_step_index + 1
+        before_step_index, after_step_index = None, inserted_at
     return names
 
 

@@ -222,7 +222,7 @@ def test_go_to_step_on_a_scope_whose_board_did_not_come_up_is_refused(make_sessi
 
     session = make_session('LS850')
     monkeypatch.setattr(session.scope, '_motion_driver', NullMotionBoard())
-    protocol = _build_real_protocol([_make_single_step_protocol().step_row(idx=0)])
+    protocol = _build_real_protocol([_make_single_step_protocol().step_row(step_index=0)])
 
     refusal = _refused(lambda: session.start_go_to_step(protocol, 0))
 
@@ -288,7 +288,7 @@ def _wait(run):
 
 
 def _protocol(n_scans: int | None = None, rows=None):
-    step = {**_make_single_step_protocol().step_row(idx=0), 'Z': 3000.0}
+    step = {**_make_single_step_protocol().step_row(step_index=0), 'Z': 3000.0}
     rows = rows or [step]
     if n_scans is None:
         return _build_real_protocol(rows)
@@ -376,11 +376,11 @@ def test_go_to_step_on_a_z_only_scope_moves_z(make_session):
 def test_go_to_step_on_a_manual_scope_moves_nothing_and_loads_the_layer(make_session, model):
     session = make_session(model)
     protocol = _protocol()
-    session.settings['BF']['exposure_ms'] = protocol.step_row(idx=0)['Exposure'] + 1.0
+    session.settings['BF']['exposure_ms'] = protocol.step_row(step_index=0)['Exposure'] + 1.0
 
     going = session.start_go_to_step(protocol, 0)
     assert going.done() and going.result() is None
-    assert session.get_setting('BF')['exposure_ms'] == protocol.step_row(idx=0)['Exposure']
+    assert session.get_setting('BF')['exposure_ms'] == protocol.step_row(step_index=0)['Exposure']
 
 
 # --- The run asks presence before it asks about the home --------------------------
@@ -389,7 +389,7 @@ def test_go_to_step_on_a_manual_scope_moves_nothing_and_loads_the_layer(make_ses
 def test_an_unhomed_z_only_scope_with_an_xy_protocol_is_told_it_has_no_xy(make_session, tmp_path):
     session = make_session('LS820', homed=False)
     runner = session.create_protocol_runner()
-    a = {**_make_single_step_protocol().step_row(idx=0), 'Label': 'a', 'X': 10.0, 'Y': 10.0}
+    a = {**_make_single_step_protocol().step_row(step_index=0), 'Label': 'a', 'X': 10.0, 'Y': 10.0}
     b = {**a, 'Label': 'b', 'X': 30.0, 'Y': 30.0}
 
     with pytest.raises(ProtocolRunRefusedError) as exc:

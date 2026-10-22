@@ -68,7 +68,7 @@ class TestTheApiRefuses:
         captured = _capture_notifications(centre_posts)
 
         with pytest.raises(ProtocolRunRefusedError) as excinfo:
-            _add(scope, protocol, _layer_configs(), before_step=0)
+            _add(scope, protocol, _layer_configs(), before_step_index=0)
 
         assert excinfo.value.reason == 'no_acquiring_layer'
         assert list(captured) == []
@@ -85,7 +85,7 @@ class TestTheApiRefuses:
         captured = _capture_notifications(centre_posts)
 
         with pytest.raises(ProtocolRunRefusedError) as excinfo:
-            _add(scope, protocol, _layer_configs(BF='image'), before_step=0)
+            _add(scope, protocol, _layer_configs(BF='image'), before_step_index=0)
 
         assert (excinfo.value.reason, excinfo.value.title) == (
             'turret_objective_unset',
@@ -102,7 +102,9 @@ class TestTheApiRefuses:
         captured = _capture_notifications(centre_posts)
 
         with pytest.raises(ProtocolRunRefusedError) as excinfo:
-            _add(scope, protocol, _layer_configs(BF='image'), objective_id=None, before_step=0)
+            _add(
+                scope, protocol, _layer_configs(BF='image'), objective_id=None, before_step_index=0
+            )
 
         assert (excinfo.value.reason, excinfo.value.title) == (
             'objective_unknown',
@@ -129,7 +131,7 @@ class TestTheApiRefuses:
         captured = _capture_notifications(centre_posts)
 
         with pytest.raises(ProtocolRunRefusedError) as excinfo:
-            _add(scope, protocol, _layer_configs(BF='image'), before_step=0)
+            _add(scope, protocol, _layer_configs(BF='image'), before_step_index=0)
 
         assert (excinfo.value.reason, excinfo.value.title) == (
             'step_position_unknown',
@@ -153,7 +155,7 @@ class TestTheApiAdds:
             protocol,
             _layer_configs(BF='image', Blue='image'),
             channel_order=['Blue', 'BF'],
-            before_step=0,
+            before_step_index=0,
         )
 
         assert len(names) == 2
@@ -169,7 +171,7 @@ class TestTheApiAdds:
             protocol,
             _layer_configs(BF='image', Blue='image', Green='image'),
             channel_order=['Green'],
-            before_step=0,
+            before_step_index=0,
         )
 
         colors = protocol.steps()['Color'].tolist()
@@ -199,10 +201,10 @@ class TestAScriptAddsAStepThroughTheSession:
             empty_config=session.get_sequenced_capture_config()
         )
 
-        names = session.add_step(protocol, before_step=0)
+        names = session.add_step(protocol, before_step_index=0)
 
         assert len(names) == 1
-        step = protocol.step_row(idx=0)
+        step = protocol.step_row(step_index=0)
         assert step['Color'] == 'BF'
         assert step['Objective'] == session.scope.runtime_state.resolve_current_objective()[0]
 
@@ -220,7 +222,7 @@ class TestAScriptAddsAStepThroughTheSession:
             empty_config=session.get_sequenced_capture_config()
         )
 
-        session.add_step(protocol, before_step=0)
+        session.add_step(protocol, before_step_index=0)
 
         steps = protocol.steps()
         assert sorted(steps['Color']) == sorted(saved)
@@ -254,7 +256,7 @@ class TestAScriptAddsAStepThroughTheSession:
         captured = _capture_notifications(centre_posts)
 
         with pytest.raises(ProtocolRunRefusedError) as excinfo:
-            session.add_step(protocol, before_step=0)
+            session.add_step(protocol, before_step_index=0)
 
         assert excinfo.value.reason == 'no_acquiring_layer'
         assert list(captured) == []
@@ -288,7 +290,7 @@ class TestAnAddCanBeAZStack:
             empty_config=session.get_sequenced_capture_config()
         )
         session.add_step(protocol)
-        earlier = protocol.step_row(idx=0).to_dict()
+        earlier = protocol.step_row(step_index=0).to_dict()
 
         _only_acquiring(session, 'BF', 'Blue')
         _stack_settings(session, range_um=10.0, step_size_um=5.0)

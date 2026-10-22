@@ -325,8 +325,8 @@ class ProtocolsAPI:
         plate_position: PlateLocation,
         objective_id: str | None,
         channel_order: list[str] | None = None,
-        before_step: int | None = None,
-        after_step: int | None = None,
+        before_step_index: int | None = None,
+        after_step_index: int | None = None,
         zstack_params: dict | None = None,
     ) -> list[str]:
         """Add one step per acquiring layer to ``protocol`` at ``plate_position``.
@@ -349,7 +349,7 @@ class ProtocolsAPI:
         ``objective_id`` is the active objective, or None when no one can say
         which objective is in the light path.
 
-        ``before_step`` or ``after_step`` places the steps; with neither
+        ``before_step_index`` or ``after_step_index`` places the steps; with neither
         they follow the last step, which is what a script building a
         protocol one add at a time means by "add".
 
@@ -369,7 +369,7 @@ class ProtocolsAPI:
                 With ``zstack_params``, also what ``apply_zstacking`` refuses.
             ArgumentRefusedError: with ``zstack_params``, as
                 ``apply_zstacking``.
-            ProtocolError: an impossible ``before_step`` / ``after_step``,
+            ProtocolError: an impossible ``before_step_index`` / ``after_step_index``,
                 or both given (raised by the protocol).
         """
         from modules.protocol import Protocol
@@ -380,8 +380,8 @@ class ProtocolsAPI:
         ordered = [layer for layer in (channel_order or []) if layer in layer_configs]
         ordered += [layer for layer in layer_configs if layer not in ordered]
         stim_configs = self._stim_configs_with_invalid_channels_disabled(stim_configs)
-        if before_step is None and after_step is None:
-            after_step = protocol.num_steps() - 1
+        if before_step_index is None and after_step_index is None:
+            after_step_index = protocol.num_steps() - 1
         acquiring = [layer for layer in ordered if Protocol.layer_acquires(layer_configs[layer])]
         if zstack_params is not None:
             Protocol.refuse_unbuildable_zstack(
@@ -389,7 +389,7 @@ class ProtocolsAPI:
                 self._travel_limits(),
                 [(f'the new {layer} step', plate_position.z_um) for layer in acquiring],
             )
-        first_added = before_step if before_step is not None else after_step + 1
+        first_added = before_step_index if before_step_index is not None else after_step_index + 1
 
         names: list[str] = []
         channel_group_id = protocol.new_channel_group_id()
@@ -405,16 +405,18 @@ class ProtocolsAPI:
                 objective_id=objective_id,
                 channel_group_id=channel_group_id,
                 turret_slot=turret_slot,
-                before_step=before_step,
-                after_step=after_step,
+                before_step_index=before_step_index,
+                after_step_index=after_step_index,
             )
             names.append(name)
             # The next layer goes after this one. Handing every layer the
             # same index puts each new step AT that index, which reads the
             # channels back in reverse. The index is arithmetic, not a
             # name lookup: a loaded file may carry duplicate names.
-            inserted_at = before_step if before_step is not None else after_step + 1
-            before_step, after_step = None, inserted_at
+            inserted_at = (
+                before_step_index if before_step_index is not None else after_step_index + 1
+            )
+            before_step_index, after_step_index = None, inserted_at
         if zstack_params is not None:
             steps_before = protocol.num_steps()
             protocol.apply_zstacking(
@@ -424,25 +426,27 @@ class ProtocolsAPI:
             )
             added = len(names) + protocol.num_steps() - steps_before
             names = [
-                protocol.step_row(idx=idx)['Name']
+                protocol.step_row(step_index=idx)['Name']
                 for idx in range(first_added, first_added + added)
             ]
         self._report_invalid_steps(protocol, solicited=True)
         return names
 
-    def _refuse_channel_already_in_add(self, protocol: Protocol, step_idx: int, layer: str) -> None:
-        """Refuse giving step ``step_idx`` a channel another step of its add takes.
+    def _refuse_channel_already_in_add(
+        self, protocol: Protocol, step_index: int, layer: str
+    ) -> None:
+        """Refuse giving step ``step_index`` a channel another step of its add takes.
 
         An add's steps are one composite with one image per channel, so a
         second step of one channel would leave the composite two images for
         one plane, refused only after the run has captured both. A step
         recorded before adds were (group -1) has no add to check.
         """
-        group = protocol.step_row(idx=step_idx)['Channel Group ID']
+        group = protocol.step_row(step_index=step_index)['Channel Group ID']
         if group == -1:
             return
         steps = protocol.steps().reset_index(drop=True)
-        same_add = steps[(steps['Channel Group ID'] == group) & (steps.index != step_idx)]
+        same_add = steps[(steps['Channel Group ID'] == group) & (steps.index != step_index)]
         if layer in set(same_add['Color']):
             self._refuse(
                 reason='channel_already_in_add',
@@ -457,7 +461,7 @@ class ProtocolsAPI:
     def update_step(
         self,
         protocol: Protocol,
-        step_idx: int,
+        step_index: int,
         *,
         layer: str,
         layer_configs: dict,
@@ -466,7 +470,7 @@ class ProtocolsAPI:
         objective_id: str | None,
         label: str | None = None,
     ) -> str:
-        """Rewrite step ``step_idx`` of ``protocol`` from ``layer`` at ``plate_position``.
+        """Rewrite step ``step_index`` of ``protocol`` from ``layer`` at ``plate_position``.
 
         The GUI's Update Step and a script's update are this one call, and
         it is refused for the same reasons an add is: a step is a saved
@@ -492,13 +496,13 @@ class ProtocolsAPI:
                 another step of the same add already takes that channel
                 (reason ``channel_already_in_add``). Logged and notified
                 once; the step is unchanged.
-            ProtocolError: ``step_idx`` is not a step of ``protocol``
+            ProtocolError: ``step_index`` is not a step of ``protocol``
                 (raised by the protocol), judged before anything else: an
                 empty protocol has no step to update, whatever the layer.
         """
         from modules.protocol import Protocol
 
-        step = protocol.step_row(idx=step_idx)
+        step = protocol.step_row(step_index=step_index)
         self._refuse_unrecordable_step(verb='update', objective_id=objective_id)
 
         stim_config = layer_configs[layer].get('stim_config')
@@ -514,7 +518,7 @@ class ProtocolsAPI:
                 ),
             )
 
-        self._refuse_channel_already_in_add(protocol, step_idx, layer)
+        self._refuse_channel_already_in_add(protocol, step_index, layer)
 
         axes = self._scope.capabilities.axes
         has_xy = 'X' in axes and 'Y' in axes
@@ -525,7 +529,7 @@ class ProtocolsAPI:
         )
 
         protocol.modify_step(
-            step_idx=step_idx,
+            step_index=step_index,
             label=label,
             layer=layer,
             layer_config=layer_configs[layer],
@@ -535,7 +539,7 @@ class ProtocolsAPI:
             turret_slot=self._live_turret_slot(),
         )
         self._report_invalid_steps(protocol, solicited=True)
-        return protocol.step_row(idx=step_idx)['Name']
+        return protocol.step_row(step_index=step_index)['Name']
 
     @api(reads=True)
     def focus_z(self, *, then: str) -> float:
@@ -597,17 +601,17 @@ class ProtocolsAPI:
                 message=f'This scope has no motor for Z, so it cannot {then}.',
             )
 
-    def set_step_z(self, protocol: Protocol, step_idx: int, z: float) -> None:
-        """Write ``z`` as step ``step_idx``'s Z.
+    def set_step_z(self, protocol: Protocol, step_index: int, z: float) -> None:
+        """Write ``z`` as step ``step_index``'s Z.
 
         Raises:
             ProtocolRunRefusedError: ``'positions_unreachable'``, this scope
                 has no Z axis, so no Z is a place it can go. Nothing is written.
-            ProtocolError: ``step_idx`` is not a step of ``protocol``, or
+            ProtocolError: ``step_index`` is not a step of ``protocol``, or
                 ``z`` is not a number (raised by the protocol).
         """
         self._refuse_no_focus_axis(then="set a step's Z")
-        protocol.modify_step_z_height(step_idx=step_idx, z=z)
+        protocol.modify_step_z_height(step_index=step_index, z=z)
 
     def apply_focus_to_layer_steps(self, protocol: Protocol, layer: str, z: float) -> int:
         """Write ``z`` as the Z of every step of ``layer``; returns how many.
@@ -617,18 +621,18 @@ class ProtocolsAPI:
         """
         return protocol.apply_focus_all_layer_steps(layer=layer, z=z)
 
-    def delete_step(self, protocol: Protocol, step_idx: int) -> None:
-        """Remove step ``step_idx`` from ``protocol``; the steps after it move up one.
+    def delete_step(self, protocol: Protocol, step_index: int) -> None:
+        """Remove step ``step_index`` from ``protocol``; the steps after it move up one.
 
         Raises:
-            ProtocolError: ``step_idx`` is not a step of ``protocol``
+            ProtocolError: ``step_index`` is not a step of ``protocol``
                 (raised by the protocol). Nothing is removed.
         """
-        protocol.delete_step(step_idx=step_idx)
+        protocol.delete_step(step_index=step_index)
         self._report_invalid_steps(protocol, solicited=True)
 
-    def rename_step(self, protocol: Protocol, step_idx: int, name: str) -> str:
-        """Give step ``step_idx`` the label ``name``, kept through later channel changes.
+    def rename_step(self, protocol: Protocol, step_index: int, name: str) -> str:
+        """Give step ``step_index`` the label ``name``, kept through later channel changes.
 
         Characters a filename cannot carry are removed from ``name``.
         Returns the step's name after the rename. A rename to the label the
@@ -637,13 +641,13 @@ class ProtocolsAPI:
         it loses focus.
 
         Raises:
-            ProtocolError: ``step_idx`` is not a step of ``protocol``, or
+            ProtocolError: ``step_index`` is not a step of ``protocol``, or
                 ``name`` has no letter, digit, dash or underscore (raised
                 by the protocol). The step keeps its name.
         """
-        before = protocol.step_row(idx=step_idx)[['Label', 'Auto_Named']].tolist()
-        protocol.modify_name(step_idx=step_idx, step_name=name)
-        after = protocol.step_row(idx=step_idx)
+        before = protocol.step_row(step_index=step_index)[['Label', 'Auto_Named']].tolist()
+        protocol.modify_name(step_index=step_index, step_name=name)
+        after = protocol.step_row(step_index=step_index)
         if after[['Label', 'Auto_Named']].tolist() != before:
             self._report_invalid_steps(protocol, solicited=True)
         return after['Name']
@@ -789,9 +793,9 @@ class ProtocolsAPI:
 
     @api(reads=True)
     def step_targets(
-        self, protocol: Protocol, step_idx: int, *, stage_offset: StageOffset | None = None
+        self, protocol: Protocol, step_index: int, *, stage_offset: StageOffset | None = None
     ) -> StepTargets:
-        """The motor targets of step ``step_idx``: the one conversion a run and a person's navigation share.
+        """The motor targets of step ``step_index``: the one conversion a run and a person's navigation share.
 
         The turret slot is the one the step recorded, so navigating to a
         step and running it look through the same glass, and two steps
@@ -800,7 +804,7 @@ class ProtocolsAPI:
         Z are ``stage_targets``'s: None for an axis the scope lacks.
 
         Raises:
-            StepNotFoundError: ``step_idx`` is not a step of ``protocol``.
+            StepNotFoundError: ``step_index`` is not a step of ``protocol``.
             ProtocolRunRefusedError: ``'step_position_missing'``, the step has
                 no position on an axis this scope moves
                 (``refuse_missing_positions``). Or this scope cannot put the step's
@@ -814,7 +818,7 @@ class ProtocolsAPI:
                 it means (``turret_slot_questions``).
             CatalogueNameRefusedError: as ``stage_targets``.
         """
-        step = protocol.step_row(idx=step_idx)
+        step = protocol.step_row(step_index=step_index)
         # This step's own fields, not the protocol's frame: a run asks it at every step.
         lacking = [axis for axis in self._driven_axes() if step[axis] is None]
         if lacking:
@@ -828,7 +832,7 @@ class ProtocolsAPI:
                 self._scope.runtime_state.get_turret_config(),
             )
             if turret_slot is None:
-                self.refuse_unchosen_turret_slots(protocol, steps=[step_idx])
+                self.refuse_unchosen_turret_slots(protocol, steps=[step_index])
                 # The rule above found the objective in a slot; none now
                 # means one was cleared in between, and a step without its
                 # slot would be imaged through other glass.

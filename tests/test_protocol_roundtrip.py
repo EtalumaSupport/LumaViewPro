@@ -356,14 +356,14 @@ class TestRoundTripBasic:
         proto = _build_protocol([_make_step(color='BF', acquire='image')])
         reloaded = _save_and_reload(proto, tmp_path)
         assert reloaded.num_steps() == 1
-        step = reloaded.step_row(idx=0)
+        step = reloaded.step_row(step_index=0)
         assert step['Color'] == 'BF'
         assert step['Acquire'] == 'image'
 
     def test_single_fluor_step(self, tmp_path):
         proto = _build_protocol([_make_step(color='Green', illumination=200.0)])
         reloaded = _save_and_reload(proto, tmp_path)
-        step = reloaded.step_row(idx=0)
+        step = reloaded.step_row(step_index=0)
         assert step['Color'] == 'Green'
         assert step['Illumination'] == 200.0
 
@@ -371,7 +371,7 @@ class TestRoundTripBasic:
         vc = {'duration': 5.0, 'fps': 30}
         proto = _build_protocol([_make_step(acquire='video', video_config=vc)])
         reloaded = _save_and_reload(proto, tmp_path)
-        step = reloaded.step_row(idx=0)
+        step = reloaded.step_row(step_index=0)
         assert step['Acquire'] == 'video'
         assert isinstance(step['Video Config'], dict), (
             f'Video Config is {type(step["Video Config"])}, not dict'
@@ -383,7 +383,7 @@ class TestRoundTripBasic:
         sc = _stim_config_enabled(channels=['Green', 'Blue'])
         proto = _build_protocol([_make_step(stim_config=sc)])
         reloaded = _save_and_reload(proto, tmp_path)
-        step = reloaded.step_row(idx=0)
+        step = reloaded.step_row(step_index=0)
         assert isinstance(step['Stim_Config'], dict), (
             f'Stim_Config is {type(step["Stim_Config"])}, not dict'
         )
@@ -396,7 +396,7 @@ class TestRoundTripBasic:
         sc = _default_stim_config()
         proto = _build_protocol([_make_step(stim_config=sc)])
         reloaded = _save_and_reload(proto, tmp_path)
-        step = reloaded.step_row(idx=0)
+        step = reloaded.step_row(step_index=0)
         assert isinstance(step['Stim_Config'], dict)
         for ch in ('Red', 'Green', 'Blue'):
             assert step['Stim_Config'][ch]['enabled'] is False
@@ -441,7 +441,7 @@ class TestRoundTripBasic:
             tiling_configs_file_loc=TILING_CONFIGS,
         )
         assert proto is not None
-        step = proto.step_row(idx=0)
+        step = proto.step_row(step_index=0)
 
         assert isinstance(step['Stim_Config'], dict)
         assert step['Stim_Config']['Green']['enabled'] is True
@@ -492,7 +492,7 @@ class TestRoundTripBasic:
             tiling_configs_file_loc=TILING_CONFIGS,
         )
         assert proto is not None
-        step = proto.step_row(idx=0)
+        step = proto.step_row(step_index=0)
 
         vc = step['Video Config']
         assert isinstance(vc, dict)
@@ -567,9 +567,9 @@ class TestRoundTripMultiStep:
         proto = _build_protocol(steps)
         reloaded = _save_and_reload(proto, tmp_path)
         assert reloaded.num_steps() == 3
-        assert reloaded.step_row(idx=0)['Color'] == 'BF'
-        assert reloaded.step_row(idx=1)['Color'] == 'Green'
-        assert reloaded.step_row(idx=2)['Color'] == 'Red'
+        assert reloaded.step_row(step_index=0)['Color'] == 'BF'
+        assert reloaded.step_row(step_index=1)['Color'] == 'Green'
+        assert reloaded.step_row(step_index=2)['Color'] == 'Red'
 
     def test_mixed_image_and_video(self, tmp_path):
         steps = [
@@ -583,9 +583,9 @@ class TestRoundTripMultiStep:
         ]
         proto = _build_protocol(steps)
         reloaded = _save_and_reload(proto, tmp_path)
-        assert reloaded.step_row(idx=0)['Acquire'] == 'image'
-        assert reloaded.step_row(idx=1)['Acquire'] == 'video'
-        assert reloaded.step_row(idx=1)['Video Config']['duration'] == 3.0
+        assert reloaded.step_row(step_index=0)['Acquire'] == 'image'
+        assert reloaded.step_row(step_index=1)['Acquire'] == 'video'
+        assert reloaded.step_row(step_index=1)['Video Config']['duration'] == 3.0
 
     def test_multi_well(self, tmp_path):
         steps = [
@@ -596,9 +596,9 @@ class TestRoundTripMultiStep:
         proto = _build_protocol(steps)
         reloaded = _save_and_reload(proto, tmp_path)
         assert reloaded.num_steps() == 3
-        assert reloaded.step_row(idx=0)['Well'] == 'A1'
-        assert reloaded.step_row(idx=1)['Well'] == 'A2'
-        assert reloaded.step_row(idx=2)['Well'] == 'B1'
+        assert reloaded.step_row(step_index=0)['Well'] == 'A1'
+        assert reloaded.step_row(step_index=1)['Well'] == 'A2'
+        assert reloaded.step_row(step_index=2)['Well'] == 'B1'
 
     def test_video_with_stim(self, tmp_path):
         """OG protocol pattern: video capture with stimulation enabled."""
@@ -614,7 +614,7 @@ class TestRoundTripMultiStep:
         reloaded = _save_and_reload(proto, tmp_path)
 
         # Verify video config survived
-        vid_step = reloaded.step_row(idx=1)
+        vid_step = reloaded.step_row(step_index=1)
         assert vid_step['Acquire'] == 'video'
         assert isinstance(vid_step['Video Config'], dict)
         assert vid_step['Video Config']['fps'] == 30
@@ -636,9 +636,9 @@ class TestRoundTripMultiStep:
         reloaded = _save_and_reload(proto, tmp_path)
         assert reloaded.num_steps() == 4
         for i in range(4):
-            assert reloaded.step_row(idx=i)['Tile Group ID'] == 1
-        assert reloaded.step_row(idx=0)['Tile'] == 'T00'
-        assert reloaded.step_row(idx=3)['Tile'] == 'T11'
+            assert reloaded.step_row(step_index=i)['Tile Group ID'] == 1
+        assert reloaded.step_row(step_index=0)['Tile'] == 'T00'
+        assert reloaded.step_row(step_index=3)['Tile'] == 'T11'
 
     def test_nonsquare_tiling_3x1(self, tmp_path):
         """Non-square tiling (3 columns, 1 row)."""
@@ -661,10 +661,10 @@ class TestRoundTripMultiStep:
         proto = _build_protocol(steps)
         reloaded = _save_and_reload(proto, tmp_path)
         assert reloaded.num_steps() == 3
-        assert reloaded.step_row(idx=0)['Z'] == pytest.approx(4900.0)
-        assert reloaded.step_row(idx=2)['Z'] == pytest.approx(5100.0)
-        assert reloaded.step_row(idx=0)['Z-Slice'] == 0
-        assert reloaded.step_row(idx=2)['Z-Slice'] == 2
+        assert reloaded.step_row(step_index=0)['Z'] == pytest.approx(4900.0)
+        assert reloaded.step_row(step_index=2)['Z'] == pytest.approx(5100.0)
+        assert reloaded.step_row(step_index=0)['Z-Slice'] == 0
+        assert reloaded.step_row(step_index=2)['Z-Slice'] == 2
 
     def test_double_save_load(self, tmp_path):
         """Save -> load -> save -> load preserves data (no drift)."""
@@ -684,7 +684,7 @@ class TestRoundTripMultiStep:
         # Second round-trip
         r2 = _save_and_reload(r1, tmp_path / 'round2')
 
-        step = r2.step_row(idx=1)
+        step = r2.step_row(step_index=1)
         assert step['Video Config']['fps'] == 15
         assert step['Stim_Config']['Red']['enabled'] is True
         assert step['Stim_Config']['Blue']['enabled'] is True
@@ -702,32 +702,32 @@ class TestRoundTripEdgeCases:
         reloaded = _save_and_reload(proto, tmp_path)
         assert reloaded.num_steps() == len(colors)
         for i, c in enumerate(colors):
-            assert reloaded.step_row(idx=i)['Color'] == c
+            assert reloaded.step_row(step_index=i)['Color'] == c
 
     def test_high_illumination(self, tmp_path):
         proto = _build_protocol([_make_step(illumination=1000.0)])
         reloaded = _save_and_reload(proto, tmp_path)
-        assert reloaded.step_row(idx=0)['Illumination'] == 1000.0
+        assert reloaded.step_row(step_index=0)['Illumination'] == 1000.0
 
     def test_sum_averaging(self, tmp_path):
         proto = _build_protocol([_make_step(sum_count=10)])
         reloaded = _save_and_reload(proto, tmp_path)
-        assert reloaded.step_row(idx=0)['Sum'] == 10
+        assert reloaded.step_row(step_index=0)['Sum'] == 10
 
     def test_autofocus_flag(self, tmp_path):
         proto = _build_protocol([_make_step(auto_focus=True)])
         reloaded = _save_and_reload(proto, tmp_path)
-        assert reloaded.step_row(idx=0)['Auto_Focus'] == True  # noqa: E712 -- exact bool check
+        assert reloaded.step_row(step_index=0)['Auto_Focus'] == True  # noqa: E712 -- exact bool check
 
     def test_auto_gain_flag(self, tmp_path):
         proto = _build_protocol([_make_step(auto_gain=True)])
         reloaded = _save_and_reload(proto, tmp_path)
-        assert reloaded.step_row(idx=0)['Auto_Gain'] == True  # noqa: E712 -- exact bool check
+        assert reloaded.step_row(step_index=0)['Auto_Gain'] == True  # noqa: E712 -- exact bool check
 
     def test_false_color_flag(self, tmp_path):
         proto = _build_protocol([_make_step(false_color=True, color='Green')])
         reloaded = _save_and_reload(proto, tmp_path)
-        assert reloaded.step_row(idx=0)['False_Color'] == True  # noqa: E712 -- exact bool check
+        assert reloaded.step_row(step_index=0)['False_Color'] == True  # noqa: E712 -- exact bool check
 
     def test_special_chars_in_name(self, tmp_path):
         # The user's text lives in Label; Name is a derived rendering of
@@ -746,11 +746,11 @@ class TestRoundTripEdgeCases:
         )
         reloaded = _save_and_reload(proto, tmp_path)
         # Allowed specials (dash, underscore) survive byte-exact.
-        assert reloaded.step_row(idx=0)['Label'] == 'test_step-1'
-        assert reloaded.step_row(idx=0)['Name'] == 'test_step-1_BF_Z0'
+        assert reloaded.step_row(step_index=0)['Label'] == 'test_step-1'
+        assert reloaded.step_row(step_index=0)['Name'] == 'test_step-1_BF_Z0'
         # Characters the writer strips normalize at the load boundary.
-        assert reloaded.step_row(idx=1)['Label'] == 'teststep2'
-        assert reloaded.step_row(idx=1)['Name'] == 'teststep2_BF_Z0'
+        assert reloaded.step_row(step_index=1)['Label'] == 'teststep2'
+        assert reloaded.step_row(step_index=1)['Name'] == 'teststep2_BF_Z0'
 
 
 # ===========================================================================
@@ -906,7 +906,7 @@ class TestExecuteSaveLoadRun:
         reloaded = _save_and_reload(proto, tmp_path / 'save')
 
         # Verify configs survived reload
-        vid_step = reloaded.step_row(idx=1)
+        vid_step = reloaded.step_row(step_index=1)
         assert isinstance(vid_step['Video Config'], dict)
         assert isinstance(vid_step['Stim_Config'], dict)
         assert vid_step['Stim_Config']['Green']['enabled'] is True
@@ -1073,7 +1073,7 @@ class TestRoundTripMetadata:
             vc = {'duration': 2.0, 'fps': fps}
             proto = _build_protocol([_make_step(acquire='video', video_config=vc)])
             reloaded = _save_and_reload(proto, tmp_path / f'fps_{fps}')
-            assert reloaded.step_row(idx=0)['Video Config']['fps'] == fps
+            assert reloaded.step_row(step_index=0)['Video Config']['fps'] == fps
 
     def test_video_config_various_durations(self, tmp_path):
         """Different duration values round-trip correctly."""
@@ -1081,14 +1081,14 @@ class TestRoundTripMetadata:
             vc = {'duration': dur, 'fps': 5}
             proto = _build_protocol([_make_step(acquire='video', video_config=vc)])
             reloaded = _save_and_reload(proto, tmp_path / f'dur_{dur}')
-            assert reloaded.step_row(idx=0)['Video Config']['duration'] == dur
+            assert reloaded.step_row(step_index=0)['Video Config']['duration'] == dur
 
     def test_stim_multi_channel_enabled(self, tmp_path):
         """Stim config with all 3 channels enabled."""
         sc = _stim_config_enabled(channels=['Red', 'Green', 'Blue'])
         proto = _build_protocol([_make_step(stim_config=sc)])
         reloaded = _save_and_reload(proto, tmp_path)
-        step = reloaded.step_row(idx=0)
+        step = reloaded.step_row(step_index=0)
         for ch in ('Red', 'Green', 'Blue'):
             assert step['Stim_Config'][ch]['enabled'] is True
 
@@ -1105,7 +1105,7 @@ class TestRoundTripMetadata:
         sc['Green']['pulse_count'] = 10
         proto = _build_protocol([_make_step(stim_config=sc)])
         reloaded = _save_and_reload(proto, tmp_path)
-        step = reloaded.step_row(idx=0)
+        step = reloaded.step_row(step_index=0)
         assert step['Stim_Config']['Red']['frequency'] == 10.0
         assert step['Stim_Config']['Red']['pulse_count'] == 200
         assert step['Stim_Config']['Green']['frequency'] == 20.0
@@ -1155,10 +1155,10 @@ class TestRoundTripCombinations:
         proto = _build_protocol(steps)
         reloaded = _save_and_reload(proto, tmp_path)
         assert reloaded.num_steps() == 9
-        assert reloaded.step_row(idx=0)['Well'] == 'A1'
-        assert reloaded.step_row(idx=0)['Color'] == 'BF'
-        assert reloaded.step_row(idx=8)['Well'] == 'B1'
-        assert reloaded.step_row(idx=8)['Color'] == 'Red'
+        assert reloaded.step_row(step_index=0)['Well'] == 'A1'
+        assert reloaded.step_row(step_index=0)['Color'] == 'BF'
+        assert reloaded.step_row(step_index=8)['Well'] == 'B1'
+        assert reloaded.step_row(step_index=8)['Color'] == 'Red'
 
     def test_tiling_1x3(self, tmp_path):
         """1 row x 3 columns tiling."""
@@ -1224,9 +1224,9 @@ class TestRoundTripCombinations:
         ]
         proto = _build_protocol(steps)
         reloaded = _save_and_reload(proto, tmp_path)
-        assert reloaded.step_row(idx=0)['Objective'] == '4x Oly'
-        assert reloaded.step_row(idx=1)['Objective'] == '10x Oly'
-        assert reloaded.step_row(idx=2)['Objective'] == '20x Oly'
+        assert reloaded.step_row(step_index=0)['Objective'] == '4x Oly'
+        assert reloaded.step_row(step_index=1)['Objective'] == '10x Oly'
+        assert reloaded.step_row(step_index=2)['Objective'] == '20x Oly'
 
 
 # ===========================================================================
@@ -1603,8 +1603,8 @@ class TestProtocolModification:
 
     def test_modify_step_z_height(self):
         proto = _build_protocol([_make_step(z=5000.0)])
-        proto.modify_step_z_height(step_idx=0, z=6000.0)
-        assert proto.step_row(idx=0)['Z'] == pytest.approx(6000.0)
+        proto.modify_step_z_height(step_index=0, z=6000.0)
+        assert proto.step_row(step_index=0)['Z'] == pytest.approx(6000.0)
 
     def test_modify_time_params(self):
         proto = _build_protocol([_make_step()])
@@ -1626,9 +1626,9 @@ class TestProtocolModification:
             _make_step(name='third', color='Red'),
         ]
         proto = _build_protocol(steps)
-        assert proto.step_row(idx=0)['Color'] == 'BF'
-        assert proto.step_row(idx=1)['Color'] == 'Green'
-        assert proto.step_row(idx=2)['Color'] == 'Red'
+        assert proto.step_row(step_index=0)['Color'] == 'BF'
+        assert proto.step_row(step_index=1)['Color'] == 'Green'
+        assert proto.step_row(step_index=2)['Color'] == 'Red'
 
     def test_labware_accessor(self):
         proto = _build_protocol([_make_step()], labware='96 well microplate')
@@ -1659,7 +1659,7 @@ class TestProtocolNumStepsCache:
     def test_cache_invalidated_after_delete_step(self):
         proto = _build_protocol([_make_step(name=f's{i}') for i in range(5)])
         assert proto.num_steps() == 5  # prime the cache
-        proto.delete_step(step_idx=2)
+        proto.delete_step(step_index=2)
         assert proto.num_steps() == 4
 
     def test_cache_invalidated_after_optimize_ordering(self):
@@ -1682,7 +1682,7 @@ class TestProtocolNumStepsCache:
         # copy should compute its own count, not reuse original's cached value
         assert copy.num_steps() == 3
         # mutating the copy must not affect the original
-        copy.delete_step(step_idx=0)
+        copy.delete_step(step_index=0)
         assert copy.num_steps() == 2
         assert proto.num_steps() == 3
 
@@ -1736,7 +1736,7 @@ class TestProtocolSaveLoadFieldLevel:
         proto = _build_protocol([step])
         reloaded = _save_and_reload(proto, tmp_path)
 
-        s = reloaded.step_row(idx=0)
+        s = reloaded.step_row(step_index=0)
         # Name is derived at load from the structured columns: the user label
         # base plus the channel/tile/z tokens. The user's text itself
         # round-trips in Label.
@@ -1872,15 +1872,15 @@ class TestProtocolInsertStep:
             plate_position=PlateLocation(x_mm=30.0, y_mm=40.0, z_um=5000.0),
             objective_id='10x Oly',
             stim_configs=_default_stim_config(),
-            before_step=0,
+            before_step_index=0,
         )
         assert proto.num_steps() == 2
         # The typed name becomes the step's Label; the derived Name renders
         # it with the channel token.
-        assert proto.step_row(idx=0)['Label'] == 'new_step'
-        assert proto.step_row(idx=0)['Name'] == 'new_step_Green'
-        assert proto.step_row(idx=0)['Color'] == 'Green'
-        assert proto.step_row(idx=1)['Name'] == 'existing'
+        assert proto.step_row(step_index=0)['Label'] == 'new_step'
+        assert proto.step_row(step_index=0)['Name'] == 'new_step_Green'
+        assert proto.step_row(step_index=0)['Color'] == 'Green'
+        assert proto.step_row(step_index=1)['Name'] == 'existing'
 
     def test_insert_after_last_step(self):
         proto = _build_protocol([_make_step(name='first')])
@@ -1893,14 +1893,14 @@ class TestProtocolInsertStep:
             plate_position=PlateLocation(x_mm=10.0, y_mm=20.0, z_um=5000.0),
             objective_id='10x Oly',
             stim_configs=_default_stim_config(),
-            before_step=None,
-            after_step=0,
+            before_step_index=None,
+            after_step_index=0,
         )
         assert proto.num_steps() == 2
-        assert proto.step_row(idx=0)['Name'] == 'first'
-        assert proto.step_row(idx=1)['Label'] == 'appended'
-        assert proto.step_row(idx=1)['Name'] == 'appended_Red'
-        assert proto.step_row(idx=1)['Color'] == 'Red'
+        assert proto.step_row(step_index=0)['Name'] == 'first'
+        assert proto.step_row(step_index=1)['Label'] == 'appended'
+        assert proto.step_row(step_index=1)['Name'] == 'appended_Red'
+        assert proto.step_row(step_index=1)['Color'] == 'Red'
 
     def test_insert_between_steps(self):
         proto = _build_protocol(
@@ -1918,14 +1918,14 @@ class TestProtocolInsertStep:
             plate_position=PlateLocation(x_mm=10.0, y_mm=20.0, z_um=5000.0),
             objective_id='10x Oly',
             stim_configs=_default_stim_config(),
-            before_step=None,
-            after_step=0,
+            before_step_index=None,
+            after_step_index=0,
         )
         assert proto.num_steps() == 3
-        assert proto.step_row(idx=0)['Name'] == 'step_0'
-        assert proto.step_row(idx=1)['Label'] == 'middle'
-        assert proto.step_row(idx=1)['Name'] == 'middle_BF'
-        assert proto.step_row(idx=2)['Name'] == 'step_1'
+        assert proto.step_row(step_index=0)['Name'] == 'step_0'
+        assert proto.step_row(step_index=1)['Label'] == 'middle'
+        assert proto.step_row(step_index=1)['Name'] == 'middle_BF'
+        assert proto.step_row(step_index=2)['Name'] == 'step_1'
 
     def test_insert_with_video_config(self):
         proto = _build_protocol([_make_step()])
@@ -1939,10 +1939,10 @@ class TestProtocolInsertStep:
             plate_position=PlateLocation(x_mm=10.0, y_mm=20.0, z_um=5000.0),
             objective_id='10x Oly',
             stim_configs=_default_stim_config(),
-            before_step=None,
-            after_step=0,
+            before_step_index=None,
+            after_step_index=0,
         )
-        step = proto.step_row(idx=1)
+        step = proto.step_row(step_index=1)
         assert step['Acquire'] == 'video'
         assert isinstance(step['Video Config'], dict)
         assert step['Video Config']['fps'] == 30
@@ -1959,10 +1959,10 @@ class TestProtocolInsertStep:
             plate_position=PlateLocation(x_mm=10.0, y_mm=20.0, z_um=5000.0),
             objective_id='10x Oly',
             stim_configs=sc,
-            before_step=None,
-            after_step=0,
+            before_step_index=None,
+            after_step_index=0,
         )
-        step = proto.step_row(idx=1)
+        step = proto.step_row(step_index=1)
         assert isinstance(step['Stim_Config'], dict)
         assert step['Stim_Config']['Green']['enabled'] is True
 
@@ -1978,14 +1978,14 @@ class TestProtocolInsertStep:
             plate_position=PlateLocation(x_mm=10.0, y_mm=20.0, z_um=5000.0),
             objective_id='10x Oly',
             stim_configs=_default_stim_config(),
-            before_step=None,
-            after_step=0,
+            before_step_index=None,
+            after_step_index=0,
         )
         assert proto.num_steps() == 2
 
         reloaded = _save_and_reload(proto, tmp_path / 'save')
         assert reloaded.num_steps() == 2
-        assert reloaded.step_row(idx=1)['Color'] == 'Green'
+        assert reloaded.step_row(step_index=1)['Color'] == 'Green'
 
         completed, _ = _run_and_wait(real_executor, reloaded, tmp_path)
         assert completed, 'Inserted-step protocol did not complete'
@@ -1996,7 +1996,7 @@ class TestProtocolDeleteStep:
 
     def test_delete_only_step(self):
         proto = _build_protocol([_make_step()])
-        proto.delete_step(step_idx=0)
+        proto.delete_step(step_index=0)
         assert proto.num_steps() == 0
 
     def test_delete_first_of_three(self):
@@ -2007,10 +2007,10 @@ class TestProtocolDeleteStep:
                 _make_step(name='c'),
             ]
         )
-        proto.delete_step(step_idx=0)
+        proto.delete_step(step_index=0)
         assert proto.num_steps() == 2
-        assert proto.step_row(idx=0)['Name'] == 'b'
-        assert proto.step_row(idx=1)['Name'] == 'c'
+        assert proto.step_row(step_index=0)['Name'] == 'b'
+        assert proto.step_row(step_index=1)['Name'] == 'c'
 
     def test_delete_middle(self):
         proto = _build_protocol(
@@ -2020,10 +2020,10 @@ class TestProtocolDeleteStep:
                 _make_step(name='c'),
             ]
         )
-        proto.delete_step(step_idx=1)
+        proto.delete_step(step_index=1)
         assert proto.num_steps() == 2
-        assert proto.step_row(idx=0)['Name'] == 'a'
-        assert proto.step_row(idx=1)['Name'] == 'c'
+        assert proto.step_row(step_index=0)['Name'] == 'a'
+        assert proto.step_row(step_index=1)['Name'] == 'c'
 
     def test_delete_last(self):
         proto = _build_protocol(
@@ -2033,9 +2033,9 @@ class TestProtocolDeleteStep:
                 _make_step(name='c'),
             ]
         )
-        proto.delete_step(step_idx=2)
+        proto.delete_step(step_index=2)
         assert proto.num_steps() == 2
-        assert proto.step_row(idx=1)['Name'] == 'b'
+        assert proto.step_row(step_index=1)['Name'] == 'b'
 
     def test_delete_all_one_by_one(self):
         proto = _build_protocol(
@@ -2044,8 +2044,8 @@ class TestProtocolDeleteStep:
                 _make_step(name='b'),
             ]
         )
-        proto.delete_step(step_idx=1)
-        proto.delete_step(step_idx=0)
+        proto.delete_step(step_index=1)
+        proto.delete_step(step_index=0)
         assert proto.num_steps() == 0
 
 
@@ -2056,7 +2056,7 @@ class TestProtocolModifyStep:
         proto = _build_protocol([_make_step(color='BF', illumination=50.0)])
         proto.modify_step(
             turret_slot=-1,
-            step_idx=0,
+            step_index=0,
             label='modified',
             layer='Green',
             layer_config=_layer_config(illumination=300.0),
@@ -2064,7 +2064,7 @@ class TestProtocolModifyStep:
             objective_id='10x Oly',
             stim_configs=_default_stim_config(),
         )
-        step = proto.step_row(idx=0)
+        step = proto.step_row(step_index=0)
         assert step['Color'] == 'Green'
         assert step['Illumination'] == 300.0
         # A rename via modify_step stores the label and derives the display
@@ -2079,7 +2079,7 @@ class TestProtocolModifyStep:
         vc = {'duration': 3.0, 'fps': 15}
         proto.modify_step(
             turret_slot=-1,
-            step_idx=0,
+            step_index=0,
             label='now_video',
             layer='Red',
             layer_config=_layer_config(acquire='video', video_config=vc),
@@ -2087,7 +2087,7 @@ class TestProtocolModifyStep:
             objective_id='10x Oly',
             stim_configs=sc,
         )
-        step = proto.step_row(idx=0)
+        step = proto.step_row(step_index=0)
         assert step['Acquire'] == 'video'
         assert step['Video Config']['fps'] == 15
         assert step['Stim_Config']['Blue']['enabled'] is True
@@ -2097,7 +2097,7 @@ class TestProtocolModifyStep:
         proto = _build_protocol([_make_step(color='BF')])
         proto.modify_step(
             turret_slot=-1,
-            step_idx=0,
+            step_index=0,
             label='modified_red',
             layer='Red',
             layer_config=_layer_config(illumination=200.0),
@@ -2107,7 +2107,7 @@ class TestProtocolModifyStep:
         )
 
         reloaded = _save_and_reload(proto, tmp_path / 'save')
-        assert reloaded.step_row(idx=0)['Color'] == 'Red'
+        assert reloaded.step_row(step_index=0)['Color'] == 'Red'
 
         completed, _ = _run_and_wait(real_executor, reloaded, tmp_path)
         assert completed
@@ -2118,8 +2118,8 @@ class TestProtocolAutofocusModification:
 
     def test_modify_autofocus_single_step(self):
         proto = _build_protocol([_make_step(auto_focus=False)])
-        proto.modify_autofocus(step_idx=0, enabled=True)
-        assert proto.step_row(idx=0)['Auto_Focus'] == True  # noqa: E712 -- exact bool check
+        proto.modify_autofocus(step_index=0, enabled=True)
+        assert proto.step_row(step_index=0)['Auto_Focus'] == True  # noqa: E712 -- exact bool check
 
     def test_modify_autofocus_all_steps(self):
         proto = _build_protocol(
@@ -2131,11 +2131,11 @@ class TestProtocolAutofocusModification:
         )
         proto.modify_autofocus_all_steps(enabled=True)
         for i in range(3):
-            assert proto.step_row(idx=i)['Auto_Focus'] == True  # noqa: E712 -- exact bool check
+            assert proto.step_row(step_index=i)['Auto_Focus'] == True  # noqa: E712 -- exact bool check
 
         proto.modify_autofocus_all_steps(enabled=False)
         for i in range(3):
-            assert proto.step_row(idx=i)['Auto_Focus'] == False  # noqa: E712 -- exact bool check
+            assert proto.step_row(step_index=i)['Auto_Focus'] == False  # noqa: E712 -- exact bool check
 
 
 # ===========================================================================
@@ -2236,8 +2236,8 @@ class TestPerRowConfigParsing:
         steps = [_make_step(name='A'), _make_step(name='B')]
         proto = _build_protocol(steps)
         with pytest.raises(TypeError):
-            proto.step_row(idx=0)['Video Config']['duration'] = 999
-        assert proto.step_row(idx=1)['Video Config']['duration'] != 999
+            proto.step_row(step_index=0)['Video Config']['duration'] = 999
+        assert proto.step_row(step_index=1)['Video Config']['duration'] != 999
 
 
 # ---------------------------------------------------------------------------

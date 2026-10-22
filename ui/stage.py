@@ -188,12 +188,12 @@ class Stage(Widget):
 
             elif touch.button == 'right':
                 logger.info(f'[Stage   ] Finding nearest step to {plate_x}, {plate_y}')
-                step_idx = find_nearest_step(
+                step_index = find_nearest_step(
                     x=plate_x,
                     y=plate_y,
                     protocol=ctx.motion_settings.ids['protocol_settings_id']._protocol,
                 )
-                if step_idx == -1:
+                if step_index == -1:
                     gui_logger.button(
                         'STAGE_CLICK',
                         f'right plate=({plate_x:.2f},{plate_y:.2f}) step=none',
@@ -202,11 +202,11 @@ class Stage(Widget):
 
                 gui_logger.button(
                     'STAGE_CLICK',
-                    f'right plate=({plate_x:.2f},{plate_y:.2f}) step={step_idx}',
+                    f'right plate=({plate_x:.2f},{plate_y:.2f}) step={step_index}',
                 )
                 go_to_step(
                     protocol=ctx.motion_settings.ids['protocol_settings_id']._protocol,
-                    step_idx=step_idx,
+                    step_index=step_index,
                 )
 
     def draw_labware(self, *args, full_redraw: bool = False):

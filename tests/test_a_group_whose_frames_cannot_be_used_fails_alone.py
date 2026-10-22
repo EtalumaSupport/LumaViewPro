@@ -329,7 +329,7 @@ def test_a_composite_of_a_simulator_runs_folder_fails_only_the_damaged_position(
     session = ScopeSession.create(complete_settings(**_settings(tmp_path)), simulate=True)
     try:
         home_sim_scope(session.scope)
-        base = _make_single_step_protocol().step_row(idx=0)
+        base = _make_single_step_protocol().step_row(step_index=0)
         steps = [
             {**base, 'Name': f'p{p}_{color}', 'Label': f'p{p}_{color}', 'X': x,
              'Color': color, 'Channel Group ID': p, 'Step Index': 2 * p + c}

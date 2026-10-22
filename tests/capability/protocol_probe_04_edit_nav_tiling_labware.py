@@ -41,8 +41,8 @@ try:
         stim_configs=config_helpers.get_stim_configs(settings),
         plate_position=pos,
         objective_id=obj_id,
-        before_step=None,
-        after_step=0,
+        before_step_index=None,
+        after_step_index=0,
     )
     print('insert -> idx', idx, 'steps now', p.num_steps())
 
@@ -52,7 +52,7 @@ try:
     lc2['exposure_ms'] = 42.0
     p.modify_step(
         turret_slot=-1,
-        step_idx=1,
+        step_index=1,
         label='probe_renamed',
         layer='BF',
         layer_config=lc2,
@@ -60,13 +60,13 @@ try:
         plate_position=pos,
         objective_id=obj_id,
     )
-    s = p.step_row(idx=1)
+    s = p.step_row(step_index=1)
     print('step1 Name/Gain/Exposure:', s['Name'], s['Gain'], s['Exposure'])
     print('ASSERT edit landed:', 'PASS' if (s['Gain'] == 7.5 and s['Exposure'] == 42.0) else 'FAIL')
 
     banner('DELETE a step')
     before = p.num_steps()
-    p.delete_step(step_idx=1)
+    p.delete_step(step_index=1)
     print(f'{before} -> {p.num_steps()}', 'PASS' if p.num_steps() == before - 1 else 'FAIL')
 
     banner('NAVIGATE to a step -- is there an API for it?')
@@ -79,7 +79,7 @@ try:
         [n for n in dir(ProtocolRunner) if 'step' in n.lower()],
     )
     # What a script must do instead: read the step and drive motion itself.
-    st = p.step_row(idx=0)
+    st = p.step_row(step_index=0)
     print('step0 X/Y/Z/Color/Objective:', st['X'], st['Y'], st['Z'], st['Color'], st['Objective'])
     session.scope.motion.move_to_plate(PlateLocation(x_mm=st['X'], y_mm=st['Y'], z_um=None))
     session.scope.motion.move_z(st['Z'])

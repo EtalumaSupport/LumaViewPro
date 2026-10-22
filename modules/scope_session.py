@@ -272,18 +272,18 @@ class ObjectiveQuestion:
     choices: tuple[str, ...]
 
 
-@api_fields('z', 'step_idx')
+@api_fields('z', 'step_index')
 @dataclasses.dataclass(frozen=True)
 class SavedFocus:
     """What ``ScopeSession.save_focus`` wrote.
 
     Attributes:
         z: The Z saved as the layer's focus, in um.
-        step_idx: The step that took it as its Z, or None when no step did.
+        step_index: The step that took it as its Z, or None when no step did.
     """
 
     z: float
-    step_idx: int | None
+    step_index: int | None
 
 
 @api_fields('run_named', 'control_named', 'recording')
@@ -2558,8 +2558,8 @@ class ScopeSession:
         *,
         layers: 'Iterable[str] | None' = None,
         at: PlateLocation | None = None,
-        before_step: int | None = None,
-        after_step: int | None = None,
+        before_step_index: int | None = None,
+        after_step_index: int | None = None,
         use_zstacking: bool = False,
     ) -> list[str]:
         """Add a step to ``protocol`` from this session's settings and live position.
@@ -2602,7 +2602,7 @@ class ScopeSession:
                 no layer named in ``layers``; ``'not_connected'``, with no
                 ``at``, the model's motor controller is not connected, so
                 there is no live position. Nothing is added.
-            ProtocolError: an impossible ``before_step`` / ``after_step``, or
+            ProtocolError: an impossible ``before_step_index`` / ``after_step_index``, or
                 both given (raised by the protocol).
         """
         if layers is None:
@@ -2630,8 +2630,8 @@ class ScopeSession:
             plate_position=at if at is not None else self.plate_position_on(protocol.labware()),
             objective_id=objective_id,
             channel_order=channel_order,
-            before_step=before_step,
-            after_step=after_step,
+            before_step_index=before_step_index,
+            after_step_index=after_step_index,
             zstack_params=self.get_zstack_params() if use_zstacking else None,
         )
 
@@ -2639,7 +2639,7 @@ class ScopeSession:
     def update_step(
         self,
         protocol: 'Protocol',
-        step_idx: int,
+        step_index: int,
         *,
         layer: str,
         label: str | None = None,
@@ -2647,7 +2647,7 @@ class ScopeSession:
         """Rewrite a step of ``protocol`` from this session's settings and live position.
 
         The entry point a caller with no GUI uses to do what Update Step
-        does: step ``step_idx`` takes ``layer``'s settings, the live stage
+        does: step ``step_index`` takes ``layer``'s settings, the live stage
         position on the protocol's plate and the current objective. The
         protocols API performs the update and refuses it when the position
         or the objective is unknown; this composes its inputs from the
@@ -2665,7 +2665,7 @@ class ScopeSession:
         objective_id = self.scope.runtime_state.get_current_objective_id()
         return self.scope.protocols.update_step(
             protocol,
-            step_idx,
+            step_index,
             layer=layer,
             layer_configs=self.get_layer_configs(),
             stim_configs=self.get_stim_configs(),
@@ -2677,9 +2677,9 @@ class ScopeSession:
     @api
     @_guarded_write
     def save_focus(
-        self, protocol: 'Protocol', layer: str, *, step_idx: int | None = None
+        self, protocol: 'Protocol', layer: str, *, step_index: int | None = None
     ) -> SavedFocus:
-        """Save the live Z as ``layer``'s focus, and as step ``step_idx``'s Z.
+        """Save the live Z as ``layer``'s focus, and as step ``step_index``'s Z.
 
         The layer's focus is what every new step of the layer is born at.
         The step takes the Z only when it is a step of ``layer``; a step of
@@ -2692,7 +2692,7 @@ class ScopeSession:
             ProtocolRunRefusedError: ``positions_unreachable`` -- this scope
                 has no Z axis. Nothing is written.
             AxisStateUnknownError: Z lost its reference. Nothing is written.
-            ProtocolError: ``step_idx`` is not a step of ``protocol``.
+            ProtocolError: ``step_index`` is not a step of ``protocol``.
                 Nothing is written.
             ArgumentRefusedError: ``'layer_unknown'``, ``layer`` is not a layer.
             HardwareCommandRefusedError: ``'axis_absent'``, this scope has
@@ -2700,15 +2700,15 @@ class ScopeSession:
             ConfigError: this scope's layers could not be resolved. Nothing is written.
         """
         self.scope.layer_identity.refuse_unless_on_scope(layer, 'save_focus', then='take a focus')
-        step = None if step_idx is None else protocol.step_row(idx=step_idx)
+        step = None if step_index is None else protocol.step_row(step_index=step_index)
         z = self.scope.protocols.focus_z(then='save the focus')
         self._store_layer_focus(layer, z)
         if step is None or step['Color'] != layer:
             logger.info(f'[Session  ] Focus saved: {layer} Z={z}, no step written')
-            return SavedFocus(z=z, step_idx=None)
-        self.scope.protocols.set_step_z(protocol, step_idx, z)
-        logger.info(f'[Session  ] Focus saved: {layer} Z={z}, and as the Z of step {step_idx}')
-        return SavedFocus(z=z, step_idx=step_idx)
+            return SavedFocus(z=z, step_index=None)
+        self.scope.protocols.set_step_z(protocol, step_index, z)
+        logger.info(f'[Session  ] Focus saved: {layer} Z={z}, and as the Z of step {step_index}')
+        return SavedFocus(z=z, step_index=step_index)
 
     @api(sets='saved_focus')
     @_guarded_write
@@ -2917,25 +2917,25 @@ class ScopeSession:
         return updated
 
     @api
-    def delete_step(self, protocol: 'Protocol', step_idx: int) -> None:
-        """Remove step ``step_idx`` from ``protocol``, as the Delete button does.
+    def delete_step(self, protocol: 'Protocol', step_index: int) -> None:
+        """Remove step ``step_index`` from ``protocol``, as the Delete button does.
 
         Raises:
-            ProtocolError: ``step_idx`` is not a step of ``protocol``.
+            ProtocolError: ``step_index`` is not a step of ``protocol``.
                 Nothing is removed.
         """
-        self.scope.protocols.delete_step(protocol, step_idx)
+        self.scope.protocols.delete_step(protocol, step_index)
 
     @api
-    def rename_step(self, protocol: 'Protocol', step_idx: int, name: str) -> str:
-        """Give step ``step_idx`` of ``protocol`` the label ``name``; returns its new name.
+    def rename_step(self, protocol: 'Protocol', step_index: int, name: str) -> str:
+        """Give step ``step_index`` of ``protocol`` the label ``name``; returns its new name.
 
         Raises:
-            ProtocolError: ``step_idx`` is not a step of ``protocol``, or
+            ProtocolError: ``step_index`` is not a step of ``protocol``, or
                 ``name`` has no letter, digit, dash or underscore. The step
                 keeps its name.
         """
-        return self.scope.protocols.rename_step(protocol, step_idx, name)
+        return self.scope.protocols.rename_step(protocol, step_index, name)
 
     @api
     def set_protocol_labware(self, protocol: 'Protocol', plate_key: str) -> str:
@@ -2987,18 +2987,18 @@ class ScopeSession:
 
     @api
     def set_step_autofocus(
-        self, protocol: 'Protocol', *, enabled: bool, step_idx: int | None = None
+        self, protocol: 'Protocol', *, enabled: bool, step_index: int | None = None
     ) -> None:
-        """Turn autofocus on or off for step ``step_idx`` of ``protocol``, or for every step.
+        """Turn autofocus on or off for step ``step_index`` of ``protocol``, or for every step.
 
         Raises:
-            StepNotFoundError: ``step_idx`` is not a step of ``protocol``.
+            StepNotFoundError: ``step_index`` is not a step of ``protocol``.
                 Nothing changes.
         """
-        if step_idx is None:
+        if step_index is None:
             protocol.modify_autofocus_all_steps(enabled=enabled)
         else:
-            protocol.modify_autofocus(step_idx=step_idx, enabled=enabled)
+            protocol.modify_autofocus(step_index=step_index, enabled=enabled)
 
     @api
     def point_steps_at_turret_slot(
@@ -3072,8 +3072,8 @@ class ScopeSession:
 
     @api
     @_guarded_write
-    def go_to_step(self, protocol: 'Protocol', step_idx: int) -> None:
-        """Go to step ``step_idx`` of ``protocol``; return once the camera holds the step's layer and the stage has arrived.
+    def go_to_step(self, protocol: 'Protocol', step_index: int) -> None:
+        """Go to step ``step_index`` of ``protocol``; return once the camera holds the step's layer and the stage has arrived.
 
         What ``start_go_to_step`` does, then the started operation's
         ``result()``: the step's layer goes on the camera while the stage
@@ -3098,9 +3098,9 @@ class ScopeSession:
         refuse_waiting_on_ui_thread('go_to_step')
         # Read before the start, as the start reads it: the step this call
         # was made for, whatever the list holds once the lane has run.
-        layer = protocol.step_row(idx=step_idx)['Color']
+        layer = protocol.step_row(step_index=step_index)['Color']
         with self._a_layer_change(layer, 'go_to_step'):
-            going = self._start_moving_to_step(protocol, step_idx)
+            going = self._start_moving_to_step(protocol, step_index)
             try:
                 self.apply_layer_camera(layer)
             finally:
@@ -3110,8 +3110,8 @@ class ScopeSession:
 
     @api(stop='Operation.stop')
     @_guarded_write
-    def start_go_to_step(self, protocol: 'Protocol', step_idx: int) -> Operation:
-        """Start going to step ``step_idx`` of ``protocol``, as a click on a step does.
+    def start_go_to_step(self, protocol: 'Protocol', step_index: int) -> Operation:
+        """Start going to step ``step_index`` of ``protocol``, as a click on a step does.
 
         One task on the scope's IO lane: the axes are asked once whether
         they know their position; the turret turns to the step's objective
@@ -3145,7 +3145,7 @@ class ScopeSession:
         it is refused on the UI thread; a click calls it from a worker.
 
         Raises:
-            StepNotFoundError: ``step_idx`` is not a step of ``protocol``.
+            StepNotFoundError: ``step_index`` is not a step of ``protocol``.
                 Nothing changes.
             ProtocolRunRefusedError: this scope cannot put the step's
                 objective in the light path. Nothing changes.
@@ -3181,22 +3181,22 @@ class ScopeSession:
                 the UI thread. Nothing was started.
         """
         refuse_waiting_on_ui_thread('start_go_to_step')
-        layer = protocol.step_row(idx=step_idx)['Color']
+        layer = protocol.step_row(step_index=step_index)['Color']
         with self._a_layer_change(layer, 'start_go_to_step'):
-            going = self._start_moving_to_step(protocol, step_idx)
+            going = self._start_moving_to_step(protocol, step_index)
             self.apply_layer_camera(layer)
         return going
 
-    def _start_moving_to_step(self, protocol: 'Protocol', step_idx: int) -> Operation:
+    def _start_moving_to_step(self, protocol: 'Protocol', step_index: int) -> Operation:
         """The IO-lane task of going to a step, and the operation of its moves."""
         from modules.protocol import refuse_values_out_of_range, step_layer_values_refused
 
-        step = protocol.step_row(idx=step_idx)
+        step = protocol.step_row(step_index=step_index)
         # Converted here, from the step read above, so the lane moves to the
         # step this call was made for whatever the list holds by then; the
         # conversion asks first whether the scope can put the step's
         # objective in the light path.
-        targets = self.scope.protocols.step_targets(protocol, step_idx)
+        targets = self.scope.protocols.step_targets(protocol, step_index)
         self.scope.layer_identity.refuse_unless_on_scope(
             step['Color'], 'go_to_step', then='be gone to'
         )
@@ -3212,18 +3212,18 @@ class ScopeSession:
                 )
         # Before the lane starts a move: the lane stores the step's values
         # into its layers once the moves are under way.
-        refuse_values_out_of_range(step_layer_values_refused(step), f'Step {step_idx + 1}')
+        refuse_values_out_of_range(step_layer_values_refused(step), f'Step {step_index + 1}')
         # Every member inside bounds its own wait, so the task has no bound
         # of its own to add.
         moves = self.io_executor.call(
-            IOTask(action=self._go_to_step_on_lane, args=(protocol, step_idx, step, targets)),
+            IOTask(action=self._go_to_step_on_lane, args=(protocol, step_index, step, targets)),
             'go_to_step',
             timeout_s=None,
         )
         return Operation.all_of(moves)
 
     def _go_to_step_on_lane(
-        self, protocol: 'Protocol', step_idx: int, step, targets: 'StepTargets'
+        self, protocol: 'Protocol', step_index: int, step, targets: 'StepTargets'
     ) -> tuple[Operation, ...]:
         """The lane half of ``go_to_step``: ask once, start the moves, load the layer, preview.
 
@@ -3239,7 +3239,7 @@ class ScopeSession:
         # camera the step would be moved to and stored with nothing to see.
         self.scope.camera.refuse_camera_not_connected('go_to_step')
         last = self._last_step_gone_to
-        shows = last is None or last[0] is not protocol or last[1] != step_idx
+        shows = last is None or last[0] is not protocol or last[1] != step_index
         # A first visit is the step's preview. A repeat leaves the LEDs as the
         # person left them while the step's layer is shown, and moves the shown
         # channel, lit or dark as it was, back to it when another was shown.
@@ -3261,7 +3261,7 @@ class ScopeSession:
             if targets.z is not None:
                 moves += (motion.start_move_z(targets.z),)
         self._load_step_into_layer(step)
-        self._last_step_gone_to = (protocol, step_idx)
+        self._last_step_gone_to = (protocol, step_index)
         if not moves_light:
             return moves
         # After the step's moves are started, in the same task: a toggle the

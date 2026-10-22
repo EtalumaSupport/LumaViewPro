@@ -1870,7 +1870,7 @@ class Protocol:
         """Refuse an index that names no step, before anything is written.
 
         A step index is 0..num_steps-1. insert_step's places widen it by one
-        at an end: before_step may be num_steps (at the end) and after_step
+        at an end: before_step_index may be num_steps (at the end) and after_step_index
         -1 (after no step, which is how an empty protocol takes its first).
         Checked here and not left to pandas, whose .at answers an index past
         the end, or -1, by appending a row nobody added.
@@ -2136,15 +2136,17 @@ class Protocol:
             ),
         )
 
-    def modify_autofocus(self, step_idx: int, enabled: bool) -> None:
-        """Turn autofocus on or off for the step at ``step_idx``.
+    def modify_autofocus(self, step_index: int, enabled: bool) -> None:
+        """Turn autofocus on or off for the step at ``step_index``.
 
         Raises:
-            StepNotFoundError: ``step_idx`` is not a step of this protocol.
+            StepNotFoundError: ``step_index`` is not a step of this protocol.
                 Nothing changes.
         """
-        self._refuse_unless_in_range(step_idx)
-        self._config['steps'].at[step_idx, 'Auto_Focus'] = self._typed_value('Auto_Focus', enabled)
+        self._refuse_unless_in_range(step_index)
+        self._config['steps'].at[step_index, 'Auto_Focus'] = self._typed_value(
+            'Auto_Focus', enabled
+        )
 
     def modify_autofocus_all_steps(self, enabled: bool) -> None:
         """Turn autofocus on or off for every step.
@@ -2153,11 +2155,11 @@ class Protocol:
             Nothing.
         """
         for idx, _ in self._config['steps'].iterrows():
-            self.modify_autofocus(step_idx=idx, enabled=enabled)
+            self.modify_autofocus(step_index=idx, enabled=enabled)
 
-    def delete_step(self, step_idx: int) -> None:
-        self._refuse_unless_in_range(step_idx)
-        self._config['steps'].drop(index=step_idx, axis=0, inplace=True)
+    def delete_step(self, step_index: int) -> None:
+        self._refuse_unless_in_range(step_index)
+        self._config['steps'].drop(index=step_index, axis=0, inplace=True)
         self._config['steps'].reset_index(drop=True, inplace=True)
         self._step_list_changed()
 
@@ -2183,9 +2185,9 @@ class Protocol:
         self._config['period'] = period
         self._config['duration'] = duration
 
-    def modify_step_z_height(self, step_idx: int, z: float) -> None:
-        self._refuse_unless_in_range(step_idx)
-        self._config['steps'].at[step_idx, 'Z'] = self._measured_z(z)
+    def modify_step_z_height(self, step_index: int, z: float) -> None:
+        self._refuse_unless_in_range(step_index)
+        self._config['steps'].at[step_index, 'Z'] = self._measured_z(z)
 
     # What makes a step the one a focus was found for. Not the step-list
     # revision: an Update moves a step without changing the list.
@@ -2219,7 +2221,7 @@ class Protocol:
                     raise FocusNotWrittenError(f"step {idx + 1}'s {words} changed")
         mine['Z'] = theirs['Z'].to_numpy()
 
-    def zstack_group_focus_anchor(self, step_idx: int) -> int | None:
+    def zstack_group_focus_anchor(self, step_index: int) -> int | None:
         """The slice holding this step's group focus reference, or None.
 
         Answers only at the FIRST slice of a z-stack group that wants
@@ -2231,12 +2233,12 @@ class Protocol:
         and hands that value back to apply_zstack_group_focus.
         """
         steps = self._config['steps']
-        if step_idx not in steps.index:
+        if step_index not in steps.index:
             return None
-        if steps.at[step_idx, 'Z-Stack Group ID'] == -1:
+        if steps.at[step_index, 'Z-Stack Group ID'] == -1:
             return None
-        members = steps.index[steps['Z-Stack Group ID'] == steps.at[step_idx, 'Z-Stack Group ID']]
-        if len(members) == 0 or members[0] != step_idx:
+        members = steps.index[steps['Z-Stack Group ID'] == steps.at[step_index, 'Z-Stack Group ID']]
+        if len(members) == 0 or members[0] != step_index:
             return None
         flagged = [idx for idx in members if bool(steps.at[idx, 'Auto_Focus'])]
         return int(flagged[0]) if flagged else None
@@ -2311,33 +2313,33 @@ class Protocol:
             dtype=self._create_empty_steps_df().dtypes['Name'],
         )
 
-    def _regenerate_step_name(self, step_idx: int) -> str:
+    def _regenerate_step_name(self, step_index: int) -> str:
         """Re-render the step's derived Name from its structured columns.
 
         Name is a display rendering of (Label, Well, Color, Tile, Z-Slice);
         every mutation of those columns re-renders it here so the stored
         string can never drift from the fields it encodes.
         """
-        step = self._config['steps'].loc[step_idx]
+        step = self._config['steps'].loc[step_index]
         name = common_utils.build_step_name(common_utils.step_components(step))
-        self._config['steps'].at[step_idx, 'Name'] = name
+        self._config['steps'].at[step_index, 'Name'] = name
         return name
 
     def modify_name(
         self,
-        step_idx: int,
+        step_index: int,
         step_name: str,
     ) -> None:
-        self._refuse_unless_in_range(step_idx)
-        self._config['steps'].at[step_idx, 'Label'] = Protocol._sanitized_label(step_name)
+        self._refuse_unless_in_range(step_index)
+        self._config['steps'].at[step_index, 'Label'] = Protocol._sanitized_label(step_name)
         # A user typing a name makes it theirs: clear the auto flag so a later
         # channel change does not regenerate over it.
-        self._config['steps'].at[step_idx, 'Auto_Named'] = False
-        self._regenerate_step_name(step_idx=step_idx)
+        self._config['steps'].at[step_index, 'Auto_Named'] = False
+        self._regenerate_step_name(step_index=step_index)
 
     def modify_step(
         self,
-        step_idx: int,
+        step_index: int,
         layer: str,
         layer_config: dict,
         plate_position: 'PlateLocation',
@@ -2353,7 +2355,7 @@ class Protocol:
         change updates exactly the channel token while the label -- user text
         or auto base -- rides along untouched.
         """
-        self._refuse_unless_in_range(step_idx)
+        self._refuse_unless_in_range(step_index)
 
         # Every value is read before any is written, so a refused one leaves
         # the step as it was.
@@ -2380,8 +2382,8 @@ class Protocol:
             typed['Label'] = Protocol._sanitized_label(label)
             typed['Auto_Named'] = False
         for column, value in typed.items():
-            self._config['steps'].at[step_idx, column] = _read_only(value)
-        self._regenerate_step_name(step_idx=step_idx)
+            self._config['steps'].at[step_index, column] = _read_only(value)
+        self._regenerate_step_name(step_index=step_index)
 
     def new_channel_group_id(self) -> int:
         """A channel group id no step of this protocol carries yet."""
@@ -2392,11 +2394,11 @@ class Protocol:
 
     def set_turret_slot(self, step_indices: list[int], slot: int) -> None:
         """Point steps ``step_indices`` at turret slot ``slot``; their other columns are kept."""
-        for step_idx in step_indices:
-            self._refuse_unless_in_range(step_idx)
+        for step_index in step_indices:
+            self._refuse_unless_in_range(step_index)
         typed = self._typed_value('Turret Slot', slot)
-        for step_idx in step_indices:
-            self._config['steps'].at[step_idx, 'Turret Slot'] = typed
+        for step_index in step_indices:
+            self._config['steps'].at[step_index, 'Turret Slot'] = typed
 
     def insert_step(
         self,
@@ -2408,8 +2410,8 @@ class Protocol:
         stim_configs: dict,
         channel_group_id: int,
         turret_slot: int,
-        before_step: int | None = None,
-        after_step: int | None = None,
+        before_step_index: int | None = None,
+        after_step_index: int | None = None,
     ) -> str:
         """Insert one channel's step; ``channel_group_id`` names the Add it belongs to.
 
@@ -2421,16 +2423,18 @@ class Protocol:
         """
 
         def _validate_inputs():
-            if (before_step is None) and (after_step is None):
-                raise StepEditRefusedError('Must specify after_step or before_step')
+            if (before_step_index is None) and (after_step_index is None):
+                raise StepEditRefusedError('Must specify after_step_index or before_step_index')
 
-            if (before_step is not None) and (after_step is not None):
-                raise StepEditRefusedError('Must specify only after_step or before_step, not both')
+            if (before_step_index is not None) and (after_step_index is not None):
+                raise StepEditRefusedError(
+                    'Must specify only after_step_index or before_step_index, not both'
+                )
 
-            if before_step is not None:
-                self._refuse_unless_in_range(before_step, past_end=1)
+            if before_step_index is not None:
+                self._refuse_unless_in_range(before_step_index, past_end=1)
             else:
-                self._refuse_unless_in_range(after_step, lowest=-1)
+                self._refuse_unless_in_range(after_step_index, lowest=-1)
 
         _validate_inputs()
 
@@ -2483,10 +2487,10 @@ class Protocol:
             turret_slot=turret_slot,
         )
 
-        if before_step is not None:
-            pos_index = before_step - 0.5
+        if before_step_index is not None:
+            pos_index = before_step_index - 0.5
         else:
-            pos_index = after_step + 0.5
+            pos_index = after_step_index + 0.5
 
         line = pd.DataFrame(data=step_dict, index=[pos_index])
         line = line.astype({'Video Config': 'object'})
@@ -2504,15 +2508,15 @@ class Protocol:
         return step_dict['Name']
 
     @api(reads=True)
-    def step(self, idx: int) -> StepRecord:
-        """Step ``idx``, as its record: what it was when read.
+    def step(self, step_index: int) -> StepRecord:
+        """Step ``step_index``, as its record: what it was when read.
 
         Raises:
-            StepNotFoundError: ``idx`` is not a step of this protocol.
+            StepNotFoundError: ``step_index`` is not a step of this protocol.
             ProtocolFormatError: a stimulation entry of the step is not a
                 config.
         """
-        return _step_record(self.step_row(idx))
+        return _step_record(self.step_row(step_index))
 
     @api(reads=True)
     def step_records(self) -> tuple[StepRecord, ...]:
@@ -2525,7 +2529,7 @@ class Protocol:
         return tuple(_step_record(self.step_row(idx)) for idx in range(self.num_steps()))
 
     @api(in_process=True, reads=True)
-    def step_row(self, idx: int) -> pd.Series:
+    def step_row(self, step_index: int) -> pd.Series:
         """One step, as a DETACHED copy of its row, keyed by the steps table's columns.
 
         The returned Series is built fresh, so it does NOT track later writes
@@ -2541,10 +2545,10 @@ class Protocol:
         says for no position.
 
         Raises:
-            StepNotFoundError: ``idx`` is not a step of this protocol.
+            StepNotFoundError: ``step_index`` is not a step of this protocol.
         """
-        self._refuse_unless_in_range(idx)
-        row = to_python_scalars(self._config['steps'].iloc[idx]).astype(object)
+        self._refuse_unless_in_range(step_index)
+        row = to_python_scalars(self._config['steps'].iloc[step_index]).astype(object)
         for column in _POSITION_COLUMNS:
             if pd.isna(row[column]):
                 row[column] = None
@@ -2841,11 +2845,16 @@ class Protocol:
             self._refuse_unless_in_range(only.start)
             self._refuse_unless_in_range(only[-1])
         expanded = range(self.num_steps()) if only is None else only
-        unstacked = [idx for idx in expanded if self.step_row(idx=idx)['Z-Slice'] in (None, '', -1)]
+        unstacked = [
+            idx for idx in expanded if self.step_row(step_index=idx)['Z-Slice'] in (None, '', -1)
+        ]
         Protocol.refuse_unbuildable_zstack(
             zstack_params,
             axis_limits,
-            [(self.step_row(idx=idx)['Name'], self.step_row(idx=idx)['Z']) for idx in unstacked],
+            [
+                (self.step_row(step_index=idx)['Name'], self.step_row(step_index=idx)['Z'])
+                for idx in unstacked
+            ],
         )
 
         to_stack = set(unstacked)
@@ -2859,7 +2868,7 @@ class Protocol:
         block_at = None
 
         for row_idx in range(num_steps):
-            orig_step_df = self.step_row(idx=row_idx)
+            orig_step_df = self.step_row(step_index=row_idx)
             orig_step_dict = orig_step_df.to_dict()
 
             # If already part of a Z-Stack, or not asked for, copy it over to the new protocol

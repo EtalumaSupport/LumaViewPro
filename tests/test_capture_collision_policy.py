@@ -175,7 +175,7 @@ def test_custom_step_count_resumes_past_loaded_labels(tmp_path):
     tsv = tmp_path / 'custom7.tsv'
     tsv.write_text(_build_tsv(rows))
     proto = Protocol.from_file(file_path=tsv, tiling_configs_file_loc=TILING_CONFIGS)
-    assert proto.step_row(idx=0)['Label'] == 'custom0007'
+    assert proto.step_row(step_index=0)['Label'] == 'custom0007'
 
     returned_name = proto.insert_step(
         channel_group_id=proto.new_channel_group_id(),
@@ -186,13 +186,13 @@ def test_custom_step_count_resumes_past_loaded_labels(tmp_path):
         plate_position=PlateLocation(x_mm=10.0, y_mm=10.0, z_um=5000.0),
         objective_id='4x Oly',
         stim_configs={},
-        before_step=None,
-        after_step=0,
+        before_step_index=None,
+        after_step_index=0,
     )
     # A reset-to-zero counter would mint 'custom0000'; a counter that
     # resumed at the loaded step would re-mint 'custom0007' and collide.
     assert returned_name == 'custom0008_BF', returned_name
-    assert proto.step_row(idx=1)['Label'] == 'custom0008'
+    assert proto.step_row(step_index=1)['Label'] == 'custom0008'
 
 
 # ---------------------------------------------------------------------------
@@ -706,7 +706,7 @@ def test_load_sanitizes_labels_loudly(tmp_path, monkeypatch):
     tsv.write_text(_V8_HEADER + _v8_row('A.1_BF', 'A.1', 'B2'))
 
     proto = Protocol.from_file(file_path=tsv, tiling_configs_file_loc=TILING_CONFIGS)
-    step = proto.step_row(idx=0)
+    step = proto.step_row(step_index=0)
     assert step['Label'] == 'A1', 'the stripped-character form is what the writer saves'
     assert step['Name'] == 'A1_BF'
     assert any('removed unsupported characters' in w for w in warnings), warnings

@@ -62,7 +62,7 @@ def _mixed_steps():
 def _per_step_sum(protocol, *, video_as_frames, global_max_fps):
     return sum(
         estimate_step_write_mb(
-            protocol.step_row(idx=i),
+            protocol.step_row(step_index=i),
             video_as_frames=video_as_frames,
             global_max_fps=global_max_fps,
         )

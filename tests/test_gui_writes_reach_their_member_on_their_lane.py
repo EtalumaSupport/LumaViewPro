@@ -251,11 +251,11 @@ def test_the_panels_step_navigation_is_a_persons_move(monkeypatch):
     monkeypatch.setattr(protocol_settings, 'go_to_step', navigated)
     panel = SimpleNamespace(_protocol='protocol')
 
-    protocol_settings.ProtocolSettings.go_to_step(panel, step_idx=2)
+    protocol_settings.ProtocolSettings.go_to_step(panel, step_index=2)
 
     navigated.assert_called_once()
     assert navigated.call_args.kwargs['include_move'] is True
-    assert navigated.call_args.kwargs['step_idx'] == 2
+    assert navigated.call_args.kwargs['step_index'] == 2
 
 
 def test_the_fire_and_forget_led_and_motion_members_are_gone():

@@ -65,7 +65,7 @@ def _bf_steps_at(session, xs_um):
     protocol = session.create_empty_protocol()
     for x_um in xs_um:
         session.scope.motion.move_xy(x_um=x_um)
-        session.add_step(protocol, after_step=protocol.num_steps() - 1)
+        session.add_step(protocol, after_step_index=protocol.num_steps() - 1)
     return protocol
 
 
@@ -169,7 +169,7 @@ def _bf_steps_at_center(session):
     session.settings['BF']['acquire'] = 'image'
     session.scope.motion.move_z(5000.0)
     protocol = session.create_empty_protocol()
-    session.add_step(protocol, after_step=-1)
+    session.add_step(protocol, after_step_index=-1)
     return protocol
 
 

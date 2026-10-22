@@ -85,7 +85,7 @@ def _protocol(num_steps):
             plate_position=PlateLocation(x_mm=float(i), y_mm=0.0, z_um=0.0),
             objective_id='10x Oly',
             stim_configs={},
-            after_step=protocol.num_steps() - 1,
+            after_step_index=protocol.num_steps() - 1,
         )
     return protocol
 

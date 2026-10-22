@@ -45,9 +45,9 @@ class TestAProtocolRun:
     def test_a_removed_camera_ends_it_in_words_naming_the_camera(self, tmp_path):
         with open_composite_session(headless_settings(tmp_path)) as (session, runner):
 
-            def step_started(step_idx):
+            def step_started(step_index):
                 # Past the run's start, which refuses a missing camera.
-                if step_idx == 1:
+                if step_index == 1:
                     session.scope.simulation.remove_camera()
 
             outcome = _run(

@@ -1,7 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """A step is read as a record, one step or the whole table in one read.
 
-``step(idx)`` answered a pandas row, which crossed the wire as an object of
+``step(step_index)`` answered a pandas row, which crossed the wire as an object of
 no declared shape keyed by the steps table's column names, and a caller
 wanting every step asked once per step. A step is now a ``StepRecord``, a
 field per column, its video and stimulation configs records of their own,
@@ -36,9 +36,9 @@ def test_the_record_has_a_field_for_every_column_of_the_steps_table():
 
 def test_a_step_reads_as_its_record_with_its_configs_as_records(session):
     protocol = _bf_and_blue(session)
-    row = protocol.step_row(idx=1)
+    row = protocol.step_row(step_index=1)
 
-    step = protocol.step(idx=1)
+    step = protocol.step(step_index=1)
 
     assert isinstance(step, StepRecord)
     assert (step.name, step.color, step.x, step.y, step.z) == (
@@ -72,7 +72,7 @@ def test_the_step_table_is_every_step_in_order(session):
 
     table = protocol.step_records()
 
-    assert table == (protocol.step(idx=0), protocol.step(idx=1))
+    assert table == (protocol.step(step_index=0), protocol.step(step_index=1))
     assert [step.color for step in table] == ['BF', 'Blue']
 
 
@@ -80,7 +80,7 @@ def test_a_step_with_no_position_on_an_axis_reads_none_there(session):
     protocol = session.create_empty_protocol()
     session.add_step(protocol, layers=('BF',), at=PlateLocation(x_mm=None, y_mm=None, z_um=6000.0))
 
-    step = protocol.step(idx=0)
+    step = protocol.step(step_index=0)
 
     assert (step.x, step.y, step.z) == (None, None, 6000.0)
 

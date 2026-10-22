@@ -90,8 +90,8 @@ def test_a_runs_step_shows_its_layer_lit_only_when_its_led_is(tmp_path):
         home_sim_scope(built.scope)
         heard = []
         built.add_shown_channel_listener(lambda layer, lit: heard.append((layer, lit)))
-        lumi = dict(_make_single_step_protocol(color='Lumi').step_row(idx=0))
-        bf = {**dict(_make_single_step_protocol(color='BF').step_row(idx=0)), 'Name': 'b'}
+        lumi = dict(_make_single_step_protocol(color='Lumi').step_row(step_index=0))
+        bf = {**dict(_make_single_step_protocol(color='BF').step_row(step_index=0)), 'Name': 'b'}
         bf['Step Index'] = 1
 
         run = built.create_protocol_runner().start_single_scan(
@@ -132,7 +132,7 @@ def _run_one_blue_step(built, tmp_path):
     from tests.test_a_run_needs_every_axis_position import COMPLETION_TIMEOUT
     from tests.test_run_refusal_contract import _build_real_protocol, _make_single_step_protocol
 
-    blue = dict(_make_single_step_protocol(color='Blue').step_row(idx=0))
+    blue = dict(_make_single_step_protocol(color='Blue').step_row(step_index=0))
     run = built.create_protocol_runner().start_single_scan(
         protocol=_build_real_protocol([blue]), parent_dir=str(tmp_path)
     )

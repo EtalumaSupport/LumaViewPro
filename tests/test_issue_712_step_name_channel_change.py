@@ -77,7 +77,7 @@ def _modify_layer_config(acquire='image'):
 def _modify_channel(proto, *, layer, label=None):
     proto.modify_step(
         turret_slot=-1,
-        step_idx=0,
+        step_index=0,
         label=label,
         layer=layer,
         layer_config=_modify_layer_config(),
@@ -85,7 +85,7 @@ def _modify_channel(proto, *, layer, label=None):
         objective_id='4x Oly',
         stim_configs={},
     )
-    return proto.step_row(idx=0)
+    return proto.step_row(step_index=0)
 
 
 def test_channel_change_replaces_token_on_well_step():

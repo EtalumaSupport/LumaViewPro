@@ -195,7 +195,7 @@ class ProtocolSettings(FloatLayout):
         if num_steps <= 0 or self.curr_step < 0:
             label.text = ''
             return
-        step = self._protocol.step_row(idx=self.curr_step)
+        step = self._protocol.step_row(step_index=self.curr_step)
         # A step recorded without Z has no focus to show.
         label.text = '' if step['Z'] is None else f'{float(step["Z"]):.0f} um'
 
@@ -348,7 +348,7 @@ class ProtocolSettings(FloatLayout):
     def step_name_validation_ex(self, new_name: str) -> None:
         """Rename the current step."""
         _app_ctx.ctx.session.rename_step(self._protocol, self.curr_step, new_name)
-        label = self._protocol.step_row(idx=self.curr_step)['Label']
+        label = self._protocol.step_row(step_index=self.curr_step)['Label']
         gui_logger.protocol_action('RENAME_STEP', f'step={self.curr_step} name={label!r}')
 
     def update_capture_root(self, text: str):
@@ -455,7 +455,7 @@ class ProtocolSettings(FloatLayout):
 
         ctx.stage.set_protocol_steps(self._protocol)
         self.update_step_ui()
-        self.go_to_step(step_idx=self.curr_step)
+        self.go_to_step(step_index=self.curr_step)
 
     def apply_zstacking(self) -> None:
         # At entry, not on success: the protocol can refuse the stack, and a
@@ -486,7 +486,7 @@ class ProtocolSettings(FloatLayout):
 
         ctx.stage.set_protocol_steps(self._protocol)
         self.update_step_ui()
-        self.go_to_step(step_idx=self.curr_step)
+        self.go_to_step(step_index=self.curr_step)
 
     def generate_step_name_input(self):
         num_steps = self._protocol.num_steps()
@@ -606,7 +606,7 @@ class ProtocolSettings(FloatLayout):
         self._show_schedule()
         ctx.set_protocol_filepath('')
         self.curr_step = 0
-        self.go_to_step(step_idx=0)
+        self.go_to_step(step_index=0)
 
     def _draw_protocol_steps(self) -> None:
         """Show the panel's protocol: its steps on the stage and in the step editor."""
@@ -748,7 +748,8 @@ class ProtocolSettings(FloatLayout):
         # The turret slot questions come first either way: the first step
         # may be one the API refuses to go to until they are answered.
         self._ask_turret_slots(
-            protocol, then=(lambda: self.go_to_step(step_idx=self.curr_step)) if navigate else None
+            protocol,
+            then=(lambda: self.go_to_step(step_index=self.curr_step)) if navigate else None,
         )
 
     def _ask_turret_slots(self, protocol: Protocol, then) -> None:
@@ -868,10 +869,10 @@ class ProtocolSettings(FloatLayout):
         # does after Prev and Next; a number the protocol has no step for is
         # the Session's refusal, shown, and the box is already put back.
         self.update_step_ui()
-        self.go_to_step(step_idx=val - 1)
+        self.go_to_step(step_index=val - 1)
 
-    def go_to_step(self, step_idx: int):
-        # step_idx is required so every caller states its target instead of
+    def go_to_step(self, step_index: int):
+        # step_index is required so every caller states its target instead of
         # pre-writing curr_step: the navigation module detects a real step
         # change by comparing the target against curr_step, and a caller
         # that writes the store first makes that comparison read itself --
@@ -881,7 +882,7 @@ class ProtocolSettings(FloatLayout):
         # not drive the LEDs, user navigation does.
         go_to_step(
             protocol=self._protocol,
-            step_idx=step_idx,
+            step_index=step_index,
             include_move=True,
         )
 
@@ -898,7 +899,7 @@ class ProtocolSettings(FloatLayout):
             return
 
         self.update_step_ui()
-        self.go_to_step(step_idx=max(self.curr_step - 1, 0))
+        self.go_to_step(step_index=max(self.curr_step - 1, 0))
 
     # Go to Next Step
     def next_step(self) -> None:
@@ -911,7 +912,7 @@ class ProtocolSettings(FloatLayout):
             return
 
         self.update_step_ui()
-        self.go_to_step(step_idx=min(self.curr_step + 1, num_steps - 1))
+        self.go_to_step(step_index=min(self.curr_step + 1, num_steps - 1))
 
     # Delete Current Step of Protocol
     def delete_step(self):
@@ -932,7 +933,7 @@ class ProtocolSettings(FloatLayout):
         else:
             self.curr_step = max(self.curr_step - 1, 0)
 
-        self.go_to_step(step_idx=self.curr_step)
+        self.go_to_step(step_index=self.curr_step)
 
     def modify_step(self):
         logger.info('[LVP Main  ] ProtocolSettings.modify_step()')
@@ -960,7 +961,7 @@ class ProtocolSettings(FloatLayout):
         )
         logger.info(
             "[LVP Main  ] modify_step_ex: channel -> %s; step name -> '%s'",
-            self._protocol.step_row(idx=self.curr_step)['Color'],
+            self._protocol.step_row(step_index=self.curr_step)['Color'],
             name,
         )
 
@@ -990,17 +991,17 @@ class ProtocolSettings(FloatLayout):
         the API accepted, so it is the last call, never reached on a refusal.
         """
         if after_current_step:
-            after_step = self.curr_step
-            before_step = None
+            after_step_index = self.curr_step
+            before_step_index = None
         else:
-            after_step = None
-            before_step = self.curr_step
+            after_step_index = None
+            before_step_index = self.curr_step
 
         session = _app_ctx.ctx.session
         names = session.add_step(
             self._protocol,
-            before_step=before_step,
-            after_step=after_step,
+            before_step_index=before_step_index,
+            after_step_index=after_step_index,
             use_zstacking=self.ids['acquire_zstack_id'].active,
         )
 
@@ -1016,7 +1017,7 @@ class ProtocolSettings(FloatLayout):
             of_shown.sort(key=lambda idx: abs(self._protocol.step_row(idx)['Z'] - live_z))
         self.curr_step = of_shown[0] if of_shown else first_added
 
-        self.go_to_step(step_idx=self.curr_step)
+        self.go_to_step(step_index=self.curr_step)
 
     def update_acquire_zstack(self):
         gui_logger.toggle('ACQUIRE_ZSTACK', bool(self.ids['acquire_zstack_id'].active))
@@ -1038,7 +1039,7 @@ class ProtocolSettings(FloatLayout):
         if self._protocol.num_steps() == 0:
             return None
 
-        return self._protocol.step_row(idx=self.curr_step)
+        return self._protocol.step_row(step_index=self.curr_step)
 
     def draw_protocol_buttons(self) -> None:
         """Show each of the panel's three runs as the engine reports it.
@@ -1183,7 +1184,7 @@ class ProtocolSettings(FloatLayout):
             frame_captured=show_captured_frame,
             scan_started=lambda *_scan: self._run_scan_pre_callback(),
             scan_ended=lambda *_scan: self.draw_protocol_buttons(),
-            step_started=lambda step_idx: go_to_step(protocol, step_idx, include_move=False),
+            step_started=lambda step_index: go_to_step(protocol, step_index, include_move=False),
             video_progress=show_video_progress,
             run_ended=_ended,
             on_ui_thread=True,
@@ -1286,7 +1287,7 @@ class ProtocolSettings(FloatLayout):
             frame_captured=show_captured_frame,
             scan_started=scan_started,
             scan_ended=scan_ended,
-            step_started=lambda step_idx: go_to_step(protocol, step_idx, include_move=False),
+            step_started=lambda step_index: go_to_step(protocol, step_index, include_move=False),
             video_progress=show_video_progress,
             run_ended=_ended,
             on_ui_thread=True,

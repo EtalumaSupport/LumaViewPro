@@ -69,10 +69,16 @@ def test_a_blank_position_loads_as_no_position_and_saves_blank(make_session, tmp
     protocol.to_file(tmp_path / 'again.tsv')
     reloaded = session.load_protocol(tmp_path / 'again.tsv')
 
-    assert (protocol.step_row(idx=0)['X'], protocol.step_row(idx=0)['Y']) == (None, None)
+    assert (protocol.step_row(step_index=0)['X'], protocol.step_row(step_index=0)['Y']) == (
+        None,
+        None,
+    )
     assert protocol.steps()['X'].isna().all()
-    assert (reloaded.step_row(idx=1)['X'], reloaded.step_row(idx=1)['Y']) == (None, None)
-    assert reloaded.step_row(idx=1)['Z'] is not None
+    assert (reloaded.step_row(step_index=1)['X'], reloaded.step_row(step_index=1)['Y']) == (
+        None,
+        None,
+    )
+    assert reloaded.step_row(step_index=1)['Z'] is not None
 
 
 def test_post_processing_reads_a_blank_position_as_no_position(make_session, tmp_path):
@@ -85,7 +91,7 @@ def test_post_processing_reads_a_blank_position_as_no_position(make_session, tmp
         file_path=path, tiling_configs_file_loc=TILING_CONFIGS, runnable=False
     )
 
-    assert (record.step_row(idx=0)['X'], record.step_row(idx=0)['Y']) == (None, None)
+    assert (record.step_row(step_index=0)['X'], record.step_row(step_index=0)['Y']) == (None, None)
 
 
 def test_one_of_x_and_y_without_the_other_is_refused_on_load(make_session, tmp_path):
@@ -157,7 +163,7 @@ def test_the_refusal_names_the_steps_and_the_axes(make_session, tmp_path):
 
     refusal = _refused(lambda: stage.scope.protocols.step_targets(protocol, 1))
 
-    assert protocol.step_row(idx=1)['Name'] in str(refusal)
+    assert protocol.step_row(step_index=1)['Name'] in str(refusal)
     assert 'no X, Y position' in str(refusal)
 
 
@@ -241,9 +247,9 @@ def test_the_plate_read_and_the_steps_record_nothing_for_an_absent_axis(
         return (x, y, None if z is None else 'measured')
 
     assert shape(here.x_mm, here.y_mm, here.z_um) == expected
-    step = added.step_row(idx=0)
+    step = added.step_row(step_index=0)
     assert shape(step['X'], step['Y'], step['Z']) == expected
-    first = new.step_row(idx=0)
+    first = new.step_row(step_index=0)
     assert shape(first['X'], first['Y'], first['Z']) == expected
     assert first['Well'] == 'A1'
 
@@ -288,11 +294,11 @@ def test_update_step_keeps_a_loaded_steps_x_and_y_without_a_stage(make_session, 
     path = _saved_steps(stage, tmp_path / 'from_a_stage.tsv', 1)
     session = make_session('LS820', acquiring=('BF',))
     protocol = session.load_protocol(path)
-    before = (protocol.step_row(idx=0)['X'], protocol.step_row(idx=0)['Y'])
+    before = (protocol.step_row(step_index=0)['X'], protocol.step_row(step_index=0)['Y'])
 
     session.update_step(protocol, 0, layer='BF')
 
-    assert (protocol.step_row(idx=0)['X'], protocol.step_row(idx=0)['Y']) == before
+    assert (protocol.step_row(step_index=0)['X'], protocol.step_row(step_index=0)['Y']) == before
     assert None not in before
 
 
@@ -315,7 +321,7 @@ def test_writes_for_an_axis_the_scope_lacks_are_refused(make_session):
         'positions_unreachable',
         'axis_absent',
     )
-    assert protocol.step_row(idx=0)['Z'] is None
+    assert protocol.step_row(step_index=0)['Z'] is None
     assert no_stage.settings['bookmark'] == bookmark_before
 
 

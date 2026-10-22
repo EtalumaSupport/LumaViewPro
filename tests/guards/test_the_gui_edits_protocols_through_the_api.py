@@ -184,8 +184,8 @@ def test_the_gui_makes_no_new_protocol_edit():
 def test_the_census_sees_each_shape_of_edit():
     source = (
         'def f(self, protocol):\n'
-        '    self._protocol.delete_step(step_idx=0)\n'
-        '    protocol.modify_name(step_idx=0, step_name="a")\n'
+        '    self._protocol.delete_step(step_index=0)\n'
+        '    protocol.modify_name(step_index=0, step_name="a")\n'
         '    sequence.modify_autofocus_all_steps(enabled=True)\n'
         "    self._protocol.steps()['Z'] = 1\n"
         "    self._protocol.steps().loc[0, 'Z'] = 1\n"

@@ -49,7 +49,7 @@ def test_the_capture_root_is_kept_as_given(session):
 def test_one_steps_autofocus_or_every_steps_is_set(session):
     protocol = _two_steps(session)
 
-    session.set_step_autofocus(protocol, enabled=True, step_idx=1)
+    session.set_step_autofocus(protocol, enabled=True, step_index=1)
     assert protocol.steps()['Auto_Focus'].tolist() == [False, True]
 
     session.set_step_autofocus(protocol, enabled=True)
@@ -60,7 +60,7 @@ def test_an_autofocus_edit_of_a_step_the_protocol_lacks_is_refused_and_changes_n
     protocol = _two_steps(session)
 
     with pytest.raises(StepNotFoundError) as refused:
-        session.set_step_autofocus(protocol, enabled=True, step_idx=2)
+        session.set_step_autofocus(protocol, enabled=True, step_index=2)
 
     assert refused.value.reason == 'no_such_step'
     assert protocol.steps()['Auto_Focus'].tolist() == [False, False]

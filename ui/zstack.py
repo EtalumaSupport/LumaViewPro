@@ -174,7 +174,7 @@ class ZStack(FloatLayout):
             frame_captured=show_captured_frame,
             # Each slice redraws the button, which reads the step from the
             # engine: a redraw from any other edge draws the same thing.
-            step_started=lambda step_idx: self.draw_zstack_button(),
+            step_started=lambda step_index: self.draw_zstack_button(),
             video_progress=show_video_progress,
             run_ended=lambda *ended: sync_layer_widgets_from_settings(),
             on_ui_thread=True,

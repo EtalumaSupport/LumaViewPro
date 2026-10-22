@@ -66,12 +66,12 @@ class ScanEnded:
     period_s: float | None
 
 
-@api_fields('step_idx')
+@api_fields('step_index')
 @dataclasses.dataclass(frozen=True)
 class StepStarted:
     """A ``step_started`` event: the index of the step beginning."""
 
-    step_idx: int
+    step_index: int
 
 
 @api_fields('image', 'frames_summed', 'frame_significant_bits')
@@ -135,7 +135,7 @@ class RunEvents:
             this one, and the protocol's period in seconds.
         scan_ended: ``(scan_index, scans_remaining, period_s)`` as a scan
             ends, a stopped one included: how many remain after it.
-        step_started: ``(step_idx)`` as each step begins, step 0 included,
+        step_started: ``(step_index)`` as each step begins, step 0 included,
             the index read at the step.
         frame_captured: ``(image, frames_summed, frame_significant_bits)``
             for each captured frame whose write was handed to the run's

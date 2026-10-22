@@ -103,7 +103,7 @@ class _Panel(ps.ProtocolSettings):
         self._runs_started_here = {}
         self.curr_step = 0
 
-    def go_to_step(self, step_idx, protocol=True):
+    def go_to_step(self, step_index, protocol=True):
         pass
 
     def update_step_ui(self):

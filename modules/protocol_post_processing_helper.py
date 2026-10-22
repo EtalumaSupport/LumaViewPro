@@ -25,14 +25,14 @@ def _raw_row(
     ``Missing`` is empty for a frame in the folder, else why it is not;
     ``Frames`` is how many frames the row stands for.
     """
-    step_idx = recorded['Step Index']
-    step = protocol.step_row(idx=step_idx)
+    step_index = recorded['Step Index']
+    step = protocol.step_row(step_index=step_index)
     return {
         'Filepath': image_name,
         'Name': step['Name'],
         'Label': step['Label'],
         'Scan Count': recorded['Scan Count'],
-        'Step Index': step_idx,
+        'Step Index': step_index,
         'X': step['X'],
         'Y': step['Y'],
         'Z': step['Z'],
@@ -253,7 +253,7 @@ class ProtocolPostProcessingHelper:
                 missing = 'not_on_disk'
             else:
                 recorded = pathlib.Path(reason)
-                color = protocol.step_row(idx=entry['Step Index'])['Color']
+                color = protocol.step_row(step_index=entry['Step Index'])['Color']
                 if include_subpaths and color not in include_subpaths:
                     continue
                 missing = reason

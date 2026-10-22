@@ -85,14 +85,14 @@ def test_the_anchor_answers_only_at_the_groups_first_slice():
     proto = _stacked()
     first, middle, last = list(proto.steps().index)
     # The reference plane is the middle slice; the sweep fires at the first.
-    assert proto.zstack_group_focus_anchor(step_idx=first) == middle
-    assert proto.zstack_group_focus_anchor(step_idx=middle) is None
-    assert proto.zstack_group_focus_anchor(step_idx=last) is None
+    assert proto.zstack_group_focus_anchor(step_index=first) == middle
+    assert proto.zstack_group_focus_anchor(step_index=middle) is None
+    assert proto.zstack_group_focus_anchor(step_index=last) is None
 
 
 def test_placing_the_group_spans_the_configured_range_around_the_found_focus():
     proto = _stacked()
-    anchor = proto.zstack_group_focus_anchor(step_idx=proto.steps().index[0])
+    anchor = proto.zstack_group_focus_anchor(step_index=proto.steps().index[0])
     found = 5015.0  # 15 um above where the layer thought focus was
 
     moved = proto.apply_zstack_group_focus(reference_step_idx=anchor, z=found)
@@ -114,7 +114,7 @@ def test_placing_the_group_preserves_spacing_for_every_reference_mode():
         proto.apply_zstacking(
             zstack_params={**_ZSTACK, 'z_reference': reference}, axis_limits=_WIDE_Z
         )
-        anchor = proto.zstack_group_focus_anchor(step_idx=proto.steps().index[0])
+        anchor = proto.zstack_group_focus_anchor(step_index=proto.steps().index[0])
         proto.apply_zstack_group_focus(reference_step_idx=anchor, z=5015.0)
         assert proto.steps()['Z'].tolist() == expected, reference
 
@@ -122,7 +122,7 @@ def test_placing_the_group_preserves_spacing_for_every_reference_mode():
 def test_a_second_scan_finding_the_same_focus_leaves_the_group_where_it_is():
     """A repeated scan must not compound the correction."""
     proto = _stacked()
-    anchor = proto.zstack_group_focus_anchor(step_idx=proto.steps().index[0])
+    anchor = proto.zstack_group_focus_anchor(step_index=proto.steps().index[0])
 
     proto.apply_zstack_group_focus(reference_step_idx=anchor, z=5015.0)
     after_first = proto.steps()['Z'].tolist()
@@ -255,8 +255,8 @@ def test_a_groups_sweep_runs_in_its_reference_slices_light(one_position_session,
     session.update_settings('zstack.step_size', 10.0)
     session.update_settings('zstack.range', 20.0)
     protocol = session.new_protocol(use_zstacking=True)
-    first = protocol.step_row(idx=0)
-    reference = protocol.step_row(idx=protocol.zstack_group_focus_anchor(step_idx=0))
+    first = protocol.step_row(step_index=0)
+    reference = protocol.step_row(step_index=protocol.zstack_group_focus_anchor(step_index=0))
     assert (first['Color'], reference['Color']) == ('Blue', 'BF')
 
     lit = []

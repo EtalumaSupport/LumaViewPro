@@ -127,7 +127,7 @@ def _run_folder(tmp_path, protocol, *, without_groups=False):
         outfile=folder / ProtocolExecutionRecord.DEFAULT_FILENAME,
     )
     for idx in range(protocol.num_steps()):
-        step = protocol.step_row(idx=idx)
+        step = protocol.step_row(step_index=idx)
         filename = f'{step["Name"]}_0000.tiff'
         _write_tiff(folder / filename, step['Color'])
         record.add_step(
@@ -181,7 +181,7 @@ class TestEachAddIsItsOwnComposite:
         assert 'more than one image for one plane' in message
         # Every doubled image is named, the earliest and the latest BF alike.
         for idx in (0, 1, 3, 7):
-            assert protocol.step_row(idx=idx)['Name'] in message
+            assert protocol.step_row(step_index=idx)['Name'] in message
 
 
 class TestTheCompositeRefusesADoubledPlane:
@@ -312,7 +312,7 @@ class TestADoubledStillIsRefusedByTheVideoAndTheStack:
         message = str(failed.value)
         assert 'more than one image for one scan' in message
         for idx in (0, 1):
-            assert protocol.step_row(idx=idx)['Name'] in message
+            assert protocol.step_row(step_index=idx)['Name'] in message
         assert failed.value.produced_paths == ()
 
     @pytest.mark.usefixtures('turret_in_a_known_slot')
@@ -330,7 +330,7 @@ class TestADoubledStillIsRefusedByTheVideoAndTheStack:
         message = str(failed.value)
         assert 'more than one image for one plane' in message
         for idx in (0, 1):
-            assert protocol.step_row(idx=idx)['Name'] in message
+            assert protocol.step_row(step_index=idx)['Name'] in message
         assert failed.value.produced_paths == ()
 
 
@@ -417,7 +417,7 @@ class TestAHyperstackAfterApplyTiling:
         session.scope.motion.move_xy(y_um=40000)
         session.scope.motion.move_z(5000.0)
         protocol = session.create_empty_protocol()
-        session.add_step(protocol, after_step=-1)
+        session.add_step(protocol, after_step_index=-1)
 
         session.apply_tiling(protocol, '2x2')
 

@@ -44,7 +44,7 @@ def _three_bf_steps(session):
     protocol = session.create_empty_protocol()
     for x_um in (10000, 20000, 30000):
         session.scope.motion.move_xy(x_um=x_um)
-        session.add_step(protocol, after_step=protocol.num_steps() - 1)
+        session.add_step(protocol, after_step_index=protocol.num_steps() - 1)
     return protocol
 
 
@@ -61,13 +61,13 @@ class TestDeleteStep:
 
         assert _names(protocol) == kept
 
-    @pytest.mark.parametrize('step_idx', [3, -1])
-    def test_a_step_the_protocol_lacks_is_refused_and_nothing_goes(self, session, step_idx):
+    @pytest.mark.parametrize('step_index', [3, -1])
+    def test_a_step_the_protocol_lacks_is_refused_and_nothing_goes(self, session, step_index):
         protocol = _three_bf_steps(session)
         before = _names(protocol)
 
         with pytest.raises(ProtocolError):
-            session.delete_step(protocol, step_idx)
+            session.delete_step(protocol, step_index)
 
         assert _names(protocol) == before
 

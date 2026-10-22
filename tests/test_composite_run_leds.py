@@ -174,10 +174,10 @@ def aborted_composite(tmp_path):
         started = []
         have_handle = threading.Event()
 
-        def _abort_after_the_first_step(step_idx):
-            if step_idx == 0 or aborted_at:
+        def _abort_after_the_first_step(step_index):
+            if step_index == 0 or aborted_at:
                 return
-            aborted_at.append(step_idx)
+            aborted_at.append(step_index)
             # This callback can beat start_composite()'s return, so the Stop
             # waits for the handle the caller holds.
             assert have_handle.wait(120), 'start_composite never returned its handle'

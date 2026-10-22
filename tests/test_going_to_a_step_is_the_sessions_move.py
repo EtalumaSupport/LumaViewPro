@@ -286,7 +286,7 @@ class TestTheRefusals:
         turret_session.save_protocol(protocol, f'{live}/one_step.tsv')
         with TestClient(build_app(turret_session)) as client:
             loaded = client.post('/api/v1/load_protocol', json={'file_path': 'one_step.tsv'}).json()
-            asked = {'protocol': loaded['handle'], 'step_idx': 0}
+            asked = {'protocol': loaded['handle'], 'step_index': 0}
             assert (
                 client.get('/api/v1/scope/protocols/step_targets', params=asked).status_code == 200
             )
@@ -463,7 +463,7 @@ class TestTheStepIntoItsLayer:
         assert {
             layer: no_motor_session.settings[layer]['stim_config'] for layer in before
         } == before
-        assert protocol.step_row(idx=0)['Stim_Config'] == {}
+        assert protocol.step_row(step_index=0)['Stim_Config'] == {}
 
 
 class TestTheLedPreview:

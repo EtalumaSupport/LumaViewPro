@@ -184,10 +184,10 @@ def _insert_generated_step(protocol):
         plate_position=PlateLocation(x_mm=0.0, y_mm=0.0, z_um=5000.0),
         objective_id='4x Oly',
         stim_configs={},
-        before_step=0,
-        after_step=None,
+        before_step_index=0,
+        after_step_index=None,
     )
-    return protocol.step_row(idx=0)['Name']
+    return protocol.step_row(step_index=0)['Name']
 
 
 def test_added_step_name_keeps_channel_not_objective():

@@ -457,7 +457,7 @@ class TestSingleScanAutoFocusNoneResult:
 
     def test_z_height_not_modified_when_autofocus_returns_none(self, executor, scope, tmp_path):
         protocol = _make_single_step_protocol(color='BF', auto_focus=True)
-        original_z = protocol.step_row(idx=0)['Z']
+        original_z = protocol.step_row(step_index=0)['Z']
 
         af = executor._autofocus_runner
         af.complete.return_value = True
@@ -471,7 +471,7 @@ class TestSingleScanAutoFocusNoneResult:
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
         # Z height should remain unchanged when autofocus returns None
-        assert protocol.step_row(idx=0)['Z'] == original_z, (
+        assert protocol.step_row(step_index=0)['Z'] == original_z, (
             'Z height should not change when autofocus returns None'
         )
 
@@ -701,7 +701,7 @@ class TestSingleScanVideo:
         assert frames, 'the frames leg must write per-frame TIFF artifacts'
         with tifffile.TiffFile(str(frames[0])) as tf:
             described = json.loads(tf.pages[0].tags['ImageDescription'].value)
-        step = protocol.step_row(idx=0)
+        step = protocol.step_row(step_index=0)
         assert described['plate_pos_mm']['x'] == pytest.approx(step['X'], abs=0.01)
         assert described['plate_pos_mm']['y'] == pytest.approx(step['Y'], abs=0.01)
 

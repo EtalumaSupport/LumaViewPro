@@ -81,10 +81,10 @@ class StepHeartbeat:
         self._inner = inner
         self._last = time.monotonic()
 
-    def __call__(self, step_idx):
+    def __call__(self, step_index):
         self._last = time.monotonic()
         if self._inner is not None:
-            self._inner(step_idx)
+            self._inner(step_index)
 
     def idle_s(self) -> float:
         return time.monotonic() - self._last
@@ -241,12 +241,12 @@ def stand_in_step_targets(scope, *, plate_to_stage=(0.0, 0.0)):
     """
     from modules.lumascope_api.protocols import StepTargets
 
-    scope.protocols.step_targets.side_effect = lambda protocol, step_idx, stage_offset=None: (
+    scope.protocols.step_targets.side_effect = lambda protocol, step_index, stage_offset=None: (
         StepTargets(
             turret_slot=None,
             x=plate_to_stage[0],
             y=plate_to_stage[1],
-            z=protocol.step_row(idx=step_idx)['Z'],
+            z=protocol.step_row(step_index=step_index)['Z'],
         )
     )
 

@@ -136,9 +136,9 @@ def nav_env(monkeypatch):
             # The Session's member, refusing through the real rule and
             # recording the step it was asked to go to.
             start_go_to_step=MagicMock(
-                side_effect=lambda protocol, step_idx: (
+                side_effect=lambda protocol, step_index: (
                     scope.protocols.refuse_unaddressable_objectives(
-                        [protocol.step_row(idx=step_idx)['Objective']]
+                        [protocol.step_row(step_index=step_index)['Objective']]
                     )
                 )
             ),
@@ -165,7 +165,7 @@ def nav_env(monkeypatch):
     )
 
 
-def _navigate(objective: str, *, step_idx: int = 0, include_move: bool = True):
+def _navigate(objective: str, *, step_index: int = 0, include_move: bool = True):
     import ui.step_navigation as step_navigation
 
     protocol = SimpleNamespace(
@@ -180,7 +180,7 @@ def _navigate(objective: str, *, step_idx: int = 0, include_move: bool = True):
     _app_ctx.ctx.motion_settings.ids['protocol_settings_id']._protocol = protocol
     step_navigation.go_to_step(
         protocol,
-        step_idx=step_idx,
+        step_index=step_index,
         include_move=include_move,
     )
 
@@ -209,12 +209,12 @@ class TestARefusedNavigationIsANoOp:
 
 class TestAnAdmissibleNavigationStillWorks:
     def test_the_pointer_moves(self, nav_env):
-        _navigate(ON_TURRET, step_idx=1)
+        _navigate(ON_TURRET, step_index=1)
 
         assert nav_env.protocol_settings.curr_step == 1
 
     def test_the_session_is_asked_to_go_to_the_step(self, nav_env):
-        _navigate(ON_TURRET, step_idx=1)
+        _navigate(ON_TURRET, step_index=1)
 
         assert nav_env.session_go_to_step.call_count == 1
         assert nav_env.session_go_to_step.call_args.args[1] == 1
@@ -224,14 +224,14 @@ class TestAnAdmissibleNavigationStillWorks:
         protocol with no steps, never for a number the protocol lacks."""
         nav_env.session_go_to_step.side_effect = StepNotFoundError(index=-1, num_steps=2)
 
-        _navigate(ON_TURRET, step_idx=-1)
+        _navigate(ON_TURRET, step_index=-1)
 
         assert nav_env.session_go_to_step.call_args.args[1] == -1
         assert nav_env.protocol_settings.curr_step == 3
 
     def test_the_gui_makes_no_apply_of_its_own_once_the_session_has_gone(self, nav_env):
         """The Session's go-to puts the step's layer on the camera itself."""
-        _navigate(ON_TURRET, step_idx=1)
+        _navigate(ON_TURRET, step_index=1)
 
         nav_env.layer_obj.apply_settings.assert_not_called()
 
@@ -249,7 +249,7 @@ class TestARunNavigationOnlyDisplays:
         import modules.app_context as _app_ctx
 
         _app_ctx.ctx.motion_settings.ids['protocol_settings_id']._protocol = protocol
-        step_navigation.go_to_step(protocol, step_idx=0, include_move=False)
+        step_navigation.go_to_step(protocol, step_index=0, include_move=False)
 
         nav_env.session_go_to_step.assert_not_called()
         assert nav_env.protocol_settings.curr_step == 0

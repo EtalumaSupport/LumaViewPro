@@ -148,7 +148,7 @@ class ProtocolRunLoop:
         p = self._p
         if not self._inter_scan_wait_follows():
             return
-        first_step = p._protocol.step_row(idx=0)
+        first_step = p._protocol.step_row(step_index=0)
         p._step_executor.default_move(px=first_step['X'], py=first_step['Y'], z=first_step['Z'])
 
     def _run_loop_inner(self, run: EngineRun) -> RunEnding:
@@ -265,7 +265,7 @@ class ProtocolRunLoop:
                 # WITHOUT clearing the LED-state cache. Clearing the cache here
                 # forced the following same-color led_on to re-fire, blinking
                 # the LED off->on at the start of every scan.
-                p._step_executor.go_to_step(step_idx=p._curr_step)
+                p._step_executor.go_to_step(step_index=p._curr_step)
                 # A Stop that landed during the step move ends the run here,
                 # before the scan starts.
                 if p._aborted.is_set():

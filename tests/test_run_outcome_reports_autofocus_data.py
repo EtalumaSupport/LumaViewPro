@@ -612,7 +612,7 @@ class TestTheOutcomeSaysWhetherAutofocusFoundFocus:
         # The window is centred on where Z stands; a step a micrometre above
         # the bottom of travel reaches past it before anything moves.
         near_the_floor = _make_af_step_protocol()
-        near_the_floor.modify_step_z_height(step_idx=0, z=1.0)
+        near_the_floor.modify_step_z_height(step_index=0, z=1.0)
         monkeypatch.setattr(
             sys.modules[__name__],
             '_make_af_step_protocol',

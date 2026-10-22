@@ -114,7 +114,7 @@ def test_a_protocol_step_whose_autofocus_loses_z_is_told_by_the_stall_and_the_en
     protocol = session.new_protocol()
     while protocol.num_steps() > 1:
         protocol.delete_step(protocol.num_steps() - 1)
-    assert protocol.step_row(idx=0)['Auto_Focus']
+    assert protocol.step_row(step_index=0)['Auto_Focus']
     frames = _stall_the_sweeps_z(monkeypatch, session)
     reported = _record_reports(monkeypatch)
 

@@ -25,11 +25,12 @@ def test_an_fx2_pulled_mid_run_is_told_by_the_abort_and_the_cleanup(tmp_path, ce
     session = _session(tmp_path, 'LS620')
     # Two BF steps, so step 0's light is still on when step 1 begins.
     rows = [
-        {**_protocol().step_row(idx=0), 'Name': f'A1_s{i}', 'Label': f'A1_s{i}'} for i in range(2)
+        {**_protocol().step_row(step_index=0), 'Name': f'A1_s{i}', 'Label': f'A1_s{i}'}
+        for i in range(2)
     ]
 
-    def step_started(step_idx):
-        if step_idx == 1:
+    def step_started(step_index):
+        if step_index == 1:
             session.scope.simulation.remove_camera()
 
     try:

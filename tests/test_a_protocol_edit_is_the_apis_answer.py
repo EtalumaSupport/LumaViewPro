@@ -58,8 +58,8 @@ class _Panel(ps.ProtocolSettings):
         self.moves = []
         self.redraws = 0
 
-    def go_to_step(self, step_idx, protocol=True):
-        self.moves.append(step_idx)
+    def go_to_step(self, step_index, protocol=True):
+        self.moves.append(step_index)
 
     def update_step_ui(self):
         self.redraws += 1

@@ -164,9 +164,9 @@ class TestARunWithFailedCapturesEndsIncomplete:
             camera = session.scope._camera_driver
             real_grab = camera.grab_new_capture
 
-            def step_started(step_idx):
+            def step_started(step_index):
                 # Every step, step 0 included, before it captures.
-                camera.grab_new_capture = _no_frame if step_idx % 2 == 0 else real_grab
+                camera.grab_new_capture = _no_frame if step_index % 2 == 0 else real_grab
 
             steps = [_step(f'C{i}', i, x=20.0 + i, gain=1.0) for i in range(8)]
             outcome = _run(

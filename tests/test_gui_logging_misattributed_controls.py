@@ -41,7 +41,7 @@ def _step_panel(typed):
         curr_step=2,
         update_step_ui_immediate=_show_current_step,
         update_step_ui=lambda: None,
-        go_to_step=lambda step_idx: steps.append(step_idx),
+        go_to_step=lambda step_index: steps.append(step_index),
     )
     return panel, steps
 

@@ -61,7 +61,7 @@ def test_an_add_from_an_invalid_live_setting_adds_and_is_noticed_once(session, r
     session.settings['BF']['exposure_ms'] = 0.0
     reported.clear()
 
-    names = session.add_step(protocol, before_step=0)
+    names = session.add_step(protocol, before_step_index=0)
 
     assert len(names) == 1
     assert reported == [('ProtocolStepsInvalidNotice', 'Protocol', True)]
@@ -75,7 +75,7 @@ def test_an_add_from_an_invalid_live_setting_adds_and_is_noticed_once(session, r
 def test_a_valid_edit_and_a_valid_load_report_nothing(session, reported, tmp_path):
     _acquire_only_bf(session)
     protocol = session.create_empty_protocol()
-    session.add_step(protocol, before_step=0)
+    session.add_step(protocol, before_step_index=0)
     path = tmp_path / 'good.tsv'
     protocol.to_file(path)
     reported.clear()

@@ -101,7 +101,7 @@ def test_going_to_a_step_holding_an_out_of_range_value_starts_no_move_and_stores
     edited = _edited(
         session,
         tmp_path,
-        ('Name', session.new_protocol().step_row(idx=0)['Name']),
+        ('Name', session.new_protocol().step_row(step_index=0)['Name']),
         {'Exposure': '0'},
     )
     protocol = session.load_protocol(str(edited))

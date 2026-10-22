@@ -99,8 +99,8 @@ def test_a_saved_false_autofocus_is_false_once_the_file_is_typed(tmp_path):
     fixed = _with_cell(path, 0, 'Auto_Focus', 'True')
     protocol = _load(fixed)
 
-    assert protocol.step_row(idx=0)['Auto_Focus'] is True
-    assert protocol.step_row(idx=1)['Auto_Focus'] is False
+    assert protocol.step_row(step_index=0)['Auto_Focus'] is True
+    assert protocol.step_row(step_index=1)['Auto_Focus'] is False
 
 
 def test_a_typed_file_loads_with_the_schemas_dtypes(tmp_path):
@@ -124,9 +124,9 @@ def test_a_protocol_built_from_a_mistyped_frame_is_refused(column, value):
 WRITES = {
     'modify_autofocus': (
         'Auto_Focus',
-        lambda p, v: p.modify_autofocus(step_idx=0, enabled=v),
+        lambda p, v: p.modify_autofocus(step_index=0, enabled=v),
     ),
-    'modify_step_z_height': ('Z', lambda p, v: p.modify_step_z_height(step_idx=0, z=v)),
+    'modify_step_z_height': ('Z', lambda p, v: p.modify_step_z_height(step_index=0, z=v)),
     'apply_zstack_group_focus': (
         'Z',
         lambda p, v: p.apply_zstack_group_focus(reference_step_idx=0, z=v),
@@ -139,7 +139,7 @@ WRITES = {
         'Exposure',
         lambda p, v: p.modify_step(
             turret_slot=-1,
-            step_idx=0,
+            step_index=0,
             layer='BF',
             layer_config={
                 'autofocus': False,
@@ -229,7 +229,7 @@ def test_post_processing_keeps_a_runs_blank_cell_blank_and_types_the_rest(tmp_pa
 
     assert protocol.steps()['Z-Slice'].tolist() == [-1, 0]
     assert protocol.steps()['Auto_Focus'].tolist() == [True, False]
-    assert protocol.step_row(idx=0)['X'] == 10.0
+    assert protocol.step_row(step_index=0)['X'] == 10.0
 
 
 def test_the_post_processing_reader_is_not_runnable():
@@ -274,5 +274,5 @@ def test_a_runs_copy_reads_its_cells_as_its_source_does():
             plate_position=PlateLocation(x_mm=1.0, y_mm=2.0, z_um=3.0),
             objective_id='10x Oly',
             stim_configs={},
-            after_step=1,
+            after_step_index=1,
         )

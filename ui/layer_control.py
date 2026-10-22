@@ -624,9 +624,9 @@ class LayerControl(BoxLayout):
         protocol_settings = ctx.motion_settings.ids['protocol_settings_id']
         protocol = protocol_settings._protocol
         selected_step = int(protocol_settings.curr_step)
-        step_idx = selected_step if selected_step >= 0 else None
+        step_index = selected_step if selected_step >= 0 else None
         run_reported(
-            lambda: ctx.session.save_focus(protocol, self.layer, step_idx=step_idx),
+            lambda: ctx.session.save_focus(protocol, self.layer, step_index=step_index),
             lambda: self._refresh_step_views(ctx, protocol),
             f'SAVE_FOCUS_{self.layer}',
         )

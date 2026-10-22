@@ -30,7 +30,7 @@ def _make_loop(remaining, aborted=False):
 def test_returns_to_first_step_when_scans_remain():
     loop, p = _make_loop(remaining=2)
     loop._return_to_first_step_between_scans()
-    p._protocol.step_row.assert_called_once_with(idx=0)
+    p._protocol.step_row.assert_called_once_with(step_index=0)
     p._step_executor.default_move.assert_called_once_with(px=1.0, py=2.0, z=3.0)
 
 
