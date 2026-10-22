@@ -203,6 +203,10 @@ _FLAKY_REPLY_GAPS = {'stop_position X': _STOP_REST, 'stop_position Y': _STOP_RES
 _FLAKY_DURATION_GAPS = {
     'multi-line drains': 'the drain ends a few ms sooner than on the board, which sometimes '
     "still falls inside the bench's window",
+    # Measured idle 2026-10-22: 2036-2048 ms against the bench's 2119-2251;
+    # a loaded host's delay stretches the wall-clock timing into the window.
+    'turret': 'a slot change finishes about 4% sooner than on the board, which a loaded host '
+    "sometimes stretches inside the bench's window",
 }
 _DURATION_GAPS = {
     'one-line exchanges': 'the board takes longer to answer than the simulator: a few ms on a '
@@ -213,7 +217,6 @@ _DURATION_GAPS = {
     'moves Y': "the unit's own XY register table is not in the simulator; moves finish a few "
     'percent sooner than on the board',
     'moves Z': 'moves finish 1-5% sooner than on the board',
-    'turret': 'a slot change finishes about 5% sooner than on the board',
     'STOP': 'the settle after STOP on X ends about 110 ms sooner than on the board',
     'LED exchanges': 'the LED board takes about 10 ms longer to answer each exchange than the '
     'simulator',
