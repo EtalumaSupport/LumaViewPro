@@ -762,8 +762,17 @@ write (`scope.camera.set_gain_db`, `set_exposure_ms` and the other raw
 doors) the written values stand, and the frame's record says so:
 `frame_record.held_layer` (the layer whose stored settings the camera held,
 else None) is None, the file's `camera_held_a_layer` False. It
-returns at once with an `Operation` of the paths written, the unmarked file
-first; an overlay adds a second file from the same frame. It is done once the
+returns at once with an `Operation` of a `SavedStill` per file written, the
+unmarked file first; an overlay adds a second file from the same frame. Each
+`SavedStill` is its `file` and the instrument's record of it, built at the
+capture: `channel`, `objective_id`, `plate_x_mm`, `plate_y_mm`, `stage_z_um`,
+`well_label`, `significant_bits`, `output_format`, the frame's `FrameRecord`
+(`frame`) and the image's `ImageStatistics` (`statistics`: `minimum`,
+`maximum`, `mean`, `standard_deviation`, `percentile_1`, `median`,
+`percentile_99`, in the array's own counts; saturation and darkness are the
+frame record's). A JPG gets the same record, though its file embeds none of
+it. On the wire the record is the job's result, its `file` a live-folder name,
+and `GET /api/v1/files/<name>` returns the file's exact bytes. It is done once the
 still has let go of the camera, so a second still asked then is not refused
 `'capture_in_flight'`. A still has no stop: its `stop()` does nothing.
 Each file records where the stage was when the frame was grabbed: the plate
@@ -773,9 +782,10 @@ scope with no X and Y).
 
 ```python
 session.show_channel('Blue')
-paths = session.manual_capture.capture(
+(still,) = session.manual_capture.capture(
     false_color_on=True, bullseye=False, crosshairs=False,
 ).result(timeout=30)
+print(still.file, still.well_label, still.statistics.maximum, still.frame.exposure_ms)
 ```
 
 It raises `HardwareCommandRefusedError` with reason `'capture_in_flight'` while an
@@ -2794,8 +2804,8 @@ scope.motion.move_absolute('Y', 40000)
 scope.motion.move_absolute('Z', 5000)
 
 scope.illumination.led_on('BF', 100)
-paths = session.manual_capture.capture(false_color_on=False).result(timeout=30)
-scope.illumination.leds_off()               # paths[0]: the still under live_folder/Manual, with its record
+stills = session.manual_capture.capture(false_color_on=False).result(timeout=30)
+scope.illumination.leds_off()               # stills[0].file: the still under live_folder/Manual
 session.shutdown()
 ```
 
@@ -3931,6 +3941,28 @@ Reached through the event `scope.imaging.add_frame_listener` delivers.
 
 - `frame`
 
+### FrameRecord
+
+Reached through each `SavedStill`'s `frame`, from `session.manual_capture.capture`.
+
+- `binning_size`
+- `black_level`
+- `camera_model`
+- `camera_tick_hz`
+- `camera_timestamp_ticks`
+- `captured_at`
+- `clock_mapping`
+- `dark`
+- `exposure_ms`
+- `frame_id`
+- `frame_significant_bits`
+- `frames_summed`
+- `gain_db`
+- `held_layer`
+- `illumination_ma`
+- `judgments`
+- `saturated_fraction`
+
 ### FrameRule
 
 Reached through each value of `ScopeCapabilities.frame_rules`, and a `Change`'s `rule`.
@@ -3974,6 +4006,18 @@ Reached through a REST problem, whose members carry it.
 Reached through returned by `session.diagnostic_claim`.
 
 - `holds`
+
+### ImageStatistics
+
+Reached through each `SavedStill`'s `statistics`, from `session.manual_capture.capture`.
+
+- `maximum`
+- `mean`
+- `median`
+- `minimum`
+- `percentile_1`
+- `percentile_99`
+- `standard_deviation`
 
 ### InjectedFault
 
@@ -4247,6 +4291,22 @@ Reached through returned by `session.save_focus`.
 
 - `step_idx`
 - `z`
+
+### SavedStill
+
+Reached through each value of `session.manual_capture.capture`'s `Operation` result.
+
+- `channel`
+- `file`
+- `frame`
+- `objective_id`
+- `output_format`
+- `plate_x_mm`
+- `plate_y_mm`
+- `significant_bits`
+- `stage_z_um`
+- `statistics`
+- `well_label`
 
 ### ScanEnded
 

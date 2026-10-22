@@ -34,8 +34,8 @@ def _session(tmp_path, **settings):
 
 
 def _saved_still(session):
-    (path,) = session.manual_capture.capture(false_color_on=False).result(timeout=30.0)
-    return path
+    (still,) = session.manual_capture.capture(false_color_on=False).result(timeout=30.0)
+    return still.file
 
 
 def _rounded(pixel_size_um):

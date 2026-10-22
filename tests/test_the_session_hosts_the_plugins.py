@@ -399,7 +399,7 @@ class TestOneEngineeringMode:
         assert frames, 'the run wrote no frames'
         for name in frames:
             assert token in name, f'{name} carries no turret position; expected {token}'
-        assert token in still[0].name, f'{still[0].name} carries no turret position'
+        assert token in still[0].file.name, f'{still[0].file.name} carries no turret position'
 
     def test_the_application_context_holds_no_engineering_flag(self):
         from modules.app_context import AppContext

@@ -54,9 +54,8 @@ def session(tmp_path):
 
 def _still(session):
     """The still's channel (from its file name) and its frame's record."""
-    paths = session.manual_capture.capture(false_color_on=False).result(timeout=30)
-    record = session.scope.imaging.last_capture_info['frame_record']
-    return paths[0].name, record
+    (still,) = session.manual_capture.capture(false_color_on=False).result(timeout=30)
+    return still.file.name, still.frame
 
 
 def _settings_of(record) -> tuple[float, float]:
@@ -124,10 +123,10 @@ def test_a_still_pressed_as_the_shown_layer_changes_is_one_layers(session):
         session.show_channel('Blue')
     finally:
         session.remove_shown_channel_listener(press)
-    paths = pressed[0].result(timeout=30)
-    record = session.scope.imaging.last_capture_info['frame_record']
+    (still,) = pressed[0].result(timeout=30)
+    record = still.frame
 
-    assert '_Blue_' in paths[0].name
+    assert '_Blue_' in still.file.name
     assert _settings_of(record) == _stored('Blue')
 
 
@@ -147,10 +146,10 @@ def test_the_saved_file_states_the_layer_the_camera_held(session):
     from modules.image_utils import read_postproc_input_metadata
 
     session.scope.illumination.led_on('Blue', 100.0)
-    held = session.manual_capture.capture(false_color_on=False).result(timeout=30)[0]
+    held = session.manual_capture.capture(false_color_on=False).result(timeout=30)[0].file
     session.scope.illumination.leds_off()
     session.scope.camera.set_exposure_ms(30.0)
-    raw = session.manual_capture.capture(false_color_on=False).result(timeout=30)[0]
+    raw = session.manual_capture.capture(false_color_on=False).result(timeout=30)[0].file
 
     held_saved = read_postproc_input_metadata(held)
     raw_saved = read_postproc_input_metadata(raw)
@@ -233,11 +232,11 @@ def test_a_running_still_holds_its_layer_when_the_scope_is_taken_meanwhile(sessi
     monkeypatch.setattr(controller, '_shown_layer', shown_layer_after_the_scope_is_taken)
     session.scope.illumination.led_on('Blue', 100.0)
     try:
-        paths = controller.capture(false_color_on=False).result(timeout=30)
+        (still,) = controller.capture(false_color_on=False).result(timeout=30)
     finally:
         taken[0].release()
-    record = session.scope.imaging.last_capture_info['frame_record']
+    record = still.frame
 
     assert taken[0] is not None
-    assert '_Blue_' in paths[0].name
+    assert '_Blue_' in still.file.name
     assert _settings_of(record) == _stored('Blue')

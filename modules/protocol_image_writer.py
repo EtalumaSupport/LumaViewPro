@@ -1831,14 +1831,9 @@ class ProtocolImageWriter:
                 )
                 raise
 
-            if capture_result is None:
-                capture_result_filepath_name = ProtocolExecutionRecord.UNSAVED
-            elif isinstance(capture_result, dict):
-                capture_result_filepath_name = capture_result['metadata']['file_loc']
-            else:
-                capture_result_filepath_name = _recorded_name(
-                    step, capture_result.name, separate_folder_per_channel
-                )
+            capture_result_filepath_name = _recorded_name(
+                step, capture_result.name, separate_folder_per_channel
+            )
 
         else:
             capture_result_filepath_name = ProtocolExecutionRecord.UNSAVED

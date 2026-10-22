@@ -9,6 +9,7 @@ API. Two callers making the same call get the same file.
 """
 
 import concurrent.futures
+import dataclasses
 import logging
 import pathlib
 import threading
@@ -27,10 +28,12 @@ from modules.exceptions import (
     LiveFolderPathRefusedError,
 )
 from modules.image_save import save_image
+from modules.image_utils import ImageStatistics
 from modules.layer_record import ChannelColors
 from modules.lumascope_api.camera import LayerCameraRequest
+from modules.lumascope_api.frame_record import FrameRecord
 from modules.recording_frames import frame_fact
-from modules.api_surface import api
+from modules.api_surface import api, api_fields
 from modules.operation import Operation
 
 logger = logging.getLogger('LVP.modules.manual_capture')
@@ -41,6 +44,60 @@ logger = logging.getLogger('LVP.modules.manual_capture')
 _CAPTURE_RETRY_BUDGET_S = 5.0
 
 _MEMBER = 'manual_capture.capture'
+
+
+@api_fields(
+    'channel',
+    'file',
+    'frame',
+    'objective_id',
+    'output_format',
+    'plate_x_mm',
+    'plate_y_mm',
+    'significant_bits',
+    'stage_z_um',
+    'statistics',
+    'well_label',
+)
+@dataclasses.dataclass(frozen=True)
+class SavedStill:
+    """One file a still wrote, with the instrument's record of it.
+
+    Built at the capture from what the still read beside its grab, for
+    every format alike: a JPG embeds none of it, so the record is the one
+    place a JPG's channel, position and frame are stated.
+
+    Attributes:
+        file: The file written.
+        channel: The layer it is named and set for.
+        objective_id: The objective in the light path when it was taken.
+        plate_x_mm: Plate X where it was taken; None when the axis had no
+            reference.
+        plate_y_mm: Plate Y, likewise.
+        stage_z_um: Stage Z, likewise.
+        well_label: The well at that position; None off the plate's wells,
+            on a plate with none, or at an unknown position.
+        significant_bits: The depth of the array saved: the frame's as
+            captured, or 8 for an overlay copy, the frame's 8-bit rendering.
+            A scaled encoding stores the frame left-justified in its file.
+        output_format: ``'TIFF'``, ``'OME-TIFF'`` or ``'JPG'``.
+        frame: The instrument's account of the frame (``FrameRecord``); an
+            overlay copy carries its frame's.
+        statistics: The values of the array saved, in its counts at
+            ``significant_bits``.
+    """
+
+    file: pathlib.Path
+    channel: str
+    objective_id: str
+    plate_x_mm: float | None
+    plate_y_mm: float | None
+    stage_z_um: float | None
+    well_label: str | None
+    significant_bits: int
+    output_format: str
+    frame: FrameRecord
+    statistics: ImageStatistics
 
 
 class ManualCaptureController:
@@ -120,8 +177,9 @@ class ManualCaptureController:
         engineering mode the name carries the turret slot.
 
         Returns:
-            An ``Operation`` whose result is the paths written, the unmarked
-            file first, done once the still has let go of the camera lane's
+            An ``Operation`` whose result is a ``SavedStill`` per file
+            written, the unmarked file first: its file and the
+            instrument's record of it. Done once the still has let go of the camera lane's
             guard, so a second still asked then is not refused. The
             still is on the camera lane when this returns, so a run started
             after it waits for it when it is running or was put on an idle
@@ -183,7 +241,7 @@ class ManualCaptureController:
         if not request.body_started.is_set():
             self._in_flight.release()
 
-    def _still_body(self, request: '_StillRequest') -> list[pathlib.Path]:
+    def _still_body(self, request: '_StillRequest') -> list[SavedStill]:
         """The whole still on the camera worker: grab, record and write.
 
         One lane task, so no camera write can land between the grab and the
@@ -253,7 +311,7 @@ class ManualCaptureController:
             )
             channel = light
 
-    def _capture_and_save(self, request: '_StillRequest') -> list[pathlib.Path]:
+    def _capture_and_save(self, request: '_StillRequest') -> list[SavedStill]:
         scope = request.scope
         settings = request.settings
         capture_config = config_helpers.get_image_capture_config_from_settings(settings)
@@ -356,7 +414,23 @@ class ManualCaptureController:
             labware=labware,
             well_label=well_label,
         )
-        paths = [raw_path]
+
+        def saved(path: pathlib.Path, written: Any, bits: int) -> SavedStill:
+            return SavedStill(
+                file=path,
+                channel=channel,
+                objective_id=objective_id,
+                plate_x_mm=fact.plate_x_mm,
+                plate_y_mm=fact.plate_y_mm,
+                stage_z_um=fact.z_um,
+                well_label=well_label,
+                significant_bits=bits,
+                output_format=capture_config.output_format_live,
+                frame=frame_record,
+                statistics=image_utils.image_statistics(written),
+            )
+
+        stills = [saved(raw_path, array, significant_bits)]
 
         if request.bullseye or request.crosshairs:
             # The overlay is drawn on the 8-bit rendering the frame is shown
@@ -372,32 +446,32 @@ class ManualCaptureController:
             # Named after the unmarked file it copies, so the pair sorts
             # together and cannot be mismatched.
             raw_stem = raw_path.name[: len(raw_path.name) - len(''.join(raw_path.suffixes))]
-            paths.append(
-                save_image(
-                    scope,
-                    overlay,
-                    save_folder=save_folder,
-                    file_root='',
-                    append=f'{raw_stem}_overlay',
-                    tail_id_mode='if_collision',
-                    significant_bits=scope.imaging.capture_frame_depth(overlay),
-                    # Already the 8-bit rendering, shown as it is.
-                    white_bits=None,
-                    channel=channel,
-                    false_color_on=request.false_color_on,
-                    channel_colors=request.channel_colors,
-                    output_format=capture_config.output_format_live,
-                    jpeg_quality=capture_config.jpg_quality,
-                    save_encoding=capture_config.save_encoding,
-                    plate_x_mm=fact.plate_x_mm,
-                    plate_y_mm=fact.plate_y_mm,
-                    stage_z_um=fact.z_um,
-                    objective_id=objective_id,
-                    frame_record=frame_record,
-                    labware=labware,
-                    well_label=well_label,
-                )
+            overlay_bits = scope.imaging.capture_frame_depth(overlay)
+            overlay_path = save_image(
+                scope,
+                overlay,
+                save_folder=save_folder,
+                file_root='',
+                append=f'{raw_stem}_overlay',
+                tail_id_mode='if_collision',
+                significant_bits=overlay_bits,
+                # Already the 8-bit rendering, shown as it is.
+                white_bits=None,
+                channel=channel,
+                false_color_on=request.false_color_on,
+                channel_colors=request.channel_colors,
+                output_format=capture_config.output_format_live,
+                jpeg_quality=capture_config.jpg_quality,
+                save_encoding=capture_config.save_encoding,
+                plate_x_mm=fact.plate_x_mm,
+                plate_y_mm=fact.plate_y_mm,
+                stage_z_um=fact.z_um,
+                objective_id=objective_id,
+                frame_record=frame_record,
+                labware=labware,
+                well_label=well_label,
             )
+            stills.append(saved(overlay_path, overlay, overlay_bits))
 
         # Both depths, because they differ: a scaled encoding left-justifies a
         # 12-bit capture to fill the 16-bit container, so the file is 16-bit
@@ -412,9 +486,10 @@ class ManualCaptureController:
         logger.info(
             f'[ManualCapture] encoding={capture_config.save_encoding} '
             f'capture_bits={significant_bits} saved_significant_bits={saved_significant_bits} '
-            f'dtype={array.dtype} shape={array.shape} -> {", ".join(p.name for p in paths)}'
+            f'dtype={array.dtype} shape={array.shape} -> '
+            f'{", ".join(s.file.name for s in stills)}'
         )
-        return paths
+        return stills
 
 
 def _make_folder(settings: dict, folder: pathlib.Path) -> None:

@@ -87,6 +87,10 @@ def _capture(session, **kwargs):
     return session.manual_capture.capture(**kwargs).result(timeout=RESULT_TIMEOUT_S)
 
 
+def _files(session, **kwargs):
+    return [still.file for still in _capture(session, **kwargs)]
+
+
 class _LaneBlocker:
     """Holds the camera lane with a task of its own until released."""
 
@@ -116,10 +120,10 @@ class TestWhereTheFileLands:
         session, tmp_path = still_session
         well = over_the_first_well(session)
 
-        paths = _capture(session)
+        stills = _capture(session)
 
-        assert len(paths) == 1
-        path = paths[0]
+        assert len(stills) == 1
+        path = stills[0].file
         assert isinstance(path, pathlib.Path)
         assert path.parent == tmp_path / 'Manual'
         assert path.name == f'live_{well}_BF_000001.tiff'
@@ -143,17 +147,18 @@ class TestWhereTheFileLands:
         with session.scope.motion._axis_state_lock:
             session.scope.motion._axis_state['X'] = AxisState.UNKNOWN
 
-        paths = _capture(session)
+        stills = _capture(session)
 
-        assert [p.name for p in paths] == ['live_BF_000001.tiff']
-        assert paths[0].is_file()
+        assert [s.file.name for s in stills] == ['live_BF_000001.tiff']
+        assert stills[0].file.is_file()
+        assert stills[0].well_label is None
         assert shown == ['Position Not Recorded']
 
     def test_the_shown_channel_names_the_still_when_nothing_is_lit(self, still_session):
         session, _ = still_session
         session.show_channel('Blue')
 
-        (path,) = _capture(session)
+        (path,) = _files(session)
 
         assert '_Blue_' in path.name
         assert read_postproc_input_metadata(path)['channel'] == 'Blue'
@@ -163,33 +168,32 @@ class TestWhereTheFileLands:
         session.show_channel('Blue')
         session.scope.illumination.led_on('Green', 50.0)
 
-        (path,) = _capture(session)
+        (path,) = _files(session)
 
         assert '_Green_' in path.name
         assert read_postproc_input_metadata(path)['channel'] == 'Green'
 
-    def test_a_second_still_takes_the_next_number_and_is_a_path(self, still_session):
+    def test_a_second_still_takes_the_next_number(self, still_session):
         session, _ = still_session
 
-        (first,) = _capture(session)
-        (second,) = _capture(session)
+        (first,) = _files(session)
+        (second,) = _files(session)
 
         assert first.name.endswith('_000001.tiff')
         assert second.name.endswith('_000002.tiff')
-        assert isinstance(second, pathlib.Path)
 
     def test_a_folder_per_channel(self, tmp_path):
         settings = _settings(tmp_path)
         settings['separate_folder_per_channel'] = True
         with _open_session(settings) as session:
             session.show_channel('Red')
-            (path,) = _capture(session)
+            (path,) = _files(session)
 
         assert path.parent == tmp_path / 'Manual' / 'Red'
 
     def test_the_live_format_is_the_settings(self, tmp_path):
         with _open_session(_settings(tmp_path, live_format='JPG')) as session:
-            (path,) = _capture(session)
+            (path,) = _files(session)
 
         assert path.suffix == '.jpg'
         assert path.read_bytes()[:2] == b'\xff\xd8'
@@ -199,7 +203,7 @@ class TestOverlays:
     def test_an_overlay_is_a_second_file_from_the_same_capture(self, still_session):
         session, _ = still_session
 
-        raw, overlay = _capture(session, crosshairs=True)
+        raw, overlay = _files(session, crosshairs=True)
 
         assert overlay.name == raw.name.replace('.tiff', '_overlay.tiff')
         raw_pixels = read_tiff_with_legacy_collapse(raw)
@@ -223,7 +227,7 @@ class TestOverlays:
             sample_z = session.scope._camera_driver.get_nominal_focal_z()
             session.scope.motion.move_absolute('Z', sample_z)
             session.scope.illumination.led_on('BF', 200.0)
-            paths = _capture(session, bullseye=True, crosshairs=True)
+            paths = _files(session, bullseye=True, crosshairs=True)
             peak = int(read_tiff_with_legacy_collapse(paths[0]).max())
 
         assert peak > 4095, f'the summed frame never left the per-frame range (peak {peak})'
@@ -245,7 +249,7 @@ class TestRefusalsAndFailures:
             assert not still.done()
         finally:
             blocker.release()
-        assert still.result(timeout=RESULT_TIMEOUT_S)[0].is_file()
+        assert still.result(timeout=RESULT_TIMEOUT_S)[0].file.is_file()
 
     def test_a_second_still_while_one_is_in_flight_is_refused(self, still_session):
         session, _ = still_session
@@ -257,7 +261,7 @@ class TestRefusalsAndFailures:
             assert refused.value.reason == 'capture_in_flight'
         finally:
             blocker.release()
-        assert first.result(timeout=RESULT_TIMEOUT_S)[0].is_file()
+        assert first.result(timeout=RESULT_TIMEOUT_S)[0].file.is_file()
         assert not session.manual_capture.in_flight
 
     def test_the_guard_holds_until_the_lane_body_ends_not_the_callers_wait(self, tmp_path):
@@ -355,7 +359,8 @@ class TestTheRecordIsTheCapturesMoment:
             writer.start()
         finally:
             blocker.release()
-        (path,) = future.result(timeout=RESULT_TIMEOUT_S)
+        (still,) = future.result(timeout=RESULT_TIMEOUT_S)
+        path = still.file
         writer.join(RESULT_TIMEOUT_S)
 
         assert read_postproc_input_metadata(path)['gain_db'] == pytest.approx(1.0)
@@ -383,3 +388,81 @@ class TestTheStillIsMadeAfterThePendingWrites:
         assert info['drained'] >= imaging.frame_validity.SKIP_FRAMES['led'], (
             f'the still was not drained past the LED write: {info}'
         )
+
+
+class TestAStillReturnsItsRecord:
+    """A still's result is its file with the instrument's record of it,
+    built at the capture, so a JPG -- whose file embeds none of it -- says
+    where and how it was taken as a TIFF does."""
+
+    # parametrize-justified: each format is its own writer branch, and a JPG
+    # embeds no metadata, so its record is the capture's alone.
+    @pytest.mark.parametrize('live_format', ['TIFF', 'OME-TIFF', 'JPG'])
+    def test_each_format_returns_its_file_with_the_record(self, tmp_path, live_format):
+        with _open_session(_settings(tmp_path, live_format=live_format)) as session:
+            well = over_the_first_well(session)
+            x_mm, y_mm = session.scope.runtime_state.get_labware().get_well_position(0, 0)
+            objective_id, _ = session.scope.runtime_state.resolve_current_objective()
+
+            (still,) = _capture(session)
+
+        assert still.file.is_file()
+        assert still.output_format == live_format
+        assert still.channel == 'BF'
+        assert still.objective_id == objective_id
+        assert still.well_label == well
+        assert still.plate_x_mm == pytest.approx(x_mm, abs=0.01)
+        assert still.plate_y_mm == pytest.approx(y_mm, abs=0.01)
+        assert still.stage_z_um is not None
+        assert still.frame.frames_summed == 1
+        assert still.significant_bits == 8
+        assert 0 <= still.statistics.minimum <= still.statistics.maximum <= 255
+
+    def test_the_statistics_are_the_saved_pixels(self, still_session):
+        from modules.image_utils import image_statistics, load_pixels
+
+        session, _ = still_session
+
+        (still,) = _capture(session)
+
+        pixels, bits, _ = load_pixels(still.file)
+        assert bits == still.significant_bits
+        assert still.statistics == image_statistics(pixels)
+
+    def test_an_overlay_copy_states_its_own_pixels_and_its_frames_record(self, still_session):
+        session, _ = still_session
+
+        raw, overlay = _capture(session, crosshairs=True)
+
+        assert overlay.frame == raw.frame
+        assert overlay.significant_bits == 8
+        # The crosshairs are drawn white, so the copy reaches full scale.
+        assert overlay.statistics.maximum == 255
+        assert overlay.statistics != raw.statistics
+
+    def test_the_record_is_the_jobs_result_on_the_wire(self, still_session):
+        from fastapi.testclient import TestClient
+
+        from rest.app import build_app
+
+        session, _ = still_session
+        with TestClient(build_app(session)) as client:
+            job = client.post(
+                '/api/v1/manual_capture/capture', json={'false_color_on': False}
+            ).json()
+            ended = client.get(f'/api/v1/jobs/{job["id"]}', headers={'Prefer': 'wait=30'}).json()
+
+        assert ended['status'] == 'completed', ended
+        (still,) = ended['result']
+        assert still['file']['name'] == 'Manual/live_BF_000001.tiff'
+        assert still['channel'] == 'BF'
+        assert still['frame']['frames_summed'] == 1
+        assert set(still['statistics']) == {
+            'minimum',
+            'maximum',
+            'mean',
+            'standard_deviation',
+            'percentile_1',
+            'median',
+            'percentile_99',
+        }

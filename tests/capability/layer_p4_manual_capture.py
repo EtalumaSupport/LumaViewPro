@@ -22,7 +22,9 @@ try:
     # --- Stage B: the Session member captures and saves one still ---
     scope.illumination.led_on('Blue', 100.0)
     s.show_channel('Blue')
-    paths = s.manual_capture.capture(false_color_on=True).result(timeout=30)
+    paths = [
+        still.file for still in s.manual_capture.capture(false_color_on=True).result(timeout=30)
+    ]
     print('B: session.manual_capture.capture ->', paths)
     written = len(paths) == 1 and paths[0].is_file() and paths[0].parent == live / 'Manual'
     print('B: file exists:', written, 'bytes:', paths[0].stat().st_size if written else None)

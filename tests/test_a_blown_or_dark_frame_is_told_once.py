@@ -142,12 +142,12 @@ def test_a_runs_dark_frames_are_told_once_per_step_and_counted(tmp_path, monkeyp
 
 
 def test_a_blown_still_is_told_once_by_the_still(tmp_path, monkeypatch, caplog):
-    from tests.test_manual_capture_member import _capture, _open_session, _settings
+    from tests.test_manual_capture_member import _files, _open_session, _settings
 
     with _open_session(_settings(tmp_path)) as session:
         _frames_made(monkeypatch, session.scope._camera_driver, _blown)
         with caplog.at_level(logging.WARNING, logger='LVP.modules.manual_capture'):
-            paths = _capture(session)
+            paths = _files(session)
         record = session.scope.imaging.last_capture_info['frame_record']
 
     assert paths and paths[0].is_file(), 'a blown still is saved'
@@ -161,13 +161,13 @@ def test_a_blown_still_is_told_once_by_the_still(tmp_path, monkeypatch, caplog):
 
 def test_a_saved_file_states_what_its_frame_was(tmp_path, monkeypatch):
     from modules.image_utils import read_postproc_input_metadata
-    from tests.test_manual_capture_member import _capture, _open_session, _settings
+    from tests.test_manual_capture_member import _files, _open_session, _settings
 
     with _open_session(_settings(tmp_path)) as session:
         # The still's light is on, so a frame with no lit pixel is judged dark.
         session.scope.illumination.led_on('BF', 50)
         _frames_made(monkeypatch, session.scope._camera_driver, _dark)
-        paths = _capture(session)
+        paths = _files(session)
 
     saved = read_postproc_input_metadata(paths[0])
     assert (saved.get('dark'), saved.get('saturated_fraction')) == (True, 0.0), saved

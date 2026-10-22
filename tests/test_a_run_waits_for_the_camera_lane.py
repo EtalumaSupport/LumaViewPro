@@ -116,7 +116,7 @@ class TestAStillInFlightFinishesFirst:
         )
 
         paths = still.result(timeout=RESULT_TIMEOUT_S)
-        assert paths and paths[0].exists(), 'the still under a starting run saved nothing'
+        assert paths and paths[0].file.exists(), 'the still under a starting run saved nothing'
         assert session.sequenced_capture_runner.wait_for_run_idle(timeout_s=RESULT_TIMEOUT_S)
         result = outcome.result(timeout=RESULT_TIMEOUT_S)
         assert result is not None and result.status == 'completed', result
@@ -137,7 +137,7 @@ class TestAStillInFlightFinishesFirst:
         finally:
             late.release()
         paths = still.result(timeout=RESULT_TIMEOUT_S)
-        assert paths and paths[0].exists(), 'the run refused a still put on an idle lane'
+        assert paths and paths[0].file.exists(), 'the run refused a still put on an idle lane'
         assert session.sequenced_capture_runner.wait_for_run_idle(timeout_s=RESULT_TIMEOUT_S)
         result = outcome.result(timeout=RESULT_TIMEOUT_S)
         assert result is not None and result.status == 'completed', result

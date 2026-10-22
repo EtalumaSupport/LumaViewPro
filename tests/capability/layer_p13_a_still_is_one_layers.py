@@ -48,8 +48,8 @@ def _file_record(path):
 
 
 def _still(session):
-    paths = session.manual_capture.capture(false_color_on=False).result(timeout=60)
-    return paths[0]
+    stills = session.manual_capture.capture(false_color_on=False).result(timeout=60)
+    return stills[0].file
 
 
 def judge(session, label, path, expect=None):

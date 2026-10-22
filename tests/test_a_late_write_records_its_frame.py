@@ -35,7 +35,7 @@ from modules.recording_frames import FrameFact
 from tests.frame_records import plate
 from tests.test_composite_run_e2e import headless_settings, open_composite_session
 from tests.test_manual_capture_member import (
-    _capture,
+    _files,
     _open_session,
     _settings,
     over_the_first_well,
@@ -263,7 +263,7 @@ class TestAManualStillRecordsItsFrame:
         with _open_session(_settings(tmp_path)) as session:
             well = over_the_first_well(session)
             session.scope.illumination.led_on('BF', 40.0)
-            (path,) = _capture(session)
+            (path,) = _files(session)
 
         metadata = read_postproc_input_metadata(path)
         assert metadata.get('illumination_ma') == 40.0, metadata.get('illumination_ma')

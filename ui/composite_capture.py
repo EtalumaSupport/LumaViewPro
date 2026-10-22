@@ -149,7 +149,7 @@ class CompositeCapture(FloatLayout):
 def _still_settled(done) -> None:
     """Read the settled still on the Kivy thread: its folder, or its failure to the reporter."""
     run_reported(
-        lambda: set_last_save_folder(dir=done.result()[0].parent),
+        lambda: set_last_save_folder(dir=done.result()[0].file.parent),
         None,
         'LIVE_CAPTURE',
     )

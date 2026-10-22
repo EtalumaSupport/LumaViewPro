@@ -56,6 +56,25 @@ class ClockMapping:
         return self.camera_ticks + round((host_ns - self.host_ns) * self.tick_hz / 1e9)
 
 
+@api_fields(
+    'black_level',
+    'binning_size',
+    'camera_model',
+    'camera_tick_hz',
+    'camera_timestamp_ticks',
+    'captured_at',
+    'clock_mapping',
+    'dark',
+    'exposure_ms',
+    'frame_id',
+    'frame_significant_bits',
+    'frames_summed',
+    'gain_db',
+    'held_layer',
+    'illumination_ma',
+    'judgments',
+    'saturated_fraction',
+)
 @dataclasses.dataclass(frozen=True)
 class FrameRecord:
     """The instrument's own account of one captured frame.

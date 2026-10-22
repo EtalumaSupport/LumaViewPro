@@ -708,12 +708,12 @@ def save_image(
     render_color = layer_record.shown_color(channel, false_color_on, channel_colors)
 
     if output_format == 'JPG':
-        # JPG is a convenience / sharing export: no metadata is embedded
-        # and the pixels come from the raw array (to match the live
-        # preview), so skip prepare_image_for_saving. Its
-        # generate_image_metadata step requires objective / labware to be
-        # configured, which an ad-hoc JPG snapshot taken before a protocol
-        # is set up has no reason to need. Only the save path is required.
+        # JPG is a convenience / sharing export: the pixels come from the
+        # raw array (to match the live preview) and the file has no place
+        # for the metadata a TIFF carries, so skip prepare_image_for_saving.
+        # A manual still states what the file cannot in the record its
+        # capture returns (manual_capture.SavedStill). Only the save path
+        # is required.
         image = None
         metadata = None
         file_loc = generate_image_save_path(

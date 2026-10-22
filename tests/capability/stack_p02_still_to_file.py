@@ -27,9 +27,9 @@ def body(session):
             for _ in range(N):
                 t = time.perf_counter()
                 fut = session.manual_capture.capture(false_color_on=False)
-                paths = fut.result(timeout=60)
+                stills = fut.result(timeout=60)
                 samples.append(time.perf_counter() - t)
-                sizes.append(paths[0].stat().st_size)
+                sizes.append(stills[0].file.stat().st_size)
             figure(
                 f'S3.still_request_to_file_{mode}',
                 {

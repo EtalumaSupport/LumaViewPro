@@ -15,7 +15,7 @@ from modules import layer_record
 from modules.exceptions import SettingRefusedError
 from modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
-from tests.test_manual_capture_member import _capture, _open_session, _settings
+from tests.test_manual_capture_member import _files, _open_session, _settings
 
 MAGENTA = '#ff00ff'
 
@@ -80,7 +80,7 @@ def test_a_still_is_saved_in_its_channels_override(tmp_path):
         session.show_channel('Red')
         session.update_settings('Red.display_color', MAGENTA)
 
-        (path,) = _capture(session, false_color_on=True)
+        (path,) = _files(session, false_color_on=True)
 
         with tifffile.TiffFile(path) as tif:
             brightest = [int(v) for v in tif.pages[0].colormap[:, -1]]
