@@ -394,7 +394,7 @@ class TestAFrameTheRunRecordedAndTheFolderLacks:
         with pytest.raises(PostProcessingFailedError) as incomplete:
             build(folder)
 
-        assert 'A1_BF_Z1 scan 0 (not in the folder: A1_BF_Z1_0000.tiff)' in str(
+        assert 'A1_BF_Z1 scan 1 (not in the folder: A1_BF_Z1_0000.tiff)' in str(
             incomplete.value.errors
         )
         made = _outputs(folder)
@@ -407,7 +407,7 @@ class TestAFrameTheRunRecordedAndTheFolderLacks:
         with pytest.raises(PostProcessingFailedError) as incomplete:
             _zproject(folder)
 
-        assert 'A1_BF_Z1 scan 0 (its capture failed during the run: capture_failed)' in str(
+        assert 'A1_BF_Z1 scan 1 (its capture failed during the run: capture_failed)' in str(
             incomplete.value.errors
         )
         assert not any(name.startswith('A1') for name in _outputs(folder))
@@ -495,6 +495,6 @@ class TestAFrameTheRunRecordedAndTheFolderLacks:
         with pytest.raises(PostProcessingFailedError) as failed:
             _zproject(folder / 'Blue')
 
-        assert 'A1_Blue_Z1 scan 0 (its capture failed during the run: capture_failed)' in str(
+        assert 'A1_Blue_Z1 scan 1 (its capture failed during the run: capture_failed)' in str(
             failed.value.errors
         )

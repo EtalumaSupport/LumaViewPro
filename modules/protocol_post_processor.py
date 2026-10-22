@@ -159,7 +159,7 @@ def _missing_frames_error(missing: pd.DataFrame) -> str:
             why = f'not in the folder: {row["Filepath"]}'
         else:
             why = f'its capture failed during the run: {row["Missing"]}'
-        named.append(f'{row["Name"]} scan {row["Scan Count"]} ({why})')
+        named.append(f'{row["Name"]} scan {row["Scan Count"] + 1} ({why})')
     return f'{len(named)} frame(s) the run recorded are missing -- ' + '; '.join(named)
 
 

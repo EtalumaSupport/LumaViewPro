@@ -120,8 +120,8 @@ def test_a_runs_blown_frames_are_told_once_per_step_and_counted(tmp_path, monkey
     ], captures
     per_step = [line for line in told if 'saturated --' in line]
     assert len(per_step) == 2, per_step
-    assert any('Step 0 (C1), scan 0' in line for line in per_step), per_step
-    assert any('Step 1 (C2), scan 0' in line for line in per_step), per_step
+    assert any('Step 1 (C1), scan 1' in line for line in per_step), per_step
+    assert any('Step 2 (C2), scan 1' in line for line in per_step), per_step
     ends = [line for line in told if 'The run kept frames' in line]
     assert ends == ['[PROTOCOL] The run kept frames that were 4 saturated (steps: C1, C2)'], told
 

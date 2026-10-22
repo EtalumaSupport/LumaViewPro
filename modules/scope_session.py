@@ -2707,7 +2707,9 @@ class ScopeSession:
             logger.info(f'[Session  ] Focus saved: {layer} Z={z}, no step written')
             return SavedFocus(z=z, step_index=None)
         self.scope.protocols.set_step_z(protocol, step_index, z)
-        logger.info(f'[Session  ] Focus saved: {layer} Z={z}, and as the Z of step {step_index}')
+        logger.info(
+            f'[Session  ] Focus saved: {layer} Z={z}, and as the Z of step {step_index + 1}'
+        )
         return SavedFocus(z=z, step_index=step_index)
 
     @api(sets='saved_focus')

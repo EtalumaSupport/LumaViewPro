@@ -154,7 +154,7 @@ class ProtocolStepRunner:
             _af_exc = p._af_future.exception()
             _af_step = p._protocol.step_row(step_index=p._curr_step)
             if isinstance(_af_exc, AutofocusAborted):
-                logger.debug(f'[PROTOCOL] Autofocus aborted at step {p._curr_step}')
+                logger.debug(f'[PROTOCOL] Autofocus aborted at step {p._curr_step + 1}')
             else:
                 # On the run's record either way: a later scan that focuses
                 # the step clears an earlier failure.
@@ -167,7 +167,7 @@ class ProtocolStepRunner:
             if _af_exc is not None and not isinstance(_af_exc, AutofocusAborted):
                 _af_well = _af_step.get('Well', '?')
                 logger.warning(
-                    f'[PROTOCOL] Autofocus failed at step {p._curr_step} '
+                    f'[PROTOCOL] Autofocus failed at step {p._curr_step + 1} '
                     f'(well {_af_well}) ({type(_af_exc).__name__}: {_af_exc}) -- '
                     f'capturing at fallback Z and continuing'
                 )
@@ -226,7 +226,7 @@ class ProtocolStepRunner:
         # --- Pipeline timing instrumentation ---
         _t_settle = time.monotonic()
         _settle_wait_ms = (_t_settle - p._step_start_time) * 1000
-        logger.debug(f'[TIMING] Step {p._curr_step} motion settle: {_settle_wait_ms:.1f}ms')
+        logger.debug(f'[TIMING] Step {p._curr_step + 1} motion settle: {_settle_wait_ms:.1f}ms')
 
         # Camera settings (gain, exposure) and LED_ON are handled by
         # protocol_image_writer.capture() right before the actual frame grab.
@@ -487,7 +487,7 @@ class ProtocolStepRunner:
                 )
                 _t_capture_done = time.monotonic()
                 logger.debug(
-                    f'[TIMING] Step {p._curr_step} capture+save: {(_t_capture_done - _t_capture_start) * 1000:.1f}ms'
+                    f'[TIMING] Step {p._curr_step + 1} capture+save: {(_t_capture_done - _t_capture_start) * 1000:.1f}ms'
                 )
                 # Record the scan's first completed acquisition; the run loop
                 # anchors scan 1's timelapse period on it (a scan whose every
@@ -521,7 +521,7 @@ class ProtocolStepRunner:
                 notifications.report_outcome(rejected, solicited=False, category='Camera')
 
         logger.debug(
-            f'[TIMING] Step {p._curr_step} total: {(time.monotonic() - p._step_start_time) * 1000:.1f}ms'
+            f'[TIMING] Step {p._curr_step + 1} total: {(time.monotonic() - p._step_start_time) * 1000:.1f}ms'
         )
 
         num_steps = p._protocol.num_steps()

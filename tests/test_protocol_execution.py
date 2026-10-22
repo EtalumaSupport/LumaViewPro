@@ -518,7 +518,7 @@ class TestAutofocusFailureDoesNotHaltProtocol:
         w = af_warnings[0]
         # The step and well tie a blurry fallback-Z capture to its origin, and the
         # exception type + message make the line user-actionable.
-        assert 'step 0' in w, f'warning is missing the step index: {w!r}'
+        assert 'step 1' in w, f'warning is missing the step number: {w!r}'
         assert 'well A1' in w, f'warning is missing the well: {w!r}'
         assert 'RuntimeError' in w and 'camera fault during AF' in w, (
             f'warning is missing the AF exception type/message: {w!r}'
@@ -583,8 +583,8 @@ class TestAutofocusFailureDoesNotHaltProtocol:
             'the step runner must emit exactly one step-correlated AF-failure '
             f'warning across the settle polls, not one per poll (got {len(af_warnings)})'
         )
-        assert 'step 0' in af_warnings[0], (
-            f'the AF-failure warning is missing the step index: {af_warnings[0]!r}'
+        assert 'step 1' in af_warnings[0], (
+            f'the AF-failure warning is missing the step number: {af_warnings[0]!r}'
         )
         assert af_future.exception.call_count == 1, (
             'the resolved AF future must be consumed exactly once, not per poll '

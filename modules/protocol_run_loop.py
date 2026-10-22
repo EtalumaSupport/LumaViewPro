@@ -284,7 +284,7 @@ class ProtocolRunLoop:
                 scan_aborted = p._aborted.is_set()
                 scan_outcome = 'aborted after' if scan_aborted else 'completed in'
                 logger.info(
-                    f'Protocol scan {p._scan_count} {scan_outcome} '
+                    f'Protocol scan {p._scan_count + 1} {scan_outcome} '
                     f'{scan_duration.total_seconds():.2f} seconds'
                 )
 

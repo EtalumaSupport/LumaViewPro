@@ -1013,7 +1013,7 @@ class ProtocolImageWriter:
                 if isinstance(slot, TakenCapture) and slot.step_index == curr_step
             ]
             self._capture_slots[key] = captured
-        where = f'Step {curr_step} ({captured.step_name}), scan {scan_count}'
+        where = f'Step {curr_step + 1} ({captured.step_name}), scan {scan_count + 1}'
         if captured.blown and not any(slot.blown for slot in earlier):
             logger.warning(
                 f'[PROTOCOL] {where}: the frame is {record.saturated_fraction * 100.0:.0f}% '
@@ -1045,16 +1045,16 @@ class ProtocolImageWriter:
             )
         if self._scope.camera.camera_removed:
             logger.error(
-                f'[PROTOCOL] Capture failed for step {curr_step} ({step.get("Name", "?")}), '
-                f'scan {scan_count} -- the camera was removed'
+                f'[PROTOCOL] Capture failed for step {curr_step + 1} ({step.get("Name", "?")}), '
+                f'scan {scan_count + 1} -- the camera was removed'
             )
             ending = hardware_disconnected_ending((MissingPart.CAMERA.name,))
             self._end_run_fatally(ending.reason, ending.message)
             return
         self._consecutive_capture_failures += 1
         logger.error(
-            f'[PROTOCOL] Capture failed for step {curr_step} ({step.get("Name", "?")}), '
-            f'scan {scan_count} -- {cause} (failure '
+            f'[PROTOCOL] Capture failed for step {curr_step + 1} ({step.get("Name", "?")}), '
+            f'scan {scan_count + 1} -- {cause} (failure '
             f'{self._consecutive_capture_failures}/{self._MAX_CONSECUTIVE_CAPTURE_FAILURES})'
         )
         aborting = self._consecutive_capture_failures >= self._MAX_CONSECUTIVE_CAPTURE_FAILURES
@@ -1751,7 +1751,7 @@ class ProtocolImageWriter:
         if enable_image_saving:
             if captured_image is None:
                 logger.warning(
-                    f'[PROTOCOL] _write_capture: captured_image is None for step {step_index} ({step.get("Name", "?") if step is not None else "?"}), scan {scan_count}, recording as capture_failed'
+                    f'[PROTOCOL] _write_capture: captured_image is None for step {step_index + 1} ({step.get("Name", "?") if step is not None else "?"}), scan {scan_count + 1}, recording as capture_failed'
                 )
                 if self._execution_record is not None:
                     self._execution_record.add_step(
