@@ -100,16 +100,16 @@ def _running_label(run: 'Operation | None', trigger: str, look: _PanelRunButton)
 
 def _protocol_remaining_text(progress: 'RunProgress') -> str | None:
     """The Full Protocol button's running label, from the run's own count; None without one."""
-    remaining_scans, period_s = progress.remaining_scans, progress.period_s
-    if remaining_scans is None or period_s is None:
+    scans_remaining, period_s = progress.scans_remaining, progress.period_s
+    if scans_remaining is None or period_s is None:
         return None
     remaining_duration_str = strfdelta(
-        tdelta=remaining_scans * period_s,
+        tdelta=scans_remaining * period_s,
         fmt='{H}h {M}m',
         inputtype='seconds',
     )
-    scan_word = 'scan' if remaining_scans == 1 else 'scans'
-    return f'{remaining_scans} {scan_word} ({remaining_duration_str}) remaining.\nPress to ABORT'
+    scan_word = 'scan' if scans_remaining == 1 else 'scans'
+    return f'{scans_remaining} {scan_word} ({remaining_duration_str}) remaining.\nPress to ABORT'
 
 
 class ProtocolSettings(FloatLayout):

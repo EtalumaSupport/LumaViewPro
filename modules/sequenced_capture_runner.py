@@ -152,9 +152,9 @@ class RunFiles:
     'is_stopping',
     'num_steps',
     'period_s',
-    'remaining_scans',
     'run_dir',
-    'step_number',
+    'scans_remaining',
+    'step_index',
 )
 @dataclasses.dataclass(frozen=True)
 class RunProgress:
@@ -170,10 +170,10 @@ class RunProgress:
         is_last_run: The run is the engine's most recent, live or finished.
         run_dir: The run's folder; None for a run that saves nothing or
             never started.
-        step_number: The step executing now, counted from 1; None once the
+        step_index: The step executing now, its row from 0; None once the
             run is not live.
         num_steps: The run's step count; None once it is not live.
-        remaining_scans: The scans still to run; None once it is not live.
+        scans_remaining: The scans still to run; None once it is not live.
         period_s: The run's scan period in seconds; None once it is not live.
     """
 
@@ -181,9 +181,9 @@ class RunProgress:
     is_stopping: bool
     is_last_run: bool
     run_dir: pathlib.Path | None
-    step_number: int | None
+    step_index: int | None
     num_steps: int | None
-    remaining_scans: int | None
+    scans_remaining: int | None
     period_s: float | None
 
 
@@ -816,10 +816,10 @@ class SequencedCaptureRunner:
     def _num_steps(self) -> int | None:
         return self._protocol.num_steps() if self._protocol is not None else None
 
-    def _step_number(self) -> int:
+    def _step_index(self) -> int:
         # One int, written only by the step runner as it advances; the
         # step's colour is read from the same index.
-        return self._curr_step + 1
+        return self._curr_step
 
     @staticmethod
     def _identity_of(plan: RunPlan) -> RunIdentity:
@@ -2306,9 +2306,9 @@ class SequencedCaptureRunner:
                 is_stopping=ending is not None and ending.status == 'aborted',
                 is_last_run=self._last_run() is run,
                 run_dir=run._run_dir,
-                step_number=self._step_number() if live else None,
+                step_index=self._step_index() if live else None,
                 num_steps=self._num_steps() if live else None,
-                remaining_scans=self._remaining_scans() if live else None,
+                scans_remaining=self._remaining_scans() if live else None,
                 period_s=self._protocol_period_s() if live else None,
             )
 

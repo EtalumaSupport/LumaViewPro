@@ -105,6 +105,17 @@ def test_iterate_callback_reports_per_scan_remaining_count():
     assert reported == [2, 1]
 
 
+def test_each_scan_event_names_its_scan_by_its_index_from_0():
+    p = _make_two_scan_parent()
+    p._events = RunEvents(scan_started=mock.MagicMock(), scan_ended=mock.MagicMock())
+
+    ProtocolRunLoop(p)._run_loop_inner(PendingRunOutcome())
+
+    started = [call.args[0] for call in p._events.scan_started.call_args_list]
+    ended = [call.args[0] for call in p._events.scan_ended.call_args_list]
+    assert (started, ended) == ([0, 1], [0, 1])
+
+
 def test_scan_pacing_waits_on_monotonic_period():
     """Inter-scan pacing compares a MONOTONIC elapsed against the period in
     seconds. With _start_t set to 'now' and a 100 s period, the loop must WAIT on

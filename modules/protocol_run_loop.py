@@ -218,7 +218,7 @@ class ProtocolRunLoop:
                 deliver(
                     p._events,
                     'scan_started',
-                    p._scan_count + 1,
+                    p._scan_count,
                     remaining_scans,
                     p._protocol.period_s(),
                 )
@@ -316,7 +316,9 @@ class ProtocolRunLoop:
                 deliver(
                     p._events,
                     'scan_ended',
-                    new_count,
+                    # The scan that ended, by its index: the count has
+                    # already been advanced past it.
+                    new_count - 1,
                     p._remaining_scans(),
                     p._protocol.period_s(),
                 )

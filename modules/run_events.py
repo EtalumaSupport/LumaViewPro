@@ -46,22 +46,22 @@ class VideoProgress:
     percent: float | None = None
 
 
-@api_fields('scan_number', 'scans_remaining', 'period_s')
+@api_fields('scan_index', 'scans_remaining', 'period_s')
 @dataclasses.dataclass(frozen=True)
 class ScanStarted:
-    """A ``scan_started`` event: the scan's 1-based number, the scans left with it, the period in seconds."""
+    """A ``scan_started`` event: the scan's index from 0, the scans left with it, the period in seconds."""
 
-    scan_number: int
+    scan_index: int
     scans_remaining: int
     period_s: float | None
 
 
-@api_fields('scan_number', 'scans_remaining', 'period_s')
+@api_fields('scan_index', 'scans_remaining', 'period_s')
 @dataclasses.dataclass(frozen=True)
 class ScanEnded:
-    """A ``scan_ended`` event: the scan's 1-based number, the scans left after it, the period in seconds."""
+    """A ``scan_ended`` event: the scan's index from 0, the scans left after it, the period in seconds."""
 
-    scan_number: int
+    scan_index: int
     scans_remaining: int
     period_s: float | None
 
@@ -130,10 +130,10 @@ class RunEvents:
     shown. No handler needs to guard itself.
 
     Attributes:
-        scan_started: ``(scan_number, scans_remaining, interval)`` as a scan
-            begins: the scan's 1-based number, how many scans remain with
-            this one, and the protocol's period.
-        scan_ended: ``(scan_number, scans_remaining, interval)`` as a scan
+        scan_started: ``(scan_index, scans_remaining, period_s)`` as a scan
+            begins: the scan's index from 0, how many scans remain with
+            this one, and the protocol's period in seconds.
+        scan_ended: ``(scan_index, scans_remaining, period_s)`` as a scan
             ends, a stopped one included: how many remain after it.
         step_started: ``(step_idx)`` as each step begins, step 0 included,
             the index read at the step.

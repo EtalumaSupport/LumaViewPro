@@ -62,7 +62,7 @@ try:
         sequence_name='multi',
     )
     at_start = out.progress()
-    print('remaining_scans at start:', at_start.remaining_scans)
+    print('scans_remaining at start:', at_start.scans_remaining)
     print('protocol_period_s       :', at_start.period_s)
     s = out.result(timeout=300)
     print('status:', s.status, s.reason)

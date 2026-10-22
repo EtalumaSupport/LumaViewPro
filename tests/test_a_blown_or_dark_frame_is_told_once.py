@@ -112,7 +112,7 @@ def test_a_runs_blown_frames_are_told_once_per_step_and_counted(tmp_path, monkey
 
     captures = outcome.captures
     assert captures.captured == 4, outcome
-    assert sorted((c.scan, c.step_name) for c in captures.saturated) == [
+    assert sorted((c.scan_index, c.step_name) for c in captures.saturated) == [
         (0, 'C1'),
         (0, 'C2'),
         (1, 'C1'),
@@ -133,7 +133,7 @@ def test_a_runs_dark_frames_are_told_once_per_step_and_counted(tmp_path, monkeyp
     outcome, told = _run(tmp_path, monkeypatch, steps, scans=2, pixels_of=_dark)
 
     captures = outcome.captures
-    assert [(c.scan, c.step_name) for c in captures.dark] == [(0, 'C1'), (1, 'C1')], captures
+    assert [(c.scan_index, c.step_name) for c in captures.dark] == [(0, 'C1'), (1, 'C1')], captures
     assert captures.saturated == (), captures
     per_step = [line for line in told if 'the frame is dark' in line]
     assert len(per_step) == 1, per_step

@@ -119,7 +119,7 @@ def test_a_live_runs_progress_returns(tmp_path, monkeypatch):
         assert run.result(timeout=WAIT_S) is not None
 
     assert progress.is_live is True
-    assert (progress.step_number, progress.num_steps) == (1, 1)
+    assert (progress.step_index, progress.num_steps) == (0, 1)
 
 
 def test_an_ended_runs_progress_is_none(tmp_path):
@@ -130,9 +130,9 @@ def test_an_ended_runs_progress_is_none(tmp_path):
     progress = run.progress()
     assert not progress.is_live
     assert (
-        progress.step_number,
+        progress.step_index,
         progress.num_steps,
-        progress.remaining_scans,
+        progress.scans_remaining,
         progress.period_s,
     ) == (
         None,
@@ -145,7 +145,7 @@ def test_an_ended_runs_progress_is_none(tmp_path):
 _ENGINE_RUN_MEMBERS = {
     '_progress_of',
     '_last_run',
-    '_step_number',
+    '_step_index',
     '_num_steps',
     '_remaining_scans',
     '_protocol_period_s',

@@ -39,7 +39,7 @@ def _progress(
     *,
     live: bool,
     stopping: bool = False,
-    step: int | None = None,
+    step_index: int | None = None,
     steps: int | None = None,
 ) -> RunProgress:
     """The engine's record of *run*: its folder always, its step and count only while live."""
@@ -48,9 +48,9 @@ def _progress(
         is_stopping=stopping,
         is_last_run=True,
         run_dir=run._run_dir,
-        step_number=step if live else None,
+        step_index=step_index if live else None,
         num_steps=steps if live else None,
-        remaining_scans=1 if live else None,
+        scans_remaining=1 if live else None,
         period_s=None,
     )
 
@@ -171,13 +171,14 @@ def test_a_refusal_is_shown_once_draws_idle_and_links_no_folder(clicked):
 
 def test_progress_reads_the_runs_own_step_and_count(clicked):
     clicked.engine._progress_of.side_effect = lambda run: _progress(
-        run, live=run is clicked.run, step=3, steps=7
+        run, live=run is clicked.run, step_index=2, steps=7
     )
 
     clicked.starter.run_zstack_acquire_from_ui()
     step_started = clicked.runner.start_zstack.call_args.kwargs['events'].step_started
     step_started(2)
 
+    # The run counts its steps from 0; a person reads the third as 3.
     assert clicked.starter.button.text == 'Z 3/7'
     # Any other edge mid-run draws the same label: there is one writer.
     clicked.starter.draw_zstack_button()

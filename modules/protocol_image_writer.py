@@ -977,7 +977,10 @@ class ProtocolImageWriter:
             None
             if failed is None
             else FocusFailure(
-                scan=scan_count, step_index=curr_step, step_name=step_name, cause=str(failed)
+                scan_index=scan_count,
+                step_index=curr_step,
+                step_name=step_name,
+                cause=str(failed),
             )
         )
         with self._capture_slots_lock:
@@ -995,7 +998,7 @@ class ProtocolImageWriter:
         """
         key = (scan_count, curr_step)
         captured = TakenCapture(
-            scan=scan_count,
+            scan_index=scan_count,
             step_index=curr_step,
             step_name=str(step.get('Name', '?')),
             blown=record.blown if record is not None else None,
@@ -1035,7 +1038,7 @@ class ProtocolImageWriter:
         """
         with self._capture_slots_lock:
             self._capture_slots[(scan_count, curr_step)] = FailedCapture(
-                scan=scan_count,
+                scan_index=scan_count,
                 step_index=curr_step,
                 step_name=str(step.get('Name', '?')),
                 cause=cause,

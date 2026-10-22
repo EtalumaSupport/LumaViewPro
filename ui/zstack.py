@@ -233,7 +233,8 @@ def _running_label(run: 'Operation | None') -> str | None:
         return None
     if progress.is_stopping:
         return 'Stopping...'
-    step, total = progress.step_number, progress.num_steps
-    if step is None or total is None:
+    step_index, total = progress.step_index, progress.num_steps
+    if step_index is None or total is None:
         return None
-    return f'Z {step}/{total}'
+    # A person counts slices from 1.
+    return f'Z {step_index + 1}/{total}'

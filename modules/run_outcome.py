@@ -249,31 +249,31 @@ class EndingLatch:
             return self._shown
 
 
-@api_fields('scan', 'step_index', 'step_name', 'cause')
+@api_fields('scan_index', 'step_index', 'step_name', 'cause')
 @dataclasses.dataclass(frozen=True)
 class FailedCapture:
     """One capture a run was asked for that produced no image.
 
     Attributes:
-        scan: The scan it belonged to, counting from 0.
+        scan_index: The scan it belonged to, counting from 0.
         step_index: The step's row in the protocol, counting from 0.
         step_name: The step's name, as the protocol has it.
         cause: Why no image came, in the words the log records.
     """
 
-    scan: int
+    scan_index: int
     step_index: int
     step_name: str
     cause: str
 
 
-@api_fields('scan', 'step_index', 'step_name', 'blown', 'dark')
+@api_fields('scan_index', 'step_index', 'step_name', 'blown', 'dark')
 @dataclasses.dataclass(frozen=True)
 class TakenCapture:
     """One capture a run was asked for that produced an image, and what its frame was.
 
     Attributes:
-        scan: The scan it belonged to, counting from 0.
+        scan_index: The scan it belonged to, counting from 0.
         step_index: The step's row in the protocol, counting from 0.
         step_name: The step's name, as the protocol has it.
         blown: Whether the frame's record found it blown
@@ -283,26 +283,26 @@ class TakenCapture:
             None when nothing judged it: no LED on, or a video step.
     """
 
-    scan: int
+    scan_index: int
     step_index: int
     step_name: str
     blown: bool | None
     dark: bool | None
 
 
-@api_fields('scan', 'step_index', 'step_name', 'cause')
+@api_fields('scan_index', 'step_index', 'step_name', 'cause')
 @dataclasses.dataclass(frozen=True)
 class FocusFailure:
     """One step whose autofocus did not focus; the run went on at its fallback Z.
 
     Attributes:
-        scan: The scan it belonged to, counting from 0.
+        scan_index: The scan it belonged to, counting from 0.
         step_index: The step's row in the protocol, counting from 0.
         step_name: The step's name, as the protocol has it.
         cause: Why it did not focus, in the autofocus failure's words.
     """
 
-    scan: int
+    scan_index: int
     step_index: int
     step_name: str
     cause: str

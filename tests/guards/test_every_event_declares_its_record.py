@@ -2,7 +2,7 @@
 """Every event declares its published record, and the record is the callback's arguments.
 
 A listener's payload was named only in its docstring -- ``(axis, position,
-state)``, ``(scan_number, scans_remaining, interval)`` -- so a host that
+state)``, ``(scan_index, scans_remaining, period_s)`` -- so a host that
 carries an event elsewhere (the REST server's stream) had to keep its own
 table of each signature, a second store that drifts. Each event now
 declares a published record where it is delivered (``modules.api_surface``):

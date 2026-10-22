@@ -962,8 +962,8 @@ Unlike `start_autofocus`, the slices are the product: the run saves its images (
 
 | Event | Handler arguments | When |
 |---|---|---|
-| `scan_started` | `(scan_number, scans_remaining, period_s)` | as each scan begins: its 1-based number, how many scans remain with this one, the protocol's period in seconds |
-| `scan_ended` | `(scan_number, scans_remaining, period_s)` | as each scan ends, a stopped one included: how many remain after it |
+| `scan_started` | `(scan_index, scans_remaining, period_s)` | as each scan begins: its index from 0, how many scans remain with this one, the protocol's period in seconds |
+| `scan_ended` | `(scan_index, scans_remaining, period_s)` | as each scan ends, a stopped one included: how many remain after it |
 | `step_started` | `(step_idx)` | as each step begins, step 0 included, with the index read at the step |
 | `frame_captured` | `(image, frames_summed, frame_significant_bits)` | for each captured frame whose write was handed to the run's writer, once it was: the frame as the file gets it (a sum when summing), read-only. A frame whose write is refused is not announced |
 | `video_progress` | `(progress)`, a `VideoProgress` | as a video step records (`phase='recording'`, `elapsed_s` of `total_s`) and writes (`'writing'`, `percent`), then `'ended'` once after either; a step that ends before it records sends none |
@@ -991,7 +991,7 @@ The outcome carries fourteen fields. `status` is one of `completed`, `incomplete
 
 The two vocabularies are deliberately separate. A run that aborted names why in `reason` and leaves `merge_reason` empty; a run that reached its end but whose merge produced nothing reports its run status (`completed`, or `incomplete` when a channel failed) with the cause in `merge_reason`. `run_composite()` raises `CompositeFailedError` (a `CaptureError`) carrying whichever of the two applies; when its `timeout_s` runs out first it raises `RunWaitExpiredError` (`still_running`, a `TimeoutError`, quiet), as every waiting form does: the run or its merge may still be going, and its `operation` holds the run. A merge that raised is posted to the listeners as that exception's own type, kind and title -- a refusal such as `PostProcessingRefusedError` (`no_data`, nothing usable to merge) as a warning, `RunFilesNotWrittenError` under "Run Images Not Written" -- with `merge_reason` its `reason` (`merge_error` when it carries none, posted under "Composite Failed"); a merge that could not start or produced no file is posted as `CompositeFailedError`. A composite missing a channel merges nothing: its merge fails with `PostProcessingFailedError` (`post_processing_failed`, posted under "Composite Failed", naming the channel), and the shortfall is told as its own `RunIncompleteError` after it. The merge's notice and the shortfall are delivered to the listeners before the outcome settles, so `run_composite()` and the run's `result()` return after them.
 
-`stop()` only asks: the run ends on its own thread, and the operation is done when it has. A run that ends before its end, by a Stop or a fault, halts a stage move it has under way first, before it waits for anything or puts the scope back (a video step's frames still being written included), so the stage stops short of the step it was heading for; on motor firmware with no STOP command the move runs on, and a home on a board that cannot stop one runs to its end (the outcome's `cleanup_failures` then names `Halt the stage`). A Stop through an operation whose run has ended does nothing, to that run or to any other run live by then. `progress()` answers about its own run only, as one `RunProgress` (`modules.sequenced_capture_runner`) read at once: `is_live`, True while the run holds the scope (False once its teardown has finished, while its `run_ended` may still be on its way, so a run can be not live and its operation not yet done); `is_stopping`, True from an accepted Stop until the run's teardown finishes; `is_last_run`, the engine's most recent run; `run_dir`, the run's folder (`None` for a run that saves nothing or never started); and for a progress readout `step_number` (the step executing now, counted from 1), `num_steps`, `remaining_scans` and `period_s` (the scan period in seconds), each `None` once the run is no longer live.
+`stop()` only asks: the run ends on its own thread, and the operation is done when it has. A run that ends before its end, by a Stop or a fault, halts a stage move it has under way first, before it waits for anything or puts the scope back (a video step's frames still being written included), so the stage stops short of the step it was heading for; on motor firmware with no STOP command the move runs on, and a home on a board that cannot stop one runs to its end (the outcome's `cleanup_failures` then names `Halt the stage`). A Stop through an operation whose run has ended does nothing, to that run or to any other run live by then. `progress()` answers about its own run only, as one `RunProgress` (`modules.sequenced_capture_runner`) read at once: `is_live`, True while the run holds the scope (False once its teardown has finished, while its `run_ended` may still be on its way, so a run can be not live and its operation not yet done); `is_stopping`, True from an accepted Stop until the run's teardown finishes; `is_last_run`, the engine's most recent run; `run_dir`, the run's folder (`None` for a run that saves nothing or never started); and for a progress readout `step_index` (the step executing now, its row from 0), `num_steps`, `scans_remaining` and `period_s` (the scan period in seconds), each `None` once the run is no longer live.
 
 A refusal with reason `files_writing` means the previous run's files are still draining -- the previous run's `files` operation is done once they have landed. Reason `post_processing_running` means a build is on the post-processing lane -- a run's own hyperstack, merge or processors, or a caller's build -- and a capture and a build never overlap, so the run waits until the lane is idle (`session.live_work` lists its `'post_processing'` items until then); a recording start is refused the same way. Reason `files_writing_stalled` means the file writer has stopped making progress entirely (a wedged write, e.g. an unresponsive save drive); waiting will not clear it. Its message says how many unsaved images recovery would lose, and it names its own answer: `refusal.remedy` is a `Remedy` (`modules.exceptions`) whose `member` is `'recover_file_writer'`, with `confirm_text` and `cancel_text` for an offer (the prompt is the refusal's own `title` and `message`). Every refusal has a `remedy` attribute; it is `None` when nothing answers the refusal but waiting or asking differently. The GUI shows a refusal that carries one as a confirmation, and so can any client. A client need not start a run to hear of a stall: once for each stuck write, the session reports `FileWriterStalledError` (`modules.exceptions`, a fault, reason `'files_writing_stalled'`) through the outcome subscription below, carrying the same `remedy` in the same words. Recover with either:
 
@@ -2339,7 +2339,7 @@ The seven listener families each pass a different callback signature -- register
 | Outcomes | `ScopeSession.create(outcome_listener=...)` or `session.add_outcome_listener` | `on_outcome(n)` -- one `Notification` (see Outcomes above) | `Notification` itself |
 | Settings | `session.add_settings_listener` | `on_settings(paths: tuple[str, ...])` -- the dotted paths one write stored | `SettingsChanged(paths)` |
 
-Each event declares its record, published in the reference below: its fields name the callback's arguments in order, so a host that carries an event elsewhere (the REST server's stream) builds the record from the arguments rather than keeping its own table of signatures. A run's events do the same: `RunEvents.scan_started` delivers `ScanStarted(scan_number, scans_remaining, period_s)`, `scan_ended` `ScanEnded(...)`, `step_started` `StepStarted(step_idx)`, `frame_captured` `FrameCaptured(image, frames_summed, frame_significant_bits)`, `video_progress` the `VideoProgress` it passes, `run_ended` `RunEnded(outcome, run_dir, protocol)`, `files_written` `FilesWritten(run_dir, files)`. Callbacks keep their signatures; a Python caller need not build any record.
+Each event declares its record, published in the reference below: its fields name the callback's arguments in order, so a host that carries an event elsewhere (the REST server's stream) builds the record from the arguments rather than keeping its own table of signatures. A run's events do the same: `RunEvents.scan_started` delivers `ScanStarted(scan_index, scans_remaining, period_s)`, `scan_ended` `ScanEnded(...)`, `step_started` `StepStarted(step_idx)`, `frame_captured` `FrameCaptured(image, frames_summed, frame_significant_bits)`, `video_progress` the `VideoProgress` it passes, `run_ended` `RunEnded(outcome, run_dir, protocol)`, `files_written` `FilesWritten(run_dir, files)`. Callbacks keep their signatures; a Python caller need not build any record.
 
 The four `scope.*` listeners each have a matching `remove_*_listener(callback)`. The frame listener additionally takes a `name=` kwarg and carries the read-only frame + 24 ms budget contract documented above; the other three are lightweight state-change notifications.
 
@@ -2691,7 +2691,7 @@ Every call runs on its own thread, and its route waits for it as long as the cli
  "requested": "2026-10-09T11:47:56.043-07:00", "ended": null, "progress": null}
 ```
 
-`status` goes `running` -> `completed` | `failed`; `progress` is `{"percent", "detail"}` from a member that reports how far it has got, and a run's job's is the run's `RunProgress` (`is_live`, `is_stopping`, `step_number`, `run_dir`, ...). `GET /api/v1/jobs/<id>`, itself waiting by `Prefer: wait`, reads it; once it has ended it carries `result` (what a `200` would have carried) or `error` (the problem). Reading a failed job is `200`. A result the wire cannot carry -- a NaN or an infinity, which JSON has no form for -- is a `500` fault problem naming the value, answered where the call ends, so a job holding it reads as `failed`. A member that hands back an operation (an `Operation`: a run, a move, a home, a still) is answered once it has returned -- once the operation is dispatched -- whatever the client's `Prefer: wait`: `202 Accepted` with the operation's own job, its `Location` and `Retry-After`, and no other job made for the call. To wait for its end, read the job with `Prefer: wait`, or call the waiting form in Python. `GET /api/v1/jobs` lists the jobs held, newest first. `DELETE /api/v1/jobs/<id>` on a finished job forgets it (`204`); on a running operation's job it is the operation's `stop()`, answered `202` with the job, which ends as the stop leaves it -- a stopped run `completed` with its outcome `aborted` / `stopped`, a stopped move or home `failed` with its stop notice -- and is kept until a client forgets it. As in Python, a stop once the operation's work has ended does nothing, and so does one asked of a still, which has no stop: `202`, and the still ends as it would have. A stop the scope refuses is the answer, as the stop's own refusal (a home on a board that cannot stop one: `409`, `home_not_stoppable`). A call held as a job because it outlived its wait holds no operation, and `DELETE` on it while it runs is `409`, `not_cancellable`; its activity's own stop member reaches it. A parameter that takes an operation is sent its job's id, as a handle's is sent its id (`GET /api/v1/held_by_other?run=1`); a job not held is `404`, and one that is no operation, a call held as a job, is `422`, `invalid_request`. Past 256 calls running, a call is refused before it runs (`503`, `overloaded`). A job's id is likewise a string of decimal digits, counted from `1` when the server starts.
+`status` goes `running` -> `completed` | `failed`; `progress` is `{"percent", "detail"}` from a member that reports how far it has got, and a run's job's is the run's `RunProgress` (`is_live`, `is_stopping`, `step_index`, `run_dir`, ...). `GET /api/v1/jobs/<id>`, itself waiting by `Prefer: wait`, reads it; once it has ended it carries `result` (what a `200` would have carried) or `error` (the problem). Reading a failed job is `200`. A result the wire cannot carry -- a NaN or an infinity, which JSON has no form for -- is a `500` fault problem naming the value, answered where the call ends, so a job holding it reads as `failed`. A member that hands back an operation (an `Operation`: a run, a move, a home, a still) is answered once it has returned -- once the operation is dispatched -- whatever the client's `Prefer: wait`: `202 Accepted` with the operation's own job, its `Location` and `Retry-After`, and no other job made for the call. To wait for its end, read the job with `Prefer: wait`, or call the waiting form in Python. `GET /api/v1/jobs` lists the jobs held, newest first. `DELETE /api/v1/jobs/<id>` on a finished job forgets it (`204`); on a running operation's job it is the operation's `stop()`, answered `202` with the job, which ends as the stop leaves it -- a stopped run `completed` with its outcome `aborted` / `stopped`, a stopped move or home `failed` with its stop notice -- and is kept until a client forgets it. As in Python, a stop once the operation's work has ended does nothing, and so does one asked of a still, which has no stop: `202`, and the still ends as it would have. A stop the scope refuses is the answer, as the stop's own refusal (a home on a board that cannot stop one: `409`, `home_not_stoppable`). A call held as a job because it outlived its wait holds no operation, and `DELETE` on it while it runs is `409`, `not_cancellable`; its activity's own stop member reaches it. A parameter that takes an operation is sent its job's id, as a handle's is sent its id (`GET /api/v1/held_by_other?run=1`); a job not held is `404`, and one that is no operation, a call held as a job, is `422`, `invalid_request`. Past 256 calls running, a call is refused before it runs (`503`, `overloaded`). A job's id is likewise a string of decimal digits, counted from `1` when the server starts.
 
 A `POST` or `PUT` that may be sent twice -- a client that lost its answer to a dropped connection cannot tell whether the call ran -- carries `Idempotency-Key: <any string the client chooses>`. Sent again with the same key, from any connection, the request runs nothing and is answered what the first one was answered: the same status and body (a started operation's same job), with `Idempotent-Replayed: true`; a retry that arrives while the first still runs waits for that answer. The same key with another member or body is refused (`422`, `idempotency_key_reused`); a body's keys in another order are the same body. A key is held for 24 hours, at most 10,000 of them, the oldest let go first; a request the server refused before it ran (`503`) holds none. A read (`GET`) runs again whatever key it is sent.
 
@@ -3579,9 +3579,9 @@ Reached through returned by `Operation.progress` for a run.
 - `is_stopping`
 - `num_steps`
 - `period_s`
-- `remaining_scans`
 - `run_dir`
-- `step_number`
+- `scans_remaining`
+- `step_index`
 
 ### RunOutcome
 
@@ -3913,7 +3913,7 @@ Reached through each item of `BuildResult.excluded_inputs` and `PostProcessingFa
 Reached through each item of `CaptureTally.failed`.
 
 - `cause`
-- `scan`
+- `scan_index`
 - `step_index`
 - `step_name`
 
@@ -3943,7 +3943,7 @@ Reached through the event `RunEvents.files_written` delivers.
 Reached through each item of `RunOutcome.focus_failures`.
 
 - `cause`
-- `scan`
+- `scan_index`
 - `step_index`
 - `step_name`
 
@@ -4333,7 +4333,7 @@ Reached through each value of `session.manual_capture.capture`'s `Operation` res
 Reached through the event `RunEvents.scan_ended` delivers.
 
 - `period_s`
-- `scan_number`
+- `scan_index`
 - `scans_remaining`
 
 ### ScanStarted
@@ -4341,7 +4341,7 @@ Reached through the event `RunEvents.scan_ended` delivers.
 Reached through the event `RunEvents.scan_started` delivers.
 
 - `period_s`
-- `scan_number`
+- `scan_index`
 - `scans_remaining`
 
 ### ScopeModel
@@ -4504,7 +4504,7 @@ Reached through each item of `CaptureTally.saturated` and `CaptureTally.dark`.
 
 - `blown`
 - `dark`
-- `scan`
+- `scan_index`
 - `step_index`
 - `step_name`
 

@@ -190,7 +190,7 @@ class TestAStopControlCanSayTheRunIsStopping:
             runner._ending.set_if_unset(ending)
         runner._is_live_run_locked = lambda run: live
         runner._run_handle = None
-        for read in ('_step_number', '_num_steps', '_remaining_scans', '_protocol_period_s'):
+        for read in ('_step_index', '_num_steps', '_remaining_scans', '_protocol_period_s'):
             setattr(runner, read, lambda: None)
         return runner._progress_of(types.SimpleNamespace(_run_dir=None)).is_stopping
 

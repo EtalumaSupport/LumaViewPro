@@ -45,7 +45,7 @@ def test_an_autofocus_scan_names_the_step_whose_focus_was_not_updated(tmp_path, 
     assert outcome.message == (
         'The scan finished; autofocus did not focus 1 step, whose focus was not updated.'
     )
-    assert [(f.scan, f.step_index, f.step_name, f.cause) for f in outcome.focus_failures] == [
+    assert [(f.scan_index, f.step_index, f.step_name, f.cause) for f in outcome.focus_failures] == [
         (0, 0, 'AF_test', FLAT)
     ]
 
@@ -74,7 +74,7 @@ def test_a_capture_protocol_captures_the_step_at_its_fallback_and_names_it(
 def test_every_settle_path_carries_the_focus_failures():
     from modules.run_outcome import FocusFailure
 
-    failures = (FocusFailure(scan=0, step_index=1, step_name='B', cause='flat'),)
+    failures = (FocusFailure(scan_index=0, step_index=1, step_name='B', cause='flat'),)
     ending = RunEnding('completed', 'completed', 'm')
     for settle in (
         lambda pending: pending.resolve_if_pending(ending),

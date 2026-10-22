@@ -175,7 +175,7 @@ def _live(
     *runs,
     stopping=lambda: False,
     last=None,
-    remaining_scans=None,
+    scans_remaining=None,
     period_s=None,
 ):
     """The engine's progress record of each run: live for *runs*, ended for every other.
@@ -191,9 +191,9 @@ def _live(
             is_stopping=live and stopping(),
             is_last_run=run is last,
             run_dir=None,
-            step_number=1 if live else None,
+            step_index=0 if live else None,
             num_steps=1 if live else None,
-            remaining_scans=remaining_scans if live else None,
+            scans_remaining=scans_remaining if live else None,
             period_s=period_s if live else None,
         )
 
@@ -288,7 +288,7 @@ def test_the_full_protocol_button_counts_the_live_runs_own_scans(app_ctx, engine
     panel = _Panel()
     run = _run(engine)
     engine.start.return_value = run.operation
-    _live(engine, run, remaining_scans=3, period_s=20 * 60.0)
+    _live(engine, run, scans_remaining=3, period_s=20 * 60.0)
 
     panel.run_protocol_from_ui()
 
