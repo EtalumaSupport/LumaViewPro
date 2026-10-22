@@ -59,13 +59,7 @@ class Frame:
 
 def encode(frame: Frame, max_width: int | None) -> bytes:
     """The frame in 8-bit grey, as JPEG, no wider than *max_width* (half its width when None)."""
-    image = image_utils.convert_to_8bit(frame.image, frame.significant_bits)
-    height, width = image.shape[:2]
-    target = max(1, width // 2) if max_width is None else max_width
-    image = image_utils.decimate_for_preview(
-        image, (target, max(1, round(height * target / width)))
-    )
-    return image_utils.encode_image(image, fmt='jpeg')
+    return image_utils.preview_jpeg(frame.image, frame.significant_bits, max_width)
 
 
 class LiveView:

@@ -1795,6 +1795,29 @@ def rgb_image_to_gray(image: np.ndarray, baked: bool = False) -> np.ndarray:
     return cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
 
+def preview_jpeg(
+    image: np.ndarray,
+    significant_bits: int,
+    max_width: int | None,
+    *,
+    white_bits: int | None = None,
+) -> bytes:
+    """An image as it is shown, for display only: 8-bit grey JPEG, no wider than *max_width*.
+
+    Half the image's width when *max_width* is None; never wider than the
+    image. ``white_bits`` puts white at one frame's full scale for a sum,
+    as ``convert_to_8bit`` does. A colour image is shown as the mean of its
+    channels, which reads the same whichever order the channels came in.
+    """
+    if image.ndim == 3:
+        image = image.mean(axis=2).astype(image.dtype)
+    image = convert_to_8bit(image, significant_bits, white_bits=white_bits)
+    height, width = image.shape
+    target = max(1, width // 2) if max_width is None else max_width
+    image = decimate_for_preview(image, (target, max(1, round(height * target / width))))
+    return encode_image(image, fmt='jpeg')
+
+
 def encode_image(image: np.ndarray, fmt: str = 'png', jpeg_quality: int = 80) -> bytes:
     """Encode a numpy image array to binary image data.
 

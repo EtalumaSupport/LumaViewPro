@@ -772,7 +772,8 @@ capture: `channel`, `objective_id`, `plate_x_mm`, `plate_y_mm`, `stage_z_um`,
 `percentile_99`, in the array's own counts; saturation and darkness are the
 frame record's). A JPG gets the same record, though its file embeds none of
 it. On the wire the record is the job's result, its `file` a live-folder name,
-and `GET /api/v1/files/<name>` returns the file's exact bytes. It is done once the
+and `GET /api/v1/files/<name>` returns the file's exact bytes, `GET /api/v1/previews/<name>`
+a downscaled JPEG of it for display. It is done once the
 still has let go of the camera, so a second still asked then is not refused
 `'capture_in_flight'`. A still has no stop: its `stop()` does nothing.
 Each file records where the stage was when the frame was grabbed: the plate
@@ -2655,7 +2656,7 @@ session.shutdown()                          # once uvicorn has stopped
 
 Serve it on `127.0.0.1` only: it has no credentials, so anyone who can reach the port drives the scope. It needs `fastapi` and `uvicorn` (both in `requirements.txt`). `GET /api` answers the versions served (`{"versions": ["v1"]}`); the OpenAPI 3.1 description of every route is at `/api/v1/openapi.json`, and an interactive reference at `/docs`. Each route's description lists what its member says it may refuse or fail with -- its Python `Raises:` section -- under the status each reason answers (a refusal `422` or `409` by its reason's cause, a fault `500`), with `x-refusals` on each status mapping the problem class to its reasons; an entry that names no reason lists every reason its class can carry. The `4XX` and `5XX` ranges stay for what no section names.
 
-The description says what each route answers, read from the member's declared return type in the form it crosses in. A member route's `200` is its answer: each record is one named schema under `components/schemas` (`AxisPosition`, `Status`, `RunOutcome`, ...) with its keys and their types, a handle is `Handle`, an answered path `PathAnswer`; its `202` is `Job`. A client reads a record's keys there, not from this page. A record's schema is open: a key it does not name may be sent beside the ones it does. Where a member declares only a bare `dict` or `list`, the schema is an object or array that says nothing of its keys or items; those are typed one by one by their owners. `/api/v1/files/...`, `/api/v1/live`, `/api/v1/live.jpg` and `/api/v1/events` are declared by what they send (a file, MJPEG, a JPEG, an event stream), not as JSON.
+The description says what each route answers, read from the member's declared return type in the form it crosses in. A member route's `200` is its answer: each record is one named schema under `components/schemas` (`AxisPosition`, `Status`, `RunOutcome`, ...) with its keys and their types, a handle is `Handle`, an answered path `PathAnswer`; its `202` is `Job`. A client reads a record's keys there, not from this page. A record's schema is open: a key it does not name may be sent beside the ones it does. Where a member declares only a bare `dict` or `list`, the schema is an object or array that says nothing of its keys or items; those are typed one by one by their owners. `/api/v1/files/...`, `/api/v1/previews/...`, `/api/v1/live`, `/api/v1/live.jpg` and `/api/v1/events` are declared by what they send (a file, a JPEG, MJPEG, a JPEG, an event stream), not as JSON.
 
 ### Routes
 
@@ -2744,6 +2745,8 @@ The live view is display: 8-bit grey, lossy, with no metadata, no scale bar and 
 ### Files
 
 `GET /api/v1/files/<name>` downloads a file in the live folder by the name a listing (`GET /api/v1/live_folder_listing?name=ProtocolData`) or an answered path gives. It comes as an attachment under its own name, its type from its extension, and a `Range` request is answered with that part (`206`), so a large download resumes. A name that is no file is `404`; one that leaves the live folder is refused (`outside_live_folder`). In the URL the name is percent-decoded once, as any URL path is, and then read as a name in the live folder. A client percent-encodes each segment as a URL path segment needs (a space as `%20`, `%` as `%25`, `#` and `?` always) and keeps the `/`s between segments. An encoded `%2F` is decoded to `/` and so separates segments as `/` does, and an encoded `..` is refused as `..` is (`outside_live_folder`). In a JSON argument a name is never percent-decoded: `"a%20b"` names a file called `a%20b`.
+
+`GET /api/v1/previews/<name>` answers a saved image in the live folder, named as for a download, downscaled to a JPEG for display: no wider than `max_width` pixels, half the image's width when not given, never wider than the image. It is shown as the live view is -- 8-bit grey, lossy, no metadata; a colour file is the mean of its channels -- and rendered from the file's own depth and white, so a summed still is as bright as it is shown. The data is the file (`/files`) and the still's record. A name that is no file is `404`, one that leaves the live folder `outside_live_folder`, and a file that is no image `InputFramesUnusableError` `unreadable`.
 
 ### Request ids
 

@@ -23,6 +23,7 @@ import contextlib
 import dataclasses
 import inspect
 import logging
+import pathlib
 import time
 import typing
 import uuid
@@ -34,7 +35,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from modules import wire_encoding
+from modules import image_utils, wire_encoding
 from modules.api_surface import api
 from modules.operation import Operation
 from modules.protocol_runner import ProtocolRunner
@@ -61,7 +62,7 @@ PREFIX = f'/api/{VERSION}'
 CONTROL_SESSION_HEADER = 'control-session'
 # The first path segments the server answers itself; a Session member of
 # one of these names would be shadowed, so one fails the build.
-SERVER_SEGMENTS = frozenset({'handles', 'jobs', 'events', 'files', 'live', 'live.jpg'})
+SERVER_SEGMENTS = frozenset({'handles', 'jobs', 'events', 'files', 'previews', 'live', 'live.jpg'})
 # What any member answers when its call outlives what the client will wait.
 _ANSWERED_AS_JOB = {
     'model': Job,
@@ -199,6 +200,7 @@ def build_app(session: ScopeSession) -> fastapi.FastAPI:
     _add_event_route(app, stream, event_stream.published(session, handed_out))
     _add_live_routes(app, live, closing)
     _add_file_route(app, session)
+    _add_preview_route(app, session)
     session_routes = routes(ScopeSession, handed_out=handed_out)
     shadowed = {r.path.split('/')[0] for r in session_routes} & SERVER_SEGMENTS
     if shadowed:
@@ -250,6 +252,42 @@ def _add_file_route(app: fastapi.FastAPI, session: ScopeSession) -> None:
             {'type': 'string', 'format': 'binary'},
         ),
     )
+
+
+def _add_preview_route(app: fastapi.FastAPI, session: ScopeSession) -> None:
+    async def preview(request: fastapi.Request, name: str) -> fastapi.Response:
+        """A saved image in the live folder, by its name there, as a downscaled JPEG; ``max_width`` as for ``/live``.
+
+        Display only, as the live view is: 8-bit grey, lossy, no metadata. It
+        is rendered from the file's own depth and white, so a summed still
+        is as bright as it is shown; the data is the file (``/files``).
+        """
+        max_width = _max_width(request)
+        try:
+            path = await asyncio.to_thread(session.live_folder_path, name)
+        except Exception as e:
+            return problems.answered_by_member(e, request.state.request_id).response()
+        if not await asyncio.to_thread(path.is_file):
+            raise problems.not_found(f'No file {name} is in the live folder.')
+        try:
+            jpeg = await asyncio.to_thread(_preview_of, path, max_width)
+        except Exception as e:
+            # A file that is no image is refused as a Python reader of it is.
+            return problems.answered_by_member(e, request.state.request_id).response()
+        return fastapi.Response(jpeg, media_type='image/jpeg')
+
+    app.add_api_route(
+        f'{PREFIX}/previews/{{name:path}}',
+        preview,
+        methods=['GET'],
+        tags=['files'],
+        **_not_json('image/jpeg', 'The image, downscaled.', {'type': 'string', 'format': 'binary'}),
+    )
+
+
+def _preview_of(path: pathlib.Path, max_width: int | None) -> bytes:
+    image, significant_bits, white_bits = image_utils.load_pixels(path)
+    return image_utils.preview_jpeg(image, significant_bits, max_width, white_bits=white_bits)
 
 
 def _add_event_route(
@@ -372,10 +410,10 @@ def _add_live_routes(app: fastapi.FastAPI, live: live_view.LiveView, closing: Cl
 
 
 def _max_width(request: fastapi.Request) -> int | None:
-    """The live view's one query argument: a width in pixels above 0, or None when not given."""
+    """The live view's and a preview's one query argument: a width in pixels above 0, or None when not given."""
     unknown = sorted(set(request.query_params) - {'max_width'})
     if unknown:
-        raise problems.invalid_request(f'The live view takes only max_width, not {unknown}.')
+        raise problems.invalid_request(f'This route takes only max_width, not {unknown}.')
     given = request.query_params.getlist('max_width')
     if not given:
         return None
