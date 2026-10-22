@@ -88,11 +88,14 @@ def test_a_slow_stop_is_a_warning_with_its_elapsed_time_after_the_state_it_stopp
         'Statistic_Total_Buffer_Count=7 ',
         'NumQueuedBuffers=3 ',
         'BslAcquisitionStopMode=Complete ',
-        'WriteTimeout=0 ',
         'StatisticReadWriteTimeoutCount=0 ',
         'AcquisitionActive=Complete ExposureActive=Complete live_read_ms=0.0',
     ):
         assert field in pre[0], f'{field} missing from the pre-stop line: {pre[0]}'
+    # The transport layer's timeout and retry settings are not read: a
+    # daA3840-45um under pylon 11.5 has none of them on macOS or Windows.
+    for setting in ('ReadTimeout=', 'WriteTimeout=', 'MaxRetryCountRead=', 'MaxRetryCountWrite='):
+        assert setting not in pre[0], f'{setting} in the pre-stop line: {pre[0]}'
     warnings = [r.getMessage() for r in records if r.levelno == logging.WARNING]
     assert len(warnings) == 1, warnings
     assert warnings[0].startswith('pylon StopGrabbing [stop_grabbing] returned after 11020.0 ms: ')

@@ -823,12 +823,10 @@ class PylonCamera(Camera):
     # on a daA3840-45um took 14-71 ms; its stalled ones a near-constant 11 s.
     _SLOW_GRAB_STOP_S = 1.0
 
-    # The device transport layer's register-access timeouts and retries, and
-    # its counters of timed-out and failed accesses (Basler doc
-    # transport-layer-parameters.html). The stop's stalled wait is inside a
-    # register write, so a timeout counter that rises across a slow stop says
-    # a register access timed out during it.
-    _TL_SETTING_NODES = ('ReadTimeout', 'WriteTimeout', 'MaxRetryCountRead', 'MaxRetryCountWrite')
+    # The device transport layer's counters of timed-out and failed accesses
+    # (Basler doc transport-layer-parameters.html). The stop's stalled wait is
+    # inside a register write, so a timeout counter that rises across a slow
+    # stop says a register access timed out during it.
     _TL_COUNTER_NODES = (
         'StatisticReadWriteTimeoutCount',
         'Statistic_Write_Operations_Failed_Count',
@@ -869,10 +867,10 @@ class PylonCamera(Camera):
     def _transport_layer_nodes(self, camera, errors: list) -> dict:
         """Every node of the device transport layer's nodemap, name to value.
 
-        The register-access timeouts and retries are named differently by
-        camera and pylon release (a daA3840-45um under pylon 11.5 exposes
-        none of ``_TL_SETTING_NODES``), so the snapshot lists what this
-        camera has rather than asking for names it may not. A node with no
+        Which nodes a transport layer has differs by camera and pylon
+        release (a daA3840-45um under pylon 11.5 exposes no register-access
+        timeout or retry count under any name), so the snapshot lists what
+        this camera has rather than asking for names it may not. A node with no
         value reads as ``_safe_node``'s sentinel; a nodemap that cannot be
         fetched or walked is named in ``errors`` and lists nothing.
         """
@@ -905,7 +903,7 @@ class PylonCamera(Camera):
 
         Host-side reads first (frames stored, the stream grabber's status and
         statistics, the instant camera's buffer counts, the transport layer's
-        timeouts, retries and access counters), then the stop mode,
+        access counters), then the stop mode,
         then a timed live read of ``AcquisitionActive`` / ``ExposureActive``:
         the values say whether an exposure or transfer was in flight, and the
         read's time says whether the camera's control channel was already
@@ -930,9 +928,7 @@ class PylonCamera(Camera):
             )
         except Exception as e:
             parts.append(f'instant_camera_nodemap=<{type(e).__name__}: {e}>')
-        parts.append(
-            self._transport_layer_state(camera, self._TL_SETTING_NODES + self._TL_COUNTER_NODES)
-        )
+        parts.append(self._transport_layer_state(camera, self._TL_COUNTER_NODES))
         try:
             nm = camera.GetNodeMap()
             parts.append(f'BslAcquisitionStopMode={self._safe_node(nm, "BslAcquisitionStopMode")}')
