@@ -68,6 +68,7 @@ from modules.exceptions import (
     HARDWARE_STATE_REASONS,
     HardwareCommandRefusedError,
     HomingFailedError,
+    LiveFolderFileNotWrittenError,
     LiveFolderPathRefusedError,
     MissingPart,
     MoveStoppedError,
@@ -3815,6 +3816,36 @@ class ScopeSession:
                 'name relative to the live folder, such as ProtocolData/run1.',
             )
         return (root / name).resolve()
+
+    @api(in_process=True)
+    @_guarded_write
+    def put_live_folder_file(self, name: str, data: bytes) -> pathlib.Path:
+        """Write ``data`` as a new file under the live folder: a wire client's upload.
+
+        ``name`` is a name under the live folder, as ``live_folder_path``
+        takes it, and the folders on its way are made. A file already there
+        is refused, so an upload never replaces a file a capture wrote. On
+        the wire it is ``PUT /api/v1/files/<name>``, the body the file's
+        bytes; a Python caller writes its own files.
+
+        Returns:
+            The file written.
+
+        Raises:
+            LiveFolderPathRefusedError: ``'outside_live_folder'`` and
+                ``'capture_location_unusable'``, as ``live_folder_path``
+                raises them; ``'file_exists'``, a file is already at the
+                name; ``'not_a_folder'``, a file is where one of its folders
+                would be.
+            LiveFolderFileNotWrittenError: The disk refused the write;
+                nothing is left at the name.
+        """
+        path = self.live_folder_path(name)
+        try:
+            path_utils.write_new_file(path, data)
+        except OSError as e:
+            raise LiveFolderFileNotWrittenError(name, e) from e
+        return path
 
     @api(reads=True)
     def live_folder_listing(self, name: str = '.') -> tuple[LiveFolderEntry, ...]:

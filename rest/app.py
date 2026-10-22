@@ -49,7 +49,7 @@ from rest.handles import HandleRegistry
 from rest.jobs import RETRY_AFTER_S as JOB_RETRY_AFTER_S
 from rest.jobs import JobRegistry, Progress, Wait
 from rest.problems import Answer, ServerRefusedError
-from rest.routes import ANSWER_CONFIG, Handle, Job, Route, routes, sent_of_query
+from rest.routes import ANSWER_CONFIG, Handle, Job, PathAnswer, Route, routes, sent_of_query
 
 # The REST log: a child of lvp_logger's logger, whose REST handler keeps
 # only the records marked api_request.
@@ -200,6 +200,7 @@ def build_app(session: ScopeSession) -> fastapi.FastAPI:
     _add_event_route(app, stream, event_stream.published(session, handed_out))
     _add_live_routes(app, live, closing)
     _add_file_route(app, session)
+    _add_upload_route(app, session, jobs, closing)
     _add_preview_route(app, session)
     session_routes = routes(ScopeSession, handed_out=handed_out)
     shadowed = {r.path.split('/')[0] for r in session_routes} & SERVER_SEGMENTS
@@ -252,6 +253,79 @@ def _add_file_route(app: fastapi.FastAPI, session: ScopeSession) -> None:
             {'type': 'string', 'format': 'binary'},
         ),
     )
+
+
+def _add_upload_route(
+    app: fastapi.FastAPI, session: ScopeSession, jobs: JobRegistry, closing: Closing
+) -> None:
+    async def upload(request: fastapi.Request, name: str) -> fastapi.Response:
+        """Write the request's body as a new file in the live folder, by its name there.
+
+        ``ScopeSession.put_live_folder_file``, reached as every write is: on
+        a call thread, as a REST client, in the control session the
+        ``Control-Session`` header names. A file already at the name is
+        refused, ``file_exists`` (409); it answers ``201`` with the file's
+        path.
+        """
+        _refuse_query(request)
+        if closing.begun:
+            raise problems.server_closing()
+        jobs.admit(returns_job=False)
+        data = await request.body()
+        request_id = request.state.request_id
+        control_id = request.headers.get(CONTROL_SESSION_HEADER)
+
+        def work() -> object:
+            with _acting_in(session, control_id):
+                path = session.put_live_folder_file(name, data)
+            return wire_encoding.encode(
+                path,
+                live_folder=session.get_setting('live_folder'),
+                handle=_no_handle,
+                job=_no_handle,
+            )
+
+        reply = await jobs.run(
+            lambda: _answered(work, request_id), 'put_live_folder_file', request_id
+        )
+        if not reply.is_problem:
+            reply = dataclasses.replace(reply, status=201)
+        return reply.response()
+
+    app.add_api_route(
+        f'{PREFIX}/files/{{name:path}}',
+        upload,
+        methods=['PUT'],
+        tags=['files'],
+        status_code=201,
+        openapi_extra={
+            'requestBody': {
+                'required': True,
+                'content': {
+                    'application/octet-stream': {'schema': {'type': 'string', 'format': 'binary'}}
+                },
+            }
+        },
+        response_model=None,
+        responses={201: {'model': PathAnswer, 'description': 'The file written.'}},
+    )
+
+
+def _no_handle(value: object) -> object:
+    """A file's path answers no handle and no job."""
+    raise wire_encoding.NoWireFormError(type(value).__name__)
+
+
+def _acting_in(session: ScopeSession, control_id: str | None) -> contextlib.AbstractContextManager:
+    """The control session a request names, entered on the call's own thread; none named, nothing.
+
+    Entered before the member is reached, so the whole call and the lane
+    work it hands on are the session's; a session no longer live refuses
+    the call here.
+    """
+    if control_id is None:
+        return contextlib.nullcontext()
+    return session.acting_in_control(control_id)
 
 
 def _add_preview_route(app: fastapi.FastAPI, session: ScopeSession) -> None:
@@ -678,15 +752,7 @@ def _add(
         control_id = request.headers.get(CONTROL_SESSION_HEADER)
 
         def work() -> object:
-            # Entered on the call's own thread, before the member is reached,
-            # so the whole call and the lane work it hands on are the
-            # session's; a session no longer live refuses the call here.
-            in_control = (
-                session.acting_in_control(control_id)
-                if control_id is not None
-                else contextlib.nullcontext()
-            )
-            with in_control:
+            with _acting_in(session, control_id):
                 owner = registry.get(handle_id, route.root) if on_handle else session
                 for segment in route.segments:
                     owner = getattr(owner, segment)

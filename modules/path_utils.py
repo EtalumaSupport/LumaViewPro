@@ -175,6 +175,34 @@ def file_to_write(path: str | os.PathLike, *, extension: str) -> pathlib.Path:
     return path
 
 
+def write_new_file(path: pathlib.Path, data: bytes) -> None:
+    """Write ``data`` as a new file at ``path``, its folders made first.
+
+    Opened exclusively, so a file already there -- one a capture wrote, or
+    one made between any check and this write -- is never replaced. A write
+    that fails partway leaves no file behind.
+
+    Raises:
+        LiveFolderPathRefusedError: ``'file_exists'``, a file is at
+            ``path``; ``'not_a_folder'``, a file is where one of its folders
+            would be.
+        OSError: The folder or the file could not be written.
+    """
+    folder_to_make(path.parent).mkdir(parents=True, exist_ok=True)
+    try:
+        with open(path, 'xb') as written:
+            written.write(data)
+    except FileExistsError as e:
+        raise LiveFolderPathRefusedError(
+            'file_exists',
+            str(path),
+            f'{path.name} is already there; an upload never replaces a file. Give a new name.',
+        ) from e
+    except BaseException:
+        path.unlink(missing_ok=True)
+        raise
+
+
 def resolves_inside(root: str | pathlib.Path, path: str | pathlib.Path) -> bool:
     """Whether ``path`` is ``root`` or under it, once every link and ``..`` in both is followed.
 

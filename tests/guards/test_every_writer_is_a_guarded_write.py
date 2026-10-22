@@ -33,6 +33,7 @@ _WRITES = {
     'run_as_administrator': 'the camera driver install',
     'generate': 'a support report',
     'generate_logs_only': 'a logs zip',
+    'write_new_file': 'a file put into the live folder',
 }
 
 _OWNERS = (

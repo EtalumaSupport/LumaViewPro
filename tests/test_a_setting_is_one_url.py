@@ -19,7 +19,7 @@ from fastapi.testclient import TestClient
 from modules.api_surface import api
 from modules.scope_capabilities import FieldOfView, FrameSize
 from modules.scope_session import ScopeSession
-from rest.app import build_app
+from rest.app import SERVER_SEGMENTS, build_app
 from rest.routes import routes
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
@@ -88,8 +88,13 @@ def client(session):
 
 
 def _put_paths(client) -> set[str]:
+    """The members' PUT paths; the server's own routes (a file's upload) are no setting."""
     paths = client.get('/api/v1/openapi.json').json()['paths']
-    return {path.removeprefix('/api/v1/') for path, ops in paths.items() if 'put' in ops}
+    return {
+        path.removeprefix('/api/v1/')
+        for path, ops in paths.items()
+        if 'put' in ops and path.removeprefix('/api/v1/').split('/')[0] not in SERVER_SEGMENTS
+    }
 
 
 def _read_of(answer) -> tuple[int, object]:

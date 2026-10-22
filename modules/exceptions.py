@@ -202,14 +202,16 @@ class LiveFolderPathRefusedError(Refusal, ValueError):
             file is where a folder is expected. ``'wrong_extension'`` -- a
             file to write is named without its kind's extension (a
             protocol's ``.tsv``); the name given is the name written, so
-            nothing adds it.
+            nothing adds it. ``'file_exists'`` -- a file to create is
+            already there; an upload never replaces a file.
         name: The name or path that was given.
     """
 
     title = 'Path Not Available'
     # A missing live folder is an unplugged drive, which comes back; a path
     # that is missing or of the wrong kind is answered again unchanged, so a
-    # polling client must not wait on it.
+    # polling client must not wait on it. A file already there is the live
+    # folder's state, which its owner may change.
     causes: ClassVar[dict[str, RefusalCause]] = {
         'outside_live_folder': RefusalCause.REQUEST,
         'capture_location_unusable': RefusalCause.STATE,
@@ -217,11 +219,33 @@ class LiveFolderPathRefusedError(Refusal, ValueError):
         'not_a_file': RefusalCause.REQUEST,
         'not_a_folder': RefusalCause.REQUEST,
         'wrong_extension': RefusalCause.REQUEST,
+        'file_exists': RefusalCause.STATE,
     }
 
     def __init__(self, reason: str, name: str, message: str):
         super().__init__(message)
         self.reason = self._declared(reason)
+        self.name = name
+
+
+class LiveFolderFileNotWrittenError(Fault, Exception):
+    """A file put into the live folder could not be written.
+
+    Raised by ``ScopeSession.put_live_folder_file``, chained from the
+    ``OSError`` of the write, so the words name the file and the operating
+    system's own reason -- a read-only or full disk, a denied permission.
+    Nothing is left at the name.
+
+    Attributes:
+        name: The name under the live folder the file was to be written at.
+    """
+
+    reason = 'live_folder_file_not_written'
+    title = 'File Not Written'
+
+    def __init__(self, name: str, cause: OSError):
+        reason = cause.strerror or type(cause).__name__
+        super().__init__(f'{name} was not written to the live folder ({reason}).')
         self.name = name
 
 

@@ -2746,6 +2746,8 @@ The live view is display: 8-bit grey, lossy, with no metadata, no scale bar and 
 
 `GET /api/v1/files/<name>` downloads a file in the live folder by the name a listing (`GET /api/v1/live_folder_listing?name=ProtocolData`) or an answered path gives. It comes as an attachment under its own name, its type from its extension, and a `Range` request is answered with that part (`206`), so a large download resumes. A name that is no file is `404`; one that leaves the live folder is refused (`outside_live_folder`). In the URL the name is percent-decoded once, as any URL path is, and then read as a name in the live folder. A client percent-encodes each segment as a URL path segment needs (a space as `%20`, `%` as `%25`, `#` and `?` always) and keeps the `/`s between segments. An encoded `%2F` is decoded to `/` and so separates segments as `/` does, and an encoded `..` is refused as `..` is (`outside_live_folder`). In a JSON argument a name is never percent-decoded: `"a%20b"` names a file called `a%20b`.
 
+`PUT /api/v1/files/<name>` writes the request's body as a new file in the live folder under that name (`session.put_live_folder_file`), named as for a download, the folders on its way made. It answers `201` with the file's path. A file already at the name is refused, `LiveFolderPathRefusedError` `file_exists` (`409`), so an upload never replaces a file a capture wrote; a name that leaves the live folder is `outside_live_folder`; a write the disk refuses is `LiveFolderFileNotWrittenError` (`500`), with nothing left at the name. It is a write like any other: while a control session is held, only a request carrying its `Control-Session` header writes, and any other is refused `control_session_held`.
+
 `GET /api/v1/previews/<name>` answers a saved image in the live folder, named as for a download, downscaled to a JPEG for display: no wider than `max_width` pixels, half the image's width when not given, never wider than the image. It is shown as the live view is -- 8-bit grey, lossy, no metadata; a colour file is the mean of its channels -- and rendered from the file's own depth and white, so a summed still is as bright as it is shown. The data is the file (`/files`) and the still's record. A name that is no file is `404`, one that leaves the live folder `outside_live_folder`, and a file that is no image `InputFramesUnusableError` `unreadable`.
 
 ### Request ids
@@ -2779,6 +2781,8 @@ curl -s -H 'Prefer: wait=60' $API/jobs/1              # once it has ended, its r
                                                       # (curl -s -X DELETE $API/jobs/1 while it runs stops it: 202)
 curl -s "$API/live_folder_listing?name=ProtocolData/20261009_114756"
 curl -s -O -J $API/files/ProtocolData/20261009_114756/custom0000_BF_0000.tiff
+curl -s -o preview.jpg "$API/previews/ProtocolData/20261009_114756/custom0000_BF_0000.tiff?max_width=400"
+curl -s -X PUT --data-binary @layout.csv $API/files/Uploads/layout.csv   # 201, its path
 
 curl -s -N $API/events                                # the stream, until you stop it
 ```
@@ -3127,6 +3131,7 @@ Reached through `ScopeSession.create(settings, ...)`; every L2 caller starts her
 - `protocol_files_stalled`
 - `protocol_files_stuck_write`
 - `protocol_size_advisory`
+- `put_live_folder_file` (in-process)
 - `recover_file_writer`
 - `remove_outcome_listener` (in-process)
 - `remove_run_state_listener` (in-process)
