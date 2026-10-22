@@ -221,7 +221,9 @@ class TestNothingBuildsFromAFolderMissingImages:
 
         processor.assert_not_called()
 
-    def test_the_hyperstack_build_says_why_and_builds_nothing(self, monkeypatch, tmp_path):
+    def test_the_hyperstack_build_says_why_and_builds_nothing(
+        self, monkeypatch, tmp_path, post_processing
+    ):
         import modules.stack_builder as stack_builder
         from modules.notification_center import notifications
 
@@ -236,12 +238,12 @@ class TestNothingBuildsFromAFolderMissingImages:
             raise RunFilesNotWrittenError('write_batch_abandoned')
 
         stack_builder.build_hyperstacks_for_run(
-            run_dir=tmp_path,
-            has_turret=False,
-            tiling_configs_file_loc=tmp_path / 'tiling.json',
-            wait_for_images=_abandoned,
-            save_encoding='8bit',
-            channel_colors=release_colors(),
+            lambda: post_processing.run_hyperstack(
+                tmp_path,
+                save_encoding='8bit',
+                channel_colors=release_colors(),
+                written=_abandoned,
+            )
         )
 
         loaded.assert_not_called()

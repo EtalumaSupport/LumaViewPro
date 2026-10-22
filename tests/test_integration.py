@@ -12,6 +12,7 @@ Test tiers:
   - Tier 3: Autofocus -- real AutofocusRunner with SimulatedCamera focus simulation
 """
 
+from tests.protocol_drives import no_post_run_builds
 import dataclasses
 import datetime
 import json
@@ -286,6 +287,7 @@ def executor(scope, executors):
         activity_claim=ActivityClaim(),
         autofocus_runner=mock_af,
         channel_colors=release_colors,
+        post_processing=no_post_run_builds(),
     )
     return exc
 
@@ -306,6 +308,7 @@ def af_executor(scope, executors):
         activity_claim=ActivityClaim(),
         autofocus_runner=af,
         channel_colors=release_colors,
+        post_processing=no_post_run_builds(),
     )
     return exc
 

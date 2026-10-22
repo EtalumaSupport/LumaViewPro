@@ -33,6 +33,7 @@ here -- it stays pinned by test_issue_671_added_location_led_ordering.py.
 """
 
 from __future__ import annotations
+from tests.protocol_drives import no_post_run_builds
 
 import datetime
 import logging
@@ -313,6 +314,7 @@ def _make_runner(scope, execs):
         activity_claim=ActivityClaim(),
         autofocus_runner=_mock_af_runner(),
         channel_colors=release_colors,
+        post_processing=no_post_run_builds(),
     )
     return exc
 

@@ -13,6 +13,7 @@ camera slower than a limit is not a problem.
 import pytest
 
 import modules.manual_recording as manual_recording_module
+import modules.stack_builder as stack_builder_module
 import modules.protocol_recording as protocol_recording
 from modules.exceptions import (
     HyperstackRefusedError,
@@ -127,8 +128,12 @@ def test_a_full_disk_is_reported_once_unsolicited(tmp_path, monkeypatch):
     assert kw == {'solicited': False, 'category': 'Recording'}
 
 
-def test_a_failed_finish_is_one_fault_chained_from_what_failed(tmp_path, monkeypatch):
-    controller, scope, clock = make_controller(tmp_path, hyperstack=True)
+def test_a_failed_finish_is_one_fault_chained_from_what_failed(
+    tmp_path, monkeypatch, post_processing
+):
+    controller, scope, clock = make_controller(
+        tmp_path, hyperstack=True, post_processing=post_processing
+    )
     reported = _record_reports(monkeypatch, manual_recording_module)
     failure = RuntimeError('scripted hyperstack failure')
 
@@ -136,7 +141,7 @@ def test_a_failed_finish_is_one_fault_chained_from_what_failed(tmp_path, monkeyp
         def __init__(self, **kwargs):
             raise failure
 
-    monkeypatch.setattr(manual_recording_module, 'StackBuilder', _ExplodingBuilder)
+    monkeypatch.setattr(stack_builder_module, 'StackBuilder', _ExplodingBuilder)
     controller.start()
     feed_frames(scope, clock, 3, fps=10.0)
     controller.stop()
@@ -148,8 +153,12 @@ def test_a_failed_finish_is_one_fault_chained_from_what_failed(tmp_path, monkeyp
     assert kw == {'solicited': False, 'category': 'Recording'}
 
 
-def test_a_refused_hyperstack_is_reported_in_the_builders_words(tmp_path, monkeypatch):
-    controller, scope, clock = make_controller(tmp_path, hyperstack=True)
+def test_a_refused_hyperstack_is_reported_in_the_builders_words(
+    tmp_path, monkeypatch, post_processing
+):
+    controller, scope, clock = make_controller(
+        tmp_path, hyperstack=True, post_processing=post_processing
+    )
     reported = _record_reports(monkeypatch, manual_recording_module)
 
     class _RefusingBuilder:
@@ -159,7 +168,7 @@ def test_a_refused_hyperstack_is_reported_in_the_builders_words(tmp_path, monkey
         def create_single_recording_stack(self, **kwargs):
             return {'status': False, 'error': 'the builder says no'}
 
-    monkeypatch.setattr(manual_recording_module, 'StackBuilder', _RefusingBuilder)
+    monkeypatch.setattr(stack_builder_module, 'StackBuilder', _RefusingBuilder)
     controller.start()
     feed_frames(scope, clock, 3, fps=10.0)
     controller.stop()

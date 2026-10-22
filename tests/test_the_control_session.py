@@ -652,9 +652,9 @@ class TestATakeWaitsForWhatIsStillFinishing:
         release = threading.Event()
         real_build = stack_builder.build_hyperstacks_for_run
 
-        def _held_build(**kwargs):
+        def _held_build(build):
             release.wait(WAIT_S)
-            real_build(**kwargs)
+            real_build(build)
 
         monkeypatch.setattr(stack_builder, 'build_hyperstacks_for_run', _held_build)
         try:

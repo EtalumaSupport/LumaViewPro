@@ -833,6 +833,84 @@ class PostProcessingAPI:
         said += [f'{step.operation}: skipped -- {step.message}' for step in skipped]
         return BuildsResult(message=' '.join(said), built=tuple(built), skipped=tuple(skipped))
 
+    def run_hyperstack(
+        self,
+        run_dir: pathlib.Path,
+        *,
+        save_encoding: str,
+        channel_colors: ChannelColors,
+        written: Callable[[], None],
+    ) -> dict:
+        """Build a finished run's per-well hyperstacks on the lane; the builder's answer.
+
+        Not on the wire: a run's folder does not record the encoding its
+        images were saved in, which a stack needs to bring 8-bit planes into
+        a 16-bit stack, so only the run that wrote them can ask.
+        *save_encoding* and *channel_colors* are the run's own. *written*
+        blocks until the run's images are all on disk and raises when they
+        will not be; the build waits on it before it starts, so a stack is
+        never built from a folder still filling. The run's own files and its
+        own hold are no reason to refuse it.
+
+        Raises:
+            What *written* raises, and the builder's refusals and failures
+            (``ProtocolPostProcessor.load_folder``).
+        """
+        from modules.stack_builder import StackBuilder
+
+        return self._on_lane(
+            functools.partial(
+                StackBuilder(has_turret=self._has_turret()).load_folder,
+                tiling_configs_file_loc=self._tiling_configs_path(),
+                save_encoding=save_encoding,
+                channel_colors=channel_colors,
+            ),
+            'run_hyperstack',
+            run_dir,
+            admit=written,
+            reads=path_utils.existing_folder,
+            said=lambda answer: answer['message'],
+        )
+
+    def recording_hyperstack(
+        self,
+        frames: pd.DataFrame,
+        folder: pathlib.Path,
+        output: pathlib.Path,
+        *,
+        save_encoding: str,
+        channel_colors: ChannelColors,
+    ) -> dict:
+        """Build a finished recording's one stack of *frames* at *output*, on the lane.
+
+        Not on the wire, for the reason ``run_hyperstack`` gives; the
+        recording asks once its frames are written. The answer is the
+        builder's: ``status`` False with its ``error`` when it declined.
+
+        Raises:
+            InputFramesUnusableError: frames the stack cannot use.
+        """
+        from modules.stack_builder import StackBuilder
+
+        def stack(path: pathlib.Path, on_progress: ProgressCallback) -> dict:
+            # One stack, so there is no progress to tell.
+            return StackBuilder(has_turret=self._has_turret()).create_single_recording_stack(
+                df=frames,
+                path=path,
+                output_file_loc=output,
+                save_encoding=save_encoding,
+                channel_colors=channel_colors,
+            )
+
+        return self._on_lane(
+            stack,
+            'recording_hyperstack',
+            folder,
+            admit=lambda: None,
+            reads=path_utils.existing_folder,
+            said=lambda answer: 'built' if answer['status'] else answer['error'],
+        )
+
     def _name_running_build(self, name: str) -> None:
         """Rename the build the lane is running, for ``work`` to say."""
         with self._builds_lock:
@@ -1304,6 +1382,33 @@ class PostProcessingAPI:
         interpreter lock and the disk with that work. A build already
         running when a run starts runs on.
         """
+        return self._on_lane(
+            action,
+            member,
+            folder,
+            *args,
+            admit=functools.partial(self._refuse_while_busy, operation),
+            reads=reads,
+            **kwargs,
+        )
+
+    def _on_lane(
+        self,
+        action,
+        member: str,
+        folder,
+        *args,
+        admit: Callable[[], None],
+        reads,
+        said: Callable[[object], str] = lambda result: result.message,
+        **kwargs,
+    ):
+        """Run *action* on the post-processing lane once *admit* lets it start.
+
+        *admit* is asked on the lane, first: it raises when the build may
+        not start, and may wait until it can. *said* is what the end of the
+        build's log line says of its answer.
+        """
         caller_progress = kwargs.get('on_progress')
 
         def on_progress(percent: float, detail: str | None = None) -> None:
@@ -1315,7 +1420,7 @@ class PostProcessingAPI:
 
         @functools.wraps(action)
         def build(path, *a, **kw):
-            self._refuse_while_busy(operation)
+            admit()
             logger.info(f'[PostProc  ] {member} started on {folder}')
             started = time.monotonic()
             try:
@@ -1328,7 +1433,7 @@ class PostProcessingAPI:
                 raise
             logger.info(
                 f'[PostProc  ] {member} ended after {time.monotonic() - started:.1f} s: '
-                f'{result.message}'
+                f'{said(result)}'
             )
             return result
 

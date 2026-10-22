@@ -93,9 +93,9 @@ def test_a_hyperstack_run_waits_for_its_build(tmp_path, monkeypatch):
     release = threading.Event()
     real_build = stack_builder.build_hyperstacks_for_run
 
-    def _held_build(**kwargs):
+    def _held_build(build):
         release.wait(WAIT_S)
-        real_build(**kwargs)
+        real_build(build)
         built.set()
 
     monkeypatch.setattr(stack_builder, 'build_hyperstacks_for_run', _held_build)

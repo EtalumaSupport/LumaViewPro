@@ -327,6 +327,7 @@ class SequencedCaptureRunner:
         autofocus_thread,
         activity_claim: ActivityClaim,
         channel_colors: typing.Callable[[], ChannelColors],
+        post_processing: typing.Any,
         autofocus_runner: AutofocusRunner | None = None,
         on_run_idle: typing.Callable[[], None] | None = None,
         on_protocol_files_written: typing.Callable[[pathlib.Path, str, str, str], None]
@@ -342,6 +343,11 @@ class SequencedCaptureRunner:
         # coloured as the run began, whatever changes while it runs.
         self._read_channel_colors = channel_colors
         self._channel_colors: ChannelColors | None = None
+        # The session's builds (its PostProcessingAPI): a run's own hyperstack
+        # is built through it. Handed, never imported, even for its type: the
+        # module's other builds import the GUI's encoding resolver, which the
+        # engine's import graph must not reach.
+        self._post_processing = post_processing
         # Handed (run_dir, files outcome, trigger source, protocol name) once per Full
         # Protocol, after its images are written and its hyperstack build has
         # ended: the session's hand-off to the post-processing plugins. Runs
@@ -2359,22 +2365,19 @@ class SequencedCaptureRunner:
         run_dir = self._run_dir
         if run_dir is None:
             return None
-        has_turret = self._scope.capabilities.has_turret
-        tiling_configs_file_loc = self._tiling_configs_file_loc
         write_batch = self._write_batch
-        channel_colors = self._channel_colors
+        build = functools.partial(
+            self._post_processing.run_hyperstack,
+            run_dir,
+            save_encoding=config.save_encoding,
+            channel_colors=self._channel_colors,
+            written=lambda: write_batch.wait_until_written(_POST_RUN_WRITES_WAIT_S),
+        )
 
         return self._spawn_post_run_step(
             name='hyperstack-build',
             on_end=on_end,
-            build_fn=lambda: stack_builder.build_hyperstacks_for_run(
-                run_dir=run_dir,
-                has_turret=has_turret,
-                tiling_configs_file_loc=tiling_configs_file_loc,
-                wait_for_images=lambda: write_batch.wait_until_written(_POST_RUN_WRITES_WAIT_S),
-                save_encoding=config.save_encoding,
-                channel_colors=channel_colors,
-            ),
+            build_fn=lambda: stack_builder.build_hyperstacks_for_run(build),
         )
 
     def _start_composite_merge(

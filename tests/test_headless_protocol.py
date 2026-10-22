@@ -16,6 +16,7 @@ This complements test_integration.py, which mocks Kivy out -- here we
 assert the modules NEVER LOAD Kivy at all.
 """
 
+from tests.protocol_drives import no_post_run_builds
 import contextlib
 import datetime
 import pathlib
@@ -281,6 +282,7 @@ class TestHeadlessProtocolExecution:
                     activity_claim=ActivityClaim(),
                     autofocus_runner=mock_af,
                     channel_colors=release_colors,
+                    post_processing=no_post_run_builds(),
                 )
                 protocol = self._make_protocol()
 

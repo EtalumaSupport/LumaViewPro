@@ -10,6 +10,7 @@ Uses Lumascope(simulate=True) with real SimulatedLEDBoard, SimulatedMotorBoard,
 and SimulatedCamera -- no hardware or Kivy needed.
 """
 
+from tests.protocol_drives import no_post_run_builds
 import dataclasses
 import datetime
 import json
@@ -349,6 +350,7 @@ def executor(scope, executors):
         activity_claim=ActivityClaim(),
         autofocus_runner=mock_af,
         channel_colors=release_colors,
+        post_processing=no_post_run_builds(),
     )
     return exc
 

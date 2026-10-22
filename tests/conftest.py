@@ -412,6 +412,15 @@ def centre_posts():
 
 
 @pytest.fixture
+def post_processing():
+    """The session's builds on a real lane of their own, for a test with no Session."""
+    from tests.post_processing_lane import a_post_processing_api
+
+    with a_post_processing_api() as api:
+        yield api
+
+
+@pytest.fixture
 def unattended_run():
     """The real centre judges the test's posts as an unattended run's, closed at teardown."""
     from modules.notification_center import notifications

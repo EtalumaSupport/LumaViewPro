@@ -38,6 +38,7 @@ This test is expected to FAIL until #671 is fixed.
 """
 
 from __future__ import annotations
+from tests.protocol_drives import no_post_run_builds
 
 import datetime
 import logging
@@ -240,6 +241,7 @@ def executor(scope, executors):
         autofocus_thread=MagicMock(in_flight_sweep=None),
         activity_claim=ActivityClaim(),
         channel_colors=release_colors,
+        post_processing=no_post_run_builds(),
         autofocus_runner=mock_af,
     )
     return exc

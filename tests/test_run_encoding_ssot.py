@@ -18,6 +18,7 @@ API run configured for a 12-bit mode silently saved 8-bit / right-aligned
    re-read to regress back to.
 """
 
+from tests.protocol_drives import no_post_run_builds
 import ast
 import dataclasses
 import pathlib
@@ -176,6 +177,7 @@ def executor(scope, executors):
         activity_claim=ActivityClaim(),
         autofocus_runner=mock_af,
         channel_colors=release_colors,
+        post_processing=no_post_run_builds(),
     )
     return exc
 

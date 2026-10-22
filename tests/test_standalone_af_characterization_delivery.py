@@ -21,6 +21,7 @@ lands on disk.
 """
 
 from __future__ import annotations
+from tests.protocol_drives import no_post_run_builds
 
 import datetime
 import pathlib
@@ -127,6 +128,7 @@ class TestStandaloneAfDeliversCharacterizationData:
             activity_claim=ActivityClaim(),
             autofocus_runner=af_runner,
             channel_colors=release_colors,
+            post_processing=no_post_run_builds(),
         )
 
         char_dir = tmp_path / 'Autofocus Characterization'

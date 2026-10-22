@@ -214,8 +214,8 @@ class TestAFullProtocolRunsTheOptedInProcessors:
         build_ended = threading.Event()
         real_build = stack_builder.build_hyperstacks_for_run
 
-        def _build(**kwargs):
-            real_build(**kwargs)
+        def _build(build):
+            real_build(build)
             build_ended.set()
 
         monkeypatch.setattr(stack_builder, 'build_hyperstacks_for_run', _build)

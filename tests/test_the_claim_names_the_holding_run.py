@@ -10,6 +10,7 @@ taken and released with the run.
 """
 
 from __future__ import annotations
+from tests.protocol_drives import no_post_run_builds
 
 import threading
 
@@ -147,6 +148,7 @@ class TestTheRunnerReadsTheClaim:
                 file_io_executor=MagicMock(),
                 autofocus_thread=MagicMock(in_flight_sweep=None),
                 channel_colors=release_colors,
+                post_processing=no_post_run_builds(),
             )
 
     def test_the_getter_is_empty_before_any_run(self):

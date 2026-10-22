@@ -286,7 +286,7 @@ class TestTheObjectiveQuestionDuringAHold:
 
 class TestTheManualRecordingReadsItsClaimsUnderTheClaim:
     def test_frame_size_and_objective_are_read_while_the_recording_holds(
-        self, tmp_path, monkeypatch
+        self, tmp_path, monkeypatch, post_processing
     ):
         from modules.manual_recording import ManualRecordingController
         from tests.test_manual_recording_controller import (
@@ -322,6 +322,7 @@ class TestTheManualRecordingReadsItsClaimsUnderTheClaim:
             scheduler=ManualFireScheduler(),
             clock=FakeClock(),
             channel_colors=release_colors,
+            post_processing=post_processing,
         )
         controller.start()
         controller.stop()

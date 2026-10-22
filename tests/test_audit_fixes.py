@@ -15,6 +15,7 @@ IMPORTANT: This file does NOT manipulate sys.modules at module level.
 All mocking is done inside fixtures/test methods and cleaned up afterward.
 """
 
+from tests.protocol_drives import no_post_run_builds
 import dataclasses
 import pathlib
 import inspect
@@ -1175,49 +1176,6 @@ class TestRule14_A4_PreRunValidationNotify:
         )
 
 
-class TestRule14_A7_HyperstackBuildNotify:
-    """A7: a hyperstack build failure must notify (Rule 14)."""
-
-    def test_hyperstack_build_exception_notifies(self, monkeypatch):
-        """A raising StackBuilder.load_folder must reach the one reporter --
-        without it the user only ever sees the optimistic 'Saving
-        Hyperstacks' notice. The reporter logs the traceback and shows the
-        failure under the build's operation key, so it replaces that
-        notice. The boundary handler lives in build_hyperstacks_for_run,
-        which the runner's background build thread calls; exercising it
-        directly exercises the same handler that thread runs."""
-        import pathlib
-
-        import modules.stack_builder as stack_builder_module
-        from modules.exceptions import Notice
-        from modules.notification_center import notifications
-
-        reported = []
-        monkeypatch.setattr(
-            notifications, 'report_outcome', lambda ex, **kw: reported.append((ex, kw))
-        )
-        failure = RuntimeError('corrupt tile map')
-        builder = MagicMock()
-        builder.return_value.load_folder.side_effect = failure
-        monkeypatch.setattr(stack_builder_module, 'StackBuilder', builder)
-
-        stack_builder_module.build_hyperstacks_for_run(
-            run_dir=pathlib.Path('.'),
-            has_turret=False,
-            tiling_configs_file_loc=pathlib.Path('.') / 'data' / 'tiling.json',
-            # The run's images are all on disk: the build goes on to load.
-            wait_for_images=lambda: None,
-            save_encoding='8bit',
-            channel_colors=release_colors(),
-        )
-
-        # The announcement is reported too; what went wrong is the rest.
-        ((exception, kw),) = [(ex, kw) for ex, kw in reported if not isinstance(ex, Notice)]
-        assert exception is failure
-        assert kw['solicited'] is False
-        assert kw['operation_key'] == builder.return_value.operation_key
-
-
 # ---------------------------------------------------------------------------
 # protocol_cleanup.run_cleanup behavioral-test builder
 # ---------------------------------------------------------------------------
@@ -2179,6 +2137,7 @@ def _make_capture_runner(**overrides):
         'file_io_executor': MagicMock(),
         'autofocus_thread': MagicMock(in_flight_sweep=None),
         'activity_claim': ActivityClaim(),
+        'post_processing': no_post_run_builds(),
     }
     kwargs.update(overrides)
     # The engine reads IO and CAMERA from its scope; a test that passes its
@@ -7354,6 +7313,7 @@ class TestSequencedCaptureRunnerRunDirCollision:
             autofocus_thread=MagicMock(in_flight_sweep=None),
             activity_claim=ActivityClaim(),
             channel_colors=release_colors,
+            post_processing=no_post_run_builds(),
         )
         exc._parent_dir = parent_dir
         return exc

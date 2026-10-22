@@ -132,6 +132,13 @@ def run_identity(started_by: Caller = Caller.API, words: str = 'scan') -> RunIde
     return RunIdentity(started_by=started_by, words=words)
 
 
+def no_post_run_builds() -> MagicMock:
+    """The session's builds for an engine whose test drives no post-run build."""
+    # a stand-in by design: the engine's own tests build its runs; the builds a
+    # run's end hands on are pinned through the Session's real lane.
+    return MagicMock()
+
+
 def bare_capture_runner(**overrides):
     """SequencedCaptureRunner with MagicMock deps."""
     from modules.sequenced_capture_runner import SequencedCaptureRunner
@@ -143,6 +150,7 @@ def bare_capture_runner(**overrides):
         'autofocus_thread': MagicMock(in_flight_sweep=None),
         'activity_claim': ActivityClaim(),
         'autofocus_runner': MagicMock(),
+        'post_processing': no_post_run_builds(),
     }
     kwargs.update(overrides)
     if 'scope' not in overrides:

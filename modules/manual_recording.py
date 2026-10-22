@@ -27,7 +27,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pandas as pd
@@ -76,7 +76,6 @@ from modules.recording_frames import (
     tiff_frame_metadata,
 )
 from modules.recording_manifest import gather_host_provenance
-from modules.stack_builder import StackBuilder
 from modules.video_cadence import StallWatch, effective_recording_fps, stall_threshold_s
 from modules.video_recording import (
     END_REASON_START_FAILED,
@@ -87,6 +86,9 @@ from modules.scheduler import Scheduler
 from modules.video_writer import VideoWriter
 from modules.api_surface import api
 from modules.caller import current_caller
+
+if TYPE_CHECKING:
+    from modules.post_processing_api import PostProcessingAPI
 
 # The channel LumaViewPro comes up on. A recording that can name no other
 # channel was taken on this one, so identity always has a real value and
@@ -150,6 +152,8 @@ class ManualRecordingController:
             finish. Required: a controller that can start a recording
             but has no armed health bound is the trap this parameter
             exists to make unconstructible.
+        post_processing: The session's builds; a recording's stack is
+            built through it.
         clock: Wall-time source (seconds) for what is measured against
             frame timestamps: the engine's cadence and the camera tick
             rebaser. Tests drive it.
@@ -169,9 +173,11 @@ class ManualRecordingController:
         channel_colors: Callable[[], layer_record.ChannelColors],
         activity_claim: Any,
         scheduler: Scheduler,
+        post_processing: 'PostProcessingAPI',
         clock: Callable[[], float] = time.time,
         elapsed_clock: Callable[[], float] = time.monotonic,
     ):
+        self._post_processing = post_processing
         self._scope = scope
         self._settings = settings
         self._shown_layer = shown_layer
@@ -996,12 +1002,10 @@ class ManualRecordingController:
         df = pd.DataFrame(self._hyperstack_rows)
         output = plan.save_folder / MANUAL_HYPERSTACK_FILENAME
         try:
-            result = StackBuilder(
-                has_turret=self._scope.capabilities.has_turret
-            ).create_single_recording_stack(
-                df=df,
-                path=plan.save_folder,
-                output_file_loc=output,
+            result = self._post_processing.recording_hyperstack(
+                df,
+                plan.save_folder,
+                output,
                 save_encoding=plan.save_encoding,
                 channel_colors=plan.channel_colors,
             )

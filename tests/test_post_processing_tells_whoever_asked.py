@@ -225,21 +225,13 @@ def _hyperstack_build(monkeypatch, tmp_path, answer):
 
     monkeypatch.setattr(notifications, 'report_outcome', _report)
 
-    def _load_folder(self, **kwargs):
+    def _build():
+        # a stand-in by design: the build's answer is the case, not how it was made
         if isinstance(answer, BaseException):
             raise answer
         return answer
 
-    monkeypatch.setattr(stack_builder.StackBuilder, 'load_folder', _load_folder)
-    # The run's images are already on disk: the wait returns at once.
-    stack_builder.build_hyperstacks_for_run(
-        tmp_path,
-        False,
-        TILING_CONFIGS,
-        wait_for_images=lambda: None,
-        save_encoding='8bit',
-        channel_colors=release_colors(),
-    )
+    stack_builder.build_hyperstacks_for_run(_build)
     return notices, reports
 
 

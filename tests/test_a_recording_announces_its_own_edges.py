@@ -92,7 +92,7 @@ class TestTheEngine:
 
 
 class TestTheController:
-    def test_the_last_thing_a_listener_hears_is_the_finish_ended(self, tmp_path):
+    def test_the_last_thing_a_listener_hears_is_the_finish_ended(self, tmp_path, post_processing):
         # The claim is released when the drain ends, while the finish (the
         # encoder's close, the hyperstack) still runs; the finish's own end
         # is the edge after which nothing about the recording is busy.
@@ -112,6 +112,7 @@ class TestTheController:
             scheduler=ManualFireScheduler(),
             clock=clock,
             channel_colors=release_colors,
+            post_processing=post_processing,
         )
         controller.start()
         feed_frames(scope, clock, 3)

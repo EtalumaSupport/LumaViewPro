@@ -27,7 +27,9 @@ from tests.settings_fixtures import complete_settings
 
 
 @pytest.mark.slow
-def test_manual_recording_ends_within_the_stall_bound(sim_scope, tmp_path, monkeypatch):
+def test_manual_recording_ends_within_the_stall_bound(
+    sim_scope, tmp_path, monkeypatch, post_processing
+):
     # The disk probe would report this machine's free space; report ample
     # free disk instead so the stall bound is the only thing under test.
     monkeypatch.setattr(
@@ -49,6 +51,7 @@ def test_manual_recording_ends_within_the_stall_bound(sim_scope, tmp_path, monke
         channel_colors=release_colors,
         activity_claim=ActivityClaim(),
         scheduler=scheduler,
+        post_processing=post_processing,
     )
     controller.start()
     # The feed dies only once the recording has a frame on disk to keep.

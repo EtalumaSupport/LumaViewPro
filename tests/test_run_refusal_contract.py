@@ -36,6 +36,7 @@ running-state only between prepare and start, inside the shared
 refusal boundary) is locked by tests/test_protocol_start_refusal_ui_gate.py.
 """
 
+from tests.protocol_drives import no_post_run_builds
 import ast
 import datetime
 import pathlib
@@ -233,6 +234,7 @@ def executor(scope, executors):
         activity_claim=ActivityClaim(),
         autofocus_runner=mock_af,
         channel_colors=release_colors,
+        post_processing=no_post_run_builds(),
     )
     return exc
 

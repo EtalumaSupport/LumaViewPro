@@ -57,6 +57,15 @@ _OPERATION_LABELS = {
 }
 
 
+def operation_key(post_function: PostFunction) -> str:
+    """The key that ties a build's start notice to the outcome answering it.
+
+    Derived in one place so the two ends cannot drift apart, for a caller
+    that announces a build it does not construct.
+    """
+    return f'post-processing:{post_function.value}'
+
+
 def _remedy_for(post_function, excluded_kinds) -> str:
     """The 'do this instead' sentences for what a function turned away.
 
@@ -378,9 +387,9 @@ class ProtocolPostProcessor(abc.ABC):
 
         A caller that announces a long build passes this with both ends, or
         the outcome opens a second modal instead of replacing the "please
-        wait" one. Derived in one place so the two ends cannot drift apart.
+        wait" one.
         """
-        return f'post-processing:{self._post_function.value}'
+        return operation_key(self._post_function)
 
     def _incomplete(
         self,

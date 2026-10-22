@@ -167,12 +167,15 @@ class TestBothEndsNameTheSameOperation:
             for node in ast.walk(tree)
             if isinstance(node, ast.FunctionDef) and node.name == 'build_hyperstacks_for_run'
         ]
+        # The key is read once, from the one derivation the builder's own
+        # property also returns (``protocol_post_processor.operation_key``).
         key_names = {
             target.id
             for node in ast.walk(boundary)
             if isinstance(node, ast.Assign)
-            and isinstance(node.value, ast.Attribute)
-            and node.value.attr == 'operation_key'
+            and isinstance(node.value, ast.Call)
+            and isinstance(node.value.func, ast.Name)
+            and node.value.func.id == 'operation_key'
             for target in node.targets
             if isinstance(target, ast.Name)
         }
@@ -192,7 +195,7 @@ class TestBothEndsNameTheSameOperation:
 
         assert not hand_spelled, (
             f'operation_key spelled by hand at line(s) {hand_spelled}. Both ends '
-            'must take it from the one property, or the outcome notice stops '
+            'must take it from the one derivation, or the outcome notice stops '
             'matching the start notice and opens a second popup instead.'
         )
         assert from_the_property == 3, (

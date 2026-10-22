@@ -617,6 +617,7 @@ class ScopeSession:
             channel_colors=self.channel_colors,
             activity_claim=self.activity_claim,
             scheduler=self._scheduler,
+            post_processing=self.post_processing,
         )
         # Manual stills: one at a time, on the camera lane, which already
         # refuses them while a run holds the camera. No activity claim -- a
@@ -651,6 +652,7 @@ class ScopeSession:
             autofocus_runner=autofocus_runner,
             activity_claim=self.activity_claim,
             channel_colors=self.channel_colors,
+            post_processing=self.post_processing,
             on_run_idle=self._run_went_idle,
             on_protocol_files_written=self._run_protocol_complete_processors,
             on_step_lit=self._step_lit_by_run,

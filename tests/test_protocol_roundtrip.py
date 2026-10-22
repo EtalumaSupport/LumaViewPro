@@ -16,6 +16,7 @@ These tests verify that:
 3. Step validation catches invalid configs before execution
 """
 
+from tests.protocol_drives import no_post_run_builds
 import dataclasses
 import datetime
 import pathlib
@@ -273,6 +274,7 @@ def executor(scope, executors):
         activity_claim=ActivityClaim(),
         autofocus_runner=mock_af,
         channel_colors=release_colors,
+        post_processing=no_post_run_builds(),
     )
     return exc
 
@@ -302,6 +304,7 @@ def real_executor(scope, executors):
         activity_claim=ActivityClaim(),
         autofocus_runner=mock_af,
         channel_colors=release_colors,
+        post_processing=no_post_run_builds(),
     )
     return exc
 

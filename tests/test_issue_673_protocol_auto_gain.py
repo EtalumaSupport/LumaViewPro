@@ -27,6 +27,7 @@ protocol's `save_camera_state -> restore_camera_state` window.
 """
 
 from __future__ import annotations
+from tests.protocol_drives import no_post_run_builds
 
 import datetime
 import logging
@@ -173,6 +174,7 @@ def executor(scope, executors):
         activity_claim=ActivityClaim(),
         autofocus_runner=mock_af,
         channel_colors=release_colors,
+        post_processing=no_post_run_builds(),
     )
     return exc
 

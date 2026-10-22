@@ -23,6 +23,7 @@ vacuously, which is precisely the blind spot being pinned.
 """
 
 from __future__ import annotations
+from tests.protocol_drives import no_post_run_builds
 
 import contextlib
 import datetime
@@ -157,6 +158,7 @@ class _AfRig:
             activity_claim=ActivityClaim(),
             autofocus_runner=self.af_runner,
             channel_colors=release_colors,
+            post_processing=no_post_run_builds(),
         )
 
     def run_autofocus(

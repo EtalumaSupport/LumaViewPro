@@ -19,7 +19,7 @@ from modules.exceptions import (
     HyperstacksSavingNotice,
 )
 from modules.notification_center import notifications
-from modules.protocol_post_processor import ProtocolPostProcessor
+from modules.protocol_post_processor import ProtocolPostProcessor, operation_key
 from modules.protocol_post_processing_result import PostProcResult
 from modules.protocol_post_record import ProtocolPostRecord
 
@@ -28,34 +28,15 @@ import logging
 logger = logging.getLogger('lvp_logger')
 
 
-def build_hyperstacks_for_run(
-    run_dir: pathlib.Path,
-    has_turret: bool,
-    tiling_configs_file_loc: pathlib.Path,
-    wait_for_images: Callable[[], None],
-    save_encoding: str,
-    channel_colors: layer_record.ChannelColors,
-) -> None:
-    """Build per-well hyperstacks from a finished run's folder, and tell the person.
+def build_hyperstacks_for_run(build: Callable[[], dict]) -> None:
+    """Build a finished run's per-well hyperstacks by *build*, and tell the person.
 
-    The below-UI entry point the run trigger calls: config and paths come
-    from the caller, never the live UI or the process's script root, so
-    a headless / L2 run builds the same stacks a GUI run does against the
-    tiling config its session was built with. Runs on the caller's
-    (background) thread.
-
-    ``wait_for_images`` blocks until the run's images are all on disk and
-    raises when they will not be -- the bound expired, or some were
-    abandoned. It is waited on after the announcement, so a build waiting
-    on a slow disk is not a silent hang, and its raise is answered here
-    like any other: a stack built from a folder still filling would
-    silently miss planes.
-
-    ``save_encoding`` is the run's: the per-step files were written in it,
-    and a stack that mixes 8-bit and 16-bit planes needs it to bring the
-    8-bit ones into the 16-bit stack the way the run wrote the others.
-    ``channel_colors`` is the run's too: each channel's colour as the run
-    began, which the stack describes its channels in.
+    *build* is the run's ``PostProcessingAPI.run_hyperstack``, which waits
+    for the run's images to land before it starts; its raise when they
+    will not -- the bound expired, or some were abandoned -- is answered
+    here like any other, after the announcement, so a build waiting on a
+    slow disk is not a silent hang. Runs on the caller's (background)
+    thread.
 
     Nobody waits on this build, so this is where its outcome is reported:
     announced as it starts, so a multi-minute build is not a silent hang,
@@ -63,19 +44,12 @@ def build_hyperstacks_for_run(
     -- under the same operation key, so the answer replaces the
     announcement rather than opening beside it.
     """
-    builder = StackBuilder(has_turret=has_turret)
-    key = builder.operation_key
+    key = operation_key(PostFunction.HYPERSTACK)
     notifications.report_outcome(
         HyperstacksSavingNotice(), solicited=False, category='Post-processing', operation_key=key
     )
     try:
-        wait_for_images()
-        result = builder.load_folder(
-            path=run_dir,
-            tiling_configs_file_loc=tiling_configs_file_loc,
-            save_encoding=save_encoding,
-            channel_colors=channel_colors,
-        )
+        result = build()
     except Exception as ex:
         notifications.report_outcome(
             ex,

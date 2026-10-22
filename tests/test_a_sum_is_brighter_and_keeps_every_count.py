@@ -587,25 +587,21 @@ def test_the_depth_before_any_capture_is_the_cameras_stamp(sim_camera):
     assert scope.imaging.capture_frame_full_scale(np.zeros((4, 4), dtype=np.uint16)) == 4095
 
 
-def test_the_post_run_build_is_told_the_runs_encoding(monkeypatch, tmp_path):
+def test_the_post_run_build_is_told_the_runs_encoding(monkeypatch, tmp_path, post_processing):
     from modules import stack_builder
-    from modules.notification_center import notifications
 
     asked = {}
 
-    def _load_folder(self, **kwargs):
+    def _load_folder(self, path, **kwargs):
         asked.update(kwargs)
-        # Only what it was asked matters here; the build's answer is reported.
-        raise RuntimeError('not built in this test')
+        # Only what it was asked matters here.
+        return {'message': 'not built in this test'}
 
-    monkeypatch.setattr(notifications, 'report_outcome', lambda *a, **k: None)
     monkeypatch.setattr(stack_builder.StackBuilder, 'load_folder', _load_folder)
-    stack_builder.build_hyperstacks_for_run(
+    post_processing.run_hyperstack(
         tmp_path,
-        False,
-        tmp_path / 'tiling.json',
-        wait_for_images=lambda: None,
         save_encoding='msb_aligned',
         channel_colors=release_colors(),
+        written=lambda: None,
     )
     assert asked['save_encoding'] == 'msb_aligned'

@@ -10,6 +10,7 @@ a stub delivering frames straight into the registered listener.
 
 import itertools
 import json
+import sys
 import threading
 from types import SimpleNamespace
 
@@ -18,6 +19,7 @@ import pytest
 
 from modules.activity_claim import ActivityClaim
 import modules.manual_recording as manual_recording_module
+import modules.stack_builder as stack_builder_module
 from modules.coord_transformations import PlatePosition
 from modules.exceptions import RecordingRefusedError
 from modules.layer_record import release_catalogue
@@ -33,8 +35,22 @@ from tests.camera_fakes import delivered_frame
 from modules.lumascope_api import AxisPosition, AxisState
 from modules.layer_record import release_colors
 from tests.objective_records import objective
+from tests.post_processing_lane import a_post_processing_api
 
 TICK_HZ = 1_000_000_000
+
+
+# The test's own builds, a real lane per test (``_a_lane_of_builds``).
+_builds = None
+
+
+@pytest.fixture(autouse=True)
+def _a_lane_of_builds(monkeypatch):
+    # make_controller is called inside each test, so the lane is handed to it
+    # through the module, set and restored per test, and shut down after.
+    with a_post_processing_api() as api:
+        monkeypatch.setattr(sys.modules[__name__], '_builds', api)
+        yield
 
 
 @pytest.fixture(autouse=True)
@@ -204,8 +220,11 @@ def make_controller(
     lit=None,
     shown='BF',
     claim=None,
+    post_processing=None,
     **settings_kwargs,
 ):
+    # A test outside this module hands its own lane: this module's is set
+    # only for its own tests.
     scope = scope or _FakeScope(lit=lit)
     clock = clock or FakeClock()
     controller = ManualRecordingController(
@@ -217,6 +236,7 @@ def make_controller(
         clock=clock,
         elapsed_clock=elapsed_clock or clock,
         channel_colors=release_colors,
+        post_processing=post_processing or _builds,
     )
     return controller, scope, clock
 
@@ -631,7 +651,7 @@ def _block_the_finish(monkeypatch):
             release.wait(timeout=15)
             return {'status': True, 'error': None, 'metadata': {}}
 
-    monkeypatch.setattr(manual_recording_module, 'StackBuilder', _BlockingBuilder)
+    monkeypatch.setattr(stack_builder_module, 'StackBuilder', _BlockingBuilder)
     return entered, release
 
 
@@ -882,7 +902,7 @@ class TestLossIsNotified:
             def __init__(self, **kwargs):
                 raise RuntimeError('scripted hyperstack failure')
 
-        monkeypatch.setattr(manual_recording_module, 'StackBuilder', _ExplodingBuilder)
+        monkeypatch.setattr(stack_builder_module, 'StackBuilder', _ExplodingBuilder)
         controller.start()
         feed_frames(scope, clock, 3, fps=10.0)
         controller.stop()
@@ -906,10 +926,24 @@ def _capture_hyperstack_df(monkeypatch):
             self, df, path, output_file_loc, *, save_encoding, channel_colors
         ):
             captured['df'] = df
+            captured['thread'] = threading.current_thread().name
             return {'status': True, 'error': None, 'metadata': {}}
 
-    monkeypatch.setattr(manual_recording_module, 'StackBuilder', _CapturingBuilder)
+    monkeypatch.setattr(stack_builder_module, 'StackBuilder', _CapturingBuilder)
     return captured
+
+
+def test_a_recordings_stack_is_built_on_the_post_processing_lane(tmp_path, monkeypatch):
+    # The session's builds own the stack, on their lane, as a run's are: a
+    # recording's finish does not build on a thread of its own.
+    captured = _capture_hyperstack_df(monkeypatch)
+    controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit='BF')
+    controller.start(false_color_on=False)
+    feed_frames(scope, clock, 2, fps=10.0)
+    controller.stop()
+    finish(controller)
+
+    assert captured['thread'] == _builds.lane.executor_name
 
 
 class TestChannelIdentity:
