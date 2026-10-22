@@ -22,27 +22,37 @@ from __future__ import annotations
 import ast
 import pathlib
 
-from tests.ast_seams import REPO_ROOT, find_def, iter_package_modules, parse_module
+from tests.ast_seams import (
+    REPO_ROOT,
+    MemberNames,
+    RetiredNames,
+    find_def,
+    iter_package_modules,
+    parse_module,
+)
 from tests.scope_fakes import build_scope
 
 _LUMASCOPE_SRC = 'modules/lumascope_api/_lumascope.py'
 _PROTOCOLS_SRC = 'modules/lumascope_api/protocols.py'
 
 # Every sub-API both constructor paths must wire.
-_SUB_APIS = (
-    'motion',
-    'illumination',
-    'imaging',
-    'diagnostics',
-    'capabilities',
-    'protocols',
-    'runtime_state',
+_SUB_APIS = MemberNames(
+    'modules/lumascope_api/_lumascope.py',
+    {
+        'motion',
+        'illumination',
+        'imaging',
+        'diagnostics',
+        'capabilities',
+        'protocols',
+        'runtime_state',
+    },
 )
 
 # Members moving off Lumascope onto ProtocolsAPI. sanitize_step_name is
 # on this list because it retires rather than moves -- its callers go
 # direct to Protocol, which is already its canonical home.
-_MOVED_MEMBERS = frozenset(
+_MOVED_MEMBERS = RetiredNames(
     {
         'load_protocol',
         'create_protocol',
@@ -51,12 +61,14 @@ _MOVED_MEMBERS = frozenset(
     }
 )
 
-_RETIRED_FROM_LUMASCOPE = (
-    'load_protocol',
-    'create_protocol',
-    'register_source_path',
-    'tiling_configs_path',
-    'sanitize_step_name',
+_RETIRED_FROM_LUMASCOPE = RetiredNames(
+    {
+        'load_protocol',
+        'create_protocol',
+        'register_source_path',
+        'tiling_configs_path',
+        'sanitize_step_name',
+    }
 )
 
 

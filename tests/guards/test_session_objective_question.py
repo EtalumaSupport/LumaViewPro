@@ -26,7 +26,13 @@ from modules.lumascope_api.motion import AxisState
 from modules.objectives_loader import DEFAULT_PROPOSED_OBJECTIVE_ID
 import modules.scope_session as scope_session_module
 from modules.scope_session import ScopeSession
-from tests.ast_seams import REPO_ROOT, iter_package_modules, parse_module, writers_of_settings_keys
+from tests.ast_seams import (
+    REPO_ROOT,
+    Words,
+    iter_package_modules,
+    parse_module,
+    writers_of_settings_keys,
+)
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
 
@@ -625,7 +631,9 @@ class TestPopulatedSlotsSurviveTheLoad:
 # The exit criterion: the Session members are the ONLY writers of the four facts
 # ---------------------------------------------------------------------------
 
-_OBJECTIVE_FACTS = {'objective_id', 'turret_objectives', 'turret_position', 'objective_confirmed'}
+_OBJECTIVE_FACTS = Words(
+    {'objective_id', 'turret_objectives', 'turret_position', 'objective_confirmed'}
+)
 
 # Each writer is the one home of its fact for every host; a write anywhere
 # else is a second store the API cannot see.

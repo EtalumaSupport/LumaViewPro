@@ -44,7 +44,7 @@ import warnings
 
 import pytest
 
-from tests.ast_seams import REPO_ROOT
+from tests.ast_seams import REPO_ROOT, Words
 
 DOC = REPO_ROOT / 'docs' / 'LumascopeSkills.md'
 INDEX_HEADING = '## API reference'
@@ -61,7 +61,7 @@ NOT_VACUOUS = {
     'Notification.kind',
 }
 
-_BLIND = {'Any', 'object'}
+_BLIND = Words({'Any', 'object'})
 
 
 @pytest.fixture(scope='module')
@@ -329,7 +329,7 @@ def test_the_walk_is_not_vacuous(marked: dict[str, str], indexed: dict[str, str]
 
 
 # A parameter naming one of these takes a file-system path.
-_PATH_NAMES = {'Path', 'PathLike', 'FilePath'}
+_PATH_NAMES = Words({'Path', 'PathLike', 'FilePath'})
 _DECLARED_PATH = {'FilePath', 'FilePath | None'}
 # A wire path parameter whose absence would mean the walk lost its way.
 KNOWN_WIRE_PATH = 'ScopeSession.load_protocol parameter file_path'

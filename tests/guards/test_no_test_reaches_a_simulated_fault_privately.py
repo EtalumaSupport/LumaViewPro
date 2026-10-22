@@ -25,14 +25,21 @@ from __future__ import annotations
 
 import ast
 
-from tests.ast_seams import iter_package_modules
+from tests.ast_seams import MemberNames, iter_package_modules
 
 # Names only the simulators' fault doors carry (the fast boards and camera,
 # the wire sims' port and board, the TMCM-6110 and FX2 simulators).
-_DOOR_NAMES = frozenset(
+_DOOR_NAMES = MemberNames(
+    (
+        'drivers/simulated_ledboard.py',
+        'drivers/simulated_motorboard.py',
+        'drivers/simulated_camera.py',
+        'drivers/sim_wire/port.py',
+        'drivers/simulated_tmcm6110.py',
+        'drivers/simulated_fx2.py',
+    ),
     {
         '_fail_on',
-        'fail_after',
         'drop_replies',
         'stop_dropping',
         'hold_travel',
@@ -61,7 +68,7 @@ _DOOR_NAMES = frozenset(
         'allow_start',
         'refuse_led_write',
         'allow_led_write',
-    }
+    },
 )
 
 # Test files whose subject is a simulator, or a driver over its simulated

@@ -15,9 +15,10 @@ saves a position must ask the motion API's refusal before it reads.
 
 import ast
 
-from tests.ast_seams import production_modules, walk_defs
+from tests.ast_seams import MemberNames, production_modules, walk_defs
 
-_READERS = frozenset(
+_READERS = MemberNames(
+    'modules/lumascope_api/motion.py',
     {
         'get_current_position',
         'get_current_positions',
@@ -25,7 +26,7 @@ _READERS = frozenset(
         'get_target_positions',
         'get_actual_position',
         'axis_positions',
-    }
+    },
 )
 
 # Saves the position into a setting or a step. Must ask the motion API's

@@ -18,9 +18,12 @@ from __future__ import annotations
 
 import ast
 
-from tests.ast_seams import iter_package_modules, production_modules
+from tests.ast_seams import MemberNames, iter_package_modules, production_modules
 
-_POSTS = frozenset({'notify', 'debug', 'info', 'notice', 'warning', 'error', 'critical'})
+_POSTS = MemberNames(
+    'modules/notification_center.py',
+    {'notify', 'debug', 'info', 'notice', 'warning', 'error', 'critical'},
+)
 _EXEMPT_FILES = frozenset({'modules/notification_center.py'})
 
 # (file, enclosing function) -> (direct posts in it, the open work that moves

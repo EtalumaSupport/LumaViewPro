@@ -30,12 +30,13 @@ import warnings
 import pytest
 
 from modules.api_surface import event_of, field_event, fields_of, mark_of
+from tests.ast_seams import MemberNames
 
 # Declarations whose absence would mean the walk lost its way.
 NOT_VACUOUS = {'MotionAPI.add_position_listener', 'RunEvents.scan_started'}
 
 # The fields of RunEvents that say how its handlers are delivered, not an event.
-NOT_HANDLERS = {'on_ui_thread'}
+NOT_HANDLERS = MemberNames('modules/run_events.py', {'on_ui_thread'})
 
 
 @pytest.fixture(scope='module')

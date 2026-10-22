@@ -22,12 +22,12 @@ from __future__ import annotations
 
 import ast
 
-from tests.ast_seams import REPO_ROOT
+from tests.ast_seams import REPO_ROOT, Words
 
 # Calls whose first argument is a dotted target string, and calls whose
 # first argument is the object an attribute is set on.
-_TARGET_PATCHERS = frozenset({'patch', 'setattr'})
-_ATTR_SETTERS = frozenset({'object', 'setattr'})
+_TARGET_PATCHERS = Words({'patch', 'setattr'})
+_ATTR_SETTERS = Words({'object', 'setattr'})
 
 
 def _names_the_time_module(node: ast.expr) -> bool:

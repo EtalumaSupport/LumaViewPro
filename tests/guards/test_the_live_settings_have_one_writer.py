@@ -20,6 +20,7 @@ from __future__ import annotations
 import ast
 
 from tests.ast_seams import (
+    Words,
     iter_package_modules,
     parse_module,
     settings_store_aliases,
@@ -27,7 +28,7 @@ from tests.ast_seams import (
     walk_defs,
 )
 
-_MUTATORS = frozenset(
+_MUTATORS = Words(
     {'update', 'pop', 'setdefault', 'append', 'clear', 'extend', 'insert', 'remove', 'popitem'}
 )
 

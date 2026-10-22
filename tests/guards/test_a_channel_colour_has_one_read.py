@@ -14,12 +14,12 @@ from __future__ import annotations
 
 import ast
 
-from tests.ast_seams import iter_package_modules, production_modules, walk_defs
+from tests.ast_seams import MemberNames, iter_package_modules, production_modules, walk_defs
 
 _CATALOGUE_MODULE = 'modules/layer_record.py'
 _OWNER_MODULE = 'modules/scope_session.py'
 _OWNER_DEF = 'ScopeSession.channel_colors'
-_READS = ('release_color', 'release_colors')
+_READS = MemberNames('modules/layer_record.py', {'release_color', 'release_colors'})
 
 
 def _all_production_modules():

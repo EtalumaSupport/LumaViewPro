@@ -37,7 +37,7 @@ from modules.exceptions import (
     Refusal,
     _Umbrella,
 )
-from tests.ast_seams import REPO_ROOT, module_name
+from tests.ast_seams import REPO_ROOT, MemberNames, module_name
 
 KINDS = (Refusal, Notice, Quiet, Fault)
 _BUILTIN_EXCEPTIONS = {
@@ -246,7 +246,10 @@ def test_a_fault_s_words_reach_the_person_only_when_its_type_says_so():
 RAISABLE = tuple(
     cls for cls in EXCEPTION_CLASSES if issubclass(cls, LumascopeError) and cls not in UMBRELLAS
 )
-_TABLES = ('_TITLES', 'causes', '_REASONS', '_WORDS')
+_TABLES = MemberNames(
+    ('modules/exceptions.py', 'drivers/exceptions.py', 'rest/problems.py'),
+    {'_TITLES', 'causes', '_REASONS', '_WORDS'},
+)
 
 
 def _ours(cls):
@@ -374,7 +377,10 @@ def test_no_production_call_passes_a_title_to_an_outcome():
     assert passing == [], f'a title passed where an outcome is built: {passing}'
 
 
-_REASON_TABLES = ('causes', '_TITLES', '_WORDS', '_STATUSES', '_SENTENCES')
+_REASON_TABLES = MemberNames(
+    ('modules/exceptions.py', 'drivers/exceptions.py', 'rest/problems.py'),
+    {'causes', '_TITLES', '_WORDS', '_STATUSES', '_SENTENCES'},
+)
 
 
 def test_every_reason_keyed_table_on_a_class_names_one_vocabulary():

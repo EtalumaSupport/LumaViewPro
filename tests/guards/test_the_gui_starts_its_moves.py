@@ -21,10 +21,11 @@ not matched.
 
 import ast
 
-from tests.ast_seams import iter_package_modules
+from tests.ast_seams import MemberNames, iter_package_modules
 
-_WAITED = frozenset(
-    {'move_xy', 'move_xy_by', 'move_z', 'move_z_by', 'move_to_plate', 'move_to_well'}
+_WAITED = MemberNames(
+    'modules/lumascope_api/motion.py',
+    {'move_xy', 'move_xy_by', 'move_z', 'move_z_by', 'move_to_plate', 'move_to_well'},
 )
 
 

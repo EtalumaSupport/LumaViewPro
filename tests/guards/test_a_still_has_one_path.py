@@ -13,9 +13,11 @@ test_architecture_fixes.py.
 
 import ast
 
-from tests.ast_seams import iter_package_modules, parse_module
+from tests.ast_seams import MemberNames, iter_package_modules, parse_module
 
-_OVERLAY_RENDERERS = frozenset({'transform_to_bullseye', 'add_crosshairs'})
+_OVERLAY_RENDERERS = MemberNames(
+    'modules/capture_overlays.py', {'transform_to_bullseye', 'add_crosshairs'}
+)
 
 
 def _ui_modules():

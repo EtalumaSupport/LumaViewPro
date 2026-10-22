@@ -18,19 +18,22 @@ from __future__ import annotations
 
 import ast
 
-from tests.ast_seams import REPO_ROOT
+from tests.ast_seams import REPO_ROOT, MemberNames
 
-_WRITE_BODIES = {
-    '_set_gain_db_impl',
-    '_set_exposure_ms_impl',
-    '_set_auto_gain_impl',
-    '_set_auto_exposure_impl',
-    '_update_auto_gain_target_brightness_impl',
-    '_auto_gain_once_impl',
-    '_lock_auto_gain_impl',
-    '_apply_settings_impl',
-    '_restore_camera_state_impl',
-}
+_WRITE_BODIES = MemberNames(
+    'modules/lumascope_api/camera.py',
+    {
+        '_set_gain_db_impl',
+        '_set_exposure_ms_impl',
+        '_set_auto_gain_impl',
+        '_set_auto_exposure_impl',
+        '_update_auto_gain_target_brightness_impl',
+        '_auto_gain_once_impl',
+        '_lock_auto_gain_impl',
+        '_apply_settings_impl',
+        '_restore_camera_state_impl',
+    },
+)
 
 # Where a write body may be called directly, each with why the record stays true.
 _RECORD_KEPT_IN = {

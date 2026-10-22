@@ -14,11 +14,11 @@ from __future__ import annotations
 
 import ast
 
-from tests.ast_seams import REPO_ROOT
+from tests.ast_seams import REPO_ROOT, MemberNames, Words
 
 _RECORD = '_auto_gain_locks'
-_WRITERS = {'set_layer_auto_gain', '__init__'}
-_MUTATORS = {'pop', 'popitem', 'clear', 'update', 'setdefault', '__setitem__', '__delitem__'}
+_WRITERS = MemberNames('modules/scope_session.py', {'set_layer_auto_gain', '__init__'})
+_MUTATORS = Words({'pop', 'popitem', 'clear', 'update', 'setdefault', '__setitem__', '__delitem__'})
 
 
 def _record_writes(tree: ast.AST):

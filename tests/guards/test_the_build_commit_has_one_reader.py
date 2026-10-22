@@ -11,9 +11,9 @@ calls are about the repository, not the running build.
 
 import ast
 
-from tests.ast_seams import iter_package_modules, parse_module
+from tests.ast_seams import Packages, iter_package_modules, parse_module
 
-_PACKAGES = ('modules', 'ui', 'drivers', 'lib')
+_PACKAGES = Packages({'modules', 'ui', 'drivers', 'lib'})
 _ROOT_MODULES = ('lumaviewpro.py', 'lvp_logger.py')
 
 

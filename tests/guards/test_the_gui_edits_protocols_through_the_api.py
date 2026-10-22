@@ -30,10 +30,11 @@ new member fails here until someone decides which it is.
 import ast
 
 from tests import ratchets as _ratchets
-from tests.ast_seams import iter_package_modules, parse_module
+from tests.ast_seams import MemberNames, Words, iter_package_modules, parse_module
 
 # Public members of Protocol that change the protocol.
-WRITERS = frozenset(
+WRITERS = MemberNames(
+    'modules/protocol.py',
     {
         'adopt_focus_from',
         'apply_focus_all_layer_steps',
@@ -52,12 +53,13 @@ WRITERS = frozenset(
         'modify_time_params',
         'optimize_step_ordering',
         'set_turret_slot',
-    }
+    },
 )
 
 # Public members of Protocol that do not change it: readers, constructors,
 # file output, and helpers.
-NOT_WRITERS = frozenset(
+NOT_WRITERS = MemberNames(
+    'modules/protocol.py',
     {
         'capture_prefix',
         'capture_root',
@@ -89,7 +91,7 @@ NOT_WRITERS = frozenset(
         'validate_steps',
         'valid_colors',
         'zstack_group_focus_anchor',
-    }
+    },
 )
 
 _STEPS_WRITE = 'steps()[...] ='
@@ -105,7 +107,7 @@ def _not_self(receiver: ast.expr) -> bool:
 
 
 # The receivers that are the API: ``ctx.session``, ``scope.protocols``.
-_API_RECEIVERS = frozenset({'session', 'protocols'})
+_API_RECEIVERS = Words({'session', 'protocols'})
 
 
 def _is_api(receiver: ast.expr) -> bool:

@@ -15,10 +15,10 @@ from __future__ import annotations
 
 import ast
 
-from tests.ast_seams import production_modules, walk_defs
+from tests.ast_seams import Words, production_modules, walk_defs
 
 # The Kivy clock's members that run a callable later.
-_DEFERRING = frozenset({'schedule_once', 'schedule_interval', 'create_trigger'})
+_DEFERRING = Words({'schedule_once', 'schedule_interval', 'create_trigger'})
 _DEBOUNCE = 'debounce'
 
 

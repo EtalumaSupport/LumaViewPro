@@ -10,9 +10,9 @@ of; each driver's own body is the hook the base calls.
 
 import ast
 
-from tests.ast_seams import REPO_ROOT
+from tests.ast_seams import REPO_ROOT, MemberNames
 
-_MEMBERS = {'start_grabbing', 'stop_grabbing'}
+_MEMBERS = MemberNames('drivers/camera.py', {'start_grabbing', 'stop_grabbing'})
 
 
 def test_no_driver_defines_the_grab_start_or_stop_itself():

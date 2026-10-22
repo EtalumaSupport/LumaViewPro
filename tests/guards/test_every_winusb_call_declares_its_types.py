@@ -25,10 +25,10 @@ from __future__ import annotations
 
 import ast
 
-from tests.ast_seams import REPO_ROOT
+from tests.ast_seams import REPO_ROOT, Words
 
 _MODULE = 'drivers/winusb_iso.py'
-_DLLS = frozenset({'kernel32', 'setupapi', 'winusb'})
+_DLLS = Words({'kernel32', 'setupapi', 'winusb'})
 
 
 def _tree() -> ast.Module:

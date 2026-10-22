@@ -26,9 +26,12 @@ from __future__ import annotations
 import ast
 import re
 
-from tests.ast_seams import iter_package_modules
+from tests.ast_seams import MemberNames, iter_package_modules
 
-POST_METHODS = frozenset({'debug', 'info', 'notice', 'warning', 'error', 'critical', 'notify'})
+POST_METHODS = MemberNames(
+    'modules/notification_center.py',
+    {'debug', 'info', 'notice', 'warning', 'error', 'critical', 'notify'},
+)
 
 _SETATTR_TAILS = ('setattr', 'patch.object')
 # A dotted path that ends at a module's centre, or one level below it.

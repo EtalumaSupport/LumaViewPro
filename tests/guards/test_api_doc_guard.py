@@ -59,7 +59,7 @@ import warnings
 
 import pytest
 
-from tests.ast_seams import REPO_ROOT
+from tests.ast_seams import REPO_ROOT, MemberNames, Packages
 from tests.settings_fixtures import complete_settings
 
 DOC = REPO_ROOT / 'docs' / 'LumascopeSkills.md'
@@ -303,7 +303,7 @@ class TestLumascopeSkillsCallFormsResolve:
 # a consumer makes -- so it carries the arguments most likely to be copied and
 # the least likely to be re-read. Being a class rather than an instance, it is
 # invisible to the alias-rooted attribute check.
-_CONSTRUCTOR_RECEIVERS = ('ScopeSession',)
+_CONSTRUCTOR_RECEIVERS = MemberNames('modules/scope_session.py', {'ScopeSession'})
 
 # Stands in for an argument value. bind() checks arity and parameter names; it
 # never looks at what is passed, and a doc example's values are illustrative.
@@ -383,7 +383,7 @@ class TestLumascopeSkillsCallFormsBind:
 # it must be API -- the receivers above cover only what a reader reaches from
 # a live object, and an internal helper's signature change broke eight
 # examples in its module-level calls with this file green.
-_PROJECT_PACKAGES = ('modules', 'drivers', 'rest')
+_PROJECT_PACKAGES = Packages({'modules', 'drivers', 'rest'})
 _PROSE_PATH = re.compile(r'`((?:modules|drivers|rest)\.[A-Za-z_][A-Za-z0-9_.]*)')
 
 

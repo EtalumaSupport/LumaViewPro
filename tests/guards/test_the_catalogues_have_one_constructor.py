@@ -14,11 +14,14 @@ from __future__ import annotations
 
 import ast
 
-from tests.ast_seams import iter_package_modules, production_modules, walk_defs
+from tests.ast_seams import MemberNames, iter_package_modules, production_modules, walk_defs
 
 _OWNER_MODULE = 'modules/lumascope_api/_lumascope.py'
 _OWNER_DEF = 'Lumascope._read_catalogues'
-_CATALOGUES = ('WellPlateLoader', 'ObjectiveLoader', 'LabwareLoader')
+_CATALOGUES = MemberNames(
+    ('modules/labware_loader.py', 'modules/objectives_loader.py'),
+    {'WellPlateLoader', 'ObjectiveLoader'},
+)
 
 
 def _all_production_modules():

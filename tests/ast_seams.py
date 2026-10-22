@@ -254,3 +254,75 @@ def assert_def(
         assert actual_ret == returns, (
             f'{rel_path}: {name} return annotation {actual_ret!r} != {returns!r}. {msg}'
         )
+
+
+# --- A guard's table of names says what kind of name it holds ---
+#
+# A guard that searches production for the names in a hardcoded table passes
+# with nothing checked once one of those names is renamed or deleted: the
+# search finds no site, which reads as no offender. Every table of names in
+# tests/guards is built as one of these four, and
+# tests/guards/test_every_name_table_is_classified.py holds each kind to its
+# meaning.
+
+
+class MemberNames(frozenset):
+    """Production member names a guard looks for, and the modules that define them.
+
+    Each name must be defined in one of ``owners`` (repo-relative module or
+    package paths): a rename or a deletion fails the classification guard
+    instead of narrowing the guard that lists it.
+    """
+
+    def __new__(cls, owners: str | tuple[str, ...], names):
+        table = super().__new__(cls, names)
+        table.owners = (owners,) if isinstance(owners, str) else tuple(owners)
+        return table
+
+
+class RetiredNames(frozenset):
+    """Names a guard holds absent: the guard listing them asserts that, not this."""
+
+
+class Packages(frozenset):
+    """Directories or modules a guard scans, each of which must exist under ``under``."""
+
+    def __new__(cls, names, under: str = ''):
+        table = super().__new__(cls, names)
+        table.under = under
+        return table
+
+
+class Words(frozenset):
+    """Names that are not production members: packages, library calls, settings keys, values."""
+
+
+def defined_names(rel_path: str) -> set[str]:
+    """Every name a production module, or every module of a package, defines.
+
+    Defs, classes, parameters, assignments and ``self`` attributes.
+    """
+    path = REPO_ROOT / rel_path
+    if path.is_dir():
+        return set().union(
+            *(
+                defined_names(p.relative_to(REPO_ROOT).as_posix())
+                for p in sorted(path.rglob('*.py'))
+            )
+        )
+    names: set[str] = set()
+    for node in ast.walk(parse_module(rel_path)):
+        if isinstance(node, (*_DEF_TYPES, ast.ClassDef)):
+            names.add(node.name)
+        elif isinstance(node, ast.arg):
+            names.add(node.arg)
+        elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+            names.add(node.id)
+        elif (
+            isinstance(node, ast.Attribute)
+            and isinstance(node.ctx, ast.Store)
+            and isinstance(node.value, ast.Name)
+            and node.value.id == 'self'
+        ):
+            names.add(node.attr)
+    return names

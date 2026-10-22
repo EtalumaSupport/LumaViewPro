@@ -25,8 +25,9 @@ from modules.lumascope_api.diagnostics import DiagnosticsAPI
 from modules.lumascope_api.camera import CameraAPI
 from modules.lumascope_api.imaging import ImagingAPI
 from tests.ast_seams import REPO_ROOT as _ROOT
+from tests.ast_seams import MemberNames
 
-_RESTART_PRIMITIVES = frozenset({'update_camera_config', 'stop_grabbing'})
+_RESTART_PRIMITIVES = MemberNames('drivers/camera.py', {'update_camera_config', 'stop_grabbing'})
 
 
 def _receiver(value: ast.expr) -> tuple[str, ...] | None:

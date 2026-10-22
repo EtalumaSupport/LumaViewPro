@@ -17,12 +17,13 @@ from __future__ import annotations
 
 import ast
 
-from tests.ast_seams import production_modules
+from tests.ast_seams import MemberNames, production_modules
 
 _THE_DOOR = 'modules/scope_capabilities.py'
 
 # Names whose read off a camera driver is a static camera fact.
-_DRIVER_FACTS = frozenset(
+_DRIVER_FACTS = MemberNames(
+    ('drivers/camera.py', 'drivers/camera_profiles.py'),
     {
         'model_name',
         'get_model_name',
@@ -32,11 +33,12 @@ _DRIVER_FACTS = frozenset(
         'get_supported_pixel_formats',
         'get_max_frame_size',
         'analog_max_db',
-    }
+    },
 )
 
 # A camera profile's static facts.
-_PROFILE_FACTS = frozenset(
+_PROFILE_FACTS = MemberNames(
+    'drivers/camera_profiles.py',
     {
         'pixel_formats',
         'binning_sizes',
@@ -44,7 +46,7 @@ _PROFILE_FACTS = frozenset(
         'model_name',
         'has_auto_gain',
         'has_auto_exposure',
-    }
+    },
 )
 
 _DELETED_DOORS = {

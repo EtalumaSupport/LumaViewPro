@@ -39,12 +39,12 @@ during the transition.
 import ast
 import pathlib
 
-from tests.ast_seams import REPO_ROOT
+from tests.ast_seams import REPO_ROOT, MemberNames, Packages, RetiredNames
 
-BANNED_ATTRS = frozenset({'led'})
+BANNED_ATTRS = RetiredNames({'led'})
 
 # Production code roots; tests/ deliberately excluded (see docstring).
-PROD_ROOTS = ('modules', 'ui')
+PROD_ROOTS = Packages({'modules', 'ui'})
 
 
 def _iter_prod_files() -> list[pathlib.Path]:
@@ -120,7 +120,8 @@ def test_no_legacy_scope_driver_accesses_in_production():
 # Derived by diffing dir(scope.motion) against dir(scope) on a
 # `Lumascope(simulate=True)` instance; hardcoded here so the test is
 # pure-AST (no simulator instantiation at collection time).
-MOTION_ONLY_METHODS = frozenset(
+MOTION_ONLY_METHODS = MemberNames(
+    'modules/lumascope_api/motion.py',
     {
         'add_position_listener',
         'get_actual_position',
@@ -149,7 +150,7 @@ MOTION_ONLY_METHODS = frozenset(
         'stop_motion',
         'move_turret',
         'wait_until_finished_moving',
-    }
+    },
 )
 
 
@@ -199,7 +200,8 @@ def test_no_motion_method_calls_on_bare_scope_in_production():
 # against dir(scope) on a `Lumascope(simulate=True)` instance;
 # hardcoded here so the test is pure-AST (no simulator instantiation
 # at collection time).
-ILLUMINATION_ONLY_METHODS = frozenset(
+ILLUMINATION_ONLY_METHODS = MemberNames(
+    'modules/lumascope_api/illumination.py',
     {
         'add_led_listener',
         'ch2color',
@@ -212,7 +214,7 @@ ILLUMINATION_ONLY_METHODS = frozenset(
         'remove_led_listener',
         'restore_led_state',
         'save_led_state',
-    }
+    },
 )
 
 
@@ -319,7 +321,8 @@ def test_no_self_motion_calls_in_lumascope():
 # `register_frame_callback` / `unregister_frame_callback` deprecated
 # aliases that 4d.5b had kept as forwarders; only the new names
 # (`add_frame_listener` / `remove_frame_listener`) remain.
-IMAGING_ONLY_METHODS = frozenset(
+IMAGING_ONLY_METHODS = MemberNames(
+    'modules/lumascope_api/imaging.py',
     {
         'add_frame_listener',
         'capture_and_wait',
@@ -334,11 +337,12 @@ IMAGING_ONLY_METHODS = frozenset(
         'set_scale_bar_color',
         'start_camera_temp_logging',
         'stop_camera_temp_logging',
-    }
+    },
 )
 
 # The camera's members (CameraAPI, W3b), reached as scope.camera.<member>.
-CAMERA_ONLY_METHODS = frozenset(
+CAMERA_ONLY_METHODS = MemberNames(
+    'modules/lumascope_api/camera.py',
     {
         'add_camera_listener',
         'apply',
@@ -365,7 +369,7 @@ CAMERA_ONLY_METHODS = frozenset(
         'set_image_mode',
         'suppress_value_warnings',
         'update_auto_gain_target_brightness',
-    }
+    },
 )
 
 
@@ -436,7 +440,8 @@ def test_no_self_imaging_calls_in_lumascope():
 # Phase 5 plan section 3.1 -- 7 stateless probes on the diagnostics.py
 # facade as of 2026-05-19. Same shape as IMAGING_ONLY_METHODS /
 # MOTION_ONLY_METHODS / ILLUMINATION_ONLY_METHODS.
-DIAGNOSTICS_ONLY_METHODS = frozenset(
+DIAGNOSTICS_ONLY_METHODS = MemberNames(
+    'modules/lumascope_api/diagnostics.py',
     {
         'get_camera_temperatures_degc',
         'run_camera_bandwidth_test',
@@ -444,7 +449,7 @@ DIAGNOSTICS_ONLY_METHODS = frozenset(
         'run_pylon_diagnostic_probe',
         'send_diagnostic_command',
         'send_diagnostic_command_multiline',
-    }
+    },
 )
 
 
@@ -515,17 +520,18 @@ def test_no_self_diagnostics_calls_in_lumascope():
 #   3. Inside-class self-guard -- no `self.<image_save_method>` in
 #      _lumascope.py. Flips at 6c (instance bodies move to module;
 #      wrappers are thin forwarders that don't self-call).
-IMAGE_SAVE_METHODS = frozenset(
+IMAGE_SAVE_METHODS = MemberNames(
+    'modules/image_save.py',
     {
         'save_image',
         'get_next_save_path',
         'generate_image_save_path',
         'generate_image_metadata',
         'prepare_image_for_saving',
-    }
+    },
 )
 
-IMAGE_SAVE_STATIC_METHODS = frozenset(
+IMAGE_SAVE_STATIC_METHODS = RetiredNames(
     {
         'save_image_static',
         'get_next_save_path_static',
@@ -666,14 +672,15 @@ def test_no_self_image_save_calls_in_lumascope():
 # Phase 5 deliberately left on Lumascope -- Phase 7 finishes the
 # migration. Kept separate so the two phases' guard staging stays
 # obvious.
-DIAGNOSTIC_FACADE_GETTERS = frozenset(
+DIAGNOSTIC_FACADE_GETTERS = MemberNames(
+    'modules/lumascope_api/diagnostics.py',
     {
         'get_motor_info',
         'get_led_info',
-    }
+    },
 )
 
-COMPUTE_FOCUS_SCORE_RETIRED = frozenset({'compute_focus_score'})
+COMPUTE_FOCUS_SCORE_RETIRED = RetiredNames({'compute_focus_score'})
 
 
 def _find_chain_method_accesses(tree: ast.AST, banned: frozenset[str]) -> list[tuple[int, str]]:
@@ -793,7 +800,8 @@ def test_no_self_compute_focus_score_calls_in_lumascope():
 #     / protocol_image_writer.py / 4 ui/ files
 #   - inside-class self: 4 sites in _lumascope.py::initialize (lines
 #     622, 624, 625, 628)
-RUNTIME_STATE_ONLY_METHODS = frozenset(
+RUNTIME_STATE_ONLY_METHODS = MemberNames(
+    'modules/lumascope_api/runtime_state.py',
     {
         'get_labware',
         'get_current_objective_id',
@@ -801,7 +809,7 @@ RUNTIME_STATE_ONLY_METHODS = frozenset(
         'get_turret_config',
         'get_stage_offset',
         'get_well_label',
-    }
+    },
 )
 
 
@@ -848,103 +856,4 @@ def test_no_self_runtime_state_calls_in_lumascope():
     assert not failures, (
         'Lumascope reached settings-host methods via bare self -- '
         'migrate to self.runtime_state per Phase 8d:\n  ' + '\n  '.join(failures)
-    )
-
-
-# --- The guards' own guard ---
-#
-# Every frozenset above is a LAYERING guard: it names members that must be
-# reached through their sub-API rather than off a bare scope. None of them is
-# an existence pin, so a name whose member has since been deleted or
-# privatized stops guarding anything and nothing notices. That is not
-# hypothetical -- four commits (54068158, 862c33e8, 5a6b8ba3, 33f9311b) each
-# retired members and left their names behind, and the residue was only found
-# by going looking for it. These two tests make the next one fail loudly:
-# every listed name must still resolve to a member, and every frozenset in
-# this module must be classified so a new one cannot quietly go unchecked.
-#
-# Resolution is pure-AST for the same reason the sets are hardcoded: this
-# module must not import the API or instantiate a simulator at collection.
-
-_API_ROOT = REPO_ROOT / 'modules' / 'lumascope_api'
-
-# frozenset name -> the module whose members it names.
-PRESENCE_SETS = {
-    'MOTION_ONLY_METHODS': _API_ROOT / 'motion.py',
-    'ILLUMINATION_ONLY_METHODS': _API_ROOT / 'illumination.py',
-    'IMAGING_ONLY_METHODS': _API_ROOT / 'imaging.py',
-    'CAMERA_ONLY_METHODS': _API_ROOT / 'camera.py',
-    'DIAGNOSTICS_ONLY_METHODS': _API_ROOT / 'diagnostics.py',
-    'RUNTIME_STATE_ONLY_METHODS': _API_ROOT / 'runtime_state.py',
-    # Phase 7 finished the migration these six were staged for; they live on
-    # DiagnosticsAPI now, not on Lumascope.
-    'DIAGNOSTIC_FACADE_GETTERS': _API_ROOT / 'diagnostics.py',
-    'IMAGE_SAVE_METHODS': REPO_ROOT / 'modules' / 'image_save.py',
-}
-
-# Sets whose names must NOT resolve -- these pin retirements, so the
-# presence check would invert their meaning.
-ABSENCE_SETS = frozenset({'COMPUTE_FOCUS_SCORE_RETIRED', 'IMAGE_SAVE_STATIC_METHODS'})
-
-# Sets that hold something other than member names.
-NON_MEMBER_SETS = frozenset({'BANNED_ATTRS'})
-
-
-def _defined_names(path: pathlib.Path) -> set[str]:
-    """Class-body and module-level definitions in a production module."""
-    tree = ast.parse(path.read_text(encoding='utf-8'), filename=str(path))
-    names: set[str] = set()
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.ClassDef):
-            continue
-        for item in node.body:
-            if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                names.add(item.name)
-            elif isinstance(item, ast.Assign):
-                names.update(t.id for t in item.targets if isinstance(t, ast.Name))
-    for item in tree.body:
-        if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            names.add(item.name)
-    return names
-
-
-def test_layering_guard_sets_name_only_live_members():
-    """A guard entry whose member is gone guards nothing -- fail on it."""
-    failures = []
-    for setname, module_path in PRESENCE_SETS.items():
-        listed = globals()[setname]
-        stale = sorted(listed - _defined_names(module_path))
-        failures.extend(
-            f'{setname}: {name!r} has no member in {module_path.name} -- '
-            f'it was deleted or privatized; drop it from the set'
-            for name in stale
-        )
-    assert not failures, 'Layering guards name members that no longer exist:\n  ' + '\n  '.join(
-        failures
-    )
-
-
-def test_every_guard_set_is_classified():
-    """A new frozenset must be declared presence, absence, or non-member.
-
-    Without this, adding a set and forgetting to register it reproduces the
-    exact silent gap the presence check exists to close, one level up.
-    """
-    known = set(PRESENCE_SETS) | ABSENCE_SETS | NON_MEMBER_SETS
-    declared = {'PRESENCE_SETS', 'ABSENCE_SETS', 'NON_MEMBER_SETS'}
-    found = {
-        name
-        for name, value in globals().items()
-        if isinstance(value, frozenset) and name.isupper() and name not in declared
-    }
-    unclassified = sorted(found - known)
-    assert not unclassified, (
-        'Guard frozensets are not classified -- add each to PRESENCE_SETS '
-        '(with the module owning its members), ABSENCE_SETS, or '
-        f'NON_MEMBER_SETS:\n  {chr(10).join("  " + n for n in unclassified)}'
-    )
-    missing = sorted(known - found - {'PRESENCE_SETS', 'ABSENCE_SETS', 'NON_MEMBER_SETS'})
-    assert not missing, (
-        'Classified names that are no longer frozensets in this module -- '
-        f'the classification is stale:\n  {chr(10).join("  " + n for n in missing)}'
     )

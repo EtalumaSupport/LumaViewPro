@@ -19,12 +19,14 @@ from __future__ import annotations
 
 import ast
 
-from tests.ast_seams import REPO_ROOT
+from tests.ast_seams import REPO_ROOT, MemberNames, Packages
 
-SCAN_DIRS = ('modules', 'drivers', 'ui')
+SCAN_DIRS = Packages({'modules', 'drivers', 'ui'})
 
-DEPTH_PARAMS = frozenset({'significant_bits'})
-COLOR_PARAMS = frozenset({'color', 'is_color', 'save_encoding', 'channel'})
+DEPTH_PARAMS = MemberNames(('modules', 'drivers', 'ui'), {'significant_bits'})
+COLOR_PARAMS = MemberNames(
+    ('modules', 'drivers', 'ui'), {'color', 'is_color', 'save_encoding', 'channel'}
+)
 
 # Terminal serializer / renderer sinks where the depth and the color/encoding
 # signal genuinely arrive together to write or draw the frame. Keyed by

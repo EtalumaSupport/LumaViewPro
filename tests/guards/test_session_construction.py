@@ -17,6 +17,7 @@ import pytest
 import tests.ast_seams as ast_seams
 from modules.exceptions import ArgumentRefusedError
 from modules.scope_session import ScopeSession
+from tests.ast_seams import MemberNames
 from tests.scope_fakes import real_executor_bundle, spec_scope
 from tests.settings_fixtures import complete_settings
 
@@ -39,11 +40,14 @@ class TestNoHostCopyOfTheBringUp:
 # consumer; the ownership facts are constructor state
 # ===========================================================================
 
-HOST_INJECTIONS = (
-    'simulate',
-    'warn_pre_release',
-    'engineering_mode',
-    'no_engineering',
+HOST_INJECTIONS = MemberNames(
+    'modules/scope_session.py',
+    {
+        'simulate',
+        'warn_pre_release',
+        'engineering_mode',
+        'no_engineering',
+    },
 )
 
 

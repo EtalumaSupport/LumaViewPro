@@ -17,15 +17,17 @@ from __future__ import annotations
 
 import re
 
-from tests.ast_seams import REPO_ROOT
+from tests.ast_seams import REPO_ROOT, Words
 
-_RANGE_SLIDERS = (
-    'area',
-    'perimeter',
-    'sphericity',
-    'min_intensity',
-    'mean_intensity',
-    'max_intensity',
+_RANGE_SLIDERS = Words(
+    {
+        'area',
+        'perimeter',
+        'sphericity',
+        'min_intensity',
+        'mean_intensity',
+        'max_intensity',
+    }
 )
 
 

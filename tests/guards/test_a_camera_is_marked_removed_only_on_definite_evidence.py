@@ -20,9 +20,11 @@ RuntimeException (#726). Three rules over every driver:
 import ast
 from collections import Counter
 
-from tests.ast_seams import iter_package_modules
+from tests.ast_seams import MemberNames, iter_package_modules
 
-_LATCHES = frozenset({'_mark_disconnected', '_handle_device_lost'})
+_LATCHES = MemberNames(
+    ('drivers/camera.py', 'drivers/idscamera.py'), {'_mark_disconnected', '_handle_device_lost'}
+)
 
 # (driver file, class, method) -> calls, each with the evidence it acts on.
 _DEFINITE_SITES = {

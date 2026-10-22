@@ -19,7 +19,7 @@ from drivers.null_motorboard import NullMotionBoard
 from drivers.simulated_motorboard import SimulatedMotorBoard
 from modules.layer_record import UNRESOLVED
 from modules.scope_capabilities import ScopeCapabilities
-from tests.ast_seams import REPO_ROOT
+from tests.ast_seams import REPO_ROOT, Words
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 
 
@@ -27,7 +27,7 @@ from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 # is deliberately absent: no capability describes which illumination
 # modalities a scope exposes, so that gating legitimately still reads the
 # config file.
-DUPLICATED_FLAGS = ('XYStage', 'Turret', 'Focus')
+DUPLICATED_FLAGS = Words({'XYStage', 'Turret', 'Focus'})
 
 
 def _caps_for(motion):

@@ -41,16 +41,20 @@ from __future__ import annotations
 import ast
 
 from tests import ratchets
-from tests.ast_seams import REPO_ROOT, iter_package_modules
+from tests.ast_seams import REPO_ROOT, MemberNames, Words, iter_package_modules
 
 MARK = '# a stand-in by design:'
 SELF = 'tests/guards/test_a_scope_is_the_simulator_not_a_stand_in.py'
 
-NOUNS = frozenset({'scope', 'camera', 'session', 'board', 'driver'})
-SUB_APIS = frozenset({'imaging', 'motion', 'illumination', 'diagnostics', 'protocols'})
-CLASS_TAILS = ('scope', 'session', 'board', 'camera', 'driver', 'api')
-NAMESPACE_KEYWORDS = frozenset(
-    {'imaging', 'motion', 'illumination', 'camera_connected', 'objective_helper'}
+NOUNS = Words({'scope', 'camera', 'session', 'board', 'driver'})
+SUB_APIS = MemberNames(
+    'modules/lumascope_api/_lumascope.py',
+    {'imaging', 'motion', 'illumination', 'diagnostics', 'protocols'},
+)
+CLASS_TAILS = Words({'scope', 'session', 'board', 'camera', 'driver', 'api'})
+NAMESPACE_KEYWORDS = MemberNames(
+    'modules/lumascope_api/_lumascope.py',
+    {'imaging', 'motion', 'illumination', 'camera_connected', 'objective_helper'},
 )
 
 
@@ -60,7 +64,7 @@ def _is_scope_shaped(name: str) -> bool:
 
 
 def _is_scope_shaped_class(dotted: str) -> bool:
-    return dotted.rsplit('.', 1)[-1].lower().endswith(CLASS_TAILS)
+    return dotted.rsplit('.', 1)[-1].lower().endswith(tuple(CLASS_TAILS))
 
 
 def _call_name(node: ast.AST) -> str:

@@ -50,7 +50,7 @@ import ast
 import pathlib
 import re
 
-from tests.ast_seams import REPO_ROOT
+from tests.ast_seams import REPO_ROOT, MemberNames
 
 
 LAYER_CONTROL_PATH = REPO_ROOT / 'ui' / 'layer_control.py'
@@ -62,7 +62,7 @@ KV_LINES = (REPO_ROOT / 'ui' / 'lumaviewpro.kv').read_text(encoding='utf-8').spl
 
 RENDERER = 'render_layer_values_from_settings'
 PRIMITIVE = '_show_value_on_widgets'
-VALUE_SLIDERS = ('ill_slider', 'gain_slider', 'exp_slider')
+VALUE_SLIDERS = MemberNames('ui/layer_control.py', {'ill_slider', 'gain_slider', 'exp_slider'})
 UI_SOURCES = sorted(p for p in (REPO_ROOT / 'ui').rglob('*.py'))
 
 

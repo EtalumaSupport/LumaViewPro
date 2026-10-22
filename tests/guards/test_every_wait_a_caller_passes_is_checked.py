@@ -13,11 +13,11 @@ a new member that takes a wait and does neither is named here.
 import ast
 import re
 
-from tests.ast_seams import iter_package_modules
+from tests.ast_seams import MemberNames, iter_package_modules
 
 # A parameter that names a time the member waits or holds for.
 _A_WAIT = re.compile(r'(^|_)timeout(_s)?$|_delay_s$|^seconds$|_for_s$')
-_THE_CHECK = ('refuse_unless_wait_s', 'WAIT_S')
+_THE_CHECK = MemberNames('modules/finite_number.py', {'refuse_unless_wait_s', 'WAIT_S'})
 # The handle every run and job gives back: not marked, but every caller's.
 _HANDLES = {('modules/operation.py', 'Operation')}
 

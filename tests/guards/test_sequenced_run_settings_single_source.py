@@ -35,16 +35,19 @@ from modules.image_mode import (
     ImageCaptureConfig,
 )
 from modules.protocol_state_machine import SequencedCaptureRunMode
-from tests.ast_seams import REPO_ROOT
+from tests.ast_seams import REPO_ROOT, MemberNames
 from tests.settings_fixtures import complete_settings
 
-_OWNED_PARAMS = (
-    'image_capture_config',
-    'keep_led_between_steps',
-    'video_as_frames',
-    'separate_folder_per_channel',
-    'timestamp_overlay',
-    'video_max_fps',
+_OWNED_PARAMS = MemberNames(
+    'modules/sequenced_capture_runner.py',
+    {
+        'image_capture_config',
+        'keep_led_between_steps',
+        'video_as_frames',
+        'separate_folder_per_channel',
+        'timestamp_overlay',
+        'video_max_fps',
+    },
 )
 
 _RUN_CALL = re.compile(r'\.prepare\(')

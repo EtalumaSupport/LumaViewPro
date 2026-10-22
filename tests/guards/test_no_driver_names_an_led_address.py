@@ -12,10 +12,10 @@ second store of the second. A driver takes and reports addresses only.
 
 import ast
 
-from tests.ast_seams import iter_package_modules
+from tests.ast_seams import RetiredNames, iter_package_modules
 
 # The names a colour table, its lookups and the driver's state cache went by.
-_NAMING = frozenset(
+_NAMING = RetiredNames(
     {'ch2color', 'color2ch', 'available_colors', '_COLOR_TO_CH', '_CH_TO_COLOR', 'led_ma'}
 )
 

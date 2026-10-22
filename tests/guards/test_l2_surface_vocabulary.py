@@ -34,9 +34,9 @@ if the old name comes back, not a one-time sweep.
 
 import ast
 
-from tests.ast_seams import iter_package_modules, parse_module
+from tests.ast_seams import Packages, iter_package_modules, parse_module
 
-PROD_PACKAGES = ('modules', 'ui')
+PROD_PACKAGES = Packages({'modules', 'ui'})
 
 RETIRED = {
     'mA': 'illumination_ma',

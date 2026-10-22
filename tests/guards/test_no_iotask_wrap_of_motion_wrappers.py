@@ -22,19 +22,20 @@ from __future__ import annotations
 import ast
 import pathlib
 
-from tests.ast_seams import REPO_ROOT
+from tests.ast_seams import REPO_ROOT, MemberNames, Packages
 
 
-SELF_DISPATCHING_WRAPPERS = frozenset(
+SELF_DISPATCHING_WRAPPERS = MemberNames(
+    'ui/ui_helpers.py',
     {
         'move_z',
         'jog_xy',
         'jog_z',
         'move_home',
-    }
+    },
 )
 
-SCAN_DIRS = ('ui', 'modules')
+SCAN_DIRS = Packages({'ui', 'modules'})
 
 
 def _iter_production_python_files() -> list[pathlib.Path]:

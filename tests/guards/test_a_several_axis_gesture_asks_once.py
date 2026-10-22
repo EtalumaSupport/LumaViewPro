@@ -14,10 +14,15 @@ next one.
 
 import ast
 
-from tests.ast_seams import iter_package_modules
+from tests.ast_seams import MemberNames, iter_package_modules
 
-_XY_MOVES = frozenset({'move_xy', 'move_xy_by', 'start_move_xy', 'start_move_xy_by'})
-_Z_MOVES = frozenset({'move_z', 'move_z_by', 'start_move_z', 'start_move_z_by'})
+_XY_MOVES = MemberNames(
+    'modules/lumascope_api/motion.py',
+    {'move_xy', 'move_xy_by', 'start_move_xy', 'start_move_xy_by'},
+)
+_Z_MOVES = MemberNames(
+    'modules/lumascope_api/motion.py', {'move_z', 'move_z_by', 'start_move_z', 'start_move_z_by'}
+)
 
 
 def _called_name(call):

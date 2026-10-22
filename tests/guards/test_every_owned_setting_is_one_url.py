@@ -13,13 +13,14 @@ from modules import settings_paths
 from modules.api_surface import API, mark_of, sets_of
 from modules.lumascope_api.camera import CameraAPI
 from modules.scope_session import ScopeSession
+from tests.ast_seams import MemberNames
 
 _OWNERS = {'ScopeSession': ScopeSession, 'CameraAPI': CameraAPI}
 
 # Saving the bookmark stores where the stage is, and confirming the
 # objective records the answer to a question: each an action, read by
 # ``bookmark`` and ``objective_question``.
-_ACTIONS = frozenset({'save_bookmark', 'confirm_objective'})
+_ACTIONS = MemberNames('modules/scope_session.py', {'save_bookmark', 'confirm_objective'})
 
 
 def test_every_wire_setter_of_an_owned_setting_names_its_read():

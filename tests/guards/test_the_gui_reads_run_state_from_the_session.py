@@ -10,12 +10,20 @@ it drifts the day the Session's changes, and REST never sees it.
 
 import ast
 
-from tests.ast_seams import parse_module
+from tests.ast_seams import MemberNames, parse_module
 
 GUI_MODULES = ('lumaviewpro.py', 'ui/step_navigation.py', 'ui/vertical_control.py')
 
 # What the Session already answers, read below it.
-BELOW_THE_SESSION = {'run_in_progress', 'video_drain_busy', 'is_busy'}
+BELOW_THE_SESSION = MemberNames(
+    (
+        'modules/sequenced_capture_runner.py',
+        'modules/manual_recording.py',
+        'modules/protocol_recording.py',
+        'modules/sequential_io_executor.py',
+    ),
+    {'run_in_progress', 'video_drain_busy', 'is_busy'},
+)
 
 
 def _reads_below_the_session(rel_path: str) -> list[str]:

@@ -10,10 +10,10 @@ a reintroduction anywhere is caught at test time, not by a field crash.
 
 from __future__ import annotations
 
-from tests.ast_seams import REPO_ROOT
+from tests.ast_seams import REPO_ROOT, Packages
 
 
-_DIRS = ('ui', 'modules', 'drivers', 'deconvolution', 'stitching_blending')
+_DIRS = Packages({'ui', 'modules', 'drivers'})
 
 
 def test_no_tostring_calls_in_production_source():

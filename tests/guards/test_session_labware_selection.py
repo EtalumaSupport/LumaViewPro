@@ -21,7 +21,7 @@ import pytest
 from modules import labware_loader
 from modules.exceptions import ArgumentTypeRefusedError, CatalogueNameRefusedError
 from modules.scope_session import ScopeSession
-from tests.ast_seams import writers_of_settings_keys
+from tests.ast_seams import Words, writers_of_settings_keys
 from tests.settings_fixtures import complete_settings
 
 
@@ -163,7 +163,7 @@ class TestRefusals:
 # The exit criterion: the Session member is the ONLY writer of the plate
 # ---------------------------------------------------------------------------
 
-_LABWARE_FACT = {'labware'}
+_LABWARE_FACT = Words({'labware'})
 
 # The member is the one home of the plate for every host; settings
 # preparation may rewrite a retired spelling to its key before any host

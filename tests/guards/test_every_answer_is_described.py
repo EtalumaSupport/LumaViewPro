@@ -37,6 +37,7 @@ import pytest
 from modules import wire_encoding
 from tests import ratchets as _ratchets
 from rest import routes as rest_routes
+from tests.ast_seams import MemberNames
 
 # Keyless objects, arrays of nothing said and values of no type, over every
 # route's 200 and 202 and every event, each component counted once. An
@@ -60,7 +61,9 @@ from rest import routes as rest_routes
 # 16 since the cell-count method is a record.
 UNTYPED_PIN = 16
 
-_SERVER_MODELS = ('Handle', 'Job', 'JobProgress', 'PathAnswer', 'Versions')
+_SERVER_MODELS = MemberNames(
+    ('rest/routes.py', 'rest/app.py'), {'Handle', 'Job', 'JobProgress', 'PathAnswer', 'Versions'}
+)
 # A JSON Schema keyword that says what a value is.
 _TYPING = {'type', '$ref', 'anyOf', 'oneOf', 'allOf', 'enum', 'const'}
 

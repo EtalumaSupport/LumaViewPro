@@ -21,7 +21,7 @@ from typing import ClassVar
 import numpy as np
 
 from tests import ratchets as _ratchets
-from tests.ast_seams import REPO_ROOT
+from tests.ast_seams import REPO_ROOT, MemberNames, Packages
 
 
 # ---------------------------------------------------------------------------
@@ -394,7 +394,7 @@ def _relpath(path):
 # ui/ is a question the GUI answers below the API, and retiring one is the
 # unit of migration work -- route the caller at its `ScopeSession` member
 # and the call site goes away.
-_ANSWERER_MODULES = frozenset({'config_ui_getters', 'config_helpers'})
+_ANSWERER_MODULES = Packages({'config_ui_getters', 'config_helpers'}, under='modules')
 
 
 def _ui_answerer_call_counts():
@@ -623,17 +623,29 @@ _UI_EXCEPT_PIN = {
 # it reaches the scope through PUBLIC members with imports the file keeps
 # for other uses. lumaviewpro.py is the GUI's entry point and is counted
 # with ui/.
-_ORCHESTRATION_MEMBERS = frozenset(
-    {'initialize', 'enable_streaming', 'disable_streaming', 'disconnect', 'set_acceleration_limit'}
+_ORCHESTRATION_MEMBERS = MemberNames(
+    (
+        'modules/lumascope_api/_lumascope.py',
+        'modules/lumascope_api/imaging.py',
+        'modules/lumascope_api/motion.py',
+    ),
+    {'initialize', 'enable_streaming', 'disable_streaming', 'disconnect', 'set_acceleration_limit'},
 )
-_ORCHESTRATION_CONSTRUCTORS = frozenset(
+_ORCHESTRATION_CONSTRUCTORS = MemberNames(
+    (
+        'modules/lumascope_api/_lumascope.py',
+        'modules/scope_session.py',
+        'modules/autofocus_runner.py',
+        'modules/autofocus_thread.py',
+        'modules/executor_registry.py',
+    ),
     {
         'Lumascope',
         'ScopeSession',
         'AutofocusRunner',
         'AutofocusThread',
         'create_default',
-    }
+    },
 )
 
 

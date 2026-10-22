@@ -62,18 +62,18 @@ from dataclasses import dataclass
 
 import pytest
 
-from tests.ast_seams import iter_package_modules
+from tests.ast_seams import Packages, Words, iter_package_modules
 from tests.scope_fakes import build_scope
 
 # Packages that hold callers of the scope API. `drivers/` is excluded on
 # purpose: it sits BELOW the API and never holds a scope reference.
-SCANNED_PACKAGES = ('modules', 'ui')
+SCANNED_PACKAGES = Packages({'modules', 'ui'})
 
 # Receiver expressions denoting the Lumascope object. Matched on the
 # FINAL attribute so dotted chains are covered without enumerating them
 # (`self._scope`, `ctx.scope`, `_app_ctx.ctx.scope`), while near-misses
 # like `self.scope_display` are not.
-_SCOPE_TAIL_NAMES = frozenset({'scope', '_scope'})
+_SCOPE_TAIL_NAMES = Words({'scope', '_scope'})
 
 # Names allowed to be missing, keyed by NAME so the entry survives the
 # line shifts of any merge. Each entry names the owner that retires it --

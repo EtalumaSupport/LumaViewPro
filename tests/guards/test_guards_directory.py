@@ -25,13 +25,13 @@ such misses are caught today, by the full suite.
 
 import ast
 
-from tests.ast_seams import iter_package_modules
+from tests.ast_seams import Words, iter_package_modules
 
 GUARDS = 'tests/guards/'
 
 # Every pytest spelling that lets a selected test finish without running
 # its assertions and still exit 0.
-_NOT_RUN_SPELLINGS = frozenset({'skip', 'skipif', 'importorskip', 'xfail'})
+_NOT_RUN_SPELLINGS = Words({'skip', 'skipif', 'importorskip', 'xfail'})
 
 
 def _binds_ratchet_registry(tree) -> set[str]:
