@@ -132,6 +132,14 @@ _TEARDOWN_ASSUME_DEAD_STALL_S = 15.0
 # complete frame resets the count.
 _MAX_BAD_FRAMES_BEFORE_WEDGE = 120
 
+# Frame time added to the free-run rate's period when the camera bins. The
+# U3-34L has no image memory, and binned at the exact AcquisitionFrameRate
+# maximum it skips whole sensor slots (measured on two bodies, Mono10 and
+# Mono12: 45-160 of 300 frames skipped at the maximum, at most 1 in 300 from
+# 0.95 of it). 1 ms under is about 0.94 of the binned maximum. Unbinned, the
+# camera holds its maximum, and a margin there would only cost frames.
+_BINNED_FRAME_TIME_MARGIN_S = 0.001
+
 
 def _ids_library_cleanup():
     global _ids_library_initialized
@@ -1766,13 +1774,17 @@ class IDSCamera(Camera):
 
         # Drop the rate-target limiter, then push the acquisition rate to max.
         self.set_max_acquisition_frame_rate(False)
-        new_max = self._maximize_acquisition_frame_rate()
-        if new_max is not None:
-            logger.info(f'[CAM Class ] AcquisitionFrameRate set to max: {new_max} fps')
+        rate = self._set_free_run_frame_rate()
+        if rate is not None:
+            logger.info(f'[CAM Class ] AcquisitionFrameRate set to {rate:.2f} fps (free run)')
 
-    def _maximize_acquisition_frame_rate(self):
-        """Set AcquisitionFrameRate to its current maximum (free-run = no software
-        cap) and return that maximum, or None when the node is unavailable.
+    def _set_free_run_frame_rate(self):
+        """Set AcquisitionFrameRate to the free-run rate and return it, or None
+        when the node is unavailable.
+
+        Unbinned, the free-run rate is the current maximum (no software cap).
+        Binned, it is the maximum's period plus ``_BINNED_FRAME_TIME_MARGIN_S``:
+        at the exact binned maximum the camera skips sensor slots.
 
         The maximum is EXPOSURE-COUPLED: a long exposure lowers it and the camera
         clamps the current rate down to it, while a later shorter exposure raises
@@ -1786,9 +1798,11 @@ class IDSCamera(Camera):
             return None
         try:
             fr = self.remote_nodemap.FindNode('AcquisitionFrameRate')
-            new_max = fr.Maximum()
-            fr.SetValue(new_max)
-            return new_max
+            rate = fr.Maximum()
+            if self.get_binning_size() > 1:
+                rate = 1.0 / (1.0 / rate + _BINNED_FRAME_TIME_MARGIN_S)
+            fr.SetValue(rate)
+            return rate
         except Exception as e:
             logger.debug(f'[CAM Class ] AcquisitionFrameRate not available: {e}')
             return None
@@ -2729,9 +2743,9 @@ class IDSCamera(Camera):
                 # later shorter exposure does NOT restore it on its own. Without this
                 # the live fps stays stuck at the slow rate set during the long
                 # exposure (the "fps does not recover" symptom).
-                new_max = self._maximize_acquisition_frame_rate()
-                if new_max is not None:
-                    rate_note = f' AcquisitionFrameRate->{new_max:.1f}fps'
+                rate = self._set_free_run_frame_rate()
+                if rate is not None:
+                    rate_note = f' AcquisitionFrameRate->{rate:.1f}fps'
             if _cam_log is not None:
                 _cam_log.info(
                     f'ids ExposureTime.SetValue({us_value:.0f}us) (={exposure_ms}ms){rate_note}'
@@ -3247,7 +3261,8 @@ class IDSCamera(Camera):
 
     def get_resulting_frame_rate(self) -> float | None:
         """AcquisitionFrameRate's maximum, live: the rate the current exposure
-        and readout allow, which the free-run configuration runs at. See
+        and readout allow. The free run runs at it unbinned and 1 ms of frame
+        time under it binned (``_set_free_run_frame_rate``). See
         ``Camera.get_resulting_frame_rate``."""
         if not self.active or self.remote_nodemap is None:
             return None

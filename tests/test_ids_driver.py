@@ -219,15 +219,18 @@ class TestFrameRateCap:
 class TestFreeRunConfig:
     """_configure_free_run lifts every throttle so the camera free-runs: the
     link limit to its max, the rate-target limiter off, and
-    AcquisitionFrameRate to its max. DeviceLinkThroughputLimitComponent is a
-    read-only report of the limiting component, never written."""
+    AcquisitionFrameRate to its max unbinned, 1 ms of frame time under it
+    binned. DeviceLinkThroughputLimitComponent is a read-only report of the
+    limiting component, never written."""
 
-    def _cam(self):
+    def _cam(self, binning=1):
         cam = bare_ids_camera()
         cam.remote_nodemap = _RecordingNodemap(
             {
                 'DeviceLinkThroughputLimit': _RecordingNode(maximum=400_000_000),
                 'AcquisitionFrameRate': _RecordingNode(maximum=45.0),
+                'BinningVertical': _RecordingNode(value=binning),
+                'BinningHorizontal': _RecordingNode(value=binning),
             }
         )
         return cam
@@ -247,10 +250,17 @@ class TestFreeRunConfig:
         cam._configure_free_run()
         assert cam.remote_nodemap.nodes['AcquisitionFrameRateTargetEnable'].value is False
 
-    def test_maximizes_acquisition_frame_rate(self):
-        cam = self._cam()
+    def test_unbinned_runs_at_the_acquisition_frame_rate_maximum(self):
+        cam = self._cam(binning=1)
         cam._configure_free_run()
         assert cam.remote_nodemap.nodes['AcquisitionFrameRate'].value == 45.0
+
+    def test_binned_runs_1_ms_of_frame_time_under_the_maximum(self):
+        # Binned at the exact maximum the U3-34L skips sensor slots.
+        cam = self._cam(binning=2)
+        cam._configure_free_run()
+        rate = cam.remote_nodemap.nodes['AcquisitionFrameRate'].value
+        assert 1.0 / rate == pytest.approx(1.0 / 45.0 + 0.001)
 
     def test_inactive_camera_writes_nothing(self):
         cam = self._cam()
