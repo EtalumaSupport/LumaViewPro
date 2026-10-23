@@ -786,7 +786,7 @@ def reset_acquire_ui():
 
 def reset_stim_ui():
     # Display only: a loaded protocol's stimulation was turned off by the
-    # Session (``ScopeSession.apply_layer_settings``), which writes it.
+    # Session (``ScopeSession.apply_channel_settings``), which writes it.
     ctx = _app_ctx.ctx
     for layer in common_utils.get_layers():
         layer_obj = ctx.image_settings.layer_lookup(layer=layer)

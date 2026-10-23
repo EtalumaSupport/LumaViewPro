@@ -105,6 +105,13 @@ RENAMED = [
         'apply_focus_to_channel_steps',
         {'protocol': PROTOCOL, 'channel': 'BF'},
     ),
+    (
+        'POST',
+        'apply_layer_settings',
+        {'protocol': PROTOCOL},
+        'apply_channel_settings',
+        {'protocol': PROTOCOL},
+    ),
 ]
 
 

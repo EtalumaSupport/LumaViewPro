@@ -109,7 +109,7 @@ def test_a_layer_settings_row_for_a_layer_this_scope_lacks_is_dropped_and_logged
     assert 'Lumi\timage' in path.read_text()
 
     loaded = ls850.load_protocol(path)
-    ls850.apply_layer_settings(loaded)
+    ls850.apply_channel_settings(loaded)
 
     assert ls850.settings['Lumi']['acquire'] is None
     assert ls850.settings['BF']['acquire'] == 'image'

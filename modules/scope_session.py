@@ -2177,7 +2177,7 @@ class ScopeSession:
 
     @api
     @_guarded_write
-    def apply_layer_settings(self, protocol: 'Protocol') -> None:
+    def apply_channel_settings(self, protocol: 'Protocol') -> None:
         """Put a protocol's Layer Settings into this session's layer controls.
 
         The other half of ``save_protocol``, and what the GUI's Load does
@@ -2236,7 +2236,7 @@ class ScopeSession:
         The file is written under exactly ``file_path``, which ends in
         ``.tsv`` (in any case); nothing is added to it. The block holds
         each layer set to acquire an image or a video, with the values its
-        controls hold now; ``apply_layer_settings`` puts them back. What the
+        controls hold now; ``apply_channel_settings`` puts them back. What the
         GUI opens at its next start-up is not changed: a script's scratch
         save is not the person's protocol.
 
@@ -3909,7 +3909,7 @@ class ScopeSession:
     def open_protocol(self, file_path: FilePath) -> 'Protocol':
         """Load the protocol at ``file_path`` with its Layer Settings, and remember it.
 
-        The GUI's Load: ``load_protocol``, then ``apply_layer_settings``, then
+        The GUI's Load: ``load_protocol``, then ``apply_channel_settings``, then
         ``set_protocol_filepath``, so the next start opens it. The path is
         written last, once the scope is on the protocol's plate and the layer
         controls hold its settings: a refused file leaves the remembered path
@@ -3931,12 +3931,12 @@ class ScopeSession:
                 ``'layer_not_on_scope'``: the file holds a step this scope
                 cannot perform, or Layer Settings no layer setting takes
                 (``'values_out_of_range'``), as ``load_protocol``.
-            ConfigError: As ``load_protocol`` and ``apply_layer_settings``.
+            ConfigError: As ``load_protocol`` and ``apply_channel_settings``.
             HardwareCommandRefusedError: ``'exclusive_activity_running'``,
-                as ``load_protocol`` and ``apply_layer_settings``.
+                as ``load_protocol`` and ``apply_channel_settings``.
         """
         protocol = self.load_protocol(file_path)
-        self.apply_layer_settings(protocol)
+        self.apply_channel_settings(protocol)
         self.set_protocol_filepath(os.fspath(file_path))
         return protocol
 

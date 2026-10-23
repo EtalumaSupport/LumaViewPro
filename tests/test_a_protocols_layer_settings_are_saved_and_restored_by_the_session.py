@@ -6,7 +6,7 @@ acquire mode, illumination, gain, auto-gain, exposure, false colour, sum
 and stimulation switch. The GUI composed the block from the store on Save
 and put it back into the store on Load, so a script could neither save a
 protocol the GUI would restore nor restore one the GUI had saved.
-``ScopeSession.save_protocol`` writes the block and ``apply_layer_settings``
+``ScopeSession.save_protocol`` writes the block and ``apply_channel_settings``
 puts it back; ``load_protocol`` keeps its contract, the plate only.
 
 The block is typed where it is read. A cell the loader cannot type is
@@ -102,7 +102,7 @@ class TestSaveThenRestore:
         _set_layer(session, 'BF', illumination_ma=99.0, sum=1)
         _set_layer(session, 'Green', acquire='image')
         loaded = session.load_protocol(written)
-        session.apply_layer_settings(loaded)
+        session.apply_channel_settings(loaded)
 
         assert loaded.num_steps() == protocol.num_steps()
         assert (loaded.period_s(), loaded.duration_s()) == (
@@ -170,7 +170,7 @@ class TestSaveThenRestore:
             'Infrared\timage\t5.0\t0.0\tFalse\t2.0\tFalse\t1\t\n',
         )
 
-        session.apply_layer_settings(session.load_protocol(tsv))
+        session.apply_channel_settings(session.load_protocol(tsv))
 
         assert 'Infrared' not in session.settings
         assert session.settings['BF']['acquire'] == 'image'

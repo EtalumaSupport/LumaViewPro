@@ -966,13 +966,13 @@ class ProtocolsAPI:
         Judged by the settings' layer ranges, for the rows a session applies:
         those of the layers this scope has, the others being dropped when
         applied. Asked where a protocol's Layer Settings arrive: a loaded
-        file's own block, and ``ScopeSession.apply_layer_settings`` before
+        file's own block, and ``ScopeSession.apply_channel_settings`` before
         it stores anything, for a protocol built in memory or one whose rows
         are inferred from its steps.
 
         A consult seam, not part of the L2 API surface: an L2 caller meets
         this refusal through ``ScopeSession.load_protocol`` and
-        ``apply_layer_settings``.
+        ``apply_channel_settings``.
 
         Raises:
             ProtocolRunRefusedError: ``'values_out_of_range'``, naming each

@@ -2,7 +2,7 @@
 """A protocol's out-of-range values are refused before anything is stored or moved.
 
 A protocol whose BF Layer Settings row held Exposure 0, Sum 0 and Gain -3
-loaded, and ``apply_layer_settings`` stored all three in the live
+loaded, and ``apply_channel_settings`` stored all three in the live
 settings, values no write of them could store; going to a step stored the
 step's own the same way, once its moves had started. Each is now judged by
 the settings' layer ranges first: such a file is refused at load, naming
@@ -88,7 +88,7 @@ def test_a_protocol_built_in_memory_is_refused_by_the_apply_storing_nothing(sess
     before = session.get_settings_snapshot()
 
     with pytest.raises(ProtocolRunRefusedError) as refused:
-        session.apply_layer_settings(protocol)
+        session.apply_channel_settings(protocol)
 
     assert refused.value.reason == 'values_out_of_range'
     assert 'BF Exposure:' in str(refused.value), str(refused.value)

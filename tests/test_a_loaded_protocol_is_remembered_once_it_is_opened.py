@@ -52,7 +52,7 @@ def test_refused_layer_settings_leave_the_remembered_path(session, tmp_path, mon
     def _refuse(protocol):
         raise ProtocolFormatError('a Layer Settings cell is not a number', file=path)
 
-    monkeypatch.setattr(session, 'apply_layer_settings', _refuse)
+    monkeypatch.setattr(session, 'apply_channel_settings', _refuse)
 
     with pytest.raises(ProtocolFormatError):
         session.open_protocol(path)
