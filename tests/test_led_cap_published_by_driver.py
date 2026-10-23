@@ -70,7 +70,7 @@ def _caps_with(led) -> ScopeCapabilities:
         motion=motion,
         led=led,
         camera=None,
-        layer_identity=UNRESOLVED,
+        channel_identity=UNRESOLVED,
         scope_models={},
         timing_record=None,
     )

@@ -37,7 +37,7 @@ def _capabilities(camera):
         motion=motion,
         led=led,
         camera=camera,
-        layer_identity=UNRESOLVED,
+        channel_identity=UNRESOLVED,
         scope_models={},
         timing_record=None,
     )

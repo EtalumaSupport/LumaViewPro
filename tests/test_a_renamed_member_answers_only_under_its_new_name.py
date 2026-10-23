@@ -112,6 +112,7 @@ RENAMED = [
         'apply_channel_settings',
         {'protocol': PROTOCOL},
     ),
+    ('GET', 'scope/layer_identity', {}, 'scope/channel_identity', {}),
 ]
 
 

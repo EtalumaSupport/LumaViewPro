@@ -68,7 +68,7 @@ class TestFromSettings:
             _BASE_SETTINGS,
             turreted=False,
             scope_config=_LS620_CONFIG,
-            layer_identity=_LS620_IDENTITY,
+            channel_identity=_LS620_IDENTITY,
         )
         assert config.expects_motion is False
         assert config.expects_led is True
@@ -78,7 +78,7 @@ class TestFromSettings:
             _BASE_SETTINGS,
             turreted=False,
             scope_config=_LS820_CONFIG,
-            layer_identity=_LS820_IDENTITY,
+            channel_identity=_LS820_IDENTITY,
         )
         assert config.expects_motion is True
         assert config.expects_led is True
@@ -88,7 +88,7 @@ class TestFromSettings:
             _BASE_SETTINGS,
             turreted=False,
             scope_config=_LS850T_CONFIG,
-            layer_identity=_LS850T_IDENTITY,
+            channel_identity=_LS850T_IDENTITY,
         )
         assert config.expects_motion is True
         assert config.expects_led is True
@@ -98,7 +98,7 @@ class TestFromSettings:
             _BASE_SETTINGS,
             turreted=False,
             scope_config=_LS820_CONFIG,
-            layer_identity=_NO_LED_IDENTITY,
+            channel_identity=_NO_LED_IDENTITY,
         )
         assert config.expects_led is False
 

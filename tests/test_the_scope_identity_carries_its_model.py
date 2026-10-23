@@ -54,7 +54,7 @@ class TestEveryRungCarriesTheModel:
     def test_a_board_model_the_catalogue_lacks_is_carried_with_no_layers(self):
         identity = _resolve(motor_model='LS9999', configured_model='LS560')
         assert identity.model == 'LS9999'
-        assert identity.layers == ()
+        assert identity.channels == ()
         assert identity.source == 'unresolved'
 
     def test_no_model_at_all_is_the_shared_unresolved_snapshot(self):
@@ -102,13 +102,13 @@ class TestTheRunningScopeHasOneModel:
 class TestAModelSelectionAppliesAtTheNextStart:
     def test_the_selection_is_saved_and_the_running_scope_is_unchanged(self, ls620_session):
         scope = ls620_session.scope
-        identity = scope.layer_identity
+        identity = scope.channel_identity
         capabilities = scope.capabilities
 
         ls620_session.select_model('LS560')
 
         assert ls620_session.settings['microscope'] == 'LS560'
-        assert scope.layer_identity is identity
+        assert scope.channel_identity is identity
         assert scope.capabilities is capabilities
         assert scope.capabilities.model == 'LS620'
 

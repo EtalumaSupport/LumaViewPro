@@ -154,7 +154,7 @@ scope.runtime_state.get_labware()                   # the selected plate's recor
 
 An `Objective` names each field with its unit. Autofocus starts at `autofocus_step_max_um` and refines down to `autofocus_step_min_um` across `autofocus_half_range_um` either side of where it starts; a jog moves `jog_z_fine_um` / `jog_z_coarse_um` on Z and `jog_xy_fine_um` / `jog_xy_coarse_um` on X and Y; `focal_length_mm` sets the image scale; `short_name` is the token step and file names carry. `focus_peak_fwhm_dense_um` is None until the engineering plugin's characterization has measured the objective. The installation's `objectives.json` keeps its own keys (`focal_length`, `DOF`, `AF_min`, ...), and a capture's metadata carries the objective under those keys. An entry missing a field, carrying a key no field declares, or giving a number as anything else refuses bring-up with `InstallationFileError`, naming the file, the objective and the key.
 
-A `ScopeModel` says what a model is built with: `has_focus`, `has_xy_stage` and `has_turret` (the Z, X and Y, and T axes), its boards (`led_board`; `motor_board`, None on a model with no motor axes), its `filterset`, and its `layers`, `LayerRecord`s resolved against the release's layer vocabulary, which a unit has when its board carries no Channels block of its own. A Classic model, which has no motorconfig, also declares its optics, `pixel_size_um` and `lens_focal_length_mm`, and one whose lens images less than its sensor its `max_frame`; each is None where the model declares none. The installation's `scopes.json` keeps its own keys (`Focus`, `XYStage`, `Turret`, `LEDBoard`, ...). A model entry or layer row missing a key, carrying a key no field declares, or giving a key a value it cannot hold refuses bring-up with `InstallationFileError`, naming the file, the model and the key.
+A `ScopeModel` says what a model is built with: `has_focus`, `has_xy_stage` and `has_turret` (the Z, X and Y, and T axes), its boards (`led_board`; `motor_board`, None on a model with no motor axes), its `filterset`, and its `channels`, `ChannelRecord`s resolved against the release's layer vocabulary, which a unit has when its board carries no Channels block of its own. A Classic model, which has no motorconfig, also declares its optics, `pixel_size_um` and `lens_focal_length_mm`, and one whose lens images less than its sensor its `max_frame`; each is None where the model declares none. The installation's `scopes.json` keeps its own keys (`Focus`, `XYStage`, `Turret`, `LEDBoard`, ...). A model entry or layer row missing a key, carrying a key no field declares, or giving a key a value it cannot hold refuses bring-up with `InstallationFileError`, naming the file, the model and the key.
 
 Slides and Petri dishes are in `labware.json` but are not labware the API publishes yet: the labware catalogue is the multi-well plates.
 
@@ -170,21 +170,21 @@ Every scope resolves its **layer identity** at construction — what the layers 
 session = ScopeSession.create(settings, simulate=True)   # settings['microscope'] is 'LS560'
 scope = session.scope
 
-identity = scope.layer_identity          # immutable snapshot
+identity = scope.channel_identity          # immutable snapshot
 identity.source                          # 'motorconfig' | 'scopes' | 'unresolved'
 identity.model                           # the model it resolved as: the board's report, else the selected model; None if neither
 identity.filterset                       # the unit's filterset identity string
-for layer in identity.layers:
-    layer.key_name                       # stable name: settings keys, protocol Color, filenames
-    layer.display_name                   # the unit's name for the layer (e.g. 'BF-Phase' on FX2); None for a fluorescence
+for channel in identity.channels:
+    channel.key_name                     # stable name: settings keys, protocol Color, filenames
+    channel.display_name                 # the unit's name for the layer (e.g. 'BF-Phase' on FX2); None for a fluorescence
                                          # channel a board's Channels block names by its excitation alone
-    layer.label                          # what to show: a fluorescence layer's excitation ('405 nm'), else display_name
-    layer.modality                       # 'transmitted' | 'fluorescence' | 'luminescence'
-    layer.background                     # 'bright' | 'dark': what an overlay is drawn against
-    layer.display_color                  # the unit's colour for the layer, '#rrggbb': its board block row's, else the
+    channel.label                        # what to show: a fluorescence layer's excitation ('405 nm'), else display_name
+    channel.modality                     # 'transmitted' | 'fluorescence' | 'luminescence'
+    channel.background                   # 'bright' | 'dark': what an overlay is drawn against
+    channel.display_color                # the unit's colour for the layer, '#rrggbb': its board block row's, else the
                                          # release's; the colour used is session.channel_colors(), which applies the override
-    layer.led_channel                    # tuple of board addresses; () = drives no LED
-    layer.excitation_nm                  # excitation wavelength; None for broadband/LED-less
+    channel.led_channel                  # tuple of board addresses; () = drives no LED
+    channel.excitation_nm                # excitation wavelength; None for broadband/LED-less
 
 identity.find('BF')                      # record by stable key name, or None
 ```
@@ -1016,7 +1016,7 @@ grids.available             # ('1x1', '2x2', '3x3', ...)
 grids.default               # '1x1'
 ```
 
-**Choosing what each layer captures.** `session.set_channel_acquire(channel, mode)` sets whether a layer captures an image (`'image'`), a video (`'video'`) or nothing (None), as the GUI's acquire toggle does; the layers set to acquire are the ones `new_protocol` and `add_step` build steps for and a composite merges. A layer set to acquire stops stimulating. A name that is no layer raises `ArgumentRefusedError` (`channel_unknown`), an unknown mode `SettingRefusedError` (`out_of_range`), and `'image'` or `'video'` for a layer this scope does not have `HardwareCommandRefusedError` (`axis_absent`), each changing nothing (`scope.layer_identity`); setting any layer to acquire nothing is always accepted. A saved setting that has such a layer acquiring -- one written on another model -- is set to acquire nothing when the session comes up, and the change is logged.
+**Choosing what each layer captures.** `session.set_channel_acquire(channel, mode)` sets whether a layer captures an image (`'image'`), a video (`'video'`) or nothing (None), as the GUI's acquire toggle does; the layers set to acquire are the ones `new_protocol` and `add_step` build steps for and a composite merges. A layer set to acquire stops stimulating. A name that is no layer raises `ArgumentRefusedError` (`channel_unknown`), an unknown mode `SettingRefusedError` (`out_of_range`), and `'image'` or `'video'` for a layer this scope does not have `HardwareCommandRefusedError` (`axis_absent`), each changing nothing (`scope.channel_identity`); setting any layer to acquire nothing is always accepted. A saved setting that has such a layer acquiring -- one written on another model -- is set to acquire nothing when the session comes up, and the change is logged.
 
 ```python
 session.set_channel_acquire('BF', 'image')
@@ -1544,6 +1544,7 @@ still states the major version.
 | level 30 | On a camera with a clock latch (`capabilities.camera_has_clock_latch`), every move (`xy_move`, `z_move`, `turret`) runs the clock rule in `capabilities.frame_rules`: at its measured delay, or at 0 from the axis's stop when its timing record holds none or the camera has no record, its `provenance` then `{'measured': 'none: a frame started after the stop'}`; a frame that started exposing before the stop never counts for the move. A camera reports a clock latch only when its frames carry their start (the `Timestamp` chunk); a Basler camera whose chunk did not turn on has no `camera_timestamp_tick_hz` and no latch. |
 | level 31 | A move judged by the credit rule (`xy_move`, `z_move`, `turret` on a camera without a clock latch) counts its frames from its stop, not its drive: `motion_settled` places its `Change` in the frame stream there (`at_seq` the frames delivered at the stop, `credits` cleared, the source pending again), and no frame that arrived before it is credited. While the axis moves, `pending_sources` and `frames_until_valid()` answer the move's whole count, not 0 then 1. A later stamp of the axis settled starts the count again. |
 | level 32 | A move is asked for by what it moves: `move_xy(x_um, y_um)` / `start_move_xy` and `move_xy_by(dx_um, dy_um)` / `start_move_xy_by` move X and Y as one request, every axis given refused before either drives, an axis given as None left as it is and not read; `move_z(z_um)` / `start_move_z` and `move_z_by(dz_um)` / `start_move_z_by` move Z, a move to a place approaching from below and a move by a distance not, unless `overshoot_enabled` (None, the API's approach, by default) says otherwise. `move_absolute`, `move_relative`, `start_move_absolute` and `start_move_relative` are gone, with no alias. |
+| level 33 | A channel is a `channel` on the whole surface: `scope.channel_identity` (`ChannelIdentity`, its `channels` of `ChannelRecord`), `ScopeModel.channels`, `ShownChannel.channel` and `FrameRecord.held_channel`; `set_channel_acquire` / `channel_acquire`, `set_channel_auto_gain` / `channel_auto_gain` / `channel_auto_gain_lock`, `save_channel_focus`, `apply_focus_to_channel_steps` and `apply_channel_settings`; every member that takes a channel takes `channel` (`channels` on `add_step`); the reasons `channel_unknown` and `no_channel_selected`. The old names are gone, with no alias. |
 
 ### Configuration queries
 
@@ -1887,13 +1888,13 @@ scope.motion.remove_position_listener(on_position)
 
 ## scope.illumination
 
-Channels available depend on the scope — the layers it lights are the records in `scope.layer_identity.layers` whose `led_channel` is not empty.
+Channels available depend on the scope — the layers it lights are the records in `scope.channel_identity.channels` whose `led_channel` is not empty.
 
 **A channel is named, never numbered.** `'BF'`, `'PC'`, `'DF'`, `'Blue'`,
 `'Green'`, `'Red'` — the name is the portable identity. The number behind it is
 a driver detail and is NOT portable: an FX2 board carries four channels and an
 RP2040 board six, so the same integer means different LEDs, or none, depending
-on the board. Ask `scope.layer_identity.layers` for what a given scope can actually drive.
+on the board. Ask `scope.channel_identity.channels` for what a given scope can actually drive.
 Passing an integer still works today as a legacy compatibility form, but it is
 not the supported contract and will not be part of the REST surface.
 
@@ -2565,7 +2566,7 @@ caps.camera_reports_temperature # the camera has a temperature sensor (probed at
 Important consequences:
 
 - **`camera_limits` is `None` when no camera is connected**, and its `frame_max` `None` when none of its sources answered. Check it before using it as a `scope.camera.set_frame_size(w, h)` target, and divide by the binning in force; `set_frame_size` raises `HardwareCommandRefusedError` (`not_connected`) when no camera is connected. With a live camera it returns the DELIVERED geometry and raises `CameraSettingRejected` if the apply is refused.
-- **LED channel count varies by scope, and not only by driver family.** An LS620 (FX2 driver) exposes 4 channels (`BF`, `Blue`, `Green`, `Red`); an **LS560, same driver family, exposes 2** (`BF`, `Green`); RP2040-based scopes expose 6 (`BF`, `PC`, `DF`, `Blue`, `Green`, `Red`). Don't iterate over a hardcoded list — iterate over the layers in `scope.layer_identity.layers` that have an `led_channel`.
+- **LED channel count varies by scope, and not only by driver family.** An LS620 (FX2 driver) exposes 4 channels (`BF`, `Blue`, `Green`, `Red`); an **LS560, same driver family, exposes 2** (`BF`, `Green`); RP2040-based scopes expose 6 (`BF`, `PC`, `DF`, `Blue`, `Green`, `Red`). Don't iterate over a hardcoded list — iterate over the layers in `scope.channel_identity.channels` that have an `led_channel`.
 - **Some scopes have no motor at all.** LS560/LS620 have `caps.axes == ()`. Calling `scope.motion.move_xy(x_um=…)` against such a scope raises `HardwareCommandRefusedError` (`axis_absent`, `MissingPart.MOTORS`), as a Z-only scope does for X (`MissingPart.X`); hide motion controls based on `caps.has_xy_stage`, `caps.has_focus` and `caps.has_turret`.
 - **Travel limits come from `scope.motion.get_axis_limits(axis)`**, read-only, for present axes; check `caps.has_xy_stage` (or `axis in caps.axes`) before asking about X/Y. A run whose steps lie outside these limits is refused before it starts (reason `positions_outside_travel`), naming each step and the axis; X/Y are judged on the protocol's plate at `scope.runtime_state.get_stage_offset()`, the offset the run moves with. A run whose steps need an axis the scope does not have is refused as `positions_unreachable`: steps at different places on that axis, or, on a scope without X and Y, steps with no X/Y whose wells or tiles differ, since each would be one field saved under a different name.
 - **A step may have no position on an axis.** It is recorded on a scope that lacks the axis: blank in the `.tsv`, NaN in `protocol.steps()`'s `X`, `Y` or `Z` column (pandas' missing value, so the column stays a number column), None in `protocol.step(step_index)`'s `x`, `y` or `z` and null over REST. X and Y are both or neither; a file or frame with one of them is refused (`ProtocolFormatError`). On a scope that has the axis such a step says nothing about where to go, so a run, `step_targets` (and Go To Step), `apply_tiling` and `apply_zstacking` refuse it as `step_position_missing` (`ProtocolRunRefusedError`), naming the steps and the axes; nothing moves or changes. A protocol file with a blank position is refused by LumaViewPro releases before this one, which read every position as a number.
@@ -3035,10 +3036,10 @@ A file of version 2 to 8 loads, its missing columns filled (`Channel Group ID` a
 
 ## Color channel reference
 
-A scope's layers are the records of `scope.layer_identity.layers`, in display order, each with its `key_name`, `modality` and `display_color`. The release has seven; a scope lists the ones it has (an LS850T has no `Lumi`):
+A scope's layers are the records of `scope.channel_identity.channels`, in display order, each with its `key_name`, `modality` and `display_color`. The release has seven; a scope lists the ones it has (an LS850T has no `Lumi`):
 
 ```python
-[layer.key_name for layer in scope.layer_identity.layers]
+[layer.key_name for layer in scope.channel_identity.channels]
 # the release's seven: ['BF', 'PC', 'DF', 'Blue', 'Green', 'Red', 'Lumi']
 # BF  -- brightfield (white LED)            transmitted
 # PC  -- phase contrast                     transmitted
@@ -3055,7 +3056,7 @@ A scope's layers are the records of `scope.layer_identity.layers`, in display or
 
 **Fluorescence excitation wavelengths depend on the installed filterset** — the stock filterset is 405 / 488 / 589 nm, but OEM customers may have custom filtersets at different wavelengths.
 
-**Not every scope has every channel, and two models in the same family differ.** Always check the scope's layers (`scope.layer_identity.layers`) before using a color — an LS620 exposes `{'BF', 'Blue', 'Green', 'Red'}`, while an **LS560 exposes only `{'BF', 'Green'}`**. Phase contrast on those models is brightfield with a mechanical phase slider installed, not a separate illumination channel.
+**Not every scope has every channel, and two models in the same family differ.** Always check the scope's layers (`scope.channel_identity.channels`) before using a color — an LS620 exposes `{'BF', 'Blue', 'Green', 'Red'}`, while an **LS560 exposes only `{'BF', 'Green'}`**. Phase contrast on those models is brightfield with a mechanical phase slider installed, not a separate illumination channel.
 
 ---
 
@@ -3194,11 +3195,11 @@ Reached through `session.scope`.
 - `camera`
 - `camera_connected`
 - `capabilities`
+- `channel_identity`
 - `diagnostics`
 - `illumination`
 - `imaging`
 - `labware`
-- `layer_identity`
 - `led_connected`
 - `motion`
 - `motion_expected`
@@ -3453,13 +3454,13 @@ Reached through `session.scope.capabilities`.
 - `model`
 - `pixel_size_um`
 
-### LayerIdentity
+### ChannelIdentity
 
-Reached through `session.scope.layer_identity`.
+Reached through `session.scope.channel_identity`.
 
+- `channels`
 - `filterset`
 - `find` (in-process)
-- `layers`
 - `model`
 - `refuse_unless_on_scope` (in-process)
 - `source`
@@ -4059,9 +4060,9 @@ Reached through each value of `scope.imaging.judge_frame(frame)`.
 - `ms_after_write`
 - `qualifies_after_ticks`
 
-### LayerRecord
+### ChannelRecord
 
-Reached through returned by `scope.layer_identity.find` and `layers`.
+Reached through returned by `scope.channel_identity.find` and `channels`.
 
 - `background`
 - `display_color`
@@ -4348,12 +4349,12 @@ Reached through the event `RunEvents.scan_started` delivers.
 
 Reached through `session.scope.scope_models`.
 
+- `channels`
 - `filterset`
 - `has_focus`
 - `has_turret`
 - `has_xy_stage`
 - `id`
-- `layers`
 - `led_board`
 - `lens_focal_length_mm`
 - `max_frame`

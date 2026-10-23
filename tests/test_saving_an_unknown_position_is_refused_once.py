@@ -94,7 +94,7 @@ def unknown(monkeypatch, centre_posts):
     # Save Focus, Apply Focus and the bookmarks are the Session's: its real
     # members, over the real protocols API, on this scope.
     scope.protocols = ProtocolsAPI(scope)
-    scope.layer_identity = identity_with_layers(['BF'], model='LS850')
+    scope.channel_identity = identity_with_layers(['BF'], model='LS850')
     session = SimpleNamespace(
         scope=scope, settings=settings, settings_lock=MagicMock(), activity_claim=ActivityClaim()
     )

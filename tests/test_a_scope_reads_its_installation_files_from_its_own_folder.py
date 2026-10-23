@@ -185,8 +185,8 @@ def test_the_identity_resolves_against_the_release_vocabulary(tmp_path):
     )
 
     vocabulary = layer_record.release_catalogue()
-    assert scope.layer_identity.layers
-    for record in scope.layer_identity.layers:
+    assert scope.channel_identity.channels
+    for record in scope.channel_identity.channels:
         assert record.id == vocabulary.index(record.key_name)
 
 

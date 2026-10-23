@@ -41,7 +41,7 @@ def metadata_scope(sim_scope):
         protocol={'labware': PLATE},
         stage_offset={'x': 0.0, 'y': 0.0},
     )
-    sim_scope.layer_identity = _IDENTITY
+    sim_scope.channel_identity = _IDENTITY
     return sim_scope
 
 
@@ -83,14 +83,14 @@ class TestSpectralTrio:
         assert metadata['filterset'] == 'FS-STOCK'
 
     def test_unresolved_identity_omits_the_trio(self, metadata_scope):
-        metadata_scope.layer_identity = UNRESOLVED
+        metadata_scope.channel_identity = UNRESOLVED
         metadata = _metadata(metadata_scope, 'BF')
         assert 'channel_display' not in metadata
         assert 'excitation_nm' not in metadata
         assert 'filterset' not in metadata
 
     def test_empty_filterset_is_absent(self, metadata_scope):
-        metadata_scope.layer_identity = _IDENTITY_NO_FILTERSET
+        metadata_scope.channel_identity = _IDENTITY_NO_FILTERSET
         metadata = _metadata(metadata_scope, 'Green')
         assert 'filterset' not in metadata
         assert metadata['channel_display'] == '488 nm'

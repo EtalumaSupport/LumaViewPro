@@ -35,7 +35,7 @@ def _caps_for(motion):
         motion=motion,
         led=None,
         camera=None,
-        layer_identity=UNRESOLVED,
+        channel_identity=UNRESOLVED,
         scope_models={},
         timing_record=None,
     )

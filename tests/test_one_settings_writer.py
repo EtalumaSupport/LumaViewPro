@@ -281,7 +281,7 @@ def test_a_layer_current_above_the_led_board_is_refused_naming_the_board(session
 
 def test_the_sessions_own_model_write_is_not_refused(session):
     # select_model writes the setting the writer refuses to everyone else.
-    model = session.scope.layer_identity.model
+    model = session.scope.channel_identity.model
     session.select_model(model)
     assert session.settings['microscope'] == model
 
@@ -409,7 +409,7 @@ def test_a_bookmark_is_the_live_position_in_the_go_to_frame(session):
 def test_set_all_bookmarks_stamps_the_focus_of_the_scopes_own_layers(session):
     session.scope.motion.home('ALL')
     z = session.save_all_bookmarks()
-    on_scope = {record.key_name for record in session.scope.layer_identity.layers}
+    on_scope = {record.key_name for record in session.scope.channel_identity.channels}
     assert session.settings['bookmark']['z'] == z
     for layer in on_scope:
         assert session.settings[layer]['focus'] == z

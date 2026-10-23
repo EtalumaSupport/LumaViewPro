@@ -183,7 +183,7 @@ class _FakeScope:
         self.runtime_state = _FakeRuntimeState()
         # Every layer of the release: the recording's start asks the scope
         # has the layer it is named for, and these tests name each.
-        self.layer_identity = identity_with_layers(release_catalogue(), model='LS850')
+        self.channel_identity = identity_with_layers(release_catalogue(), model='LS850')
         # A scope that reports no optics: the recording start resolves its
         # scale off these and writes none, the honest-degradation path.
         self.capabilities = SimpleNamespace(

@@ -412,7 +412,7 @@ def hardware_session():
         session.run_application_session()
         scope = session.scope
         IDENTITY.update(
-            model=scope.layer_identity.model,
+            model=scope.channel_identity.model,
             motor=scope.diagnostics.get_motor_info().to_dict(),
             camera={
                 'model': scope.capabilities.camera_model,

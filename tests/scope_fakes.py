@@ -211,7 +211,7 @@ def give_camera_capabilities(scope, camera):
         motion=NullMotionBoard(),
         led=NullLEDBoard(),
         camera=camera,
-        layer_identity=UNRESOLVED,
+        channel_identity=UNRESOLVED,
         scope_models={},
         timing_record=None,
     )
@@ -584,7 +584,7 @@ def identity_with_layers(keys, *, model=None, filterset=''):
 
     shipped = {}
     for entry in layer_record.load_scope_models().values():
-        for record in entry.layers:
+        for record in entry.channels:
             shipped.setdefault(record.key_name, record)
     channels = {
         key: {

@@ -67,6 +67,9 @@ RETIRED = {
     'save_layer_focus': 'save_channel_focus',
     'apply_focus_to_layer_steps': 'apply_focus_to_channel_steps',
     'apply_layer_settings': 'apply_channel_settings',
+    'LayerIdentity': 'ChannelIdentity',
+    'LayerRecord': 'ChannelRecord',
+    'layer_identity': 'channel_identity',
 }
 
 
@@ -82,9 +85,31 @@ def _retired_identifier_hits(tree: ast.AST) -> list[tuple[int, str]]:
             hits.append((node.lineno, node.id))
         elif isinstance(node, ast.Attribute) and node.attr in RETIRED:
             hits.append((node.lineno, node.attr))
-        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in RETIRED:
+        elif (
+            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+            and node.name in RETIRED
+        ):
             hits.append((node.lineno, node.name))
+        elif isinstance(node, ast.alias):
+            for name in (node.name.rpartition('.')[2], node.asname):
+                if name in RETIRED:
+                    hits.append((node.lineno, name))
     return hits
+
+
+def test_a_retired_type_is_caught_where_it_is_defined_or_imported():
+    """A retired type name revived as a class, or imported under its old name, is a hit."""
+    tree = ast.parse(
+        'class LayerIdentity:\n'
+        '    pass\n'
+        'from modules.layer_record import LayerRecord\n'
+        'from modules.layer_record import ChannelRecord as LayerRecord\n'
+    )
+    assert _retired_identifier_hits(tree) == [
+        (1, 'LayerIdentity'),
+        (3, 'LayerRecord'),
+        (4, 'LayerRecord'),
+    ]
 
 
 def test_no_retired_l2_spelling_in_production():

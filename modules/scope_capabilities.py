@@ -43,7 +43,7 @@ from modules.frame_validity import FrameRule, FrameValidity
 
 if TYPE_CHECKING:
     from drivers.protocols import LEDBoardProtocol, MotorBoardProtocol
-    from modules.layer_record import LayerIdentity, ScopeModel
+    from modules.layer_record import ChannelIdentity, ScopeModel
 
 
 def _probe(label: str, fn: Callable[[], Any], fallback: Any) -> Any:
@@ -450,7 +450,7 @@ class ScopeCapabilities:
         motion: MotorBoardProtocol,
         led: LEDBoardProtocol,
         camera: object | None,
-        layer_identity: LayerIdentity,
+        channel_identity: ChannelIdentity,
         scope_models: Mapping[str, ScopeModel],
         timing_record: dict | None,
     ) -> ScopeCapabilities:
@@ -470,7 +470,7 @@ class ScopeCapabilities:
                 NullMotionBoard).
             led: An `LEDBoardProtocol` implementation (may be NullLEDBoard).
             camera: A camera object or None.
-            layer_identity: The scope's resolved identity; its model is
+            channel_identity: The scope's resolved identity; its model is
                 the capabilities' model, so the two cannot disagree.
             scope_models: The scope's model catalogue, read once at its
                 construction; the model's declared optics come from it.
@@ -480,7 +480,7 @@ class ScopeCapabilities:
         """
         # Motion
         axes = _probe('detect_present_axes', lambda: tuple(motion.detect_present_axes()), ())
-        model = layer_identity.model or ''
+        model = channel_identity.model or ''
 
         # Optics (read once at boot; motorconfig is loaded once at driver
         # init and is immutable for the run).
@@ -502,7 +502,7 @@ class ScopeCapabilities:
         # while which layer names exist (and what they drive) is unit
         # data. A scope with no resolved identity honestly reports no
         # colour names -- the channels stay visible via led_channels.
-        led_colors = tuple(r.key_name for r in layer_identity.layers if r.led_channel)
+        led_colors = tuple(r.key_name for r in channel_identity.channels if r.led_channel)
         has_firmware_stim = _probe(
             'led.supports_firmware_stim',
             lambda: bool(led.supports_firmware_stim()),

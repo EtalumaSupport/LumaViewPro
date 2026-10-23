@@ -128,8 +128,8 @@ def test_each_layer_the_unit_has_is_shown_from_its_record(panel, model):
 
     ImageSettings.show_drawers(panel, identity)
 
-    assert panel.ids['accordion_id'].top_to_bottom() == [r.key_name for r in identity.layers]
-    for record in identity.layers:
+    assert panel.ids['accordion_id'].top_to_bottom() == [r.key_name for r in identity.channels]
+    for record in identity.channels:
         drawer = panel._drawers[record.key_name]
         control = drawer.ids['control']
         assert drawer.title == record.label
@@ -140,7 +140,7 @@ def test_each_layer_the_unit_has_is_shown_from_its_record(panel, model):
         assert control.illumination_support == bool(record.led_channel)
         assert control.exposure_summing_support == (record.modality == 'luminescence')
         assert control.autogain_support == (record.modality != 'luminescence')
-    present = {r.key_name for r in identity.layers}
+    present = {r.key_name for r in identity.channels}
     absent = [layer for layer in layer_record.release_catalogue() if layer not in present]
     assert panel.acquire == [(layer, None) for layer in absent]
     assert all(panel._drawers[layer].collapse for layer in absent)
@@ -165,13 +165,13 @@ def test_a_model_switch_and_back_restores_the_drawers_in_catalogue_order(panel):
     ImageSettings.show_drawers(panel, _identity('LS850'))
     ImageSettings.show_drawers(panel, _identity('LS560'))
     assert panel.ids['accordion_id'].top_to_bottom() == [
-        r.key_name for r in _identity('LS560').layers
+        r.key_name for r in _identity('LS560').channels
     ]
 
     ImageSettings.show_drawers(panel, _identity('LS850'))
 
     assert panel.ids['accordion_id'].top_to_bottom() == [
-        r.key_name for r in _identity('LS850').layers
+        r.key_name for r in _identity('LS850').channels
     ]
 
 
@@ -186,8 +186,8 @@ def test_a_channel_added_by_data_gets_a_drawer_on_each_unit_carrying_it(
 
         ImageSettings.show_drawers(panel, identity)
 
-        assert panel.ids['accordion_id'].top_to_bottom() == [r.key_name for r in identity.layers]
-        present = {r.key_name for r in identity.layers}
+        assert panel.ids['accordion_id'].top_to_bottom() == [r.key_name for r in identity.channels]
+        present = {r.key_name for r in identity.channels}
         for key, title, color in (
             ('Ex445', '445 nm', (0.0, 1.0, 1.0, 1.0)),
             ('Ex640', '640 nm', (1.0, 0.0, 1.0, 1.0)),

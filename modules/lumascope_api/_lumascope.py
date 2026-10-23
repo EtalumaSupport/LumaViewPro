@@ -102,7 +102,7 @@ if TYPE_CHECKING:
     from drivers.simulated_camera import SimulatedStall
     from modules.labware import WellPlate
     from modules.labware_loader import WellPlateLoader
-    from modules.layer_record import LayerIdentity, ScopeModel
+    from modules.layer_record import ChannelIdentity, ScopeModel
     from modules.lumascope_api.camera import CameraAPI
     from modules.lumascope_api.diagnostics import DiagnosticsAPI
     from modules.lumascope_api.illumination import IlluminationAPI
@@ -270,10 +270,10 @@ def _board_status(part: str, board, fallback) -> 'PartStatus':
 @api_fields(
     'camera',
     'capabilities',
+    'channel_identity',
     'diagnostics',
     'illumination',
     'imaging',
-    'layer_identity',
     'motion',
     'protocols',
     'runtime_state',
@@ -300,10 +300,10 @@ class Lumascope:
     # What the scope holds, set during construction.
     camera: 'CameraAPI'
     capabilities: 'ScopeCapabilities'
+    channel_identity: 'ChannelIdentity'
     diagnostics: 'DiagnosticsAPI'
     illumination: 'IlluminationAPI'
     imaging: 'ImagingAPI'
-    layer_identity: 'LayerIdentity'
     motion: 'MotionAPI'
     protocols: 'ProtocolsAPI'
     runtime_state: 'RuntimeState'
@@ -977,7 +977,7 @@ class Lumascope:
         # LED state the illumination API keeps: identity says what a
         # layer IS, state says what is lit now.
         self._configured_model = configured_model
-        self.layer_identity = self._resolve_layer_identity()
+        self.channel_identity = self._resolve_layer_identity()
 
         # ----- ScopeCapabilities -----
         # Single source of truth for "what does this scope have" -- built
@@ -990,7 +990,7 @@ class Lumascope:
             motion=self._motion_driver,
             led=self._led_driver,
             camera=self._camera_driver,
-            layer_identity=self.layer_identity,
+            channel_identity=self.channel_identity,
             scope_models=self._scope_models,
             timing_record=self._read_camera_timing(),
         )
@@ -1106,7 +1106,7 @@ class Lumascope:
             override_model=override_model,
         )
 
-    def refresh_layer_identity(self, override_model: str | None = None) -> 'LayerIdentity':
+    def refresh_layer_identity(self, override_model: str | None = None) -> 'ChannelIdentity':
         """Re-resolve layer identity and atomically replace the snapshot.
 
         Not how a model selection takes effect: the capabilities are fixed
@@ -1124,10 +1124,10 @@ class Lumascope:
                 persisted anywhere.
 
         Returns:
-            The new LayerIdentity snapshot (also on `self.layer_identity`).
+            The new ChannelIdentity snapshot (also on `self.channel_identity`).
         """
-        self.layer_identity = self._resolve_layer_identity(override_model=override_model)
-        return self.layer_identity
+        self.channel_identity = self._resolve_layer_identity(override_model=override_model)
+        return self.channel_identity
 
     def initialize(self, config: 'ScopeInitConfig') -> None:
         """Configure scope from connected to ready-to-use.
@@ -2060,7 +2060,7 @@ class Lumascope:
         # invent an identity for a unit it is diagnosing.
         instance._configured_model = None
         instance._fx2_debug_wire = False
-        instance.layer_identity = instance._resolve_layer_identity()
+        instance.channel_identity = instance._resolve_layer_identity()
 
         # Build capabilities -- diagnostic instances still need this so
         # any code that reads scope.capabilities.* works.
@@ -2068,7 +2068,7 @@ class Lumascope:
             motion=instance._motion_driver,
             led=instance._led_driver,
             camera=None,
-            layer_identity=instance.layer_identity,
+            channel_identity=instance.channel_identity,
             scope_models=instance._scope_models,
             timing_record=None,
         )

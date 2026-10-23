@@ -325,7 +325,7 @@ class TestFrameValidityDuringHoming:
             motion=scope._motion_driver,
             led=scope._led_driver,
             camera=scope._camera_driver,
-            layer_identity=scope.layer_identity,
+            channel_identity=scope.channel_identity,
             scope_models=scope.scope_models,
             timing_record=None,
         )
@@ -800,7 +800,7 @@ class TestScopeCapabilities:
             motion=scope._motion_driver,
             led=scope._led_driver,
             camera=scope._camera_driver,
-            layer_identity=scope.layer_identity,
+            channel_identity=scope.channel_identity,
             scope_models=scope.scope_models,
             timing_record=None,
         )
@@ -814,7 +814,7 @@ class TestScopeCapabilities:
             motion=NullMotionBoard(),
             led=NullLEDBoard(),
             camera=None,
-            layer_identity=UNRESOLVED,
+            channel_identity=UNRESOLVED,
             scope_models={},
             timing_record=None,
         )
@@ -836,7 +836,7 @@ class TestScopeCapabilities:
             motion=scope._motion_driver,
             led=scope._led_driver,
             camera=scope._camera_driver,
-            layer_identity=scope.layer_identity,
+            channel_identity=scope.channel_identity,
             scope_models=scope.scope_models,
             timing_record=None,
         )
@@ -854,7 +854,7 @@ class TestScopeCapabilities:
             motion=scope._motion_driver,
             led=scope._led_driver,
             camera=scope._camera_driver,
-            layer_identity=scope.layer_identity,
+            channel_identity=scope.channel_identity,
             scope_models=scope.scope_models,
             timing_record=None,
         )
@@ -871,7 +871,7 @@ class TestScopeCapabilities:
             motion=NullMotionBoard(),
             led=NullLEDBoard(),
             camera=None,
-            layer_identity=UNRESOLVED,
+            channel_identity=UNRESOLVED,
             scope_models={},
             timing_record=None,
         )
@@ -890,7 +890,7 @@ class TestScopeCapabilities:
             motion=NullMotionBoard(),
             led=NullLEDBoard(),
             camera=None,
-            layer_identity=UNRESOLVED,
+            channel_identity=UNRESOLVED,
             scope_models={},
             timing_record=None,
         )
@@ -915,7 +915,7 @@ class TestScopeCapabilities:
             motion=NullMotionBoard(),
             led=FourChannelLED(),
             camera=None,
-            layer_identity=resolve_layer_identity(
+            channel_identity=resolve_layer_identity(
                 board_block=None,
                 board_config_read_ok=True,
                 motor_model=None,

@@ -57,7 +57,7 @@ class TestFusion:
 
     def test_no_led_layer_resolves_to_no_channel_without_error(self, scope):
         scope.refresh_layer_identity(override_model='Lumi')
-        assert scope.layer_identity.find('Lumi') is not None
+        assert scope.channel_identity.find('Lumi') is not None
         assert scope.illumination.color2ch('Lumi') is None
         scope.illumination.led_off(channel='Lumi')
 
@@ -84,7 +84,7 @@ class TestTwoResolverSplit:
         """With no layer identity every address is the board's: one lit,
         6 among them, is held and reported by its address, never dropped.
         The listeners are told the same reading."""
-        scope.layer_identity = UNRESOLVED  # a unit with no resolvable layers
+        scope.channel_identity = UNRESOLVED  # a unit with no resolvable layers
         heard = []
         scope.illumination.add_led_listener(lambda *reading: heard.append(LedReading(*reading)))
         scope.illumination.led_on(channel=6, illumination_ma=50)
@@ -113,6 +113,6 @@ class TestTwoResolverSplit:
 class TestOverrideScope:
     def test_override_is_session_scoped_not_sticky(self, scope):
         scope.refresh_layer_identity(override_model='LS850-0')
-        assert scope.layer_identity.find('Green') is None
+        assert scope.channel_identity.find('Green') is None
         scope.refresh_layer_identity()
-        assert scope.layer_identity.find('Green') is not None
+        assert scope.channel_identity.find('Green') is not None

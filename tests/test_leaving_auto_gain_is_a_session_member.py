@@ -52,7 +52,7 @@ def _session(settings, lock=None, layers=('BF', 'PC', 'DF', 'Blue', 'Green', 'Re
     )
     scope = SimpleNamespace(
         camera=camera,
-        layer_identity=identity_with_layers(layers, model='LS850'),
+        channel_identity=identity_with_layers(layers, model='LS850'),
         camera_connected=True,
     )
     # A session that names no settings file: its writes wake no saver.

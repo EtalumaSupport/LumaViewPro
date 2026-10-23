@@ -382,7 +382,7 @@ def generate_image_metadata(
     # The model this scope runs as, from its identity -- the one the layers
     # and capabilities carry. The board's own report is None on a scope
     # with no motor board (every FX2 model), so it cannot name the scope.
-    microscope_model = scope.layer_identity.model
+    microscope_model = scope.channel_identity.model
 
     # Instrument + Plate metadata for OME-XML compatibility (#491). The
     # board's identity is what it reported at connect: no serial traffic.
@@ -411,7 +411,7 @@ def generate_image_metadata(
     # address (led_channel) deliberately stays out of metadata: it changes
     # with a rewire, board swap, or motorconfig regeneration, so recording
     # it would version the files to the wiring.
-    identity = scope.layer_identity
+    identity = scope.channel_identity
     record = identity.find(channel)
 
     metadata = {

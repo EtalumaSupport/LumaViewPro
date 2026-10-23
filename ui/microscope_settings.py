@@ -585,7 +585,7 @@ class MicroscopeSettings(BoxLayout):
     def show_scope_model(self) -> None:
         """Show the model the scope runs as, and one saved for the next start."""
         ctx = _app_ctx.ctx
-        self.current_scope_model = ctx.lumaview.scope.layer_identity.model or ''
+        self.current_scope_model = ctx.lumaview.scope.channel_identity.model or ''
         self.next_start_model = ctx.session.model_at_next_start or ''
 
     def set_ui_features_for_scope(self) -> None:
@@ -614,7 +614,7 @@ class MicroscopeSettings(BoxLayout):
         # Which layers exist comes from the scope's resolved identity --
         # the one path that also serves headless callers -- refreshed by
         # reconfigure_for_scope before this runs.
-        identity = ctx.lumaview.scope.layer_identity
+        identity = ctx.lumaview.scope.channel_identity
         image_settings.show_drawers(identity)
         image_settings.set_layer_focus_visibility(visible=caps.has_focus)
 
@@ -630,7 +630,7 @@ class MicroscopeSettings(BoxLayout):
             f'model={microscope_settings.current_scope_model} '
             f'next_start={microscope_settings.next_start_model or None} '
             f'turret={caps.has_turret} xy_stage={caps.has_xy_stage} focus={caps.has_focus} '
-            f'layers={",".join(layer.key_name for layer in identity.layers)}',
+            f'channels={",".join(layer.key_name for layer in identity.channels)}',
         )
 
         if not caps.has_xy_stage:

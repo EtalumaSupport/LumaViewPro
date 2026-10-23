@@ -34,7 +34,7 @@ def test_a_different_model_waits_for_the_next_start_until_the_running_one_is_cho
 ):
     ls620_session.select_model('LS560')
     assert ls620_session.model_at_next_start == 'LS560'
-    assert ls620_session.scope.layer_identity.model == 'LS620'
+    assert ls620_session.scope.channel_identity.model == 'LS620'
 
     ls620_session.select_model('LS620')
     assert ls620_session.model_at_next_start is None

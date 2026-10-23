@@ -61,7 +61,7 @@ def test_the_builder_records_its_frame_with_the_live_scope_unreachable(sim_scope
     objective_id = '10x Oly'
     # The frame's current is keyed by the address that lit it; the builder
     # names it through the unit's layer identity, which is not live state.
-    bf_address = sim_scope.layer_identity.find('BF').led_channel[0]
+    bf_address = sim_scope.channel_identity.find('BF').led_channel[0]
     for part in ('runtime_state', 'imaging', 'illumination', 'motion', '_camera_driver'):
         monkeypatch.setattr(sim_scope, part, _Unreachable(part))
 

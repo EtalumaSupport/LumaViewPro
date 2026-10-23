@@ -66,7 +66,9 @@ def _prepared(installation: pathlib.Path, model: str) -> dict:
 
 
 def _fluorescence(session) -> list[str]:
-    return [r.key_name for r in session.scope.layer_identity.layers if r.modality == 'fluorescence']
+    return [
+        r.key_name for r in session.scope.channel_identity.channels if r.modality == 'fluorescence'
+    ]
 
 
 # parametrize-justified: each unit is its own session bring-up.
@@ -92,7 +94,7 @@ def test_each_unit_has_a_block_and_a_colour_for_every_channel(installation, mode
         for key in _ADDED:
             assert session.settings[key] == fluorescence_block, key
         colors = session.channel_colors()
-        for record in session.scope.layer_identity.layers:
+        for record in session.scope.channel_identity.channels:
             assert colors[record.key_name] == layer_record.parse_display_color(
                 record.display_color
             ), record.key_name

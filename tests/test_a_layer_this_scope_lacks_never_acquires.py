@@ -144,7 +144,7 @@ def test_a_scope_runs_the_lumi_steps_its_own_layers_include(lumi, tmp_path):
 
 
 def test_a_run_with_a_step_on_a_layer_this_scope_lacks_is_refused(executor, scope, tmp_path):
-    lacking = {r.key_name for r in scope.layer_identity.layers} ^ {'Lumi'}
+    lacking = {r.key_name for r in scope.channel_identity.channels} ^ {'Lumi'}
     assert 'Lumi' in lacking, 'the suite scope must lack Lumi for this test'
     protocol = _make_multi_step_protocol([{'name': 'Lumi step', 'color': 'Lumi'}])
 
@@ -158,7 +158,7 @@ def test_a_run_with_a_step_on_a_layer_this_scope_lacks_is_refused(executor, scop
 def test_a_scope_whose_layers_could_not_be_resolved_says_so(ls850, monkeypatch):
     protocol = ls850.create_empty_protocol()
     ls850.add_step(protocol)
-    monkeypatch.setattr(ls850.scope, 'layer_identity', UNRESOLVED)
+    monkeypatch.setattr(ls850.scope, 'channel_identity', UNRESOLVED)
 
     with pytest.raises(ProtocolRunRefusedError) as refused:
         ls850.scope.protocols.refuse_absent_layers(protocol)

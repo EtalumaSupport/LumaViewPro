@@ -145,7 +145,7 @@ class TestScopeCapabilitiesIntegration:
             motion=self._stub_motion(),
             led=self._stub_led(),
             camera=self._stub_camera(),
-            layer_identity=UNRESOLVED,
+            channel_identity=UNRESOLVED,
             scope_models={},
             timing_record=None,
         )
@@ -158,7 +158,7 @@ class TestScopeCapabilitiesIntegration:
             motion=self._stub_motion(),
             led=self._stub_led(),
             camera=self._stub_camera(native_bit_depth=8),
-            layer_identity=UNRESOLVED,
+            channel_identity=UNRESOLVED,
             scope_models={},
             timing_record=None,
         )
@@ -172,7 +172,7 @@ class TestScopeCapabilitiesIntegration:
             motion=self._stub_motion(),
             led=self._stub_led(),
             camera=self._stub_camera(is_color_native=True),
-            layer_identity=UNRESOLVED,
+            channel_identity=UNRESOLVED,
             scope_models={},
             timing_record=None,
         )
@@ -186,7 +186,7 @@ class TestScopeCapabilitiesIntegration:
             motion=self._stub_motion(),
             led=self._stub_led(),
             camera=None,
-            layer_identity=UNRESOLVED,
+            channel_identity=UNRESOLVED,
             scope_models={},
             timing_record=None,
         )

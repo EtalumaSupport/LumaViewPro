@@ -19,8 +19,8 @@ from lvp_logger import logger as _mock_logger
 import modules.common_utils as common_utils
 from modules.layer_record import (
     UNRESOLVED,
-    LayerIdentity,
-    LayerRecord,
+    ChannelIdentity,
+    ChannelRecord,
     GREY,
     format_display_color,
     load_layer_catalogue,
@@ -134,7 +134,7 @@ class TestCatalogue:
     def test_ids_are_catalogue_positions(self, tmp_path):
         path = write_scopes(tmp_path, {'LS850T': {'Layers': LS850T_ROWS, 'Filterset': 'Stock'}})
         identity = resolve(path, motor_model='LS850T')
-        assert [(r.key_name, r.id) for r in identity.layers] == [
+        assert [(r.key_name, r.id) for r in identity.channels] == [
             ('BF', 0),
             ('PC', 1),
             ('DF', 2),
@@ -147,7 +147,7 @@ class TestCatalogue:
     def test_layers_sort_by_id_whatever_the_row_order(self, tmp_path):
         path = write_scopes(tmp_path, {'M': {'Layers': list(reversed(LS850T_ROWS))}})
         identity = resolve(path, motor_model='M')
-        assert [r.id for r in identity.layers] == sorted(r.id for r in identity.layers)
+        assert [r.id for r in identity.channels] == sorted(r.id for r in identity.channels)
 
     def test_missing_layer_order_refuses_naming_the_file(self, tmp_path):
         path = tmp_path / 'scopes_fixture.json'
@@ -271,7 +271,7 @@ class TestPrecedence:
         identity = resolve(path, board_block=block, motor_model='LS850T')
         assert identity.source == 'motorconfig'
         assert identity.filterset == 'Custom-X'
-        assert [r.key_name for r in identity.layers] == ['BF', 'Green']
+        assert [r.key_name for r in identity.channels] == ['BF', 'Green']
         assert identity.find('Red') is None
 
     def test_no_block_resolves_the_motor_model(self, tmp_path):
@@ -279,7 +279,7 @@ class TestPrecedence:
         identity = resolve(path, motor_model='LS850T')
         assert identity.source == 'scopes'
         assert identity.filterset == 'Stock'
-        assert len(identity.layers) == 7
+        assert len(identity.channels) == 7
 
     def test_motor_model_outranks_configured(self, tmp_path):
         path = write_scopes(
@@ -287,19 +287,19 @@ class TestPrecedence:
             {'LS850T': {'Layers': LS850T_ROWS}, 'LS560': {'Layers': LS560_ROWS}},
         )
         identity = resolve(path, motor_model='LS850T', configured_model='LS560')
-        assert len(identity.layers) == 7
+        assert len(identity.channels) == 7
 
     def test_configured_model_serves_hardware_that_reports_none(self, tmp_path):
         path = write_scopes(tmp_path, {'LS560': {'Layers': LS560_ROWS}})
         identity = resolve(path, configured_model='LS560')
         assert identity.source == 'scopes'
-        assert [r.key_name for r in identity.layers] == ['BF', 'Green']
+        assert [r.key_name for r in identity.channels] == ['BF', 'Green']
 
     def test_motor_model_without_entry_goes_unresolved_not_configured(self, tmp_path):
         path = write_scopes(tmp_path, {'LS560': {'Layers': LS560_ROWS}})
         identity = resolve(path, motor_model='LS9999', configured_model='LS560')
         assert identity.source == 'unresolved'
-        assert identity.layers == ()
+        assert identity.channels == ()
         assert identity.model == 'LS9999'
         assert 'LS9999' in errors_logged()
 
@@ -307,14 +307,14 @@ class TestPrecedence:
         path = write_scopes(tmp_path, {})
         identity = resolve(path)
         assert identity == UNRESOLVED
-        assert identity.layers == ()
+        assert identity.channels == ()
         assert identity.source == 'unresolved'
 
     def test_failed_board_read_is_loud_then_resolves_the_model(self, tmp_path):
         path = write_scopes(tmp_path, {'LS850T': {'Layers': LS850T_ROWS}})
         identity = resolve(path, board_config_read_ok=False, motor_model='LS850T')
         assert identity.source == 'scopes'
-        assert len(identity.layers) == 7
+        assert len(identity.channels) == 7
         assert 'could not be read' in errors_logged()
 
     def test_absent_block_with_clean_read_is_quiet(self, tmp_path):
@@ -331,14 +331,14 @@ class TestOverride:
         )
         block = {'Channels': channels(LS850T_ROWS), 'Filterset': 'Stock'}
         identity = resolve(path, board_block=block, motor_model='LS850T', override_model='LS560')
-        assert [r.key_name for r in identity.layers] == ['BF', 'Green']
+        assert [r.key_name for r in identity.channels] == ['BF', 'Green']
         assert 'override' in warnings_logged()
 
     def test_override_of_unknown_model_is_loud_and_unresolved(self, tmp_path):
         path = write_scopes(tmp_path, {'LS850T': {'Layers': LS850T_ROWS}})
         identity = resolve(path, motor_model='LS850T', override_model='LS9999')
         assert identity.source == 'unresolved'
-        assert identity.layers == ()
+        assert identity.channels == ()
         assert identity.model == 'LS9999'
         assert 'LS9999' in errors_logged()
 
@@ -433,7 +433,7 @@ class TestRowParsing:
         assert (model.led_board, model.motor_board, model.filterset) == ('FX2', None, None)
         assert (model.pixel_size_um, model.lens_focal_length_mm) == (2.2, 32.3)
         assert (model.max_frame.width, model.max_frame.height) == (1700, 1700)
-        assert [layer.key_name for layer in model.layers] == ['BF', 'Green']
+        assert [layer.key_name for layer in model.channels] == ['BF', 'Green']
 
     def test_every_row_unusable_is_a_zero_layer_identity_not_a_fallback(self, tmp_path):
         path = write_scopes(tmp_path, {'LS850T': {'Layers': LS850T_ROWS, 'Filterset': 'Stock'}})
@@ -443,7 +443,7 @@ class TestRowParsing:
         }
         identity = resolve(path, board_block=block, motor_model='LS850T')
         assert identity.source == 'motorconfig'
-        assert identity.layers == ()
+        assert identity.channels == ()
         assert identity.filterset == 'Broken'
 
     def test_ledless_layer_is_a_valid_record(self, tmp_path):
@@ -457,13 +457,13 @@ class TestRowParsing:
     def test_a_fluorescence_layer_is_labelled_by_its_excitation(self, tmp_path):
         path = write_scopes(tmp_path, {'LS620': {'Layers': LS620_ROWS}})
         identity = resolve(path, motor_model='LS620')
-        assert [r.label for r in identity.layers] == ['BF-Phase', '405 nm', '488 nm', '589 nm']
+        assert [r.label for r in identity.channels] == ['BF-Phase', '405 nm', '488 nm', '589 nm']
 
     def test_a_record_carries_its_catalogue_fields(self, tmp_path):
         path = write_scopes(tmp_path, {'LS850T': {'Layers': LS850T_ROWS}})
         identity = resolve(path, motor_model='LS850T')
         assert [
-            (r.key_name, r.modality, r.background, r.display_color) for r in identity.layers
+            (r.key_name, r.modality, r.background, r.display_color) for r in identity.channels
         ] == [
             (layer['key'], layer['modality'], layer['background'], layer['display_color'])
             for layer in CATALOGUE
@@ -491,7 +491,9 @@ class TestTheBoardsChannelBlock:
         }
         identity = resolve(path, board_block=block, motor_model='LS850T')
         assert (identity.source, identity.filterset) == ('motorconfig', 'Custom-445')
-        assert [(r.key_name, r.label, r.display_name, r.led_channel) for r in identity.layers] == [
+        assert [
+            (r.key_name, r.label, r.display_name, r.led_channel) for r in identity.channels
+        ] == [
             ('BF', 'Brightfield', 'Brightfield', (3,)),
             ('Blue', '445 nm', None, (6,)),
         ]
@@ -521,7 +523,7 @@ class TestTheBoardsChannelBlock:
             }
         }
         identity = resolve(path, board_block=block, motor_model='LS850T')
-        assert [r.key_name for r in identity.layers] == ['BF']
+        assert [r.key_name for r in identity.channels] == ['BF']
         assert [n.reason for n in REPORTED] == ['channel_rows_skipped']
         assert set(REPORTED[0].skipped) == {'Skylight', 'Green', 'Red', 'PC'}
 
@@ -535,14 +537,14 @@ class TestTheBoardsChannelBlock:
             }
         }
         identity = resolve(path, board_block=block, motor_model='LS850T')
-        assert (identity.source, identity.layers) == ('motorconfig', ())
+        assert (identity.source, identity.channels) == ('motorconfig', ())
         assert [n.reason for n in REPORTED] == ['channel_block_unusable']
         assert 'BF and Blue' in str(REPORTED[0])
 
     def test_a_block_that_is_not_a_mapping_leaves_the_unit_no_channels(self, tmp_path):
         path = write_scopes(tmp_path, {'LS850T': {'Layers': LS850T_ROWS}})
         identity = resolve(path, board_block={'Channels': LS850T_ROWS}, motor_model='LS850T')
-        assert identity.layers == ()
+        assert identity.channels == ()
         assert [n.reason for n in REPORTED] == ['channel_block_unusable']
 
     @pytest.mark.parametrize(
@@ -553,7 +555,11 @@ class TestTheBoardsChannelBlock:
     def test_a_board_without_a_channels_block_takes_its_models_and_says_so(self, tmp_path, block):
         path = write_scopes(tmp_path, {'LS850T': {'Layers': LS850T_ROWS, 'Filterset': 'Stock'}})
         identity = resolve(path, board_block=block, motor_model='LS850T')
-        assert (identity.source, identity.filterset, len(identity.layers)) == ('scopes', 'Stock', 7)
+        assert (identity.source, identity.filterset, len(identity.channels)) == (
+            'scopes',
+            'Stock',
+            7,
+        )
         assert [n.reason for n in REPORTED] == ['channel_block_superseded']
 
     def test_a_scope_whose_board_has_the_old_block_tells_its_outcome_listener(self, tmp_path):
@@ -578,7 +584,7 @@ class TestTheBoardsChannelBlock:
 
 class TestSnapshotSemantics:
     def test_records_are_immutable(self):
-        record = LayerRecord(
+        record = ChannelRecord(
             id=0,
             key_name='BF',
             display_name='BF',
@@ -591,7 +597,7 @@ class TestSnapshotSemantics:
         )
         with pytest.raises(AttributeError):
             record.display_name = 'PC-BF'
-        identity = LayerIdentity(layers=(record,), filterset='', source='scopes', model=None)
+        identity = ChannelIdentity(channels=(record,), filterset='', source='scopes', model=None)
         with pytest.raises(AttributeError):
             identity.filterset = 'X'
 

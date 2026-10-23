@@ -47,7 +47,7 @@ class ScopeInitConfig:
         cls,
         settings: dict,
         scope_config: dict | None = None,
-        layer_identity: object | None = None,
+        channel_identity: object | None = None,
         *,
         turreted: bool,
     ) -> 'ScopeInitConfig':
@@ -63,7 +63,7 @@ class ScopeInitConfig:
         None for a model the catalogue does not list. Drives
         expects_motion for the partial-hardware notification filter.
 
-        layer_identity: the scope's resolved layer identity snapshot.
+        channel_identity: the scope's resolved layer identity snapshot.
         When provided, drives expects_led: identity carrying at least one
         LED-driving layer means an LED board is expected, so its absence
         deserves the notification. Identity outranks the scopes.json
@@ -77,10 +77,10 @@ class ScopeInitConfig:
         acceleration_pct = settings['motion']['acceleration_max_pct']
         binning_size = binning.binning_size_str_to_int(text=settings['binning']['size'])
         expects_motion = layer_record.entry_expects_motion(scope_config)
-        if layer_identity is None:
+        if channel_identity is None:
             expects_led = True
         else:
-            expects_led = any(layer.led_channel for layer in layer_identity.layers)
+            expects_led = any(layer.led_channel for layer in channel_identity.channels)
         return cls(
             turreted=turreted,
             binning_size=binning_size,

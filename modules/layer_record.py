@@ -135,7 +135,7 @@ class CatalogueLayer:
     'modality',
 )
 @dataclass(frozen=True)
-class LayerRecord:
+class ChannelRecord:
     """Identity of one layer on one unit.
 
     `id` is the internal key and the display position -- assigned from
@@ -182,9 +182,9 @@ class LayerRecord:
     label: str
 
 
-@api_fields('filterset', 'layers', 'model', 'source')
+@api_fields('channels', 'filterset', 'model', 'source')
 @dataclass(frozen=True)
-class LayerIdentity:
+class ChannelIdentity:
     """The resolved per-unit identity snapshot.
 
     `source` records which rung answered: 'motorconfig' (the unit's own
@@ -197,18 +197,18 @@ class LayerIdentity:
     answered: the override, else the model the board reports, else the
     operator's selection -- the only identity an FX2 scope has, since it
     cannot report its own. A model the catalogue lacks is still carried,
-    with no layers; `None` means there was no model at all. Every reader
-    of "which model is this scope" takes it from here, so the layers, the
+    with no channels; `None` means there was no model at all. Every reader
+    of "which model is this scope" takes it from here, so the channels, the
     capabilities and the saved files name one model.
     """
 
-    layers: tuple[LayerRecord, ...]
+    channels: tuple[ChannelRecord, ...]
     filterset: str
     source: str
     model: str | None
 
     @api(in_process=True, reads=True)
-    def find(self, key_name: str) -> LayerRecord | None:
+    def find(self, key_name: str) -> ChannelRecord | None:
         """Return the layer whose stable key name matches, else None.
 
         The deserialisation boundary: a name arriving from disk or from
@@ -217,7 +217,7 @@ class LayerIdentity:
         Raises:
             Nothing.
         """
-        for layer in self.layers:
+        for layer in self.channels:
             if layer.key_name == key_name:
                 return layer
         return None
@@ -241,7 +241,7 @@ class LayerIdentity:
         refuse_unknown_layer(channel)
         if self.find(channel) is not None:
             return
-        if self.layers:
+        if self.channels:
             part = MissingPart.layer(channel)
             raise HardwareCommandRefusedError(part.reason, member, missing=part)
         raise ConfigurationDefectError(
@@ -251,7 +251,7 @@ class LayerIdentity:
         )
 
 
-UNRESOLVED = LayerIdentity(layers=(), filterset='', source='unresolved', model=None)
+UNRESOLVED = ChannelIdentity(channels=(), filterset='', source='unresolved', model=None)
 
 # The release catalogue is loaded once per process: it ships with the
 # release (the file is version-paired), so nothing invalidates it at
@@ -391,7 +391,7 @@ _ROW_FIELDS = frozenset(_REQUIRED_ROW_FIELDS) | {'display_color'}
     'has_turret',
     'led_board',
     'motor_board',
-    'layers',
+    'channels',
     'filterset',
     'pixel_size_um',
     'lens_focal_length_mm',
@@ -403,8 +403,8 @@ class ScopeModel:
 
     ``id`` is the model's name, the key the operator selects and a board
     reports. ``has_focus``, ``has_xy_stage`` and ``has_turret`` are the motor
-    axes the model is built with: Z, X and Y, T. ``layers`` are the model's
-    layer rows, resolved against the release's layer vocabulary: what a unit
+    axes the model is built with: Z, X and Y, T. ``channels`` are the model's
+    channel rows, resolved against the release's layer vocabulary: what a unit
     of the model has when its board carries no Channels block of its own.
     ``led_board`` and ``motor_board`` name the model's boards, ``motor_board``
     None for a model with no motor axes; production finds the boards it has
@@ -422,7 +422,7 @@ class ScopeModel:
     has_turret: bool
     led_board: str
     motor_board: str | None
-    layers: tuple[LayerRecord, ...]
+    channels: tuple[ChannelRecord, ...]
     filterset: str | None
     pixel_size_um: float | None
     lens_focal_length_mm: float | None
@@ -542,7 +542,7 @@ def _scope_model(
         **flags,
         led_board=text['LEDBoard'],
         motor_board=text['MotorBoard'],
-        layers=_model_layers(entry.get('Layers'), catalogue, refuse),
+        channels=_model_layers(entry.get('Layers'), catalogue, refuse),
         filterset=text['Filterset'],
         **{
             field: float(optics[key]) if key in optics else None
@@ -663,7 +663,9 @@ def _is_number(value: object) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
-def _record(key_name: str, row: dict, release: CatalogueLayer, position: int) -> LayerRecord | str:
+def _record(
+    key_name: str, row: dict, release: CatalogueLayer, position: int
+) -> ChannelRecord | str:
     """The record ``row`` describes for ``key_name``, or why it describes none.
 
     One reading of a row for both sources, the model's rows and a board's
@@ -713,7 +715,7 @@ def _record(key_name: str, row: dict, release: CatalogueLayer, position: int) ->
             parse_display_color(color)
         except ValueError as e:
             return f'has display_color {e}'
-    return LayerRecord(
+    return ChannelRecord(
         id=position,
         key_name=key_name,
         display_name=display,
@@ -726,7 +728,7 @@ def _record(key_name: str, row: dict, release: CatalogueLayer, position: int) ->
     )
 
 
-def _shared_address(records: list[LayerRecord]) -> str | None:
+def _shared_address(records: list[ChannelRecord]) -> str | None:
     """Why ``records`` cannot all be one unit's: two of them on one LED address."""
     holders: dict[int, str] = {}
     for record in records:
@@ -741,7 +743,7 @@ def _model_layers(
     rows: object,
     catalogue: tuple[CatalogueLayer, ...],
     refuse: Callable[[str], InstallationFileError],
-) -> tuple[LayerRecord, ...]:
+) -> tuple[ChannelRecord, ...]:
     """A model's layer rows as records, in id order, or ``refuse``'s refusal.
 
     Every row is whole or the model is refused, as its entry is: a row
@@ -779,7 +781,7 @@ def _model_layers(
 
 def _parse_channel_block(
     channels: object, catalogue: tuple[CatalogueLayer, ...], report: Callable[[Notice], None]
-) -> tuple[LayerRecord, ...]:
+) -> tuple[ChannelRecord, ...]:
     """Parse a board's Channels block: a mapping from catalogue key to its row.
 
     A row this release cannot read costs that row, and every such row is
@@ -825,7 +827,7 @@ def resolve_layer_identity(
     catalogue: tuple[CatalogueLayer, ...],
     report: Callable[[Notice], None],
     override_model: str | None = None,
-) -> LayerIdentity:
+) -> ChannelIdentity:
     """Resolve the unit's layer identity from the first authoritative source.
 
     Precedence: an explicit `override_model` (a lab/engineering request
@@ -837,7 +839,7 @@ def resolve_layer_identity(
     `scopes.json` rows, with the motor-reported model outranking the
     configured one because hardware truth beats a user selection; else
     the empty `unresolved` snapshot. Whichever rung answers, the snapshot
-    carries the model the resolver settled on (`LayerIdentity.model`).
+    carries the model the resolver settled on (`ChannelIdentity.model`).
 
     A block that is absent because the board's config could not be READ
     is not the same as a unit with no block: the failed read is logged
@@ -855,12 +857,12 @@ def resolve_layer_identity(
     list in the process uses.
     """
 
-    def _from_model(model: str) -> LayerIdentity:
+    def _from_model(model: str) -> ChannelIdentity:
         entry = models.get(model)
         if entry is None:
-            return LayerIdentity(layers=(), filterset='', source='unresolved', model=model)
-        return LayerIdentity(
-            layers=entry.layers, filterset=entry.filterset or '', source='scopes', model=model
+            return ChannelIdentity(channels=(), filterset='', source='unresolved', model=model)
+        return ChannelIdentity(
+            channels=entry.channels, filterset=entry.filterset or '', source='scopes', model=model
         )
 
     if override_model is not None:
@@ -888,7 +890,9 @@ def resolve_layer_identity(
         filterset = board.get('Filterset', '')
         if not isinstance(filterset, str):
             filterset = ''
-        return LayerIdentity(layers=layers, filterset=filterset, source='motorconfig', model=model)
+        return ChannelIdentity(
+            channels=layers, filterset=filterset, source='motorconfig', model=model
+        )
     if 'Layers' in board or 'Filterset' in board:
         report(ChannelBlockSupersededNotice(model))
 

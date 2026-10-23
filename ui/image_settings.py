@@ -141,7 +141,7 @@ class ImageSettings(BoxLayout):
         the unit's row drives an LED. A layer the unit lacks stops being
         acquired.
         """
-        records = {record.key_name: record for record in identity.layers}
+        records = {record.key_name: record for record in identity.channels}
         colors = _app_ctx.ctx.session.channel_colors()
         for layer, drawer in self._drawers.items():
             record = records.get(layer)

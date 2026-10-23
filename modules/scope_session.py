@@ -2048,7 +2048,7 @@ class ScopeSession:
         from modules.layer_record import parse_display_color, release_colors
 
         colors = release_colors()
-        for record in self.scope.layer_identity.layers:
+        for record in self.scope.channel_identity.channels:
             colors[record.key_name] = parse_display_color(record.display_color)
         with self.settings_lock:
             overrides = {key: self.settings[key]['display_color'] for key in colors}
@@ -2151,7 +2151,7 @@ class ScopeSession:
 
     def _layers_on_scope(self) -> set[str]:
         """The layers this scope has, by key name: none when unresolved."""
-        return {record.key_name for record in self.scope.layer_identity.layers}
+        return {record.key_name for record in self.scope.channel_identity.channels}
 
     def _stop_acquiring_absent_layers(self) -> None:
         """Turn acquiring off on every layer this scope does not have.
@@ -2170,7 +2170,7 @@ class ScopeSession:
                 logger.warning(
                     f'[Session   ] {name} was set to acquire '
                     f'{self.settings[name]["acquire"]!r}, but this scope '
-                    f'({self.scope.layer_identity.model}) has no {name} layer; '
+                    f'({self.scope.channel_identity.model}) has no {name} layer; '
                     'it is set to acquire nothing.'
                 )
                 self._store_setting(f'{name}.acquire', None)
@@ -2216,7 +2216,7 @@ class ScopeSession:
                 if name not in present:
                     logger.warning(
                         f'[Session   ] Protocol carries settings for {name}, which this '
-                        f'scope ({self.scope.layer_identity.model}) does not have; '
+                        f'scope ({self.scope.channel_identity.model}) does not have; '
                         'that layer is dropped on load.'
                     )
                     continue
@@ -2294,7 +2294,7 @@ class ScopeSession:
         refuse_unknown_layer(channel)
         settings_paths.refuse_outside_range(f'{channel}.acquire', mode)
         if mode is not None:
-            self.scope.layer_identity.refuse_unless_on_scope(
+            self.scope.channel_identity.refuse_unless_on_scope(
                 channel, 'set_channel_acquire', then='be set to acquire'
             )
         with self.settings_lock:
@@ -2357,7 +2357,7 @@ class ScopeSession:
         lock = None
         holds = self.scope.camera.get_held_layer() == channel
         if enabled:
-            self.scope.layer_identity.refuse_unless_on_scope(
+            self.scope.channel_identity.refuse_unless_on_scope(
                 channel, 'set_channel_auto_gain', then='run auto-gain'
             )
         elif holds:
@@ -2443,7 +2443,7 @@ class ScopeSession:
             CameraSettingRejected: the camera refused a setting; the others
                 were applied.
         """
-        self.scope.layer_identity.refuse_unless_on_scope(
+        self.scope.channel_identity.refuse_unless_on_scope(
             layer, 'apply_layer_camera', then='be applied to the camera'
         )
         return self.scope.camera.hold_layer(layer, self._layer_camera_request(layer))
@@ -2611,7 +2611,7 @@ class ScopeSession:
         else:
             channels = tuple(channels)
             for channel in channels:
-                self.scope.layer_identity.refuse_unless_on_scope(
+                self.scope.channel_identity.refuse_unless_on_scope(
                     channel, 'add_step', then='take a step'
                 )
             layer_configs = self.get_layer_configs(list(channels))
@@ -2660,7 +2660,9 @@ class ScopeSession:
             HardwareCommandRefusedError: ``'axis_absent'``, this scope has
                 no ``channel``. Nothing is changed on either.
         """
-        self.scope.layer_identity.refuse_unless_on_scope(channel, 'update_step', then='take a step')
+        self.scope.channel_identity.refuse_unless_on_scope(
+            channel, 'update_step', then='take a step'
+        )
         # None when unknown: the protocols API refuses that by name, notified.
         objective_id = self.scope.runtime_state.get_current_objective_id()
         return self.scope.protocols.update_step(
@@ -2699,7 +2701,9 @@ class ScopeSession:
                 no ``channel``.
             ConfigError: this scope's layers could not be resolved. Nothing is written.
         """
-        self.scope.layer_identity.refuse_unless_on_scope(channel, 'save_focus', then='take a focus')
+        self.scope.channel_identity.refuse_unless_on_scope(
+            channel, 'save_focus', then='take a focus'
+        )
         step = None if step_index is None else protocol.step_row(step_index=step_index)
         z = self.scope.protocols.focus_z(then='save the focus')
         self._store_layer_focus(channel, z)
@@ -2733,7 +2737,7 @@ class ScopeSession:
             PositionOutOfRangeError: ``z_um`` is NaN or infinite, or lies
                 outside Z's travel. Nothing is written.
         """
-        self.scope.layer_identity.refuse_unless_on_scope(
+        self.scope.channel_identity.refuse_unless_on_scope(
             channel, 'save_channel_focus', then='take a focus'
         )
         z = self._store_layer_focus(channel, z_um)
@@ -2909,7 +2913,7 @@ class ScopeSession:
                 no ``channel``.
             ConfigError: this scope's layers could not be resolved. Nothing is written.
         """
-        self.scope.layer_identity.refuse_unless_on_scope(
+        self.scope.channel_identity.refuse_unless_on_scope(
             channel, 'apply_focus_to_channel_steps', then='take a focus'
         )
         z = self.scope.protocols.focus_z(then='apply the focus')
@@ -3199,7 +3203,7 @@ class ScopeSession:
         # conversion asks first whether the scope can put the step's
         # objective in the light path.
         targets = self.scope.protocols.step_targets(protocol, step_index)
-        self.scope.layer_identity.refuse_unless_on_scope(
+        self.scope.channel_identity.refuse_unless_on_scope(
             step['Color'], 'go_to_step', then='be gone to'
         )
         stim_configs = step.get('Stim_Config')
@@ -3423,7 +3427,7 @@ class ScopeSession:
             CameraSettingRejected: the camera refused a setting of the
                 layer; its LEDs are already shown.
         """
-        self.scope.layer_identity.refuse_unless_on_scope(channel, 'show_channel', then='be shown')
+        self.scope.channel_identity.refuse_unless_on_scope(channel, 'show_channel', then='be shown')
         with self._a_layer_change(channel, 'show_channel'):
             lit = self._shown_channel.lit
             self._show_leds(channel, lit)
@@ -3491,7 +3495,7 @@ class ScopeSession:
                 layer; its LED is already lit or dark.
         """
         layer = self._shown_channel.channel
-        self.scope.layer_identity.refuse_unless_on_scope(
+        self.scope.channel_identity.refuse_unless_on_scope(
             layer, 'light_shown_channel', then='be lit'
         )
         self._show_leds(layer, lit)
@@ -4108,7 +4112,7 @@ class ScopeSession:
             self._store_setting('microscope', model)
         logger.info(f'[Session  ] scope model {model!r} saved; it applies at the next start')
         # Reported once the lock is released: listeners run on this thread.
-        if model != self.scope.layer_identity.model:
+        if model != self.scope.channel_identity.model:
             from modules.notification_center import notifications
 
             notifications.report_outcome(
@@ -4141,7 +4145,7 @@ class ScopeSession:
             Nothing.
         """
         saved = self.settings['microscope']
-        return None if saved == self.scope.layer_identity.model else saved
+        return None if saved == self.scope.channel_identity.model else saved
 
     def _put_a_stageless_scope_on_center_plate(self) -> None:
         """Replace a stored plate a scope with no XY stage cannot be on with Center Plate.
@@ -4312,7 +4316,7 @@ class ScopeSession:
         config = ScopeInitConfig.from_settings(
             self.settings,
             scope_config=scope_config,
-            layer_identity=self.scope.layer_identity,
+            channel_identity=self.scope.channel_identity,
             turreted=self.scope_has_turret(),
         )
         self.scope.initialize(config)
@@ -4348,7 +4352,7 @@ class ScopeSession:
         camera = self.scope.camera
         capped: list[tuple[str, str, float, float]] = []
         with self.settings_lock:
-            for record in self.scope.layer_identity.layers:
+            for record in self.scope.channel_identity.channels:
                 layer = record.key_name
                 gain = camera.applied_gain_db_for(self.settings[layer]['gain_db'])
                 if gain.capped:
@@ -4735,7 +4739,7 @@ class ScopeSession:
         import modules.config_helpers as config_helpers
 
         return config_helpers.model_has_turret(
-            self.scope.scope_models, self.scope.layer_identity.model
+            self.scope.scope_models, self.scope.channel_identity.model
         )
 
     @api(reads=True)

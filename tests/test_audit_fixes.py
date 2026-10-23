@@ -7894,7 +7894,7 @@ class TestAxisTravelLimitsOnCapabilities:
             motion=NullMotionBoard(),
             led=NullLEDBoard(),
             camera=None,
-            layer_identity=UNRESOLVED,
+            channel_identity=UNRESOLVED,
             scope_models={},
             timing_record=None,
         )
@@ -7960,7 +7960,7 @@ class TestOpticsOnCapabilities:
             motion=NullMotionBoard(),
             led=NullLEDBoard(),
             camera=None,
-            layer_identity=UNRESOLVED,
+            channel_identity=UNRESOLVED,
             scope_models={},
             timing_record=None,
         )

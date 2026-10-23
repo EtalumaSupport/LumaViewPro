@@ -68,7 +68,7 @@ def body(s):
 
     # 5. "Set ALL bookmarks" also stamps every layer's focus
     z = s.save_all_bookmarks()
-    on_scope = [record.key_name for record in s.scope.layer_identity.layers]
+    on_scope = [record.key_name for record in s.scope.channel_identity.channels]
     after = s.get_settings_snapshot()
     check(
         'a script can stamp every layer focus (the Set-All half)',

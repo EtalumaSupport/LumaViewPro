@@ -980,7 +980,7 @@ class ProtocolsAPI:
         """
         from modules.protocol import layer_settings_values_refused, refuse_values_out_of_range
 
-        present = {record.key_name for record in self._scope.layer_identity.layers}
+        present = {record.key_name for record in self._scope.channel_identity.channels}
         rows = {name: row for name, row in protocol.layer_settings().items() if name in present}
         refuse_values_out_of_range(
             layer_settings_values_refused(rows), "The protocol's Layer Settings"
@@ -1003,8 +1003,8 @@ class ProtocolsAPI:
             ProtocolRunRefusedError: reason ``layer_not_on_scope``, naming
                 the layers and the steps. Logged and notified once.
         """
-        identity = self._scope.layer_identity
-        present = {record.key_name for record in identity.layers}
+        identity = self._scope.channel_identity
+        present = {record.key_name for record in identity.channels}
         steps = protocol.steps()
         absent = steps.loc[~steps['Color'].isin(present)]
         if absent.empty:
@@ -1012,7 +1012,7 @@ class ProtocolsAPI:
         missing = sorted(set(absent['Color']))
         layers = ', '.join(missing) + (' layers' if len(missing) > 1 else ' layer')
         names = common_utils.first_few(list(absent['Name']), separator=', ')
-        if identity.layers:
+        if identity.channels:
             scope = f'This scope ({identity.model}) has no {layers}'
         else:
             scope = f"This scope's layers could not be resolved (model {identity.model})"

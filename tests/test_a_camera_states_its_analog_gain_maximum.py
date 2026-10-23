@@ -38,7 +38,7 @@ def _capabilities(profile):
         motion=MagicMock(motorconfig=None),
         led=MagicMock(),
         camera=camera,
-        layer_identity=UNRESOLVED,
+        channel_identity=UNRESOLVED,
         scope_models={},
         timing_record=None,
     )
@@ -75,7 +75,7 @@ def test_no_camera_states_none():
         motion=MagicMock(motorconfig=None),
         led=MagicMock(),
         camera=None,
-        layer_identity=UNRESOLVED,
+        channel_identity=UNRESOLVED,
         scope_models={},
         timing_record=None,
     )

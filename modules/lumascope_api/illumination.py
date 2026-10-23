@@ -545,7 +545,7 @@ class IlluminationAPI:
             HardwareCommandRefusedError: ``'not_connected'`` or
                 ``'axis_absent'``, naming the missing part.
         """
-        identity = self._scope.layer_identity
+        identity = self._scope.channel_identity
         if isinstance(channel, str):
             self.refuse_controller_not_connected(member)
             mapped = self.color2ch(color=channel)
@@ -1143,7 +1143,7 @@ class IlluminationAPI:
     # --- State ---
     def _identity_name(self, address: int) -> str | None:
         """The layer the unit's identity names for *address*, else None."""
-        for record in self._scope.layer_identity.layers:
+        for record in self._scope.channel_identity.channels:
             if address in record.led_channel:
                 return record.key_name
         return None
@@ -1626,7 +1626,7 @@ class IlluminationAPI:
         """The stable layer name whose record drives *channel*, else None.
 
         Answers from the unit's resolved layer identity -- the same
-        records `scope.layer_identity` exposes.
+        records `scope.channel_identity` exposes.
 
         Raises:
             ArgumentRefusedError: ``'led_channel_unknown'``, *channel* is
@@ -1648,7 +1648,7 @@ class IlluminationAPI:
             ArgumentRefusedError: ``'channel_unknown'``, *color* is not a layer.
         """
         refuse_unknown_layer(color, argument='color')
-        record = self._scope.layer_identity.find(color)
+        record = self._scope.channel_identity.find(color)
         if record is None or not record.led_channel:
             return None
         return record.led_channel[0]
