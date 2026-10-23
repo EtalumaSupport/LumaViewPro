@@ -966,7 +966,7 @@ Unlike `start_autofocus`, the slices are the product: the run saves its images (
 | `scan_ended` | `(scan_index, scans_remaining, period_s)` | as each scan ends, a stopped one included: how many remain after it |
 | `step_started` | `(step_index)` | as each step begins, step 0 included, with the index read at the step |
 | `frame_captured` | `(image, frames_summed, frame_significant_bits)` | for each captured frame whose write was handed to the run's writer, once it was: the frame as the file gets it (a sum when summing), read-only. A frame whose write is refused is not announced |
-| `video_progress` | `(progress)`, a `VideoProgress` | as a video step records (`phase='recording'`, `elapsed_s` of `total_s`) and writes (`'writing'`, `percent`), then `'ended'` once after either; a step that ends before it records sends none |
+| `video_progress` | `(progress)`, a `VideoProgress` | as a video step records (`phase='recording'`, `elapsed_s` of `total_s`) and writes (`'writing'`, `progress_pct`), then `'ended'` once after either; a step that ends before it records sends none |
 | `run_ended` | `(outcome, run_dir, protocol)` | once the run has let go of the scope and its outcome has settled; `run_dir` is None for a run that saved nothing |
 | `files_written` | `(run_dir, files)` | once the run's last image write has landed |
 
@@ -1152,7 +1152,7 @@ pp.stitch(folder, mode='quality')            # one of pp.stitch_modes(); one mos
 pp.zproject(folder, method='Max')            # one of pp.projection_methods()
 pp.composite(folder)                         # output format and per-channel blend thresholds
                                              # are the user's configuration, as a run's merge uses
-pp.video(folder, frames_per_sec=None,        # None: a recording plays at its own measured rate
+pp.video(folder, frame_rate_fps=None,        # None: a recording plays at its own measured rate
          timestamp_overlay=False)
 pp.enhance(target)                           # Quick Enhance: one image, or every image in a folder;
                                              # derived files are written beside their sources;
@@ -1174,7 +1174,7 @@ Each member blocks until its build finishes and returns a published record whose
 
 A derived file's name says how it was made, oldest build first: a stitch of Max projections is `..._zproj_max_stitched.tiff`, a Max projection of Fast Preview mosaics `..._stitched_FastPreview_zproj_max.tiff`. A composite's name, and a video's, ends in a short code of the settings that decided its pixels (a composite's format and each channel's colour and blend threshold; a video's frame rate, timestamp overlay and colour), so a rebuild with new settings makes a new file beside the old one, and a rebuild with the same settings makes nothing new, unless the file was deleted since: an output the record names and the folder lacks is built again. A folder holding two derivations of the same images (Max and Sum projections of one stack, Quality and Fast Preview mosaics of one scan) builds from each on its own: a stitch makes a mosaic of each projection, never one of both. A group that still holds two images for one place -- one tile position in a stitch, one slice in a projection, one scan in a timelapse video, one plane in a composite or a hyperstack -- is not built: the build fails that group, its message naming the files and why (two acquisitions, where steps Added together make one output, or two derivations an earlier release made without recording how, to be built again with this release), and builds the rest. The folder's `protocol_post_record.tsv` (version 4) keeps each derived file's `Derivation`: its builds in order with every setting, `ZProject(method=max)>Stitched(mode=quality)`. A record an earlier release wrote is read with each setting unknown (`ZProject(?)`), and an output built from one carries the bare token (`..._zproj_stitched.tiff`); a release from before version 4 sets a version-4 record aside as unreadable.
 
-`build` runs the builds whose settings records it is given -- `ZProject(method)`, `Stitch(mode)`, `Video(frames_per_sec, timestamp_overlay)`, each defaulting as its own member does, and `composite=True`, a composite having no settings of its own; one left None is not run -- in the one order that keeps the data honest: z-project, stitch, composite, video. A projection is made of raw slices, never of mosaics, and a stitched composite from the stitched channels, never by stitching composites. Each build takes only what the build before it in the call carried forward -- what that build made, and the images it did not consume, such as an ordinary Add step's images beside a tiled stack -- so the call makes the chain's product and its inputs, not every combination the folder allows: z-project, stitch and composite of a 2x2 tiled, 3-slice, 2-channel scan make 8 projections, 2 stitched projections and 1 composite, where the three members run one by one make 36 files. An image already in the folder from an earlier build is not the chain's input. Every chosen build's settings are checked before any build starts (`invalid_setting`, the build's `operation` named; a call that chooses no build is refused with `operation` `Post-Processing`), and the call runs as one task on the post-processing lane, so no other build touches the folder between its steps; `work()` names the build it is on ("Building 2 of 3: Stitch"). It returns a `BuildsResult`: `built`, a `BuildStep(operation, result)` for each build run in order, its `result` the `BuildResult` that build's own member returns; `skipped`, a `SkippedBuild(operation, message)` for each build that had nothing to do in the folder (a video on a single-scan run, the build's own `no_data`), the next build taking what the skipped one was given; and `message`. Any other refusal or failure stops the call and is raised as that build's own outcome, unchanged, its `operation` naming it; the files the earlier builds made are in the folder and its record, and the same call made again rebuilds nothing already made and resumes at the build that stopped once its cause is gone. One that does not go -- a raw slice missing, which fails its projection every time -- stops the call there on every run: build that folder with the members one by one. A folder of a manual recording takes `video` alone.
+`build` runs the builds whose settings records it is given -- `ZProject(method)`, `Stitch(mode)`, `Video(frame_rate_fps, timestamp_overlay)`, each defaulting as its own member does, and `composite=True`, a composite having no settings of its own; one left None is not run -- in the one order that keeps the data honest: z-project, stitch, composite, video. A projection is made of raw slices, never of mosaics, and a stitched composite from the stitched channels, never by stitching composites. Each build takes only what the build before it in the call carried forward -- what that build made, and the images it did not consume, such as an ordinary Add step's images beside a tiled stack -- so the call makes the chain's product and its inputs, not every combination the folder allows: z-project, stitch and composite of a 2x2 tiled, 3-slice, 2-channel scan make 8 projections, 2 stitched projections and 1 composite, where the three members run one by one make 36 files. An image already in the folder from an earlier build is not the chain's input. Every chosen build's settings are checked before any build starts (`invalid_setting`, the build's `operation` named; a call that chooses no build is refused with `operation` `Post-Processing`), and the call runs as one task on the post-processing lane, so no other build touches the folder between its steps; `work()` names the build it is on ("Building 2 of 3: Stitch"). It returns a `BuildsResult`: `built`, a `BuildStep(operation, result)` for each build run in order, its `result` the `BuildResult` that build's own member returns; `skipped`, a `SkippedBuild(operation, message)` for each build that had nothing to do in the folder (a video on a single-scan run, the build's own `no_data`), the next build taking what the skipped one was given; and `message`. Any other refusal or failure stops the call and is raised as that build's own outcome, unchanged, its `operation` naming it; the files the earlier builds made are in the folder and its record, and the same call made again rebuilds nothing already made and resumes at the build that stopped once its cause is gone. One that does not go -- a raw slice missing, which fails its projection every time -- stops the call there on every run: build that folder with the members one by one. A folder of a manual recording takes `video` alone.
 
 A cell-count method is a `CellCountMethod` record (`modules.cell_count_method`). `CellCountMethod()` is the method LumaViewPro's panel starts from, which `pp.default_cell_count_method()` also answers (over REST `GET /api/v1/post_processing/default_cell_count_method`); build the one you need, or change one with `dataclasses.replace`:
 
@@ -1254,12 +1254,12 @@ session.protocol_files_stuck_write  # the write in flight, named for a stall rep
 session.manual_recording.is_recording  # a manual recording is LIVE (not its file drain)
 session.live_work                # in-process; over the wire status.live_work. Everything the session is
                                  # still doing, one read: .work is a tuple of
-                                 # WorkItem(kind, name, left, percent, discardable) -- what holds the scope, a run starting
+                                 # WorkItem(kind, name, left, progress_pct, discardable) -- what holds the scope, a run starting
                                  # or ending, a recording's file, a run's video, a run's images, its post-run
                                  # builds, post-processing builds running and queued, a support report or logs
                                  # zip, a still being saved; left counts frames, images or builds still to
                                  # finish (poll it: the count changes between edges, the listener fires
-                                 # only on them), percent is a build's last progress, discardable marks the video
+                                 # only on them), progress_pct is a build's last progress, discardable marks the video
                                  # frames discard_close_drain drops; .closing while the close runs,
                                  # .closed once the session shut down
 session.status                   # what the scope is doing, one read, the first a client makes: Status(live_work,
@@ -2192,7 +2192,7 @@ scope.camera.read_auto_exposure()                 #   camera without the loop; r
 # not the transport's protocol overhead, so a packed pixel format reads
 # smaller than its frames take in memory.
 rate = scope.imaging.get_delivered_rate()          # DeliveredRate
-rate.frames_per_s                                  # frames per second
+rate.frame_rate_fps                                  # frames per second
 rate.bytes_per_s                                   # link payload bytes per second
                                                    #   both 0 when nothing was delivered in the
                                                    #   last window (no camera, not streaming)
@@ -2713,7 +2713,7 @@ Every call runs on its own thread, and its route waits for it as long as the cli
  "requested": "2026-10-09T11:47:56.043-07:00", "ended": null, "progress": null}
 ```
 
-`status` goes `running` -> `completed` | `failed`; `progress` is `{"percent", "detail"}` from a member that reports how far it has got, and a run's job's is the run's `RunProgress` (`is_live`, `is_stopping`, `step_index`, `run_dir`, ...). `GET /api/v1/jobs/<id>`, itself waiting by `Prefer: wait`, reads it; once it has ended it carries `result` (what a `200` would have carried) or `error` (the problem). Reading a failed job is `200`. A result the wire cannot carry -- a NaN or an infinity, which JSON has no form for -- is a `500` fault problem naming the value, answered where the call ends, so a job holding it reads as `failed`. A member that hands back an operation (an `Operation`: a run, a move, a home, a still) is answered once it has returned -- once the operation is dispatched -- whatever the client's `Prefer: wait`: `202 Accepted` with the operation's own job, its `Location` and `Retry-After`, and no other job made for the call. To wait for its end, read the job with `Prefer: wait`, or call the waiting form in Python. `GET /api/v1/jobs` lists the jobs held, newest first. `DELETE /api/v1/jobs/<id>` on a finished job forgets it (`204`); on a running operation's job it is the operation's `stop()`, answered `202` with the job, which ends as the stop leaves it -- a stopped run `completed` with its outcome `aborted` / `stopped`, a stopped move or home `failed` with its stop notice -- and is kept until a client forgets it. As in Python, a stop once the operation's work has ended does nothing, and so does one asked of a still, which has no stop: `202`, and the still ends as it would have. A stop the scope refuses is the answer, as the stop's own refusal (a home on a board that cannot stop one: `409`, `home_not_stoppable`). A call held as a job because it outlived its wait holds no operation, and `DELETE` on it while it runs is `409`, `not_cancellable`; its activity's own stop member reaches it. A parameter that takes an operation is sent its job's id, as a handle's is sent its id (`GET /api/v1/held_by_other?run=1`); a job not held is `404`, and one that is no operation, a call held as a job, is `422`, `invalid_request`. Past 256 calls running, a call is refused before it runs (`503`, `overloaded`). A job's id is likewise a string of decimal digits, counted from `1` when the server starts.
+`status` goes `running` -> `completed` | `failed`; `progress` is `{"progress_pct", "detail"}` from a member that reports how far it has got, and a run's job's is the run's `RunProgress` (`is_live`, `is_stopping`, `step_index`, `run_dir`, ...). `GET /api/v1/jobs/<id>`, itself waiting by `Prefer: wait`, reads it; once it has ended it carries `result` (what a `200` would have carried) or `error` (the problem). Reading a failed job is `200`. A result the wire cannot carry -- a NaN or an infinity, which JSON has no form for -- is a `500` fault problem naming the value, answered where the call ends, so a job holding it reads as `failed`. A member that hands back an operation (an `Operation`: a run, a move, a home, a still) is answered once it has returned -- once the operation is dispatched -- whatever the client's `Prefer: wait`: `202 Accepted` with the operation's own job, its `Location` and `Retry-After`, and no other job made for the call. To wait for its end, read the job with `Prefer: wait`, or call the waiting form in Python. `GET /api/v1/jobs` lists the jobs held, newest first. `DELETE /api/v1/jobs/<id>` on a finished job forgets it (`204`); on a running operation's job it is the operation's `stop()`, answered `202` with the job, which ends as the stop leaves it -- a stopped run `completed` with its outcome `aborted` / `stopped`, a stopped move or home `failed` with its stop notice -- and is kept until a client forgets it. As in Python, a stop once the operation's work has ended does nothing, and so does one asked of a still, which has no stop: `202`, and the still ends as it would have. A stop the scope refuses is the answer, as the stop's own refusal (a home on a board that cannot stop one: `409`, `home_not_stoppable`). A call held as a job because it outlived its wait holds no operation, and `DELETE` on it while it runs is `409`, `not_cancellable`; its activity's own stop member reaches it. A parameter that takes an operation is sent its job's id, as a handle's is sent its id (`GET /api/v1/held_by_other?run=1`); a job not held is `404`, and one that is no operation, a call held as a job, is `422`, `invalid_request`. Past 256 calls running, a call is refused before it runs (`503`, `overloaded`). A job's id is likewise a string of decimal digits, counted from `1` when the server starts.
 
 A `POST` or `PUT` that may be sent twice -- a client that lost its answer to a dropped connection cannot tell whether the call ran -- carries `Idempotency-Key: <any string the client chooses>`. Sent again with the same key, from any connection, the request runs nothing and is answered what the first one was answered: the same status and body (a started operation's same job), with `Idempotent-Replayed: true`; a retry that arrives while the first still runs waits for that answer. The same key with another member or body is refused (`422`, `idempotency_key_reused`); a body's keys in another order are the same body. A key is held for 24 hours, at most 10,000 of them, the oldest let go first; a request the server refused before it ran (`503`) holds none. A read (`GET`) runs again whatever key it is sent.
 
@@ -3918,7 +3918,7 @@ Reached through each item of `BuildResult.degraded_outputs`.
 Reached through returned by `scope.imaging.get_delivered_rate`.
 
 - `bytes_per_s`
-- `frames_per_s`
+- `frame_rate_fps`
 
 ### DiagnosticRefusedError
 
@@ -4661,7 +4661,7 @@ Reached through returned by `session.scope.diagnostics.get_camera_usb_bindings`.
 
 Taken by `session.post_processing.build`.
 
-- `frames_per_sec`
+- `frame_rate_fps`
 - `timestamp_overlay`
 
 ### VideoConfig
@@ -4676,8 +4676,8 @@ Reached through `StepRecord.video_config`.
 Reached through delivered to `RunEvents.video_progress`'s handler.
 
 - `elapsed_s`
-- `percent`
 - `phase`
+- `progress_pct`
 - `total_s`
 
 ### WorkItem
@@ -4688,7 +4688,7 @@ Reached through `LiveWork.work`.
 - `kind`
 - `left`
 - `name`
-- `percent`
+- `progress_pct`
 
 ### ZProject
 

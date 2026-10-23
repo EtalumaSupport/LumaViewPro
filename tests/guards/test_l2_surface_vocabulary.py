@@ -87,6 +87,8 @@ RETIRED = {
     'exposure_ms_min': 'capabilities.camera_limits.exposure_min_ms',
     'exposure_ms_max': 'capabilities.camera_limits.exposure_max_ms',
     'inter_cycle_delay_ms': 'inter_cycle_delay_s, in seconds',
+    'frames_per_sec': 'frame_rate_fps',
+    'frames_per_s': 'frame_rate_fps',
 }
 
 

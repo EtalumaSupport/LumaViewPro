@@ -18,7 +18,7 @@ def probe_fps_refusal(folder, session) -> None:
     """An out-of-range playback rate is refused by the session's video
     member, for a headless caller as for the GUI."""
     try:
-        result = session.post_processing.video(folder, frames_per_sec=0)
+        result = session.post_processing.video(folder, frame_rate_fps=0)
         print('fps=0 ->', result)
     except Exception as e:
         print('fps=0 raised ->', type(e).__name__, e)

@@ -161,7 +161,7 @@ def test_an_image_a_build_passes_over_reaches_the_next(session, run_folder):
 def test_a_bad_setting_on_the_last_build_refuses_before_the_first_writes(session, run_folder):
     with pytest.raises(PostProcessingRefusedError) as refused:
         session.post_processing.build(
-            run_folder, zproject=ZProject(), video=Video(frames_per_sec=0)
+            run_folder, zproject=ZProject(), video=Video(frame_rate_fps=0)
         )
 
     assert refused.value.reason == 'invalid_setting'

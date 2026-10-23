@@ -74,7 +74,7 @@ def _camera_and_api_rates(imaging, camera, span_s=1.0):
     started = time.monotonic()
     readings = []
     while time.monotonic() - started < span_s:
-        readings.append(imaging.get_delivered_rate().frames_per_s)
+        readings.append(imaging.get_delivered_rate().frame_rate_fps)
         time.sleep(TICK_S / 2)
     frames_after, _ = camera.delivered_counts
     camera_rate = (frames_after - frames_before) / (time.monotonic() - started)
@@ -84,7 +84,7 @@ def _camera_and_api_rates(imaging, camera, span_s=1.0):
 class TestTheRateIsTheCameras:
     def test_the_delivered_rate_is_the_cameras_with_no_display(self, session):
         imaging, camera, _camera_fps = _streaming_fast(session)
-        assert _wait_for(lambda: imaging.get_delivered_rate().frames_per_s > 0, 5.0), (
+        assert _wait_for(lambda: imaging.get_delivered_rate().frame_rate_fps > 0, 5.0), (
             'a session with no display read no delivered rate'
         )
         camera_rate, api_rate = _camera_and_api_rates(imaging, camera)
@@ -93,27 +93,27 @@ class TestTheRateIsTheCameras:
 
     def test_the_wire_rate_is_the_bytes_each_delivered_frame_took(self, session):
         imaging, camera, _camera_fps = _streaming_fast(session)
-        assert _wait_for(lambda: imaging.get_delivered_rate().frames_per_s > 0, 5.0)
+        assert _wait_for(lambda: imaging.get_delivered_rate().frame_rate_fps > 0, 5.0)
         rate = imaging.get_delivered_rate()
         # Mono8 on the simulated USB3 link: one byte a pixel of the acquired window.
         assert session.scope.camera.pixel_format == 'Mono8'
         acquired_bytes = camera._width * camera._height
-        assert rate.bytes_per_s / rate.frames_per_s == pytest.approx(acquired_bytes, rel=1e-6)
+        assert rate.bytes_per_s / rate.frame_rate_fps == pytest.approx(acquired_bytes, rel=1e-6)
 
     def test_a_rate_whose_check_stopped_reads_zero(self, session):
         imaging, _camera, _camera_fps = _streaming_fast(session)
-        assert _wait_for(lambda: imaging.get_delivered_rate().frames_per_s > 0, 5.0)
+        assert _wait_for(lambda: imaging.get_delivered_rate().frame_rate_fps > 0, 5.0)
         imaging.stop_stream_check()
         time.sleep(3 * TICK_S)
         rate = imaging.get_delivered_rate()
-        assert rate.frames_per_s == 0
+        assert rate.frame_rate_fps == 0
         assert rate.bytes_per_s == 0
 
 
 class TestEveryHostLogsIt:
     def test_a_headless_session_logs_the_cameras_rate(self, session, monkeypatch, tmp_path):
         imaging, _camera, _camera_fps = _streaming_fast(session)
-        assert _wait_for(lambda: imaging.get_delivered_rate().frames_per_s > 0, 5.0)
+        assert _wait_for(lambda: imaging.get_delivered_rate().frame_rate_fps > 0, 5.0)
 
         # The line logs the API's rate: what get_delivered_rate answered the
         # tick, kept as it passes. Whether that rate is the camera's is
@@ -151,6 +151,6 @@ class TestEveryHostLogsIt:
         assert lines, 'a headless session logged no [BUFFER METRICS] line'
         fields = dict(part.strip().split('=', 1) for part in lines[0].split(']', 1)[1].split('|'))
         assert len(answered) == 1, 'the tick did not read the API rate once'
-        assert answered[0].frames_per_s > 0
-        assert fields['capture_fps'] == f'{answered[0].frames_per_s:.1f}'
+        assert answered[0].frame_rate_fps > 0
+        assert fields['capture_fps'] == f'{answered[0].frame_rate_fps:.1f}'
         assert 'display_fps' not in fields, 'a session with no display logged a display rate'

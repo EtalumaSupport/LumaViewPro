@@ -127,10 +127,10 @@ def test_a_folder_with_nothing_to_stitch_is_refused(session, tmp_path):
     [
         ('stitch', {'mode': 'sideways'}),
         ('zproject', {'method': 'no such method'}),
-        ('video', {'frames_per_sec': 0}),
-        ('video', {'frames_per_sec': 0.5}),
-        ('video', {'frames_per_sec': '-3'}),
-        ('video', {'frames_per_sec': 'fast'}),
+        ('video', {'frame_rate_fps': 0}),
+        ('video', {'frame_rate_fps': 0.5}),
+        ('video', {'frame_rate_fps': '-3'}),
+        ('video', {'frame_rate_fps': 'fast'}),
     ],
 )
 def test_a_setting_the_build_cannot_use_is_refused_not_adjusted(session, tmp_path, member, kwargs):
@@ -162,11 +162,11 @@ def test_a_typed_playback_rate_reaches_the_build_as_a_number(session, monkeypatc
     from modules.video_builder import VideoBuilder
 
     seen = _spy_build(monkeypatch, VideoBuilder, 'build_from_folder')
-    session.post_processing.video(tmp_path, frames_per_sec='12', timestamp_overlay=True)
-    assert seen['frames_per_sec'] == 12.0
+    session.post_processing.video(tmp_path, frame_rate_fps='12', timestamp_overlay=True)
+    assert seen['frame_rate_fps'] == 12.0
     assert seen['enable_timestamp_overlay'] is True
-    session.post_processing.video(tmp_path, frames_per_sec=1)
-    assert seen['frames_per_sec'] == 1.0
+    session.post_processing.video(tmp_path, frame_rate_fps=1)
+    assert seen['frame_rate_fps'] == 1.0
 
 
 def test_no_playback_rate_leaves_the_recordings_own_rate_to_the_build(
@@ -176,7 +176,7 @@ def test_no_playback_rate_leaves_the_recordings_own_rate_to_the_build(
 
     seen = _spy_build(monkeypatch, VideoBuilder, 'build_from_folder')
     session.post_processing.video(tmp_path)
-    assert seen['frames_per_sec'] is None
+    assert seen['frame_rate_fps'] is None
     assert seen['enable_timestamp_overlay'] is False
 
 

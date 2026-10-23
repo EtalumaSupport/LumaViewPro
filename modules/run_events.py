@@ -29,13 +29,13 @@ if TYPE_CHECKING:
     from modules.run_outcome import RunOutcome
 
 
-@api_fields('phase', 'elapsed_s', 'total_s', 'percent')
+@api_fields('phase', 'elapsed_s', 'total_s', 'progress_pct')
 @dataclasses.dataclass(frozen=True)
 class VideoProgress:
     """Where a video step is, as its ``video_progress`` event says.
 
     ``phase`` is ``'recording'`` (``elapsed_s`` of ``total_s``), ``'writing'``
-    (``percent`` of the recorded frames written) or ``'ended'``, which follows
+    (``progress_pct`` of the recorded frames written) or ``'ended'``, which follows
     once any recording or writing phase on every path that had one; a step
     that ends before it records sends no phase and no ``'ended'``.
     """
@@ -43,7 +43,7 @@ class VideoProgress:
     phase: str
     elapsed_s: float | None = None
     total_s: float | None = None
-    percent: float | None = None
+    progress_pct: float | None = None
 
 
 @api_fields('scan_index', 'scans_remaining', 'period_s')

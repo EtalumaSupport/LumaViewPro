@@ -70,7 +70,7 @@ class VideoBuilder(ProtocolPostProcessor):
         return post_derivation.Step(
             PostFunction.VIDEO,
             (
-                ('fps', f'{float(kwargs["frames_per_sec"]):g}'),
+                ('fps', f'{float(kwargs["frame_rate_fps"]):g}'),
                 ('timestamp', 'on' if kwargs['enable_timestamp_overlay'] else 'off'),
                 ('color', post_derivation.color_text(color)),
             ),
@@ -135,7 +135,7 @@ class VideoBuilder(ProtocolPostProcessor):
             self._create_video(
                 path=path,
                 df=df[['Filepath', 'Scan Count', 'Timestamp', 'Color']],
-                frames_per_sec=kwargs['frames_per_sec'],
+                frame_rate_fps=kwargs['frame_rate_fps'],
                 enable_timestamp_overlay=kwargs['enable_timestamp_overlay'],
                 output_file_loc=kwargs['output_file_loc'],
                 on_progress=kwargs['on_progress'],
@@ -236,7 +236,7 @@ class VideoBuilder(ProtocolPostProcessor):
         self,
         path: pathlib.Path,
         df: pd.DataFrame,
-        frames_per_sec: int,
+        frame_rate_fps: int,
         enable_timestamp_overlay: bool,
         output_file_loc: pathlib.Path,
         on_progress: ProgressCallback | None = None,
@@ -270,7 +270,7 @@ class VideoBuilder(ProtocolPostProcessor):
         output_file_loc_abs.parent.mkdir(exist_ok=True, parents=True)
         video = VideoWriter(
             output_path=output_file_loc_abs,
-            fps=frames_per_sec,
+            fps=frame_rate_fps,
             color=layer_color,
             include_timestamp_overlay=enable_timestamp_overlay,
         )
@@ -475,7 +475,7 @@ class VideoBuilder(ProtocolPostProcessor):
         """
         path = pathlib.Path(path)
         is_manual = self._is_manual_recording_folder(path)
-        if kwargs.get('frames_per_sec') is None:
+        if kwargs.get('frame_rate_fps') is None:
             # The UI's 'auto' rate, resolved HERE where the folder type
             # is known: a manual recording plays at its own measured
             # capture rate (from its manifest); folders without a
@@ -484,13 +484,13 @@ class VideoBuilder(ProtocolPostProcessor):
             # standard default.
             measured = self._read_recording_manifest(path)['measured_fps'] if is_manual else None
             if measured is not None and measured > 0:
-                kwargs['frames_per_sec'] = measured
+                kwargs['frame_rate_fps'] = measured
                 logger.info(
                     f'[{self._name}] auto rate: building at the recorded '
                     f'{measured:.3g} fps from the manifest'
                 )
             else:
-                kwargs['frames_per_sec'] = DEFAULT_BUILD_FPS
+                kwargs['frame_rate_fps'] = DEFAULT_BUILD_FPS
         if is_manual:
             return self._build_manual_recording_video(path, on_progress=on_progress, **kwargs)
         return self.load_folder(
@@ -577,7 +577,7 @@ class VideoBuilder(ProtocolPostProcessor):
         path: pathlib.Path,
         on_progress: ProgressCallback | None = None,
         *,
-        frames_per_sec: float,
+        frame_rate_fps: float,
         enable_timestamp_overlay: bool = False,
         channel_colors: ChannelColors,
         **_ignored: dict,
@@ -622,7 +622,7 @@ class VideoBuilder(ProtocolPostProcessor):
         result = self._create_video(
             path=path,
             df=df,
-            frames_per_sec=frames_per_sec,
+            frame_rate_fps=frame_rate_fps,
             enable_timestamp_overlay=enable_timestamp_overlay,
             output_file_loc=output_file_loc,
             on_progress=on_progress,

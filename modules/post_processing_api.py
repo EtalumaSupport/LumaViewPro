@@ -297,18 +297,18 @@ class Stitch:
     mode: str = 'quality'
 
 
-@api_fields('frames_per_sec', 'timestamp_overlay')
+@api_fields('frame_rate_fps', 'timestamp_overlay')
 @dataclasses.dataclass(frozen=True)
 class Video:
     """A video, as ``build`` takes it: each position's time series to one video.
 
     Attributes:
-        frames_per_sec: The playback rate, a number of at least 1 or its
+        frame_rate_fps: The playback rate, a number of at least 1 or its
             text; None plays a recording at its own measured rate.
         timestamp_overlay: Whether each frame shows its time.
     """
 
-    frames_per_sec: float | str | None = None
+    frame_rate_fps: float | str | None = None
     timestamp_overlay: bool = False
 
 
@@ -709,7 +709,7 @@ class PostProcessingAPI:
         self,
         folder: FilePath,
         *,
-        frames_per_sec: float | str | None = Video.frames_per_sec,
+        frame_rate_fps: float | str | None = Video.frame_rate_fps,
         timestamp_overlay: bool = Video.timestamp_overlay,
         on_progress: ProgressCallback | None = None,
     ) -> BuildResult:
@@ -717,14 +717,14 @@ class PostProcessingAPI:
         manual frames recording.
 
         Args:
-            frames_per_sec: The playback rate, a number of at least 1 or its
+            frame_rate_fps: The playback rate, a number of at least 1 or its
                 text; None plays a recording at its own measured rate.
 
         Raises:
             LiveFolderPathRefusedError: ``'not_found'``, nothing is at
                 *folder*; ``'not_a_folder'``, a file is.
             PostProcessingRefusedError: reason ``invalid_setting``,
-                *frames_per_sec* is not a playback rate, before the build is
+                *frame_rate_fps* is not a playback rate, before the build is
                 queued; or a folder it cannot build from
                 (``ProtocolPostProcessor``): reason
                 ``protocol_data_unreadable``, ``no_images``,
@@ -734,7 +734,7 @@ class PostProcessingAPI:
                 files that were are named.
         """
         build = self._video_build(
-            Video(frames_per_sec=frames_per_sec, timestamp_overlay=timestamp_overlay)
+            Video(frame_rate_fps=frame_rate_fps, timestamp_overlay=timestamp_overlay)
         )
         return self._run(
             _answering(_build_result, build),
@@ -1058,7 +1058,7 @@ class PostProcessingAPI:
         return functools.partial(
             VideoBuilder(has_turret=self._has_turret()).build_from_folder,
             tiling_configs_file_loc=self._tiling_configs_path(),
-            frames_per_sec=self._playback_rate(settings.frames_per_sec),
+            frame_rate_fps=self._playback_rate(settings.frame_rate_fps),
             enable_timestamp_overlay=settings.timestamp_overlay,
             channel_colors=self._channel_colors(),
         )
@@ -1493,7 +1493,9 @@ class PostProcessingAPI:
         def on_progress(percent: float, detail: str | None = None) -> None:
             with self._builds_lock:
                 if task in self._builds:
-                    self._builds[task] = dataclasses.replace(self._builds[task], percent=percent)
+                    self._builds[task] = dataclasses.replace(
+                        self._builds[task], progress_pct=percent
+                    )
             if caller_progress is not None:
                 caller_progress(percent, detail)
 
@@ -1541,11 +1543,11 @@ class PostProcessingAPI:
         return waiter
 
     @staticmethod
-    def _playback_rate(frames_per_sec: float | str | None) -> float | None:
-        if frames_per_sec is None:
+    def _playback_rate(frame_rate_fps: float | str | None) -> float | None:
+        if frame_rate_fps is None:
             return None
         try:
-            rate = float(frames_per_sec)
+            rate = float(frame_rate_fps)
         except (TypeError, ValueError):
             rate = None
         if rate is None or not rate >= 1:
@@ -1553,7 +1555,7 @@ class PostProcessingAPI:
                 operation=PostProcessingOperation.VIDEO,
                 reason='invalid_setting',
                 message=(
-                    f'{frames_per_sec!r} is not a playback rate: give at least 1 frame '
+                    f'{frame_rate_fps!r} is not a playback rate: give at least 1 frame '
                     "per second, or nothing for the recording's own rate."
                 ),
             )

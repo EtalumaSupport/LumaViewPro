@@ -219,7 +219,7 @@ def test_a_members_progress_is_its_jobs_progress(client, session, live, monkeypa
     job = client.get(accepted.headers['Location'], headers={'Prefer': 'wait=30'}).json()
 
     assert job['status'] == 'completed'
-    assert job['progress']['percent'] == 100.0
+    assert job['progress']['progress_pct'] == 100.0
     assert job['result']['path']['name'].startswith('reports/')
     assert (live / job['result']['path']['name']).is_file()
 

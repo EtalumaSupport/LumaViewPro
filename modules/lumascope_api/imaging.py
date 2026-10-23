@@ -156,20 +156,20 @@ def _refuse_unusable_depth(significant_bits: int) -> None:
         )
 
 
-@api_fields('bytes_per_s', 'frames_per_s')
+@api_fields('bytes_per_s', 'frame_rate_fps')
 @dataclasses.dataclass(frozen=True)
 class DeliveredRate:
     """What the camera delivered to the host over the last second.
 
-    ``frames_per_s`` counts the frames stored, whatever any display does with
+    ``frame_rate_fps`` counts the frames stored, whatever any display does with
     them. ``bytes_per_s`` is the bytes those same frames took on the link --
     the payload the camera sent, not the transport's protocol overhead -- so
-    ``bytes_per_s / frames_per_s`` is the bytes one frame takes on the link.
+    ``bytes_per_s / frame_rate_fps`` is the bytes one frame takes on the link.
     Both are 0 when nothing was delivered in the last window: no camera, a
     camera not streaming, or no recent window measured.
     """
 
-    frames_per_s: float
+    frame_rate_fps: float
     bytes_per_s: float
 
     @property
@@ -178,7 +178,7 @@ class DeliveredRate:
         return self.bytes_per_s / 1_000_000
 
 
-NOT_DELIVERING = DeliveredRate(frames_per_s=0.0, bytes_per_s=0.0)
+NOT_DELIVERING = DeliveredRate(frame_rate_fps=0.0, bytes_per_s=0.0)
 
 
 if TYPE_CHECKING:
@@ -2528,7 +2528,7 @@ class ImagingAPI:
         interval_s = now - previous[2]
         self._delivered_rate = (
             DeliveredRate(
-                frames_per_s=(frames - previous[0]) / interval_s,
+                frame_rate_fps=(frames - previous[0]) / interval_s,
                 bytes_per_s=(wire_bytes - previous[1]) / interval_s,
             ),
             now,

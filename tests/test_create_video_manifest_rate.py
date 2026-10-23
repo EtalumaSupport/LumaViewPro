@@ -3,7 +3,7 @@
 
 Encoding an existing frames folder used to run at whatever number sat
 in the FPS box (guess 5 on failure) while the manifest's measured
-capture rate sat unread beside the frames. 'auto' (frames_per_sec=None)
+capture rate sat unread beside the frames. 'auto' (frame_rate_fps=None)
 now resolves at the build_from_folder dispatch: a manual recording
 plays at its manifest's measured rate -- engine manifests first, the
 legacy session manifest for pre-engine folders -- and folders with no
@@ -27,11 +27,11 @@ def _make_manual_folder(tmp_path, n=3):
     return tmp_path
 
 
-def _built_rate(tmp_path, frames_per_sec):
+def _built_rate(tmp_path, frame_rate_fps):
     captured = {}
 
-    def _capture(self, path, df, frames_per_sec, **kwargs):
-        captured['fps'] = frames_per_sec
+    def _capture(self, path, df, frame_rate_fps, **kwargs):
+        captured['fps'] = frame_rate_fps
         return {'status': True, 'actual_output_file_loc': path / f'{path.name}.mp4'}
 
     with patch.object(VideoBuilder, '_create_video', _capture):
@@ -39,7 +39,7 @@ def _built_rate(tmp_path, frames_per_sec):
         result = builder.build_from_folder(
             tmp_path,
             pathlib.Path('unused_tiling.json'),
-            frames_per_sec=frames_per_sec,
+            frame_rate_fps=frame_rate_fps,
             enable_timestamp_overlay=False,
             channel_colors=release_colors(),
         )

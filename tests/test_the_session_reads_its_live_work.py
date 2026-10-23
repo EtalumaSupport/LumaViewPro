@@ -229,13 +229,13 @@ def test_a_build_reports_its_progress_and_the_builds_behind_it_wait(sim_session,
 
     running = _item(sim_session, live_work.POST_PROCESSING)
     assert running.name == f'stitch of {folder_a}'
-    assert running.percent == 10
+    assert running.progress_pct == 10
     assert _item(sim_session, live_work.POST_PROCESSING_QUEUED).left == 1
 
     go_on.set()
     # The build's own report has returned, so the lane has recorded it.
     assert said_sixty.wait(SETTLE_S), 'the build never reported 60'
-    assert _item(sim_session, live_work.POST_PROCESSING).percent == 60
+    assert _item(sim_session, live_work.POST_PROCESSING).progress_pct == 60
     finish.set()
     first.join(SETTLE_S)
     behind.result(SETTLE_S)
@@ -260,7 +260,7 @@ def test_a_protocols_processors_on_the_lane_are_named_without_progress(sim_sessi
         assert live_work.POST_PROCESSING in _kinds(sim_session)
         item = _item(sim_session, live_work.POST_PROCESSING)
         assert item.name == "a protocol's post-processing"
-        assert item.percent is None
+        assert item.progress_pct is None
     finally:
         gate.set()
     waiter.result(SETTLE_S)

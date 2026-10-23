@@ -574,7 +574,7 @@ def test_video_builder_create_video_reports_actual_output_file(tmp_path):
     result = builder._create_video(
         path=frames_dir,
         df=df,
-        frames_per_sec=5,
+        frame_rate_fps=5,
         enable_timestamp_overlay=False,
         output_file_loc=requested,
         on_progress=None,

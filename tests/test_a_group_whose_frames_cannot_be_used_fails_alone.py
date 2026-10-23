@@ -252,7 +252,7 @@ def test_a_video_none_of_whose_frames_can_be_read_is_a_failed_group(tmp_path):
         VideoBuilder(has_turret=False).load_folder(
             path=folder,
             tiling_configs_file_loc=TILING_CONFIGS,
-            frames_per_sec=5,
+            frame_rate_fps=5,
             enable_timestamp_overlay=False,
             channel_colors=release_colors(),
         )

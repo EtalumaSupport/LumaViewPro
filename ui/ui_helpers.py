@@ -694,7 +694,7 @@ def show_video_progress(progress) -> None:
         text = f'Recording Video... {int(progress.elapsed_s)}s / {int(progress.total_s)}s'
         stage = f'Recording Video... / {int(progress.total_s)}s'
     else:
-        text = f'Writing Video... {int(progress.percent)}%'
+        text = f'Writing Video... {int(progress.progress_pct)}%'
         stage = 'Writing Video...'
     _video_progress_text = text
     set_title_event_text(text, stage=stage)

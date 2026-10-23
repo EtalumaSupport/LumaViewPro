@@ -110,7 +110,7 @@ class JobProgress(pydantic.BaseModel):
     """How far a job's call has got, as its member last said."""
 
     model_config = ANSWER_CONFIG
-    percent: float
+    progress_pct: float
     detail: str | None
 
 

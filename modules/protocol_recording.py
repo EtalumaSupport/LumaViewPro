@@ -682,7 +682,7 @@ class ProtocolVideoStep:
         total = max(1, engine.frames_selected)
         while not engine.wait_for_drain(timeout=1.0):
             done = total - engine.pending_writes
-            self._send_progress(VideoProgress('writing', percent=done / total * 100))
+            self._send_progress(VideoProgress('writing', progress_pct=done / total * 100))
 
         result = None
         writer_dropped = 0

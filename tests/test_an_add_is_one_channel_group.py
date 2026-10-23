@@ -304,7 +304,7 @@ class TestADoubledStillIsRefusedByTheVideoAndTheStack:
             VideoBuilder(has_turret=False).load_folder(
                 path=folder,
                 tiling_configs_file_loc=TILING_CONFIGS,
-                frames_per_sec=1,
+                frame_rate_fps=1,
                 enable_timestamp_overlay=False,
                 channel_colors=release_colors(),
             )

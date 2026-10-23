@@ -93,7 +93,7 @@ def test_video_hands_the_typed_rate_to_the_build_to_judge(session, typed, asked)
     )
     _body(post_processing.VideoCreationControls, 'run_video_gen')(panel, MagicMock(), '/data/v')
     session.post_processing.video.assert_called_once_with(
-        '/data/v', frames_per_sec=asked, timestamp_overlay=True, on_progress=ANY
+        '/data/v', frame_rate_fps=asked, timestamp_overlay=True, on_progress=ANY
     )
 
 

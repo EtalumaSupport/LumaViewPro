@@ -42,7 +42,7 @@ STILL = 'still'
 SCOPE_HOLDERS = frozenset({PROTOCOL, RECORDING, HOME, DIAGNOSTIC})
 
 
-@api_fields('kind', 'name', 'left', 'percent', 'discardable')
+@api_fields('kind', 'name', 'left', 'progress_pct', 'discardable')
 @dataclasses.dataclass(frozen=True)
 class WorkItem:
     """One piece of work the session is still doing.
@@ -52,7 +52,7 @@ class WorkItem:
         name: What it is, in words a person reads.
         left: How many frames, images or builds it still has to finish,
             when it counts them; None when it does not.
-        percent: How far a build has got, as its own progress last said;
+        progress_pct: How far a build has got, as its own progress last said;
             None before it has said, or for work that reports none.
         discardable: True when ``ScopeSession.discard_close_drain`` drops
             what this work has left; a host offers that discard only while
@@ -62,7 +62,7 @@ class WorkItem:
     kind: str
     name: str
     left: int | None = None
-    percent: float | None = None
+    progress_pct: float | None = None
     discardable: bool = False
 
 

@@ -476,7 +476,7 @@ def test_a_video_of_summed_frames_shows_them_as_taken(tmp_path):
     VideoBuilder(has_turret=False)._create_video(
         path=tmp_path,
         df=pd.DataFrame(rows),
-        frames_per_sec=10,
+        frame_rate_fps=10,
         enable_timestamp_overlay=False,
         output_file_loc=pathlib.Path('out.mp4'),
         channel_colors=release_colors(),

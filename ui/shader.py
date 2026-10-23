@@ -323,7 +323,7 @@ void main (void) {
         if scope_display:
             delivered = ctx.scope.imaging.get_delivered_rate()
             status = frame_rate_title(
-                delivered.frames_per_s,
+                delivered.frame_rate_fps,
                 scope_display.display_fps(),
                 engineering=ctx.session.engineering_mode,
             )

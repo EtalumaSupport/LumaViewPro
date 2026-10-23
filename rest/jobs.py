@@ -94,11 +94,11 @@ class Progress:
 
     def __call__(self, percent: float, detail: str | None = None) -> None:
         # One assignment: a reader on another thread sees the old or the new.
-        self._last = {'percent': float(percent), 'detail': detail}
+        self._last = {'progress_pct': float(percent), 'detail': detail}
 
     @property
     def last(self) -> dict[str, object] | None:
-        """``{"percent", "detail"}``, or None before the member has said anything."""
+        """``{"progress_pct", "detail"}``, or None before the member has said anything."""
         return self._last
 
 

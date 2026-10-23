@@ -43,7 +43,7 @@ def _row(scope, label):
     row = {
         'observed_fps': derived.get('observed_fps'),
         'is_camera_rate': derived.get('observed_fps_is_camera_rate'),
-        'lvp_fps': scope.imaging.get_delivered_rate().frames_per_s,
+        'lvp_fps': scope.imaging.get_delivered_rate().frame_rate_fps,
         'fps_max': config.get('acquisition_frame_rate_max', config.get('resulting_frame_rate')),
         'limiter': config.get('dltl_component'),
         'dltl_bps': config.get('dltl_value_bps'),

@@ -887,7 +887,7 @@ def _bad_rows() -> list[Bad]:
             'PostProcessingAPI.video',
             lambda s, f, **k: pp(s).video(f, **k),
             {},
-            'frames_per_sec',
+            'frame_rate_fps',
         ),
     ):
         route = f'/api/v1/post_processing/{name}'
@@ -912,7 +912,7 @@ def _bad_rows() -> list[Bad]:
             )
         )
         if setting is not None:
-            bogus = 0 if setting == 'frames_per_sec' else 'bogus'
+            bogus = 0 if setting == 'frame_rate_fps' else 'bogus'
             rows.append(
                 Bad(
                     f'{name} an unusable {setting}',

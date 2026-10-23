@@ -338,7 +338,7 @@ def test_a_protocol_video_hands_its_progress_to_the_encoder(tmp_path, monkeypatc
         VideoBuilder(has_turret=False)._group_algorithm(
             path=tmp_path,
             df=df,
-            frames_per_sec=5,
+            frame_rate_fps=5,
             enable_timestamp_overlay=False,
             output_file_loc=tmp_path / 'out.mp4',
             on_progress=progress,

@@ -904,7 +904,7 @@ class ScopeDisplay(Image):
                         max_blit_delay = (
                             max(self._perf_blit_delays) if self._perf_blit_delays else 0
                         )
-                        capture_fps = ctx.scope.imaging.get_delivered_rate().frames_per_s
+                        capture_fps = ctx.scope.imaging.get_delivered_rate().frame_rate_fps
                         logger.debug(
                             f'[PERF] capture={capture_fps:.1f} display={display_fps:.1f} '
                             f'kivy={kivy_fps:.0f}/{kivy_rfps:.0f} FPS | '

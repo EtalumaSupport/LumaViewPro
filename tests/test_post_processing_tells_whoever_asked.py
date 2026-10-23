@@ -389,7 +389,7 @@ def _manual_video(monkeypatch, tmp_path, video_result):
     monkeypatch.setattr(builder, '_read_recording_manifest', lambda path: {'channel_color': None})
     monkeypatch.setattr(builder, '_create_video', lambda **kwargs: video_result)
     return builder._build_manual_recording_video(
-        tmp_path, frames_per_sec=10, channel_colors=release_colors()
+        tmp_path, frame_rate_fps=10, channel_colors=release_colors()
     )
 
 

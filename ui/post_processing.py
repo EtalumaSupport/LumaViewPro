@@ -242,7 +242,7 @@ class VideoCreationControls(BoxLayout):
         _run_build(
             lambda progress: ctx.session.post_processing.video(
                 path,
-                frames_per_sec=fps,
+                frame_rate_fps=fps,
                 timestamp_overlay=enable_timestamp_overlay,
                 on_progress=progress,
             ),

@@ -703,11 +703,11 @@ def log_system_metrics(
     # roughly. The display's rate is the GUI's, logged only where one exists.
     delivered = scope.imaging.get_delivered_rate()
     wire_frame_bytes = (
-        delivered.bytes_per_s / delivered.frames_per_s if delivered.frames_per_s else 0.0
+        delivered.bytes_per_s / delivered.frame_rate_fps if delivered.frame_rate_fps else 0.0
     )
     display_field = f'display_fps={display.display_fps():.1f} | ' if display is not None else ''
     metrics_logger.info(
-        f'[BUFFER METRICS] capture_fps={delivered.frames_per_s:.1f} | '
+        f'[BUFFER METRICS] capture_fps={delivered.frame_rate_fps:.1f} | '
         f'{display_field}'
         f'camera_data_rate={delivered.megabytes_per_s:.1f} MB/s | '
         f'frame_size={wire_frame_bytes / 1000:.0f} KB',

@@ -150,7 +150,7 @@ def test_build_from_folder_manual_creates_video_excluding_hyperstack(tmp_path):
         folder,
         tmp_path / 'tiling.json',
         None,
-        frames_per_sec=5,
+        frame_rate_fps=5,
         enable_timestamp_overlay=False,
         channel_colors=release_colors(),
     )
@@ -216,7 +216,7 @@ def test_timestamp_overlay_toggle_changes_output(tmp_path):
         off_folder,
         tmp_path / 'tiling.json',
         None,
-        frames_per_sec=5,
+        frame_rate_fps=5,
         enable_timestamp_overlay=False,
         channel_colors=release_colors(),
     )
@@ -224,7 +224,7 @@ def test_timestamp_overlay_toggle_changes_output(tmp_path):
         on_folder,
         tmp_path / 'tiling.json',
         None,
-        frames_per_sec=5,
+        frame_rate_fps=5,
         enable_timestamp_overlay=True,
         channel_colors=release_colors(),
     )
@@ -252,7 +252,7 @@ def test_manual_video_renders_channel_color_from_manifest(tmp_path):
     )
     builder = VideoBuilder(has_turret=False)
     result = builder.build_from_folder(
-        folder, tmp_path / 'tiling.json', None, frames_per_sec=5, channel_colors=release_colors()
+        folder, tmp_path / 'tiling.json', None, frame_rate_fps=5, channel_colors=release_colors()
     )
     assert result['status'] is True
     b, g, r = _channel_means_bgr(_first_frame(_find_video(folder, folder.name)))
@@ -265,7 +265,7 @@ def test_manual_video_grayscale_without_channel_color(tmp_path):
     folder = _make_manual_folder(tmp_path, n_frames=2, include_hyperstack=False, channel_color=None)
     builder = VideoBuilder(has_turret=False)
     result = builder.build_from_folder(
-        folder, tmp_path / 'tiling.json', None, frames_per_sec=5, channel_colors=release_colors()
+        folder, tmp_path / 'tiling.json', None, frame_rate_fps=5, channel_colors=release_colors()
     )
     assert result['status'] is True
     b, g, r = _channel_means_bgr(_first_frame(_find_video(folder, folder.name)))
@@ -329,7 +329,7 @@ def test_overlay_build_opens_each_tiff_once(tmp_path, monkeypatch):
         folder,
         tmp_path / 'tiling.json',
         None,
-        frames_per_sec=5,
+        frame_rate_fps=5,
         enable_timestamp_overlay=True,
         channel_colors=release_colors(),
     )
@@ -383,7 +383,7 @@ def test_overlay_off_skips_to_pydatetime(tmp_path):
     result_off = builder._create_video(
         path=off_folder,
         df=off_df,
-        frames_per_sec=5,
+        frame_rate_fps=5,
         enable_timestamp_overlay=False,
         output_file_loc=pathlib.Path('out.mp4'),
         on_progress=None,
@@ -403,7 +403,7 @@ def test_overlay_off_skips_to_pydatetime(tmp_path):
     result_on = builder._create_video(
         path=on_folder,
         df=on_df,
-        frames_per_sec=5,
+        frame_rate_fps=5,
         enable_timestamp_overlay=True,
         output_file_loc=pathlib.Path('out.mp4'),
         on_progress=None,
@@ -438,7 +438,7 @@ def test_create_video_missing_timestamp_no_crash(tmp_path):
     result = builder._create_video(
         path=folder,
         df=df,
-        frames_per_sec=5,
+        frame_rate_fps=5,
         enable_timestamp_overlay=True,
         output_file_loc=pathlib.Path('out.mp4'),
         on_progress=None,
@@ -469,7 +469,7 @@ def test_a_video_of_composites_builds_from_their_rgb(tmp_path):
     result = VideoBuilder(has_turret=False)._create_video(
         path=folder,
         df=df,
-        frames_per_sec=5,
+        frame_rate_fps=5,
         enable_timestamp_overlay=False,
         output_file_loc=pathlib.Path('out.mp4'),
         on_progress=None,
