@@ -75,7 +75,7 @@ def offset_axes(stage_offset: StageOffset) -> tuple[float, float]:
 class CoordinateTransformer:
     def stage_to_plate(
         self,
-        labware: lw.WellPlate,
+        labware: lw.Labware,
         stage_offset: StageOffset,
         x_um: float,
         y_um: float,
@@ -98,7 +98,7 @@ class CoordinateTransformer:
 
     def plate_to_stage(
         self,
-        labware: lw.WellPlate,
+        labware: lw.Labware,
         stage_offset: StageOffset,
         x_mm: float,
         y_mm: float,

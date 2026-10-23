@@ -111,7 +111,7 @@ def is_image_saving_enabled() -> bool:
 # ---------------------------------------------------------------------------
 
 
-def get_selected_labware() -> tuple[str, labware.WellPlate]:
+def get_selected_labware() -> tuple[str, labware.Labware]:
     """The currently-selected labware, read from SETTINGS.
 
     Settings is the single labware store: the spinner writes through on

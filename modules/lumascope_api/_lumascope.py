@@ -100,7 +100,7 @@ if TYPE_CHECKING:
     import os
 
     from drivers.simulated_camera import SimulatedStall
-    from modules.labware import WellPlate
+    from modules.labware import Labware
     from modules.labware_loader import WellPlateLoader
     from modules.layer_record import ChannelIdentity, ScopeModel
     from modules.lumascope_api.camera import CameraAPI
@@ -1579,7 +1579,7 @@ class Lumascope:
 
     @api
     @property
-    def labware(self) -> 'Mapping[str, WellPlate]':
+    def labware(self) -> 'Mapping[str, Labware]':
         """The installation's plates, by name, read once at bring-up.
 
         Read-only, as each record is: no caller can change what another

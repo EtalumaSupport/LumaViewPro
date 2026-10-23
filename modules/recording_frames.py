@@ -25,7 +25,7 @@ from modules.lumascope_api._constants import AxisState
 
 if TYPE_CHECKING:
     from modules.coord_transformations import PlatePosition
-    from modules.labware import WellPlate
+    from modules.labware import Labware
     from modules.lumascope_api import Lumascope
 
 # --- Frame filename contract ------------------------------------------------
@@ -237,7 +237,7 @@ class FrameFact(NamedTuple):
     moving: bool
     channel: str
 
-    def well_label(self, labware: 'WellPlate') -> str | None:
+    def well_label(self, labware: 'Labware') -> str | None:
         """The well this frame's position lies in on ``labware``, the plate
         the position is stated on.
 

@@ -43,7 +43,7 @@ from modules.api_surface import api
 from modules.scope_capabilities import FieldOfView
 
 if TYPE_CHECKING:
-    from modules.labware import WellPlate
+    from modules.labware import Labware
     from modules.lumascope_api._lumascope import Lumascope
     from modules.objectives_loader import Objective
 
@@ -77,7 +77,7 @@ class RuntimeState:
         self._coordinate_transformer = coord_transformations.CoordinateTransformer()
 
     @api(reads=True)
-    def get_labware(self) -> WellPlate:
+    def get_labware(self) -> Labware:
         """The selected labware (well plate).
 
         Built from the catalogue for the plate the settings name, on every
@@ -298,7 +298,7 @@ class RuntimeState:
         self,
         labware_id: str | None,
         stage_offset: coord_transformations.StageOffset | None,
-    ) -> tuple[WellPlate, coord_transformations.StageOffset]:
+    ) -> tuple[Labware, coord_transformations.StageOffset]:
         """The plate and offset a conversion is stated in: the ones given, else the selected plate and the live offset."""
         labware = (
             self.get_labware()

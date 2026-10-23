@@ -62,7 +62,7 @@ if TYPE_CHECKING:
 
     from modules.coord_transformations import PlatePosition
     from modules.image_mode import ImageCaptureConfig
-    from modules.labware import WellPlate
+    from modules.labware import Labware
     from modules.lumascope_api import Lumascope
     from modules.lumascope_api.frame_record import FrameRecord
     from modules.sequential_io_executor import SequentialIOExecutor
@@ -685,7 +685,7 @@ class ProtocolImageWriter:
         # The plate the protocol is written for -- the plate the run moves
         # against. Its files name their wells and plate from it, not from
         # the plate the scope has selected, which a headless run never sets.
-        labware: WellPlate,
+        labware: Labware,
         # The stage-to-plate transform of the frame the run moves in -- the
         # protocol's plate and the offset the run started with -- that every
         # frame the run saves states its position through. A scope with no

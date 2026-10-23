@@ -70,6 +70,7 @@ RETIRED = {
     'LayerIdentity': 'ChannelIdentity',
     'LayerRecord': 'ChannelRecord',
     'layer_identity': 'channel_identity',
+    'WellPlate': 'Labware',
 }
 
 

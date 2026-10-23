@@ -20,7 +20,7 @@ from modules.api_surface import api, api_fields
     'standard',
 )
 @dataclass(frozen=True)
-class WellPlate:
+class Labware:
     """One multi-well plate of the installation's catalogue, read once at bring-up.
 
     Plate positions are in mm. ``offset_*`` is the first well's centre and

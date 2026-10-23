@@ -39,7 +39,7 @@ from modules.exceptions import (
 )
 
 if TYPE_CHECKING:
-    from modules.labware import WellPlate
+    from modules.labware import Labware
     from modules.lumascope_api._lumascope import Lumascope
     from modules.lumascope_api.frame_record import FrameRecord
 
@@ -293,7 +293,7 @@ def generate_image_metadata(
     *,
     objective_id: str,
     frame_record: FrameRecord,
-    labware: WellPlate | None,
+    labware: Labware | None,
     well_label: str | None,
 ) -> dict:
     """Build TIFF metadata dict for the current capture settings and position.
@@ -524,7 +524,7 @@ def prepare_image_for_saving(
     significant_bits: int,
     objective_id: str,
     frame_record: FrameRecord,
-    labware: WellPlate | None,
+    labware: Labware | None,
     well_label: str | None,
 ) -> dict:
     """Prepare an image array and metadata for saving to disk.
@@ -628,7 +628,7 @@ def save_image(
     white_bits: int | None,
     objective_id: str,
     frame_record: FrameRecord,
-    labware: WellPlate | None,
+    labware: Labware | None,
     well_label: str | None,
 ) -> pathlib.Path:
     """Save an image array to a TIFF file with metadata.

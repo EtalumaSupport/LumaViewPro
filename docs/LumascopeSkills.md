@@ -134,7 +134,7 @@ session = ScopeSession.create(settings, simulate=True)     # simulated: the mode
 session = ScopeSession.create(settings, source_path='/path/to/lvp')  # another data folder
 scope = session.scope
 
-scope.labware                             # every plate, by name: WellPlate records, read-only
+scope.labware                             # every plate, by name: Labware records, read-only
 scope.objectives                          # every objective, by id: Objective records, read-only
 scope.scope_models                        # every model, by name: ScopeModel records, read-only
 scope.scope_models['LS850T'].has_turret   # one model's record: True, the LS850T has a turret
@@ -150,7 +150,7 @@ scope.labware['96 well microplate'].spacing_x_mm    # one plate's record: rows, 
 scope.runtime_state.get_labware()                   # the selected plate's record
 ```
 
-`settings_template` hands out the caller's own copy, and `labware`, `objectives` and `scope_models` each a read-only mapping of frozen records: changing what you were given changes nothing the scope or any other reader sees, and an `Objective`, a `WellPlate` or a `ScopeModel` refuses a change outright. A plate's positions are in mm on the plate: `offset_x_mm` / `offset_y_mm` is the first well's centre and `spacing_x_mm` / `spacing_y_mm` the pitch between centres; `well_diameter_mm` is None where the catalogue states none.
+`settings_template` hands out the caller's own copy, and `labware`, `objectives` and `scope_models` each a read-only mapping of frozen records: changing what you were given changes nothing the scope or any other reader sees, and an `Objective`, a `Labware` or a `ScopeModel` refuses a change outright. A plate's positions are in mm on the plate: `offset_x_mm` / `offset_y_mm` is the first well's centre and `spacing_x_mm` / `spacing_y_mm` the pitch between centres; `well_diameter_mm` is None where the catalogue states none.
 
 An `Objective` names each field with its unit. Autofocus starts at `autofocus_step_max_um` and refines down to `autofocus_step_min_um` across `autofocus_half_range_um` either side of where it starts; a jog moves `jog_z_fine_um` / `jog_z_coarse_um` on Z and `jog_xy_fine_um` / `jog_xy_coarse_um` on X and Y; `focal_length_mm` sets the image scale; `short_name` is the token step and file names carry. `focus_peak_fwhm_dense_um` is None until the engineering plugin's characterization has measured the objective. The installation's `objectives.json` keeps its own keys (`focal_length`, `DOF`, `AF_min`, ...), and a capture's metadata carries the objective under those keys. An entry missing a field, carrying a key no field declares, or giving a number as anything else refuses bring-up with `InstallationFileError`, naming the file, the objective and the key.
 
@@ -4060,6 +4060,26 @@ Reached through each value of `scope.imaging.judge_frame(frame)`.
 - `ms_after_write`
 - `qualifies_after_ticks`
 
+### Labware
+
+Reached through `session.scope.labware`, and returned by `session.scope.runtime_state.get_labware`.
+
+- `columns`
+- `get_dimensions` (in-process)
+- `get_well_index` (in-process)
+- `get_well_position` (in-process)
+- `has_wells` (in-process)
+- `height_mm`
+- `name`
+- `offset_x_mm`
+- `offset_y_mm`
+- `rows`
+- `spacing_x_mm`
+- `spacing_y_mm`
+- `standard`
+- `well_diameter_mm`
+- `width_mm`
+
 ### ChannelRecord
 
 Reached through returned by `scope.channel_identity.find` and `channels`.
@@ -4596,26 +4616,6 @@ Reached through delivered to `RunEvents.video_progress`'s handler.
 - `percent`
 - `phase`
 - `total_s`
-
-### WellPlate
-
-Reached through `session.scope.labware`, and returned by `session.scope.runtime_state.get_labware`.
-
-- `columns`
-- `get_dimensions` (in-process)
-- `get_well_index` (in-process)
-- `get_well_position` (in-process)
-- `has_wells` (in-process)
-- `height_mm`
-- `name`
-- `offset_x_mm`
-- `offset_y_mm`
-- `rows`
-- `spacing_x_mm`
-- `spacing_y_mm`
-- `standard`
-- `well_diameter_mm`
-- `width_mm`
 
 ### WorkItem
 

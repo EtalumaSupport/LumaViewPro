@@ -57,7 +57,7 @@ def _number(entry: dict, path: tuple[str, ...], name: str, filepath: pathlib.Pat
     return value
 
 
-def _read_plate(name: str, entry: object, filepath: pathlib.Path) -> labware.WellPlate:
+def _read_plate(name: str, entry: object, filepath: pathlib.Path) -> labware.Labware:
     """The record for one plate of the catalogue, or a refusal naming the file, the plate and the key."""
     if not isinstance(entry, dict):
         raise InstallationFileError(filepath, f'has a plate {name!r} that is not a plate')
@@ -70,7 +70,7 @@ def _read_plate(name: str, entry: object, filepath: pathlib.Path) -> labware.Wel
     if not isinstance(standard, str):
         raise InstallationFileError(filepath, f"gives plate {name!r} no 'standard'")
     diameter = _number(entry, ('diameter',), name, filepath)
-    return labware.WellPlate(
+    return labware.Labware(
         name=name,
         **counts,
         spacing_x_mm=_number(entry, ('spacing', 'x'), name, filepath),
@@ -105,7 +105,7 @@ class WellPlateLoader:
         )
 
     @property
-    def plates(self) -> Mapping[str, labware.WellPlate]:
+    def plates(self) -> Mapping[str, labware.Labware]:
         """The catalogue, by name; read-only, as each record is."""
         return self._plates
 
@@ -147,7 +147,7 @@ class WellPlateLoader:
             return False
         return True
 
-    def get_plate(self, labware_id: str) -> labware.WellPlate:
+    def get_plate(self, labware_id: str) -> labware.Labware:
         """The plate ``labware_id`` names, under any spelling ``resolve_plate_key`` takes.
 
         Raises:

@@ -309,7 +309,7 @@ def axes_outside_travel(
     position: dict,
     axis_limits: 'Mapping[str, AxisLimits]',
     *,
-    labware: 'labware_module.WellPlate | None' = None,
+    labware: 'labware_module.Labware | None' = None,
     stage_offset: 'StageOffset | None' = None,
 ) -> list[str]:
     """The axes on which one position lies outside the stage's travel.
@@ -2560,7 +2560,7 @@ class Protocol:
         frame_dimensions: dict,
         binning_size: int,
         axis_limits: 'Mapping[str, AxisLimits]',
-        labware: 'labware_module.WellPlate',
+        labware: 'labware_module.Labware',
         stage_offset: 'StageOffset',
         overlap_percent: float = 0.0,
         *,
