@@ -54,7 +54,7 @@ _SPI_READ = re.compile(r'SPI[A-Z]0X([0-7][0-9A-F])\d+')
 _BENCHMARK_CYCLES = (1, 10_000)
 # A test of no frames received none and would answer passed.
 _BANDWIDTH_FRAMES = (1, 100_000)
-_BENCHMARK_DELAY_MS = (0, 60_000)
+_BENCHMARK_DELAY_S = (0, 60)
 _BENCHMARK_SLOW_S = (0, 600)
 _PROBE_DURATION_S = (0, 3_600)
 
@@ -516,7 +516,7 @@ class DiagnosticsAPI:
     def run_grab_lifecycle_benchmark(
         self,
         num_cycles: int = 100,
-        inter_cycle_delay_ms: float = 0.0,
+        inter_cycle_delay_s: float = 0.0,
         vary_settings: bool = False,
         *,
         slow_threshold_s: float = 3.0,
@@ -534,21 +534,21 @@ class DiagnosticsAPI:
                 camera, with none connected or once a cycle finds it removed.
             ArgumentRefusedError: ``'not_a_number'``, a time is not a finite
                 number; ``'out_of_range'``, ``num_cycles`` is outside 1 to
-                10,000, ``inter_cycle_delay_ms`` outside 0 to 60,000 or
+                10,000, ``inter_cycle_delay_s`` outside 0 to 60 or
                 ``slow_threshold_s`` outside 0 to 600. Nothing reached the
                 camera.
         """
         for name, value, limits in (
             ('num_cycles', num_cycles, _BENCHMARK_CYCLES),
-            ('inter_cycle_delay_ms', inter_cycle_delay_ms, _BENCHMARK_DELAY_MS),
+            ('inter_cycle_delay_s', inter_cycle_delay_s, _BENCHMARK_DELAY_S),
             ('slow_threshold_s', slow_threshold_s, _BENCHMARK_SLOW_S),
         ):
             refuse_outside(value, name, limits)
-        bound_s = num_cycles * (self._GRAB_CYCLE_BOUND_S + inter_cycle_delay_ms / 1000.0)
+        bound_s = num_cycles * (self._GRAB_CYCLE_BOUND_S + inter_cycle_delay_s)
         return self._scope.camera._dispatch_camera(
             self._run_grab_lifecycle_benchmark_impl,
             'run_grab_lifecycle_benchmark',
-            args=(num_cycles, inter_cycle_delay_ms, vary_settings),
+            args=(num_cycles, inter_cycle_delay_s, vary_settings),
             kwargs={'slow_threshold_s': slow_threshold_s, 'progress_cb': progress_cb},
             timeout_s=max(bound_s, self._GRAB_CYCLE_BOUND_S),
         )
@@ -556,7 +556,7 @@ class DiagnosticsAPI:
     def _run_grab_lifecycle_benchmark_impl(
         self,
         num_cycles: int = 100,
-        inter_cycle_delay_ms: float = 0.0,
+        inter_cycle_delay_s: float = 0.0,
         vary_settings: bool = False,
         *,
         slow_threshold_s: float = 3.0,
@@ -569,8 +569,8 @@ class DiagnosticsAPI:
         of relying on Basler-published numbers. Typical case is 130-150 ms;
         the pathological ~11 s case has been observed when StopGrabbing
         fires within ~275 ms of a prior StartGrabbing before the camera
-        produces a frame. Sweeping ``inter_cycle_delay_ms`` through
-        0/50/100/200/500/1000 ms across runs reveals the smallest delay
+        produces a frame. Sweeping ``inter_cycle_delay_s`` through
+        0/0.05/0.1/0.2/0.5/1 s across runs reveals the smallest delay
         that yields ZERO slow cycles.
 
         Stays inside the API: drops to ``self._scope._camera_driver.stop_grabbing`` /
@@ -579,8 +579,8 @@ class DiagnosticsAPI:
 
         Args:
             num_cycles: Stop/start cycles to perform.
-            inter_cycle_delay_ms: Sleep between StopGrabbing and the next
-                StartGrabbing (and any settings churn).
+            inter_cycle_delay_s: Sleep between StopGrabbing and the next
+                StartGrabbing (and any settings churn), in seconds.
             vary_settings: When True, alternate gain (1.0 <-> 4.0) and
                 exposure (10 ms <-> 50 ms) between cycles to reproduce the
                 per-step protocol pattern that caused STALL-1.
@@ -591,7 +591,7 @@ class DiagnosticsAPI:
                 called every 10 cycles.
 
         Returns:
-            dict with: num_cycles, inter_cycle_delay_ms, vary_settings,
+            dict with: num_cycles, inter_cycle_delay_s, vary_settings,
                 slow_threshold_s, slow_cycle_count, slow_cycles (list of
                 {idx, cycle_s, stop_s, start_s}), cycle_p50/p95/p99,
                 stop_p50/p95/p99, start_p50/p95/p99, total_elapsed_s,
@@ -599,7 +599,7 @@ class DiagnosticsAPI:
         """
         results = {
             'num_cycles': int(num_cycles),
-            'inter_cycle_delay_ms': float(inter_cycle_delay_ms),
+            'inter_cycle_delay_s': float(inter_cycle_delay_s),
             'vary_settings': bool(vary_settings),
             'slow_threshold_s': float(slow_threshold_s),
             'slow_cycle_count': 0,
@@ -628,7 +628,7 @@ class DiagnosticsAPI:
         results['pylon_version'] = self._scope.capabilities.camera_sdk_version
 
         cycle_times, stop_times, start_times = [], [], []
-        delay_s = max(0.0, float(inter_cycle_delay_ms) / 1000.0)
+        delay_s = max(0.0, float(inter_cycle_delay_s))
 
         # Snapshot current settings so we can restore even when vary_settings
         # is on -- the benchmark must not leave the camera in an arbitrary state.
@@ -742,7 +742,7 @@ class DiagnosticsAPI:
             timing_dir.mkdir(parents=True, exist_ok=True)
             out_path = timing_dir / (
                 f'grab_lifecycle_benchmark_{safe_model}_sdk{safe_sdk}_'
-                f'delay{int(inter_cycle_delay_ms)}ms_{ts}.json'
+                f'delay{inter_cycle_delay_s:g}s_{ts}.json'
             )
             with open(out_path, 'x') as f:
                 json.dump(results, f, indent=2)
@@ -752,7 +752,7 @@ class DiagnosticsAPI:
 
         logger.info(
             f'[SCOPE API ] run_grab_lifecycle_benchmark: {num_cycles} cycles, '
-            f'delay={inter_cycle_delay_ms}ms, vary={vary_settings} -> '
+            f'delay={inter_cycle_delay_s}s, vary={vary_settings} -> '
             f'cycle p50={results["cycle_p50_s"]}s p95={results["cycle_p95_s"]}s '
             f'p99={results["cycle_p99_s"]}s, slow={results["slow_cycle_count"]} '
             f'(>={slow_threshold_s}s), total={results["total_elapsed_s"]}s'

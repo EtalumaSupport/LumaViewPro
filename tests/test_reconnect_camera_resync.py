@@ -80,7 +80,7 @@ class TestCapResolvers:
     """The single UI-facing cap resolvers apply the documented #616 fallback."""
 
     def test_exposure_returns_live_cap_when_present(self):
-        imaging = SimpleNamespace(exposure_ms_max=500.0)
+        imaging = SimpleNamespace(exposure_max_ms=500.0)
         assert camera_max_exposure_for_ui(imaging) == 500.0
 
     def test_exposure_falls_back_when_no_camera(self):
@@ -88,7 +88,7 @@ class TestCapResolvers:
         assert camera_max_exposure_for_ui(imaging) == DEFAULT_MAX_EXPOSURE_MS
 
     def test_gain_returns_live_cap_when_present(self):
-        imaging = SimpleNamespace(gain_db_max=24.0)
+        imaging = SimpleNamespace(gain_max_db=24.0)
         assert camera_max_gain_for_ui(imaging) == 24.0
 
     def test_gain_falls_back_when_no_camera(self):

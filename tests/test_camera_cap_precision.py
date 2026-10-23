@@ -29,7 +29,7 @@ REPORTED_TAIL_CAP = 48.00000004350822
 
 class TestTheGainCapCarriesNoFloatTail:
     def test_a_reported_tail_does_not_reach_the_caller(self):
-        imaging = SimpleNamespace(gain_db_max=REPORTED_TAIL_CAP)
+        imaging = SimpleNamespace(gain_max_db=REPORTED_TAIL_CAP)
 
         assert camera_max_gain_for_ui(imaging) == 48.0
 
@@ -37,7 +37,7 @@ class TestTheGainCapCarriesNoFloatTail:
         """A bound must stay a value the camera takes, so normalising may move
         it inward but never outward past the reported ceiling by anything the
         camera could notice."""
-        imaging = SimpleNamespace(gain_db_max=REPORTED_TAIL_CAP)
+        imaging = SimpleNamespace(gain_max_db=REPORTED_TAIL_CAP)
 
         resolved = camera_max_gain_for_ui(imaging)
 
@@ -46,7 +46,7 @@ class TestTheGainCapCarriesNoFloatTail:
         assert resolved - REPORTED_TAIL_CAP < 1e-4
 
     def test_a_cap_already_at_precision_is_untouched(self):
-        imaging = SimpleNamespace(gain_db_max=24.0)
+        imaging = SimpleNamespace(gain_max_db=24.0)
 
         assert camera_max_gain_for_ui(imaging) == 24.0
 
@@ -58,7 +58,7 @@ class TestTheGainCapCarriesNoFloatTail:
     def test_the_precision_comes_from_the_existing_owner(self):
         """Not a second constant. If the owner's precision for gain changes,
         this resolver changes with it rather than disagreeing with it."""
-        imaging = SimpleNamespace(gain_db_max=REPORTED_TAIL_CAP)
+        imaging = SimpleNamespace(gain_max_db=REPORTED_TAIL_CAP)
 
         expected = round(REPORTED_TAIL_CAP, common_utils.max_decimal_precision('gain'))
 

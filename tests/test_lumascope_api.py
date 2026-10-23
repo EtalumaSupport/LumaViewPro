@@ -595,10 +595,10 @@ class TestRunGrabLifecycleBenchmark:
 
     def test_returns_required_dict_keys(self):
         scope = self._scope_with_camera()
-        r = scope.diagnostics.run_grab_lifecycle_benchmark(num_cycles=3, inter_cycle_delay_ms=0)
+        r = scope.diagnostics.run_grab_lifecycle_benchmark(num_cycles=3, inter_cycle_delay_s=0)
         for k in (
             'num_cycles',
-            'inter_cycle_delay_ms',
+            'inter_cycle_delay_s',
             'vary_settings',
             'slow_threshold_s',
             'slow_cycle_count',
@@ -620,7 +620,7 @@ class TestRunGrabLifecycleBenchmark:
         ):
             assert k in r, f'Missing key: {k}'
         assert r['num_cycles'] == 3
-        assert r['inter_cycle_delay_ms'] == 0
+        assert r['inter_cycle_delay_s'] == 0
         assert r['vary_settings'] is False
         assert r['slow_threshold_s'] == 3.0  # default
 
@@ -640,7 +640,7 @@ class TestRunGrabLifecycleBenchmark:
         verifying the slow-cycle accounting + 50-entry cap."""
         scope = self._scope_with_camera()
         r = scope.diagnostics.run_grab_lifecycle_benchmark(
-            num_cycles=4, inter_cycle_delay_ms=0, slow_threshold_s=0.0
+            num_cycles=4, inter_cycle_delay_s=0, slow_threshold_s=0.0
         )
         assert r['slow_cycle_count'] == 4
         assert len(r['slow_cycles']) == 4
@@ -662,7 +662,7 @@ class TestRunGrabLifecycleBenchmark:
         scope.camera.set_gain_db = _track
 
         scope.diagnostics.run_grab_lifecycle_benchmark(
-            num_cycles=4, inter_cycle_delay_ms=0, vary_settings=True
+            num_cycles=4, inter_cycle_delay_s=0, vary_settings=True
         )
         # 4 in-loop calls; the restore after the loop goes through
         # restore_camera_state, not this setter.
@@ -682,7 +682,7 @@ class TestRunGrabLifecycleBenchmark:
         scope.camera.set_exposure_ms(20.0)
 
         r = scope.diagnostics.run_grab_lifecycle_benchmark(
-            num_cycles=2, inter_cycle_delay_ms=0, vary_settings=True
+            num_cycles=2, inter_cycle_delay_s=0, vary_settings=True
         )
         if r['written_to']:
             os.remove(r['written_to'])
@@ -699,7 +699,7 @@ class TestRunGrabLifecycleBenchmark:
         import os
 
         scope = self._scope_with_camera()
-        r = scope.diagnostics.run_grab_lifecycle_benchmark(num_cycles=2, inter_cycle_delay_ms=0)
+        r = scope.diagnostics.run_grab_lifecycle_benchmark(num_cycles=2, inter_cycle_delay_s=0)
         assert r['written_to'] is not None, (
             f'JSON persistence path empty; errors: {r.get("errors")}'
         )
@@ -733,7 +733,7 @@ class TestRunGrabLifecycleBenchmark:
         scope = self._scope_with_camera()
         assert scope.capabilities.camera_sdk_version == '11.5.0.1169'
 
-        r = scope.diagnostics.run_grab_lifecycle_benchmark(num_cycles=2, inter_cycle_delay_ms=0)
+        r = scope.diagnostics.run_grab_lifecycle_benchmark(num_cycles=2, inter_cycle_delay_s=0)
         assert r['pylon_version'] == '11.5.0.1169', (
             'benchmark must read the SDK version from the capabilities'
         )
@@ -971,7 +971,7 @@ def _scope_without_an_exposure_floor():
     scope = build_scope(simulate=True)
     scope.capabilities = dataclasses.replace(
         scope.capabilities,
-        camera_limits=dataclasses.replace(scope.capabilities.camera_limits, exposure_ms_min=None),
+        camera_limits=dataclasses.replace(scope.capabilities.camera_limits, exposure_min_ms=None),
     )
     return scope
 

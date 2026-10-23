@@ -32,8 +32,8 @@ _READS = (
     ('read_frame_size', 'frame_size', 'sentinel'),
     ('read_pixel_format', 'pixel_format', 'raise'),
     ('read_black_level', 'black_level', 'raise'),
-    ('read_frame_rate', 'frame_rate', 'raise'),
-    ('read_exposure_ms_min', 'minimum_exposure', 'raise'),
+    ('read_frame_rate_fps', 'frame_rate', 'raise'),
+    ('read_exposure_min_ms', 'minimum_exposure', 'raise'),
     ('read_auto_gain', 'auto_gain', 'raise'),
     ('read_auto_exposure', 'auto_exposure', 'raise'),
 )

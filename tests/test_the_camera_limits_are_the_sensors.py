@@ -67,12 +67,12 @@ def test_a_maximum_the_camera_reads_as_zero_is_no_maximum(camera, monkeypatch):
     # Zero is the drivers' answer for an inactive camera, never a real cap.
     monkeypatch.setattr(camera, 'get_max_exposure', lambda: 0.0)
 
-    assert _capabilities(camera).camera_limits.exposure_ms_max is None
+    assert _capabilities(camera).camera_limits.exposure_max_ms is None
 
 
 def test_a_whole_number_maximum_is_a_float(camera, monkeypatch):
     monkeypatch.setattr(camera, 'get_max_exposure', lambda: 500)
 
-    maximum = _capabilities(camera).camera_limits.exposure_ms_max
+    maximum = _capabilities(camera).camera_limits.exposure_max_ms
 
     assert maximum == 500.0 and isinstance(maximum, float)

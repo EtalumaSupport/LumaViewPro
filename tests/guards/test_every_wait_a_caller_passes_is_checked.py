@@ -11,6 +11,7 @@ a new member that takes a wait and does neither is named here.
 """
 
 import ast
+import importlib
 import re
 
 from tests.ast_seams import MemberNames, iter_package_modules
@@ -20,6 +21,14 @@ _A_WAIT = re.compile(r'(^|_)timeout(_s)?$|_delay_s$|^seconds$|_for_s$')
 _THE_CHECK = MemberNames('modules/finite_number.py', {'refuse_unless_wait_s', 'WAIT_S'})
 # The handle every run and job gives back: not marked, but every caller's.
 _HANDLES = {('modules/operation.py', 'Operation')}
+# A member whose wait is refused against a narrower range of its own, by the
+# module constant holding that range; the range must end within WAIT_S.
+_NARROWER = {
+    'modules/lumascope_api/diagnostics.py::DiagnosticsAPI.run_grab_lifecycle_benchmark': (
+        'modules.lumascope_api.diagnostics',
+        '_BENCHMARK_DELAY_S',
+    ),
+}
 
 
 def _is_api(fn: ast.FunctionDef) -> bool:
@@ -54,10 +63,24 @@ def _unchecked():
                     and isinstance(node.func.value, ast.Name)
                     and node.func.value.id == 'self'
                 }
+                where = f'{rel_path}::{cls.name}.{fn.name}'
+                if where in _NARROWER and _NARROWER[where][1] in ast.unparse(fn):
+                    continue
                 if not any(_checks(methods[name]) for name in called if name in methods):
-                    found.append(f'{rel_path}::{cls.name}.{fn.name} {waits}')
+                    found.append(f'{where} {waits}')
     return found
 
 
 def test_every_wait_a_caller_passes_is_checked_where_it_enters():
     assert _unchecked() == []
+
+
+def test_a_narrower_range_ends_within_the_longest_wait():
+    from modules.finite_number import WAIT_S
+
+    beyond = {
+        where: getattr(importlib.import_module(module), constant)
+        for where, (module, constant) in _NARROWER.items()
+        if not WAIT_S[0] <= getattr(importlib.import_module(module), constant)[1] <= WAIT_S[1]
+    }
+    assert beyond == {}, f'a range past WAIT_S is no bound on the wait: {beyond}'

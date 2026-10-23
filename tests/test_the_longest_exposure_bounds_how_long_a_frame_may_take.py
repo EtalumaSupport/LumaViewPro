@@ -42,7 +42,7 @@ def session(tmp_path):
 
 
 def _sensor_maximum(session):
-    return session.scope.capabilities.camera_limits.exposure_ms_max
+    return session.scope.capabilities.camera_limits.exposure_max_ms
 
 
 def test_it_is_the_held_exposure_with_no_auto_gain_armed(session):

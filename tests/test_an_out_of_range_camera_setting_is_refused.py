@@ -47,8 +47,8 @@ def test_a_gain_above_the_maximum_is_refused_naming_the_range(sim_camera, monkey
     camera, cam = sim_camera
     camera.set_gain_db(3.0)
     limits = camera._scope.capabilities.camera_limits
-    maximum = limits.gain_db_max
-    minimum = limits.gain_db_min
+    maximum = limits.gain_max_db
+    minimum = limits.gain_min_db
     written = []
     monkeypatch.setattr(cam, 'gain', lambda v: written.append(v) or v)
 
@@ -72,7 +72,7 @@ def test_a_gain_above_the_maximum_is_refused_naming_the_range(sim_camera, monkey
 
 def test_a_gain_below_a_declared_floor_is_refused(sim_camera, monkeypatch):
     camera, _cam = sim_camera
-    set_camera_limits(monkeypatch, camera._scope, gain_db_min=2.0)
+    set_camera_limits(monkeypatch, camera._scope, gain_min_db=2.0)
 
     with pytest.raises(CameraSettingOutOfRangeError) as excinfo:
         camera.set_gain_db(1.0)
@@ -83,25 +83,25 @@ def test_a_gain_below_a_declared_floor_is_refused(sim_camera, monkeypatch):
 def test_an_exposure_above_the_maximum_is_refused(sim_camera):
     camera, _cam = sim_camera
     limits = camera._scope.capabilities.camera_limits
-    maximum = limits.exposure_ms_max
+    maximum = limits.exposure_max_ms
 
     with pytest.raises(CameraSettingOutOfRangeError) as excinfo:
         camera.set_exposure_ms(maximum + 1.0)
 
     assert excinfo.value.reason == 'exposure_ms_out_of_range'
-    minimum = limits.exposure_ms_min
+    minimum = limits.exposure_min_ms
     assert excinfo.value.minimum == minimum
     assert f'{minimum:g} to {maximum:g} ms' in str(excinfo.value)
 
 
 def test_an_undeclared_floor_is_not_checked(sim_camera, monkeypatch):
     camera, _cam = sim_camera
-    set_camera_limits(monkeypatch, camera._scope, exposure_ms_min=None)
+    set_camera_limits(monkeypatch, camera._scope, exposure_min_ms=None)
 
     camera.set_exposure_ms(0.001)
 
 
 def test_a_value_in_range_is_applied(sim_camera):
     camera, _cam = sim_camera
-    maximum = camera._scope.capabilities.camera_limits.gain_db_max
+    maximum = camera._scope.capabilities.camera_limits.gain_max_db
     assert camera.set_gain_db(maximum) == pytest.approx(maximum)

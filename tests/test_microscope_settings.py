@@ -35,7 +35,7 @@ class TestTheSliderRangeWithNoCamera:
         [(None, DEFAULT_MAX_EXPOSURE_MS), (500.0, 500.0), (0.0, 0.0)],
     )
     def test_only_a_missing_cap_takes_the_default(self, cached, expected):
-        limits = SimpleNamespace(exposure_ms_max=cached)
+        limits = SimpleNamespace(exposure_max_ms=cached)
         assert camera_max_exposure_for_ui(limits) == expected
 
 

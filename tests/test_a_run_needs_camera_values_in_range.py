@@ -37,14 +37,14 @@ def _steps(**values):
 
 def test_the_api_caches_the_camera_floors(scope):
     limits = scope.capabilities.camera_limits
-    assert limits.gain_db_min == pytest.approx(scope._camera_driver.min_gain)
-    assert limits.exposure_ms_min == pytest.approx(
+    assert limits.gain_min_db == pytest.approx(scope._camera_driver.min_gain)
+    assert limits.exposure_min_ms == pytest.approx(
         scope._camera_driver.profile.exposure_min_us / 1000.0
     )
 
 
 def test_a_gain_above_the_camera_maximum_is_refused_naming_the_step(executor, scope, tmp_path):
-    maximum = scope.capabilities.camera_limits.gain_db_max
+    maximum = scope.capabilities.camera_limits.gain_max_db
     with pytest.raises(ProtocolRunRefusedError) as refusal:
         _prepare(executor, _steps(gain_db=maximum + 28.0), tmp_path)
 
@@ -58,7 +58,7 @@ def test_a_gain_above_the_camera_maximum_is_refused_naming_the_step(executor, sc
 def test_a_gain_below_the_camera_minimum_is_refused(executor, scope, tmp_path, monkeypatch):
     """Protocol validation already refuses a negative gain, so the floor that
     matters here is a camera's above 0 dB."""
-    set_camera_limits(monkeypatch, scope, gain_db_min=2.0)
+    set_camera_limits(monkeypatch, scope, gain_min_db=2.0)
     with pytest.raises(ProtocolRunRefusedError) as refusal:
         _prepare(executor, _steps(gain_db=1.0), tmp_path)
 
@@ -69,7 +69,7 @@ def test_an_exposure_above_the_camera_maximum_is_refused(executor, scope, tmp_pa
     with pytest.raises(ProtocolRunRefusedError) as refusal:
         _prepare(
             executor,
-            _steps(exposure_ms=scope.capabilities.camera_limits.exposure_ms_max + 1.0),
+            _steps(exposure_ms=scope.capabilities.camera_limits.exposure_max_ms + 1.0),
             tmp_path,
         )
 
@@ -79,7 +79,7 @@ def test_an_exposure_above_the_camera_maximum_is_refused(executor, scope, tmp_pa
 def test_values_in_range_are_admitted(executor, scope, tmp_path):
     _prepare(
         executor,
-        _steps(gain_db=scope.capabilities.camera_limits.gain_db_max, exposure_ms=10.0),
+        _steps(gain_db=scope.capabilities.camera_limits.gain_max_db, exposure_ms=10.0),
         tmp_path,
     )
 
@@ -87,5 +87,5 @@ def test_values_in_range_are_admitted(executor, scope, tmp_path):
 def test_an_undeclared_floor_is_not_checked(executor, scope, tmp_path, monkeypatch):
     """A camera that declares no exposure floor: a tiny exposure is the
     camera's to take or refuse, not the run's to refuse."""
-    set_camera_limits(monkeypatch, scope, exposure_ms_min=None)
+    set_camera_limits(monkeypatch, scope, exposure_min_ms=None)
     _prepare(executor, _steps(exposure_ms=0.001), tmp_path)

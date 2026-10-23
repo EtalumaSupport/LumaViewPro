@@ -1286,15 +1286,15 @@ class ProtocolsAPI:
                 'Gain',
                 'gain',
                 'dB',
-                limits.gain_db_min if limits else None,
-                limits.gain_db_max if limits else None,
+                limits.gain_min_db if limits else None,
+                limits.gain_max_db if limits else None,
             ),
             (
                 'Exposure',
                 'exposure',
                 'ms',
-                limits.exposure_ms_min if limits else None,
-                limits.exposure_ms_max if limits else None,
+                limits.exposure_min_ms if limits else None,
+                limits.exposure_max_ms if limits else None,
             ),
         )
         problems = []

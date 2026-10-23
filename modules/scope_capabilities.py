@@ -168,11 +168,11 @@ class FieldOfView:
 
 
 @api_fields(
-    'gain_db_min',
-    'gain_db_max',
-    'analog_gain_db_max',
-    'exposure_ms_min',
-    'exposure_ms_max',
+    'gain_min_db',
+    'gain_max_db',
+    'analog_gain_max_db',
+    'exposure_min_ms',
+    'exposure_max_ms',
     'frame_min',
     'frame_max',
 )
@@ -184,8 +184,8 @@ class CameraLimits:
     value outside them before it reaches the camera. A limit the camera
     does not declare is None, and that end is not checked.
 
-    ``gain_db_max`` is the most gain the camera applies, digital stage
-    included; ``analog_gain_db_max`` the most before a digital stage, past
+    ``gain_max_db`` is the most gain the camera applies, digital stage
+    included; ``analog_gain_max_db`` the most before a digital stage, past
     which the camera multiplies digitised values and the noise with the
     signal: the analog maximum the camera's profile documents, or, for a
     camera whose profile states no digital stage, its total maximum (all
@@ -203,11 +203,11 @@ class CameraLimits:
     reported at connect.
     """
 
-    gain_db_min: float | None
-    gain_db_max: float | None
-    analog_gain_db_max: float | None
-    exposure_ms_min: float | None
-    exposure_ms_max: float | None
+    gain_min_db: float | None
+    gain_max_db: float | None
+    analog_gain_max_db: float | None
+    exposure_min_ms: float | None
+    exposure_max_ms: float | None
     frame_min: FrameSize | None
     frame_max: FrameSize | None
 
@@ -566,20 +566,20 @@ class ScopeCapabilities:
             )
             if camera.active:
                 camera_limits = CameraLimits(
-                    gain_db_min=_limit(
+                    gain_min_db=_limit(
                         _probe('camera.min_gain', lambda: camera.min_gain, None),
                         lambda v: isinstance(v, (int, float)) and not isinstance(v, bool),
                     ),
-                    gain_db_max=_limit(
+                    gain_max_db=_limit(
                         _probe('camera.get_max_gain', lambda: camera.get_max_gain(), None),
                         lambda v: isinstance(v, (int, float)) and v > 0,
                     ),
-                    analog_gain_db_max=camera_analog_gain_max_db,
-                    exposure_ms_min=_limit(
+                    analog_gain_max_db=camera_analog_gain_max_db,
+                    exposure_min_ms=_limit(
                         _probe('camera.get_min_exposure', lambda: camera.get_min_exposure(), None),
                         common_utils.is_valid_exposure_ms,
                     ),
-                    exposure_ms_max=_limit(
+                    exposure_max_ms=_limit(
                         _probe('camera.get_max_exposure', lambda: camera.get_max_exposure(), None),
                         common_utils.is_valid_exposure_ms,
                     ),

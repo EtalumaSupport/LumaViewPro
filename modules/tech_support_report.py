@@ -2251,8 +2251,8 @@ class TechSupportReport:
             'pixel_format': _camera_reading(camera.read_pixel_format),
             'gain_db': _camera_reading(camera.read_gain_db),
             'exposure_ms': _camera_reading(camera.read_exposure_ms),
-            'max_gain_db': limits.gain_db_max if limits else None,
-            'max_exposure_ms': limits.exposure_ms_max if limits else None,
+            'max_gain_db': limits.gain_max_db if limits else None,
+            'max_exposure_ms': limits.exposure_max_ms if limits else None,
         }
         temperatures = _camera_reading(self.scope.diagnostics.get_camera_temperatures_degc)
         if isinstance(temperatures, str):

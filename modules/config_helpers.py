@@ -854,7 +854,7 @@ def camera_max_exposure_for_ui(limits: 'CameraLimits | None') -> float:
     UI-facing resolver, so the connect (load_settings) and reconnect paths
     can't apply the fallback differently.
     """
-    return _camera_cap_for_ui(limits.exposure_ms_max if limits else None, DEFAULT_MAX_EXPOSURE_MS)
+    return _camera_cap_for_ui(limits.exposure_max_ms if limits else None, DEFAULT_MAX_EXPOSURE_MS)
 
 
 def camera_max_gain_for_ui(limits: 'CameraLimits | None') -> float:
@@ -879,7 +879,7 @@ def camera_max_gain_for_ui(limits: 'CameraLimits | None') -> float:
     driver's own short-circuit tolerance, so it cannot produce a request the
     camera treats as a change.
     """
-    cap = _camera_cap_for_ui(limits.gain_db_max if limits else None, DEFAULT_MAX_GAIN_DB)
+    cap = _camera_cap_for_ui(limits.gain_max_db if limits else None, DEFAULT_MAX_GAIN_DB)
     return round(cap, common_utils.max_decimal_precision('gain'))
 
 

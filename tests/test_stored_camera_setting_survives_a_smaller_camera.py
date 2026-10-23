@@ -54,7 +54,7 @@ def camera():
     scope.capabilities = dataclasses.replace(
         scope.capabilities,
         camera_limits=dataclasses.replace(
-            scope.capabilities.camera_limits, gain_db_max=20.0, exposure_ms_max=200.0
+            scope.capabilities.camera_limits, gain_max_db=20.0, exposure_max_ms=200.0
         ),
     )
     return give_camera_and_imaging(scope)

@@ -121,8 +121,8 @@ def test_a_camera_diagnostic_refuses_a_time(session, value):
     diagnostics = session.scope.diagnostics
     _refused(lambda: diagnostics.run_camera_bandwidth_test(2, timeout_s=value), 'timeout_s')
     _refused(
-        lambda: diagnostics.run_grab_lifecycle_benchmark(1, inter_cycle_delay_ms=value),
-        'inter_cycle_delay_ms',
+        lambda: diagnostics.run_grab_lifecycle_benchmark(1, inter_cycle_delay_s=value),
+        'inter_cycle_delay_s',
     )
     _refused(
         lambda: diagnostics.run_grab_lifecycle_benchmark(1, slow_threshold_s=value),

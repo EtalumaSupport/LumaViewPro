@@ -1394,8 +1394,8 @@ class CameraAPI:
         self._refuse_out_of_range(
             'gain_db',
             gain_db,
-            limits.gain_db_min if limits else None,
-            limits.gain_db_max if limits else None,
+            limits.gain_min_db if limits else None,
+            limits.gain_max_db if limits else None,
             noun='gain',
             unit='dB',
         )
@@ -1439,8 +1439,8 @@ class CameraAPI:
         self._refuse_out_of_range(
             'exposure_ms',
             exposure_ms,
-            limits.exposure_ms_min if limits else None,
-            limits.exposure_ms_max if limits else None,
+            limits.exposure_min_ms if limits else None,
+            limits.exposure_max_ms if limits else None,
             noun='exposure',
             unit='ms',
         )
@@ -2622,7 +2622,7 @@ class CameraAPI:
         return driver.get_black_level_range()
 
     @api(reads=True)
-    def read_frame_rate(self) -> float | None:
+    def read_frame_rate_fps(self) -> float | None:
         """Read from the camera the frame rate its current settings allow, in
         frames per second.
 
@@ -2860,11 +2860,11 @@ class CameraAPI:
         return self._read_fresh('auto_exposure')
 
     @api(reads=True)
-    def read_exposure_ms_min(self) -> float | None:
+    def read_exposure_min_ms(self) -> float | None:
         """Read from the camera the shortest exposure it takes now, in milliseconds.
 
         On IDS bodies the floor rises above the value read at connect
-        (``capabilities.camera_limits.exposure_ms_min``) as the pixel clock,
+        (``capabilities.camera_limits.exposure_min_ms``) as the pixel clock,
         frame rate and frame size change, and this reads the camera's live
         floor; every other driver answers the floor it read at connect.
 
@@ -3125,7 +3125,7 @@ class CameraAPI:
                 bound = float(ceiling)
         if bound is None:
             limits = self._scope.capabilities.camera_limits
-            bound = limits.exposure_ms_max if limits else None
+            bound = limits.exposure_max_ms if limits else None
         if bound is not None and outgoing is not None:
             return max(bound, outgoing[0])
         return bound
@@ -3145,7 +3145,7 @@ class CameraAPI:
         """
         refuse_unless_finite_number(stored_gain_db, 'stored_gain_db')
         limits = self._scope.capabilities.camera_limits
-        stored, applied = cap_stored_value(stored_gain_db, limits.gain_db_max if limits else None)
+        stored, applied = cap_stored_value(stored_gain_db, limits.gain_max_db if limits else None)
         return AppliedGain(stored_db=stored, applied_db=applied, capped=applied != stored)
 
     @api(reads=True)
@@ -3162,7 +3162,7 @@ class CameraAPI:
         refuse_unless_finite_number(stored_exposure_ms, 'stored_exposure_ms')
         limits = self._scope.capabilities.camera_limits
         stored, applied = cap_stored_value(
-            stored_exposure_ms, limits.exposure_ms_max if limits else None
+            stored_exposure_ms, limits.exposure_max_ms if limits else None
         )
         return AppliedExposure(stored_ms=stored, applied_ms=applied, capped=applied != stored)
 

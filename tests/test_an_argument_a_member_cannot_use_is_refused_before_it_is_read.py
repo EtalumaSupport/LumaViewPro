@@ -122,7 +122,14 @@ def _rows(session):
             'run_grab_lifecycle_benchmark, negative delay',
             ArgumentRefusedError,
             'out_of_range',
-            lambda: diagnostics.run_grab_lifecycle_benchmark(inter_cycle_delay_ms=-1.0),
+            lambda: diagnostics.run_grab_lifecycle_benchmark(inter_cycle_delay_s=-1.0),
+        ),
+        (
+            # Seconds: past a minute is refused, where the old milliseconds took 61.
+            'run_grab_lifecycle_benchmark, a delay past a minute',
+            ArgumentRefusedError,
+            'out_of_range',
+            lambda: diagnostics.run_grab_lifecycle_benchmark(inter_cycle_delay_s=61.0),
         ),
         (
             'run_pylon_diagnostic_probe, negative duration',

@@ -30,7 +30,7 @@ def body(session):
     im = session.scope.imaging
     im_camera = session.scope.camera
     im_camera.set_exposure_ms(10.0)
-    figure('S5.camera_frame_rate_reported', im_camera.read_frame_rate())
+    figure('S5.camera_frame_rate_reported', im_camera.read_frame_rate_fps())
     counter = {'n': 0}
     lock = threading.Lock()
 

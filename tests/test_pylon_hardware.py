@@ -380,11 +380,11 @@ def test_an_out_of_range_gain_and_exposure_are_refused_on_a_basler(pylon_imaging
 
     imaging, cam = pylon_imaging
     limits = imaging._scope.capabilities.camera_limits
-    min_gain = limits.gain_db_min
-    max_gain = limits.gain_db_max
-    max_exposure = limits.exposure_ms_max
+    min_gain = limits.gain_min_db
+    max_gain = limits.gain_max_db
+    max_exposure = limits.exposure_max_ms
     print(
-        f'\n  gain {min_gain} to {max_gain} dB, exposure {limits.exposure_ms_min}'
+        f'\n  gain {min_gain} to {max_gain} dB, exposure {limits.exposure_min_ms}'
         f' to {max_exposure} ms'
     )
     assert max_gain is not None and max_exposure is not None
