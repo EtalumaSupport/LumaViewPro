@@ -329,7 +329,7 @@ def restore_display_after_run(*_ended) -> None:
     """
     sync_layer_widgets_from_settings()
     ctx = _app_ctx.ctx
-    ctx.image_settings.layer_lookup(layer=ctx.session.shown_channel.layer).update_shader(dt=0)
+    ctx.image_settings.layer_lookup(layer=ctx.session.shown_channel.channel).update_shader(dt=0)
 
 
 def set_last_save_folder(dir):

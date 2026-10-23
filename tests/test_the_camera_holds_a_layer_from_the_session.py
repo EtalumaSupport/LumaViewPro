@@ -123,7 +123,7 @@ class TestGoingToAStep:
 
         session.go_to_step(protocol, blue_idx)
 
-        assert session.shown_channel.layer == 'Blue'
+        assert session.shown_channel.channel == 'Blue'
         assert _camera(session) == (_BLUE['exposure_ms'], _BLUE['gain_db'])
 
     def test_going_to_another_layers_step_during_a_recording_is_refused(self, session):
@@ -136,7 +136,7 @@ class TestGoingToAStep:
                 'exclusive_activity_running',
                 'recording',
             )
-            assert session.shown_channel.layer == 'BF'
+            assert session.shown_channel.channel == 'BF'
         finally:
             recording.stop()
             recording.result(timeout=60)

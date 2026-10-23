@@ -81,7 +81,7 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
         # The shown layer's false-colour toggle governs display only; the
         # recording names its channel itself. Read here, on the GUI thread,
         # since .ids access is not thread-safe.
-        layer = ctx.session.shown_channel.layer
+        layer = ctx.session.shown_channel.channel
         false_color_on = ctx.image_settings.layer_lookup(layer=layer).ids['false_color'].active
 
         def _start():

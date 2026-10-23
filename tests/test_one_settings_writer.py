@@ -253,7 +253,7 @@ def test_a_minimum_gain_left_above_the_maximum_is_stored_and_refused_at_the_arm(
     # armed with it: the shown layer's arm, here, after the store.
     s = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
     try:
-        layer = s.shown_channel.layer
+        layer = s.shown_channel.channel
         s.set_channel_auto_gain(layer, True)
         with pytest.raises(ArgumentRefusedError) as refused:
             s.update_settings('protocol.autogain.min_gain_db', 30.0)

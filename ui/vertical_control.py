@@ -294,7 +294,7 @@ class VerticalControl(BoxLayout):
             return
 
         member = ctx.session.create_protocol_runner()
-        layer = ctx.session.shown_channel.layer
+        layer = ctx.session.shown_channel.channel
         engineering_mode = ctx.session.engineering_mode
         events = RunEvents(
             frame_captured=show_captured_frame,

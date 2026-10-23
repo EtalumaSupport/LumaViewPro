@@ -442,18 +442,18 @@ class SettingsLock:
         self._stored.append(path)
 
 
-@api_fields('layer', 'lit')
+@api_fields('channel', 'lit')
 @dataclasses.dataclass(frozen=True)
 class ShownChannel:
-    """The channel the scope shows: the layer whose camera settings are on
+    """The channel the scope shows: the channel whose camera settings are on
     the camera, and whether its LED is lit with every other one dark.
 
     Attributes:
-        layer: The layer's key name.
+        channel: The channel's key name.
         lit: Whether its LED is lit.
     """
 
-    layer: str
+    channel: str
     lit: bool
 
 
@@ -668,7 +668,7 @@ class ScopeSession:
         self.manual_recording = ManualRecordingController(
             scope=scope,
             settings=settings,
-            shown_layer=lambda: self._shown_channel.layer,
+            shown_layer=lambda: self._shown_channel.channel,
             channel_colors=self.channel_colors,
             activity_claim=self.activity_claim,
             scheduler=self._scheduler,
@@ -680,7 +680,7 @@ class ScopeSession:
         self.manual_capture = ManualCaptureController(
             scope=scope,
             settings_snapshot=self.get_settings_snapshot,
-            shown_layer=lambda: self._shown_channel.layer,
+            shown_layer=lambda: self._shown_channel.channel,
             layer_camera_request=self._layer_camera_request,
             engineering_mode=lambda: self.engineering_mode,
             channel_colors=self.channel_colors,
@@ -1327,7 +1327,7 @@ class ScopeSession:
             waiting, self._release_at_run_idle = self._release_at_run_idle, []
         for held in waiting:
             held.release()
-        layer = self._shown_channel.layer
+        layer = self._shown_channel.channel
         self._set_shown_channel(ShownChannel(layer, lit=self._layer_lit(layer)))
         self.notify_run_state()
 
@@ -2374,7 +2374,7 @@ class ScopeSession:
             if lock is not None:
                 self._auto_gain_locks[channel] = lock
         if (
-            channel == self._shown_channel.layer
+            channel == self._shown_channel.channel
             and (enabled or holds)
             and not self._an_activity_holds_the_scope()
             and self.scope.camera_connected
@@ -3245,7 +3245,7 @@ class ScopeSession:
         # A first visit is the step's preview. A repeat leaves the LEDs as the
         # person left them while the step's layer is shown, and moves the shown
         # channel, lit or dark as it was, back to it when another was shown.
-        moves_light = shows or self._shown_channel.layer != step['Color']
+        moves_light = shows or self._shown_channel.channel != step['Color']
         lit = self.settings['protocol_led_on'] if shows else self._shown_channel.lit
         if moves_light and lit and self._led_address(step['Color']) is not None:
             # A preview that would light needs the LED controller, asked
@@ -3357,7 +3357,7 @@ class ScopeSession:
         from modules.notification_center import notifications
 
         notifications.tell_listeners(
-            list(self._shown_channel_listeners), shown.layer, shown.lit, category='Illumination'
+            list(self._shown_channel_listeners), shown.channel, shown.lit, category='Illumination'
         )
 
     def _step_lit_by_run(self, layer: str) -> None:
@@ -3380,9 +3380,9 @@ class ScopeSession:
         before, self._shown_before_run = self._shown_before_run, None
         if before is None:
             return
-        self._set_shown_channel(ShownChannel(before.layer, lit=self._layer_lit(before.layer)))
+        self._set_shown_channel(ShownChannel(before.channel, lit=self._layer_lit(before.channel)))
         if self.scope.camera_connected:
-            self.apply_layer_camera(before.layer)
+            self.apply_layer_camera(before.channel)
 
     @api(reads=True)
     @property
@@ -3448,7 +3448,7 @@ class ScopeSession:
                 naming the recording; ``'control_session_held'``, naming the
                 session.
         """
-        if layer == self._shown_channel.layer:
+        if layer == self._shown_channel.channel:
             yield
             return
         claim = self.activity_claim
@@ -3490,7 +3490,7 @@ class ScopeSession:
             CameraSettingRejected: the camera refused a setting of the
                 layer; its LED is already lit or dark.
         """
-        layer = self._shown_channel.layer
+        layer = self._shown_channel.channel
         self.scope.layer_identity.refuse_unless_on_scope(
             layer, 'light_shown_channel', then='be lit'
         )
@@ -3532,7 +3532,7 @@ class ScopeSession:
 
     @api(in_process=True, event=ShownChannel)
     def add_shown_channel_listener(self, listener: Callable[[str, bool], None]) -> None:
-        """Tell ``listener`` ``(layer, lit)`` each time the shown channel changes.
+        """Tell ``listener`` ``(channel, lit)`` each time the shown channel changes.
 
         It is called on the thread that changed it, so a GUI listener
         schedules its drawing.
@@ -3741,7 +3741,7 @@ class ScopeSession:
         write is stored only, and the run's end puts the shown layer back on
         the camera from the store.
         """
-        layer = self._shown_channel.layer
+        layer = self._shown_channel.channel
         with self.settings_lock:
             auto_gain = self.settings[layer]['auto_gain']
         camera = path in (f'{layer}.gain_db', f'{layer}.exposure_ms') or (

@@ -31,7 +31,7 @@ def _bridge(session, *, ready=True):
     # draw is the subject's interchangeable collaborator
     led_button = SimpleNamespace(ids={'enable_led_btn': SimpleNamespace(state='normal')})
     image_settings = SimpleNamespace(
-        draw_shown_channel=lambda: drawn.append(session.shown_channel.layer),
+        draw_shown_channel=lambda: drawn.append(session.shown_channel.channel),
         layer_lookup=lambda layer: led_button,
     )
     ctx = SimpleNamespace(ready=ready, session=session, image_settings=image_settings)

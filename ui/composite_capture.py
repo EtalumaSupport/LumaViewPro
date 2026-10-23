@@ -57,7 +57,7 @@ class CompositeCapture(FloatLayout):
         """
         gui_logger.button('LIVE_CAPTURE')
         ctx = _app_ctx.ctx
-        layer = ctx.session.shown_channel.layer
+        layer = ctx.session.shown_channel.channel
         false_color_on = ctx.image_settings.layer_lookup(layer=layer).ids['false_color'].active
         bullseye = ctx.scope_display.use_bullseye
         crosshairs = ctx.scope_display.use_crosshairs

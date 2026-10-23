@@ -305,7 +305,7 @@ class MicroscopeSettings(BoxLayout):
             _app_ctx.ctx.viewer.update_shader(layer_record.GREY)
             _app_ctx.ctx.scope_display.use_bullseye = True
         else:
-            layer = _app_ctx.ctx.session.shown_channel.layer
+            layer = _app_ctx.ctx.session.shown_channel.channel
             _app_ctx.ctx.image_settings.layer_lookup(layer=layer).update_shader(dt=0)
             _app_ctx.ctx.scope_display.use_bullseye = False
 

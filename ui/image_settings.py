@@ -95,7 +95,7 @@ class ImageSettings(BoxLayout):
         Cleans up ScrollView viewport textures on collapse to prevent memory
         accumulation.
         """
-        layer = _app_ctx.ctx.session.shown_channel.layer
+        layer = _app_ctx.ctx.session.shown_channel.channel
         for a_layer in common_utils.get_layers():
             accordion_item_obj = self.accordion_item_lookup(layer=a_layer)
             if layer == a_layer:

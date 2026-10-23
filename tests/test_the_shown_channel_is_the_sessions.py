@@ -168,7 +168,7 @@ def test_a_runs_end_shows_the_layer_shown_before_it(tmp_path):
     try:
         _run_one_blue_step(built, tmp_path)
 
-        assert built.shown_channel.layer == 'BF'
+        assert built.shown_channel.channel == 'BF'
         assert built.scope.camera.get_held_layer() == 'BF'
         assert round(built.scope.camera.read_exposure_ms(), 3) == 2.0
     finally:

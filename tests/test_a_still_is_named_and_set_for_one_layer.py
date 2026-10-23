@@ -96,7 +96,7 @@ def test_a_still_after_a_run_is_one_layers(session, tmp_path):
 
     name, record = _still(session)
 
-    shown = session.shown_channel.layer
+    shown = session.shown_channel.channel
     assert f'_{shown}_' in name
     assert _settings_of(record) == _stored(shown)
 

@@ -287,11 +287,11 @@ class TestEachTakerNamesTheSession:
         assert sim_session.activity_claim.holder is None
 
     def test_a_change_of_the_shown_layer(self, sim_session, held):
-        other = 'Red' if sim_session.shown_channel.layer == 'Green' else 'Green'
+        other = 'Red' if sim_session.shown_channel.channel == 'Green' else 'Green'
         with pytest.raises(HardwareCommandRefusedError) as refused:
             sim_session.show_channel(other)
         assert refused.value.reason == 'control_session_held'
-        assert sim_session.shown_channel.layer != other
+        assert sim_session.shown_channel.channel != other
 
 
 class TestGuardedWrites:

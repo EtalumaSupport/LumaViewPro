@@ -940,7 +940,7 @@ class ProtocolSettings(FloatLayout):
 
         gui_logger.protocol_action('MODIFY_STEP', f'curr_step={self.curr_step}')
         ctx = _app_ctx.ctx
-        shown_layer = ctx.session.shown_channel.layer
+        shown_layer = ctx.session.shown_channel.channel
         name_field = self.ids['step_name_input'].text
         run_reported(
             lambda: self.modify_step_ex(shown_layer, name_field),
@@ -1008,7 +1008,7 @@ class ProtocolSettings(FloatLayout):
         # The added steps sit together, in the order the names came back.
         first_added = self.curr_step + 1 if after_current_step else max(self.curr_step, 0)
         added = range(first_added, first_added + len(names))
-        shown = session.shown_channel.layer
+        shown = session.shown_channel.channel
         of_shown = [idx for idx in added if self._protocol.step_row(idx)['Color'] == shown]
         if len(of_shown) > 1:
             # A stack's slices: read after the add, which refuses a position

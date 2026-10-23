@@ -618,7 +618,7 @@ class LumaViewProApp(TooltipMixin, App):
         def _publish_layer_config(dt):
             if ctx is None or ctx.scope_display_thread is None:
                 return
-            layer = ctx.session.shown_channel.layer
+            layer = ctx.session.shown_channel.channel
             ctx.scope_display_thread.update_layer_config(
                 layer,
                 layer if ctx.session.engineering_mode else None,
@@ -665,7 +665,7 @@ class LumaViewProApp(TooltipMixin, App):
             # to them explicitly. Show the Session's shown channel (BF in a
             # fresh session) at its saved settings, identical to the
             # no-protocol path, so there is no stage motion either way.
-            shown = ctx.session.shown_channel.layer
+            shown = ctx.session.shown_channel.channel
             ctx.image_settings.layer_lookup(layer=shown).apply_settings()
 
         if sim_walk is not None:

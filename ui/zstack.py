@@ -168,7 +168,7 @@ class ZStack(FloatLayout):
             return
 
         runner = ctx.session.create_protocol_runner()
-        layer = ctx.session.shown_channel.layer
+        layer = ctx.session.shown_channel.channel
         enable_image_saving = is_image_saving_enabled()
         events = RunEvents(
             frame_captured=show_captured_frame,
