@@ -2738,7 +2738,8 @@ Every answer that is not a result is an RFC 9457 problem, `application/problem+j
 
 | Event | Data |
 |---|---|
-| `position` | `PositionChanged`: an axis's state and position, as `axis_positions` answers |
+| `position` | `PositionChanged`: a stage axis's state and position, as `axis_positions` answers |
+| `turret` | `TurretChanged`: the turret's state and slot, as `turret_status` answers |
 | `led` | `LedReading` |
 | `camera` | `CameraChanged`: gain or exposure |
 | `run_state` | `Status`, as `status` reads at the edge; `camera_streaming` is asked just after, off the thread that made the transition, and the events keep the edges' order |
