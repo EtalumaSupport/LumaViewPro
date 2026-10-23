@@ -17,7 +17,7 @@ Test approach
 -------------
 - Structural lock (source-level): the Session member applies no floor of
   its own; it stores what the lock carries.
-- Behavioral: turn auto-gain off through ScopeSession.set_layer_auto_gain
+- Behavioral: turn auto-gain off through ScopeSession.set_channel_auto_gain
   with sub-floor exposures; assert the store holds the floored value, not
   the raw one.
 """
@@ -41,7 +41,7 @@ from modules.scope_session import ScopeSession, SettingsLock, ShownChannel
 
 class TestExposureFloorSourceStructure:
     """Source-level lock on the AG-feedback floor logic in
-    ScopeSession.set_layer_auto_gain."""
+    ScopeSession.set_channel_auto_gain."""
 
     def test_the_per_class_floors_live_beside_the_ag_ae_ceiling(self):
         """The floors live beside the AG/AE ceiling in config_helpers: 0.1 ms
@@ -56,7 +56,7 @@ class TestExposureFloorSourceStructure:
         REST caller storing the same result gets the same value. A
         hand-written per-class branch in the GUI is how the BF AG ->
         0.03 ms -> warning-spam path came back once before."""
-        body = inspect.getsource(ScopeSession.set_layer_auto_gain)
+        body = inspect.getsource(ScopeSession.set_channel_auto_gain)
         assert 'stored_exposure_ms' in body
         assert 'get_ag_ae_min_exposure_ms' not in body
         assert 'FLUORESCENCE_MIN_EXPOSURE_MS' not in body
@@ -93,7 +93,7 @@ def _leave(settings: dict, layer: str, lock: AutoGainLock) -> None:
     session._an_activity_holds_the_scope = ScopeSession._an_activity_holds_the_scope.__get__(
         session
     )
-    ScopeSession.set_layer_auto_gain(session, layer, False)
+    ScopeSession.set_channel_auto_gain(session, layer, False)
 
 
 def _lock(layer: str, gain_db: float, exposure_ms: float) -> AutoGainLock:

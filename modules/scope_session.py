@@ -626,7 +626,7 @@ class ScopeSession:
         # layer: what the camera reached, readable after the setter has
         # answered (a setting's URL answers only its read). A record of that
         # turning off, not of the layer now, so no later write forgets it.
-        # In memory only. Written by set_layer_auto_gain under settings_lock.
+        # In memory only. Written by set_channel_auto_gain under settings_lock.
         self._auto_gain_locks: dict[str, AutoGainLock] = {}
         # Outcome listeners this session registered on the notification
         # centre, so its shutdown takes back exactly what it gave.
@@ -2316,9 +2316,9 @@ class ScopeSession:
         if mode is not None and self.settings[layer].get('stim_config') is not None:
             self._store_setting(f'{layer}.stim_config.enabled', False)
 
-    @api(sets='layer_auto_gain')
+    @api(sets='channel_auto_gain')
     @_guarded_write
-    def set_layer_auto_gain(self, channel: str, enabled: bool) -> 'AutoGainLock | None':
+    def set_channel_auto_gain(self, channel: str, enabled: bool) -> 'AutoGainLock | None':
         """Turn a layer's auto-gain on or off, as the GUI's Auto Gain/Exp box does.
 
         For the shown layer the camera follows when this returns: turning it
@@ -2340,7 +2340,7 @@ class ScopeSession:
         Returns:
             The lock when turning off (its ``state`` is None when no arm
             stood), so a caller can read the state the camera reached, and
-            ``layer_auto_gain_lock`` answers it from then on; None when
+            ``channel_auto_gain_lock`` answers it from then on; None when
             turning on.
 
         Raises:
@@ -2358,7 +2358,7 @@ class ScopeSession:
         holds = self.scope.camera.get_held_layer() == channel
         if enabled:
             self.scope.layer_identity.refuse_unless_on_scope(
-                channel, 'set_layer_auto_gain', then='run auto-gain'
+                channel, 'set_channel_auto_gain', then='run auto-gain'
             )
         elif holds:
             lock = self.scope.camera.lock_auto_gain()
@@ -2385,8 +2385,8 @@ class ScopeSession:
         return lock
 
     @api(reads=True)
-    def layer_auto_gain(self, channel: str) -> bool:
-        """Whether ``channel``'s auto-gain is on, as ``set_layer_auto_gain`` set it.
+    def channel_auto_gain(self, channel: str) -> bool:
+        """Whether ``channel``'s auto-gain is on, as ``set_channel_auto_gain`` set it.
 
         Raises:
             ArgumentRefusedError: ``'layer_unknown'``, ``channel`` is not a channel.
@@ -2395,10 +2395,10 @@ class ScopeSession:
         return self.settings[channel]['auto_gain']
 
     @api(reads=True)
-    def layer_auto_gain_lock(self, channel: str) -> 'AutoGainLock | None':
+    def channel_auto_gain_lock(self, channel: str) -> 'AutoGainLock | None':
         """What the camera reached the last time ``channel``'s auto-gain was turned off.
 
-        The lock ``set_layer_auto_gain(layer, False)`` returned, the last
+        The lock ``set_channel_auto_gain(channel, False)`` returned, the last
         time it was called: its ``state`` says whether the camera converged,
         hit the exposure ceiling or floor, or reported nothing usable, and is
         None when no auto-gain was running or the camera did not hold the

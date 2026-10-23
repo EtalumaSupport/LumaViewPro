@@ -76,9 +76,9 @@ def test_each_read_answers_what_its_setter_wrote(session):
             lambda: session.channel_acquire('Blue'),
             'video',
         ),
-        'layer_auto_gain': (
-            lambda: session.set_layer_auto_gain('Green', True),
-            lambda: session.layer_auto_gain('Green'),
+        'channel_auto_gain': (
+            lambda: session.set_channel_auto_gain('Green', True),
+            lambda: session.channel_auto_gain('Green'),
             True,
         ),
     }
@@ -94,7 +94,7 @@ def test_each_read_answers_what_its_setter_wrote(session):
     assert wrong == {}, f'read, expected: {wrong}'
 
 
-@pytest.mark.parametrize('read', ['channel_acquire', 'layer_auto_gain'])
+@pytest.mark.parametrize('read', ['channel_acquire', 'channel_auto_gain'])
 def test_a_layer_read_refuses_a_name_that_is_no_layer(session, read):
     with pytest.raises(ArgumentRefusedError) as raised:
         getattr(session, read)('Purple')

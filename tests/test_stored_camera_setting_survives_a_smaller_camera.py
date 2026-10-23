@@ -154,7 +154,7 @@ class TestTheGuiNeverNarrowsTheStore:
         # stored_exposure_after_lock (modules/lumascope_api/camera.py) decides this value so that a
         # GUI and a REST caller store the same thing; narrowing it again to a
         # slider's range makes the widget a second answerer over the API.
-        fn = _func(SCOPE_SESSION_PATH, 'set_layer_auto_gain')
+        fn = _func(SCOPE_SESSION_PATH, 'set_channel_auto_gain')
         clips = [
             n
             for n in ast.walk(fn)

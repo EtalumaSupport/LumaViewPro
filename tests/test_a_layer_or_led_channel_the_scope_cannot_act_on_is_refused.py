@@ -64,7 +64,7 @@ NAME_MEMBERS = {
     'get_led_state': lambda s, v: s.scope.illumination.get_led_state(v),
     'color2ch': lambda s, v: s.scope.illumination.color2ch(v),
     'set_channel_acquire': lambda s, v: s.set_channel_acquire(v, 'image'),
-    'set_layer_auto_gain': lambda s, v: s.set_layer_auto_gain(v, True),
+    'set_channel_auto_gain': lambda s, v: s.set_channel_auto_gain(v, True),
     'saved_focus': lambda s, v: s.saved_focus(v),
     'save_layer_focus': lambda s, v: s.save_layer_focus(v, 0.0),
     'get_layer_configs': lambda s, v: s.get_layer_configs([v]),
@@ -75,7 +75,7 @@ NAME_MEMBERS = {
 # A layer this model lacks, on the members that act on a layer, is absent hardware.
 ABSENT_MEMBERS = (
     'set_channel_acquire',
-    'set_layer_auto_gain',
+    'set_channel_auto_gain',
     'save_layer_focus',
     'show_channel',
     'update_step',

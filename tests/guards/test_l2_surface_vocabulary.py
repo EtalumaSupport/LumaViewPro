@@ -61,6 +61,9 @@ RETIRED = {
     'apply_layer_camera_settings': 'camera.apply',
     'set_layer_acquire': 'set_channel_acquire',
     'layer_acquire': 'channel_acquire',
+    'set_layer_auto_gain': 'set_channel_auto_gain',
+    'layer_auto_gain': 'channel_auto_gain',
+    'layer_auto_gain_lock': 'channel_auto_gain_lock',
 }
 
 

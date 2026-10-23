@@ -1,12 +1,12 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """The record of each layer's last auto-gain lock has one writer, the turning off.
 
-``ScopeSession.layer_auto_gain_lock`` answers what the camera reached the last
+``ScopeSession.channel_auto_gain_lock`` answers what the camera reached the last
 time a layer's auto-gain was turned off, from ``_auto_gain_locks``. Only
-``set_layer_auto_gain`` takes that lock, so a write anywhere else would make
+``set_channel_auto_gain`` takes that lock, so a write anywhere else would make
 the read answer a lock no turning off took. Every reference that writes the
 record -- an item stored or deleted, the name rebound, a mutating method
-called on it -- is in ``set_layer_auto_gain``, or is the session's
+called on it -- is in ``set_channel_auto_gain``, or is the session's
 construction of the empty record.
 """
 
@@ -17,7 +17,7 @@ import ast
 from tests.ast_seams import REPO_ROOT, MemberNames, Words
 
 _RECORD = '_auto_gain_locks'
-_WRITERS = MemberNames('modules/scope_session.py', {'set_layer_auto_gain', '__init__'})
+_WRITERS = MemberNames('modules/scope_session.py', {'set_channel_auto_gain', '__init__'})
 _MUTATORS = Words({'pop', 'popitem', 'clear', 'update', 'setdefault', '__setitem__', '__delitem__'})
 
 

@@ -529,11 +529,11 @@ def test_turning_auto_gain_off_as_the_camera_leaves_stores_it_off(make_session):
     """The lock's disarm finds the camera gone: no arm can stand, so the lock
     answers as with no camera, and the layer stores auto-gain off."""
     session = make_session('LS850')
-    session.set_layer_auto_gain('BF', True)
+    session.set_channel_auto_gain('BF', True)
     session.scope.camera.set_auto_gain(True, _AUTO_GAIN)
     session.scope.simulation.refuse_camera_write('auto_gain', 'removed')
 
-    lock = session.set_layer_auto_gain('BF', False)
+    lock = session.set_channel_auto_gain('BF', False)
 
     assert lock.state is None
     assert session.settings['BF']['auto_gain'] is False

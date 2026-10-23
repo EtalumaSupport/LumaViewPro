@@ -426,7 +426,7 @@ class LayerControl(BoxLayout):
             self.show_as_shown()
 
         submit_reported(
-            lambda: ctx.session.set_layer_auto_gain(layer, enabled),
+            lambda: ctx.session.set_channel_auto_gain(layer, enabled),
             redraw,
             f'AUTO_GAIN_{layer}',
             lane=ctx.camera_executor,

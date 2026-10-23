@@ -326,6 +326,6 @@ class TestAWriteToTheShownLayer:
         assert _camera(session) == (_BF['exposure_ms'], _BF['gain_db'])
 
     def test_auto_gain_turned_on_for_the_shown_layer_arms_the_camera(self, session):
-        session.set_layer_auto_gain('BF', True)
+        session.set_channel_auto_gain('BF', True)
 
         assert session.scope.camera.lock_auto_gain().state is not None

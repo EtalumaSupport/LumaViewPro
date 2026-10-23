@@ -162,8 +162,8 @@ def test_a_refused_write_names_why_and_writes_nothing(session, path, value, reas
         (
             'Blue.auto_gain',
             ScopeSession,
-            'set_layer_auto_gain',
-            'ScopeSession.set_layer_auto_gain',
+            'set_channel_auto_gain',
+            'ScopeSession.set_channel_auto_gain',
             'has_member',
         ),
         (
@@ -254,7 +254,7 @@ def test_a_minimum_gain_left_above_the_maximum_is_stored_and_refused_at_the_arm(
     s = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
     try:
         layer = s.shown_channel.layer
-        s.set_layer_auto_gain(layer, True)
+        s.set_channel_auto_gain(layer, True)
         with pytest.raises(ArgumentRefusedError) as refused:
             s.update_settings('protocol.autogain.min_gain_db', 30.0)
         assert refused.value.reason == 'gain_range_inverted'
