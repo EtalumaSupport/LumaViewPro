@@ -67,13 +67,13 @@ class TestTheSetterAnswersWithTheValueInEffect:
     def test_a_gain_the_driver_snapped_is_recorded_as_snapped(self, sim_camera, monkeypatch):
         camera, cam = sim_camera
         heard = []
-        camera.add_camera_listener(lambda name, value: heard.append((name, value)))
+        camera.add_gain_listener(heard.append)
         monkeypatch.setattr(cam, 'gain', lambda v: 12.4)
 
         assert camera.set_gain_db(12.5) == pytest.approx(12.4)
         assert camera.gain_db == pytest.approx(12.4)
         assert camera.frame_validity.target('gain') == pytest.approx(12.4)
-        assert ('gain', pytest.approx(12.4)) in heard
+        assert pytest.approx(12.4) in heard
 
     def test_an_exposure_answers_in_milliseconds(self, sim_camera):
         camera, _cam = sim_camera

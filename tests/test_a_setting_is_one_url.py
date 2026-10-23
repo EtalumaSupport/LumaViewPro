@@ -42,7 +42,7 @@ _WRITES = {
     'scope/camera/frame_size': ({'width': 600, 'height': 400}, None, {'width': 600, 'height': 400}),
     'scope/camera/gain_db': ({'gain_db': 5.0}, None, 5.0),
     'scope/camera/exposure_ms': ({'exposure_ms': 20.0}, None, 20.0),
-    'scope/camera/black_level': ({'value': 4.0}, None, 4.0),
+    'scope/camera/black_level': ({'level': 4.0}, None, 4.0),
     'scope/camera/auto_exposure': ({'mode': 'Continuous'}, None, 'Continuous'),
 }
 _REFUSED = {

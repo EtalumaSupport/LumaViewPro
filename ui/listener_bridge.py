@@ -2,13 +2,13 @@
 
 """The GUI's subscriber to the scope's state-change events.
 
-Lumascope publishes position, turret, LED and camera-setting changes to
+Lumascope publishes position, turret, LED, gain and exposure changes to
 registered listeners (``add_position_listener``, ``add_turret_listener``,
-``add_led_listener``, ``add_camera_listener``), and the Session the channel
-it shows (``add_shown_channel_listener``) and each change to the settings
-store (``add_settings_listener``). This module holds the GUI's handlers for
-position, turret, LED, shown channel and settings: stage redraw on motion,
-the turret buttons on a turret change, LED
+``add_led_listener``, ``add_gain_listener``, ``add_exposure_listener``), and
+the Session the channel it shows (``add_shown_channel_listener``) and each
+change to the settings store (``add_settings_listener``). This module holds
+the GUI's handlers for position, turret, LED, shown channel and settings:
+stage redraw on motion, the turret buttons on a turret change, LED
 button state on LED change, the open drawer on a change of the shown
 channel, and the redraw of every panel showing a setting that changed,
 whoever wrote it -- the window, or a REST client served beside it.

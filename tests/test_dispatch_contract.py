@@ -90,7 +90,7 @@ FAMILIES = [
     ('camera', 'set_image_mode', {'mode': '8bit'}, 'camera'),
     ('camera', 'set_high_conversion_gain', {'enabled': True}, 'camera'),
     ('camera', 'set_line_noise_reduction', {'enabled': True}, 'camera'),
-    ('camera', 'set_black_level', {'value': 4.0}, 'camera'),
+    ('camera', 'set_black_level', {'level': 4.0}, 'camera'),
     (
         'camera',
         'update_auto_gain_target_brightness',

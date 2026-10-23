@@ -25,7 +25,7 @@ import pytest
 
 from drivers.simulated_camera import SimulatedCamera
 from modules.lumascope_api._lumascope import Lumascope
-from modules.lumascope_api.camera import AppliedCameraSetting, cap_stored_value
+from modules.lumascope_api.camera import AppliedGain, cap_stored_value
 from tests.scope_fakes import give_camera_and_imaging, give_camera_capabilities, give_stub_lanes
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -63,32 +63,30 @@ def camera():
 class TestTheApiDecidesWhatAStoredValueApplies:
     def test_a_value_over_the_cap_applies_as_the_cap_and_keeps_the_intent(self, camera):
         gain = camera.applied_gain_db_for(48.0)
-        assert (gain.stored, gain.applied, gain.capped) == (48.0, 20.0, True)
+        assert (gain.stored_db, gain.applied_db, gain.capped) == (48.0, 20.0, True)
 
     def test_a_value_under_the_cap_is_untouched(self, camera):
         gain = camera.applied_gain_db_for(10.0)
-        assert (gain.stored, gain.applied, gain.capped) == (10.0, 10.0, False)
+        assert (gain.stored_db, gain.applied_db, gain.capped) == (10.0, 10.0, False)
 
     def test_exposure_carries_the_same_contract(self, camera):
         exposure = camera.applied_exposure_ms_for(500.0)
-        assert (exposure.stored, exposure.applied, exposure.capped) == (500.0, 200.0, True)
+        assert (exposure.stored_ms, exposure.applied_ms, exposure.capped) == (500.0, 200.0, True)
 
     def test_an_unknown_cap_narrows_nothing(self):
         # No camera, or a driver that publishes no maximum: a missing bound is
         # not a bound of zero, and inventing one would apply a limit no
         # hardware asked for.
-        assert cap_stored_value(5.0, None) == AppliedCameraSetting(
-            stored=5.0, applied=5.0, capped=False
-        )
+        assert cap_stored_value(5.0, None) == (5.0, 5.0)
 
     def test_a_triple_that_contradicts_itself_cannot_be_built(self):
         # capped is whether the write differs from the intent, not a caller's
         # opinion: a consumer rendering one while testing the other would
         # report a limit that is not being applied.
         with pytest.raises(ValueError):
-            AppliedCameraSetting(stored=48.0, applied=48.0, capped=True)
+            AppliedGain(stored_db=48.0, applied_db=48.0, capped=True)
         with pytest.raises(ValueError):
-            AppliedCameraSetting(stored=48.0, applied=20.0, capped=False)
+            AppliedGain(stored_db=48.0, applied_db=20.0, capped=False)
 
 
 class TestTheCappedValueIsWhatReachesTheDriver:

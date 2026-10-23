@@ -219,40 +219,77 @@ def stored_exposure_after_lock(exposure_ms: float, floor_ms: float | None) -> fl
     return max(exposure_ms, floor_ms) if floor_ms is not None else exposure_ms
 
 
-@api_fields('applied', 'capped', 'stored')
-@dataclasses.dataclass(frozen=True)
-class AppliedCameraSetting:
-    """What a stored camera setting actually becomes on the attached body.
+def _refuse_a_contradicted_cap(
+    record: object, stored: object, applied: object, capped: bool
+) -> None:
+    """Raise unless ``capped`` says whether ``applied`` differs from ``stored``.
 
-    A stored gain or exposure is the user's committed intent and outlives
-    whichever camera happens to be attached. A smaller body cannot reach it,
-    so the value written to hardware is the cap while the stored value is
-    left alone -- put a capable camera back and the intent applies again.
-
-    The three facts travel together because both consumers need all three:
-    the apply path writes ``applied``, and a display has to show ``stored``
-    while saying the camera is holding it down. Handing out a bare float
-    would make each consumer recompute ``capped`` for itself, which is the
-    second answerer this type exists to prevent.
+    capped is not a caller's opinion: it is whether the write differs from
+    the intent. A consumer that renders one while testing the other would
+    report a limit that is not being applied.
     """
+    if capped != (applied != stored):
+        raise ValueError(
+            f'{type(record).__name__}: capped={capped!r} contradicts '
+            f'stored={stored!r} applied={applied!r}'
+        )
 
-    stored: float | bool
-    applied: float | bool
+
+# What a stored camera setting actually becomes on the attached body, one
+# record per setting, each in its setting's unit. A stored gain or exposure
+# is the user's committed intent and outlives whichever camera happens to be
+# attached. A smaller body cannot reach it, so the value written to hardware
+# is the cap while the stored value is left alone -- put a capable camera
+# back and the intent applies again.
+#
+# The three facts travel together because both consumers need all three: the
+# apply path writes the applied value, and a display has to show the stored
+# one while saying the camera is holding it down. Handing out a bare number
+# would make each consumer recompute ``capped`` for itself, which is the
+# second answerer these records exist to prevent.
+
+
+@api_fields('applied_db', 'capped', 'stored_db')
+@dataclasses.dataclass(frozen=True)
+class AppliedGain:
+    """What a stored gain becomes on the attached camera, in dB (``applied_gain_db_for``)."""
+
+    stored_db: float
+    applied_db: float
     capped: bool
 
     def __post_init__(self) -> None:
-        # capped is not a caller's opinion: it is whether the write differs
-        # from the intent. A consumer that renders one while testing the
-        # other would report a limit that is not being applied.
-        if self.capped != (self.applied != self.stored):
-            raise ValueError(
-                f'AppliedCameraSetting: capped={self.capped!r} contradicts '
-                f'stored={self.stored!r} applied={self.applied!r}'
-            )
+        _refuse_a_contradicted_cap(self, self.stored_db, self.applied_db, self.capped)
 
 
-def cap_stored_value(stored: float, cap: float | None) -> AppliedCameraSetting:
-    """Resolve a stored setting against a published maximum.
+@api_fields('applied_ms', 'capped', 'stored_ms')
+@dataclasses.dataclass(frozen=True)
+class AppliedExposure:
+    """What a stored exposure becomes on the attached camera, in ms (``applied_exposure_ms_for``)."""
+
+    stored_ms: float
+    applied_ms: float
+    capped: bool
+
+    def __post_init__(self) -> None:
+        _refuse_a_contradicted_cap(self, self.stored_ms, self.applied_ms, self.capped)
+
+
+@api_fields('applied', 'capped', 'stored')
+@dataclasses.dataclass(frozen=True)
+class AppliedAutoGain:
+    """What a stored auto-gain preference becomes on the attached camera (``applied_auto_gain_for``)."""
+
+    stored: bool
+    applied: bool
+    capped: bool
+
+    def __post_init__(self) -> None:
+        _refuse_a_contradicted_cap(self, self.stored, self.applied, self.capped)
+
+
+def cap_stored_value(stored: float, cap: float | None) -> tuple[float, float]:
+    """Resolve a stored setting against a published maximum: (stored, applied).
 
     An unknown cap (no camera, or a driver that publishes none) narrows
     nothing: a missing bound is not a bound of zero, and inventing one here
@@ -262,8 +299,8 @@ def cap_stored_value(stored: float, cap: float | None) -> AppliedCameraSetting:
     """
     value = float(stored)
     if cap is None or value <= cap:
-        return AppliedCameraSetting(stored=value, applied=value, capped=False)
-    return AppliedCameraSetting(stored=value, applied=float(cap), capped=True)
+        return value, value
+    return value, float(cap)
 
 
 def _rejected_gain_words(gain_db: float) -> str:
@@ -537,13 +574,20 @@ def _describe_geometry(snapshot: dict) -> str:
     return ' '.join(f'{key}={snapshot[key]}' for key in _GEOMETRY_ORDER if key in snapshot)
 
 
-@api_fields('setting', 'value')
+@api_fields('gain_db')
 @dataclasses.dataclass(frozen=True)
-class CameraChanged:
-    """A camera event: the setting changed, ``'gain'`` or ``'exposure'``, and its new value."""
+class GainChanged:
+    """A gain event: the gain now in effect, in dB."""
 
-    setting: str
-    value: float
+    gain_db: float
+
+
+@api_fields('exposure_ms')
+@dataclasses.dataclass(frozen=True)
+class ExposureChanged:
+    """An exposure event: the exposure now in effect, in ms."""
+
+    exposure_ms: float
 
 
 class CameraAPI:
@@ -565,12 +609,13 @@ class CameraAPI:
         self._cam_lock = profile_trace.TimedLock(threading.RLock(), name='camera._cam_lock')
 
         # Camera change listeners -- push-based UI update mechanism.
-        # Each listener is called with (param: str, value: float) whenever
-        # camera gain or exposure changes. param is 'gain' or 'exposure'.
-        # Fires from the thread that caused the change, so listeners MUST
-        # schedule UI work via Clock.schedule_once.
+        # A gain listener is called with the gain in dB, an exposure listener
+        # with the exposure in ms, whenever the camera's changes. Fires from
+        # the thread that caused the change, so listeners MUST schedule UI
+        # work via Clock.schedule_once.
         self._camera_listeners_lock = threading.Lock()
-        self._camera_listeners: list = []
+        self._gain_listeners: list = []
+        self._exposure_listeners: list = []
 
         # The commanded continuous auto-gain arm, or None. Only the API
         # commands the auto mode and no driver reads it back, so this is
@@ -728,11 +773,17 @@ class CameraAPI:
 
         return write
 
-    def _fire_camera_listeners(self, param: str, value: float) -> None:
-        """Notify all camera listeners of a setting change."""
+    def _fire_gain_listeners(self, gain_db: float) -> None:
+        """Notify all gain listeners of the gain now in effect."""
         with self._camera_listeners_lock:
-            listeners = list(self._camera_listeners)
-        notifications.tell_listeners(listeners, param, value, category='Camera')
+            listeners = list(self._gain_listeners)
+        notifications.tell_listeners(listeners, gain_db, category='Camera')
+
+    def _fire_exposure_listeners(self, exposure_ms: float) -> None:
+        """Notify all exposure listeners of the exposure now in effect."""
+        with self._camera_listeners_lock:
+            listeners = list(self._exposure_listeners)
+        notifications.tell_listeners(listeners, exposure_ms, category='Camera')
 
     def _frame_under_the_arm(self) -> Frame | None:
         """The camera's newest frame taken under the standing auto-gain arm.
@@ -1026,7 +1077,7 @@ class CameraAPI:
         self._commit_camera_writes({'gain_db': applied})
         if prior is None or abs(applied - prior) >= 0.001:
             _api_log.info(f'set_gain_db {applied}dB')
-            self._fire_camera_listeners('gain', applied)
+            self._fire_gain_listeners(applied)
         return applied
 
     def _set_exposure_ms_impl(self, exposure_ms: float) -> float | None:
@@ -1100,7 +1151,7 @@ class CameraAPI:
         self._commit_camera_writes({'exposure_ms': applied})
         if prior is None or abs(applied - prior) >= 0.001:
             _api_log.info(f'set_exposure {applied}ms')
-            self._fire_camera_listeners('exposure', applied)
+            self._fire_exposure_listeners(applied)
         return applied
 
     # --- Public dispatch ---
@@ -2590,7 +2641,7 @@ class CameraAPI:
         return self._read_unheld('frame rate', lambda driver: driver.get_resulting_frame_rate())
 
     @api(sets='black_level')
-    def set_black_level(self, value: float) -> float | None:
+    def set_black_level(self, level: float) -> float | None:
         """Set the camera's black level, wait for it, and answer with the
         value in effect.
 
@@ -2607,9 +2658,9 @@ class CameraAPI:
             CameraSettingUnsupportedError: This camera has no black level
                 setting (``capabilities.camera_supports_black_level`` is
                 False). Nothing reached the camera.
-            ArgumentRefusedError: ``'not_a_number'``, the value is not a
+            ArgumentRefusedError: ``'not_a_number'``, ``level`` is not a
                 finite number; nothing was sent to the camera.
-            CameraSettingOutOfRangeError: The value is outside the range the
+            CameraSettingOutOfRangeError: ``level`` is outside the range the
                 camera reports for its current pixel format; nothing was sent.
             CameraSettingRejected: The camera refused it, as a camera holding
                 its black level automatically does, or raised from the write
@@ -2620,7 +2671,7 @@ class CameraAPI:
         return self._dispatch_camera(
             self._set_black_level_impl,
             'set_black_level',
-            args=(value,),
+            args=(level,),
             timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
         )
 
@@ -3080,7 +3131,7 @@ class CameraAPI:
         return bound
 
     @api(reads=True)
-    def applied_gain_db_for(self, stored_gain_db: float) -> AppliedCameraSetting:
+    def applied_gain_db_for(self, stored_gain_db: float) -> AppliedGain:
         """What a stored gain becomes on the attached camera.
 
         The one place the gain cap is applied. A caller that narrows a
@@ -3094,10 +3145,11 @@ class CameraAPI:
         """
         refuse_unless_finite_number(stored_gain_db, 'stored_gain_db')
         limits = self._scope.capabilities.camera_limits
-        return cap_stored_value(stored_gain_db, limits.gain_db_max if limits else None)
+        stored, applied = cap_stored_value(stored_gain_db, limits.gain_db_max if limits else None)
+        return AppliedGain(stored_db=stored, applied_db=applied, capped=applied != stored)
 
     @api(reads=True)
-    def applied_exposure_ms_for(self, stored_exposure_ms: float) -> AppliedCameraSetting:
+    def applied_exposure_ms_for(self, stored_exposure_ms: float) -> AppliedExposure:
         """What a stored exposure becomes on the attached camera.
 
         See ``applied_gain_db_for``; the same contract for the other
@@ -3109,10 +3161,13 @@ class CameraAPI:
         """
         refuse_unless_finite_number(stored_exposure_ms, 'stored_exposure_ms')
         limits = self._scope.capabilities.camera_limits
-        return cap_stored_value(stored_exposure_ms, limits.exposure_ms_max if limits else None)
+        stored, applied = cap_stored_value(
+            stored_exposure_ms, limits.exposure_ms_max if limits else None
+        )
+        return AppliedExposure(stored_ms=stored, applied_ms=applied, capped=applied != stored)
 
     @api(reads=True)
-    def applied_auto_gain_for(self, stored_auto_gain: bool) -> AppliedCameraSetting:
+    def applied_auto_gain_for(self, stored_auto_gain: bool) -> AppliedAutoGain:
         """What a stored auto-gain preference becomes on the attached camera.
 
         See ``applied_gain_db_for``; the same contract for the mode. A camera
@@ -3125,7 +3180,7 @@ class CameraAPI:
         """
         stored = bool(stored_auto_gain)
         applied = stored and self._camera_has_auto_gain()
-        return AppliedCameraSetting(stored=stored, applied=applied, capped=applied != stored)
+        return AppliedAutoGain(stored=stored, applied=applied, capped=applied != stored)
 
     def _camera_has_auto_gain(self) -> bool:
         """Whether the attached camera has hardware auto-gain
@@ -3711,8 +3766,8 @@ class CameraAPI:
 
         if auto_gain_settings is not None and not auto.applied:
             _attempt(_write_mode)
-        gain_result = _attempt(lambda: self._set_gain_db_impl(gain.applied))
-        exposure_result = _attempt(lambda: self._set_exposure_ms_impl(exposure.applied))
+        gain_result = _attempt(lambda: self._set_gain_db_impl(gain.applied_db))
+        exposure_result = _attempt(lambda: self._set_exposure_ms_impl(exposure.applied_ms))
         if auto_gain_settings is not None and auto.applied:
             _attempt(_write_mode)
         # Both numbers when the camera held one down, so a bundle shows the
@@ -3720,12 +3775,12 @@ class CameraAPI:
         # number would read as the user having chosen the lower one.
         capped_note = ''
         if gain.capped or exposure.capped:
-            capped_note = f' capped(stored gain={gain.stored}dB exp={exposure.stored}ms)'
+            capped_note = f' capped(stored gain={gain.stored_db}dB exp={exposure.stored_ms}ms)'
         if auto.capped:
             capped_note += ' capped(stored auto_gain=True: no hardware auto-gain)'
         _api_log.info(
-            f'camera.apply layer={layer} gain={gain.applied}dB '
-            f'exp={exposure.applied}ms auto_gain={auto.applied}{capped_note}'
+            f'camera.apply layer={layer} gain={gain.applied_db}dB '
+            f'exp={exposure.applied_ms}ms auto_gain={auto.applied}{capped_note}'
         )
         if len(refused) == 1:
             raise refused[0]
@@ -3931,34 +3986,33 @@ class CameraAPI:
             self._suppress_value_warnings = prior
 
     # --- Frame-flow listeners ---
-    @api(in_process=True, event=CameraChanged)
-    def add_camera_listener(self, listener: Callable[[str, float], None]) -> None:
-        """Register a callback for camera setting changes.
+    @api(in_process=True, event=GainChanged)
+    def add_gain_listener(self, listener: Callable[[float], None]) -> None:
+        """Register a callback for each change of the camera's gain.
 
-        The listener is called with ``(param, value)`` whenever camera
-        gain or exposure changes.  *param* is ``'gain'`` or ``'exposure'``.
-        It fires from the thread that caused the change, so listeners
-        **must** schedule UI work via ``Clock.schedule_once``.
+        The listener is called with the gain now in effect, in dB, whenever
+        a write changes it. It fires from the thread that caused the change,
+        so listeners **must** schedule UI work via ``Clock.schedule_once``.
 
-        Note: this fires on set_gain_db/set_exposure_ms (user actions),
-        NOT on every camera frame grab -- zero overhead on display framerate.
+        Note: this fires on set_gain_db (a user action), NOT on every camera
+        frame grab -- zero overhead on display framerate.
 
         Args:
-            listener: ``callable(param: str, value: float)``
+            listener: ``callable(gain_db: float)``
 
         Raises:
             Nothing.
         """
         with self._camera_listeners_lock:
-            self._camera_listeners.append(listener)
+            self._gain_listeners.append(listener)
 
     @api(in_process=True)
-    def remove_camera_listener(self, listener: Callable[[str, float], None]) -> None:
-        """Unregister a camera listener.
+    def remove_gain_listener(self, listener: Callable[[float], None]) -> None:
+        """Unregister a gain listener.
 
         Args:
             listener: A callable previously passed to
-                ``add_camera_listener``. Silently ignores listeners that
+                ``add_gain_listener``. Silently ignores listeners that
                 are not currently registered.
 
         Raises:
@@ -3966,6 +4020,45 @@ class CameraAPI:
         """
         with self._camera_listeners_lock:
             try:
-                self._camera_listeners.remove(listener)
+                self._gain_listeners.remove(listener)
+            except ValueError:
+                pass
+
+    @api(in_process=True, event=ExposureChanged)
+    def add_exposure_listener(self, listener: Callable[[float], None]) -> None:
+        """Register a callback for each change of the camera's exposure.
+
+        The listener is called with the exposure now in effect, in ms,
+        whenever a write changes it. It fires from the thread that caused
+        the change, so listeners **must** schedule UI work via
+        ``Clock.schedule_once``.
+
+        Note: this fires on set_exposure_ms (a user action), NOT on every
+        camera frame grab -- zero overhead on display framerate.
+
+        Args:
+            listener: ``callable(exposure_ms: float)``
+
+        Raises:
+            Nothing.
+        """
+        with self._camera_listeners_lock:
+            self._exposure_listeners.append(listener)
+
+    @api(in_process=True)
+    def remove_exposure_listener(self, listener: Callable[[float], None]) -> None:
+        """Unregister an exposure listener.
+
+        Args:
+            listener: A callable previously passed to
+                ``add_exposure_listener``. Silently ignores listeners that
+                are not currently registered.
+
+        Raises:
+            Nothing.
+        """
+        with self._camera_listeners_lock:
+            try:
+                self._exposure_listeners.remove(listener)
             except ValueError:
                 pass

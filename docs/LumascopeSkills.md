@@ -2168,7 +2168,7 @@ scope.camera.read_black_level()                   # read from the camera now; No
 scope.camera.get_black_level_range()              # (minimum, maximum) set_black_level accepts, live, for the
                                                    #   current pixel format; None when no camera or none settable;
                                                    #   raises CameraReadFailedError when the read fails
-scope.camera.set_black_level(value=4.0)           # value in effect; probe
+scope.camera.set_black_level(level=4.0)           # level in effect; probe
                                                    #   scope.capabilities.camera_supports_black_level first;
                                                    #   raises CameraSettingRejected when the camera refuses
                                                    #   or fails the write, CameraReadFailedError when its
@@ -2281,31 +2281,36 @@ These are derived from the camera's profile, which is populated at connect via `
 A saved per-channel gain or exposure is the user's committed intent and outlives whichever camera is attached, whether it came from the file or was just written through `update_settings` (a typed 1500 ms on a 1000 ms camera is stored as 1500). A body that cannot reach the value is driven to its own maximum instead, and the stored value is left alone — reconnect a capable camera and the intent applies again. Ask the API what a stored value actually becomes rather than comparing against a cap yourself:
 
 ```python
-applied = scope.camera.applied_gain_db_for(48.0)     # stored=48.0 applied=20.0 capped=True
-applied = scope.camera.applied_exposure_ms_for(500.0)
-applied.stored                                        # what the user set
-applied.applied                                       # what this camera is given
-applied.capped                                        # True when the body is holding it down
+gain = scope.camera.applied_gain_db_for(48.0)        # AppliedGain(stored_db=48.0, applied_db=20.0, capped=True)
+gain.stored_db                                        # what the user set
+gain.applied_db                                       # what this camera is given
+gain.capped                                           # True when the body is holding it down
+exposure = scope.camera.applied_exposure_ms_for(500.0)  # AppliedExposure(stored_ms, applied_ms, capped)
 ```
 
 The same holds for a stored auto-gain preference. A camera without hardware auto-gain runs manual whatever the layer stored, and the preference is kept for a camera that has the mode:
 
 ```python
-applied = scope.camera.applied_auto_gain_for(True)   # IDS: stored=True applied=False capped=True
+applied = scope.camera.applied_auto_gain_for(True)   # IDS: AppliedAutoGain(stored=True, applied=False, capped=True)
 ```
 
-All three return an `AppliedCameraSetting`. For gain and exposure, an unknown cap (no camera, or a driver that publishes none) narrows nothing, so `applied == stored` and `capped` is `False`. This is the only place the cap is applied: the per-layer apply path sends `applied` to the driver, so the value a caller reads back is what the sensor is actually at.
+Each returns its own record, its values in its setting's unit: `AppliedGain` in dB, `AppliedExposure` in ms, `AppliedAutoGain` a mode. For gain and exposure, an unknown cap (no camera, or a driver that publishes none) narrows nothing, so the applied value is the stored one and `capped` is `False`. This is the only place the cap is applied: the per-layer apply path sends the applied value to the driver, so the value a caller reads back is what the sensor is actually at.
 
 Note the difference from `set_gain_db`, `set_exposure_ms` and `set_frame_size`, which are **explicit requests** and raise `CameraSettingOutOfRangeError` for a value outside the camera's range, the same on every camera. Capping belongs to re-applying something already stored; a direct request for an out-of-range value is an error, not something to silently narrow.
 
 ### Camera listeners
 
 ```python
-def on_camera(param: str, value: float):
-    print(f"Camera {param} = {value}")
+def on_gain(gain_db: float):
+    print(f"gain {gain_db} dB")
 
-scope.camera.add_camera_listener(on_camera)       # fires on set_gain_db / set_exposure
-scope.camera.remove_camera_listener(on_camera)
+def on_exposure(exposure_ms: float):
+    print(f"exposure {exposure_ms} ms")
+
+scope.camera.add_gain_listener(on_gain)           # fires on set_gain_db, with the gain in effect
+scope.camera.add_exposure_listener(on_exposure)   # fires on set_exposure_ms, with the exposure in effect
+scope.camera.remove_gain_listener(on_gain)
+scope.camera.remove_exposure_listener(on_exposure)
 ```
 
 ### Live frame listeners
@@ -2341,14 +2346,15 @@ scope.imaging.remove_frame_listener(on_frame)
 
 ### Listener callback signatures (overview)
 
-The eight listener families each pass a different callback signature -- register a callable matching the row for the listener you subscribe to:
+The nine listener families each pass a different callback signature -- register a callable matching the row for the listener you subscribe to:
 
 | Listener | Register via | Callback signature | Event record |
 |---|---|---|---|
 | Motion / position | `scope.motion.add_position_listener` | `on_position(axis: str, at: AxisPosition)` | `PositionChanged(axis, at)` |
 | Turret | `scope.motion.add_turret_listener` | `on_turret(at: TurretStatus)` | `TurretChanged(at)` |
 | LED / illumination | `scope.illumination.add_led_listener` | `on_led(address: int, name: str \| None, state: LedState, illumination_ma: float \| None)` | `LedReading(address, name, state, illumination_ma)` |
-| Camera params | `scope.camera.add_camera_listener` | `on_camera(param: str, value: float)` | `CameraChanged(setting, value)` |
+| Camera gain | `scope.camera.add_gain_listener` | `on_gain(gain_db: float)` | `GainChanged(gain_db)` |
+| Camera exposure | `scope.camera.add_exposure_listener` | `on_exposure(exposure_ms: float)` | `ExposureChanged(exposure_ms)` |
 | Live frame | `scope.imaging.add_frame_listener` | `on_frame(frame: Frame)` | `FrameDelivered(frame)` |
 | Run state | `session.add_run_state_listener` | `on_run_state()` -- no payload; re-read the session derivations (see Run state and locks above) | `Status`, read at the edge but for `camera_streaming`, asked just after |
 | Outcomes | `ScopeSession.create(outcome_listener=...)` or `session.add_outcome_listener` | `on_outcome(n)` -- one `Notification` (see Outcomes above) | `Notification` itself |
@@ -2356,7 +2362,7 @@ The eight listener families each pass a different callback signature -- register
 
 Each event declares its record, published in the reference below: its fields name the callback's arguments in order, so a host that carries an event elsewhere (the REST server's stream) builds the record from the arguments rather than keeping its own table of signatures. A run's events do the same: `RunEvents.scan_started` delivers `ScanStarted(scan_index, scans_remaining, period_s)`, `scan_ended` `ScanEnded(...)`, `step_started` `StepStarted(step_index)`, `frame_captured` `FrameCaptured(image, frames_summed, frame_significant_bits)`, `video_progress` the `VideoProgress` it passes, `run_ended` `RunEnded(outcome, run_dir, protocol)`, `files_written` `FilesWritten(run_dir, files)`. Callbacks keep their signatures; a Python caller need not build any record.
 
-The five `scope.*` listeners each have a matching `remove_*_listener(callback)`. The frame listener additionally takes a `name=` kwarg and carries the read-only frame + 24 ms budget contract documented above; the other four are lightweight state-change notifications.
+The six `scope.*` listeners each have a matching `remove_*_listener(callback)`. The frame listener additionally takes a `name=` kwarg and carries the read-only frame + 24 ms budget contract documented above; the other five are lightweight state-change notifications.
 
 The last three rows are not registered on the scope. **Settings** is registered on the session: each write to the settings store -- by the GUI, a REST client, a script, or the camera storing what it applied -- tells the paths it stored, all of them once its write has let go of the store, on the writer's thread; `session.remove_settings_listener(callback)` removes it. On the REST stream it is the `settings` event, so a client beside the GUI hears the GUI's changes and the GUI redraws a client's. **Run state** is registered on the **session**: it takes no payload and is level-synced -- registering calls it once immediately, so a subscriber never misses a transition that happened before it subscribed, and `session.remove_run_state_listener(callback)` removes it (a callback never added is a no-op). **Outcomes** are registered on the session, or given to the factory to hear bring-up, and have a matching `session.remove_outcome_listener(callback)`.
 
@@ -2741,7 +2747,8 @@ Every answer that is not a result is an RFC 9457 problem, `application/problem+j
 | `position` | `PositionChanged`: a stage axis's state and position, as `axis_positions` answers |
 | `turret` | `TurretChanged`: the turret's state and slot, as `turret_status` answers |
 | `led` | `LedReading` |
-| `camera` | `CameraChanged`: gain or exposure |
+| `gain` | `GainChanged`: the gain in effect, in dB |
+| `exposure` | `ExposureChanged`: the exposure in effect, in ms |
 | `run_state` | `Status`, as `status` reads at the edge; `camera_streaming` is asked just after, off the thread that made the transition, and the events keep the edges' order |
 | `outcome` | `Notification`: an outcome nobody asked for, once per `outcome_id` (one a request was refused with is its answer's problem) |
 | `scan_started`, `scan_ended`, `step_started`, `video_progress`, `run_ended`, `files_written` | The run event's record (`ScanStarted`, ...), with `run`, `{"job": "<id>"}`, the job of the run that sent it, as its call answered it (`null` for `run_composite`, which waits for its run and hands out no job). `run_ended` leaves out the run's own copy of its protocol. |
@@ -3292,7 +3299,8 @@ Reached through `session.scope.illumination`.
 Reached through `session.scope.camera`.
 
 - `active`
-- `add_camera_listener` (in-process)
+- `add_exposure_listener` (in-process)
+- `add_gain_listener` (in-process)
 - `applied_auto_gain_for`
 - `applied_exposure_ms_for`
 - `applied_gain_db_for`
@@ -3324,7 +3332,8 @@ Reached through `session.scope.camera`.
 - `read_frame_size`
 - `read_gain_db`
 - `read_pixel_format`
-- `remove_camera_listener` (in-process)
+- `remove_exposure_listener` (in-process)
+- `remove_gain_listener` (in-process)
 - `restore_camera_state` (in-process)
 - `save_camera_state` (in-process)
 - `set_auto_exposure`
@@ -3621,13 +3630,29 @@ Reached through a run's `Operation.result` and returned by `ProtocolRunner.run_c
 - `status`
 - `title`
 
-### AppliedCameraSetting
+### AppliedAutoGain
 
-Reached through returned by `scope.imaging`'s `applied_*_for` members.
+Reached through returned by `scope.camera.applied_auto_gain_for`.
 
 - `applied`
 - `capped`
 - `stored`
+
+### AppliedExposure
+
+Reached through returned by `scope.camera.applied_exposure_ms_for`.
+
+- `applied_ms`
+- `capped`
+- `stored_ms`
+
+### AppliedGain
+
+Reached through returned by `scope.camera.applied_gain_db_for`.
+
+- `applied_db`
+- `capped`
+- `stored_db`
 
 ### ArgumentRefusedError
 
@@ -3720,12 +3745,17 @@ Reached through returned by `scope.diagnostics.get_camera_link_info`.
 - `packet_size_bytes`
 - `transport`
 
-### CameraChanged
+### ExposureChanged
 
-Reached through the event `scope.camera.add_camera_listener` delivers.
+Reached through the event `scope.camera.add_exposure_listener` delivers.
 
-- `setting`
-- `value`
+- `exposure_ms`
+
+### GainChanged
+
+Reached through the event `scope.camera.add_gain_listener` delivers.
+
+- `gain_db`
 
 ### CameraLimits
 

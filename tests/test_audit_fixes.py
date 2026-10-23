@@ -8283,7 +8283,8 @@ class TestLumascopeSkillsApiPluginDocBatch:
         for sig in (
             'on_position(axis',
             'on_led(address',
-            'on_camera(param',
+            'on_gain(gain_db',
+            'on_exposure(exposure_ms',
             'on_frame(frame',
         ):
             assert sig in doc, f'listener overview missing {sig!r}'

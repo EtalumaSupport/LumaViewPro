@@ -227,11 +227,15 @@ class TestABrokenListenerIsLoud:
                 ),
             ),
             (
-                lambda s, cb: s.scope.camera.add_camera_listener(cb),
-                lambda s: s.scope.camera._fire_camera_listeners('gain', 1.0),
+                lambda s, cb: s.scope.camera.add_gain_listener(cb),
+                lambda s: s.scope.camera._fire_gain_listeners(1.0),
+            ),
+            (
+                lambda s, cb: s.scope.camera.add_exposure_listener(cb),
+                lambda s: s.scope.camera._fire_exposure_listeners(1.0),
             ),
         ],
-        ids=['position', 'led', 'camera'],
+        ids=['position', 'led', 'gain', 'exposure'],
     )
     def test_a_raising_scope_listener_is_reported_once(self, session, add, fire):
         heard = _listening(session)

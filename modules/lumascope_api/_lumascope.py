@@ -758,7 +758,7 @@ class Lumascope:
         # _led_state_lock, _led_listeners_lock, _led_lock) live on
         # IlluminationAPI.
 
-        # Camera state slots (_camera_listeners + lock,
+        # Camera state slots (_gain_listeners, _exposure_listeners + lock,
         # _suppress_value_warnings, _camera_cache + lock) live on CameraAPI;
         # the capture's (_focusing_event, _scale_bar, _camera_temp_event,
         # _camera_temp_unschedule_fn) on ImagingAPI; frame_validity here.
@@ -1038,7 +1038,7 @@ class Lumascope:
         # turret_config / stage_offset). Lumascope holds driver slots,
         # its two lanes, its data folder and the catalogues read from it.
 
-        # camera_cache, _camera_listeners and _suppress_value_warnings init
+        # camera_cache, the camera listeners and _suppress_value_warnings init
         # live on CameraAPI.__init__, which populates the cache; scale_bar,
         # _focusing_event and _camera_temp_event on ImagingAPI.__init__.
         # Lumascope wires up the motion-settle check against the

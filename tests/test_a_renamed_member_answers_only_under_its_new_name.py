@@ -85,6 +85,13 @@ RENAMED = [
         {'axis': 'Z', 'coarse': True},
     ),
     (
+        'PUT',
+        'scope/camera/black_level',
+        {'value': 4.0},
+        'scope/camera/black_level',
+        {'level': 4.0},
+    ),
+    (
         'GET',
         'scope/protocols/focus_z',
         {'then': 'save the focus'},

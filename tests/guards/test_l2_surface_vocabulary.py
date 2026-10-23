@@ -75,6 +75,10 @@ RETIRED = {
     'saved_focus': 'saved_focus_z_um',
     'focus_z': 'focus_z_um',
     'jog_step': 'jog_step_um',
+    'CameraChanged': 'GainChanged and ExposureChanged',
+    'add_camera_listener': 'add_gain_listener and add_exposure_listener',
+    'remove_camera_listener': 'remove_gain_listener and remove_exposure_listener',
+    'AppliedCameraSetting': 'AppliedGain, AppliedExposure and AppliedAutoGain',
 }
 
 

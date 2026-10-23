@@ -344,7 +344,8 @@ IMAGING_ONLY_METHODS = MemberNames(
 CAMERA_ONLY_METHODS = MemberNames(
     'modules/lumascope_api/camera.py',
     {
-        'add_camera_listener',
+        'add_exposure_listener',
+        'add_gain_listener',
         'apply',
         'auto_gain_once',
         'active',
@@ -357,7 +358,8 @@ CAMERA_ONLY_METHODS = MemberNames(
         'read_exposure_ms',
         'read_frame_size',
         'read_gain_db',
-        'remove_camera_listener',
+        'remove_exposure_listener',
+        'remove_gain_listener',
         'restore_camera_state',
         'save_camera_state',
         'set_auto_exposure',

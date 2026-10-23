@@ -206,43 +206,51 @@ class TestLEDSaveRestore:
 
 
 class TestCameraListener:
-    """Tests for add_camera_listener / _fire_camera_listeners."""
+    """Tests for add_gain_listener / add_exposure_listener: each setting its own event, in its unit."""
 
-    def test_listener_fires_on_set_gain(self, scope):
-        events = []
-        scope.camera.add_camera_listener(lambda p, v: events.append((p, v)))
+    def test_the_gain_listener_hears_the_gain_in_db_and_not_an_exposure(self, scope):
+        gains, exposures = [], []
+        scope.camera.add_gain_listener(gains.append)
+        scope.camera.add_exposure_listener(exposures.append)
         scope.camera.set_gain_db(5.0)
-        assert len(events) == 1
-        assert events[0] == ('gain', 5.0)
+        assert (gains, exposures) == ([5.0], [])
 
-    def test_listener_fires_on_set_exposure(self, scope):
-        events = []
-        scope.camera.add_camera_listener(lambda p, v: events.append((p, v)))
+    def test_the_exposure_listener_hears_the_exposure_in_ms_and_not_a_gain(self, scope):
+        gains, exposures = [], []
+        scope.camera.add_gain_listener(gains.append)
+        scope.camera.add_exposure_listener(exposures.append)
         scope.camera.set_exposure_ms(25.0)  # Different from default 10ms
-        assert len(events) == 1
-        assert events[0] == ('exposure', 25.0)
+        assert (gains, exposures) == ([], [25.0])
 
     def test_listener_not_fired_on_redundant_gain(self, scope):
         """Skip-check: same gain value should not fire listener."""
         scope.camera.set_gain_db(5.0)
         events = []
-        scope.camera.add_camera_listener(lambda p, v: events.append((p, v)))
+        scope.camera.add_gain_listener(events.append)
         scope.camera.set_gain_db(5.0)  # redundant
         assert len(events) == 0
 
-    def test_remove_camera_listener(self, scope):
+    def test_remove_gain_listener(self, scope):
         events = []
-        listener = lambda p, v: events.append((p, v))
-        scope.camera.add_camera_listener(listener)
-        scope.camera.remove_camera_listener(listener)
+        listener = events.append
+        scope.camera.add_gain_listener(listener)
+        scope.camera.remove_gain_listener(listener)
         scope.camera.set_gain_db(5.0)
         assert len(events) == 0
 
+    def test_remove_exposure_listener(self, scope):
+        events = []
+        listener = events.append
+        scope.camera.add_exposure_listener(listener)
+        scope.camera.remove_exposure_listener(listener)
+        scope.camera.set_exposure_ms(25.0)
+        assert len(events) == 0
+
     def test_camera_listener_exception_does_not_propagate(self, scope):
-        def bad_listener(p, v):
+        def bad_listener(gain_db):
             raise RuntimeError('broken')
 
-        scope.camera.add_camera_listener(bad_listener)
+        scope.camera.add_gain_listener(bad_listener)
         scope.camera.set_gain_db(5.0)  # should not raise
 
 

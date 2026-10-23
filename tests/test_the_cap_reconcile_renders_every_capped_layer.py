@@ -17,7 +17,7 @@ from unittest.mock import MagicMock
 
 import modules.app_context as _app_ctx
 from modules.layer_record import release_catalogue
-from modules.lumascope_api.camera import cap_stored_value
+from modules.lumascope_api.camera import AppliedExposure, AppliedGain, cap_stored_value
 from modules.scope_session import ShownChannel
 
 _CAP_DB = 24.0
@@ -25,12 +25,14 @@ _CAP_DB = 24.0
 
 def _applied_gain(stored):
     # The API's own cap rule over a camera whose gain ceiling is _CAP_DB.
-    return cap_stored_value(stored, _CAP_DB)
+    stored_db, applied_db = cap_stored_value(stored, _CAP_DB)
+    return AppliedGain(stored_db=stored_db, applied_db=applied_db, capped=applied_db != stored_db)
 
 
 def _applied_exposure(stored):
     # No exposure ceiling: nothing is capped.
-    return cap_stored_value(stored, None)
+    stored_ms, applied_ms = cap_stored_value(stored, None)
+    return AppliedExposure(stored_ms=stored_ms, applied_ms=applied_ms, capped=False)
 
 
 def _reconcile(monkeypatch, *, shown, capped):

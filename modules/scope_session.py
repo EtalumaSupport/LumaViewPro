@@ -4368,10 +4368,10 @@ class ScopeSession:
                 layer = record.key_name
                 gain = camera.applied_gain_db_for(self.settings[layer]['gain_db'])
                 if gain.capped:
-                    capped.append((layer, 'gain_db', gain.stored, gain.applied))
+                    capped.append((layer, 'gain_db', gain.stored_db, gain.applied_db))
                 exposure = camera.applied_exposure_ms_for(self.settings[layer]['exposure_ms'])
                 if exposure.capped:
-                    capped.append((layer, 'exposure_ms', exposure.stored, exposure.applied))
+                    capped.append((layer, 'exposure_ms', exposure.stored_ms, exposure.applied_ms))
         if not capped:
             return
         from modules.exceptions import LayerSettingCappedNotice
