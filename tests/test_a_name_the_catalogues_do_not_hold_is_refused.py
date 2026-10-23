@@ -87,7 +87,7 @@ OBJECTIVE_MEMBERS = {
     'get_objective_info': lambda s, v: s.objective_helper.get_objective_info(objective_id=v),
     'select_objective': lambda s, v: s.select_objective(v),
     'confirm_objective': lambda s, v: s.confirm_objective(v),
-    'confirm_objective at a slot': lambda s, v: s.confirm_objective(v, turret_position=2),
+    'confirm_objective at a slot': lambda s, v: s.confirm_objective(v, slot=2),
     'assign_turret_objective': lambda s, v: s.assign_turret_objective(2, v),
 }
 

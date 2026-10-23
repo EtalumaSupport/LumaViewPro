@@ -126,7 +126,7 @@ class TestT8ObjectiveQuestion:
         session = _at_slot(sessions(**_turret_settings()), 1)
         question = session.objective_question()
         assert question is not None
-        assert question.turret_position == 1
+        assert question.turret_slot == 1
         assert question.proposed == '4x Oly'
         assert question.choices == tuple(session.objective_helper.get_objectives_list())
 
@@ -134,7 +134,7 @@ class TestT8ObjectiveQuestion:
         session = sessions(**_turret_settings(microscope=NON_TURRET_MODEL, objective_id='10x Oly'))
         question = session.objective_question()
         assert question is not None
-        assert question.turret_position is None
+        assert question.turret_slot is None
         # Owed only before anyone confirmed one, so the stored id is the
         # shipped template's, not glass anyone saw: the default is proposed.
         assert question.proposed == DEFAULT_PROPOSED_OBJECTIVE_ID
@@ -154,7 +154,7 @@ class TestT8ObjectiveQuestion:
         _at_slot(session, 2)
         question = session.objective_question()
         assert question is not None
-        assert question.turret_position == 2
+        assert question.turret_slot == 2
 
     def test_the_position_is_the_live_slot_not_the_stored_one(self, sessions):
         # The stored turret_position says 3; the turret is in slot 2. The
@@ -169,7 +169,7 @@ class TestT8ObjectiveQuestion:
         _at_slot(session, 2)
         question = session.objective_question()
         assert question is not None
-        assert question.turret_position == 2
+        assert question.turret_slot == 2
 
     def test_an_owed_question_with_the_slot_unknown_says_home_the_turret(self, sessions):
         # Bring-up alone leaves the slot unknown: there is no slot to ask about.
@@ -278,7 +278,7 @@ class TestT8ObjectiveQuestion:
         assert 'banana' not in session.objective_helper.get_objectives_list()
         question = session.objective_question()
         assert question is not None
-        assert question.turret_position == 2
+        assert question.turret_slot == 2
         assert question.proposed == DEFAULT_PROPOSED_OBJECTIVE_ID
 
     def test_a_stored_id_outside_the_catalogue_is_replaced_at_bring_up(self, sessions):
@@ -313,7 +313,7 @@ class TestT8ObjectiveQuestion:
         session = _at_slot(sessions(**_turret_settings(turret_position='three')), 1)
         question = session.objective_question()
         assert question is not None
-        assert question.turret_position == 1
+        assert question.turret_slot == 1
 
     def test_the_proposal_never_comes_from_the_stored_id(self, sessions):
         # On a turret model the stored objective_id is a turretless
@@ -347,7 +347,7 @@ class TestT8ObjectiveQuestion:
 class TestT9ConfirmObjective:
     def test_a_confirm_writes_the_slot_and_the_flag(self, sessions):
         session = _at_slot(sessions(**_turret_settings(turret_position=2)), 2)
-        assert session.confirm_objective('10x Oly', turret_position=2) is True
+        assert session.confirm_objective('10x Oly', slot=2) is True
         # The active objective is derived from the slot; no stored copy moves.
         assert session.scope.runtime_state.get_current_objective_id() == '10x Oly'
         assert session.settings['objective_id'] == '20x Oly'
@@ -356,13 +356,13 @@ class TestT9ConfirmObjective:
 
     def test_confirming_the_held_objective_reports_no_change(self, sessions):
         session = _at_slot(sessions(**_turret_settings(turret_position=2)), 2)
-        assert session.confirm_objective('10x Oly', turret_position=2) is True
-        assert session.confirm_objective('10x Oly', turret_position=2) is False
+        assert session.confirm_objective('10x Oly', slot=2) is True
+        assert session.confirm_objective('10x Oly', slot=2) is False
         assert session.settings['objective_confirmed'] == 'turret'
 
     def test_a_confirm_binds_the_slot_it_names(self, sessions):
         session = _at_slot(sessions(**_turret_settings(turret_position=2)), 2)
-        session.confirm_objective('4x Oly', turret_position=2)
+        session.confirm_objective('4x Oly', slot=2)
         assert session.scope.runtime_state.get_current_objective_id() == '4x Oly'
         assert session.settings['turret_objectives'][2] == '4x Oly'
         assert session.settings['objective_confirmed'] == 'turret'
@@ -377,7 +377,7 @@ class TestT9ConfirmObjective:
             session.settings.get('objective_confirmed'),
         )
         with pytest.raises(ConfigError):
-            session.confirm_objective(bad, turret_position=2)
+            session.confirm_objective(bad, slot=2)
         after = (
             session.settings['objective_id'],
             session.scope.runtime_state.get_current_objective_id(),
@@ -395,7 +395,7 @@ class TestT9ConfirmObjective:
 
     def test_after_a_confirm_the_question_is_answered(self, sessions):
         session = _at_slot(sessions(**_turret_settings(turret_position=2)), 2)
-        session.confirm_objective('4x Oly', turret_position=2)
+        session.confirm_objective('4x Oly', slot=2)
         assert session.objective_question() is None
 
 

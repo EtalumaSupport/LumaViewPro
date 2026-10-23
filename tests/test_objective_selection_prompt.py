@@ -51,10 +51,10 @@ class _ScriptedSession:
         # re-asks later, so nothing may be hung on this pass.
         return self.provisional
 
-    def confirm_objective(self, objective_id, turret_position=None):
+    def confirm_objective(self, objective_id, slot=None):
         if isinstance(self.changed, Exception):
             raise self.changed
-        self.confirmed.append((objective_id, turret_position))
+        self.confirmed.append((objective_id, slot))
         return self.changed
 
     def get_objective_info(self, objective_id):
@@ -144,7 +144,7 @@ class TestTheQuestionIsRendered:
         assert h.popups == [] and h.error_popups == []
 
     def test_a_question_renders_once_with_its_choices_and_proposal(self, monkeypatch):
-        question = ObjectiveQuestion(turret_position=2, proposed='10x Oly', choices=CHOICES)
+        question = ObjectiveQuestion(turret_slot=2, proposed='10x Oly', choices=CHOICES)
         h = _Harness(monkeypatch, _ScriptedSession(question))
         h.prompt()
         assert len(h.popups) == 1
@@ -154,7 +154,7 @@ class TestTheQuestionIsRendered:
         assert 'turret position 2' in popup['message']
 
     def test_a_question_without_a_position_says_so(self, monkeypatch):
-        question = ObjectiveQuestion(turret_position=None, proposed='4x Oly', choices=CHOICES)
+        question = ObjectiveQuestion(turret_slot=None, proposed='4x Oly', choices=CHOICES)
         h = _Harness(monkeypatch, _ScriptedSession(question))
         h.prompt()
         assert 'turret position' not in h.popups[0]['message']
@@ -214,7 +214,7 @@ class TestTheContinuationFollowsTheQuestion:
         assert runs == [1]
 
     def test_a_rendered_question_runs_nothing_until_it_is_answered(self, monkeypatch):
-        question = ObjectiveQuestion(turret_position=2, proposed='10x Oly', choices=CHOICES)
+        question = ObjectiveQuestion(turret_slot=2, proposed='10x Oly', choices=CHOICES)
         h = _Harness(monkeypatch, _ScriptedSession(question))
         runs = self._prompt(h)
         assert runs == []
@@ -222,7 +222,7 @@ class TestTheContinuationFollowsTheQuestion:
         assert runs == [1]
 
     def test_a_rendered_question_runs_it_once_when_folded(self, monkeypatch):
-        question = ObjectiveQuestion(turret_position=2, proposed='10x Oly', choices=CHOICES)
+        question = ObjectiveQuestion(turret_slot=2, proposed='10x Oly', choices=CHOICES)
         h = _Harness(monkeypatch, _ScriptedSession(question))
         runs = self._prompt(h)
         assert runs == []
@@ -258,7 +258,7 @@ class TestTheContinuationFollowsTheQuestion:
 
 class TestTheAnswerReachesTheSession:
     def _question(self, position=2):
-        return ObjectiveQuestion(turret_position=position, proposed='10x Oly', choices=CHOICES)
+        return ObjectiveQuestion(turret_slot=position, proposed='10x Oly', choices=CHOICES)
 
     def test_the_answer_goes_through_confirm_objective(self, monkeypatch):
         session = _ScriptedSession(self._question())
@@ -390,7 +390,7 @@ class TestResetLeavesTheSlotCleared:
     def test_a_reset_clears_the_current_slot_and_opens_no_popup(self, monkeypatch):
         # The session has a question to ask -- hardware present, settings
         # resolved -- which is exactly when the old trigger fired.
-        question = ObjectiveQuestion(turret_position=3, proposed='10x Oly', choices=CHOICES)
+        question = ObjectiveQuestion(turret_slot=3, proposed='10x Oly', choices=CHOICES)
         h = self._reset_at(monkeypatch, 3, question)
         # The slot is the API's; the widget names none.
         assert h.session.cleared == ['current']
@@ -399,7 +399,7 @@ class TestResetLeavesTheSlotCleared:
         assert h.stand.shown == [False]
 
     def test_the_cleared_slot_is_not_re_assigned(self, monkeypatch):
-        question = ObjectiveQuestion(turret_position=2, proposed='4x Oly', choices=CHOICES)
+        question = ObjectiveQuestion(turret_slot=2, proposed='4x Oly', choices=CHOICES)
         h = self._reset_at(monkeypatch, 2, question)
         # The re-assignment the dead button performed went through
         # confirm_objective; nothing may reach it from a reset.

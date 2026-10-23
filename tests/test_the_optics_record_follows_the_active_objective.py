@@ -60,9 +60,9 @@ def test_a_turret_move_records_the_new_objective_once(turret_session, recorded):
 def test_answering_the_question_records_the_answer(turret_session, recorded):
     turret_session.scope.motion.move_turret(3)
     question = turret_session.objective_question()
-    assert question is not None and question.turret_position == 3
+    assert question is not None and question.turret_slot == 3
 
-    turret_session.confirm_objective('20x Oly', turret_position=question.turret_position)
+    turret_session.confirm_objective('20x Oly', slot=question.turret_slot)
 
     assert _read(turret_session) == '20x Oly'
     assert recorded == ['20x Oly']

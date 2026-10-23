@@ -114,7 +114,7 @@ class TestTheQuestionUsesIt:
         question = session.objective_question()
 
         assert question is not None, 'a turreted scope with an empty slot must be asked'
-        assert question.turret_position == 1, (
+        assert question.turret_slot == 1, (
             'the question must name the slot the answer will be assigned to'
         )
 
@@ -129,7 +129,7 @@ class TestTheQuestionUsesIt:
         question = session.objective_question()
 
         assert question is not None
-        assert question.turret_position is None, (
+        assert question.turret_slot is None, (
             'a scope with no turret has no slot to assign the answer to'
         )
 
@@ -171,9 +171,7 @@ class TestAChangeOfTopologyAsksAgain:
     ):
         first = _brought_up(tmp_path, confirmed_on, objective_confirmed=None)
         try:
-            first.confirm_objective(
-                '10x Oly', turret_position=1 if first.scope_has_turret() else None
-            )
+            first.confirm_objective('10x Oly', slot=1 if first.scope_has_turret() else None)
             stored = first.get_setting('objective_confirmed')
             assert first.objective_question() is None
         finally:

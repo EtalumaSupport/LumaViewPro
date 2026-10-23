@@ -3565,7 +3565,7 @@ class ArgumentRefusedError(Refusal, ValueError):
             - ``'objective_not_on_turret'`` -- an objective to turn the
               turret to that no slot holds (``offered``: the objectives
               the slots hold, in slot order).
-            - ``'turret_position_required'`` -- an objective confirmed on
+            - ``'slot_required'`` -- an objective confirmed on
               a turret scope with no slot named; the confirmation records
               the glass in a slot.
             - ``'gain_range_inverted'`` -- an auto-gain settings dictionary
@@ -3738,7 +3738,7 @@ class ArgumentRefusedError(Refusal, ValueError):
             'Not a Key Taken Here',
             '{argument} takes only the keys {offered}; {value!r} is not one.',
         ),
-        'turret_position_required': (
+        'slot_required': (
             'Turret Slot Not Named',
             '{argument} is needed on a scope with a turret: the confirmation records the '
             'objective in a slot.',

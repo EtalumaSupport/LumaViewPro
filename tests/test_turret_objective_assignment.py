@@ -152,7 +152,7 @@ class TestPickingAnObjectiveTurnsTheTurret:
         with pytest.raises(ArgumentRefusedError) as excinfo:
             turret_session.confirm_objective('20x Oly')
 
-        assert excinfo.value.reason == 'turret_position_required'
+        assert excinfo.value.reason == 'slot_required'
         assert turret_session.settings['turret_objectives'][1] == '10x Oly'
 
 
@@ -169,7 +169,7 @@ class TestAScopeWithNoTurretRefusesEverySlotWrite:
             'assign_turret_objective': lambda s: s.assign_turret_objective(1, 'no such glass'),
             'clear_turret_objective': lambda s: s.clear_turret_objective(1),
             'clear_current_turret_objective': lambda s: s.clear_current_turret_objective(),
-            'confirm_objective': lambda s: s.confirm_objective('no such glass', turret_position=1),
+            'confirm_objective': lambda s: s.confirm_objective('no such glass', slot=1),
         }
         before = dict(turretless_session.settings['turret_objectives'])
         wrong = {}

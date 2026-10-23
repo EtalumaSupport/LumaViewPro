@@ -458,10 +458,9 @@ class VerticalControl(BoxLayout):
 
     def _render_objective_question(self, question, on_resolved=None):
         """The one popup for the objective question; the answer applies below."""
-        if question.turret_position is not None:
+        if question.turret_slot is not None:
             first_line = (
-                'Please confirm the objective installed at turret position '
-                f'{question.turret_position}.'
+                f'Please confirm the objective installed at turret position {question.turret_slot}.'
             )
         else:
             first_line = 'Please confirm the installed objective.'
@@ -475,13 +474,13 @@ class VerticalControl(BoxLayout):
             objectives=list(question.choices),
             current_objective_id=question.proposed,
             on_confirm=lambda chosen: self._apply_objective_answer(
-                chosen, question.turret_position, on_resolved=on_resolved
+                chosen, question.turret_slot, on_resolved=on_resolved
             ),
             on_cancel=lambda: self._resolve_objective(on_resolved),
             on_folded=lambda: self._resolve_objective(on_resolved),
         )
 
-    def _apply_objective_answer(self, chosen, turret_position, on_resolved=None):
+    def _apply_objective_answer(self, chosen, slot, on_resolved=None):
         """Hand the answer to the Session and render what it did."""
 
         def _redraw():
@@ -497,7 +496,7 @@ class VerticalControl(BoxLayout):
                 self._resolve_objective(on_resolved)
 
         run_reported(
-            lambda: _app_ctx.ctx.session.confirm_objective(chosen, turret_position=turret_position),
+            lambda: _app_ctx.ctx.session.confirm_objective(chosen, slot=slot),
             redraw=_redraw,
             label='OBJECTIVE_ANSWER',
         )

@@ -50,7 +50,7 @@ try:
         str(q)[:140],
     )
     if q is not None:
-        s.confirm_objective(b, turret_position=3)
+        s.confirm_objective(b, slot=3)
         check(
             'confirm_objective assigns the slot, clears the question, and is active',
             s.get_settings_snapshot()['turret_objectives'][3] == b

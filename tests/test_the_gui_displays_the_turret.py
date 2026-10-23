@@ -323,7 +323,7 @@ class TestTheAskedQuestion:
         home_sim_scope(session.scope)
         session.scope.motion.move_turret(2)
         question = session.current_slot_objective_question()
-        assert (question.turret_position, question.proposed) == (2, '4x Oly')
+        assert (question.turret_slot, question.proposed) == (2, '4x Oly')
 
     def test_a_slot_holding_glass_the_catalogue_lacks_proposes_the_default(self, session):
         from modules.objectives_loader import DEFAULT_PROPOSED_OBJECTIVE_ID
@@ -332,7 +332,7 @@ class TestTheAskedQuestion:
         session.scope.motion.move_turret(4)
         question = session.current_slot_objective_question()
         assert question.proposed == DEFAULT_PROPOSED_OBJECTIVE_ID
-        session.confirm_objective(question.proposed, turret_position=question.turret_position)
+        session.confirm_objective(question.proposed, slot=question.turret_slot)
         assert session.settings['turret_objectives'][4] == DEFAULT_PROPOSED_OBJECTIVE_ID
 
     def test_an_unknown_slot_is_refused(self, session):
@@ -349,11 +349,11 @@ class TestTheAskedQuestion:
         )
         try:
             question = turretless.current_slot_objective_question()
-            turretless.confirm_objective('20x Phase', turret_position=question.turret_position)
+            turretless.confirm_objective('20x Phase', slot=question.turret_slot)
             objective = turretless.scope.runtime_state.get_current_objective_id()
         finally:
             turretless.shutdown()
-        assert (question.turret_position, question.proposed) == (None, '4x Oly')
+        assert (question.turret_slot, question.proposed) == (None, '4x Oly')
         assert objective == '20x Phase'
 
 

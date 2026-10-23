@@ -357,7 +357,7 @@ class TestTheFlagCannotStrand:
         _install_ctx(monkeypatch, session)
         stand = _Stand()
 
-        def _boom(objective_id, turret_position=None):
+        def _boom(objective_id, slot=None):
             raise BoardNoReplyError('turret write failed')
 
         monkeypatch.setattr(session, 'confirm_objective', _boom)
@@ -480,12 +480,12 @@ class TestOneOpenerOneMessage:
 
     def test_the_question_carries_no_per_trigger_variant(self):
         """The decision moved into the Session with the flag it reads; the
-        QUESTION it hands the renderer is one shape -- a position, a
+        QUESTION it hands the renderer is one shape -- a slot, a
         proposal and the choices -- so the message cannot vary by trigger."""
         import dataclasses
 
         assert [f.name for f in dataclasses.fields(ObjectiveQuestion)] == [
-            'turret_position',
+            'turret_slot',
             'proposed',
             'choices',
         ]

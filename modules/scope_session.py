@@ -244,7 +244,7 @@ def _tell_stored_replacements(pending: list[tuple[str, object, object]]) -> None
     )
 
 
-@api_fields('choices', 'proposed', 'turret_position')
+@api_fields('choices', 'proposed', 'turret_slot')
 @dataclasses.dataclass(frozen=True)
 class ObjectiveQuestion:
     """Which objective is in the light path; what to ask the user.
@@ -261,13 +261,13 @@ class ObjectiveQuestion:
     ``ScopeSession.confirm_objective``.
 
     Attributes:
-        turret_position: The slot the answer binds to, or None on a
+        turret_slot: The slot the answer binds to, or None on a
             non-turret model.
         proposed: The catalogue id to offer as the default.
         choices: The catalogue, in its shipped order.
     """
 
-    turret_position: int | None
+    turret_slot: int | None
     proposed: str
     choices: tuple[str, ...]
 
@@ -4784,12 +4784,12 @@ class ScopeSession:
         confirmed = self.settings['objective_confirmed']
         first_run = confirmed != self._objective_topology()
         slots = self.settings['turret_objectives']
-        position = self.scope.motion.get_turret_slot() if has_turret else None
+        slot = self.scope.motion.get_turret_slot() if has_turret else None
         # A known slot with no assignment owes the question. An unknown slot
         # alone does not: it is unknown during every turret move, and asking
         # then would put the question up while the turret is still turning.
         # The objective is unknown meanwhile, and captures refuse with why.
-        slot_unassigned = has_turret and position is not None and slots.get(position) is None
+        slot_unassigned = has_turret and slot is not None and slots.get(slot) is None
         if not (first_run or slot_unassigned):
             return None
         if self.scope.no_hardware:
@@ -4815,9 +4815,9 @@ class ScopeSession:
                 'and would refuse the answer'
             )
             return None
-        if has_turret and position is None:
+        if has_turret and slot is None:
             raise ObjectiveUnknownError('slot_unknown')
-        return self._objective_question_at(position)
+        return self._objective_question_at(slot)
 
     @api(reads=True)
     def current_slot_objective_question(self) -> ObjectiveQuestion:
@@ -4846,13 +4846,13 @@ class ScopeSession:
         """
         if not self.scope.runtime_state.is_turreted():
             return self._objective_question_at(None)
-        position = self.scope.motion.get_turret_slot()
-        if position is None:
+        slot = self.scope.motion.get_turret_slot()
+        if slot is None:
             raise ObjectiveUnknownError('slot_unknown')
-        return self._objective_question_at(position)
+        return self._objective_question_at(slot)
 
-    def _objective_question_at(self, position: 'int | None') -> ObjectiveQuestion:
-        # The one proposal rule for both reads; position is None only on a
+    def _objective_question_at(self, slot: 'int | None') -> ObjectiveQuestion:
+        # The one proposal rule for both reads; slot is None only on a
         # turretless scope.
         slots = self.settings['turret_objectives']
         confirmed = self.settings['objective_confirmed']
@@ -4862,60 +4862,58 @@ class ScopeSession:
         # exists: owed then, the confirmation was a turret's, and the stored id
         # is the pick the scope last had before it. Never confirmed, it is the
         # shipped template's value. Everything else gets the catalogue's default.
-        if position is not None:
-            proposed = slots.get(position)
+        if slot is not None:
+            proposed = slots.get(slot)
         else:
             proposed = self.settings['objective_id'] if confirmed is not None else None
         if proposed not in choices:
             from modules.objectives_loader import DEFAULT_PROPOSED_OBJECTIVE_ID
 
             proposed = DEFAULT_PROPOSED_OBJECTIVE_ID
-        return ObjectiveQuestion(turret_position=position, proposed=proposed, choices=choices)
+        return ObjectiveQuestion(turret_slot=slot, proposed=proposed, choices=choices)
 
     @api
     @_guarded_write
-    def confirm_objective(self, objective_id: str, turret_position: 'int | None' = None) -> bool:
+    def confirm_objective(self, objective_id: str, slot: 'int | None' = None) -> bool:
         """Answer the objective question: this objective is in the light path.
 
-        On a turret scope, assigns the objective to slot ``turret_position``,
+        On a turret scope, assigns the objective to ``slot``,
         which it requires: the answer records the glass in a slot and never
         turns the turret. With no turret, selects it (``select_objective``),
-        and ``turret_position`` is refused. Records that a person has
+        and ``slot`` is refused. Records that a person has
         confirmed the objective for this light path, turret or turretless,
         so a scope brought up with the other asks again. Returns whether the
         active objective changed.
 
         Raises:
-            ArgumentRefusedError: ``'turret_position_required'``, no
-                ``turret_position`` on a turret scope. Nothing is written.
+            ArgumentRefusedError: ``'slot_required'``, no
+                ``slot`` on a turret scope. Nothing is written.
             HardwareCommandRefusedError: ``'axis_absent'``, a
-                ``turret_position`` on a scope with no turret. Nothing is
+                ``slot`` on a scope with no turret. Nothing is
                 written.
             CatalogueNameRefusedError: ``'objective_not_in_catalogue'``,
                 ``objective_id`` is not exactly a catalogue key. Nothing is
                 written.
             ObjectiveUnknownError: ``'none_selected'``, ``objective_id`` is
                 None.
-            PositionOutOfRangeError: ``turret_position`` is not a slot
+            PositionOutOfRangeError: ``slot`` is not a slot
                 number 1-4.
         """
         if self.scope.runtime_state.is_turreted():
-            if turret_position is None:
-                raise ArgumentRefusedError(
-                    'turret_position_required', argument='turret_position', value=None
-                )
+            if slot is None:
+                raise ArgumentRefusedError('slot_required', argument='slot', value=None)
             before = self.scope.runtime_state.get_current_objective_id()
-            self.assign_turret_objective(turret_position, objective_id)
+            self.assign_turret_objective(slot, objective_id)
             changed = self.scope.runtime_state.get_current_objective_id() != before
         else:
-            if turret_position is not None:
+            if slot is not None:
                 self._refuse_without_a_turret('confirm_objective')
             changed = self.select_objective(objective_id)
         with self.settings_lock:
             self._store_setting('objective_confirmed', self._objective_topology())
         logger.info(
             f'[Session  ] objective confirmed: {objective_id!r}'
-            + (f' at turret position {turret_position}' if turret_position is not None else '')
+            + (f' at turret slot {slot}' if slot is not None else '')
         )
         return changed
 
