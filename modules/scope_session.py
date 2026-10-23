@@ -86,7 +86,7 @@ from modules.exceptions import (
 )
 from modules.kivy_utils import UiDispatcher
 from modules.live_work import LiveWork, WorkItem
-from modules.lumascope_api import AxisPosition
+from modules.lumascope_api import AxisPosition, TurretStatus
 from modules.lumascope_api._constants import refuse_unless_turret_slot
 from modules.lumascope_api.bring_up import PartStatus
 from modules.lumascope_api.illumination import LedState, LedTransition, LedTransitionCtx
@@ -355,7 +355,9 @@ class ControlsLock:
         return self.run_lockout or self.recording
 
 
-@api_fields('live_work', 'lock', 'control', 'run_refused', 'axes', 'parts', 'camera_streaming')
+@api_fields(
+    'live_work', 'lock', 'control', 'run_refused', 'axes', 'turret', 'parts', 'camera_streaming'
+)
 @dataclasses.dataclass(frozen=True)
 class Status:
     """What the scope is doing, in one read, for a client that has just connected.
@@ -378,9 +380,11 @@ class Status:
             (``SequencedCaptureRunner.state_refusal``). None does not
             promise a run starts: the protocol, an axis's position, the
             camera feed and the interlocks are judged when the run is asked.
-        axes: Each axis's state and position, None where the position is
-            not known (``MotionAPI.axis_positions``); um for X/Y/Z, the
-            slot for T.
+        axes: Each stage axis's state and position, None where the
+            position is not known (``MotionAPI.axis_positions``): X, Y and
+            Z, in um.
+        turret: The turret's state and slot (``MotionAPI.turret_status``),
+            None on a scope with no turret.
         parts: Which parts came up at bring-up, and why each that did not
             (``ScopeSession.bring_up_record``).
         camera_streaming: Whether the camera is grabbing frames, asked of
@@ -392,6 +396,7 @@ class Status:
     control: ControlSession | None
     run_refused: ProtocolRunRefusedError | None
     axes: dict[str, AxisPosition]
+    turret: TurretStatus | None
     parts: tuple[PartStatus, ...]
     camera_streaming: bool
 
@@ -1138,6 +1143,7 @@ class ScopeSession:
             'control': self.activity_claim.control,
             'run_refused': self.sequenced_capture_runner.state_refusal(self.activity_claim),
             'axes': self.scope.motion.axis_positions(),
+            'turret': self.scope.motion.turret_status(),
             'parts': self.scope.bring_up_record().parts,
         }
         return lambda: Status(**at_edge, camera_streaming=self.scope.imaging.is_streaming())
@@ -2107,7 +2113,7 @@ class ScopeSession:
             self.capture_settings_snapshot(),
             objective_helper=self.objective_helper,
             wellplate_loader=self.wellplate_loader,
-            current_z=z.position if z is not None else self.get_current_plate_position().z_um,
+            current_z=z.position_um if z is not None else self.get_current_plate_position().z_um,
             tiling=tiling,
             use_zstacking=use_zstacking,
         )

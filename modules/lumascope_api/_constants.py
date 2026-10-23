@@ -146,15 +146,30 @@ class AxisState:
     HOMING = 'homing'  # Homing sequence in progress
 
 
-@api_fields('position', 'state')
+@api_fields('position_um', 'state')
 class AxisPosition(NamedTuple):
-    """One axis's state and its position, read together.
+    """One stage axis's state and its position, read together: X, Y or Z.
 
-    ``position`` is None unless the axis is IDLE or MOVING: an axis whose
+    ``position_um`` is None unless the axis is IDLE or MOVING: an axis whose
     reference is lost or still being established keeps answering the last
     number it reported, and a caller writing a position into a file must
-    not be handed it.
+    not be handed it. The turret has a slot, not a position: ``TurretStatus``.
     """
 
     state: str
-    position: float | int | None
+    position_um: float | None
+
+
+@api_fields('state', 'slot')
+class TurretStatus(NamedTuple):
+    """The turret's state and the slot in the light path, read together.
+
+    ``slot`` is ``MotionAPI.get_turret_slot``'s: the slot the last turret
+    command left the turret in, None while one is in flight, after one
+    failed, and whenever the turret's position is lost. ``state`` is the
+    turret's ``AxisState``, which the slot alone cannot say: homing, moving
+    or unknown.
+    """
+
+    state: str
+    slot: int | None

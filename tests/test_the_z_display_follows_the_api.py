@@ -20,7 +20,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from modules import app_context as _app_ctx
-from modules.lumascope_api import AxisPosition, AxisState
+from modules.lumascope_api import AxisPosition, AxisState, TurretStatus
 from tests.ast_seams import iter_package_modules
 from ui.listener_bridge import UIListenerBridge
 from ui.vertical_control import VerticalControl
@@ -138,7 +138,7 @@ def test_a_homing_z_draws_the_z_display_with_no_position(bridge):
 def test_a_turret_change_draws_the_turret_without_asking_the_objective(bridge):
     b, z_ctrl, _ = bridge
 
-    b._on_position_change('T', AxisPosition(AxisState.IDLE, 2.0))
+    b._on_turret_change(TurretStatus(AxisState.IDLE, 2))
 
     z_ctrl.show_turret_state.assert_called_once_with(prompt=False)
 

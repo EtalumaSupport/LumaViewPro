@@ -42,7 +42,7 @@ class TestTheSnapshot:
         _home_and_park_x(scope)
         x = scope.motion.axis_positions()['X']
         assert x.state == AxisState.IDLE
-        assert x.position == pytest.approx(scope.motion.get_current_position('X'))
+        assert x.position_um == pytest.approx(scope.motion.get_current_position('X'))
 
     def test_an_unknown_axis_answers_no_position_while_the_cache_holds_one(self, scope):
         _home_and_park_x(scope)
@@ -51,12 +51,13 @@ class TestTheSnapshot:
             scope.motion.home()
         x = scope.motion.axis_positions()['X']
         assert x.state == AxisState.UNKNOWN
-        assert x.position is None
+        assert x.position_um is None
         # The cache still holds the pre-loss number; the snapshot does not hand it out.
         assert scope.motion.get_current_position('X') == pytest.approx(1500.0, abs=1.0)
 
-    def test_every_present_axis_is_answered(self, scope):
-        assert set(scope.motion.axis_positions()) == set(scope.capabilities.axes)
+    def test_every_present_stage_axis_is_answered(self, scope):
+        # The turret has a slot, not a position: turret_status answers it.
+        assert set(scope.motion.axis_positions()) == set(scope.capabilities.axes) - {'T'}
 
 
 class TestAHomeReadsBeforeItSaysKnown:
@@ -104,7 +105,7 @@ class TestAFailedReadLeavesTheAxisUnknown:
             scope.motion.home()
 
         assert scope.motion.get_axis_state('X') == AxisState.UNKNOWN
-        assert scope.motion.axis_positions()['X'].position is None
+        assert scope.motion.axis_positions()['X'].position_um is None
         # The cache entry is untouched: neither 0.0 nor the board's answer.
         assert scope.motion.get_current_position('X') == pytest.approx(1500.0, abs=1.0)
         assert scope.motion.get_axis_state('Y') == AxisState.IDLE

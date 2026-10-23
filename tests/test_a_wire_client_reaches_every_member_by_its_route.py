@@ -202,6 +202,7 @@ def test_a_read_answers_its_encoded_value(client, session):
         'control',
         'run_refused',
         'axes',
+        'turret',
         'parts',
         'camera_streaming',
     }

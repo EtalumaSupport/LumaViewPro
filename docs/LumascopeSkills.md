@@ -1270,7 +1270,8 @@ session.status                   # what the scope is doing, one read, the first 
                                  # for a person's controls and not a refusal; run_refused the refusal a run
                                  # would get now for the scope's state alone, sent as a refused call's problem
                                  # less type, status and instance, or None (None does not promise a run starts);
-                                 # axes as scope.motion.axis_positions(); parts as bring_up_record().parts;
+                                 # axes as scope.motion.axis_positions(); turret as scope.motion.turret_status();
+                                 # parts as bring_up_record().parts;
                                  # camera_streaming as scope.imaging.is_streaming(); each read from its owner in
                                  # turn, not under one lock, so two fields can be a moment apart
 session.discard_close_drain()    # the escape from a wait on video frames: drop every queued frame of a recording's
@@ -1344,7 +1345,7 @@ A number you pass is a finite number: NaN or an infinity is refused with `Argume
 
 A wait you pass is from 0 to 30 days: `wait_until_finished_moving`'s `timeout_s`, the run waiting forms' `timeout_s` (`run_single_scan` and the rest), `Operation.result` / `exception`'s `timeout`, `capture_and_wait` and `get_image`'s times, `enter_led_engineering_mode` and the `send_diagnostic_command` forms' `timeout_s`, `run_camera_bandwidth_test`'s cutoff, and the simulator's `delay_reply` and `reboot`. A negative wait, or one past 30 days, is refused with `ArgumentRefusedError` reason `out_of_range`, `limits` holding the range, before anything starts: a run waiting form has started no run, and a capture whose sum would wait longer than 30 days in all is refused the same way. The bound is the same on every host; past it, a wait the operating system cannot hold used to raise `OverflowError` out of the wait on one platform and not another.
 
-An axis is named exactly `'X'`, `'Y'`, `'Z'` or `'T'`, in capitals. Every member that takes an axis -- the moves, the position and state reads, `get_axis_limits`, the limit switches, the precision mode, `jog_step_um` and `read_motor_drv_status` -- refuses any other name (`'x'`, `'Q'`) with `ArgumentRefusedError` reason `axis_unknown`, its `offered` holding the names the member takes, before the scope's hardware is asked. A home takes `'Z'`, `'T'` or `'ALL'`; `jog_step_um` takes `'X'`, `'Y'` or `'Z'`. An axis this model lacks is a name: a command for it is refused as absent hardware, and a read answers as for a missing axis (`get_axis_state` `'unknown'`, a position None). The generic movers refuse `'T'` with reason `turret_moves_by_slot`: the turret moves only through `move_turret(slot)`. A plate move given a Z is `plate_frame_axis`, refused at the door. `set_motor_fan_duty` takes a whole percentage and refuses one outside 0 to 100 (`fan_duty_out_of_range`), with nothing sent. The camera diagnostics refuse a count or time outside what they take (`out_of_range`, its `limits` the ends, which are included): `run_grab_lifecycle_benchmark` takes 1 to 10,000 cycles, 0 to 60,000 ms between them and a slow threshold of 0 to 600 s; `run_pylon_diagnostic_probe` takes 0 to 3,600 s. A stage offset handed to `stage_to_plate`, `plate_to_stage`, `plate_transform` or `step_targets` is a `StageOffset`, and an axis of it that is no finite number is `not_a_number`, naming it (`stage_offset.x_um`). The auto-gain settings handed to `set_auto_gain` or the camera's `apply` are read before the member acts: a key left out is `missing_key` and a value that is no number `not_a_number`, each naming the key, and a key the write does not take is `key_unknown`, its `offered` holding the keys it takes: `target_brightness`, `min_gain_db`, `max_gain_db`, `max_exposure_ms` and `min_exposure_ms`. Each is the request's (`cause` `REQUEST`): it fails the same way until the caller changes it.
+An axis is named exactly `'X'`, `'Y'`, `'Z'` or `'T'`, in capitals. Every member that takes an axis -- the moves, the position and state reads, `get_axis_limits`, the limit switches, the precision mode, `jog_step_um` and `read_motor_drv_status` -- refuses any other name (`'x'`, `'Q'`) with `ArgumentRefusedError` reason `axis_unknown`, its `offered` holding the names the member takes, before the scope's hardware is asked. A home takes `'Z'`, `'T'` or `'ALL'`; `jog_step_um`, `get_target_position` and `get_actual_position` take `'X'`, `'Y'` or `'Z'`: the turret has a slot, not a position (`get_turret_slot`, `turret_status`). An axis this model lacks is a name: a command for it is refused as absent hardware, and a read answers as for a missing axis (`get_axis_state` `'unknown'`, a position None). The generic movers refuse `'T'` with reason `turret_moves_by_slot`: the turret moves only through `move_turret(slot)`. A plate move given a Z is `plate_frame_axis`, refused at the door. `set_motor_fan_duty` takes a whole percentage and refuses one outside 0 to 100 (`fan_duty_out_of_range`), with nothing sent. The camera diagnostics refuse a count or time outside what they take (`out_of_range`, its `limits` the ends, which are included): `run_grab_lifecycle_benchmark` takes 1 to 10,000 cycles, 0 to 60,000 ms between them and a slow threshold of 0 to 600 s; `run_pylon_diagnostic_probe` takes 0 to 3,600 s. A stage offset handed to `stage_to_plate`, `plate_to_stage`, `plate_transform` or `step_targets` is a `StageOffset`, and an axis of it that is no finite number is `not_a_number`, naming it (`stage_offset.x_um`). The auto-gain settings handed to `set_auto_gain` or the camera's `apply` are read before the member acts: a key left out is `missing_key` and a value that is no number `not_a_number`, each naming the key, and a key the write does not take is `key_unknown`, its `offered` holding the keys it takes: `target_brightness`, `min_gain_db`, `max_gain_db`, `max_exposure_ms` and `min_exposure_ms`. Each is the request's (`cause` `REQUEST`): it fails the same way until the caller changes it.
 
 A plate or an objective is named by its catalogue key (`list(scope.labware)`, `list(scope.objectives)`); a plate renamed since a file named it is still found under its old name and stored under its key. Every member that takes one -- `select_labware`, `set_protocol_labware`, `select_objective`, `confirm_objective`, `assign_turret_objective` -- refuses a name the catalogue does not hold with `CatalogueNameRefusedError` (`modules.exceptions`, a `ConfigError`), reason `labware_unknown` or `objective_not_in_catalogue`, its `argument` naming the catalogue owner's parameter (`labware_id`, `objective_id`) and its `offered` holding the catalogue's keys, before anything is stored. The run's `ProtocolRunRefusedError` uses the same reason, `objective_not_in_catalogue`, for a protocol step's objective; `argument` is on the catalogue refusal only. A turret slot that is not a whole number 1 to 4 is refused with `PositionOutOfRangeError` by every member that takes one. Each is the request's (`cause` `REQUEST`).
 
@@ -1708,11 +1709,11 @@ scope.motion.axes_without_position()             # {axis: 'unknown' | 'homing'};
 # report False after a fault revokes a reference that was previously
 # good -- not merely "a home once succeeded".
 
-# Position queries (µm for XYZ, 1–4 for turret). Read cache, no serial I/O.
-scope.motion.axis_positions()                    # {axis: AxisPosition(state, position)} in ONE snapshot; position is None unless the axis is IDLE or MOVING -- the read for a caller writing a position into a file
+# Position queries, in um for X, Y and Z (the turret answers a slot, below). Read cache, no serial I/O.
+scope.motion.axis_positions()                    # {axis: AxisPosition(state, position_um)} for X, Y and Z in ONE snapshot; position_um is None unless the axis is IDLE or MOVING -- the read for a caller writing a position into a file
 scope.runtime_state.plate_transform()            # (x_um, y_um) -> PlatePosition, BOUND to the plate and offset of this call. For a caller converting many positions over time (a recording, one per frame): every frame is stated in one frame of reference
 scope.motion.get_target_position('Z')            # the commanded target, moving or arrived; the polled position when none was reached (before a first move, after a home, a STOP or a fault); 0.0, read by nothing, for an axis UNKNOWN because its bring-up read failed
-scope.motion.get_target_positions()              # {axis: target} for every axis the scope has a position for
+scope.motion.get_target_positions()              # {axis: target} for every stage axis the scope has a position for
 scope.motion.get_actual_position('Z')            # hardware position via serial (slow; use sparingly)
 # A position with no hardware behind it is None: an axis the scope does not
 # have, and every axis with no motor board installed (a manual scope, a board
@@ -1838,6 +1839,7 @@ scope.capabilities.has_turret                    # turret presence probe
 scope.motion.move_turret(2)                      # turret slot 1-4; any other slot raises
                                                  # PositionOutOfRangeError rather than driving
 scope.motion.get_turret_slot()                   # slot in the light path, or None when not known
+scope.motion.turret_status()                     # TurretStatus(state, slot) read together; None without a turret
 # The turret has no encoder: the slot is the one the last move_turret or home
 # left it in, recorded only when that command returned without error and no
 # stop_motion landed on it. None before the first, while one runs, after one
@@ -1875,13 +1877,24 @@ scope.motion.get_axis_state('Z')          # 'idle', 'moving', 'homing', or 'unkn
 
 ```python
 def on_position(axis: str, at: AxisPosition):
-    # at is what axis_positions()[axis] answers now, from the same snapshot:
-    # at.state, and at.position, the polled position (not the target) -- None
-    # while the axis is homing or unknown, never the last number it reported
-    print(f"{axis}: {at.position} um ({at.state})")
+    # axis is 'X', 'Y' or 'Z'; at is what axis_positions()[axis] answers now,
+    # from the same snapshot: at.state, and at.position_um, the polled position
+    # (not the target) -- None while the axis is homing or unknown, never the
+    # last number it reported
+    print(f"{axis}: {at.position_um} um ({at.state})")
 
 scope.motion.add_position_listener(on_position)
 scope.motion.remove_position_listener(on_position)
+
+def on_turret(at: TurretStatus):
+    # at is what turret_status() answers now: at.state, and at.slot, None while
+    # a turret command runs; told on each change of state, each monitor read
+    # while it turns, and once the slot a move or home reached is recorded,
+    # after the turret says idle
+    print(f"turret: slot {at.slot} ({at.state})")
+
+scope.motion.add_turret_listener(on_turret)
+scope.motion.remove_turret_listener(on_turret)
 ```
 
 ---
@@ -2328,11 +2341,12 @@ scope.imaging.remove_frame_listener(on_frame)
 
 ### Listener callback signatures (overview)
 
-The seven listener families each pass a different callback signature -- register a callable matching the row for the listener you subscribe to:
+The eight listener families each pass a different callback signature -- register a callable matching the row for the listener you subscribe to:
 
 | Listener | Register via | Callback signature | Event record |
 |---|---|---|---|
 | Motion / position | `scope.motion.add_position_listener` | `on_position(axis: str, at: AxisPosition)` | `PositionChanged(axis, at)` |
+| Turret | `scope.motion.add_turret_listener` | `on_turret(at: TurretStatus)` | `TurretChanged(at)` |
 | LED / illumination | `scope.illumination.add_led_listener` | `on_led(address: int, name: str \| None, state: LedState, illumination_ma: float \| None)` | `LedReading(address, name, state, illumination_ma)` |
 | Camera params | `scope.camera.add_camera_listener` | `on_camera(param: str, value: float)` | `CameraChanged(setting, value)` |
 | Live frame | `scope.imaging.add_frame_listener` | `on_frame(frame: Frame)` | `FrameDelivered(frame)` |
@@ -2342,7 +2356,7 @@ The seven listener families each pass a different callback signature -- register
 
 Each event declares its record, published in the reference below: its fields name the callback's arguments in order, so a host that carries an event elsewhere (the REST server's stream) builds the record from the arguments rather than keeping its own table of signatures. A run's events do the same: `RunEvents.scan_started` delivers `ScanStarted(scan_index, scans_remaining, period_s)`, `scan_ended` `ScanEnded(...)`, `step_started` `StepStarted(step_index)`, `frame_captured` `FrameCaptured(image, frames_summed, frame_significant_bits)`, `video_progress` the `VideoProgress` it passes, `run_ended` `RunEnded(outcome, run_dir, protocol)`, `files_written` `FilesWritten(run_dir, files)`. Callbacks keep their signatures; a Python caller need not build any record.
 
-The four `scope.*` listeners each have a matching `remove_*_listener(callback)`. The frame listener additionally takes a `name=` kwarg and carries the read-only frame + 24 ms budget contract documented above; the other three are lightweight state-change notifications.
+The five `scope.*` listeners each have a matching `remove_*_listener(callback)`. The frame listener additionally takes a `name=` kwarg and carries the read-only frame + 24 ms budget contract documented above; the other four are lightweight state-change notifications.
 
 The last three rows are not registered on the scope. **Settings** is registered on the session: each write to the settings store -- by the GUI, a REST client, a script, or the camera storing what it applied -- tells the paths it stored, all of them once its write has let go of the store, on the writer's thread; `session.remove_settings_listener(callback)` removes it. On the REST stream it is the `settings` event, so a client beside the GUI hears the GUI's changes and the GUI redraws a client's. **Run state** is registered on the **session**: it takes no payload and is level-synced -- registering calls it once immediately, so a subscriber never misses a transition that happened before it subscribed, and `session.remove_run_state_listener(callback)` removes it (a callback never added is a no-op). **Outcomes** are registered on the session, or given to the factory to hear bring-up, and have a matching `session.remove_outcome_listener(callback)`.
 
@@ -3218,6 +3232,7 @@ Reached through `session.scope`.
 Reached through `session.scope.motion`.
 
 - `add_position_listener` (in-process)
+- `add_turret_listener` (in-process)
 - `axes_without_position`
 - `axis_positions`
 - `get_actual_position`
@@ -3242,6 +3257,7 @@ Reached through `session.scope.motion`.
 - `move_z_by`
 - `position_is_known`
 - `remove_position_listener` (in-process)
+- `remove_turret_listener` (in-process)
 - `set_precision_mode`
 - `start_home`
 - `start_move_to_plate`
@@ -3251,6 +3267,7 @@ Reached through `session.scope.motion`.
 - `start_move_z`
 - `start_move_z_by`
 - `stop_motion`
+- `turret_status`
 - `wait_until_finished_moving`
 
 ### IlluminationAPI
@@ -3652,7 +3669,7 @@ Reached through returned by `session.scope.motion.get_axis_limits`.
 
 Reached through each value of `scope.motion.axis_positions()`.
 
-- `position`
+- `position_um`
 - `state`
 
 ### BringUpRecord
@@ -4271,6 +4288,19 @@ Reached through the event `scope.motion.add_position_listener` delivers.
 - `at`
 - `axis`
 
+### TurretChanged
+
+Reached through the event `scope.motion.add_turret_listener` delivers.
+
+- `at`
+
+### TurretStatus
+
+Reached through returned by `scope.motion.turret_status`, `Status.turret` and `TurretChanged.at`.
+
+- `slot`
+- `state`
+
 ### PostProcessingFailedError
 
 Reached through a REST problem, whose members carry it.
@@ -4456,6 +4486,7 @@ Reached through `session.status`.
 - `lock`
 - `parts`
 - `run_refused`
+- `turret`
 
 ### StepRecord
 

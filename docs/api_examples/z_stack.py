@@ -92,7 +92,7 @@ def main():
         scope.motion.move_z(z_pos_um)
 
         # Read back the actual position (um, from the push-based cache)
-        actual_z_um = scope.motion.axis_positions()['Z'].position
+        actual_z_um = scope.motion.axis_positions()['Z'].position_um
 
         # Capture a frame valid for the current Z + LED + exposure state.
         # No frame raises CaptureFailedError, its reason saying why.

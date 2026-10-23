@@ -35,9 +35,9 @@ def test_a_homed_axis_whose_read_fails_starts_unknown():
         'X': AxisState.IDLE,
         'Y': AxisState.IDLE,
         'Z': AxisState.UNKNOWN,
-        'T': AxisState.IDLE,
     }
-    assert motion.axis_positions()['Z'].position is None
+    assert motion.turret_status().state == AxisState.IDLE
+    assert motion.axis_positions()['Z'].position_um is None
     with pytest.raises(AxisStateUnknownError) as exc:
         motion.move_z(1000.0)
     assert exc.value.reason == 'position_unknown'

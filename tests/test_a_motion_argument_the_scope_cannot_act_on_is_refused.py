@@ -24,6 +24,9 @@ from tests.test_a_command_for_absent_motion_hardware_is_refused import _session
 from tests.case_walk import failing_cases
 
 EVERY_AXIS = ('X', 'Y', 'Z', 'T')
+# The turret has a slot, not a position, so the position reads take the stage axes.
+STAGE_AXES = ('X', 'Y', 'Z')
+STAGE_ONLY = {'get_actual_position', 'get_target_position'}
 
 AXIS_MEMBERS = {
     'position_is_known': lambda s, a: s.motion.position_is_known(a),
@@ -72,11 +75,20 @@ def test_a_name_that_is_no_axis_is_refused_and_nothing_moves(scope):
 
         refusal = _refused(lambda: AXIS_MEMBERS[member](scope, name), 'axis_unknown')
 
-        assert (refusal.argument, refusal.value, refusal.offered) == ('axis', name, EVERY_AXIS)
+        offered = STAGE_AXES if member in STAGE_ONLY else EVERY_AXIS
+        assert (refusal.argument, refusal.value, refusal.offered) == ('axis', name, offered)
         assert _motion_state(scope) == before
 
     failed = failing_cases(NO_AXIS, check)
     assert not failed, failed
+
+
+def test_a_position_read_of_the_turret_is_refused(scope):
+    # The turret's place is a slot (get_turret_slot, turret_status), never a
+    # position in the stage's unit.
+    for member in sorted(STAGE_ONLY):
+        refusal = _refused(lambda member=member: AXIS_MEMBERS[member](scope, 'T'), 'axis_unknown')
+        assert (refusal.value, refusal.offered) == ('T', STAGE_AXES), member
 
 
 @pytest.mark.parametrize('name', ['X', 'all', 'z'])

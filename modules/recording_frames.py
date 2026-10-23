@@ -277,7 +277,9 @@ def frame_fact(
             states no plate position; X and Y are then unknown.
     """
     positions = scope.motion.axis_positions()
-    moving = any(p.state in (AxisState.MOVING, AxisState.HOMING) for p in positions.values())
+    turret = scope.motion.turret_status()
+    states = [p.state for p in positions.values()] + ([turret.state] if turret else [])
+    moving = any(state in (AxisState.MOVING, AxisState.HOMING) for state in states)
     x = positions.get('X')
     y = positions.get('Y')
     z = positions.get('Z')
@@ -286,15 +288,15 @@ def frame_fact(
         to_plate is not None
         and x is not None
         and y is not None
-        and x.position is not None
-        and y.position is not None
+        and x.position_um is not None
+        and y.position_um is not None
     ):
-        plate = to_plate(x.position, y.position)
+        plate = to_plate(x.position_um, y.position_um)
         plate_x_mm, plate_y_mm = plate.x_mm, plate.y_mm
     return FrameFact(
         plate_x_mm=plate_x_mm,
         plate_y_mm=plate_y_mm,
-        z_um=z.position if z is not None else None,
+        z_um=z.position_um if z is not None else None,
         moving=moving,
         channel=common_utils.resolve_channel_identity(scope.illumination, channel_tiebreak),
     )

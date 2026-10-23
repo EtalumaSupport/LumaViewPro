@@ -33,7 +33,7 @@ def _session(tmp_path, microscope):
 def _where_the_stage_is(scope):
     positions = scope.motion.axis_positions()
     to_plate = scope.runtime_state.plate_transform()
-    x, y, z = (positions[ax].position for ax in ('X', 'Y', 'Z'))
+    x, y, z = (positions[ax].position_um for ax in ('X', 'Y', 'Z'))
     plate = to_plate(x, y)
     return (plate.x_mm, plate.y_mm), z
 
@@ -78,7 +78,7 @@ class TestAZOnlyScope:
     def test_the_file_records_z_and_no_plate_place(self, tmp_path):
         with _session(tmp_path, 'LS820') as session:
             session.scope.motion.move_z(STAGE_Z_UM)
-            z = session.scope.motion.axis_positions()['Z'].position
+            z = session.scope.motion.axis_positions()['Z'].position_um
             (path,) = _files(session)
 
         metadata = read_postproc_input_metadata(path)

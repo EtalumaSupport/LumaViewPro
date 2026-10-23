@@ -161,7 +161,7 @@ def test_a_retired_plate_name_resolves_and_is_stored_under_its_key(session, z_ch
     # one here, so a loss says what Z holds and who changed it.
     z = session.scope.motion.axis_positions()['Z']
     seen = '\n'.join(f'{at} on {thread}:\n{stack}' for at, thread, stack in z_changes[-5:])
-    assert z.position is not None, f'Z is {z} after the home; its changes since:\n{seen}'
+    assert z.position_um is not None, f'Z is {z} after the home; its changes since:\n{seen}'
     config = session.get_sequenced_capture_config()
     config['labware_id'] = 'Center Dish'
     protocol = session.scope.protocols.create_protocol(input_config=config)

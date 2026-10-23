@@ -148,6 +148,7 @@ from modules.lumascope_api._constants import (
     AxisPosition,
     AxisState,
     MOTOR_POSITION_LIMIT,
+    TurretStatus,
     refuse_acceleration_pct,
     refuse_unknown_axis,
     refuse_unless_turret_slot,
@@ -230,10 +231,18 @@ class _Move:
 @api_fields('axis', 'at')
 @dataclasses.dataclass(frozen=True)
 class PositionChanged:
-    """A position event: the axis, and its state and position as ``axis_positions`` answers."""
+    """A position event: a stage axis, and its state and position as ``axis_positions`` answers."""
 
     axis: str
     at: AxisPosition
+
+
+@api_fields('at')
+@dataclasses.dataclass(frozen=True)
+class TurretChanged:
+    """A turret event: its state and slot as ``turret_status`` answers."""
+
+    at: TurretStatus
 
 
 class MotionAPI:
@@ -287,12 +296,14 @@ class MotionAPI:
         self._motion_wake = threading.Event()
 
         # Position change listeners -- push-based UI update mechanism.
-        # Each listener is called with (axis, target, state) whenever a
-        # position cache update or axis state transition occurs. Listeners
+        # A position listener is called with (axis, AxisPosition) whenever a
+        # stage axis's position cache or state changes; a turret listener with
+        # the TurretStatus whenever the turret's state or slot does. Both
         # fire from the IO executor thread, so they MUST schedule UI work
         # via Clock.schedule_once.
         self._position_listeners_lock = threading.Lock()
         self._position_listeners: list = []
+        self._turret_listeners: list = []
         self._stop_press_listeners_lock = threading.Lock()
         self._stop_press_listeners: list = []
 
@@ -366,6 +377,8 @@ class MotionAPI:
         # path, and is never read as a slot. None -- unknown -- from the
         # moment a turret command starts until it succeeds, after any
         # failure, and whenever T goes UNKNOWN (``_set_axis_state``).
+        # Written through ``_record_turret_slot``, which tells the turret
+        # listeners, but for the UNKNOWN write, whose state change tells them.
         self._last_turret_position: int | None = None
 
         # Bumped by every stop_motion. A STOP sets target = actual on every
@@ -656,7 +669,7 @@ class MotionAPI:
                 self._unstoppable_homes_driving += unstoppable
         if stopped:
             self._give_back_states(states_before)
-            self._last_turret_position = turret_before
+            self._record_turret_slot(turret_before)
             raise HomingStoppedError(home, 'stopped', ())
         try:
             yield
@@ -1062,7 +1075,7 @@ class MotionAPI:
         for ax in present_axes:
             self._set_axis_state(ax, AxisState.HOMING)
         # A homing turret is in no known slot until the home succeeds.
-        self._last_turret_position = None
+        self._record_turret_slot(None)
         stop_generation = self._stop_generation
         stops_asked = self._stops_asked
         if 'Z' in present_axes:
@@ -1096,14 +1109,14 @@ class MotionAPI:
                 # redundant Z-retract / rotate / restore. Not after a stop: a
                 # home the stop cut short did not reach slot 1.
                 if 'T' in present_axes and not self._stopped_since(stop_generation):
-                    self._last_turret_position = 1
+                    self._record_turret_slot(1)
             except HomingFailedError:
                 raise
             except MotionInterlockError as e:
                 self._note_interlock_stop(e)
                 if not e.moved:
                     self._give_back_states(states_before)
-                    self._last_turret_position = turret_before
+                    self._record_turret_slot(turret_before)
                     raise HardwareCommandRefusedError(e.reason, 'home') from e
                 for ax in present_axes:
                     self._set_axis_state(ax, AxisState.UNKNOWN)
@@ -1208,7 +1221,7 @@ class MotionAPI:
         state_before = self._axis_states(('T',))['T']
         turret_before = self._last_turret_position
         # A homing turret is in no known slot until the home succeeds.
-        self._last_turret_position = None
+        self._record_turret_slot(None)
         stop_generation = self._stop_generation
         stops_asked = self._stops_asked
         # Outside the park's own command, so the turret's change comes into
@@ -1243,7 +1256,7 @@ class MotionAPI:
                 # Turret homes to slot 1 (see home() for why it is recorded). A
                 # home a stop cut short did not reach it.
                 if not self._stopped_since(stop_generation):
-                    self._last_turret_position = 1
+                    self._record_turret_slot(1)
             except HomingFailedError:
                 raise
             except Exception as e:
@@ -1303,7 +1316,7 @@ class MotionAPI:
         # Unknown from the start, and written only once the whole command --
         # park, move, restore -- returned: a raise anywhere in it leaves the
         # turret in no slot anyone can vouch for.
-        self._last_turret_position = None
+        self._record_turret_slot(None)
         # Outside the park's own command, so the turret's change comes into
         # force once its slot is recorded (see home()).
         with self._command():
@@ -1314,7 +1327,7 @@ class MotionAPI:
             # restore, ended the change all the same.
             if self._stopped_since(stop_generation):
                 raise MoveStoppedError('T', 'stopped')
-            self._last_turret_position = int(slot)
+            self._record_turret_slot(int(slot))
 
     @api(reads=True)
     def get_turret_slot(self) -> int | None:
@@ -1335,6 +1348,31 @@ class MotionAPI:
             Nothing.
         """
         return self._last_turret_position
+
+    @api(reads=True)
+    def turret_status(self) -> TurretStatus | None:
+        """The turret's state and the slot in the light path, read together; None on a scope with no turret.
+
+        The slot is ``get_turret_slot``'s; the state is the turret's
+        ``AxisState``, which says what the slot alone cannot: whether it is
+        homing, moving, or lost. No serial I/O.
+
+        Raises:
+            Nothing.
+        """
+        # The state store holds the present axes from bring-up on, before
+        # the scope's capabilities exist; a home at bring-up tells this.
+        with self._axis_state_lock:
+            state = self._axis_state.get('T')
+            slot = self._last_turret_position
+        return None if state is None else TurretStatus(state, slot)
+
+    def _record_turret_slot(self, slot: int | None) -> None:
+        """Record the slot in the light path, and tell the turret listeners when it changed."""
+        if slot == self._last_turret_position:
+            return
+        self._last_turret_position = slot
+        self._fire_turret_listeners()
 
     @api(reads=True)
     def jog_step_um(self, axis: str, coarse: bool) -> float:
@@ -1359,7 +1397,7 @@ class MotionAPI:
 
     @api(reads=True)
     def get_actual_position(self, axis: str) -> float | None:
-        """Query the actual hardware position via serial (not cached); um for X/Y/Z, turret slot for T.
+        """Query a stage axis's actual hardware position via serial (not cached), in um.
 
         Unlike get_current_position(), which serves the in-memory cache,
         this asks the motor controller directly. Use during continuous
@@ -1370,20 +1408,21 @@ class MotionAPI:
         Costs one serial round-trip (~5ms).
 
         Args:
-            axis: Axis name ("X", "Y", "Z", "T").
+            axis: Axis name ("X", "Y", "Z"). The turret has a slot, not a
+                position: ``get_turret_slot``.
 
         Returns:
             float | None: Current position in um; None with the null board
             installed or for an axis this scope does not have.
 
         Raises:
-            ArgumentRefusedError: ``'axis_unknown'``, ``axis`` is no axis
-                name.
+            ArgumentRefusedError: ``'axis_unknown'``, ``axis`` is not 'X',
+                'Y' or 'Z'.
             HardwareCommandRefusedError: ``'not_connected'``, the installed
                 motor controller is not connected (its cable pulled).
             HardwareError: the controller did not report the position.
         """
-        refuse_unknown_axis(axis)
+        refuse_unknown_axis(axis, ('X', 'Y', 'Z'))
         if not self._has_position(axis):
             return None
         self.refuse_absent('get_actual_position')
@@ -1682,13 +1721,14 @@ class MotionAPI:
 
     @api(in_process=True, event=PositionChanged)
     def add_position_listener(self, listener: Callable[[str, AxisPosition], None]) -> None:
-        """Register a callback for position/state changes on any axis.
+        """Register a callback for position/state changes on a stage axis: X, Y or Z.
 
         The listener is called with ``(axis, AxisPosition)`` whenever the
         position cache or axis state changes: the axis's state and its
         polled position as ``axis_positions`` answers them then, from the
         same snapshot -- not the target, and no position (None) while the
-        axis is HOMING or UNKNOWN. It fires from the thread that caused the
+        axis is HOMING or UNKNOWN. The turret's changes go to
+        ``add_turret_listener``. It fires from the thread that caused the
         change (IO executor, motion monitor, etc.), so listeners **must**
         schedule any UI work via ``Clock.schedule_once``.
 
@@ -1719,6 +1759,46 @@ class MotionAPI:
             except ValueError:
                 pass
 
+    @api(in_process=True, event=TurretChanged)
+    def add_turret_listener(self, listener: Callable[[TurretStatus], None]) -> None:
+        """Register a callback for each change of the turret's state or slot.
+
+        The listener is called with the ``TurretStatus`` that
+        ``turret_status`` answers then: on each change of the turret's state
+        (homing, moving, idle, unknown), on each read the motion monitor
+        makes of it while it turns, and once the slot a turret command
+        reached is recorded, which is after the turret says idle. It fires
+        from the thread that caused the change, so listeners **must**
+        schedule any UI work via ``Clock.schedule_once``. Never called on a
+        scope with no turret.
+
+        Args:
+            listener: ``callable(at: TurretStatus)``
+
+        Raises:
+            Nothing.
+        """
+        with self._position_listeners_lock:
+            self._turret_listeners.append(listener)
+
+    @api(in_process=True)
+    def remove_turret_listener(self, listener: Callable[[TurretStatus], None]) -> None:
+        """Unregister a turret listener.
+
+        Args:
+            listener: A callable previously passed to
+                ``add_turret_listener``. Silently ignores listeners that
+                are not currently registered.
+
+        Raises:
+            Nothing.
+        """
+        with self._position_listeners_lock:
+            try:
+                self._turret_listeners.remove(listener)
+            except ValueError:
+                pass
+
     def add_stop_press_listener(self, listener: Callable[[], None]) -> None:
         """Register a callback for each press of ``stop_motion`` (not part of the L2 API surface).
 
@@ -1736,11 +1816,23 @@ class MotionAPI:
             self._stop_press_listeners.append(listener)
 
     def _fire_position_listeners(self, axis: str):
-        """Notify all position listeners of a change on *axis*, as ``axis_positions`` answers it."""
+        """Notify the listeners of a change on *axis*: a stage axis's as ``axis_positions`` answers it, the turret's as ``turret_status`` does."""
+        if axis == 'T':
+            self._fire_turret_listeners()
+            return
         at = self.axis_positions()[axis]
         with self._position_listeners_lock:
             listeners = list(self._position_listeners)
         notifications.tell_listeners(listeners, axis, at, category='Motion')
+
+    def _fire_turret_listeners(self):
+        """Notify all turret listeners of the turret's state and slot, as ``turret_status`` answers them."""
+        at = self.turret_status()
+        if at is None:
+            return
+        with self._position_listeners_lock:
+            listeners = list(self._turret_listeners)
+        notifications.tell_listeners(listeners, at, category='Motion')
 
     def is_any_axis_moving(self) -> bool:
         """Check if any axis is currently MOVING or HOMING.
@@ -1897,21 +1989,22 @@ class MotionAPI:
 
     @api(reads=True)
     def axis_positions(self) -> dict[str, AxisPosition]:
-        """Every axis's state and its position, or None where the position is not known.
+        """Every stage axis's state and its position, or None where the position is not known.
 
         One snapshot: the state and the cache are read together, so a
         caller writing a position into a file cannot pair a number with a
         state that changed between two reads. An axis is answered with a
         position only while it is IDLE or MOVING; UNKNOWN and HOMING
         answer None whatever the cache holds, because the cache keeps the
-        last number an axis reported after its reference is lost. um for
-        X/Y/Z, the slot for T. No serial I/O.
+        last number an axis reported after its reference is lost. X, Y and
+        Z, in um; the turret has a slot, not a position (``turret_status``).
+        No serial I/O.
 
         The state lock is taken first and the cache lock inside it. No
         other path nests the two, so this order cannot meet its reverse.
 
         Returns:
-            dict[str, AxisPosition]: Axis name to (state, position), in
+            dict[str, AxisPosition]: Stage axis name to (state, position), in
                 the scope's axis order.
 
         Raises:
@@ -1924,6 +2017,7 @@ class MotionAPI:
         return {
             ax: AxisPosition(state, cache.get(ax) if self._position_known(state) else None)
             for ax, state in states.items()
+            if ax != 'T'
         }
 
     def _raise_unread_axes(self, home: str, homed: tuple | list, read: set[str]) -> None:
@@ -1990,7 +2084,7 @@ class MotionAPI:
 
     @api(reads=True)
     def get_target_position(self, axis: str) -> float | None:
-        """Get the target position for an axis (where it is commanded to go); um for X/Y/Z, turret slot for T.
+        """Get the target position for a stage axis (where it is commanded to go), in um.
 
         The last target this API wrote to the board for the axis, while the
         move runs and after it arrives: the commanded number, not the polled
@@ -2002,21 +2096,21 @@ class MotionAPI:
         not yet written its final target (a Z backlash leg). An axis whose
         position has not been read since bring-up -- its bring-up read
         failed -- is UNKNOWN and answers 0.0, which nothing read. A refused
-        move writes nothing, so the previous target stands. No serial I/O. T
-        answers its slot as a float.
+        move writes nothing, so the previous target stands. No serial I/O.
 
         Args:
-            axis: Axis name ("X", "Y", "Z", "T").
+            axis: Axis name ("X", "Y", "Z"). The turret has a slot, not a
+                position: ``get_turret_slot``.
 
         Returns:
             float | None: The target in um, or None for an axis with no
                 hardware behind it (see ``_has_position``).
 
         Raises:
-            ArgumentRefusedError: ``'axis_unknown'``, ``axis`` is no axis
-                name.
+            ArgumentRefusedError: ``'axis_unknown'``, ``axis`` is not 'X',
+                'Y' or 'Z'.
         """
-        refuse_unknown_axis(axis)
+        refuse_unknown_axis(axis, ('X', 'Y', 'Z'))
         if not self._has_position(axis):
             return None
         with self._axis_state_lock:
@@ -2035,9 +2129,10 @@ class MotionAPI:
 
     @api(reads=True)
     def get_target_positions(self) -> dict[str, float]:
-        """The target of every axis the scope has a position for, by axis name, as ``get_target_position`` answers each.
+        """The target of every stage axis the scope has a position for, by axis name, as ``get_target_position`` answers each.
 
-        An axis with no hardware behind it is left out. No serial I/O.
+        An axis with no hardware behind it is left out, and so is the
+        turret, which has a slot (``get_turret_slot``). No serial I/O.
 
         Raises:
             Nothing.
@@ -2045,7 +2140,7 @@ class MotionAPI:
         return {
             ax: self.get_target_position(ax)
             for ax in self._scope.capabilities.axes
-            if self._has_position(ax)
+            if ax != 'T' and self._has_position(ax)
         }
 
     def get_current_position(self, axis: str) -> float | None:

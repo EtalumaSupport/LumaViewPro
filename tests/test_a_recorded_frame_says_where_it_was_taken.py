@@ -32,7 +32,7 @@ A_FACT = FrameFact(plate_x_mm=1.5, plate_y_mm=2.5, z_um=3.0, moving=False, chann
 
 def _fake_scope(positions, lit=None):
     return SimpleNamespace(
-        motion=SimpleNamespace(axis_positions=lambda: positions),
+        motion=SimpleNamespace(axis_positions=lambda: positions, turret_status=lambda: None),
         illumination=SimpleNamespace(
             get_led_states=lambda: tuple(
                 LedReading(address, name, LedState.LIT, 100.0)

@@ -2,12 +2,13 @@
 
 """The GUI's subscriber to the scope's state-change events.
 
-Lumascope publishes position, LED and camera-setting changes to
-registered listeners (``add_position_listener``, ``add_led_listener``,
-``add_camera_listener``), and the Session the channel it shows
-(``add_shown_channel_listener``) and each change to the settings store
-(``add_settings_listener``). This module holds the GUI's handlers for
-position, LED, shown channel and settings: stage redraw on motion, LED
+Lumascope publishes position, turret, LED and camera-setting changes to
+registered listeners (``add_position_listener``, ``add_turret_listener``,
+``add_led_listener``, ``add_camera_listener``), and the Session the channel
+it shows (``add_shown_channel_listener``) and each change to the settings
+store (``add_settings_listener``). This module holds the GUI's handlers for
+position, turret, LED, shown channel and settings: stage redraw on motion,
+the turret buttons on a turret change, LED
 button state on LED change, the open drawer on a change of the shown
 channel, and the redraw of every panel showing a setting that changed,
 whoever wrote it -- the window, or a REST client served beside it.
@@ -229,7 +230,7 @@ class UIListenerBridge:
     # ------------------ Listener implementations ------------------
 
     def _on_position_change(self, axis, at):
-        """Position listener -- XY motion redraws the stage; Z the Z slider and text; T the turret.
+        """Position listener -- XY motion redraws the stage; Z the Z slider and text.
 
         Fires from the IO worker thread (or whichever thread mutated the
         position cache), for every move a run, an autofocus or a person
@@ -246,11 +247,21 @@ class UIListenerBridge:
         if not z_ctrl:
             return
         if axis == 'Z':
-            schedule_ui(lambda dt: z_ctrl.show_z(at.position), 0)
-        elif axis == 'T':
-            # Display only: a person's own turret press asks the objective
-            # question where it ends, never on each event of the move.
-            schedule_ui(lambda dt: z_ctrl.show_turret_state(prompt=False), 0)
+            schedule_ui(lambda dt: z_ctrl.show_z(at.position_um), 0)
+
+    def _on_turret_change(self, at):
+        """Turret listener -- the turret buttons follow every turret change, whoever made it.
+
+        A REST client's turret move included. ``at`` is the ``TurretStatus``;
+        the display reads the slot from the API when it redraws. Marshals to
+        UI via ``schedule_ui``.
+        """
+        z_ctrl = self._ctx.motion_settings.ids.get('verticalcontrol_id')
+        if not z_ctrl:
+            return
+        # Display only: a person's own turret press asks the objective
+        # question where it ends, never on each event of the move.
+        schedule_ui(lambda dt: z_ctrl.show_turret_state(prompt=False), 0)
 
     def _on_led_state_changed(self, address, name, state, illumination_ma):
         """LED listener -- coalesces rapid stim pulses to one UI update per address per Kivy frame.
@@ -370,24 +381,26 @@ class UIListenerBridge:
         listener. Call once at application startup.
         """
         self._scope.motion.add_position_listener(self._on_position_change)
+        self._scope.motion.add_turret_listener(self._on_turret_change)
         self._scope.illumination.add_led_listener(self._on_led_state_changed)
         self._ctx.session.add_shown_channel_listener(self._on_shown_channel_changed)
         self._ctx.session.add_settings_listener(self._on_settings_changed)
         logger.info(
-            '[UIListenerBridge] registered position, LED, shown-channel and settings listeners'
+            '[UIListenerBridge] registered position, turret, LED, shown-channel and settings listeners'
         )
 
     def unregister_all(self):
         """Remove every listener register_all added; a second call removes nothing.
 
         The window's close calls it before the scope is torn down, so the
-        teardown's own position and LED events schedule no redraw of a scope
+        teardown's own position, turret and LED events schedule no redraw of a scope
         that is going.
         """
         self._scope.motion.remove_position_listener(self._on_position_change)
+        self._scope.motion.remove_turret_listener(self._on_turret_change)
         self._scope.illumination.remove_led_listener(self._on_led_state_changed)
         self._ctx.session.remove_shown_channel_listener(self._on_shown_channel_changed)
         self._ctx.session.remove_settings_listener(self._on_settings_changed)
         logger.info(
-            '[UIListenerBridge] removed position, LED, shown-channel and settings listeners'
+            '[UIListenerBridge] removed position, turret, LED, shown-channel and settings listeners'
         )

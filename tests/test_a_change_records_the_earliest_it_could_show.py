@@ -103,7 +103,7 @@ def test_a_commands_change_is_earliest_at_the_last_read_that_saw_its_moves_movin
         changing = pool.submit(scope.motion.move_turret, 2)
         assert halted.wait(10.0), 'the held turn never halted'
         polled = threading.Event()
-        scope.motion.add_position_listener(lambda axis, _at: axis == 'T' and polled.set())
+        scope.motion.add_turret_listener(lambda _at: polled.set())
         assert polled.wait(5.0), 'the monitor never read the held turret'
         scope.simulation.clear()
         changing.result(timeout=30.0)

@@ -137,6 +137,7 @@ def test_the_first_event_is_the_status_with_the_current_id(client):
         'control',
         'run_refused',
         'axes',
+        'turret',
         'parts',
         'camera_streaming',
     }
@@ -238,6 +239,7 @@ def test_each_run_state_edge_sends_the_status_in_the_order_heard(client, session
         'control',
         'run_refused',
         'axes',
+        'turret',
         'parts',
         'camera_streaming',
     } == set(states[0])

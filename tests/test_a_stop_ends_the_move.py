@@ -328,7 +328,11 @@ def test_a_stop_on_firmware_without_stop_leaves_the_stage_short_and_at_rest(fiel
     part_way = threading.Event()
 
     def seen(axis, position):
-        if axis == 'X' and position.position is not None and position.position < start - 10000.0:
+        if (
+            axis == 'X'
+            and position.position_um is not None
+            and position.position_um < start - 10000.0
+        ):
             part_way.set()
 
     motion.add_position_listener(seen)

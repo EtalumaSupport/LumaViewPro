@@ -155,7 +155,7 @@ def _stop_mid_move(session):
     reached = threading.Event()
 
     def seen(axis, position):
-        if axis == 'X' and position.position is not None and position.position > part_way:
+        if axis == 'X' and position.position_um is not None and position.position_um > part_way:
             reached.set()
 
     motion.add_position_listener(seen)

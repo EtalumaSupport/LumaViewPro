@@ -49,7 +49,7 @@ def test_during_a_home_no_event_carries_a_position_the_axis_does_not_know(scope)
     assert homing, f'no event during the home said homing: {heard}'
     for axis, at in heard:
         assert isinstance(at, AxisPosition), (axis, at)
-        assert (at.position is None) == (at.state not in KNOWN), (axis, at)
+        assert (at.position_um is None) == (at.state not in KNOWN), (axis, at)
 
 
 def test_a_settled_move_reports_the_position_axis_positions_answers(scope):
@@ -61,7 +61,7 @@ def test_a_settled_move_reports_the_position_axis_positions_answers(scope):
     last_x = [at for axis, at in heard if axis == 'X'][-1]
     assert last_x == scope.motion.axis_positions()['X']
     assert last_x.state == AxisState.IDLE
-    assert last_x.position == pytest.approx(1500.0, abs=1.0)
+    assert last_x.position_um == pytest.approx(1500.0, abs=1.0)
 
 
 def test_a_poll_tells_its_listeners_once_every_moving_axis_is_read(scope):
@@ -84,7 +84,7 @@ def test_a_poll_tells_its_listeners_once_every_moving_axis_is_read(scope):
             return
         now = motion.axis_positions()
         if now['X'].state == now['Y'].state == AxisState.MOVING:
-            seen.append((axis, now['X'].position, now['Y'].position))
+            seen.append((axis, now['X'].position_um, now['Y'].position_um))
 
     motion.add_position_listener(listener)
     x = motion.start_move_xy(x_um=60000.0)

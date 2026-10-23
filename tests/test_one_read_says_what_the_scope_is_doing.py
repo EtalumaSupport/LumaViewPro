@@ -72,7 +72,7 @@ def test_a_home_in_progress_is_the_work_and_no_axis_has_a_position(sim_session):
     status = seen[0]
     assert [item.kind for item in status.live_work.work] == [live_work.HOME]
     assert {axis.state for axis in status.axes.values()} == {AxisState.HOMING}
-    assert all(axis.position is None for axis in status.axes.values())
+    assert all(axis.position_um is None for axis in status.axes.values())
 
 
 def test_a_stopped_camera_reads_not_streaming(sim_session):

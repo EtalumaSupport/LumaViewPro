@@ -120,6 +120,10 @@ class _FakeMotion:
             out[ax] = AxisPosition(state, pos if known else None)
         return out
 
+    def turret_status(self):
+        # A scope with no turret.
+        return None
+
 
 class _FakeIllumination:
     """Commanded LED state, the shape get_led_states() returns.

@@ -381,9 +381,7 @@ RETIRED_WORDS = RetiredNames(
 # A published name the rename that retires its word has not reached yet,
 # with the part that renames it. Each entry must still be a hit, so the
 # rename that lands deletes it here.
-NOT_YET_RENAMED = {
-    'AxisPosition.position field': 'W5a part E, position_um (Q-E1)',
-}
+NOT_YET_RENAMED: dict[str, str] = {}
 # A parameter whose absence would mean the walk lost its way.
 KNOWN_PARAMETER = 'ScopeSession.add_step parameter protocol'
 

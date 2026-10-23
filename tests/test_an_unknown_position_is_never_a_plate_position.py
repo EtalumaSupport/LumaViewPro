@@ -102,7 +102,7 @@ def test_after_a_home_new_takes_the_z_the_scope_read(make_session):
     session = make_session('LS850', acquiring=('BF',))
     _focus(session, 'BF', None)
     session.scope.motion.move_z(3000.0)
-    z = session.scope.motion.axis_positions()['Z'].position
+    z = session.scope.motion.axis_positions()['Z'].position_um
 
     protocol = session.new_protocol()
 

@@ -206,7 +206,7 @@ class TestALateWriteRecordsItsFrame:
 
         def _note_stage_z(writer, step):
             reported = writer._scope.motion.axis_positions()['Z']
-            stage_z_at_capture[step['Name']] = reported.position
+            stage_z_at_capture[step['Name']] = reported.position_um
 
         files = _run_with_every_write_held(
             tmp_path,
